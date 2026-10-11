@@ -603,5 +603,59 @@ TEST(DistillationLossTest, ValidatesArguments) {
         std::invalid_argument);
 }
 
+// ---- Whole-model quantization snapshot ---------------------------------------
+
+class QuantSnapshotModel : public torch::nn::Module {
+public:
+    QuantSnapshotModel()
+        : fc1(register_module("fc1", torch::nn::Linear(4, 8))),
+          fc2(register_module("fc2", torch::nn::Linear(8, 2))) {}
+
+    Tensor forward(const Tensor& x) {
+        return fc2->forward(torch::relu(fc1->forward(x)));
+    }
+
+    torch::nn::Linear fc1, fc2;
+};
+
+TEST(QuantSnapshotTest, QuantizesLinearModulesWithPaths) {
+    QuantSnapshotModel model;
+    const auto snapshot = nn::quantization::quantize_linear_weights(model);
+
+    ASSERT_EQ(snapshot.size(), 2); // fc1 and fc2 (2D weights)
+    EXPECT_EQ(snapshot[0].path, "fc1");
+    EXPECT_EQ(snapshot[1].path, "fc2");
+    EXPECT_TRUE(snapshot[0].bias.defined());
+    EXPECT_EQ(snapshot[0].weight.data.scalar_type(), torch::kInt8);
+}
+
+TEST(QuantSnapshotTest, SnapshotRoundTripsThroughArchive) {
+    QuantSnapshotModel model;
+    const auto snapshot = nn::quantization::quantize_linear_weights(model);
+    const auto reference_output = model.forward(torch::randn({3, 4}));
+
+    const auto dir = std::filesystem::temp_directory_path() / "jyppx_quant_test";
+    std::filesystem::create_directories(dir);
+    const auto path = (dir / "quant.pt").string();
+    nn::quantization::save_snapshot(snapshot, path);
+    const auto loaded = nn::quantization::load_snapshot(path);
+
+    ASSERT_EQ(loaded.size(), snapshot.size());
+    for (size_t i = 0; i < snapshot.size(); ++i) {
+        EXPECT_EQ(loaded[i].path, snapshot[i].path);
+        EXPECT_NEAR(loaded[i].weight.scale, snapshot[i].weight.scale, 1e-12);
+        EXPECT_TRUE(torch::equal(loaded[i].weight.data, snapshot[i].weight.data));
+        EXPECT_TRUE(torch::equal(loaded[i].bias, snapshot[i].bias));
+    }
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+TEST(QuantSnapshotTest, RejectsModuleWithoutLinearLayers) {
+    torch::nn::Module empty;
+    EXPECT_THROW(nn::quantization::quantize_linear_weights(empty),
+                 std::invalid_argument);
+}
+
 } // namespace
 

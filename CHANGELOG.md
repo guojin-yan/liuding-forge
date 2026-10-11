@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-11
+
+Plan-completion release: closes every remaining Phase 1–4 item from the
+project plan and lays the Phase 5 groundwork. 240 unit/integration tests
+pass in Release and Debug configurations.
+
 ### Added
 - **Plan-completion sweep** (closing every remaining Phase 1–4 item):
   - Callbacks: `LoggingCallback` (per-batch/epoch logging through the
@@ -220,14 +226,17 @@ pass in Release and Debug configurations.
   contained large import libraries.
 
 ### Verified
-- `ctest -C Release` and `ctest -C Debug`: 195/195 tests pass in both
+- `ctest -C Release` and `ctest -C Debug`: 240/240 tests pass in both
   configurations. The CUDA AMP integration test skips gracefully when
   `torch::cuda::is_available()` is false; on this workstation the installed
   driver (576.02, up to CUDA 12.9) cannot run the cu132 LibTorch binaries, so
   the GPU path is compile-checked and unit-covered but not yet exercised
   end-to-end.
-- `examples/basic_trainer` and `examples/basic_dataloader` run cleanly in both
-  Release and Debug configurations with identical results.
+- `examples/basic_trainer`, `examples/basic_dataloader`,
+  `examples/complete_training` (99.5% val accuracy),
+  `examples/mnist` (98.6% test accuracy on the real dataset) and
+  `examples/distillation` (teacher transfer into the label-scarce student)
+  run cleanly in both Release and Debug configurations.
 - The installed CMake package was exercised by an out-of-tree consumer via
   `find_package(jyppx_training_framework CONFIG REQUIRED)` (build, link, run).
 - DataLoader multi-worker scaling measured with the bundled benchmark:

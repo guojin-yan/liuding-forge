@@ -227,9 +227,12 @@ Tensor distillation_loss(const Tensor& student_logits,
     const auto teacher_probs = torch::softmax(softened, /*dim=*/1);
     const auto student_logp = torch::log_softmax(
         student_logits.to(torch::kFloat32) / temperature, /*dim=*/1);
+    // batchmean divides by the batch size only, matching the KL definition
+    // (and PyTorch's recommendation); the T^2 factor keeps gradient
+    // magnitudes comparable to the hard loss.
     auto loss = torch::nn::functional::kl_div(
         student_logp, teacher_probs,
-        torch::nn::functional::KLDivFuncOptions().reduction(torch::kMean)) *
+        torch::nn::functional::KLDivFuncOptions().reduction(torch::kBatchMean)) *
         (temperature * temperature);
     return apply_reduction(std::move(loss), reduction);
 }

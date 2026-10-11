@@ -2,10 +2,10 @@
 #define JYPPX_VERSION_HPP
 
 #define JYPPX_VERSION_MAJOR 0
-#define JYPPX_VERSION_MINOR 2
+#define JYPPX_VERSION_MINOR 3
 #define JYPPX_VERSION_PATCH 0
 
-#define JYPPX_VERSION "0.2.0"
+#define JYPPX_VERSION "0.3.0"
 
 namespace jyppx {
 
