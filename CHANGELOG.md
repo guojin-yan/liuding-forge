@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-11
+
+First feature-complete release of the training framework: data loading
+(single- and multi-threaded), optimizers and schedulers, the Trainer with
+callbacks and checkpointing, mixed precision, transforms, losses,
+initialization, documentation and benchmarks. 195 unit/integration tests
+pass in Release and Debug configurations.
+
 ### Added
 - **Loss functions** (`include/jyppx/nn/losses.hpp`): functional
   implementations in `jyppx::nn::functional` — `focal_loss` (multiclass
@@ -169,7 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contained large import libraries.
 
 ### Verified
-- `ctest -C Release` and `ctest -C Debug`: 93/93 tests pass in both
+- `ctest -C Release` and `ctest -C Debug`: 195/195 tests pass in both
   configurations. The CUDA AMP integration test skips gracefully when
   `torch::cuda::is_available()` is false; on this workstation the installed
   driver (576.02, up to CUDA 12.9) cannot run the cu132 LibTorch binaries, so
@@ -179,16 +187,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Release and Debug configurations with identical results.
 - The installed CMake package was exercised by an out-of-tree consumer via
   `find_package(jyppx_training_framework CONFIG REQUIRED)` (build, link, run).
-
-### Added
-- Initial project structure
-- Core module with types and utilities
-- Optimizer module (SGD, Adam, AdamW)
-- Learning rate schedulers (StepLR, ExponentialLR, CosineAnnealingLR)
-- Data module (Dataset, DataLoader, Samplers)
-- Training module (Trainer, Callbacks, Metrics)
-- Utilities (Logger)
-- Neural network utilities (Parameter initialization)
+- DataLoader multi-worker scaling measured with the bundled benchmark:
+  2 workers 2.0x, 4 workers 3.9x, 8 workers 7.1x over the single-threaded
+  loader on the development machine.
 
 ## [0.1.0] - 2025-10-10
 

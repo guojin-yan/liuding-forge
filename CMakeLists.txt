@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
-project(jyppx_training_framework VERSION 0.1.0 LANGUAGES CXX)
+project(jyppx_training_framework VERSION 0.2.0 LANGUAGES CXX)
 
 # ============================================
 # Project Options
