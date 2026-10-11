@@ -1,0 +1,128 @@
+# ============================================
+# 设计文档（不提交到代码仓库）
+# ============================================
+design/
+*.design.md
+
+# ============================================
+# Build directories
+# ============================================
+build*/
+
+cmake-build-*/
+out/
+
+# ============================================
+# IDE and Editor
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================
+# Compiled files
+# ============================================
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+
+# ============================================
+# CMake
+# ============================================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!cmake/*.cmake
+
+# ============================================
+# Testing
+# ============================================
+Testing/
+*.gcda
+*.gcno
+*.gcov
+coverage/
+coverage.info
+*.profdata
+*.profraw
+
+# ============================================
+# Python (for reference data generation)
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+venv/
+env/
+
+# ============================================
+# Generated documentation
+# ============================================
+docs/api/html/
+docs/api/latex/
+docs/api/xml/
+Doxygen.log
+
+# ============================================
+# Downloaded dependencies and bundled binaries
+# ============================================
+third_party/downloads/
+third_party/install/
+third_party/libtorch/
+*.tar.gz
+*.zip
+
+# ============================================
+# Logs and temporary files
+# ============================================
+*.log
+*.tmp
+*.bak
+*.swp
+
+# ============================================
+# Model files (examples - too large)
+# ============================================
+*.pt
+*.pth
+*.onnx
+checkpoints/
+saved_models/
+
+# Exceptions: Keep reference data for tests
+!tests/reference_data/*.pt
+
+# ============================================
+# Test data (except reference data)
+# ============================================
+tests/data/*
+!tests/data/.gitkeep
+!tests/reference_data/
+
+# ============================================
+# Benchmark results
+# ============================================
+benchmark_results/
+*.benchmark
+
+# ============================================
+# Profiling data
+# ============================================
+*.perf
+perf.data*
+*.prof

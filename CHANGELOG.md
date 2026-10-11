@@ -1,0 +1,197 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- **Loss functions** (`include/jyppx/nn/losses.hpp`): functional
+  implementations in `jyppx::nn::functional` — `focal_loss` (multiclass
+  cross-entropy path and binary sigmoid path, alpha weighting, gamma
+  focusing), `dice_loss` (soft Dice with one-hot multiclass and binary
+  paths, fully differentiable tensor ops), `label_smoothing_cross_entropy`
+  (verified equal to torch's `label_smoothing` option), `contrastive_loss`
+  (Euclidean pairs with margin hinge) and `triplet_margin_loss` (delegates
+  to ATen for exact parity). Criterion modules `nn::FocalLoss`, `nn::DiceLoss`,
+  `nn::LabelSmoothingCrossEntropy`, `nn::ContrastiveLoss`, `nn::TripletLoss`
+  wrap the functions for forward-style use. 20 tests cover hand-computed
+  values (1e-12), torch parity anchors, gradient flow, reduction semantics
+  and argument validation.
+- **Data transforms** (`jyppx::data::transforms`, header-only):
+  `Transform<I, O>` base + `TensorTransform` alias, `Compose` (ordered
+  chaining with descriptive `name()`), `RandomChoice`, and six vision
+  transforms — `Normalize` (per-channel, promotes integral inputs),
+  `Resize` (bilinear/nearest, square or `{h, w}`), `CenterCrop`,
+  `RandomCrop`, `RandomHorizontalFlip`, `RandomVerticalFlip`. Random
+  transforms draw from the global torch RNG (reproducible via
+  `torch::manual_seed`, safe under the multi-worker DataLoader). 15 tests
+  cover ordering, exact values, fan-free crop geometry, seeded
+  determinism, probability bounds and DataLoader integration.
+- **DataLoader benchmark** (`tests/benchmarks/bench_dataloader.cpp`, built
+  with `JYPPX_BUILD_BENCHMARKS=ON`): a self-contained harness (no Google
+  Benchmark dependency) measuring per-epoch loading time for 0/1/2/4/8
+  workers over a synthetic dataset whose `get()` burns a configurable
+  amount of CPU per sample (simulating decode/preprocessing cost), plus a
+  one-epoch training-throughput reference line. Measured on the
+  development machine (16 hardware threads, 2 ms/sample, 1024 samples):
+  2 workers 2.0x, 4 workers 3.9x, 8 workers 7.1x speedup over the
+  single-threaded loader — exceeding the plan's 2.5x/3.5x targets with
+  near-linear scaling.
+- **Documentation**: a docs tree (`docs/index.md`) with four API reference
+  pages (`data`, `optim`, `training`, `utils`) and five tutorials (basic
+  training, data loading, optimizers and schedulers, callbacks and
+  checkpoints, mixed precision). Every code snippet was extracted and
+  compile/run-checked, which fixed three reader-facing issues in the
+  process: the README example fed int64 targets to the default MSE loss and
+  used an invalid `make_shared<torch::nn::Linear>` construction, the
+  ReduceLROnPlateau snippet relied on braced-init-list forwarding that
+  `make_shared` does not support, and a TrainerOptions snippet used
+  out-of-order designated initializers (rejected by MSVC).
+- **`nn::init` parameter initialization** (all 9 functions declared in the
+  header are now implemented, delegating to `torch::nn::init` for exact
+  PyTorch semantics): `uniform_`, `normal_`, `constant_`, `zeros_`, `ones_`,
+  `xavier_uniform_`, `xavier_normal_`, `kaiming_uniform_`,
+  `kaiming_normal_` (string-based `mode` = "fan_in"/"fan_out"; leaky_relu
+  gain). 13 tests cover seeded RNG parity with `torch::nn::init`, fan-based
+  bounds/statistics for 2D and 4D weights, gain handling and argument
+  validation. Platform notes: torch 2.14 C++ requires dim >= 2 for
+  fan-based init (1D tensors are rejected, unlike Python) and the
+  `NonlinearityType`/`FanModeType` parameters are `std::variant` enums.
+- **Dataset utilities**:
+  - `data::Subset<T>`: index-restricted view over an existing dataset.
+  - `data::ConcatDataset<T>`: contiguous concatenation of same-typed
+    datasets with cumulative-size indexing.
+  - `data::random_split(dataset, lengths, seed)`: seeded train/validation
+    splitting (mirrors `torch.utils.data.random_split`), returning
+    heap-allocated subsets ready for DataLoader consumption.
+- **Optimizers** (all validated numerically against `torch::optim`):
+  - `optim::RMSprop` (alpha, eps, weight decay, momentum, centered).
+    NOTE: momentum follows the `torch::optim` C++ semantics — the buffer
+    accumulates the normalized gradient `grad / avg` and the step is
+    `-lr * buffer`; this differs from `torch.optim.rmsprop` in Python
+    (raw gradient in the buffer, divided by avg at update time) starting
+    from the second step.
+  - `optim::Adagrad` (lr_decay, weight_decay, per-parameter step counting).
+- **Schedulers**:
+  - `MultiStepLR`: decays by gamma at each milestone.
+  - `ReduceLROnPlateau`: metric-driven (`step(metric)`) with mode, factor,
+    patience, rel/abs threshold and min_lr; metric-less schedulers reject
+    `step(metric)` and vice versa.
+- **Metrics**:
+  - `TopKAccuracy` (top-k hit rate over {batch, classes} scores),
+    `MSE`, `MAE`, `R2Score` (exact whole-set coefficient of determination),
+    `AverageMeter` (weighted running average), `MetricCollection`
+    (named bundle with joint update/compute/reset).
+- **Multi-threaded DataLoader** (`num_workers > 0`):
+  - `jyppx::data::ThreadSafeQueue<T>`: bounded blocking queue for
+    producer/consumer pipelines (blocking `put`/`get`, non-blocking
+    `try_get`, close semantics that keep already-queued items retrievable).
+  - Worker pool inside `DataLoader`: workers pull index batches, load and
+    collate them, and push results through a sequence-tagged pipeline.
+    Results are returned in submission order (identical to single-threaded
+    loading), worker exceptions are rethrown on the consuming thread when
+    their sequence is reached, and prefetching bounds the number of
+    in-flight batches (`num_workers * prefetch_factor`).
+  - Workers restart per epoch so a partially consumed epoch never leaks
+    into the next one; the destructor drains in-flight work.
+  - `DataLoaderOptions::prefetch_factor` (default 2).
+  - Note: the seeded first-epoch shuffle no longer consumes an extra
+    generator draw at construction, so a seeded loader's first epoch now
+    matches its seed directly.
+  - 16 new tests: queue semantics (ordering, blocking, close, move-only
+    elements), multi-worker output equivalence, permutations, custom
+    collate, exception propagation, early-break reuse, 20-epoch stress,
+    and Trainer fit integration.
+- **AMP (mixed-precision training)**:
+  - `jyppx::training::amp::GradScaler` mirroring `torch.cuda.amp.GradScaler`
+    semantics: loss scaling, gradient unscaling with inf/NaN detection, step
+    skipping with scale backoff on overflow, scale growth after
+    `growth_interval` clean steps, and a serializable state dict.
+  - `jyppx::training::amp::AutocastGuard`, an RAII wrapper around the ATen
+    autocast thread-local state (device-type/dtype scoped, restores prior
+    state on destruction).
+  - `Trainer` integration: `use_amp = true` (CUDA only, validated at
+    construction) runs forward passes under autocast, scales the loss before
+    backward, unscales before gradient clipping, and routes optimizer steps
+    through the scaler (skipping steps that overflowed). Works together with
+    gradient accumulation and gradient clipping.
+- GoogleTest/CTest unit test infrastructure. `tests/CMakeLists.txt` fetches
+  GoogleTest 1.14.0 from the local `third_party/downloads` cache (network
+  fallback included) and registers 195 tests via `gtest_discover_tests`
+  (PRE_TEST discovery). Suites cover:
+  - `core`: device parsing, NaN/Inf helpers, tensor clone/device moves
+  - `utils`: Logger levels, file output, unwritable path handling
+  - `data`: TensorDataset, Sequential/Random/BatchSampler, DataLoader
+    (ordering, seeded shuffling, drop_last, custom collate, tensor batching)
+  - `optim`: SGD/Adam/AdamW validated numerically against `torch::optim`
+    (momentum, dampening, weight decay, Nesterov, AMSGrad), state_dict
+    round trips, gradient zeroing and learning-rate accessors, StepLR /
+    ExponentialLR / CosineAnnealingLR trajectories
+  - `training`: Trainer end-to-end (fit/validate/test, max_steps, gradient
+    accumulation equivalence, gradient clipping, checkpoint round trip and
+    resume), callback lifecycle ordering, EarlyStopping, ModelCheckpoint,
+    Accuracy
+- Shared test helpers in `tests/test_utils/jyppx_test_helpers.hpp`
+  (deterministic linear model/data, leaf-tensor clones, torch::optim parity
+  harness, callback event recorder).
+
+### Fixed
+- Adam / AdamW now match PyTorch's update exactly: eps is added to the
+  bias-corrected denominator (`sqrt(v) / sqrt(bias_correction2) + eps` with
+  `step_size = lr / bias_correction1`). The previous paper-style formula
+  (`sqrt(v) + eps` before bias correction) diverged from `torch::optim` by
+  ~1e-7 per step.
+- `Optimizer::state_dict()` serializes parameter-group options as float64.
+  `torch::tensor(double)` defaults to float32, which corrupted lr/momentum
+  values in checkpoint round trips.
+- Trainer: the delegating (concrete-module) constructor no longer throws before
+  it can install the type-erased forward function. The `forward_fn` check moved
+  from `validate_configuration()` to the `fit`/`validate`/`test` entry points,
+  so a Trainer built from a base `torch::nn::Module` plus `set_forward_fn()`
+  is now a valid workflow. Previously this surfaced as an uncaught
+  `std::invalid_argument` (Windows: silent crash `0xC0000409`).
+- MSVC Debug builds: use the release CRT (`/MD` via
+  `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL`) and
+  `_ITERATOR_DEBUG_LEVEL=0` in every configuration. LibTorch's official
+  Windows binaries are Release-built with `/MD`; mixing them with a Debug
+  runtime corrupted the heap across the DLL boundary (access violations,
+  `STATUS_HEAP_CORRUPTION`) and mismatched STL layouts (segfaults inside
+  `register_module`).
+- Fixed MSVC Debug/Release flag handling for multi-config generators: per-config
+  compiler flags in `cmake/CompilerOptions.cmake` now use generator expressions
+  instead of `CMAKE_BUILD_TYPE` checks (previously building the Debug config
+  failed with D8016 `/O2` vs `/RTC1`).
+- Examples: the LibTorch POST_BUILD copy now copies only `*.dll`
+  (`copy_if_different`) instead of the whole `lib` directory, which also
+  contained large import libraries.
+
+### Verified
+- `ctest -C Release` and `ctest -C Debug`: 93/93 tests pass in both
+  configurations. The CUDA AMP integration test skips gracefully when
+  `torch::cuda::is_available()` is false; on this workstation the installed
+  driver (576.02, up to CUDA 12.9) cannot run the cu132 LibTorch binaries, so
+  the GPU path is compile-checked and unit-covered but not yet exercised
+  end-to-end.
+- `examples/basic_trainer` and `examples/basic_dataloader` run cleanly in both
+  Release and Debug configurations with identical results.
+- The installed CMake package was exercised by an out-of-tree consumer via
+  `find_package(jyppx_training_framework CONFIG REQUIRED)` (build, link, run).
+
+### Added
+- Initial project structure
+- Core module with types and utilities
+- Optimizer module (SGD, Adam, AdamW)
+- Learning rate schedulers (StepLR, ExponentialLR, CosineAnnealingLR)
+- Data module (Dataset, DataLoader, Samplers)
+- Training module (Trainer, Callbacks, Metrics)
+- Utilities (Logger)
+- Neural network utilities (Parameter initialization)
+
+## [0.1.0] - 2025-10-10
+
+### Added
+- Project initialization
+- Basic architecture and build system
