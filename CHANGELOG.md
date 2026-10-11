@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Plan-completion sweep** (closing every remaining Phase 1–4 item):
+  - Callbacks: `LoggingCallback` (per-batch/epoch logging through the
+    framework logger with optional log file), `LRMonitor` (per-epoch learning
+    rate log), `TensorBoardCallback` (batch loss, epoch losses, learning
+    rates). `on_train_batch_end` now receives the batch loss.
+  - `utils::ProgressBar` (single-line console bar with description/postfix)
+    and `utils::ProfilerReport`/`ScopedTimer` (named-scope wall-clock
+    aggregation).
+  - Metrics: `Precision`, `Recall`, `F1Score` (macro-averaged over the
+    accumulated confusion matrix, lazily growing class count).
+  - Samplers: `WeightedRandomSampler` (with/without replacement),
+    `SubsetRandomSampler`, `DistributedSampler` (epoch-based shuffling,
+    even padding, drop_last). Datasets: `ChainDataset`, `StackDataset`
+    (variadic tuple zipping).
+  - Transforms: `Pad`, `RandomRotation`, `RandomAffine` (grid_sample-based
+    rotate/scale/translate), `Grayscale`/`RandomGrayscale` (ITU-R 601-2
+    luma), `ColorJitter` (brightness/contrast/saturation/hue in random
+    order).
+  - Optimizers: `NAdam` (Nesterov momentum with the official mu schedule;
+    `momentum_decay > 0` not supported) and `Lamb` (trust-ratio update with
+    the reference weight-norm clamp).
+  - TensorBoard: `utils::TensorBoardWriter` writes real event files
+    (TFRecord framing with masked CRC32C, hand-encoded Event/Summary
+    protobuf messages; scalars + text).
+  - Model analysis: `utils::calculate_model_stats`/`model_summary`
+    (Keras-style table) — plus a torch 2.14 API note: `named_children()`
+    returns by value and must be kept alive while iterating `items()`.
+  - Phase 5 groundwork: `jyppx::distributed` single-process process group
+    (init/rank/world_size/barrier + `average_gradients`), a hook-based
+    `DistributedDataParallel<ModuleT>` wrapper (no-op with world_size 1;
+    cross-process all-reduce requires a c10d backend build),
+    `functional::distillation_loss` (temperature-scaled KL), and
+    `nn::quantization` weight-only int8 helpers (`quantize_symmetric`,
+    `dequantize`, `QuantizedLinear`).
+- **Examples**: `examples/mnist/mnist.cpp` — the plan's MNIST acceptance
+  example with a self-contained gzip (RFC 1952) decoder and IDX reader
+  (auto-download), CNN training through the Trainer with a 2-worker loader
+  and TensorBoard logging (reaches 98.6% test accuracy in 3 epochs), and
+  `examples/complete_training.cpp` — the full-featured flow (random split,
+  AdamW + cosine schedule, all callbacks, metrics, checkpoint best-model
+  restore; 99.5% validation accuracy).
+
 ## [0.2.0] - 2026-10-11
 
 First feature-complete release of the training framework: data loading
@@ -128,7 +171,7 @@ pass in Release and Debug configurations.
     gradient accumulation and gradient clipping.
 - GoogleTest/CTest unit test infrastructure. `tests/CMakeLists.txt` fetches
   GoogleTest 1.14.0 from the local `third_party/downloads` cache (network
-  fallback included) and registers 195 tests via `gtest_discover_tests`
+  fallback included) and registers 240 tests via `gtest_discover_tests`
   (PRE_TEST discovery). Suites cover:
   - `core`: device parsing, NaN/Inf helpers, tensor clone/device moves
   - `utils`: Logger levels, file output, unwritable path handling

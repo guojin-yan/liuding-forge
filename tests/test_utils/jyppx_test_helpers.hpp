@@ -87,7 +87,7 @@ public:
     void on_train_batch_start(jyppx::training::Trainer* trainer, int batch_idx) override {
         events_.emplace_back("train_batch_start:" + std::to_string(batch_idx));
     }
-    void on_train_batch_end(jyppx::training::Trainer* trainer, int batch_idx) override {
+    void on_train_batch_end(jyppx::training::Trainer* trainer, int batch_idx, double loss) override {
         events_.emplace_back("train_batch_end:" + std::to_string(batch_idx));
     }
     void on_validation_batch_start(jyppx::training::Trainer* trainer, int batch_idx) override {

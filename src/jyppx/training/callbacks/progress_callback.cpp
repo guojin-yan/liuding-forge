@@ -13,7 +13,7 @@ void ProgressCallback::on_epoch_start(Trainer* trainer) {
     }
 }
 
-void ProgressCallback::on_train_batch_end(Trainer*, int) {}
+void ProgressCallback::on_train_batch_end(Trainer*, int, double) {}
 
 void ProgressCallback::on_epoch_end(Trainer* trainer) {
     if (!trainer) {

@@ -16,7 +16,7 @@ public:
 
     void on_epoch_start(Trainer* trainer) override;
     void on_epoch_end(Trainer* trainer) override;
-    void on_train_batch_end(Trainer* trainer, int batch_idx) override;
+    void on_train_batch_end(Trainer* trainer, int batch_idx, double loss) override;
 };
 
 } // namespace callbacks

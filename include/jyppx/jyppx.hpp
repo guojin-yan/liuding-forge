@@ -23,6 +23,8 @@
 #include <jyppx/optim/adamw.hpp>
 #include <jyppx/optim/rmsprop.hpp>
 #include <jyppx/optim/adagrad.hpp>
+#include <jyppx/optim/nadam.hpp>
+#include <jyppx/optim/lamb.hpp>
 
 // Learning Rate Schedulers
 #include <jyppx/optim/schedulers/lr_scheduler.hpp>
@@ -39,6 +41,8 @@
 #include <jyppx/data/thread_safe_queue.hpp>
 #include <jyppx/data/subset.hpp>
 #include <jyppx/data/concat_dataset.hpp>
+#include <jyppx/data/chain_dataset.hpp>
+#include <jyppx/data/stack_dataset.hpp>
 
 // Transforms
 #include <jyppx/data/transforms/transform.hpp>
@@ -50,6 +54,7 @@
 #include <jyppx/data/samplers/sequential_sampler.hpp>
 #include <jyppx/data/samplers/random_sampler.hpp>
 #include <jyppx/data/samplers/batch_sampler.hpp>
+#include <jyppx/data/samplers/weighted_random_sampler.hpp>
 
 // Training
 #include <jyppx/training/trainer.hpp>
@@ -64,20 +69,32 @@
 #include <jyppx/training/callbacks/early_stopping.hpp>
 #include <jyppx/training/callbacks/lr_scheduler_callback.hpp>
 #include <jyppx/training/callbacks/progress_callback.hpp>
+#include <jyppx/training/callbacks/logging_callback.hpp>
+#include <jyppx/training/callbacks/tensorboard_callback.hpp>
 
 // Metrics
 #include <jyppx/training/metric.hpp>
 #include <jyppx/training/metrics/accuracy.hpp>
 #include <jyppx/training/metrics/topk_accuracy.hpp>
+#include <jyppx/training/metrics/classification.hpp>
 #include <jyppx/training/metrics/regression.hpp>
 #include <jyppx/training/metrics/average_meter.hpp>
 #include <jyppx/training/metrics/metric_collection.hpp>
 
 // Utils
 #include <jyppx/utils/logger.hpp>
+#include <jyppx/utils/progress_bar.hpp>
+#include <jyppx/utils/tensorboard.hpp>
+#include <jyppx/utils/model_summary.hpp>
+#include <jyppx/utils/profiler.hpp>
+
+// Distributed (Phase 5)
+#include <jyppx/distributed/distributed.hpp>
+#include <jyppx/distributed/ddp.hpp>
 
 // NN
 #include <jyppx/nn/init.hpp>
 #include <jyppx/nn/losses.hpp>
+#include <jyppx/nn/quantization.hpp>
 
 #endif // JYPPX_JYPPX_HPP

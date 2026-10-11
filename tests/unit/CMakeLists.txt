@@ -31,6 +31,10 @@ jyppx_add_gtest(jyppx_test_nn
     nn/test_losses.cpp
 )
 
+jyppx_add_gtest(jyppx_test_plan
+    test_plan_completion.cpp
+)
+
 jyppx_add_gtest(jyppx_test_training
     training/test_accuracy.cpp
     training/test_amp.cpp

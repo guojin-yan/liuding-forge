@@ -85,6 +85,21 @@ Tensor triplet_margin_loss(const Tensor& anchor, const Tensor& positive,
                            const Tensor& negative, double margin = 1.0,
                            const std::string& reduction = "mean");
 
+/**
+ * @brief Knowledge-distillation loss (Hinton et al., 2015)
+ *
+ * KL divergence between the teacher's and student's softened class
+ * distributions, scaled by T^2 so gradient magnitudes match the hard loss:
+ *   T^2 * KL(softmax(teacher / T) || log_softmax(student / T))
+ *
+ * @param student_logits {N, C} student logits (gradients flow here)
+ * @param teacher_logits {N, C} teacher logits (detached internally)
+ * @param temperature softening temperature (> 0)
+ */
+Tensor distillation_loss(const Tensor& student_logits,
+                         const Tensor& teacher_logits, double temperature = 2.0,
+                         const std::string& reduction = "mean");
+
 } // namespace functional
 
 /**

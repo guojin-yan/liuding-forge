@@ -208,6 +208,32 @@ Tensor triplet_margin_loss(const Tensor& anchor, const Tensor& positive,
             .reduction(parse_reduction(reduction)));
 }
 
+Tensor distillation_loss(const Tensor& student_logits,
+                         const Tensor& teacher_logits, double temperature,
+                         const std::string& reduction) {
+    if (temperature <= 0.0) {
+        throw std::invalid_argument("distillation_loss temperature must be positive");
+    }
+    if (!student_logits.defined() || !teacher_logits.defined()) {
+        throw std::invalid_argument("distillation_loss inputs must be defined");
+    }
+    if (student_logits.sizes() != teacher_logits.sizes()) {
+        throw std::invalid_argument(
+            "distillation_loss student and teacher logits must have the same shape");
+    }
+
+    const auto softened =
+        teacher_logits.detach().to(torch::kFloat32) / temperature;
+    const auto teacher_probs = torch::softmax(softened, /*dim=*/1);
+    const auto student_logp = torch::log_softmax(
+        student_logits.to(torch::kFloat32) / temperature, /*dim=*/1);
+    auto loss = torch::nn::functional::kl_div(
+        student_logp, teacher_probs,
+        torch::nn::functional::KLDivFuncOptions().reduction(torch::kMean)) *
+        (temperature * temperature);
+    return apply_reduction(std::move(loss), reduction);
+}
+
 } // namespace functional
 
 FocalLoss::FocalLoss(double alpha, double gamma, std::string reduction)

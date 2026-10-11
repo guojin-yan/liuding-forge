@@ -238,7 +238,8 @@ void Trainer::fit(data::DataLoader<T>& train_loader, data::DataLoader<T>* val_lo
                 throw std::invalid_argument("Trainer loss function must return one scalar tensor");
             }
             const auto batch_size = batch.batch_size();
-            weighted_loss += loss.detach().item<double>() * static_cast<double>(batch_size);
+            const double batch_loss = loss.detach().item<double>();
+            weighted_loss += batch_loss * static_cast<double>(batch_size);
             sample_count += batch_size;
 
             const Tensor backward_loss = options_.use_amp
@@ -279,7 +280,7 @@ void Trainer::fit(data::DataLoader<T>& train_loader, data::DataLoader<T>* val_lo
 
             for (const auto& callback : options_.callbacks) {
                 if (callback) {
-                    callback->on_train_batch_end(this, batch_index);
+                    callback->on_train_batch_end(this, batch_index, batch_loss);
                 }
             }
             ++batch_index;

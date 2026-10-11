@@ -208,6 +208,11 @@ auto transformed = pipeline(image);   // {C, H, W} float tensor
 | `CenterCrop(size)` | central `{h, w}` region |
 | `RandomCrop(size)` | random `{h, w}` region |
 | `RandomHorizontalFlip(p)` / `RandomVerticalFlip(p)` | flip with probability `p` |
+| `Pad(padding, fill)` | zero/custom-value padding; `{n}` all sides or `{l, r, t, b}` |
+| `RandomRotation(degrees)` | random-angle rotation about the center (bilinear, zero fill) |
+| `RandomAffine(degrees, translate, scale)` | combined rotate/scale/translate |
+| `Grayscale(channels)` / `RandomGrayscale(p)` | ITU-R 601-2 luma conversion |
+| `ColorJitter(brightness, contrast, saturation, hue)` | random color adjustments in random order |
 | `Compose(transforms)` | apply in order; `name()` lists the chain |
 | `RandomChoice(transforms)` | one transform per call, drawn from the global RNG |
 
@@ -230,11 +235,21 @@ public:
 class SequentialSampler : public Sampler;                       // 0..n-1
 class RandomSampler : public Sampler;                           // seeded permutation
 class BatchSampler : public Sampler;                            // flattens + counts batches
+class WeightedRandomSampler : public Sampler;                   // weights, replacement opt.
+class SubsetRandomSampler : public Sampler;                     // permuted index subset
+class DistributedSampler : public Sampler;                      // rank/world_size sharding
 ```
 
 `RandomSampler(size, seed)` produces a fresh permutation each call
 (deterministic across loaders when a seed is given). `BatchSampler(base,
 batch_size, drop_last)` reports the number of batches via `size()`.
+
+`WeightedRandomSampler(weights, num_samples, replacement, seed)` draws
+indices with probability proportional to `weights`. `DistributedSampler(size,
+rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks
+(padding to even counts unless `drop_last`); call `set_epoch()` once per
+epoch to reshuffle, and wire `distributed::get_rank()`/`get_world_size()`
+from the process group (single-process reference: rank 0, world size 1).
 
 Pass a custom sampler to the fourth DataLoader constructor for index
 strategies the built-ins do not cover (e.g. weighted sampling).

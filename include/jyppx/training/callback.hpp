@@ -32,7 +32,7 @@ public:
     virtual void on_validation_epoch_end(Trainer* trainer) {}
 
     virtual void on_train_batch_start(Trainer* trainer, int batch_idx) {}
-    virtual void on_train_batch_end(Trainer* trainer, int batch_idx) {}
+    virtual void on_train_batch_end(Trainer* trainer, int batch_idx, double loss) {}
 
     virtual void on_validation_batch_start(Trainer* trainer, int batch_idx) {}
     virtual void on_validation_batch_end(Trainer* trainer, int batch_idx) {}

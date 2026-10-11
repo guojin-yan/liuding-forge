@@ -4,6 +4,12 @@ target_link_libraries(jyppx_basic_dataloader PRIVATE jyppx_training_framework)
 add_executable(jyppx_basic_trainer basic_trainer.cpp)
 target_link_libraries(jyppx_basic_trainer PRIVATE jyppx_training_framework)
 
+add_executable(jyppx_complete_training complete_training.cpp)
+target_link_libraries(jyppx_complete_training PRIVATE jyppx_training_framework)
+
+add_executable(jyppx_mnist mnist/mnist.cpp)
+target_link_libraries(jyppx_mnist PRIVATE jyppx_training_framework)
+
 # LibTorch's Windows distribution keeps runtime DLLs beside its import
 # libraries. Copy the DLLs (not the whole directory, which also holds large
 # import libraries) next to the examples so a freshly built example can be

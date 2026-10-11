@@ -139,7 +139,7 @@ public:
     virtual void on_validation_epoch_start(Trainer*) {}
     virtual void on_validation_epoch_end(Trainer*) {}
     virtual void on_train_batch_start(Trainer*, int batch_idx) {}
-    virtual void on_train_batch_end(Trainer*, int batch_idx) {}
+    virtual void on_train_batch_end(Trainer*, int batch_idx, double loss) {}
     virtual void on_validation_batch_start(Trainer*, int batch_idx) {}
     virtual void on_validation_batch_end(Trainer*, int batch_idx) {}
 };
@@ -148,6 +148,11 @@ public:
 Built-in callbacks:
 
 - `ProgressCallback()` — per-epoch progress lines.
+- `LoggingCallback(log_every_n_steps = 50, log_file = "")` — batch/epoch
+  logging through the framework logger (optionally into a log file).
+- `LRMonitor()` — logs the learning rate at each epoch start.
+- `TensorBoardCallback(log_dir, log_every_n_steps = 50)` — writes real
+  TensorBoard event files (batch loss, epoch losses, learning rates).
 - `EarlyStopping(monitor = "val_loss", patience = 10, min_delta = 0.0,
   mode = "min")` — requests a stop after `patience` non-improving epochs;
   monitors `"val_loss"` or `"train_loss"`. Exposes `should_stop()`/`reset()`.
@@ -181,6 +186,7 @@ Built-ins:
 |--------|-------------|-------|
 | `Accuracy` | 1D scores (binarized `> 0`) or 2D logits (argmax) | running mean |
 | `TopKAccuracy(k)` | `{batch, classes}` scores + class indices | target in top-k |
+| `Precision` / `Recall` / `F1Score` | same as Accuracy | macro-averaged over the accumulated confusion matrix |
 | `MSE` / `MAE` | any matching shapes | accumulated over all elements |
 | `R2Score` | any matching shapes | exact whole-set R² |
 | `AverageMeter` | scalar / tensor mean | weighted running average |
