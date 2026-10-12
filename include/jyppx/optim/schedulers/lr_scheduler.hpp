@@ -2,8 +2,10 @@
 #define JYPPX_OPTIM_SCHEDULERS_LR_SCHEDULER_HPP
 
 #include <jyppx/optim/optimizer.hpp>
+#include <map>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace jyppx {
@@ -40,6 +42,9 @@ public:
             "This scheduler does not consume a metric; call step()");
     }
 
+    /** @brief Whether this scheduler must be stepped with a monitored metric. */
+    virtual bool requires_metric() const { return false; }
+
     /**
      * @brief Get current learning rate
      */
@@ -52,6 +57,12 @@ public:
      * @brief Get current epoch/step count
      */
     int64_t get_step() const { return step_count_; }
+
+    /** @brief Serializable scheduler state (step count and current LRs). */
+    virtual std::map<std::string, double> state_dict() const;
+
+    /** @brief Restore scheduler state into an already configured scheduler. */
+    virtual void load_state_dict(const std::map<std::string, double>& state);
 
 protected:
     std::shared_ptr<Optimizer> optimizer_;

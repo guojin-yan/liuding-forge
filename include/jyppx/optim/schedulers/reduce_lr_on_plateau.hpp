@@ -39,6 +39,12 @@ public:
 
     void step(double metric) override;
 
+    bool requires_metric() const override { return true; }
+
+    std::map<std::string, double> state_dict() const override;
+
+    void load_state_dict(const std::map<std::string, double>& state) override;
+
     /** @brief Best metric value observed so far. */
     double best() const { return best_; }
 

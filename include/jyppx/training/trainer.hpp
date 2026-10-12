@@ -108,10 +108,16 @@ public:
     /** @brief Ask the fit loop to stop after the current epoch. */
     void request_stop() { should_stop_ = true; }
 
-    /** @brief Save model, optimizer and loop counters to a LibTorch archive. */
+    /**
+     * @brief Save model, optimizer, scheduler/scaler state and loop counters
+     *        to a LibTorch archive.
+     */
     void save_checkpoint(const std::string& path) const;
 
-    /** @brief Restore model, optimizer and loop counters from an archive. */
+    /**
+     * @brief Restore model, optimizer, scheduler/scaler state and loop
+     *        counters from an archive.
+     */
     void load_checkpoint(const std::string& path);
 
     /** @brief Current model and optimizer, exposed for callbacks. */
@@ -306,7 +312,15 @@ void Trainer::fit(data::DataLoader<T>& train_loader, data::DataLoader<T>* val_lo
         }
 
         if (scheduler_) {
-            scheduler_->step();
+            if (scheduler_->requires_metric()) {
+                if (!has_validation_loss_) {
+                    throw std::invalid_argument(
+                        "Metric-driven scheduler requires a validation loader");
+                }
+                scheduler_->step(last_val_loss_);
+            } else {
+                scheduler_->step();
+            }
         }
         next_epoch_ = current_epoch_ + 1;
         for (const auto& callback : options_.callbacks) {

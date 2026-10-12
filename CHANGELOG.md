@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Learning-rate scheduler state serialization via `state_dict()` and
+  `load_state_dict()`, including step counters and all optimizer-group rates.
+- `ReduceLROnPlateau` checkpoint state for the best metric and consecutive
+  bad-epoch counter.
+
+### Changed
+- `Trainer` now steps metric-driven schedulers with the validation loss and
+  rejects them when no validation loader is configured.
+- Trainer checkpoints now preserve scheduler state, AMP `GradScaler` state,
+  and the last train/validation loss values used by callbacks.
+- `LRSchedulerCallback` follows the same metric-aware stepping rules as the
+  Trainer loop.
+- Release test coverage increased to 249 passing tests.
+
 ## [0.3.0] - 2026-10-11
 
 Plan-completion release: closes every remaining Phase 1–4 item from the

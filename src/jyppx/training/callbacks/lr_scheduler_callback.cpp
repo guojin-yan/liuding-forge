@@ -19,7 +19,15 @@ void LRSchedulerCallback::on_epoch_end(Trainer* trainer) {
     if (trainer && trainer->scheduler() == scheduler_) {
         return;
     }
-    scheduler_->step();
+    if (scheduler_->requires_metric()) {
+        if (!trainer || !trainer->has_validation_loss()) {
+            throw std::invalid_argument(
+                "Metric-driven scheduler callback requires a validation loss");
+        }
+        scheduler_->step(trainer->last_val_loss());
+    } else {
+        scheduler_->step();
+    }
 }
 
 } // namespace callbacks

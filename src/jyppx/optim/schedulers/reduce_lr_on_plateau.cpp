@@ -1,6 +1,7 @@
 #include <jyppx/optim/schedulers/reduce_lr_on_plateau.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 namespace jyppx {
@@ -57,6 +58,7 @@ bool ReduceLROnPlateau::is_better(double current) const {
 }
 
 void ReduceLROnPlateau::step(double metric) {
+    ++step_count_;
     if (is_better(metric)) {
         best_ = metric;
         num_bad_epochs_ = 0;
@@ -73,6 +75,34 @@ void ReduceLROnPlateau::step(double metric) {
         }
         set_last_lrs(decayed);
         num_bad_epochs_ = 0;
+    }
+}
+
+std::map<std::string, double> ReduceLROnPlateau::state_dict() const {
+    auto state = LRScheduler::state_dict();
+    state["best"] = best_;
+    state["num_bad_epochs"] = static_cast<double>(num_bad_epochs_);
+    return state;
+}
+
+void ReduceLROnPlateau::load_state_dict(const std::map<std::string, double>& state) {
+    LRScheduler::load_state_dict(state);
+
+    const auto best_it = state.find("best");
+    if (best_it != state.end()) {
+        if (std::isnan(best_it->second)) {
+            throw std::invalid_argument("ReduceLROnPlateau best metric cannot be NaN");
+        }
+        best_ = best_it->second;
+    }
+    const auto bad_it = state.find("num_bad_epochs");
+    if (bad_it != state.end()) {
+        if (!std::isfinite(bad_it->second) || bad_it->second < 0.0 ||
+            std::floor(bad_it->second) != bad_it->second) {
+            throw std::invalid_argument(
+                "ReduceLROnPlateau num_bad_epochs must be a non-negative integer");
+        }
+        num_bad_epochs_ = static_cast<int>(bad_it->second);
     }
 }
 

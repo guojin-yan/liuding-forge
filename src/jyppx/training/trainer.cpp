@@ -6,11 +6,37 @@
 #include <torch/serialize.h>
 
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <utility>
 
 namespace jyppx {
 namespace training {
+
+namespace {
+
+void write_scalar_state(
+    torch::serialize::OutputArchive& archive,
+    const std::map<std::string, double>& state) {
+    for (const auto& [name, value] : state) {
+        archive.write(
+            name,
+            torch::tensor(value, torch::TensorOptions().dtype(torch::kFloat64)));
+    }
+}
+
+std::map<std::string, double> read_scalar_state(torch::serialize::InputArchive& archive) {
+    std::map<std::string, double> state;
+    for (const auto& key : archive.keys()) {
+        torch::Tensor value;
+        if (archive.try_read(key, value) && value.defined() && value.numel() == 1) {
+            state.emplace(key, value.item<double>());
+        }
+    }
+    return state;
+}
+
+} // namespace
 
 Trainer::Trainer(
     std::shared_ptr<torch::nn::Module> model,
@@ -172,9 +198,24 @@ void Trainer::save_checkpoint(const std::string& path) const {
     }
     archive.write("optimizer", optimizer_archive);
 
+    if (scheduler_) {
+        torch::serialize::OutputArchive scheduler_archive(archive.compilation_unit());
+        write_scalar_state(scheduler_archive, scheduler_->state_dict());
+        archive.write("scheduler", scheduler_archive);
+    }
+
+    if (grad_scaler_) {
+        torch::serialize::OutputArchive scaler_archive(archive.compilation_unit());
+        write_scalar_state(scaler_archive, grad_scaler_->state_dict());
+        archive.write("grad_scaler", scaler_archive);
+    }
+
     archive.write("trainer/global_step", torch::IValue(global_step_));
     archive.write("trainer/current_epoch", torch::IValue(static_cast<int64_t>(current_epoch_)));
     archive.write("trainer/next_epoch", torch::IValue(static_cast<int64_t>(next_epoch_)));
+    archive.write("trainer/last_train_loss", torch::IValue(last_train_loss_));
+    archive.write("trainer/last_val_loss", torch::IValue(last_val_loss_));
+    archive.write("trainer/has_validation_loss", torch::IValue(has_validation_loss_));
     archive.save_to(path);
 }
 
@@ -203,6 +244,16 @@ void Trainer::load_checkpoint(const std::string& path) {
         optimizer_->load_state_dict(state);
     }
 
+    torch::serialize::InputArchive scheduler_archive;
+    if (scheduler_ && archive.try_read("scheduler", scheduler_archive)) {
+        scheduler_->load_state_dict(read_scalar_state(scheduler_archive));
+    }
+
+    torch::serialize::InputArchive scaler_archive;
+    if (grad_scaler_ && archive.try_read("grad_scaler", scaler_archive)) {
+        grad_scaler_->load_state_dict(read_scalar_state(scaler_archive));
+    }
+
     torch::IValue value;
     if (archive.try_read("trainer/global_step", value) && value.isInt()) {
         global_step_ = value.toInt();
@@ -216,6 +267,15 @@ void Trainer::load_checkpoint(const std::string& path) {
         // Older checkpoints stored the active epoch, before next_epoch was
         // recorded explicitly.
         next_epoch_ = current_epoch_ + 1;
+    }
+    if (archive.try_read("trainer/last_train_loss", value) && value.isDouble()) {
+        last_train_loss_ = value.toDouble();
+    }
+    if (archive.try_read("trainer/last_val_loss", value) && value.isDouble()) {
+        last_val_loss_ = value.toDouble();
+    }
+    if (archive.try_read("trainer/has_validation_loss", value) && value.isBool()) {
+        has_validation_loss_ = value.toBool();
     }
 }
 

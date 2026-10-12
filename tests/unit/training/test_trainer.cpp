@@ -2,6 +2,8 @@
 // gradient accumulation, checkpointing and option validation.
 
 #include <jyppx/training/trainer.hpp>
+#include <jyppx/optim/schedulers/reduce_lr_on_plateau.hpp>
+#include <jyppx/optim/schedulers/step_lr.hpp>
 
 #include "test_utils/jyppx_test_helpers.hpp"
 
@@ -148,6 +150,54 @@ TEST(TrainerTest, CheckpointRoundTripPreservesWeightsAndCounters) {
     EXPECT_EQ(restored.trainer->global_step(), steps_before + 8);
     EXPECT_EQ(restored.trainer->current_epoch(), resume_epoch + 2);
 
+    std::filesystem::remove(checkpoint_path);
+}
+
+TEST(TrainerTest, MetricDrivenSchedulerConsumesValidationLoss) {
+    auto fx = TrainerFixture::create(/*max_epochs=*/2);
+    auto scheduler = std::make_shared<optim::schedulers::ReduceLROnPlateau>(
+        fx.optimizer,
+        optim::schedulers::ReduceLROnPlateauOptions{
+            .mode = "min", .factor = 0.5, .patience = 0, .threshold = 0.0});
+    fx.trainer->set_scheduler(scheduler);
+
+    EXPECT_NO_THROW(fx.trainer->fit(*fx.train_loader, fx.val_loader.get()));
+    EXPECT_EQ(scheduler->get_step(), 2);
+    EXPECT_TRUE(fx.trainer->has_validation_loss());
+}
+
+TEST(TrainerTest, MetricDrivenSchedulerRejectsMissingValidationLoader) {
+    auto fx = TrainerFixture::create(/*max_epochs=*/2);
+    auto scheduler = std::make_shared<optim::schedulers::ReduceLROnPlateau>(
+        fx.optimizer,
+        optim::schedulers::ReduceLROnPlateauOptions{.patience = 0});
+    fx.trainer->set_scheduler(scheduler);
+
+    EXPECT_THROW(fx.trainer->fit(*fx.train_loader), std::invalid_argument);
+}
+
+TEST(TrainerTest, CheckpointRestoresSchedulerState) {
+    auto source = TrainerFixture::create(/*max_epochs=*/1);
+    auto source_scheduler = std::make_shared<optim::schedulers::StepLR>(
+        source.optimizer, /*step_size=*/1, /*gamma=*/0.5);
+    source.trainer->set_scheduler(source_scheduler);
+    source.trainer->fit(*source.train_loader);
+    ASSERT_EQ(source_scheduler->get_step(), 1);
+
+    const auto checkpoint_path =
+        (std::filesystem::temp_directory_path() / "jyppx_trainer_scheduler.pt").string();
+    source.trainer->save_checkpoint(checkpoint_path);
+
+    auto restored = TrainerFixture::create(/*max_epochs=*/2);
+    auto restored_scheduler = std::make_shared<optim::schedulers::StepLR>(
+        restored.optimizer, /*step_size=*/1, /*gamma=*/0.5);
+    restored.trainer->set_scheduler(restored_scheduler);
+    restored.trainer->load_checkpoint(checkpoint_path);
+
+    EXPECT_EQ(restored_scheduler->get_step(), source_scheduler->get_step());
+    EXPECT_DOUBLE_EQ(restored_scheduler->get_last_lr(), source_scheduler->get_last_lr());
+    EXPECT_DOUBLE_EQ(
+        restored.optimizer->get_lrs().front(), source.optimizer->get_lrs().front());
     std::filesystem::remove(checkpoint_path);
 }
 

@@ -79,9 +79,12 @@ public:
     explicit LRScheduler(std::shared_ptr<Optimizer> optimizer);  // captures base lrs
     virtual void step() = 0;             // epoch-driven schedulers
     virtual void step(double metric);    // metric-driven (ReduceLROnPlateau)
+    virtual bool requires_metric() const;
     double get_last_lr() const;          // first parameter group
     const std::vector<double>& get_last_lrs() const;
     int64_t get_step() const;
+    std::map<std::string, double> state_dict() const;
+    void load_state_dict(const std::map<std::string, double>& state);
 };
 ```
 
@@ -127,3 +130,6 @@ plateau->step(val_loss);
 ```
 
 `ReduceLROnPlateau` also exposes `best()` and `num_bad_epochs()`.
+All schedulers can serialize their step counter and current per-group rates;
+`ReduceLROnPlateau` additionally stores its best metric and bad-epoch counter.
+Loading a scheduler state also restores the optimizer's learning rates.

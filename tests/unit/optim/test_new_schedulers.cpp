@@ -117,6 +117,44 @@ TEST_F(NewSchedulersTest, EpochSchedulersRejectMetricStep) {
     EXPECT_THROW(step_scheduler.step(0.5), std::logic_error);
 }
 
+TEST_F(NewSchedulersTest, SchedulerStateRoundTripsCurrentLearningRate) {
+    optim::schedulers::StepLR source(optimizer_, 2, 0.1);
+    source.step();
+    source.step();
+    ASSERT_EQ(source.get_step(), 2);
+
+    auto restored_optimizer = std::make_shared<optim::SGD>(
+        params_, optim::SGDOptions{.lr = base_lr_});
+    optim::schedulers::StepLR restored(restored_optimizer, 2, 0.1);
+    restored.load_state_dict(source.state_dict());
+
+    EXPECT_EQ(restored.get_step(), source.get_step());
+    EXPECT_DOUBLE_EQ(restored.get_last_lr(), source.get_last_lr());
+    EXPECT_DOUBLE_EQ(restored_optimizer->get_lrs().front(), source.get_last_lr());
+    restored.step();
+    EXPECT_DOUBLE_EQ(restored.get_last_lr(), base_lr_ * 0.1);
+}
+
+TEST_F(NewSchedulersTest, ReduceLROnPlateauStateRestoresMetricHistory) {
+    optim::schedulers::ReduceLROnPlateau source(
+        optimizer_, {.mode = "min", .factor = 0.5, .patience = 1, .threshold = 0.0});
+    source.step(1.0);
+    source.step(1.1);
+    const auto state = source.state_dict();
+
+    auto restored_optimizer = std::make_shared<optim::SGD>(
+        params_, optim::SGDOptions{.lr = base_lr_});
+    optim::schedulers::ReduceLROnPlateau restored(
+        restored_optimizer,
+        {.mode = "min", .factor = 0.5, .patience = 1, .threshold = 0.0});
+    restored.load_state_dict(state);
+
+    EXPECT_DOUBLE_EQ(restored.best(), source.best());
+    EXPECT_EQ(restored.num_bad_epochs(), source.num_bad_epochs());
+    restored.step(1.2);
+    EXPECT_NEAR(restored.get_last_lr(), base_lr_ * 0.5, 1e-12);
+}
+
 TEST_F(NewSchedulersTest, ReduceLROnPlateauValidatesArguments) {
     EXPECT_THROW(
         optim::schedulers::ReduceLROnPlateau(

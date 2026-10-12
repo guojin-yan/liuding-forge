@@ -69,14 +69,17 @@ Loop state accessors: `global_step()`, `current_epoch()`,
 ### Checkpoints
 
 ```cpp
-trainer.save_checkpoint("run.pt");    // model, optimizer state, counters
-trainer.load_checkpoint("run.pt");    // restores weights + state + next_epoch
+trainer.save_checkpoint("run.pt");    // model, optimizer, scheduler/scaler, losses
+trainer.load_checkpoint("run.pt");    // restores weights + all loop state
 // fitting again resumes at next_epoch; optimizer moments are restored too
 ```
 
 Checkpoints are LibTorch archives; `load_checkpoint` restores
-`global_step`, `current_epoch` and `next_epoch` so continued training picks
-up where the save left off.
+`global_step`, `current_epoch`, `next_epoch`, the scheduler state, AMP
+`GradScaler` state, and the last train/validation losses so continued
+training picks up where the save left off. A metric-driven scheduler consumes
+the validation loss after each validation epoch and requires a validation
+loader.
 
 ### Custom loss
 
@@ -159,9 +162,10 @@ Built-in callbacks:
 - `ModelCheckpoint(filepath, monitor = "val_loss", mode = "min",
   save_top_k = 1)` — saves a full trainer checkpoint whenever the monitored
   metric improves; creates parent directories.
-- `LRSchedulerCallback(scheduler)` — calls `scheduler->step()` at each epoch
-  end (redundant with `trainer.set_scheduler`; both guard against double
-  stepping the same scheduler).
+- `LRSchedulerCallback(scheduler)` — steps epoch-based schedulers at each
+  epoch end and passes the validation loss to metric-driven schedulers
+  (redundant with `trainer.set_scheduler`; both guard against double stepping
+  the same scheduler).
 
 Attach with `trainer.add_callback(std::make_shared<...>(...))`.
 
