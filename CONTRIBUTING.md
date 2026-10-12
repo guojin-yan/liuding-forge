@@ -49,6 +49,17 @@ ctest --output-on-failure
 - Ensure all tests pass before submitting
 - Aim for >80% code coverage
 
+### Exception safety checklist
+- [ ] Public APIs validate null pointers, empty paths, and invalid numeric
+      options before starting worker threads or mutating state.
+- [ ] Worker-thread exceptions are captured and rethrown on the consumer
+      thread; no exception escapes a `std::thread` entry point.
+- [ ] Queues and worker threads are closed and joined on early loop exit and
+      destruction.
+- [ ] Tests cover the exception type and an informative message.
+- [ ] Error paths leave checkpoints, optimizers, and models in a documented
+      state so callers can log or retry safely.
+
 ## Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):

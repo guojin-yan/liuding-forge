@@ -161,6 +161,29 @@ Set `num_workers > 0` to load batches on a worker pool with prefetching:
 - Workers restart per epoch; breaking out of a range-for loop early is safe.
 - `Dataset::get` must be thread-safe when `num_workers > 0`.
 
+### Exception Handling
+
+`DataLoader` captures exceptions raised by `Dataset::get` or the collate
+function in a worker and rethrows the original exception on the consuming
+thread when that batch reaches the front of the output stream. Results remain
+ordered even when another worker finishes first:
+
+```cpp
+try {
+    for (const auto& batch : loader) {
+        train_step(batch);
+    }
+} catch (const std::runtime_error& error) {
+    std::cerr << "data loading failed: " << error.what() << '\\n';
+}
+```
+
+Standard exceptions and LibTorch `c10::Error` preserve their type and message.
+Set `num_workers = 0` to debug a failing dataset in the calling thread. A
+worker exception ends the current iteration; create a fresh epoch after
+handling it. Dataset access and custom collate functions must be safe for
+concurrent calls when workers are enabled.
+
 ## Collate functions
 
 `CollateFn<T>` is `std::function<Batch<T>(const std::vector<T>&)>`. Provide

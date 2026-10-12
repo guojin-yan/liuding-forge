@@ -98,9 +98,10 @@ int main() {
 }
 ```
 
-`Trainer::save_checkpoint()` stores model weights, optimizer state, and loop
-counters. Construct a compatible trainer and call `load_checkpoint()` before
-`fit()` to continue from the saved epoch.
+`Trainer::save_checkpoint()` stores model weights, optimizer state, scheduler
+and AMP scaler state, recent losses, and loop counters. Construct a compatible
+trainer and call `load_checkpoint()` before `fit()` to continue from the saved
+epoch.
 
 ## Documentation
 
@@ -112,6 +113,21 @@ counters. Construct a compatible trainer and call `load_checkpoint()` before
   [mixed precision](docs/tutorials/05_mixed_precision.md)
 - API reference: [data](docs/api/data.md), [optim](docs/api/optim.md),
   [training](docs/api/training.md), [utils](docs/api/utils.md)
+
+### User guides
+
+- [Troubleshooting](docs/user-guide/troubleshooting.md)
+- [Performance tuning](docs/user-guide/performance_tuning.md)
+- [Deployment](docs/user-guide/deployment.md)
+
+## Known Limitations
+
+- AMP currently requires CUDA; CPU training uses full precision.
+- DataLoader workers use threads in one process. Dataset access must be
+  thread-safe, and cross-process distributed Gloo support is deferred until a
+  LibTorch package with the required development headers is available.
+- Performance benchmark output is hardware-dependent and should be compared
+  on matched environments.
 
 ## Project Structure
 
