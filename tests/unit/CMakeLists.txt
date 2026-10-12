@@ -24,6 +24,7 @@ jyppx_add_gtest(jyppx_test_optim
     optim/test_rmsprop_adagrad.cpp
     optim/test_schedulers.cpp
     optim/test_new_schedulers.cpp
+    optim/test_extreme_params.cpp
 )
 
 jyppx_add_gtest(jyppx_test_nn
@@ -41,4 +42,9 @@ jyppx_add_gtest(jyppx_test_training
     training/test_callbacks.cpp
     training/test_metrics.cpp
     training/test_trainer.cpp
+    training/test_nan_inf.cpp
+)
+
+jyppx_add_gtest(jyppx_test_data_exceptions
+    data/test_dataloader_exceptions.cpp
 )

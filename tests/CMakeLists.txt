@@ -60,6 +60,7 @@ function(jyppx_add_gtest test_name)
 endfunction()
 
 add_subdirectory(unit)
+add_subdirectory(integration)
 
 if(JYPPX_BUILD_BENCHMARKS)
     # Benchmarks are executables linked like tests but not registered with
