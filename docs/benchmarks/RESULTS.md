@@ -21,3 +21,7 @@ epoch. CI may attach these CSV files as artifacts.
 Values are regression references and are not thresholds across different CPU,
 compiler, or BLAS implementations. For a PyTorch comparison, use identical
 generated tensors, dimensions, dtype, seed, batch sizes, and optimizer steps.
+
+Checked-in JSON records live under `docs/benchmarks/results/`. The initial
+Windows reference is a local measurement and does not claim PyTorch parity
+until a matched PyTorch run is collected.
