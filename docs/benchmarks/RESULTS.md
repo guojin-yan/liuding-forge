@@ -16,7 +16,7 @@ epoch. CI may attach these CSV files as artifacts.
 
 | Date | Platform | LibTorch | Batch | Workers | Throughput | Notes |
 |---|---|---|---:|---:|---:|---|
-| pending | local | 2.14.x | 32 | 0 | pending | Run on release hardware |
+| 2026-10-12 | Windows 11 | 2.14.1 | 32 | 0 | 3,311 samples/s | Ryzen 7 5800H; local reference, PyTorch comparison pending |
 
 Values are regression references and are not thresholds across different CPU,
 compiler, or BLAS implementations. For a PyTorch comparison, use identical
