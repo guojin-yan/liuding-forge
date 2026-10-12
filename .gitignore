@@ -125,4 +125,7 @@ benchmark_results/
 # ============================================
 *.perf
 perf.data*
+
+# Local datasets and TensorBoard output
+/1/
 *.prof
