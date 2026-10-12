@@ -46,6 +46,9 @@ find_package(Torch REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
 if(MSVC)
+    # Source and header comments are UTF-8; keep MSVC from decoding them with
+    # the active Windows code page (and emitting C4819 warnings).
+    add_compile_options(/utf-8)
     # LibTorch's official Windows binaries are Release-built with /MD. Every
     # config of this project must use the same CRT, otherwise STL objects and
     # heap blocks crossing the torch DLL boundary corrupt the heap

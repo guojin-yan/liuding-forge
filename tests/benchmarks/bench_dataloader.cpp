@@ -36,6 +36,8 @@ class SlowDataset : public jyppx::data::Dataset<jyppx::data::Example> {
 public:
     SlowDataset(int samples, int features, double work_ms, uint64_t seed = 123)
         : features_(features),
+          targets_(torch::randn({samples, 1},
+                                torch::TensorOptions().dtype(torch::kFloat32))),
           workload_(torch::randn({64, 64}, torch::TensorOptions().dtype(torch::kFloat32)
                                                         .requires_grad(false))),
           payload_(torch::randn({samples, features},
@@ -68,10 +70,10 @@ public:
         while (Clock::now() - start < work_per_sample_) {
             std::this_thread::yield();
         }
-        // Clones (not views): stacking views of one base buffer trips a
-        // deprecated resize warning inside torch::stack's fast path.
+        // Return independent samples and a single target column matching the
+        // benchmark model output, so the loss does not rely on broadcasting.
         return {payload_[static_cast<int64_t>(index)].clone(),
-                payload_[static_cast<int64_t>(index)].detach().clone()};
+                targets_[static_cast<int64_t>(index)].clone()};
     }
 
     size_t size() const override { return payload_.size(0); }
@@ -80,6 +82,7 @@ public:
 
 private:
     int features_;
+    torch::Tensor targets_;
     torch::Tensor workload_;
     torch::Tensor payload_;
     std::chrono::microseconds work_per_sample_{};
