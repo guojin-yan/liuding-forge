@@ -97,9 +97,13 @@ int main(int argc, char** argv) {
         auto optimizer = std::make_shared<jyppx::optim::Adam>(
             model->parameters(), jyppx::optim::AdamOptions{.lr = 1e-3});
 
+        // Train on the GPU when one is available.
+        const Device device = get_default_device();
+        std::cout << "training on: " << device << "\n";
+
         jyppx::training::TrainerOptions options;
         options.max_epochs = epochs;
-        options.device = torch::kCPU;
+        options.device = device;
         options.loss_fn = [](const Tensor& prediction, const Tensor& target) {
             return torch::nn::functional::cross_entropy(
                 prediction.view({-1, 10}),
@@ -137,8 +141,9 @@ int main(int argc, char** argv) {
             {.batch_size = 256});
         torch::NoGradGuard no_grad;
         for (const auto& batch : test_loader) {
-            auto logits = model->forward(batch.data.view({-1, 1, 28, 28}));
-            metrics.update(logits, batch.targets);
+            // The model lives on the training device; move the batch there.
+            auto logits = model->forward(batch.data.to(device).view({-1, 1, 28, 28}));
+            metrics.update(logits.cpu(), batch.targets);
         }
         for (const auto& [name, value] : metrics.compute()) {
             std::cout << "test " << name << ": " << value << "\n";

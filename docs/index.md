@@ -37,6 +37,8 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP
 - [Utilities](api/utils.md) — devices, tensor checks, logger, parameter
   initialization, version
+- [Distributed](api/distributed.md) — process group, DDP wrapper,
+  DistributedSampler
 
 ## Project status
 

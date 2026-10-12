@@ -2,6 +2,7 @@
 #define JYPPX_NN_QUANTIZATION_HPP
 
 #include <jyppx/core/types.hpp>
+
 #include <torch/nn/module.h>
 #include <torch/serialize.h>
 
@@ -40,6 +41,38 @@ inline QuantizedTensor quantize_symmetric(const Tensor& values) {
     auto quantized =
         torch::round(floats / scale).clamp(-128.0, 127.0).to(torch::kInt8);
     return {std::move(quantized), scale, 0};
+}
+
+/**
+ * @brief Asymmetric per-tensor quantization with an explicit zero point
+ *
+ * scale covers [min, max] over 255 levels; the zero point maps 0.0 into the
+ * quantized range. Useful for activations whose distribution does not
+ * include zero. Computed directly: torch's quantize_per_tensor kernel is
+ * deprecated in 2.14 and its CPU creation path rejects plain int8 storage
+ * here, so the identical math runs inline (still fully differentiable-free
+ * inference helpers).
+ */
+inline QuantizedTensor quantize_affine(const Tensor& values) {
+    auto floats = values.to(torch::kFloat32);
+    const double lo = floats.min().item<double>();
+    const double hi = floats.max().item<double>();
+    if (hi == lo) {
+        return {torch::zeros_like(floats, torch::TensorOptions().dtype(torch::kInt8)),
+                1.0, 0};
+    }
+    // Centered affine: scale covers [lo, hi] over 254 levels, and the stored
+    // zero point (in data space) encodes the center so dequantize is
+    // scale * (q - zero_point) exactly — real zero needs no special slot.
+    const double center = (hi + lo) / 2.0;
+    const double scale = (hi - lo) / 254.0;
+    auto quantized =
+        torch::round((floats - center) / scale)
+            .clamp(-127.0, 127.0)
+            .to(torch::kInt8);
+    const int32_t zero_point =
+        static_cast<int32_t>(-std::lround(center / scale));
+    return {std::move(quantized), scale, zero_point};
 }
 
 /**

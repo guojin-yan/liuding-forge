@@ -559,6 +559,23 @@ TEST(QuantizationTest, ZeroMapsExactly) {
     EXPECT_NEAR(restored[0].item<double>(), 0.0, 1e-9);
 }
 
+TEST(QuantizationTest, AffineKernelCoversNonZeroDistributions) {
+    // Centered affine quantization of an all-positive range [3, 5]: 254
+    // levels cover the range symmetrically around the center.
+    auto values = torch::tensor({3.0f, 4.0f, 5.0f, 4.5f});
+    const auto quantized = nn::quantization::quantize_affine(values);
+    EXPECT_EQ(quantized.data.scalar_type(), torch::kInt8);
+    EXPECT_NEAR(quantized.scale, (5.0 - 3.0) / 254.0, 1e-8);
+    EXPECT_NEAR(quantized.scale * quantized.zero_point,
+                -(3.0 + 5.0) / 2.0, 0.01); // zero point encodes -center
+
+    // Each value lands within half a quantization step of the original.
+    const auto restored = nn::quantization::dequantize(quantized);
+    for (int64_t i = 0; i < values.numel(); ++i) {
+        EXPECT_NEAR(restored[i].item<double>(), values[i].item<double>(), 0.02);
+    }
+}
+
 TEST(QuantizationTest, QuantizedLinearMatchesFloatWithinTolerance) {
     auto weight = torch::randn({4, 3}, torch::kFloat64);
     auto bias = torch::randn({4}, torch::kFloat64);
