@@ -1,3 +1,9 @@
 # Benchmarks. Built when JYPPX_BUILD_BENCHMARKS=ON (off by default).
 
 jyppx_add_bench(jyppx_bench_dataloader bench_dataloader.cpp)
+jyppx_add_bench(jyppx_bench_trainer_throughput bench_trainer_throughput.cpp)
+jyppx_add_bench(jyppx_bench_optimizer_convergence bench_optimizer_convergence.cpp)
+jyppx_add_bench(jyppx_bench_memory_usage bench_memory_usage.cpp)
+if(WIN32)
+    target_link_libraries(jyppx_bench_memory_usage PRIVATE Psapi)
+endif()

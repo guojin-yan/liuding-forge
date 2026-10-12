@@ -1,0 +1,43 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+env:
+  LIBTORCH_VERSION: 2.5.1
+
+jobs:
+  benchmark:
+    name: CPU benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download LibTorch (CPU)
+        shell: bash
+        run: |
+          set -e
+          curl -L --retry 3 -o libtorch.zip \
+            "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2Bcpu.zip"
+          mkdir -p "$GITHUB_WORKSPACE/libtorch-install"
+          unzip -q libtorch.zip -d "$GITHUB_WORKSPACE/libtorch-install"
+      - name: Configure
+        # Benchmark targets currently live under tests/CMakeLists.txt.
+        run: cmake -S . -B build -DJYPPX_BUILD_TESTS=ON -DJYPPX_BUILD_EXAMPLES=OFF -DJYPPX_BUILD_BENCHMARKS=ON -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/libtorch-install/libtorch"
+      - name: Build benchmarks
+        run: cmake --build build --config Release --parallel 2
+      - name: Run benchmarks
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/libtorch-install/libtorch/lib
+        run: |
+          mkdir -p benchmark-results
+          build/tests/benchmarks/jyppx_bench_trainer_throughput > benchmark-results/trainer_throughput.csv
+          build/tests/benchmarks/jyppx_bench_optimizer_convergence > benchmark-results/optimizer_convergence.csv
+          build/tests/benchmarks/jyppx_bench_memory_usage > benchmark-results/memory_usage.csv
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: benchmark-results/*.csv
