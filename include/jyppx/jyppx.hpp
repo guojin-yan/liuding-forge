@@ -8,8 +8,8 @@
  * Include this file to use all JYPPX functionality.
  */
 
-// Version
-#include <jyppx/version.hpp>
+// Foundation
+#include <jyppx/foundation/foundation.hpp>
 
 // Core
 #include <jyppx/core/types.hpp>

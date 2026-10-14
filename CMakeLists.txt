@@ -67,8 +67,71 @@ message(STATUS "LibTorch include dirs: ${TORCH_INCLUDE_DIRS}")
 message(STATUS "LibTorch libraries: ${TORCH_LIBRARIES}")
 
 # ============================================
-# JYPPX Library
+# Generated Foundation Build Metadata
 # ============================================
+execute_process(
+    COMMAND git rev-parse --verify HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE JYPPX_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT JYPPX_GIT_COMMIT)
+    set(JYPPX_GIT_COMMIT "unknown")
+endif()
+execute_process(
+    COMMAND git diff --quiet --ignore-submodules HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    RESULT_VARIABLE JYPPX_GIT_DIRTY
+    ERROR_QUIET
+)
+if(JYPPX_GIT_DIRTY)
+    string(APPEND JYPPX_GIT_COMMIT "+dirty")
+endif()
+
+set(JYPPX_OS_ARCH "${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+if(CMAKE_GENERATOR_PLATFORM)
+    set(JYPPX_OS_ARCH "${CMAKE_SYSTEM_NAME}-${CMAKE_GENERATOR_PLATFORM}")
+endif()
+if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    set(JYPPX_ACCELERATOR_BUILD "cuda")
+else()
+    set(JYPPX_ACCELERATOR_BUILD "cpu")
+endif()
+set(JYPPX_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppx_build_config.hpp.in"
+    "${JYPPX_GENERATED_INCLUDE_DIR}/jyppx/foundation/build_config.hpp"
+    @ONLY
+)
+
+# ============================================
+# JYPPX Libraries
+# ============================================
+add_library(jyppx_foundation STATIC
+    src/jyppx/foundation/error.cpp
+    src/jyppx/foundation/random.cpp
+    src/jyppx/foundation/version.cpp
+)
+add_library(jyppx::foundation ALIAS jyppx_foundation)
+set_target_properties(jyppx_foundation PROPERTIES OUTPUT_NAME jyppx_foundation)
+target_include_directories(jyppx_foundation
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${JYPPX_GENERATED_INCLUDE_DIR}>
+        $<INSTALL_INTERFACE:include>
+        $<BUILD_INTERFACE:${TORCH_INCLUDE_DIRS}>
+)
+target_link_libraries(jyppx_foundation PUBLIC ${TORCH_LIBRARIES})
+target_compile_definitions(jyppx_foundation
+    PUBLIC
+        JYPPX_CMAKE_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+        JYPPX_CMAKE_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+        JYPPX_CMAKE_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    PRIVATE
+        JYPPX_BUILD_TYPE="$<CONFIG>"
+)
+
 add_library(jyppx_training_framework STATIC)
 add_library(jyppx_training_framework::jyppx_training_framework ALIAS jyppx_training_framework)
 set_target_properties(jyppx_training_framework PROPERTIES
@@ -88,6 +151,7 @@ target_include_directories(jyppx_training_framework
 # Link LibTorch
 target_link_libraries(jyppx_training_framework
     PUBLIC
+        jyppx_foundation
         ${TORCH_LIBRARIES}
 )
 
@@ -135,7 +199,7 @@ endif()
 # ============================================
 # Installation
 # ============================================
-install(TARGETS jyppx_training_framework
+install(TARGETS jyppx_foundation jyppx_training_framework
     EXPORT jyppx_training_frameworkTargets
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
@@ -145,6 +209,11 @@ install(TARGETS jyppx_training_framework
 
 install(DIRECTORY include/jyppx
     DESTINATION include
+)
+
+install(FILES
+    "${JYPPX_GENERATED_INCLUDE_DIR}/jyppx/foundation/build_config.hpp"
+    DESTINATION include/jyppx/foundation
 )
 
 install(EXPORT jyppx_training_frameworkTargets

@@ -101,9 +101,9 @@ jyppx::nn::init::kaiming_uniform_(weight);  // He initialization
 
 ## Version
 
-`#include <jyppx/version.hpp>`
+`#include <jyppx/foundation/version.hpp>`
 
 ```cpp
-jyppx::version();          // "0.1.0"
+jyppx::version();          // "0.3.0"
 jyppx::version_major();    // 0 (plus version_minor(), version_patch())
 ```

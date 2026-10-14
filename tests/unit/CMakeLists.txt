@@ -1,5 +1,10 @@
 # Unit test executables, one per framework module.
 
+jyppx_add_gtest(jyppx_test_foundation
+    LINK_TARGET jyppx::foundation
+    foundation/test_foundation.cpp
+)
+
 jyppx_add_gtest(jyppx_test_core
     core/test_core.cpp
 )

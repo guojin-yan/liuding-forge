@@ -44,8 +44,12 @@ endif()
 # Adds a GoogleTest executable linked against the framework and registered
 # with CTest. Sources are passed as extra arguments.
 function(jyppx_add_gtest test_name)
-    add_executable(${test_name} ${ARGN})
-    target_link_libraries(${test_name} PRIVATE jyppx_training_framework GTest::gtest_main)
+    cmake_parse_arguments(JYPPX_TEST "" "LINK_TARGET" "" ${ARGN})
+    if(NOT JYPPX_TEST_LINK_TARGET)
+        set(JYPPX_TEST_LINK_TARGET jyppx_training_framework)
+    endif()
+    add_executable(${test_name} ${JYPPX_TEST_UNPARSED_ARGUMENTS})
+    target_link_libraries(${test_name} PRIVATE ${JYPPX_TEST_LINK_TARGET} GTest::gtest_main)
     # Expose tests/test_utils/ to test sources via "test_utils/..." includes.
     target_include_directories(${test_name} PRIVATE "${JYPPX_TESTS_SOURCE_DIR}")
 
