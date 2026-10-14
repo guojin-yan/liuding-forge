@@ -30,6 +30,8 @@ TEST(NaNInfTest, NaNGradientIsDetectedAndOptimizerStepIsSkipped) {
 
     scaler.step(optimizer);
     EXPECT_TRUE(scaler.found_inf());
+    EXPECT_DOUBLE_EQ(scaler.get_scale(), 8.0);
+    scaler.update();
     EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
     EXPECT_TRUE(torch::equal(parameter, before));
     EXPECT_FALSE(jyppx::is_finite(parameter.grad()));
@@ -46,6 +48,8 @@ TEST(NaNInfTest, InfGradientIsDetectedAndScaleBacksOff) {
 
     scaler.step(optimizer);
     EXPECT_TRUE(scaler.found_inf());
+    EXPECT_DOUBLE_EQ(scaler.get_scale(), 16.0);
+    scaler.update();
     EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
 }
 
