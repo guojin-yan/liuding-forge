@@ -48,6 +48,8 @@ ctest --output-on-failure
 - Write unit tests for new features
 - Ensure all tests pass before submitting
 - Aim for >80% code coverage
+- Follow the [repository hygiene and test-data rules](docs/development/repository_hygiene.md)
+- Keep logs, downloaded data and runtime outputs out of the source root
 
 ### Exception safety checklist
 - [ ] Public APIs validate null pointers, empty paths, and invalid numeric
@@ -105,6 +107,7 @@ Closes #123
 - [ ] Documentation updated
 - [ ] CHANGELOG.md updated
 - [ ] Commit messages follow conventions
+- [ ] `RepositoryHygiene` passes and obsolete build/output directories are removed
 
 ## Code Review
 

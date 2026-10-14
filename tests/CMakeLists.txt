@@ -31,6 +31,14 @@ FetchContent_MakeAvailable(googletest)
 
 include(GoogleTest)
 
+add_test(
+    NAME RepositoryHygiene
+    COMMAND ${CMAKE_COMMAND}
+        -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_SOURCE_DIR}/cmake/CheckRepositoryHygiene.cmake
+)
+set_tests_properties(RepositoryHygiene PROPERTIES LABELS "hygiene")
+
 # Set before add_subdirectory(unit) so jyppx_add_gtest can locate test_utils/.
 set(JYPPX_TESTS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 

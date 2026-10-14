@@ -7,10 +7,10 @@ design/
 # ============================================
 # Build directories
 # ============================================
-build*/
+/build*/
 
-cmake-build-*/
-out/
+/cmake-build-*/
+/out/
 
 # ============================================
 # IDE and Editor
@@ -108,10 +108,11 @@ saved_models/
 !tests/reference_data/*.pt
 
 # ============================================
-# Test data (except reference data)
+# Test data (except reviewed fixtures/reference data)
 # ============================================
-tests/data/*
-!tests/data/.gitkeep
+/tests/downloads/
+/tests/generated/
+!/tests/fixtures/
 !tests/reference_data/
 
 # ============================================
@@ -126,6 +127,12 @@ benchmark_results/
 *.perf
 perf.data*
 
-# Local datasets and TensorBoard output
-/1/
+# Repository-local runtime data and outputs
+/data/
+/runs/
+/artifacts/
+/test-output/
+/outputs/
+/experiments/
+events.out.tfevents.*
 *.prof
