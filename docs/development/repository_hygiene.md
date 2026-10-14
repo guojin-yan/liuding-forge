@@ -41,6 +41,7 @@ Run the repository gate with:
 ctest --test-dir <build-dir> -C Release -R RepositoryHygiene --output-on-failure
 ```
 
-The gate rejects top-level numeric directories, root logs/temp files, tracked
-build/runtime paths, and unreviewed test data files larger than 5 MiB. Ignoring
-a path in `.gitignore` does not make root pollution acceptable.
+The gate rejects top-level numeric directories, legacy top-level build trees,
+root logs/temp files, tracked build/runtime paths, and unreviewed test data
+files larger than 5 MiB. Ignoring a path in `.gitignore` does not make root
+pollution acceptable.

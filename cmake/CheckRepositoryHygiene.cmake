@@ -11,6 +11,11 @@ foreach(entry IN LISTS root_entries)
     if(IS_DIRECTORY "${path}" AND entry MATCHES "^[0-9]+$")
         list(APPEND violations "top-level numeric directory: ${entry}/")
     endif()
+    if(IS_DIRECTORY "${path}" AND
+       (entry MATCHES "^build($|[-_].*)$" OR entry MATCHES "^cmake-build-"))
+        list(APPEND violations
+             "legacy top-level build directory (use out/build/<preset>): ${entry}/")
+    endif()
     if(NOT IS_DIRECTORY "${path}" AND
        entry MATCHES "\.(log|out|err|tmp|bak)$")
         list(APPEND violations "root runtime artifact: ${entry}")
