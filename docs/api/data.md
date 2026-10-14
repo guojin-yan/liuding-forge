@@ -134,6 +134,8 @@ public:
     size_t dataset_size() const;
     const DataLoaderOptions& options() const;
     void reset();                 // start a new epoch on the next begin()
+    DataLoaderState state_dict() const;
+    void load_state_dict(const DataLoaderState& state);
 };
 ```
 
@@ -149,6 +151,20 @@ for (const auto& batch : loader) {
     // batch.data {N, ...}, batch.targets {N, ...}
 }
 ```
+
+`reset()` prepares exactly one epoch; the following `begin()` consumes that
+prepared order instead of advancing the sampler again. `state_dict()` is an
+epoch-boundary snapshot of the current-version loader and sampler state.
+`load_state_dict()` validates the dataset and batching topology, prepared
+indices, sampler capability, and exact format version before applying the
+state. A failed restore rolls the sampler, prepared epoch, and worker pipeline
+back to their entry state. Custom samplers must explicitly implement
+`supports_state()`, `save_state()`, and `load_state()` to participate.
+
+Weighted sampling without replacement uses a bounded exponential-race draw.
+It rejects non-finite or negative weights, a non-positive total, and requests
+larger than the number of positive-weight entries, so zero-weight inputs cannot
+cause a non-terminating retry loop.
 
 ### Multi-worker loading
 

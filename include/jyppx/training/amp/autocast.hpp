@@ -3,7 +3,7 @@
 
 #include <ATen/autocast_mode.h>
 #include <c10/core/DeviceType.h>
-#include <c10/util/Exception.h>
+#include <stdexcept>
 
 namespace jyppx {
 namespace training {
@@ -26,35 +26,80 @@ namespace amp {
  * @endcode
  */
 class AutocastGuard {
-public:
-    AutocastGuard(c10::DeviceType device_type, at::ScalarType dtype)
-        : device_type_(device_type),
-          was_enabled_(at::autocast::is_autocast_enabled(device_type)) {
-        at::autocast::set_autocast_dtype(device_type, dtype);
-        at::autocast::set_autocast_enabled(device_type, true);
-        at::autocast::increment_nesting();
+ public:
+  /**
+   * @brief Enables autocast for one CPU or CUDA scope.
+   *
+   * CPU autocast accepts only BFloat16. CUDA autocast accepts Half and
+   * BFloat16. Construction is transactional: a failure restores the
+   * thread-local autocast state observed on entry.
+   *
+   * @param device_type Device whose autocast dispatcher is configured.
+   * @param dtype Lower-precision dtype used by eligible operations.
+   * @throws std::invalid_argument if the device/dtype pair is unsupported.
+   */
+  AutocastGuard(c10::DeviceType device_type, at::ScalarType dtype)
+      : device_type_(device_type) {
+    const bool cpu_dtype_supported =
+        device_type == c10::DeviceType::CPU && dtype == at::kBFloat16;
+    const bool cuda_dtype_supported =
+        device_type == c10::DeviceType::CUDA &&
+        (dtype == at::kHalf || dtype == at::kBFloat16);
+    if (!cpu_dtype_supported && !cuda_dtype_supported) {
+      throw std::invalid_argument(
+          "Autocast requires CPU/BFloat16 or CUDA/Half|BFloat16");
     }
 
-    ~AutocastGuard() {
-        at::autocast::decrement_nesting();
-        at::autocast::set_autocast_enabled(device_type_, was_enabled_);
-        if (!was_enabled_) {
-            at::autocast::clear_cache();
-        }
+    previous_dtype_ = at::autocast::get_autocast_dtype(device_type_);
+    was_enabled_ = at::autocast::is_autocast_enabled(device_type_);
+    try {
+      at::autocast::set_autocast_dtype(device_type_, dtype);
+      at::autocast::set_autocast_enabled(device_type_, true);
+      at::autocast::increment_nesting();
+      active_ = true;
+    } catch (...) {
+      at::autocast::set_autocast_enabled(device_type_, was_enabled_);
+      at::autocast::set_autocast_dtype(device_type_, previous_dtype_);
+      throw;
     }
+  }
 
-    AutocastGuard(const AutocastGuard&) = delete;
-    AutocastGuard& operator=(const AutocastGuard&) = delete;
-    AutocastGuard(AutocastGuard&&) = delete;
-    AutocastGuard& operator=(AutocastGuard&&) = delete;
+  /** @brief Restores the complete thread-local autocast state. */
+  ~AutocastGuard() {
+    if (!active_) {
+      return;
+    }
+    const int nesting = at::autocast::decrement_nesting();
+    at::autocast::set_autocast_enabled(device_type_, was_enabled_);
+    at::autocast::set_autocast_dtype(device_type_, previous_dtype_);
+    if (nesting == 0) {
+      at::autocast::clear_cache();
+    }
+  }
 
-private:
-    c10::DeviceType device_type_;
-    bool was_enabled_;
+  /** @brief Copying is disabled because one scope owns one state restore. */
+  AutocastGuard(const AutocastGuard&) = delete;
+
+  /** @brief Copy assignment is disabled for scoped state ownership. */
+  AutocastGuard& operator=(const AutocastGuard&) = delete;
+
+  /** @brief Moving is disabled so destruction order remains explicit. */
+  AutocastGuard(AutocastGuard&&) = delete;
+
+  /** @brief Move assignment is disabled for scoped state ownership. */
+  AutocastGuard& operator=(AutocastGuard&&) = delete;
+
+ private:
+  c10::DeviceType device_type_;  ///< Device whose thread-local state is owned.
+  at::ScalarType previous_dtype_ =
+      at::kFloat;  ///< Autocast dtype observed on entry.
+  bool was_enabled_ =
+      false;             ///< Whether autocast was enabled before construction.
+  bool active_ = false;  ///< Whether nesting was successfully incremented.
 };
 
-} // namespace amp
-} // namespace training
-} // namespace jyppx
+}  // namespace amp
+}  // namespace training
+}  // namespace jyppx
 
-#endif // JYPPX_TRAINING_AMP_AUTOCAST_HPP
+#endif  // JYPPX_TRAINING_AMP_AUTOCAST_HPP

@@ -18,12 +18,14 @@ struct TrainerOptions {
     Device device = torch::kCPU;
     double gradient_clip_val = 0.0;          // 0 disables clipping
     std::string gradient_clip_mode = "norm"; // "norm" or "value"
-    bool use_amp = false;                    // CUDA only, validated at construction
+    bool use_amp = false;                    // enables scoped autocast
+    at::ScalarType amp_dtype = at::kHalf;    // CUDA Half/BFloat16, CPU BFloat16
     amp::GradScalerOptions amp_options;
     int accumulation_steps = 1;              // gradient accumulation
     ForwardFn forward_fn;                    // set automatically by the template ctor
     LossFn loss_fn = mse_loss;               // replace for other objectives
     std::vector<std::shared_ptr<Callback>> callbacks;
+    uint64_t max_checkpoint_bytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
 };
 ```
 
@@ -74,12 +76,20 @@ trainer.load_checkpoint("run.pt");    // restores weights + all loop state
 // fitting again resumes at next_epoch; optimizer moments are restored too
 ```
 
-Checkpoints are LibTorch archives; `load_checkpoint` restores
-`global_step`, `current_epoch`, `next_epoch`, the scheduler state, AMP
-`GradScaler` state, and the last train/validation losses so continued
-training picks up where the save left off. A metric-driven scheduler consumes
-the validation loss after each validation epoch and requires a validation
-loader.
+Checkpoints are strict version-2 LibTorch archives. They contain model and
+optimizer state, scheduler and float16 `GradScaler` state, Trainer counters and
+losses, callback state, CPU/CUDA RNG state, and restorable train/validation
+DataLoader state. Saving is allowed only at an epoch boundary, is bounded by
+`max_checkpoint_bytes`, and atomically replaces the destination file.
+
+`load_checkpoint()` first parses and validates the complete archive, current
+format version, training/device topology, callback order, RNG topology, and
+component presence. Applying the state is transactional: if any participant
+rejects its state, all already-applied model, optimizer, scheduler, scaler,
+callback, RNG, loader, and Trainer state is rolled back. Older unversioned
+archives are intentionally rejected rather than routed through a compatibility
+reader. A metric-driven scheduler consumes the validation loss after each
+validation epoch and requires a validation loader.
 
 ### Custom loss
 
@@ -145,8 +155,15 @@ public:
     virtual void on_train_batch_end(Trainer*, int batch_idx, double loss) {}
     virtual void on_validation_batch_start(Trainer*, int batch_idx) {}
     virtual void on_validation_batch_end(Trainer*, int batch_idx) {}
+    virtual std::string state_key() const { return {}; }
+    virtual CallbackState state_dict() const { return {}; }
+    virtual void load_state_dict(const CallbackState&) {}
 };
 ```
+
+Callbacks with a non-empty `state_key()` are checkpoint participants. Their
+order and key must match during restore, and `load_state_dict()` must validate
+before mutation so Trainer rollback can restore the entry state.
 
 Built-in callbacks:
 
@@ -160,8 +177,9 @@ Built-in callbacks:
   mode = "min")` — requests a stop after `patience` non-improving epochs;
   monitors `"val_loss"` or `"train_loss"`. Exposes `should_stop()`/`reset()`.
 - `ModelCheckpoint(filepath, monitor = "val_loss", mode = "min",
-  save_top_k = 1)` — saves a full trainer checkpoint whenever the monitored
-  metric improves; creates parent directories.
+  save_top_k = 1)` — retains the best K full Trainer checkpoints (`-1` saves
+  every eligible epoch and `0` disables saving), creates parent directories,
+  and publishes only after all callbacks have observed the epoch boundary.
 - `LRSchedulerCallback(scheduler)` — steps epoch-based schedulers at each
   epoch end and passes the validation loss to metric-driven schedulers
   (redundant with `trainer.set_scheduler`; both guard against double stepping
@@ -212,11 +230,12 @@ auto values = metrics.compute();   // {"accuracy": ..., "top5_accuracy": ...}
   `unscale(optimizer)`, `step(optimizer)` (skips and backs off on inf/NaN
   gradients), `update()` (grows the scale after `growth_interval` clean
   steps), `get_scale()`, `found_inf()`, `state_dict()`/`load_state_dict()`.
-- `AutocastGuard` is an RAII wrapper around the ATen autocast state:
+- `AutocastGuard` is an RAII wrapper that restores both the prior enabled flag
+  and dtype, including nested scopes:
   `amp::AutocastGuard guard{c10::DeviceType::CUDA, at::kHalf};`
 
-Set `TrainerOptions::use_amp = true` (requires a CUDA device; validated at
-construction) and the trainer runs forward passes under autocast, scales the
-loss before backward, unscales before gradient clipping and routes optimizer
-steps through the scaler. Works together with gradient accumulation and
-clipping. See the AMP tutorial for the full flow.
+Set `TrainerOptions::use_amp = true` and choose `amp_dtype`. CUDA accepts Half
+or BFloat16; CPU accepts BFloat16 only. Float16 uses `GradScaler`; BFloat16 does
+not. The trainer runs forward passes under autocast, scales float16 loss before
+backward, unscales before gradient clipping and routes optimizer steps through
+the scaler. It works with gradient accumulation and clipping.

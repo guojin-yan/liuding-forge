@@ -32,8 +32,9 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Data](api/data.md) — datasets, subset/concat/split, DataLoader,
   samplers, thread-safe queue
 - [Optimizers and Schedulers](api/optim.md) — SGD, Adam, AdamW, RMSprop,
-  Adagrad; StepLR, ExponentialLR, CosineAnnealingLR, MultiStepLR,
-  ReduceLROnPlateau
+  Adagrad, NAdam, Lamb, RAdam, Adamax, ASGD, Rprop, Adadelta, SparseAdam,
+  LBFGS, LARS and Lookahead; the complete scheduler family including warmup
+  and composite schedulers
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP
 - [Utilities](api/utils.md) — devices, tensor checks, logger, parameter
   initialization, version
@@ -42,9 +43,8 @@ metrics, callbacks, checkpointing and mixed precision.
 
 ## Project status
 
-See [CHANGELOG](../CHANGELOG.md) for the running list of changes and
-`project-management/CURRENT_STATUS.md` for the phase-by-phase progress
-against the implementation plan. In short: the core framework (data,
-optim, training, utils, nn init, AMP, multi-threaded DataLoader) is
-implemented with 161 passing unit tests; data transforms and additional
-losses are next.
+See [CHANGELOG](../CHANGELOG.md) for the running list of changes. The current
+framework scope includes loss, optimizer, scheduler, quantization, hooks,
+TensorBoard, augmentation, analysis, metric, checkpoint and AMP extensions.
+Planning records are maintained outside the source repository and are not
+part of the installed documentation.

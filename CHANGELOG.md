@@ -8,12 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Versioned DataLoader/sampler state for deterministic epoch-boundary resume.
+- Transactional Trainer checkpoint restore covering model, optimizer,
+  scheduler, AMP scaler, callbacks, RNG, loaders, and loop counters.
+- Optimizer parameter-group insertion with topology validation.
 - Learning-rate scheduler state serialization via `state_dict()` and
   `load_state_dict()`, including step counters and all optimizer-group rates.
 - `ReduceLROnPlateau` checkpoint state for the best metric and consecutive
   bad-epoch counter.
 
 ### Changed
+- Checkpoint, optimizer, and DataLoader state readers now require their current
+  explicit format instead of retaining unversioned compatibility branches.
+- `AutocastGuard` validates device/dtype pairs and restores nested dtype state;
+  Trainer supports CPU BFloat16 autocast without a loss scaler.
+- Weighted sampling without replacement now uses a bounded algorithm and
+  rejects input sets that cannot produce the requested draw.
 - `Trainer` now steps metric-driven schedulers with the validation loss and
   rejects them when no validation loader is configured.
 - Trainer checkpoints now preserve scheduler state, AMP `GradScaler` state,

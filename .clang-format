@@ -1,33 +1,7 @@
 ---
 BasedOnStyle: Google
 Language: Cpp
-Standard: c++17
-
-# Indentation
-IndentWidth: 4
-TabWidth: 4
-UseTab: Never
-NamespaceIndentation: None
-
-# Line breaks
-ColumnLimit: 100
-BreakBeforeBraces: Attach
-AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: Never
-AllowShortLoopsOnASingleLine: false
-
-# Spacing
-SpaceAfterCStyleCast: false
-SpaceAfterTemplateKeyword: true
-SpaceBeforeAssignmentOperators: true
-SpaceBeforeParens: ControlStatements
-SpaceInEmptyParentheses: false
-
-# Alignment
-AlignConsecutiveAssignments: false
-AlignConsecutiveDeclarations: false
-AlignTrailingComments: true
-PointerAlignment: Left
+Standard: c++20
 
 # Include ordering
 SortIncludes: true

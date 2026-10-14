@@ -2,6 +2,7 @@
 #define JYPPX_DATA_SAMPLERS_SAMPLER_HPP
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 namespace jyppx {
@@ -9,26 +10,53 @@ namespace data {
 namespace samplers {
 
 /**
- * @brief Base class for all samplers
+ * @brief Produces one epoch of dataset indices.
+ *
+ * Implementations that opt into checkpoint state must make save/load reproduce
+ * all future index sequences. Samplers are mutable through const generation
+ * methods and are not thread-safe unless an implementation states otherwise.
  */
 class Sampler {
-public:
-    virtual ~Sampler() = default;
+ public:
+  /** @brief Destroys a sampler through the base interface. */
+  virtual ~Sampler() = default;
 
-    /**
-     * @brief Get all indices
-     * @return Vector of indices
-     */
-    virtual std::vector<size_t> indices() const = 0;
+  /**
+   * @brief Get all indices
+   * @return Vector of indices
+   */
+  virtual std::vector<size_t> indices() const = 0;
 
-    /**
-     * @brief Get number of samples
-     */
-    virtual size_t size() const = 0;
+  /**
+   * @brief Returns the number of indices produced for one epoch.
+   */
+  virtual size_t size() const = 0;
+
+  /** @brief Returns whether state APIs reproduce future index sequences
+   * exactly. */
+  virtual bool supports_state() const { return false; }
+
+  /**
+   * @brief Serialize mutable sampling state used to produce future epochs.
+   *
+   * Stateless but reproducible samplers use the empty string and override
+   * supports_state(). Stateful implementations must reject malformed state
+   * in load_state() rather than silently reseeding.
+   *
+   * @return Opaque, implementation-owned state representation.
+   */
+  virtual std::string save_state() const { return {}; }
+
+  /**
+   * @brief Restores state previously returned by save_state().
+   * @param state Opaque state from the same sampler type and configuration.
+   * @throws std::invalid_argument The state is malformed or incompatible.
+   */
+  virtual void load_state(const std::string& state) { (void)state; }
 };
 
-} // namespace samplers
-} // namespace data
-} // namespace jyppx
+}  // namespace samplers
+}  // namespace data
+}  // namespace jyppx
 
-#endif // JYPPX_DATA_SAMPLERS_SAMPLER_HPP
+#endif  // JYPPX_DATA_SAMPLERS_SAMPLER_HPP

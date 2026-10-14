@@ -18,6 +18,7 @@ public:
     virtual void step() = 0;
     void zero_grad(bool set_to_none = false);      // false zeroes, true clears
     std::vector<ParamGroup>& param_groups();
+    void add_param_group(ParamGroup group);
     std::vector<double> get_lrs() const;           // throws if a group lacks "lr"
     void set_lr(double lr);
     void set_lrs(const std::vector<double>& lrs);
@@ -27,9 +28,16 @@ public:
 };
 ```
 
+`add_param_group()` rejects empty groups, undefined tensors, duplicate tensor
+identities, non-finite options, and negative learning rates. Omitted options
+inherit from the first group.
+
 `state_dict()` round-trips hyperparameters (as float64) and per-parameter
-optimizer state (e.g. momentum buffers), keyed by parameter index, so a fresh
-optimizer can resume an interrupted run.
+optimizer state (e.g. momentum buffers), keyed by stable parameter order, so a
+fresh optimizer can resume an interrupted run. Loading requires the current
+format metadata, validates parameter-group and parameter counts plus every
+declared state count, and replaces buffers atomically instead of merging them
+with stale state.
 
 ## Optimizers
 

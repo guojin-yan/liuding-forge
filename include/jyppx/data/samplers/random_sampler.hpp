@@ -1,8 +1,9 @@
 #ifndef JYPPX_DATA_SAMPLERS_RANDOM_SAMPLER_HPP
 #define JYPPX_DATA_SAMPLERS_RANDOM_SAMPLER_HPP
 
-#include <jyppx/data/samplers/sampler.hpp>
 #include <jyppx/core/types.hpp>
+#include <jyppx/data/samplers/sampler.hpp>
+
 #include <random>
 
 namespace jyppx {
@@ -10,22 +11,47 @@ namespace data {
 namespace samplers {
 
 /**
- * @brief Random sampler
+ * @brief Produces a fresh random permutation of a fixed population.
+ *
+ * Generator state is checkpointable. Instances are not thread-safe.
  */
 class RandomSampler : public Sampler {
-public:
-    explicit RandomSampler(size_t size, Optional<int64_t> seed = std::nullopt);
+ public:
+  /**
+   * @brief Creates a permutation sampler.
+   * @param size Number of dataset entries; must be positive.
+   * @param seed Optional deterministic seed.
+   * @throws std::invalid_argument @p size is zero.
+   */
+  explicit RandomSampler(size_t size, Optional<int64_t> seed = std::nullopt);
 
-    std::vector<size_t> indices() const override;
-    size_t size() const override;
+  /** @brief Returns the next random permutation and advances generator state.
+   */
+  std::vector<size_t> indices() const override;
 
-private:
-    size_t size_;
-    mutable std::mt19937_64 generator_;
+  /** @brief Returns the population size. */
+  size_t size() const override;
+
+  /** @brief Reports exact generator-state checkpoint support. */
+  bool supports_state() const override { return true; }
+
+  /** @brief Serializes the standard-library random engine state. */
+  std::string save_state() const override;
+
+  /**
+   * @brief Restores generator state atomically.
+   * @param state Value returned by save_state().
+   * @throws std::invalid_argument The engine state is malformed.
+   */
+  void load_state(const std::string& state) override;
+
+ private:
+  size_t size_;  ///< Number of indices in each permutation; positive.
+  mutable std::mt19937_64 generator_;  ///< Engine advanced by indices().
 };
 
-} // namespace samplers
-} // namespace data
-} // namespace jyppx
+}  // namespace samplers
+}  // namespace data
+}  // namespace jyppx
 
-#endif // JYPPX_DATA_SAMPLERS_RANDOM_SAMPLER_HPP
+#endif  // JYPPX_DATA_SAMPLERS_RANDOM_SAMPLER_HPP

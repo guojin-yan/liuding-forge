@@ -2,6 +2,7 @@
 #define JYPPX_DATA_SAMPLERS_BATCH_SAMPLER_HPP
 
 #include <jyppx/data/samplers/sampler.hpp>
+
 #include <memory>
 
 namespace jyppx {
@@ -9,30 +10,51 @@ namespace data {
 namespace samplers {
 
 /**
- * @brief Batch sampler wrapping another sampler
+ * @brief Truncates an underlying sample sequence to complete batches if
+ * requested.
+ *
+ * The underlying sampler is shared and owns all mutable ordering state.
  */
 class BatchSampler : public Sampler {
-public:
-    BatchSampler(
-        std::shared_ptr<Sampler> sampler,
-        size_t batch_size,
-        bool drop_last = false
-    );
+ public:
+  /**
+   * @brief Creates a batch-aware sampler view.
+   * @param sampler Shared underlying sample-order provider; must not be null.
+   * @param batch_size Samples per complete batch; must be positive.
+   * @param drop_last Whether to omit the final incomplete batch.
+   * @throws std::invalid_argument A required argument is invalid.
+   */
+  BatchSampler(std::shared_ptr<Sampler> sampler, size_t batch_size,
+               bool drop_last = false);
 
-    std::vector<size_t> indices() const override;
-    size_t size() const override;
+  /** @brief Returns one epoch of indices, truncated when drop_last is true. */
+  std::vector<size_t> indices() const override;
 
-    /** @brief Number of samples in each full batch. */
-    size_t batch_size() const { return batch_size_; }
+  /** @brief Returns the number of samples yielded after truncation. */
+  size_t size() const override;
 
-private:
-    std::shared_ptr<Sampler> sampler_;
-    size_t batch_size_;
-    bool drop_last_;
+  /** @brief Delegates checkpoint capability to the underlying sampler. */
+  bool supports_state() const override { return sampler_->supports_state(); }
+
+  /** @brief Delegates state serialization to the underlying sampler. */
+  std::string save_state() const override { return sampler_->save_state(); }
+
+  /** @brief Delegates state restoration to the underlying sampler. */
+  void load_state(const std::string& state) override {
+    sampler_->load_state(state);
+  }
+
+  /** @brief Number of samples in each full batch. */
+  size_t batch_size() const { return batch_size_; }
+
+ private:
+  std::shared_ptr<Sampler> sampler_;  ///< Shared provider of sample ordering.
+  size_t batch_size_;                 ///< Samples per complete batch; positive.
+  bool drop_last_;  ///< Whether an incomplete final batch is removed.
 };
 
-} // namespace samplers
-} // namespace data
-} // namespace jyppx
+}  // namespace samplers
+}  // namespace data
+}  // namespace jyppx
 
-#endif // JYPPX_DATA_SAMPLERS_BATCH_SAMPLER_HPP
+#endif  // JYPPX_DATA_SAMPLERS_BATCH_SAMPLER_HPP
