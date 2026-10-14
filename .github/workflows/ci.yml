@@ -28,6 +28,7 @@ jobs:
         run: |
           python tools/compatibility.py --file compatibility.json --validate
           echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
+          python tools/dependency_manifest.py --file dependency-manifest.json
 
       - name: Install foundation quality tools
         if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'Release'

@@ -16,6 +16,12 @@ if(Python3_Interpreter_FOUND)
                 --file ${CMAKE_SOURCE_DIR}/compatibility.json --validate
     )
     set_tests_properties(CompatibilitySource PROPERTIES LABELS "hygiene;compatibility")
+    add_test(
+        NAME DependencyManifest
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/dependency_manifest.py
+                --file ${CMAKE_SOURCE_DIR}/dependency-manifest.json
+    )
+    set_tests_properties(DependencyManifest PROPERTIES LABELS "hygiene;dependency")
 endif()
 
 set(JYPPX_GTEST_VERSION 1.14.0)

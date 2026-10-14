@@ -3,7 +3,8 @@
   "project": {
     "version": "0.3.0",
     "cxx_standard": 20,
-    "cmake_minimum": "3.18"
+    "cmake_minimum": "3.18",
+    "dependency_manifest": "dependency-manifest.json"
   },
   "libtorch": {
     "primary": {

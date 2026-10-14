@@ -57,6 +57,7 @@ def validate(document: dict[str, Any]) -> None:
     if project.get("cxx_standard") != 20:
         raise CompatibilityError("project.cxx_standard must be 20")
     require_string(project, "cmake_minimum", "project")
+    require_string(project, "dependency_manifest", "project")
 
     libtorch = require_mapping(document, "libtorch", "root")
     lane_names = {"primary", "compatibility_candidate"}

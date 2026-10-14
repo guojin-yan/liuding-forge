@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "status": "draft",
+  "hash_algorithm": "sha256",
+  "dependencies": [
+    {
+      "id": "libtorch-primary-windows-cu126",
+      "scope": "core",
+      "version": "2.14.1+cu126",
+      "source": {
+        "type": "official-binary",
+        "url": "https://download.pytorch.org/libtorch/cu126/libtorch-win-shared-with-deps-2.14.1%2Bcu126.zip",
+        "cache_file": "third_party/downloads/libtorch-win-shared-with-deps-2.14.1+cu126.zip"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "7e65f208302ebd8501fe6beba69ce2a8b582a3d1caf17b3f00fc0b7ecd20d6e8"
+      },
+      "license": {
+        "spdx": ["BSD-3-Clause"],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": ["windows-x86_64"],
+      "linkage": "dynamic",
+      "support_status": "development-baseline"
+    },
+    {
+      "id": "googletest",
+      "scope": "test",
+      "version": "1.14.0",
+      "source": {
+        "type": "source-archive",
+        "url": "https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip",
+        "cache_file": "third_party/downloads/googletest-1.14.0.zip"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "1f357c27ca988c3f7c6b4bf68a9395005ac6761f034046e9dde0896e3aba00e4"
+      },
+      "license": {
+        "spdx": ["BSD-3-Clause"],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": ["windows", "linux", "macos"],
+      "linkage": "static",
+      "support_status": "test-only"
+    },
+    {
+      "id": "libtorch-candidate-cpu",
+      "scope": "ci-candidate",
+      "version": "2.5.1",
+      "source": {
+        "type": "official-binary",
+        "url_template": "https://download.pytorch.org/libtorch/{platform}/libtorch-{package}-{version}.zip",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "pending",
+        "sha256": null
+      },
+      "license": {
+        "spdx": ["BSD-3-Clause"],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": ["windows-x86_64", "linux-x86_64", "macos-arm64"],
+      "linkage": "dynamic",
+      "support_status": "candidate"
+    }
+  ]
+}

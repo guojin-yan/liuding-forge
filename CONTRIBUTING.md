@@ -77,6 +77,7 @@ Before configuring a build, validate the repository compatibility source:
 
 ```bash
 python tools/compatibility.py --file compatibility.json --validate
+python tools/dependency_manifest.py --file dependency-manifest.json
 ```
 
 Do not infer support from a version range. Add a verified lane with reproducible
