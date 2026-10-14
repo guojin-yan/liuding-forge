@@ -15,15 +15,26 @@ function(jyppx_add_torch_runtime_dependency target_name)
     string(SUBSTRING "${jyppx_binary_dir_hash}" 0 8 jyppx_binary_dir_id)
     set(jyppx_copy_target "jrt_${jyppx_binary_dir_id}")
     if(NOT TARGET "${jyppx_copy_target}")
-        set(jyppx_runtime_output_dir "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
-        add_custom_target("${jyppx_copy_target}"
+        # CMAKE_CFG_INTDIR expands to the selected configuration for
+        # multi-config generators and to "." for single-config generators.
+        set(jyppx_runtime_output_dir
+            "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}")
+        set(jyppx_runtime_stamp
+            "${jyppx_runtime_output_dir}/jyppx-runtime-${jyppx_binary_dir_id}.stamp")
+        add_custom_command(
+            OUTPUT "${jyppx_runtime_stamp}"
             COMMAND ${CMAKE_COMMAND} -E make_directory
                 "${jyppx_runtime_output_dir}"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${jyppx_torch_runtime_dlls}
                 "${jyppx_runtime_output_dir}"
+            COMMAND ${CMAKE_COMMAND} -E touch "${jyppx_runtime_stamp}"
+            DEPENDS ${jyppx_torch_runtime_dlls}
             COMMENT "Copying LibTorch runtime DLLs for ${CMAKE_CURRENT_BINARY_DIR}"
             VERBATIM
+        )
+        add_custom_target("${jyppx_copy_target}"
+            DEPENDS "${jyppx_runtime_stamp}"
         )
     endif()
     add_dependencies("${target_name}" "${jyppx_copy_target}")

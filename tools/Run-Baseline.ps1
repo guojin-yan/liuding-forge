@@ -96,14 +96,14 @@ $steps.Add((Invoke-Captured ctest @(
         "--test-dir", $BuildDir, "-C", "Release", "--output-on-failure"
     ) "03-ctest.log"))
 
-$isWindows = [Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+$runningOnWindows = [Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
     [Runtime.InteropServices.OSPlatform]::Windows)
-$benchmarkDir = if ($isWindows) {
+$benchmarkDir = if ($runningOnWindows) {
     Join-Path $BuildDir "tests/benchmarks/Release"
 } else {
     Join-Path $BuildDir "tests/benchmarks"
 }
-$executableSuffix = if ($isWindows) { ".exe" } else { "" }
+$executableSuffix = if ($runningOnWindows) { ".exe" } else { "" }
 $benchmarkNames = @(
     "jyppx_bench_dataloader",
     "jyppx_bench_optimizer_convergence",
