@@ -29,6 +29,8 @@ jyppx_add_gtest(jyppx_test_optim
     optim/test_rmsprop_adagrad.cpp
     optim/test_schedulers.cpp
     optim/test_new_schedulers.cpp
+    optim/test_p1_schedulers.cpp
+    optim/test_composite_schedulers.cpp
     optim/test_extreme_params.cpp
 )
 

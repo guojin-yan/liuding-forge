@@ -10,6 +10,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 namespace {
 
 using namespace jyppx;
@@ -76,6 +78,31 @@ TEST_F(SchedulerTest, SchedulerUpdatesTheOptimizerLearningRate) {
     EXPECT_DOUBLE_EQ(optimizer_->get_lrs()[0], base_lr_ * 0.25);
 }
 
+TEST_F(SchedulerTest, DescriptorIdentifiesTypeConfigurationAndStepMode) {
+    optim::schedulers::StepLR scheduler(optimizer_, 2, 0.1);
+    const auto& descriptor = scheduler.descriptor();
+    EXPECT_EQ(descriptor.type_id, "jyppx.scheduler.step_lr/v1");
+    EXPECT_EQ(descriptor.step_mode, optim::schedulers::SchedulerStepMode::epoch);
+    EXPECT_EQ(descriptor.config.at("step_size"), "2");
+    EXPECT_EQ(descriptor.config.at("gamma"), "0.10000000000000001");
+    EXPECT_TRUE(descriptor.checkpoint_safe);
+    EXPECT_EQ(scheduler.descriptor_fingerprint().size(), 16u);
+}
+
+TEST_F(SchedulerTest, DescriptorMismatchFailsBeforeStateMutation) {
+    optim::schedulers::StepLR source(optimizer_, 2, 0.1);
+    source.step();
+    const auto state = source.state_dict();
+
+    auto other_optimizer = std::make_shared<optim::SGD>(
+        make_params({{2, 2}}), optim::SGDOptions{.lr = base_lr_});
+    optim::schedulers::StepLR different(other_optimizer, 3, 0.1);
+    const auto before = different.state_dict();
+    EXPECT_THROW(different.load_state_dict(state), std::invalid_argument);
+    EXPECT_EQ(different.state_dict(), before);
+    EXPECT_DOUBLE_EQ(other_optimizer->get_lrs().front(), base_lr_);
+}
+
 TEST_F(SchedulerTest, InvalidArgumentsThrow) {
     EXPECT_THROW(
         optim::schedulers::StepLR(optimizer_, /*step_size=*/0), std::invalid_argument);
@@ -90,6 +117,14 @@ TEST_F(SchedulerTest, InvalidArgumentsThrow) {
         std::invalid_argument);
     EXPECT_THROW(
         optim::schedulers::ExponentialLR(nullptr, 0.5), std::invalid_argument);
+    EXPECT_THROW(
+        optim::schedulers::StepLR(
+            optimizer_, 2, std::numeric_limits<double>::quiet_NaN()),
+        std::invalid_argument);
+    EXPECT_THROW(
+        optim::schedulers::CosineAnnealingLR(
+            optimizer_, 4, std::numeric_limits<double>::infinity()),
+        std::invalid_argument);
 }
 
 TEST_F(SchedulerTest, SchedulerWithoutOptimizerLrThrows) {

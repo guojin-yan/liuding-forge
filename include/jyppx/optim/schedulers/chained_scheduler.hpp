@@ -1,0 +1,4 @@
+#ifndef JYPPX_OPTIM_SCHEDULERS_CHAINED_SCHEDULER_HPP
+#define JYPPX_OPTIM_SCHEDULERS_CHAINED_SCHEDULER_HPP
+#include <jyppx/optim/schedulers/composite_schedulers.hpp>
+#endif

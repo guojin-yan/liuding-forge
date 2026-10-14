@@ -16,7 +16,7 @@ CosineAnnealingLR::CosineAnnealingLR(
     if (T_max_ <= 0) {
         throw std::invalid_argument("CosineAnnealingLR T_max must be positive");
     }
-    if (eta_min_ < 0.0) {
+    if (!std::isfinite(eta_min_) || eta_min_ < 0.0) {
         throw std::invalid_argument("CosineAnnealingLR eta_min must be non-negative");
     }
     for (const auto base_lr : base_lrs_) {
@@ -24,6 +24,10 @@ CosineAnnealingLR::CosineAnnealingLR(
             throw std::invalid_argument("CosineAnnealingLR eta_min cannot exceed every base lr");
         }
     }
+    configure_descriptor(
+        "jyppx.scheduler.cosine_annealing_lr/v1", SchedulerStepMode::epoch,
+        {{"T_max", descriptor_integer(T_max_)},
+         {"eta_min", descriptor_number(eta_min_)}});
 }
 
 void CosineAnnealingLR::step() {

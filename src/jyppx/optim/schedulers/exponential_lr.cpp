@@ -9,9 +9,12 @@ namespace schedulers {
 
 ExponentialLR::ExponentialLR(std::shared_ptr<Optimizer> optimizer, double gamma)
     : LRScheduler(std::move(optimizer)), gamma_(gamma) {
-    if (gamma_ <= 0.0) {
+    if (!std::isfinite(gamma_) || gamma_ <= 0.0) {
         throw std::invalid_argument("ExponentialLR gamma must be positive");
     }
+    configure_descriptor(
+        "jyppx.scheduler.exponential_lr/v1", SchedulerStepMode::epoch,
+        {{"gamma", descriptor_number(gamma_)}});
 }
 
 void ExponentialLR::step() {

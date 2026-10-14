@@ -2,6 +2,7 @@
 #define JYPPX_OPTIM_SCHEDULERS_LR_SCHEDULER_HPP
 
 #include <jyppx/optim/optimizer.hpp>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -11,6 +12,22 @@
 namespace jyppx {
 namespace optim {
 namespace schedulers {
+
+enum class SchedulerStepMode {
+    batch,
+    epoch,
+    metric,
+    manual,
+};
+
+struct SchedulerDescriptor {
+    uint32_t schema_version = 1;
+    std::string type_id;
+    SchedulerStepMode step_mode = SchedulerStepMode::manual;
+    std::map<std::string, std::string> config;
+    std::vector<SchedulerDescriptor> children;
+    bool checkpoint_safe = true;
+};
 
 /**
  * @brief Base class for learning rate schedulers
@@ -45,6 +62,18 @@ public:
     /** @brief Whether this scheduler must be stepped with a monitored metric. */
     virtual bool requires_metric() const { return false; }
 
+    /** Stable scheduler identity and future-trajectory configuration. */
+    const SchedulerDescriptor& descriptor() const { return descriptor_; }
+
+    /** Optimizer whose parameter groups are controlled by this scheduler. */
+    const std::shared_ptr<Optimizer>& optimizer() const { return optimizer_; }
+
+    /** Canonical FNV-1a fingerprint of descriptor(), represented as hex. */
+    std::string descriptor_fingerprint() const;
+
+    /** Validate only identity/schema fields without changing scheduler state. */
+    void validate_descriptor(const std::map<std::string, double>& state) const;
+
     /**
      * @brief Get current learning rate
      */
@@ -71,9 +100,28 @@ protected:
     double last_lr_;
     std::vector<double> base_lrs_;
     std::vector<double> last_lrs_;
+    SchedulerDescriptor descriptor_;
 
     /** @brief Apply one learning rate per optimizer parameter group. */
     void set_last_lrs(const std::vector<double>& lrs);
+
+    /** Validate and decode common state without mutating this scheduler. */
+    void decode_state_dict(
+        const std::map<std::string, double>& state,
+        bool allow_negative_lrs,
+        int64_t& restored_step,
+        std::vector<double>& restored_lrs) const;
+
+    void configure_descriptor(
+        std::string type_id,
+        SchedulerStepMode step_mode,
+        std::map<std::string, std::string> config = {},
+        std::vector<SchedulerDescriptor> children = {},
+        bool checkpoint_safe = true);
+
+    static std::string descriptor_number(double value);
+    static std::string descriptor_integer(int64_t value);
+    static std::string descriptor_boolean(bool value);
 };
 
 } // namespace schedulers

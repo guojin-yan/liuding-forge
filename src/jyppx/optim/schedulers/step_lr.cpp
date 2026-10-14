@@ -12,9 +12,13 @@ StepLR::StepLR(std::shared_ptr<Optimizer> optimizer, int64_t step_size, double g
     if (step_size_ <= 0) {
         throw std::invalid_argument("StepLR step_size must be positive");
     }
-    if (gamma_ <= 0.0) {
+    if (!std::isfinite(gamma_) || gamma_ <= 0.0) {
         throw std::invalid_argument("StepLR gamma must be positive");
     }
+    configure_descriptor(
+        "jyppx.scheduler.step_lr/v1", SchedulerStepMode::epoch,
+        {{"gamma", descriptor_number(gamma_)},
+         {"step_size", descriptor_integer(step_size_)}});
 }
 
 void StepLR::step() {

@@ -22,9 +22,18 @@ MultiStepLR::MultiStepLR(
     if (milestones_.front() <= 0) {
         throw std::invalid_argument("MultiStepLR milestones must be positive");
     }
-    if (gamma_ <= 0.0) {
+    if (!std::isfinite(gamma_) || gamma_ <= 0.0) {
         throw std::invalid_argument("MultiStepLR gamma must be positive");
     }
+    std::string encoded_milestones;
+    for (size_t i = 0; i < milestones_.size(); ++i) {
+        if (i != 0) encoded_milestones.push_back(',');
+        encoded_milestones += descriptor_integer(milestones_[i]);
+    }
+    configure_descriptor(
+        "jyppx.scheduler.multi_step_lr/v1", SchedulerStepMode::epoch,
+        {{"gamma", descriptor_number(gamma_)},
+         {"milestones", std::move(encoded_milestones)}});
 }
 
 void MultiStepLR::step() {

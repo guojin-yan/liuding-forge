@@ -107,6 +107,21 @@ scheduler->step();   // once per epoch
 | `CosineAnnealingLR` | `T_max`, `eta_min` | cosine decay from base lr to `eta_min` |
 | `MultiStepLR` | `milestones`, `gamma` | decays by gamma at each milestone |
 | `ReduceLROnPlateau` | options below | decays when a metric stops improving |
+| `OneCycleLR` | `max_lr`, `total_steps` | one-cycle warmup and cooldown |
+| `CosineAnnealingWarmRestarts` | `T_0`, `T_mult`, `eta_min` | cosine cycles with restarts |
+| `LinearLR` | `start_factor`, `end_factor`, `total_iters` | linear factor schedule |
+| `CyclicLR` | `base_lr`, `max_lr`, `step_size_up` | triangular or exponential cycles |
+| `PolynomialLR` | `total_iters`, `power` | polynomial decay |
+| `ConstantLR` | `factor`, `total_iters` | constant factor for a prefix |
+| `LambdaLR` | callable factor | user-defined factor per step |
+| `SequentialLR` / `ChainedScheduler` | scheduler list | compose schedules |
+| `WarmupScheduler` | `warmup_iters`, `start_factor`, optional scheduler | linear warmup wrapper |
+
+`OneCycleLR` is stepped once per optimizer update. Its two-phase and
+three-phase boundaries, cosine/linear interpolation, and inverse momentum or
+Adam beta1 schedule follow PyTorch. `CyclicLR` supports triangular,
+triangular2, exp-range, and custom scale functions, with optional inverse
+momentum or beta1 cycling.
 
 ```cpp
 struct ReduceLROnPlateauOptions {

@@ -33,6 +33,12 @@
 #include <jyppx/optim/schedulers/cosine_annealing_lr.hpp>
 #include <jyppx/optim/schedulers/multi_step_lr.hpp>
 #include <jyppx/optim/schedulers/reduce_lr_on_plateau.hpp>
+#include <jyppx/optim/schedulers/one_cycle_lr.hpp>
+#include <jyppx/optim/schedulers/cosine_annealing_warm_restarts.hpp>
+#include <jyppx/optim/schedulers/linear_lr.hpp>
+#include <jyppx/optim/schedulers/p1_schedulers.hpp>
+#include <jyppx/optim/schedulers/composite_schedulers.hpp>
+#include <jyppx/optim/schedulers/warmup_scheduler.hpp>
 
 // Data
 #include <jyppx/data/dataset.hpp>
