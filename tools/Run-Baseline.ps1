@@ -136,25 +136,34 @@ $benchmarks["jyppx_bench_memory_usage"] = [ordered]@{
 $peakValues = @($memoryRows | ForEach-Object { [UInt64]$_.peak_bytes })
 $maxPeakBytes = ($peakValues | Measure-Object -Maximum).Maximum
 
-$artifactNames = @(
-    "jyppx_foundation.lib",
-    "jyppx_training_framework.lib",
-    "libjyppx_foundation.a",
-    "libjyppx_training_framework.a",
-    "jyppx_bench_dataloader$executableSuffix",
-    "jyppx_bench_trainer_throughput$executableSuffix",
-    "jyppx_bench_optimizer_convergence$executableSuffix",
-    "jyppx_bench_memory_usage$executableSuffix"
+$libraryDir = if ($runningOnWindows) {
+    Join-Path $BuildDir "Release"
+} else {
+    $BuildDir
+}
+$libraryNames = if ($runningOnWindows) {
+    @("jyppx_foundation.lib", "jyppx_training_framework.lib")
+} else {
+    @("libjyppx_foundation.a", "libjyppx_training_framework.a")
+}
+$artifactPaths = @(
+    $libraryNames | ForEach-Object { Join-Path $libraryDir $_ }
+    $benchmarkNames | ForEach-Object {
+        Join-Path $benchmarkDir "$_$executableSuffix"
+    }
+    Join-Path $benchmarkDir "jyppx_bench_memory_usage$executableSuffix"
 )
 $artifacts = @(
-    Get-ChildItem $BuildDir -Recurse -File |
-        Where-Object { $_.Name -in $artifactNames } |
-        ForEach-Object {
-            [ordered]@{
-                path = [IO.Path]::GetRelativePath($BuildDir, $_.FullName)
-                bytes = $_.Length
-            }
+    foreach ($artifactPath in $artifactPaths) {
+        if (-not (Test-Path $artifactPath -PathType Leaf)) {
+            throw "Expected baseline artifact is missing: $artifactPath"
         }
+        $artifact = Get-Item $artifactPath
+        [ordered]@{
+            path = [IO.Path]::GetRelativePath($BuildDir, $artifact.FullName)
+            bytes = $artifact.Length
+        }
+    }
 )
 
 $report = [ordered]@{
