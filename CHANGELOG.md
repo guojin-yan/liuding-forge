@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from this source instead of carrying an independent hard-coded version.
 - A draft `dependency-manifest.json` with SHA-256-verified local archives and a
   validator that keeps unverified candidate downloads explicit.
+- A reproducible local Release baseline runner covering clean configure/build,
+  the full CTest suite, artifact sizes, throughput, optimizer convergence, and
+  isolated process peak memory.
 - A strict foundation quality gate covering Google-style formatting,
   clang-tidy diagnostics, complete Doxygen documentation (including private
   declarations and enum values), and an installed-package consumer test.
@@ -28,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bad-epoch counter.
 
 ### Changed
+- Windows tests, benchmarks, and examples now copy LibTorch runtime DLLs once
+  per output directory, preventing parallel MSBuild copy races.
 - Foundation headers now define fully documented error, RNG, version, and
   build-fingerprint contracts; backend failures encountered while collecting
   the fingerprint are translated into the stable JYPPX error taxonomy with

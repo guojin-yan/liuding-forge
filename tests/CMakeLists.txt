@@ -3,10 +3,13 @@
 # GoogleTest is fetched from the local third_party/downloads cache when
 # available, falling back to the network. Tests are registered with CTest
 # through gtest_discover_tests (PRE_TEST keeps discovery at ctest time, after
-# the POST_BUILD step has copied the LibTorch runtime DLLs next to the test
-# executables).
+# the shared runtime-copy dependency has placed the LibTorch DLLs next to the
+# test executables).
 
 include(FetchContent)
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
@@ -62,7 +65,6 @@ set(JYPPX_TESTS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 # libraries; tests must find them to run.
 if(WIN32)
     get_filename_component(JYPPX_TORCH_RUNTIME_DIR "${TORCH_LIBRARY}" DIRECTORY)
-    file(GLOB JYPPX_TORCH_RUNTIME_DLLS "${JYPPX_TORCH_RUNTIME_DIR}/*.dll")
 endif()
 
 add_test(
@@ -93,12 +95,7 @@ function(jyppx_add_gtest test_name)
     # Expose tests/test_utils/ to test sources via "test_utils/..." includes.
     target_include_directories(${test_name} PRIVATE "${JYPPX_TESTS_SOURCE_DIR}")
 
-    if(WIN32 AND JYPPX_TORCH_RUNTIME_DLLS)
-        add_custom_command(TARGET ${test_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${JYPPX_TORCH_RUNTIME_DLLS}
-                "$<TARGET_FILE_DIR:${test_name}>")
-    endif()
+    jyppx_add_torch_runtime_dependency(${test_name})
 
     gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST)
 endfunction()
@@ -112,12 +109,7 @@ if(JYPPX_BUILD_BENCHMARKS)
     function(jyppx_add_bench bench_name)
         add_executable(${bench_name} ${ARGN})
         target_link_libraries(${bench_name} PRIVATE jyppx_training_framework)
-        if(WIN32 AND JYPPX_TORCH_RUNTIME_DLLS)
-            add_custom_command(TARGET ${bench_name} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${JYPPX_TORCH_RUNTIME_DLLS}
-                    "$<TARGET_FILE_DIR:${bench_name}>")
-        endif()
+        jyppx_add_torch_runtime_dependency(${bench_name})
     endfunction()
 
     add_subdirectory(benchmarks)

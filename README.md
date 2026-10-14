@@ -185,6 +185,20 @@ steps: `cmake --build . --config Release` and `ctest -C Release`. GoogleTest
 1.14.0 is fetched from `third_party/downloads/` when present (offline builds
 work), otherwise from GitHub.
 
+## Local Release Baseline
+
+Run the reproducible local baseline from the repository root:
+
+```powershell
+pwsh -NoProfile -File tools/Run-Baseline.ps1
+```
+
+The command uses a clean `out/build/baseline-release` directory, runs the full
+Release test suite and benchmarks, and writes machine-readable timing, artifact
+size, throughput, and isolated peak-memory evidence under
+`out/baseline/release`. Use `-ReuseBuild` only for diagnosing the baseline
+tool itself; reused build time is not comparable to a clean compile baseline.
+
 ## Building Documentation
 
 ```bash

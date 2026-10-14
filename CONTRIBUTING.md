@@ -84,6 +84,10 @@ Do not infer support from a version range. Add a verified lane with reproducible
 configure, build, test, and installed-consumer evidence before changing a
 candidate lane to `supported`.
 
+Generate the local Release timing, artifact-size, throughput, and peak-memory
+baseline with `pwsh -NoProfile -File tools/Run-Baseline.ps1`. The default clean
+build is required for comparable compile-time evidence.
+
 ### Testing
 
 - Write unit tests for new features

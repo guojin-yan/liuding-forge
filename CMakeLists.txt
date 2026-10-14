@@ -68,6 +68,11 @@ message(STATUS "LibTorch version: ${Torch_VERSION}")
 message(STATUS "LibTorch include dirs: ${TORCH_INCLUDE_DIRS}")
 message(STATUS "LibTorch libraries: ${TORCH_LIBRARIES}")
 
+# Windows test and example targets share a runtime directory. The helper
+# serializes one copy per binary directory so parallel MSBuild cannot race on
+# the same DLL destination.
+include(cmake/CopyTorchRuntime.cmake)
+
 # ============================================
 # Generated Foundation Build Metadata
 # ============================================
@@ -125,6 +130,9 @@ target_include_directories(jyppx_foundation
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${JYPPX_GENERATED_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:include>
+)
+target_include_directories(jyppx_foundation SYSTEM
+    PUBLIC
         $<BUILD_INTERFACE:${TORCH_INCLUDE_DIRS}>
 )
 target_link_libraries(jyppx_foundation PUBLIC ${TORCH_LIBRARIES})
@@ -149,9 +157,12 @@ target_include_directories(jyppx_training_framework
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
-        $<BUILD_INTERFACE:${TORCH_INCLUDE_DIRS}>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_include_directories(jyppx_training_framework SYSTEM
+    PUBLIC
+        $<BUILD_INTERFACE:${TORCH_INCLUDE_DIRS}>
 )
 
 # Link LibTorch
