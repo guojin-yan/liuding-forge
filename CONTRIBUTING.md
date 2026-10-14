@@ -123,4 +123,8 @@ Closes #123
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in this project is licensed exclusively under the
+[Apache License 2.0](LICENSE), without additional terms or conditions. Submit
+only work that you own or are authorized to contribute, and preserve all
+applicable third-party copyright, patent and attribution notices.

@@ -6,7 +6,7 @@ experience PyTorch users know: data loaders, optimizers, schedulers,
 metrics, callbacks, checkpointing and mixed precision.
 
 - Slogan: *Bridge PyTorch to C++, Empower Your Training*
-- License: MIT
+- License: Apache-2.0
 
 ## Getting started
 

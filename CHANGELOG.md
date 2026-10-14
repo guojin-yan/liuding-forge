@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bad-epoch counter.
 
 ### Changed
+- Project licensing changed from MIT to Apache-2.0-only for the current and
+  future source tree. Previously published MIT-licensed versions retain their
+  original license.
 - Checkpoint, optimizer, and DataLoader state readers now require their current
   explicit format instead of retaining unversioned compatibility branches.
 - `AutocastGuard` validates device/dtype pairs and restores nested dtype state;

@@ -245,6 +245,14 @@ install(FILES
     DESTINATION lib/cmake/jyppx_training_framework
 )
 
+install(FILES
+    LICENSE
+    NOTICE
+    THIRD_PARTY_NOTICES.md
+    DESTINATION share/doc/jyppx_training_framework
+    COMPONENT licenses
+)
+
 # ============================================
 # Summary
 # ============================================

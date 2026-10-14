@@ -184,7 +184,9 @@ cmake --build . --target docs
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Licensed exclusively under the [Apache License 2.0](LICENSE). Third-party
+dependencies retain their own licenses; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Contributing
 
