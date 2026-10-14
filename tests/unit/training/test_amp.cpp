@@ -82,7 +82,61 @@ TEST(GradScalerTest, InfGradientSkipsStepAndBacksOff) {
     scaler.step(optimizer);
     EXPECT_TRUE(scaler.found_inf());
     EXPECT_TRUE(torch::equal(params[0], initial)); // update skipped
+    EXPECT_DOUBLE_EQ(scaler.get_scale(), 2.0);     // update owns scale changes
+    scaler.update();
     EXPECT_DOUBLE_EQ(scaler.get_scale(), 1.0);     // 2.0 * 0.5
+}
+
+TEST(GradScalerTest, TracksMultipleOptimizersIndependently) {
+    auto finite_params = make_params({{2}});
+    auto overflow_params = make_params({{2}});
+    const auto finite_initial = finite_params[0].detach().clone();
+    const auto overflow_initial = overflow_params[0].detach().clone();
+    auto finite_optimizer =
+        std::make_shared<optim::SGD>(finite_params, optim::SGDOptions{.lr = 0.1});
+    auto overflow_optimizer =
+        std::make_shared<optim::SGD>(overflow_params, optim::SGDOptions{.lr = 0.1});
+
+    GradScaler scaler({.init_scale = 8.0, .backoff_factor = 0.5});
+    finite_params[0].mutable_grad() = torch::full_like(finite_params[0], 8.0);
+    overflow_params[0].mutable_grad() = torch::full_like(
+        overflow_params[0], std::numeric_limits<double>::infinity());
+
+    scaler.step(finite_optimizer);
+    scaler.step(overflow_optimizer);
+    EXPECT_TRUE(torch::allclose(finite_params[0], finite_initial - 0.1, 1e-12, 1e-12));
+    EXPECT_TRUE(torch::equal(overflow_params[0], overflow_initial));
+    EXPECT_TRUE(scaler.found_inf());
+    EXPECT_DOUBLE_EQ(scaler.get_scale(), 8.0);
+    scaler.update();
+    EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
+}
+
+TEST(GradScalerCudaTest, MultipleOptimizersUseRealCudaGradients) {
+    if (!cuda_is_available()) {
+        GTEST_SKIP() << "CUDA not available";
+    }
+
+    const auto options = torch::TensorOptions().device(torch::kCUDA).dtype(torch::kFloat32);
+    std::vector<Tensor> finite_params{torch::ones({2}, options).requires_grad_(true)};
+    std::vector<Tensor> overflow_params{torch::ones({2}, options).requires_grad_(true)};
+    auto finite_optimizer =
+        std::make_shared<optim::SGD>(finite_params, optim::SGDOptions{.lr = 0.1});
+    auto overflow_optimizer =
+        std::make_shared<optim::SGD>(overflow_params, optim::SGDOptions{.lr = 0.1});
+
+    GradScaler scaler({.init_scale = 8.0, .backoff_factor = 0.5});
+    finite_params[0].mutable_grad() = torch::full_like(finite_params[0], 8.0);
+    overflow_params[0].mutable_grad() = torch::full_like(
+        overflow_params[0], std::numeric_limits<float>::infinity());
+
+    scaler.step(finite_optimizer);
+    scaler.step(overflow_optimizer);
+    scaler.update();
+
+    EXPECT_TRUE(torch::allclose(finite_params[0].cpu(), torch::full({2}, 0.9f)));
+    EXPECT_TRUE(torch::equal(overflow_params[0].cpu(), torch::ones({2})));
+    EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
 }
 
 TEST(GradScalerTest, UnscaleBeforeClipAndStepIsIdempotent) {
@@ -106,15 +160,22 @@ TEST(GradScalerTest, UnscaleBeforeClipAndStepIsIdempotent) {
 
 TEST(GradScalerTest, UpdateGrowsScaleAfterInterval) {
     GradScaler scaler({.init_scale = 1.0, .growth_factor = 2.0, .growth_interval = 2});
+    auto params = make_params({{1}});
+    auto optimizer = std::make_shared<optim::SGD>(params, optim::SGDOptions{.lr = 0.1});
+    const auto successful_step = [&] {
+        params[0].mutable_grad() = torch::ones_like(params[0]);
+        scaler.step(optimizer);
+        scaler.update();
+    };
 
-    scaler.update();
+    successful_step();
     EXPECT_DOUBLE_EQ(scaler.get_scale(), 1.0); // interval not reached
-    scaler.update();
+    successful_step();
     EXPECT_DOUBLE_EQ(scaler.get_scale(), 2.0); // growth applied
 
     // Successful steps keep counting; the tracker restarts after growth.
-    scaler.update();
-    scaler.update();
+    successful_step();
+    successful_step();
     EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
 }
 
@@ -146,10 +207,15 @@ TEST(GradScalerTest, OverflowingStepsDoNotCountTowardGrowth) {
 
 TEST(GradScalerTest, StateDictRoundTrip) {
     GradScaler scaler({.init_scale = 100.0, .growth_interval = 3});
-    scaler.update();
-    scaler.update();
+    auto params = make_params({{1}});
+    auto optimizer = std::make_shared<optim::SGD>(params);
+    for (int i = 0; i < 2; ++i) {
+        params[0].mutable_grad() = torch::ones_like(params[0]);
+        scaler.step(optimizer);
+        scaler.update();
+    }
 
-    GradScaler restored;
+    GradScaler restored({.init_scale = 100.0, .growth_interval = 3});
     restored.load_state_dict(scaler.state_dict());
     EXPECT_DOUBLE_EQ(restored.get_scale(), scaler.get_scale());
     EXPECT_EQ(
@@ -162,6 +228,34 @@ TEST(GradScalerTest, InvalidOptionsThrow) {
     EXPECT_THROW(GradScaler({.growth_factor = 1.0}), std::invalid_argument);
     EXPECT_THROW(GradScaler({.backoff_factor = 1.0}), std::invalid_argument);
     EXPECT_THROW(GradScaler({.growth_interval = 0}), std::invalid_argument);
+    EXPECT_THROW(
+        GradScaler({.init_scale = std::numeric_limits<double>::quiet_NaN()}),
+        std::invalid_argument);
+}
+
+TEST(GradScalerTest, EnforcesStepUpdateStateMachineAndValidatesState) {
+    auto params = make_params({{1}});
+    auto optimizer = std::make_shared<optim::SGD>(params);
+    GradScaler scaler({.init_scale = 2.0});
+    EXPECT_THROW(scaler.update(), std::logic_error);
+
+    params[0].mutable_grad() = torch::full_like(params[0], 2.0);
+    scaler.step(optimizer);
+    EXPECT_THROW(scaler.state_dict(), std::logic_error);
+    EXPECT_THROW(scaler.step(optimizer), std::logic_error);
+    EXPECT_THROW(scaler.unscale(optimizer), std::logic_error);
+    scaler.update();
+
+    auto invalid = scaler.state_dict();
+    invalid["scale"] = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_THROW(scaler.load_state_dict(invalid), std::invalid_argument);
+
+    GradScaler incompatible({.init_scale = 4.0});
+    EXPECT_THROW(incompatible.load_state_dict(scaler.state_dict()), std::invalid_argument);
+
+    auto incomplete = scaler.state_dict();
+    incomplete.erase("growth_factor");
+    EXPECT_THROW(scaler.load_state_dict(incomplete), std::invalid_argument);
 }
 
 TEST(GradScalerTest, NullOptimizerThrows) {

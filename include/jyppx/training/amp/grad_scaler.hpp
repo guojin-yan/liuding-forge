@@ -27,9 +27,9 @@ struct GradScalerOptions {
  * @brief Gradient scaler for mixed-precision training
  *
  * Multiplies the loss so small FP16 gradients do not underflow, then unscales
- * gradients before the optimizer step and skips the step entirely when the
- * unscaled gradients contain inf/NaN (shrinking the scale factor). Mirrors
- * the semantics of torch.cuda.amp.GradScaler.
+ * gradients before each optimizer step. An optimizer with inf/NaN gradients
+ * is skipped independently; update() applies one global scale decision after
+ * all optimizers in the iteration have stepped.
  *
  * @example
  * @code
@@ -60,15 +60,14 @@ public:
     void unscale(const std::shared_ptr<optim::Optimizer>& optimizer);
 
     /**
-     * @brief Unscale (if needed) and step the optimizer, skipping the step
-     *        when inf/NaN gradients were found.
+     * @brief Unscale (if needed) and step this optimizer when its gradients
+     *        are finite. Multiple optimizers may step before one update().
      */
     void step(const std::shared_ptr<optim::Optimizer>& optimizer);
 
     /**
-     * @brief Grow the scale factor after growth_interval successful steps.
-     *        Call once after every step() (PyTorch semantics: only steps
-     *        without inf/NaN count toward the interval).
+     * @brief Apply one global scale update after all optimizers in the
+     *        iteration step. Only fully finite iterations count toward growth.
      */
     void update();
 
@@ -78,16 +77,26 @@ public:
     /// Whether the most recent unscale/step detected inf or NaN gradients.
     bool found_inf() const;
 
-    /// Serializable state (scale factor and growth tracker).
+    /// Serializable state. Only stable between completed step/update cycles.
     std::map<std::string, double> state_dict() const;
     void load_state_dict(const std::map<std::string, double>& state);
 
 private:
+    enum class OptimizerStage {
+        unscaled,
+        stepped,
+    };
+
+    struct OptimizerState {
+        OptimizerStage stage = OptimizerStage::unscaled;
+        bool found_inf = false;
+    };
+
     GradScalerOptions options_;
     double scale_;
     int growth_tracker_;
     bool found_inf_;
-    bool unscaled_;
+    std::map<const optim::Optimizer*, OptimizerState> optimizer_states_;
 };
 
 } // namespace amp
