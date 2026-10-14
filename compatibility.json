@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "project": {
+    "version": "0.3.0",
+    "cxx_standard": 20,
+    "cmake_minimum": "3.18"
+  },
+  "libtorch": {
+    "primary": {
+      "version": "2.14.1",
+      "distribution": "bundled-cuda",
+      "status": "development-baseline",
+      "verified_lanes": [
+        {
+          "id": "local-windows-msvc-cuda",
+          "os": "windows",
+          "architecture": "x86_64",
+          "compiler": "MSVC 19.51",
+          "accelerator": "CUDA 12.9",
+          "build_type": "Release",
+          "tests": "322/322",
+          "commit": "8f53202"
+        }
+      ]
+    },
+    "compatibility_candidate": {
+      "version": "2.5.1",
+      "distribution": "cpu",
+      "status": "candidate",
+      "verified_lanes": []
+    }
+  },
+  "ci": {
+    "candidate_lane": "compatibility_candidate",
+    "operating_systems": ["ubuntu-latest", "windows-latest", "macos-latest"],
+    "build_types": ["Release", "Debug"],
+    "required_evidence": [
+      "configure",
+      "build",
+      "ctest",
+      "install_consumer"
+    ]
+  },
+  "policy": {
+    "support_requires_green_lane": true,
+    "minor_versions_are_not_implicitly_compatible": true,
+    "unlisted_combinations_are_unsupported": true,
+    "cuda_requires_exact_libtorch_and_driver_evidence": true
+  }
+}

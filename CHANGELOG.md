@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A versioned `compatibility.json` source of truth and dependency-free
+  validator. CI and benchmark workflows now read the candidate LibTorch version
+  from this source instead of carrying an independent hard-coded version.
 - A strict foundation quality gate covering Google-style formatting,
   clang-tidy diagnostics, complete Doxygen documentation (including private
   declarations and enum values), and an installed-package consumer test.

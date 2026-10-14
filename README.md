@@ -14,8 +14,17 @@ A C++ deep learning training framework built on LibTorch, providing PyTorch-styl
 
 - **C++20** or later (required by the bundled LibTorch 2.14.x)
 - **CMake 3.18+**
-- **LibTorch 2.0.1+**
-- **CUDA 11.8+** (optional, for GPU support)
+- An exact LibTorch combination listed in [`compatibility.json`](compatibility.json)
+  (the current development baseline is 2.14.1 CUDA; 2.5.1 CPU remains a
+  compatibility candidate until its CI evidence is green)
+- CUDA is supported only for an exact LibTorch, driver, and GPU combination
+  with recorded evidence; an unlisted CUDA version is not implicitly supported
+
+Validate the compatibility source before configuring a local build:
+
+```bash
+python tools/compatibility.py --file compatibility.json --validate
+```
 
 ## Quick Start
 

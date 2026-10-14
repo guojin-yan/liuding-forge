@@ -8,6 +8,16 @@
 
 include(FetchContent)
 
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME CompatibilitySource
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/compatibility.py
+                --file ${CMAKE_SOURCE_DIR}/compatibility.json --validate
+    )
+    set_tests_properties(CompatibilitySource PROPERTIES LABELS "hygiene;compatibility")
+endif()
+
 set(JYPPX_GTEST_VERSION 1.14.0)
 set(JYPPX_GTEST_ZIP "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/downloads/googletest-${JYPPX_GTEST_VERSION}.zip")
 

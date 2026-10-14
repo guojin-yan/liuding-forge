@@ -14,7 +14,7 @@ Thank you for your interest in contributing! This document provides guidelines f
 
 - C++20 compatible compiler
 - CMake 3.18+
-- LibTorch 2.0.1+
+- An exact LibTorch combination listed in [`compatibility.json`](compatibility.json)
 
 ### Building
 ```bash
@@ -72,6 +72,16 @@ ctest --test-dir build-quality --output-on-failure
 The documentation option requires Doxygen. The clang options require
 `clang-format` and `clang-tidy` to be discoverable on `PATH`, unless their
 corresponding `JYPPX_*_EXECUTABLE` cache entries are supplied explicitly.
+
+Before configuring a build, validate the repository compatibility source:
+
+```bash
+python tools/compatibility.py --file compatibility.json --validate
+```
+
+Do not infer support from a version range. Add a verified lane with reproducible
+configure, build, test, and installed-consumer evidence before changing a
+candidate lane to `supported`.
 
 ### Testing
 

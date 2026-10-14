@@ -5,15 +5,21 @@ on:
   schedule:
     - cron: '0 3 * * 1'
 
-env:
-  LIBTORCH_VERSION: 2.5.1
-
 jobs:
   benchmark:
     name: CPU benchmark
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Validate compatibility source
+        shell: bash
+        run: |
+          python tools/compatibility.py --file compatibility.json --validate
+          echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
       - name: Download LibTorch (CPU)
         shell: bash
         run: |
