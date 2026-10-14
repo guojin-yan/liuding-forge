@@ -11,7 +11,8 @@ Thank you for your interest in contributing! This document provides guidelines f
 ## Development Setup
 
 ### Prerequisites
-- C++17 compatible compiler (GCC 9+, Clang 10+, MSVC 2019+)
+
+- C++20 compatible compiler
 - CMake 3.18+
 - LibTorch 2.0.1+
 
@@ -30,8 +31,10 @@ ctest --output-on-failure
 ## Coding Standards
 
 ### C++ Style
-- Follow C++17 standard
-- Use clang-format for formatting (config provided)
+
+- Follow the Google C++ Style Guide and compile as C++20
+- Run clang-format with the repository configuration before submitting
+- Run clang-tidy on every target that is inside the strict migration scope
 - Follow naming conventions:
   - Classes: `PascalCase`
   - Functions: `snake_case`
@@ -40,11 +43,38 @@ ctest --output-on-failure
   - Member variables: `snake_case_` (trailing underscore)
 
 ### Documentation
-- Add Doxygen comments for all public APIs
+
+- Add complete Doxygen comments to every declaration in a header, including
+  private members, constructors, methods, structs and their fields, enums and
+  every enum value
+- Document ownership, lifetime, thread-safety, error behavior, state mutation,
+  units, valid ranges, and determinism whenever those constraints apply
+- Treat undocumented declarations and malformed Doxygen as build failures
 - Include usage examples for complex features
 - Update relevant tutorials in `docs/tutorials/`
 
+### Local Quality Gates
+
+The strict gates currently cover the migrated foundation target and expand
+with each migrated component:
+
+```bash
+cmake -S . -B build-quality \
+  -DJYPPX_BUILD_TESTS=ON \
+  -DJYPPX_BUILD_DOCS=ON \
+  -DJYPPX_ENABLE_CLANG_TIDY=ON \
+  -DJYPPX_ENABLE_FORMAT_CHECK=ON \
+  -DCMAKE_PREFIX_PATH=/path/to/libtorch
+cmake --build build-quality --target jyppx_foundation_docs --parallel
+ctest --test-dir build-quality --output-on-failure
+```
+
+The documentation option requires Doxygen. The clang options require
+`clang-format` and `clang-tidy` to be discoverable on `PATH`, unless their
+corresponding `JYPPX_*_EXECUTABLE` cache entries are supplied explicitly.
+
 ### Testing
+
 - Write unit tests for new features
 - Ensure all tests pass before submitting
 - Aim for >80% code coverage
@@ -103,6 +133,8 @@ Closes #123
 
 ### PR Checklist
 - [ ] Code follows project style
+- [ ] Header declarations and enum values have complete Doxygen comments
+- [ ] clang-format, clang-tidy, and Doxygen gates pass for migrated targets
 - [ ] All tests pass
 - [ ] Documentation updated
 - [ ] CHANGELOG.md updated

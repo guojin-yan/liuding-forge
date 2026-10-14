@@ -49,6 +49,22 @@ if(WIN32)
     file(GLOB JYPPX_TORCH_RUNTIME_DLLS "${JYPPX_TORCH_RUNTIME_DIR}/*.dll")
 endif()
 
+add_test(
+    NAME FoundationInstallConsumer
+    COMMAND ${CMAKE_COMMAND}
+        -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
+        -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/foundation_consumer
+        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_fc/$<CONFIG>
+        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_TORCH_DIR=${Torch_DIR}
+        -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
+        -P ${CMAKE_SOURCE_DIR}/cmake/TestInstalledFoundation.cmake
+)
+set_tests_properties(FoundationInstallConsumer PROPERTIES
+    LABELS "foundation;packaging"
+    RESOURCE_LOCK jyppx_install_consumer
+)
+
 # Adds a GoogleTest executable linked against the framework and registered
 # with CTest. Sources are passed as extra arguments.
 function(jyppx_add_gtest test_name)

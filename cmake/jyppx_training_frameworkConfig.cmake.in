@@ -4,7 +4,9 @@ include(CMakeFindDependencyMacro)
 find_dependency(Torch REQUIRED)
 
 include("${CMAKE_CURRENT_LIST_DIR}/jyppx_training_frameworkTargets.cmake")
-set_property(TARGET jyppx_training_framework::jyppx_training_framework APPEND
-    PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")
+foreach(JYPPX_EXPORTED_TARGET IN ITEMS jyppx::foundation jyppx::sdk)
+    set_property(TARGET ${JYPPX_EXPORTED_TARGET} APPEND
+        PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")
+endforeach()
 
 check_required_components(jyppx_training_framework)

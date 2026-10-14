@@ -52,12 +52,13 @@ target:
 
 ```cmake
 find_package(jyppx_training_framework CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE
-    jyppx_training_framework::jyppx_training_framework)
+target_link_libraries(my_app PRIVATE jyppx::sdk)
 ```
 
-The public C++ headers and API continue to use the `jyppx` include path and
-namespace; the CMake package and compiled library use the full project name.
+Use `jyppx::foundation` when a tool only needs the error, RNG, and build
+fingerprint contracts. Public C++ headers, namespaces, and exported CMake
+targets all use the `jyppx` name; legacy target aliases are intentionally not
+provided.
 
 ### Basic Usage
 

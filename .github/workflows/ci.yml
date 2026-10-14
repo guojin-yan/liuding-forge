@@ -23,6 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install foundation quality tools
+        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'Release'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format clang-tidy doxygen
+
       - name: Download LibTorch (CPU)
         shell: bash
         run: |
@@ -44,13 +51,26 @@ jobs:
       - name: Configure
         shell: bash
         run: |
+          quality_flags=()
+          if [ "$RUNNER_OS" == "Linux" ] && [ "${{ matrix.build_type }}" == "Release" ]; then
+            quality_flags+=(
+              -DJYPPX_BUILD_DOCS=ON
+              -DJYPPX_ENABLE_CLANG_TIDY=ON
+              -DJYPPX_ENABLE_FORMAT_CHECK=ON
+            )
+          fi
           cmake -S . -B build \
             -DJYPPX_BUILD_TESTS=ON \
             -DJYPPX_BUILD_EXAMPLES=ON \
-            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/libtorch-install/libtorch"
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/libtorch-install/libtorch" \
+            "${quality_flags[@]}"
 
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Validate foundation API documentation
+        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'Release'
+        run: cmake --build build --config Release --target jyppx_foundation_docs
 
       - name: Test
         shell: bash

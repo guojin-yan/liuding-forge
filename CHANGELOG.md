@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A strict foundation quality gate covering Google-style formatting,
+  clang-tidy diagnostics, complete Doxygen documentation (including private
+  declarations and enum values), and an installed-package consumer test.
+- Exported `jyppx::foundation` and `jyppx::sdk` CMake targets for focused and
+  full-framework consumers.
 - Versioned DataLoader/sampler state for deterministic epoch-boundary resume.
 - Transactional Trainer checkpoint restore covering model, optimizer,
   scheduler, AMP scaler, callbacks, RNG, loaders, and loop counters.
@@ -18,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bad-epoch counter.
 
 ### Changed
+- Foundation headers now define fully documented error, RNG, version, and
+  build-fingerprint contracts; backend failures encountered while collecting
+  the fingerprint are translated into the stable JYPPX error taxonomy with
+  their original cause preserved.
+- Removed the legacy exported CMake target names instead of retaining aliases
+  or forwarding compatibility targets.
 - Project licensing changed from MIT to Apache-2.0-only for the current and
   future source tree. Previously published MIT-licensed versions retain their
   original license.

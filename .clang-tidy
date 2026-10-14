@@ -1,0 +1,15 @@
+---
+Checks: >
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.*,
+  bugprone-exception-escape,
+  bugprone-infinite-loop,
+  bugprone-use-after-move,
+  performance-move-const-arg,
+  performance-noexcept-move-constructor,
+  portability-std-allocator-const
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/(include/jyppx/foundation|src/jyppx/foundation)/.*'
+FormatStyle: file
+...

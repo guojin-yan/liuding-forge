@@ -9,6 +9,8 @@ option(JYPPX_BUILD_EXAMPLES "Build examples" ON)
 option(JYPPX_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(JYPPX_BUILD_DOCS "Build documentation" OFF)
 option(JYPPX_ENABLE_COVERAGE "Enable code coverage" OFF)
+option(JYPPX_ENABLE_CLANG_TIDY "Run clang-tidy on migrated targets" OFF)
+option(JYPPX_ENABLE_FORMAT_CHECK "Check migrated sources with clang-format" OFF)
 
 # ============================================
 # C++ Standard
@@ -114,7 +116,10 @@ add_library(jyppx_foundation STATIC
     src/jyppx/foundation/version.cpp
 )
 add_library(jyppx::foundation ALIAS jyppx_foundation)
-set_target_properties(jyppx_foundation PROPERTIES OUTPUT_NAME jyppx_foundation)
+set_target_properties(jyppx_foundation PROPERTIES
+    OUTPUT_NAME jyppx_foundation
+    EXPORT_NAME foundation
+)
 target_include_directories(jyppx_foundation
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -133,9 +138,10 @@ target_compile_definitions(jyppx_foundation
 )
 
 add_library(jyppx_training_framework STATIC)
-add_library(jyppx_training_framework::jyppx_training_framework ALIAS jyppx_training_framework)
+add_library(jyppx::sdk ALIAS jyppx_training_framework)
 set_target_properties(jyppx_training_framework PROPERTIES
     OUTPUT_NAME jyppx_training_framework
+    EXPORT_NAME sdk
 )
 
 # Include directories
@@ -188,12 +194,8 @@ endif()
 # Documentation
 # ============================================
 if(JYPPX_BUILD_DOCS)
-    find_package(Doxygen)
-    if(DOXYGEN_FOUND)
-        add_subdirectory(docs)
-    else()
-        message(WARNING "Doxygen not found, documentation will not be built")
-    endif()
+    find_package(Doxygen REQUIRED)
+    add_subdirectory(docs)
 endif()
 
 # ============================================
@@ -218,7 +220,7 @@ install(FILES
 
 install(EXPORT jyppx_training_frameworkTargets
     FILE jyppx_training_frameworkTargets.cmake
-    NAMESPACE jyppx_training_framework::
+    NAMESPACE jyppx::
     DESTINATION lib/cmake/jyppx_training_framework
 )
 
@@ -264,4 +266,6 @@ message(STATUS "  Build tests: ${JYPPX_BUILD_TESTS}")
 message(STATUS "  Build examples: ${JYPPX_BUILD_EXAMPLES}")
 message(STATUS "  Build benchmarks: ${JYPPX_BUILD_BENCHMARKS}")
 message(STATUS "  Build docs: ${JYPPX_BUILD_DOCS}")
+message(STATUS "  Clang-tidy: ${JYPPX_ENABLE_CLANG_TIDY}")
+message(STATUS "  Format check: ${JYPPX_ENABLE_FORMAT_CHECK}")
 message(STATUS "")

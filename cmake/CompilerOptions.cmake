@@ -26,6 +26,54 @@ foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     endif()
 endforeach()
 
+# The strict quality gates expand one migrated component at a time. Foundation
+# is the first completed ownership boundary; adding a target here requires its
+# headers and sources to pass the same gate before the migration is accepted.
+if(JYPPX_ENABLE_CLANG_TIDY)
+    if(NOT JYPPX_CLANG_TIDY_EXECUTABLE)
+        find_program(JYPPX_CLANG_TIDY_EXECUTABLE
+            NAMES clang-tidy clang-tidy-20 clang-tidy-19 clang-tidy-18
+        )
+    endif()
+    if(NOT JYPPX_CLANG_TIDY_EXECUTABLE)
+        message(FATAL_ERROR
+            "JYPPX_ENABLE_CLANG_TIDY=ON requires a clang-tidy executable")
+    endif()
+    set_target_properties(jyppx_foundation PROPERTIES
+        CXX_CLANG_TIDY
+            "${JYPPX_CLANG_TIDY_EXECUTABLE};--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
+    )
+endif()
+
+if(JYPPX_ENABLE_FORMAT_CHECK)
+    if(NOT JYPPX_CLANG_FORMAT_EXECUTABLE)
+        find_program(JYPPX_CLANG_FORMAT_EXECUTABLE
+            NAMES clang-format clang-format-20 clang-format-19 clang-format-18
+        )
+    endif()
+    if(NOT JYPPX_CLANG_FORMAT_EXECUTABLE)
+        message(FATAL_ERROR
+            "JYPPX_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
+    endif()
+    set(JYPPX_FOUNDATION_FORMAT_FILES
+        ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/error.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/foundation.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/random.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/version.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/error.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/random.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/version.cpp
+        ${PROJECT_SOURCE_DIR}/tests/install/foundation_consumer/main.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/foundation/test_foundation.cpp
+    )
+    add_custom_target(jyppx_foundation_format_check ALL
+        COMMAND ${JYPPX_CLANG_FORMAT_EXECUTABLE}
+            --dry-run --Werror ${JYPPX_FOUNDATION_FORMAT_FILES}
+        COMMENT "Checking foundation sources with clang-format"
+        VERBATIM
+    )
+endif()
+
 # ============================================
 # Debug Definitions
 # ============================================
