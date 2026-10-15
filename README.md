@@ -199,6 +199,18 @@ size, throughput, and isolated peak-memory evidence under
 `out/baseline/release`. Use `-ReuseBuild` only for diagnosing the baseline
 tool itself; reused build time is not comparable to a clean compile baseline.
 
+## Debug, Coverage, and Sanitizers
+
+Debug uses the same release CRT and iterator-debug level as LibTorch on Windows;
+this is required for safe source-level debugging against the official binaries.
+Coverage and sanitizer options require GCC or Clang and fail at configure time
+on unsupported compilers instead of silently producing an uninstrumented build.
+The Linux coverage lane is `bash tools/run-coverage.sh`; it requires `gcovr` and
+`CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. `JYPPX_ENABLE_ASAN`,
+`JYPPX_ENABLE_UBSAN`, and `JYPPX_ENABLE_TSAN` instrument both framework
+libraries and test/benchmark executables. AddressSanitizer and ThreadSanitizer
+cannot be combined; coverage and ThreadSanitizer are also rejected.
+
 ## Building Documentation
 
 ```bash
