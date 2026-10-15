@@ -1,62 +1,89 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
 #ifndef JYPPX_DISTRIBUTED_DDP_HPP
-#define JYPPX_DISTRIBUTED_DISTRIBUTED_HPP
+#define JYPPX_DISTRIBUTED_DDP_HPP
 
 #include <jyppx/distributed/distributed.hpp>
 
 #include <memory>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
-namespace jyppx {
-namespace distributed {
+namespace jyppx::distributed {
 
 /**
- * @brief Data-parallel wrapper for a torch::nn::Module subclass
+ * @brief Data-parallel wrapper for a concrete `torch::nn::Module` subtype.
  *
- * Wraps a typed module (like torch::nn::DistributedDataParallel in spirit):
- * `forward` forwards to the wrapped module, and every parameter gradient is
- * routed through `distributed::average_gradients` via autograd hooks. With
- * the single-process backend the hooks are no-ops, so code written against
- * DDP runs unchanged locally; a c10d backend build turns the hooks into real
- * all-reduces.
+ * `forward()` delegates to the wrapped module. Each trainable parameter
+ * gradient is passed through `average_gradients()` by an autograd hook. The
+ * single-process backend returns gradients unchanged; a future c10d backend
+ * can provide cross-process reduction without changing this wrapper contract.
  *
- * @tparam ModuleT the concrete module type (must expose forward(...))
+ * @tparam ModuleT Concrete module type that exposes `forward()` and
+ * `parameters()`.
  */
 template <typename ModuleT>
 class DistributedDataParallel {
-public:
-    explicit DistributedDataParallel(std::shared_ptr<ModuleT> module)
-        : module_(std::move(module)) {
-        if (!module_) {
-            throw std::invalid_argument("DistributedDataParallel module cannot be null");
-        }
-        install_hooks();
+ public:
+  /**
+   * @brief Wraps a non-null module and installs its gradient hooks.
+   *
+   * @param module Module whose trainable parameters participate in gradient
+   * averaging.
+   * @throws std::invalid_argument If `module` is null.
+   */
+  explicit DistributedDataParallel(std::shared_ptr<ModuleT> module)
+      : module_(std::move(module)) {
+    if (!module_) {
+      throw std::invalid_argument(
+          "DistributedDataParallel module cannot be null");
     }
+    install_hooks();
+  }
 
-    template <typename... Args>
-    auto forward(Args&&... args) {
-        return module_->forward(std::forward<Args>(args)...);
+  /**
+   * @brief Forwards arguments to the wrapped module.
+   *
+   * @tparam Args Argument types accepted by `ModuleT::forward()`.
+   * @param args Arguments forwarded with their value categories preserved.
+   * @return The result returned by `ModuleT::forward()`.
+   */
+  template <typename... Args>
+  decltype(auto) forward(Args&&... args) {
+    return module_->forward(std::forward<Args>(args)...);
+  }
+
+  /**
+   * @brief Returns the wrapped module.
+   *
+   * @return Shared ownership of the same module supplied to the constructor.
+   */
+  std::shared_ptr<ModuleT> module() const { return module_; }
+
+ private:
+  /** Installs one averaging hook for every defined trainable parameter. */
+  void install_hooks() {
+    for (const auto& parameter : module_->parameters()) {
+      if (!parameter.defined() || !parameter.requires_grad()) {
+        continue;
+      }
+      hooks_.push_back(parameter.register_hook([](Tensor gradient) {
+        return average_gradients(std::move(gradient));
+      }));
     }
+  }
 
-    /** @brief The wrapped module (for parameters(), train()/eval(), ...). */
-    std::shared_ptr<ModuleT> module() const { return module_; }
+  /** Module whose forward pass and gradients are wrapped. */
+  std::shared_ptr<ModuleT> module_;
 
-private:
-    void install_hooks() {
-        for (const auto& parameter : module_->parameters()) {
-            if (!parameter.defined() || !parameter.requires_grad()) {
-                continue;
-            }
-            hooks_.push_back(parameter.register_hook(
-                [](Tensor gradient) { return average_gradients(std::move(gradient)); }));
-        }
-    }
-
-    std::shared_ptr<ModuleT> module_;
-    std::vector<unsigned> hooks_;  // autograd hook handles, kept alive
+  /** Autograd hook handles retained for the lifetime of the wrapper. */
+  std::vector<unsigned> hooks_;
 };
 
-} // namespace distributed
-} // namespace jyppx
+}  // namespace jyppx::distributed
 
-#endif // JYPPX_DISTRIBUTED_DDP_HPP
+#endif  // JYPPX_DISTRIBUTED_DDP_HPP

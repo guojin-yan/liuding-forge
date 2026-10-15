@@ -358,7 +358,9 @@ TEST(TrainerAMPTest, AmpFitsOnCudaAndReducesLoss) {
     GTEST_SKIP() << "CUDA not available";
   }
 
-  const auto [inputs, targets] = make_linear_data(64);
+  const auto training_data = make_linear_data(64);
+  const auto& inputs = training_data.first;
+  const auto& targets = training_data.second;
 
   auto make_and_fit = [&](bool use_amp) {
     torch::manual_seed(2026);

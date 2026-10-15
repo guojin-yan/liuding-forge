@@ -75,6 +75,12 @@ if(Python3_Interpreter_FOUND)
         LABELS "hygiene;performance"
         WILL_FAIL TRUE
     )
+    add_test(
+        NAME PublicHeaderGuards
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/header_guards.py
+                --root ${CMAKE_SOURCE_DIR}/include/jyppx
+    )
+    set_tests_properties(PublicHeaderGuards PROPERTIES LABELS "hygiene;headers")
 endif()
 
 set(JYPPX_GTEST_VERSION 1.14.0)
