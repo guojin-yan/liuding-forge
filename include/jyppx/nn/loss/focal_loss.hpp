@@ -72,13 +72,22 @@ class FocalLoss : public torch::nn::Module {
    */
   Tensor forward(const Tensor& input, const Tensor& target) const;
 
-  /** @brief Returns the validated class-balancing weight. */
+  /**
+   * @brief Returns the validated class-balancing weight.
+   * @return The finite class-balancing weight in `[0, 1]`.
+   */
   double alpha() const noexcept { return alpha_; }
 
-  /** @brief Returns the validated focusing exponent. */
+  /**
+   * @brief Returns the validated focusing exponent.
+   * @return The finite non-negative focusing exponent.
+   */
   double gamma() const noexcept { return gamma_; }
 
-  /** @brief Returns the configured reduction name. */
+  /**
+   * @brief Returns the configured reduction name.
+   * @return The reduction name, one of `"none"`, `"mean"`, or `"sum"`.
+   */
   const std::string& reduction() const noexcept { return reduction_; }
 
  private:
