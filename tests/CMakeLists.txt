@@ -92,6 +92,7 @@ function(jyppx_add_gtest test_name)
     endif()
     add_executable(${test_name} ${JYPPX_TEST_UNPARSED_ARGUMENTS})
     target_link_libraries(${test_name} PRIVATE ${JYPPX_TEST_LINK_TARGET} GTest::gtest_main)
+    jyppx_apply_instrumentation(${test_name})
     # Expose tests/test_utils/ to test sources via "test_utils/..." includes.
     target_include_directories(${test_name} PRIVATE "${JYPPX_TESTS_SOURCE_DIR}")
 
@@ -109,6 +110,7 @@ if(JYPPX_BUILD_BENCHMARKS)
     function(jyppx_add_bench bench_name)
         add_executable(${bench_name} ${ARGN})
         target_link_libraries(${bench_name} PRIVATE jyppx_training_framework)
+        jyppx_apply_instrumentation(${bench_name})
         jyppx_add_torch_runtime_dependency(${bench_name})
     endfunction()
 

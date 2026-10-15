@@ -84,31 +84,47 @@ foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
 endforeach()
 
 # ============================================
-# Sanitizers (Optional)
+# Instrumentation (Optional)
 # ============================================
-option(JYPPX_ENABLE_ASAN "Enable Address Sanitizer" OFF)
-option(JYPPX_ENABLE_TSAN "Enable Thread Sanitizer" OFF)
-
-if(JYPPX_ENABLE_ASAN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
-        target_compile_options(${JYPPX_TARGET} PRIVATE -fsanitize=address)
-        target_link_options(${JYPPX_TARGET} PRIVATE -fsanitize=address)
-    endforeach()
+set(JYPPX_INSTRUMENTATION_REQUESTED OFF)
+if(JYPPX_ENABLE_ASAN OR JYPPX_ENABLE_UBSAN OR JYPPX_ENABLE_TSAN
+   OR JYPPX_ENABLE_COVERAGE)
+    set(JYPPX_INSTRUMENTATION_REQUESTED ON)
 endif()
 
-if(JYPPX_ENABLE_TSAN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
-        target_compile_options(${JYPPX_TARGET} PRIVATE -fsanitize=thread)
-        target_link_options(${JYPPX_TARGET} PRIVATE -fsanitize=thread)
-    endforeach()
+if(JYPPX_INSTRUMENTATION_REQUESTED
+   AND NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR
+        "Coverage and sanitizer options require a GNU or Clang compiler")
 endif()
 
-# ============================================
-# Coverage (Optional)
-# ============================================
-if(JYPPX_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
-        target_compile_options(${JYPPX_TARGET} PRIVATE --coverage)
-        target_link_options(${JYPPX_TARGET} PRIVATE --coverage)
-    endforeach()
+if(JYPPX_ENABLE_ASAN AND JYPPX_ENABLE_TSAN)
+    message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer cannot be combined")
 endif()
+
+if(JYPPX_ENABLE_COVERAGE AND JYPPX_ENABLE_TSAN)
+    message(FATAL_ERROR "Coverage and ThreadSanitizer cannot be combined")
+endif()
+
+function(jyppx_apply_instrumentation target_name)
+    if(JYPPX_ENABLE_ASAN)
+        target_compile_options(${target_name} PRIVATE -fsanitize=address)
+        target_link_options(${target_name} PRIVATE -fsanitize=address)
+    endif()
+    if(JYPPX_ENABLE_UBSAN)
+        target_compile_options(${target_name} PRIVATE -fsanitize=undefined)
+        target_link_options(${target_name} PRIVATE -fsanitize=undefined)
+    endif()
+    if(JYPPX_ENABLE_TSAN)
+        target_compile_options(${target_name} PRIVATE -fsanitize=thread)
+        target_link_options(${target_name} PRIVATE -fsanitize=thread)
+    endif()
+    if(JYPPX_ENABLE_COVERAGE)
+        target_compile_options(${target_name} PRIVATE --coverage)
+        target_link_options(${target_name} PRIVATE --coverage)
+    endif()
+endfunction()
+
+foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
+    jyppx_apply_instrumentation(${JYPPX_TARGET})
+endforeach()
