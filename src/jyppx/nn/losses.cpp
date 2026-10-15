@@ -2,10 +2,6 @@
 
 #include <torch/nn/functional.h>
 
-#include <variant>
-
-#include <algorithm>
-#include <cmath>
 #include <stdexcept>
 
 namespace jyppx {
@@ -14,24 +10,6 @@ namespace nn {
 namespace functional {
 
 namespace {
-
-// Every FuncOptions class uses this exact variant for its reduction field.
-using ReductionVariant =
-    std::variant<torch::enumtype::kNone, torch::enumtype::kMean,
-                 torch::enumtype::kSum>;
-
-ReductionVariant parse_reduction(const std::string& reduction) {
-    if (reduction == "none") {
-        return torch::kNone;
-    }
-    if (reduction == "mean") {
-        return torch::kMean;
-    }
-    if (reduction == "sum") {
-        return torch::kSum;
-    }
-    throw std::invalid_argument("reduction must be 'none', 'mean' or 'sum'");
-}
 
 void validate_target_values(const Tensor& target, const Tensor& allowed) {
     const auto flat = target.reshape({-1}).to(allowed.scalar_type());
@@ -176,19 +154,6 @@ Tensor contrastive_loss(const Tensor& x1, const Tensor& x2,
     return apply_reduction(positive_term + negative_term, reduction);
 }
 
-Tensor triplet_margin_loss(const Tensor& anchor, const Tensor& positive,
-                           const Tensor& negative, double margin,
-                           const std::string& reduction) {
-    if (margin <= 0.0) {
-        throw std::invalid_argument("triplet_margin_loss margin must be positive");
-    }
-    return torch::nn::functional::triplet_margin_loss(
-        anchor, positive, negative,
-        torch::nn::functional::TripletMarginLossFuncOptions()
-            .margin(margin)
-            .reduction(parse_reduction(reduction)));
-}
-
 Tensor distillation_loss(const Tensor& student_logits,
                          const Tensor& teacher_logits, double temperature,
                          const std::string& reduction) {
@@ -240,15 +205,6 @@ ContrastiveLoss::ContrastiveLoss(double margin, std::string reduction)
 Tensor ContrastiveLoss::forward(const Tensor& x1, const Tensor& x2,
                                 const Tensor& target) const {
     return functional::contrastive_loss(x1, x2, target, margin_, reduction_);
-}
-
-TripletLoss::TripletLoss(double margin, std::string reduction)
-    : margin_(margin), reduction_(std::move(reduction)) {}
-
-Tensor TripletLoss::forward(const Tensor& anchor, const Tensor& positive,
-                            const Tensor& negative) const {
-    return functional::triplet_margin_loss(anchor, positive, negative, margin_,
-                                           reduction_);
 }
 
 } // namespace nn

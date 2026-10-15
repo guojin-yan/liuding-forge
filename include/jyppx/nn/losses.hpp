@@ -64,16 +64,6 @@ Tensor contrastive_loss(const Tensor& x1, const Tensor& x2,
                         const std::string& reduction = "mean");
 
 /**
- * @brief Triplet margin loss over (anchor, positive, negative) triplets
- *
- * loss = max(0, d(a, p) - d(a, n) + margin); delegates to ATen's
- * triplet_margin_loss.
- */
-Tensor triplet_margin_loss(const Tensor& anchor, const Tensor& positive,
-                           const Tensor& negative, double margin = 1.0,
-                           const std::string& reduction = "mean");
-
-/**
  * @brief Knowledge-distillation loss (Hinton et al., 2015)
  *
  * KL divergence between the teacher's and student's softened class
@@ -135,24 +125,6 @@ public:
     explicit ContrastiveLoss(double margin = 1.0, std::string reduction = "mean");
 
     Tensor forward(const Tensor& x1, const Tensor& x2, const Tensor& target) const;
-
-    double margin() const { return margin_; }
-    const std::string& reduction() const { return reduction_; }
-
-private:
-    double margin_;
-    std::string reduction_;
-};
-
-/**
- * @brief Triplet margin loss criterion module
- */
-class TripletLoss : public torch::nn::Module {
-public:
-    explicit TripletLoss(double margin = 1.0, std::string reduction = "mean");
-
-    Tensor forward(const Tensor& anchor, const Tensor& positive,
-                   const Tensor& negative) const;
 
     double margin() const { return margin_; }
     const std::string& reduction() const { return reduction_; }

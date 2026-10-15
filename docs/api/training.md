@@ -108,8 +108,8 @@ label-smoothing adapter. The migrated API is owned by and directly linkable as
 
 The legacy header provides functional implementations in
 `jyppx::nn::functional` plus the corresponding criterion modules for focal,
-dice, contrastive and triplet losses. The focused header provides both the
-functional and module forms of `LabelSmoothingCrossEntropy`.
+dice and contrastive losses. The focused header provides both the functional
+and module forms of `LabelSmoothingCrossEntropy`.
 All functions accept `reduction` = `"none"`, `"mean"` or `"sum"` (Dice is
 mean-only).
 
@@ -131,8 +131,11 @@ auto smoothed = F::label_smoothing_cross_entropy(logits, target, 0.1);
 
 // Metric-learning losses.
 auto contrastive = F::contrastive_loss(x1, x2, pair_labels, /*margin=*/1.0);
-auto triplet = F::triplet_margin_loss(anchor, positive, negative, 1.0);
 ```
+
+For triplet margin loss, use LibTorch's `torch::nn::functional::triplet_margin_loss`
+or `torch::nn::TripletMarginLoss` directly. The removed JYPPX wrapper added no
+semantics and hid LibTorch's `p`, `eps` and `swap` options.
 
 Notes:
 

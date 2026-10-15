@@ -67,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spatial inputs, accepts the documented `smoothing = 1` boundary, reports
   structured JYPPX configuration errors, and has no duplicate SDK-owned
   implementation.
+- The duplicate JYPPX triplet-margin wrapper was removed; callers use the
+  complete LibTorch API directly, including its `p`, `eps` and `swap` options.
 - `LRSchedulerCallback` follows the same metric-aware stepping rules as the
   Trainer loop.
 - Release test coverage increased to 249 passing tests.

@@ -172,31 +172,6 @@ TEST(ContrastiveLossTest, ValidatesArguments) {
         std::invalid_argument);                       // shape mismatch
 }
 
-TEST(TripletLossTest, MatchesTorchImplementation) {
-    torch::manual_seed(5);
-    auto anchor = torch::randn({8, 4}, torch::TensorOptions().dtype(torch::kFloat64));
-    auto positive = torch::randn({8, 4}, torch::TensorOptions().dtype(torch::kFloat64));
-    auto negative = torch::randn({8, 4}, torch::TensorOptions().dtype(torch::kFloat64));
-
-    const auto ours = nn::functional::triplet_margin_loss(anchor, positive, negative, 0.5);
-    const auto reference = torch::nn::functional::triplet_margin_loss(
-        anchor, positive, negative,
-        torch::nn::functional::TripletMarginLossFuncOptions()
-            .margin(0.5)
-            .reduction(torch::kMean));
-    EXPECT_TRUE(torch::allclose(ours, reference, 1e-12, 1e-12));
-}
-
-TEST(TripletLossTest, HandComputedSingleTriplet) {
-    auto anchor = torch::zeros({1, 2}, torch::kFloat64);
-    auto positive = torch::tensor({{1.0, 0.0}}, torch::kFloat64);
-    auto negative = torch::tensor({{0.5, 0.0}}, torch::kFloat64);
-
-    // d(a, p) = 1, d(a, n) = 0.5, margin = 1 -> max(0, 1 - 0.5 + 1) = 1.5.
-    const auto loss = nn::functional::triplet_margin_loss(anchor, positive, negative, 1.0);
-    EXPECT_NEAR(loss.item<double>(), 1.5, 1e-12);
-}
-
 TEST(LossModulesTest, CriterionWrappersCallThrough) {
     auto logits = torch::randn({6, 4}, torch::TensorOptions().dtype(torch::kFloat64));
     auto target = torch::randint(0, 4, {6}, torch::kLong);
@@ -224,17 +199,6 @@ TEST(LossModulesTest, CriterionWrappersCallThrough) {
     EXPECT_TRUE(torch::allclose(
         contrastive_value,
         nn::functional::contrastive_loss(x1, x2, pair_target), 1e-12, 1e-12));
-
-    auto anchor = torch::randn({6, 3}, torch::TensorOptions().dtype(torch::kFloat64));
-    auto positive = torch::randn({6, 3}, torch::TensorOptions().dtype(torch::kFloat64));
-    auto negative = torch::randn({6, 3}, torch::TensorOptions().dtype(torch::kFloat64));
-    nn::TripletLoss triplet(0.8);
-    EXPECT_DOUBLE_EQ(triplet.margin(), 0.8);
-    const auto triplet_value = triplet.forward(anchor, positive, negative);
-    EXPECT_TRUE(torch::allclose(
-        triplet_value,
-        nn::functional::triplet_margin_loss(anchor, positive, negative, 0.8),
-        1e-12, 1e-12));
 
     // The float_target is exercised through the binary focal path.
     const auto binary_value = focal.forward(float_target.sigmoid(), float_target);
