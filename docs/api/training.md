@@ -101,13 +101,21 @@ options.loss_fn = [](const Tensor& prediction, const Tensor& target) {
 
 ## Loss functions
 
-`#include <jyppx/nn/losses.hpp>`
+Use `#include <jyppx/nn/losses.hpp>` for the legacy loss group and
+`#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>` for the migrated
+label-smoothing adapter. The migrated API is owned by and directly linkable as
+`jyppx::nn`.
 
-Functional implementations in `jyppx::nn::functional`, plus criterion
-modules (`nn::FocalLoss`, `nn::DiceLoss`, `nn::LabelSmoothingCrossEntropy`,
-`nn::ContrastiveLoss`, `nn::TripletLoss`) whose `forward` calls them.
+The legacy header provides functional implementations in
+`jyppx::nn::functional` plus the corresponding criterion modules for focal,
+dice, contrastive and triplet losses. The focused header provides both the
+functional and module forms of `LabelSmoothingCrossEntropy`.
 All functions accept `reduction` = `"none"`, `"mean"` or `"sum"` (Dice is
 mean-only).
+
+The complete label-smoothing shape, dtype, device, empty-input and error
+contract is recorded in the
+[semantic matrix](losses/label_smoothing_cross_entropy.md).
 
 ```cpp
 namespace F = jyppx::nn::functional;

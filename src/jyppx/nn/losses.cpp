@@ -153,25 +153,6 @@ Tensor dice_loss(const Tensor& input, const Tensor& target,
     return apply_reduction(std::move(loss), reduction);
 }
 
-Tensor label_smoothing_cross_entropy(const Tensor& input, const Tensor& target,
-                                     double smoothing,
-                                     const std::string& reduction) {
-    if (smoothing < 0.0 || smoothing >= 1.0) {
-        throw std::invalid_argument("smoothing must be in [0, 1)");
-    }
-    if (!input.defined() || !target.defined()) {
-        throw std::invalid_argument(
-            "label_smoothing_cross_entropy inputs must be defined");
-    }
-
-    const auto logp = torch::log_softmax(input, /*dim=*/1);
-    const auto nll =
-        -logp.gather(1, target.to(torch::kLong).view({-1, 1})).view({-1});
-    const auto smooth = -logp.mean(1);
-    const auto loss = (1.0 - smoothing) * nll + smoothing * smooth;
-    return apply_reduction(loss, reduction);
-}
-
 Tensor contrastive_loss(const Tensor& x1, const Tensor& x2,
                         const Tensor& target, double margin,
                         const std::string& reduction) {
@@ -251,16 +232,6 @@ DiceLoss::DiceLoss(double smooth, std::string reduction)
 
 Tensor DiceLoss::forward(const Tensor& input, const Tensor& target) const {
     return functional::dice_loss(input, target, smooth_, reduction_);
-}
-
-LabelSmoothingCrossEntropy::LabelSmoothingCrossEntropy(double smoothing,
-                                                       std::string reduction)
-    : smoothing_(smoothing), reduction_(std::move(reduction)) {}
-
-Tensor LabelSmoothingCrossEntropy::forward(const Tensor& input,
-                                           const Tensor& target) const {
-    return functional::label_smoothing_cross_entropy(input, target, smoothing_,
-                                                     reduction_);
 }
 
 ContrastiveLoss::ContrastiveLoss(double margin, std::string reduction)

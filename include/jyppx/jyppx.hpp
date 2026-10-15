@@ -100,6 +100,7 @@
 
 // NN
 #include <jyppx/nn/init.hpp>
+#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #include <jyppx/nn/losses.hpp>
 #include <jyppx/nn/quantization.hpp>
 

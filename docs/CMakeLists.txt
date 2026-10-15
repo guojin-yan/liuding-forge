@@ -23,6 +23,7 @@ doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/foundation"
     "${PROJECT_SOURCE_DIR}/include/jyppx/core"
     "${PROJECT_SOURCE_DIR}/include/jyppx/data"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss"
     COMMENT "Validating and generating migrated API documentation"
 )
 

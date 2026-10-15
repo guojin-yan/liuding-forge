@@ -51,18 +51,6 @@ Tensor dice_loss(const Tensor& input, const Tensor& target,
                  double smooth = 1.0, const std::string& reduction = "mean");
 
 /**
- * @brief Cross entropy with label smoothing (Szegedy et al., 2016)
- *
- * loss = (1 - eps) * nll + eps * mean(-log p), matching
- * torch::nn::functional::cross_entropy with label_smoothing.
- *
- * @param smoothing epsilon in [0, 1); 0 recovers plain cross entropy
- */
-Tensor label_smoothing_cross_entropy(const Tensor& input, const Tensor& target,
-                                     double smoothing = 0.1,
-                                     const std::string& reduction = "mean");
-
-/**
  * @brief Contrastive loss over pairs
  *
  * loss = y * d^2 + (1 - y) * max(0, margin - d)^2 with the Euclidean
@@ -136,24 +124,6 @@ public:
 
 private:
     double smooth_;
-    std::string reduction_;
-};
-
-/**
- * @brief Label-smoothing cross entropy criterion module
- */
-class LabelSmoothingCrossEntropy : public torch::nn::Module {
-public:
-    explicit LabelSmoothingCrossEntropy(double smoothing = 0.1,
-                                        std::string reduction = "mean");
-
-    Tensor forward(const Tensor& input, const Tensor& target) const;
-
-    double smoothing() const { return smoothing_; }
-    const std::string& reduction() const { return reduction_; }
-
-private:
-    double smoothing_;
     std::string reduction_;
 };
 

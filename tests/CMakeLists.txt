@@ -135,7 +135,7 @@ add_test(
         -P ${CMAKE_SOURCE_DIR}/cmake/TestInstalledTargets.cmake
 )
 set_tests_properties(MigratedInstallConsumer PROPERTIES
-    LABELS "core;data;foundation;packaging"
+    LABELS "core;data;foundation;nn;packaging"
     RESOURCE_LOCK jyppx_install_consumer
 )
 

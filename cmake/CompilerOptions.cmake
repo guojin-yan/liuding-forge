@@ -10,9 +10,10 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_foundation
     jyppx_core
     jyppx_data
+    jyppx_nn
     jyppx_training_framework
 )
-set(JYPPX_STRICT_TARGETS jyppx_foundation jyppx_core jyppx_data)
+set(JYPPX_STRICT_TARGETS jyppx_foundation jyppx_core jyppx_data jyppx_nn)
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${JYPPX_TARGET} PRIVATE
@@ -47,7 +48,7 @@ if(JYPPX_ENABLE_WARNINGS_AS_ERRORS)
 endif()
 
 # The strict quality gates expand one migrated component at a time. Foundation
-# core, and data are the completed ownership boundaries; adding a target here
+# core, data, and the migrated nn slice are completed ownership boundaries; adding a target here
 # requires its headers and sources to pass the same gate first.
 if(JYPPX_ENABLE_CLANG_TIDY)
     if(NOT JYPPX_CLANG_TIDY_EXECUTABLE)
@@ -120,6 +121,9 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_tensor_dataset.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_thread_safe_queue.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_transforms.cpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/label_smoothing_cross_entropy.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/nn/loss/label_smoothing_cross_entropy.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/nn/loss/test_label_smoothing_cross_entropy.cpp
     )
     add_custom_target(jyppx_migrated_format_check ALL
         COMMAND ${JYPPX_CLANG_FORMAT_EXECUTABLE}

@@ -129,51 +129,6 @@ TEST(DiceLossTest, ValidatesArguments) {
                  std::invalid_argument);
 }
 
-TEST(LabelSmoothingTest, ZeroSmoothingRecoversCrossEntropy) {
-    auto logits = torch::randn({10, 5}, torch::TensorOptions().dtype(torch::kFloat64)
-                                             .requires_grad(true));
-    auto target = torch::randint(0, 5, {10}, torch::kLong);
-
-    const auto ours = nn::functional::label_smoothing_cross_entropy(logits, target, 0.0);
-    const auto reference = torch::nn::functional::cross_entropy(
-        logits, target,
-        torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kMean));
-    EXPECT_TRUE(torch::allclose(ours, reference, 1e-10, 1e-10));
-}
-
-TEST(LabelSmoothingTest, MatchesTorchLabelSmoothing) {
-    auto logits = torch::randn({10, 5}, torch::TensorOptions().dtype(torch::kFloat64));
-    auto target = torch::randint(0, 5, {10}, torch::kLong);
-
-    const auto ours =
-        nn::functional::label_smoothing_cross_entropy(logits, target, 0.2);
-    const auto reference = torch::nn::functional::cross_entropy(
-        logits, target,
-        torch::nn::functional::CrossEntropyFuncOptions()
-            .reduction(torch::kMean)
-            .label_smoothing(0.2));
-    EXPECT_TRUE(torch::allclose(ours, reference, 1e-10, 1e-10));
-}
-
-TEST(LabelSmoothingTest, SmoothingRaisesTheFloorOnConfidentErrors) {
-    // A confidently wrong prediction: smoothing keeps the loss finite and
-    // larger than plain CE would... (CE is also finite; instead verify the
-    // smoothed loss exceeds the hard CE for this case).
-    auto logits = torch::tensor({{10.0, -10.0}},
-                                torch::TensorOptions().dtype(torch::kFloat64));
-    auto target = torch::tensor({1}, torch::kLong); // wrong class
-
-    const double hard = nn::functional::label_smoothing_cross_entropy(
-                            logits, target, 0.0)
-                            .item<double>();
-    const double smoothed = nn::functional::label_smoothing_cross_entropy(
-                                logits, target, 0.5)
-                                .item<double>();
-    EXPECT_GT(hard, 0.0);
-    // Smoothing redistributes mass away from the (wrong) confident target.
-    EXPECT_LT(smoothed, hard);
-}
-
 TEST(ContrastiveLossTest, HandComputedValues) {
     // x1 = [0,0], x2a = [3,0] (d = 3, matching), x2b = [1,0] (d = 1, not matching).
     auto x1 = torch::tensor({{0.0, 0.0}, {0.0, 0.0}},
@@ -260,13 +215,6 @@ TEST(LossModulesTest, CriterionWrappersCallThrough) {
     const auto dice_value = dice.forward(logits, target);
     EXPECT_TRUE(torch::allclose(
         dice_value, nn::functional::dice_loss(logits, target), 1e-12, 1e-12));
-
-    nn::LabelSmoothingCrossEntropy smoothed(0.1);
-    const auto smoothed_value = smoothed.forward(logits, target);
-    EXPECT_TRUE(torch::allclose(
-        smoothed_value,
-        nn::functional::label_smoothing_cross_entropy(logits, target, 0.1),
-        1e-12, 1e-12));
 
     auto x1 = torch::randn({6, 3}, torch::TensorOptions().dtype(torch::kFloat64));
     auto x2 = torch::randn({6, 3}, torch::TensorOptions().dtype(torch::kFloat64));

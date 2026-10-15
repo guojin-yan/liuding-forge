@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A strict foundation quality gate covering Google-style formatting,
   clang-tidy diagnostics, complete Doxygen documentation (including private
   declarations and enum values), and an installed-package consumer test.
+- An independently exported `jyppx::nn` target, initially owning the audited
+  label-smoothed cross-entropy adapter and its focused public header.
 - Exported `jyppx::foundation` and `jyppx::sdk` CMake targets for focused and
   full-framework consumers.
 - Versioned DataLoader/sampler state for deterministic epoch-boundary resume.
@@ -61,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejects them when no validation loader is configured.
 - Trainer checkpoints now preserve scheduler state, AMP `GradScaler` state,
   and the last train/validation loss values used by callbacks.
+- Label-smoothed cross entropy now delegates to LibTorch for unbatched and
+  spatial inputs, accepts the documented `smoothing = 1` boundary, reports
+  structured JYPPX configuration errors, and has no duplicate SDK-owned
+  implementation.
 - `LRSchedulerCallback` follows the same metric-aware stepping rules as the
   Trainer loop.
 - Release test coverage increased to 249 passing tests.
