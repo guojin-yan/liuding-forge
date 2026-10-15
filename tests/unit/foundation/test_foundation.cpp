@@ -124,7 +124,14 @@ TEST(FoundationVersionTest, ExposesStructuredAndJsonFingerprint) {
   EXPECT_FALSE(fingerprint.compiler.empty());
   EXPECT_FALSE(fingerprint.os_arch.empty());
   EXPECT_FALSE(fingerprint.libtorch_version.empty());
+  EXPECT_FALSE(fingerprint.libtorch_build.empty());
+  EXPECT_EQ(fingerprint.libtorch_build.find_first_of("/\\"),
+            std::string::npos);
   EXPECT_FALSE(fingerprint.accelerator_runtime.empty());
+  EXPECT_EQ(fingerprint.dependency_lock_digest.size(), 64U);
+  EXPECT_EQ(fingerprint.dependency_lock_digest.find_first_not_of(
+                "0123456789abcdefABCDEF"),
+            std::string::npos);
 
   const auto json = jyppx::build_fingerprint_json(fingerprint);
   EXPECT_NE(json.find("\"jyppx_version\":\"0.3.0\""), std::string::npos);

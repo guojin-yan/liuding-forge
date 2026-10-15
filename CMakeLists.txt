@@ -115,6 +115,31 @@ if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
 else()
     set(JYPPX_ACCELERATOR_BUILD "cpu")
 endif()
+
+if(MSVC)
+    set(JYPPX_LIBTORCH_ABI "msvc-md-iterator0")
+elseif(APPLE)
+    set(JYPPX_LIBTORCH_ABI "libcxx")
+elseif(TORCH_CXX_FLAGS MATCHES "_GLIBCXX_USE_CXX11_ABI=([01])")
+    set(JYPPX_LIBTORCH_ABI "cxx11-abi${CMAKE_MATCH_1}")
+else()
+    set(JYPPX_LIBTORCH_ABI "unknown-abi")
+endif()
+if(TORCH_CUDA_VERSION)
+    set(JYPPX_LIBTORCH_BUILD
+        "cuda-${TORCH_CUDA_VERSION}-${JYPPX_LIBTORCH_ABI}")
+else()
+    set(JYPPX_LIBTORCH_BUILD "cpu-${JYPPX_LIBTORCH_ABI}")
+endif()
+
+set(JYPPX_DEPENDENCY_MANIFEST
+    "${CMAKE_CURRENT_SOURCE_DIR}/dependency-manifest.json")
+if(EXISTS "${JYPPX_DEPENDENCY_MANIFEST}")
+    file(SHA256 "${JYPPX_DEPENDENCY_MANIFEST}"
+         JYPPX_DEPENDENCY_LOCK_DIGEST)
+else()
+    set(JYPPX_DEPENDENCY_LOCK_DIGEST "unlocked")
+endif()
 set(JYPPX_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppx_build_config.hpp.in"
