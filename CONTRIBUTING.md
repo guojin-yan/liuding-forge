@@ -88,7 +88,8 @@ Generate the local Release timing, artifact-size, throughput, and peak-memory
 baseline with `pwsh -NoProfile -File tools/Run-Baseline.ps1`. The default clean
 build is required for comparable compile-time evidence.
 
-The Linux coverage lane is `bash tools/run-coverage.sh`; it requires `gcovr` and
+The Linux coverage lane is `bash tools/run-coverage.sh`; it requires `gcovr 5.0`
+or newer and
 `CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. Coverage and
 sanitizer options are rejected on unsupported compilers, and sanitizer flags are
 applied to test executables as well as framework libraries. The coverage runner

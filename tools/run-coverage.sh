@@ -56,13 +56,16 @@ run_logged 01-configure.log cmake \
 run_logged 02-build.log cmake --build "$build_root" --parallel "$build_parallelism"
 run_logged 03-ctest.log ctest --test-dir "$build_root" --output-on-failure
 
-gcovr \
-  --root "$source_root" \
-  --filter "$source_root/(src|include)/jyppx/" \
-  --exclude "$source_root/third_party/" \
+coverage_args=(
+  --root "$source_root"
+  --filter "$source_root/(src|include)/jyppx/"
+  --exclude "$source_root/third_party/"
+)
+gcovr "${coverage_args[@]}" \
   --xml-pretty \
-  --output "$output_root/coverage.xml" \
-  --txt-summary \
+  --output "$output_root/coverage.xml"
+gcovr "${coverage_args[@]}" \
+  --print-summary \
   > "$output_root/coverage-summary.txt"
 
 cat > "$output_root/coverage-metadata.txt" <<EOF
