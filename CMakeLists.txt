@@ -15,6 +15,8 @@ option(JYPPX_ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
 option(JYPPX_ENABLE_TSAN "Enable Thread Sanitizer" OFF)
 option(JYPPX_ENABLE_CLANG_TIDY "Run clang-tidy on migrated targets" OFF)
 option(JYPPX_ENABLE_FORMAT_CHECK "Check migrated sources with clang-format" OFF)
+option(JYPPX_ENABLE_WARNINGS_AS_ERRORS
+       "Treat warnings as errors on migrated GNU/Clang targets" OFF)
 
 if(JYPPX_BUILD_FUZZERS AND NOT JYPPX_BUILD_TESTS)
     message(FATAL_ERROR "JYPPX_BUILD_FUZZERS=ON requires JYPPX_BUILD_TESTS=ON")
@@ -139,10 +141,11 @@ target_include_directories(jyppx_foundation
         $<BUILD_INTERFACE:${JYPPX_GENERATED_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:include>
 )
-target_include_directories(jyppx_foundation SYSTEM
-    PUBLIC
-        $<BUILD_INTERFACE:${TORCH_INCLUDE_DIRS}>
-)
+foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
+    target_include_directories(jyppx_foundation SYSTEM PUBLIC
+        $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
+    )
+endforeach()
 target_link_libraries(jyppx_foundation PUBLIC ${TORCH_LIBRARIES})
 target_compile_definitions(jyppx_foundation
     PUBLIC
@@ -152,6 +155,27 @@ target_compile_definitions(jyppx_foundation
     PRIVATE
         JYPPX_BUILD_TYPE="$<CONFIG>"
 )
+
+add_library(jyppx_core STATIC
+    src/jyppx/core/device.cpp
+    src/jyppx/core/tensor_utils.cpp
+)
+add_library(jyppx::core ALIAS jyppx_core)
+set_target_properties(jyppx_core PROPERTIES
+    OUTPUT_NAME jyppx_core
+    EXPORT_NAME core
+)
+target_include_directories(jyppx_core
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
+    target_include_directories(jyppx_core SYSTEM PUBLIC
+        $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
+    )
+endforeach()
+target_link_libraries(jyppx_core PUBLIC ${TORCH_LIBRARIES})
 
 add_library(jyppx_training_framework STATIC)
 add_library(jyppx::sdk ALIAS jyppx_training_framework)
@@ -168,15 +192,17 @@ target_include_directories(jyppx_training_framework
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_include_directories(jyppx_training_framework SYSTEM
-    PUBLIC
-        $<BUILD_INTERFACE:${TORCH_INCLUDE_DIRS}>
-)
+foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
+    target_include_directories(jyppx_training_framework SYSTEM PUBLIC
+        $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
+    )
+endforeach()
 
 # Link LibTorch
 target_link_libraries(jyppx_training_framework
     PUBLIC
         jyppx_foundation
+        jyppx_core
         ${TORCH_LIBRARIES}
 )
 
@@ -220,7 +246,7 @@ endif()
 # ============================================
 # Installation
 # ============================================
-install(TARGETS jyppx_foundation jyppx_training_framework
+install(TARGETS jyppx_foundation jyppx_core jyppx_training_framework
     EXPORT jyppx_training_frameworkTargets
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
@@ -288,4 +314,5 @@ message(STATUS "  Build fuzzers: ${JYPPX_BUILD_FUZZERS}")
 message(STATUS "  Build docs: ${JYPPX_BUILD_DOCS}")
 message(STATUS "  Clang-tidy: ${JYPPX_ENABLE_CLANG_TIDY}")
 message(STATUS "  Format check: ${JYPPX_ENABLE_FORMAT_CHECK}")
+message(STATUS "  Warnings as errors: ${JYPPX_ENABLE_WARNINGS_AS_ERRORS}")
 message(STATUS "")

@@ -64,6 +64,7 @@ jobs:
               -DJYPPX_BUILD_DOCS=ON
               -DJYPPX_ENABLE_CLANG_TIDY=ON
               -DJYPPX_ENABLE_FORMAT_CHECK=ON
+              -DJYPPX_ENABLE_WARNINGS_AS_ERRORS=ON
             )
           fi
           cmake -S . -B build \
@@ -75,9 +76,9 @@ jobs:
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }} --parallel
 
-      - name: Validate foundation API documentation
+      - name: Validate migrated API documentation
         if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'Release'
-        run: cmake --build build --config Release --target jyppx_foundation_docs
+        run: cmake --build build --config Release --target jyppx_migrated_api_docs
 
       - name: Test
         shell: bash

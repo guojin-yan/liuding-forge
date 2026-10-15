@@ -1,10 +1,6 @@
 # Add implemented source files to the library. New modules are added here as
 # their implementations land, keeping the project buildable between phases.
 target_sources(jyppx_training_framework PRIVATE
-    # Core
-    jyppx/core/device.cpp
-    jyppx/core/tensor_utils.cpp
-
     # Optim
     jyppx/optim/optimizer.cpp
     jyppx/optim/sgd.cpp

@@ -6,7 +6,12 @@
 # ============================================
 # Warning Flags
 # ============================================
-set(JYPPX_COMPILED_TARGETS jyppx_foundation jyppx_training_framework)
+set(JYPPX_COMPILED_TARGETS
+    jyppx_foundation
+    jyppx_core
+    jyppx_training_framework
+)
+set(JYPPX_STRICT_TARGETS jyppx_foundation jyppx_core)
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${JYPPX_TARGET} PRIVATE
@@ -26,9 +31,23 @@ foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     endif()
 endforeach()
 
+if(JYPPX_ENABLE_WARNINGS_AS_ERRORS)
+    if(MSVC)
+        message(FATAL_ERROR
+            "JYPPX_ENABLE_WARNINGS_AS_ERRORS is not available with MSVC: "
+            "LibTorch template instantiations emit upstream C4267 warnings. "
+            "The project does not globally suppress that diagnostic.")
+    endif()
+    foreach(JYPPX_TARGET IN LISTS JYPPX_STRICT_TARGETS)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(${JYPPX_TARGET} PRIVATE -Werror)
+        endif()
+    endforeach()
+endif()
+
 # The strict quality gates expand one migrated component at a time. Foundation
-# is the first completed ownership boundary; adding a target here requires its
-# headers and sources to pass the same gate before the migration is accepted.
+# and core are the completed ownership boundaries; adding a target here
+# requires its headers and sources to pass the same gate first.
 if(JYPPX_ENABLE_CLANG_TIDY)
     if(NOT JYPPX_CLANG_TIDY_EXECUTABLE)
         find_program(JYPPX_CLANG_TIDY_EXECUTABLE
@@ -39,10 +58,12 @@ if(JYPPX_ENABLE_CLANG_TIDY)
         message(FATAL_ERROR
             "JYPPX_ENABLE_CLANG_TIDY=ON requires a clang-tidy executable")
     endif()
-    set_target_properties(jyppx_foundation PROPERTIES
-        CXX_CLANG_TIDY
-            "${JYPPX_CLANG_TIDY_EXECUTABLE};--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
-    )
+    foreach(JYPPX_TARGET IN LISTS JYPPX_STRICT_TARGETS)
+        set_target_properties(${JYPPX_TARGET} PROPERTIES
+            CXX_CLANG_TIDY
+                "${JYPPX_CLANG_TIDY_EXECUTABLE};--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
+        )
+    endforeach()
 endif()
 
 if(JYPPX_ENABLE_FORMAT_CHECK)
@@ -55,7 +76,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         message(FATAL_ERROR
             "JYPPX_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
     endif()
-    set(JYPPX_FOUNDATION_FORMAT_FILES
+    set(JYPPX_MIGRATED_FORMAT_FILES
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/error.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/foundation.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/random.hpp
@@ -63,13 +84,19 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/error.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/random.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/version.cpp
-        ${PROJECT_SOURCE_DIR}/tests/install/foundation_consumer/main.cpp
+        ${PROJECT_SOURCE_DIR}/tests/install/migrated_consumer/main.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/foundation/test_foundation.cpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/core/device.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/core/tensor_utils.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/core/types.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/core/device.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/core/tensor_utils.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/core/test_core.cpp
     )
-    add_custom_target(jyppx_foundation_format_check ALL
+    add_custom_target(jyppx_migrated_format_check ALL
         COMMAND ${JYPPX_CLANG_FORMAT_EXECUTABLE}
-            --dry-run --Werror ${JYPPX_FOUNDATION_FORMAT_FILES}
-        COMMENT "Checking foundation sources with clang-format"
+            --dry-run --Werror ${JYPPX_MIGRATED_FORMAT_FILES}
+        COMMENT "Checking migrated sources with clang-format"
         VERBATIM
     )
 endif()

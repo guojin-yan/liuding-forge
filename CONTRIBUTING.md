@@ -55,8 +55,8 @@ ctest --output-on-failure
 
 ### Local Quality Gates
 
-The strict gates currently cover the migrated foundation target and expand
-with each migrated component:
+The strict gates currently cover the migrated foundation and core targets and
+expand with each migrated component:
 
 ```bash
 cmake -S . -B build-quality \
@@ -64,8 +64,9 @@ cmake -S . -B build-quality \
   -DJYPPX_BUILD_DOCS=ON \
   -DJYPPX_ENABLE_CLANG_TIDY=ON \
   -DJYPPX_ENABLE_FORMAT_CHECK=ON \
+  -DJYPPX_ENABLE_WARNINGS_AS_ERRORS=ON \
   -DCMAKE_PREFIX_PATH=/path/to/libtorch
-cmake --build build-quality --target jyppx_foundation_docs --parallel
+cmake --build build-quality --target jyppx_migrated_api_docs --parallel
 ctest --test-dir build-quality --output-on-failure
 ```
 

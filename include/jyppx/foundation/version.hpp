@@ -6,7 +6,7 @@
  * @brief Exposes the framework version and reproducible build diagnostics.
  */
 
-#include <jyppx/foundation/build_config.hpp>
+#include "jyppx/foundation/build_config.hpp"
 
 #include <string>
 

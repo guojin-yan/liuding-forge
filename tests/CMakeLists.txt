@@ -124,18 +124,18 @@ if(WIN32)
 endif()
 
 add_test(
-    NAME FoundationInstallConsumer
+    NAME MigratedInstallConsumer
     COMMAND ${CMAKE_COMMAND}
         -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
-        -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/foundation_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_fc/$<CONFIG>
+        -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/migrated_consumer
+        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_install_consumer/$<CONFIG>
         -DJYPPX_TEST_CONFIG=$<CONFIG>
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
-        -P ${CMAKE_SOURCE_DIR}/cmake/TestInstalledFoundation.cmake
+        -P ${CMAKE_SOURCE_DIR}/cmake/TestInstalledTargets.cmake
 )
-set_tests_properties(FoundationInstallConsumer PROPERTIES
-    LABELS "foundation;packaging"
+set_tests_properties(MigratedInstallConsumer PROPERTIES
+    LABELS "core;foundation;packaging"
     RESOURCE_LOCK jyppx_install_consumer
 )
 

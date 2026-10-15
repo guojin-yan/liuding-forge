@@ -1,6 +1,6 @@
 if(NOT DEFINED JYPPX_BUILD_DIR OR NOT DEFINED JYPPX_CONSUMER_SOURCE_DIR OR
    NOT DEFINED JYPPX_TEST_ROOT OR NOT DEFINED JYPPX_TORCH_DIR)
-    message(FATAL_ERROR "Installed foundation test is missing required paths")
+    message(FATAL_ERROR "Installed target test is missing required paths")
 endif()
 
 get_filename_component(build_dir "${JYPPX_BUILD_DIR}" REALPATH)
@@ -8,7 +8,7 @@ get_filename_component(consumer_source_dir "${JYPPX_CONSUMER_SOURCE_DIR}" REALPA
 get_filename_component(test_root "${JYPPX_TEST_ROOT}" ABSOLUTE)
 file(RELATIVE_PATH test_root_relative "${build_dir}" "${test_root}")
 if(test_root_relative MATCHES "^\\.\\." OR IS_ABSOLUTE "${test_root_relative}")
-    message(FATAL_ERROR "Installed foundation test root must stay inside the build tree")
+    message(FATAL_ERROR "Installed target test root must stay inside the build tree")
 endif()
 file(REMOVE_RECURSE "${test_root}")
 file(MAKE_DIRECTORY "${test_root}")

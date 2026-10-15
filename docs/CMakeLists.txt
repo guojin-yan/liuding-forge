@@ -1,5 +1,5 @@
-# API documentation is gated one migrated component at a time. Foundation is
-# the first strict scope; later target migrations must extend INPUT.
+# API documentation is gated one migrated component at a time. Only components
+# that pass the complete strict gate belong in this input set.
 set(DOXYGEN_PROJECT_NAME "JYPPX Training Framework")
 set(DOXYGEN_PROJECT_NUMBER "${PROJECT_VERSION}")
 set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -19,17 +19,18 @@ set(DOXYGEN_QUIET YES)
 set(DOXYGEN_RECURSIVE YES)
 set(DOXYGEN_STRIP_FROM_PATH "${PROJECT_SOURCE_DIR}/include")
 
-doxygen_add_docs(jyppx_foundation_docs
+doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/foundation"
-    COMMENT "Validating and generating foundation API documentation"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/core"
+    COMMENT "Validating and generating migrated API documentation"
 )
 
 # Doxygen 1.18 on Windows can crash while replacing an existing HTML search
 # index. Documentation is a reproducible build artifact, so always start this
 # target from its own empty output directory on every generator and platform.
-add_custom_target(jyppx_foundation_docs_clean
+add_custom_target(jyppx_migrated_api_docs_clean
     COMMAND ${CMAKE_COMMAND} -E rm -rf "${DOXYGEN_OUTPUT_DIRECTORY}"
-    COMMENT "Cleaning generated foundation API documentation"
+    COMMENT "Cleaning generated migrated API documentation"
     VERBATIM
 )
-add_dependencies(jyppx_foundation_docs jyppx_foundation_docs_clean)
+add_dependencies(jyppx_migrated_api_docs jyppx_migrated_api_docs_clean)
