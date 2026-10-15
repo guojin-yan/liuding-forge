@@ -61,6 +61,10 @@ coverage_args=(
   --root "$source_root"
   --filter "$source_root/(src|include)/jyppx/"
   --exclude "$source_root/third_party/"
+  # GCC 11 can emit a negative hit for an unreachable generated branch in
+  # inline template code. Keep the report usable while retaining a warning in
+  # the lane log; the coverage summary still validates all three metrics.
+  --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
 )
 gcovr "${coverage_args[@]}" \
   --xml-pretty \
