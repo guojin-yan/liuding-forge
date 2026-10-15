@@ -109,6 +109,48 @@
             "repository_hygiene": "passed"
           },
           "commit": "9f09b0b"
+        },
+        {
+          "id": "local-windows-msvc-cpu-release",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "MSVC 19.51.36257.0",
+          "accelerator": "CPU",
+          "build_type": "Release",
+          "tests": "328/328; 4 CUDA-only tests skipped",
+          "instrumentation": "Windows official LibTorch 2.5.1 CPU candidate; exported ABI requirements",
+          "quality_evidence": {
+            "artifact": "libtorch-win-shared-with-deps-2.5.1+cpu.zip",
+            "artifact_sha256": "176f3c501e50694cec2f23ca512ca36c0c268f523e90d91c8fca57bed56a6a65",
+            "configure": "passed",
+            "build": "passed; MSVC upstream C4267/C4702 warnings retained without global suppression",
+            "ctest": "328/328; 4 CUDA-only tests skipped",
+            "install_consumer": "passed",
+            "repository_hygiene": "passed",
+            "fingerprint": "cpu-msvc-md-iterator0; dependency lock digest recorded"
+          },
+          "commit": "32a7708"
+        },
+        {
+          "id": "local-windows-msvc-cpu-debug",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "compiler": "MSVC 19.51.36257.0",
+          "accelerator": "CPU",
+          "build_type": "Debug",
+          "tests": "328/328; 4 CUDA-only tests skipped",
+          "instrumentation": "Windows official LibTorch 2.5.1 CPU candidate; /MD and iterator ABI exported to consumers",
+          "quality_evidence": {
+            "artifact": "libtorch-win-shared-with-deps-2.5.1+cpu.zip",
+            "artifact_sha256": "176f3c501e50694cec2f23ca512ca36c0c268f523e90d91c8fca57bed56a6a65",
+            "configure": "passed",
+            "build": "passed; MSVC upstream C4267/C4702 warnings retained without global suppression",
+            "ctest": "328/328; 4 CUDA-only tests skipped",
+            "install_consumer": "passed after exported ABI requirement fix",
+            "repository_hygiene": "passed",
+            "fingerprint": "cpu-msvc-md-iterator0; dependency lock digest recorded"
+          },
+          "commit": "32a7708"
         }
       ]
     }
