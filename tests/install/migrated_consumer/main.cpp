@@ -31,9 +31,8 @@ int main() {
       .fields = {{.name = "state", .max_bytes = 8}},
   };
   jyppx::validate_state_manifest(state_manifest);
-  const bool valid_checkpoint_contract =
-      jyppx::restore_policy_accepts(jyppx::RestorePolicy::exact_only,
-                                    state_manifest.restore_level);
+  const bool valid_checkpoint_contract = jyppx::restore_policy_accepts(
+      jyppx::RestorePolicy::exact_only, state_manifest.restore_level);
   const auto indices = jyppx::data::samplers::SequentialSampler(3).indices();
   const bool valid_data = indices == std::vector<std::size_t>({0, 1, 2});
   const auto logits = torch::tensor({{2.0, -1.0}}, torch::kFloat64);

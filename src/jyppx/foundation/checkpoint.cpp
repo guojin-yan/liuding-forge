@@ -4,7 +4,6 @@
 // you may not use this file except in compliance with the License.
 
 #include <jyppx/foundation/checkpoint.hpp>
-
 #include <jyppx/foundation/error.hpp>
 
 #include <algorithm>
@@ -20,8 +19,7 @@ constexpr std::size_t kMaxMediaTypeLength = 128;
 constexpr std::size_t kMaxDegradationReasonLength = 1024;
 
 bool is_ascii_alphanumeric(char value) noexcept {
-  return (value >= 'a' && value <= 'z') ||
-         (value >= 'A' && value <= 'Z') ||
+  return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
          (value >= '0' && value <= '9');
 }
 
@@ -52,15 +50,14 @@ bool is_valid_media_type(std::string_view value) noexcept {
 }
 
 [[noreturn]] void throw_manifest_error(std::string operation,
-                                       std::string expected,
-                                       std::string actual, std::string hint) {
-  throw InvalidArgument(
-      "Invalid checkpoint participant manifest",
-      ErrorDetails{.component = "foundation.checkpoint",
-                   .operation = std::move(operation),
-                   .expected = std::move(expected),
-                   .actual = std::move(actual),
-                   .hint = std::move(hint)});
+                                       std::string expected, std::string actual,
+                                       std::string hint) {
+  throw InvalidArgument("Invalid checkpoint participant manifest",
+                        ErrorDetails{.component = "foundation.checkpoint",
+                                     .operation = std::move(operation),
+                                     .expected = std::move(expected),
+                                     .actual = std::move(actual),
+                                     .hint = std::move(hint)});
 }
 
 }  // namespace
@@ -132,9 +129,9 @@ void validate_state_manifest(const StateManifest& manifest) {
   }
   if (manifest.restore_level != RestoreLevel::exact &&
       manifest.degradation_reasons.empty()) {
-    throw_manifest_error(
-        "degradation_reasons", "at least one reason for non-exact state",
-        "empty", "Explain every declared recovery degradation.");
+    throw_manifest_error("degradation_reasons",
+                         "at least one reason for non-exact state", "empty",
+                         "Explain every declared recovery degradation.");
   }
   for (const auto& reason : manifest.degradation_reasons) {
     if (reason.empty() || reason.size() > kMaxDegradationReasonLength) {
@@ -171,8 +168,7 @@ void validate_state_manifest(const StateManifest& manifest) {
   }
 }
 
-void validate_checkpoint_participant(
-    const CheckpointParticipant& participant) {
+void validate_checkpoint_participant(const CheckpointParticipant& participant) {
   const auto identifier = participant.participant_id();
   const auto manifest = participant.describe_state();
   if (identifier != manifest.participant_id) {

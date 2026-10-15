@@ -26,7 +26,7 @@ namespace jyppx {
  * Numeric values are persisted in checkpoint metadata and must remain stable.
  */
 enum class RestoreLevel : std::uint8_t {
-  exact = 1,  ///< Reproduces the continuation under the supported matrix.
+  exact = 1,    ///< Reproduces the continuation under the supported matrix.
   bounded = 2,  ///< Reproduces behavior within documented numeric/data bounds.
   best_effort = 3,  ///< Restores listed state without equivalence guarantees.
 };
@@ -44,8 +44,8 @@ std::string_view restore_level_name(RestoreLevel level) noexcept;
  * Numeric values are persisted in restore requests and must remain stable.
  */
 enum class RestorePolicy : std::uint8_t {
-  exact_only = 1,  ///< Accepts only exact participants.
-  allow_bounded = 2,  ///< Accepts exact or bounded participants.
+  exact_only = 1,         ///< Accepts only exact participants.
+  allow_bounded = 2,      ///< Accepts exact or bounded participants.
   allow_best_effort = 3,  ///< Accepts every declared restore level.
 };
 
@@ -216,8 +216,7 @@ class CheckpointParticipant {
  * @throws InvalidArgument If the identifier and manifest disagree or the
  * manifest is invalid.
  */
-void validate_checkpoint_participant(
-    const CheckpointParticipant& participant);
+void validate_checkpoint_participant(const CheckpointParticipant& participant);
 
 }  // namespace jyppx
 

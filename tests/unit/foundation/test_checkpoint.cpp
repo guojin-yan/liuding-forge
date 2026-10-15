@@ -52,8 +52,8 @@ class MemoryStateStore final : public jyppx::StateWriter,
     return manifest_;
   }
 
-  std::span<const std::byte> read_blob(
-      std::string_view name, std::uint64_t max_bytes) const override {
+  std::span<const std::byte> read_blob(std::string_view name,
+                                       std::uint64_t max_bytes) const override {
     const auto found = blobs_.find(std::string(name));
     if (found == blobs_.end()) {
       throw jyppx::SerializationError("Missing state field");
@@ -81,9 +81,9 @@ class MemoryStateStore final : public jyppx::StateWriter,
 
 class CounterParticipant final : public jyppx::CheckpointParticipant {
  public:
-  explicit CounterParticipant(std::int64_t value,
-                              jyppx::RestoreLevel restore_level =
-                                  jyppx::RestoreLevel::exact)
+  explicit CounterParticipant(
+      std::int64_t value,
+      jyppx::RestoreLevel restore_level = jyppx::RestoreLevel::exact)
       : value_(value), restore_level_(restore_level) {}
 
   std::string participant_id() const override { return "test.counter"; }
@@ -117,8 +117,7 @@ class CounterParticipant final : public jyppx::CheckpointParticipant {
         stored_manifest.schema_version != 1) {
       throw jyppx::CompatibilityError("Unsupported counter state schema");
     }
-    if (!jyppx::restore_policy_accepts(policy,
-                                       stored_manifest.restore_level)) {
+    if (!jyppx::restore_policy_accepts(policy, stored_manifest.restore_level)) {
       throw jyppx::CompatibilityError("Restore policy rejects participant");
     }
     const auto bytes = reader.read_blob("value", sizeof(value_));
@@ -146,19 +145,17 @@ TEST(CheckpointContractTest, KeepsRestoreEnumsStableAndNamed) {
   EXPECT_EQ(static_cast<std::uint8_t>(jyppx::RestoreLevel::best_effort), 3);
   EXPECT_EQ(jyppx::restore_level_name(jyppx::RestoreLevel::exact), "exact");
   EXPECT_EQ(jyppx::restore_level_name(jyppx::RestoreLevel::bounded), "bounded");
-  EXPECT_EQ(
-      jyppx::restore_level_name(jyppx::RestoreLevel::best_effort),
-      "best_effort");
+  EXPECT_EQ(jyppx::restore_level_name(jyppx::RestoreLevel::best_effort),
+            "best_effort");
   EXPECT_EQ(jyppx::restore_level_name(static_cast<jyppx::RestoreLevel>(0)),
             "unknown");
 
   EXPECT_EQ(static_cast<std::uint8_t>(jyppx::RestorePolicy::exact_only), 1);
   EXPECT_EQ(static_cast<std::uint8_t>(jyppx::RestorePolicy::allow_bounded), 2);
-  EXPECT_EQ(
-      static_cast<std::uint8_t>(jyppx::RestorePolicy::allow_best_effort), 3);
-  EXPECT_EQ(
-      jyppx::restore_policy_name(jyppx::RestorePolicy::allow_best_effort),
-      "allow_best_effort");
+  EXPECT_EQ(static_cast<std::uint8_t>(jyppx::RestorePolicy::allow_best_effort),
+            3);
+  EXPECT_EQ(jyppx::restore_policy_name(jyppx::RestorePolicy::allow_best_effort),
+            "allow_best_effort");
   EXPECT_EQ(jyppx::restore_policy_name(static_cast<jyppx::RestorePolicy>(0)),
             "unknown");
 }
@@ -166,28 +163,22 @@ TEST(CheckpointContractTest, KeepsRestoreEnumsStableAndNamed) {
 TEST(CheckpointContractTest, RestorePolicyFormsAnExplicitGuaranteeLattice) {
   using jyppx::RestoreLevel;
   using jyppx::RestorePolicy;
-  EXPECT_TRUE(
-      jyppx::restore_policy_accepts(RestorePolicy::exact_only,
-                                    RestoreLevel::exact));
-  EXPECT_FALSE(
-      jyppx::restore_policy_accepts(RestorePolicy::exact_only,
-                                    RestoreLevel::bounded));
-  EXPECT_TRUE(
-      jyppx::restore_policy_accepts(RestorePolicy::allow_bounded,
-                                    RestoreLevel::exact));
-  EXPECT_TRUE(
-      jyppx::restore_policy_accepts(RestorePolicy::allow_bounded,
-                                    RestoreLevel::bounded));
-  EXPECT_FALSE(
-      jyppx::restore_policy_accepts(RestorePolicy::allow_bounded,
-                                    RestoreLevel::best_effort));
-  EXPECT_TRUE(
-      jyppx::restore_policy_accepts(RestorePolicy::allow_best_effort,
-                                    RestoreLevel::best_effort));
-  EXPECT_FALSE(jyppx::restore_policy_accepts(
-      static_cast<RestorePolicy>(0), RestoreLevel::exact));
-  EXPECT_FALSE(jyppx::restore_policy_accepts(
-      RestorePolicy::allow_best_effort, static_cast<RestoreLevel>(0)));
+  EXPECT_TRUE(jyppx::restore_policy_accepts(RestorePolicy::exact_only,
+                                            RestoreLevel::exact));
+  EXPECT_FALSE(jyppx::restore_policy_accepts(RestorePolicy::exact_only,
+                                             RestoreLevel::bounded));
+  EXPECT_TRUE(jyppx::restore_policy_accepts(RestorePolicy::allow_bounded,
+                                            RestoreLevel::exact));
+  EXPECT_TRUE(jyppx::restore_policy_accepts(RestorePolicy::allow_bounded,
+                                            RestoreLevel::bounded));
+  EXPECT_FALSE(jyppx::restore_policy_accepts(RestorePolicy::allow_bounded,
+                                             RestoreLevel::best_effort));
+  EXPECT_TRUE(jyppx::restore_policy_accepts(RestorePolicy::allow_best_effort,
+                                            RestoreLevel::best_effort));
+  EXPECT_FALSE(jyppx::restore_policy_accepts(static_cast<RestorePolicy>(0),
+                                             RestoreLevel::exact));
+  EXPECT_FALSE(jyppx::restore_policy_accepts(RestorePolicy::allow_best_effort,
+                                             static_cast<RestoreLevel>(0)));
 }
 
 TEST(CheckpointContractTest, ValidatesManifestIdentityFieldsAndDegradation) {
@@ -199,24 +190,19 @@ TEST(CheckpointContractTest, ValidatesManifestIdentityFieldsAndDegradation) {
 
   auto invalid = exact.describe_state();
   invalid.schema_version = 0;
-  EXPECT_THROW(jyppx::validate_state_manifest(invalid),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::validate_state_manifest(invalid), jyppx::InvalidArgument);
   invalid = exact.describe_state();
   invalid.fields.front().max_bytes = 0;
-  EXPECT_THROW(jyppx::validate_state_manifest(invalid),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::validate_state_manifest(invalid), jyppx::InvalidArgument);
   invalid = exact.describe_state();
   invalid.fields.push_back(invalid.fields.front());
-  EXPECT_THROW(jyppx::validate_state_manifest(invalid),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::validate_state_manifest(invalid), jyppx::InvalidArgument);
   invalid = exact.describe_state();
   invalid.participant_id = "../unsafe";
-  EXPECT_THROW(jyppx::validate_state_manifest(invalid),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::validate_state_manifest(invalid), jyppx::InvalidArgument);
   invalid = exact.describe_state();
   invalid.restore_level = jyppx::RestoreLevel::bounded;
-  EXPECT_THROW(jyppx::validate_state_manifest(invalid),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::validate_state_manifest(invalid), jyppx::InvalidArgument);
 }
 
 TEST(CheckpointContractTest, ParticipantRoundTripsThroughStorageNeutralBlobs) {
