@@ -257,7 +257,9 @@ TEST(TrainerTest, CheckpointRestoresCudaRandomNumberGeneratorsWhenAvailable) {
 }
 
 TEST(TrainerTest, CheckpointRestoresShuffledLoaderState) {
-  const auto [inputs, targets] = make_linear_data(32);
+  const auto training_data = make_linear_data(32);
+  const auto& inputs = training_data.first;
+  const auto& targets = training_data.second;
   auto make_loader = [&](int64_t seed) {
     return std::make_shared<data::DataLoader<data::Example>>(
         std::make_shared<data::TensorDataset>(inputs, targets),
