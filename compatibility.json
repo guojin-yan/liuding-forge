@@ -45,7 +45,7 @@
             "tsan": "32/32 targeted tests; no diagnostics",
             "fuzz": "10000 libFuzzer iterations; no sanitizer diagnostics"
           },
-          "commit": "4541564"
+          "commit": "ba02ece"
         }
       ]
     }
