@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- An exact `jyppx::nn` model checkpoint participant with versioned topology,
+  bounded non-pickle tensor blobs, strict state-key/type/shape/alias preflight,
+  and rollback-protected parameter and buffer restore.
 - An independently exported `jyppx::training` checkpoint coordinator with a
   deterministic participant registry, canonical aggregate descriptors,
   transactional sink/source boundaries, restore preflight, bounded rollback

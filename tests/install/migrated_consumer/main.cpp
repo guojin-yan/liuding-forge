@@ -8,6 +8,7 @@
 #include <jyppx/nn/loss/focal_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #include <jyppx/nn/model_adapter.hpp>
+#include <jyppx/nn/model_checkpoint_participant.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 
 #include <array>
@@ -102,6 +103,12 @@ int main() {
       dice.numel() == 1 && std::isfinite(dice.item<double>());
 
   torch::nn::Linear linear(2, 1);
+  auto installed_model_state =
+      std::make_shared<jyppx::nn::ModelStateView>(linear.ptr());
+  jyppx::nn::ModelCheckpointParticipant installed_model_participant(
+      installed_model_state);
+  const bool valid_model_checkpoint =
+      installed_model_participant.describe_state().fields.size() == 3;
   jyppx::nn::TensorSchema adapter_input;
   adapter_input.dtype = torch::kFloat32;
   adapter_input.rank = 2;
@@ -121,8 +128,8 @@ int main() {
       adapter.state().parameters().size() == 2;
   return valid_version && valid_error && valid_device &&
                  valid_checkpoint_contract && valid_checkpoint_coordinator &&
-                 valid_data && valid_nn && valid_contrastive && valid_focal &&
-                 valid_dice && valid_adapter
+                 valid_model_checkpoint && valid_data && valid_nn &&
+                 valid_contrastive && valid_focal && valid_dice && valid_adapter
              ? 0
              : 1;
 }

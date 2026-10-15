@@ -106,5 +106,6 @@
 #include <jyppx/nn/loss/focal_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #include <jyppx/nn/model_adapter.hpp>
+#include <jyppx/nn/model_checkpoint_participant.hpp>
 
 #endif // JYPPX_JYPPX_HPP

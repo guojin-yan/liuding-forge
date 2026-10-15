@@ -35,6 +35,8 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Checkpoint Coordinator](api/checkpoint_coordinator.md) — deterministic
   participant registration, transactional capture, restore preflight, and
   cross-participant rollback
+- [Model Checkpoint Participant](api/model_checkpoint_participant.md) — exact
+  model topology, bounded raw tensor state, strict preflight, and atomic restore
 - [Data](api/data.md) — datasets, subset/concat/split, DataLoader,
   samplers, thread-safe queue
 - [Optimizers and Schedulers](api/optim.md) — SGD, Adam, AdamW, RMSprop,

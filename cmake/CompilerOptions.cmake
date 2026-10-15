@@ -136,9 +136,12 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_transforms.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/invocation.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/model_adapter.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/nn/model_checkpoint_participant.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/nn/invocation.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/nn/model_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/nn/model_checkpoint_participant.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/nn/test_model_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/nn/test_model_checkpoint_participant.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/contrastive_loss.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/dice_loss.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/focal_loss.hpp

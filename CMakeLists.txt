@@ -239,6 +239,7 @@ target_link_libraries(jyppx_data
 add_library(jyppx_nn STATIC
     src/jyppx/nn/invocation.cpp
     src/jyppx/nn/model_adapter.cpp
+    src/jyppx/nn/model_checkpoint_participant.cpp
     src/jyppx/nn/loss/contrastive_loss.cpp
     src/jyppx/nn/loss/dice_loss.cpp
     src/jyppx/nn/loss/focal_loss.cpp
