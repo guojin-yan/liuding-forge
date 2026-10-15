@@ -3,14 +3,13 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <gtest/gtest.h>
-
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/nn/model_checkpoint_participant.hpp>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <gtest/gtest.h>
 #include <map>
 #include <memory>
 #include <span>
@@ -31,11 +30,11 @@ class MemoryStateStore final : public jyppx::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field = std::find_if(
-        manifest_.fields.begin(), manifest_.fields.end(),
-        [name](const jyppx::StateFieldDescriptor& candidate) {
-          return candidate.name == name;
-        });
+    const auto field =
+        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
+                     [name](const jyppx::StateFieldDescriptor& candidate) {
+                       return candidate.name == name;
+                     });
     if (field == manifest_.fields.end()) {
       throw jyppx::SerializationError("unknown model test field");
     }
@@ -58,8 +57,8 @@ class MemoryStateStore final : public jyppx::StateWriter,
     return blobs_.contains(std::string(name));
   }
 
-  std::span<const std::byte> read_blob(
-      std::string_view name, std::uint64_t max_bytes) const override {
+  std::span<const std::byte> read_blob(std::string_view name,
+                                       std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end()) {
       throw jyppx::SerializationError("missing model test field");
@@ -86,8 +85,8 @@ class ProbeModelImpl final : public torch::nn::Module {
   ProbeModelImpl()
       : linear(register_module("linear", torch::nn::Linear(2, 2))),
         offset(register_buffer("offset", torch::tensor({1.0F, 2.0F}))),
-        mask(register_buffer(
-            "mask", torch::tensor({true, false}, torch::kBool))) {}
+        mask(register_buffer("mask",
+                             torch::tensor({true, false}, torch::kBool))) {}
 
   torch::nn::Linear linear;
   torch::Tensor offset;
@@ -99,8 +98,8 @@ class AlternateModelImpl final : public torch::nn::Module {
   AlternateModelImpl()
       : branch(register_module("branch", torch::nn::Linear(2, 2))),
         shiftx(register_buffer("shiftx", torch::tensor({3.0F, 4.0F}))),
-        flag(register_buffer(
-            "flag", torch::tensor({false, true}, torch::kBool))) {}
+        flag(register_buffer("flag",
+                             torch::tensor({false, true}, torch::kBool))) {}
 
   torch::nn::Linear branch;
   torch::Tensor shiftx;
@@ -162,8 +161,7 @@ TEST(ModelCheckpointParticipantTest,
   const auto weight = store.read_blob("tensor.0000000000", 1024);
   EXPECT_EQ(weight.size(), 4U * sizeof(float));
   ASSERT_GE(topology.size(), 2U);
-  EXPECT_FALSE(topology[0] == std::byte{'P'} &&
-               topology[1] == std::byte{'K'});
+  EXPECT_FALSE(topology[0] == std::byte{'P'} && topology[1] == std::byte{'K'});
 }
 
 TEST(ModelCheckpointParticipantTest,
@@ -184,11 +182,9 @@ TEST(ModelCheckpointParticipantTest,
   model->mask.fill_(true);
   participant.load_state(store, jyppx::RestorePolicy::exact_only);
 
-  EXPECT_TRUE(torch::equal(
-      model->linear->weight,
-      torch::tensor({{1.0F, 2.0F}, {3.0F, 4.0F}})));
-  EXPECT_TRUE(torch::equal(model->linear->bias,
-                           torch::tensor({5.0F, 6.0F})));
+  EXPECT_TRUE(torch::equal(model->linear->weight,
+                           torch::tensor({{1.0F, 2.0F}, {3.0F, 4.0F}})));
+  EXPECT_TRUE(torch::equal(model->linear->bias, torch::tensor({5.0F, 6.0F})));
   EXPECT_TRUE(torch::equal(model->offset, torch::tensor({7.0F, 8.0F})));
   EXPECT_TRUE(
       torch::equal(model->mask, torch::tensor({true, false}, torch::kBool)));
@@ -230,16 +226,14 @@ TEST(ModelCheckpointParticipantTest,
   const auto before = model->linear->weight.detach().clone();
 
   store.mutable_blob("topology").front() = std::byte{'X'};
-  EXPECT_THROW(
-      participant.load_state(store, jyppx::RestorePolicy::exact_only),
-      jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
   EXPECT_TRUE(torch::equal(model->linear->weight, before));
 
   store = save_participant(participant);
   store.mutable_blob("tensor.0000000000").pop_back();
-  EXPECT_THROW(
-      participant.load_state(store, jyppx::RestorePolicy::exact_only),
-      jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
   EXPECT_TRUE(torch::equal(model->linear->weight, before));
 }
 
@@ -252,16 +246,14 @@ TEST(ModelCheckpointParticipantTest,
   const auto before = model->mask.clone();
 
   store.mutable_blob("tensor.0000000003").front() = std::byte{2};
-  EXPECT_THROW(
-      participant.load_state(store, jyppx::RestorePolicy::exact_only),
-      jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
   EXPECT_TRUE(torch::equal(model->mask, before));
 
   store = save_participant(participant);
   store.mutable_manifest().schema_version = 2;
-  EXPECT_THROW(
-      participant.load_state(store, jyppx::RestorePolicy::exact_only),
-      jyppx::CompatibilityError);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
   EXPECT_TRUE(torch::equal(model->mask, before));
 }
 
@@ -275,24 +267,22 @@ TEST(ModelCheckpointParticipantTest,
   model->base.fill_(10.0F);
   participant.load_state(store, jyppx::RestorePolicy::exact_only);
 
-  EXPECT_TRUE(torch::equal(model->base,
-                           torch::tensor({0.0F, 1.0F, 2.0F, 3.0F})));
-  EXPECT_TRUE(torch::equal(
-      model->matrix, torch::tensor({{0.0F, 1.0F}, {2.0F, 3.0F}})));
+  EXPECT_TRUE(
+      torch::equal(model->base, torch::tensor({0.0F, 1.0F, 2.0F, 3.0F})));
+  EXPECT_TRUE(
+      torch::equal(model->matrix, torch::tensor({{0.0F, 1.0F}, {2.0F, 3.0F}})));
   EXPECT_TRUE(model->base.is_alias_of(model->matrix));
 }
 
 TEST(ModelCheckpointParticipantTest,
      EnforcesOptionsAndRejectsUnsupportedModelState) {
   auto model = std::make_shared<ProbeModelImpl>();
-  EXPECT_THROW(
-      jyppx::nn::ModelCheckpointParticipant(
-          state_for(model), {.max_tensors = 2}),
-      jyppx::ResourceExhausted);
-  EXPECT_THROW(
-      jyppx::nn::ModelCheckpointParticipant(
-          state_for(model), {.max_tensors = 0}),
-      jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::nn::ModelCheckpointParticipant(state_for(model),
+                                                     {.max_tensors = 2}),
+               jyppx::ResourceExhausted);
+  EXPECT_THROW(jyppx::nn::ModelCheckpointParticipant(state_for(model),
+                                                     {.max_tensors = 0}),
+               jyppx::InvalidArgument);
   EXPECT_THROW(jyppx::nn::ModelCheckpointParticipant(
                    state_for(std::make_shared<EmptyModelImpl>())),
                jyppx::InvalidArgument);
@@ -322,9 +312,9 @@ TEST(ModelCheckpointParticipantTest,
   ASSERT_FALSE(lifetime.expired());
   const auto store = save_participant(participant);
 
-  EXPECT_THROW(participant.load_state(
-                   store, static_cast<jyppx::RestorePolicy>(255)),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(
+      participant.load_state(store, static_cast<jyppx::RestorePolicy>(255)),
+      jyppx::CompatibilityError);
 }
 
 }  // namespace

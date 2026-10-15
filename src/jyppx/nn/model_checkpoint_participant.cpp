@@ -3,18 +3,17 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/foundation/error.hpp>
 #include <jyppx/nn/model_checkpoint_participant.hpp>
 
-#include <jyppx/foundation/error.hpp>
-
-#include <ATen/core/grad_mode.h>
-#include <c10/core/ScalarType.h>
-#include <c10/core/Storage.h>
 #include <torch/torch.h>
 
+#include <ATen/core/grad_mode.h>
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <c10/core/ScalarType.h>
+#include <c10/core/Storage.h>
 #include <cstring>
 #include <exception>
 #include <iomanip>
@@ -66,30 +65,28 @@ struct ModelSnapshot {
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
-  throw InvalidArgument(
-      "Invalid model checkpoint participant",
-      ErrorDetails{.component = kComponent,
-                   .operation = std::move(operation),
-                   .expected = std::move(expected),
-                   .actual = std::move(actual),
-                   .hint = std::move(hint)});
+  throw InvalidArgument("Invalid model checkpoint participant",
+                        ErrorDetails{.component = kComponent,
+                                     .operation = std::move(operation),
+                                     .expected = std::move(expected),
+                                     .actual = std::move(actual),
+                                     .hint = std::move(hint)});
 }
 
 [[noreturn]] void throw_serialization(std::string operation,
-                                      std::string expected,
-                                      std::string actual, std::string hint) {
-  throw SerializationError(
-      "Malformed model checkpoint state",
-      ErrorDetails{.component = kComponent,
-                   .operation = std::move(operation),
-                   .expected = std::move(expected),
-                   .actual = std::move(actual),
-                   .hint = std::move(hint)});
+                                      std::string expected, std::string actual,
+                                      std::string hint) {
+  throw SerializationError("Malformed model checkpoint state",
+                           ErrorDetails{.component = kComponent,
+                                        .operation = std::move(operation),
+                                        .expected = std::move(expected),
+                                        .actual = std::move(actual),
+                                        .hint = std::move(hint)});
 }
 
 [[noreturn]] void throw_compatibility(std::string operation,
-                                      std::string expected,
-                                      std::string actual, std::string hint) {
+                                      std::string expected, std::string actual,
+                                      std::string hint) {
   throw CompatibilityError(
       "Model checkpoint is incompatible with the current model",
       ErrorDetails{.component = kComponent,
@@ -99,16 +96,14 @@ struct ModelSnapshot {
                    .hint = std::move(hint)});
 }
 
-[[noreturn]] void throw_resource(std::string operation,
-                                 std::uint64_t expected,
+[[noreturn]] void throw_resource(std::string operation, std::uint64_t expected,
                                  std::uint64_t actual, std::string hint) {
-  throw ResourceExhausted(
-      "Model checkpoint resource limit exceeded",
-      ErrorDetails{.component = kComponent,
-                   .operation = std::move(operation),
-                   .expected = std::to_string(expected),
-                   .actual = std::to_string(actual),
-                   .hint = std::move(hint)});
+  throw ResourceExhausted("Model checkpoint resource limit exceeded",
+                          ErrorDetails{.component = kComponent,
+                                       .operation = std::move(operation),
+                                       .expected = std::to_string(expected),
+                                       .actual = std::to_string(actual),
+                                       .hint = std::move(hint)});
 }
 
 void validate_options(const ModelCheckpointParticipantOptions& options) {
@@ -135,6 +130,7 @@ void validate_options(const ModelCheckpointParticipantOptions& options) {
       .schema_version = kSchemaVersion,
       .restore_level = RestoreLevel::exact,
       .fields = {{.name = "topology", .max_bytes = 1}},
+      .degradation_reasons = {},
   };
   validate_state_manifest(probe);
 }
@@ -230,8 +226,9 @@ std::uint64_t element_size(std::uint8_t code) {
     case 11:
       return 16;
     default:
-      static_cast<void>(scalar_type(code));
-      return 0;
+      throw_serialization("topology.dtype", "a schema-version-1 dtype code",
+                          std::to_string(code),
+                          "Reject unknown tensor encodings before allocation.");
   }
 }
 
@@ -244,8 +241,7 @@ std::uint64_t checked_add(std::uint64_t left, std::uint64_t right,
   return left + right;
 }
 
-std::uint64_t checked_tensor_bytes(const Tensor& tensor,
-                                   std::uint8_t code) {
+std::uint64_t checked_tensor_bytes(const Tensor& tensor, std::uint8_t code) {
   const auto count = tensor.numel();
   if (count < 0) {
     throw_invalid("tensor.numel", "a non-negative element count",
@@ -354,7 +350,8 @@ class ByteCursor final {
 
   std::string read_string(std::size_t length, std::string_view field) {
     require(length, field);
-    const auto* begin = reinterpret_cast<const char*>(bytes_.data() + position_);
+    const auto* begin =
+        reinterpret_cast<const char*>(bytes_.data() + position_);
     position_ += length;
     return std::string(begin, length);
   }
@@ -374,9 +371,8 @@ class ByteCursor final {
   std::size_t position_ = 0;
 };
 
-void validate_topology_blob(
-    std::span<const std::byte> bytes,
-    const ModelCheckpointParticipantOptions& options) {
+void validate_topology_blob(std::span<const std::byte> bytes,
+                            const ModelCheckpointParticipantOptions& options) {
   if (bytes.size() > options.max_topology_bytes) {
     throw_resource("topology.bytes", options.max_topology_bytes, bytes.size(),
                    "Reject oversized topology before parsing.");
@@ -391,8 +387,7 @@ void validate_topology_blob(
   }
   const auto version = cursor.read_u32("topology.version");
   if (version != kTopologyVersion) {
-    throw_compatibility("topology.version",
-                        std::to_string(kTopologyVersion),
+    throw_compatibility("topology.version", std::to_string(kTopologyVersion),
                         std::to_string(version),
                         "Migrate model topology metadata explicitly.");
   }
@@ -445,11 +440,10 @@ void validate_topology_blob(
                      "Reject excessive tensor ranks before allocation.");
     }
     if (storage_group > index || storage_offset < 0) {
-      throw_serialization("topology.storage",
-                          "a prior alias group and non-negative offset",
-                          std::to_string(storage_group) + ":" +
-                              std::to_string(storage_offset),
-                          "Reject invalid storage topology.");
+      throw_serialization(
+          "topology.storage", "a prior alias group and non-negative offset",
+          std::to_string(storage_group) + ":" + std::to_string(storage_offset),
+          "Reject invalid storage topology.");
     }
     if (byte_count > options.max_tensor_bytes) {
       throw_resource("topology.byte_count", options.max_tensor_bytes,
@@ -493,18 +487,16 @@ void validate_topology_blob(
     const auto width = element_size(code);
     if (numel > std::numeric_limits<std::uint64_t>::max() / width ||
         numel * width != byte_count) {
-      throw_serialization("topology.byte_count",
-                          "shape multiplied by scalar width",
-                          std::to_string(byte_count),
-                          "Reject inconsistent tensor metadata.");
+      throw_serialization(
+          "topology.byte_count", "shape multiplied by scalar width",
+          std::to_string(byte_count), "Reject inconsistent tensor metadata.");
     }
     total = checked_add(total, std::max<std::uint64_t>(1, byte_count),
                         options.max_total_bytes, "state.total_bytes");
   }
   if (!cursor.empty()) {
     throw_serialization("topology.trailing_bytes", "no trailing metadata",
-                        "present",
-                        "Reject ambiguous topology extensions.");
+                        "present", "Reject ambiguous topology extensions.");
   }
 }
 
@@ -524,9 +516,8 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
                     right.fields.begin(), state_field_equal);
 }
 
-ModelSnapshot inspect_model(
-    const ModelStateView& state,
-    const ModelCheckpointParticipantOptions& options) {
+ModelSnapshot inspect_model(const ModelStateView& state,
+                            const ModelCheckpointParticipantOptions& options) {
   std::vector<TensorEntry> entries;
   const auto parameters = state.named_parameters();
   const auto buffers = state.named_buffers();
@@ -565,27 +556,26 @@ ModelSnapshot inspect_model(
       throw_resource("state.tensor_bytes", options.max_tensor_bytes, bytes,
                      "Reduce the tensor or raise max_tensor_bytes.");
     }
-    total_tensor_bytes = checked_add(
-        total_tensor_bytes, std::max<std::uint64_t>(1, bytes),
-        options.max_total_bytes, "state.total_bytes");
+    total_tensor_bytes =
+        checked_add(total_tensor_bytes, std::max<std::uint64_t>(1, bytes),
+                    options.max_total_bytes, "state.total_bytes");
 
     const void* storage = tensor.storage().unsafeGetStorageImpl();
     const auto [group, inserted] = storage_groups.emplace(
         storage, static_cast<std::uint32_t>(storage_groups.size()));
     static_cast<void>(inserted);
-    entries.push_back(
-        TensorEntry{.role = role,
-                    .key = key,
-                    .tensor = tensor,
-                    .dtype_code = code,
-                    .storage_group = group->second,
-                    .storage_offset = tensor.storage_offset(),
-                    .sizes = tensor.sizes().vec(),
-                    .strides = tensor.strides().vec(),
-                    .byte_count = bytes,
-                    .requires_grad = role == TensorRole::parameter
-                                         ? tensor.requires_grad()
-                                         : false});
+    entries.push_back(TensorEntry{.role = role,
+                                  .key = key,
+                                  .tensor = tensor,
+                                  .dtype_code = code,
+                                  .storage_group = group->second,
+                                  .storage_offset = tensor.storage_offset(),
+                                  .sizes = tensor.sizes().vec(),
+                                  .strides = tensor.strides().vec(),
+                                  .byte_count = bytes,
+                                  .requires_grad = role == TensorRole::parameter
+                                                       ? tensor.requires_grad()
+                                                       : false});
   };
 
   for (const auto& item : parameters) {
@@ -600,9 +590,8 @@ ModelSnapshot inspect_model(
   }
 
   auto topology = encode_topology(entries, options);
-  static_cast<void>(checked_add(
-      total_tensor_bytes, topology.size(), options.max_total_bytes,
-      "state.total_bytes"));
+  static_cast<void>(checked_add(total_tensor_bytes, topology.size(),
+                                options.max_total_bytes, "state.total_bytes"));
 
   StateManifest manifest{
       .participant_id = options.participant_id,
@@ -611,6 +600,7 @@ ModelSnapshot inspect_model(
       .fields = {{.name = "topology",
                   .media_type = "application/vnd.jyppx.model-topology-v1",
                   .max_bytes = topology.size()}},
+      .degradation_reasons = {},
   };
   manifest.fields.reserve(entries.size() + 1);
   for (std::size_t index = 0; index < entries.size(); ++index) {
@@ -744,15 +734,16 @@ void ModelCheckpointParticipant::load_state(const StateReader& reader,
       }
     }
 
-    const auto topology = reader.read_blob(
-        "topology", current.manifest.fields.front().max_bytes);
+    const auto topology =
+        reader.read_blob("topology", current.manifest.fields.front().max_bytes);
     validate_topology_blob(topology, options_);
     if (topology.size() != current.topology.size() ||
         !std::equal(topology.begin(), topology.end(),
                     current.topology.begin())) {
       throw_compatibility(
-          "restore.topology", "identical state keys, roles, types, shapes, "
-                              "strides, aliases, and gradient flags",
+          "restore.topology",
+          "identical state keys, roles, types, shapes, "
+          "strides, aliases, and gradient flags",
           "topology differs",
           "Apply an explicit model state migration before restore.");
     }
@@ -761,9 +752,9 @@ void ModelCheckpointParticipant::load_state(const StateReader& reader,
     candidates.reserve(current.entries.size());
     for (std::size_t index = 0; index < current.entries.size(); ++index) {
       const auto& entry = current.entries[index];
-      const auto bytes = reader.read_blob(
-          tensor_field_name(index),
-          std::max<std::uint64_t>(1, entry.byte_count));
+      const auto bytes =
+          reader.read_blob(tensor_field_name(index),
+                           std::max<std::uint64_t>(1, entry.byte_count));
       if (bytes.size() != entry.byte_count) {
         throw_serialization("restore.tensor_bytes",
                             std::to_string(entry.byte_count),
@@ -778,11 +769,10 @@ void ModelCheckpointParticipant::load_state(const StateReader& reader,
                             "non-boolean byte",
                             "Reject malformed boolean tensor state.");
       }
-      auto cpu = torch::empty(
-          entry.sizes,
-          torch::TensorOptions()
-              .dtype(scalar_type(entry.dtype_code))
-              .device(torch::kCPU));
+      auto cpu =
+          torch::empty(entry.sizes, torch::TensorOptions()
+                                        .dtype(scalar_type(entry.dtype_code))
+                                        .device(torch::kCPU));
       if (!bytes.empty()) {
         std::memcpy(cpu.data_ptr(), bytes.data(), bytes.size());
       }
@@ -823,11 +813,12 @@ void ModelCheckpointParticipant::load_state(const StateReader& reader,
         } catch (...) {
           std::throw_with_nested(InternalError(
               "Model restore failed and rollback was incomplete",
-              ErrorDetails{.component = kComponent,
-                           .operation = "restore.rollback",
-                           .expected = "all attempted tensors restored",
-                           .actual = rollback_failure_key,
-                           .hint = "Stop training; model state is indeterminate."}));
+              ErrorDetails{
+                  .component = kComponent,
+                  .operation = "restore.rollback",
+                  .expected = "all attempted tensors restored",
+                  .actual = rollback_failure_key,
+                  .hint = "Stop training; model state is indeterminate."}));
         }
       }
       std::rethrow_exception(restore_failure);
