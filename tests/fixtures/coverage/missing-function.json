@@ -1,0 +1,10 @@
+{
+  "gcovr/summary_format_version": "0.2",
+  "line_covered": 9,
+  "line_total": 10,
+  "line_percent": 90.0,
+  "branch_covered": 7,
+  "branch_total": 10,
+  "branch_percent": 70.0,
+  "files": []
+}
