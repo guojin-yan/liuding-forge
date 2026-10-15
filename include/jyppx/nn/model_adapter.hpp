@@ -49,6 +49,41 @@ concept ModuleHolderLike = requires(const Holder& holder) {
 };
 
 /**
+ * @brief Matches callables that convert a structured invocation into an
+ * IValue-compatible result.
+ * @tparam Forward Candidate forwarding callable type.
+ * @tparam Module Concrete module implementation passed to the callable.
+ */
+template <typename Forward, typename Module>
+concept InvocationForward =
+    ModuleImplementation<Module> &&
+    requires(Forward& forward, Module& module, const Invocation& input) {
+      c10::IValue(std::invoke(forward, module, input));
+    };
+
+/**
+ * @brief Matches concrete modules exposing an IValue-compatible
+ * `forward(const Tensor&)` operation.
+ * @tparam Module Candidate concrete module implementation type.
+ */
+template <typename Module>
+concept TensorForwardModule =
+    ModuleImplementation<Module> &&
+    requires(Module& module, const Tensor& input) {
+      c10::IValue(module.forward(input));
+    };
+
+/**
+ * @brief Matches module holders whose implementation satisfies the common
+ * tensor-forward contract.
+ * @tparam Holder Candidate `TORCH_MODULE` or compatible holder type.
+ */
+template <typename Holder>
+concept TensorForwardHolder =
+    ModuleHolderLike<Holder> &&
+    TensorForwardModule<typename Holder::ContainedType>;
+
+/**
  * @brief Shared-ownership view of a LibTorch module's mutable state.
  *
  * The view owns a shared pointer, so every tensor and mode operation remains
@@ -256,15 +291,10 @@ ModelAdapter adapt_module(std::shared_ptr<torch::nn::Module> module,
  * @return An owning, schema-checked model adapter.
  * @throws InvalidArgument If the module, callable, or schema is invalid.
  */
-template <ModuleImplementation Module, typename Forward>
+template <ModuleImplementation Module, InvocationForward<Module> Forward>
 ModelAdapter adapt_module(std::shared_ptr<Module> module, Forward forward,
                           InvocationSchema input_schema,
-                          ValueSchema output_schema)
-    requires requires(Forward& forward, Module& concrete,
-                      const Invocation& input) {
-      c10::IValue(std::invoke(forward, concrete, input));
-    }
-{
+                          ValueSchema output_schema) {
   if (!module) {
     throw InvalidArgument(
         "Cannot adapt a null model",
@@ -294,16 +324,11 @@ ModelAdapter adapt_module(std::shared_ptr<Module> module, Forward forward,
  * @return An owning, schema-checked model adapter.
  * @throws InvalidArgument If the holder is empty or a schema is invalid.
  */
-template <ModuleHolderLike Holder, typename Forward>
+template <ModuleHolderLike Holder,
+          InvocationForward<typename Holder::ContainedType> Forward>
 ModelAdapter adapt_holder(Holder holder, Forward forward,
                           InvocationSchema input_schema,
-                          ValueSchema output_schema)
-    requires requires(Forward& forward,
-                      typename Holder::ContainedType& concrete,
-                      const Invocation& input) {
-      c10::IValue(std::invoke(forward, concrete, input));
-    }
-{
+                          ValueSchema output_schema) {
   if (!static_cast<bool>(holder)) {
     throw InvalidArgument(
         "Cannot adapt an empty module holder",
@@ -325,14 +350,10 @@ ModelAdapter adapt_holder(Holder holder, Forward forward,
  * @param output_constraints Constraints for the output tensor.
  * @return An adapter with one positional tensor and no keywords.
  */
-template <ModuleImplementation Module>
+template <TensorForwardModule Module>
 ModelAdapter adapt_tensor_module(std::shared_ptr<Module> module,
                                  TensorSchema input_constraints = {},
-                                 TensorSchema output_constraints = {})
-    requires requires(Module& concrete, const Tensor& input) {
-      c10::IValue(concrete.forward(input));
-    }
-{
+                                 TensorSchema output_constraints = {}) {
   InvocationSchema input_schema;
   input_schema.positional.push_back(
       ValueSchema::tensor(std::move(input_constraints), "input"));
@@ -354,15 +375,10 @@ ModelAdapter adapt_tensor_module(std::shared_ptr<Module> module,
  * @param output_constraints Constraints for the output tensor.
  * @return An adapter with one positional tensor and no keywords.
  */
-template <ModuleHolderLike Holder>
+template <TensorForwardHolder Holder>
 ModelAdapter adapt_tensor_holder(Holder holder,
                                  TensorSchema input_constraints = {},
-                                 TensorSchema output_constraints = {})
-    requires requires(typename Holder::ContainedType& concrete,
-                      const Tensor& input) {
-      c10::IValue(concrete.forward(input));
-    }
-{
+                                 TensorSchema output_constraints = {}) {
   if (!static_cast<bool>(holder)) {
     throw InvalidArgument(
         "Cannot adapt an empty module holder",
