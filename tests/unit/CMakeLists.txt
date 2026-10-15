@@ -37,6 +37,11 @@ jyppx_add_gtest(jyppx_test_optim
     optim/test_extreme_params.cpp
 )
 
+jyppx_add_gtest(jyppx_test_optim_sgd_adapter
+    LINK_TARGET jyppx::optim
+    optim/test_sgd_adapter.cpp
+)
+
 jyppx_add_gtest(jyppx_test_nn_label_smoothing
     LINK_TARGET jyppx::nn
     nn/loss/test_label_smoothing_cross_entropy.cpp

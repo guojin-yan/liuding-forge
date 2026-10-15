@@ -5,7 +5,8 @@ find_dependency(Torch REQUIRED)
 
 include("${CMAKE_CURRENT_LIST_DIR}/jyppx_training_frameworkTargets.cmake")
 foreach(JYPPX_EXPORTED_TARGET IN ITEMS
-        jyppx::foundation jyppx::core jyppx::data jyppx::nn jyppx::sdk)
+        jyppx::foundation jyppx::core jyppx::data jyppx::nn jyppx::training
+        jyppx::optim jyppx::sdk)
     set_property(TARGET ${JYPPX_EXPORTED_TARGET} APPEND
         PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")
 endforeach()

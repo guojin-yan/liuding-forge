@@ -24,6 +24,7 @@ doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/core"
     "${PROJECT_SOURCE_DIR}/include/jyppx/data"
     "${PROJECT_SOURCE_DIR}/include/jyppx/nn"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/optim/sgd_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/checkpoint_coordinator.hpp"
     COMMENT "Validating and generating migrated API documentation"
 )

@@ -9,6 +9,7 @@
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #include <jyppx/nn/model_adapter.hpp>
 #include <jyppx/nn/model_checkpoint_participant.hpp>
+#include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 
 #include <array>
@@ -126,10 +127,25 @@ int main() {
   const bool valid_adapter =
       adapted.sizes().vec() == std::vector<std::int64_t>({2, 1}) &&
       adapter.state().parameters().size() == 2;
+  auto installed_parameter = torch::ones(
+      {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+  auto installed_optimizer =
+      std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+          std::vector<jyppx::optim::SgdParameterGroup>{
+              {.group_id = "main",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = installed_parameter}},
+               .options = {.learning_rate = 0.01, .momentum = 0.9}}});
+  jyppx::optim::SgdOptimizerCheckpointParticipant
+      installed_optimizer_participant(installed_optimizer);
+  const bool valid_optimizer =
+      installed_optimizer_participant.describe_state().fields.size() == 3 &&
+      installed_optimizer->parameter_count() == 1;
   return valid_version && valid_error && valid_device &&
                  valid_checkpoint_contract && valid_checkpoint_coordinator &&
                  valid_model_checkpoint && valid_data && valid_nn &&
-                 valid_contrastive && valid_focal && valid_dice && valid_adapter
+                 valid_contrastive && valid_focal && valid_dice &&
+                 valid_adapter && valid_optimizer
              ? 0
              : 1;
 }

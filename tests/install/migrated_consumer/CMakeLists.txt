@@ -22,6 +22,9 @@ endif()
 if(NOT TARGET jyppx::training)
     message(FATAL_ERROR "Installed package does not export jyppx::training")
 endif()
+if(NOT TARGET jyppx::optim)
+    message(FATAL_ERROR "Installed package does not export jyppx::optim")
+endif()
 if(TARGET jyppx_training_framework::jyppx_foundation OR
    TARGET jyppx_training_framework::jyppx_training_framework)
     message(FATAL_ERROR "Installed package still exports a legacy target name")
@@ -30,7 +33,7 @@ endif()
 add_executable(jyppx_migrated_api_consumer main.cpp)
 target_link_libraries(jyppx_migrated_api_consumer
     PRIVATE jyppx::foundation jyppx::core jyppx::data jyppx::nn
-            jyppx::training
+            jyppx::optim jyppx::training
 )
 
 if(WIN32)

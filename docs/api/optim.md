@@ -2,6 +2,13 @@
 
 All types live in the `jyppx::optim` namespace.
 
+The migrated optimizer boundary starts with the independently exported
+[`SgdOptimizerAdapter`](sgd_adapter.md). It delegates numerical updates to
+LibTorch and supplies stable parameter identity plus storage-neutral recovery.
+The hand-written hierarchy documented below is the legacy path still used by
+unmigrated trainer and scheduler consumers; it is not a compatibility wrapper
+for the delegated API.
+
 ## Optimizer base
 
 `#include <jyppx/optim/optimizer.hpp>`

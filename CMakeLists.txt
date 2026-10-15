@@ -276,6 +276,25 @@ target_include_directories(jyppx_training
 )
 target_link_libraries(jyppx_training PUBLIC jyppx_foundation)
 
+add_library(jyppx_optim STATIC
+    src/jyppx/optim/sgd_adapter.cpp
+)
+add_library(jyppx::optim ALIAS jyppx_optim)
+set_target_properties(jyppx_optim PROPERTIES
+    OUTPUT_NAME jyppx_optim
+    EXPORT_NAME optim
+)
+target_include_directories(jyppx_optim
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(jyppx_optim
+    PUBLIC
+        jyppx_foundation
+        jyppx_core
+)
+
 add_library(jyppx_training_framework STATIC)
 add_library(jyppx::sdk ALIAS jyppx_training_framework)
 set_target_properties(jyppx_training_framework PROPERTIES
@@ -305,6 +324,7 @@ target_link_libraries(jyppx_training_framework
         jyppx_data
         jyppx_nn
         jyppx_training
+        jyppx_optim
         ${TORCH_LIBRARIES}
 )
 
@@ -349,7 +369,7 @@ endif()
 # Installation
 # ============================================
 install(TARGETS jyppx_foundation jyppx_core jyppx_data jyppx_nn jyppx_training
-                jyppx_training_framework
+                jyppx_optim jyppx_training_framework
     EXPORT jyppx_training_frameworkTargets
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib

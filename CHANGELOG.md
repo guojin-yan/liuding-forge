@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- An independently exported `jyppx::optim` target with a LibTorch-delegated
+  SGD adapter, stable group/parameter identities, fixed versioned raw state
+  fields, bounded preflight, and atomic exact checkpoint restore.
 - An exact `jyppx::nn` model checkpoint participant with versioned topology,
   bounded non-pickle tensor blobs, strict state-key/type/shape/alias preflight,
   and rollback-protected parameter and buffer restore.

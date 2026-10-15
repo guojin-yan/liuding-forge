@@ -19,6 +19,7 @@
 // Optimizers
 #include <jyppx/optim/optimizer.hpp>
 #include <jyppx/optim/sgd.hpp>
+#include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/adam.hpp>
 #include <jyppx/optim/adamw.hpp>
 #include <jyppx/optim/rmsprop.hpp>

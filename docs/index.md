@@ -43,6 +43,8 @@ metrics, callbacks, checkpointing and mixed precision.
   Adagrad, NAdam, Lamb, RAdam, Adamax, ASGD, Rprop, Adadelta, SparseAdam,
   LBFGS, LARS and Lookahead; the complete scheduler family including warmup
   and composite schedulers
+- [Delegated SGD Adapter](api/sgd_adapter.md) — LibTorch-backed SGD with
+  stable group and parameter identities plus exact bounded checkpoint state
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP
 - [Model Adapter](api/model_adapter.md) — shared model state, typed adapter
   helpers, structured invocation schemas, and multi-input/output boundaries
