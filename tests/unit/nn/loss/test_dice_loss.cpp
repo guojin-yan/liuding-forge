@@ -6,6 +6,8 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/nn/loss/dice_loss.hpp>
 
+#include <torch/cuda.h>
+
 #include <cmath>
 #include <gtest/gtest.h>
 #include <limits>
@@ -249,6 +251,40 @@ TEST(DiceLossTest, RejectsInvalidTensorContracts) {
   EXPECT_THROW(functional::dice_loss(torch::zeros({2, 3, 4}),
                                      torch::zeros({2, 3, 1}), multilabel),
                jyppx::InvalidArgument);
+}
+
+TEST(DiceLossCudaTest, MulticlassHalfMatchesCpuAndBackpropagates) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA not available";
+  }
+
+  torch::manual_seed(20261016);
+  auto cuda_logits = torch::randn({3, 4, 5}, torch::TensorOptions()
+                                                 .dtype(torch::kFloat16)
+                                                 .device(torch::kCUDA)
+                                                 .requires_grad(true));
+  auto cuda_target = torch::randint(
+      0, 4, {3, 5},
+      torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA));
+  cuda_target.select(1, 4).fill_(-1);
+  DiceLossOptions options;
+  options.mode = DiceMode::multiclass;
+  options.average = DiceAverage::micro;
+  options.ignore_index = -1;
+  options.include_background = false;
+
+  const auto actual = functional::dice_loss(cuda_logits, cuda_target, options);
+  const auto expected = functional::dice_loss(
+      cuda_logits.detach().to(torch::kCPU, torch::kFloat32),
+      cuda_target.to(torch::kCPU), options);
+  EXPECT_TRUE(torch::allclose(actual.to(torch::kCPU, torch::kFloat32), expected,
+                              2e-3, 2e-3));
+
+  actual.backward();
+  ASSERT_TRUE(cuda_logits.grad().defined());
+  EXPECT_TRUE(torch::isfinite(cuda_logits.grad()).all().item<bool>());
+  EXPECT_TRUE(torch::equal(cuda_logits.grad().select(2, 4),
+                           torch::zeros({3, 4}, cuda_logits.options())));
 }
 
 }  // namespace

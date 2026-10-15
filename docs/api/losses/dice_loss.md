@@ -63,4 +63,6 @@ references; macro/micro behavior; background and empty-class selection;
 ignore masking and zero ignored gradients; all-ignored samples; every batch
 reduction; non-contiguous spatial logits; backward finiteness; structured
 configuration and tensor-contract failures; module parity; and installed
-package consumption through `jyppx::nn`.
+package consumption through `jyppx::nn`. A CUDA lane additionally compares
+float16 multiclass output with a CPU float32 reference and verifies finite
+backward gradients plus zero gradients at ignored locations.
