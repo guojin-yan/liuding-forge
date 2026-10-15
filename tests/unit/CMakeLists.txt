@@ -56,6 +56,11 @@ jyppx_add_gtest(jyppx_test_nn_focal
     nn/loss/test_focal_loss.cpp
 )
 
+jyppx_add_gtest(jyppx_test_nn_model_adapter
+    LINK_TARGET jyppx::nn
+    nn/test_model_adapter.cpp
+)
+
 jyppx_add_gtest(jyppx_test_plan
     test_plan_completion.cpp
 )

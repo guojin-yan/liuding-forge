@@ -6,10 +6,14 @@
 #include <jyppx/nn/loss/dice_loss.hpp>
 #include <jyppx/nn/loss/focal_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
+#include <jyppx/nn/model_adapter.hpp>
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 int main() {
@@ -45,8 +49,28 @@ int main() {
       torch::tensor({0}, torch::kLong), dice_options);
   const bool valid_dice =
       dice.numel() == 1 && std::isfinite(dice.item<double>());
+
+  torch::nn::Linear linear(2, 1);
+  jyppx::nn::TensorSchema adapter_input;
+  adapter_input.dtype = torch::kFloat32;
+  adapter_input.rank = 2;
+  adapter_input.shape =
+      std::vector<std::optional<std::int64_t>>{std::nullopt, 2};
+  jyppx::nn::TensorSchema adapter_output;
+  adapter_output.dtype = torch::kFloat32;
+  adapter_output.rank = 2;
+  adapter_output.shape =
+      std::vector<std::optional<std::int64_t>>{std::nullopt, 1};
+  auto adapter = jyppx::nn::adapt_tensor_holder(
+      linear, std::move(adapter_input), std::move(adapter_output));
+  const auto adapted =
+      adapter.invoke({.positional = {torch::ones({2, 2})}}).value.toTensor();
+  const bool valid_adapter =
+      adapted.sizes().vec() == std::vector<std::int64_t>({2, 1}) &&
+      adapter.state().parameters().size() == 2;
   return valid_version && valid_error && valid_device && valid_data &&
-                 valid_nn && valid_contrastive && valid_focal && valid_dice
+                 valid_nn && valid_contrastive && valid_focal && valid_dice &&
+                 valid_adapter
              ? 0
              : 1;
 }

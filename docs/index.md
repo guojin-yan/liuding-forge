@@ -36,6 +36,8 @@ metrics, callbacks, checkpointing and mixed precision.
   LBFGS, LARS and Lookahead; the complete scheduler family including warmup
   and composite schedulers
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP
+- [Model Adapter](api/model_adapter.md) — shared model state, typed adapter
+  helpers, structured invocation schemas, and multi-input/output boundaries
 - [Label-smoothed cross entropy](api/losses/label_smoothing_cross_entropy.md)
   — the first independently packaged `jyppx::nn` loss adapter
 - [Contrastive loss](api/losses/contrastive_loss.md) — a native pairwise

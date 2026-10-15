@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A schema-checked `ModelStateView`/`ModelAdapter` contract that separates
+  shared LibTorch module state from explicit invocation, including typed
+  tensor helpers and structured multi-input/output validation.
 - A versioned `compatibility.json` source of truth and dependency-free
   validator. CI and benchmark workflows now read the candidate LibTorch version
   from this source instead of carrying an independent hard-coded version.
