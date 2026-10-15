@@ -141,6 +141,27 @@ $pythonCommand = $Matches[1]
 if (-not (Test-Path -LiteralPath $pythonCommand -PathType Leaf)) {
     throw "CMake resolved a missing Python3 interpreter: $pythonCommand"
 }
+$compilerFile = Get-ChildItem (Join-Path $BuildDir "CMakeFiles") -Recurse `
+    -File -Filter "CMakeCXXCompiler.cmake" | Select-Object -First 1
+if ($null -eq $compilerFile) {
+    throw "CMake did not write CMakeCXXCompiler.cmake"
+}
+$compilerText = Get-Content -LiteralPath $compilerFile.FullName -Raw
+$compilerIdMatch = [regex]::Match(
+    $compilerText, 'set\(CMAKE_CXX_COMPILER_ID "([^"]+)"\)')
+$compilerVersionMatch = [regex]::Match(
+    $compilerText, 'set\(CMAKE_CXX_COMPILER_VERSION "([^"]+)"\)')
+if (-not $compilerIdMatch.Success -or -not $compilerVersionMatch.Success) {
+    throw "CMake compiler identity is incomplete: $($compilerFile.FullName)"
+}
+$compilerIdentity = "$($compilerIdMatch.Groups[1].Value)-$($compilerVersionMatch.Groups[1].Value)"
+$cacheText = Get-Content (Join-Path $BuildDir "CMakeCache.txt") -Raw
+$generatorMatch = [regex]::Match(
+    $cacheText, '(?m)^CMAKE_GENERATOR:INTERNAL=(.+)$')
+if (-not $generatorMatch.Success) {
+    throw "CMake generator identity is missing"
+}
+$generatorIdentity = $generatorMatch.Groups[1].Value.Trim()
 $steps.Add((Invoke-Captured cmake @(
         "--build", $BuildDir, "--config", "Release", "--parallel"
     ) "02-build.log"))
@@ -236,16 +257,12 @@ $processor = if ([string]::IsNullOrWhiteSpace($env:PROCESSOR_IDENTIFIER)) {
 } else {
     $env:PROCESSOR_IDENTIFIER.Trim()
 }
-$toolchain = if ([string]::IsNullOrWhiteSpace($env:VCToolsVersion)) {
-    $cmakeVersion
-} else {
-    "MSVC-$($env:VCToolsVersion.Trim())"
-}
 $environmentKey = @(
     $osDescription,
     $architecture,
     $processor,
-    $toolchain,
+    $generatorIdentity,
+    $compilerIdentity,
     "libtorch-$libtorchBuild",
     "Release"
 ) -join "|"
@@ -335,7 +352,8 @@ $report = [ordered]@{
         architecture = $architecture
         logical_processors = [Environment]::ProcessorCount
         processor = $processor
-        toolchain = $toolchain
+        generator = $generatorIdentity
+        compiler = $compilerIdentity
         libtorch_build = $libtorchBuild
     }
     sampling = [ordered]@{
