@@ -3,8 +3,6 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <gtest/gtest.h>
-
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 
@@ -14,6 +12,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <gtest/gtest.h>
 #include <map>
 #include <memory>
 #include <optional>
@@ -35,11 +34,11 @@ class MemoryStateStore final : public jyppx::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field = std::find_if(
-        manifest_.fields.begin(), manifest_.fields.end(),
-        [name](const jyppx::StateFieldDescriptor& candidate) {
-          return candidate.name == name;
-        });
+    const auto field =
+        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
+                     [name](const jyppx::StateFieldDescriptor& candidate) {
+                       return candidate.name == name;
+                     });
     if (field == manifest_.fields.end()) {
       throw jyppx::SerializationError("unknown test field");
     }
@@ -62,8 +61,8 @@ class MemoryStateStore final : public jyppx::StateWriter,
     return blobs_.contains(std::string(name));
   }
 
-  std::span<const std::byte> read_blob(
-      std::string_view name, std::uint64_t max_bytes) const override {
+  std::span<const std::byte> read_blob(std::string_view name,
+                                       std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end()) {
       throw jyppx::SerializationError("missing test field");
@@ -91,8 +90,7 @@ class MemoryCheckpointStore final
     : public jyppx::training::CheckpointStateSink,
       public jyppx::training::CheckpointStateSource {
  public:
-  void begin(
-      const jyppx::training::CheckpointDescriptor& descriptor) override {
+  void begin(const jyppx::training::CheckpointDescriptor& descriptor) override {
     ++begin_count_;
     if (fail_begin_) {
       throw jyppx::SerializationError("injected begin failure");
@@ -174,9 +172,9 @@ class MemoryCheckpointStore final
 
 class CounterParticipant final : public jyppx::CheckpointParticipant {
  public:
-  CounterParticipant(std::string identifier, std::int32_t value,
-                     jyppx::RestoreLevel restore_level =
-                         jyppx::RestoreLevel::exact)
+  CounterParticipant(
+      std::string identifier, std::int32_t value,
+      jyppx::RestoreLevel restore_level = jyppx::RestoreLevel::exact)
       : identifier_(std::move(identifier)),
         value_(value),
         restore_level_(restore_level) {}
@@ -218,8 +216,7 @@ class CounterParticipant final : public jyppx::CheckpointParticipant {
         stored_manifest.schema_version != 1) {
       throw jyppx::CompatibilityError("incompatible counter state");
     }
-    if (!jyppx::restore_policy_accepts(policy,
-                                       stored_manifest.restore_level)) {
+    if (!jyppx::restore_policy_accepts(policy, stored_manifest.restore_level)) {
       throw jyppx::CompatibilityError("counter restore policy rejected");
     }
     const auto bytes = reader.read_blob("value", sizeof(value_));
@@ -228,8 +225,8 @@ class CounterParticipant final : public jyppx::CheckpointParticipant {
     }
     std::int32_t candidate = 0;
     std::memcpy(&candidate, bytes.data(), sizeof(candidate));
-    if (std::find(rejected_values_.begin(), rejected_values_.end(), candidate) !=
-        rejected_values_.end()) {
+    if (std::find(rejected_values_.begin(), rejected_values_.end(),
+                  candidate) != rejected_values_.end()) {
       throw jyppx::SerializationError("injected participant load failure");
     }
     if (events_ != nullptr) {
@@ -324,8 +321,7 @@ TEST(CheckpointCoordinatorTest, SavesInCanonicalOrderAndCommitsOnce) {
             std::vector<std::string>({"a.rng", "z.model"}));
   EXPECT_EQ(store.write_order(),
             std::vector<std::string>({"a.rng", "z.model"}));
-  EXPECT_EQ(events,
-            std::vector<std::string>({"save:a.rng", "save:z.model"}));
+  EXPECT_EQ(events, std::vector<std::string>({"save:a.rng", "save:z.model"}));
   EXPECT_EQ(descriptor.participants.front().participant_id, "a.rng");
   EXPECT_EQ(store.begin_count(), 1);
   EXPECT_EQ(store.commit_count(), 1);
@@ -404,9 +400,8 @@ TEST(CheckpointCoordinatorTest, RejectsPolicyBeforeAnyParticipantMutation) {
   coordinator.save(store);
   participant->set_value(44);
 
-  EXPECT_THROW(
-      coordinator.restore(store, jyppx::RestorePolicy::exact_only),
-      jyppx::CompatibilityError);
+  EXPECT_THROW(coordinator.restore(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
   EXPECT_EQ(participant->value(), 44);
 }
 
@@ -456,10 +451,9 @@ TEST(CheckpointCoordinatorTest, LaterLoadFailureRollsBackEarlierParticipant) {
 
   EXPECT_EQ(first->value(), 10);
   EXPECT_EQ(second->value(), 20);
-  EXPECT_EQ(events,
-            std::vector<std::string>({"save:a.first", "save:b.second",
-                                      "load:a.first:1", "load:b.second:20",
-                                      "load:a.first:10"}));
+  EXPECT_EQ(events, std::vector<std::string>(
+                        {"save:a.first", "save:b.second", "load:a.first:1",
+                         "load:b.second:20", "load:a.first:10"}));
 }
 
 TEST(CheckpointCoordinatorTest,
@@ -498,8 +492,8 @@ TEST(CheckpointCoordinatorTest, EnforcesRollbackBudgetBeforeMutation) {
   registry.register_participant(first);
   registry.register_participant(second);
   jyppx::training::CheckpointCoordinator coordinator(
-      registry, {.max_participants = 2,
-                 .max_rollback_bytes = sizeof(std::int32_t)});
+      registry,
+      {.max_participants = 2, .max_rollback_bytes = sizeof(std::int32_t)});
   MemoryCheckpointStore store;
   coordinator.save(store);
   first->set_value(10);
@@ -514,14 +508,12 @@ TEST(CheckpointCoordinatorTest, RejectsEmptyRegistryAndZeroLimits) {
   jyppx::training::CheckpointParticipantRegistry registry;
   jyppx::training::CheckpointCoordinator coordinator(registry);
   EXPECT_THROW(coordinator.describe(), jyppx::InvalidArgument);
-  EXPECT_THROW(
-      jyppx::training::CheckpointCoordinator(
-          registry, {.max_participants = 0, .max_rollback_bytes = 1}),
-      jyppx::InvalidArgument);
-  EXPECT_THROW(
-      jyppx::training::CheckpointCoordinator(
-          registry, {.max_participants = 1, .max_rollback_bytes = 0}),
-      jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::training::CheckpointCoordinator(
+                   registry, {.max_participants = 0, .max_rollback_bytes = 1}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::training::CheckpointCoordinator(
+                   registry, {.max_participants = 1, .max_rollback_bytes = 0}),
+               jyppx::InvalidArgument);
 }
 
 }  // namespace

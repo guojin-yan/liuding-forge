@@ -3,9 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/training/checkpoint_coordinator.hpp>
-
 #include <jyppx/foundation/error.hpp>
+#include <jyppx/training/checkpoint_coordinator.hpp>
 
 #include <algorithm>
 #include <exception>
@@ -22,15 +21,13 @@ namespace {
 
 [[noreturn]] void throw_descriptor_error(std::string operation,
                                          std::string expected,
-                                         std::string actual,
-                                         std::string hint) {
-  throw InvalidArgument(
-      "Invalid coordinated checkpoint descriptor",
-      ErrorDetails{.component = "training.checkpoint",
-                   .operation = std::move(operation),
-                   .expected = std::move(expected),
-                   .actual = std::move(actual),
-                   .hint = std::move(hint)});
+                                         std::string actual, std::string hint) {
+  throw InvalidArgument("Invalid coordinated checkpoint descriptor",
+                        ErrorDetails{.component = "training.checkpoint",
+                                     .operation = std::move(operation),
+                                     .expected = std::move(expected),
+                                     .actual = std::move(actual),
+                                     .hint = std::move(hint)});
 }
 
 [[noreturn]] void throw_compatibility_error(std::string operation,
@@ -119,11 +116,12 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
     if (data.size() > field->max_bytes) {
       throw ResourceExhausted(
           "Rollback field exceeds its declared size limit",
-          ErrorDetails{.component = "training.checkpoint",
-                       .operation = "snapshot.write_blob",
-                       .expected = std::to_string(field->max_bytes),
-                       .actual = std::to_string(data.size()),
-                       .hint = "Increase the declared field bound deliberately."});
+          ErrorDetails{
+              .component = "training.checkpoint",
+              .operation = "snapshot.write_blob",
+              .expected = std::to_string(field->max_bytes),
+              .actual = std::to_string(data.size()),
+              .hint = "Increase the declared field bound deliberately."});
     }
     if (blobs_.contains(std::string(name))) {
       throw SerializationError(
@@ -154,8 +152,8 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
     return blobs_.contains(std::string(name));
   }
 
-  std::span<const std::byte> read_blob(
-      std::string_view name, std::uint64_t max_bytes) const override {
+  std::span<const std::byte> read_blob(std::string_view name,
+                                       std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end()) {
       throw SerializationError(
@@ -169,11 +167,13 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
     if (blob->second.size() > max_bytes) {
       throw ResourceExhausted(
           "Rollback snapshot field exceeds the reader limit",
-          ErrorDetails{.component = "training.checkpoint",
-                       .operation = "snapshot.read_blob",
-                       .expected = std::to_string(max_bytes),
-                       .actual = std::to_string(blob->second.size()),
-                       .hint = "Keep participant read limits aligned with its manifest."});
+          ErrorDetails{
+              .component = "training.checkpoint",
+              .operation = "snapshot.read_blob",
+              .expected = std::to_string(max_bytes),
+              .actual = std::to_string(blob->second.size()),
+              .hint =
+                  "Keep participant read limits aligned with its manifest."});
     }
     return blob->second;
   }
@@ -183,11 +183,13 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
       if (field.required && !blobs_.contains(field.name)) {
         throw SerializationError(
             "Participant omitted a required rollback field",
-            ErrorDetails{.component = "training.checkpoint",
-                         .operation = "snapshot.finalize",
-                         .expected = field.name,
-                         .actual = "missing",
-                         .hint = "Write every required field before save_state returns."});
+            ErrorDetails{
+                .component = "training.checkpoint",
+                .operation = "snapshot.finalize",
+                .expected = field.name,
+                .actual = "missing",
+                .hint =
+                    "Write every required field before save_state returns."});
       }
     }
   }
@@ -200,29 +202,28 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
 void validate_registry_size(std::size_t size,
                             const CheckpointCoordinatorOptions& options) {
   if (size == 0 || size > options.max_participants) {
-    throw_descriptor_error("participants",
-                           "between 1 and " +
-                               std::to_string(options.max_participants),
-                           std::to_string(size),
-                           "Register a bounded, non-empty participant set.");
+    throw_descriptor_error(
+        "participants",
+        "between 1 and " + std::to_string(options.max_participants),
+        std::to_string(size), "Register a bounded, non-empty participant set.");
   }
 }
 
-void validate_rollback_budget(
-    const CheckpointDescriptor& descriptor,
-    const CheckpointCoordinatorOptions& options) {
+void validate_rollback_budget(const CheckpointDescriptor& descriptor,
+                              const CheckpointCoordinatorOptions& options) {
   std::uint64_t total = 0;
   for (const auto& manifest : descriptor.participants) {
     for (const auto& field : manifest.fields) {
       if (field.max_bytes > options.max_rollback_bytes - total) {
         throw ResourceExhausted(
             "Declared rollback snapshot exceeds the coordinator budget",
-            ErrorDetails{.component = "training.checkpoint",
-                         .operation = "restore.snapshot_budget",
-                         .expected =
-                             std::to_string(options.max_rollback_bytes),
-                         .actual = "more than configured",
-                         .hint = "Reduce participant bounds or raise the explicit budget."});
+            ErrorDetails{
+                .component = "training.checkpoint",
+                .operation = "restore.snapshot_budget",
+                .expected = std::to_string(options.max_rollback_bytes),
+                .actual = "more than configured",
+                .hint =
+                    "Reduce participant bounds or raise the explicit budget."});
       }
       total += field.max_bytes;
     }
@@ -274,11 +275,12 @@ void CheckpointParticipantRegistry::register_participant(
   if (!participants_.emplace(identifier, std::move(participant)).second) {
     throw InvalidArgument(
         "Checkpoint participant ID is already registered",
-        ErrorDetails{.component = "training.checkpoint",
-                     .operation = "registry.register_participant",
-                     .expected = "a unique participant ID",
-                     .actual = identifier,
-                     .hint = "Assign one owner to each recoverable state domain."});
+        ErrorDetails{
+            .component = "training.checkpoint",
+            .operation = "registry.register_participant",
+            .expected = "a unique participant ID",
+            .actual = identifier,
+            .hint = "Assign one owner to each recoverable state domain."});
   }
 }
 
@@ -303,7 +305,8 @@ std::vector<std::string> CheckpointParticipantRegistry::participant_ids()
 }
 
 CheckpointCoordinator::CheckpointCoordinator(
-    CheckpointParticipantRegistry& registry, CheckpointCoordinatorOptions options)
+    CheckpointParticipantRegistry& registry,
+    CheckpointCoordinatorOptions options)
     : registry_(registry), options_(options) {
   if (options_.max_participants == 0 || options_.max_rollback_bytes == 0) {
     throw InvalidArgument(
@@ -331,8 +334,7 @@ CheckpointDescriptor CheckpointCoordinator::describe() const {
     }
     descriptor.participants.push_back(std::move(manifest));
   }
-  descriptor.restore_level =
-      aggregate_restore_level(descriptor.participants);
+  descriptor.restore_level = aggregate_restore_level(descriptor.participants);
   validate_checkpoint_descriptor(descriptor);
   return descriptor;
 }
@@ -363,11 +365,12 @@ CheckpointDescriptor CheckpointCoordinator::restore(
   if (restore_policy_name(policy) == "unknown") {
     throw InvalidArgument(
         "Unknown checkpoint restore policy",
-        ErrorDetails{.component = "training.checkpoint",
-                     .operation = "restore.policy",
-                     .expected = "a declared RestorePolicy value",
-                     .actual = std::to_string(static_cast<std::uint8_t>(policy)),
-                     .hint = "Reject unrecognized persisted policy values."});
+        ErrorDetails{
+            .component = "training.checkpoint",
+            .operation = "restore.policy",
+            .expected = "a declared RestorePolicy value",
+            .actual = std::to_string(static_cast<std::uint8_t>(policy)),
+            .hint = "Reject unrecognized persisted policy values."});
   }
 
   const auto current_descriptor = describe();
@@ -388,7 +391,8 @@ CheckpointDescriptor CheckpointCoordinator::restore(
     throw_compatibility_error(
         "restore.policy", std::string(restore_policy_name(policy)),
         std::string(restore_level_name(stored_descriptor.restore_level)),
-        "Choose a checkpoint with a stronger guarantee or relax policy explicitly.");
+        "Choose a checkpoint with a stronger guarantee or relax policy "
+        "explicitly.");
   }
 
   std::vector<const StateReader*> readers;
@@ -425,8 +429,7 @@ CheckpointDescriptor CheckpointCoordinator::restore(
   snapshots.reserve(current_descriptor.participants.size());
   for (const auto& manifest : current_descriptor.participants) {
     auto snapshot = std::make_unique<MemoryParticipantState>(manifest);
-    registry_.participants_.at(manifest.participant_id)
-        ->save_state(*snapshot);
+    registry_.participants_.at(manifest.participant_id)->save_state(*snapshot);
     snapshot->finalize();
     snapshots.push_back(std::move(snapshot));
   }
@@ -436,8 +439,8 @@ CheckpointDescriptor CheckpointCoordinator::restore(
     for (; attempted < stored_descriptor.participants.size(); ++attempted) {
       const auto& identifier =
           stored_descriptor.participants[attempted].participant_id;
-      registry_.participants_.at(identifier)->load_state(*readers[attempted],
-                                                         policy);
+      registry_.participants_.at(identifier)
+          ->load_state(*readers[attempted], policy);
     }
   } catch (...) {
     const auto restore_failure = std::current_exception();
@@ -448,8 +451,8 @@ CheckpointDescriptor CheckpointCoordinator::restore(
       const auto& identifier =
           current_descriptor.participants[index].participant_id;
       try {
-        registry_.participants_.at(identifier)->load_state(
-            *snapshots[index], RestorePolicy::allow_best_effort);
+        registry_.participants_.at(identifier)
+            ->load_state(*snapshots[index], RestorePolicy::allow_best_effort);
       } catch (...) {
         if (rollback_failure_id.empty()) {
           rollback_failure_id = identifier;

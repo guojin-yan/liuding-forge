@@ -64,8 +64,7 @@ class CheckpointParticipantRegistry final {
    * @throws InvalidArgument If the participant is null, invalid, or duplicates
    * an existing participant ID.
    */
-  void register_participant(
-      std::shared_ptr<CheckpointParticipant> participant);
+  void register_participant(std::shared_ptr<CheckpointParticipant> participant);
 
   /**
    * @brief Reports whether a participant ID is registered.
@@ -189,9 +188,8 @@ class CheckpointCoordinator final {
    * @param options Positive topology and rollback resource limits.
    * @throws InvalidArgument If an option is zero.
    */
-  explicit CheckpointCoordinator(
-      CheckpointParticipantRegistry& registry,
-      CheckpointCoordinatorOptions options = {});
+  explicit CheckpointCoordinator(CheckpointParticipantRegistry& registry,
+                                 CheckpointCoordinatorOptions options = {});
 
   /**
    * @brief Describes the current participant set in canonical order.
