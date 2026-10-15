@@ -82,6 +82,8 @@ TEST(InitBasicTest, NormalMatchesRequestedStatistics) {
 
 TEST(InitXavierTest, UniformBoundFollowsFanFormula) {
     // {64, 32}: fan_in=32, fan_out=64 -> bound = gain*sqrt(6/96).
+    // Pin the stream so the statistical assertion is independent of test order.
+    torch::manual_seed(11);
     auto tensor = torch::empty({64, 32}, torch::TensorOptions().dtype(torch::kFloat64));
     const double gain = 1.5;
     const double bound = gain * std::sqrt(6.0 / (32.0 + 64.0));
