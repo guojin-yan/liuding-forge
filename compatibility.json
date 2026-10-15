@@ -53,21 +53,23 @@
           "commit": "ba02ece"
         },
         {
-          "id": "local-ubuntu-clang-cpu-debug",
+          "id": "local-ubuntu-clang-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
           "compiler": "Clang 14.0.0",
           "accelerator": "CPU",
-          "build_type": "Debug",
+          "build_type": "Release",
           "tests": "330/330; 4 CUDA-only tests skipped",
-          "instrumentation": "none (compiler compatibility and install consumer)",
+          "instrumentation": "strict compiler and API quality gates",
           "quality_evidence": {
             "configure": "passed",
-            "build": "passed without project warnings",
+            "build": "passed; foundation/core compiled with -Werror and clang-tidy",
+            "format": "foundation/core clang-format gate passed",
+            "documentation": "foundation/core strict Doxygen gate passed",
             "ctest": "330/330",
             "install_consumer": "passed"
           },
-          "commit": "a49e775"
+          "commit": "321d0ee"
         }
       ]
     }
