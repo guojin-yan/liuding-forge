@@ -68,36 +68,19 @@ written to `stdout` and, when configured, to the log file with a
 
 ## Parameter initialization
 
-`#include <jyppx/nn/init.hpp>`
+JYPPX does not wrap LibTorch's parameter initialization API. Include
+`<torch/nn/init.h>` and select the complete upstream options directly:
 
 ```cpp
-namespace jyppx::nn::init {
-void uniform_(Tensor& t, double a = 0.0, double b = 1.0);
-void normal_(Tensor& t, double mean = 0.0, double std = 1.0);
-void constant_(Tensor& t, double val);
-void zeros_(Tensor& t);
-void ones_(Tensor& t);
-void xavier_uniform_(Tensor& t, double gain = 1.0);
-void xavier_normal_(Tensor& t, double gain = 1.0);
-void kaiming_uniform_(Tensor& t, double a = 0.0,
-                      const std::string& mode = "fan_in");
-void kaiming_normal_(Tensor& t, double a = 0.0,
-                     const std::string& mode = "fan_in");
-}
+auto weight = torch::empty(
+    {64, 32}, torch::TensorOptions().requires_grad(true));
+torch::nn::init::kaiming_uniform_(
+    weight, 0.0, torch::kFanIn, torch::kLeakyReLU);
 ```
 
-All functions delegate to `torch::nn::init` (exact PyTorch formulas, leaky
-relu gain, NoGradGuard inside — safe on `requires_grad` weights). Notes for
-this LibTorch version:
-
-- `mode` is `"fan_in"` or `"fan_out"`; anything else throws.
-- Fan-based initializers require tensors with at least 2 dimensions (1D
-  tensors are rejected, unlike `torch.nn.init` in Python).
-
-```cpp
-auto weight = torch::empty({64, 32}, torch::TensorOptions().requires_grad(true));
-jyppx::nn::init::kaiming_uniform_(weight);  // He initialization
-```
+The removed JYPPX wrapper delegated every operation to LibTorch while hiding
+the typed fan mode and nonlinearity options, so it did not provide a distinct
+framework contract.
 
 ## Version
 

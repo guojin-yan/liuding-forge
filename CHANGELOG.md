@@ -79,6 +79,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   policy-heavy `distillation_loss` were removed. The distillation example now
   states its hard/soft composition, teacher-gradient, reduction and dtype
   policy directly as a local training recipe.
+- The duplicate `jyppx::nn::init` wrappers were removed; examples now use the
+  complete typed LibTorch initialization API directly.
+- The legacy `nn/quantization.hpp` storage-only prototype was removed from the
+  default SDK. A future optional `jyppx::quantization` component must start
+  from versioned formats, safe resource limits and separately proven storage,
+  training and compute capabilities.
 - `LRSchedulerCallback` follows the same metric-aware stepping rules as the
   Trainer loop.
 - Release test coverage increased to 249 passing tests.

@@ -50,7 +50,9 @@ metrics, callbacks, checkpointing and mixed precision.
 ## Project status
 
 See [CHANGELOG](../CHANGELOG.md) for the running list of changes. The current
-framework scope includes loss, optimizer, scheduler, quantization, hooks,
-TensorBoard, augmentation, analysis, metric, checkpoint and AMP extensions.
+framework scope includes loss, optimizer, scheduler, hooks, TensorBoard,
+augmentation, analysis, metric, checkpoint and AMP extensions. Quantization is
+planned as a separately gated optional component and is not part of the current
+default SDK surface.
 Planning records are maintained outside the source repository and are not
 part of the installed documentation.

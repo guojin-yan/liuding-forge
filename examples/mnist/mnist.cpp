@@ -6,6 +6,7 @@
 // usage: jyppx_mnist [data_dir] [epochs]
 
 #include <jyppx/jyppx.hpp>
+#include <torch/nn/init.h>
 
 #include "mnist_data.hpp"
 
@@ -27,8 +28,10 @@ public:
                                        torch::nn::Conv2dOptions(8, 16, 3).padding(1)))),
           fc1(register_module("fc1", torch::nn::Linear(16 * 7 * 7, 64))),
           fc2(register_module("fc2", torch::nn::Linear(64, 10))) {
-        jyppx::nn::init::kaiming_uniform_(conv1->weight);
-        jyppx::nn::init::kaiming_uniform_(conv2->weight);
+        torch::nn::init::kaiming_uniform_(conv1->weight, 0.0, torch::kFanIn,
+                                          torch::kLeakyReLU);
+        torch::nn::init::kaiming_uniform_(conv2->weight, 0.0, torch::kFanIn,
+                                          torch::kLeakyReLU);
     }
 
     Tensor forward(const Tensor& input) {

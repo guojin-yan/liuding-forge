@@ -1,6 +1,6 @@
 // Unit tests for the plan-completion modules: classification metrics,
 // extended samplers/datasets, extended transforms, NAdam/LAMB, TensorBoard
-// writer, model summary/profiler, distributed and quantization.
+// writer, model summary/profiler and distributed helpers.
 
 #include <jyppx/jyppx.hpp>
 
@@ -537,111 +537,6 @@ TEST(DistributedDDPTest, ForwardsAndRunsGradientsThroughHooks) {
 
     // The hook chain passes the gradient through; the parameter gets it.
     EXPECT_NEAR(ddp.module()->w.grad().item<double>(), 1.0, 1e-12);
-}
-
-// ---- Quantization -------------------------------------------------------------
-
-TEST(QuantizationTest, RoundTripIsAccurateWithinHalfScale) {
-    auto values = torch::tensor({-2.0f, -1.0f, 0.0f, 0.5f, 3.9f});
-    const auto quantized = nn::quantization::quantize_symmetric(values);
-    EXPECT_EQ(quantized.data.scalar_type(), torch::kInt8);
-    EXPECT_NEAR(quantized.scale, 3.9 / 127.0, 1e-6);
-    EXPECT_EQ(quantized.zero_point, 0);
-
-    const auto restored = nn::quantization::dequantize(quantized);
-    EXPECT_TRUE(torch::allclose(restored, values, 0.02f, 0.02f));
-}
-
-TEST(QuantizationTest, ZeroMapsExactly) {
-    auto values = torch::tensor({0.0f, 10.0f});
-    const auto quantized = nn::quantization::quantize_symmetric(values);
-    const auto restored = nn::quantization::dequantize(quantized);
-    EXPECT_NEAR(restored[0].item<double>(), 0.0, 1e-9);
-}
-
-TEST(QuantizationTest, AffineKernelCoversNonZeroDistributions) {
-    // Centered affine quantization of an all-positive range [3, 5]: 254
-    // levels cover the range symmetrically around the center.
-    auto values = torch::tensor({3.0f, 4.0f, 5.0f, 4.5f});
-    const auto quantized = nn::quantization::quantize_affine(values);
-    EXPECT_EQ(quantized.data.scalar_type(), torch::kInt8);
-    EXPECT_NEAR(quantized.scale, (5.0 - 3.0) / 254.0, 1e-8);
-    EXPECT_NEAR(quantized.scale * quantized.zero_point,
-                -(3.0 + 5.0) / 2.0, 0.01); // zero point encodes -center
-
-    // Each value lands within half a quantization step of the original.
-    const auto restored = nn::quantization::dequantize(quantized);
-    for (int64_t i = 0; i < values.numel(); ++i) {
-        EXPECT_NEAR(restored[i].item<double>(), values[i].item<double>(), 0.02);
-    }
-}
-
-TEST(QuantizationTest, QuantizedLinearMatchesFloatWithinTolerance) {
-    auto weight = torch::randn({4, 3}, torch::kFloat64);
-    auto bias = torch::randn({4}, torch::kFloat64);
-    auto input = torch::randn({5, 3}, torch::kFloat64);
-
-    const nn::quantization::QuantizedLinear layer(weight, bias);
-    const auto output = layer.forward(input);
-    const auto reference =
-        (torch::matmul(input, weight.t()) + bias).to(torch::kFloat32);
-
-    // int8 symmetric quantization is tight (~1% relative).
-    EXPECT_TRUE(torch::allclose(output, reference, 0.02, 0.05));
-}
-
-// ---- Whole-model quantization snapshot ---------------------------------------
-
-class QuantSnapshotModel : public torch::nn::Module {
-public:
-    QuantSnapshotModel()
-        : fc1(register_module("fc1", torch::nn::Linear(4, 8))),
-          fc2(register_module("fc2", torch::nn::Linear(8, 2))) {}
-
-    Tensor forward(const Tensor& x) {
-        return fc2->forward(torch::relu(fc1->forward(x)));
-    }
-
-    torch::nn::Linear fc1, fc2;
-};
-
-TEST(QuantSnapshotTest, QuantizesLinearModulesWithPaths) {
-    QuantSnapshotModel model;
-    const auto snapshot = nn::quantization::quantize_linear_weights(model);
-
-    ASSERT_EQ(snapshot.size(), 2); // fc1 and fc2 (2D weights)
-    EXPECT_EQ(snapshot[0].path, "fc1");
-    EXPECT_EQ(snapshot[1].path, "fc2");
-    EXPECT_TRUE(snapshot[0].bias.defined());
-    EXPECT_EQ(snapshot[0].weight.data.scalar_type(), torch::kInt8);
-}
-
-TEST(QuantSnapshotTest, SnapshotRoundTripsThroughArchive) {
-    QuantSnapshotModel model;
-    const auto snapshot = nn::quantization::quantize_linear_weights(model);
-    const auto reference_output = model.forward(torch::randn({3, 4}));
-
-    const auto dir = std::filesystem::temp_directory_path() / "jyppx_quant_test";
-    std::filesystem::create_directories(dir);
-    const auto path = (dir / "quant.pt").string();
-    nn::quantization::save_snapshot(snapshot, path);
-    const auto loaded = nn::quantization::load_snapshot(path);
-
-    ASSERT_EQ(loaded.size(), snapshot.size());
-    for (size_t i = 0; i < snapshot.size(); ++i) {
-        EXPECT_EQ(loaded[i].path, snapshot[i].path);
-        EXPECT_NEAR(loaded[i].weight.scale, snapshot[i].weight.scale, 1e-12);
-        EXPECT_TRUE(torch::equal(loaded[i].weight.data, snapshot[i].weight.data));
-        EXPECT_TRUE(torch::equal(loaded[i].bias, snapshot[i].bias));
-    }
-    std::error_code ec;
-    std::filesystem::remove_all(dir, ec);
-}
-
-TEST(QuantSnapshotTest, RejectsModuleWithoutLinearLayers) {
-    torch::nn::Module empty;
-    EXPECT_THROW(nn::quantization::quantize_linear_weights(empty),
-                 std::invalid_argument);
 }
 
 } // namespace

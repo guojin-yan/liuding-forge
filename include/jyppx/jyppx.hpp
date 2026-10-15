@@ -99,11 +99,9 @@
 #include <jyppx/distributed/ddp.hpp>
 
 // NN
-#include <jyppx/nn/init.hpp>
 #include <jyppx/nn/loss/contrastive_loss.hpp>
 #include <jyppx/nn/loss/dice_loss.hpp>
 #include <jyppx/nn/loss/focal_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
-#include <jyppx/nn/quantization.hpp>
 
 #endif // JYPPX_JYPPX_HPP

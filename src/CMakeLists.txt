@@ -27,9 +27,6 @@ target_sources(jyppx_training_framework PRIVATE
     jyppx/optim/nadam.cpp
     jyppx/optim/lamb.cpp
 
-    # NN
-    jyppx/nn/init.cpp
-
     # Training
     jyppx/training/trainer.cpp
     jyppx/training/amp/grad_scaler.cpp
