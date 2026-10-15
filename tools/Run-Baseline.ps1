@@ -1,17 +1,29 @@
+# Copyright 2026 JYPPX Training Framework Contributors
+# Licensed under the Apache License, Version 2.0 (the "License").
+
 [CmdletBinding()]
 param(
     [string]$SourceDir = (Resolve-Path (Join-Path $PSScriptRoot "..")),
     [string]$BuildDir = "",
     [string]$OutputDir = "",
+    [ValidateRange(3, 20)]
+    [int]$Samples = 5,
+    [ValidateRange(0, 10)]
+    [int]$Warmup = 1,
+    [ValidateRange(0.01, 100.0)]
+    [double]$MaxCvPercent = 10.0,
+    [ValidateRange(0.01, 100.0)]
+    [double]$MinRegressionPercent = 10.0,
+    [string]$ReferenceFile = "",
     [switch]$ReuseBuild
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# Baseline output is intentionally outside the source tree's tracked paths.
-# The report keeps command timing and benchmark summaries; raw logs stay next
-# to the run and can be deleted after the evidence summary is recorded.
+# Baseline output is intentionally outside tracked paths. The report retains
+# raw samples and statistics; command logs can be deleted after the evidence
+# summary and reference threshold are recorded.
 $sourceRoot = (Resolve-Path $SourceDir).Path
 if ([string]::IsNullOrWhiteSpace($BuildDir)) {
     $BuildDir = Join-Path $sourceRoot "out/build/baseline-release"
@@ -34,7 +46,8 @@ function Assert-ContainedPath {
     $resolvedRoot = (Resolve-Path $Root).Path
     $resolvedPath = $resolvedPath.TrimEnd([IO.Path]::DirectorySeparatorChar)
     $resolvedRoot = $resolvedRoot.TrimEnd([IO.Path]::DirectorySeparatorChar)
-    if (-not $resolvedPath.StartsWith($resolvedRoot + [IO.Path]::DirectorySeparatorChar,
+    if (-not $resolvedPath.StartsWith(
+            $resolvedRoot + [IO.Path]::DirectorySeparatorChar,
             [StringComparison]::OrdinalIgnoreCase)) {
         throw "$Label must remain under ${resolvedRoot}: $resolvedPath"
     }
@@ -75,10 +88,38 @@ function Invoke-Captured {
     }
 }
 
+$metricDefinitions = [ordered]@{}
+$metricSamples = [ordered]@{}
+function Add-MetricSample {
+    param(
+        [string]$Name,
+        [ValidateSet("higher", "lower")]
+        [string]$Direction,
+        [string]$Unit,
+        [double]$Value
+    )
+    if (-not [double]::IsFinite($Value) -or $Value -le 0.0) {
+        throw "$Name produced a non-positive or non-finite sample: $Value"
+    }
+    if (-not $script:metricDefinitions.Contains($Name)) {
+        $script:metricDefinitions[$Name] = [ordered]@{
+            direction = $Direction
+            unit = $Unit
+        }
+        $script:metricSamples[$Name] = [Collections.Generic.List[double]]::new()
+    }
+    $definition = $script:metricDefinitions[$Name]
+    if ($definition.direction -ne $Direction -or $definition.unit -ne $Unit) {
+        throw "$Name changed direction or unit within one baseline run"
+    }
+    $script:metricSamples[$Name].Add($Value)
+}
+
 $commit = (& git -C $sourceRoot rev-parse HEAD).Trim()
 $dirty = @(& git -C $sourceRoot status --porcelain).Count -ne 0
 $cmakeVersion = (& cmake --version | Select-Object -First 1).Trim()
 $steps = [Collections.Generic.List[object]]::new()
+$benchmarkRuns = [Collections.Generic.List[object]]::new()
 
 $steps.Add((Invoke-Captured cmake @(
         "-S", $sourceRoot,
@@ -89,6 +130,17 @@ $steps.Add((Invoke-Captured cmake @(
         "-DJYPPX_BUILD_DOCS=OFF",
         "-DCMAKE_PREFIX_PATH=$(Join-Path $sourceRoot 'third_party/install/libtorch')"
     ) "01-configure.log"))
+$pythonCacheEntry = Get-Content (Join-Path $BuildDir "CMakeCache.txt") |
+    Where-Object { $_ -match '^_?Python3_EXECUTABLE:(?:FILEPATH|INTERNAL)=(.+)$' } |
+    Select-Object -First 1
+if ($null -eq $pythonCacheEntry -or
+        $pythonCacheEntry -notmatch '^_?Python3_EXECUTABLE:(?:FILEPATH|INTERNAL)=(.+)$') {
+    throw "CMake did not resolve a Python3 interpreter"
+}
+$pythonCommand = $Matches[1]
+if (-not (Test-Path -LiteralPath $pythonCommand -PathType Leaf)) {
+    throw "CMake resolved a missing Python3 interpreter: $pythonCommand"
+}
 $steps.Add((Invoke-Captured cmake @(
         "--build", $BuildDir, "--config", "Release", "--parallel"
     ) "02-build.log"))
@@ -104,37 +156,139 @@ $benchmarkDir = if ($runningOnWindows) {
     Join-Path $BuildDir "tests/benchmarks"
 }
 $executableSuffix = if ($runningOnWindows) { ".exe" } else { "" }
-$benchmarkNames = @(
-    "jyppx_bench_dataloader",
-    "jyppx_bench_optimizer_convergence",
-    "jyppx_bench_trainer_throughput"
-)
-$benchmarks = [ordered]@{}
-foreach ($benchmarkName in $benchmarkNames) {
-    $executable = Join-Path $benchmarkDir "$benchmarkName$executableSuffix"
-    if (-not (Test-Path $executable)) {
+$dataLoaderExecutable = Join-Path $benchmarkDir "jyppx_bench_dataloader$executableSuffix"
+$trainerExecutable = Join-Path $benchmarkDir "jyppx_bench_trainer_throughput$executableSuffix"
+$optimizerExecutable = Join-Path $benchmarkDir "jyppx_bench_optimizer_convergence$executableSuffix"
+$memoryExecutable = Join-Path $benchmarkDir "jyppx_bench_memory_usage$executableSuffix"
+foreach ($executable in @(
+        $dataLoaderExecutable,
+        $trainerExecutable,
+        $optimizerExecutable,
+        $memoryExecutable)) {
+    if (-not (Test-Path $executable -PathType Leaf)) {
         throw "Expected benchmark executable is missing: $executable"
     }
-    $logName = "benchmark-$benchmarkName.csv"
-    $benchmarks[$benchmarkName] = Invoke-Captured $executable @() $logName
 }
 
-$memoryRuns = [Collections.Generic.List[object]]::new()
-$memoryRows = [Collections.Generic.List[object]]::new()
-foreach ($workers in @(0, 1, 4, 8)) {
-    $executable = Join-Path $benchmarkDir "jyppx_bench_memory_usage$executableSuffix"
-    $logName = "benchmark-jyppx_bench_memory_usage-$workers.csv"
-    $memoryRuns.Add((Invoke-Captured $executable @("--workers", "$workers") $logName))
-    foreach ($row in (Import-Csv (Join-Path $outputRoot $logName))) {
-        $memoryRows.Add($row)
+# Warmups execute in separate processes and are retained as logs, but do not
+# enter the statistics. This avoids silently mixing cold-start and steady-state
+# samples while still making warmup behavior auditable.
+for ($index = 1; $index -le $Warmup; ++$index) {
+    $benchmarkRuns.Add((Invoke-Captured -Name $dataLoaderExecutable `
+            -Arguments @("--repeats", "1") `
+            -LogName "warmup-dataloader-$index.csv"))
+    $benchmarkRuns.Add((Invoke-Captured -Name $trainerExecutable `
+            -Arguments @() -LogName "warmup-trainer-$index.csv"))
+    foreach ($workers in @(0, 1, 4, 8)) {
+        $benchmarkRuns.Add((Invoke-Captured -Name $memoryExecutable `
+                -Arguments @("--workers", "$workers") `
+                -LogName "warmup-memory-$workers-$index.csv"))
     }
 }
-$benchmarks["jyppx_bench_memory_usage"] = [ordered]@{
-    isolation = "one process per worker configuration"
-    runs = $memoryRuns
+
+for ($sample = 1; $sample -le $Samples; ++$sample) {
+    $dataLog = "sample-dataloader-$sample.csv"
+    $benchmarkRuns.Add((Invoke-Captured $dataLoaderExecutable @("--repeats", "1") $dataLog))
+    $dataRows = @(Import-Csv (Join-Path $outputRoot $dataLog))
+    if ($dataRows.Count -ne 5) {
+        throw "DataLoader sample $sample must contain exactly five worker rows"
+    }
+    foreach ($row in $dataRows) {
+        Add-MetricSample "dataloader.elapsed_ms.workers_$($row.workers)" "lower" `
+            "milliseconds" ([double]$row.elapsed_ms)
+    }
+
+    $trainerLog = "sample-trainer-$sample.csv"
+    $benchmarkRuns.Add((Invoke-Captured $trainerExecutable @() $trainerLog))
+    $trainerRows = @(Import-Csv (Join-Path $outputRoot $trainerLog))
+    if ($trainerRows.Count -ne 4) {
+        throw "Trainer sample $sample must contain exactly four batch-size rows"
+    }
+    foreach ($row in $trainerRows) {
+        Add-MetricSample "trainer.samples_per_second.batch_$($row.batch_size)" "higher" `
+            "samples_per_second" ([double]$row.samples_per_second)
+    }
+
+    foreach ($workers in @(0, 1, 4, 8)) {
+        $memoryLog = "sample-memory-$workers-$sample.csv"
+        $benchmarkRuns.Add((Invoke-Captured -Name $memoryExecutable `
+                -Arguments @("--workers", "$workers") -LogName $memoryLog))
+        $memoryRows = @(Import-Csv (Join-Path $outputRoot $memoryLog))
+        if ($memoryRows.Count -ne 1) {
+            throw "Memory sample $sample for $workers workers must contain one row"
+        }
+        Add-MetricSample "memory.peak_bytes.workers_$workers" "lower" "bytes" `
+            ([double]$memoryRows[0].peak_bytes)
+    }
 }
-$peakValues = @($memoryRows | ForEach-Object { [UInt64]$_.peak_bytes })
-$maxPeakBytes = ($peakValues | Measure-Object -Maximum).Maximum
+
+# Optimizer convergence is deterministic correctness evidence rather than a
+# timing metric, so one complete trajectory is retained without aggregation.
+$benchmarkRuns.Add((Invoke-Captured -Name $optimizerExecutable -Arguments @() `
+        -LogName "benchmark-optimizer-convergence.csv"))
+
+$libtorchBuild = (Get-Content (
+        Join-Path $sourceRoot "third_party/install/libtorch/build-version") -Raw).Trim()
+$osDescription = [Runtime.InteropServices.RuntimeInformation]::OSDescription
+$architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+$processor = if ([string]::IsNullOrWhiteSpace($env:PROCESSOR_IDENTIFIER)) {
+    "unknown-processor"
+} else {
+    $env:PROCESSOR_IDENTIFIER.Trim()
+}
+$toolchain = if ([string]::IsNullOrWhiteSpace($env:VCToolsVersion)) {
+    $cmakeVersion
+} else {
+    "MSVC-$($env:VCToolsVersion.Trim())"
+}
+$environmentKey = @(
+    $osDescription,
+    $architecture,
+    $processor,
+    $toolchain,
+    "libtorch-$libtorchBuild",
+    "Release"
+) -join "|"
+
+$metricRows = @(
+    foreach ($name in $metricDefinitions.Keys) {
+        [ordered]@{
+            name = $name
+            direction = $metricDefinitions[$name].direction
+            unit = $metricDefinitions[$name].unit
+            samples = @($metricSamples[$name])
+        }
+    }
+)
+$rawSampleReport = [ordered]@{
+    schema_version = 1
+    environment_key = $environmentKey
+    metadata = [ordered]@{
+        commit = $commit
+        dirty = $dirty
+        warmup_processes = $Warmup
+        sample_processes = $Samples
+    }
+    metrics = $metricRows
+}
+$rawSamplePath = Join-Path $outputRoot "samples.json"
+$rawSampleReport | ConvertTo-Json -Depth 8 |
+    Set-Content -Path $rawSamplePath -Encoding utf8
+
+$statisticsPath = Join-Path $outputRoot "statistics.json"
+$statisticsArguments = @(
+    (Join-Path $sourceRoot "tools/baseline_stats.py"),
+    $rawSamplePath,
+    "--output", $statisticsPath,
+    "--max-cv-percent", "$MaxCvPercent",
+    "--min-regression-percent", "$MinRegressionPercent"
+)
+if (-not [string]::IsNullOrWhiteSpace($ReferenceFile)) {
+    $resolvedReference = (Resolve-Path -LiteralPath $ReferenceFile).Path
+    $statisticsArguments += @("--reference", $resolvedReference)
+}
+$steps.Add((Invoke-Captured $pythonCommand $statisticsArguments "04-statistics.log"))
+$statistics = Get-Content $statisticsPath -Raw | ConvertFrom-Json -AsHashtable
 
 $libraryDir = if ($runningOnWindows) {
     Join-Path $BuildDir "Release"
@@ -148,10 +302,12 @@ $libraryNames = if ($runningOnWindows) {
 }
 $artifactPaths = @(
     $libraryNames | ForEach-Object { Join-Path $libraryDir $_ }
-    $benchmarkNames | ForEach-Object {
-        Join-Path $benchmarkDir "$_$executableSuffix"
-    }
-    Join-Path $benchmarkDir "jyppx_bench_memory_usage$executableSuffix"
+    @(
+        $dataLoaderExecutable,
+        $trainerExecutable,
+        $optimizerExecutable,
+        $memoryExecutable
+    )
 )
 $artifacts = @(
     foreach ($artifactPath in $artifactPaths) {
@@ -167,29 +323,38 @@ $artifacts = @(
 )
 
 $report = [ordered]@{
-    schema_version = 1
+    schema_version = 2
     kind = "jyppx-local-baseline"
     commit = $commit
     dirty = $dirty
     configuration = "Release"
     cmake = $cmakeVersion
     environment = [ordered]@{
-        os = [Runtime.InteropServices.RuntimeInformation]::OSDescription
-        architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+        key = $environmentKey
+        os = $osDescription
+        architecture = $architecture
         logical_processors = [Environment]::ProcessorCount
-        processor = $env:PROCESSOR_IDENTIFIER
-        libtorch_build = (Get-Content (Join-Path $sourceRoot "third_party/install/libtorch/build-version") -Raw).Trim()
+        processor = $processor
+        toolchain = $toolchain
+        libtorch_build = $libtorchBuild
+    }
+    sampling = [ordered]@{
+        warmup_processes = $Warmup
+        sample_processes = $Samples
+        max_cv_percent = $MaxCvPercent
+        min_regression_percent = $MinRegressionPercent
+        reference = if ([string]::IsNullOrWhiteSpace($ReferenceFile)) {
+            $null
+        } else {
+            (Resolve-Path -LiteralPath $ReferenceFile).Path
+        }
     }
     source_dir = $sourceRoot
     steps = $steps
+    benchmark_runs = $benchmarkRuns
     artifacts = $artifacts
-    benchmarks = $benchmarks
-    memory = [ordered]@{
-        source = "jyppx_bench_memory_usage"
-        peak_working_set_bytes = [UInt64]$maxPeakBytes
-        rows = $memoryRows
-    }
+    statistics = $statistics
 }
 $reportPath = Join-Path $outputRoot "baseline.json"
-$report | ConvertTo-Json -Depth 8 | Set-Content -Path $reportPath -Encoding utf8
+$report | ConvertTo-Json -Depth 12 | Set-Content -Path $reportPath -Encoding utf8
 Write-Output "Baseline report: $reportPath"

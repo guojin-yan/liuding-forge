@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "environment_key": "fixture-windows-cpu",
+  "metrics": [
+    {
+      "name": "trainer.throughput.batch_32",
+      "direction": "higher",
+      "unit": "samples_per_second",
+      "samples": [100.0, 20.0, 180.0, 50.0, 150.0]
+    }
+  ]
+}

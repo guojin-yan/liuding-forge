@@ -53,7 +53,7 @@ Testing/
 *.gcda
 *.gcno
 *.gcov
-coverage/
+/coverage/
 coverage.info
 *.profdata
 *.profraw

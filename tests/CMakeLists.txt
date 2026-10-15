@@ -43,6 +43,38 @@ if(Python3_Interpreter_FOUND)
         LABELS "hygiene;coverage"
         WILL_FAIL TRUE
     )
+    add_test(
+        NAME BaselineStatisticsTool
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/baseline_stats.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/stable-samples.json
+                --output ${CMAKE_CURRENT_BINARY_DIR}/baseline-statistics.json
+                --reference ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/reference.json
+    )
+    set_tests_properties(BaselineStatisticsTool PROPERTIES
+        LABELS "hygiene;performance"
+        PASS_REGULAR_EXPRESSION "trainer[.]throughput[.]batch_32: median=101[.]000"
+    )
+    add_test(
+        NAME BaselineStatisticsRejectsInstability
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/baseline_stats.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/unstable-samples.json
+                --output ${CMAKE_CURRENT_BINARY_DIR}/unstable-statistics.json
+    )
+    set_tests_properties(BaselineStatisticsRejectsInstability PROPERTIES
+        LABELS "hygiene;performance"
+        WILL_FAIL TRUE
+    )
+    add_test(
+        NAME BaselineStatisticsRejectsRegression
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/baseline_stats.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/regressed-samples.json
+                --output ${CMAKE_CURRENT_BINARY_DIR}/regressed-statistics.json
+                --reference ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/reference.json
+    )
+    set_tests_properties(BaselineStatisticsRejectsRegression PROPERTIES
+        LABELS "hygiene;performance"
+        WILL_FAIL TRUE
+    )
 endif()
 
 set(JYPPX_GTEST_VERSION 1.14.0)

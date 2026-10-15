@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "kind": "jyppx-benchmark-reference",
+  "environment_key": "fixture-windows-cpu",
+  "source": {
+    "commit": "fixture"
+  },
+  "metrics": {
+    "memory.peak.workers_0": {
+      "direction": "lower",
+      "unit": "bytes",
+      "median": 1000.0,
+      "cv_percent": 0.4,
+      "allowed_regression_percent": 10.0
+    },
+    "trainer.throughput.batch_32": {
+      "direction": "higher",
+      "unit": "samples_per_second",
+      "median": 101.0,
+      "cv_percent": 1.6,
+      "allowed_regression_percent": 10.0
+    }
+  }
+}
