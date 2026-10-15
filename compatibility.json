@@ -19,8 +19,13 @@
           "compiler": "MSVC 19.51",
           "accelerator": "CUDA 12.9",
           "build_type": "Release",
-          "tests": "322/322",
-          "commit": "8f53202"
+          "tests": "329/329",
+          "quality_evidence": {
+            "release_ctest": "329/329",
+            "repeated_baseline": "1 warmup + 5 independent samples; all metric CV <= 1.99%",
+            "regression_gate": "environment-bound reference; 10% minimum allowed regression"
+          },
+          "commit": "c1f8fec"
         }
       ]
     },
