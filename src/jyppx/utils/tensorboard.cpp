@@ -1,9 +1,9 @@
 #include <jyppx/utils/tensorboard.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <cstdlib>
 
 #ifdef _WIN32
 #include <process.h>
@@ -150,11 +150,19 @@ void append_u64(std::string& out, uint64_t value) {
 
 std::string host_name() {
 #ifdef _WIN32
-    const char* name = std::getenv("COMPUTERNAME");
+    char* name = nullptr;
+    std::size_t name_size = 0;
+    if (_dupenv_s(&name, &name_size, "COMPUTERNAME") == 0 && name != nullptr) {
+        std::string result(name);
+        std::free(name);
+        return result;
+    }
+    std::free(name);
+    return "localhost";
 #else
     const char* name = std::getenv("HOSTNAME");
-#endif
     return name != nullptr ? name : "localhost";
+#endif
 }
 
 // TensorBoard event filenames include the process id to avoid collisions when
