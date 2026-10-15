@@ -3,6 +3,7 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/foundation/version.hpp>
 #include <jyppx/nn/loss/contrastive_loss.hpp>
+#include <jyppx/nn/loss/focal_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 
 #include <cmath>
@@ -31,8 +32,13 @@ int main() {
       jyppx::nn::functional::contrastive_loss(pair_a, pair_b, pair_target, 1.0);
   const bool valid_contrastive =
       contrastive.numel() == 1 && std::isfinite(contrastive.item<double>());
+  const auto focal = jyppx::nn::functional::focal_loss(
+      torch::tensor({{0.0, 0.0}}, torch::kFloat64),
+      torch::tensor({{1.0, 0.0}}, torch::kFloat64), 0.25, 2.0);
+  const bool valid_focal =
+      focal.numel() == 1 && std::isfinite(focal.item<double>());
   return valid_version && valid_error && valid_device && valid_data &&
-                 valid_nn && valid_contrastive
+                 valid_nn && valid_contrastive && valid_focal
              ? 0
              : 1;
 }

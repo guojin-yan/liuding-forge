@@ -12,67 +12,6 @@ namespace {
 
 using namespace jyppx;
 
-TEST(FocalLossTest, GammaZeroRecoversWeightedCrossEntropy) {
-    // gamma = 0 collapses the focal term: -alpha * CE.
-    auto logits = torch::randn({6, 4}, torch::TensorOptions().dtype(torch::kFloat64)
-                                                     .requires_grad(true));
-    auto target = torch::randint(0, 4, {6}, torch::kLong);
-
-    const auto focal = nn::functional::focal_loss(logits, target, 1.0, 0.0);
-    const auto ce = torch::nn::functional::cross_entropy(
-        logits, target,
-        torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kMean));
-    EXPECT_TRUE(torch::allclose(focal, ce, 1e-10, 1e-10));
-}
-
-TEST(FocalLossTest, FocusingPenalizesEasyExamplesLess) {
-    // Confident correct predictions lose weight as gamma grows.
-    auto confident = torch::tensor({{10.0, -10.0}, {-10.0, 10.0}},
-                                   torch::TensorOptions().dtype(torch::kFloat64));
-    auto target = torch::tensor({0, 1}, torch::kLong);
-
-    const double plain = nn::functional::focal_loss(confident, target, 1.0, 0.0)
-                             .item<double>();
-    const double focused = nn::functional::focal_loss(confident, target, 1.0, 2.0)
-                               .item<double>();
-    EXPECT_GT(plain, 0.0);
-    EXPECT_LT(focused, plain * 1e-4); // (1 - pt)^2 with pt ~ 1 crushes the loss
-}
-
-TEST(FocalLossTest, HandComputedBinaryValue) {
-    // logits 0 -> pt = sigmoid(0) = 0.5; alpha = 0.25, gamma = 2.
-    // Positive pair: -0.25 * (1 - 0.5)^2 * log(0.5)
-    auto logits = torch::tensor({{0.0}}, torch::TensorOptions().dtype(torch::kFloat64)
-                                               .requires_grad(true));
-    auto target = torch::tensor({{1.0}}, torch::kFloat64);
-
-    const auto loss = nn::functional::focal_loss(logits, target, 0.25, 2.0);
-    const double expected = -0.25 * std::pow(0.5, 2.0) * std::log(0.5);
-    EXPECT_NEAR(loss.item<double>(), expected, 1e-12);
-}
-
-TEST(FocalLossTest, AlphaWeightsThePositiveClass) {
-    auto logits = torch::tensor({{0.0}, {0.0}},
-                                torch::TensorOptions().dtype(torch::kFloat64));
-    auto target = torch::tensor({{1.0}, {0.0}}, torch::kFloat64);
-
-    const auto loss = nn::functional::focal_loss(logits, target, 0.25, 0.0, "none");
-    // alpha * log(2) for the positive sample, (1 - alpha) * log(2) for the negative.
-    EXPECT_NEAR(loss[0].item<double>(), 0.25 * std::log(2.0), 1e-12);
-    EXPECT_NEAR(loss[1].item<double>(), 0.75 * std::log(2.0), 1e-12);
-}
-
-TEST(FocalLossTest, GradientsFlowToLogits) {
-    auto logits = torch::randn({8, 3}, torch::TensorOptions().dtype(torch::kFloat64)
-                                            .requires_grad(true));
-    auto target = torch::randint(0, 3, {8}, torch::kLong);
-
-    auto loss = nn::functional::focal_loss(logits, target, 0.75, 2.0);
-    loss.backward();
-    ASSERT_TRUE(logits.grad().defined());
-    EXPECT_TRUE(torch::isfinite(logits.grad()).all().item<bool>());
-}
-
 TEST(DiceLossTest, PerfectPredictionScoresNearZero) {
     // One-hot probabilities on the right classes -> Dice = 1 -> loss ~ 0.
     auto probs = torch::tensor({{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}},
@@ -136,21 +75,11 @@ TEST(LossModulesTest, CriterionWrappersCallThrough) {
     // Make the binary target well-formed: {0, 1} values.
     float_target = (torch::rand({6, 1}) > 0.5).to(torch::kFloat64);
 
-    nn::FocalLoss focal(0.25, 2.0);
-    EXPECT_DOUBLE_EQ(focal.alpha(), 0.25);
-    const auto focal_value = focal.forward(logits, target);
-    EXPECT_TRUE(torch::allclose(
-        focal_value,
-        nn::functional::focal_loss(logits, target, 0.25, 2.0), 1e-12, 1e-12));
-
     nn::DiceLoss dice(1.0);
     const auto dice_value = dice.forward(logits, target);
     EXPECT_TRUE(torch::allclose(
         dice_value, nn::functional::dice_loss(logits, target), 1e-12, 1e-12));
 
-    // The float_target is exercised through the binary focal path.
-    const auto binary_value = focal.forward(float_target.sigmoid(), float_target);
-    EXPECT_TRUE(torch::isfinite(binary_value).all().item<bool>());
 }
 
 TEST(LossReductionTest, ApplyReductionSemantics) {

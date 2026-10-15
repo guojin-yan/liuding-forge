@@ -40,6 +40,8 @@ metrics, callbacks, checkpointing and mixed precision.
   — the first independently packaged `jyppx::nn` loss adapter
 - [Contrastive loss](api/losses/contrastive_loss.md) — a native pairwise
   metric-learning loss with explicit tensor and label contracts
+- [Focal loss](api/losses/focal_loss.md) — binary and class-index focal loss
+  with explicit alpha/gamma and tensor contracts
 - [Utilities](api/utils.md) — devices, tensor checks, logger, parameter
   initialization, version
 - [Distributed](api/distributed.md) — process group, DDP wrapper,

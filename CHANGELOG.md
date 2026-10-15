@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An independently exported contrastive-loss target with strict pair-shape,
   device, dtype, finite-margin and binary-label validation; the duplicate SDK
   implementation and its compatibility surface were removed.
+- An independently exported focal-loss target with explicit binary/multiclass
+  shape semantics, finite alpha/gamma validation, class-index checks, and no
+  duplicate SDK implementation.
 - Exported `jyppx::foundation` and `jyppx::sdk` CMake targets for focused and
   full-framework consumers.
 - Versioned DataLoader/sampler state for deterministic epoch-boundary resume.

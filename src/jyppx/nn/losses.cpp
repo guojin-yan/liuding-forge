@@ -33,46 +33,6 @@ Tensor apply_reduction(Tensor loss, const std::string& reduction) {
     throw std::invalid_argument("reduction must be 'none', 'mean' or 'sum'");
 }
 
-Tensor focal_loss(const Tensor& input, const Tensor& target,
-                  double alpha, double gamma, const std::string& reduction) {
-    if (alpha <= 0.0) {
-        throw std::invalid_argument("focal_loss alpha must be positive");
-    }
-    if (gamma < 0.0) {
-        throw std::invalid_argument("focal_loss gamma must be non-negative");
-    }
-    if (!input.defined() || !target.defined()) {
-        throw std::invalid_argument("focal_loss inputs must be defined");
-    }
-    if (reduction == "none" || reduction == "mean" || reduction == "sum") {
-        // accepted; validated for parse below
-    } else {
-        throw std::invalid_argument("reduction must be 'none', 'mean' or 'sum'");
-    }
-
-    Tensor loss;
-    if (input.dim() == target.dim()) {
-        // Binary path: logits vs {0, 1} float targets of the same shape.
-        validate_target_values(target, torch::tensor({0.0, 1.0}, torch::kFloat));
-        const auto truth = target.to(input.scalar_type());
-        const auto logpt = torch::nn::functional::logsigmoid(input);
-        const auto pt = torch::exp(logpt);
-        const auto neg_logpt = torch::nn::functional::logsigmoid(-input);
-        loss = -(alpha * truth * torch::pow(1.0 - pt, gamma) * logpt +
-                 (1.0 - alpha) * (1.0 - truth) * torch::pow(pt, gamma) *
-                     neg_logpt);
-    } else {
-        // Multiclass path: logits {N, C, ...} with class-index targets.
-        auto logpt = -torch::nn::functional::cross_entropy(
-            input, target,
-            torch::nn::functional::CrossEntropyFuncOptions()
-                .reduction(torch::kNone));
-        auto pt = torch::exp(logpt);
-        loss = -alpha * torch::pow(1.0 - pt, gamma) * logpt;
-    }
-    return apply_reduction(std::move(loss), reduction);
-}
-
 Tensor dice_loss(const Tensor& input, const Tensor& target,
                  double smooth, const std::string& reduction) {
     if (smooth < 0.0) {
@@ -161,13 +121,6 @@ Tensor distillation_loss(const Tensor& student_logits,
 }
 
 } // namespace functional
-
-FocalLoss::FocalLoss(double alpha, double gamma, std::string reduction)
-    : alpha_(alpha), gamma_(gamma), reduction_(std::move(reduction)) {}
-
-Tensor FocalLoss::forward(const Tensor& input, const Tensor& target) const {
-    return functional::focal_loss(input, target, alpha_, gamma_, reduction_);
-}
 
 DiceLoss::DiceLoss(double smooth, std::string reduction)
     : smooth_(smooth), reduction_(std::move(reduction)) {}

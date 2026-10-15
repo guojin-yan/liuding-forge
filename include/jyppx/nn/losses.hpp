@@ -23,21 +23,6 @@ namespace functional {
 Tensor apply_reduction(Tensor loss, const std::string& reduction);
 
 /**
- * @brief Focal loss (Lin et al., 2017)
- *
- * Multiclass: input are logits {N, C} and target class indices {N};
- *   FL = -alpha * (1 - pt)^gamma * log(pt),  pt = exp(-CE)
- * Binary: input logits and target {0, 1} float of the same shape; the
- * positive class is weighted by alpha, the negative by (1 - alpha).
- *
- * @param alpha class-balancing weight (> 0; 1.0 disables balancing)
- * @param gamma focusing parameter (>= 0; 0 recovers weighted cross entropy)
- */
-Tensor focal_loss(const Tensor& input, const Tensor& target,
-                  double alpha = 1.0, double gamma = 2.0,
-                  const std::string& reduction = "mean");
-
-/**
  * @brief Soft Dice loss (1 - Dice), for segmentation
  *
  * Multiclass: input are logits {N, C, ...} and target class indices
@@ -66,26 +51,6 @@ Tensor distillation_loss(const Tensor& student_logits,
                          const std::string& reduction = "mean");
 
 } // namespace functional
-
-/**
- * @brief Focal loss criterion module
- */
-class FocalLoss : public torch::nn::Module {
-public:
-    FocalLoss(double alpha = 1.0, double gamma = 2.0,
-              std::string reduction = "mean");
-
-    Tensor forward(const Tensor& input, const Tensor& target) const;
-
-    double alpha() const { return alpha_; }
-    double gamma() const { return gamma_; }
-    const std::string& reduction() const { return reduction_; }
-
-private:
-    double alpha_;
-    double gamma_;
-    std::string reduction_;
-};
 
 /**
  * @brief Dice loss criterion module
