@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per output directory, preventing parallel MSBuild copy races.
 - Coverage and sanitizer options now fail clearly on unsupported compilers and
   reject incompatible instrumentation combinations.
+- The Linux coverage runner now bounds build parallelism by default and exposes
+  `JYPPX_BUILD_PARALLEL_LEVEL` for constrained or high-capacity hosts.
 - Foundation headers now define fully documented error, RNG, version, and
   build-fingerprint contracts; backend failures encountered while collecting
   the fingerprint are translated into the stable JYPPX error taxonomy with

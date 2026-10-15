@@ -23,7 +23,7 @@ namespace utils {
  * @example
  * @code
  * utils::TensorBoardWriter writer("runs/linear");
- * writer.add_scalar("train/loss", 0.5, /*step=*\/1);
+ * writer.add_scalar("train/loss", 0.5, 1);
  * writer.flush();
  * @endcode
  */

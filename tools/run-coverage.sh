@@ -22,6 +22,18 @@ command -v gcovr >/dev/null || {
   exit 2
 }
 
+build_parallelism="${JYPPX_BUILD_PARALLEL_LEVEL:-2}"
+case "$build_parallelism" in
+  ''|*[!0-9]*)
+    echo "JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+if [ "$build_parallelism" -lt 1 ]; then
+  echo "JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
+  exit 2
+fi
+
 rm -rf "$build_root" "$output_root"
 mkdir -p "$output_root"
 
@@ -41,7 +53,7 @@ run_logged 01-configure.log cmake \
   -DJYPPX_ENABLE_COVERAGE=ON \
   -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:?CMAKE_PREFIX_PATH must point to LibTorch}"
 
-run_logged 02-build.log cmake --build "$build_root" --parallel
+run_logged 02-build.log cmake --build "$build_root" --parallel "$build_parallelism"
 run_logged 03-ctest.log ctest --test-dir "$build_root" --output-on-failure
 
 gcovr \
@@ -57,6 +69,7 @@ cat > "$output_root/coverage-metadata.txt" <<EOF
 commit=$(git -C "$source_root" rev-parse HEAD)
 dirty=$(test -n "$(git -C "$source_root" status --porcelain)" && echo true || echo false)
 build_type=Debug
+build_parallelism=$build_parallelism
 coverage_tool=$(gcovr --version | head -n 1)
 EOF
 

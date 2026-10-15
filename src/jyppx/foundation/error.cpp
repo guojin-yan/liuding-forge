@@ -57,7 +57,12 @@ Error::Error(ErrorCode code, std::string message, ErrorDetails details)
       details_(std::move(details)) {}
 
 Error::Error(ErrorCode code, std::string message, std::string hint)
-    : Error(code, std::move(message), ErrorDetails{.hint = std::move(hint)}) {}
+    : Error(code, std::move(message),
+            ErrorDetails{.component = {},
+                         .operation = {},
+                         .expected = {},
+                         .actual = {},
+                         .hint = std::move(hint)}) {}
 
 namespace detail {
 

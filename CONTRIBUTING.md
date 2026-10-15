@@ -91,7 +91,9 @@ build is required for comparable compile-time evidence.
 The Linux coverage lane is `bash tools/run-coverage.sh`; it requires `gcovr` and
 `CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. Coverage and
 sanitizer options are rejected on unsupported compilers, and sanitizer flags are
-applied to test executables as well as framework libraries.
+applied to test executables as well as framework libraries. The coverage runner
+uses two build jobs by default; set `JYPPX_BUILD_PARALLEL_LEVEL` explicitly when
+running on a host with a different memory budget.
 
 ### Testing
 

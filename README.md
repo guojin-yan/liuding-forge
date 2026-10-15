@@ -209,7 +209,10 @@ The Linux coverage lane is `bash tools/run-coverage.sh`; it requires `gcovr` and
 `CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. `JYPPX_ENABLE_ASAN`,
 `JYPPX_ENABLE_UBSAN`, and `JYPPX_ENABLE_TSAN` instrument both framework
 libraries and test/benchmark executables. AddressSanitizer and ThreadSanitizer
-cannot be combined; coverage and ThreadSanitizer are also rejected.
+cannot be combined; coverage and ThreadSanitizer are also rejected. The
+coverage runner limits compilation to two jobs by default; set
+`JYPPX_BUILD_PARALLEL_LEVEL` to a positive integer when the host has more
+memory or needs an even smaller resource footprint.
 
 ## Building Documentation
 
