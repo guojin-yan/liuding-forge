@@ -54,6 +54,24 @@
           "commit": "ba02ece"
         },
         {
+          "id": "local-ubuntu-gcc-cpu-release",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU",
+          "build_type": "Release",
+          "tests": "328/328; 4 CUDA-only tests skipped",
+          "instrumentation": "warnings as errors on migrated targets",
+          "quality_evidence": {
+            "configure": "passed",
+            "build": "passed; foundation/core/data compiled with -Werror",
+            "ctest": "328/328; 4 CUDA-only tests skipped",
+            "install_consumer": "passed",
+            "repository_hygiene": "passed"
+          },
+          "commit": "9f09b0b"
+        },
+        {
           "id": "local-ubuntu-clang-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
@@ -71,6 +89,26 @@
             "install_consumer": "passed"
           },
           "commit": "2f06001"
+        },
+        {
+          "id": "local-ubuntu-clang-cpu-debug",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "Clang 14.0.0",
+          "accelerator": "CPU",
+          "build_type": "Debug",
+          "tests": "328/328; 4 CUDA-only tests skipped",
+          "instrumentation": "strict compiler and API quality gates",
+          "quality_evidence": {
+            "configure": "passed",
+            "build": "passed; foundation/core/data compiled with -Werror and clang-tidy",
+            "format": "foundation/core/data clang-format gate passed",
+            "documentation": "foundation/core/data strict Doxygen gate passed",
+            "ctest": "328/328; 4 CUDA-only tests skipped",
+            "install_consumer": "passed",
+            "repository_hygiene": "passed"
+          },
+          "commit": "9f09b0b"
         }
       ]
     }
