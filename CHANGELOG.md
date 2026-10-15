@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declarations and enum values), and an installed-package consumer test.
 - An independently exported `jyppx::nn` target, initially owning the audited
   label-smoothed cross-entropy adapter and its focused public header.
+- An independently exported contrastive-loss target with strict pair-shape,
+  device, dtype, finite-margin and binary-label validation; the duplicate SDK
+  implementation and its compatibility surface were removed.
 - Exported `jyppx::foundation` and `jyppx::sdk` CMake targets for focused and
   full-framework consumers.
 - Versioned DataLoader/sampler state for deterministic epoch-boundary resume.

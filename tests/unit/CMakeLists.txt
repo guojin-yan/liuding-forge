@@ -46,6 +46,11 @@ jyppx_add_gtest(jyppx_test_nn_label_smoothing
     nn/loss/test_label_smoothing_cross_entropy.cpp
 )
 
+jyppx_add_gtest(jyppx_test_nn_contrastive
+    LINK_TARGET jyppx::nn
+    nn/loss/test_contrastive_loss.cpp
+)
+
 jyppx_add_gtest(jyppx_test_plan
     test_plan_completion.cpp
 )

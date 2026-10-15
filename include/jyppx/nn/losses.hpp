@@ -51,19 +51,6 @@ Tensor dice_loss(const Tensor& input, const Tensor& target,
                  double smooth = 1.0, const std::string& reduction = "mean");
 
 /**
- * @brief Contrastive loss over pairs
- *
- * loss = y * d^2 + (1 - y) * max(0, margin - d)^2 with the Euclidean
- * distance d between each feature pair; y = 1 marks a matching pair.
- *
- * @param x1, x2 feature tensors {N, D}
- * @param target {N} float/int values in {0, 1}
- */
-Tensor contrastive_loss(const Tensor& x1, const Tensor& x2,
-                        const Tensor& target, double margin = 1.0,
-                        const std::string& reduction = "mean");
-
-/**
  * @brief Knowledge-distillation loss (Hinton et al., 2015)
  *
  * KL divergence between the teacher's and student's softened class
@@ -114,23 +101,6 @@ public:
 
 private:
     double smooth_;
-    std::string reduction_;
-};
-
-/**
- * @brief Contrastive loss criterion module
- */
-class ContrastiveLoss : public torch::nn::Module {
-public:
-    explicit ContrastiveLoss(double margin = 1.0, std::string reduction = "mean");
-
-    Tensor forward(const Tensor& x1, const Tensor& x2, const Tensor& target) const;
-
-    double margin() const { return margin_; }
-    const std::string& reduction() const { return reduction_; }
-
-private:
-    double margin_;
     std::string reduction_;
 };
 

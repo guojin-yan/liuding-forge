@@ -236,6 +236,7 @@ target_link_libraries(jyppx_data
 )
 
 add_library(jyppx_nn STATIC
+    src/jyppx/nn/loss/contrastive_loss.cpp
     src/jyppx/nn/loss/label_smoothing_cross_entropy.cpp
 )
 add_library(jyppx::nn ALIAS jyppx_nn)

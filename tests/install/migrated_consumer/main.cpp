@@ -2,6 +2,7 @@
 #include <jyppx/data/samplers/sequential_sampler.hpp>
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/foundation/version.hpp>
+#include <jyppx/nn/loss/contrastive_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 
 #include <cmath>
@@ -23,7 +24,15 @@ int main() {
   const auto loss =
       jyppx::nn::functional::label_smoothing_cross_entropy(logits, target, 0.1);
   const bool valid_nn = loss.numel() == 1 && std::isfinite(loss.item<double>());
-  return valid_version && valid_error && valid_device && valid_data && valid_nn
+  const auto pair_a = torch::tensor({{0.0, 0.0}}, torch::kFloat64);
+  const auto pair_b = torch::tensor({{0.5, 0.0}}, torch::kFloat64);
+  const auto pair_target = torch::tensor({1}, torch::kLong);
+  const auto contrastive =
+      jyppx::nn::functional::contrastive_loss(pair_a, pair_b, pair_target, 1.0);
+  const bool valid_contrastive =
+      contrastive.numel() == 1 && std::isfinite(contrastive.item<double>());
+  return valid_version && valid_error && valid_device && valid_data &&
+                 valid_nn && valid_contrastive
              ? 0
              : 1;
 }

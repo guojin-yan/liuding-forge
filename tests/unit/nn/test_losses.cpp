@@ -129,49 +129,6 @@ TEST(DiceLossTest, ValidatesArguments) {
                  std::invalid_argument);
 }
 
-TEST(ContrastiveLossTest, HandComputedValues) {
-    // x1 = [0,0], x2a = [3,0] (d = 3, matching), x2b = [1,0] (d = 1, not matching).
-    auto x1 = torch::tensor({{0.0, 0.0}, {0.0, 0.0}},
-                            torch::TensorOptions().dtype(torch::kFloat64));
-    auto x2 = torch::tensor({{3.0, 0.0}, {1.0, 0.0}},
-                            torch::TensorOptions().dtype(torch::kFloat64)
-                                .requires_grad(true));
-    auto target = torch::tensor({1.0, 0.0}, torch::kFloat64);
-
-    // margin = 2: matching pair -> d^2 = 9; non-matching -> (2 - 1)^2 = 1.
-    const auto loss = nn::functional::contrastive_loss(x1, x2, target, 2.0, "none");
-    EXPECT_NEAR(loss[0].item<double>(), 9.0, 1e-12);
-    EXPECT_NEAR(loss[1].item<double>(), 1.0, 1e-12);
-}
-
-TEST(ContrastiveLossTest, MarginClampsDistantNonMatchingPairs) {
-    auto x1 = torch::zeros({1, 2}, torch::TensorOptions().dtype(torch::kFloat64)
-                                       .requires_grad(true));
-    auto x2 = torch::tensor({{100.0, 0.0}}, torch::kFloat64);
-    auto target = torch::tensor({0.0}, torch::kFloat64);
-
-    // d = 100 > margin = 2: the hinge saturates at 0 and no gradient flows.
-    const auto loss = nn::functional::contrastive_loss(x1, x2, target, 2.0);
-    EXPECT_NEAR(loss.item<double>(), 0.0, 1e-12);
-    loss.backward();
-    EXPECT_TRUE(torch::all(x1.grad().abs() == 0.0).item<bool>());
-}
-
-TEST(ContrastiveLossTest, ValidatesArguments) {
-    auto x1 = torch::randn({4, 3});
-    auto x2 = torch::randn({4, 3});
-    EXPECT_THROW(
-        nn::functional::contrastive_loss(x1, x2, torch::full({4}, 2.0)),
-        std::invalid_argument);                       // label outside {0, 1}
-    EXPECT_THROW(
-        nn::functional::contrastive_loss(x1, x2, torch::randint(0, 2, {4}), -1.0),
-        std::invalid_argument);                       // margin <= 0
-    EXPECT_THROW(
-        nn::functional::contrastive_loss(x1, torch::randn({4, 5}),
-                                         torch::randint(0, 2, {4})),
-        std::invalid_argument);                       // shape mismatch
-}
-
 TEST(LossModulesTest, CriterionWrappersCallThrough) {
     auto logits = torch::randn({6, 4}, torch::TensorOptions().dtype(torch::kFloat64));
     auto target = torch::randint(0, 4, {6}, torch::kLong);
@@ -190,15 +147,6 @@ TEST(LossModulesTest, CriterionWrappersCallThrough) {
     const auto dice_value = dice.forward(logits, target);
     EXPECT_TRUE(torch::allclose(
         dice_value, nn::functional::dice_loss(logits, target), 1e-12, 1e-12));
-
-    auto x1 = torch::randn({6, 3}, torch::TensorOptions().dtype(torch::kFloat64));
-    auto x2 = torch::randn({6, 3}, torch::TensorOptions().dtype(torch::kFloat64));
-    auto pair_target = (torch::rand({6}) > 0.5).to(torch::kFloat64);
-    nn::ContrastiveLoss contrastive(1.0);
-    const auto contrastive_value = contrastive.forward(x1, x2, pair_target);
-    EXPECT_TRUE(torch::allclose(
-        contrastive_value,
-        nn::functional::contrastive_loss(x1, x2, pair_target), 1e-12, 1e-12));
 
     // The float_target is exercised through the binary focal path.
     const auto binary_value = focal.forward(float_target.sigmoid(), float_target);

@@ -38,6 +38,8 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP
 - [Label-smoothed cross entropy](api/losses/label_smoothing_cross_entropy.md)
   — the first independently packaged `jyppx::nn` loss adapter
+- [Contrastive loss](api/losses/contrastive_loss.md) — a native pairwise
+  metric-learning loss with explicit tensor and label contracts
 - [Utilities](api/utils.md) — devices, tensor checks, logger, parameter
   initialization, version
 - [Distributed](api/distributed.md) — process group, DDP wrapper,

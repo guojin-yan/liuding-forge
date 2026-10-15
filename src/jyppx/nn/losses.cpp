@@ -131,29 +131,6 @@ Tensor dice_loss(const Tensor& input, const Tensor& target,
     return apply_reduction(std::move(loss), reduction);
 }
 
-Tensor contrastive_loss(const Tensor& x1, const Tensor& x2,
-                        const Tensor& target, double margin,
-                        const std::string& reduction) {
-    if (margin <= 0.0) {
-        throw std::invalid_argument("contrastive_loss margin must be positive");
-    }
-    if (!x1.defined() || !x2.defined() || !target.defined()) {
-        throw std::invalid_argument("contrastive_loss inputs must be defined");
-    }
-    if (x1.sizes() != x2.sizes() || x1.dim() < 2) {
-        throw std::invalid_argument(
-            "contrastive_loss expects {N, D} feature pairs of equal shape");
-    }
-    validate_target_values(target, torch::tensor({0.0, 1.0}, torch::kFloat));
-
-    const auto distance = (x1 - x2).norm(2.0, /*dim=*/1);
-    const auto y = target.to(x1.scalar_type()).view({-1});
-    const auto positive_term = y * distance.pow(2);
-    const auto negative_term =
-        (1.0 - y) * torch::clamp(margin - distance, /*min=*/0.0).pow(2);
-    return apply_reduction(positive_term + negative_term, reduction);
-}
-
 Tensor distillation_loss(const Tensor& student_logits,
                          const Tensor& teacher_logits, double temperature,
                          const std::string& reduction) {
@@ -197,14 +174,6 @@ DiceLoss::DiceLoss(double smooth, std::string reduction)
 
 Tensor DiceLoss::forward(const Tensor& input, const Tensor& target) const {
     return functional::dice_loss(input, target, smooth_, reduction_);
-}
-
-ContrastiveLoss::ContrastiveLoss(double margin, std::string reduction)
-    : margin_(margin), reduction_(std::move(reduction)) {}
-
-Tensor ContrastiveLoss::forward(const Tensor& x1, const Tensor& x2,
-                                const Tensor& target) const {
-    return functional::contrastive_loss(x1, x2, target, margin_, reduction_);
 }
 
 } // namespace nn
