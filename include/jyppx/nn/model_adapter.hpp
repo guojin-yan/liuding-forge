@@ -55,11 +55,10 @@ concept ModuleHolderLike = requires(const Holder& holder) {
  * @tparam Module Concrete module implementation passed to the callable.
  */
 template <typename Forward, typename Module>
-concept InvocationForward =
-    ModuleImplementation<Module> &&
+concept InvocationForward = ModuleImplementation<Module> &&
     requires(Forward& forward, Module& module, const Invocation& input) {
-      c10::IValue(std::invoke(forward, module, input));
-    };
+  c10::IValue(std::invoke(forward, module, input));
+};
 
 /**
  * @brief Matches concrete modules exposing an IValue-compatible
@@ -67,11 +66,10 @@ concept InvocationForward =
  * @tparam Module Candidate concrete module implementation type.
  */
 template <typename Module>
-concept TensorForwardModule =
-    ModuleImplementation<Module> &&
+concept TensorForwardModule = ModuleImplementation<Module> &&
     requires(Module& module, const Tensor& input) {
-      c10::IValue(module.forward(input));
-    };
+  c10::IValue(module.forward(input));
+};
 
 /**
  * @brief Matches module holders whose implementation satisfies the common
@@ -79,8 +77,7 @@ concept TensorForwardModule =
  * @tparam Holder Candidate `TORCH_MODULE` or compatible holder type.
  */
 template <typename Holder>
-concept TensorForwardHolder =
-    ModuleHolderLike<Holder> &&
+concept TensorForwardHolder = ModuleHolderLike<Holder> &&
     TensorForwardModule<typename Holder::ContainedType>;
 
 /**
