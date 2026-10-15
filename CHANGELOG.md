@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A storage-neutral checkpoint participant contract in `jyppx::foundation`,
+  including stable restore guarantees, validated state manifests, bounded named
+  blob I/O, and an atomic per-participant load requirement.
 - A schema-checked `ModelStateView`/`ModelAdapter` contract that separates
   shared LibTorch module state from explicit invocation, including typed
   tensor helpers and structured multi-input/output validation.

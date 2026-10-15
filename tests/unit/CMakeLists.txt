@@ -2,6 +2,7 @@
 
 jyppx_add_gtest(jyppx_test_foundation
     LINK_TARGET jyppx::foundation
+    foundation/test_checkpoint.cpp
     foundation/test_foundation.cpp
 )
 

@@ -151,6 +151,7 @@ configure_file(
 # JYPPX Libraries
 # ============================================
 add_library(jyppx_foundation STATIC
+    src/jyppx/foundation/checkpoint.cpp
     src/jyppx/foundation/error.cpp
     src/jyppx/foundation/random.cpp
     src/jyppx/foundation/version.cpp

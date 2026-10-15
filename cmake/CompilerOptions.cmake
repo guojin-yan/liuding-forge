@@ -79,14 +79,17 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
             "JYPPX_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
     endif()
     set(JYPPX_MIGRATED_FORMAT_FILES
+        ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/checkpoint.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/error.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/foundation.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/random.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/version.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/checkpoint.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/error.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/random.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/version.cpp
         ${PROJECT_SOURCE_DIR}/tests/install/migrated_consumer/main.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/foundation/test_checkpoint.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/foundation/test_foundation.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/device.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/tensor_utils.hpp

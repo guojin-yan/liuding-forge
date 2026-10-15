@@ -1,5 +1,6 @@
 #include <jyppx/core/device.hpp>
 #include <jyppx/data/samplers/sequential_sampler.hpp>
+#include <jyppx/foundation/checkpoint.hpp>
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/foundation/version.hpp>
 #include <jyppx/nn/loss/contrastive_loss.hpp>
@@ -23,6 +24,16 @@ int main() {
   const bool valid_error = error.code() == jyppx::ErrorCode::invalid_argument &&
                            error.details().component == "InstallConsumer";
   const bool valid_device = jyppx::parse_device("cpu").is_cpu();
+  const jyppx::StateManifest state_manifest{
+      .participant_id = "consumer.probe",
+      .schema_version = 1,
+      .restore_level = jyppx::RestoreLevel::exact,
+      .fields = {{.name = "state", .max_bytes = 8}},
+  };
+  jyppx::validate_state_manifest(state_manifest);
+  const bool valid_checkpoint_contract =
+      jyppx::restore_policy_accepts(jyppx::RestorePolicy::exact_only,
+                                    state_manifest.restore_level);
   const auto indices = jyppx::data::samplers::SequentialSampler(3).indices();
   const bool valid_data = indices == std::vector<std::size_t>({0, 1, 2});
   const auto logits = torch::tensor({{2.0, -1.0}}, torch::kFloat64);
@@ -68,9 +79,9 @@ int main() {
   const bool valid_adapter =
       adapted.sizes().vec() == std::vector<std::int64_t>({2, 1}) &&
       adapter.state().parameters().size() == 2;
-  return valid_version && valid_error && valid_device && valid_data &&
-                 valid_nn && valid_contrastive && valid_focal && valid_dice &&
-                 valid_adapter
+  return valid_version && valid_error && valid_device &&
+                 valid_checkpoint_contract && valid_data && valid_nn &&
+                 valid_contrastive && valid_focal && valid_dice && valid_adapter
              ? 0
              : 1;
 }
