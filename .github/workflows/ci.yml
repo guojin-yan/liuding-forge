@@ -118,8 +118,7 @@ jobs:
 
       - name: Install coverage tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcovr
+          python -m pip install 'gcovr==8.6'
 
       - name: Validate dependency inputs
         run: |
@@ -189,3 +188,80 @@ jobs:
         run: |
           cmake --build out/sanitizer/linux/build --parallel 2
           ctest --test-dir out/sanitizer/linux/build --output-on-failure
+
+  thread-sanitizer:
+    name: Ubuntu / TSan concurrency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Resolve candidate LibTorch
+        run: |
+          python tools/compatibility.py --file compatibility.json --validate
+          echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
+
+      - name: Download LibTorch (CPU)
+        run: |
+          curl -L --retry 3 -o libtorch.zip \
+            "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2Bcpu.zip"
+          mkdir -p "$GITHUB_WORKSPACE/libtorch-install"
+          unzip -q libtorch.zip -d "$GITHUB_WORKSPACE/libtorch-install"
+
+      - name: Build and run concurrency targets under TSan
+        env:
+          CMAKE_PREFIX_PATH: ${{ github.workspace }}/libtorch-install/libtorch
+          LD_LIBRARY_PATH: ${{ github.workspace }}/libtorch-install/libtorch/lib
+        run: bash tools/run-tsan.sh
+
+      - name: Upload TSan report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsan-${{ github.sha }}
+          path: out/sanitizer/linux/tsan
+          if-no-files-found: ignore
+
+  fuzz:
+    name: Ubuntu / libFuzzer smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Clang and resolve candidate LibTorch
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+          python tools/compatibility.py --file compatibility.json --validate
+          echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
+
+      - name: Download LibTorch (CPU)
+        run: |
+          curl -L --retry 3 -o libtorch.zip \
+            "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2Bcpu.zip"
+          mkdir -p "$GITHUB_WORKSPACE/libtorch-install"
+          unzip -q libtorch.zip -d "$GITHUB_WORKSPACE/libtorch-install"
+
+      - name: Build and run bounded fuzz smoke test
+        env:
+          CMAKE_PREFIX_PATH: ${{ github.workspace }}/libtorch-install/libtorch
+          LD_LIBRARY_PATH: ${{ github.workspace }}/libtorch-install/libtorch/lib
+          JYPPX_FUZZ_RUNS: 10000
+        run: bash tools/run-fuzz.sh
+
+      - name: Upload fuzz artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ github.sha }}
+          path: out/fuzz/linux/device-parse
+          if-no-files-found: ignore

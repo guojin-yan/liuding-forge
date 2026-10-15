@@ -25,6 +25,24 @@ if(Python3_Interpreter_FOUND)
                 --file ${CMAKE_SOURCE_DIR}/dependency-manifest.json
     )
     set_tests_properties(DependencyManifest PROPERTIES LABELS "hygiene;dependency")
+    add_test(
+        NAME CoverageSummaryTool
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_summary.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/summary.json
+    )
+    set_tests_properties(CoverageSummaryTool PROPERTIES
+        LABELS "hygiene;coverage"
+        PASS_REGULAR_EXPRESSION "Function: 8/10 [(]80[.]00%[)]"
+    )
+    add_test(
+        NAME CoverageSummaryRejectsMissingFunction
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_summary.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/missing-function.json
+    )
+    set_tests_properties(CoverageSummaryRejectsMissingFunction PROPERTIES
+        LABELS "hygiene;coverage"
+        WILL_FAIL TRUE
+    )
 endif()
 
 set(JYPPX_GTEST_VERSION 1.14.0)
@@ -103,6 +121,10 @@ endfunction()
 
 add_subdirectory(unit)
 add_subdirectory(integration)
+
+if(JYPPX_BUILD_FUZZERS)
+    add_subdirectory(fuzz)
+endif()
 
 if(JYPPX_BUILD_BENCHMARKS)
     # Benchmarks are executables linked like tests but not registered with

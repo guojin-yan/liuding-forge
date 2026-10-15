@@ -859,7 +859,9 @@ void Trainer::load_checkpoint(const std::string& path) {
       rollback("grad_scaler",
                [&]() { grad_scaler_->load_state_dict(*scaler_snapshot); });
     }
-    for (auto& [callback, state] : callback_snapshot) {
+    for (auto& callback_state : callback_snapshot) {
+      auto& callback = callback_state.first;
+      auto& state = callback_state.second;
       rollback("callback", [&]() { callback->load_state_dict(state); });
     }
     rollback("rng", [&]() {

@@ -17,6 +17,7 @@ esac
 
 command -v cmake >/dev/null
 command -v ctest >/dev/null
+command -v python3 >/dev/null
 command -v gcovr >/dev/null || {
   echo "gcovr is required for the coverage lane" >&2
   exit 2
@@ -65,7 +66,10 @@ gcovr "${coverage_args[@]}" \
   --xml-pretty \
   --output "$output_root/coverage.xml"
 gcovr "${coverage_args[@]}" \
-  --print-summary \
+  --json-summary-pretty \
+  --json-summary "$output_root/coverage-summary.json"
+python3 "$source_root/tools/coverage_summary.py" \
+  "$output_root/coverage-summary.json" \
   > "$output_root/coverage-summary.txt"
 
 cat > "$output_root/coverage-metadata.txt" <<EOF
