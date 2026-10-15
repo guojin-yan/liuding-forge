@@ -201,6 +201,13 @@ foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
     )
 endforeach()
 target_link_libraries(jyppx_core PUBLIC ${TORCH_LIBRARIES})
+if(MSVC)
+    # Official Windows LibTorch binaries use the release DLL runtime and STL
+    # iterator ABI in every configuration. Export these as usage requirements
+    # so Debug consumers compile with the same ABI as JYPPX and LibTorch.
+    target_compile_options(jyppx_core PUBLIC /MD)
+    target_compile_definitions(jyppx_core PUBLIC _ITERATOR_DEBUG_LEVEL=0)
+endif()
 
 # Foundation public contracts use the LibTorch-backed value types owned by
 # core. Keep that provider edge explicit in both build and installed packages.
