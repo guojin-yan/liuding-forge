@@ -36,9 +36,16 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "CPU",
           "build_type": "Debug",
-          "tests": "324/324; 4 CUDA-only tests skipped",
-          "instrumentation": "coverage and ASan+UBSan",
-          "commit": "d46ac61"
+          "tests": "326/326; 4 CUDA-only tests skipped",
+          "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
+          "quality_evidence": {
+            "line_coverage": "4706/5809 (81.01%)",
+            "function_coverage": "580/656 (88.41%)",
+            "branch_coverage": "5040/11045 (45.63%)",
+            "tsan": "32/32 targeted tests; no diagnostics",
+            "fuzz": "10000 libFuzzer iterations; no sanitizer diagnostics"
+          },
+          "commit": "4541564"
         }
       ]
     }
