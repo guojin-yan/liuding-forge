@@ -51,6 +51,23 @@
             "fuzz": "10000 libFuzzer iterations; no sanitizer diagnostics"
           },
           "commit": "ba02ece"
+        },
+        {
+          "id": "local-ubuntu-clang-cpu-debug",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "Clang 14.0.0",
+          "accelerator": "CPU",
+          "build_type": "Debug",
+          "tests": "330/330; 4 CUDA-only tests skipped",
+          "instrumentation": "none (compiler compatibility and install consumer)",
+          "quality_evidence": {
+            "configure": "passed",
+            "build": "passed without project warnings",
+            "ctest": "330/330",
+            "install_consumer": "passed"
+          },
+          "commit": "a49e775"
         }
       ]
     }
