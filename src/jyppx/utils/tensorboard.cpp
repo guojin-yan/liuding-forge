@@ -157,6 +157,17 @@ std::string host_name() {
     return name != nullptr ? name : "localhost";
 }
 
+// TensorBoard event filenames include the process id to avoid collisions when
+// multiple writers share a log directory. The platform APIs use different
+// spellings, so keep the portability boundary in this one helper.
+std::uint64_t process_id() noexcept {
+#ifdef _WIN32
+    return static_cast<std::uint64_t>(_getpid());
+#else
+    return static_cast<std::uint64_t>(getpid());
+#endif
+}
+
 } // namespace
 
 uint32_t tfrecord_crc(const char* data, size_t length) {
@@ -175,7 +186,7 @@ TensorBoardWriter::TensorBoardWriter(const std::string& log_dir)
 
     file_path_ = log_dir_ + "/events.out.tfevents." +
                  std::to_string(static_cast<long long>(wall_time_base_)) + "." +
-                 host_name() + "." + std::to_string(_getpid());
+                 host_name() + "." + std::to_string(process_id());
 
     if (!std::filesystem::create_directories(log_dir_) &&
         !std::filesystem::is_directory(log_dir_)) {
