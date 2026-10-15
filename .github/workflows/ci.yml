@@ -187,5 +187,5 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:strict_string_checks=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
-          cmake --build out/sanitizer/linux/build --parallel
+          cmake --build out/sanitizer/linux/build --parallel 2
           ctest --test-dir out/sanitizer/linux/build --output-on-failure
