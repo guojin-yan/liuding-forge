@@ -27,12 +27,6 @@ target_sources(jyppx_training_framework PRIVATE
     jyppx/optim/nadam.cpp
     jyppx/optim/lamb.cpp
 
-    # Data
-    jyppx/data/tensor_dataset.cpp
-    jyppx/data/samplers/sequential_sampler.cpp
-    jyppx/data/samplers/random_sampler.cpp
-    jyppx/data/samplers/batch_sampler.cpp
-
     # NN
     jyppx/nn/init.cpp
     jyppx/nn/losses.cpp

@@ -1,6 +1,11 @@
 #ifndef JYPPX_DATA_SAMPLERS_BATCH_SAMPLER_HPP
 #define JYPPX_DATA_SAMPLERS_BATCH_SAMPLER_HPP
 
+/**
+ * @file batch_sampler.hpp
+ * @brief Defines batch-tail policy over an underlying sampler.
+ */
+
 #include <jyppx/data/samplers/sampler.hpp>
 
 #include <memory>
@@ -27,24 +32,42 @@ class BatchSampler : public Sampler {
   BatchSampler(std::shared_ptr<Sampler> sampler, size_t batch_size,
                bool drop_last = false);
 
-  /** @brief Returns one epoch of indices, truncated when drop_last is true. */
+  /**
+   * @brief Returns one epoch of indices, truncated when drop-last is enabled.
+   * @return Underlying sequence after applying the tail policy.
+   */
   std::vector<size_t> indices() const override;
 
-  /** @brief Returns the number of samples yielded after truncation. */
+  /**
+   * @brief Returns the number of batches yielded after truncation.
+   * @return Complete and optional partial batch count.
+   */
   size_t size() const override;
 
-  /** @brief Delegates checkpoint capability to the underlying sampler. */
+  /**
+   * @brief Delegates checkpoint capability to the underlying sampler.
+   * @return Underlying sampler checkpoint capability.
+   */
   bool supports_state() const override { return sampler_->supports_state(); }
 
-  /** @brief Delegates state serialization to the underlying sampler. */
+  /**
+   * @brief Delegates state serialization to the underlying sampler.
+   * @return Opaque underlying sampler state.
+   */
   std::string save_state() const override { return sampler_->save_state(); }
 
-  /** @brief Delegates state restoration to the underlying sampler. */
+  /**
+   * @brief Delegates state restoration to the underlying sampler.
+   * @param state Opaque state accepted by the underlying sampler.
+   */
   void load_state(const std::string& state) override {
     sampler_->load_state(state);
   }
 
-  /** @brief Number of samples in each full batch. */
+  /**
+   * @brief Returns the number of samples in each full batch.
+   * @return Positive configured batch size.
+   */
   size_t batch_size() const { return batch_size_; }
 
  private:

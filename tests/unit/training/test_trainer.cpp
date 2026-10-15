@@ -481,4 +481,24 @@ TEST(TrainerTest, GradientClippingLimitsParameterMovement) {
   }
 }
 
+TEST(TrainerTest, MultiWorkerDataLoaderFit) {
+  // The Trainer consumes the loader epoch by epoch; verify the multi-worker
+  // pipeline slots into fit() cleanly.
+  auto [inputs, targets] = make_linear_data(32);
+  data::DataLoader loader(
+      std::make_shared<data::TensorDataset>(inputs, targets),
+      {.batch_size = 8, .num_workers = 2});
+
+  torch::manual_seed(2026);
+  auto model = std::make_shared<LinearModel>(2, 1);
+  auto optimizer = std::make_shared<optim::Adam>(model->parameters(),
+                                                 optim::AdamOptions{.lr = 0.1});
+  training::Trainer trainer(model, optimizer,
+                            training::TrainerOptions{.max_epochs = 3});
+  trainer.fit(loader);
+
+  EXPECT_EQ(trainer.global_step(), 12);       // 3 epochs x 4 batches
+  EXPECT_LT(trainer.last_train_loss(), 0.5);  // clearly below the ~4.0 start
+}
+
 }  // namespace

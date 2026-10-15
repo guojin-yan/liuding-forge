@@ -1,6 +1,11 @@
 #ifndef JYPPX_DATA_STACK_DATASET_HPP
 #define JYPPX_DATA_STACK_DATASET_HPP
 
+/**
+ * @file stack_dataset.hpp
+ * @brief Defines a positional zip over multiple map-style datasets.
+ */
+
 #include <jyppx/data/dataset.hpp>
 
 #include <limits>
@@ -15,22 +20,37 @@ namespace data {
 
 namespace detail {
 
-// Zips one sample out of each dataset at `index` into a tuple.
+/**
+ * @brief Reads one sample from each tuple element at a shared index.
+ * @tparam Ts Sample types owned by the input datasets.
+ * @tparam I Tuple element indices expanded by the caller.
+ * @param datasets Non-null dataset handles.
+ * @param index Shared zero-based sample index.
+ * @return Tuple containing one sample from every dataset.
+ */
 template <typename... Ts, size_t... I>
 auto stack_get_at(const std::tuple<std::shared_ptr<Dataset<Ts>>...>& datasets,
                   size_t index, std::index_sequence<I...>) {
-    return std::make_tuple(std::get<I>(datasets)->get(index)...);
+  return std::make_tuple(std::get<I>(datasets)->get(index)...);
 }
 
+/**
+ * @brief Computes the addressable prefix shared by all tuple elements.
+ * @tparam Ts Sample types owned by the input datasets.
+ * @tparam I Tuple element indices expanded by the caller.
+ * @param datasets Non-null dataset handles.
+ * @return Smallest child size, or zero for an empty tuple.
+ */
 template <typename... Ts, size_t... I>
-size_t stack_min_size(const std::tuple<std::shared_ptr<Dataset<Ts>>...>& datasets,
-                      std::index_sequence<I...>) {
-    size_t smallest = std::numeric_limits<size_t>::max();
-    ((smallest = std::min(smallest, std::get<I>(datasets)->size())), ...);
-    return smallest == std::numeric_limits<size_t>::max() ? 0 : smallest;
+size_t stack_min_size(
+    const std::tuple<std::shared_ptr<Dataset<Ts>>...>& datasets,
+    std::index_sequence<I...>) {
+  size_t smallest = std::numeric_limits<size_t>::max();
+  ((smallest = std::min(smallest, std::get<I>(datasets)->size())), ...);
+  return smallest == std::numeric_limits<size_t>::max() ? 0 : smallest;
 }
 
-} // namespace detail
+}  // namespace detail
 
 /**
  * @brief Zips multiple datasets into tuple samples
@@ -44,45 +64,68 @@ size_t stack_min_size(const std::tuple<std::shared_ptr<Dataset<Ts>>...>& dataset
  */
 template <typename... Ts>
 class StackDataset : public Dataset<std::tuple<Ts...>> {
-public:
-    explicit StackDataset(std::shared_ptr<Dataset<Ts>>... datasets)
-        : datasets_(std::move(datasets)...) {
-        bool all_defined = true;
-        std::apply([&all_defined](const auto&... dataset) {
-            ((all_defined = all_defined && static_cast<bool>(dataset)), ...);
-        }, datasets_);
-        if (!all_defined) {
-            throw std::invalid_argument("StackDataset datasets cannot be null");
-        }
-        if (sizeof...(Ts) == 0) {
-            throw std::invalid_argument("StackDataset requires at least one dataset");
-        }
-        if (size() == 0) {
-            throw std::invalid_argument("StackDataset datasets must be non-empty");
-        }
+ public:
+  /**
+   * @brief Creates a positional zip of non-empty datasets.
+   * @param datasets Non-null dataset handles, one per sample type.
+   * @throws std::invalid_argument No datasets are supplied, a handle is null,
+   * or the smallest dataset is empty.
+   */
+  explicit StackDataset(std::shared_ptr<Dataset<Ts>>... datasets)
+      : datasets_(std::move(datasets)...) {
+    bool all_defined = true;
+    std::apply(
+        [&all_defined](const auto&... dataset) {
+          ((all_defined = all_defined && static_cast<bool>(dataset)), ...);
+        },
+        datasets_);
+    if (!all_defined) {
+      throw std::invalid_argument("StackDataset datasets cannot be null");
     }
-
-    std::tuple<Ts...> get(size_t index) const override {
-        if (index >= size()) {
-            throw std::out_of_range("StackDataset index out of range");
-        }
-        return detail::stack_get_at(
-            datasets_, index, std::index_sequence_for<Ts...>{});
+    if (sizeof...(Ts) == 0) {
+      throw std::invalid_argument("StackDataset requires at least one dataset");
     }
-
-    size_t size() const override {
-        return detail::stack_min_size(datasets_, std::index_sequence_for<Ts...>{});
+    if (size() == 0) {
+      throw std::invalid_argument("StackDataset datasets must be non-empty");
     }
+  }
 
-private:
-    std::tuple<std::shared_ptr<Dataset<Ts>>...> datasets_;
+  /**
+   * @brief Returns one tuple of positionally matched samples.
+   * @param index Zero-based index less than `size()`.
+   * @return Tuple containing one sample from every child dataset.
+   * @throws std::out_of_range The index is outside the shared prefix.
+   */
+  std::tuple<Ts...> get(size_t index) const override {
+    if (index >= size()) {
+      throw std::out_of_range("StackDataset index out of range");
+    }
+    return detail::stack_get_at(datasets_, index,
+                                std::index_sequence_for<Ts...>{});
+  }
+
+  /**
+   * @brief Returns the smallest child dataset size.
+   * @return Number of addressable tuple samples.
+   */
+  size_t size() const override {
+    return detail::stack_min_size(datasets_, std::index_sequence_for<Ts...>{});
+  }
+
+ private:
+  std::tuple<std::shared_ptr<Dataset<Ts>>...>
+      datasets_;  ///< Child datasets retained in tuple order.
 };
 
-// Deduction guide: StackDataset(ds1, ds2, ...) infers the sample types.
+/**
+ * @brief Deduces sample types from dataset pointer arguments.
+ * @tparam Ts Dataset sample types.
+ * @param datasets Dataset handles used solely for type deduction.
+ */
 template <typename... Ts>
 StackDataset(std::shared_ptr<Dataset<Ts>>... datasets) -> StackDataset<Ts...>;
 
-} // namespace data
-} // namespace jyppx
+}  // namespace data
+}  // namespace jyppx
 
-#endif // JYPPX_DATA_STACK_DATASET_HPP
+#endif  // JYPPX_DATA_STACK_DATASET_HPP

@@ -6,6 +6,7 @@ jyppx_add_gtest(jyppx_test_foundation
 )
 
 jyppx_add_gtest(jyppx_test_core
+    LINK_TARGET jyppx::core
     core/test_core.cpp
 )
 
@@ -14,6 +15,7 @@ jyppx_add_gtest(jyppx_test_utils
 )
 
 jyppx_add_gtest(jyppx_test_data
+    LINK_TARGET jyppx::data
     data/test_tensor_dataset.cpp
     data/test_samplers.cpp
     data/test_dataloader.cpp
@@ -53,5 +55,6 @@ jyppx_add_gtest(jyppx_test_training
 )
 
 jyppx_add_gtest(jyppx_test_data_exceptions
+    LINK_TARGET jyppx::data
     data/test_dataloader_exceptions.cpp
 )

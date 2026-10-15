@@ -1,6 +1,11 @@
 #ifndef JYPPX_DATA_SAMPLERS_SAMPLER_HPP
 #define JYPPX_DATA_SAMPLERS_SAMPLER_HPP
 
+/**
+ * @file sampler.hpp
+ * @brief Defines the epoch index-order and checkpoint-state contract.
+ */
+
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -29,11 +34,14 @@ class Sampler {
 
   /**
    * @brief Returns the number of indices produced for one epoch.
+   * @return Number of indices returned by `indices()`.
    */
   virtual size_t size() const = 0;
 
-  /** @brief Returns whether state APIs reproduce future index sequences
-   * exactly. */
+  /**
+   * @brief Returns whether state APIs reproduce future index sequences.
+   * @return True when `save_state()` and `load_state()` support exact restore.
+   */
   virtual bool supports_state() const { return false; }
 
   /**

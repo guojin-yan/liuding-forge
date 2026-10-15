@@ -1,6 +1,11 @@
 #ifndef JYPPX_DATA_SAMPLERS_WEIGHTED_RANDOM_SAMPLER_HPP
 #define JYPPX_DATA_SAMPLERS_WEIGHTED_RANDOM_SAMPLER_HPP
 
+/**
+ * @file weighted_random_sampler.hpp
+ * @brief Defines weighted, subset, and distributed sampling strategies.
+ */
+
 #include <jyppx/data/samplers/sampler.hpp>
 
 #include <algorithm>
@@ -79,7 +84,10 @@ class WeightedRandomSampler : public Sampler {
     }
   }
 
-  /** @brief Draws the next weighted epoch and advances generator state. */
+  /**
+   * @brief Draws the next weighted epoch and advances generator state.
+   * @return Configured number of weighted population indices.
+   */
   std::vector<size_t> indices() const override {
     std::vector<size_t> result;
     result.reserve(num_samples_);
@@ -111,13 +119,22 @@ class WeightedRandomSampler : public Sampler {
     return result;
   }
 
-  /** @brief Returns the configured draws per epoch. */
+  /**
+   * @brief Returns the configured draws per epoch.
+   * @return Positive sample count.
+   */
   size_t size() const override { return num_samples_; }
 
-  /** @brief Reports exact random-engine checkpoint support. */
+  /**
+   * @brief Reports exact random-engine checkpoint support.
+   * @return Always true.
+   */
   bool supports_state() const override { return true; }
 
-  /** @brief Serializes the standard-library random engine state. */
+  /**
+   * @brief Serializes the standard-library random engine state.
+   * @return Opaque textual engine representation.
+   */
   std::string save_state() const override {
     std::ostringstream stream;
     stream << generator_;
@@ -140,11 +157,15 @@ class WeightedRandomSampler : public Sampler {
       throw std::invalid_argument(
           "WeightedRandomSampler state contains trailing data");
     }
-    generator_ = std::move(restored);
+    generator_ = restored;
   }
 
  private:
-  /** @brief Draws one replacement-mode index from @p uniform. */
+  /**
+   * @brief Draws one replacement-mode index from @p uniform.
+   * @param uniform Distribution spanning the cumulative weight range.
+   * @return Population index selected by the sampled cumulative interval.
+   */
   size_t draw(std::uniform_real_distribution<double>& uniform) const {
     const double value = uniform(generator_);
     const auto upper =
@@ -189,20 +210,32 @@ class SubsetRandomSampler : public Sampler {
     }
   }
 
-  /** @brief Returns the next random permutation of the configured subset. */
+  /**
+   * @brief Returns the next random permutation of the configured subset.
+   * @return Shuffled copy of caller-provided indices.
+   */
   std::vector<size_t> indices() const override {
     auto shuffled = indices_;
     std::shuffle(shuffled.begin(), shuffled.end(), generator_);
     return shuffled;
   }
 
-  /** @brief Returns the number of indices in the subset. */
+  /**
+   * @brief Returns the number of indices in the subset.
+   * @return Configured subset cardinality.
+   */
   size_t size() const override { return indices_.size(); }
 
-  /** @brief Reports exact random-engine checkpoint support. */
+  /**
+   * @brief Reports exact random-engine checkpoint support.
+   * @return Always true.
+   */
   bool supports_state() const override { return true; }
 
-  /** @brief Serializes the standard-library random engine state. */
+  /**
+   * @brief Serializes the standard-library random engine state.
+   * @return Opaque textual engine representation.
+   */
   std::string save_state() const override {
     std::ostringstream stream;
     stream << generator_;
@@ -225,7 +258,7 @@ class SubsetRandomSampler : public Sampler {
       throw std::invalid_argument(
           "SubsetRandomSampler state contains trailing data");
     }
-    generator_ = std::move(restored);
+    generator_ = restored;
   }
 
  private:
@@ -279,6 +312,7 @@ class DistributedSampler : public Sampler {
 
   /**
    * @brief Sets the non-negative epoch mixed into the shuffle seed.
+   * @param epoch Non-negative logical epoch number.
    * @throws std::invalid_argument @p epoch is negative.
    */
   void set_epoch(int64_t epoch) {
@@ -289,10 +323,16 @@ class DistributedSampler : public Sampler {
     epoch_ = epoch;
   }
 
-  /** @brief Returns the current non-negative shuffle epoch. */
+  /**
+   * @brief Returns the current non-negative shuffle epoch.
+   * @return Epoch mixed into the deterministic shuffle seed.
+   */
   int64_t epoch() const { return epoch_; }
 
-  /** @brief Returns this rank's indices for the current epoch. */
+  /**
+   * @brief Returns this rank's indices for the current epoch.
+   * @return Deterministic rank-local partition.
+   */
   std::vector<size_t> indices() const override {
     // Pad so every rank receives the same number of samples.
     size_t padded = size_;
@@ -320,7 +360,10 @@ class DistributedSampler : public Sampler {
     return mine;
   }
 
-  /** @brief Returns the number of indices assigned to this rank. */
+  /**
+   * @brief Returns the number of indices assigned to this rank.
+   * @return Equalized rank-local sample count.
+   */
   size_t size() const override {
     const size_t padded =
         drop_last_ ? (size_ / world_size_) * world_size_
@@ -328,10 +371,16 @@ class DistributedSampler : public Sampler {
     return padded / world_size_;
   }
 
-  /** @brief Reports epoch checkpoint support. */
+  /**
+   * @brief Reports epoch checkpoint support.
+   * @return Always true.
+   */
   bool supports_state() const override { return true; }
 
-  /** @brief Serializes the current epoch as decimal text. */
+  /**
+   * @brief Serializes the current epoch as decimal text.
+   * @return Non-negative epoch encoded as decimal text.
+   */
   std::string save_state() const override { return std::to_string(epoch_); }
 
   /**

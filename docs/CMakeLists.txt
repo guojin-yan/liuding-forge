@@ -22,6 +22,7 @@ set(DOXYGEN_STRIP_FROM_PATH "${PROJECT_SOURCE_DIR}/include")
 doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/foundation"
     "${PROJECT_SOURCE_DIR}/include/jyppx/core"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/data"
     COMMENT "Validating and generating migrated API documentation"
 )
 

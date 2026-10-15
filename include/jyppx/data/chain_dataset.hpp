@@ -1,6 +1,11 @@
 #ifndef JYPPX_DATA_CHAIN_DATASET_HPP
 #define JYPPX_DATA_CHAIN_DATASET_HPP
 
+/**
+ * @file chain_dataset.hpp
+ * @brief Defines the map-style chain dataset convenience type.
+ */
+
 #include <jyppx/data/concat_dataset.hpp>
 
 namespace jyppx {
@@ -17,12 +22,17 @@ namespace data {
  */
 template <typename T = Tensor>
 class ChainDataset : public ConcatDataset<T> {
-public:
-    explicit ChainDataset(std::vector<std::shared_ptr<Dataset<T>>> datasets)
-        : ConcatDataset<T>(std::move(datasets)) {}
+ public:
+  /**
+   * @brief Creates a chain in caller-provided dataset order.
+   * @param datasets Non-empty collection of non-null datasets.
+   * @throws std::invalid_argument The collection is empty or contains null.
+   */
+  explicit ChainDataset(std::vector<std::shared_ptr<Dataset<T>>> datasets)
+      : ConcatDataset<T>(std::move(datasets)) {}
 };
 
-} // namespace data
-} // namespace jyppx
+}  // namespace data
+}  // namespace jyppx
 
-#endif // JYPPX_DATA_CHAIN_DATASET_HPP
+#endif  // JYPPX_DATA_CHAIN_DATASET_HPP

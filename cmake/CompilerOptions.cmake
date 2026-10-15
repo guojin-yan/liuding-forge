@@ -9,9 +9,10 @@
 set(JYPPX_COMPILED_TARGETS
     jyppx_foundation
     jyppx_core
+    jyppx_data
     jyppx_training_framework
 )
-set(JYPPX_STRICT_TARGETS jyppx_foundation jyppx_core)
+set(JYPPX_STRICT_TARGETS jyppx_foundation jyppx_core jyppx_data)
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${JYPPX_TARGET} PRIVATE
@@ -46,7 +47,7 @@ if(JYPPX_ENABLE_WARNINGS_AS_ERRORS)
 endif()
 
 # The strict quality gates expand one migrated component at a time. Foundation
-# and core are the completed ownership boundaries; adding a target here
+# core, and data are the completed ownership boundaries; adding a target here
 # requires its headers and sources to pass the same gate first.
 if(JYPPX_ENABLE_CLANG_TIDY)
     if(NOT JYPPX_CLANG_TIDY_EXECUTABLE)
@@ -92,6 +93,33 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/core/device.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/core/tensor_utils.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/core/test_core.cpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/chain_dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/concat_dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/dataloader.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/stack_dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/subset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/tensor_dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/thread_safe_queue.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/samplers/batch_sampler.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/samplers/random_sampler.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/samplers/sampler.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/samplers/sequential_sampler.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/samplers/weighted_random_sampler.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/compose.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/transform.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/vision.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/tensor_dataset.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/batch_sampler.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/random_sampler.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/sequential_sampler.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataloader.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataloader_exceptions.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataset_utils.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_samplers.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_tensor_dataset.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_thread_safe_queue.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_transforms.cpp
     )
     add_custom_target(jyppx_migrated_format_check ALL
         COMMAND ${JYPPX_CLANG_FORMAT_EXECUTABLE}

@@ -5,7 +5,6 @@
 #include <random>
 #include <sstream>
 #include <stdexcept>
-#include <utility>
 
 namespace jyppx::data::samplers {
 
@@ -56,7 +55,7 @@ void RandomSampler::load_state(const std::string& state) {
   if (!stream.eof()) {
     throw std::invalid_argument("RandomSampler state contains trailing data");
   }
-  generator_ = std::move(restored);
+  generator_ = restored;
 }
 
 }  // namespace jyppx::data::samplers

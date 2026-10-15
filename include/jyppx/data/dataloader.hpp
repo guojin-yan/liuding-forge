@@ -1,6 +1,11 @@
 #ifndef JYPPX_DATA_DATALOADER_HPP
 #define JYPPX_DATA_DATALOADER_HPP
 
+/**
+ * @file dataloader.hpp
+ * @brief Defines deterministic batching, worker prefetch, and epoch state.
+ */
+
 #include <jyppx/data/dataset.hpp>
 #include <jyppx/data/samplers/batch_sampler.hpp>
 #include <jyppx/data/samplers/random_sampler.hpp>
@@ -34,10 +39,16 @@ template <typename T>
 struct Batch {
   std::vector<T> samples;  ///< Sample values in stable sampler order.
 
-  /** @brief Returns the number of contained samples. */
+  /**
+   * @brief Returns the number of contained samples.
+   * @return Length of `samples`.
+   */
   size_t batch_size() const { return samples.size(); }
 
-  /** @brief Returns whether the batch contains no samples. */
+  /**
+   * @brief Returns whether the batch contains no samples.
+   * @return True when `samples` is empty.
+   */
   bool empty() const { return samples.empty(); }
 };
 
@@ -46,12 +57,17 @@ template <>
 struct Batch<Tensor> {
   Tensor data;  ///< Batched tensor; undefined represents an empty batch.
 
-  /** @brief Returns dimension zero, or zero for an undefined tensor. */
+  /**
+   * @brief Returns dimension zero, or zero for an undefined tensor.
+   * @return Number of tensor samples.
+   */
   size_t batch_size() const {
     return data.defined() ? static_cast<size_t>(data.size(0)) : 0;
   }
 
-  /** @brief Returns whether data is undefined or has an empty first dimension.
+  /**
+   * @brief Returns whether data is undefined or has an empty first dimension.
+   * @return True when the batch contains no tensor samples.
    */
   bool empty() const { return !data.defined() || data.size(0) == 0; }
 };
@@ -62,12 +78,18 @@ struct Batch<Example> {
   Tensor data;     ///< Input samples stacked along dimension zero.
   Tensor targets;  ///< Targets stacked in the same sample order as data.
 
-  /** @brief Returns input dimension zero, or zero for undefined data. */
+  /**
+   * @brief Returns input dimension zero, or zero for undefined data.
+   * @return Number of paired examples.
+   */
   size_t batch_size() const {
     return data.defined() ? static_cast<size_t>(data.size(0)) : 0;
   }
 
-  /** @brief Returns whether input data is undefined or empty. */
+  /**
+   * @brief Returns whether input data is undefined or empty.
+   * @return True when the batch contains no examples.
+   */
   bool empty() const { return !data.defined() || data.size(0) == 0; }
 };
 
@@ -294,13 +316,23 @@ class DataLoader {
      */
     Iterator(DataLoader* loader, size_t batch_idx);
 
-    /** @brief Returns the current batch, loading it at most once. */
+    /**
+     * @brief Returns the current batch, loading it at most once.
+     * @return Cached or newly loaded batch at the iterator position.
+     */
     Batch<T> operator*();
 
-    /** @brief Advances to the next batch and invalidates the cache. */
+    /**
+     * @brief Advances to the next batch and invalidates the cache.
+     * @return This iterator after advancement.
+     */
     Iterator& operator++();
 
-    /** @brief Compares loader identity and batch position. */
+    /**
+     * @brief Compares loader identity and batch position.
+     * @param other Iterator to compare against.
+     * @return True when the iterators identify different positions.
+     */
     bool operator!=(const Iterator& other) const;
 
    private:
@@ -318,18 +350,26 @@ class DataLoader {
 
   /**
    * @brief Returns the sentinel iterator for the current loader.
+   * @return Iterator positioned one past the final batch.
    */
   Iterator end();
 
   /**
    * @brief Returns the number of batches per epoch.
+   * @return Batch count after applying the drop-last policy.
    */
   size_t size() const;
 
-  /** @brief Number of samples in the underlying dataset. */
+  /**
+   * @brief Returns the number of samples in the underlying dataset.
+   * @return Source dataset cardinality.
+   */
   size_t dataset_size() const { return dataset_->size(); }
 
-  /** @brief Loader options. */
+  /**
+   * @brief Returns immutable loader options.
+   * @return Configuration retained by this loader.
+   */
   const DataLoaderOptions& options() const { return options_; }
 
   /**
@@ -479,10 +519,16 @@ class DataLoader {
   std::uint64_t completed_seq_ =
       0;  ///< Results consumed or rethrown this epoch.
 
-  /** @brief Returns the configured worker count. */
+  /**
+   * @brief Returns the configured worker count.
+   * @return Number of owned worker threads.
+   */
   std::size_t num_workers() const { return options_.num_workers; }
 
-  /** @brief Returns the positive maximum number of in-flight batches. */
+  /**
+   * @brief Returns the positive maximum number of in-flight batches.
+   * @return Worker count times prefetch factor, with a minimum of one.
+   */
   std::size_t prefetch_limit() const {
     return std::max<std::size_t>(num_workers() * options_.prefetch_factor, 1);
   }

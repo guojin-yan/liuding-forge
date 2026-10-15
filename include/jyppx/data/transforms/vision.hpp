@@ -1,6 +1,11 @@
 #ifndef JYPPX_DATA_TRANSFORMS_VISION_HPP
 #define JYPPX_DATA_TRANSFORMS_VISION_HPP
 
+/**
+ * @file vision.hpp
+ * @brief Defines tensor-native image preprocessing and augmentation transforms.
+ */
+
 #include <jyppx/data/transforms/transform.hpp>
 
 #include <torch/nn/functional.h>
@@ -19,119 +24,165 @@ namespace transforms {
 
 namespace detail {
 
-// Normalizes a size argument: {n} means a square, {h, w} is used as-is.
+/**
+ * @brief Normalizes a one- or two-value crop size.
+ * @param size `{n}` for a square or `{height, width}` for a rectangle.
+ * @return Normalized height and width pair.
+ * @throws std::invalid_argument The vector does not contain one or two values.
+ */
 inline std::pair<int64_t, int64_t> crop_size(const std::vector<int64_t>& size) {
-    if (size.size() == 1) {
-        return {size[0], size[0]};
-    }
-    if (size.size() == 2) {
-        return {size[0], size[1]};
-    }
-    throw std::invalid_argument("size must contain one (square) or two (h, w) values");
+  if (size.size() == 1) {
+    return {size[0], size[0]};
+  }
+  if (size.size() == 2) {
+    return {size[0], size[1]};
+  }
+  throw std::invalid_argument(
+      "size must contain one (square) or two (h, w) values");
 }
 
+/** Pi used for degree-to-radian conversion without platform macros. */
 constexpr double kPi = 3.14159265358979323846;
 
-// Warps `input` {C, H, W} with the inverse affine matrix
-// [t00 t01 t02; t10 t11 t12] in normalized (align_corners=False) coords.
-inline Tensor affine_warp(const Tensor& input, double t00, double t01, double t02,
-                          double t10, double t11, double t12) {
-    const int64_t h = input.size(-2);
-    const int64_t w = input.size(-1);
-    auto theta = torch::tensor({{t00, t01, t02}, {t10, t11, t12}},
-                               torch::TensorOptions().dtype(torch::kFloat32))
-                     .unsqueeze(0);
-    auto grid = torch::nn::functional::affine_grid(
-        theta, {1, input.size(-3), h, w}, /*align_corners=*/false);
-    auto expanded = input.unsqueeze(0).to(torch::kFloat32);
-    return torch::nn::functional::grid_sample(
-               expanded, grid,
-               torch::nn::functional::GridSampleFuncOptions()
-                   .mode(torch::kBilinear)
-                   .padding_mode(torch::kZeros)
-                   .align_corners(false))
-        .squeeze(0);
+/**
+ * @brief Warps an image with an inverse affine matrix.
+ * @param input Image tensor shaped `{C, H, W}`.
+ * @param t00 Matrix row-zero, column-zero coefficient.
+ * @param t01 Matrix row-zero, column-one coefficient.
+ * @param t02 Matrix row-zero normalized translation.
+ * @param t10 Matrix row-one, column-zero coefficient.
+ * @param t11 Matrix row-one, column-one coefficient.
+ * @param t12 Matrix row-one normalized translation.
+ * @return Float32 image sampled with bilinear, zero-padded grid sampling.
+ */
+inline Tensor affine_warp(const Tensor& input, double t00, double t01,
+                          double t02, double t10, double t11, double t12) {
+  const int64_t h = input.size(-2);
+  const int64_t w = input.size(-1);
+  auto theta = torch::tensor({{t00, t01, t02}, {t10, t11, t12}},
+                             torch::TensorOptions().dtype(torch::kFloat32))
+                   .unsqueeze(0);
+  auto grid = torch::nn::functional::affine_grid(
+      theta, {1, input.size(-3), h, w}, /*align_corners=*/false);
+  auto expanded = input.unsqueeze(0).to(torch::kFloat32);
+  return torch::nn::functional::grid_sample(
+             expanded, grid,
+             torch::nn::functional::GridSampleFuncOptions()
+                 .mode(torch::kBilinear)
+                 .padding_mode(torch::kZeros)
+                 .align_corners(false))
+      .squeeze(0);
 }
 
-inline Tensor affine_transform(const Tensor& input, double degrees, double scale,
-                               double tx_px, double ty_px) {
-    const int64_t h = input.size(-2);
-    const int64_t w = input.size(-1);
-    const double rad = degrees * kPi / 180.0;
-    const double c = std::cos(rad);
-    const double s = std::sin(rad);
-    const double nx = 2.0 * tx_px / static_cast<double>(w);
-    const double ny = 2.0 * ty_px / static_cast<double>(h);
-    return affine_warp(input, scale * c, scale * s, nx, -scale * s, scale * c, ny);
+/**
+ * @brief Applies centered rotation, uniform scale, and pixel translation.
+ * @param input Image tensor shaped `{C, H, W}`.
+ * @param degrees Counter-clockwise rotation in degrees.
+ * @param scale Uniform inverse-grid scale factor.
+ * @param tx_px Horizontal translation in input pixels.
+ * @param ty_px Vertical translation in input pixels.
+ * @return Float32 affine-warped image.
+ */
+inline Tensor affine_transform(const Tensor& input, double degrees,
+                               double scale, double tx_px, double ty_px) {
+  const int64_t h = input.size(-2);
+  const int64_t w = input.size(-1);
+  const double rad = degrees * kPi / 180.0;
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  const double nx = 2.0 * tx_px / static_cast<double>(w);
+  const double ny = 2.0 * ty_px / static_cast<double>(h);
+  return affine_warp(input, scale * c, scale * s, nx, -scale * s, scale * c,
+                     ny);
 }
 
-// Rotation about the image center (normalized coords put (0, 0) there).
+/**
+ * @brief Rotates an image around its center without scaling or translation.
+ * @param input Image tensor shaped `{C, H, W}`.
+ * @param degrees Counter-clockwise rotation in degrees.
+ * @return Float32 rotated image.
+ */
 inline Tensor affine_rotate(const Tensor& input, double degrees) {
-    return affine_transform(input, degrees, 1.0, 0.0, 0.0);
+  return affine_transform(input, degrees, 1.0, 0.0, 0.0);
 }
 
-// ITU-R 601-2 luma for {3, H, W}; 1-channel input passes through.
+/**
+ * @brief Converts RGB to one ITU-R 601-2 luma channel.
+ * @param input Tensor shaped `{1, H, W}` or `{3, H, W}`.
+ * @return Original one-channel tensor or a Float32 luma tensor.
+ * @throws std::invalid_argument Shape or channel count is unsupported.
+ */
 inline Tensor rgb_to_grayscale(const Tensor& input) {
-    if (input.dim() < 3) {
-        throw std::invalid_argument("grayscale expects a {C, H, W} tensor");
-    }
-    if (input.size(0) == 1) {
-        return input;
-    }
-    if (input.size(0) != 3) {
-        throw std::invalid_argument("grayscale expects 1 or 3 channels");
-    }
-    auto floats = input.to(torch::kFloat32);
-    auto weights = torch::tensor({0.299f, 0.587f, 0.114f},
-                                 torch::TensorOptions().dtype(torch::kFloat32))
-                       .view({3, 1, 1});
-    return (floats * weights).sum(0, /*keepdim=*/true);
+  if (input.dim() < 3) {
+    throw std::invalid_argument("grayscale expects a {C, H, W} tensor");
+  }
+  if (input.size(0) == 1) {
+    return input;
+  }
+  if (input.size(0) != 3) {
+    throw std::invalid_argument("grayscale expects 1 or 3 channels");
+  }
+  auto floats = input.to(torch::kFloat32);
+  auto weights = torch::tensor({0.299f, 0.587f, 0.114f},
+                               torch::TensorOptions().dtype(torch::kFloat32))
+                     .view({3, 1, 1});
+  return (floats * weights).sum(0, /*keepdim=*/true);
 }
 
-// Shifts RGB hue by delta turns on a {3, H, W} float tensor.
+/**
+ * @brief Shifts RGB hue on a Float32 image.
+ * @param rgb Three-channel tensor shaped `{3, H, W}`.
+ * @param delta Signed hue offset in turns, where one turn is a full cycle.
+ * @return Three-channel hue-shifted tensor.
+ */
 inline Tensor shift_hue(const Tensor& rgb, double delta) {
-    auto r = rgb.select(0, 0);
-    auto g = rgb.select(0, 1);
-    auto b = rgb.select(0, 2);
-    const auto maxc = torch::maximum(torch::maximum(r, g), b);
-    const auto minc = torch::minimum(torch::minimum(r, g), b);
-    const auto range = maxc - minc + 1e-12f;
+  auto r = rgb.select(0, 0);
+  auto g = rgb.select(0, 1);
+  auto b = rgb.select(0, 2);
+  const auto maxc = torch::maximum(torch::maximum(r, g), b);
+  const auto minc = torch::minimum(torch::minimum(r, g), b);
+  const auto range = maxc - minc + 1e-12f;
 
-    auto hue = torch::where(
-        maxc == r, (g - b) / range,
-        torch::where(maxc == g, (b - r) / range + 2.0f, (r - g) / range + 4.0f));
-    hue = hue / 6.0f;
-    hue = hue - torch::floor(hue);          // wrap into [0, 1)
-    hue = torch::fmod(hue + static_cast<float>(delta) + 1.0f, 1.0f);
+  auto hue = torch::where(
+      maxc == r, (g - b) / range,
+      torch::where(maxc == g, (b - r) / range + 2.0f, (r - g) / range + 4.0f));
+  hue = hue / 6.0f;
+  hue = hue - torch::floor(hue);  // wrap into [0, 1)
+  hue = torch::fmod(hue + static_cast<float>(delta) + 1.0f, 1.0f);
 
-    const auto value = maxc;
-    const auto sat = (maxc - minc + 1e-12f) / (maxc + 1e-12f);
-    const auto sector = hue * 6.0f;
-    const auto i = torch::floor(sector);
-    const auto f = sector - i;
-    const auto p = value * (1.0f - sat);
-    const auto q = value * (1.0f - sat * f);
-    const auto t = value * (1.0f - sat * (1.0f - f));
+  const auto value = maxc;
+  const auto sat = (maxc - minc + 1e-12f) / (maxc + 1e-12f);
+  const auto sector = hue * 6.0f;
+  const auto i = torch::floor(sector);
+  const auto f = sector - i;
+  const auto p = value * (1.0f - sat);
+  const auto q = value * (1.0f - sat * f);
+  const auto t = value * (1.0f - sat * (1.0f - f));
 
-    auto rr = torch::where(i < 1.0f, value,
-               torch::where(i < 2.0f, q,
-                 torch::where(i < 3.0f, p,
-                   torch::where(i < 4.0f, p,
-                     torch::where(i < 5.0f, t, value)))));
-    auto gg = torch::where(i < 1.0f, t,
-               torch::where(i < 2.0f, value,
-                 torch::where(i < 3.0f, value,
-                   torch::where(i < 4.0f, q,
-                     torch::where(i < 5.0f, p, p)))));
-    auto bb = torch::where(i < 1.0f, p,
-               torch::where(i < 2.0f, p,
-                 torch::where(i < 3.0f, t,
-                   torch::where(i < 4.0f, value,
-                     torch::where(i < 5.0f, value, q)))));
-    return torch::stack({rr, gg, bb}, /*dim=*/0);
+  auto rr = torch::where(
+      i < 1.0f, value,
+      torch::where(
+          i < 2.0f, q,
+          torch::where(
+              i < 3.0f, p,
+              torch::where(i < 4.0f, p, torch::where(i < 5.0f, t, value)))));
+  auto gg = torch::where(
+      i < 1.0f, t,
+      torch::where(i < 2.0f, value,
+                   torch::where(i < 3.0f, value,
+                                torch::where(i < 4.0f, q,
+                                             torch::where(i < 5.0f, p, p)))));
+  auto bb = torch::where(
+      i < 1.0f, p,
+      torch::where(
+          i < 2.0f, p,
+          torch::where(i < 3.0f, t,
+                       torch::where(i < 4.0f, value,
+                                    torch::where(i < 5.0f, value, q)))));
+  return torch::stack({rr, gg, bb}, /*dim=*/0);
 }
 
-} // namespace detail
+}  // namespace detail
 
 /**
  * @brief Normalizes a {C, H, W} tensor: (input - mean) / std
@@ -140,42 +191,62 @@ inline Tensor shift_hue(const Tensor& rgb, double delta) {
  * entry per channel.
  */
 class Normalize : public TensorTransform {
-public:
-    Normalize(std::vector<double> mean, std::vector<double> std)
-        : mean_(torch::tensor(mean, torch::TensorOptions().dtype(torch::kFloat32))),
-          std_(torch::tensor(std, torch::TensorOptions().dtype(torch::kFloat32))) {
-        if (mean.empty() || mean.size() != std.size()) {
-            throw std::invalid_argument("Normalize mean and std must be non-empty and equal length");
-        }
-        for (const double s : std) {
-            if (s <= 0.0) {
-                throw std::invalid_argument("Normalize std values must be positive");
-            }
-        }
-        // Keep the broadcast shape ready for {C, H, W} inputs.
-        const auto channels = static_cast<int64_t>(mean.size());
-        mean_ = mean_.view({channels, 1, 1});
-        std_ = std_.view({channels, 1, 1});
+ public:
+  /**
+   * @brief Creates a per-channel affine normalization.
+   * @param mean Finite mean value for each input channel.
+   * @param std Positive standard deviation for each input channel.
+   * @throws std::invalid_argument Vectors are empty, differ in length, or a
+   * standard deviation is not positive.
+   */
+  Normalize(std::vector<double> mean, std::vector<double> std)
+      : mean_(
+            torch::tensor(mean, torch::TensorOptions().dtype(torch::kFloat32))),
+        std_(
+            torch::tensor(std, torch::TensorOptions().dtype(torch::kFloat32))) {
+    if (mean.empty() || mean.size() != std.size()) {
+      throw std::invalid_argument(
+          "Normalize mean and std must be non-empty and equal length");
     }
-
-    Tensor operator()(const Tensor& input) const override {
-        if (input.dim() < 1 || input.size(0) != mean_.size(0)) {
-            throw std::invalid_argument(
-                "Normalize expects a {C, ...} tensor with C = " +
-                std::to_string(mean_.size(0)));
-        }
-        Tensor float_input = input;
-        if (!at::isFloatingType(input.scalar_type())) {
-            float_input = input.to(torch::kFloat32);
-        }
-        return (float_input - mean_) / std_;
+    for (const double s : std) {
+      if (s <= 0.0) {
+        throw std::invalid_argument("Normalize std values must be positive");
+      }
     }
+    // Keep the broadcast shape ready for {C, H, W} inputs.
+    const auto channels = static_cast<int64_t>(mean.size());
+    mean_ = mean_.view({channels, 1, 1});
+    std_ = std_.view({channels, 1, 1});
+  }
 
-    std::string name() const override { return "Normalize"; }
+  /**
+   * @brief Normalizes one channel-first tensor.
+   * @param input Tensor shaped `{C, ...}` with configured channel count.
+   * @return Floating tensor containing `(input - mean) / std`.
+   * @throws std::invalid_argument Input channel count is incompatible.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    if (input.dim() < 1 || input.size(0) != mean_.size(0)) {
+      throw std::invalid_argument(
+          "Normalize expects a {C, ...} tensor with C = " +
+          std::to_string(mean_.size(0)));
+    }
+    Tensor float_input = input;
+    if (!at::isFloatingType(input.scalar_type())) {
+      float_input = input.to(torch::kFloat32);
+    }
+    return (float_input - mean_) / std_;
+  }
 
-private:
-    Tensor mean_;
-    Tensor std_;
+  /**
+   * @brief Returns the stable transform name.
+   * @return `Normalize`.
+   */
+  std::string name() const override { return "Normalize"; }
+
+ private:
+  Tensor mean_;  ///< Float32 per-channel means shaped `{C, 1, 1}`.
+  Tensor std_;   ///< Float32 positive deviations shaped `{C, 1, 1}`.
 };
 
 /**
@@ -185,90 +256,124 @@ private:
  * "nearest"; bilinear aligns corners like torchvision.
  */
 class Resize : public TensorTransform {
-public:
-    explicit Resize(std::vector<int64_t> size, std::string mode = "bilinear")
-        : size_(std::move(size)), mode_(std::move(mode)) {
-        if (size_.empty() || size_.size() > 2) {
-            throw std::invalid_argument("Resize size must contain one or two values");
-        }
-        if (mode_ != "bilinear" && mode_ != "nearest") {
-            throw std::invalid_argument("Resize mode must be 'bilinear' or 'nearest'");
-        }
-        for (const int64_t dim : size_) {
-            if (dim <= 0) {
-                throw std::invalid_argument("Resize size values must be positive");
-            }
-        }
+ public:
+  /**
+   * @brief Creates a spatial resize operation.
+   * @param size `{n}` for square output or `{height, width}`.
+   * @param mode Either `bilinear` or `nearest`.
+   * @throws std::invalid_argument Size or interpolation mode is invalid.
+   */
+  explicit Resize(std::vector<int64_t> size, std::string mode = "bilinear")
+      : size_(std::move(size)), mode_(std::move(mode)) {
+    if (size_.empty() || size_.size() > 2) {
+      throw std::invalid_argument("Resize size must contain one or two values");
     }
-
-    Tensor operator()(const Tensor& input) const override {
-        if (input.dim() < 2) {
-            throw std::invalid_argument("Resize expects a {C, H, W} tensor");
-        }
-        // interpolate() needs an explicit (h, w) pair; a single size means a
-        // square output.
-        std::vector<int64_t> output_size =
-            size_.size() == 1 ? std::vector<int64_t>{size_[0], size_[0]} : size_;
-        auto expanded = input.unsqueeze(0);
-        auto options = torch::nn::functional::InterpolateFuncOptions().size(output_size);
-        // torch's interpolation enums are distinct types, so select per branch;
-        // align_corners is only valid for the interpolating modes.
-        if (mode_ == "nearest") {
-            options.mode(torch::kNearest);
-        } else {
-            options.mode(torch::kBilinear).align_corners(false);
-        }
-        return torch::nn::functional::interpolate(expanded, options).squeeze(0);
+    if (mode_ != "bilinear" && mode_ != "nearest") {
+      throw std::invalid_argument(
+          "Resize mode must be 'bilinear' or 'nearest'");
     }
-
-    std::string name() const override {
-        std::string sizes;
-        for (size_t i = 0; i < size_.size(); ++i) {
-            if (i > 0) sizes += ", ";
-            sizes += std::to_string(size_[i]);
-        }
-        return "Resize(" + sizes + ")";
+    for (const int64_t dim : size_) {
+      if (dim <= 0) {
+        throw std::invalid_argument("Resize size values must be positive");
+      }
     }
+  }
 
-private:
-    std::vector<int64_t> size_;
-    std::string mode_;
+  /**
+   * @brief Resizes the trailing two spatial dimensions.
+   * @param input Tensor shaped at least `{H, W}`, normally `{C, H, W}`.
+   * @return Tensor with configured output height and width.
+   * @throws std::invalid_argument Input has fewer than two dimensions.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    if (input.dim() < 2) {
+      throw std::invalid_argument("Resize expects a {C, H, W} tensor");
+    }
+    // interpolate() needs an explicit (h, w) pair; a single size means a
+    // square output.
+    std::vector<int64_t> output_size =
+        size_.size() == 1 ? std::vector<int64_t>{size_[0], size_[0]} : size_;
+    auto expanded = input.unsqueeze(0);
+    auto options =
+        torch::nn::functional::InterpolateFuncOptions().size(output_size);
+    // torch's interpolation enums are distinct types, so select per branch;
+    // align_corners is only valid for the interpolating modes.
+    if (mode_ == "nearest") {
+      options.mode(torch::kNearest);
+    } else {
+      options.mode(torch::kBilinear).align_corners(false);
+    }
+    return torch::nn::functional::interpolate(expanded, options).squeeze(0);
+  }
+
+  /**
+   * @brief Returns the transform name with configured output size.
+   * @return Human-readable resize description.
+   */
+  std::string name() const override {
+    std::string sizes;
+    for (size_t i = 0; i < size_.size(); ++i) {
+      if (i > 0) sizes += ", ";
+      sizes += std::to_string(size_[i]);
+    }
+    return "Resize(" + sizes + ")";
+  }
+
+ private:
+  std::vector<int64_t> size_;  ///< One- or two-value positive output size.
+  std::string mode_;           ///< Validated interpolation mode name.
 };
 
 /**
  * @brief Crops the central {h, w} region of a {C, H, W} tensor
  */
 class CenterCrop : public TensorTransform {
-public:
-    explicit CenterCrop(std::vector<int64_t> size) : size_(detail::crop_size(size)) {
-        if (size_.first <= 0 || size_.second <= 0) {
-            throw std::invalid_argument("CenterCrop size values must be positive");
-        }
+ public:
+  /**
+   * @brief Creates a fixed center crop.
+   * @param size `{n}` for a square or `{height, width}`.
+   * @throws std::invalid_argument Shape count or dimensions are invalid.
+   */
+  explicit CenterCrop(std::vector<int64_t> size)
+      : size_(detail::crop_size(size)) {
+    if (size_.first <= 0 || size_.second <= 0) {
+      throw std::invalid_argument("CenterCrop size values must be positive");
     }
+  }
 
-    Tensor operator()(const Tensor& input) const override {
-        if (input.dim() < 3) {
-            throw std::invalid_argument("CenterCrop expects a {C, H, W} tensor");
-        }
-        const int64_t h = input.size(1);
-        const int64_t w = input.size(2);
-        if (h < size_.first || w < size_.second) {
-            throw std::invalid_argument(
-                "CenterCrop size is larger than the input image");
-        }
-        const int64_t top = (h - size_.first) / 2;
-        const int64_t left = (w - size_.second) / 2;
-        return input.slice(1, top, top + size_.first)
-            .slice(2, left, left + size_.second);
+  /**
+   * @brief Extracts the configured region from the image center.
+   * @param input Image tensor shaped `{C, H, W}`.
+   * @return Spatial tensor view of the centered crop.
+   * @throws std::invalid_argument Input shape or crop extent is incompatible.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    if (input.dim() < 3) {
+      throw std::invalid_argument("CenterCrop expects a {C, H, W} tensor");
     }
-
-    std::string name() const override {
-        return "CenterCrop(" + std::to_string(size_.first) + ", " +
-               std::to_string(size_.second) + ")";
+    const int64_t h = input.size(1);
+    const int64_t w = input.size(2);
+    if (h < size_.first || w < size_.second) {
+      throw std::invalid_argument(
+          "CenterCrop size is larger than the input image");
     }
+    const int64_t top = (h - size_.first) / 2;
+    const int64_t left = (w - size_.second) / 2;
+    return input.slice(1, top, top + size_.first)
+        .slice(2, left, left + size_.second);
+  }
 
-private:
-    std::pair<int64_t, int64_t> size_;
+  /**
+   * @brief Returns the transform name with configured crop size.
+   * @return Human-readable center-crop description.
+   */
+  std::string name() const override {
+    return "CenterCrop(" + std::to_string(size_.first) + ", " +
+           std::to_string(size_.second) + ")";
+  }
+
+ private:
+  std::pair<int64_t, int64_t> size_;  ///< Positive height and width.
 };
 
 /**
@@ -279,104 +384,157 @@ private:
  * DataLoader (ATen guards the default generator).
  */
 class RandomCrop : public TensorTransform {
-public:
-    explicit RandomCrop(std::vector<int64_t> size)
-        : size_(detail::crop_size(size)) {
-        if (size_.first <= 0 || size_.second <= 0) {
-            throw std::invalid_argument("RandomCrop size values must be positive");
-        }
+ public:
+  /**
+   * @brief Creates a random fixed-size crop.
+   * @param size `{n}` for a square or `{height, width}`.
+   * @throws std::invalid_argument Shape count or dimensions are invalid.
+   */
+  explicit RandomCrop(std::vector<int64_t> size)
+      : size_(detail::crop_size(size)) {
+    if (size_.first <= 0 || size_.second <= 0) {
+      throw std::invalid_argument("RandomCrop size values must be positive");
+    }
+  }
+
+  /**
+   * @brief Extracts one uniformly positioned crop.
+   * @param input Image tensor shaped `{C, H, W}`.
+   * @return Spatial tensor view selected using the global Torch RNG.
+   * @throws std::invalid_argument Input shape or crop extent is incompatible.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    if (input.dim() < 3) {
+      throw std::invalid_argument("RandomCrop expects a {C, H, W} tensor");
+    }
+    const int64_t h = input.size(1);
+    const int64_t w = input.size(2);
+    if (h < size_.first || w < size_.second) {
+      throw std::invalid_argument(
+          "RandomCrop size is larger than the input image");
     }
 
-    Tensor operator()(const Tensor& input) const override {
-        if (input.dim() < 3) {
-            throw std::invalid_argument("RandomCrop expects a {C, H, W} tensor");
-        }
-        const int64_t h = input.size(1);
-        const int64_t w = input.size(2);
-        if (h < size_.first || w < size_.second) {
-            throw std::invalid_argument("RandomCrop size is larger than the input image");
-        }
+    const int64_t top =
+        torch::randint(0, h - size_.first + 1, {1}).item<int64_t>();
+    const int64_t left =
+        torch::randint(0, w - size_.second + 1, {1}).item<int64_t>();
+    return input.slice(1, top, top + size_.first)
+        .slice(2, left, left + size_.second);
+  }
 
-        const int64_t top =
-            torch::randint(0, h - size_.first + 1, {1}).item<int64_t>();
-        const int64_t left =
-            torch::randint(0, w - size_.second + 1, {1}).item<int64_t>();
-        return input.slice(1, top, top + size_.first)
-            .slice(2, left, left + size_.second);
-    }
+  /**
+   * @brief Returns the transform name with configured crop size.
+   * @return Human-readable random-crop description.
+   */
+  std::string name() const override {
+    return "RandomCrop(" + std::to_string(size_.first) + ", " +
+           std::to_string(size_.second) + ")";
+  }
 
-    std::string name() const override {
-        return "RandomCrop(" + std::to_string(size_.first) + ", " +
-               std::to_string(size_.second) + ")";
-    }
-
-private:
-    std::pair<int64_t, int64_t> size_;
+ private:
+  std::pair<int64_t, int64_t> size_;  ///< Positive crop height and width.
 };
 
 namespace detail {
 
-// Shared flip logic: flips dim 2 (width) or dim 1 (height) with probability p.
-inline Tensor random_flip(const Tensor& input, int64_t dim, double p, const char* name) {
-    if (p < 0.0 || p > 1.0) {
-        throw std::invalid_argument(std::string(name) +
-                                    " probability must be in [0, 1]");
-    }
-    if (input.dim() < 3) {
-        throw std::invalid_argument(std::string(name) +
-                                    " expects a {C, H, W} tensor");
-    }
-    const double draw = torch::rand({1}).item<double>();
-    if (draw < p) {
-        return torch::flip(input, {dim});
-    }
-    return input;
+/**
+ * @brief Applies a probabilistic flip along one image dimension.
+ * @param input Image tensor shaped `{C, H, W}`.
+ * @param dim Spatial dimension to reverse.
+ * @param p Flip probability in the closed range `[0, 1]`.
+ * @param name Transform name included in diagnostic messages.
+ * @return Flipped tensor or the original handle when the draw is rejected.
+ * @throws std::invalid_argument Probability or input shape is invalid.
+ */
+inline Tensor random_flip(const Tensor& input, int64_t dim, double p,
+                          const char* name) {
+  if (p < 0.0 || p > 1.0) {
+    throw std::invalid_argument(std::string(name) +
+                                " probability must be in [0, 1]");
+  }
+  if (input.dim() < 3) {
+    throw std::invalid_argument(std::string(name) +
+                                " expects a {C, H, W} tensor");
+  }
+  const double draw = torch::rand({1}).item<double>();
+  if (draw < p) {
+    return torch::flip(input, {dim});
+  }
+  return input;
 }
 
-} // namespace detail
+}  // namespace detail
 
 /**
  * @brief Horizontally flips a {C, H, W} tensor with probability p
  */
 class RandomHorizontalFlip : public TensorTransform {
-public:
-    explicit RandomHorizontalFlip(double p = 0.5) : p_(p) {
-        if (p_ < 0.0 || p_ > 1.0) {
-            throw std::invalid_argument(
-                "RandomHorizontalFlip probability must be in [0, 1]");
-        }
+ public:
+  /**
+   * @brief Creates a probabilistic horizontal flip.
+   * @param p Flip probability in the closed range `[0, 1]`.
+   * @throws std::invalid_argument @p p is outside the valid range.
+   */
+  explicit RandomHorizontalFlip(double p = 0.5) : p_(p) {
+    if (p_ < 0.0 || p_ > 1.0) {
+      throw std::invalid_argument(
+          "RandomHorizontalFlip probability must be in [0, 1]");
     }
+  }
 
-    Tensor operator()(const Tensor& input) const override {
-        return detail::random_flip(input, /*dim=*/2, p_, "RandomHorizontalFlip");
-    }
+  /**
+   * @brief Optionally reverses image width.
+   * @param input Image tensor shaped `{C, H, W}`.
+   * @return Flipped tensor or the original handle.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    return detail::random_flip(input, /*dim=*/2, p_, "RandomHorizontalFlip");
+  }
 
-    std::string name() const override { return "RandomHorizontalFlip"; }
+  /**
+   * @brief Returns the stable transform name.
+   * @return `RandomHorizontalFlip`.
+   */
+  std::string name() const override { return "RandomHorizontalFlip"; }
 
-private:
-    double p_;
+ private:
+  double p_;  ///< Validated flip probability in `[0, 1]`.
 };
 
 /**
  * @brief Vertically flips a {C, H, W} tensor with probability p
  */
 class RandomVerticalFlip : public TensorTransform {
-public:
-    explicit RandomVerticalFlip(double p = 0.5) : p_(p) {
-        if (p_ < 0.0 || p_ > 1.0) {
-            throw std::invalid_argument(
-                "RandomVerticalFlip probability must be in [0, 1]");
-        }
+ public:
+  /**
+   * @brief Creates a probabilistic vertical flip.
+   * @param p Flip probability in the closed range `[0, 1]`.
+   * @throws std::invalid_argument @p p is outside the valid range.
+   */
+  explicit RandomVerticalFlip(double p = 0.5) : p_(p) {
+    if (p_ < 0.0 || p_ > 1.0) {
+      throw std::invalid_argument(
+          "RandomVerticalFlip probability must be in [0, 1]");
     }
+  }
 
-    Tensor operator()(const Tensor& input) const override {
-        return detail::random_flip(input, /*dim=*/1, p_, "RandomVerticalFlip");
-    }
+  /**
+   * @brief Optionally reverses image height.
+   * @param input Image tensor shaped `{C, H, W}`.
+   * @return Flipped tensor or the original handle.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    return detail::random_flip(input, /*dim=*/1, p_, "RandomVerticalFlip");
+  }
 
-    std::string name() const override { return "RandomVerticalFlip"; }
+  /**
+   * @brief Returns the stable transform name.
+   * @return `RandomVerticalFlip`.
+   */
+  std::string name() const override { return "RandomVerticalFlip"; }
 
-private:
-    double p_;
+ private:
+  double p_;  ///< Validated flip probability in `[0, 1]`.
 };
 
 /**
@@ -386,37 +544,54 @@ private:
  * side independently (torchvision order).
  */
 class Pad : public TensorTransform {
-public:
-    explicit Pad(std::vector<int64_t> padding, double fill = 0.0)
-        : padding_(std::move(padding)), fill_(fill) {
-        if (padding_.empty() || padding_.size() > 4) {
-            throw std::invalid_argument("Pad padding must contain 1, 2 or 4 values");
-        }
+ public:
+  /**
+   * @brief Creates a constant padding operation.
+   * @param padding One, two, or four side widths in torchvision order.
+   * @param fill Scalar value written outside the source image.
+   * @throws std::invalid_argument Padding count is unsupported.
+   */
+  explicit Pad(std::vector<int64_t> padding, double fill = 0.0)
+      : padding_(std::move(padding)), fill_(fill) {
+    if (padding_.empty() || padding_.size() > 4) {
+      throw std::invalid_argument("Pad padding must contain 1, 2 or 4 values");
     }
+  }
 
-    Tensor operator()(const Tensor& input) const override {
-        if (input.dim() < 2) {
-            throw std::invalid_argument("Pad expects a {C, H, W} tensor");
-        }
-        // Expand {n} -> {n, n, n, n} and {l, r} -> {l, r, l, r} (torchvision).
-        std::vector<int64_t> pad;
-        if (padding_.size() == 1) {
-            pad = {padding_[0], padding_[0], padding_[0], padding_[0]};
-        } else if (padding_.size() == 2) {
-            pad = {padding_[0], padding_[1], padding_[0], padding_[1]};
-        } else {
-            pad = padding_;
-        }
-        // constant_pad_nd expects the last-dimension-first order: (w_left,
-        // w_right, h_top, h_bottom) for a {C, H, W} tensor.
-        return torch::constant_pad_nd(input, {pad[0], pad[1], pad[2], pad[3]}, fill_);
+  /**
+   * @brief Pads the two trailing spatial dimensions.
+   * @param input Tensor shaped at least `{H, W}`, normally `{C, H, W}`.
+   * @return Constant-padded tensor.
+   * @throws std::invalid_argument Input has fewer than two dimensions.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    if (input.dim() < 2) {
+      throw std::invalid_argument("Pad expects a {C, H, W} tensor");
     }
+    // Expand {n} -> {n, n, n, n} and {l, r} -> {l, r, l, r} (torchvision).
+    std::vector<int64_t> pad;
+    if (padding_.size() == 1) {
+      pad = {padding_[0], padding_[0], padding_[0], padding_[0]};
+    } else if (padding_.size() == 2) {
+      pad = {padding_[0], padding_[1], padding_[0], padding_[1]};
+    } else {
+      pad = padding_;
+    }
+    // constant_pad_nd expects the last-dimension-first order: (w_left,
+    // w_right, h_top, h_bottom) for a {C, H, W} tensor.
+    return torch::constant_pad_nd(input, {pad[0], pad[1], pad[2], pad[3]},
+                                  fill_);
+  }
 
-    std::string name() const override { return "Pad"; }
+  /**
+   * @brief Returns the stable transform name.
+   * @return `Pad`.
+   */
+  std::string name() const override { return "Pad"; }
 
-private:
-    std::vector<int64_t> padding_;
-    double fill_;
+ private:
+  std::vector<int64_t> padding_;  ///< Validated side widths.
+  double fill_;                   ///< Constant padding value.
 };
 
 /**
@@ -427,22 +602,38 @@ private:
  * torch RNG.
  */
 class RandomRotation : public TensorTransform {
-public:
-    explicit RandomRotation(double degrees) : degrees_(degrees) {
-        if (degrees_ < 0.0) {
-            throw std::invalid_argument("RandomRotation degrees must be non-negative");
-        }
+ public:
+  /**
+   * @brief Creates a symmetric random rotation range.
+   * @param degrees Non-negative maximum absolute angle in degrees.
+   * @throws std::invalid_argument @p degrees is negative.
+   */
+  explicit RandomRotation(double degrees) : degrees_(degrees) {
+    if (degrees_ < 0.0) {
+      throw std::invalid_argument(
+          "RandomRotation degrees must be non-negative");
     }
+  }
 
-    Tensor operator()(const Tensor& input) const override {
-        const double angle = (torch::rand({1}).item<double>() * 2.0 - 1.0) * degrees_;
-        return detail::affine_rotate(input, angle);
-    }
+  /**
+   * @brief Rotates an image by one uniformly drawn angle.
+   * @param input Image tensor shaped `{C, H, W}`.
+   * @return Float32 rotated image with zero fill.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    const double angle =
+        (torch::rand({1}).item<double>() * 2.0 - 1.0) * degrees_;
+    return detail::affine_rotate(input, angle);
+  }
 
-    std::string name() const override { return "RandomRotation"; }
+  /**
+   * @brief Returns the stable transform name.
+   * @return `RandomRotation`.
+   */
+  std::string name() const override { return "RandomRotation"; }
 
-private:
-    double degrees_;
+ private:
+  double degrees_;  ///< Non-negative maximum absolute rotation.
 };
 
 /**
@@ -454,48 +645,68 @@ private:
  * (torchvision order), bilinear sampling, zero fill.
  */
 class RandomAffine : public TensorTransform {
-public:
-    RandomAffine(double degrees, std::pair<double, double> translate = {0.0, 0.0},
-                 std::pair<double, double> scale = {1.0, 1.0})
-        : degrees_(degrees), translate_(translate), scale_(scale) {
-        if (degrees_ < 0.0) {
-            throw std::invalid_argument("RandomAffine degrees must be non-negative");
-        }
-        if (translate_.first < 0.0 || translate_.second < 0.0 ||
-            translate_.first > 1.0 || translate_.second > 1.0) {
-            throw std::invalid_argument("RandomAffine translate must be within [0, 1]");
-        }
-        if (scale_.first <= 0.0 || scale_.second < scale_.first) {
-            throw std::invalid_argument(
-                "RandomAffine scale must be positive and increasing");
-        }
+ public:
+  /**
+   * @brief Creates a random affine augmentation range.
+   * @param degrees Non-negative maximum absolute rotation in degrees.
+   * @param translate Maximum absolute width and height fractions.
+   * @param scale Positive inclusive scale interval.
+   * @throws std::invalid_argument Any configured range is invalid.
+   */
+  RandomAffine(double degrees, std::pair<double, double> translate = {0.0, 0.0},
+               std::pair<double, double> scale = {1.0, 1.0})
+      : degrees_(degrees), translate_(translate), scale_(scale) {
+    if (degrees_ < 0.0) {
+      throw std::invalid_argument("RandomAffine degrees must be non-negative");
     }
-
-    Tensor operator()(const Tensor& input) const override {
-        if (input.dim() < 2) {
-            throw std::invalid_argument("RandomAffine expects a {C, H, W} tensor");
-        }
-        const int64_t h = input.size(input.dim() - 2);
-        const int64_t w = input.size(input.dim() - 1);
-
-        const double angle = (torch::rand({1}).item<double>() * 2.0 - 1.0) * degrees_;
-        const double tx =
-            (torch::rand({1}).item<double>() * 2.0 - 1.0) * translate_.first * w;
-        const double ty =
-            (torch::rand({1}).item<double>() * 2.0 - 1.0) * translate_.second * h;
-        const double lo = std::min(scale_.first, scale_.second);
-        const double hi = std::max(scale_.first, scale_.second);
-        const double scale = lo + torch::rand({1}).item<double>() * (hi - lo);
-
-        return detail::affine_transform(input, angle, scale, tx, ty);
+    if (translate_.first < 0.0 || translate_.second < 0.0 ||
+        translate_.first > 1.0 || translate_.second > 1.0) {
+      throw std::invalid_argument(
+          "RandomAffine translate must be within [0, 1]");
     }
+    if (scale_.first <= 0.0 || scale_.second < scale_.first) {
+      throw std::invalid_argument(
+          "RandomAffine scale must be positive and increasing");
+    }
+  }
 
-    std::string name() const override { return "RandomAffine"; }
+  /**
+   * @brief Draws and applies one affine transform.
+   * @param input Image tensor shaped `{C, H, W}`.
+   * @return Float32 affine-warped image with zero fill.
+   * @throws std::invalid_argument Input has fewer than two dimensions.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    if (input.dim() < 2) {
+      throw std::invalid_argument("RandomAffine expects a {C, H, W} tensor");
+    }
+    const int64_t h = input.size(input.dim() - 2);
+    const int64_t w = input.size(input.dim() - 1);
 
-private:
-    double degrees_;
-    std::pair<double, double> translate_;
-    std::pair<double, double> scale_;
+    const double angle =
+        (torch::rand({1}).item<double>() * 2.0 - 1.0) * degrees_;
+    const double tx =
+        (torch::rand({1}).item<double>() * 2.0 - 1.0) * translate_.first * w;
+    const double ty =
+        (torch::rand({1}).item<double>() * 2.0 - 1.0) * translate_.second * h;
+    const double lo = std::min(scale_.first, scale_.second);
+    const double hi = std::max(scale_.first, scale_.second);
+    const double scale = lo + torch::rand({1}).item<double>() * (hi - lo);
+
+    return detail::affine_transform(input, angle, scale, tx, ty);
+  }
+
+  /**
+   * @brief Returns the stable transform name.
+   * @return `RandomAffine`.
+   */
+  std::string name() const override { return "RandomAffine"; }
+
+ private:
+  double degrees_;  ///< Non-negative maximum absolute rotation.
+  std::pair<double, double>
+      translate_;  ///< Maximum width and height translation fractions.
+  std::pair<double, double> scale_;  ///< Positive inclusive scale interval.
 };
 
 /**
@@ -505,56 +716,86 @@ private:
  * num_output_channels = 1 returns a single channel; 3 replicates the luma.
  */
 class Grayscale : public TensorTransform {
-public:
-    explicit Grayscale(int64_t num_output_channels = 1)
-        : channels_(num_output_channels) {
-        if (channels_ != 1 && channels_ != 3) {
-            throw std::invalid_argument("Grayscale num_output_channels must be 1 or 3");
-        }
+ public:
+  /**
+   * @brief Creates a deterministic grayscale conversion.
+   * @param num_output_channels One luma channel or three replicated channels.
+   * @throws std::invalid_argument Output channel count is not one or three.
+   */
+  explicit Grayscale(int64_t num_output_channels = 1)
+      : channels_(num_output_channels) {
+    if (channels_ != 1 && channels_ != 3) {
+      throw std::invalid_argument(
+          "Grayscale num_output_channels must be 1 or 3");
     }
+  }
 
-    Tensor operator()(const Tensor& input) const override {
-        Tensor gray = detail::rgb_to_grayscale(input);
-        if (channels_ == 3) {
-            gray = gray.expand({3, gray.size(1), gray.size(2)}).contiguous();
-        }
-        return gray;
+  /**
+   * @brief Converts one image to grayscale.
+   * @param input Tensor shaped `{1, H, W}` or `{3, H, W}`.
+   * @return Float32 luma with the configured output channel count.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    Tensor gray = detail::rgb_to_grayscale(input);
+    if (channels_ == 3) {
+      gray = gray.expand({3, gray.size(1), gray.size(2)}).contiguous();
     }
+    return gray;
+  }
 
-    std::string name() const override { return "Grayscale"; }
+  /**
+   * @brief Returns the stable transform name.
+   * @return `Grayscale`.
+   */
+  std::string name() const override { return "Grayscale"; }
 
-private:
-    int64_t channels_;
+ private:
+  int64_t channels_;  ///< Validated output channel count of one or three.
 };
 
 /**
  * @brief Converts to grayscale with probability p (output keeps 3 channels)
  */
 class RandomGrayscale : public TensorTransform {
-public:
-    explicit RandomGrayscale(double p = 0.1) : p_(p) {
-        if (p_ < 0.0 || p_ > 1.0) {
-            throw std::invalid_argument(
-                "RandomGrayscale probability must be in [0, 1]");
-        }
+ public:
+  /**
+   * @brief Creates a probabilistic three-channel grayscale conversion.
+   * @param p Conversion probability in the closed range `[0, 1]`.
+   * @throws std::invalid_argument @p p is outside the valid range.
+   */
+  explicit RandomGrayscale(double p = 0.1) : p_(p) {
+    if (p_ < 0.0 || p_ > 1.0) {
+      throw std::invalid_argument(
+          "RandomGrayscale probability must be in [0, 1]");
     }
+  }
 
-    Tensor operator()(const Tensor& input) const override {
-        if (input.dim() < 3) {
-            throw std::invalid_argument("RandomGrayscale expects a {C, H, W} tensor");
-        }
-        const double draw = torch::rand({1}).item<double>();
-        if (draw < p_ && input.size(0) == 3) {
-            const auto gray = detail::rgb_to_grayscale(input);
-            return gray.expand({3, gray.size(1), gray.size(2)}).contiguous();
-        }
-        return input;
+  /**
+   * @brief Optionally replaces RGB channels with replicated luma.
+   * @param input Image tensor shaped `{C, H, W}`.
+   * @return Three-channel grayscale or the original tensor handle.
+   * @throws std::invalid_argument Input has fewer than three dimensions.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    if (input.dim() < 3) {
+      throw std::invalid_argument("RandomGrayscale expects a {C, H, W} tensor");
     }
+    const double draw = torch::rand({1}).item<double>();
+    if (draw < p_ && input.size(0) == 3) {
+      const auto gray = detail::rgb_to_grayscale(input);
+      return gray.expand({3, gray.size(1), gray.size(2)}).contiguous();
+    }
+    return input;
+  }
 
-    std::string name() const override { return "RandomGrayscale"; }
+  /**
+   * @brief Returns the stable transform name.
+   * @return `RandomGrayscale`.
+   */
+  std::string name() const override { return "RandomGrayscale"; }
 
-private:
-    double p_;
+ private:
+  double p_;  ///< Validated conversion probability in `[0, 1]`.
 };
 
 /**
@@ -566,86 +807,109 @@ private:
  * random order per call (torchvision behavior); zero factors are skipped.
  */
 class ColorJitter : public TensorTransform {
-public:
-    ColorJitter(double brightness = 0.0, double contrast = 0.0,
-                double saturation = 0.0, double hue = 0.0)
-        : brightness_(brightness), contrast_(contrast),
-          saturation_(saturation), hue_(hue) {
-        if (brightness_ < 0.0 || contrast_ < 0.0 || saturation_ < 0.0) {
-            throw std::invalid_argument(
-                "ColorJitter factors must be non-negative");
-        }
-        if (hue_ < 0.0 || hue_ > 0.5) {
-            throw std::invalid_argument("ColorJitter hue must be in [0, 0.5]");
-        }
+ public:
+  /**
+   * @brief Creates independent color adjustment ranges.
+   * @param brightness Non-negative symmetric brightness range around one.
+   * @param contrast Non-negative symmetric contrast range around one.
+   * @param saturation Non-negative symmetric saturation range around one.
+   * @param hue Maximum hue offset in turns, within `[0, 0.5]`.
+   * @throws std::invalid_argument Any range is outside its valid domain.
+   */
+  ColorJitter(double brightness = 0.0, double contrast = 0.0,
+              double saturation = 0.0, double hue = 0.0)
+      : brightness_(brightness),
+        contrast_(contrast),
+        saturation_(saturation),
+        hue_(hue) {
+    if (brightness_ < 0.0 || contrast_ < 0.0 || saturation_ < 0.0) {
+      throw std::invalid_argument("ColorJitter factors must be non-negative");
     }
-
-    Tensor operator()(const Tensor& input) const override {
-        if (input.dim() < 3) {
-            throw std::invalid_argument("ColorJitter expects a {C, H, W} tensor");
-        }
-        Tensor result = input.to(torch::kFloat32);
-
-        // Random application order over the enabled operations.
-        std::vector<int> order = {0, 1, 2, 3};
-        std::shuffle(order.begin(), order.end(), generator_);
-
-        for (const int op : order) {
-            switch (op) {
-                case 0:
-                    if (brightness_ > 0.0) {
-                        result = result * jitter_factor(brightness_);
-                    }
-                    break;
-                case 1: {
-                    if (contrast_ > 0.0) {
-                        const auto gray = detail::rgb_to_grayscale(result);
-                        const double mean = gray.mean().item<double>();
-                        const double factor = jitter_factor(contrast_);
-                        result = result * factor + mean * (1.0 - factor);
-                    }
-                    break;
-                }
-                case 2: {
-                    if (saturation_ > 0.0 && result.size(0) == 3) {
-                        const auto gray = detail::rgb_to_grayscale(result);
-                        const auto gray3 =
-                            gray.expand({3, gray.size(1), gray.size(2)});
-                        result = gray3.lerp(result, jitter_factor(saturation_));
-                    }
-                    break;
-                }
-                case 3:
-                    if (hue_ > 0.0 && result.size(0) == 3) {
-                        result = detail::shift_hue(
-                            result,
-                            (torch::rand({1}).item<double>() * 2.0 - 1.0) * hue_);
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
-        return result;
+    if (hue_ < 0.0 || hue_ > 0.5) {
+      throw std::invalid_argument("ColorJitter hue must be in [0, 0.5]");
     }
+  }
 
-    std::string name() const override { return "ColorJitter"; }
-
-private:
-    double jitter_factor(double factor) const {
-        const double lo = std::max(0.0, 1.0 - factor);
-        return lo + torch::rand({1}).item<double>() * (1.0 + factor - lo);
+  /**
+   * @brief Applies enabled adjustments in randomized order.
+   * @param input Image tensor shaped `{C, H, W}`.
+   * @return Float32 adjusted image.
+   * @throws std::invalid_argument Input has fewer than three dimensions.
+   */
+  Tensor operator()(const Tensor& input) const override {
+    if (input.dim() < 3) {
+      throw std::invalid_argument("ColorJitter expects a {C, H, W} tensor");
     }
+    Tensor result = input.to(torch::kFloat32);
 
-    double brightness_;
-    double contrast_;
-    double saturation_;
-    double hue_;
-    mutable std::mt19937 generator_{std::random_device{}()};
+    // Random application order over the enabled operations.
+    std::vector<int> order = {0, 1, 2, 3};
+    std::shuffle(order.begin(), order.end(), generator_);
+
+    for (const int op : order) {
+      switch (op) {
+        case 0:
+          if (brightness_ > 0.0) {
+            result = result * jitter_factor(brightness_);
+          }
+          break;
+        case 1: {
+          if (contrast_ > 0.0) {
+            const auto gray = detail::rgb_to_grayscale(result);
+            const double mean = gray.mean().item<double>();
+            const double factor = jitter_factor(contrast_);
+            result = result * factor + mean * (1.0 - factor);
+          }
+          break;
+        }
+        case 2: {
+          if (saturation_ > 0.0 && result.size(0) == 3) {
+            const auto gray = detail::rgb_to_grayscale(result);
+            const auto gray3 = gray.expand({3, gray.size(1), gray.size(2)});
+            result = gray3.lerp(result, jitter_factor(saturation_));
+          }
+          break;
+        }
+        case 3:
+          if (hue_ > 0.0 && result.size(0) == 3) {
+            result = detail::shift_hue(
+                result, (torch::rand({1}).item<double>() * 2.0 - 1.0) * hue_);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * @brief Returns the stable transform name.
+   * @return `ColorJitter`.
+   */
+  std::string name() const override { return "ColorJitter"; }
+
+ private:
+  /**
+   * @brief Draws a multiplicative factor centered on one.
+   * @param factor Non-negative symmetric range width.
+   * @return Uniform draw from `[max(0, 1-factor), 1+factor]`.
+   */
+  double jitter_factor(double factor) const {
+    const double lo = std::max(0.0, 1.0 - factor);
+    return lo + torch::rand({1}).item<double>() * (1.0 + factor - lo);
+  }
+
+  double brightness_;  ///< Non-negative brightness range width.
+  double contrast_;    ///< Non-negative contrast range width.
+  double saturation_;  ///< Non-negative saturation range width.
+  double hue_;         ///< Maximum hue offset in `[0, 0.5]` turns.
+  mutable std::mt19937 generator_{
+      std::random_device{}()};  ///< Operation-order engine.
 };
 
-} // namespace transforms
-} // namespace data
-} // namespace jyppx
+}  // namespace transforms
+}  // namespace data
+}  // namespace jyppx
 
-#endif // JYPPX_DATA_TRANSFORMS_VISION_HPP
+#endif  // JYPPX_DATA_TRANSFORMS_VISION_HPP

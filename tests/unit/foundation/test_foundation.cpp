@@ -92,6 +92,17 @@ TEST(FoundationRandomTest, RejectsUnknownStateVersionWithoutMutation) {
   EXPECT_TRUE(torch::equal(jyppx::core::get_rng_state(false).cpu, before.cpu));
 }
 
+TEST(FoundationRandomTest, RejectsMalformedCpuStateWithoutMutation) {
+  jyppx::core::RngGuard restore(77, false);
+  const auto before = jyppx::core::get_rng_state(false);
+  auto malformed = before;
+  malformed.cpu = malformed.cpu.slice(0, 0, malformed.cpu.numel() - 1).clone();
+
+  EXPECT_THROW(jyppx::core::set_rng_state(malformed, false),
+               jyppx::InvalidArgument);
+  EXPECT_TRUE(torch::equal(jyppx::core::get_rng_state(false).cpu, before.cpu));
+}
+
 TEST(FoundationRandomTest, SeedDerivationIsStableAndSeparatesStreams) {
   const auto seed = jyppx::core::derive_seed(42, 7, 3, 1);
   EXPECT_EQ(seed, jyppx::core::derive_seed(42, 7, 3, 1));
@@ -102,6 +113,11 @@ TEST(FoundationRandomTest, SeedDerivationIsStableAndSeparatesStreams) {
 
 TEST(FoundationVersionTest, ExposesStructuredAndJsonFingerprint) {
   EXPECT_STREQ(jyppx::version(), "0.3.0");
+  const auto info = jyppx::build_info();
+  EXPECT_STREQ(info.framework_version, jyppx::version());
+  EXPECT_NE(std::string(info.libtorch_version).find('.'), std::string::npos);
+  EXPECT_GE(info.cxx_standard, 202002L);
+
   const auto fingerprint = jyppx::current_build_fingerprint();
   EXPECT_EQ(fingerprint.jyppx_version, jyppx::version());
   EXPECT_FALSE(fingerprint.git_commit.empty());
@@ -114,6 +130,10 @@ TEST(FoundationVersionTest, ExposesStructuredAndJsonFingerprint) {
   EXPECT_NE(json.find("\"jyppx_version\":\"0.3.0\""), std::string::npos);
   EXPECT_NE(json.find("\"git_commit\":"), std::string::npos);
   EXPECT_NE(json.find("\"accelerator_runtime\":"), std::string::npos);
+
+  const auto compact = jyppx::build_fingerprint();
+  EXPECT_NE(compact.find("jyppx=0.3.0"), std::string::npos);
+  EXPECT_NE(compact.find("libtorch="), std::string::npos);
 }
 
 }  // namespace

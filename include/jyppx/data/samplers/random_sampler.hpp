@@ -1,6 +1,11 @@
 #ifndef JYPPX_DATA_SAMPLERS_RANDOM_SAMPLER_HPP
 #define JYPPX_DATA_SAMPLERS_RANDOM_SAMPLER_HPP
 
+/**
+ * @file random_sampler.hpp
+ * @brief Defines a checkpointable full-population permutation sampler.
+ */
+
 #include <jyppx/core/types.hpp>
 #include <jyppx/data/samplers/sampler.hpp>
 
@@ -25,17 +30,28 @@ class RandomSampler : public Sampler {
    */
   explicit RandomSampler(size_t size, Optional<int64_t> seed = std::nullopt);
 
-  /** @brief Returns the next random permutation and advances generator state.
+  /**
+   * @brief Returns the next random permutation and advances generator state.
+   * @return Permutation containing every population index exactly once.
    */
   std::vector<size_t> indices() const override;
 
-  /** @brief Returns the population size. */
+  /**
+   * @brief Returns the population size.
+   * @return Number of indices in each permutation.
+   */
   size_t size() const override;
 
-  /** @brief Reports exact generator-state checkpoint support. */
+  /**
+   * @brief Reports exact generator-state checkpoint support.
+   * @return Always true.
+   */
   bool supports_state() const override { return true; }
 
-  /** @brief Serializes the standard-library random engine state. */
+  /**
+   * @brief Serializes the standard-library random engine state.
+   * @return Opaque textual engine representation.
+   */
   std::string save_state() const override;
 
   /**

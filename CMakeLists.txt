@@ -177,6 +177,32 @@ foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
 endforeach()
 target_link_libraries(jyppx_core PUBLIC ${TORCH_LIBRARIES})
 
+# Foundation public contracts use the LibTorch-backed value types owned by
+# core. Keep that provider edge explicit in both build and installed packages.
+target_link_libraries(jyppx_foundation PUBLIC jyppx_core)
+
+add_library(jyppx_data STATIC
+    src/jyppx/data/tensor_dataset.cpp
+    src/jyppx/data/samplers/batch_sampler.cpp
+    src/jyppx/data/samplers/random_sampler.cpp
+    src/jyppx/data/samplers/sequential_sampler.cpp
+)
+add_library(jyppx::data ALIAS jyppx_data)
+set_target_properties(jyppx_data PROPERTIES
+    OUTPUT_NAME jyppx_data
+    EXPORT_NAME data
+)
+target_include_directories(jyppx_data
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(jyppx_data
+    PUBLIC
+        jyppx_foundation
+        jyppx_core
+)
+
 add_library(jyppx_training_framework STATIC)
 add_library(jyppx::sdk ALIAS jyppx_training_framework)
 set_target_properties(jyppx_training_framework PROPERTIES
@@ -203,6 +229,7 @@ target_link_libraries(jyppx_training_framework
     PUBLIC
         jyppx_foundation
         jyppx_core
+        jyppx_data
         ${TORCH_LIBRARIES}
 )
 
@@ -246,7 +273,7 @@ endif()
 # ============================================
 # Installation
 # ============================================
-install(TARGETS jyppx_foundation jyppx_core jyppx_training_framework
+install(TARGETS jyppx_foundation jyppx_core jyppx_data jyppx_training_framework
     EXPORT jyppx_training_frameworkTargets
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib

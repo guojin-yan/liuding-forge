@@ -3,9 +3,6 @@
 #include <jyppx/core/device.hpp>
 #include <jyppx/core/tensor_utils.hpp>
 #include <jyppx/core/types.hpp>
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/random.hpp>
-#include <jyppx/foundation/version.hpp>
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -85,40 +82,6 @@ TEST(TensorUtilsTest, ToDeviceMovesTensorsToCpu) {
   for (const auto& tensor : moved) {
     EXPECT_EQ(tensor.device().type(), torch::kCPU);
   }
-}
-
-TEST(RandomTest, CpuStateRoundTripsExactly) {
-  core::RngGuard restore_after_test(2026, false);
-  const auto state = core::get_rng_state(false);
-  const auto first = torch::rand({4});
-  (void)torch::rand({4});
-  core::set_rng_state(state, false);
-  EXPECT_TRUE(torch::equal(torch::rand({4}), first));
-}
-
-TEST(RandomTest, GuardRestoresStateAndInvalidStateDoesNotMutate) {
-  core::RngGuard restore_after_test(77, false);
-  const auto before = core::get_rng_state(false);
-  {
-    core::RngGuard temporary_seed(99, false);
-    (void)torch::rand({8});
-  }
-  EXPECT_TRUE(torch::equal(core::get_rng_state(false).cpu, before.cpu));
-
-  auto malformed = before;
-  malformed.cpu = malformed.cpu.slice(0, 0, malformed.cpu.numel() - 1).clone();
-  EXPECT_THROW(core::set_rng_state(malformed, false), InvalidArgument);
-  EXPECT_TRUE(torch::equal(core::get_rng_state(false).cpu, before.cpu));
-}
-
-TEST(VersionTest, ExposesBuildCompatibilityFingerprint) {
-  EXPECT_STREQ(version(), "0.3.0");
-  const auto info = build_info();
-  EXPECT_STREQ(info.framework_version, version());
-  EXPECT_NE(std::string(info.libtorch_version).find('.'), std::string::npos);
-  EXPECT_GE(info.cxx_standard, 202002L);
-  EXPECT_NE(build_fingerprint().find("jyppx=0.3.0"), std::string::npos);
-  EXPECT_NE(build_fingerprint().find("libtorch="), std::string::npos);
 }
 
 }  // namespace
