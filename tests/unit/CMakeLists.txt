@@ -38,7 +38,6 @@ jyppx_add_gtest(jyppx_test_optim
 
 jyppx_add_gtest(jyppx_test_nn
     nn/test_init.cpp
-    nn/test_losses.cpp
 )
 
 jyppx_add_gtest(jyppx_test_nn_label_smoothing

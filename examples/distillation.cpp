@@ -51,6 +51,23 @@ Tensor cross_entropy(const Tensor& logits, const Tensor& targets) {
         logits, targets.to(torch::kLong).view({-1}));
 }
 
+// This example owns the recipe policy explicitly: KL uses batch-mean
+// reduction and temperature-squared scaling, preserves the logits' dtype, and
+// lets the caller decide whether teacher gradients are recorded and how the
+// soft loss is mixed with CE.
+Tensor softened_kl(const Tensor& student_logits,
+                   const Tensor& teacher_logits, double temperature) {
+    const auto teacher_probabilities =
+        torch::softmax(teacher_logits / temperature, /*dim=*/1);
+    const auto student_log_probabilities =
+        torch::log_softmax(student_logits / temperature, /*dim=*/1);
+    return torch::nn::functional::kl_div(
+               student_log_probabilities, teacher_probabilities,
+               torch::nn::functional::KLDivFuncOptions().reduction(
+                   torch::kBatchMean)) *
+           (temperature * temperature);
+}
+
 template <typename ModuleT>
 double evaluate(const std::shared_ptr<ModuleT>& model,
                 const Tensor& inputs, const Tensor& targets) {
@@ -95,9 +112,13 @@ double train_student(const std::shared_ptr<Mlp>& teacher, bool distill,
             const auto hard = cross_entropy(logits, batch_y);
             Tensor loss = hard;
             if (distill) {
-                const auto teacher_logits = teacher->forward(batch_x).detach();
-                const auto soft = nn::functional::distillation_loss(
-                    logits, teacher_logits, kTemperature);
+                Tensor teacher_logits;
+                {
+                    torch::NoGradGuard no_grad;
+                    teacher_logits = teacher->forward(batch_x);
+                }
+                const auto soft =
+                    softened_kl(logits, teacher_logits, kTemperature);
                 loss = kHardWeight * hard + (1.0 - kHardWeight) * soft;
             }
             loss.backward();

@@ -29,7 +29,6 @@ target_sources(jyppx_training_framework PRIVATE
 
     # NN
     jyppx/nn/init.cpp
-    jyppx/nn/losses.cpp
 
     # Training
     jyppx/training/trainer.cpp

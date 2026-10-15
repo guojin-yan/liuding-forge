@@ -539,7 +539,7 @@ TEST(DistributedDDPTest, ForwardsAndRunsGradientsThroughHooks) {
     EXPECT_NEAR(ddp.module()->w.grad().item<double>(), 1.0, 1e-12);
 }
 
-// ---- Quantization / distillation --------------------------------------------------
+// ---- Quantization -------------------------------------------------------------
 
 TEST(QuantizationTest, RoundTripIsAccurateWithinHalfScale) {
     auto values = torch::tensor({-2.0f, -1.0f, 0.0f, 0.5f, 3.9f});
@@ -588,36 +588,6 @@ TEST(QuantizationTest, QuantizedLinearMatchesFloatWithinTolerance) {
 
     // int8 symmetric quantization is tight (~1% relative).
     EXPECT_TRUE(torch::allclose(output, reference, 0.02, 0.05));
-}
-
-TEST(DistillationLossTest, MatchesSoftenedKLAtHighTemperature) {
-    auto student = torch::randn({6, 4}, torch::TensorOptions().dtype(torch::kFloat64)
-                                                   .requires_grad(true));
-    auto teacher = torch::randn({6, 4}, torch::TensorOptions().dtype(torch::kFloat64));
-
-    const auto loss = nn::functional::distillation_loss(student, teacher, 2.0);
-    ASSERT_TRUE(loss.defined());
-    EXPECT_TRUE(std::isfinite(loss.item<double>()));
-
-    // Gradient flows to the student only.
-    loss.backward();
-    ASSERT_TRUE(student.grad().defined());
-    EXPECT_TRUE(torch::isfinite(student.grad()).all().item<bool>());
-}
-
-TEST(DistillationLossTest, IdenticalLogitsYieldNearZeroLoss) {
-    auto logits = torch::randn({4, 3}, torch::TensorOptions().dtype(torch::kFloat64));
-    const auto loss = nn::functional::distillation_loss(logits, logits.detach(), 2.0);
-    EXPECT_NEAR(loss.item<double>(), 0.0, 1e-6);
-}
-
-TEST(DistillationLossTest, ValidatesArguments) {
-    auto logits = torch::randn({4, 3});
-    EXPECT_THROW(nn::functional::distillation_loss(logits, logits, 0.0),
-                 std::invalid_argument);
-    EXPECT_THROW(
-        nn::functional::distillation_loss(logits, torch::randn({4, 5}), 2.0),
-        std::invalid_argument);
 }
 
 // ---- Whole-model quantization snapshot ---------------------------------------

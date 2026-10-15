@@ -104,7 +104,6 @@
 #include <jyppx/nn/loss/dice_loss.hpp>
 #include <jyppx/nn/loss/focal_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
-#include <jyppx/nn/losses.hpp>
 #include <jyppx/nn/quantization.hpp>
 
 #endif // JYPPX_JYPPX_HPP

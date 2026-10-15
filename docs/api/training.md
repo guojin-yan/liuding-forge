@@ -101,13 +101,13 @@ options.loss_fn = [](const Tensor& prediction, const Tensor& target) {
 
 ## Loss functions
 
-Use `#include <jyppx/nn/losses.hpp>` for the remaining legacy loss group and
+Use the focused public headers
 `#include <jyppx/nn/loss/focal_loss.hpp>`,
 `#include <jyppx/nn/loss/contrastive_loss.hpp>` or
 `#include <jyppx/nn/loss/dice_loss.hpp>` or
-`#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>` for migrated
-focused adapters. The migrated APIs are owned by and directly linkable as
-`jyppx::nn`.
+`#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>`. These APIs are
+owned by and directly linkable as `jyppx::nn`; there is no legacy aggregate
+loss header.
 
 The focused headers provide both the functional and module forms of
 `FocalLoss`, `ContrastiveLoss`, `DiceLoss` and
@@ -143,7 +143,11 @@ auto contrastive = F::contrastive_loss(x1, x2, pair_labels, /*margin=*/1.0);
 
 For triplet margin loss, use LibTorch's `torch::nn::functional::triplet_margin_loss`
 or `torch::nn::TripletMarginLoss` directly. The removed JYPPX wrapper added no
-semantics and hid LibTorch's `p`, `eps` and `swap` options.
+semantics and hid LibTorch's `p`, `eps` and `swap` options. Knowledge
+distillation remains a training recipe rather than a Core loss: callers
+explicitly choose the hard/soft composition, temperature, teacher-gradient
+policy, reduction, dtype and distributed aggregation. See
+`examples/distillation.cpp` for one such recipe.
 
 Notes:
 

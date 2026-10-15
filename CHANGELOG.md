@@ -75,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implementation.
 - The duplicate JYPPX triplet-margin wrapper was removed; callers use the
   complete LibTorch API directly, including its `p`, `eps` and `swap` options.
+- The legacy `nn/losses.hpp` aggregate, public `apply_reduction` helper and
+  policy-heavy `distillation_loss` were removed. The distillation example now
+  states its hard/soft composition, teacher-gradient, reduction and dtype
+  policy directly as a local training recipe.
 - `LRSchedulerCallback` follows the same metric-aware stepping rules as the
   Trainer loop.
 - Release test coverage increased to 249 passing tests.
