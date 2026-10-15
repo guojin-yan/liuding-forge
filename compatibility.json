@@ -28,7 +28,19 @@
       "version": "2.5.1",
       "distribution": "cpu",
       "status": "candidate",
-      "verified_lanes": []
+      "verified_lanes": [
+        {
+          "id": "local-ubuntu-gcc-cpu-debug",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU",
+          "build_type": "Debug",
+          "tests": "324/324; 4 CUDA-only tests skipped",
+          "instrumentation": "coverage and ASan+UBSan",
+          "commit": "d46ac61"
+        }
+      ]
     }
   },
   "ci": {

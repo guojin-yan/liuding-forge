@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   isolated process peak memory.
 - A Linux coverage runner and unified GCC/Clang instrumentation helper covering
   framework libraries and test/benchmark executables, including UBSan support.
+- An Ubuntu 22.04/GCC 11.4/LibTorch 2.5.1 CPU Debug evidence lane covering the
+  full test suite, installed consumer, line/branch coverage, and ASan+UBSan.
 - A strict foundation quality gate covering Google-style formatting,
   clang-tidy diagnostics, complete Doxygen documentation (including private
   declarations and enum values), and an installed-package consumer test.
