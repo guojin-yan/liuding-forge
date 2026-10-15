@@ -51,6 +51,11 @@ jyppx_add_gtest(jyppx_test_nn_contrastive
     nn/loss/test_contrastive_loss.cpp
 )
 
+jyppx_add_gtest(jyppx_test_nn_dice
+    LINK_TARGET jyppx::nn
+    nn/loss/test_dice_loss.cpp
+)
+
 jyppx_add_gtest(jyppx_test_nn_focal
     LINK_TARGET jyppx::nn
     nn/loss/test_focal_loss.cpp

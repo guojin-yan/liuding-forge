@@ -101,24 +101,26 @@ options.loss_fn = [](const Tensor& prediction, const Tensor& target) {
 
 ## Loss functions
 
-Use `#include <jyppx/nn/losses.hpp>` for the legacy loss group and
+Use `#include <jyppx/nn/losses.hpp>` for the remaining legacy loss group and
 `#include <jyppx/nn/loss/focal_loss.hpp>`,
 `#include <jyppx/nn/loss/contrastive_loss.hpp>` or
+`#include <jyppx/nn/loss/dice_loss.hpp>` or
 `#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>` for migrated
 focused adapters. The migrated APIs are owned by and directly linkable as
 `jyppx::nn`.
 
-The legacy header provides functional implementations in
-`jyppx::nn::functional` plus the corresponding criterion module for dice loss.
-The focused headers provide both the functional and module forms
-of `FocalLoss`, `ContrastiveLoss` and `LabelSmoothingCrossEntropy`. All functions accept
-`reduction` = `"none"`, `"mean"` or `"sum"` (Dice is mean-only).
+The focused headers provide both the functional and module forms of
+`FocalLoss`, `ContrastiveLoss`, `DiceLoss` and
+`LabelSmoothingCrossEntropy`. All focused losses accept batch reduction
+`"none"`, `"mean"` or `"sum"`.
 
 The complete label-smoothing shape, dtype, device, empty-input and error
 contract is recorded in the
 [semantic matrix](losses/label_smoothing_cross_entropy.md).
 The contrastive pair contract is recorded in the
 [contrastive semantic matrix](losses/contrastive_loss.md).
+The Dice task modes, aggregation boundaries and masking policies are recorded
+in the [Dice semantic matrix](losses/dice_loss.md).
 
 ```cpp
 namespace F = jyppx::nn::functional;
@@ -126,8 +128,11 @@ namespace F = jyppx::nn::functional;
 // Focal loss (Lin et al., 2017) over {N, C} logits and class indices.
 auto focal = F::focal_loss(logits, target, /*alpha=*/0.25, /*gamma=*/2.0);
 
-// Soft Dice loss for segmentation (logits in, per-class Dice averaged).
-auto dice = F::dice_loss(logits, mask, /*smooth=*/1.0);
+// Soft Dice loss with explicit task and aggregation semantics.
+jyppx::nn::DiceLossOptions dice_options;
+dice_options.mode = jyppx::nn::DiceMode::multiclass;
+dice_options.ignore_index = -1;
+auto dice = F::dice_loss(logits, mask, dice_options);
 
 // Cross entropy with label smoothing (matches torch's label_smoothing).
 auto smoothed = F::label_smoothing_cross_entropy(logits, target, 0.1);
@@ -142,9 +147,9 @@ semantics and hid LibTorch's `p`, `eps` and `swap` options.
 
 Notes:
 
-- Binary inputs (logits and a `{0, 1}` float target of the same shape) take
-  a sigmoid path in `focal_loss` and `dice_loss`; multiclass inputs take a
-  softmax/cross-entropy path.
+- Binary focal inputs are selected by matching input/target shape. Dice mode is
+  always explicit so binary, multiclass and multilabel shapes cannot be
+  confused by rank alone.
 - `focal_loss` with `gamma = 0` reduces to alpha-weighted cross entropy.
 - All functions keep computations in tensor ops, so gradients flow to the
   logits; the tests verify gradients are finite and hand-computed values

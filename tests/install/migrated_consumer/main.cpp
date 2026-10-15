@@ -3,6 +3,7 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/foundation/version.hpp>
 #include <jyppx/nn/loss/contrastive_loss.hpp>
+#include <jyppx/nn/loss/dice_loss.hpp>
 #include <jyppx/nn/loss/focal_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 
@@ -37,8 +38,15 @@ int main() {
       torch::tensor({{1.0, 0.0}}, torch::kFloat64), 0.25, 2.0);
   const bool valid_focal =
       focal.numel() == 1 && std::isfinite(focal.item<double>());
+  jyppx::nn::DiceLossOptions dice_options;
+  dice_options.mode = jyppx::nn::DiceMode::multiclass;
+  const auto dice = jyppx::nn::functional::dice_loss(
+      torch::tensor({{2.0, -1.0}}, torch::kFloat64),
+      torch::tensor({0}, torch::kLong), dice_options);
+  const bool valid_dice =
+      dice.numel() == 1 && std::isfinite(dice.item<double>());
   return valid_version && valid_error && valid_device && valid_data &&
-                 valid_nn && valid_contrastive && valid_focal
+                 valid_nn && valid_contrastive && valid_focal && valid_dice
              ? 0
              : 1;
 }

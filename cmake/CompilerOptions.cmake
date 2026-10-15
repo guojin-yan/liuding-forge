@@ -122,10 +122,13 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_thread_safe_queue.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_transforms.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/contrastive_loss.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/dice_loss.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/focal_loss.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/nn/loss/contrastive_loss.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/nn/loss/dice_loss.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/nn/loss/focal_loss.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/nn/loss/test_contrastive_loss.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/nn/loss/test_dice_loss.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/label_smoothing_cross_entropy.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/nn/loss/label_smoothing_cross_entropy.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/nn/loss/test_label_smoothing_cross_entropy.cpp
