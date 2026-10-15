@@ -8,14 +8,47 @@
 #include <jyppx/nn/loss/focal_loss.hpp>
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #include <jyppx/nn/model_adapter.hpp>
+#include <jyppx/training/checkpoint_coordinator.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
+
+namespace {
+
+class ConsumerParticipant final : public jyppx::CheckpointParticipant {
+ public:
+  std::string participant_id() const override { return "consumer.state"; }
+
+  jyppx::StateManifest describe_state() const override {
+    return {.participant_id = participant_id(),
+            .schema_version = 1,
+            .restore_level = jyppx::RestoreLevel::exact,
+            .fields = {{.name = "value", .max_bytes = 8}}};
+  }
+
+  void save_state(jyppx::StateWriter& writer) const override {
+    const std::array<std::byte, 8> value{};
+    writer.write_blob("value", value);
+  }
+
+  void load_state(const jyppx::StateReader& reader,
+                  jyppx::RestorePolicy policy) override {
+    if (!jyppx::restore_policy_accepts(policy,
+                                       reader.manifest().restore_level)) {
+      throw jyppx::CompatibilityError("consumer policy rejected");
+    }
+    (void)reader.read_blob("value", 8);
+  }
+};
+
+}  // namespace
 
 int main() {
   const jyppx::InvalidArgument error(
@@ -33,6 +66,14 @@ int main() {
   jyppx::validate_state_manifest(state_manifest);
   const bool valid_checkpoint_contract = jyppx::restore_policy_accepts(
       jyppx::RestorePolicy::exact_only, state_manifest.restore_level);
+  jyppx::training::CheckpointParticipantRegistry registry;
+  registry.register_participant(std::make_shared<ConsumerParticipant>());
+  jyppx::training::CheckpointCoordinator coordinator(registry);
+  const auto checkpoint_descriptor = coordinator.describe();
+  const bool valid_checkpoint_coordinator =
+      checkpoint_descriptor.participants.size() == 1 &&
+      checkpoint_descriptor.participants.front().participant_id ==
+          "consumer.state";
   const auto indices = jyppx::data::samplers::SequentialSampler(3).indices();
   const bool valid_data = indices == std::vector<std::size_t>({0, 1, 2});
   const auto logits = torch::tensor({{2.0, -1.0}}, torch::kFloat64);
@@ -79,8 +120,9 @@ int main() {
       adapted.sizes().vec() == std::vector<std::int64_t>({2, 1}) &&
       adapter.state().parameters().size() == 2;
   return valid_version && valid_error && valid_device &&
-                 valid_checkpoint_contract && valid_data && valid_nn &&
-                 valid_contrastive && valid_focal && valid_dice && valid_adapter
+                 valid_checkpoint_contract && valid_checkpoint_coordinator &&
+                 valid_data && valid_nn && valid_contrastive && valid_focal &&
+                 valid_dice && valid_adapter
              ? 0
              : 1;
 }

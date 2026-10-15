@@ -63,6 +63,7 @@
 #include <jyppx/data/samplers/weighted_random_sampler.hpp>
 
 // Training
+#include <jyppx/training/checkpoint_coordinator.hpp>
 #include <jyppx/training/trainer.hpp>
 #include <jyppx/training/callback.hpp>
 

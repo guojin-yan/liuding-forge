@@ -260,6 +260,21 @@ target_link_libraries(jyppx_nn
         jyppx_core
 )
 
+add_library(jyppx_training STATIC
+    src/jyppx/training/checkpoint_coordinator.cpp
+)
+add_library(jyppx::training ALIAS jyppx_training)
+set_target_properties(jyppx_training PROPERTIES
+    OUTPUT_NAME jyppx_training
+    EXPORT_NAME training
+)
+target_include_directories(jyppx_training
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(jyppx_training PUBLIC jyppx_foundation)
+
 add_library(jyppx_training_framework STATIC)
 add_library(jyppx::sdk ALIAS jyppx_training_framework)
 set_target_properties(jyppx_training_framework PROPERTIES
@@ -288,6 +303,7 @@ target_link_libraries(jyppx_training_framework
         jyppx_core
         jyppx_data
         jyppx_nn
+        jyppx_training
         ${TORCH_LIBRARIES}
 )
 
@@ -331,7 +347,7 @@ endif()
 # ============================================
 # Installation
 # ============================================
-install(TARGETS jyppx_foundation jyppx_core jyppx_data jyppx_nn
+install(TARGETS jyppx_foundation jyppx_core jyppx_data jyppx_nn jyppx_training
                 jyppx_training_framework
     EXPORT jyppx_training_frameworkTargets
     LIBRARY DESTINATION lib

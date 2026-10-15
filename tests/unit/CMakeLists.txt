@@ -62,6 +62,11 @@ jyppx_add_gtest(jyppx_test_nn_model_adapter
     nn/test_model_adapter.cpp
 )
 
+jyppx_add_gtest(jyppx_test_training_checkpoint
+    LINK_TARGET jyppx::training
+    training/test_checkpoint_coordinator.cpp
+)
+
 jyppx_add_gtest(jyppx_test_plan
     test_plan_completion.cpp
 )

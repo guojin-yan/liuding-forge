@@ -11,9 +11,16 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_core
     jyppx_data
     jyppx_nn
+    jyppx_training
     jyppx_training_framework
 )
-set(JYPPX_STRICT_TARGETS jyppx_foundation jyppx_core jyppx_data jyppx_nn)
+set(JYPPX_STRICT_TARGETS
+    jyppx_foundation
+    jyppx_core
+    jyppx_data
+    jyppx_nn
+    jyppx_training
+)
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${JYPPX_TARGET} PRIVATE
@@ -91,6 +98,9 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/install/migrated_consumer/main.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/foundation/test_checkpoint.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/foundation/test_foundation.cpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/training/checkpoint_coordinator.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/training/checkpoint_coordinator.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/training/test_checkpoint_coordinator.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/device.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/tensor_utils.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/types.hpp

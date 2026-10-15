@@ -32,6 +32,9 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Checkpoint Participant](api/checkpoint_participant.md) — storage-neutral
   recovery levels, state descriptors, bounded blob I/O, and participant
   ownership boundaries
+- [Checkpoint Coordinator](api/checkpoint_coordinator.md) — deterministic
+  participant registration, transactional capture, restore preflight, and
+  cross-participant rollback
 - [Data](api/data.md) — datasets, subset/concat/split, DataLoader,
   samplers, thread-safe queue
 - [Optimizers and Schedulers](api/optim.md) — SGD, Adam, AdamW, RMSprop,

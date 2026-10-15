@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- An independently exported `jyppx::training` checkpoint coordinator with a
+  deterministic participant registry, canonical aggregate descriptors,
+  transactional sink/source boundaries, restore preflight, bounded rollback
+  snapshots, and reverse-order recovery after participant failure.
 - A storage-neutral checkpoint participant contract in `jyppx::foundation`,
   including stable restore guarantees, validated state manifests, bounded named
   blob I/O, and an atomic per-participant load requirement.
