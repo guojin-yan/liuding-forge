@@ -6,10 +6,9 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/nn/model_adapter.hpp>
 
-#include <gtest/gtest.h>
-
 #include <cstdint>
 #include <exception>
+#include <gtest/gtest.h>
 #include <memory>
 #include <optional>
 #include <string>
@@ -57,8 +56,7 @@ TEST(InvocationSchemaTest, RejectsMalformedTensorAndListSchemas) {
 
   jyppx::nn::ValueSchema list;
   list.kind = jyppx::nn::ValueKind::list;
-  EXPECT_THROW(jyppx::nn::validate_value_schema(list),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::nn::validate_value_schema(list), jyppx::InvalidArgument);
 }
 
 TEST(InvocationSchemaTest, ValidatesNestedTupleListAndDictionaryValues) {
@@ -94,8 +92,7 @@ TEST(InvocationSchemaTest, ValidatesNestedTupleListAndDictionaryValues) {
   tensors.push_back(torch::zeros({1, 2}));
   const auto tuple = c10::ivalue::Tuple::create(
       {c10::IValue(tensors), c10::IValue(std::int64_t{2})});
-  EXPECT_NO_THROW(
-      jyppx::nn::validate_value(c10::IValue(tuple), tuple_schema));
+  EXPECT_NO_THROW(jyppx::nn::validate_value(c10::IValue(tuple), tuple_schema));
 }
 
 TEST(InvocationSchemaTest, ChecksArgumentsBeforeCallingTheModel) {
@@ -122,7 +119,8 @@ TEST(InvocationSchemaTest, ChecksArgumentsBeforeCallingTheModel) {
   EXPECT_EQ(calls, 0);
 }
 
-TEST(ModelStateViewTest, ExposesStateModeAndConversionWithoutForwardAssumptions) {
+TEST(ModelStateViewTest,
+     ExposesStateModeAndConversionWithoutForwardAssumptions) {
   auto model = std::make_shared<ProbeModelImpl>();
   jyppx::nn::ModelStateView state(model);
 
@@ -146,13 +144,12 @@ TEST(ModelStateViewTest, ExposesStateModeAndConversionWithoutForwardAssumptions)
 TEST(ModelAdapterTest, TensorHelperOwnsConcreteModuleAndValidatesResult) {
   auto model = std::make_shared<ProbeModelImpl>();
   const std::weak_ptr<ProbeModelImpl> lifetime = model;
-  auto adapter = jyppx::nn::adapt_tensor_module(
-      model, matrix_schema(2), matrix_schema(1));
+  auto adapter =
+      jyppx::nn::adapt_tensor_module(model, matrix_schema(2), matrix_schema(1));
   model.reset();
 
   ASSERT_FALSE(lifetime.expired());
-  const auto result =
-      adapter.invoke({.positional = {torch::ones({5, 2})}});
+  const auto result = adapter.invoke({.positional = {torch::ones({5, 2})}});
   EXPECT_TRUE(result.value.isTensor());
   EXPECT_EQ(result.value.toTensor().sizes().vec(),
             std::vector<std::int64_t>({5, 1}));
@@ -162,13 +159,12 @@ TEST(ModelAdapterTest, TensorHelperOwnsConcreteModuleAndValidatesResult) {
 TEST(ModelAdapterTest, TensorHolderHelperRetainsTheImplementation) {
   ProbeModel holder;
   const std::weak_ptr<ProbeModelImpl> lifetime = holder.ptr();
-  auto adapter = jyppx::nn::adapt_tensor_holder(
-      holder, matrix_schema(2), matrix_schema(1));
+  auto adapter = jyppx::nn::adapt_tensor_holder(holder, matrix_schema(2),
+                                                matrix_schema(1));
   holder = nullptr;
 
   ASSERT_FALSE(lifetime.expired());
-  const auto result =
-      adapter.invoke({.positional = {torch::zeros({2, 2})}});
+  const auto result = adapter.invoke({.positional = {torch::zeros({2, 2})}});
   EXPECT_EQ(result.value.toTensor().sizes().vec(),
             std::vector<std::int64_t>({2, 1}));
 }
@@ -192,8 +188,8 @@ TEST(ModelAdapterTest, BaseModuleFactoryRetainsStateForARawTypedInvoker) {
       jyppx::nn::ValueSchema::tensor(matrix_schema(1)));
 
   ASSERT_FALSE(lifetime.expired());
-  EXPECT_TRUE(adapter.invoke({.positional = {torch::ones({1, 2})}})
-                  .value.isTensor());
+  EXPECT_TRUE(
+      adapter.invoke({.positional = {torch::ones({1, 2})}}).value.isTensor());
 }
 
 TEST(ModelAdapterTest, SupportsMultipleInputsAndTupleOutputs) {
@@ -261,19 +257,18 @@ TEST(ModelAdapterTest, PreservesNestedLibTorchFailureContext) {
 }
 
 TEST(ModelAdapterTest, RejectsMissingModulesHoldersAndInvokers) {
-  EXPECT_THROW(
-      jyppx::nn::adapt_module(
-          std::shared_ptr<torch::nn::Module>{},
-          [](const jyppx::nn::Invocation&) { return c10::IValue{}; }, {},
-          jyppx::nn::ValueSchema::any()),
-      jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::nn::adapt_module(
+                   std::shared_ptr<torch::nn::Module>{},
+                   [](const jyppx::nn::Invocation&) { return c10::IValue{}; },
+                   {}, jyppx::nn::ValueSchema::any()),
+               jyppx::InvalidArgument);
 
   auto model = std::make_shared<ProbeModelImpl>();
-  EXPECT_THROW(jyppx::nn::adapt_module(
-                   std::static_pointer_cast<torch::nn::Module>(model),
-                   jyppx::nn::ModelInvoker{}, {},
-                   jyppx::nn::ValueSchema::any()),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::nn::adapt_module(
+          std::static_pointer_cast<torch::nn::Module>(model),
+          jyppx::nn::ModelInvoker{}, {}, jyppx::nn::ValueSchema::any()),
+      jyppx::InvalidArgument);
 
   ProbeModel empty(nullptr);
   EXPECT_THROW(jyppx::nn::adapt_tensor_holder(empty), jyppx::InvalidArgument);

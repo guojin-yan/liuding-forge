@@ -7,7 +7,6 @@
 #include <jyppx/nn/invocation.hpp>
 
 #include <c10/core/ScalarType.h>
-
 #include <sstream>
 #include <utility>
 
@@ -17,15 +16,14 @@ namespace {
 constexpr char kComponent[] = "nn.invocation";
 
 [[noreturn]] void throw_schema_error(std::string operation,
-                                     std::string expected,
-                                     std::string actual, std::string hint) {
-  throw InvalidArgument(
-      "Invocation schema check failed",
-      ErrorDetails{.component = kComponent,
-                   .operation = std::move(operation),
-                   .expected = std::move(expected),
-                   .actual = std::move(actual),
-                   .hint = std::move(hint)});
+                                     std::string expected, std::string actual,
+                                     std::string hint) {
+  throw InvalidArgument("Invocation schema check failed",
+                        ErrorDetails{.component = kComponent,
+                                     .operation = std::move(operation),
+                                     .expected = std::move(expected),
+                                     .actual = std::move(actual),
+                                     .hint = std::move(hint)});
 }
 
 std::string display_name(const ValueSchema& schema, std::string_view path) {
@@ -38,9 +36,10 @@ std::string display_name(const ValueSchema& schema, std::string_view path) {
 void reject_unused_children(const ValueSchema& schema, std::string_view path) {
   if (schema.tensor_constraints || !schema.elements.empty() ||
       !schema.fields.empty() || schema.allow_extra_fields) {
-    throw_schema_error(std::string(path), "no nested constraints",
-                       "nested constraints are present",
-                       "Remove constraints that do not belong to this value kind.");
+    throw_schema_error(
+        std::string(path), "no nested constraints",
+        "nested constraints are present",
+        "Remove constraints that do not belong to this value kind.");
   }
 }
 
@@ -79,7 +78,8 @@ std::string render_shape(const Tensor& tensor) {
 void validate_tensor(const Tensor& tensor, const TensorSchema& schema,
                      std::string_view path) {
   if (!tensor.defined()) {
-    throw_schema_error(std::string(path), "a defined tensor", "undefined tensor",
+    throw_schema_error(std::string(path), "a defined tensor",
+                       "undefined tensor",
                        "Return or pass a defined tensor handle.");
   }
   if (schema.dtype && tensor.scalar_type() != *schema.dtype) {
@@ -111,12 +111,11 @@ void validate_tensor(const Tensor& tensor, const TensorSchema& schema,
   for (std::size_t index = 0; index < schema.shape->size(); ++index) {
     const auto& extent = schema.shape->at(index);
     if (extent && tensor.size(static_cast<std::int64_t>(index)) != *extent) {
-      throw_schema_error(std::string(path) + ".shape[" +
-                             std::to_string(index) + "]",
-                         std::to_string(*extent),
-                         std::to_string(
-                             tensor.size(static_cast<std::int64_t>(index))),
-                         "Match the declared fixed dimension.");
+      throw_schema_error(
+          std::string(path) + ".shape[" + std::to_string(index) + "]",
+          std::to_string(*extent),
+          std::to_string(tensor.size(static_cast<std::int64_t>(index))),
+          "Match the declared fixed dimension.");
     }
   }
 }
@@ -180,9 +179,8 @@ ValueSchema ValueSchema::list(ValueSchema element, std::string name) {
   return schema;
 }
 
-ValueSchema ValueSchema::dictionary(
-    std::map<std::string, ValueSchema> fields, bool allow_extra_fields,
-    std::string name) {
+ValueSchema ValueSchema::dictionary(std::map<std::string, ValueSchema> fields,
+                                    bool allow_extra_fields, std::string name) {
   ValueSchema schema;
   schema.name = std::move(name);
   schema.kind = ValueKind::dictionary;
@@ -212,19 +210,19 @@ void validate_value_schema(const ValueSchema& schema, std::string_view path) {
       if (tensor.shape) {
         if (tensor.rank &&
             *tensor.rank != static_cast<std::int64_t>(tensor.shape->size())) {
-          throw_schema_error(std::string(path) + ".shape",
-                             std::to_string(*tensor.rank) + " dimensions",
-                             std::to_string(tensor.shape->size()) +
-                                 " dimensions",
-                             "Keep rank and shape cardinality consistent.");
+          throw_schema_error(
+              std::string(path) + ".shape",
+              std::to_string(*tensor.rank) + " dimensions",
+              std::to_string(tensor.shape->size()) + " dimensions",
+              "Keep rank and shape cardinality consistent.");
         }
         for (std::size_t index = 0; index < tensor.shape->size(); ++index) {
           const auto& extent = tensor.shape->at(index);
           if (extent && *extent < 0) {
-            throw_schema_error(std::string(path) + ".shape[" +
-                                   std::to_string(index) + "]",
-                               "zero or greater", std::to_string(*extent),
-                               "Use null for a dynamic dimension.");
+            throw_schema_error(
+                std::string(path) + ".shape[" + std::to_string(index) + "]",
+                "zero or greater", std::to_string(*extent),
+                "Use null for a dynamic dimension.");
           }
         }
       }
@@ -238,22 +236,20 @@ void validate_value_schema(const ValueSchema& schema, std::string_view path) {
                            "Keep only ordered tuple elements.");
       }
       for (std::size_t index = 0; index < schema.elements.size(); ++index) {
-        validate_value_schema(schema.elements[index],
-                              std::string(path) + "[" +
-                                  std::to_string(index) + "]");
+        validate_value_schema(
+            schema.elements[index],
+            std::string(path) + "[" + std::to_string(index) + "]");
       }
       return;
     case ValueKind::list:
       if (schema.tensor_constraints || schema.elements.size() != 1 ||
           !schema.fields.empty() || schema.allow_extra_fields) {
-        throw_schema_error(std::string(path),
-                           "exactly one homogeneous list element schema",
-                           std::to_string(schema.elements.size()) +
-                               " element schemas",
-                           "Declare one schema shared by every list element.");
+        throw_schema_error(
+            std::string(path), "exactly one homogeneous list element schema",
+            std::to_string(schema.elements.size()) + " element schemas",
+            "Declare one schema shared by every list element.");
       }
-      validate_value_schema(schema.elements.front(),
-                            std::string(path) + "[]");
+      validate_value_schema(schema.elements.front(), std::string(path) + "[]");
       return;
     case ValueKind::dictionary:
       if (schema.tensor_constraints || !schema.elements.empty()) {
@@ -304,9 +300,9 @@ void validate_value(const c10::IValue& value, const ValueSchema& schema,
     return;
   }
   if (!value_matches_kind(value, schema.kind)) {
-    throw_schema_error(diagnostic_path, std::string(value_kind_name(schema.kind)),
-                       value.tagKind(),
-                       "Match the declared model invocation schema.");
+    throw_schema_error(
+        diagnostic_path, std::string(value_kind_name(schema.kind)),
+        value.tagKind(), "Match the declared model invocation schema.");
   }
 
   switch (schema.kind) {
@@ -318,11 +314,11 @@ void validate_value(const c10::IValue& value, const ValueSchema& schema,
     case ValueKind::tuple: {
       const auto& elements = value.toTupleRef().elements();
       if (elements.size() != schema.elements.size()) {
-        throw_schema_error(diagnostic_path,
-                           std::to_string(schema.elements.size()) +
-                               " tuple elements",
-                           std::to_string(elements.size()) + " tuple elements",
-                           "Return or pass the declared tuple cardinality.");
+        throw_schema_error(
+            diagnostic_path,
+            std::to_string(schema.elements.size()) + " tuple elements",
+            std::to_string(elements.size()) + " tuple elements",
+            "Return or pass the declared tuple cardinality.");
       }
       for (std::size_t index = 0; index < elements.size(); ++index) {
         validate_value(elements[index], schema.elements[index],
@@ -383,11 +379,11 @@ void validate_value(const c10::IValue& value, const ValueSchema& schema,
 void validate_invocation(const Invocation& invocation,
                          const InvocationSchema& schema) {
   if (invocation.positional.size() != schema.positional.size()) {
-    throw_schema_error("input.positional",
-                       std::to_string(schema.positional.size()) + " arguments",
-                       std::to_string(invocation.positional.size()) +
-                           " arguments",
-                       "Match the declared positional argument count.");
+    throw_schema_error(
+        "input.positional",
+        std::to_string(schema.positional.size()) + " arguments",
+        std::to_string(invocation.positional.size()) + " arguments",
+        "Match the declared positional argument count.");
   }
   for (std::size_t index = 0; index < invocation.positional.size(); ++index) {
     validate_value(invocation.positional[index], schema.positional[index],

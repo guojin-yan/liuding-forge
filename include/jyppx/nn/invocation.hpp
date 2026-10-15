@@ -14,7 +14,6 @@
 #include <jyppx/core/types.hpp>
 
 #include <ATen/core/ivalue.h>
-
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -28,10 +27,10 @@ namespace jyppx::nn {
  * @brief Identifies the runtime value category accepted by a value schema.
  */
 enum class ValueKind : std::uint8_t {
-  any = 0,       ///< Accepts every non-null IValue category.
-  tensor = 1,    ///< Accepts a defined tensor.
-  tuple = 2,     ///< Accepts a fixed-length heterogeneous tuple.
-  list = 3,      ///< Accepts a homogeneous generic list.
+  any = 0,         ///< Accepts every non-null IValue category.
+  tensor = 1,      ///< Accepts a defined tensor.
+  tuple = 2,       ///< Accepts a fixed-length heterogeneous tuple.
+  list = 3,        ///< Accepts a homogeneous generic list.
   dictionary = 4,  ///< Accepts a string-keyed generic dictionary.
   integer = 5,     ///< Accepts a signed integer scalar.
   floating = 6,    ///< Accepts a double-precision scalar.
@@ -55,7 +54,7 @@ std::string_view value_kind_name(ValueKind kind) noexcept;
  */
 struct TensorSchema {
   std::optional<Dtype> dtype;  ///< Exact scalar type required from the tensor.
-  std::optional<Device> device;  ///< Exact device required from the tensor.
+  std::optional<Device> device;      ///< Exact device required from the tensor.
   std::optional<std::int64_t> rank;  ///< Required number of tensor dimensions.
   std::optional<std::vector<std::optional<std::int64_t>>>
       shape;  ///< Per-dimension extents; null entries are dynamic.
@@ -73,7 +72,7 @@ struct TensorSchema {
 struct ValueSchema {
   std::string name;  ///< Diagnostic name for this value or field.
   ValueKind kind = ValueKind::any;  ///< Runtime category required when present.
-  bool required = true;  ///< Whether a named field must be present.
+  bool required = true;             ///< Whether a named field must be present.
   bool nullable = false;  ///< Whether an explicit null value is accepted.
   std::optional<TensorSchema>
       tensor_constraints;  ///< Tensor constraints for `ValueKind::tensor`.
@@ -157,7 +156,7 @@ struct Invocation {
  * @brief Carries a validated model result and the schema that validated it.
  */
 struct InvocationResult {
-  c10::IValue value;  ///< Type-erased result returned by the model invoker.
+  c10::IValue value;   ///< Type-erased result returned by the model invoker.
   ValueSchema schema;  ///< Declared output schema satisfied by `value`.
 };
 

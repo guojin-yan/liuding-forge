@@ -45,8 +45,7 @@ concept ModuleHolderLike = requires(const Holder& holder) {
   { static_cast<bool>(holder) } -> std::same_as<bool>;
   {
     holder.ptr()
-  } -> std::convertible_to<
-      std::shared_ptr<typename Holder::ContainedType>>;
+    } -> std::convertible_to<std::shared_ptr<typename Holder::ContainedType>>;
 };
 
 /**
@@ -140,7 +139,8 @@ class ModelStateView final {
   /**
    * @brief Converts floating parameters and buffers to a scalar type.
    * @param dtype Destination scalar type.
-   * @param non_blocking Whether eligible conversions may execute asynchronously.
+   * @param non_blocking Whether eligible conversions may execute
+   * asynchronously.
    */
   void to(Dtype dtype, bool non_blocking = false);
 
@@ -222,10 +222,10 @@ class ModelAdapter final {
 
  private:
   std::shared_ptr<ModelStateView>
-      state_;  ///< Shared state boundary and module lifetime owner.
+      state_;             ///< Shared state boundary and module lifetime owner.
   ModelInvoker invoker_;  ///< User-supplied type-erased forward operation.
   InvocationSchema input_schema_;  ///< Validated call input contract.
-  ValueSchema output_schema_;  ///< Validated call result contract.
+  ValueSchema output_schema_;      ///< Validated call result contract.
 };
 
 /**
@@ -238,8 +238,7 @@ class ModelAdapter final {
  * @throws InvalidArgument If the module, callable, or schema is invalid.
  */
 ModelAdapter adapt_module(std::shared_ptr<torch::nn::Module> module,
-                          ModelInvoker invoker,
-                          InvocationSchema input_schema,
+                          ModelInvoker invoker, InvocationSchema input_schema,
                           ValueSchema output_schema);
 
 /**
@@ -258,10 +257,9 @@ ModelAdapter adapt_module(std::shared_ptr<torch::nn::Module> module,
  * @throws InvalidArgument If the module, callable, or schema is invalid.
  */
 template <ModuleImplementation Module, typename Forward>
-  requires requires(Forward& forward, Module& module,
-                    const Invocation& input) {
-    c10::IValue(std::invoke(forward, module, input));
-  }
+requires requires(Forward& forward, Module& module, const Invocation& input) {
+  c10::IValue(std::invoke(forward, module, input));
+}
 ModelAdapter adapt_module(std::shared_ptr<Module> module, Forward forward,
                           InvocationSchema input_schema,
                           ValueSchema output_schema) {
@@ -295,10 +293,10 @@ ModelAdapter adapt_module(std::shared_ptr<Module> module, Forward forward,
  * @throws InvalidArgument If the holder is empty or a schema is invalid.
  */
 template <ModuleHolderLike Holder, typename Forward>
-  requires requires(Forward& forward, typename Holder::ContainedType& module,
-                    const Invocation& input) {
-    c10::IValue(std::invoke(forward, module, input));
-  }
+requires requires(Forward& forward, typename Holder::ContainedType& module,
+                  const Invocation& input) {
+  c10::IValue(std::invoke(forward, module, input));
+}
 ModelAdapter adapt_holder(Holder holder, Forward forward,
                           InvocationSchema input_schema,
                           ValueSchema output_schema) {
@@ -311,8 +309,8 @@ ModelAdapter adapt_holder(Holder holder, Forward forward,
                      .actual = "empty holder",
                      .hint = "Initialize the holder before adapting it."});
   }
-  return adapt_module(holder.ptr(), std::move(forward),
-                      std::move(input_schema), std::move(output_schema));
+  return adapt_module(holder.ptr(), std::move(forward), std::move(input_schema),
+                      std::move(output_schema));
 }
 
 /**
@@ -324,12 +322,12 @@ ModelAdapter adapt_holder(Holder holder, Forward forward,
  * @return An adapter with one positional tensor and no keywords.
  */
 template <ModuleImplementation Module>
-  requires requires(Module& module, const Tensor& input) {
-    c10::IValue(module.forward(input));
-  }
-ModelAdapter adapt_tensor_module(
-    std::shared_ptr<Module> module, TensorSchema input_constraints = {},
-    TensorSchema output_constraints = {}) {
+requires requires(Module& module, const Tensor& input) {
+  c10::IValue(module.forward(input));
+}
+ModelAdapter adapt_tensor_module(std::shared_ptr<Module> module,
+                                 TensorSchema input_constraints = {},
+                                 TensorSchema output_constraints = {}) {
   InvocationSchema input_schema;
   input_schema.positional.push_back(
       ValueSchema::tensor(std::move(input_constraints), "input"));
@@ -352,13 +350,12 @@ ModelAdapter adapt_tensor_module(
  * @return An adapter with one positional tensor and no keywords.
  */
 template <ModuleHolderLike Holder>
-  requires requires(typename Holder::ContainedType& module,
-                    const Tensor& input) {
-    c10::IValue(module.forward(input));
-  }
-ModelAdapter adapt_tensor_holder(
-    Holder holder, TensorSchema input_constraints = {},
-    TensorSchema output_constraints = {}) {
+requires requires(typename Holder::ContainedType& module, const Tensor& input) {
+  c10::IValue(module.forward(input));
+}
+ModelAdapter adapt_tensor_holder(Holder holder,
+                                 TensorSchema input_constraints = {},
+                                 TensorSchema output_constraints = {}) {
   if (!static_cast<bool>(holder)) {
     throw InvalidArgument(
         "Cannot adapt an empty module holder",

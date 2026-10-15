@@ -14,15 +14,14 @@ namespace {
 constexpr char kComponent[] = "nn.model_adapter";
 
 [[noreturn]] void throw_missing_object(const char* operation,
-                                       const char* expected,
-                                       const char* actual, const char* hint) {
-  throw InvalidArgument(
-      "Model adapter construction failed",
-      ErrorDetails{.component = kComponent,
-                   .operation = operation,
-                   .expected = expected,
-                   .actual = actual,
-                   .hint = hint});
+                                       const char* expected, const char* actual,
+                                       const char* hint) {
+  throw InvalidArgument("Model adapter construction failed",
+                        ErrorDetails{.component = kComponent,
+                                     .operation = operation,
+                                     .expected = expected,
+                                     .actual = actual,
+                                     .hint = hint});
 }
 
 }  // namespace
@@ -85,8 +84,7 @@ void ModelStateView::to(const Device& device, Dtype dtype, bool non_blocking) {
 }
 
 ModelAdapter::ModelAdapter(std::shared_ptr<ModelStateView> state,
-                           ModelInvoker invoker,
-                           InvocationSchema input_schema,
+                           ModelInvoker invoker, InvocationSchema input_schema,
                            ValueSchema output_schema)
     : state_(std::move(state)),
       invoker_(std::move(invoker)),
@@ -126,7 +124,8 @@ InvocationResult ModelAdapter::invoke(const Invocation& input) const {
             .operation = "model invocation",
             .failure_kind = detail::BackendFailureKind::unknown,
             .expected = "an invocation accepted by the active LibTorch backend",
-            .hint = "Inspect the nested backend error and model implementation."});
+            .hint =
+                "Inspect the nested backend error and model implementation."});
   }
 }
 
@@ -139,8 +138,7 @@ const ValueSchema& ModelAdapter::output_schema() const noexcept {
 }
 
 ModelAdapter adapt_module(std::shared_ptr<torch::nn::Module> module,
-                          ModelInvoker invoker,
-                          InvocationSchema input_schema,
+                          ModelInvoker invoker, InvocationSchema input_schema,
                           ValueSchema output_schema) {
   if (!module) {
     throw_missing_object("adapt_module", "a non-null shared module", "null",
@@ -154,8 +152,8 @@ ModelAdapter adapt_module(std::shared_ptr<torch::nn::Module> module,
 
   auto state = std::make_shared<ModelStateView>(module);
   ModelInvoker retained_invoker =
-      [module = std::move(module), invoker = std::move(invoker)](
-          const Invocation& input) mutable {
+      [module = std::move(module),
+       invoker = std::move(invoker)](const Invocation& input) mutable {
         static_cast<void>(module);
         return invoker(input);
       };
