@@ -278,6 +278,7 @@ target_link_libraries(jyppx_training PUBLIC jyppx_foundation)
 
 add_library(jyppx_optim STATIC
     src/jyppx/optim/sgd_adapter.cpp
+    src/jyppx/optim/step_lr_scheduler.cpp
 )
 add_library(jyppx::optim ALIAS jyppx_optim)
 set_target_properties(jyppx_optim PROPERTIES

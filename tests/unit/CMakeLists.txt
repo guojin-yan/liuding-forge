@@ -42,6 +42,11 @@ jyppx_add_gtest(jyppx_test_optim_sgd_adapter
     optim/test_sgd_adapter.cpp
 )
 
+jyppx_add_gtest(jyppx_test_optim_step_lr_scheduler
+    LINK_TARGET jyppx::optim
+    optim/test_step_lr_scheduler.cpp
+)
+
 jyppx_add_gtest(jyppx_test_nn_label_smoothing
     LINK_TARGET jyppx::nn
     nn/loss/test_label_smoothing_cross_entropy.cpp

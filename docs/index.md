@@ -45,6 +45,8 @@ metrics, callbacks, checkpointing and mixed precision.
   and composite schedulers
 - [Delegated SGD Adapter](api/sgd_adapter.md) — LibTorch-backed SGD with
   stable group and parameter identities plus exact bounded checkpoint state
+- [Descriptor-First StepLR](api/step_lr_scheduler.md) — typed scheduler
+  semantics, stable optimizer linkage, and exact bounded checkpoint state
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP
 - [Model Adapter](api/model_adapter.md) — shared model state, typed adapter
   helpers, structured invocation schemas, and multi-input/output boundaries

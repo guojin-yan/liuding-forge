@@ -13,6 +13,7 @@
 
 #include <jyppx/core/types.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
+#include <jyppx/optim/optimizer_rate_control.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -73,21 +74,24 @@ struct SgdParameterGroup {
  * `step()` may leave native optimizer state modified; callers must stop or
  * recover from a checkpoint before continuing.
  */
-class SgdOptimizerAdapter final {
+class SgdOptimizerAdapter final : public OptimizerRateControl {
  public:
   /** @brief Callable loss closure accepted by a delegated optimization step. */
   using LossClosure = std::function<Tensor()>;
 
   /**
    * @brief Creates an SGD optimizer from stable parameter groups.
+   * @param optimizer_id Stable nonempty identity for scheduler/checkpoint
+   * links.
    * @param groups Nonempty groups with unique IDs and parameter identities.
    * @throws InvalidArgument If topology, tensors, or options are invalid.
    * @throws BackendError If LibTorch rejects otherwise validated construction.
    */
-  explicit SgdOptimizerAdapter(std::vector<SgdParameterGroup> groups);
+  explicit SgdOptimizerAdapter(std::string optimizer_id,
+                               std::vector<SgdParameterGroup> groups);
 
   /** @brief Releases the opaque LibTorch optimizer implementation. */
-  ~SgdOptimizerAdapter();
+  ~SgdOptimizerAdapter() override;
 
   /** @brief Prevents duplicating pointer-bound native optimizer state. */
   SgdOptimizerAdapter(const SgdOptimizerAdapter&) = delete;
@@ -122,14 +126,26 @@ class SgdOptimizerAdapter final {
    * @brief Returns one current learning rate per stable parameter group.
    * @return Rates in the same order as `groups()`.
    */
-  std::vector<double> learning_rates() const;
+  std::vector<double> learning_rates() const override;
 
   /**
    * @brief Atomically validates and sets every group learning rate.
    * @param learning_rates Finite non-negative values matching group count.
    * @throws InvalidArgument If a count or value is invalid.
    */
-  void set_learning_rates(const std::vector<double>& learning_rates);
+  void set_learning_rates(const std::vector<double>& learning_rates) override;
+
+  /**
+   * @brief Returns the immutable stable optimizer identity.
+   * @return Identity used by the optimizer and associated schedulers.
+   */
+  const std::string& optimizer_id() const noexcept override;
+
+  /**
+   * @brief Returns immutable stable parameter-group identities.
+   * @return IDs in native optimizer and learning-rate order.
+   */
+  const std::vector<std::string>& parameter_group_ids() const noexcept override;
 
   /**
    * @brief Returns the number of successful delegated steps.
@@ -160,11 +176,9 @@ class SgdOptimizerAdapter final {
 };
 
 /**
- * @brief Configures SGD checkpoint identity and resource limits.
+ * @brief Configures SGD checkpoint resource limits.
  */
 struct SgdOptimizerCheckpointOptions {
-  std::string participant_id =
-      "optimizer.main";  ///< Stable registry ID for this optimizer instance.
   std::size_t max_groups = 4096;  ///< Positive maximum parameter-group count.
   std::size_t max_parameters =
       100000;  ///< Positive maximum total bound parameter count.
@@ -201,7 +215,7 @@ class SgdOptimizerCheckpointParticipant final : public CheckpointParticipant {
   /**
    * @brief Creates a checkpoint participant retaining an SGD adapter.
    * @param optimizer Non-null delegated optimizer shared with the trainer.
-   * @param options Stable identity and positive resource limits.
+   * @param options Positive resource limits for state preflight and decoding.
    * @throws InvalidArgument If the optimizer, options, or topology is invalid.
    */
   explicit SgdOptimizerCheckpointParticipant(
@@ -209,8 +223,8 @@ class SgdOptimizerCheckpointParticipant final : public CheckpointParticipant {
       SgdOptimizerCheckpointOptions options = {});
 
   /**
-   * @brief Returns the stable registry identifier.
-   * @return The configured participant ID.
+   * @brief Returns the optimizer's stable registry identifier.
+   * @return The immutable optimizer ID owned by the retained adapter.
    */
   std::string participant_id() const override;
 

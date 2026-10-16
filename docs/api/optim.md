@@ -5,6 +5,9 @@ All types live in the `jyppx::optim` namespace.
 The migrated optimizer boundary starts with the independently exported
 [`SgdOptimizerAdapter`](sgd_adapter.md). It delegates numerical updates to
 LibTorch and supplies stable parameter identity plus storage-neutral recovery.
+The migrated scheduler boundary starts with descriptor-first
+[`StepLrScheduler`](step_lr_scheduler.md), which records typed semantics and
+stable optimizer/group identity and provides exact storage-neutral recovery.
 The hand-written hierarchy documented below is the legacy path still used by
 unmigrated trainer and scheduler consumers; it is not a compatibility wrapper
 for the delegated API.
@@ -85,6 +88,10 @@ Notes:
   on the next `step()`; schedulers use `set_lr`/`set_lrs` instead.
 
 ## Learning-rate schedulers
+
+The direct `jyppx::optim::StepLrScheduler` API is the migrated path. It does
+not wrap or forward to the legacy hierarchy described below; see its
+[descriptor and checkpoint contract](step_lr_scheduler.md).
 
 `#include <jyppx/optim/schedulers/...>`
 

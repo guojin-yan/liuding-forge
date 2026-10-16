@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A descriptor-first `StepLrScheduler` with typed immutable configuration,
+  stable optimizer/group identity, atomic rate control, and bounded exact
+  checkpoint recovery without legacy scheduler maps or native archives.
+- A narrow `OptimizerRateControl` contract implemented by the delegated SGD
+  adapter so schedulers do not depend on algorithm-specific native objects.
 - An independently exported `jyppx::optim` target with a LibTorch-delegated
   SGD adapter, stable group/parameter identities, fixed versioned raw state
   fields, bounded preflight, and atomic exact checkpoint restore.

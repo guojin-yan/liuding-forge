@@ -13,6 +13,8 @@ the focused `jyppx::optim` CMake target.
 `torch::optim::SGD`. JYPPX owns the stable descriptor around that backend:
 
 - every group has a caller-selected `group_id`;
+- the optimizer has a caller-selected stable `optimizer_id` shared by its
+  checkpoint participant and associated schedulers;
 - every parameter has a globally unique `parameter_id`;
 - tensor pointers and container positions are never persisted as identities;
 - immutable SGD options are validated before native construction;
@@ -20,6 +22,7 @@ the focused `jyppx::optim` CMake target.
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+    "optimizer.main",
     std::vector<jyppx::optim::SgdParameterGroup>{
         {.group_id = "backbone",
          .parameters = {{.parameter_id = "encoder.weight",
@@ -45,9 +48,7 @@ unique and valid when construction completes.
 ```cpp
 auto participant =
     std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
-        optimizer,
-        jyppx::optim::SgdOptimizerCheckpointOptions{
-            .participant_id = "optimizer.main"});
+        optimizer);
 registry.register_participant(participant);
 ```
 

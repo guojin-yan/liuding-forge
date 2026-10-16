@@ -10,6 +10,7 @@
 #include <jyppx/nn/model_adapter.hpp>
 #include <jyppx/nn/model_checkpoint_participant.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
+#include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 
 #include <array>
@@ -131,6 +132,7 @@ int main() {
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   auto installed_optimizer =
       std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+          "optimizer.main",
           std::vector<jyppx::optim::SgdParameterGroup>{
               {.group_id = "main",
                .parameters = {{.parameter_id = "weight",
@@ -141,11 +143,21 @@ int main() {
   const bool valid_optimizer =
       installed_optimizer_participant.describe_state().fields.size() == 3 &&
       installed_optimizer->parameter_count() == 1;
+  auto installed_scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
+      installed_optimizer,
+      jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
+  installed_scheduler->step();
+  jyppx::optim::StepLrSchedulerCheckpointParticipant
+      installed_scheduler_participant(installed_scheduler);
+  const bool valid_scheduler =
+      installed_scheduler_participant.describe_state().fields.size() == 2 &&
+      installed_scheduler->completed_steps() == 1 &&
+      installed_scheduler->descriptor().optimizer_id == "optimizer.main";
   return valid_version && valid_error && valid_device &&
                  valid_checkpoint_contract && valid_checkpoint_coordinator &&
                  valid_model_checkpoint && valid_data && valid_nn &&
                  valid_contrastive && valid_focal && valid_dice &&
-                 valid_adapter && valid_optimizer
+                 valid_adapter && valid_optimizer && valid_scheduler
              ? 0
              : 1;
 }

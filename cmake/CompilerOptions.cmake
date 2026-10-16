@@ -156,9 +156,13 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/loss/label_smoothing_cross_entropy.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/nn/loss/label_smoothing_cross_entropy.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/nn/loss/test_label_smoothing_cross_entropy.cpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/optim/optimizer_rate_control.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/sgd_adapter.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/optim/step_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/sgd_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/optim/step_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_sgd_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_step_lr_scheduler.cpp
     )
     add_custom_target(jyppx_migrated_format_check ALL
         COMMAND ${JYPPX_CLANG_FORMAT_EXECUTABLE}

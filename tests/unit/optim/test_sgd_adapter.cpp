@@ -99,6 +99,7 @@ std::shared_ptr<jyppx::optim::SgdOptimizerAdapter> make_optimizer(
     const torch::Tensor& tensor, jyppx::optim::SgdAdapterOptions options = {
                                      .learning_rate = 0.05, .momentum = 0.9}) {
   return std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+      "optimizer.main",
       std::vector{make_group("main", "layer.weight", tensor, options)});
 }
 
@@ -121,6 +122,7 @@ TEST(SgdOptimizerAdapterTest, DelegatesUpdatesAndTracksSuccessfulSteps) {
                                                 .weight_decay = 0.01,
                                                 .nesterov = true};
   jyppx::optim::SgdOptimizerAdapter adapted(
+      "optimizer.main",
       {make_group("main", "weight", adapted_parameter, options)});
   torch::optim::SGD native({native_parameter},
                            torch::optim::SGDOptions(options.learning_rate)
@@ -161,10 +163,10 @@ TEST(SgdOptimizerAdapterTest, PreservesExplicitPerGroupOptionsAndRateUpdates) {
   auto second = torch::tensor(
       {1.0}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
   jyppx::optim::SgdOptimizerAdapter optimizer(
-      {make_group("decay", "first", first,
-                  {.learning_rate = 0.2, .momentum = 0.8}),
-       make_group("plain", "second", second,
-                  {.learning_rate = 0.01, .momentum = 0.0})});
+      "optimizer.main", {make_group("decay", "first", first,
+                                    {.learning_rate = 0.2, .momentum = 0.8}),
+                         make_group("plain", "second", second,
+                                    {.learning_rate = 0.01, .momentum = 0.0})});
 
   EXPECT_EQ(optimizer.learning_rates(), (std::vector<double>{0.2, 0.01}));
   first.mutable_grad() = torch::ones_like(first);
@@ -185,24 +187,35 @@ TEST(SgdOptimizerAdapterTest, PreservesExplicitPerGroupOptionsAndRateUpdates) {
 TEST(SgdOptimizerAdapterTest, RejectsUnstableOrInvalidDescriptors) {
   auto parameter = torch::ones(
       {2}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
-  EXPECT_THROW(jyppx::optim::SgdOptimizerAdapter({}), jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::SgdOptimizerAdapter("optimizer.main", {}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::SgdOptimizerAdapter(
+                   "", {make_group("main", "weight", parameter, {})}),
+               jyppx::InvalidArgument);
   EXPECT_THROW(
       jyppx::optim::SgdOptimizerAdapter(
+          "optimizer.main",
           {make_group("main", "same", parameter, {}),
            make_group("other", "same",
                       parameter.detach().clone().requires_grad_(true), {})}),
       jyppx::InvalidArgument);
-  EXPECT_THROW(jyppx::optim::SgdOptimizerAdapter(
-                   {make_group("main", "first", parameter, {}),
-                    make_group("other", "second", parameter, {})}),
-               jyppx::InvalidArgument);
-  EXPECT_THROW(jyppx::optim::SgdOptimizerAdapter({make_group(
-                   "main", "integer", torch::ones({2}, torch::kLong), {})}),
-               jyppx::InvalidArgument);
-  EXPECT_THROW(jyppx::optim::SgdOptimizerAdapter({make_group(
-                   "main", "weight", parameter,
-                   {.learning_rate = 0.1, .momentum = 0.0, .nesterov = true})}),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::optim::SgdOptimizerAdapter(
+          "optimizer.main", {make_group("main", "first", parameter, {}),
+                             make_group("other", "second", parameter, {})}),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::optim::SgdOptimizerAdapter(
+          "optimizer.main",
+          {make_group("main", "integer", torch::ones({2}, torch::kLong), {})}),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::optim::SgdOptimizerAdapter(
+          "optimizer.main",
+          {make_group(
+              "main", "weight", parameter,
+              {.learning_rate = 0.1, .momentum = 0.0, .nesterov = true})}),
+      jyppx::InvalidArgument);
 }
 
 TEST(SgdOptimizerCheckpointTest, UsesFixedRawFieldsWithoutNativeArchive) {
@@ -308,6 +321,7 @@ TEST(SgdOptimizerCheckpointTest,
   auto target_parameter = torch::ones(
       {2}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
   auto target = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+      "optimizer.main",
       std::vector{make_group("main", "other.weight", target_parameter,
                              {.learning_rate = 0.05, .momentum = 0.9})});
   jyppx::optim::SgdOptimizerCheckpointParticipant target_participant(target);

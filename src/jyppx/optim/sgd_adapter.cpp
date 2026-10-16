@@ -733,7 +733,8 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
                     right.fields.begin(), state_field_equal);
 }
 
-void validate_checkpoint_options(const SgdOptimizerCheckpointOptions& options) {
+void validate_checkpoint_options(const SgdOptimizerCheckpointOptions& options,
+                                 std::string_view participant_id) {
   if (options.max_groups == 0 || options.max_parameters == 0 ||
       options.max_identifier_bytes == 0 || options.max_topology_bytes == 0 ||
       options.max_control_bytes == 0 || options.max_tensor_bytes == 0 ||
@@ -750,7 +751,7 @@ void validate_checkpoint_options(const SgdOptimizerCheckpointOptions& options) {
                   "Use bounded optimizer topology and identifier limits.");
   }
   StateManifest probe{
-      .participant_id = options.participant_id,
+      .participant_id = std::string(participant_id),
       .schema_version = kSchemaVersion,
       .restore_level = RestoreLevel::exact,
       .fields = {{.name = "topology", .max_bytes = 1}},
@@ -957,15 +958,20 @@ OptimizerSnapshot inspect_optimizer(
 }  // namespace
 
 struct SgdOptimizerAdapter::Impl {
-  std::vector<SgdParameterGroup> groups;      ///< Stable public descriptor.
+  std::string optimizer_id;                      ///< Stable optimizer identity.
+  std::vector<std::string> parameter_group_ids;  ///< Stable group identities.
+  std::vector<SgdParameterGroup> groups;         ///< Stable public descriptor.
   std::vector<FlatParameter> parameters;      ///< Flattened checkpoint order.
   std::unique_ptr<torch::optim::SGD> native;  ///< Delegated algorithm owner.
   std::uint64_t completed_steps = 0;          ///< Successful native step count.
 };
 
-SgdOptimizerAdapter::SgdOptimizerAdapter(std::vector<SgdParameterGroup> groups)
+SgdOptimizerAdapter::SgdOptimizerAdapter(std::string optimizer_id,
+                                         std::vector<SgdParameterGroup> groups)
     : impl_(std::make_unique<Impl>()) {
   try {
+    validate_identifier(optimizer_id, kAdapterMaximumIdentifierBytes,
+                        "optimizer_id");
     if (groups.empty()) {
       throw_invalid("groups", "at least one parameter group", "empty",
                     "Define stable optimizer groups before construction.");
@@ -980,6 +986,7 @@ SgdOptimizerAdapter::SgdOptimizerAdapter(std::vector<SgdParameterGroup> groups)
     std::set<std::string> parameter_ids;
     std::unordered_set<const void*> tensor_identities;
     std::vector<torch::optim::OptimizerParamGroup> native_groups;
+    impl_->parameter_group_ids.reserve(groups.size());
     native_groups.reserve(groups.size());
     for (std::size_t group_index = 0; group_index < groups.size();
          ++group_index) {
@@ -990,6 +997,7 @@ SgdOptimizerAdapter::SgdOptimizerAdapter(std::vector<SgdParameterGroup> groups)
         throw_invalid("group_id", "unique stable group IDs", group.group_id,
                       "Rename the duplicate optimizer group.");
       }
+      impl_->parameter_group_ids.push_back(group.group_id);
       validate_sgd_options(group.options, group.group_id);
       if (group.parameters.empty()) {
         throw_invalid(group.group_id + ".parameters", "at least one parameter",
@@ -1064,6 +1072,7 @@ SgdOptimizerAdapter::SgdOptimizerAdapter(std::vector<SgdParameterGroup> groups)
           std::make_unique<torch::optim::SGDOptions>(
               make_native_options(groups[index].options)));
     }
+    impl_->optimizer_id = std::move(optimizer_id);
     impl_->groups = std::move(groups);
     static_cast<void>(inspect_native_groups(impl_->groups, impl_->parameters,
                                             *impl_->native));
@@ -1142,6 +1151,15 @@ void SgdOptimizerAdapter::set_learning_rates(
   }
 }
 
+const std::string& SgdOptimizerAdapter::optimizer_id() const noexcept {
+  return impl_->optimizer_id;
+}
+
+const std::vector<std::string>& SgdOptimizerAdapter::parameter_group_ids()
+    const noexcept {
+  return impl_->parameter_group_ids;
+}
+
 std::uint64_t SgdOptimizerAdapter::completed_steps() const noexcept {
   return impl_->completed_steps;
 }
@@ -1158,7 +1176,7 @@ std::size_t SgdOptimizerAdapter::parameter_count() const noexcept {
 SgdOptimizerCheckpointParticipant::SgdOptimizerCheckpointParticipant(
     std::shared_ptr<SgdOptimizerAdapter> optimizer,
     SgdOptimizerCheckpointOptions options)
-    : optimizer_(std::move(optimizer)), options_(std::move(options)) {
+    : optimizer_(std::move(optimizer)), options_(options) {
   if (!optimizer_) {
     throw_invalid("optimizer", "a non-null shared SgdOptimizerAdapter", "null",
                   "Create the optimizer before its checkpoint participant.");
@@ -1172,12 +1190,12 @@ SgdOptimizerCheckpointParticipant::SgdOptimizerCheckpointParticipant(
                      .actual = "non-little endian",
                      .hint = "Add an explicit tensor byte-swap codec."});
   }
-  validate_checkpoint_options(options_);
+  validate_checkpoint_options(options_, optimizer_->optimizer_id());
   static_cast<void>(describe_state());
 }
 
 std::string SgdOptimizerCheckpointParticipant::participant_id() const {
-  return options_.participant_id;
+  return optimizer_->optimizer_id();
 }
 
 StateManifest SgdOptimizerCheckpointParticipant::describe_state() const {
@@ -1185,7 +1203,7 @@ StateManifest SgdOptimizerCheckpointParticipant::describe_state() const {
     return inspect_optimizer(
                optimizer_->impl_->groups, optimizer_->impl_->parameters,
                *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
-               options_, options_.participant_id)
+               options_, optimizer_->optimizer_id())
         .manifest;
   } catch (const Error&) {
     throw;
@@ -1201,7 +1219,7 @@ void SgdOptimizerCheckpointParticipant::save_state(StateWriter& writer) const {
     const auto snapshot = inspect_optimizer(
         optimizer_->impl_->groups, optimizer_->impl_->parameters,
         *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
-        options_, options_.participant_id);
+        options_, optimizer_->optimizer_id());
     writer.write_blob("topology", snapshot.topology);
     writer.write_blob("control", snapshot.control);
     for (std::size_t index = 0; index < snapshot.momentum_buffers.size();
@@ -1246,11 +1264,11 @@ void SgdOptimizerCheckpointParticipant::load_state(const StateReader& reader,
     const auto current = inspect_optimizer(
         optimizer_->impl_->groups, optimizer_->impl_->parameters,
         *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
-        options_, options_.participant_id);
+        options_, optimizer_->optimizer_id());
     const auto& stored_manifest = reader.manifest();
     validate_state_manifest(stored_manifest);
     if (!manifest_equal(stored_manifest, current.manifest)) {
-      throw_compatibility("restore.manifest", options_.participant_id,
+      throw_compatibility("restore.manifest", optimizer_->optimizer_id(),
                           stored_manifest.participant_id,
                           "Use state produced by the same SGD schema.");
     }
