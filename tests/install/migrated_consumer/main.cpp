@@ -18,6 +18,7 @@
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
+#include <jyppx/training/metrics/classification.hpp>
 #include <jyppx/training/scheduler_adapter.hpp>
 
 #include <array>
@@ -110,6 +111,15 @@ int main() {
   const auto loss =
       jyppx::nn::functional::label_smoothing_cross_entropy(logits, target, 0.1);
   const bool valid_nn = loss.numel() == 1 && std::isfinite(loss.item<double>());
+  auto installed_metric = std::make_shared<jyppx::training::metrics::Precision>(
+      jyppx::training::metrics::ClassificationMetricOptions{
+          .metric_id = "metric.consumer", .num_classes = 2});
+  installed_metric->update(logits, target);
+  jyppx::validate_checkpoint_participant(*installed_metric);
+  const bool valid_metric =
+      installed_metric->descriptor().type_id == "jyppx.metric.precision/v1" &&
+      installed_metric->total_observations() == 1 &&
+      installed_metric->compute() == 0.5;
   const auto pair_a = torch::tensor({{0.0, 0.0}}, torch::kFloat64);
   const auto pair_b = torch::tensor({{0.5, 0.0}}, torch::kFloat64);
   const auto pair_target = torch::tensor({1}, torch::kLong);
@@ -249,7 +259,7 @@ int main() {
                  valid_checkpoint_contract && valid_checkpoint_coordinator &&
                  valid_rng_checkpoint && valid_model_checkpoint && valid_data &&
                  valid_data_pipeline && valid_nn && valid_contrastive &&
-                 valid_focal && valid_dice && valid_adapter &&
+                 valid_focal && valid_dice && valid_adapter && valid_metric &&
                  valid_optimizer && valid_scheduler
              ? 0
              : 1;

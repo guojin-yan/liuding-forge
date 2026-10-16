@@ -37,6 +37,8 @@ enum class ErrorCode : std::uint16_t {
       9,          ///< Persisted data or runtime capabilities are incompatible.
   backend = 10,   ///< A backend failed without a more specific classification.
   internal = 11,  ///< A JYPPX invariant was violated.
+  not_ready =
+      12,  ///< A valid stateful result is unavailable until more input arrives.
 };
 
 /**
@@ -342,6 +344,26 @@ class InternalError : public Error {
    */
   InternalError(std::string message, std::string hint)
       : Error(ErrorCode::internal, std::move(message), std::move(hint)) {}
+};
+
+/** @brief Reports that a stateful result is not ready to be observed. */
+class NotReady : public Error {
+ public:
+  /**
+   * @brief Creates a not-ready error with structured context.
+   * @param message Concise description of the unavailable result.
+   * @param details Owned fields describing the required state transition.
+   */
+  explicit NotReady(std::string message, ErrorDetails details = {})
+      : Error(ErrorCode::not_ready, std::move(message), std::move(details)) {}
+
+  /**
+   * @brief Creates a not-ready error with remediation guidance.
+   * @param message Concise description of the unavailable result.
+   * @param hint Actionable guidance for making the result available.
+   */
+  NotReady(std::string message, std::string hint)
+      : Error(ErrorCode::not_ready, std::move(message), std::move(hint)) {}
 };
 
 namespace detail {

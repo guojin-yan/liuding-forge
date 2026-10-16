@@ -107,6 +107,11 @@ jyppx_add_gtest(jyppx_test_training_scheduler_adapter
     training/test_scheduler_adapter.cpp
 )
 
+jyppx_add_gtest(jyppx_test_training_classification_metric
+    LINK_TARGET jyppx::training
+    training/test_classification_metric.cpp
+)
+
 jyppx_add_gtest(jyppx_test_plan
     test_plan_completion.cpp
 )

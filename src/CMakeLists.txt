@@ -24,7 +24,6 @@ target_sources(jyppx_training_framework PRIVATE
     jyppx/training/amp/grad_scaler_checkpoint_participant.cpp
     jyppx/training/metrics/accuracy.cpp
     jyppx/training/metrics/topk_accuracy.cpp
-    jyppx/training/metrics/classification.cpp
     jyppx/training/metrics/regression.cpp
     jyppx/training/metrics/average_meter.cpp
     jyppx/training/callbacks/early_stopping.cpp

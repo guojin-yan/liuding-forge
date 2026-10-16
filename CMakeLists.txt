@@ -265,6 +265,7 @@ target_link_libraries(jyppx_nn
 
 add_library(jyppx_training STATIC
     src/jyppx/training/checkpoint_coordinator.cpp
+    src/jyppx/training/metrics/classification.cpp
     src/jyppx/training/scheduler_adapter.cpp
 )
 add_library(jyppx::training ALIAS jyppx_training)

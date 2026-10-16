@@ -46,6 +46,8 @@ std::string_view error_code_name(ErrorCode code) noexcept {
       return "backend";
     case ErrorCode::internal:
       return "internal";
+    case ErrorCode::not_ready:
+      return "not_ready";
   }
   return "unknown";
 }

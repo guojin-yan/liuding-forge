@@ -31,14 +31,14 @@ TEST(ClassificationMetricsTest, HandComputedConfusionMatrix) {
     //   true 0 -> [2, 0, 0]  precision(0)=2/2, recall(0)=2/2
     //   true 1 -> [0, 1, 0]  precision(1)=1/1, recall(1)=1/2
     //   true 2 -> [0, 0, 1]  precision(2)=1/2, recall(2)=1/2
-    metrics::Precision precision;
-    metrics::Recall recall;
-    metrics::F1Score f1;
+    metrics::Precision precision({.num_classes = 3});
+    metrics::Recall recall({.num_classes = 3});
+    metrics::F1Score f1({.num_classes = 3});
 
     auto preds = torch::tensor({{0.9f, 0.1f, 0.0f}, {0.8f, 0.1f, 0.1f},
                                 {0.1f, 0.8f, 0.1f}, {0.0f, 0.2f, 0.9f},
                                 {0.1f, 0.1f, 0.8f}});
-    auto targets = torch::tensor({0.0f, 0.0f, 1.0f, 1.0f, 2.0f});
+    auto targets = torch::tensor({0, 0, 1, 1, 2}, torch::kInt64);
     precision.update(preds, targets);
     recall.update(preds, targets);
     f1.update(preds, targets);
@@ -50,19 +50,20 @@ TEST(ClassificationMetricsTest, HandComputedConfusionMatrix) {
 
 TEST(ClassificationMetricsTest, ConfusionMatrixExposedAndResets) {
     metrics::Precision precision;
-    precision.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({0.0f}));
-    ASSERT_EQ(precision.classes(), 1); // only class 0 observed
+    precision.update(torch::tensor({{0.9f, 0.1f}}),
+                     torch::tensor({0}, torch::kInt64));
+    ASSERT_EQ(precision.classes(), 2);
     EXPECT_EQ(precision.confusion_matrix()[0][0], 1);
 
     precision.reset();
-    EXPECT_EQ(precision.classes(), 0);
-    EXPECT_DOUBLE_EQ(precision.compute(), 0.0);
+    EXPECT_EQ(precision.classes(), 2);
+    EXPECT_THROW(precision.compute(), jyppx::NotReady);
 }
 
 TEST(ClassificationMetricsTest, PerfectPredictionsScoreOne) {
     metrics::F1Score f1;
     f1.update(torch::tensor({{0.9f, 0.1f}, {0.1f, 0.9f}}),
-              torch::tensor({0.0f, 1.0f}));
+              torch::tensor({0, 1}, torch::kInt64));
     EXPECT_DOUBLE_EQ(f1.compute(), 1.0);
 }
 

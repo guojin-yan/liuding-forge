@@ -100,16 +100,21 @@ int main() {
         // ---- Evaluation with classification metrics ---------------------------
         jyppx::training::metrics::MetricCollection metrics;
         metrics.add(std::make_shared<jyppx::training::metrics::Accuracy>());
-        metrics.add(std::make_shared<jyppx::training::metrics::F1Score>());
-        metrics.add(std::make_shared<jyppx::training::metrics::Precision>());
-        metrics.add(std::make_shared<jyppx::training::metrics::Recall>());
+        const jyppx::training::metrics::ClassificationMetricOptions
+            classification_options{.num_classes = 3};
+        metrics.add(std::make_shared<jyppx::training::metrics::F1Score>(
+            classification_options));
+        metrics.add(std::make_shared<jyppx::training::metrics::Precision>(
+            classification_options));
+        metrics.add(std::make_shared<jyppx::training::metrics::Recall>(
+            classification_options));
 
         trainer.load_checkpoint((run_dir / "best.pt").string());
         model->eval();
         torch::NoGradGuard no_grad;
         for (const auto& batch : val_loader) {
             auto logits = model->forward(batch.data);
-            metrics.update(logits, batch.targets);
+            metrics.update(logits, batch.targets.to(torch::kInt64));
         }
         for (const auto& [name, value] : metrics.compute()) {
             std::cout << "val " << name << ": " << value << "\n";

@@ -37,6 +37,8 @@ metrics, callbacks, checkpointing and mixed precision.
   cross-participant rollback
 - [Training Scheduler Adapter](api/scheduler_adapter.md) — ordered lifecycle
   events with exact descriptor-first scheduler checkpoint delegation
+- [Classification Metrics](api/classification_metrics.md) — fixed-topology,
+  mergeable Precision, Recall, and F1 with exact checkpoint state
 - [Model Checkpoint Participant](api/model_checkpoint_participant.md) — exact
   model topology, bounded raw tensor state, strict preflight, and atomic restore
 - [Data](api/data.md) — datasets, subset/concat/split, DataLoader,
