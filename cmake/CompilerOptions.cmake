@@ -114,16 +114,19 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/callback_dispatcher.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/callbacks/early_stopping_callback.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/metrics/classification.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/training/metrics/ranking.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/scheduler_adapter.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/checkpoint_coordinator.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/callback_dispatcher.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/callbacks/early_stopping_callback.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/detail/memory_participant_state.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/metrics/classification.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/training/metrics/ranking.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/scheduler_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_callback_dispatcher.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_checkpoint_coordinator.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_classification_metric.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/training/test_ranking_metric.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_scheduler_adapter.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/device.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/tensor_utils.hpp

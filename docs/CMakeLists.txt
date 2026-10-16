@@ -38,6 +38,7 @@ doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/callbacks/early_stopping_callback.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/checkpoint_coordinator.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/metrics/classification.hpp"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/training/metrics/ranking.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/scheduler_adapter.hpp"
     COMMENT "Validating and generating migrated API documentation"
 )

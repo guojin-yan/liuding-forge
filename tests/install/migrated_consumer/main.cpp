@@ -21,6 +21,7 @@
 #include <jyppx/training/callbacks/early_stopping_callback.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 #include <jyppx/training/metrics/classification.hpp>
+#include <jyppx/training/metrics/ranking.hpp>
 #include <jyppx/training/scheduler_adapter.hpp>
 
 #include <array>
@@ -138,6 +139,29 @@ int main() {
       installed_metric->descriptor().type_id == "jyppx.metric.precision/v1" &&
       installed_metric->total_observations() == 1 &&
       installed_metric->compute() == 0.5;
+  jyppx::training::metrics::BinaryAUROC installed_ranking_metric(
+      {.metric_id = "metric.ranking.consumer"});
+  installed_ranking_metric.update(torch::tensor({0.9, 0.8, 0.2, 0.1}),
+                                  torch::tensor({1, 0, 1, 0}, torch::kLong));
+  jyppx::validate_checkpoint_participant(installed_ranking_metric);
+  const bool valid_ranking_metric =
+      installed_ranking_metric.descriptor().type_id ==
+          "jyppx.metric.binary-auroc/v1" &&
+      installed_ranking_metric.observations() == 4 &&
+      installed_ranking_metric.compute() == 0.75;
+  jyppx::training::metrics::MulticlassAveragePrecision
+      installed_classwise_metric(
+          {.metric_id = "metric.classwise.consumer",
+           .num_classes = 2,
+           .average = jyppx::training::metrics::RankingAverage::macro});
+  installed_classwise_metric.update(torch::tensor({{0.9, 0.1}, {0.2, 0.8}}),
+                                    torch::tensor({0, 1}, torch::kLong));
+  jyppx::validate_checkpoint_participant(installed_classwise_metric);
+  const bool valid_classwise_metric =
+      installed_classwise_metric.descriptor().type_id ==
+          "jyppx.metric.multiclass-average-precision/v1" &&
+      installed_classwise_metric.observations() == 4 &&
+      installed_classwise_metric.compute() == 1.0;
   const auto pair_a = torch::tensor({{0.0, 0.0}}, torch::kFloat64);
   const auto pair_b = torch::tensor({{0.5, 0.0}}, torch::kFloat64);
   const auto pair_target = torch::tensor({1}, torch::kLong);
@@ -278,6 +302,7 @@ int main() {
                  valid_rng_checkpoint && valid_model_checkpoint && valid_data &&
                  valid_data_pipeline && valid_nn && valid_contrastive &&
                  valid_focal && valid_dice && valid_adapter && valid_metric &&
+                 valid_ranking_metric && valid_classwise_metric &&
                  valid_optimizer && valid_scheduler && valid_callback
              ? 0
              : 1;

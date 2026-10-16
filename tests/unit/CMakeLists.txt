@@ -112,6 +112,11 @@ jyppx_add_gtest(jyppx_test_training_classification_metric
     training/test_classification_metric.cpp
 )
 
+jyppx_add_gtest(jyppx_test_training_ranking_metric
+    LINK_TARGET jyppx::training
+    training/test_ranking_metric.cpp
+)
+
 jyppx_add_gtest(jyppx_test_training_callback_dispatcher
     LINK_TARGET jyppx::training
     training/test_callback_dispatcher.cpp
