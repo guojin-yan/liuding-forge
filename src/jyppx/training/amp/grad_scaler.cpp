@@ -1,3 +1,8 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
 #include <jyppx/training/amp/grad_scaler.hpp>
 
 #include <algorithm>
@@ -6,201 +11,204 @@
 #include <stdexcept>
 #include <utility>
 
-namespace jyppx {
-namespace training {
-namespace amp {
-
+namespace jyppx::training::amp {
 namespace {
 
 void validate_options(const GradScalerOptions& options) {
-    if (!std::isfinite(options.init_scale) || options.init_scale <= 0.0) {
-        throw std::invalid_argument("GradScaler init_scale must be positive");
-    }
-    if (!std::isfinite(options.growth_factor) || options.growth_factor <= 1.0) {
-        throw std::invalid_argument("GradScaler growth_factor must exceed 1.0");
-    }
-    if (!std::isfinite(options.backoff_factor) || options.backoff_factor <= 0.0 ||
-        options.backoff_factor >= 1.0) {
-        throw std::invalid_argument("GradScaler backoff_factor must be in (0, 1)");
-    }
-    if (options.growth_interval <= 0) {
-        throw std::invalid_argument("GradScaler growth_interval must be positive");
-    }
+  if (!std::isfinite(options.init_scale) || options.init_scale <= 0.0) {
+    throw std::invalid_argument("GradScaler init_scale must be positive");
+  }
+  if (!std::isfinite(options.growth_factor) || options.growth_factor <= 1.0) {
+    throw std::invalid_argument("GradScaler growth_factor must exceed 1.0");
+  }
+  if (!std::isfinite(options.backoff_factor) || options.backoff_factor <= 0.0 ||
+      options.backoff_factor >= 1.0) {
+    throw std::invalid_argument("GradScaler backoff_factor must be in (0, 1)");
+  }
+  if (options.growth_interval <= 0) {
+    throw std::invalid_argument("GradScaler growth_interval must be positive");
+  }
+  if (options.scaler_id.empty() ||
+      options.scaler_id.find('\0') != std::string::npos) {
+    throw std::invalid_argument(
+        "GradScaler scaler_id must be a nonempty non-NUL identifier");
+  }
 }
 
-} // namespace
+void validate_state_values(const GradScalerState& state,
+                           const GradScalerOptions& options) {
+  if (state.format_version != kGradScalerStateFormatVersion) {
+    throw std::invalid_argument("Unsupported GradScaler state format version");
+  }
+  if (state.scaler_id != options.scaler_id ||
+      state.init_scale != options.init_scale ||
+      state.growth_factor != options.growth_factor ||
+      state.backoff_factor != options.backoff_factor ||
+      state.growth_interval != options.growth_interval ||
+      state.enabled != options.enabled) {
+    throw std::invalid_argument(
+        "GradScaler state configuration is incompatible");
+  }
+  if (!std::isfinite(state.scale) || state.scale <= 0.0 ||
+      (!state.enabled && state.scale != 1.0) ||
+      state.growth_tracker >=
+          static_cast<std::uint64_t>(state.growth_interval)) {
+    throw std::invalid_argument("Invalid GradScaler mutable state");
+  }
+}
+
+}  // namespace
 
 GradScaler::GradScaler(GradScalerOptions options)
-    : options_(options),
+    : options_(std::move(options)),
       scale_(options_.enabled ? options_.init_scale : 1.0),
       growth_tracker_(0),
       found_inf_(false) {
-    validate_options(options_);
+  validate_options(options_);
 }
 
 Tensor GradScaler::scale(const Tensor& loss) const {
-    if (!options_.enabled) {
-        return loss;
-    }
-    return loss * scale_;
+  return options_.enabled ? loss * scale_ : loss;
 }
 
 void GradScaler::unscale(const std::shared_ptr<optim::Optimizer>& optimizer) {
-    if (!optimizer) {
-        throw std::invalid_argument("GradScaler optimizer cannot be null");
-    }
-    if (!options_.enabled) {
-        return;
-    }
+  if (!optimizer) {
+    throw std::invalid_argument("GradScaler optimizer cannot be null");
+  }
+  if (!options_.enabled) {
+    return;
+  }
 
-    if (optimizer_states_.empty()) {
-        found_inf_ = false;
+  if (optimizer_states_.empty()) {
+    found_inf_ = false;
+  }
+  const auto existing = optimizer_states_.find(optimizer.get());
+  if (existing != optimizer_states_.end()) {
+    if (existing->second.stage == OptimizerStage::stepped) {
+      throw std::logic_error(
+          "GradScaler cannot unscale an optimizer after step() before "
+          "update()");
     }
-    const auto existing = optimizer_states_.find(optimizer.get());
-    if (existing != optimizer_states_.end()) {
-        if (existing->second.stage == OptimizerStage::stepped) {
-            throw std::logic_error(
-                "GradScaler cannot unscale an optimizer after step() before update()");
-        }
-        return;
-    }
+    return;
+  }
 
-    OptimizerState state;
-    const torch::NoGradGuard no_grad;
-    for (const auto& group : optimizer->param_groups()) {
-        for (const auto& parameter : group.params) {
-            if (!parameter.defined() || !parameter.grad().defined()) {
-                continue;
-            }
-            auto& gradient = parameter.mutable_grad();
-            gradient.div_(scale_);
-            if (torch::isinf(gradient).any().item<bool>() ||
-                torch::isnan(gradient).any().item<bool>()) {
-                state.found_inf = true;
-            }
-        }
+  OptimizerState state;
+  const torch::NoGradGuard no_grad;
+  for (const auto& group : optimizer->param_groups()) {
+    for (const auto& parameter : group.params) {
+      if (!parameter.defined() || !parameter.grad().defined()) {
+        continue;
+      }
+      auto& gradient = parameter.mutable_grad();
+      gradient.div_(scale_);
+      if (torch::isinf(gradient).any().item<bool>() ||
+          torch::isnan(gradient).any().item<bool>()) {
+        state.found_inf = true;
+      }
     }
-    found_inf_ = found_inf_ || state.found_inf;
-    optimizer_states_.emplace(optimizer.get(), state);
+  }
+  found_inf_ = found_inf_ || state.found_inf;
+  optimizer_states_.emplace(optimizer.get(), state);
 }
 
 void GradScaler::step(const std::shared_ptr<optim::Optimizer>& optimizer) {
-    if (!optimizer) {
-        throw std::invalid_argument("GradScaler optimizer cannot be null");
-    }
-    if (!options_.enabled) {
-        optimizer->step();
-        return;
-    }
+  if (!optimizer) {
+    throw std::invalid_argument("GradScaler optimizer cannot be null");
+  }
+  if (!options_.enabled) {
+    optimizer->step();
+    return;
+  }
 
-    const auto existing = optimizer_states_.find(optimizer.get());
-    if (existing != optimizer_states_.end() &&
-        existing->second.stage == OptimizerStage::stepped) {
-        throw std::logic_error(
-            "GradScaler.step() for this optimizer must be followed by update()");
-    }
-    unscale(optimizer);
-    auto& state = optimizer_states_.at(optimizer.get());
-    if (!state.found_inf) {
-        optimizer->step();
-    }
-    state.stage = OptimizerStage::stepped;
+  const auto existing = optimizer_states_.find(optimizer.get());
+  if (existing != optimizer_states_.end() &&
+      existing->second.stage == OptimizerStage::stepped) {
+    throw std::logic_error(
+        "GradScaler.step() for this optimizer must be followed by update()");
+  }
+  unscale(optimizer);
+  auto& state = optimizer_states_.at(optimizer.get());
+  if (!state.found_inf) {
+    optimizer->step();
+  }
+  state.stage = OptimizerStage::stepped;
 }
 
 void GradScaler::update() {
-    if (!options_.enabled) {
-        return;
+  if (!options_.enabled) {
+    return;
+  }
+  if (optimizer_states_.empty()) {
+    throw std::logic_error("GradScaler.update() requires a preceding step()");
+  }
+  for (const auto& [optimizer, state] : optimizer_states_) {
+    static_cast<void>(optimizer);
+    if (state.stage != OptimizerStage::stepped) {
+      throw std::logic_error(
+          "GradScaler.update() requires step() for every unscaled optimizer");
     }
-    if (optimizer_states_.empty()) {
-        throw std::logic_error("GradScaler.update() requires a preceding step()");
+  }
+
+  if (found_inf_) {
+    scale_ = std::max(scale_ * options_.backoff_factor,
+                      std::numeric_limits<double>::min());
+    growth_tracker_ = 0;
+  } else {
+    ++growth_tracker_;
+    if (growth_tracker_ >=
+        static_cast<std::uint64_t>(options_.growth_interval)) {
+      const double grown = scale_ * options_.growth_factor;
+      if (!std::isfinite(grown)) {
+        throw std::overflow_error("GradScaler scale overflow");
+      }
+      scale_ = grown;
+      growth_tracker_ = 0;
     }
-    for (const auto& [optimizer, state] : optimizer_states_) {
-        (void)optimizer;
-        if (state.stage != OptimizerStage::stepped) {
-            throw std::logic_error(
-                "GradScaler.update() requires step() for every unscaled optimizer");
-        }
-    }
-    if (found_inf_) {
-        scale_ = std::max(scale_ * options_.backoff_factor,
-                          std::numeric_limits<double>::min());
-        growth_tracker_ = 0;
-    } else {
-        ++growth_tracker_;
-        if (growth_tracker_ >= options_.growth_interval) {
-            const double grown = scale_ * options_.growth_factor;
-            if (!std::isfinite(grown)) {
-                throw std::overflow_error("GradScaler scale overflow");
-            }
-            scale_ = grown;
-            growth_tracker_ = 0;
-        }
-    }
-    optimizer_states_.clear();
+  }
+  optimizer_states_.clear();
 }
 
-double GradScaler::get_scale() const {
-    return scale_;
+double GradScaler::get_scale() const noexcept { return scale_; }
+
+bool GradScaler::found_inf() const noexcept { return found_inf_; }
+
+bool GradScaler::checkpoint_ready() const noexcept {
+  return optimizer_states_.empty();
 }
 
-bool GradScaler::found_inf() const {
-    return found_inf_;
+GradScalerState GradScaler::capture_state() const {
+  if (!checkpoint_ready()) {
+    throw std::logic_error(
+        "GradScaler state requires a completed step/update cycle");
+  }
+  return {.format_version = kGradScalerStateFormatVersion,
+          .scaler_id = options_.scaler_id,
+          .init_scale = options_.init_scale,
+          .growth_factor = options_.growth_factor,
+          .backoff_factor = options_.backoff_factor,
+          .growth_interval = options_.growth_interval,
+          .enabled = options_.enabled,
+          .scale = scale_,
+          .growth_tracker = growth_tracker_};
 }
 
-std::map<std::string, double> GradScaler::state_dict() const {
-    if (!optimizer_states_.empty()) {
-        throw std::logic_error(
-            "GradScaler state can only be saved after update() completes the step cycle");
-    }
-    return {
-        {"format_version", 1.0},
-        {"scale", scale_},
-        {"growth_tracker", static_cast<double>(growth_tracker_)},
-        {"enabled", options_.enabled ? 1.0 : 0.0},
-        {"init_scale", options_.init_scale},
-        {"growth_factor", options_.growth_factor},
-        {"backoff_factor", options_.backoff_factor},
-        {"growth_interval", static_cast<double>(options_.growth_interval)},
-    };
+void GradScaler::restore_state(const GradScalerState& state) {
+  validate_state(state);
+  scale_ = state.scale;
+  growth_tracker_ = state.growth_tracker;
+  found_inf_ = false;
 }
 
-void GradScaler::load_state_dict(const std::map<std::string, double>& state) {
-    const auto scale_it = state.find("scale");
-    const auto tracker_it = state.find("growth_tracker");
-    if (scale_it == state.end() || tracker_it == state.end() ||
-        !std::isfinite(scale_it->second) || scale_it->second <= 0.0 ||
-        !std::isfinite(tracker_it->second) || tracker_it->second < 0.0 ||
-        std::floor(tracker_it->second) != tracker_it->second ||
-        tracker_it->second > static_cast<double>(std::numeric_limits<int>::max())) {
-        throw std::invalid_argument("Invalid GradScaler state");
-    }
-    const auto version = state.find("format_version");
-    const bool has_format = version != state.end();
-    if (has_format && version->second != 1.0) {
-        throw std::invalid_argument("Unsupported GradScaler state format version");
-    }
-    const auto require_config = [&](const char* key, double expected) {
-        const auto it = state.find(key);
-        if (has_format && it == state.end()) {
-            throw std::invalid_argument(
-                std::string("GradScaler checkpoint is missing option: ") + key);
-        }
-        if (it != state.end() && (!std::isfinite(it->second) || it->second != expected)) {
-            throw std::invalid_argument(std::string("GradScaler checkpoint option mismatch: ") + key);
-        }
-    };
-    require_config("enabled", options_.enabled ? 1.0 : 0.0);
-    require_config("init_scale", options_.init_scale);
-    require_config("growth_factor", options_.growth_factor);
-    require_config("backoff_factor", options_.backoff_factor);
-    require_config("growth_interval", static_cast<double>(options_.growth_interval));
-
-    scale_ = scale_it->second;
-    growth_tracker_ = static_cast<int>(tracker_it->second);
-    found_inf_ = false;
-    optimizer_states_.clear();
+void GradScaler::validate_state(const GradScalerState& state) const {
+  if (!checkpoint_ready()) {
+    throw std::logic_error(
+        "GradScaler restore requires a completed step/update cycle");
+  }
+  validate_state_values(state, options_);
 }
 
-} // namespace amp
-} // namespace training
-} // namespace jyppx
+const GradScalerOptions& GradScaler::options() const noexcept {
+  return options_;
+}
+
+}  // namespace jyppx::training::amp

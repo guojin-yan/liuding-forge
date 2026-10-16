@@ -74,6 +74,7 @@
 // Mixed precision
 #include <jyppx/training/amp/autocast.hpp>
 #include <jyppx/training/amp/grad_scaler.hpp>
+#include <jyppx/training/amp/grad_scaler_checkpoint_participant.hpp>
 
 // Callbacks
 #include <jyppx/training/callbacks/model_checkpoint.hpp>

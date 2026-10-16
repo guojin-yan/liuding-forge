@@ -31,7 +31,7 @@ namespace training {
 
 namespace {
 
-constexpr int64_t kCheckpointFormatVersion = 2;
+constexpr int64_t kCheckpointFormatVersion = 3;
 
 void atomic_write_file(const std::string& path, std::string_view bytes) {
   static std::atomic<uint64_t> sequence{0};
@@ -88,6 +88,70 @@ std::map<std::string, double> read_scalar_state(
     }
   }
   return state;
+}
+
+void write_grad_scaler_state(torch::serialize::OutputArchive& archive,
+                             const amp::GradScalerState& state) {
+  archive.write("format_version",
+                torch::IValue(static_cast<int64_t>(state.format_version)));
+  archive.write("scaler_id", torch::IValue(state.scaler_id));
+  archive.write("init_scale", torch::IValue(state.init_scale));
+  archive.write("growth_factor", torch::IValue(state.growth_factor));
+  archive.write("backoff_factor", torch::IValue(state.backoff_factor));
+  archive.write("growth_interval",
+                torch::IValue(static_cast<int64_t>(state.growth_interval)));
+  archive.write("enabled", torch::IValue(state.enabled));
+  archive.write("scale", torch::IValue(state.scale));
+  archive.write("growth_tracker",
+                torch::IValue(static_cast<int64_t>(state.growth_tracker)));
+}
+
+amp::GradScalerState read_grad_scaler_state(
+    torch::serialize::InputArchive& archive) {
+  torch::IValue value;
+  const auto require_int = [&](const char* key) {
+    if (!archive.try_read(key, value) || !value.isInt()) {
+      throw std::runtime_error(std::string("Invalid GradScaler field: ") + key);
+    }
+    return value.toInt();
+  };
+  const auto require_double = [&](const char* key) {
+    if (!archive.try_read(key, value) || !value.isDouble()) {
+      throw std::runtime_error(std::string("Invalid GradScaler field: ") + key);
+    }
+    return value.toDouble();
+  };
+  const auto require_bool = [&](const char* key) {
+    if (!archive.try_read(key, value) || !value.isBool()) {
+      throw std::runtime_error(std::string("Invalid GradScaler field: ") + key);
+    }
+    return value.toBool();
+  };
+  const auto require_string = [&](const char* key) {
+    if (!archive.try_read(key, value) || !value.isString()) {
+      throw std::runtime_error(std::string("Invalid GradScaler field: ") + key);
+    }
+    return value.toStringRef();
+  };
+
+  const auto format_version = require_int("format_version");
+  const auto growth_interval = require_int("growth_interval");
+  const auto growth_tracker = require_int("growth_tracker");
+  if (format_version < 0 ||
+      format_version > std::numeric_limits<std::uint32_t>::max() ||
+      growth_interval < 0 ||
+      growth_interval > std::numeric_limits<int>::max() || growth_tracker < 0) {
+    throw std::runtime_error("GradScaler checkpoint integer is out of range");
+  }
+  return {.format_version = static_cast<std::uint32_t>(format_version),
+          .scaler_id = require_string("scaler_id"),
+          .init_scale = require_double("init_scale"),
+          .growth_factor = require_double("growth_factor"),
+          .backoff_factor = require_double("backoff_factor"),
+          .growth_interval = static_cast<int>(growth_interval),
+          .enabled = require_bool("enabled"),
+          .scale = require_double("scale"),
+          .growth_tracker = static_cast<std::uint64_t>(growth_tracker)};
 }
 
 void write_callback_state(torch::serialize::OutputArchive& archive,
@@ -449,7 +513,7 @@ void Trainer::save_checkpoint(const std::string& path) const {
 
   if (grad_scaler_) {
     torch::serialize::OutputArchive scaler_archive(archive.compilation_unit());
-    write_scalar_state(scaler_archive, grad_scaler_->state_dict());
+    write_grad_scaler_state(scaler_archive, grad_scaler_->capture_state());
     archive.write("grad_scaler", scaler_archive);
   }
 
@@ -680,10 +744,11 @@ void Trainer::load_checkpoint(const std::string& path) {
     throw std::runtime_error("Checkpoint scheduler state is missing");
   }
 
-  std::optional<std::map<std::string, double>> restored_scaler;
+  std::optional<amp::GradScalerState> restored_scaler;
   torch::serialize::InputArchive scaler_archive;
   if (grad_scaler_ && archive.try_read("grad_scaler", scaler_archive)) {
-    restored_scaler = read_scalar_state(scaler_archive);
+    restored_scaler = read_grad_scaler_state(scaler_archive);
+    grad_scaler_->validate_state(*restored_scaler);
   } else if (grad_scaler_) {
     throw std::runtime_error("Checkpoint GradScaler state is missing");
   }
@@ -761,9 +826,9 @@ void Trainer::load_checkpoint(const std::string& path) {
                        scheduler_->state_dict())
                  : std::nullopt;
   const auto scaler_snapshot =
-      grad_scaler_ ? std::optional<std::map<std::string, double>>(
-                         grad_scaler_->state_dict())
-                   : std::nullopt;
+      grad_scaler_
+          ? std::optional<amp::GradScalerState>(grad_scaler_->capture_state())
+          : std::nullopt;
   std::vector<std::pair<std::shared_ptr<Callback>, CallbackState>>
       callback_snapshot;
   callback_snapshot.reserve(restored_callbacks.size());
@@ -795,7 +860,7 @@ void Trainer::load_checkpoint(const std::string& path) {
       scheduler_->load_state_dict(*restored_scheduler);
     }
     if (grad_scaler_ && restored_scaler) {
-      grad_scaler_->load_state_dict(*restored_scaler);
+      grad_scaler_->restore_state(*restored_scaler);
     }
     for (auto& [callback, state] : restored_callbacks) {
       callback->load_state_dict(state);
@@ -857,7 +922,7 @@ void Trainer::load_checkpoint(const std::string& path) {
     }
     if (grad_scaler_ && scaler_snapshot) {
       rollback("grad_scaler",
-               [&]() { grad_scaler_->load_state_dict(*scaler_snapshot); });
+               [&]() { grad_scaler_->restore_state(*scaler_snapshot); });
     }
     for (auto& callback_state : callback_snapshot) {
       auto& callback = callback_state.first;

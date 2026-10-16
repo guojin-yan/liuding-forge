@@ -4,6 +4,7 @@ jyppx_add_gtest(jyppx_test_foundation
     LINK_TARGET jyppx::foundation
     foundation/test_checkpoint.cpp
     foundation/test_foundation.cpp
+    foundation/test_rng_checkpoint_participant.cpp
 )
 
 jyppx_add_gtest(jyppx_test_core
@@ -93,6 +94,7 @@ jyppx_add_gtest(jyppx_test_plan
 jyppx_add_gtest(jyppx_test_training
     training/test_accuracy.cpp
     training/test_amp.cpp
+    training/test_grad_scaler_checkpoint_participant.cpp
     training/test_callbacks.cpp
     training/test_metrics.cpp
     training/test_trainer.cpp

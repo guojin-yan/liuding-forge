@@ -256,7 +256,7 @@ TEST(GradScalerTest, OverflowingStepsDoNotCountTowardGrowth) {
   scaler.step(optimizer);
   scaler.update();
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 0.5);
-  EXPECT_EQ(scaler.state_dict().at("growth_tracker"), 0.0);
+  EXPECT_EQ(scaler.capture_state().growth_tracker, 0U);
 
   // Two healthy steps reach the interval again.
   params[0].mutable_grad() = torch::ones_like(params[0]);
@@ -268,7 +268,7 @@ TEST(GradScalerTest, OverflowingStepsDoNotCountTowardGrowth) {
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 1.0);  // 0.5 * 2.0 after two clean steps
 }
 
-TEST(GradScalerTest, StateDictRoundTrip) {
+TEST(GradScalerTest, TypedStateRoundTrip) {
   GradScaler scaler({.init_scale = 100.0, .growth_interval = 3});
   auto params = make_params({{1}});
   auto optimizer = std::make_shared<optim::SGD>(params);
@@ -279,10 +279,10 @@ TEST(GradScalerTest, StateDictRoundTrip) {
   }
 
   GradScaler restored({.init_scale = 100.0, .growth_interval = 3});
-  restored.load_state_dict(scaler.state_dict());
+  restored.restore_state(scaler.capture_state());
   EXPECT_DOUBLE_EQ(restored.get_scale(), scaler.get_scale());
-  EXPECT_EQ(restored.state_dict().at("growth_tracker"),
-            scaler.state_dict().at("growth_tracker"));
+  EXPECT_EQ(restored.capture_state().growth_tracker,
+            scaler.capture_state().growth_tracker);
 }
 
 TEST(GradScalerTest, InvalidOptionsThrow) {
@@ -303,22 +303,23 @@ TEST(GradScalerTest, EnforcesStepUpdateStateMachineAndValidatesState) {
 
   params[0].mutable_grad() = torch::full_like(params[0], 2.0);
   scaler.step(optimizer);
-  EXPECT_THROW(scaler.state_dict(), std::logic_error);
+  EXPECT_FALSE(scaler.checkpoint_ready());
+  EXPECT_THROW(scaler.capture_state(), std::logic_error);
   EXPECT_THROW(scaler.step(optimizer), std::logic_error);
   EXPECT_THROW(scaler.unscale(optimizer), std::logic_error);
   scaler.update();
 
-  auto invalid = scaler.state_dict();
-  invalid["scale"] = std::numeric_limits<double>::quiet_NaN();
-  EXPECT_THROW(scaler.load_state_dict(invalid), std::invalid_argument);
+  auto invalid = scaler.capture_state();
+  invalid.scale = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(scaler.restore_state(invalid), std::invalid_argument);
 
   GradScaler incompatible({.init_scale = 4.0});
-  EXPECT_THROW(incompatible.load_state_dict(scaler.state_dict()),
+  EXPECT_THROW(incompatible.restore_state(scaler.capture_state()),
                std::invalid_argument);
 
-  auto incomplete = scaler.state_dict();
-  incomplete.erase("growth_factor");
-  EXPECT_THROW(scaler.load_state_dict(incomplete), std::invalid_argument);
+  auto wrong_identity = scaler.capture_state();
+  wrong_identity.scaler_id = "grad_scaler.other";
+  EXPECT_THROW(scaler.restore_state(wrong_identity), std::invalid_argument);
 }
 
 TEST(GradScalerTest, NullOptimizerThrows) {

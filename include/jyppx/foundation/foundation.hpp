@@ -10,6 +10,7 @@
 #include "jyppx/foundation/checkpoint.hpp"
 #include "jyppx/foundation/error.hpp"
 #include "jyppx/foundation/random.hpp"
+#include "jyppx/foundation/random_checkpoint_participant.hpp"
 #include "jyppx/foundation/version.hpp"
 
 #endif  // JYPPX_FOUNDATION_FOUNDATION_HPP

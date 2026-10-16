@@ -154,6 +154,7 @@ add_library(jyppx_foundation STATIC
     src/jyppx/foundation/checkpoint.cpp
     src/jyppx/foundation/error.cpp
     src/jyppx/foundation/random.cpp
+    src/jyppx/foundation/random_checkpoint_participant.cpp
     src/jyppx/foundation/version.cpp
 )
 add_library(jyppx::foundation ALIAS jyppx_foundation)

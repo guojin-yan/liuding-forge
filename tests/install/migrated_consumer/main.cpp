@@ -2,6 +2,7 @@
 #include <jyppx/data/samplers/sequential_sampler.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
 #include <jyppx/foundation/error.hpp>
+#include <jyppx/foundation/random_checkpoint_participant.hpp>
 #include <jyppx/foundation/version.hpp>
 #include <jyppx/nn/loss/contrastive_loss.hpp>
 #include <jyppx/nn/loss/dice_loss.hpp>
@@ -78,6 +79,10 @@ int main() {
       checkpoint_descriptor.participants.size() == 1 &&
       checkpoint_descriptor.participants.front().participant_id ==
           "consumer.state";
+  jyppx::core::RngCheckpointParticipant installed_rng_participant(
+      {.participant_id = "rng.consumer", .include_cuda = false});
+  const bool valid_rng_checkpoint =
+      installed_rng_participant.describe_state().fields.size() == 2;
   const auto indices = jyppx::data::samplers::SequentialSampler(3).indices();
   const bool valid_data = indices == std::vector<std::size_t>({0, 1, 2});
   const auto logits = torch::tensor({{2.0, -1.0}}, torch::kFloat64);
@@ -177,8 +182,8 @@ int main() {
       installed_composite->descriptor().children.size() == 2;
   return valid_version && valid_error && valid_device &&
                  valid_checkpoint_contract && valid_checkpoint_coordinator &&
-                 valid_model_checkpoint && valid_data && valid_nn &&
-                 valid_contrastive && valid_focal && valid_dice &&
+                 valid_rng_checkpoint && valid_model_checkpoint && valid_data &&
+                 valid_nn && valid_contrastive && valid_focal && valid_dice &&
                  valid_adapter && valid_optimizer && valid_scheduler
              ? 0
              : 1;
