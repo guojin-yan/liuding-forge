@@ -303,6 +303,20 @@ TEST(CheckpointCoordinatorTest,
                jyppx::InvalidArgument);
 }
 
+TEST(CheckpointCoordinatorTest, GroupRegistrationHasStrongGuarantee) {
+  jyppx::training::CheckpointParticipantRegistry registry;
+  registry.register_participant(
+      std::make_shared<CounterParticipant>("existing", 1));
+  std::vector<std::shared_ptr<jyppx::CheckpointParticipant>> group;
+  group.push_back(std::make_shared<CounterParticipant>("new.first", 2));
+  group.push_back(std::make_shared<CounterParticipant>("existing", 3));
+
+  EXPECT_THROW(registry.register_participants(std::move(group)),
+               jyppx::InvalidArgument);
+  EXPECT_EQ(registry.participant_ids(), std::vector<std::string>{"existing"});
+  EXPECT_THROW(registry.register_participants({}), jyppx::InvalidArgument);
+}
+
 TEST(CheckpointCoordinatorTest, SavesInCanonicalOrderAndCommitsOnce) {
   std::vector<std::string> events;
   auto later = std::make_shared<CounterParticipant>("z.model", 7);

@@ -24,6 +24,9 @@
 
 namespace jyppx::training {
 
+/** @brief Registry receiving callback checkpoint participants atomically. */
+class CheckpointParticipantRegistry;
+
 /**
  * @brief Identifies a stable training lifecycle event.
  *
@@ -189,6 +192,9 @@ struct CallbackDispatcherOptions {
       1024ULL * 1024ULL;  ///< Maximum canonical descriptor topology size.
   std::uint64_t max_control_bytes =
       64ULL * 1024ULL;  ///< Maximum event cursor state size.
+  std::uint64_t max_dispatch_rollback_bytes =
+      64ULL * 1024ULL *
+      1024ULL;  ///< Maximum declared state snapshotted before one event.
 };
 
 /**
@@ -200,7 +206,12 @@ struct CallbackDispatcherOptions {
  * execution priority cannot override a stronger command. The dispatcher owns
  * only stream control state. Each stateful callback remains an independent
  * participant and is returned by `checkpoint_participants()` for registry
- * insertion.
+ * insertion. Before invoking an event, subscribed stateful callbacks are
+ * snapshotted under an explicit byte budget. A callback exception or invalid
+ * command restores every attempted stateful callback in reverse order before
+ * the failure is rethrown. Stateless external effects cannot be rolled back;
+ * handlers producing such effects must be idempotent or publish through the
+ * later event-sink boundary.
  *
  * Instances are not internally synchronized. The training loop must serialize
  * dispatch and checkpoint I/O at a consistency boundary.
@@ -238,6 +249,8 @@ class CallbackDispatcher final : public CheckpointParticipant {
    * invalid.
    * @throws CompatibilityError If a callback returns an undeclared command.
    * @throws ResourceExhausted If an event or command exceeds configured limits.
+   * @throws InternalError If a handler fails or callback rollback is
+   * incomplete. The original failure is retained as a nested exception.
    */
   CallbackDispatchResult dispatch(const CallbackEvent& event);
 
@@ -294,6 +307,21 @@ class CallbackDispatcher final : public CheckpointParticipant {
   std::uint64_t last_global_step_ =
       0;  ///< Last committed optimizer step count.
 };
+
+/**
+ * @brief Atomically registers a dispatcher and all stateful callback children.
+ * @param registry Registry receiving the complete callback state domain.
+ * @param dispatcher Non-null shared dispatcher retained by the registry.
+ * @throws InvalidArgument If the dispatcher is null or any participant ID
+ * conflicts with the existing registry.
+ *
+ * Registration has a strong guarantee: validation or duplicate failure leaves
+ * the registry unchanged. The dispatcher control cursor and each stateful
+ * callback are registered as independent participants in one operation.
+ */
+void register_callback_checkpoint_participants(
+    CheckpointParticipantRegistry& registry,
+    const std::shared_ptr<CallbackDispatcher>& dispatcher);
 
 }  // namespace jyppx::training
 

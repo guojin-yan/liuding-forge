@@ -67,6 +67,19 @@ class CheckpointParticipantRegistry final {
   void register_participant(std::shared_ptr<CheckpointParticipant> participant);
 
   /**
+   * @brief Registers a complete participant group with a strong guarantee.
+   * @param participants Non-empty group of non-null shared participants.
+   * @throws InvalidArgument If the group is empty, contains an invalid or
+   * duplicate participant, or conflicts with an existing participant ID.
+   *
+   * Every participant is validated against a candidate registry before the
+   * live registry changes. Failure therefore leaves the original registry
+   * unchanged and never exposes a partially registered state domain.
+   */
+  void register_participants(
+      std::vector<std::shared_ptr<CheckpointParticipant>> participants);
+
+  /**
    * @brief Reports whether a participant ID is registered.
    * @param participant_id Stable logical participant identifier.
    * @return `true` when the registry contains that identifier.

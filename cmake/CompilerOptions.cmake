@@ -118,6 +118,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/checkpoint_coordinator.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/callback_dispatcher.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/callbacks/early_stopping_callback.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/training/detail/memory_participant_state.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/metrics/classification.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/scheduler_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_callback_dispatcher.cpp

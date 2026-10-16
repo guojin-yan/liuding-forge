@@ -6,10 +6,13 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
 #include <jyppx/training/callbacks/early_stopping_callback.hpp>
+#include <jyppx/training/checkpoint_coordinator.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <gtest/gtest.h>
 #include <map>
 #include <memory>
@@ -120,6 +123,65 @@ class RecordingCallback final : public jyppx::training::CallbackHandler {
   jyppx::training::CallbackDescriptor descriptor_;   ///< Mock capabilities.
   jyppx::training::CallbackCommandRequest request_;  ///< Fixed response.
   std::vector<std::string>* calls_;  ///< Borrowed execution-order recorder.
+};
+
+class RollbackFailingCallback final : public jyppx::training::CallbackHandler,
+                                      public jyppx::CheckpointParticipant {
+ public:
+  /** @brief Creates a stateful callback that issues an undeclared command. */
+  RollbackFailingCallback() = default;
+
+  /** @brief Returns the fixed stateful test descriptor. */
+  const jyppx::training::CallbackDescriptor& descriptor()
+      const noexcept override {
+    return descriptor_;
+  }
+
+  /** @brief Mutates state before returning an intentionally invalid command. */
+  jyppx::training::CallbackCommandRequest handle(
+      const jyppx::training::CallbackEvent&) override {
+    ++value_;
+    return {.kind = jyppx::training::CallbackCommandKind::request_checkpoint,
+            .reason = "undeclared"};
+  }
+
+  /** @brief Returns the callback identity used by the test manifest. */
+  std::string participant_id() const override {
+    return descriptor_.callback_id;
+  }
+
+  /** @brief Describes one byte of exact callback state. */
+  jyppx::StateManifest describe_state() const override {
+    return {.participant_id = participant_id(),
+            .schema_version = 1,
+            .restore_level = jyppx::RestoreLevel::exact,
+            .fields = {{.name = "value", .max_bytes = 1}}};
+  }
+
+  /** @brief Saves the one-byte mutable test value. */
+  void save_state(jyppx::StateWriter& writer) const override {
+    const std::array bytes{static_cast<std::byte>(value_)};
+    writer.write_blob("value", bytes);
+  }
+
+  /** @brief Fails deliberately to exercise indeterminate rollback reporting. */
+  void load_state(const jyppx::StateReader&, jyppx::RestorePolicy) override {
+    throw jyppx::SerializationError("deliberate callback rollback failure");
+  }
+
+  /** @brief Returns the mutable value for post-failure assertions. */
+  std::uint8_t value() const noexcept { return value_; }
+
+ private:
+  jyppx::training::CallbackDescriptor descriptor_{
+      .schema_version = 1,
+      .type_id = "test.rollback_failure.v1",
+      .callback_id = "callback.rollback_failure",
+      .priority = 0,
+      .subscriptions = {jyppx::training::CallbackEventKind::epoch_finished},
+      .allowed_commands = {},
+      .stateful = true};    ///< Fixed state identity and capabilities.
+  std::uint8_t value_ = 0;  ///< Mutable value changed before failure.
 };
 
 jyppx::training::CallbackDescriptor descriptor(
@@ -293,10 +355,107 @@ TEST(EarlyStoppingCallbackTest, RejectsMissingMetricWithoutStateMutation) {
   jyppx::training::CallbackDispatcher dispatcher({early});
   dispatcher.dispatch(run_started());
 
-  EXPECT_THROW(dispatcher.dispatch(epoch_finished(2, 1)),
-               jyppx::InvalidArgument);
+  try {
+    (void)dispatcher.dispatch(epoch_finished(2, 1));
+    FAIL() << "callback failure should terminate dispatch";
+  } catch (const jyppx::InternalError& error) {
+    EXPECT_EQ(error.details().actual,
+              "callback.early_stopping at epoch_finished");
+    EXPECT_THROW(std::rethrow_if_nested(error), jyppx::InvalidArgument);
+  }
   EXPECT_FALSE(early->has_best_value());
   EXPECT_EQ(early->non_improving_observations(), 0U);
+  EXPECT_EQ(dispatcher.last_event_index(), 1U);
+}
+
+TEST(CallbackDispatcherTest, LaterInvalidCommandRollsBackEarlierStatefulWork) {
+  using jyppx::training::CallbackCommandKind;
+  std::vector<std::string> calls;
+  auto early =
+      std::make_shared<jyppx::training::callbacks::EarlyStoppingCallback>(
+          jyppx::training::callbacks::EarlyStoppingOptions{
+              .callback_id = "callback.early", .priority = 10});
+  auto invalid = std::make_shared<RecordingCallback>(
+      descriptor("callback.invalid", 0, CallbackCommandKind::stop),
+      jyppx::training::CallbackCommandRequest{
+          .kind = CallbackCommandKind::request_checkpoint,
+          .reason = "undeclared"},
+      &calls);
+  jyppx::training::CallbackDispatcher dispatcher({invalid, early});
+  dispatcher.dispatch(run_started());
+
+  EXPECT_THROW(dispatcher.dispatch(epoch_finished(2, 1, {{"val_loss", 1.0}})),
+               jyppx::CompatibilityError);
+  EXPECT_FALSE(early->has_best_value());
+  EXPECT_EQ(early->non_improving_observations(), 0U);
+  EXPECT_EQ(dispatcher.last_event_index(), 1U);
+}
+
+TEST(CallbackDispatcherTest, RegistersCompleteCallbackStateDomainAtomically) {
+  using jyppx::training::callbacks::EarlyStoppingCallback;
+  using jyppx::training::callbacks::EarlyStoppingOptions;
+  auto existing = std::make_shared<EarlyStoppingCallback>(
+      EarlyStoppingOptions{.callback_id = "callback.shared"});
+  jyppx::training::CheckpointParticipantRegistry registry;
+  registry.register_participant(existing);
+
+  auto duplicate = std::make_shared<EarlyStoppingCallback>(
+      EarlyStoppingOptions{.callback_id = "callback.shared"});
+  auto rejected_dispatcher =
+      std::make_shared<jyppx::training::CallbackDispatcher>(
+          std::vector<std::shared_ptr<jyppx::training::CallbackHandler>>{
+              duplicate},
+          jyppx::training::CallbackDispatcherOptions{.dispatcher_id =
+                                                         "callbacks.rejected"});
+  EXPECT_THROW(jyppx::training::register_callback_checkpoint_participants(
+                   registry, rejected_dispatcher),
+               jyppx::InvalidArgument);
+  EXPECT_EQ(registry.participant_ids(),
+            std::vector<std::string>{"callback.shared"});
+
+  auto accepted = std::make_shared<EarlyStoppingCallback>(
+      EarlyStoppingOptions{.callback_id = "callback.accepted"});
+  auto accepted_dispatcher =
+      std::make_shared<jyppx::training::CallbackDispatcher>(
+          std::vector<std::shared_ptr<jyppx::training::CallbackHandler>>{
+              accepted},
+          jyppx::training::CallbackDispatcherOptions{.dispatcher_id =
+                                                         "callbacks.accepted"});
+  jyppx::training::register_callback_checkpoint_participants(
+      registry, accepted_dispatcher);
+  EXPECT_EQ(registry.participant_ids(),
+            (std::vector<std::string>{"callback.accepted", "callback.shared",
+                                      "callbacks.accepted"}));
+}
+
+TEST(CallbackDispatcherTest, EnforcesRollbackBudgetBeforeHandlerMutation) {
+  auto early =
+      std::make_shared<jyppx::training::callbacks::EarlyStoppingCallback>();
+  jyppx::training::CallbackDispatcher dispatcher(
+      {early}, jyppx::training::CallbackDispatcherOptions{
+                   .max_dispatch_rollback_bytes = 1});
+  dispatcher.dispatch(run_started());
+
+  EXPECT_THROW(dispatcher.dispatch(epoch_finished(2, 1, {{"val_loss", 1.0}})),
+               jyppx::ResourceExhausted);
+  EXPECT_FALSE(early->has_best_value());
+  EXPECT_EQ(dispatcher.last_event_index(), 1U);
+}
+
+TEST(CallbackDispatcherTest, ReportsIncompleteRollbackWithOriginalCause) {
+  auto callback = std::make_shared<RollbackFailingCallback>();
+  jyppx::training::CallbackDispatcher dispatcher({callback});
+  dispatcher.dispatch(run_started());
+
+  try {
+    (void)dispatcher.dispatch(epoch_finished(2, 1));
+    FAIL() << "incomplete rollback should be terminal";
+  } catch (const jyppx::InternalError& error) {
+    EXPECT_EQ(error.details().operation, "dispatch.rollback");
+    EXPECT_EQ(error.details().actual, "callback.rollback_failure");
+    EXPECT_THROW(std::rethrow_if_nested(error), jyppx::CompatibilityError);
+  }
+  EXPECT_EQ(callback->value(), 1U);
   EXPECT_EQ(dispatcher.last_event_index(), 1U);
 }
 

@@ -3,15 +3,14 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "detail/memory_participant_state.hpp"
+
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 
 #include <algorithm>
 #include <exception>
 #include <limits>
-#include <map>
-#include <new>
-#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -84,121 +83,6 @@ bool state_manifest_equal(const StateManifest& left,
                     right.fields.begin(), state_field_equal);
 }
 
-const StateFieldDescriptor* find_field(const StateManifest& manifest,
-                                       std::string_view name) {
-  const auto field =
-      std::find_if(manifest.fields.begin(), manifest.fields.end(),
-                   [name](const StateFieldDescriptor& candidate) {
-                     return candidate.name == name;
-                   });
-  return field == manifest.fields.end() ? nullptr : &*field;
-}
-
-class MemoryParticipantState final : public StateWriter, public StateReader {
- public:
-  explicit MemoryParticipantState(StateManifest manifest)
-      : manifest_(std::move(manifest)) {
-    validate_state_manifest(manifest_);
-  }
-
-  void write_blob(std::string_view name,
-                  std::span<const std::byte> data) override {
-    const auto* field = find_field(manifest_, name);
-    if (field == nullptr) {
-      throw SerializationError(
-          "Participant wrote an undeclared rollback field",
-          ErrorDetails{.component = "training.checkpoint",
-                       .operation = "snapshot.write_blob",
-                       .expected = "a field declared by the participant",
-                       .actual = std::string(name),
-                       .hint = "Keep save_state and describe_state aligned."});
-    }
-    if (data.size() > field->max_bytes) {
-      throw ResourceExhausted(
-          "Rollback field exceeds its declared size limit",
-          ErrorDetails{
-              .component = "training.checkpoint",
-              .operation = "snapshot.write_blob",
-              .expected = std::to_string(field->max_bytes),
-              .actual = std::to_string(data.size()),
-              .hint = "Increase the declared field bound deliberately."});
-    }
-    if (blobs_.contains(std::string(name))) {
-      throw SerializationError(
-          "Participant wrote a rollback field more than once",
-          ErrorDetails{.component = "training.checkpoint",
-                       .operation = "snapshot.write_blob",
-                       .expected = "one complete write per field",
-                       .actual = std::string(name),
-                       .hint = "Encode each logical field before writing it."});
-    }
-    try {
-      blobs_.emplace(std::string(name),
-                     std::vector<std::byte>(data.begin(), data.end()));
-    } catch (const std::bad_alloc&) {
-      throw ResourceExhausted(
-          "Unable to allocate a participant rollback snapshot",
-          ErrorDetails{.component = "training.checkpoint",
-                       .operation = "snapshot.write_blob",
-                       .expected = "memory within the configured budget",
-                       .actual = std::to_string(data.size()),
-                       .hint = "Reduce checkpoint state or rollback budget."});
-    }
-  }
-
-  const StateManifest& manifest() const noexcept override { return manifest_; }
-
-  bool contains(std::string_view name) const override {
-    return blobs_.contains(std::string(name));
-  }
-
-  std::span<const std::byte> read_blob(std::string_view name,
-                                       std::uint64_t max_bytes) const override {
-    const auto blob = blobs_.find(std::string(name));
-    if (blob == blobs_.end()) {
-      throw SerializationError(
-          "Rollback snapshot field is missing",
-          ErrorDetails{.component = "training.checkpoint",
-                       .operation = "snapshot.read_blob",
-                       .expected = std::string(name),
-                       .actual = "missing",
-                       .hint = "Treat incomplete snapshots as invalid."});
-    }
-    if (blob->second.size() > max_bytes) {
-      throw ResourceExhausted(
-          "Rollback snapshot field exceeds the reader limit",
-          ErrorDetails{
-              .component = "training.checkpoint",
-              .operation = "snapshot.read_blob",
-              .expected = std::to_string(max_bytes),
-              .actual = std::to_string(blob->second.size()),
-              .hint =
-                  "Keep participant read limits aligned with its manifest."});
-    }
-    return blob->second;
-  }
-
-  void finalize() const {
-    for (const auto& field : manifest_.fields) {
-      if (field.required && !blobs_.contains(field.name)) {
-        throw SerializationError(
-            "Participant omitted a required rollback field",
-            ErrorDetails{
-                .component = "training.checkpoint",
-                .operation = "snapshot.finalize",
-                .expected = field.name,
-                .actual = "missing",
-                .hint =
-                    "Write every required field before save_state returns."});
-      }
-    }
-  }
-
- private:
-  StateManifest manifest_;
-  std::map<std::string, std::vector<std::byte>> blobs_;
-};
-
 void validate_registry_size(std::size_t size,
                             const CheckpointCoordinatorOptions& options) {
   if (size == 0 || size > options.max_participants) {
@@ -261,27 +145,49 @@ void validate_checkpoint_descriptor(const CheckpointDescriptor& descriptor) {
 
 void CheckpointParticipantRegistry::register_participant(
     std::shared_ptr<CheckpointParticipant> participant) {
-  if (participant == nullptr) {
+  std::vector<std::shared_ptr<CheckpointParticipant>> group;
+  group.push_back(std::move(participant));
+  register_participants(std::move(group));
+}
+
+void CheckpointParticipantRegistry::register_participants(
+    std::vector<std::shared_ptr<CheckpointParticipant>> participants) {
+  if (participants.empty()) {
     throw InvalidArgument(
-        "Cannot register a null checkpoint participant",
+        "Cannot register an empty checkpoint participant group",
         ErrorDetails{.component = "training.checkpoint",
-                     .operation = "registry.register_participant",
-                     .expected = "a non-null shared participant",
-                     .actual = "null",
-                     .hint = "Construct the participant before registration."});
+                     .operation = "registry.register_participants",
+                     .expected = "at least one participant",
+                     .actual = "empty",
+                     .hint = "Register one complete recoverable state group."});
   }
-  validate_checkpoint_participant(*participant);
-  const auto identifier = participant->participant_id();
-  if (!participants_.emplace(identifier, std::move(participant)).second) {
-    throw InvalidArgument(
-        "Checkpoint participant ID is already registered",
-        ErrorDetails{
-            .component = "training.checkpoint",
-            .operation = "registry.register_participant",
-            .expected = "a unique participant ID",
-            .actual = identifier,
-            .hint = "Assign one owner to each recoverable state domain."});
+
+  auto candidate = participants_;
+  for (auto& participant : participants) {
+    if (participant == nullptr) {
+      throw InvalidArgument(
+          "Cannot register a null checkpoint participant",
+          ErrorDetails{
+              .component = "training.checkpoint",
+              .operation = "registry.register_participants",
+              .expected = "non-null shared participants",
+              .actual = "null",
+              .hint = "Construct every participant before registration."});
+    }
+    validate_checkpoint_participant(*participant);
+    const auto identifier = participant->participant_id();
+    if (!candidate.emplace(identifier, std::move(participant)).second) {
+      throw InvalidArgument(
+          "Checkpoint participant ID is already registered",
+          ErrorDetails{
+              .component = "training.checkpoint",
+              .operation = "registry.register_participants",
+              .expected = "unique participant IDs across the whole registry",
+              .actual = identifier,
+              .hint = "Assign one owner to each recoverable state domain."});
+    }
   }
+  participants_.swap(candidate);
 }
 
 bool CheckpointParticipantRegistry::contains(
@@ -425,10 +331,11 @@ CheckpointDescriptor CheckpointCoordinator::restore(
     readers.push_back(&reader);
   }
 
-  std::vector<std::unique_ptr<MemoryParticipantState>> snapshots;
+  std::vector<std::unique_ptr<detail::MemoryParticipantState>> snapshots;
   snapshots.reserve(current_descriptor.participants.size());
   for (const auto& manifest : current_descriptor.participants) {
-    auto snapshot = std::make_unique<MemoryParticipantState>(manifest);
+    auto snapshot = std::make_unique<detail::MemoryParticipantState>(
+        manifest, "training.checkpoint", "snapshot");
     registry_.participants_.at(manifest.participant_id)->save_state(*snapshot);
     snapshot->finalize();
     snapshots.push_back(std::move(snapshot));

@@ -3,15 +3,20 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "detail/memory_participant_state.hpp"
+
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
+#include <jyppx/training/checkpoint_coordinator.hpp>
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <limits>
+#include <memory>
 #include <set>
 #include <span>
 #include <string>
@@ -418,6 +423,107 @@ int command_priority(CallbackCommandKind kind) {
   return -1;
 }
 
+struct CallbackStateSnapshot {
+  std::string callback_id;
+  std::shared_ptr<CheckpointParticipant> participant;
+  std::unique_ptr<detail::MemoryParticipantState> state;
+};
+
+std::vector<CallbackStateSnapshot> capture_callback_state(
+    const CallbackEvent& event,
+    const std::vector<std::shared_ptr<CallbackHandler>>& callbacks,
+    std::uint64_t max_rollback_bytes) {
+  std::vector<CallbackStateSnapshot> snapshots;
+  std::uint64_t declared_bytes = 0;
+  for (const auto& callback : callbacks) {
+    const auto& descriptor = callback->descriptor();
+    if (!descriptor.stateful || !is_subscribed(descriptor, event.kind)) {
+      continue;
+    }
+    auto participant =
+        std::dynamic_pointer_cast<CheckpointParticipant>(callback);
+    if (!participant) {
+      throw InternalError(
+          "Stateful callback lost its checkpoint participant interface",
+          ErrorDetails{.component = kComponent,
+                       .operation = "dispatch.snapshot",
+                       .expected = descriptor.callback_id,
+                       .actual = "non-participant handler",
+                       .hint = "Keep callback descriptor identity immutable."});
+    }
+    validate_checkpoint_participant(*participant);
+    auto manifest = participant->describe_state();
+    for (const auto& field : manifest.fields) {
+      if (field.max_bytes > max_rollback_bytes - declared_bytes) {
+        throw_exhausted(
+            "dispatch.rollback_budget", std::to_string(max_rollback_bytes),
+            "more than configured",
+            "Reduce callback state bounds or raise the explicit budget.");
+      }
+      declared_bytes += field.max_bytes;
+    }
+    auto state = std::make_unique<detail::MemoryParticipantState>(
+        std::move(manifest), kComponent, "dispatch.snapshot");
+    participant->save_state(*state);
+    state->finalize();
+    snapshots.push_back({.callback_id = descriptor.callback_id,
+                         .participant = std::move(participant),
+                         .state = std::move(state)});
+  }
+  return snapshots;
+}
+
+[[noreturn]] void rethrow_callback_failure(const CallbackDescriptor& descriptor,
+                                           const CallbackEvent& event) {
+  try {
+    throw;
+  } catch (...) {
+    std::throw_with_nested(InternalError(
+        "Callback handler failed",
+        ErrorDetails{
+            .component = kComponent,
+            .operation = "dispatch.handle",
+            .expected = "successful handling or one declared command",
+            .actual = descriptor.callback_id + " at " +
+                      std::string(callback_event_kind_name(event.kind)),
+            .hint = "Inspect the nested callback failure and abort the run."}));
+  }
+}
+
+[[noreturn]] void rollback_and_rethrow(
+    const std::vector<CallbackStateSnapshot>& snapshots,
+    std::size_t attempted_stateful_callbacks) {
+  const auto dispatch_failure = std::current_exception();
+  std::string rollback_failure_id;
+  for (std::size_t offset = 0; offset < attempted_stateful_callbacks;
+       ++offset) {
+    const auto index = attempted_stateful_callbacks - offset - 1U;
+    try {
+      snapshots[index].participant->load_state(
+          *snapshots[index].state, RestorePolicy::allow_best_effort);
+    } catch (...) {
+      if (rollback_failure_id.empty()) {
+        rollback_failure_id = snapshots[index].callback_id;
+      }
+    }
+  }
+  if (!rollback_failure_id.empty()) {
+    try {
+      std::rethrow_exception(dispatch_failure);
+    } catch (...) {
+      std::throw_with_nested(InternalError(
+          "Callback dispatch failed and rollback was incomplete",
+          ErrorDetails{.component = kComponent,
+                       .operation = "dispatch.rollback",
+                       .expected = "all attempted stateful callbacks restored",
+                       .actual = rollback_failure_id,
+                       .hint = "Stop training because callback state is "
+                               "indeterminate."}));
+    }
+  }
+  std::rethrow_exception(dispatch_failure);
+}
+
 }  // namespace
 
 std::string_view callback_event_kind_name(CallbackEventKind kind) noexcept {
@@ -502,7 +608,8 @@ CallbackDispatcher::CallbackDispatcher(
   }
   if (options_.max_callbacks == 0U || options_.max_metrics_per_event == 0U ||
       options_.max_string_bytes == 0U || options_.max_topology_bytes == 0U ||
-      options_.max_control_bytes == 0U) {
+      options_.max_control_bytes == 0U ||
+      options_.max_dispatch_rollback_bytes == 0U) {
     throw_invalid("options.limits", "positive resource limits", "zero",
                   "Configure explicit positive callback limits.");
   }
@@ -633,46 +740,75 @@ CallbackDispatchResult CallbackDispatcher::dispatch(
     }
   }
 
+  const auto snapshots = capture_callback_state(
+      event, callbacks_, options_.max_dispatch_rollback_bytes);
+  std::size_t attempted_stateful_callbacks = 0;
   CallbackDispatchResult result;
-  for (const auto& callback : callbacks_) {
-    const auto& descriptor = callback->descriptor();
-    if (!is_subscribed(descriptor, event.kind)) {
-      continue;
-    }
-    auto request = callback->handle(event);
-    if (!valid_command_kind(request.kind)) {
-      throw_incompatible("command.kind", "a known declared command", "unknown",
-                         "Return only commands from the stable protocol.");
-    }
-    if (request.kind == CallbackCommandKind::none) {
-      if (!request.reason.empty()) {
-        throw_incompatible("command.reason", "empty reason for none",
-                           request.reason,
-                           "Attach reasons only to real command requests.");
+  try {
+    for (const auto& callback : callbacks_) {
+      const auto& descriptor = callback->descriptor();
+      if (!is_subscribed(descriptor, event.kind)) {
+        continue;
       }
-      continue;
+      if (descriptor.stateful) {
+        if (attempted_stateful_callbacks >= snapshots.size() ||
+            snapshots[attempted_stateful_callbacks].callback_id !=
+                descriptor.callback_id) {
+          throw InternalError(
+              "Callback snapshot order changed during dispatch",
+              ErrorDetails{.component = kComponent,
+                           .operation = "dispatch.snapshot_order",
+                           .expected = descriptor.callback_id,
+                           .actual = "different callback topology",
+                           .hint = "Keep descriptors immutable after "
+                                   "dispatcher construction."});
+        }
+        ++attempted_stateful_callbacks;
+      }
+      CallbackCommandRequest request;
+      try {
+        request = callback->handle(event);
+      } catch (...) {
+        rethrow_callback_failure(descriptor, event);
+      }
+      if (!valid_command_kind(request.kind)) {
+        throw_incompatible("command.kind", "a known declared command",
+                           "unknown",
+                           "Return only commands from the stable protocol.");
+      }
+      if (request.kind == CallbackCommandKind::none) {
+        if (!request.reason.empty()) {
+          throw_incompatible("command.reason", "empty reason for none",
+                             request.reason,
+                             "Attach reasons only to real command requests.");
+        }
+        continue;
+      }
+      if (!command_is_allowed(descriptor, request.kind)) {
+        throw_incompatible(
+            "command.capability",
+            "a command declared by " + descriptor.callback_id,
+            std::string(callback_command_kind_name(request.kind)),
+            "Freeze callback capabilities in its descriptor.");
+      }
+      if (request.reason.empty() ||
+          request.reason.size() > options_.max_string_bytes) {
+        throw_incompatible("command.reason", "a non-empty bounded reason",
+                           request.reason,
+                           "Return an auditable reason for each command.");
+      }
+      CallbackCommand command{.kind = request.kind,
+                              .callback_id = descriptor.callback_id,
+                              .reason = std::move(request.reason)};
+      if (!result.effective_command.has_value() ||
+          command_priority(command.kind) >
+              command_priority(result.effective_command->kind)) {
+        result.effective_command = command;
+      }
+      result.commands.push_back(std::move(command));
     }
-    if (!command_is_allowed(descriptor, request.kind)) {
-      throw_incompatible("command.capability",
-                         "a command declared by " + descriptor.callback_id,
-                         std::string(callback_command_kind_name(request.kind)),
-                         "Freeze callback capabilities in its descriptor.");
-    }
-    if (request.reason.empty() ||
-        request.reason.size() > options_.max_string_bytes) {
-      throw_incompatible("command.reason", "a non-empty bounded reason",
-                         request.reason,
-                         "Return an auditable reason for each command.");
-    }
-    CallbackCommand command{.kind = request.kind,
-                            .callback_id = descriptor.callback_id,
-                            .reason = std::move(request.reason)};
-    if (!result.effective_command.has_value() ||
-        command_priority(command.kind) >
-            command_priority(result.effective_command->kind)) {
-      result.effective_command = command;
-    }
-    result.commands.push_back(std::move(command));
+  } catch (...) {
+    rollback_and_rethrow(snapshots, attempted_stateful_callbacks);
   }
 
   initialized_ = true;
@@ -756,6 +892,22 @@ void CallbackDispatcher::load_state(const StateReader& reader,
   last_event_index_ = candidate.event_index;
   last_epoch_ = candidate.epoch;
   last_global_step_ = candidate.global_step;
+}
+
+void register_callback_checkpoint_participants(
+    CheckpointParticipantRegistry& registry,
+    const std::shared_ptr<CallbackDispatcher>& dispatcher) {
+  if (!dispatcher) {
+    throw_invalid("registry.dispatcher", "a non-null shared dispatcher", "null",
+                  "Construct the callback state domain first.");
+  }
+  std::vector<std::shared_ptr<CheckpointParticipant>> participants;
+  auto children = dispatcher->checkpoint_participants();
+  participants.reserve(children.size() + 1U);
+  participants.push_back(
+      std::static_pointer_cast<CheckpointParticipant>(dispatcher));
+  participants.insert(participants.end(), children.begin(), children.end());
+  registry.register_participants(std::move(participants));
 }
 
 }  // namespace jyppx::training

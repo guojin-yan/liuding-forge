@@ -17,6 +17,8 @@
 #include <jyppx/optim/linear_lr_scheduler.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
+#include <jyppx/training/callback_dispatcher.hpp>
+#include <jyppx/training/callbacks/early_stopping_callback.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 #include <jyppx/training/metrics/classification.hpp>
 #include <jyppx/training/scheduler_adapter.hpp>
@@ -85,6 +87,22 @@ int main() {
       checkpoint_descriptor.participants.size() == 1 &&
       checkpoint_descriptor.participants.front().participant_id ==
           "consumer.state";
+  auto installed_early_stopping =
+      std::make_shared<jyppx::training::callbacks::EarlyStoppingCallback>(
+          jyppx::training::callbacks::EarlyStoppingOptions{
+              .callback_id = "callback.consumer"});
+  auto installed_callback_dispatcher =
+      std::make_shared<jyppx::training::CallbackDispatcher>(
+          std::vector<std::shared_ptr<jyppx::training::CallbackHandler>>{
+              installed_early_stopping},
+          jyppx::training::CallbackDispatcherOptions{.dispatcher_id =
+                                                         "callbacks.consumer"});
+  jyppx::training::CheckpointParticipantRegistry callback_registry;
+  jyppx::training::register_callback_checkpoint_participants(
+      callback_registry, installed_callback_dispatcher);
+  const bool valid_callback =
+      callback_registry.participant_ids() ==
+      std::vector<std::string>({"callback.consumer", "callbacks.consumer"});
   jyppx::core::RngCheckpointParticipant installed_rng_participant(
       {.participant_id = "rng.consumer", .include_cuda = false});
   const bool valid_rng_checkpoint =
@@ -260,7 +278,7 @@ int main() {
                  valid_rng_checkpoint && valid_model_checkpoint && valid_data &&
                  valid_data_pipeline && valid_nn && valid_contrastive &&
                  valid_focal && valid_dice && valid_adapter && valid_metric &&
-                 valid_optimizer && valid_scheduler
+                 valid_optimizer && valid_scheduler && valid_callback
              ? 0
              : 1;
 }
