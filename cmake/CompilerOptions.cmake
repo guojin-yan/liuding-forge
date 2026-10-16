@@ -169,14 +169,17 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/composite_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/epoch_lr_scheduler.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/optim/linear_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/sgd_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/step_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/composite_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/epoch_lr_scheduler.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/optim/linear_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/step_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_composite_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_epoch_lr_scheduler.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_linear_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_step_lr_scheduler.cpp
     )

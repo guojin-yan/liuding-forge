@@ -1002,6 +1002,20 @@ void LrScheduler::configure_descriptor(
   }
 }
 
+void LrScheduler::initialize_learning_rates(
+    std::span<const double> learning_rates) {
+  try {
+    validate_rates(learning_rates, impl_->base_learning_rates.size(),
+                   "initialize.learning_rates");
+    impl_->optimizer->set_learning_rates(
+        std::vector<double>(learning_rates.begin(), learning_rates.end()));
+  } catch (const Error&) {
+    throw;
+  } catch (const std::bad_alloc&) {
+    translate_bad_alloc("initialize learning rates");
+  }
+}
+
 std::vector<double> LrScheduler::learning_rates() const {
   try {
     if (impl_->optimizer->optimizer_id() != impl_->descriptor.optimizer_id) {

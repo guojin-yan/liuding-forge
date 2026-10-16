@@ -8,7 +8,8 @@ LibTorch and supplies stable parameter identity plus storage-neutral recovery.
 The migrated scheduler boundary includes descriptor-first
 [`StepLrScheduler`](step_lr_scheduler.md) plus transactional
 [`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md)
-and the [epoch scheduler family](epoch_lr_scheduler.md).
+and the [epoch scheduler family](epoch_lr_scheduler.md), including the
+[linear-family schedulers](linear_lr_scheduler.md).
 They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
 The hand-written hierarchy documented below is the legacy path still used by
@@ -114,6 +115,10 @@ scheduler->step();  // after one completed epoch
 | `ExponentialLrScheduler` | `gamma` | multiplies current rates every epoch |
 | `MultiStepLrScheduler` | `milestones`, `gamma` | decays at positive strictly ordered epochs |
 | `CosineAnnealingLrScheduler` | `t_max`, `eta_min` | chainable recursive cosine trajectory |
+| `LinearLrScheduler` | `start_factor`, `end_factor`, `total_iters` | construction-time factor interpolation |
+| `WarmupLrScheduler` | `start_factor`, `warmup_iters` | linear warmup to captured base rates |
+| `ConstantLrScheduler` | `factor`, `total_iters` | constant factor prefix then base rates |
+| `PolynomialLrScheduler` | `total_iters`, `power` | closed-form decay toward zero |
 | `SequentialLrScheduler` | children, `milestones` | selects one ordered child per event |
 | `ChainedLrScheduler` | ordered children | previews every child and commits once |
 
@@ -126,12 +131,8 @@ consumers and are not checkpoint-safe under the new participant contract:
 | `ReduceLROnPlateau` | mode, factor, patience, threshold | pending metric-event and state migration |
 | `OneCycleLR` | `max_lr`, `total_steps` | one-cycle warmup and cooldown |
 | `CosineAnnealingWarmRestarts` | `T_0`, `T_mult`, `eta_min` | cosine cycles with restarts |
-| `LinearLR` | `start_factor`, `end_factor`, `total_iters` | linear factor schedule |
 | `CyclicLR` | `base_lr`, `max_lr`, `step_size_up` | triangular or exponential cycles |
-| `PolynomialLR` | `total_iters`, `power` | polynomial decay |
-| `ConstantLR` | `factor`, `total_iters` | constant factor for a prefix |
 | `LambdaLR` | callable factor | user-defined factor per step |
-| `WarmupScheduler` | `warmup_iters`, `start_factor`, optional scheduler | linear warmup wrapper |
 
 `OneCycleLR` is stepped once per optimizer update. Its two-phase and
 three-phase boundaries, cosine/linear interpolation, and inverse momentum or

@@ -253,6 +253,20 @@ class LrScheduler {
       std::vector<SchedulerDescriptor> children = {},
       std::optional<std::string> callable_id = std::nullopt);
 
+  /**
+   * @brief Applies a validated construction-time rate vector.
+   *
+   * Some schedulers intentionally begin at a factor of the captured base
+   * rates. Derived constructors call this after validating their immutable
+   * options and configuring the descriptor; normal training transitions must
+   * continue to use `step()` so the scheduler transaction remains atomic.
+   *
+   * @param learning_rates Complete finite non-negative initial group rates.
+   * @throws InvalidArgument If the vector does not match the captured
+   * topology or contains an invalid rate.
+   */
+  void initialize_learning_rates(std::span<const double> learning_rates);
+
  private:
   /** @brief Opaque owner of stable optimizer linkage and descriptor metadata.
    */

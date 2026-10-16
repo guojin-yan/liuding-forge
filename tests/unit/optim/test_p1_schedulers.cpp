@@ -12,14 +12,6 @@ protected:
  void SetUp() override { params_ = make_params({{2,2}}); optimizer_ = std::make_shared<optim::SGD>(params_, optim::SGDOptions{.lr = 0.1}); }
  TensorList params_; std::shared_ptr<optim::SGD> optimizer_;
 };
-TEST_F(P1SchedulerTest, PolynomialAndConstantMatchProfiles) {
- optim::schedulers::PolynomialLR poly(optimizer_, 4, 2.0);
- poly.step(); EXPECT_NEAR(poly.get_last_lr(), 0.1 * 0.75 * 0.75, 1e-12);
- poly.step(); EXPECT_NEAR(poly.get_last_lr(), 0.1 * 0.5 * 0.5, 1e-12);
- auto opt = std::make_shared<optim::SGD>(params_, optim::SGDOptions{.lr = 0.1});
- optim::schedulers::ConstantLR constant(opt, 0.2, 2);
- EXPECT_NEAR(constant.get_last_lr(), 0.02, 1e-12); constant.step(); EXPECT_NEAR(constant.get_last_lr(), 0.02, 1e-12); constant.step(); EXPECT_NEAR(constant.get_last_lr(), 0.1, 1e-12);
-}
 TEST_F(P1SchedulerTest, LambdaAndCyclicModesWork) {
  optim::schedulers::LambdaLR lambda(optimizer_, [](int64_t step) { return 1.0 / (step + 1); });
  EXPECT_NEAR(lambda.get_last_lr(), 0.1, 1e-12);
@@ -59,8 +51,6 @@ TEST_F(P1SchedulerTest, CyclicScalingMatchesPyTorchProfiles) {
              1e-12);
 }
 TEST_F(P1SchedulerTest, InvalidParametersThrow) {
- EXPECT_THROW(optim::schedulers::PolynomialLR(optimizer_, 0), std::invalid_argument);
- EXPECT_THROW(optim::schedulers::ConstantLR(optimizer_, 0.0), std::invalid_argument);
  EXPECT_THROW(optim::schedulers::LambdaLR(optimizer_, std::function<double(int64_t)>{}), std::invalid_argument);
  EXPECT_THROW(optim::schedulers::CyclicLR(optimizer_, 0.1, 0.01, 1), std::invalid_argument);
 }

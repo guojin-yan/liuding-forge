@@ -25,6 +25,7 @@
 #include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/optim/composite_lr_scheduler.hpp>
 #include <jyppx/optim/epoch_lr_scheduler.hpp>
+#include <jyppx/optim/linear_lr_scheduler.hpp>
 #include <jyppx/optim/adam.hpp>
 #include <jyppx/optim/adamw.hpp>
 #include <jyppx/optim/rmsprop.hpp>
@@ -38,9 +39,7 @@
 #include <jyppx/optim/schedulers/reduce_lr_on_plateau.hpp>
 #include <jyppx/optim/schedulers/one_cycle_lr.hpp>
 #include <jyppx/optim/schedulers/cosine_annealing_warm_restarts.hpp>
-#include <jyppx/optim/schedulers/linear_lr.hpp>
 #include <jyppx/optim/schedulers/p1_schedulers.hpp>
-#include <jyppx/optim/schedulers/warmup_scheduler.hpp>
 
 // Data
 #include <jyppx/data/dataset.hpp>

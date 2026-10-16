@@ -45,7 +45,7 @@ concept ModuleHolderLike = requires(const Holder& holder) {
   { static_cast<bool>(holder) } -> std::same_as<bool>;
   {
     holder.ptr()
-    } -> std::convertible_to<std::shared_ptr<typename Holder::ContainedType>>;
+  } -> std::convertible_to<std::shared_ptr<typename Holder::ContainedType>>;
 };
 
 /**
@@ -55,10 +55,11 @@ concept ModuleHolderLike = requires(const Holder& holder) {
  * @tparam Module Concrete module implementation passed to the callable.
  */
 template <typename Forward, typename Module>
-concept InvocationForward = ModuleImplementation<Module> &&
+concept InvocationForward =
+    ModuleImplementation<Module> &&
     requires(Forward& forward, Module& module, const Invocation& input) {
-  c10::IValue(std::invoke(forward, module, input));
-};
+      c10::IValue(std::invoke(forward, module, input));
+    };
 
 /**
  * @brief Matches concrete modules exposing an IValue-compatible
@@ -67,9 +68,9 @@ concept InvocationForward = ModuleImplementation<Module> &&
  */
 template <typename Module>
 concept TensorForwardModule = ModuleImplementation<Module> &&
-    requires(Module& module, const Tensor& input) {
-  c10::IValue(module.forward(input));
-};
+                              requires(Module& module, const Tensor& input) {
+                                c10::IValue(module.forward(input));
+                              };
 
 /**
  * @brief Matches module holders whose implementation satisfies the common
@@ -77,7 +78,8 @@ concept TensorForwardModule = ModuleImplementation<Module> &&
  * @tparam Holder Candidate `TORCH_MODULE` or compatible holder type.
  */
 template <typename Holder>
-concept TensorForwardHolder = ModuleHolderLike<Holder> &&
+concept TensorForwardHolder =
+    ModuleHolderLike<Holder> &&
     TensorForwardModule<typename Holder::ContainedType>;
 
 /**

@@ -25,26 +25,6 @@ private:
     std::function<double(double)> scale_fn_;
 };
 
-class PolynomialLR : public LRScheduler {
-public:
-    PolynomialLR(std::shared_ptr<Optimizer> optimizer, int64_t total_iters,
-                 double power = 1.0);
-    using LRScheduler::step;
-    void step() override;
-private:
-    int64_t total_iters_; double power_;
-};
-
-class ConstantLR : public LRScheduler {
-public:
-    ConstantLR(std::shared_ptr<Optimizer> optimizer, double factor = 1.0 / 3.0,
-               int64_t total_iters = 5);
-    using LRScheduler::step;
-    void step() override;
-private:
-    double factor_; int64_t total_iters_;
-};
-
 class LambdaLR : public LRScheduler {
 public:
     explicit LambdaLR(std::shared_ptr<Optimizer> optimizer,
@@ -60,8 +40,6 @@ private:
 } // namespace jyppx::optim::schedulers
 namespace jyppx::optim {
 using CyclicLR = schedulers::CyclicLR;
-using PolynomialLR = schedulers::PolynomialLR;
-using ConstantLR = schedulers::ConstantLR;
 using LambdaLR = schedulers::LambdaLR;
 }
 #endif

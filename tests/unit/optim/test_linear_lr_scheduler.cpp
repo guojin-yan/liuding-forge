@@ -1,0 +1,271 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
+#include <jyppx/foundation/error.hpp>
+#include <jyppx/optim/linear_lr_scheduler.hpp>
+#include <jyppx/optim/sgd_adapter.hpp>
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <gtest/gtest.h>
+#include <map>
+#include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace {
+
+class MemoryStateStore final : public jyppx::StateWriter,
+                               public jyppx::StateReader {
+ public:
+  explicit MemoryStateStore(jyppx::StateManifest manifest)
+      : manifest_(std::move(manifest)) {
+    jyppx::validate_state_manifest(manifest_);
+  }
+
+  void write_blob(std::string_view name,
+                  std::span<const std::byte> data) override {
+    const auto field =
+        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
+                     [name](const jyppx::StateFieldDescriptor& candidate) {
+                       return candidate.name == name;
+                     });
+    if (field == manifest_.fields.end() || data.size() > field->max_bytes) {
+      throw jyppx::SerializationError("invalid linear scheduler test field");
+    }
+    if (!blobs_
+             .emplace(std::string(name),
+                      std::vector<std::byte>(data.begin(), data.end()))
+             .second) {
+      throw jyppx::SerializationError("duplicate linear scheduler test field");
+    }
+  }
+
+  const jyppx::StateManifest& manifest() const noexcept override {
+    return manifest_;
+  }
+
+  bool contains(std::string_view name) const override {
+    return blobs_.contains(std::string(name));
+  }
+
+  std::span<const std::byte> read_blob(std::string_view name,
+                                       std::uint64_t max_bytes) const override {
+    const auto blob = blobs_.find(std::string(name));
+    if (blob == blobs_.end()) {
+      throw jyppx::SerializationError("missing linear scheduler test field");
+    }
+    if (blob->second.size() > max_bytes) {
+      throw jyppx::ResourceExhausted(
+          "linear scheduler test field exceeds read limit");
+    }
+    return blob->second;
+  }
+
+  const std::map<std::string, std::vector<std::byte>>& blobs() const noexcept {
+    return blobs_;
+  }
+
+ private:
+  jyppx::StateManifest manifest_;  ///< Manifest enforced by this test store.
+  std::map<std::string, std::vector<std::byte>>
+      blobs_;  ///< Stored fields indexed by stable name.
+};
+
+std::shared_ptr<jyppx::optim::SgdOptimizerAdapter> make_optimizer(
+    std::string optimizer_id = "optimizer.linear_family") {
+  auto first = torch::ones(
+      {1}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto second = torch::ones(
+      {1}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  return std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+      std::move(optimizer_id),
+      std::vector<jyppx::optim::SgdParameterGroup>{
+          {.group_id = "backbone",
+           .parameters = {{.parameter_id = "backbone.weight",
+                           .parameter = std::move(first)}},
+           .options = {.learning_rate = 0.2}},
+          {.group_id = "head",
+           .parameters = {{.parameter_id = "head.weight",
+                           .parameter = std::move(second)}},
+           .options = {.learning_rate = 0.05}}});
+}
+
+MemoryStateStore save_state(
+    const jyppx::optim::LrSchedulerCheckpointParticipant& participant) {
+  MemoryStateStore store(participant.describe_state());
+  participant.save_state(store);
+  return store;
+}
+
+TEST(LinearFamilySchedulerTest, PublishesTypedDescriptorsAndConstructionRates) {
+  auto optimizer = make_optimizer();
+  jyppx::optim::LinearLrScheduler linear(optimizer,
+                                         {.scheduler_id = "scheduler.linear",
+                                          .start_factor = 0.2,
+                                          .end_factor = 1.0,
+                                          .total_iters = 4});
+  EXPECT_EQ(linear.descriptor().type_id, "jyppx.scheduler.linear_lr/v1");
+  EXPECT_EQ(linear.descriptor().step_mode,
+            jyppx::optim::SchedulerStepMode::epoch);
+  EXPECT_NEAR(linear.learning_rates()[0], 0.04, 1e-14);
+  EXPECT_NEAR(linear.learning_rates()[1], 0.01, 1e-14);
+  EXPECT_EQ(
+      std::get<std::int64_t>(linear.descriptor().config.at("total_iters")), 4);
+
+  auto warmup_optimizer = make_optimizer("optimizer.warmup");
+  jyppx::optim::WarmupLrScheduler warmup(warmup_optimizer,
+                                         {.scheduler_id = "scheduler.warmup",
+                                          .warmup_iters = 4,
+                                          .start_factor = 0.2});
+  EXPECT_EQ(warmup.descriptor().type_id, "jyppx.scheduler.warmup_lr/v1");
+  EXPECT_NEAR(warmup.learning_rates()[0], 0.04, 1e-14);
+  EXPECT_NEAR(warmup.learning_rates()[1], 0.01, 1e-14);
+}
+
+TEST(LinearFamilySchedulerTest, LinearReachesEndFactorAndClamps) {
+  auto optimizer = make_optimizer();
+  jyppx::optim::LinearLrScheduler scheduler(
+      optimizer, {.start_factor = 0.2, .end_factor = 1.0, .total_iters = 4});
+  const std::vector<double> expected{0.08, 0.12, 0.16, 0.2, 0.2};
+  for (const double expected_first_rate : expected) {
+    scheduler.step();
+    EXPECT_NEAR(scheduler.learning_rates().front(), expected_first_rate, 1e-14);
+  }
+}
+
+TEST(LinearFamilySchedulerTest, WarmupReachesBaseAndClamps) {
+  auto optimizer = make_optimizer();
+  jyppx::optim::WarmupLrScheduler scheduler(
+      optimizer, {.warmup_iters = 4, .start_factor = 0.2});
+  const std::vector<double> expected{0.08, 0.12, 0.16, 0.2, 0.2};
+  for (const double expected_first_rate : expected) {
+    scheduler.step();
+    EXPECT_NEAR(scheduler.learning_rates().front(), expected_first_rate, 1e-14);
+  }
+}
+
+TEST(LinearFamilySchedulerTest, ConstantUsesPrefixAndThenBase) {
+  auto optimizer = make_optimizer();
+  jyppx::optim::ConstantLrScheduler scheduler(
+      optimizer, {.factor = 0.2, .total_iters = 2});
+  EXPECT_NEAR(scheduler.learning_rates().front(), 0.04, 1e-14);
+  scheduler.step();
+  EXPECT_NEAR(scheduler.learning_rates().front(), 0.04, 1e-14);
+  scheduler.step();
+  EXPECT_NEAR(scheduler.learning_rates().front(), 0.04, 1e-14);
+  scheduler.step();
+  EXPECT_NEAR(scheduler.learning_rates().front(), 0.2, 1e-14);
+}
+
+TEST(LinearFamilySchedulerTest, PolynomialReachesZeroAndClamps) {
+  auto optimizer = make_optimizer();
+  jyppx::optim::PolynomialLrScheduler scheduler(
+      optimizer, {.total_iters = 4, .power = 2.0});
+  scheduler.step();
+  EXPECT_NEAR(scheduler.learning_rates().front(), 0.1125, 1e-14);
+  scheduler.step();
+  EXPECT_NEAR(scheduler.learning_rates().front(), 0.05, 1e-14);
+  scheduler.step();
+  EXPECT_NEAR(scheduler.learning_rates().front(), 0.0125, 1e-14);
+  scheduler.step();
+  EXPECT_DOUBLE_EQ(scheduler.learning_rates().front(), 0.0);
+  scheduler.step();
+  EXPECT_DOUBLE_EQ(scheduler.learning_rates().front(), 0.0);
+}
+
+TEST(LinearFamilySchedulerTest, ZeroTotalIterationsHaveExplicitBoundaries) {
+  auto linear_optimizer = make_optimizer("optimizer.linear.zero");
+  jyppx::optim::LinearLrScheduler linear(
+      linear_optimizer,
+      {.start_factor = 0.25, .end_factor = 0.75, .total_iters = 0});
+  EXPECT_NEAR(linear.learning_rates().front(), 0.05, 1e-14);
+  linear.step();
+  EXPECT_NEAR(linear.learning_rates().front(), 0.15, 1e-14);
+
+  auto constant_optimizer = make_optimizer("optimizer.constant.zero");
+  jyppx::optim::ConstantLrScheduler constant(
+      constant_optimizer, {.factor = 0.25, .total_iters = 0});
+  constant.step();
+  EXPECT_NEAR(constant.learning_rates().front(), 0.2, 1e-14);
+}
+
+TEST(LinearFamilySchedulerTest, InvalidOptionsDoNotMutateOptimizer) {
+  auto optimizer = make_optimizer();
+  const auto before = optimizer->learning_rates();
+  EXPECT_THROW(jyppx::optim::LinearLrScheduler(
+                   optimizer, {.start_factor = 0.0, .end_factor = 1.0}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::ConstantLrScheduler(optimizer, {.factor = -0.1}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::optim::PolynomialLrScheduler(optimizer, {.total_iters = 0}),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::WarmupLrScheduler(optimizer, {.warmup_iters = 0}),
+               jyppx::InvalidArgument);
+  EXPECT_EQ(optimizer->learning_rates(), before);
+}
+
+TEST(LinearFamilySchedulerCheckpointTest, RestoresExactContinuation) {
+  auto source_optimizer = make_optimizer("optimizer.source");
+  auto source = std::make_shared<jyppx::optim::LinearLrScheduler>(
+      source_optimizer,
+      jyppx::optim::LinearLrSchedulerOptions{.scheduler_id = "scheduler.linear",
+                                             .start_factor = 0.2,
+                                             .end_factor = 1.0,
+                                             .total_iters = 4});
+  source->step();
+  source->step();
+  jyppx::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  const auto store = save_state(source_participant);
+
+  auto target_optimizer = make_optimizer("optimizer.source");
+  auto target = std::make_shared<jyppx::optim::LinearLrScheduler>(
+      target_optimizer,
+      jyppx::optim::LinearLrSchedulerOptions{.scheduler_id = "scheduler.linear",
+                                             .start_factor = 0.2,
+                                             .end_factor = 1.0,
+                                             .total_iters = 4});
+  target_optimizer->set_learning_rates({0.9, 0.8});
+  jyppx::optim::LrSchedulerCheckpointParticipant target_participant(target);
+  target_participant.load_state(store, jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(target->completed_steps(), source->completed_steps());
+  EXPECT_EQ(target->learning_rates(), source->learning_rates());
+
+  source->step();
+  target->step();
+  EXPECT_EQ(target->completed_steps(), source->completed_steps());
+  EXPECT_EQ(target->learning_rates(), source->learning_rates());
+}
+
+TEST(LinearFamilySchedulerCheckpointTest, DescriptorMismatchDoesNotMutate) {
+  auto source_optimizer = make_optimizer("optimizer.mismatch");
+  auto source = std::make_shared<jyppx::optim::PolynomialLrScheduler>(
+      source_optimizer,
+      jyppx::optim::PolynomialLrSchedulerOptions{
+          .scheduler_id = "scheduler.poly", .total_iters = 4, .power = 2.0});
+  source->step();
+  jyppx::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  const auto store = save_state(source_participant);
+
+  auto target_optimizer = make_optimizer("optimizer.mismatch");
+  auto target = std::make_shared<jyppx::optim::PolynomialLrScheduler>(
+      target_optimizer,
+      jyppx::optim::PolynomialLrSchedulerOptions{
+          .scheduler_id = "scheduler.poly", .total_iters = 5, .power = 2.0});
+  jyppx::optim::LrSchedulerCheckpointParticipant target_participant(target);
+  const auto before = save_state(target_participant).blobs();
+  EXPECT_THROW(
+      target_participant.load_state(store, jyppx::RestorePolicy::exact_only),
+      jyppx::CompatibilityError);
+  EXPECT_EQ(save_state(target_participant).blobs(), before);
+  EXPECT_EQ(target->completed_steps(), 0U);
+}
+
+}  // namespace

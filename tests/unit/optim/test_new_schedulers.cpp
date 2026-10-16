@@ -3,7 +3,6 @@
 #include <jyppx/optim/schedulers/reduce_lr_on_plateau.hpp>
 #include <jyppx/optim/schedulers/one_cycle_lr.hpp>
 #include <jyppx/optim/schedulers/cosine_annealing_warm_restarts.hpp>
-#include <jyppx/optim/schedulers/linear_lr.hpp>
 #include <jyppx/optim/sgd.hpp>
 
 #include "test_utils/jyppx_test_helpers.hpp"
@@ -177,17 +176,6 @@ TEST_F(NewSchedulersTest, ReduceLROnPlateauValidatesArguments) {
     EXPECT_THROW(
         scheduler.step(std::numeric_limits<double>::quiet_NaN()),
         std::invalid_argument);
-}
-
-TEST_F(NewSchedulersTest, LinearLRInterpolatesAndClamps) {
-    optim::schedulers::LinearLR scheduler(optimizer_, 0.2, 1.0, 4);
-    EXPECT_NEAR(scheduler.get_last_lr(), base_lr_ * 0.2, 1e-12);
-    for (int i = 1; i <= 4; ++i) {
-        scheduler.step();
-        EXPECT_NEAR(scheduler.get_last_lr(), base_lr_ * (0.2 + 0.2 * i), 1e-12);
-    }
-    scheduler.step();
-    EXPECT_NEAR(scheduler.get_last_lr(), base_lr_, 1e-12);
 }
 
 TEST_F(NewSchedulersTest, CosineWarmRestartsRestartsAtCycleBoundary) {

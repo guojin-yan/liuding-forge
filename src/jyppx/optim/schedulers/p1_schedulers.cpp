@@ -91,36 +91,6 @@ void CyclicLR::step() {
     }
 }
 
-PolynomialLR::PolynomialLR(std::shared_ptr<Optimizer> optimizer, int64_t total_iters, double power)
-    : LRScheduler(std::move(optimizer)), total_iters_(total_iters), power_(power) {
-    if (total_iters_ <= 0 || power_ < 0.0 || !std::isfinite(power_)) throw std::invalid_argument("PolynomialLR total_iters must be positive and power non-negative");
-    configure_descriptor(
-        "jyppx.scheduler.polynomial_lr/v1", SchedulerStepMode::epoch,
-        {{"power", descriptor_number(power_)},
-         {"total_iters", descriptor_integer(total_iters_)}});
-}
-void PolynomialLR::step() {
-    ++step_count_;
-    const double pct = std::min(1.0, static_cast<double>(step_count_) / total_iters_);
-    const double factor = std::pow(1.0 - pct, power_);
-    std::vector<double> lrs; for (double base : base_lrs_) lrs.push_back(base * factor); set_last_lrs(lrs);
-}
-
-ConstantLR::ConstantLR(std::shared_ptr<Optimizer> optimizer, double factor, int64_t total_iters)
-    : LRScheduler(std::move(optimizer)), factor_(factor), total_iters_(total_iters) {
-    if (factor_ <= 0.0 || factor_ > 1.0 || total_iters_ < 0 || !std::isfinite(factor_)) throw std::invalid_argument("ConstantLR factor must be in (0,1] and total_iters non-negative");
-    configure_descriptor(
-        "jyppx.scheduler.constant_lr/v1", SchedulerStepMode::epoch,
-        {{"factor", descriptor_number(factor_)},
-         {"total_iters", descriptor_integer(total_iters_)}});
-    std::vector<double> initial; for (double base : base_lrs_) initial.push_back(base * factor_); set_last_lrs(initial);
-}
-void ConstantLR::step() {
-    ++step_count_;
-    const double factor = step_count_ < total_iters_ ? factor_ : 1.0;
-    std::vector<double> lrs; for (double base : base_lrs_) lrs.push_back(base * factor); set_last_lrs(lrs);
-}
-
 LambdaLR::LambdaLR(std::shared_ptr<Optimizer> optimizer, std::function<double(int64_t)> lr_lambda)
     : LambdaLR(std::move(optimizer), std::vector<std::function<double(int64_t)>>{std::move(lr_lambda)}) {}
 LambdaLR::LambdaLR(std::shared_ptr<Optimizer> optimizer, std::vector<std::function<double(int64_t)>> lr_lambdas)

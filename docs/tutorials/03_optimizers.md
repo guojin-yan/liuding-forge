@@ -61,6 +61,19 @@ auto scheduler = std::make_shared<jyppx::optim::MultiStepLrScheduler>(
 | `MultiStepLrScheduler` | multiply at each strictly ordered milestone |
 | `CosineAnnealingLrScheduler` | recursive cosine trajectory with `t_max` and `eta_min` |
 
+The related construction-time schedulers are available from
+`<jyppx/optim/linear_lr_scheduler.hpp>`:
+
+| Scheduler | Construction and boundary |
+|-----------|---------------------------|
+| `LinearLrScheduler` | starts at `start_factor`, reaches `end_factor` after `total_iters`, then clamps |
+| `WarmupLrScheduler` | starts at `start_factor`, reaches base rates after `warmup_iters`, then clamps |
+| `ConstantLrScheduler` | starts at `factor`, keeps it for `total_iters` events, then reaches base rates |
+| `PolynomialLrScheduler` | keeps base rates initially and decays with `power` toward a terminal factor |
+
+Warmup is standalone by design. Use `SequentialLrScheduler` to append another
+descriptor-first scheduler so that the complete tree remains transactional.
+
 Read all current group rates with `scheduler->learning_rates()` and the
 committed epoch counter with `completed_steps()`. Options, base rates, stable
 optimizer/group identities and step mode are part of the typed descriptor.
