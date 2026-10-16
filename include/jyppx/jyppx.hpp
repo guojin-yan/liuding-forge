@@ -67,6 +67,8 @@
 #include <jyppx/training/scheduler_adapter.hpp>
 #include <jyppx/training/trainer.hpp>
 #include <jyppx/training/callback.hpp>
+#include <jyppx/training/callback_dispatcher.hpp>
+#include <jyppx/training/callbacks/early_stopping_callback.hpp>
 
 // Mixed precision
 #include <jyppx/training/amp/autocast.hpp>

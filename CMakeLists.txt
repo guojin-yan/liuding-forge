@@ -264,6 +264,8 @@ target_link_libraries(jyppx_nn
 )
 
 add_library(jyppx_training STATIC
+    src/jyppx/training/callback_dispatcher.cpp
+    src/jyppx/training/callbacks/early_stopping_callback.cpp
     src/jyppx/training/checkpoint_coordinator.cpp
     src/jyppx/training/metrics/classification.cpp
     src/jyppx/training/scheduler_adapter.cpp
