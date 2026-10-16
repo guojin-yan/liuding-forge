@@ -56,20 +56,36 @@ class LinearLrScheduler final : public LrScheduler {
   ~LinearLrScheduler() override;
 
  private:
-  /** @brief Previews one interpolation event without mutation. */
+  /**
+   * @brief Previews one interpolation event without mutation.
+   * @param learning_rates Current optimizer rates used as the transition base.
+   * @return Candidate rates and leaf state for the next event.
+   */
   detail::SchedulerTransition preview_step_impl(
       std::span<const double> learning_rates) const override;
 
-  /** @brief Captures the completed-event counter as a leaf state. */
+  /**
+   * @brief Captures the completed-event counter as a leaf state.
+   * @return The serializable linear scheduler leaf state.
+   */
   detail::SchedulerState capture_state_impl() const override;
 
-  /** @brief Returns the number of committed interpolation events. */
+  /**
+   * @brief Returns the number of committed interpolation events.
+   * @return Number of successfully committed interpolation events.
+   */
   std::uint64_t completed_steps_impl() const noexcept override;
 
-  /** @brief Validates a restored linear leaf state without mutation. */
+  /**
+   * @brief Validates a restored linear leaf state without mutation.
+   * @param state Candidate state decoded from checkpoint storage.
+   */
   void validate_state_impl(const detail::SchedulerState& state) const override;
 
-  /** @brief Commits a prevalidated linear counter without throwing. */
+  /**
+   * @brief Commits a prevalidated linear counter without throwing.
+   * @param state State that passed descriptor and leaf validation.
+   */
   void apply_state_impl(const detail::SchedulerState& state) noexcept override;
 
   LinearLrSchedulerOptions options_;   ///< Immutable interpolation options.
@@ -108,20 +124,36 @@ class ConstantLrScheduler final : public LrScheduler {
   ~ConstantLrScheduler() override;
 
  private:
-  /** @brief Previews one constant-prefix event without mutation. */
+  /**
+   * @brief Previews one constant-prefix event without mutation.
+   * @param learning_rates Current optimizer rates used as the transition base.
+   * @return Candidate rates and leaf state for the next event.
+   */
   detail::SchedulerTransition preview_step_impl(
       std::span<const double> learning_rates) const override;
 
-  /** @brief Captures the completed-event counter as a leaf state. */
+  /**
+   * @brief Captures the completed-event counter as a leaf state.
+   * @return The serializable constant-prefix scheduler leaf state.
+   */
   detail::SchedulerState capture_state_impl() const override;
 
-  /** @brief Returns the number of committed prefix events. */
+  /**
+   * @brief Returns the number of committed prefix events.
+   * @return Number of successfully committed prefix events.
+   */
   std::uint64_t completed_steps_impl() const noexcept override;
 
-  /** @brief Validates a restored constant-prefix leaf state. */
+  /**
+   * @brief Validates a restored constant-prefix leaf state.
+   * @param state Candidate state decoded from checkpoint storage.
+   */
   void validate_state_impl(const detail::SchedulerState& state) const override;
 
-  /** @brief Commits a prevalidated constant-prefix counter. */
+  /**
+   * @brief Commits a prevalidated constant-prefix counter.
+   * @param state State that passed descriptor and leaf validation.
+   */
   void apply_state_impl(const detail::SchedulerState& state) noexcept override;
 
   ConstantLrSchedulerOptions options_;  ///< Immutable prefix options.
@@ -162,20 +194,36 @@ class PolynomialLrScheduler final : public LrScheduler {
   ~PolynomialLrScheduler() override;
 
  private:
-  /** @brief Previews one polynomial decay event without mutation. */
+  /**
+   * @brief Previews one polynomial decay event without mutation.
+   * @param learning_rates Current optimizer rates used as the transition base.
+   * @return Candidate rates and leaf state for the next event.
+   */
   detail::SchedulerTransition preview_step_impl(
       std::span<const double> learning_rates) const override;
 
-  /** @brief Captures the completed-event counter as a leaf state. */
+  /**
+   * @brief Captures the completed-event counter as a leaf state.
+   * @return The serializable polynomial scheduler leaf state.
+   */
   detail::SchedulerState capture_state_impl() const override;
 
-  /** @brief Returns the number of committed polynomial events. */
+  /**
+   * @brief Returns the number of committed polynomial events.
+   * @return Number of successfully committed polynomial events.
+   */
   std::uint64_t completed_steps_impl() const noexcept override;
 
-  /** @brief Validates a restored polynomial leaf state. */
+  /**
+   * @brief Validates a restored polynomial leaf state.
+   * @param state Candidate state decoded from checkpoint storage.
+   */
   void validate_state_impl(const detail::SchedulerState& state) const override;
 
-  /** @brief Commits a prevalidated polynomial counter. */
+  /**
+   * @brief Commits a prevalidated polynomial counter.
+   * @param state State that passed descriptor and leaf validation.
+   */
   void apply_state_impl(const detail::SchedulerState& state) noexcept override;
 
   PolynomialLrSchedulerOptions options_;  ///< Immutable decay options.
@@ -215,20 +263,36 @@ class WarmupLrScheduler final : public LrScheduler {
   ~WarmupLrScheduler() override;
 
  private:
-  /** @brief Previews one warmup event without mutation. */
+  /**
+   * @brief Previews one warmup event without mutation.
+   * @param learning_rates Current optimizer rates used as the transition base.
+   * @return Candidate rates and leaf state for the next event.
+   */
   detail::SchedulerTransition preview_step_impl(
       std::span<const double> learning_rates) const override;
 
-  /** @brief Captures the completed-event counter as a leaf state. */
+  /**
+   * @brief Captures the completed-event counter as a leaf state.
+   * @return The serializable warmup scheduler leaf state.
+   */
   detail::SchedulerState capture_state_impl() const override;
 
-  /** @brief Returns the number of committed warmup events. */
+  /**
+   * @brief Returns the number of committed warmup events.
+   * @return Number of successfully committed warmup events.
+   */
   std::uint64_t completed_steps_impl() const noexcept override;
 
-  /** @brief Validates a restored warmup leaf state. */
+  /**
+   * @brief Validates a restored warmup leaf state.
+   * @param state Candidate state decoded from checkpoint storage.
+   */
   void validate_state_impl(const detail::SchedulerState& state) const override;
 
-  /** @brief Commits a prevalidated warmup counter. */
+  /**
+   * @brief Commits a prevalidated warmup counter.
+   * @param state State that passed descriptor and leaf validation.
+   */
   void apply_state_impl(const detail::SchedulerState& state) noexcept override;
 
   WarmupLrSchedulerOptions options_;   ///< Immutable warmup options.
