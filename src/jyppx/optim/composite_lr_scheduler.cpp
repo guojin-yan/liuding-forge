@@ -127,6 +127,11 @@ detail::SchedulerState capture_children(
 void validate_child_state(
     const std::vector<std::unique_ptr<LrScheduler>>& children,
     const detail::SchedulerState& state) {
+  if (!state.control.empty()) {
+    throw_compatibility("state.control", "no parent control values",
+                        "control values present",
+                        "Restore the exact composite scheduler type.");
+  }
   if (state.children.size() != children.size()) {
     throw_compatibility("state.children", std::to_string(children.size()),
                         std::to_string(state.children.size()),

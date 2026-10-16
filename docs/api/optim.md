@@ -9,7 +9,8 @@ The migrated scheduler boundary includes descriptor-first
 [`StepLrScheduler`](step_lr_scheduler.md) plus transactional
 [`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md)
 and the [epoch scheduler family](epoch_lr_scheduler.md), including the
-[linear-family schedulers](linear_lr_scheduler.md).
+[linear-family schedulers](linear_lr_scheduler.md) and
+[event-driven schedulers](event_lr_scheduler.md).
 They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
 The hand-written hierarchy documented below is the legacy path still used by
@@ -119,6 +120,10 @@ scheduler->step();  // after one completed epoch
 | `WarmupLrScheduler` | `start_factor`, `warmup_iters` | linear warmup to captured base rates |
 | `ConstantLrScheduler` | `factor`, `total_iters` | constant factor prefix then base rates |
 | `PolynomialLrScheduler` | `total_iters`, `power` | closed-form decay toward zero |
+| `ReduceLrOnPlateauScheduler` | metric direction, patience, cooldown, thresholds | metric-triggered per-group decay |
+| `OneCycleLrScheduler` | maxima, total steps, phase geometry | bounded batch-level one-cycle schedule |
+| `CyclicLrScheduler` | base/max rates, half-cycle sizes, scale profile | repeating batch-level triangular cycles |
+| `LambdaLrScheduler` | stable callable ID and functions | identity-bearing user-defined epoch factors |
 | `SequentialLrScheduler` | children, `milestones` | selects one ordered child per event |
 | `ChainedLrScheduler` | ordered children | previews every child and commits once |
 
@@ -128,40 +133,31 @@ consumers and are not checkpoint-safe under the new participant contract:
 
 | Legacy scheduler | Parameters | Status |
 |------------------|------------|--------|
-| `ReduceLROnPlateau` | mode, factor, patience, threshold | pending metric-event and state migration |
-| `OneCycleLR` | `max_lr`, `total_steps` | one-cycle warmup and cooldown |
-| `CosineAnnealingWarmRestarts` | `T_0`, `T_mult`, `eta_min` | cosine cycles with restarts |
-| `CyclicLR` | `base_lr`, `max_lr`, `step_size_up` | triangular or exponential cycles |
-| `LambdaLR` | callable factor | user-defined factor per step |
+| `ReduceLROnPlateau` | mode, factor, patience, threshold | retained only by the unmigrated Trainer contract |
+| `CosineAnnealingWarmRestarts` | `T_0`, `T_mult`, `eta_min` | pending restart-state migration |
 
-`OneCycleLR` is stepped once per optimizer update. Its two-phase and
-three-phase boundaries, cosine/linear interpolation, and inverse momentum or
-Adam beta1 schedule follow PyTorch. `CyclicLR` supports triangular,
-triangular2, exp-range, and custom scale functions, with optional inverse
-momentum or beta1 cycling.
+The obsolete OneCycle/Cyclic/Lambda forwarding headers and implementations
+were removed. Their direct descriptor-first replacements do not accept old
+map checkpoints. Momentum cycling is explicitly rejected until optimizer
+hyperparameters have an atomic control and participant contract.
 
 ```cpp
-struct ReduceLROnPlateauOptions {
-    std::string mode = "min";            // "min" or "max"
-    double factor = 0.1;
-    int patience = 10;
-    double threshold = 1e-4;
-    std::string threshold_mode = "rel";  // "rel" or "abs"
-    double min_lr = 0.0;
-};
+#include <jyppx/optim/event_lr_scheduler.hpp>
 
-jyppx::optim::schedulers::ReduceLROnPlateauOptions options;
-options.mode = "min";     // "min" or "max"
-options.factor = 0.5;
-options.patience = 2;
-
-auto plateau = std::make_shared<jyppx::optim::schedulers::ReduceLROnPlateau>(
-    optimizer, options);
+auto plateau = std::make_shared<jyppx::optim::ReduceLrOnPlateauScheduler>(
+    delegated_sgd,
+    jyppx::optim::ReduceLrOnPlateauSchedulerOptions{
+        .factor = 0.5,
+        .patience = 2,
+        .min_learning_rates = {1e-6}});
 // after each validation:
 plateau->step(val_loss);
 ```
 
-`ReduceLROnPlateau` also exposes `best()` and `num_bad_epochs()`.
-Legacy `state_dict()` maps are not accepted by migrated schedulers. Their
-checkpoint participant only accepts the current descriptor/control schema and
-restores optimizer rates atomically after complete preflight.
+The migrated plateau scheduler exposes `has_best()`, `best()`,
+`bad_observations()`, and `cooldown_remaining()`. Legacy `state_dict()` maps
+are not accepted. The checkpoint participant only accepts the current
+descriptor/control schema and restores optimizer rates atomically after
+complete preflight. The similarly named legacy type remains solely because
+the old Trainer contract still owns a legacy optimizer; it is not forwarded
+from the new API.

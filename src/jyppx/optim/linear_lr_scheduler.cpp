@@ -159,8 +159,9 @@ std::vector<double> scale_rates(std::span<const double> learning_rates,
 
 void validate_leaf(const detail::SchedulerState& state,
                    std::string_view scheduler_type) {
-  if (!state.children.empty()) {
-    throw_compatibility("state.children", "a leaf state", "children present",
+  if (!state.control.empty() || !state.children.empty()) {
+    throw_compatibility("state.shape", "a counter-only leaf state",
+                        "control values or children present",
                         "Restore state produced by the same scheduler type.");
   }
   static_cast<void>(scheduler_type);

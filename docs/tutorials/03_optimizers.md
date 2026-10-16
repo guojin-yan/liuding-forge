@@ -96,28 +96,30 @@ loop until the new Trainer consumes the participant registry directly.
 
 ## Metric-driven scheduling
 
-`ReduceLROnPlateau` reacts to a validation metric instead of the epoch
-count. It remains on the legacy scheduler path while metric event and state
-semantics are migrated, so it must not be mixed into a descriptor-first
-composite tree. Drive it manually after each validation:
+`ReduceLrOnPlateauScheduler` reacts to a validation metric instead of the
+epoch count. It publishes metric step mode and stores best-value, patience,
+cooldown, per-group minima, and current rates in the exact participant:
 
 ```cpp
-jyppx::optim::schedulers::ReduceLROnPlateauOptions options;
-options.mode = "min";
-options.factor = 0.5;
-options.patience = 3;
-options.min_lr = 1e-6;
-auto plateau = std::make_shared<jyppx::optim::schedulers::ReduceLROnPlateau>(
-    optimizer, options);
+#include <jyppx/optim/event_lr_scheduler.hpp>
+
+auto plateau = std::make_shared<jyppx::optim::ReduceLrOnPlateauScheduler>(
+    delegated_sgd,
+    jyppx::optim::ReduceLrOnPlateauSchedulerOptions{
+        .factor = 0.5,
+        .patience = 3,
+        .min_learning_rates = {1e-6}});
 
 // inside a manual loop (not Trainer::fit):
 double val_loss = trainer.validate(val_loader);
 plateau->step(val_loss);   // decays when val_loss stagnates
 ```
 
-Metric-driven schedulers use `step(metric)`; epoch-based schedulers reject
-that overload, and `ReduceLROnPlateau::step()` rejects the metric-less call —
-mixups fail loudly instead of silently.
+Metric-driven schedulers use `step(metric)`; all other descriptor-first
+schedulers reject that overload, and plateau rejects metric-less `step()`.
+One-cycle and cyclic schedulers use batch step mode and must advance only
+after a successful optimizer update. Callable schedules require a stable
+`callable_id`; exact restore rejects a different identity.
 
 ## Manual training loop
 

@@ -26,9 +26,9 @@ namespace {
 constexpr char kComponent[] = "optim.lr_scheduler";
 constexpr char kTypeId[] = "jyppx.scheduler.step_lr/v1";
 constexpr std::uint32_t kDescriptorSchemaVersion = 1;
-constexpr std::uint32_t kParticipantSchemaVersion = 2;
+constexpr std::uint32_t kParticipantSchemaVersion = 3;
 constexpr std::uint32_t kTopologyVersion = 1;
-constexpr std::uint32_t kControlVersion = 2;
+constexpr std::uint32_t kControlVersion = 3;
 constexpr std::size_t kConstructionMaximumIdentifierBytes = 4096;
 constexpr std::array<std::byte, 8> kTopologyMagic = {
     std::byte{'J'}, std::byte{'Y'}, std::byte{'P'}, std::byte{'P'},
@@ -576,12 +576,22 @@ void validate_topology_blob(std::span<const std::byte> bytes,
 
 void append_scheduler_state(std::vector<std::byte>& output,
                             const detail::SchedulerState& state) {
+  if (state.control.size() > std::numeric_limits<std::uint32_t>::max()) {
+    throw_invalid("control.values", "at most uint32 mutable values",
+                  std::to_string(state.control.size()),
+                  "Use a bounded scheduler control state.");
+  }
   if (state.children.size() > std::numeric_limits<std::uint32_t>::max()) {
     throw_invalid("control.children", "at most uint32 child states",
                   std::to_string(state.children.size()),
                   "Use a bounded composite scheduler tree.");
   }
   append_u64(output, state.completed_steps);
+  append_u32(output, static_cast<std::uint32_t>(state.control.size()));
+  for (const auto& [key, value] : state.control) {
+    append_string(output, key);
+    append_config_value(output, value);
+  }
   append_u32(output, static_cast<std::uint32_t>(state.children.size()));
   for (const auto& child : state.children) {
     append_scheduler_state(output, child);
@@ -597,8 +607,24 @@ detail::SchedulerState read_scheduler_state(
   }
   detail::SchedulerState state{
       .completed_steps = cursor.read_u64("control.completed_steps"),
+      .control = {},
       .children = {},
   };
+  const auto control_count = cursor.read_u32("control.values.count");
+  if (control_count > limits.max_config_entries) {
+    throw_resource("control.values.count", limits.max_config_entries,
+                   control_count, "Reduce scheduler mutable control values.");
+  }
+  for (std::uint32_t index = 0; index < control_count; ++index) {
+    auto key =
+        cursor.read_string(limits.max_identifier_bytes, "control.value.key");
+    auto value = read_config_value(cursor, limits);
+    if (!state.control.emplace(std::move(key), std::move(value)).second) {
+      throw_serialization("control.value.key", "unique mutable state keys",
+                          "duplicate",
+                          "Reject ambiguous scheduler control state.");
+    }
+  }
   const auto child_count = cursor.read_u32("control.children.count");
   if (child_count != descriptor.children.size()) {
     throw_compatibility(
@@ -876,7 +902,7 @@ SchedulerSnapshot inspect_scheduler(
                   .media_type = "application/vnd.jyppx.scheduler-descriptor-v1",
                   .max_bytes = limits.max_topology_bytes},
                  {.name = "control",
-                  .media_type = "application/vnd.jyppx.scheduler-state-tree-v1",
+                  .media_type = "application/vnd.jyppx.scheduler-state-tree-v2",
                   .max_bytes = limits.max_control_bytes}},
       .degradation_reasons = {},
   };
@@ -1047,6 +1073,10 @@ void LrScheduler::step() {
                     "unconfigured",
                     "Complete derived scheduler construction before use.");
     }
+    if (impl_->descriptor.step_mode == SchedulerStepMode::metric) {
+      throw_invalid("step.event", "a supplied finite metric",
+                    "metric-less event", "Call step(metric) instead.");
+    }
     const auto rates = learning_rates();
     auto transition = detail::SchedulerStateAccess::preview_step(*this, rates);
     validate_rates(transition.learning_rates,
@@ -1060,6 +1090,47 @@ void LrScheduler::step() {
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("step");
   }
+}
+
+void LrScheduler::step(double metric) {
+  try {
+    if (impl_->descriptor.type_id.empty()) {
+      throw_invalid("descriptor", "a configured scheduler descriptor",
+                    "unconfigured",
+                    "Complete derived scheduler construction before use.");
+    }
+    if (impl_->descriptor.step_mode != SchedulerStepMode::metric) {
+      throw_invalid("step.event", "the scheduler's declared event mode",
+                    "metric event", "Call the metric-less step() overload.");
+    }
+    if (!std::isfinite(metric)) {
+      throw_invalid("step.metric", "a finite monitored value",
+                    std::to_string(metric),
+                    "Filter invalid validation metrics before scheduling.");
+    }
+    const auto rates = learning_rates();
+    auto transition =
+        detail::SchedulerStateAccess::preview_metric_step(*this, rates, metric);
+    validate_rates(transition.learning_rates,
+                   impl_->descriptor.optimizer_group_ids.size(),
+                   "step.learning_rates");
+    detail::SchedulerStateAccess::validate_state(*this, transition.state);
+    impl_->optimizer->set_learning_rates(transition.learning_rates);
+    detail::SchedulerStateAccess::apply_state(*this, transition.state);
+  } catch (const Error&) {
+    throw;
+  } catch (const std::bad_alloc&) {
+    translate_bad_alloc("metric step");
+  }
+}
+
+detail::SchedulerTransition LrScheduler::preview_metric_step_impl(
+    std::span<const double> learning_rates, double metric) const {
+  static_cast<void>(learning_rates);
+  static_cast<void>(metric);
+  throw_invalid("step.event", "a scheduler implementing metric events",
+                "unsupported metric event",
+                "Use metric input only with a metric-driven scheduler.");
 }
 
 const std::string& LrScheduler::scheduler_id() const noexcept {
@@ -1086,6 +1157,25 @@ SchedulerTransition SchedulerStateAccess::preview_step(
                  scheduler.descriptor().optimizer_group_ids.size(),
                  "preview.input_learning_rates");
   auto transition = scheduler.preview_step_impl(learning_rates);
+  validate_rates(transition.learning_rates,
+                 scheduler.descriptor().optimizer_group_ids.size(),
+                 "preview.output_learning_rates");
+  scheduler.validate_state_impl(transition.state);
+  return transition;
+}
+
+SchedulerTransition SchedulerStateAccess::preview_metric_step(
+    const LrScheduler& scheduler, std::span<const double> learning_rates,
+    double metric) {
+  validate_rates(learning_rates,
+                 scheduler.descriptor().optimizer_group_ids.size(),
+                 "preview.input_learning_rates");
+  if (!std::isfinite(metric)) {
+    throw_invalid("preview.metric", "a finite monitored value",
+                  std::to_string(metric),
+                  "Filter invalid validation metrics before scheduling.");
+  }
+  auto transition = scheduler.preview_metric_step_impl(learning_rates, metric);
   validate_rates(transition.learning_rates,
                  scheduler.descriptor().optimizer_group_ids.size(),
                  "preview.output_learning_rates");
@@ -1182,8 +1272,9 @@ std::uint64_t StepLrScheduler::completed_steps_impl() const noexcept {
 
 void StepLrScheduler::validate_state_impl(
     const detail::SchedulerState& state) const {
-  if (!state.children.empty()) {
-    throw_compatibility("state.children", "a StepLR leaf", "children present",
+  if (!state.control.empty() || !state.children.empty()) {
+    throw_compatibility("state.shape", "a StepLR counter-only leaf",
+                        "control values or children present",
                         "Restore state from the same scheduler type.");
   }
 }

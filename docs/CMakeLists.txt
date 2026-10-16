@@ -28,6 +28,7 @@ doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/lr_scheduler.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/composite_lr_scheduler.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/epoch_lr_scheduler.hpp"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/optim/event_lr_scheduler.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/linear_lr_scheduler.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/sgd_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/step_lr_scheduler.hpp"

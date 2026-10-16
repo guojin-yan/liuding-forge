@@ -49,7 +49,7 @@ metric-aware transaction surface is implemented.
 
 The parent descriptor stores ordered child IDs and complete ordered child
 descriptors. Sequential descriptors additionally store typed milestones.
-`LrSchedulerCheckpointParticipant` uses participant schema version 2 and
+`LrSchedulerCheckpointParticipant` uses participant schema version 3 and
 persists the schema-version-1 descriptor tree separately from the mutable state
 tree and current optimizer rates.
 

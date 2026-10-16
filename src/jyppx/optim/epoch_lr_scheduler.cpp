@@ -57,9 +57,9 @@ constexpr double kPi = 3.141592653589793238462643383279502884;
   throw CompatibilityError(
       "Scheduler checkpoint state tree is incompatible",
       ErrorDetails{.component = kComponent,
-                   .operation = std::move(scheduler_type) + ".state.children",
-                   .expected = "a leaf scheduler state",
-                   .actual = "children present",
+                   .operation = std::move(scheduler_type) + ".state.shape",
+                   .expected = "a counter-only leaf scheduler state",
+                   .actual = "control values or children present",
                    .hint = "Restore state from the same scheduler type."});
 }
 
@@ -79,7 +79,7 @@ void validate_rate(double value, const char* scheduler_type) {
 
 void validate_leaf(const detail::SchedulerState& state,
                    const char* scheduler_type) {
-  if (!state.children.empty()) {
+  if (!state.control.empty() || !state.children.empty()) {
     throw_non_leaf(scheduler_type);
   }
 }

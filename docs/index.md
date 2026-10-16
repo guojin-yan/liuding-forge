@@ -51,6 +51,8 @@ metrics, callbacks, checkpointing and mixed precision.
   ordered child descriptors, pure transition preflight, and atomic tree restore
 - [Descriptor-First Epoch Schedulers](api/epoch_lr_scheduler.md) —
   exponential, multi-step, and cosine scheduling with exact recovery
+- [Descriptor-First Event Schedulers](api/event_lr_scheduler.md) —
+  metric plateau, one-cycle, cyclic, and identity-bearing callable schedules
 - [Descriptor-First Linear-family Schedulers](api/linear_lr_scheduler.md) —
   linear interpolation, warmup, constant prefix, and polynomial decay
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP

@@ -13,6 +13,7 @@
 #include <jyppx/nn/model_checkpoint_participant.hpp>
 #include <jyppx/optim/composite_lr_scheduler.hpp>
 #include <jyppx/optim/epoch_lr_scheduler.hpp>
+#include <jyppx/optim/event_lr_scheduler.hpp>
 #include <jyppx/optim/linear_lr_scheduler.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
@@ -190,6 +191,14 @@ int main() {
   installed_linear_scheduler->step();
   jyppx::optim::LrSchedulerCheckpointParticipant
       installed_linear_scheduler_participant(installed_linear_scheduler);
+  auto installed_event_scheduler =
+      std::make_shared<jyppx::optim::ReduceLrOnPlateauScheduler>(
+          installed_optimizer,
+          jyppx::optim::ReduceLrOnPlateauSchedulerOptions{
+              .scheduler_id = "scheduler.plateau", .patience = 0});
+  installed_event_scheduler->step(1.0);
+  jyppx::optim::LrSchedulerCheckpointParticipant
+      installed_event_scheduler_participant(installed_event_scheduler);
   std::vector<std::unique_ptr<jyppx::optim::LrScheduler>> scheduler_children;
   scheduler_children.push_back(std::make_unique<jyppx::optim::StepLrScheduler>(
       installed_optimizer, jyppx::optim::StepLrSchedulerOptions{
@@ -219,6 +228,9 @@ int main() {
       installed_linear_scheduler_participant.describe_state().fields.size() ==
           2 &&
       installed_linear_scheduler->completed_steps() == 1 &&
+      installed_event_scheduler_participant.describe_state().schema_version ==
+          3 &&
+      installed_event_scheduler->completed_steps() == 1 &&
       installed_composite_participant.describe_state().fields.size() == 2 &&
       installed_composite->descriptor().children.size() == 2;
   return valid_version && valid_error && valid_device &&

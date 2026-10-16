@@ -41,7 +41,7 @@ auto participant = std::make_shared<
 registry.register_participant(participant);
 ```
 
-Participant schema version 2 owns two bounded fields. The canonical scheduler
+Participant schema version 3 owns two bounded fields. The canonical scheduler
 descriptor remains schema version 1:
 
 | Field | Contents |

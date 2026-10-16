@@ -252,7 +252,7 @@ TEST(StepLrSchedulerCheckpointTest, UsesBoundedCurrentFormatOnly) {
 
   jyppx::optim::LrSchedulerCheckpointParticipant participant(scheduler);
   const auto manifest = participant.describe_state();
-  EXPECT_EQ(manifest.schema_version, 2U);
+  EXPECT_EQ(manifest.schema_version, 3U);
   ASSERT_EQ(manifest.fields.size(), 2U);
   EXPECT_EQ(manifest.fields[0].name, "topology");
   EXPECT_EQ(manifest.fields[1].name, "control");

@@ -96,6 +96,8 @@ namespace detail {
  */
 struct SchedulerState {
   std::uint64_t completed_steps = 0;  ///< Successfully committed step events.
+  std::map<std::string, SchedulerConfigValue>
+      control;  ///< Ordered typed algorithm-specific mutable control values.
   std::vector<SchedulerState> children;  ///< Ordered mutable child states.
 };
 
@@ -124,6 +126,17 @@ class SchedulerStateAccess final {
    */
   static SchedulerTransition preview_step(
       const LrScheduler& scheduler, std::span<const double> learning_rates);
+
+  /**
+   * @brief Previews one metric event without mutating visible state.
+   * @param scheduler Metric-driven scheduler tree to evaluate.
+   * @param learning_rates Valid current group rates.
+   * @param metric Finite monitored metric supplied by the caller.
+   * @return A complete candidate state and complete candidate rates.
+   */
+  static SchedulerTransition preview_metric_step(
+      const LrScheduler& scheduler, std::span<const double> learning_rates,
+      double metric);
 
   /**
    * @brief Captures the complete mutable scheduler-state tree.
@@ -194,6 +207,17 @@ class LrScheduler {
    * @throws ResourceExhausted If a scheduler counter is exhausted.
    */
   void step();
+
+  /**
+   * @brief Atomically advances a metric-driven scheduler by one observation.
+   * @param metric Finite monitored value, such as validation loss.
+   * @throws InvalidArgument If the scheduler is not metric-driven or the
+   * metric is non-finite.
+   * @throws CompatibilityError If optimizer identity or group order changed.
+   * @throws NumericalError If the candidate rates are invalid.
+   * @throws ResourceExhausted If a scheduler counter is exhausted.
+   */
+  void step(double metric);
 
   /**
    * @brief Returns the immutable checkpoint participant identity.
@@ -284,6 +308,19 @@ class LrScheduler {
       std::span<const double> learning_rates) const = 0;
 
   /**
+   * @brief Computes one metric-driven transition without mutation.
+   *
+   * The default rejects metric events. Metric-driven derived classes override
+   * this hook and normally reject the metric-less hook instead.
+   *
+   * @param learning_rates Valid input rates for this scheduler node.
+   * @param metric Finite monitored metric supplied by the caller.
+   * @return Fully owned candidate state and output rates.
+   */
+  virtual detail::SchedulerTransition preview_metric_step_impl(
+      std::span<const double> learning_rates, double metric) const;
+
+  /**
    * @brief Captures this node and all descendant mutable state.
    * @return A fully owned state tree matching the immutable descriptor tree.
    */
@@ -338,9 +375,10 @@ struct LrSchedulerCheckpointOptions {
 /**
  * @brief Exposes any descriptor-first scheduler tree as an exact participant.
  *
- * Participant schema version 2 stores the schema-version-1 canonical
+ * Participant schema version 3 stores the schema-version-1 canonical
  * descriptor in `topology` and the complete mutable state tree plus current
- * rates in `control`. Restore
+ * rates in `control`. Each state node contains a typed algorithm control map
+ * in addition to its event counter and children. Restore
  * performs all parsing, topology, resource, tree-shape, and numeric checks
  * before one atomic optimizer update and a non-throwing scheduler commit.
  */
