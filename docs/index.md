@@ -47,6 +47,8 @@ metrics, callbacks, checkpointing and mixed precision.
   stable group and parameter identities plus exact bounded checkpoint state
 - [Descriptor-First StepLR](api/step_lr_scheduler.md) — typed scheduler
   semantics, stable optimizer linkage, and exact bounded checkpoint state
+- [Transactional Composite Schedulers](api/composite_lr_scheduler.md) —
+  ordered child descriptors, pure transition preflight, and atomic tree restore
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP
 - [Model Adapter](api/model_adapter.md) — shared model state, typed adapter
   helpers, structured invocation schemas, and multi-input/output boundaries

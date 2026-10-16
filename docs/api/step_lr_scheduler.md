@@ -37,22 +37,24 @@ fingerprint is diagnostic metadata and is never the sole compatibility check.
 
 ```cpp
 auto participant = std::make_shared<
-    jyppx::optim::StepLrSchedulerCheckpointParticipant>(scheduler);
+    jyppx::optim::LrSchedulerCheckpointParticipant>(scheduler);
 registry.register_participant(participant);
 ```
 
-Schema version 1 owns two bounded fields:
+Participant schema version 2 owns two bounded fields. The canonical scheduler
+descriptor remains schema version 1:
 
 | Field | Contents |
 |---|---|
 | `topology` | complete canonical descriptor and scheduler identity |
-| `control` | completed-step counter and every current group learning rate |
+| `control` | complete mutable scheduler-state tree and current group rates |
 
 Restore validates the manifest, current-format magic, version, resource
 limits, complete topology, counter, and all rates before mutation. Rate commit
-uses the optimizer's atomic rate-control contract, and the scheduler counter is
-changed only after that commit succeeds. Legacy native archives and untyped
-scheduler maps are not accepted.
+uses the optimizer's atomic rate-control contract, and scheduler state is
+changed only after that commit succeeds. The same participant supports
+descriptor-first composite trees. Legacy native archives and untyped scheduler
+maps are not accepted.
 
 The scheduler and participant are not internally synchronized. Training must
 serialize optimizer steps, scheduler steps, direct learning-rate changes, and
@@ -60,6 +62,8 @@ checkpoint operations.
 
 ## Migration status
 
-This is the first scheduler on the descriptor-first path. The older
-`jyppx::optim::schedulers` hierarchy remains separate while trainer consumers
-are migrated. There is no alias or forwarding bridge between the two APIs.
+`StepLrScheduler` is the first leaf on the descriptor-first path. The migrated
+`SequentialLrScheduler` and `ChainedLrScheduler` compose it through the same
+transaction hooks. The replaced legacy composite implementation and forwarding
+headers were removed; remaining legacy scheduler algorithms stay separate until
+their own complete migration slices.

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Descriptor-first `SequentialLrScheduler` and `ChainedLrScheduler` with unique
+  child ownership, ordered typed descriptors, pure full-tree preflight, one
+  atomic optimizer update, and exact recursive checkpoint recovery.
+- A common `LrScheduler` transaction surface and generic scheduler checkpoint
+  participant shared by leaf and composite schedulers.
 - A descriptor-first `StepLrScheduler` with typed immutable configuration,
   stable optimizer/group identity, atomic rate control, and bounded exact
   checkpoint recovery without legacy scheduler maps or native archives.
@@ -64,6 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bad-epoch counter.
 
 ### Changed
+- Removed the replaced legacy composite scheduler implementation and its two
+  forwarding headers; composite scheduling now has one direct public API.
 - Windows tests, benchmarks, and examples now copy LibTorch runtime DLLs once
   per output directory, preventing parallel MSBuild copy races.
 - Coverage and sanitizer options now fail clearly on unsupported compilers and

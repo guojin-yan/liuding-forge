@@ -20,7 +20,6 @@ target_sources(jyppx_training_framework PRIVATE
     jyppx/optim/schedulers/cosine_annealing_warm_restarts.cpp
     jyppx/optim/schedulers/linear_lr.cpp
     jyppx/optim/schedulers/p1_schedulers.cpp
-    jyppx/optim/schedulers/composite_schedulers.cpp
     jyppx/optim/schedulers/warmup_scheduler.cpp
 
     # Optim (extended)

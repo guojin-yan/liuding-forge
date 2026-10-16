@@ -9,6 +9,7 @@
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #include <jyppx/nn/model_adapter.hpp>
 #include <jyppx/nn/model_checkpoint_participant.hpp>
+#include <jyppx/optim/composite_lr_scheduler.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
@@ -147,12 +148,33 @@ int main() {
       installed_optimizer,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
   installed_scheduler->step();
-  jyppx::optim::StepLrSchedulerCheckpointParticipant
+  jyppx::optim::LrSchedulerCheckpointParticipant
       installed_scheduler_participant(installed_scheduler);
+  std::vector<std::unique_ptr<jyppx::optim::LrScheduler>> scheduler_children;
+  scheduler_children.push_back(std::make_unique<jyppx::optim::StepLrScheduler>(
+      installed_optimizer, jyppx::optim::StepLrSchedulerOptions{
+                               .scheduler_id = "scheduler.child.first",
+                               .step_size = 1,
+                               .gamma = 0.5}));
+  scheduler_children.push_back(std::make_unique<jyppx::optim::StepLrScheduler>(
+      installed_optimizer, jyppx::optim::StepLrSchedulerOptions{
+                               .scheduler_id = "scheduler.child.second",
+                               .step_size = 1,
+                               .gamma = 0.5}));
+  auto installed_composite =
+      std::make_shared<jyppx::optim::SequentialLrScheduler>(
+          installed_optimizer, std::move(scheduler_children),
+          jyppx::optim::SequentialLrSchedulerOptions{
+              .scheduler_id = "scheduler.composite", .milestones = {1}});
+  installed_composite->step();
+  jyppx::optim::LrSchedulerCheckpointParticipant
+      installed_composite_participant(installed_composite);
   const bool valid_scheduler =
       installed_scheduler_participant.describe_state().fields.size() == 2 &&
       installed_scheduler->completed_steps() == 1 &&
-      installed_scheduler->descriptor().optimizer_id == "optimizer.main";
+      installed_scheduler->descriptor().optimizer_id == "optimizer.main" &&
+      installed_composite_participant.describe_state().fields.size() == 2 &&
+      installed_composite->descriptor().children.size() == 2;
   return valid_version && valid_error && valid_device &&
                  valid_checkpoint_contract && valid_checkpoint_coordinator &&
                  valid_model_checkpoint && valid_data && valid_nn &&

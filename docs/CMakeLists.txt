@@ -25,6 +25,8 @@ doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/data"
     "${PROJECT_SOURCE_DIR}/include/jyppx/nn"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/optimizer_rate_control.hpp"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/optim/lr_scheduler.hpp"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/optim/composite_lr_scheduler.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/sgd_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/step_lr_scheduler.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/checkpoint_coordinator.hpp"

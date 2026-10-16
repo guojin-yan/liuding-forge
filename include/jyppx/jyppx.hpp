@@ -19,9 +19,11 @@
 // Optimizers
 #include <jyppx/optim/optimizer.hpp>
 #include <jyppx/optim/optimizer_rate_control.hpp>
+#include <jyppx/optim/lr_scheduler.hpp>
 #include <jyppx/optim/sgd.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
+#include <jyppx/optim/composite_lr_scheduler.hpp>
 #include <jyppx/optim/adam.hpp>
 #include <jyppx/optim/adamw.hpp>
 #include <jyppx/optim/rmsprop.hpp>
@@ -40,7 +42,6 @@
 #include <jyppx/optim/schedulers/cosine_annealing_warm_restarts.hpp>
 #include <jyppx/optim/schedulers/linear_lr.hpp>
 #include <jyppx/optim/schedulers/p1_schedulers.hpp>
-#include <jyppx/optim/schedulers/composite_schedulers.hpp>
 #include <jyppx/optim/schedulers/warmup_scheduler.hpp>
 
 // Data

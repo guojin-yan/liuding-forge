@@ -33,7 +33,6 @@ jyppx_add_gtest(jyppx_test_optim
     optim/test_schedulers.cpp
     optim/test_new_schedulers.cpp
     optim/test_p1_schedulers.cpp
-    optim/test_composite_schedulers.cpp
     optim/test_extreme_params.cpp
 )
 
@@ -45,6 +44,11 @@ jyppx_add_gtest(jyppx_test_optim_sgd_adapter
 jyppx_add_gtest(jyppx_test_optim_step_lr_scheduler
     LINK_TARGET jyppx::optim
     optim/test_step_lr_scheduler.cpp
+)
+
+jyppx_add_gtest(jyppx_test_optim_composite_lr_scheduler
+    LINK_TARGET jyppx::optim
+    optim/test_composite_lr_scheduler.cpp
 )
 
 jyppx_add_gtest(jyppx_test_nn_label_smoothing

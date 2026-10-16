@@ -5,9 +5,11 @@ All types live in the `jyppx::optim` namespace.
 The migrated optimizer boundary starts with the independently exported
 [`SgdOptimizerAdapter`](sgd_adapter.md). It delegates numerical updates to
 LibTorch and supplies stable parameter identity plus storage-neutral recovery.
-The migrated scheduler boundary starts with descriptor-first
-[`StepLrScheduler`](step_lr_scheduler.md), which records typed semantics and
-stable optimizer/group identity and provides exact storage-neutral recovery.
+The migrated scheduler boundary includes descriptor-first
+[`StepLrScheduler`](step_lr_scheduler.md) plus transactional
+[`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md).
+They record typed semantics and stable optimizer/group identity and provide
+exact storage-neutral recovery.
 The hand-written hierarchy documented below is the legacy path still used by
 unmigrated trainer and scheduler consumers; it is not a compatibility wrapper
 for the delegated API.
@@ -136,7 +138,6 @@ scheduler->step();   // once per epoch
 | `PolynomialLR` | `total_iters`, `power` | polynomial decay |
 | `ConstantLR` | `factor`, `total_iters` | constant factor for a prefix |
 | `LambdaLR` | callable factor | user-defined factor per step |
-| `SequentialLR` / `ChainedScheduler` | scheduler list | compose schedules |
 | `WarmupScheduler` | `warmup_iters`, `start_factor`, optional scheduler | linear warmup wrapper |
 
 `OneCycleLR` is stepped once per optimizer update. Its two-phase and

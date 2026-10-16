@@ -23,11 +23,12 @@
 namespace jyppx::optim {
 namespace {
 
-constexpr char kComponent[] = "optim.step_lr_scheduler";
+constexpr char kComponent[] = "optim.lr_scheduler";
 constexpr char kTypeId[] = "jyppx.scheduler.step_lr/v1";
-constexpr std::uint32_t kSchemaVersion = 1;
+constexpr std::uint32_t kDescriptorSchemaVersion = 1;
+constexpr std::uint32_t kParticipantSchemaVersion = 2;
 constexpr std::uint32_t kTopologyVersion = 1;
-constexpr std::uint32_t kControlVersion = 1;
+constexpr std::uint32_t kControlVersion = 2;
 constexpr std::size_t kConstructionMaximumIdentifierBytes = 4096;
 constexpr std::array<std::byte, 8> kTopologyMagic = {
     std::byte{'J'}, std::byte{'Y'}, std::byte{'P'}, std::byte{'P'},
@@ -43,13 +44,13 @@ struct SchedulerSnapshot {
 };
 
 struct DecodedControl {
-  std::uint64_t completed_steps;       ///< Restored scheduler event count.
+  detail::SchedulerState state;        ///< Restored scheduler state tree.
   std::vector<double> learning_rates;  ///< Restored rates in stable order.
 };
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
-  throw InvalidArgument("Invalid StepLR scheduler state",
+  throw InvalidArgument("Invalid learning-rate scheduler state",
                         ErrorDetails{.component = kComponent,
                                      .operation = std::move(operation),
                                      .expected = std::move(expected),
@@ -60,7 +61,7 @@ struct DecodedControl {
 [[noreturn]] void throw_serialization(std::string operation,
                                       std::string expected, std::string actual,
                                       std::string hint) {
-  throw SerializationError("Malformed StepLR checkpoint state",
+  throw SerializationError("Malformed scheduler checkpoint state",
                            ErrorDetails{.component = kComponent,
                                         .operation = std::move(operation),
                                         .expected = std::move(expected),
@@ -72,7 +73,7 @@ struct DecodedControl {
                                       std::string expected, std::string actual,
                                       std::string hint) {
   throw CompatibilityError(
-      "StepLR checkpoint is incompatible with the current scheduler",
+      "Scheduler checkpoint is incompatible with the current scheduler",
       ErrorDetails{.component = kComponent,
                    .operation = std::move(operation),
                    .expected = std::move(expected),
@@ -82,7 +83,7 @@ struct DecodedControl {
 
 [[noreturn]] void throw_resource(std::string operation, std::uint64_t expected,
                                  std::uint64_t actual, std::string hint) {
-  throw ResourceExhausted("StepLR scheduler resource limit exceeded",
+  throw ResourceExhausted("Scheduler resource limit exceeded",
                           ErrorDetails{.component = kComponent,
                                        .operation = std::move(operation),
                                        .expected = std::to_string(expected),
@@ -92,7 +93,7 @@ struct DecodedControl {
 
 [[noreturn]] void translate_bad_alloc(std::string_view operation) {
   throw ResourceExhausted(
-      "Unable to allocate StepLR scheduler state",
+      "Unable to allocate scheduler state",
       ErrorDetails{.component = kComponent,
                    .operation = std::string(operation),
                    .expected = "memory within configured scheduler limits",
@@ -353,7 +354,7 @@ class Cursor {
 };
 
 SchedulerConfigValue read_config_value(
-    Cursor& cursor, const StepLrSchedulerCheckpointOptions& limits) {
+    Cursor& cursor, const LrSchedulerCheckpointOptions& limits) {
   const auto tag = cursor.read_u8("topology.config.type");
   switch (tag) {
     case 1: {
@@ -441,9 +442,9 @@ SchedulerConfigValue read_config_value(
   }
 }
 
-SchedulerDescriptor read_descriptor(
-    Cursor& cursor, const StepLrSchedulerCheckpointOptions& limits,
-    std::size_t depth) {
+SchedulerDescriptor read_descriptor(Cursor& cursor,
+                                    const LrSchedulerCheckpointOptions& limits,
+                                    std::size_t depth) {
   if (depth > limits.max_descriptor_depth) {
     throw_resource("topology.descriptor_depth", limits.max_descriptor_depth,
                    depth, "Reduce composite scheduler nesting.");
@@ -547,7 +548,7 @@ std::vector<std::byte> encode_topology(std::string_view scheduler_id,
 }
 
 void validate_topology_blob(std::span<const std::byte> bytes,
-                            const StepLrSchedulerCheckpointOptions& limits) {
+                            const LrSchedulerCheckpointOptions& limits) {
   Cursor cursor(bytes);
   cursor.expect_magic(kTopologyMagic, "topology.magic");
   const auto version = cursor.read_u32("topology.version");
@@ -573,11 +574,54 @@ void validate_topology_blob(std::span<const std::byte> bytes,
   }
 }
 
-std::vector<std::byte> encode_control(std::uint64_t completed_steps,
+void append_scheduler_state(std::vector<std::byte>& output,
+                            const detail::SchedulerState& state) {
+  if (state.children.size() > std::numeric_limits<std::uint32_t>::max()) {
+    throw_invalid("control.children", "at most uint32 child states",
+                  std::to_string(state.children.size()),
+                  "Use a bounded composite scheduler tree.");
+  }
+  append_u64(output, state.completed_steps);
+  append_u32(output, static_cast<std::uint32_t>(state.children.size()));
+  for (const auto& child : state.children) {
+    append_scheduler_state(output, child);
+  }
+}
+
+detail::SchedulerState read_scheduler_state(
+    Cursor& cursor, const SchedulerDescriptor& descriptor,
+    const LrSchedulerCheckpointOptions& limits, std::size_t depth) {
+  if (depth > limits.max_descriptor_depth) {
+    throw_resource("control.state_depth", limits.max_descriptor_depth, depth,
+                   "Reduce composite scheduler nesting.");
+  }
+  detail::SchedulerState state{
+      .completed_steps = cursor.read_u64("control.completed_steps"),
+      .children = {},
+  };
+  const auto child_count = cursor.read_u32("control.children.count");
+  if (child_count != descriptor.children.size()) {
+    throw_compatibility(
+        "control.children.count", std::to_string(descriptor.children.size()),
+        std::to_string(child_count), "Restore the exact scheduler tree shape.");
+  }
+  if (child_count > limits.max_config_entries) {
+    throw_resource("control.children.count", limits.max_config_entries,
+                   child_count, "Reduce composite scheduler fanout.");
+  }
+  state.children.reserve(child_count);
+  for (std::uint32_t index = 0; index < child_count; ++index) {
+    state.children.push_back(read_scheduler_state(
+        cursor, descriptor.children[index], limits, depth + 1));
+  }
+  return state;
+}
+
+std::vector<std::byte> encode_control(const detail::SchedulerState& state,
                                       std::span<const double> learning_rates) {
   std::vector<std::byte> output(kControlMagic.begin(), kControlMagic.end());
   append_u32(output, kControlVersion);
-  append_u64(output, completed_steps);
+  append_scheduler_state(output, state);
   append_u32(output, static_cast<std::uint32_t>(learning_rates.size()));
   for (const auto rate : learning_rates) {
     append_double(output, rate);
@@ -586,8 +630,8 @@ std::vector<std::byte> encode_control(std::uint64_t completed_steps,
 }
 
 DecodedControl decode_control(std::span<const std::byte> bytes,
-                              std::size_t expected_groups,
-                              const StepLrSchedulerCheckpointOptions& limits) {
+                              const SchedulerDescriptor& descriptor,
+                              const LrSchedulerCheckpointOptions& limits) {
   Cursor cursor(bytes);
   cursor.expect_magic(kControlMagic, "control.magic");
   const auto version = cursor.read_u32("control.version");
@@ -597,12 +641,13 @@ DecodedControl decode_control(std::span<const std::byte> bytes,
                         "Migrate scheduler control state explicitly.");
   }
   DecodedControl decoded{
-      .completed_steps = cursor.read_u64("control.completed_steps"),
+      .state = read_scheduler_state(cursor, descriptor, limits, 1),
       .learning_rates = {},
   };
   const auto group_count = cursor.read_u32("control.group_count");
-  if (group_count != expected_groups) {
-    throw_compatibility("control.group_count", std::to_string(expected_groups),
+  if (group_count != descriptor.optimizer_group_ids.size()) {
+    throw_compatibility("control.group_count",
+                        std::to_string(descriptor.optimizer_group_ids.size()),
                         std::to_string(group_count),
                         "Restore into the same optimizer group topology.");
   }
@@ -644,9 +689,8 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
                     right.fields.begin(), field_equal);
 }
 
-void validate_checkpoint_options(
-    const StepLrSchedulerCheckpointOptions& options,
-    std::string_view participant_id) {
+void validate_checkpoint_options(const LrSchedulerCheckpointOptions& options,
+                                 std::string_view participant_id) {
   if (options.max_groups == 0 || options.max_identifier_bytes == 0 ||
       options.max_config_entries == 0 ||
       options.max_config_array_elements == 0 ||
@@ -668,7 +712,7 @@ void validate_checkpoint_options(
                       "checkpoint.participant_id");
   const StateManifest probe{
       .participant_id = std::string(participant_id),
-      .schema_version = kSchemaVersion,
+      .schema_version = kParticipantSchemaVersion,
       .restore_level = RestoreLevel::exact,
       .fields = {{.name = "topology", .max_bytes = 1}},
       .degradation_reasons = {},
@@ -676,9 +720,8 @@ void validate_checkpoint_options(
   validate_state_manifest(probe);
 }
 
-void validate_config_value_limits(
-    const SchedulerConfigValue& value,
-    const StepLrSchedulerCheckpointOptions& limits) {
+void validate_config_value_limits(const SchedulerConfigValue& value,
+                                  const LrSchedulerCheckpointOptions& limits) {
   std::visit(
       [&limits](const auto& typed) {
         using Value = std::decay_t<decltype(typed)>;
@@ -727,7 +770,7 @@ void validate_config_value_limits(
 }
 
 void validate_descriptor_limits(const SchedulerDescriptor& descriptor,
-                                const StepLrSchedulerCheckpointOptions& limits,
+                                const LrSchedulerCheckpointOptions& limits,
                                 std::size_t depth) {
   if (depth > limits.max_descriptor_depth) {
     throw_resource("descriptor.depth", limits.max_descriptor_depth, depth,
@@ -808,13 +851,14 @@ void checked_total(std::uint64_t left, std::uint64_t right,
 }
 
 SchedulerSnapshot inspect_scheduler(
-    const StepLrScheduler& scheduler,
-    const StepLrSchedulerCheckpointOptions& limits) {
+    const LrScheduler& scheduler, const LrSchedulerCheckpointOptions& limits) {
   const auto& descriptor = scheduler.descriptor();
   validate_descriptor_limits(descriptor, limits, 1);
   const auto rates = scheduler.learning_rates();
+  const auto state = detail::SchedulerStateAccess::capture_state(scheduler);
+  detail::SchedulerStateAccess::validate_state(scheduler, state);
   auto topology = encode_topology(scheduler.scheduler_id(), descriptor);
-  auto control = encode_control(scheduler.completed_steps(), rates);
+  auto control = encode_control(state, rates);
   if (topology.size() > limits.max_topology_bytes) {
     throw_resource("state.topology_bytes", limits.max_topology_bytes,
                    topology.size(), "Raise the topology limit explicitly.");
@@ -826,13 +870,13 @@ SchedulerSnapshot inspect_scheduler(
   checked_total(topology.size(), control.size(), limits.max_total_bytes);
   StateManifest manifest{
       .participant_id = scheduler.scheduler_id(),
-      .schema_version = kSchemaVersion,
+      .schema_version = kParticipantSchemaVersion,
       .restore_level = RestoreLevel::exact,
       .fields = {{.name = "topology",
                   .media_type = "application/vnd.jyppx.scheduler-descriptor-v1",
                   .max_bytes = limits.max_topology_bytes},
                  {.name = "control",
-                  .media_type = "application/vnd.jyppx.step-lr-control-v1",
+                  .media_type = "application/vnd.jyppx.scheduler-state-tree-v1",
                   .max_bytes = limits.max_control_bytes}},
       .degradation_reasons = {},
   };
@@ -844,13 +888,12 @@ SchedulerSnapshot inspect_scheduler(
 
 }  // namespace
 
-struct StepLrScheduler::Impl {
+struct LrScheduler::Impl {
   std::shared_ptr<OptimizerRateControl>
-      optimizer;  ///< Retained optimizer learning-rate control surface.
-  StepLrSchedulerOptions options;  ///< Immutable scheduler identity/options.
+      optimizer;  ///< Retained atomic optimizer rate-control surface.
+  std::string scheduler_id;  ///< Stable checkpoint participant identity.
   std::vector<double> base_learning_rates;  ///< Construction-time group rates.
   SchedulerDescriptor descriptor;  ///< Immutable canonical scheduler topology.
-  std::uint64_t completed_steps = 0;  ///< Successfully applied epoch events.
 };
 
 std::string_view scheduler_step_mode_name(SchedulerStepMode mode) noexcept {
@@ -867,31 +910,18 @@ std::string_view scheduler_step_mode_name(SchedulerStepMode mode) noexcept {
   return "unknown";
 }
 
-StepLrScheduler::StepLrScheduler(
-    std::shared_ptr<OptimizerRateControl> optimizer,
-    StepLrSchedulerOptions options)
+LrScheduler::LrScheduler(std::shared_ptr<OptimizerRateControl> optimizer,
+                         std::string scheduler_id)
     : impl_(std::make_unique<Impl>()) {
   try {
     if (!optimizer) {
       throw_invalid("optimizer", "a non-null OptimizerRateControl", "null",
                     "Create the optimizer before its scheduler.");
     }
-    validate_identifier(options.scheduler_id,
-                        kConstructionMaximumIdentifierBytes, "scheduler_id");
+    validate_identifier(scheduler_id, kConstructionMaximumIdentifierBytes,
+                        "scheduler_id");
     validate_identifier(optimizer->optimizer_id(),
                         kConstructionMaximumIdentifierBytes, "optimizer_id");
-    if (options.step_size == 0 ||
-        options.step_size > static_cast<std::uint64_t>(
-                                std::numeric_limits<std::int64_t>::max())) {
-      throw_invalid("step_size", "a positive int64-compatible value",
-                    std::to_string(options.step_size),
-                    "Choose a bounded positive decay interval.");
-    }
-    if (!std::isfinite(options.gamma) || options.gamma < 0.0) {
-      throw_invalid("gamma", "a finite non-negative multiplier",
-                    std::to_string(options.gamma),
-                    "Choose a valid decay multiplier.");
-    }
     const auto& group_ids = optimizer->parameter_group_ids();
     if (group_ids.empty() ||
         group_ids.size() > std::numeric_limits<std::uint32_t>::max()) {
@@ -910,27 +940,9 @@ StepLrScheduler::StepLrScheduler(
     }
     auto base_rates = optimizer->learning_rates();
     validate_rates(base_rates, group_ids.size(), "optimizer.learning_rates");
-
-    SchedulerDescriptor descriptor{
-        .schema_version = kSchemaVersion,
-        .type_id = kTypeId,
-        .step_mode = SchedulerStepMode::epoch,
-        .config = {{"base_learning_rates", base_rates},
-                   {"gamma", options.gamma},
-                   {"step_size", static_cast<std::int64_t>(options.step_size)}},
-        .optimizer_id = optimizer->optimizer_id(),
-        .optimizer_group_ids = group_ids,
-        .optimizer_group_signature =
-            group_signature(optimizer->optimizer_id(), group_ids),
-        .callable_id = std::nullopt,
-        .children = {},
-        .fingerprint = {},
-    };
-    descriptor.fingerprint = descriptor_fingerprint(descriptor);
     impl_->optimizer = std::move(optimizer);
-    impl_->options = std::move(options);
+    impl_->scheduler_id = std::move(scheduler_id);
     impl_->base_learning_rates = std::move(base_rates);
-    impl_->descriptor = std::move(descriptor);
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
@@ -938,9 +950,59 @@ StepLrScheduler::StepLrScheduler(
   }
 }
 
-StepLrScheduler::~StepLrScheduler() = default;
+LrScheduler::~LrScheduler() = default;
 
-std::vector<double> StepLrScheduler::learning_rates() const {
+void LrScheduler::configure_descriptor(
+    std::string type_id, SchedulerStepMode step_mode,
+    std::map<std::string, SchedulerConfigValue> config,
+    std::vector<SchedulerDescriptor> children,
+    std::optional<std::string> callable_id) {
+  try {
+    if (!impl_->descriptor.type_id.empty()) {
+      throw_invalid("descriptor", "configured exactly once", "already set",
+                    "Configure a descriptor only during construction.");
+    }
+    validate_identifier(type_id, kConstructionMaximumIdentifierBytes,
+                        "descriptor.type_id");
+    if (scheduler_step_mode_name(step_mode) == "unknown") {
+      throw_invalid("descriptor.step_mode", "a declared mode", "unknown",
+                    "Use a stable SchedulerStepMode value.");
+    }
+    for (const auto& child : children) {
+      if (child.optimizer_id != impl_->optimizer->optimizer_id() ||
+          child.optimizer_group_ids !=
+              impl_->optimizer->parameter_group_ids()) {
+        throw_invalid("descriptor.children.optimizer",
+                      "the parent optimizer identity and ordered groups",
+                      child.optimizer_id,
+                      "Construct every child from the same optimizer.");
+      }
+    }
+    SchedulerDescriptor descriptor{
+        .schema_version = kDescriptorSchemaVersion,
+        .type_id = std::move(type_id),
+        .step_mode = step_mode,
+        .config = std::move(config),
+        .optimizer_id = impl_->optimizer->optimizer_id(),
+        .optimizer_group_ids = impl_->optimizer->parameter_group_ids(),
+        .optimizer_group_signature =
+            group_signature(impl_->optimizer->optimizer_id(),
+                            impl_->optimizer->parameter_group_ids()),
+        .callable_id = std::move(callable_id),
+        .children = std::move(children),
+        .fingerprint = {},
+    };
+    descriptor.fingerprint = descriptor_fingerprint(descriptor);
+    validate_descriptor_limits(descriptor, LrSchedulerCheckpointOptions{}, 1);
+    impl_->descriptor = std::move(descriptor);
+  } catch (const Error&) {
+    throw;
+  } catch (const std::bad_alloc&) {
+    translate_bad_alloc("configure descriptor");
+  }
+}
+
+std::vector<double> LrScheduler::learning_rates() const {
   try {
     if (impl_->optimizer->optimizer_id() != impl_->descriptor.optimizer_id) {
       throw_compatibility("optimizer_id", impl_->descriptor.optimizer_id,
@@ -964,35 +1026,21 @@ std::vector<double> StepLrScheduler::learning_rates() const {
   }
 }
 
-void StepLrScheduler::step() {
+void LrScheduler::step() {
   try {
-    if (impl_->completed_steps == std::numeric_limits<std::uint64_t>::max()) {
-      throw ResourceExhausted(
-          "StepLR scheduler counter exhausted",
-          ErrorDetails{.component = kComponent,
-                       .operation = "step.completed_steps",
-                       .expected = "a count below uint64 maximum",
-                       .actual = "uint64 maximum",
-                       .hint = "Start a new training run identity."});
+    if (impl_->descriptor.type_id.empty()) {
+      throw_invalid("descriptor", "a configured scheduler descriptor",
+                    "unconfigured",
+                    "Complete derived scheduler construction before use.");
     }
-    auto rates = learning_rates();
-    const auto next_step = impl_->completed_steps + 1;
-    if (next_step % impl_->options.step_size == 0) {
-      for (auto& rate : rates) {
-        rate *= impl_->options.gamma;
-        if (!std::isfinite(rate) || rate < 0.0) {
-          throw NumericalError(
-              "StepLR decay produced an invalid learning rate",
-              ErrorDetails{.component = kComponent,
-                           .operation = "step.learning_rate",
-                           .expected = "a finite non-negative rate",
-                           .actual = std::to_string(rate),
-                           .hint = "Reduce gamma or the current rate."});
-        }
-      }
-      impl_->optimizer->set_learning_rates(rates);
-    }
-    impl_->completed_steps = next_step;
+    const auto rates = learning_rates();
+    auto transition = detail::SchedulerStateAccess::preview_step(*this, rates);
+    validate_rates(transition.learning_rates,
+                   impl_->descriptor.optimizer_group_ids.size(),
+                   "step.learning_rates");
+    detail::SchedulerStateAccess::validate_state(*this, transition.state);
+    impl_->optimizer->set_learning_rates(transition.learning_rates);
+    detail::SchedulerStateAccess::apply_state(*this, transition.state);
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
@@ -1000,34 +1048,148 @@ void StepLrScheduler::step() {
   }
 }
 
-const std::string& StepLrScheduler::scheduler_id() const noexcept {
-  return impl_->options.scheduler_id;
+const std::string& LrScheduler::scheduler_id() const noexcept {
+  return impl_->scheduler_id;
 }
 
-std::uint64_t StepLrScheduler::completed_steps() const noexcept {
-  return impl_->completed_steps;
+std::uint64_t LrScheduler::completed_steps() const noexcept {
+  return completed_steps_impl();
 }
 
-const std::vector<double>& StepLrScheduler::base_learning_rates()
-    const noexcept {
+const std::vector<double>& LrScheduler::base_learning_rates() const noexcept {
   return impl_->base_learning_rates;
 }
 
-const SchedulerDescriptor& StepLrScheduler::descriptor() const noexcept {
+const SchedulerDescriptor& LrScheduler::descriptor() const noexcept {
   return impl_->descriptor;
 }
 
-StepLrSchedulerCheckpointParticipant::StepLrSchedulerCheckpointParticipant(
-    std::shared_ptr<StepLrScheduler> scheduler,
-    StepLrSchedulerCheckpointOptions options)
+namespace detail {
+
+SchedulerTransition SchedulerStateAccess::preview_step(
+    const LrScheduler& scheduler, std::span<const double> learning_rates) {
+  validate_rates(learning_rates,
+                 scheduler.descriptor().optimizer_group_ids.size(),
+                 "preview.input_learning_rates");
+  auto transition = scheduler.preview_step_impl(learning_rates);
+  validate_rates(transition.learning_rates,
+                 scheduler.descriptor().optimizer_group_ids.size(),
+                 "preview.output_learning_rates");
+  scheduler.validate_state_impl(transition.state);
+  return transition;
+}
+
+SchedulerState SchedulerStateAccess::capture_state(
+    const LrScheduler& scheduler) {
+  return scheduler.capture_state_impl();
+}
+
+void SchedulerStateAccess::validate_state(const LrScheduler& scheduler,
+                                          const SchedulerState& state) {
+  scheduler.validate_state_impl(state);
+}
+
+void SchedulerStateAccess::apply_state(LrScheduler& scheduler,
+                                       const SchedulerState& state) noexcept {
+  scheduler.apply_state_impl(state);
+}
+
+const std::shared_ptr<OptimizerRateControl>& SchedulerStateAccess::optimizer(
+    const LrScheduler& scheduler) noexcept {
+  return scheduler.impl_->optimizer;
+}
+
+}  // namespace detail
+
+StepLrScheduler::StepLrScheduler(
+    std::shared_ptr<OptimizerRateControl> optimizer,
+    StepLrSchedulerOptions options)
+    : LrScheduler(optimizer, options.scheduler_id),
+      options_(std::move(options)) {
+  if (options_.step_size == 0 ||
+      options_.step_size > static_cast<std::uint64_t>(
+                               std::numeric_limits<std::int64_t>::max())) {
+    throw_invalid("step_size", "a positive int64-compatible value",
+                  std::to_string(options_.step_size),
+                  "Choose a bounded positive decay interval.");
+  }
+  if (!std::isfinite(options_.gamma) || options_.gamma < 0.0) {
+    throw_invalid("gamma", "a finite non-negative multiplier",
+                  std::to_string(options_.gamma),
+                  "Choose a valid decay multiplier.");
+  }
+  configure_descriptor(
+      kTypeId, SchedulerStepMode::epoch,
+      {{"base_learning_rates", base_learning_rates()},
+       {"gamma", options_.gamma},
+       {"step_size", static_cast<std::int64_t>(options_.step_size)}});
+}
+
+StepLrScheduler::~StepLrScheduler() = default;
+
+detail::SchedulerTransition StepLrScheduler::preview_step_impl(
+    std::span<const double> learning_rates) const {
+  if (completed_steps_ == std::numeric_limits<std::uint64_t>::max()) {
+    throw ResourceExhausted(
+        "StepLR scheduler counter exhausted",
+        ErrorDetails{.component = kComponent,
+                     .operation = "step.completed_steps",
+                     .expected = "a count below uint64 maximum",
+                     .actual = "uint64 maximum",
+                     .hint = "Start a new training run identity."});
+  }
+  std::vector<double> candidate(learning_rates.begin(), learning_rates.end());
+  const auto next_step = completed_steps_ + 1;
+  if (next_step % options_.step_size == 0) {
+    for (auto& rate : candidate) {
+      rate *= options_.gamma;
+      if (!std::isfinite(rate) || rate < 0.0) {
+        throw NumericalError(
+            "StepLR decay produced an invalid learning rate",
+            ErrorDetails{.component = kComponent,
+                         .operation = "step.learning_rate",
+                         .expected = "a finite non-negative rate",
+                         .actual = std::to_string(rate),
+                         .hint = "Reduce gamma or the current rate."});
+      }
+    }
+  }
+  return {.state = {.completed_steps = next_step, .children = {}},
+          .learning_rates = std::move(candidate)};
+}
+
+detail::SchedulerState StepLrScheduler::capture_state_impl() const {
+  return {.completed_steps = completed_steps_, .children = {}};
+}
+
+std::uint64_t StepLrScheduler::completed_steps_impl() const noexcept {
+  return completed_steps_;
+}
+
+void StepLrScheduler::validate_state_impl(
+    const detail::SchedulerState& state) const {
+  if (!state.children.empty()) {
+    throw_compatibility("state.children", "a StepLR leaf", "children present",
+                        "Restore state from the same scheduler type.");
+  }
+}
+
+void StepLrScheduler::apply_state_impl(
+    const detail::SchedulerState& state) noexcept {
+  completed_steps_ = state.completed_steps;
+}
+
+LrSchedulerCheckpointParticipant::LrSchedulerCheckpointParticipant(
+    std::shared_ptr<LrScheduler> scheduler,
+    LrSchedulerCheckpointOptions options)
     : scheduler_(std::move(scheduler)), options_(options) {
   if (!scheduler_) {
-    throw_invalid("scheduler", "a non-null shared StepLrScheduler", "null",
+    throw_invalid("scheduler", "a non-null shared LrScheduler", "null",
                   "Create the scheduler before its checkpoint participant.");
   }
   if constexpr (std::endian::native != std::endian::little) {
     throw NotImplemented(
-        "StepLR checkpoint byte order is unsupported",
+        "Scheduler checkpoint byte order is unsupported",
         ErrorDetails{.component = kComponent,
                      .operation = "platform.endian",
                      .expected = "little endian",
@@ -1038,11 +1200,11 @@ StepLrSchedulerCheckpointParticipant::StepLrSchedulerCheckpointParticipant(
   static_cast<void>(describe_state());
 }
 
-std::string StepLrSchedulerCheckpointParticipant::participant_id() const {
+std::string LrSchedulerCheckpointParticipant::participant_id() const {
   return scheduler_->scheduler_id();
 }
 
-StateManifest StepLrSchedulerCheckpointParticipant::describe_state() const {
+StateManifest LrSchedulerCheckpointParticipant::describe_state() const {
   try {
     return inspect_scheduler(*scheduler_, options_).manifest;
   } catch (const Error&) {
@@ -1052,8 +1214,7 @@ StateManifest StepLrSchedulerCheckpointParticipant::describe_state() const {
   }
 }
 
-void StepLrSchedulerCheckpointParticipant::save_state(
-    StateWriter& writer) const {
+void LrSchedulerCheckpointParticipant::save_state(StateWriter& writer) const {
   try {
     const auto snapshot = inspect_scheduler(*scheduler_, options_);
     writer.write_blob("topology", snapshot.topology);
@@ -1065,8 +1226,8 @@ void StepLrSchedulerCheckpointParticipant::save_state(
   }
 }
 
-void StepLrSchedulerCheckpointParticipant::load_state(const StateReader& reader,
-                                                      RestorePolicy policy) {
+void LrSchedulerCheckpointParticipant::load_state(const StateReader& reader,
+                                                  RestorePolicy policy) {
   try {
     if (!restore_policy_accepts(policy, RestoreLevel::exact)) {
       throw_compatibility("restore.policy", "a policy accepting exact state",
@@ -1079,7 +1240,7 @@ void StepLrSchedulerCheckpointParticipant::load_state(const StateReader& reader,
     if (!manifest_equal(stored_manifest, current.manifest)) {
       throw_compatibility("restore.manifest", scheduler_->scheduler_id(),
                           stored_manifest.participant_id,
-                          "Use state produced by the same StepLR schema.");
+                          "Use state produced by the same scheduler schema.");
     }
     for (const auto& field : current.manifest.fields) {
       if (field.required && !reader.contains(field.name)) {
@@ -1103,13 +1264,15 @@ void StepLrSchedulerCheckpointParticipant::load_state(const StateReader& reader,
     const auto control =
         reader.read_blob("control", current.manifest.fields[1].max_bytes);
     checked_total(topology.size(), control.size(), options_.max_total_bytes);
-    const auto decoded = decode_control(
-        control, scheduler_->descriptor().optimizer_group_ids.size(), options_);
+    const auto decoded =
+        decode_control(control, scheduler_->descriptor(), options_);
+    detail::SchedulerStateAccess::validate_state(*scheduler_, decoded.state);
 
     // OptimizerRateControl requires this operation to be atomic. Commit the
-    // counter only after every externally owned rate has been replaced.
-    scheduler_->impl_->optimizer->set_learning_rates(decoded.learning_rates);
-    scheduler_->impl_->completed_steps = decoded.completed_steps;
+    // state tree only after every externally owned rate has been replaced.
+    detail::SchedulerStateAccess::optimizer(*scheduler_)
+        ->set_learning_rates(decoded.learning_rates);
+    detail::SchedulerStateAccess::apply_state(*scheduler_, decoded.state);
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
@@ -1117,17 +1280,17 @@ void StepLrSchedulerCheckpointParticipant::load_state(const StateReader& reader,
   }
 }
 
-StepLrScheduler& StepLrSchedulerCheckpointParticipant::scheduler() noexcept {
+LrScheduler& LrSchedulerCheckpointParticipant::scheduler() noexcept {
   return *scheduler_;
 }
 
-const StepLrScheduler& StepLrSchedulerCheckpointParticipant::scheduler()
+const LrScheduler& LrSchedulerCheckpointParticipant::scheduler()
     const noexcept {
   return *scheduler_;
 }
 
-const StepLrSchedulerCheckpointOptions&
-StepLrSchedulerCheckpointParticipant::options() const noexcept {
+const LrSchedulerCheckpointOptions& LrSchedulerCheckpointParticipant::options()
+    const noexcept {
   return options_;
 }
 

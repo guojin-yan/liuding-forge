@@ -106,7 +106,7 @@ std::shared_ptr<jyppx::optim::SgdOptimizerAdapter> make_optimizer(
 }
 
 MemoryStateStore save_participant(
-    const jyppx::optim::StepLrSchedulerCheckpointParticipant& participant) {
+    const jyppx::optim::LrSchedulerCheckpointParticipant& participant) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   return store;
@@ -178,7 +178,7 @@ TEST(StepLrSchedulerCheckpointTest,
   source->step();
   source->step();
   source->step();
-  jyppx::optim::StepLrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::optim::LrSchedulerCheckpointParticipant source_participant(source);
   const auto store = save_participant(source_participant);
 
   auto resumed_optimizer = make_optimizer();
@@ -187,8 +187,7 @@ TEST(StepLrSchedulerCheckpointTest,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
   resumed_optimizer->set_learning_rates({0.9, 0.8});
   resumed->step();
-  jyppx::optim::StepLrSchedulerCheckpointParticipant resumed_participant(
-      resumed);
+  jyppx::optim::LrSchedulerCheckpointParticipant resumed_participant(resumed);
   resumed_participant.load_state(store, jyppx::RestorePolicy::exact_only);
 
   EXPECT_EQ(resumed->completed_steps(), 3U);
@@ -206,14 +205,14 @@ TEST(StepLrSchedulerCheckpointTest,
       source_optimizer,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
   source->step();
-  jyppx::optim::StepLrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::optim::LrSchedulerCheckpointParticipant source_participant(source);
   const auto store = save_participant(source_participant);
 
   auto different_optimizer = make_optimizer("optimizer.main", "classifier");
   auto different = std::make_shared<jyppx::optim::StepLrScheduler>(
       different_optimizer,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
-  jyppx::optim::StepLrSchedulerCheckpointParticipant different_participant(
+  jyppx::optim::LrSchedulerCheckpointParticipant different_participant(
       different);
   const auto before_mismatch = save_participant(different_participant);
   EXPECT_THROW(
@@ -227,8 +226,7 @@ TEST(StepLrSchedulerCheckpointTest,
       matching_optimizer,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
   matching_optimizer->set_learning_rates({0.7, 0.6});
-  jyppx::optim::StepLrSchedulerCheckpointParticipant matching_participant(
-      matching);
+  jyppx::optim::LrSchedulerCheckpointParticipant matching_participant(matching);
   const auto before_malformed = save_participant(matching_participant);
   auto malformed = store;
   malformed.mutable_blob("control").front() = std::byte{'X'};
@@ -242,18 +240,19 @@ TEST(StepLrSchedulerCheckpointTest,
 TEST(StepLrSchedulerCheckpointTest, UsesBoundedCurrentFormatOnly) {
   auto scheduler =
       std::make_shared<jyppx::optim::StepLrScheduler>(make_optimizer());
-  EXPECT_THROW(jyppx::optim::StepLrSchedulerCheckpointParticipant(
+  EXPECT_THROW(jyppx::optim::LrSchedulerCheckpointParticipant(
                    scheduler, {.max_groups = 0}),
                jyppx::InvalidArgument);
-  EXPECT_THROW(jyppx::optim::StepLrSchedulerCheckpointParticipant(
+  EXPECT_THROW(jyppx::optim::LrSchedulerCheckpointParticipant(
                    scheduler, {.max_identifier_bytes = 3}),
                jyppx::InvalidArgument);
-  EXPECT_THROW(jyppx::optim::StepLrSchedulerCheckpointParticipant(
+  EXPECT_THROW(jyppx::optim::LrSchedulerCheckpointParticipant(
                    scheduler, {.max_topology_bytes = 8}),
                jyppx::ResourceExhausted);
 
-  jyppx::optim::StepLrSchedulerCheckpointParticipant participant(scheduler);
+  jyppx::optim::LrSchedulerCheckpointParticipant participant(scheduler);
   const auto manifest = participant.describe_state();
+  EXPECT_EQ(manifest.schema_version, 2U);
   ASSERT_EQ(manifest.fields.size(), 2U);
   EXPECT_EQ(manifest.fields[0].name, "topology");
   EXPECT_EQ(manifest.fields[1].name, "control");
