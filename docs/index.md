@@ -35,6 +35,8 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Checkpoint Coordinator](api/checkpoint_coordinator.md) — deterministic
   participant registration, transactional capture, restore preflight, and
   cross-participant rollback
+- [Training Scheduler Adapter](api/scheduler_adapter.md) — ordered lifecycle
+  events with exact descriptor-first scheduler checkpoint delegation
 - [Model Checkpoint Participant](api/model_checkpoint_participant.md) — exact
   model topology, bounded raw tensor state, strict preflight, and atomic restore
 - [Data](api/data.md) — datasets, subset/concat/split, DataLoader,
@@ -50,7 +52,8 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Transactional Composite Schedulers](api/composite_lr_scheduler.md) —
   ordered child descriptors, pure transition preflight, and atomic tree restore
 - [Descriptor-First Epoch Schedulers](api/epoch_lr_scheduler.md) —
-  exponential, multi-step, and cosine scheduling with exact recovery
+  exponential, multi-step, cosine, and warm-restart scheduling with exact
+  recovery
 - [Descriptor-First Event Schedulers](api/event_lr_scheduler.md) —
   metric plateau, one-cycle, cyclic, and identity-bearing callable schedules
 - [Descriptor-First Linear-family Schedulers](api/linear_lr_scheduler.md) —

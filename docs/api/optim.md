@@ -116,6 +116,7 @@ scheduler->step();  // after one completed epoch
 | `ExponentialLrScheduler` | `gamma` | multiplies current rates every epoch |
 | `MultiStepLrScheduler` | `milestones`, `gamma` | decays at positive strictly ordered epochs |
 | `CosineAnnealingLrScheduler` | `t_max`, `eta_min` | chainable recursive cosine trajectory |
+| `CosineAnnealingWarmRestartsLrScheduler` | `t_0`, `t_mult`, `eta_min` | cosine cycles with exact growing restart state |
 | `LinearLrScheduler` | `start_factor`, `end_factor`, `total_iters` | construction-time factor interpolation |
 | `WarmupLrScheduler` | `start_factor`, `warmup_iters` | linear warmup to captured base rates |
 | `ConstantLrScheduler` | `factor`, `total_iters` | constant factor prefix then base rates |
@@ -134,11 +135,10 @@ consumers and are not checkpoint-safe under the new participant contract:
 | Legacy scheduler | Parameters | Status |
 |------------------|------------|--------|
 | `ReduceLROnPlateau` | mode, factor, patience, threshold | retained only by the unmigrated Trainer contract |
-| `CosineAnnealingWarmRestarts` | `T_0`, `T_mult`, `eta_min` | pending restart-state migration |
 
-The obsolete OneCycle/Cyclic/Lambda forwarding headers and implementations
-were removed. Their direct descriptor-first replacements do not accept old
-map checkpoints. Momentum cycling is explicitly rejected until optimizer
+The obsolete OneCycle/Cyclic/Lambda/warm-restart headers and implementations
+were removed. Their direct descriptor-first replacements do not accept old map
+checkpoints. Momentum cycling is explicitly rejected until optimizer
 hyperparameters have an atomic control and participant contract.
 
 ```cpp

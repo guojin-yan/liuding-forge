@@ -38,7 +38,6 @@
 #include <jyppx/optim/schedulers/lr_scheduler.hpp>
 #include <jyppx/optim/schedulers/step_lr.hpp>
 #include <jyppx/optim/schedulers/reduce_lr_on_plateau.hpp>
-#include <jyppx/optim/schedulers/cosine_annealing_warm_restarts.hpp>
 
 // Data
 #include <jyppx/data/dataset.hpp>
@@ -65,6 +64,7 @@
 
 // Training
 #include <jyppx/training/checkpoint_coordinator.hpp>
+#include <jyppx/training/scheduler_adapter.hpp>
 #include <jyppx/training/trainer.hpp>
 #include <jyppx/training/callback.hpp>
 

@@ -13,7 +13,6 @@ target_sources(jyppx_training_framework PRIVATE
     jyppx/optim/schedulers/lr_scheduler.cpp
     jyppx/optim/schedulers/step_lr.cpp
     jyppx/optim/schedulers/reduce_lr_on_plateau.cpp
-    jyppx/optim/schedulers/cosine_annealing_warm_restarts.cpp
 
     # Optim (extended)
     jyppx/optim/nadam.cpp

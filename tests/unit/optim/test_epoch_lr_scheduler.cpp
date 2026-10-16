@@ -143,6 +143,19 @@ TEST(EpochLrSchedulerTest, PublishesCompleteTypedDescriptors) {
                    0.01);
   EXPECT_EQ(cosine.descriptor().step_mode,
             jyppx::optim::SchedulerStepMode::epoch);
+
+  jyppx::optim::CosineAnnealingWarmRestartsLrScheduler warm_restarts(
+      optimizer, {.scheduler_id = "scheduler.warm_restarts",
+                  .t_0 = 3,
+                  .t_mult = 2,
+                  .eta_min = 0.01});
+  EXPECT_EQ(warm_restarts.descriptor().type_id,
+            "jyppx.scheduler.cosine_annealing_warm_restarts_lr/v2");
+  EXPECT_EQ(std::get<std::int64_t>(warm_restarts.descriptor().config.at("t_0")),
+            3);
+  EXPECT_EQ(
+      std::get<std::int64_t>(warm_restarts.descriptor().config.at("t_mult")),
+      2);
 }
 
 TEST(EpochLrSchedulerTest, AppliesExponentialAndMilestoneDecayToAllGroups) {
@@ -184,6 +197,28 @@ TEST(EpochLrSchedulerTest, CosineTraversesMinimumBoundaryWithoutRestart) {
   EXPECT_EQ(scheduler.completed_steps(), 5U);
 }
 
+TEST(EpochLrSchedulerTest, WarmRestartsGrowCyclesAndResetEveryGroup) {
+  auto optimizer = make_optimizer();
+  jyppx::optim::CosineAnnealingWarmRestartsLrScheduler scheduler(
+      optimizer, {.t_0 = 3, .t_mult = 2, .eta_min = 0.0});
+
+  scheduler.step();
+  EXPECT_NEAR(scheduler.learning_rates()[0],
+              0.2 * (1.0 + std::cos(3.14159265358979323846 / 3.0)) / 2.0,
+              1e-14);
+  scheduler.step();
+  scheduler.step();
+  EXPECT_EQ(scheduler.learning_rates(), (std::vector<double>{0.2, 0.05}));
+  EXPECT_EQ(scheduler.cycle_index(), 1U);
+  EXPECT_EQ(scheduler.cycle_length(), 6U);
+  EXPECT_EQ(scheduler.cycle_position(), 0U);
+  scheduler.step();
+  EXPECT_EQ(scheduler.cycle_position(), 1U);
+  EXPECT_NEAR(scheduler.learning_rates()[1],
+              0.05 * (1.0 + std::cos(3.14159265358979323846 / 6.0)) / 2.0,
+              1e-14);
+}
+
 TEST(EpochLrSchedulerTest, RejectsInvalidOptionsBeforeRateMutation) {
   auto optimizer = make_optimizer();
   const auto before = optimizer->learning_rates();
@@ -214,6 +249,15 @@ TEST(EpochLrSchedulerTest, RejectsInvalidOptionsBeforeRateMutation) {
           optimizer,
           {.t_max = 4, .eta_min = std::numeric_limits<double>::infinity()}),
       jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::CosineAnnealingWarmRestartsLrScheduler(optimizer,
+                                                                    {.t_0 = 0}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::CosineAnnealingWarmRestartsLrScheduler(
+                   optimizer, {.t_0 = 2, .t_mult = 0}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::CosineAnnealingWarmRestartsLrScheduler(
+                   optimizer, {.t_0 = 2, .eta_min = 0.3}),
+               jyppx::InvalidArgument);
   EXPECT_EQ(optimizer->learning_rates(), before);
 }
 
@@ -254,6 +298,17 @@ TEST(EpochLrSchedulerCheckpointTest, EveryAlgorithmRestoresExactContinuation) {
                             .t_max = 4,
                             .eta_min = 0.01});
        }},
+      {"cosine_warm_restarts",
+       [](const auto& optimizer) {
+         return std::make_shared<
+             jyppx::optim::CosineAnnealingWarmRestartsLrScheduler>(
+             optimizer,
+             jyppx::optim::CosineAnnealingWarmRestartsLrSchedulerOptions{
+                 .scheduler_id = "scheduler.cosine_warm_restarts",
+                 .t_0 = 2,
+                 .t_mult = 2,
+                 .eta_min = 0.01});
+       }},
   };
 
   for (const auto& [name, factory] : cases) {
@@ -279,6 +334,24 @@ TEST(EpochLrSchedulerCheckpointTest, EveryAlgorithmRestoresExactContinuation) {
     EXPECT_EQ(resumed->completed_steps(), source->completed_steps());
     EXPECT_EQ(resumed->learning_rates(), source->learning_rates());
   }
+}
+
+TEST(EpochLrSchedulerCheckpointTest,
+     WarmRestartRejectsCounterInconsistentCycleState) {
+  auto scheduler =
+      std::make_shared<jyppx::optim::CosineAnnealingWarmRestartsLrScheduler>(
+          make_optimizer(),
+          jyppx::optim::CosineAnnealingWarmRestartsLrSchedulerOptions{
+              .t_0 = 3, .t_mult = 2});
+  scheduler->step();
+  auto state =
+      jyppx::optim::detail::SchedulerStateAccess::capture_state(*scheduler);
+  state.control["cycle_position"] = std::int64_t{2};
+  EXPECT_THROW(jyppx::optim::detail::SchedulerStateAccess::validate_state(
+                   *scheduler, state),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(scheduler->completed_steps(), 1U);
+  EXPECT_EQ(scheduler->cycle_position(), 1U);
 }
 
 TEST(EpochLrSchedulerCheckpointTest,

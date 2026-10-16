@@ -8,8 +8,7 @@
 
 /**
  * @file epoch_lr_scheduler.hpp
- * @brief Defines descriptor-first exponential, multi-step, and cosine
- * learning-rate schedulers.
+ * @brief Defines descriptor-first epoch learning-rate schedulers.
  */
 
 #include <jyppx/optim/lr_scheduler.hpp>
@@ -227,6 +226,99 @@ class CosineAnnealingLrScheduler final : public LrScheduler {
   CosineAnnealingLrSchedulerOptions
       options_;  ///< Immutable cosine period and minimum rate.
   std::uint64_t completed_steps_ = 0;  ///< Successfully committed epochs.
+};
+
+/** @brief Configures cosine annealing with geometrically growing restarts. */
+struct CosineAnnealingWarmRestartsLrSchedulerOptions {
+  std::string scheduler_id =
+      "scheduler.cosine_annealing_warm_restarts";  ///< Stable identity.
+  std::uint64_t t_0 = 1;     ///< Positive number of epochs in the first cycle.
+  std::uint64_t t_mult = 1;  ///< Positive cycle-length growth multiplier.
+  double eta_min = 0.0;      ///< Finite non-negative minimum group rate.
+};
+
+/**
+ * @brief Applies cosine annealing and resets rates at cycle boundaries.
+ *
+ * Each completed epoch advances the position before calculating rates. At a
+ * boundary, the next cycle starts at every construction-time base rate and
+ * its length is multiplied by `t_mult`. The counter and complete cycle state
+ * are validated and committed only after the optimizer accepts all rates.
+ */
+class CosineAnnealingWarmRestartsLrScheduler final : public LrScheduler {
+ public:
+  /**
+   * @brief Creates a restart scheduler for a stable optimizer topology.
+   * @param optimizer Non-null atomic optimizer rate-control surface.
+   * @param options Stable identity, cycle geometry, and minimum rate.
+   * @throws InvalidArgument If identity, topology, rates, or options are
+   * invalid.
+   */
+  explicit CosineAnnealingWarmRestartsLrScheduler(
+      std::shared_ptr<OptimizerRateControl> optimizer,
+      CosineAnnealingWarmRestartsLrSchedulerOptions options = {});
+
+  /** @brief Releases warm-restart scheduler state. */
+  ~CosineAnnealingWarmRestartsLrScheduler() override;
+
+  /**
+   * @brief Returns the zero-based current cycle index.
+   * @return Number of completed restart boundaries.
+   */
+  std::uint64_t cycle_index() const noexcept;
+
+  /**
+   * @brief Returns the current cycle length in epochs.
+   * @return Positive length after applying all completed growth events.
+   */
+  std::uint64_t cycle_length() const noexcept;
+
+  /**
+   * @brief Returns completed epochs within the current cycle.
+   * @return Value in `[0, cycle_length())`.
+   */
+  std::uint64_t cycle_position() const noexcept;
+
+ private:
+  /**
+   * @brief Previews one restart-aware epoch transition.
+   * @param learning_rates Current optimizer rates; topology is validated by
+   * the base transaction before this hook runs.
+   * @return Candidate cycle state and complete replacement rates.
+   */
+  detail::SchedulerTransition preview_step_impl(
+      std::span<const double> learning_rates) const override;
+
+  /**
+   * @brief Captures the complete committed restart state.
+   * @return Counter plus typed cycle index, length, and position.
+   */
+  detail::SchedulerState capture_state_impl() const override;
+
+  /**
+   * @brief Returns the number of committed restart events.
+   * @return Successfully committed epoch transitions.
+   */
+  std::uint64_t completed_steps_impl() const noexcept override;
+
+  /**
+   * @brief Validates exact cycle-state shape and counter consistency.
+   * @param state Candidate state to validate without mutation.
+   */
+  void validate_state_impl(const detail::SchedulerState& state) const override;
+
+  /**
+   * @brief Commits a prevalidated restart state without allocation.
+   * @param state Candidate accepted by `validate_state_impl()`.
+   */
+  void apply_state_impl(const detail::SchedulerState& state) noexcept override;
+
+  CosineAnnealingWarmRestartsLrSchedulerOptions
+      options_;  ///< Immutable restart geometry and minimum rate.
+  std::uint64_t completed_steps_ = 0;  ///< Successfully committed epochs.
+  std::uint64_t cycle_index_ = 0;      ///< Completed restart boundaries.
+  std::uint64_t cycle_length_ = 1;     ///< Epochs in the active cycle.
+  std::uint64_t cycle_position_ = 0;   ///< Completed active-cycle epochs.
 };
 
 }  // namespace jyppx::optim

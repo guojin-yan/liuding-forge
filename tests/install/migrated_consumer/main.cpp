@@ -18,6 +18,7 @@
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
+#include <jyppx/training/scheduler_adapter.hpp>
 
 #include <array>
 #include <cmath>
@@ -182,6 +183,15 @@ int main() {
   installed_epoch_scheduler->step();
   jyppx::optim::LrSchedulerCheckpointParticipant
       installed_epoch_scheduler_participant(installed_epoch_scheduler);
+  auto installed_restart_scheduler =
+      std::make_shared<jyppx::optim::CosineAnnealingWarmRestartsLrScheduler>(
+          installed_optimizer,
+          jyppx::optim::CosineAnnealingWarmRestartsLrSchedulerOptions{
+              .scheduler_id = "scheduler.restart", .t_0 = 2, .t_mult = 2});
+  jyppx::training::SchedulerAdapter installed_scheduler_adapter(
+      installed_restart_scheduler);
+  installed_scheduler_adapter.step(
+      {.trigger = jyppx::optim::SchedulerStepMode::epoch, .event_index = 1});
   auto installed_linear_scheduler =
       std::make_shared<jyppx::optim::WarmupLrScheduler>(
           installed_optimizer, jyppx::optim::WarmupLrSchedulerOptions{
@@ -225,6 +235,8 @@ int main() {
       installed_epoch_scheduler_participant.describe_state().fields.size() ==
           2 &&
       installed_epoch_scheduler->completed_steps() == 1 &&
+      installed_scheduler_adapter.participant_id() == "scheduler.restart" &&
+      installed_restart_scheduler->completed_steps() == 1 &&
       installed_linear_scheduler_participant.describe_state().fields.size() ==
           2 &&
       installed_linear_scheduler->completed_steps() == 1 &&

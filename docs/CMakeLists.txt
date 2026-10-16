@@ -35,6 +35,7 @@ doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/amp/grad_scaler.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/amp/grad_scaler_checkpoint_participant.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/checkpoint_coordinator.hpp"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/training/scheduler_adapter.hpp"
     COMMENT "Validating and generating migrated API documentation"
 )
 

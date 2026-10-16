@@ -111,8 +111,11 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_amp.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_grad_scaler_checkpoint_participant.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/checkpoint_coordinator.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/training/scheduler_adapter.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/checkpoint_coordinator.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/training/scheduler_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_checkpoint_coordinator.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/training/test_scheduler_adapter.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/device.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/tensor_utils.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/types.hpp
