@@ -160,10 +160,16 @@ class DataPipeline final : public CheckpointParticipant {
    */
   DataPipelineState state() const;
 
-  /** @brief Returns the stable checkpoint participant identity. */
+  /**
+   * @brief Returns the stable checkpoint participant identity.
+   * @return Configured pipeline identifier used by the coordinator.
+   */
   std::string participant_id() const override;
 
-  /** @brief Returns the current state manifest and restore guarantee. */
+  /**
+   * @brief Returns the current state manifest and restore guarantee.
+   * @return Bounded topology/cursor schema and declared restore level.
+   */
   StateManifest describe_state() const override;
 
   /**
@@ -182,7 +188,10 @@ class DataPipeline final : public CheckpointParticipant {
   void load_state(const StateReader& reader, RestorePolicy policy) override;
 
  private:
-  /** @brief Validates a decoded state against immutable pipeline options. */
+  /**
+   * @brief Validates a decoded state against immutable pipeline options.
+   * @param state Fully decoded candidate state that has not been applied.
+   */
   void validate_state(const DataPipelineState& state) const;
 
   std::shared_ptr<samplers::Sampler>
