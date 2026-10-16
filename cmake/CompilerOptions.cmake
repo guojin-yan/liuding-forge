@@ -113,21 +113,28 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/checkpoint_coordinator.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/callback_dispatcher.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/callbacks/early_stopping_callback.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/training/event_sink.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/metrics/classification.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/metrics/ranking.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/scheduler_adapter.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/training/single_device_strategy.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/training/strategy.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/checkpoint_coordinator.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/callback_dispatcher.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/callbacks/early_stopping_callback.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/detail/memory_participant_state.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/training/event_sink.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/metrics/classification.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/metrics/ranking.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/scheduler_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/training/single_device_strategy.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_callback_dispatcher.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_checkpoint_coordinator.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/training/test_event_sink.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_classification_metric.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_ranking_metric.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_scheduler_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/training/test_single_device_strategy.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/device.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/tensor_utils.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/types.hpp
@@ -187,6 +194,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/optimizer_rate_control.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/composite_lr_scheduler.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/optim/optimizer_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/epoch_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/event_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/linear_lr_scheduler.hpp

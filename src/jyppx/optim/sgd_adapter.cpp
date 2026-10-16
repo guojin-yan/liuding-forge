@@ -1169,6 +1169,17 @@ const std::vector<SgdParameterGroup>& SgdOptimizerAdapter::groups()
   return impl_->groups;
 }
 
+std::vector<OptimizerParameterBinding> SgdOptimizerAdapter::parameter_bindings()
+    const {
+  std::vector<OptimizerParameterBinding> result;
+  result.reserve(impl_->parameters.size());
+  for (const auto& parameter : impl_->parameters) {
+    result.push_back({.parameter_id = parameter.parameter_id,
+                      .parameter = parameter.parameter});
+  }
+  return result;
+}
+
 std::size_t SgdOptimizerAdapter::parameter_count() const noexcept {
   return impl_->parameters.size();
 }

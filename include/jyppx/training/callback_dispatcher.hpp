@@ -27,6 +27,9 @@ namespace jyppx::training {
 /** @brief Registry receiving callback checkpoint participants atomically. */
 class CheckpointParticipantRegistry;
 
+/** @brief Forward declaration for post-commit event staging. */
+class EventOutbox;
+
 /**
  * @brief Identifies a stable training lifecycle event.
  *
@@ -255,6 +258,20 @@ class CallbackDispatcher final : public CheckpointParticipant {
   CallbackDispatchResult dispatch(const CallbackEvent& event);
 
   /**
+   * @brief Delivers one event and atomically stages its committed audit record.
+   * @param event Immutable event snapshot for the current run.
+   * @param outbox Open bounded outbox receiving the event and commands.
+   * @return Audit list and deterministic effective command.
+   * @throws Error If callback dispatch or outbox staging fails. Stateful
+   * callbacks and the dispatcher cursor are rolled back before propagation.
+   *
+   * Sink I/O is not performed by this method. The outbox publishes only after
+   * the callback transaction commits through an explicit drain or close call.
+   */
+  CallbackDispatchResult dispatch(const CallbackEvent& event,
+                                  EventOutbox& outbox);
+
+  /**
    * @brief Returns independently registered stateful callback participants.
    * @return Shared participant owners in deterministic callback order.
    */
@@ -296,6 +313,15 @@ class CallbackDispatcher final : public CheckpointParticipant {
   void load_state(const StateReader& reader, RestorePolicy policy) override;
 
  private:
+  /**
+   * @brief Implements dispatch with optional transactional outbox staging.
+   * @param event Validated candidate event.
+   * @param outbox Optional post-commit staging boundary.
+   * @return Commands produced by subscribed callbacks.
+   */
+  CallbackDispatchResult dispatch_impl(const CallbackEvent& event,
+                                       EventOutbox* outbox);
+
   CallbackDispatcherOptions options_;  ///< Immutable identity and limits.
   std::vector<std::shared_ptr<CallbackHandler>>
       callbacks_;             ///< Handlers in deterministic execution order.

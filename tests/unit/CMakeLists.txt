@@ -122,6 +122,16 @@ jyppx_add_gtest(jyppx_test_training_callback_dispatcher
     training/test_callback_dispatcher.cpp
 )
 
+jyppx_add_gtest(jyppx_test_training_event_sink
+    LINK_TARGET jyppx::training
+    training/test_event_sink.cpp
+)
+
+jyppx_add_gtest(jyppx_test_training_single_device_strategy
+    LINK_TARGET jyppx::training
+    training/test_single_device_strategy.cpp
+)
+
 jyppx_add_gtest(jyppx_test_plan
     test_plan_completion.cpp
 )

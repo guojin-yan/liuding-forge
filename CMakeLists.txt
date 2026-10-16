@@ -267,9 +267,11 @@ add_library(jyppx_training STATIC
     src/jyppx/training/callback_dispatcher.cpp
     src/jyppx/training/callbacks/early_stopping_callback.cpp
     src/jyppx/training/checkpoint_coordinator.cpp
+    src/jyppx/training/event_sink.cpp
     src/jyppx/training/metrics/classification.cpp
     src/jyppx/training/metrics/ranking.cpp
     src/jyppx/training/scheduler_adapter.cpp
+    src/jyppx/training/single_device_strategy.cpp
 )
 add_library(jyppx::training ALIAS jyppx_training)
 set_target_properties(jyppx_training PROPERTIES
@@ -306,7 +308,7 @@ target_link_libraries(jyppx_optim
         jyppx_foundation
         jyppx_core
 )
-target_link_libraries(jyppx_training PUBLIC jyppx_optim)
+target_link_libraries(jyppx_training PUBLIC jyppx_optim jyppx_nn)
 
 add_library(jyppx_training_framework STATIC)
 add_library(jyppx::sdk ALIAS jyppx_training_framework)

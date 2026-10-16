@@ -15,14 +15,17 @@
 #include <jyppx/optim/epoch_lr_scheduler.hpp>
 #include <jyppx/optim/event_lr_scheduler.hpp>
 #include <jyppx/optim/linear_lr_scheduler.hpp>
+#include <jyppx/optim/optimizer_adapter.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
 #include <jyppx/training/callbacks/early_stopping_callback.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
+#include <jyppx/training/event_sink.hpp>
 #include <jyppx/training/metrics/classification.hpp>
 #include <jyppx/training/metrics/ranking.hpp>
 #include <jyppx/training/scheduler_adapter.hpp>
+#include <jyppx/training/single_device_strategy.hpp>
 
 #include <array>
 #include <cmath>
@@ -30,6 +33,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -104,6 +108,29 @@ int main() {
   const bool valid_callback =
       callback_registry.participant_ids() ==
       std::vector<std::string>({"callback.consumer", "callbacks.consumer"});
+  std::ostringstream installed_event_output;
+  auto installed_event_sink =
+      std::make_shared<jyppx::training::ConsoleEventSink>(
+          installed_event_output, jyppx::training::ConsoleEventSinkOptions{
+                                      .sink_id = "sink.consumer",
+                                      .destination_id = "console.consumer"});
+  jyppx::training::EventOutbox installed_outbox(
+      {installed_event_sink},
+      jyppx::training::EventOutboxOptions{.outbox_id = "events.consumer"});
+  installed_callback_dispatcher->dispatch(
+      {.schema_version = 1,
+       .kind = jyppx::training::CallbackEventKind::run_started,
+       .phase = jyppx::training::CallbackPhase::preparing,
+       .event_index = 1,
+       .run_id = "run.consumer",
+       .trace_id = "trace.consumer"},
+      installed_outbox);
+  installed_outbox.close();
+  const bool valid_event_sink =
+      installed_outbox.describe_state().participant_id == "events.consumer" &&
+      installed_outbox.last_delivered_event_index() == 1 &&
+      installed_event_output.str().find("\"run_id\":\"run.consumer\"") !=
+          std::string::npos;
   jyppx::core::RngCheckpointParticipant installed_rng_participant(
       {.participant_id = "rng.consumer", .include_cuda = false});
   const bool valid_rng_checkpoint =
@@ -206,6 +233,32 @@ int main() {
   const bool valid_adapter =
       adapted.sizes().vec() == std::vector<std::int64_t>({2, 1}) &&
       adapter.state().parameters().size() == 2;
+  std::vector<jyppx::optim::OptimizerParameterBinding> strategy_bindings;
+  for (const auto& item : adapter.state().named_parameters()) {
+    strategy_bindings.push_back(
+        {.parameter_id = item.key(), .parameter = item.value()});
+  }
+  auto strategy_optimizer = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+      "optimizer.strategy", std::vector<jyppx::optim::SgdParameterGroup>{
+                                {.group_id = "main",
+                                 .parameters = std::move(strategy_bindings),
+                                 .options = {.learning_rate = 0.0}}});
+  jyppx::training::SingleDeviceStrategy installed_strategy;
+  installed_strategy.prepare(adapter, *strategy_optimizer);
+  installed_strategy.zero_grad(*strategy_optimizer);
+  const auto strategy_loss =
+      adapter.invoke({.positional = {torch::ones({1, 2})}})
+          .value.toTensor()
+          .pow(2)
+          .mean();
+  installed_strategy.backward(strategy_loss);
+  const auto strategy_outcome =
+      installed_strategy.optimizer_step(*strategy_optimizer);
+  const bool valid_strategy =
+      installed_strategy.describe_state().restore_level ==
+          jyppx::RestoreLevel::exact &&
+      strategy_outcome.status == jyppx::training::StrategyStepStatus::applied &&
+      strategy_outcome.optimizer_completed_steps == 1;
   auto installed_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   auto installed_optimizer =
@@ -303,7 +356,8 @@ int main() {
                  valid_data_pipeline && valid_nn && valid_contrastive &&
                  valid_focal && valid_dice && valid_adapter && valid_metric &&
                  valid_ranking_metric && valid_classwise_metric &&
-                 valid_optimizer && valid_scheduler && valid_callback
+                 valid_optimizer && valid_scheduler && valid_callback &&
+                 valid_event_sink && valid_strategy
              ? 0
              : 1;
 }

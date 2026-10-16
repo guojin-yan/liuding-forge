@@ -8,6 +8,7 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
+#include <jyppx/training/event_sink.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -668,6 +669,16 @@ CallbackDispatcher::CallbackDispatcher(
 
 CallbackDispatchResult CallbackDispatcher::dispatch(
     const CallbackEvent& event) {
+  return dispatch_impl(event, nullptr);
+}
+
+CallbackDispatchResult CallbackDispatcher::dispatch(const CallbackEvent& event,
+                                                    EventOutbox& outbox) {
+  return dispatch_impl(event, &outbox);
+}
+
+CallbackDispatchResult CallbackDispatcher::dispatch_impl(
+    const CallbackEvent& event, EventOutbox* outbox) {
   if (event.schema_version != 1U || !valid_event_kind(event.kind) ||
       !valid_phase(event.phase)) {
     throw_invalid("event.schema", "current known event schema", "unknown",
@@ -740,6 +751,7 @@ CallbackDispatchResult CallbackDispatcher::dispatch(
     }
   }
 
+  auto next_run_id = event.run_id;
   const auto snapshots = capture_callback_state(
       event, callbacks_, options_.max_dispatch_rollback_bytes);
   std::size_t attempted_stateful_callbacks = 0;
@@ -807,13 +819,16 @@ CallbackDispatchResult CallbackDispatcher::dispatch(
       }
       result.commands.push_back(std::move(command));
     }
+    if (outbox != nullptr) {
+      outbox->enqueue(event, result);
+    }
   } catch (...) {
     rollback_and_rethrow(snapshots, attempted_stateful_callbacks);
   }
 
   initialized_ = true;
   terminal_ = is_terminal_event(event.kind);
-  run_id_ = event.run_id;
+  run_id_ = std::move(next_run_id);
   last_event_index_ = event.event_index;
   last_epoch_ = event.epoch;
   last_global_step_ = event.global_step;

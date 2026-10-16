@@ -13,7 +13,7 @@
 
 #include <jyppx/core/types.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
-#include <jyppx/optim/optimizer_rate_control.hpp>
+#include <jyppx/optim/optimizer_adapter.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -23,17 +23,6 @@
 #include <vector>
 
 namespace jyppx::optim {
-
-/**
- * @brief Binds a model parameter to a stable checkpoint identity.
- *
- * The identity is persisted instead of a container position or native tensor
- * pointer. A parameter tensor remains owned by the caller's model.
- */
-struct OptimizerParameterBinding {
-  std::string parameter_id;  ///< Stable nonempty identity within an optimizer.
-  Tensor parameter;  ///< Defined dense floating parameter retained by handle.
-};
 
 /**
  * @brief Configures one delegated SGD parameter group.
@@ -74,10 +63,10 @@ struct SgdParameterGroup {
  * `step()` may leave native optimizer state modified; callers must stop or
  * recover from a checkpoint before continuing.
  */
-class SgdOptimizerAdapter final : public OptimizerRateControl {
+class SgdOptimizerAdapter final : public OptimizerAdapter {
  public:
-  /** @brief Callable loss closure accepted by a delegated optimization step. */
-  using LossClosure = std::function<Tensor()>;
+  /** @brief Preserves the common closure type on the concrete adapter API. */
+  using LossClosure = OptimizerAdapter::LossClosure;
 
   /**
    * @brief Creates an SGD optimizer from stable parameter groups.
@@ -113,14 +102,14 @@ class SgdOptimizerAdapter final : public OptimizerRateControl {
    * @throws ResourceExhausted If bookkeeping allocation fails.
    * @throws Any exception raised by `closure` is propagated unchanged.
    */
-  Tensor step(LossClosure closure = {});
+  Tensor step(LossClosure closure = {}) override;
 
   /**
    * @brief Clears gradients through the delegated optimizer.
    * @param set_to_none Whether to release gradient tensors instead of zeroing.
    * @throws BackendError If LibTorch cannot clear a gradient.
    */
-  void zero_grad(bool set_to_none = true);
+  void zero_grad(bool set_to_none = true) override;
 
   /**
    * @brief Returns one current learning rate per stable parameter group.
@@ -151,7 +140,7 @@ class SgdOptimizerAdapter final : public OptimizerRateControl {
    * @brief Returns the number of successful delegated steps.
    * @return Monotonic count restored by the checkpoint participant.
    */
-  std::uint64_t completed_steps() const noexcept;
+  std::uint64_t completed_steps() const noexcept override;
 
   /**
    * @brief Returns the immutable stable optimizer descriptor.
@@ -160,10 +149,17 @@ class SgdOptimizerAdapter final : public OptimizerRateControl {
   const std::vector<SgdParameterGroup>& groups() const noexcept;
 
   /**
+   * @brief Returns stable flattened parameter bindings.
+   * @return Copies of lightweight tensor handles in checkpoint order.
+   * @throws InvalidArgument If current topology violates its descriptor.
+   */
+  std::vector<OptimizerParameterBinding> parameter_bindings() const override;
+
+  /**
    * @brief Returns the total number of bound parameters.
    * @return Sum of all stable group parameter counts.
    */
-  std::size_t parameter_count() const noexcept;
+  std::size_t parameter_count() const noexcept override;
 
  private:
   /** @brief Opaque owner of LibTorch-specific optimizer state. */
