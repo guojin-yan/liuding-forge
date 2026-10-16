@@ -3,18 +3,22 @@ set -euo pipefail
 
 source_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build_root="$source_root/out/build/fuzz-linux"
-output_root="$source_root/out/fuzz/linux/device-parse"
-fixture_root="$source_root/tests/fixtures/fuzz/device_parse"
-seed_root="$fixture_root/corpus"
-corpus_root="$output_root/corpus"
-artifact_root="$output_root/artifacts"
+output_root="$source_root/out/fuzz/linux"
+device_fixture_root="$source_root/tests/fixtures/fuzz/device_parse"
+device_output_root="$output_root/device-parse"
+device_corpus_root="$device_output_root/corpus"
+device_artifact_root="$device_output_root/artifacts"
+data_fixture_root="$source_root/tests/fixtures/fuzz/data_pipeline"
+data_output_root="$output_root/data-pipeline"
+data_corpus_root="$data_output_root/corpus"
+data_artifact_root="$data_output_root/artifacts"
 
 case "$build_root" in
   "$source_root/out/build/"*) ;;
   *) echo "fuzz build path escaped the repository output root" >&2; exit 2 ;;
 esac
 case "$output_root" in
-  "$source_root/out/fuzz/linux/"*) ;;
+  "$source_root/out/fuzz/linux") ;;
   *) echo "fuzz output path escaped the repository output root" >&2; exit 2 ;;
 esac
 
@@ -38,16 +42,18 @@ for value_name in build_parallelism fuzz_runs; do
 done
 
 rm -rf "$build_root" "$output_root"
-mkdir -p "$corpus_root" "$artifact_root"
-cp -R "$seed_root/." "$corpus_root/"
+mkdir -p "$device_corpus_root" "$device_artifact_root"
+mkdir -p "$data_corpus_root" "$data_artifact_root"
+cp -R "$device_fixture_root/corpus/." "$device_corpus_root/"
+cp -R "$data_fixture_root/corpus/." "$data_corpus_root/"
 
 run_logged() {
-  local log_name=$1
+  local log_path=$1
   shift
-  "$@" 2>&1 | tee "$output_root/$log_name"
+  "$@" 2>&1 | tee "$log_path"
 }
 
-run_logged 01-configure.log cmake \
+run_logged "$output_root/01-configure.log" cmake \
   -S "$source_root" \
   -B "$build_root" \
   -DCMAKE_BUILD_TYPE=Debug \
@@ -60,8 +66,8 @@ run_logged 01-configure.log cmake \
   -DJYPPX_ENABLE_UBSAN=ON \
   -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:?CMAKE_PREFIX_PATH must point to LibTorch}"
 
-run_logged 02-build.log cmake --build "$build_root" \
-  --target jyppx_fuzz_device_parse \
+run_logged "$output_root/02-build.log" cmake --build "$build_root" \
+  --target jyppx_fuzz_device_parse jyppx_fuzz_data_pipeline_state \
   --parallel "$build_parallelism"
 
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1:strict_string_checks=1}"
@@ -74,12 +80,20 @@ if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; t
   address_layout_runner=(setarch "$(uname -m)" -R)
   address_layout_mode=setarch-no-randomize
 fi
-run_logged 03-fuzz.log "${address_layout_runner[@]}" \
+run_logged "$device_output_root/03-fuzz.log" "${address_layout_runner[@]}" \
   "$build_root/tests/fuzz/jyppx_fuzz_device_parse" \
-  "$corpus_root" \
-  -dict="$fixture_root/device_parse.dict" \
-  -artifact_prefix="$artifact_root/" \
+  "$device_corpus_root" \
+  -dict="$device_fixture_root/device_parse.dict" \
+  -artifact_prefix="$device_artifact_root/" \
   -max_len=256 \
+  -timeout=5 \
+  -runs="$fuzz_runs"
+run_logged "$data_output_root/03-fuzz.log" "${address_layout_runner[@]}" \
+  "$build_root/tests/fuzz/jyppx_fuzz_data_pipeline_state" \
+  "$data_corpus_root" \
+  -dict="$data_fixture_root/data_pipeline.dict" \
+  -artifact_prefix="$data_artifact_root/" \
+  -max_len=4096 \
   -timeout=5 \
   -runs="$fuzz_runs"
 

@@ -264,5 +264,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-${{ github.sha }}
-          path: out/fuzz/linux/device-parse
+          path: out/fuzz/linux
           if-no-files-found: ignore

@@ -9,6 +9,7 @@
 #include <jyppx/core/types.hpp>
 #include <jyppx/data/samplers/sampler.hpp>
 
+#include <cstdint>
 #include <random>
 
 namespace jyppx {
@@ -43,14 +44,32 @@ class RandomSampler : public Sampler {
   size_t size() const override;
 
   /**
+   * @brief Selects a deterministic permutation epoch.
+   * @param epoch Non-negative logical epoch number.
+   */
+  void set_epoch(std::uint64_t epoch) override;
+
+  /**
+   * @brief Reports deterministic epoch-derived ordering support.
+   * @return Always true because each instance owns a persisted base seed.
+   */
+  bool supports_epoch_control() const override { return true; }
+
+  /**
+   * @brief Returns the stable immutable sampler configuration identity.
+   * @return Versioned identity containing the fixed population size.
+   */
+  std::string configuration_identity() const override;
+
+  /**
    * @brief Reports exact generator-state checkpoint support.
    * @return Always true.
    */
   bool supports_state() const override { return true; }
 
   /**
-   * @brief Serializes the standard-library random engine state.
-   * @return Opaque textual engine representation.
+   * @brief Serializes the epoch base seed and random engine state.
+   * @return Versioned opaque state representation.
    */
   std::string save_state() const override;
 
@@ -63,6 +82,7 @@ class RandomSampler : public Sampler {
 
  private:
   size_t size_;  ///< Number of indices in each permutation; positive.
+  std::uint64_t base_seed_;  ///< Persisted seed used to derive every epoch.
   mutable std::mt19937_64 generator_;  ///< Engine advanced by indices().
 };
 

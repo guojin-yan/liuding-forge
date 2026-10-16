@@ -7,6 +7,7 @@
  */
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,35 @@ class Sampler {
    * @return Number of indices returned by `indices()`.
    */
   virtual size_t size() const = 0;
+
+  /**
+   * @brief Selects the logical epoch used by deterministic samplers.
+   * @param epoch Non-negative epoch number. The default sampler ignores it.
+   *
+   * DataPipeline calls this method exactly once before materializing an epoch.
+   * Implementations that derive ordering from an epoch should override it;
+   * stateful random samplers may still use their generator state as the source
+   * of continuation entropy.
+   */
+  virtual void set_epoch(std::uint64_t epoch) { static_cast<void>(epoch); }
+
+  /**
+   * @brief Reports whether epoch selection is deterministic and supported.
+   * @return True when the same configuration and epoch reproduce the order.
+   */
+  virtual bool supports_epoch_control() const { return false; }
+
+  /**
+   * @brief Returns a stable identity for immutable sampler configuration.
+   *
+   * The identity must change whenever sampler type or immutable configuration
+   * can change future index sequences. An empty identity means a checkpoint
+   * consumer cannot prove configuration compatibility and must downgrade the
+   * restore guarantee.
+   *
+   * @return Stable, versioned configuration identity, or empty if unavailable.
+   */
+  virtual std::string configuration_identity() const { return {}; }
 
   /**
    * @brief Returns whether state APIs reproduce future index sequences.

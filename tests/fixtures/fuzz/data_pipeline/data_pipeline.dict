@@ -1,0 +1,6 @@
+"JYPPX-DATA-PIPELINE-TOPOLOGY/v1"
+"JYPPX-DATA-PIPELINE-CURSOR/v1"
+"data.pipeline.fuzz"
+"dataset.fuzz/v1"
+"batch.fuzz/v1"
+"jyppx.sampler.sequential/v1:size=4"

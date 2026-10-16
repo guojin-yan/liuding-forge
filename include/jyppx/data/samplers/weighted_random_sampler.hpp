@@ -313,21 +313,33 @@ class DistributedSampler : public Sampler {
   /**
    * @brief Sets the non-negative epoch mixed into the shuffle seed.
    * @param epoch Non-negative logical epoch number.
-   * @throws std::invalid_argument @p epoch is negative.
    */
-  void set_epoch(int64_t epoch) {
-    if (epoch < 0) {
-      throw std::invalid_argument(
-          "DistributedSampler epoch must be non-negative");
-    }
-    epoch_ = epoch;
+  void set_epoch(std::uint64_t epoch) override { epoch_ = epoch; }
+
+  /**
+   * @brief Reports deterministic epoch-derived ordering support.
+   * @return Always true because seed and epoch fully determine the order.
+   */
+  bool supports_epoch_control() const override { return true; }
+
+  /**
+   * @brief Returns the stable immutable distributed topology identity.
+   * @return Versioned identity covering partition and shuffle configuration.
+   */
+  std::string configuration_identity() const override {
+    return "jyppx.sampler.distributed/v1:size=" + std::to_string(size_) +
+           ":rank=" + std::to_string(rank_) +
+           ":world_size=" + std::to_string(world_size_) +
+           ":shuffle=" + (shuffle_ ? "1" : "0") +
+           ":drop_last=" + (drop_last_ ? "1" : "0") +
+           ":seed=" + std::to_string(seed_);
   }
 
   /**
    * @brief Returns the current non-negative shuffle epoch.
    * @return Epoch mixed into the deterministic shuffle seed.
    */
-  int64_t epoch() const { return epoch_; }
+  std::uint64_t epoch() const { return epoch_; }
 
   /**
    * @brief Returns this rank's indices for the current epoch.
@@ -391,8 +403,11 @@ class DistributedSampler : public Sampler {
   void load_state(const std::string& state) override {
     size_t consumed = 0;
     try {
-      const auto restored = std::stoll(state, &consumed);
-      if (consumed != state.size() || restored < 0) {
+      if (state.empty() || state.front() == '-') {
+        throw std::invalid_argument("negative epoch");
+      }
+      const auto restored = std::stoull(state, &consumed);
+      if (consumed != state.size()) {
         throw std::invalid_argument("trailing data");
       }
       epoch_ = restored;
@@ -408,7 +423,7 @@ class DistributedSampler : public Sampler {
   bool shuffle_;       ///< Whether each epoch is deterministically permuted.
   bool drop_last_;  ///< Whether to drop rather than pad the uneven global tail.
   uint64_t seed_;   ///< Base seed combined with epoch; defaults to zero.
-  int64_t epoch_ = 0;  ///< Non-negative shuffle epoch.
+  std::uint64_t epoch_ = 0;  ///< Non-negative shuffle epoch.
 };
 
 }  // namespace samplers

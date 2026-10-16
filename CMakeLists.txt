@@ -216,6 +216,7 @@ endif()
 target_link_libraries(jyppx_foundation PUBLIC jyppx_core)
 
 add_library(jyppx_data STATIC
+    src/jyppx/data/data_pipeline.cpp
     src/jyppx/data/tensor_dataset.cpp
     src/jyppx/data/samplers/batch_sampler.cpp
     src/jyppx/data/samplers/random_sampler.cpp

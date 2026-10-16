@@ -38,6 +38,20 @@ class SequentialSampler : public Sampler {
   size_t size() const override;
 
   /**
+   * @brief Reports deterministic epoch control for identity ordering.
+   * @return Always true because every epoch has the same defined order.
+   */
+  bool supports_epoch_control() const override { return true; }
+
+  /**
+   * @brief Returns the stable immutable sampler configuration identity.
+   * @return Versioned identity containing the fixed population size.
+   */
+  std::string configuration_identity() const override {
+    return "jyppx.sampler.sequential/v1:size=" + std::to_string(size_);
+  }
+
+  /**
    * @brief Reports checkpoint support; the state payload is empty.
    * @return Always true because the sampler is stateless.
    */

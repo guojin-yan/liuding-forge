@@ -1,4 +1,5 @@
 #include <jyppx/core/device.hpp>
+#include <jyppx/data/data_pipeline.hpp>
 #include <jyppx/data/samplers/sequential_sampler.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
 #include <jyppx/foundation/error.hpp>
@@ -87,6 +88,21 @@ int main() {
       installed_rng_participant.describe_state().fields.size() == 2;
   const auto indices = jyppx::data::samplers::SequentialSampler(3).indices();
   const bool valid_data = indices == std::vector<std::size_t>({0, 1, 2});
+  auto installed_pipeline = jyppx::data::DataPipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(3),
+      {.pipeline_id = "data.consumer",
+       .dataset_version = "dataset.consumer/v1",
+       .dataset_size = 3,
+       .batch_size = 2},
+      [](std::span<const std::size_t> batch_indices) {
+        return c10::IValue(static_cast<std::int64_t>(batch_indices.size()));
+      });
+  installed_pipeline.set_epoch(0);
+  const auto installed_batch = installed_pipeline.next();
+  const bool valid_data_pipeline =
+      installed_batch.has_value() && installed_batch->sample_ids.size() == 2 &&
+      installed_pipeline.describe_state().restore_level ==
+          jyppx::RestoreLevel::exact;
   const auto logits = torch::tensor({{2.0, -1.0}}, torch::kFloat64);
   const auto target = torch::tensor({0}, torch::kLong);
   const auto loss =
@@ -208,8 +224,9 @@ int main() {
   return valid_version && valid_error && valid_device &&
                  valid_checkpoint_contract && valid_checkpoint_coordinator &&
                  valid_rng_checkpoint && valid_model_checkpoint && valid_data &&
-                 valid_nn && valid_contrastive && valid_focal && valid_dice &&
-                 valid_adapter && valid_optimizer && valid_scheduler
+                 valid_data_pipeline && valid_nn && valid_contrastive &&
+                 valid_focal && valid_dice && valid_adapter &&
+                 valid_optimizer && valid_scheduler
              ? 0
              : 1;
 }

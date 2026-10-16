@@ -45,6 +45,7 @@
 #include <jyppx/data/dataset.hpp>
 #include <jyppx/data/tensor_dataset.hpp>
 #include <jyppx/data/dataloader.hpp>
+#include <jyppx/data/data_pipeline.hpp>
 #include <jyppx/data/thread_safe_queue.hpp>
 #include <jyppx/data/subset.hpp>
 #include <jyppx/data/concat_dataset.hpp>

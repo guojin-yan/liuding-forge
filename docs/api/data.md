@@ -166,6 +166,51 @@ It rejects non-finite or negative weights, a non-positive total, and requests
 larger than the number of positive-weight entries, so zero-weight inputs cannot
 cause a non-terminating retry loop.
 
+## DataPipeline
+
+`#include <jyppx/data/data_pipeline.hpp>`
+
+`DataPipeline` is the new explicit-epoch, cursor-aware contract used by the
+checkpoint coordinator. `set_epoch(epoch)` is the only operation that creates
+an epoch order; `next()` never advances an epoch implicitly. Each successful
+`next()` commits one batch and returns a `BatchEnvelope` containing the opaque
+value, stable schema ID, sample IDs, dataset version, epoch, and batch sequence.
+
+```cpp
+auto sampler = std::make_shared<jyppx::data::samplers::RandomSampler>(100, 7);
+jyppx::data::DataPipeline pipeline(
+    sampler,
+    {.pipeline_id = "data.train",
+     .dataset_version = "train-set/v1",
+     .dataset_size = 100,
+     .schema_id = "train-batch/v1",
+     .batch_size = 16},
+    [dataset](std::span<const std::size_t> indices) {
+        std::vector<torch::Tensor> rows;
+        for (const auto index : indices) {
+            rows.push_back(dataset->get(index));
+        }
+        return c10::IValue(torch::stack(rows));
+    });
+
+pipeline.set_epoch(0);
+while (const auto batch = pipeline.next()) {
+    // A checkpoint after this point resumes at the next uncommitted batch.
+}
+```
+
+The current target is deliberately map-style and single-threaded. It provides
+exact in-epoch restore when the sampler exposes both checkpoint state and a
+stable configuration identity. The participant stores dataset/schema identity,
+dataset size, sampler identity, the materialized epoch order, sampler state,
+next sample cursor, and next batch sequence. Generated and restored sample IDs
+are checked against the declared dataset size. A batch-factory exception or
+failed epoch preparation does not advance committed pipeline state. Samplers
+without a stable identity are reported as bounded restore rather than exact restore.
+Worker seed, shard assignment, in-flight prefetch, iterable watermarks, and
+bounded replay remain separate follow-up contracts; the capability report does
+not claim them.
+
 ### Multi-worker loading
 
 Set `num_workers > 0` to load batches on a worker pool with prefetching:

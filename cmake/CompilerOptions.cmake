@@ -121,6 +121,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/core/test_core.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/chain_dataset.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/concat_dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/data_pipeline.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/dataloader.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/dataset.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/stack_dataset.hpp
@@ -136,16 +137,19 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/transform.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/vision.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/tensor_dataset.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/batch_sampler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/random_sampler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/sequential_sampler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataloader.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataloader_exceptions.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataset_utils.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_samplers.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_tensor_dataset.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_thread_safe_queue.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_transforms.cpp
+        ${PROJECT_SOURCE_DIR}/tests/fuzz/data_pipeline_state_fuzz.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/invocation.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/model_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/model_checkpoint_participant.hpp
