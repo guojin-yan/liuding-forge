@@ -1,5 +1,5 @@
 // Complete training example: exercises the framework end to end — custom
-// dataset, dataset split, multi-worker DataLoader, AdamW + cosine schedule,
+// dataset, dataset split, multi-worker DataLoader, AdamW optimization,
 // gradient clipping, callbacks (progress, logging, TensorBoard, checkpoint,
 // early stopping, LR monitor), metrics and checkpoint resume.
 
@@ -63,9 +63,6 @@ int main() {
         auto optimizer = std::make_shared<jyppx::optim::AdamW>(
             model->parameters(),
             jyppx::optim::AdamWOptions{.lr = 3e-3, .weight_decay = 1e-4});
-        auto scheduler = std::make_shared<jyppx::optim::schedulers::CosineAnnealingLR>(
-            optimizer, /*T_max=*/30, /*eta_min=*/1e-5);
-
         // ---- Callbacks -------------------------------------------------------
         const auto run_dir = std::filesystem::temp_directory_path() / "jyppx_complete";
         std::filesystem::create_directories(run_dir);
@@ -94,7 +91,6 @@ int main() {
                 "val_loss", /*patience=*/8, /*min_delta=*/1e-4));
 
         jyppx::training::Trainer trainer(model, optimizer, options);
-        trainer.set_scheduler(scheduler);
         trainer.fit(train_loader, &val_loader);
 
         std::cout << "training stopped at epoch " << trainer.current_epoch()

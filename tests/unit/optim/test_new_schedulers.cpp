@@ -1,6 +1,5 @@
-// Unit tests for MultiStepLR and ReduceLROnPlateau.
+// Unit tests for legacy advanced schedulers not yet migrated.
 
-#include <jyppx/optim/schedulers/multi_step_lr.hpp>
 #include <jyppx/optim/schedulers/reduce_lr_on_plateau.hpp>
 #include <jyppx/optim/schedulers/one_cycle_lr.hpp>
 #include <jyppx/optim/schedulers/cosine_annealing_warm_restarts.hpp>
@@ -33,33 +32,6 @@ protected:
     TensorList params_;
     std::shared_ptr<optim::SGD> optimizer_;
 };
-
-TEST_F(NewSchedulersTest, MultiStepLRDecaysAtMilestones) {
-    optim::schedulers::MultiStepLR scheduler(optimizer_, {3, 5}, /*gamma=*/0.1);
-
-    EXPECT_DOUBLE_EQ(scheduler.get_last_lr(), base_lr_);
-    scheduler.step();
-    scheduler.step();
-    EXPECT_DOUBLE_EQ(scheduler.get_last_lr(), base_lr_);          // 2 steps, no milestone
-    scheduler.step();
-    EXPECT_NEAR(scheduler.get_last_lr(), base_lr_ * 0.1, 1e-12);  // milestone 3 passed
-    scheduler.step();
-    EXPECT_NEAR(scheduler.get_last_lr(), base_lr_ * 0.1, 1e-12);
-    scheduler.step();
-    EXPECT_NEAR(scheduler.get_last_lr(), base_lr_ * 0.01, 1e-12); // milestones 3 and 5
-    EXPECT_EQ(scheduler.get_step(), 5);
-}
-
-TEST_F(NewSchedulersTest, MultiStepLRValidatesArguments) {
-    EXPECT_THROW(
-        optim::schedulers::MultiStepLR(optimizer_, {}, 0.1), std::invalid_argument);
-    EXPECT_THROW(
-        optim::schedulers::MultiStepLR(optimizer_, {5, 3}, 0.1), std::invalid_argument);
-    EXPECT_THROW(
-        optim::schedulers::MultiStepLR(optimizer_, {0, 3}, 0.1), std::invalid_argument);
-    EXPECT_THROW(
-        optim::schedulers::MultiStepLR(optimizer_, {3}, 0.0), std::invalid_argument);
-}
 
 TEST_F(NewSchedulersTest, ReduceLROnPlateauDecaysAfterPatience) {
     optim::schedulers::ReduceLROnPlateau scheduler(

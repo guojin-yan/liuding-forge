@@ -1,8 +1,10 @@
 # Tutorial 3: Optimizers and Schedulers
 
-JYPPX ships five optimizers and five learning-rate schedulers. Every
-optimizer is validated numerically against `torch::optim` by the unit tests,
-so results match LibTorch's own optimizers.
+JYPPX currently provides a legacy hand-written optimizer family alongside a
+descriptor-first migration path backed by LibTorch. The compatibility tables
+and quality records identify which algorithms have completed delegated
+execution, typed checkpoint recovery, and numerical comparison; algorithms
+that have not crossed those gates remain explicitly marked as legacy.
 
 ## Choosing an optimizer
 
@@ -36,47 +38,55 @@ optimizer->load_state_dict(saved.state_dict());
 
 ## Epoch-based schedulers
 
-Schedulers wrap an optimizer and rewrite its learning rate on every
-`step()` — call once per epoch:
+Descriptor-first schedulers consume the narrow `OptimizerRateControl`
+contract. They validate every group rate, preview the complete transition,
+then replace all group rates atomically. Call `step()` once after each
+successfully completed epoch:
 
 ```cpp
-#include <jyppx/optim/schedulers/step_lr.hpp>
+#include <jyppx/optim/epoch_lr_scheduler.hpp>
 
-auto scheduler = std::make_shared<jyppx::optim::schedulers::StepLR>(
-    optimizer, /*step_size=*/10, /*gamma=*/0.1);
+auto scheduler = std::make_shared<jyppx::optim::MultiStepLrScheduler>(
+    delegated_sgd,
+    jyppx::optim::MultiStepLrSchedulerOptions{
+        .scheduler_id = "scheduler.epochs",
+        .milestones = {30, 60, 90},
+        .gamma = 0.1});
 ```
 
 | Scheduler | Schedule |
 |-----------|----------|
-| `StepLR(optimizer, step_size, gamma)` | gamma every `step_size` epochs |
-| `ExponentialLR(optimizer, gamma)` | `gamma^epoch` |
-| `CosineAnnealingLR(optimizer, T_max, eta_min)` | cosine from base lr to `eta_min` |
-| `MultiStepLR(optimizer, milestones, gamma)` | gamma at each milestone |
+| `StepLrScheduler` | gamma every `step_size` epochs |
+| `ExponentialLrScheduler` | multiply current rates by `gamma` every epoch |
+| `MultiStepLrScheduler` | multiply at each strictly ordered milestone |
+| `CosineAnnealingLrScheduler` | recursive cosine trajectory with `t_max` and `eta_min` |
 
-Read the current rate with `scheduler->get_last_lr()` and the epoch counter
-with `get_step()`.
+Read all current group rates with `scheduler->learning_rates()` and the
+committed epoch counter with `completed_steps()`. Options, base rates, stable
+optimizer/group identities and step mode are part of the typed descriptor.
 
-### Wiring a scheduler into the Trainer
+### Checkpointing a scheduler
 
-Either hand the scheduler to the Trainer (stepped automatically at each
-epoch end):
-
-```cpp
-trainer.set_scheduler(scheduler);
-```
-
-or wrap it in a callback — the Trainer de-duplicates when both reference the
-same scheduler:
+Every migrated scheduler uses the same exact participant:
 
 ```cpp
-trainer.add_callback(
-    std::make_shared<jyppx::training::callbacks::LRSchedulerCallback>(scheduler));
+auto participant =
+    std::make_shared<jyppx::optim::LrSchedulerCheckpointParticipant>(
+        scheduler);
+checkpoint_registry.register_participant(participant);
 ```
+
+Restore requires the same scheduler type, typed options, base rates, stable
+optimizer ID and ordered group IDs. The current legacy `Trainer` has not yet
+been migrated to `OptimizerRateControl`; drive these schedulers from a manual
+loop until the new Trainer consumes the participant registry directly.
 
 ## Metric-driven scheduling
 
 `ReduceLROnPlateau` reacts to a validation metric instead of the epoch
-count. Drive it manually after each validation:
+count. It remains on the legacy scheduler path while metric event and state
+semantics are migrated, so it must not be mixed into a descriptor-first
+composite tree. Drive it manually after each validation:
 
 ```cpp
 jyppx::optim::schedulers::ReduceLROnPlateauOptions options;

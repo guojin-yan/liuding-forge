@@ -24,6 +24,7 @@
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/optim/composite_lr_scheduler.hpp>
+#include <jyppx/optim/epoch_lr_scheduler.hpp>
 #include <jyppx/optim/adam.hpp>
 #include <jyppx/optim/adamw.hpp>
 #include <jyppx/optim/rmsprop.hpp>
@@ -34,9 +35,6 @@
 // Learning Rate Schedulers
 #include <jyppx/optim/schedulers/lr_scheduler.hpp>
 #include <jyppx/optim/schedulers/step_lr.hpp>
-#include <jyppx/optim/schedulers/exponential_lr.hpp>
-#include <jyppx/optim/schedulers/cosine_annealing_lr.hpp>
-#include <jyppx/optim/schedulers/multi_step_lr.hpp>
 #include <jyppx/optim/schedulers/reduce_lr_on_plateau.hpp>
 #include <jyppx/optim/schedulers/one_cycle_lr.hpp>
 #include <jyppx/optim/schedulers/cosine_annealing_warm_restarts.hpp>

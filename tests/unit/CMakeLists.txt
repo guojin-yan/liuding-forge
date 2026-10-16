@@ -52,6 +52,11 @@ jyppx_add_gtest(jyppx_test_optim_composite_lr_scheduler
     optim/test_composite_lr_scheduler.cpp
 )
 
+jyppx_add_gtest(jyppx_test_optim_epoch_lr_scheduler
+    LINK_TARGET jyppx::optim
+    optim/test_epoch_lr_scheduler.cpp
+)
+
 jyppx_add_gtest(jyppx_test_nn_label_smoothing
     LINK_TARGET jyppx::nn
     nn/loss/test_label_smoothing_cross_entropy.cpp

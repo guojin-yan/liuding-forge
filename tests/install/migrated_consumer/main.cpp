@@ -11,6 +11,7 @@
 #include <jyppx/nn/model_adapter.hpp>
 #include <jyppx/nn/model_checkpoint_participant.hpp>
 #include <jyppx/optim/composite_lr_scheduler.hpp>
+#include <jyppx/optim/epoch_lr_scheduler.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
@@ -155,6 +156,14 @@ int main() {
   installed_scheduler->step();
   jyppx::optim::LrSchedulerCheckpointParticipant
       installed_scheduler_participant(installed_scheduler);
+  auto installed_epoch_scheduler =
+      std::make_shared<jyppx::optim::ExponentialLrScheduler>(
+          installed_optimizer,
+          jyppx::optim::ExponentialLrSchedulerOptions{
+              .scheduler_id = "scheduler.exponential", .gamma = 0.5});
+  installed_epoch_scheduler->step();
+  jyppx::optim::LrSchedulerCheckpointParticipant
+      installed_epoch_scheduler_participant(installed_epoch_scheduler);
   std::vector<std::unique_ptr<jyppx::optim::LrScheduler>> scheduler_children;
   scheduler_children.push_back(std::make_unique<jyppx::optim::StepLrScheduler>(
       installed_optimizer, jyppx::optim::StepLrSchedulerOptions{
@@ -178,6 +187,9 @@ int main() {
       installed_scheduler_participant.describe_state().fields.size() == 2 &&
       installed_scheduler->completed_steps() == 1 &&
       installed_scheduler->descriptor().optimizer_id == "optimizer.main" &&
+      installed_epoch_scheduler_participant.describe_state().fields.size() ==
+          2 &&
+      installed_epoch_scheduler->completed_steps() == 1 &&
       installed_composite_participant.describe_state().fields.size() == 2 &&
       installed_composite->descriptor().children.size() == 2;
   return valid_version && valid_error && valid_device &&

@@ -7,7 +7,8 @@ The migrated optimizer boundary starts with the independently exported
 LibTorch and supplies stable parameter identity plus storage-neutral recovery.
 The migrated scheduler boundary includes descriptor-first
 [`StepLrScheduler`](step_lr_scheduler.md) plus transactional
-[`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md).
+[`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md)
+and the [epoch scheduler family](epoch_lr_scheduler.md).
 They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
 The hand-written hierarchy documented below is the legacy path still used by
@@ -91,46 +92,38 @@ Notes:
 
 ## Learning-rate schedulers
 
-The direct `jyppx::optim::StepLrScheduler` API is the migrated path. It does
-not wrap or forward to the legacy hierarchy described below; see its
-[descriptor and checkpoint contract](step_lr_scheduler.md).
-
-`#include <jyppx/optim/schedulers/...>`
-
-```cpp
-class LRScheduler {
-public:
-    explicit LRScheduler(std::shared_ptr<Optimizer> optimizer);  // captures base lrs
-    virtual void step() = 0;             // epoch-driven schedulers
-    virtual void step(double metric);    // metric-driven (ReduceLROnPlateau)
-    virtual bool requires_metric() const;
-    double get_last_lr() const;          // first parameter group
-    const std::vector<double>& get_last_lrs() const;
-    int64_t get_step() const;
-    std::map<std::string, double> state_dict() const;
-    void load_state_dict(const std::map<std::string, double>& state);
-};
-```
-
-Epoch-based schedulers reject `step(metric)`; `ReduceLROnPlateau` rejects the
-metric-less `step()`. Every `step()` also writes the new learning rate back
-into the optimizer.
+The migrated `jyppx::optim::LrScheduler` hierarchy depends only on
+`OptimizerRateControl`. Its `step()` path previews and validates a complete
+state/rate transition before one atomic optimizer update. The generic
+`LrSchedulerCheckpointParticipant` persists a typed descriptor tree, complete
+counter tree and all current group rates.
 
 ```cpp
-#include <jyppx/optim/schedulers/step_lr.hpp>
+#include <jyppx/optim/epoch_lr_scheduler.hpp>
 
-auto scheduler = std::make_shared<jyppx::optim::schedulers::StepLR>(
-    optimizer, /*step_size=*/2, /*gamma=*/0.1);
-scheduler->step();   // once per epoch
+auto scheduler = std::make_shared<jyppx::optim::ExponentialLrScheduler>(
+    delegated_sgd,
+    jyppx::optim::ExponentialLrSchedulerOptions{
+        .scheduler_id = "scheduler.epochs", .gamma = 0.95});
+scheduler->step();  // after one completed epoch
 ```
 
-| Scheduler | Parameters | Behavior |
-|-----------|-----------|----------|
-| `StepLR` | `step_size`, `gamma` | `lr = base * gamma^(step / step_size)` |
-| `ExponentialLR` | `gamma` | `lr = base * gamma^step` |
-| `CosineAnnealingLR` | `T_max`, `eta_min` | cosine decay from base lr to `eta_min` |
-| `MultiStepLR` | `milestones`, `gamma` | decays by gamma at each milestone |
-| `ReduceLROnPlateau` | options below | decays when a metric stops improving |
+| Migrated scheduler | Typed options | Behavior |
+|--------------------|---------------|----------|
+| `StepLrScheduler` | `step_size`, `gamma` | periodic multiplicative decay |
+| `ExponentialLrScheduler` | `gamma` | multiplies current rates every epoch |
+| `MultiStepLrScheduler` | `milestones`, `gamma` | decays at positive strictly ordered epochs |
+| `CosineAnnealingLrScheduler` | `t_max`, `eta_min` | chainable recursive cosine trajectory |
+| `SequentialLrScheduler` | children, `milestones` | selects one ordered child per event |
+| `ChainedLrScheduler` | ordered children | previews every child and commits once |
+
+These APIs do not wrap or forward to `jyppx::optim::schedulers`. The following
+legacy algorithms remain available only for unmigrated Trainer/callback
+consumers and are not checkpoint-safe under the new participant contract:
+
+| Legacy scheduler | Parameters | Status |
+|------------------|------------|--------|
+| `ReduceLROnPlateau` | mode, factor, patience, threshold | pending metric-event and state migration |
 | `OneCycleLR` | `max_lr`, `total_steps` | one-cycle warmup and cooldown |
 | `CosineAnnealingWarmRestarts` | `T_0`, `T_mult`, `eta_min` | cosine cycles with restarts |
 | `LinearLR` | `start_factor`, `end_factor`, `total_iters` | linear factor schedule |
@@ -168,6 +161,6 @@ plateau->step(val_loss);
 ```
 
 `ReduceLROnPlateau` also exposes `best()` and `num_bad_epochs()`.
-All schedulers can serialize their step counter and current per-group rates;
-`ReduceLROnPlateau` additionally stores its best metric and bad-epoch counter.
-Loading a scheduler state also restores the optimizer's learning rates.
+Legacy `state_dict()` maps are not accepted by migrated schedulers. Their
+checkpoint participant only accepts the current descriptor/control schema and
+restores optimizer rates atomically after complete preflight.

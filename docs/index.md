@@ -49,6 +49,8 @@ metrics, callbacks, checkpointing and mixed precision.
   semantics, stable optimizer linkage, and exact bounded checkpoint state
 - [Transactional Composite Schedulers](api/composite_lr_scheduler.md) —
   ordered child descriptors, pure transition preflight, and atomic tree restore
+- [Descriptor-First Epoch Schedulers](api/epoch_lr_scheduler.md) —
+  exponential, multi-step, and cosine scheduling with exact recovery
 - [Training](api/training.md) — Trainer, callbacks, metrics, AMP
 - [Model Adapter](api/model_adapter.md) — shared model state, typed adapter
   helpers, structured invocation schemas, and multi-input/output boundaries

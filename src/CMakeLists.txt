@@ -12,9 +12,6 @@ target_sources(jyppx_training_framework PRIVATE
     # Optim schedulers
     jyppx/optim/schedulers/lr_scheduler.cpp
     jyppx/optim/schedulers/step_lr.cpp
-    jyppx/optim/schedulers/exponential_lr.cpp
-    jyppx/optim/schedulers/cosine_annealing_lr.cpp
-    jyppx/optim/schedulers/multi_step_lr.cpp
     jyppx/optim/schedulers/reduce_lr_on_plateau.cpp
     jyppx/optim/schedulers/one_cycle_lr.cpp
     jyppx/optim/schedulers/cosine_annealing_warm_restarts.cpp
