@@ -29,7 +29,7 @@
 #include <jyppx/optim/nadam.hpp>
 #include <jyppx/optim/optimizer.hpp>
 #include <jyppx/optim/optimizer_rate_control.hpp>
-#include <jyppx/optim/rmsprop.hpp>
+#include <jyppx/optim/rmsprop_adapter.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
 

@@ -48,10 +48,11 @@ build-framework/tests/benchmarks/Release/jyppx_bench_dataloader.exe \
 
 `bench_trainer_throughput` reports samples per second for batch sizes 16, 32,
 64, and 128. `bench_optimizer_convergence` emits 100 loss values for SGD,
-Adam, and AdamW. `bench_sgd_adapter_overhead` and
+Adam, AdamW, and RMSprop. `bench_sgd_adapter_overhead` and
 `bench_adam_adapter_overhead` measure the local median cost of adapter
 preflight relative to direct LibTorch execution. The equivalent
-`bench_adamw_adapter_overhead` covers decoupled AdamW. `bench_memory_usage`
-reports resident bytes for worker counts 0, 1, 4, and 8. Compare PyTorch with
-the same seed, model, tensors, dtype, and steps. These are engineering
-measurements, not universal limits.
+`bench_adamw_adapter_overhead` covers decoupled AdamW, while
+`bench_rmsprop_adapter_overhead` covers centered RMSprop with momentum.
+`bench_memory_usage` reports resident bytes for worker counts 0, 1, 4, and 8.
+Compare PyTorch with the same seed, model, tensors, dtype, and steps. These are
+engineering measurements, not universal limits.

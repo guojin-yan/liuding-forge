@@ -5,8 +5,10 @@ All types live in the `jyppx::optim` namespace.
 The migrated optimizer boundary includes independently exported
 [`SgdOptimizerAdapter`](sgd_adapter.md) and
 [`AdamOptimizerAdapter`](adam_adapter.md), plus
-[`AdamWOptimizerAdapter`](adamw_adapter.md). They delegate numerical updates
-to LibTorch and supply stable parameter identity plus storage-neutral recovery.
+[`AdamWOptimizerAdapter`](adamw_adapter.md) and
+[`RmspropOptimizerAdapter`](rmsprop_adapter.md). They delegate numerical
+updates to LibTorch and supply stable parameter identity plus storage-neutral
+recovery.
 The migrated scheduler boundary includes descriptor-first
 [`StepLrScheduler`](step_lr_scheduler.md) plus transactional
 [`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md)
@@ -17,7 +19,8 @@ They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
 The hand-written hierarchy documented below remains only for optimizer
 algorithms that have not yet migrated. It is not a compatibility wrapper for
-the delegated API. The old hand-written SGD, Adam, AdamW, and `optim/schedulers`
+the delegated API. The old hand-written SGD, Adam, AdamW, RMSprop, and
+`optim/schedulers`
 hierarchy have been removed.
 
 ## Legacy optimizer base
@@ -59,16 +62,13 @@ with stale state.
 
 ## Remaining legacy optimizers
 
-The hand-written base currently remains only for RMSprop, Adagrad, and the
-experimental LAMB implementation. RMSprop and Adagrad take a parameter list
-plus an options struct and are compared numerically with their LibTorch
-counterparts. These APIs are not the target contract for new algorithms and
-will be retired as their delegated ledgers close.
+The hand-written base currently remains only for Adagrad and the experimental
+LAMB implementation. Adagrad takes a parameter list plus an options struct and
+is compared numerically with its LibTorch counterpart. These APIs are not the
+target contract for new algorithms and will be retired as their delegated
+ledgers close.
 
 ```cpp
-struct RMSpropOptions { double lr = 0.01; double alpha = 0.99; double eps = 1e-8;
-                        double weight_decay = 0.0; double momentum = 0.0;
-                        bool centered = false; };
 struct AdagradOptions { double lr = 0.01; double lr_decay = 0.0;
                         double weight_decay = 0.0; double eps = 1e-10; };
 ```
@@ -93,11 +93,10 @@ Notes:
   `torch.optim.AdamW`; the delegated adapter owns this behavior directly.
 - **RMSprop momentum** follows the `torch::optim` C++ semantics: the buffer
   accumulates the normalized gradient `grad / avg` and the step is
-  `-lr * buffer`. This coincides with `torch.optim.rmsprop` in Python on the
-  first step and differs from the second step on.
-- Remaining legacy optimizers expose mutable `options()`. Delegated Adam and
-  AdamW use `set_learning_rates()` as their only mutable hyperparameter
-  operation.
+  `-lr * buffer`. The delegated adapter owns that exact LibTorch behavior.
+- Remaining legacy optimizers expose mutable `options()`. Delegated SGD, Adam,
+  AdamW, and RMSprop use `set_learning_rates()` as their only mutable
+  hyperparameter operation.
 
 ## Learning-rate schedulers
 

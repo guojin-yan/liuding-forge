@@ -9,6 +9,7 @@ tests/benchmarks/bench_optimizer_convergence
 tests/benchmarks/bench_sgd_adapter_overhead
 tests/benchmarks/bench_adam_adapter_overhead
 tests/benchmarks/bench_adamw_adapter_overhead
+tests/benchmarks/bench_rmsprop_adapter_overhead
 tests/benchmarks/bench_memory_usage
 ```
 
@@ -30,6 +31,10 @@ Adam so adapter validation cost is tracked independently from SGD.
 
 `bench_adamw_adapter_overhead` applies the same paired methodology to AMSGrad
 AdamW, including LibTorch's decoupled weight-decay path.
+
+`bench_rmsprop_adapter_overhead` applies it to centered RMSprop with momentum
+and coupled weight decay, so validation overhead is measured with all native
+state branches enabled.
 
 The 2026-10-18 Windows Release sample (MSVC 19.44, LibTorch 2.14.1, CPU,
 4096 float32 parameters, 2000 steps, two warmups, five paired samples) produced

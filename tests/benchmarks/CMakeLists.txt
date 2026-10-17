@@ -6,6 +6,7 @@ jyppx_add_bench(jyppx_bench_optimizer_convergence bench_optimizer_convergence.cp
 jyppx_add_bench(jyppx_bench_sgd_adapter_overhead bench_sgd_adapter_overhead.cpp)
 jyppx_add_bench(jyppx_bench_adam_adapter_overhead bench_adam_adapter_overhead.cpp)
 jyppx_add_bench(jyppx_bench_adamw_adapter_overhead bench_adamw_adapter_overhead.cpp)
+jyppx_add_bench(jyppx_bench_rmsprop_adapter_overhead bench_rmsprop_adapter_overhead.cpp)
 jyppx_add_bench(jyppx_bench_memory_usage bench_memory_usage.cpp)
 if(WIN32)
     target_link_libraries(jyppx_bench_memory_usage PRIVATE Psapi)

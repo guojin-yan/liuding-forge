@@ -1,8 +1,8 @@
 # Tutorial 3: Optimizers and Schedulers
 
 JYPPX provides a shrinking legacy hand-written optimizer family alongside a
-descriptor-first migration path backed by LibTorch. SGD, Adam, and AdamW have
-crossed that migration boundary. The compatibility tables
+descriptor-first migration path backed by LibTorch. SGD, Adam, AdamW, and
+RMSprop have crossed that migration boundary. The compatibility tables
 and quality records identify which algorithms have completed delegated
 execution, typed checkpoint recovery, and numerical comparison; algorithms
 that have not crossed those gates remain explicitly marked as legacy.
@@ -40,7 +40,7 @@ participant; no native optimizer or legacy map state is public.
 ### Checkpointing an optimizer
 
 Current Trainer accepts an `OptimizerAdapter` plus an explicit checkpoint
-participant. For delegated SGD, Adam, or AdamW, register the matching
+participant. For delegated SGD, Adam, AdamW, or RMSprop, register the matching
 participant in `FitRequest::optimizer_checkpoint`:
 
 ```cpp
@@ -60,6 +60,10 @@ declared exact LibTorch version.
 
 AdamW uses `AdamWOptimizerCheckpointParticipant` with the same complete moment
 and step-state boundary while freezing decoupled weight decay in topology.
+
+RMSprop uses `RmspropOptimizerCheckpointParticipant`. It always stores square
+averages and conditionally stores momentum buffers and centered gradient
+averages according to the immutable group options.
 
 ## Epoch-based schedulers
 

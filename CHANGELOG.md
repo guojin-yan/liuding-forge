@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A LibTorch-delegated AdamW adapter with decoupled weight-decay semantics,
   stable groups and parameter IDs, complete moment/step recovery, and atomic
   storage-neutral checkpoint restore.
+- A LibTorch-delegated RMSprop adapter with typed centered/momentum topology,
+  stable groups and parameter IDs, complete conditional state recovery, and
+  atomic storage-neutral checkpoint restore.
 - An exact `jyppx::nn` model checkpoint participant with versioned topology,
   bounded non-pickle tensor blobs, strict state-key/type/shape/alias preflight,
   and rollback-protected parameter and buffer restore.
@@ -88,6 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AdamW consumers now use `AdamWOptimizerAdapter`; immutable decoupled decay
   policy and complete state are represented without exposing mutable native
   options or pointer-keyed state.
+- RMSprop consumers now use `RmspropOptimizerAdapter`; alpha, epsilon, coupled
+  decay, momentum, and centered mode are immutable topology, and only learning
+  rates remain mutable.
 - Delegated optimizers now synchronize model-owned dtype/device placement once
   during strategy preparation, then reject every placement change after native
   state or a successful step exists. This keeps CUDA Trainer checkpoints valid
@@ -115,6 +121,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forwarding type, or legacy map checkpoint reader remains.
 - The hand-written `AdamW` implementation and mutable options surface. Current
   consumers use the delegated adapter directly with no forwarding API.
+- The hand-written `RMSprop` implementation and mutable options surface.
+  Current consumers use the delegated adapter directly with no compatibility
+  header, forwarding type, or legacy map checkpoint reader.
 - The legacy Trainer, mutable callback aggregate, callback implementations,
   compatibility headers, old callback tests, and the duplicate complete
   training example. No forwarding API or legacy state reader is retained.

@@ -29,12 +29,19 @@
 namespace jyppx::optim {
 namespace {
 
-constexpr char kComponent[] = JYPPX_ADAM_FAMILY_COMPONENT;
+constexpr char kComponent[] = JYPPX_STATEFUL_OPTIMIZER_COMPONENT;
 constexpr std::uint32_t kSchemaVersion = 1;
 constexpr std::uint32_t kTopologyVersion = 1;
 constexpr std::uint32_t kControlVersion = 1;
 constexpr std::size_t kMaximumRank = 64;
 constexpr std::size_t kAdapterMaximumIdentifierBytes = 4096;
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+constexpr std::array<std::string_view, 3> kStateFieldNames = {
+    "square_avg", "momentum_buffer", "grad_avg"};
+#else
+constexpr std::array<std::string_view, 3> kStateFieldNames = {
+    "exp_avg", "exp_avg_sq", "max_exp_avg_sq"};
+#endif
 constexpr std::array<std::byte, 8> kTopologyMagic = {
     std::byte{'J'},
     std::byte{'Y'},
@@ -42,7 +49,7 @@ constexpr std::array<std::byte, 8> kTopologyMagic = {
     std::byte{'P'},
     std::byte{'X'},
     std::byte{'A'},
-    std::byte{JYPPX_ADAM_FAMILY_MAGIC_TAG},
+    std::byte{JYPPX_STATEFUL_OPTIMIZER_MAGIC_TAG},
     std::byte{'M'}};
 constexpr std::array<std::byte, 8> kControlMagic = {
     std::byte{'J'},
@@ -51,7 +58,7 @@ constexpr std::array<std::byte, 8> kControlMagic = {
     std::byte{'P'},
     std::byte{'X'},
     std::byte{'A'},
-    std::byte{JYPPX_ADAM_FAMILY_MAGIC_TAG},
+    std::byte{JYPPX_STATEFUL_OPTIMIZER_MAGIC_TAG},
     std::byte{'C'}};
 
 struct FlatParameter {
@@ -67,12 +74,12 @@ struct FlatParameter {
 };
 
 struct OptimizerSnapshot {
-  std::vector<std::byte> topology;     ///< Immutable descriptor bytes.
-  std::vector<std::byte> control;      ///< Mutable counters and presence bytes.
-  std::vector<Tensor> exp_avg;         ///< First moments by stable parameter.
-  std::vector<Tensor> exp_avg_sq;      ///< Second moments by stable parameter.
-  std::vector<Tensor> max_exp_avg_sq;  ///< AMSGrad maxima by stable parameter.
-  std::vector<bool> has_state;         ///< Native state presence by parameter.
+  std::vector<std::byte> topology;   ///< Immutable descriptor bytes.
+  std::vector<std::byte> control;    ///< Mutable counters and presence bytes.
+  std::vector<Tensor> first_state;   ///< Required first state by parameter.
+  std::vector<Tensor> second_state;  ///< Optional second state by parameter.
+  std::vector<Tensor> third_state;   ///< Optional third state by parameter.
+  std::vector<bool> has_state;       ///< Native state presence by parameter.
   std::vector<std::int64_t> parameter_steps;  ///< Native step counters.
   StateManifest manifest;  ///< Complete storage-neutral state contract.
 };
@@ -86,7 +93,8 @@ struct DecodedControl {
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
-  throw InvalidArgument("Invalid delegated " JYPPX_ADAM_FAMILY_NAME " state",
+  throw InvalidArgument("Invalid delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
+                        " state",
                         ErrorDetails{.component = kComponent,
                                      .operation = std::move(operation),
                                      .expected = std::move(expected),
@@ -97,7 +105,7 @@ struct DecodedControl {
 [[noreturn]] void throw_serialization(std::string operation,
                                       std::string expected, std::string actual,
                                       std::string hint) {
-  throw SerializationError("Malformed delegated " JYPPX_ADAM_FAMILY_NAME
+  throw SerializationError("Malformed delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
                            " checkpoint state",
                            ErrorDetails{.component = kComponent,
                                         .operation = std::move(operation),
@@ -110,7 +118,7 @@ struct DecodedControl {
                                       std::string expected, std::string actual,
                                       std::string hint) {
   throw CompatibilityError(
-      "Delegated " JYPPX_ADAM_FAMILY_NAME
+      "Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
       " checkpoint is incompatible with the current optimizer",
       ErrorDetails{.component = kComponent,
                    .operation = std::move(operation),
@@ -121,7 +129,7 @@ struct DecodedControl {
 
 [[noreturn]] void throw_resource(std::string operation, std::uint64_t expected,
                                  std::uint64_t actual, std::string hint) {
-  throw ResourceExhausted("Delegated " JYPPX_ADAM_FAMILY_NAME
+  throw ResourceExhausted("Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
                           " resource limit exceeded",
                           ErrorDetails{.component = kComponent,
                                        .operation = std::move(operation),
@@ -132,7 +140,7 @@ struct DecodedControl {
 
 [[noreturn]] void translate_bad_alloc(std::string_view operation) {
   throw ResourceExhausted(
-      "Unable to allocate delegated " JYPPX_ADAM_FAMILY_NAME " state",
+      "Unable to allocate delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state",
       ErrorDetails{.component = kComponent,
                    .operation = std::string(operation),
                    .expected = "memory within configured optimizer limits",
@@ -143,13 +151,14 @@ struct DecodedControl {
 [[noreturn]] void translate_backend(const c10::Error& cause,
                                     std::string operation) {
   detail::rethrow_backend_error(
-      cause, detail::BackendErrorContext{
-                 .component = kComponent,
-                 .operation = std::move(operation),
-                 .failure_kind = detail::BackendFailureKind::unknown,
-                 .expected = "a supported LibTorch " JYPPX_ADAM_FAMILY_NAME
-                             " operation",
-                 .hint = "Inspect the nested LibTorch diagnostic and device."});
+      cause,
+      detail::BackendErrorContext{
+          .component = kComponent,
+          .operation = std::move(operation),
+          .failure_kind = detail::BackendFailureKind::unknown,
+          .expected = "a supported LibTorch " JYPPX_STATEFUL_OPTIMIZER_NAME
+                      " operation",
+          .hint = "Inspect the nested LibTorch diagnostic and device."});
 }
 
 void validate_identifier(std::string_view identifier, std::size_t maximum,
@@ -164,27 +173,38 @@ void validate_identifier(std::string_view identifier, std::size_t maximum,
   }
 }
 
-void validate_family_options(const JYPPX_ADAM_FAMILY_OPTIONS& options,
+void validate_family_options(const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options,
                              std::string_view group_id) {
   const auto require_non_negative = [&](double value,
                                         std::string_view option_name) {
     if (!std::isfinite(value) || value < 0.0) {
       throw_invalid(std::string(group_id) + "." + std::string(option_name),
                     "a finite non-negative value", std::to_string(value),
-                    "Use a " JYPPX_ADAM_FAMILY_NAME
+                    "Use a " JYPPX_STATEFUL_OPTIMIZER_NAME
                     " option accepted by LibTorch.");
     }
   };
   require_non_negative(options.learning_rate, "learning_rate");
   require_non_negative(options.weight_decay, "weight_decay");
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+  require_non_negative(options.momentum, "momentum");
+  if (!std::isfinite(options.alpha) || options.alpha < 0.0 ||
+      options.alpha > 1.0) {
+    throw_invalid(std::string(group_id) + ".alpha", "a finite value in [0, 1]",
+                  std::to_string(options.alpha),
+                  "Use an RMSprop smoothing factor accepted by JYPPX.");
+  }
+#else
   if (!std::isfinite(options.beta1) || options.beta1 < 0.0 ||
       options.beta1 >= 1.0 || !std::isfinite(options.beta2) ||
       options.beta2 < 0.0 || options.beta2 >= 1.0) {
     throw_invalid(
         std::string(group_id) + ".betas", "finite values in [0, 1)",
         std::to_string(options.beta1) + ":" + std::to_string(options.beta2),
-        "Use " JYPPX_ADAM_FAMILY_NAME " decay factors accepted by LibTorch.");
+        "Use " JYPPX_STATEFUL_OPTIMIZER_NAME
+        " decay factors accepted by LibTorch.");
   }
+#endif
   if (!std::isfinite(options.epsilon) || options.epsilon <= 0.0) {
     throw_invalid(std::string(group_id) + ".epsilon", "a finite positive value",
                   std::to_string(options.epsilon),
@@ -285,34 +305,105 @@ std::uint64_t checked_tensor_bytes(const Tensor& tensor, std::uint8_t code) {
   return unsigned_count * width;
 }
 
-JYPPX_ADAM_FAMILY_NATIVE_OPTIONS make_native_options(
-    const JYPPX_ADAM_FAMILY_OPTIONS& options) {
-  JYPPX_ADAM_FAMILY_NATIVE_OPTIONS native(options.learning_rate);
+JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS make_native_options(
+    const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) {
+  JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS native(options.learning_rate);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+  native.alpha(options.alpha)
+      .eps(options.epsilon)
+      .weight_decay(options.weight_decay)
+      .momentum(options.momentum)
+      .centered(options.centered);
+#else
   native.betas({options.beta1, options.beta2})
       .eps(options.epsilon)
       .weight_decay(options.weight_decay)
       .amsgrad(options.amsgrad);
+#endif
   return native;
 }
 
-const JYPPX_ADAM_FAMILY_NATIVE_OPTIONS& native_options(
+bool second_state_required(
+    const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+  return options.momentum != 0.0;
+#else
+  static_cast<void>(options);
+  return true;
+#endif
+}
+
+bool third_state_required(
+    const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+  return options.centered;
+#else
+  return options.amsgrad;
+#endif
+}
+
+const Tensor& first_state_tensor(
+    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state) noexcept {
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+  return state.square_avg();
+#else
+  return state.exp_avg();
+#endif
+}
+
+const Tensor& second_state_tensor(
+    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state) noexcept {
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+  return state.momentum_buffer();
+#else
+  return state.exp_avg_sq();
+#endif
+}
+
+const Tensor& third_state_tensor(
+    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state) noexcept {
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+  return state.grad_avg();
+#else
+  return state.max_exp_avg_sq();
+#endif
+}
+
+void set_native_state_tensors(JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state,
+                              const Tensor& first, const Tensor& second,
+                              const Tensor& third) {
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+  state.square_avg(first);
+  state.momentum_buffer(second);
+  state.grad_avg(third);
+#else
+  state.exp_avg(first);
+  state.exp_avg_sq(second);
+  state.max_exp_avg_sq(third);
+#endif
+}
+
+const JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS& native_options(
     const torch::optim::OptimizerParamGroup& group) {
-  const auto* options = dynamic_cast<const JYPPX_ADAM_FAMILY_NATIVE_OPTIONS*>(
-      std::addressof(group.options()));
+  const auto* options =
+      dynamic_cast<const JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS*>(
+          std::addressof(group.options()));
   if (options == nullptr) {
-    throw_invalid("native.options", JYPPX_ADAM_FAMILY_NATIVE_OPTIONS_NAME,
+    throw_invalid("native.options",
+                  JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS_NAME,
                   "unexpected optimizer option type",
                   "Do not mutate the delegated native optimizer.");
   }
   return *options;
 }
 
-JYPPX_ADAM_FAMILY_NATIVE_OPTIONS& native_options(
+JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS& native_options(
     torch::optim::OptimizerParamGroup& group) {
-  auto* options = dynamic_cast<JYPPX_ADAM_FAMILY_NATIVE_OPTIONS*>(
+  auto* options = dynamic_cast<JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS*>(
       std::addressof(group.options()));
   if (options == nullptr) {
-    throw_invalid("native.options", JYPPX_ADAM_FAMILY_NATIVE_OPTIONS_NAME,
+    throw_invalid("native.options",
+                  JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS_NAME,
                   "unexpected optimizer option type",
                   "Do not mutate the delegated native optimizer.");
   }
@@ -431,9 +522,9 @@ class ByteCursor final {
 };
 
 std::vector<std::byte> encode_topology(
-    const std::vector<JYPPX_ADAM_FAMILY_GROUP>& groups,
+    const std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>& groups,
     const std::vector<FlatParameter>& parameters,
-    const JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS& limits) {
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits) {
   std::vector<std::byte> output(kTopologyMagic.begin(), kTopologyMagic.end());
   append_u32(output, kTopologyVersion);
   append_u32(output, TORCH_VERSION_MAJOR);
@@ -446,11 +537,19 @@ std::vector<std::byte> encode_topology(
   for (const auto& group : groups) {
     append_string(output, group.group_id);
     append_u32(output, static_cast<std::uint32_t>(group.parameters.size()));
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+    append_double(output, group.options.alpha);
+    append_double(output, group.options.epsilon);
+    append_double(output, group.options.weight_decay);
+    append_double(output, group.options.momentum);
+    append_u8(output, group.options.centered ? 1 : 0);
+#else
     append_double(output, group.options.beta1);
     append_double(output, group.options.beta2);
     append_double(output, group.options.epsilon);
     append_double(output, group.options.weight_decay);
     append_u8(output, group.options.amsgrad ? 1 : 0);
+#endif
     for (std::size_t reserved = 0; reserved < 7; ++reserved) {
       append_u8(output, 0);
     }
@@ -485,7 +584,7 @@ std::vector<std::byte> encode_control(
     std::uint64_t completed_steps, const std::vector<double>& learning_rates,
     const std::vector<bool>& has_state,
     const std::vector<std::int64_t>& parameter_steps,
-    const JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS& limits) {
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits) {
   std::vector<std::byte> output(kControlMagic.begin(), kControlMagic.end());
   append_u32(output, kControlVersion);
   append_u64(output, completed_steps);
@@ -519,14 +618,14 @@ void validate_magic(ByteCursor& cursor,
 
 void validate_topology_blob(
     std::span<const std::byte> bytes,
-    const JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS& limits) {
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits) {
   if (bytes.size() > limits.max_topology_bytes) {
     throw_resource("topology.bytes", limits.max_topology_bytes, bytes.size(),
                    "Reject oversized topology before parsing.");
   }
   ByteCursor cursor(bytes);
   validate_magic(cursor, kTopologyMagic, "topology.magic",
-                 JYPPX_ADAM_FAMILY_TOPOLOGY_MAGIC);
+                 JYPPX_STATEFUL_OPTIMIZER_TOPOLOGY_MAGIC);
   const auto version = cursor.read_u32("topology.version");
   if (version != kTopologyVersion) {
     throw_compatibility("topology.version", std::to_string(kTopologyVersion),
@@ -579,7 +678,20 @@ void validate_topology_blob(
                           "Reject inconsistent optimizer topology.");
     }
     decoded_parameters += count;
-    JYPPX_ADAM_FAMILY_OPTIONS options;
+    JYPPX_STATEFUL_OPTIMIZER_OPTIONS options;
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+    options.alpha = cursor.read_double("topology.alpha");
+    options.epsilon = cursor.read_double("topology.epsilon");
+    options.weight_decay = cursor.read_double("topology.weight_decay");
+    options.momentum = cursor.read_double("topology.momentum");
+    const auto centered = cursor.read_u8("topology.centered");
+    if (centered > 1) {
+      throw_serialization("topology.centered", "a boolean",
+                          std::to_string(centered),
+                          "Reject invalid optimizer options.");
+    }
+    options.centered = centered == 1;
+#else
     options.beta1 = cursor.read_double("topology.beta1");
     options.beta2 = cursor.read_double("topology.beta2");
     options.epsilon = cursor.read_double("topology.epsilon");
@@ -591,20 +703,30 @@ void validate_topology_blob(
                           "Reject invalid optimizer options.");
     }
     options.amsgrad = amsgrad == 1;
+#endif
     for (std::size_t reserved = 0; reserved < 7; ++reserved) {
       if (cursor.read_u8("topology.reserved") != 0) {
         throw_serialization("topology.reserved", "zero", "non-zero",
                             "Reject unknown topology extensions.");
       }
     }
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+    if (!std::isfinite(options.alpha) || options.alpha < 0.0 ||
+        options.alpha > 1.0 || !std::isfinite(options.epsilon) ||
+        options.epsilon <= 0.0 || !std::isfinite(options.weight_decay) ||
+        options.weight_decay < 0.0 || !std::isfinite(options.momentum) ||
+        options.momentum < 0.0) {
+#else
     if (!std::isfinite(options.beta1) || options.beta1 < 0.0 ||
         options.beta1 >= 1.0 || !std::isfinite(options.beta2) ||
         options.beta2 < 0.0 || options.beta2 >= 1.0 ||
         !std::isfinite(options.epsilon) || options.epsilon <= 0.0 ||
         !std::isfinite(options.weight_decay) || options.weight_decay < 0.0) {
+#endif
       throw_serialization(
-          "topology.options", "valid finite " JYPPX_ADAM_FAMILY_NAME " options",
-          group_id, "Reject malformed immutable optimizer options.");
+          "topology.options",
+          "valid finite " JYPPX_STATEFUL_OPTIMIZER_NAME " options", group_id,
+          "Reject malformed immutable optimizer options.");
     }
 
     for (std::uint32_t index = 0; index < count; ++index) {
@@ -646,7 +768,7 @@ void validate_topology_blob(
       if (byte_count > limits.max_tensor_bytes) {
         throw_resource("topology.byte_count", limits.max_tensor_bytes,
                        byte_count,
-                       "Reject oversized " JYPPX_ADAM_FAMILY_NAME
+                       "Reject oversized " JYPPX_STATEFUL_OPTIMIZER_NAME
                        " state before allocation.");
       }
       std::uint64_t numel = 1;
@@ -704,14 +826,14 @@ void validate_topology_blob(
 DecodedControl decode_control(
     std::span<const std::byte> bytes, std::size_t expected_groups,
     std::size_t expected_parameters,
-    const JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS& limits) {
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits) {
   if (bytes.size() > limits.max_control_bytes) {
     throw_resource("control.bytes", limits.max_control_bytes, bytes.size(),
                    "Reject oversized control metadata before parsing.");
   }
   ByteCursor cursor(bytes);
   validate_magic(cursor, kControlMagic, "control.magic",
-                 JYPPX_ADAM_FAMILY_CONTROL_MAGIC);
+                 JYPPX_STATEFUL_OPTIMIZER_CONTROL_MAGIC);
   const auto version = cursor.read_u32("control.version");
   if (version != kControlVersion) {
     throw_compatibility("control.version", std::to_string(kControlVersion),
@@ -746,9 +868,10 @@ DecodedControl decode_control(
   for (std::uint32_t index = 0; index < parameter_count; ++index) {
     const auto present = cursor.read_u8("control.state_presence");
     if (present > 1) {
-      throw_serialization(
-          "control.state_presence", "a boolean", std::to_string(present),
-          "Reject invalid " JYPPX_ADAM_FAMILY_NAME " state presence metadata.");
+      throw_serialization("control.state_presence", "a boolean",
+                          std::to_string(present),
+                          "Reject invalid " JYPPX_STATEFUL_OPTIMIZER_NAME
+                          " state presence metadata.");
     }
     const auto step = cursor.read_i64("control.parameter_step");
     if ((present == 0 && step != 0) || (present == 1 && step <= 0) ||
@@ -758,7 +881,7 @@ DecodedControl decode_control(
           "control.parameter_step",
           "zero without state, or a positive count within completed steps",
           std::to_string(step),
-          "Reject inconsistent " JYPPX_ADAM_FAMILY_NAME
+          "Reject inconsistent " JYPPX_STATEFUL_OPTIMIZER_NAME
           " counters before optimizer mutation.");
     }
     decoded.has_state.push_back(present == 1);
@@ -788,7 +911,7 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
 }
 
 void validate_checkpoint_options(
-    const JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS& options,
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& options,
     std::string_view participant_id) {
   if (options.max_groups == 0 || options.max_parameters == 0 ||
       options.max_identifier_bytes == 0 || options.max_topology_bytes == 0 ||
@@ -816,9 +939,9 @@ void validate_checkpoint_options(
 }
 
 void validate_current_topology(
-    const std::vector<JYPPX_ADAM_FAMILY_GROUP>& groups,
+    const std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>& groups,
     const std::vector<FlatParameter>& parameters,
-    const JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS& limits) {
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits) {
   if (groups.size() > limits.max_groups) {
     throw_resource("state.group_count", limits.max_groups, groups.size(),
                    "Reduce optimizer groups or raise max_groups.");
@@ -844,9 +967,9 @@ void validate_current_topology(
 }
 
 std::vector<double> inspect_native_groups(
-    const std::vector<JYPPX_ADAM_FAMILY_GROUP>& groups,
+    const std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>& groups,
     const std::vector<FlatParameter>& parameters,
-    const JYPPX_ADAM_FAMILY_NATIVE_OPTIMIZER& native) {
+    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER& native) {
   const auto& native_groups = native.param_groups();
   if (native_groups.size() != groups.size()) {
     throw_invalid("native.group_count", std::to_string(groups.size()),
@@ -867,14 +990,23 @@ std::vector<double> inspect_native_groups(
                     "Do not mutate delegated native parameter groups.");
     }
     const auto& options = native_options(actual);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+    if (!std::isfinite(options.lr()) || options.lr() < 0.0 ||
+        options.alpha() != expected.options.alpha ||
+        options.eps() != expected.options.epsilon ||
+        options.weight_decay() != expected.options.weight_decay ||
+        options.momentum() != expected.options.momentum ||
+        options.centered() != expected.options.centered) {
+#else
     const auto [beta1, beta2] = options.betas();
     if (!std::isfinite(options.lr()) || options.lr() < 0.0 ||
         beta1 != expected.options.beta1 || beta2 != expected.options.beta2 ||
         options.eps() != expected.options.epsilon ||
         options.weight_decay() != expected.options.weight_decay ||
         options.amsgrad() != expected.options.amsgrad) {
+#endif
       throw_invalid("native.options",
-                    "the stable " JYPPX_ADAM_FAMILY_NAME " descriptor",
+                    "the stable " JYPPX_STATEFUL_OPTIMIZER_NAME " descriptor",
                     expected.group_id,
                     "Use set_learning_rates for the only mutable option.");
     }
@@ -919,7 +1051,7 @@ void validate_step_gradients(const std::vector<FlatParameter>& parameters) {
     }
     if (gradient.layout() != c10::Layout::Strided) {
       throw NotImplemented(
-          "Delegated " JYPPX_ADAM_FAMILY_NAME
+          "Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
           " does not support sparse gradients",
           ErrorDetails{
               .component = kComponent,
@@ -942,11 +1074,11 @@ void validate_step_gradients(const std::vector<FlatParameter>& parameters) {
 }
 
 OptimizerSnapshot inspect_optimizer(
-    const std::vector<JYPPX_ADAM_FAMILY_GROUP>& groups,
+    const std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>& groups,
     const std::vector<FlatParameter>& parameters,
-    const JYPPX_ADAM_FAMILY_NATIVE_OPTIMIZER& native,
+    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER& native,
     std::uint64_t completed_steps,
-    const JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS& limits,
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits,
     std::string participant_id) {
   validate_current_topology(groups, parameters, limits);
   auto learning_rates = inspect_native_groups(groups, parameters, native);
@@ -963,32 +1095,33 @@ OptimizerSnapshot inspect_optimizer(
     }
   }
 
-  std::vector<Tensor> exp_avg;
-  std::vector<Tensor> exp_avg_sq;
-  std::vector<Tensor> max_exp_avg_sq;
+  std::vector<Tensor> first_state;
+  std::vector<Tensor> second_state;
+  std::vector<Tensor> third_state;
   std::vector<bool> has_state;
   std::vector<std::int64_t> parameter_steps;
-  exp_avg.reserve(parameters.size());
-  exp_avg_sq.reserve(parameters.size());
-  max_exp_avg_sq.reserve(parameters.size());
+  first_state.reserve(parameters.size());
+  second_state.reserve(parameters.size());
+  third_state.reserve(parameters.size());
   has_state.reserve(parameters.size());
   parameter_steps.reserve(parameters.size());
   for (const auto& parameter : parameters) {
     const auto state =
         native.state().find(parameter.parameter.unsafeGetTensorImpl());
     if (state == native.state().end()) {
-      exp_avg.emplace_back();
-      exp_avg_sq.emplace_back();
-      max_exp_avg_sq.emplace_back();
+      first_state.emplace_back();
+      second_state.emplace_back();
+      third_state.emplace_back();
       has_state.push_back(false);
       parameter_steps.push_back(0);
       continue;
     }
     const auto* family_state =
-        dynamic_cast<const JYPPX_ADAM_FAMILY_NATIVE_STATE*>(
+        dynamic_cast<const JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE*>(
             state->second.get());
     if (family_state == nullptr) {
-      throw_invalid("native.state_type", JYPPX_ADAM_FAMILY_NATIVE_STATE_NAME,
+      throw_invalid("native.state_type",
+                    JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE_NAME,
                     parameter.parameter_id,
                     "Do not inject state from another optimizer algorithm.");
     }
@@ -1010,13 +1143,22 @@ OptimizerSnapshot inspect_optimizer(
                       "Recover from a valid optimizer checkpoint.");
       }
     };
-    validate_state_tensor(family_state->exp_avg(), "exp_avg");
-    validate_state_tensor(family_state->exp_avg_sq(), "exp_avg_sq");
-    if (descriptor.amsgrad) {
-      validate_state_tensor(family_state->max_exp_avg_sq(), "max_exp_avg_sq");
-    } else if (family_state->max_exp_avg_sq().defined()) {
-      throw_invalid("native.max_exp_avg_sq", "no AMSGrad state",
-                    parameter.parameter_id,
+    validate_state_tensor(first_state_tensor(*family_state),
+                          kStateFieldNames[0]);
+    if (second_state_required(descriptor)) {
+      validate_state_tensor(second_state_tensor(*family_state),
+                            kStateFieldNames[1]);
+    } else if (second_state_tensor(*family_state).defined()) {
+      throw_invalid("native." + std::string(kStateFieldNames[1]),
+                    "no disabled optional state", parameter.parameter_id,
+                    "Recover from a checkpoint matching immutable options.");
+    }
+    if (third_state_required(descriptor)) {
+      validate_state_tensor(third_state_tensor(*family_state),
+                            kStateFieldNames[2]);
+    } else if (third_state_tensor(*family_state).defined()) {
+      throw_invalid("native." + std::string(kStateFieldNames[2]),
+                    "no disabled optional state", parameter.parameter_id,
                     "Recover from a checkpoint matching immutable options.");
     }
     if (family_state->step() <= 0 ||
@@ -1026,9 +1168,9 @@ OptimizerSnapshot inspect_optimizer(
                     std::to_string(family_state->step()),
                     "Recover from a valid optimizer checkpoint.");
     }
-    exp_avg.push_back(family_state->exp_avg());
-    exp_avg_sq.push_back(family_state->exp_avg_sq());
-    max_exp_avg_sq.push_back(family_state->max_exp_avg_sq());
+    first_state.push_back(first_state_tensor(*family_state));
+    second_state.push_back(second_state_tensor(*family_state));
+    third_state.push_back(third_state_tensor(*family_state));
     has_state.push_back(true);
     parameter_steps.push_back(family_state->step());
   }
@@ -1043,23 +1185,24 @@ OptimizerSnapshot inspect_optimizer(
       .participant_id = std::move(participant_id),
       .schema_version = kSchemaVersion,
       .restore_level = RestoreLevel::exact,
-      .fields = {{.name = "topology",
-                  .media_type =
-                      "application/vnd.jyppx." JYPPX_ADAM_FAMILY_MEDIA_STEM
-                      "-topology-v1",
-                  .max_bytes = topology.size()},
-                 {.name = "control",
-                  .media_type =
-                      "application/vnd.jyppx." JYPPX_ADAM_FAMILY_MEDIA_STEM
-                      "-control-v1",
-                  .max_bytes = control.size()}},
+      .fields =
+          {{.name = "topology",
+            .media_type =
+                "application/vnd.jyppx." JYPPX_STATEFUL_OPTIMIZER_MEDIA_STEM
+                "-topology-v1",
+            .max_bytes = topology.size()},
+           {.name = "control",
+            .media_type =
+                "application/vnd.jyppx." JYPPX_STATEFUL_OPTIMIZER_MEDIA_STEM
+                "-control-v1",
+            .max_bytes = control.size()}},
       .degradation_reasons = {},
   };
   manifest.fields.reserve(parameters.size() * 3 + 2);
   for (std::size_t index = 0; index < parameters.size(); ++index) {
     const auto maximum =
         std::max<std::uint64_t>(1, parameters[index].byte_count);
-    for (const auto state_name : {"exp_avg", "exp_avg_sq", "max_exp_avg_sq"}) {
+    for (const auto state_name : kStateFieldNames) {
       total = checked_add(total, maximum, limits.max_total_bytes,
                           "state.total_bytes");
       manifest.fields.push_back(
@@ -1072,9 +1215,9 @@ OptimizerSnapshot inspect_optimizer(
   validate_state_manifest(manifest);
   return {.topology = std::move(topology),
           .control = std::move(control),
-          .exp_avg = std::move(exp_avg),
-          .exp_avg_sq = std::move(exp_avg_sq),
-          .max_exp_avg_sq = std::move(max_exp_avg_sq),
+          .first_state = std::move(first_state),
+          .second_state = std::move(second_state),
+          .third_state = std::move(third_state),
           .has_state = std::move(has_state),
           .parameter_steps = std::move(parameter_steps),
           .manifest = std::move(manifest)};
@@ -1082,18 +1225,20 @@ OptimizerSnapshot inspect_optimizer(
 
 }  // namespace
 
-struct JYPPX_ADAM_FAMILY_ADAPTER::Impl {
+struct JYPPX_STATEFUL_OPTIMIZER_ADAPTER::Impl {
   std::string optimizer_id;                      ///< Stable optimizer identity.
   std::vector<std::string> parameter_group_ids;  ///< Stable group identities.
-  std::vector<JYPPX_ADAM_FAMILY_GROUP> groups;   ///< Stable public descriptor.
+  std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>
+      groups;                             ///< Stable public descriptor.
   std::vector<FlatParameter> parameters;  ///< Flattened checkpoint order.
-  std::unique_ptr<JYPPX_ADAM_FAMILY_NATIVE_OPTIMIZER>
+  std::unique_ptr<JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER>
       native;                         ///< Delegated algorithm owner.
   std::uint64_t completed_steps = 0;  ///< Successful native step count.
 };
 
-JYPPX_ADAM_FAMILY_ADAPTER::JYPPX_ADAM_FAMILY_ADAPTER(
-    std::string optimizer_id, std::vector<JYPPX_ADAM_FAMILY_GROUP> groups)
+JYPPX_STATEFUL_OPTIMIZER_ADAPTER::JYPPX_STATEFUL_OPTIMIZER_ADAPTER(
+    std::string optimizer_id,
+    std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP> groups)
     : impl_(std::make_unique<Impl>()) {
   try {
     validate_identifier(optimizer_id, kAdapterMaximumIdentifierBytes,
@@ -1191,11 +1336,11 @@ JYPPX_ADAM_FAMILY_ADAPTER::JYPPX_ADAM_FAMILY_ADAPTER(
     }
 
     auto defaults = make_native_options(groups.front().options);
-    impl_->native = std::make_unique<JYPPX_ADAM_FAMILY_NATIVE_OPTIMIZER>(
+    impl_->native = std::make_unique<JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER>(
         native_groups, defaults);
     for (std::size_t index = 0; index < groups.size(); ++index) {
       impl_->native->param_groups()[index].set_options(
-          std::make_unique<JYPPX_ADAM_FAMILY_NATIVE_OPTIONS>(
+          std::make_unique<JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS>(
               make_native_options(groups[index].options)));
     }
     impl_->optimizer_id = std::move(optimizer_id);
@@ -1207,17 +1352,18 @@ JYPPX_ADAM_FAMILY_ADAPTER::JYPPX_ADAM_FAMILY_ADAPTER(
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("construct");
   } catch (const c10::Error& cause) {
-    translate_backend(cause, "construct delegated " JYPPX_ADAM_FAMILY_NAME);
+    translate_backend(cause,
+                      "construct delegated " JYPPX_STATEFUL_OPTIMIZER_NAME);
   }
 }
 
-JYPPX_ADAM_FAMILY_ADAPTER::~JYPPX_ADAM_FAMILY_ADAPTER() = default;
+JYPPX_STATEFUL_OPTIMIZER_ADAPTER::~JYPPX_STATEFUL_OPTIMIZER_ADAPTER() = default;
 
-Tensor JYPPX_ADAM_FAMILY_ADAPTER::step(LossClosure closure) {
+Tensor JYPPX_STATEFUL_OPTIMIZER_ADAPTER::step(LossClosure closure) {
   try {
     if (impl_->completed_steps == std::numeric_limits<std::uint64_t>::max()) {
       throw ResourceExhausted(
-          "Delegated " JYPPX_ADAM_FAMILY_NAME " step counter exhausted",
+          "Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " step counter exhausted",
           ErrorDetails{.component = kComponent,
                        .operation = "step.completed_steps",
                        .expected = "a count below uint64 maximum",
@@ -1244,27 +1390,28 @@ Tensor JYPPX_ADAM_FAMILY_ADAPTER::step(LossClosure closure) {
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("step");
   } catch (const c10::Error& cause) {
-    translate_backend(cause, "delegated " JYPPX_ADAM_FAMILY_NAME " step");
+    translate_backend(cause,
+                      "delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " step");
   }
 }
 
-void JYPPX_ADAM_FAMILY_ADAPTER::zero_grad(bool set_to_none) {
+void JYPPX_STATEFUL_OPTIMIZER_ADAPTER::zero_grad(bool set_to_none) {
   try {
     impl_->native->zero_grad(set_to_none);
   } catch (const Error&) {
     throw;
   } catch (const c10::Error& cause) {
-    translate_backend(cause,
-                      "zero delegated " JYPPX_ADAM_FAMILY_NAME " gradients");
+    translate_backend(
+        cause, "zero delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " gradients");
   }
 }
 
-void JYPPX_ADAM_FAMILY_ADAPTER::synchronize_parameter_placement() {
+void JYPPX_STATEFUL_OPTIMIZER_ADAPTER::synchronize_parameter_placement() {
   try {
     if (impl_->completed_steps != 0 || !impl_->native->state().empty()) {
       throw NotReady(
-          "Cannot synchronize placement after delegated " JYPPX_ADAM_FAMILY_NAME
-          " state exists",
+          "Cannot synchronize placement after "
+          "delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state exists",
           ErrorDetails{
               .component = kComponent,
               .operation = "synchronize_parameter_placement",
@@ -1307,12 +1454,13 @@ void JYPPX_ADAM_FAMILY_ADAPTER::synchronize_parameter_placement() {
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("synchronize_parameter_placement");
   } catch (const c10::Error& cause) {
-    translate_backend(
-        cause, "synchronize delegated " JYPPX_ADAM_FAMILY_NAME " placement");
+    translate_backend(cause,
+                      "synchronize delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
+                      " placement");
   }
 }
 
-std::vector<double> JYPPX_ADAM_FAMILY_ADAPTER::learning_rates() const {
+std::vector<double> JYPPX_STATEFUL_OPTIMIZER_ADAPTER::learning_rates() const {
   try {
     return inspect_native_groups(impl_->groups, impl_->parameters,
                                  *impl_->native);
@@ -1323,7 +1471,7 @@ std::vector<double> JYPPX_ADAM_FAMILY_ADAPTER::learning_rates() const {
   }
 }
 
-void JYPPX_ADAM_FAMILY_ADAPTER::set_learning_rates(
+void JYPPX_STATEFUL_OPTIMIZER_ADAPTER::set_learning_rates(
     const std::vector<double>& learning_rates) {
   if (learning_rates.size() != impl_->groups.size()) {
     throw_invalid("learning_rates.count", std::to_string(impl_->groups.size()),
@@ -1343,26 +1491,28 @@ void JYPPX_ADAM_FAMILY_ADAPTER::set_learning_rates(
   }
 }
 
-const std::string& JYPPX_ADAM_FAMILY_ADAPTER::optimizer_id() const noexcept {
+const std::string& JYPPX_STATEFUL_OPTIMIZER_ADAPTER::optimizer_id()
+    const noexcept {
   return impl_->optimizer_id;
 }
 
-const std::vector<std::string>& JYPPX_ADAM_FAMILY_ADAPTER::parameter_group_ids()
-    const noexcept {
+const std::vector<std::string>&
+JYPPX_STATEFUL_OPTIMIZER_ADAPTER::parameter_group_ids() const noexcept {
   return impl_->parameter_group_ids;
 }
 
-std::uint64_t JYPPX_ADAM_FAMILY_ADAPTER::completed_steps() const noexcept {
+std::uint64_t JYPPX_STATEFUL_OPTIMIZER_ADAPTER::completed_steps()
+    const noexcept {
   return impl_->completed_steps;
 }
 
-const std::vector<JYPPX_ADAM_FAMILY_GROUP>& JYPPX_ADAM_FAMILY_ADAPTER::groups()
-    const noexcept {
+const std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>&
+JYPPX_STATEFUL_OPTIMIZER_ADAPTER::groups() const noexcept {
   return impl_->groups;
 }
 
 std::vector<OptimizerParameterBinding>
-JYPPX_ADAM_FAMILY_ADAPTER::parameter_bindings() const {
+JYPPX_STATEFUL_OPTIMIZER_ADAPTER::parameter_bindings() const {
   std::vector<OptimizerParameterBinding> result;
   result.reserve(impl_->parameters.size());
   for (const auto& parameter : impl_->parameters) {
@@ -1372,21 +1522,22 @@ JYPPX_ADAM_FAMILY_ADAPTER::parameter_bindings() const {
   return result;
 }
 
-std::size_t JYPPX_ADAM_FAMILY_ADAPTER::parameter_count() const noexcept {
+std::size_t JYPPX_STATEFUL_OPTIMIZER_ADAPTER::parameter_count() const noexcept {
   return impl_->parameters.size();
 }
 
-JYPPX_ADAM_FAMILY_PARTICIPANT::JYPPX_ADAM_FAMILY_PARTICIPANT(
-    std::shared_ptr<JYPPX_ADAM_FAMILY_ADAPTER> optimizer,
-    JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS options)
+JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT(
+    std::shared_ptr<JYPPX_STATEFUL_OPTIMIZER_ADAPTER> optimizer,
+    JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS options)
     : optimizer_(std::move(optimizer)), options_(options) {
   if (!optimizer_) {
-    throw_invalid("optimizer", JYPPX_ADAM_FAMILY_ADAPTER_DESCRIPTION, "null",
+    throw_invalid("optimizer", JYPPX_STATEFUL_OPTIMIZER_ADAPTER_DESCRIPTION,
+                  "null",
                   "Create the optimizer before its checkpoint participant.");
   }
   if constexpr (std::endian::native != std::endian::little) {
     throw NotImplemented(
-        "Delegated " JYPPX_ADAM_FAMILY_NAME
+        "Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
         " checkpoint byte order is unsupported",
         ErrorDetails{.component = kComponent,
                      .operation = "platform.endian",
@@ -1398,11 +1549,11 @@ JYPPX_ADAM_FAMILY_PARTICIPANT::JYPPX_ADAM_FAMILY_PARTICIPANT(
   static_cast<void>(describe_state());
 }
 
-std::string JYPPX_ADAM_FAMILY_PARTICIPANT::participant_id() const {
+std::string JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::participant_id() const {
   return optimizer_->optimizer_id();
 }
 
-StateManifest JYPPX_ADAM_FAMILY_PARTICIPANT::describe_state() const {
+StateManifest JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::describe_state() const {
   try {
     return inspect_optimizer(
                optimizer_->impl_->groups, optimizer_->impl_->parameters,
@@ -1414,12 +1565,13 @@ StateManifest JYPPX_ADAM_FAMILY_PARTICIPANT::describe_state() const {
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("describe");
   } catch (const c10::Error& cause) {
-    translate_backend(cause,
-                      "describe delegated " JYPPX_ADAM_FAMILY_NAME " state");
+    translate_backend(
+        cause, "describe delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
   }
 }
 
-void JYPPX_ADAM_FAMILY_PARTICIPANT::save_state(StateWriter& writer) const {
+void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::save_state(
+    StateWriter& writer) const {
   try {
     const auto snapshot = inspect_optimizer(
         optimizer_->impl_->groups, optimizer_->impl_->parameters,
@@ -1447,21 +1599,22 @@ void JYPPX_ADAM_FAMILY_PARTICIPANT::save_state(StateWriter& writer) const {
         const auto* data = static_cast<const std::byte*>(cpu.data_ptr());
         writer.write_blob(field_name, std::span<const std::byte>(data, bytes));
       };
-      write_tensor("exp_avg", snapshot.exp_avg[index]);
-      write_tensor("exp_avg_sq", snapshot.exp_avg_sq[index]);
-      write_tensor("max_exp_avg_sq", snapshot.max_exp_avg_sq[index]);
+      write_tensor(kStateFieldNames[0], snapshot.first_state[index]);
+      write_tensor(kStateFieldNames[1], snapshot.second_state[index]);
+      write_tensor(kStateFieldNames[2], snapshot.third_state[index]);
     }
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("save");
   } catch (const c10::Error& cause) {
-    translate_backend(cause, "save delegated " JYPPX_ADAM_FAMILY_NAME " state");
+    translate_backend(cause,
+                      "save delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
   }
 }
 
-void JYPPX_ADAM_FAMILY_PARTICIPANT::load_state(const StateReader& reader,
-                                               RestorePolicy policy) {
+void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
+                                                      RestorePolicy policy) {
   try {
     if (!restore_policy_accepts(policy, RestoreLevel::exact)) {
       throw_compatibility("restore.policy", "a policy accepting exact state",
@@ -1478,13 +1631,15 @@ void JYPPX_ADAM_FAMILY_PARTICIPANT::load_state(const StateReader& reader,
       throw_compatibility(
           "restore.manifest", optimizer_->optimizer_id(),
           stored_manifest.participant_id,
-          "Use state produced by the same " JYPPX_ADAM_FAMILY_NAME " schema.");
+          "Use state produced by the same " JYPPX_STATEFUL_OPTIMIZER_NAME
+          " schema.");
     }
     for (const auto& field : current.manifest.fields) {
       if (field.required && !reader.contains(field.name)) {
-        throw_serialization("restore.field", field.name, "missing",
-                            "Provide every required " JYPPX_ADAM_FAMILY_NAME
-                            " state field.");
+        throw_serialization(
+            "restore.field", field.name, "missing",
+            "Provide every required " JYPPX_STATEFUL_OPTIMIZER_NAME
+            " state field.");
       }
     }
 
@@ -1508,35 +1663,35 @@ void JYPPX_ADAM_FAMILY_PARTICIPANT::load_state(const StateReader& reader,
         decode_control(control_bytes, optimizer_->impl_->groups.size(),
                        optimizer_->impl_->parameters.size(), options_);
 
-    std::vector<Tensor> exp_avg_candidates;
-    std::vector<Tensor> exp_avg_sq_candidates;
-    std::vector<Tensor> max_exp_avg_sq_candidates;
-    exp_avg_candidates.reserve(optimizer_->impl_->parameters.size());
-    exp_avg_sq_candidates.reserve(optimizer_->impl_->parameters.size());
-    max_exp_avg_sq_candidates.reserve(optimizer_->impl_->parameters.size());
+    std::vector<Tensor> first_state_candidates;
+    std::vector<Tensor> second_state_candidates;
+    std::vector<Tensor> third_state_candidates;
+    first_state_candidates.reserve(optimizer_->impl_->parameters.size());
+    second_state_candidates.reserve(optimizer_->impl_->parameters.size());
+    third_state_candidates.reserve(optimizer_->impl_->parameters.size());
     at::NoGradGuard no_grad;
     for (std::size_t index = 0; index < optimizer_->impl_->parameters.size();
          ++index) {
       const auto& parameter = optimizer_->impl_->parameters[index];
       const auto maximum = std::max<std::uint64_t>(1, parameter.byte_count);
-      const auto exp_avg_bytes =
-          reader.read_blob(state_field_name("exp_avg", index), maximum);
-      const auto exp_avg_sq_bytes =
-          reader.read_blob(state_field_name("exp_avg_sq", index), maximum);
-      const auto max_exp_avg_sq_bytes =
-          reader.read_blob(state_field_name("max_exp_avg_sq", index), maximum);
-      const bool amsgrad =
-          optimizer_->impl_->groups[parameter.group_index].options.amsgrad;
+      const auto first_state_bytes = reader.read_blob(
+          state_field_name(kStateFieldNames[0], index), maximum);
+      const auto second_state_bytes = reader.read_blob(
+          state_field_name(kStateFieldNames[1], index), maximum);
+      const auto third_state_bytes = reader.read_blob(
+          state_field_name(kStateFieldNames[2], index), maximum);
+      const auto& descriptor =
+          optimizer_->impl_->groups[parameter.group_index].options;
       if (!decoded.has_state[index]) {
-        if (!exp_avg_bytes.empty() || !exp_avg_sq_bytes.empty() ||
-            !max_exp_avg_sq_bytes.empty()) {
+        if (!first_state_bytes.empty() || !second_state_bytes.empty() ||
+            !third_state_bytes.empty()) {
           throw_serialization("restore.state_absent", "three empty fields",
                               parameter.parameter_id,
                               "Keep presence metadata and raw fields aligned.");
         }
-        exp_avg_candidates.emplace_back();
-        exp_avg_sq_candidates.emplace_back();
-        max_exp_avg_sq_candidates.emplace_back();
+        first_state_candidates.emplace_back();
+        second_state_candidates.emplace_back();
+        third_state_candidates.emplace_back();
         continue;
       }
       const auto decode_tensor = [&](std::string_view state_name,
@@ -1562,22 +1717,35 @@ void JYPPX_ADAM_FAMILY_PARTICIPANT::load_state(const StateReader& reader,
         candidate.copy_(cpu.reshape(parameter.sizes));
         return candidate;
       };
-      exp_avg_candidates.push_back(decode_tensor("exp_avg", exp_avg_bytes));
-      exp_avg_sq_candidates.push_back(
-          decode_tensor("exp_avg_sq", exp_avg_sq_bytes));
-      if (amsgrad) {
-        max_exp_avg_sq_candidates.push_back(
-            decode_tensor("max_exp_avg_sq", max_exp_avg_sq_bytes));
+      first_state_candidates.push_back(
+          decode_tensor(kStateFieldNames[0], first_state_bytes));
+      if (second_state_required(descriptor)) {
+        second_state_candidates.push_back(
+            decode_tensor(kStateFieldNames[1], second_state_bytes));
       } else {
-        if (!max_exp_avg_sq_bytes.empty()) {
+        if (!second_state_bytes.empty()) {
           throw_serialization(
-              "restore.max_exp_avg_sq",
-              "an empty field when AMSGrad is disabled",
-              std::to_string(max_exp_avg_sq_bytes.size()),
-              "Use state matching immutable " JYPPX_ADAM_FAMILY_NAME
+              "restore." + std::string(kStateFieldNames[1]),
+              "an empty field when the optional state is disabled",
+              std::to_string(second_state_bytes.size()),
+              "Use state matching immutable " JYPPX_STATEFUL_OPTIMIZER_NAME
               " options.");
         }
-        max_exp_avg_sq_candidates.emplace_back();
+        second_state_candidates.emplace_back();
+      }
+      if (third_state_required(descriptor)) {
+        third_state_candidates.push_back(
+            decode_tensor(kStateFieldNames[2], third_state_bytes));
+      } else {
+        if (!third_state_bytes.empty()) {
+          throw_serialization(
+              "restore." + std::string(kStateFieldNames[2]),
+              "an empty field when the optional state is disabled",
+              std::to_string(third_state_bytes.size()),
+              "Use state matching immutable " JYPPX_STATEFUL_OPTIMIZER_NAME
+              " options.");
+        }
+        third_state_candidates.emplace_back();
       }
     }
 
@@ -1586,15 +1754,16 @@ void JYPPX_ADAM_FAMILY_PARTICIPANT::load_state(const StateReader& reader,
     static_assert(std::is_nothrow_swappable_v<NativeStateMap>);
     NativeStateMap replacement;
     replacement.reserve(optimizer_->impl_->parameters.size());
-    for (std::size_t index = 0; index < exp_avg_candidates.size(); ++index) {
+    for (std::size_t index = 0; index < first_state_candidates.size();
+         ++index) {
       if (!decoded.has_state[index]) {
         continue;
       }
-      auto state = std::make_unique<JYPPX_ADAM_FAMILY_NATIVE_STATE>();
+      auto state = std::make_unique<JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE>();
       state->step(decoded.parameter_steps[index]);
-      state->exp_avg(exp_avg_candidates[index]);
-      state->exp_avg_sq(exp_avg_sq_candidates[index]);
-      state->max_exp_avg_sq(max_exp_avg_sq_candidates[index]);
+      set_native_state_tensors(*state, first_state_candidates[index],
+                               second_state_candidates[index],
+                               third_state_candidates[index]);
       replacement.emplace(
           optimizer_->impl_->parameters[index].parameter.unsafeGetTensorImpl(),
           std::move(state));
@@ -1621,22 +1790,23 @@ void JYPPX_ADAM_FAMILY_PARTICIPANT::load_state(const StateReader& reader,
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("restore");
   } catch (const c10::Error& cause) {
-    translate_backend(cause,
-                      "restore delegated " JYPPX_ADAM_FAMILY_NAME " state");
+    translate_backend(
+        cause, "restore delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
   }
 }
 
-JYPPX_ADAM_FAMILY_ADAPTER& JYPPX_ADAM_FAMILY_PARTICIPANT::optimizer() noexcept {
+JYPPX_STATEFUL_OPTIMIZER_ADAPTER&
+JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::optimizer() noexcept {
   return *optimizer_;
 }
 
-const JYPPX_ADAM_FAMILY_ADAPTER& JYPPX_ADAM_FAMILY_PARTICIPANT::optimizer()
-    const noexcept {
+const JYPPX_STATEFUL_OPTIMIZER_ADAPTER&
+JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::optimizer() const noexcept {
   return *optimizer_;
 }
 
-const JYPPX_ADAM_FAMILY_CHECKPOINT_OPTIONS&
-JYPPX_ADAM_FAMILY_PARTICIPANT::options() const noexcept {
+const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS&
+JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::options() const noexcept {
   return options_;
 }
 

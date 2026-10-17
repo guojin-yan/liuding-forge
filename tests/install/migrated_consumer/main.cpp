@@ -19,6 +19,7 @@
 #include <jyppx/optim/event_lr_scheduler.hpp>
 #include <jyppx/optim/linear_lr_scheduler.hpp>
 #include <jyppx/optim/optimizer_adapter.hpp>
+#include <jyppx/optim/rmsprop_adapter.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
@@ -401,6 +402,25 @@ int main() {
   const bool valid_adamw =
       installed_adamw_participant.describe_state().fields.size() == 5 &&
       installed_adamw->completed_steps() == 1;
+  auto installed_rmsprop_parameter = torch::ones(
+      {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+  auto installed_rmsprop =
+      std::make_shared<jyppx::optim::RmspropOptimizerAdapter>(
+          "optimizer.rmsprop",
+          std::vector<jyppx::optim::RmspropParameterGroup>{
+              {.group_id = "main",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = installed_rmsprop_parameter}},
+               .options = {
+                   .learning_rate = 0.01, .momentum = 0.9, .centered = true}}});
+  installed_rmsprop_parameter.mutable_grad() =
+      torch::ones_like(installed_rmsprop_parameter);
+  installed_rmsprop->step();
+  jyppx::optim::RmspropOptimizerCheckpointParticipant
+      installed_rmsprop_participant(installed_rmsprop);
+  const bool valid_rmsprop =
+      installed_rmsprop_participant.describe_state().fields.size() == 5 &&
+      installed_rmsprop->completed_steps() == 1;
   auto installed_scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
       installed_optimizer,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
@@ -484,8 +504,9 @@ int main() {
                  valid_contrastive && valid_focal && valid_dice &&
                  valid_adapter && valid_metric && valid_ranking_metric &&
                  valid_classwise_metric && valid_optimizer && valid_adam &&
-                 valid_adamw && valid_scheduler && valid_callback &&
-                 valid_event_sink && valid_strategy && valid_trainer
+                 valid_adamw && valid_rmsprop && valid_scheduler &&
+                 valid_callback && valid_event_sink && valid_strategy &&
+                 valid_trainer
              ? 0
              : 1;
 }
