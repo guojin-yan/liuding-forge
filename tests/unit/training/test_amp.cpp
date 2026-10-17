@@ -1,14 +1,22 @@
-// Unit tests for the legacy-independent AMP primitives and scaler participant.
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
 
 #include "test_utils/jyppx_test_helpers.hpp"
 
+#include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/training/amp/autocast.hpp>
 #include <jyppx/training/amp/grad_scaler.hpp>
 
 #include <cmath>
+#include <cstddef>
 #include <gtest/gtest.h>
 #include <limits>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -17,6 +25,35 @@ using namespace jyppx_test;
 using jyppx::training::amp::AutocastGuard;
 using jyppx::training::amp::GradScaler;
 using jyppx::training::amp::GradScalerOptions;
+
+std::shared_ptr<optim::SgdOptimizerAdapter> make_optimizer(
+    const std::vector<Tensor>& parameters, double learning_rate = 0.1,
+    std::string optimizer_id = "optimizer.amp") {
+  std::vector<optim::OptimizerParameterBinding> bindings;
+  bindings.reserve(parameters.size());
+  for (std::size_t index = 0; index < parameters.size(); ++index) {
+    bindings.push_back({.parameter_id = "parameter." + std::to_string(index),
+                        .parameter = parameters[index]});
+  }
+  return std::make_shared<optim::SgdOptimizerAdapter>(
+      std::move(optimizer_id),
+      std::vector<optim::SgdParameterGroup>{
+          {.group_id = "group.main",
+           .parameters = std::move(bindings),
+           .options = {.learning_rate = learning_rate}}});
+}
+
+bool apply_scaler_step(
+    GradScaler& scaler,
+    const std::shared_ptr<optim::OptimizerAdapter>& optimizer) {
+  scaler.unscale(optimizer);
+  const bool applied = scaler.step_allowed(optimizer);
+  if (applied) {
+    optimizer->step();
+  }
+  scaler.mark_step(optimizer, applied);
+  return applied;
+}
 
 TEST(AutocastGuardTest, RestoresCpuStateAndRejectsUnsupportedDtype) {
   const bool previous_enabled =
@@ -89,51 +126,49 @@ TEST(GradScalerTest, DisabledScalerPassesThrough) {
   auto loss = torch::tensor(1.5, torch::TensorOptions().dtype(torch::kFloat32));
   EXPECT_NEAR(scaler.scale(loss).item<double>(), 1.5, 1e-6);
 
-  // step() forwards to the optimizer with the raw gradient: no scaling, no
-  // unscale, no overflow handling.
+  // Disabled mode still owns an explicit cycle but leaves gradients unscaled.
   torch::manual_seed(1);
   auto params = make_params({{2}});
   const auto initial = params[0].detach().clone();
-  auto optimizer =
-      std::make_shared<optim::SGD>(params, optim::SGDOptions{.lr = 0.1});
+  auto optimizer = make_optimizer(params);
   params[0].mutable_grad() =
       torch::full({2}, 8.0, torch::TensorOptions().dtype(torch::kFloat64));
-  scaler.step(optimizer);
+  EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
   EXPECT_TRUE(torch::allclose(params[0], initial - 0.8, 1e-12, 1e-12));
+  scaler.update();
 }
 
 TEST(GradScalerTest, StepUnscalesGradientsBeforeStepping) {
   torch::manual_seed(2);
   auto params = make_params({{4}});
   const auto initial = params[0].detach().clone();
-  auto optimizer =
-      std::make_shared<optim::SGD>(params, optim::SGDOptions{.lr = 0.1});
+  auto optimizer = make_optimizer(params);
 
   GradScaler scaler({.init_scale = 8.0});
   // Simulate a scaled gradient of 8.0; unscale must divide it back to 1.0.
   params[0].mutable_grad() =
       torch::full({4}, 8.0, torch::TensorOptions().dtype(torch::kFloat64));
-  scaler.step(optimizer);
+  EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
 
   // param = initial - lr * (8 / 8)
   const auto expected = initial - 0.1;
   EXPECT_TRUE(torch::allclose(params[0], expected, 1e-12, 1e-12));
   EXPECT_FALSE(scaler.found_inf());
+  scaler.update();
 }
 
 TEST(GradScalerTest, InfGradientSkipsStepAndBacksOff) {
   torch::manual_seed(3);
   auto params = make_params({{4}});
   const auto initial = params[0].detach().clone();
-  auto optimizer =
-      std::make_shared<optim::SGD>(params, optim::SGDOptions{.lr = 0.1});
+  auto optimizer = make_optimizer(params);
 
   GradScaler scaler({.init_scale = 2.0, .backoff_factor = 0.5});
   params[0].mutable_grad() =
       torch::full({4}, std::numeric_limits<double>::infinity(),
                   torch::TensorOptions().dtype(torch::kFloat64));
 
-  scaler.step(optimizer);
+  EXPECT_FALSE(apply_scaler_step(scaler, optimizer));
   EXPECT_TRUE(scaler.found_inf());
   EXPECT_TRUE(torch::equal(params[0], initial));  // update skipped
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 2.0);      // update owns scale changes
@@ -147,17 +182,17 @@ TEST(GradScalerTest, TracksMultipleOptimizersIndependently) {
   const auto finite_initial = finite_params[0].detach().clone();
   const auto overflow_initial = overflow_params[0].detach().clone();
   auto finite_optimizer =
-      std::make_shared<optim::SGD>(finite_params, optim::SGDOptions{.lr = 0.1});
-  auto overflow_optimizer = std::make_shared<optim::SGD>(
-      overflow_params, optim::SGDOptions{.lr = 0.1});
+      make_optimizer(finite_params, 0.1, "optimizer.finite");
+  auto overflow_optimizer =
+      make_optimizer(overflow_params, 0.1, "optimizer.overflow");
 
   GradScaler scaler({.init_scale = 8.0, .backoff_factor = 0.5});
   finite_params[0].mutable_grad() = torch::full_like(finite_params[0], 8.0);
   overflow_params[0].mutable_grad() = torch::full_like(
       overflow_params[0], std::numeric_limits<double>::infinity());
 
-  scaler.step(finite_optimizer);
-  scaler.step(overflow_optimizer);
+  EXPECT_TRUE(apply_scaler_step(scaler, finite_optimizer));
+  EXPECT_FALSE(apply_scaler_step(scaler, overflow_optimizer));
   EXPECT_TRUE(
       torch::allclose(finite_params[0], finite_initial - 0.1, 1e-12, 1e-12));
   EXPECT_TRUE(torch::equal(overflow_params[0], overflow_initial));
@@ -179,17 +214,17 @@ TEST(GradScalerCudaTest, MultipleOptimizersUseRealCudaGradients) {
   std::vector<Tensor> overflow_params{
       torch::ones({2}, options).requires_grad_(true)};
   auto finite_optimizer =
-      std::make_shared<optim::SGD>(finite_params, optim::SGDOptions{.lr = 0.1});
-  auto overflow_optimizer = std::make_shared<optim::SGD>(
-      overflow_params, optim::SGDOptions{.lr = 0.1});
+      make_optimizer(finite_params, 0.1, "optimizer.cuda.finite");
+  auto overflow_optimizer =
+      make_optimizer(overflow_params, 0.1, "optimizer.cuda.overflow");
 
   GradScaler scaler({.init_scale = 8.0, .backoff_factor = 0.5});
   finite_params[0].mutable_grad() = torch::full_like(finite_params[0], 8.0);
   overflow_params[0].mutable_grad() = torch::full_like(
       overflow_params[0], std::numeric_limits<float>::infinity());
 
-  scaler.step(finite_optimizer);
-  scaler.step(overflow_optimizer);
+  EXPECT_TRUE(apply_scaler_step(scaler, finite_optimizer));
+  EXPECT_FALSE(apply_scaler_step(scaler, overflow_optimizer));
   scaler.update();
 
   EXPECT_TRUE(torch::allclose(finite_params[0].cpu(), torch::full({2}, 0.9f)));
@@ -201,17 +236,19 @@ TEST(GradScalerTest, UnscaleBeforeClipAndStepIsIdempotent) {
   torch::manual_seed(4);
   auto params = make_params({{4}});
   const auto initial = params[0].detach().clone();
-  auto optimizer =
-      std::make_shared<optim::SGD>(params, optim::SGDOptions{.lr = 0.1});
+  auto optimizer = make_optimizer(params);
 
   GradScaler scaler({.init_scale = 4.0});
   params[0].mutable_grad() =
       torch::full({4}, 4.0, torch::TensorOptions().dtype(torch::kFloat64));
 
-  // Trainer-style flow: explicit unscale, then step() must not rescale.
+  // Trainer-style flow: explicit unscale before clipping and strategy update.
   scaler.unscale(optimizer);
   EXPECT_NEAR(params[0].grad().max().item<double>(), 1.0, 1e-12);
-  scaler.step(optimizer);
+  EXPECT_TRUE(scaler.step_allowed(optimizer));
+  optimizer->step();
+  scaler.mark_step(optimizer, true);
+  scaler.update();
 
   const auto expected = initial - 0.1;
   EXPECT_TRUE(torch::allclose(params[0], expected, 1e-12, 1e-12));
@@ -221,11 +258,10 @@ TEST(GradScalerTest, UpdateGrowsScaleAfterInterval) {
   GradScaler scaler(
       {.init_scale = 1.0, .growth_factor = 2.0, .growth_interval = 2});
   auto params = make_params({{1}});
-  auto optimizer =
-      std::make_shared<optim::SGD>(params, optim::SGDOptions{.lr = 0.1});
+  auto optimizer = make_optimizer(params);
   const auto successful_step = [&] {
     params[0].mutable_grad() = torch::ones_like(params[0]);
-    scaler.step(optimizer);
+    EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
     scaler.update();
   };
 
@@ -243,8 +279,7 @@ TEST(GradScalerTest, UpdateGrowsScaleAfterInterval) {
 TEST(GradScalerTest, OverflowingStepsDoNotCountTowardGrowth) {
   torch::manual_seed(5);
   auto params = make_params({{2}});
-  auto optimizer =
-      std::make_shared<optim::SGD>(params, optim::SGDOptions{.lr = 0.1});
+  auto optimizer = make_optimizer(params);
 
   GradScaler scaler({.init_scale = 1.0, .growth_interval = 2});
 
@@ -252,17 +287,17 @@ TEST(GradScalerTest, OverflowingStepsDoNotCountTowardGrowth) {
   params[0].mutable_grad() =
       torch::full({2}, std::numeric_limits<double>::infinity(),
                   torch::TensorOptions().dtype(torch::kFloat64));
-  scaler.step(optimizer);
+  EXPECT_FALSE(apply_scaler_step(scaler, optimizer));
   scaler.update();
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 0.5);
   EXPECT_EQ(scaler.capture_state().growth_tracker, 0U);
 
   // Two healthy steps reach the interval again.
   params[0].mutable_grad() = torch::ones_like(params[0]);
-  scaler.step(optimizer);
+  EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
   scaler.update();
   params[0].mutable_grad() = torch::ones_like(params[0]);
-  scaler.step(optimizer);
+  EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
   scaler.update();
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 1.0);  // 0.5 * 2.0 after two clean steps
 }
@@ -270,10 +305,10 @@ TEST(GradScalerTest, OverflowingStepsDoNotCountTowardGrowth) {
 TEST(GradScalerTest, TypedStateRoundTrip) {
   GradScaler scaler({.init_scale = 100.0, .growth_interval = 3});
   auto params = make_params({{1}});
-  auto optimizer = std::make_shared<optim::SGD>(params);
+  auto optimizer = make_optimizer(params);
   for (int i = 0; i < 2; ++i) {
     params[0].mutable_grad() = torch::ones_like(params[0]);
-    scaler.step(optimizer);
+    EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
     scaler.update();
   }
 
@@ -296,15 +331,15 @@ TEST(GradScalerTest, InvalidOptionsThrow) {
 
 TEST(GradScalerTest, EnforcesStepUpdateStateMachineAndValidatesState) {
   auto params = make_params({{1}});
-  auto optimizer = std::make_shared<optim::SGD>(params);
+  auto optimizer = make_optimizer(params);
   GradScaler scaler({.init_scale = 2.0});
   EXPECT_THROW(scaler.update(), std::logic_error);
 
   params[0].mutable_grad() = torch::full_like(params[0], 2.0);
-  scaler.step(optimizer);
+  EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
   EXPECT_FALSE(scaler.checkpoint_ready());
   EXPECT_THROW(scaler.capture_state(), std::logic_error);
-  EXPECT_THROW(scaler.step(optimizer), std::logic_error);
+  EXPECT_THROW(scaler.step_allowed(optimizer), std::logic_error);
   EXPECT_THROW(scaler.unscale(optimizer), std::logic_error);
   scaler.update();
 
@@ -323,9 +358,10 @@ TEST(GradScalerTest, EnforcesStepUpdateStateMachineAndValidatesState) {
 
 TEST(GradScalerTest, NullOptimizerThrows) {
   GradScaler scaler;
-  std::shared_ptr<optim::Optimizer> null_optimizer;
+  std::shared_ptr<optim::OptimizerAdapter> null_optimizer;
   EXPECT_THROW(scaler.unscale(null_optimizer), std::invalid_argument);
-  EXPECT_THROW(scaler.step(null_optimizer), std::invalid_argument);
+  EXPECT_THROW(scaler.step_allowed(null_optimizer), std::invalid_argument);
+  EXPECT_THROW(scaler.mark_step(null_optimizer, false), std::invalid_argument);
 }
 
 }  // namespace

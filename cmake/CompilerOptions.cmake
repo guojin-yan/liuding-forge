@@ -106,10 +106,12 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/foundation/test_rng_checkpoint_participant.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/amp/grad_scaler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/amp/grad_scaler_checkpoint_participant.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/training/amp/autocast.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/amp/grad_scaler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/amp/grad_scaler_checkpoint_participant.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_amp.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_grad_scaler_checkpoint_participant.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/training/test_nan_inf.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/checkpoint_coordinator.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/callback_dispatcher.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/callbacks/early_stopping_callback.hpp

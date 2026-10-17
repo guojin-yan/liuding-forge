@@ -269,6 +269,8 @@ add_library(jyppx_training STATIC
     src/jyppx/training/callbacks/early_stopping_callback.cpp
     src/jyppx/training/checkpoint_coordinator.cpp
     src/jyppx/training/event_sink.cpp
+    src/jyppx/training/amp/grad_scaler.cpp
+    src/jyppx/training/amp/grad_scaler_checkpoint_participant.cpp
     src/jyppx/training/metrics/classification.cpp
     src/jyppx/training/metrics/ranking.cpp
     src/jyppx/training/scheduler_adapter.cpp

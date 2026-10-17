@@ -71,14 +71,11 @@ Tensor GradScaler::scale(const Tensor& loss) const {
   return options_.enabled ? loss * scale_ : loss;
 }
 
-void GradScaler::unscale(const std::shared_ptr<optim::Optimizer>& optimizer) {
+void GradScaler::unscale(
+    const std::shared_ptr<optim::OptimizerAdapter>& optimizer) {
   if (!optimizer) {
     throw std::invalid_argument("GradScaler optimizer cannot be null");
   }
-  if (!options_.enabled) {
-    return;
-  }
-
   if (optimizer_states_.empty()) {
     found_inf_ = false;
   }
@@ -86,7 +83,7 @@ void GradScaler::unscale(const std::shared_ptr<optim::Optimizer>& optimizer) {
   if (existing != optimizer_states_.end()) {
     if (existing->second.stage == OptimizerStage::stepped) {
       throw std::logic_error(
-          "GradScaler cannot unscale an optimizer after step() before "
+          "GradScaler cannot unscale an optimizer after mark_step() before "
           "update()");
     }
     return;
@@ -94,15 +91,15 @@ void GradScaler::unscale(const std::shared_ptr<optim::Optimizer>& optimizer) {
 
   OptimizerState state;
   const torch::NoGradGuard no_grad;
-  for (const auto& group : optimizer->param_groups()) {
-    for (const auto& parameter : group.params) {
-      if (!parameter.defined() || !parameter.grad().defined()) {
-        continue;
-      }
-      auto& gradient = parameter.mutable_grad();
+  for (const auto& binding : optimizer->parameter_bindings()) {
+    const auto& parameter = binding.parameter;
+    if (!parameter.defined() || !parameter.grad().defined()) {
+      continue;
+    }
+    auto& gradient = parameter.mutable_grad();
+    if (options_.enabled) {
       gradient.div_(scale_);
-      if (torch::isinf(gradient).any().item<bool>() ||
-          torch::isnan(gradient).any().item<bool>()) {
+      if (!torch::isfinite(gradient).all().item<bool>()) {
         state.found_inf = true;
       }
     }
@@ -111,44 +108,62 @@ void GradScaler::unscale(const std::shared_ptr<optim::Optimizer>& optimizer) {
   optimizer_states_.emplace(optimizer.get(), state);
 }
 
-void GradScaler::step(const std::shared_ptr<optim::Optimizer>& optimizer) {
+bool GradScaler::step_allowed(
+    const std::shared_ptr<optim::OptimizerAdapter>& optimizer) const {
   if (!optimizer) {
     throw std::invalid_argument("GradScaler optimizer cannot be null");
   }
-  if (!options_.enabled) {
-    optimizer->step();
-    return;
-  }
-
   const auto existing = optimizer_states_.find(optimizer.get());
-  if (existing != optimizer_states_.end() &&
-      existing->second.stage == OptimizerStage::stepped) {
+  if (existing == optimizer_states_.end()) {
     throw std::logic_error(
-        "GradScaler.step() for this optimizer must be followed by update()");
+        "GradScaler.step_allowed() requires preceding unscale()");
   }
-  unscale(optimizer);
-  auto& state = optimizer_states_.at(optimizer.get());
-  if (!state.found_inf) {
-    optimizer->step();
+  if (existing->second.stage == OptimizerStage::stepped) {
+    throw std::logic_error(
+        "GradScaler step decision must be followed by update()");
   }
-  state.stage = OptimizerStage::stepped;
+  return !existing->second.found_inf;
+}
+
+void GradScaler::mark_step(
+    const std::shared_ptr<optim::OptimizerAdapter>& optimizer, bool applied) {
+  if (!optimizer) {
+    throw std::invalid_argument("GradScaler optimizer cannot be null");
+  }
+  auto existing = optimizer_states_.find(optimizer.get());
+  if (existing == optimizer_states_.end()) {
+    throw std::logic_error("GradScaler.mark_step() requires unscale()");
+  }
+  if (existing->second.stage == OptimizerStage::stepped) {
+    throw std::logic_error(
+        "GradScaler.mark_step() for this optimizer must be followed by "
+        "update()");
+  }
+  if (applied == existing->second.found_inf) {
+    throw std::logic_error(
+        "GradScaler applied result conflicts with its overflow decision");
+  }
+  existing->second.stage = OptimizerStage::stepped;
 }
 
 void GradScaler::update() {
-  if (!options_.enabled) {
-    return;
-  }
   if (optimizer_states_.empty()) {
-    throw std::logic_error("GradScaler.update() requires a preceding step()");
+    throw std::logic_error(
+        "GradScaler.update() requires a preceding optimizer cycle");
   }
   for (const auto& [optimizer, state] : optimizer_states_) {
     static_cast<void>(optimizer);
     if (state.stage != OptimizerStage::stepped) {
       throw std::logic_error(
-          "GradScaler.update() requires step() for every unscaled optimizer");
+          "GradScaler.update() requires mark_step() for every optimizer");
     }
   }
 
+  if (!options_.enabled) {
+    optimizer_states_.clear();
+    found_inf_ = false;
+    return;
+  }
   if (found_inf_) {
     scale_ = std::max(scale_ * options_.backoff_factor,
                       std::numeric_limits<double>::min());
@@ -157,11 +172,10 @@ void GradScaler::update() {
     ++growth_tracker_;
     if (growth_tracker_ >=
         static_cast<std::uint64_t>(options_.growth_interval)) {
-      const double grown = scale_ * options_.growth_factor;
-      if (!std::isfinite(grown)) {
-        throw std::overflow_error("GradScaler scale overflow");
-      }
-      scale_ = grown;
+      const auto maximum = std::numeric_limits<double>::max();
+      scale_ = scale_ > maximum / options_.growth_factor
+                   ? maximum
+                   : scale_ * options_.growth_factor;
       growth_tracker_ = 0;
     }
   }

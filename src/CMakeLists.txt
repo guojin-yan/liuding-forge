@@ -18,9 +18,7 @@ target_sources(jyppx_training_framework PRIVATE
     jyppx/optim/nadam.cpp
     jyppx/optim/lamb.cpp
 
-    # Training
-    jyppx/training/amp/grad_scaler.cpp
-    jyppx/training/amp/grad_scaler_checkpoint_participant.cpp
+    # Legacy SDK-only utilities
     jyppx/training/metrics/accuracy.cpp
     jyppx/training/metrics/topk_accuracy.cpp
     jyppx/training/metrics/regression.cpp

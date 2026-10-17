@@ -138,16 +138,20 @@ jyppx_add_gtest(jyppx_test_training_trainer
     training/test_trainer.cpp
 )
 
+jyppx_add_gtest(jyppx_test_training_amp
+    LINK_TARGET jyppx::training
+    training/test_amp.cpp
+    training/test_grad_scaler_checkpoint_participant.cpp
+    training/test_nan_inf.cpp
+)
+
 jyppx_add_gtest(jyppx_test_plan
     test_plan_completion.cpp
 )
 
 jyppx_add_gtest(jyppx_test_training
     training/test_accuracy.cpp
-    training/test_amp.cpp
-    training/test_grad_scaler_checkpoint_participant.cpp
     training/test_metrics.cpp
-    training/test_nan_inf.cpp
 )
 
 jyppx_add_gtest(jyppx_test_data_exceptions

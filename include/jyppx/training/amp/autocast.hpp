@@ -1,13 +1,21 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
 #ifndef JYPPX_TRAINING_AMP_AUTOCAST_HPP
 #define JYPPX_TRAINING_AMP_AUTOCAST_HPP
+
+/**
+ * @file autocast.hpp
+ * @brief Defines scoped CPU and CUDA autocast state ownership.
+ */
 
 #include <ATen/autocast_mode.h>
 #include <c10/core/DeviceType.h>
 #include <stdexcept>
 
-namespace jyppx {
-namespace training {
-namespace amp {
+namespace jyppx::training::amp {
 
 /**
  * @brief RAII guard enabling autocast for the current scope.
@@ -98,8 +106,6 @@ class AutocastGuard {
   bool active_ = false;  ///< Whether nesting was successfully incremented.
 };
 
-}  // namespace amp
-}  // namespace training
-}  // namespace jyppx
+}  // namespace jyppx::training::amp
 
 #endif  // JYPPX_TRAINING_AMP_AUTOCAST_HPP

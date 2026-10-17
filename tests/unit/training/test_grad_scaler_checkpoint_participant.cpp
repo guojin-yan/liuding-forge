@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 
 #include <jyppx/foundation/error.hpp>
-#include <jyppx/optim/sgd.hpp>
+#include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/training/amp/grad_scaler_checkpoint_participant.hpp>
 
 #include <algorithm>
@@ -84,17 +84,27 @@ class MemoryStateStore final : public jyppx::StateWriter,
 using jyppx::training::amp::GradScaler;
 using jyppx::training::amp::GradScalerCheckpointParticipant;
 
-std::shared_ptr<jyppx::optim::SGD> make_optimizer(jyppx::Tensor parameter) {
-  return std::make_shared<jyppx::optim::SGD>(
-      std::vector<jyppx::Tensor>{std::move(parameter)},
-      jyppx::optim::SGDOptions{.lr = 0.1});
+std::shared_ptr<jyppx::optim::SgdOptimizerAdapter> make_optimizer(
+    const jyppx::Tensor& parameter) {
+  return std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+      "optimizer.scaler.checkpoint",
+      std::vector<jyppx::optim::SgdParameterGroup>{
+          {.group_id = "group.main",
+           .parameters = {{.parameter_id = "parameter.main",
+                           .parameter = parameter}},
+           .options = {.learning_rate = 0.1}}});
 }
 
 void run_cycle(GradScaler& scaler,
-               const std::shared_ptr<jyppx::optim::SGD>& optimizer,
+               const std::shared_ptr<jyppx::optim::OptimizerAdapter>& optimizer,
                const jyppx::Tensor& parameter, double gradient) {
   parameter.mutable_grad() = torch::full_like(parameter, gradient);
-  scaler.step(optimizer);
+  scaler.unscale(optimizer);
+  const bool applied = scaler.step_allowed(optimizer);
+  if (applied) {
+    optimizer->step();
+  }
+  scaler.mark_step(optimizer, applied);
   scaler.update();
 }
 
@@ -144,8 +154,13 @@ TEST(GradScalerCheckpointParticipantTest, RejectsActiveOptimizerCycle) {
   MemoryStateStore store(participant.describe_state());
 
   parameter.mutable_grad() = torch::full_like(parameter, 2.0);
-  scaler->step(optimizer);
+  scaler->unscale(optimizer);
   EXPECT_THROW(participant.save_state(store), std::logic_error);
+  const bool applied = scaler->step_allowed(optimizer);
+  if (applied) {
+    optimizer->step();
+  }
+  scaler->mark_step(optimizer, applied);
   scaler->update();
 }
 

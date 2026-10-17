@@ -40,6 +40,11 @@ class OptimizerAdapter;
 
 namespace jyppx::training {
 
+namespace amp {
+class GradScaler;
+class GradScalerCheckpointParticipant;
+}  // namespace amp
+
 class CallbackDispatcher;
 class CheckpointCoordinator;
 struct CheckpointDescriptor;
@@ -58,6 +63,19 @@ class TrainingStrategy;
 enum class AccumulationTailPolicy : std::uint8_t {
   flush = 1,  ///< Rescales and commits the final partial accumulation window.
   drop = 2,   ///< Clears gradients without applying a partial update.
+};
+
+/**
+ * @brief Selects the numeric execution policy owned by the Trainer.
+ *
+ * Numeric values are persisted in Trainer topology and must remain stable.
+ * Float16 uses dynamic gradient scaling; bfloat16 modes deliberately do not.
+ */
+enum class PrecisionMode : std::uint8_t {
+  full = 1,           ///< Disables autocast and gradient scaling.
+  cpu_bfloat16 = 2,   ///< Enables CPU autocast with bfloat16 operators.
+  cuda_float16 = 3,   ///< Enables CUDA float16 autocast and GradScaler.
+  cuda_bfloat16 = 4,  ///< Enables CUDA bfloat16 autocast without scaling.
 };
 
 /**
@@ -108,6 +126,8 @@ struct TrainerOptions {
       1;  ///< Positive number of micro-batches per optimizer update.
   AccumulationTailPolicy accumulation_tail =
       AccumulationTailPolicy::flush;  ///< Partial epoch/stop window policy.
+  PrecisionMode precision =
+      PrecisionMode::full;  ///< Explicit autocast and scaling policy.
   std::optional<double>
       gradient_clip_norm;  ///< Positive finite global norm, or disabled.
   std::string scheduler_metric =
@@ -210,6 +230,10 @@ struct FitRequest {
   StepFunction validation_step;  ///< Required when validation is set.
   std::shared_ptr<TrainingStrategy>
       strategy;  ///< Required device/backward/update execution owner.
+  std::shared_ptr<amp::GradScaler>
+      gradient_scaler;  ///< Required only for CUDA float16 training.
+  std::shared_ptr<amp::GradScalerCheckpointParticipant>
+      gradient_scaler_checkpoint;  ///< Exact state for the configured scaler.
   std::shared_ptr<SchedulerAdapter>
       scheduler;  ///< Optional strictly ordered scheduler event adapter.
   std::shared_ptr<CallbackDispatcher>
@@ -247,7 +271,7 @@ struct FitResult {
  * scheduler, callbacks, outbox, RNG, and task state remain independent
  * checkpoint participants registered with one `CheckpointCoordinator` during
  * `prepare()`. Checkpoints are allowed only when the accumulation window is
- * empty and validation is not active. Schema version 1 reads only the current
+ * empty and validation is not active. Schema version 2 reads only the current
  * format; no legacy Trainer archive or callback API is accepted.
  */
 class Trainer final : public CheckpointParticipant {

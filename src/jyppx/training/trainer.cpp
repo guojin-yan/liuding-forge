@@ -9,6 +9,9 @@
 #include <jyppx/nn/model_checkpoint_participant.hpp>
 #include <jyppx/optim/lr_scheduler.hpp>
 #include <jyppx/optim/optimizer_adapter.hpp>
+#include <jyppx/training/amp/autocast.hpp>
+#include <jyppx/training/amp/grad_scaler.hpp>
+#include <jyppx/training/amp/grad_scaler_checkpoint_participant.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 #include <jyppx/training/event_sink.hpp>
@@ -40,10 +43,10 @@ constexpr char kComponent[] = "training.trainer";
 constexpr char kTopologyField[] = "topology";
 constexpr char kControlField[] = "control";
 constexpr char kTopologyMediaType[] =
-    "application/vnd.jyppx.trainer-topology-v1";
-constexpr char kControlMediaType[] = "application/vnd.jyppx.trainer-control-v1";
-constexpr std::string_view kTopologyMagic = "JYPPX-TRAINER-TOPOLOGY-V1";
-constexpr std::string_view kControlMagic = "JYPPX-TRAINER-CONTROL-V1";
+    "application/vnd.jyppx.trainer-topology-v2";
+constexpr char kControlMediaType[] = "application/vnd.jyppx.trainer-control-v2";
+constexpr std::string_view kTopologyMagic = "JYPPX-TRAINER-TOPOLOGY-V2";
+constexpr std::string_view kControlMagic = "JYPPX-TRAINER-CONTROL-V2";
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
@@ -149,6 +152,20 @@ std::string phase_name(TrainerPhase phase) {
 bool valid_tail_policy(AccumulationTailPolicy policy) {
   return policy == AccumulationTailPolicy::flush ||
          policy == AccumulationTailPolicy::drop;
+}
+
+bool valid_precision_mode(PrecisionMode mode) {
+  return mode == PrecisionMode::full || mode == PrecisionMode::cpu_bfloat16 ||
+         mode == PrecisionMode::cuda_float16 ||
+         mode == PrecisionMode::cuda_bfloat16;
+}
+
+bool is_cuda_device(std::string_view device) {
+  return device == "cuda" || device.starts_with("cuda:");
+}
+
+bool is_cpu_device(std::string_view device) {
+  return device == "cpu" || device.starts_with("cpu:");
 }
 
 bool restorable_phase(TrainerPhase phase) {
@@ -363,7 +380,8 @@ void validate_options(const TrainerOptions& options) {
                   "Use alphanumeric, dot, underscore, or dash identities.");
   }
   if (options.max_epochs == 0U || options.accumulate_steps == 0U ||
-      !valid_tail_policy(options.accumulation_tail)) {
+      !valid_tail_policy(options.accumulation_tail) ||
+      !valid_precision_mode(options.precision)) {
     throw_invalid("options.loop", "positive epochs/accumulation and known tail",
                   std::to_string(options.max_epochs) + "/" +
                       std::to_string(options.accumulate_steps),
@@ -501,6 +519,7 @@ std::vector<std::byte> encode_topology(
   append_u64(output, options.max_steps);
   append_u64(output, static_cast<std::uint64_t>(options.accumulate_steps));
   append_u8(output, static_cast<std::uint8_t>(options.accumulation_tail));
+  append_u8(output, static_cast<std::uint8_t>(options.precision));
   append_u8(output, options.gradient_clip_norm.has_value() ? 1U : 0U);
   append_double(output, options.gradient_clip_norm.value_or(0.0));
   append_string(output, options.scheduler_metric);
@@ -523,6 +542,9 @@ std::vector<std::byte> encode_topology(
   append_string(output, request.model_checkpoint->participant_id());
   append_string(output, request.optimizer_checkpoint->participant_id());
   append_string(output, request.rng_checkpoint->participant_id());
+  append_string(output, request.gradient_scaler
+                            ? request.gradient_scaler->options().scaler_id
+                            : std::string{});
   append_u64(output, static_cast<std::uint64_t>(participant_ids.size()));
   for (const auto& participant_id : participant_ids) {
     append_string(output, participant_id);
@@ -724,6 +746,17 @@ struct Trainer::Impl {
       if (target_mapper) {
         target = target_mapper(batch);
       }
+      std::unique_ptr<amp::AutocastGuard> autocast;
+      if (options.precision == PrecisionMode::cpu_bfloat16) {
+        autocast = std::make_unique<amp::AutocastGuard>(c10::DeviceType::CPU,
+                                                        at::kBFloat16);
+      } else if (options.precision == PrecisionMode::cuda_float16) {
+        autocast = std::make_unique<amp::AutocastGuard>(c10::DeviceType::CUDA,
+                                                        at::kHalf);
+      } else if (options.precision == PrecisionMode::cuda_bfloat16) {
+        autocast = std::make_unique<amp::AutocastGuard>(c10::DeviceType::CUDA,
+                                                        at::kBFloat16);
+      }
       const StepContext context{.phase = phase,
                                 .epoch = state.active_epoch,
                                 .global_step = state.global_step,
@@ -806,9 +839,32 @@ struct Trainer::Impl {
       scale_gradients(static_cast<double>(options.accumulate_steps) /
                       static_cast<double>(state.pending_micro_steps));
     }
-    ensure_finite_gradients();
-    clip_gradients();
+    bool scaler_applied = true;
+    if (request.gradient_scaler) {
+      request.gradient_scaler->unscale(request.optimizer);
+      scaler_applied = request.gradient_scaler->step_allowed(request.optimizer);
+      if (scaler_applied) {
+        ensure_finite_gradients();
+        clip_gradients();
+      }
+    } else {
+      ensure_finite_gradients();
+      clip_gradients();
+    }
+    if (!scaler_applied) {
+      request.gradient_scaler->mark_step(request.optimizer, false);
+      request.gradient_scaler->update();
+      state.pending_micro_steps = 0;
+      request.strategy->zero_grad(*request.optimizer);
+      emit(CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
+           {{"optimizer.applied", 0.0}}, stop);
+      return;
+    }
     const auto outcome = request.strategy->optimizer_step(*request.optimizer);
+    if (request.gradient_scaler) {
+      request.gradient_scaler->mark_step(request.optimizer, true);
+      request.gradient_scaler->update();
+    }
     if (outcome.status != StrategyStepStatus::applied ||
         outcome.optimizer_completed_steps != state.global_step + 1U) {
       throw_incompatible("optimizer.step",
@@ -821,7 +877,7 @@ struct Trainer::Impl {
     request.strategy->zero_grad(*request.optimizer);
     step_scheduler(optim::SchedulerStepMode::batch);
     emit(CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
-         {}, stop);
+         {{"optimizer.applied", 1.0}}, stop);
   }
 
   std::map<std::string, double> validate_epoch(std::stop_token stop) {
@@ -928,6 +984,60 @@ void Trainer::prepare(FitRequest request) {
                   "the training pipeline instance",
                   "Use separate cursor state for training and validation.");
   }
+  if (!valid_precision_mode(impl_->options.precision)) {
+    throw_invalid(
+        "prepare.precision", "a known PrecisionMode value",
+        std::to_string(static_cast<std::uint8_t>(impl_->options.precision)),
+        "Select an explicit full, CPU bfloat16, or CUDA mode.");
+  }
+  const auto device = request.strategy->descriptor().device;
+  const bool cuda = is_cuda_device(device);
+  const bool cpu = is_cpu_device(device);
+  if (cuda && !request.rng_checkpoint->options().include_cuda) {
+    throw_invalid("prepare.rng_checkpoint", "CUDA RNG state enabled", device,
+                  "Include CUDA generators for exact continuation.");
+  }
+  switch (impl_->options.precision) {
+    case PrecisionMode::full:
+      if (request.gradient_scaler || request.gradient_scaler_checkpoint) {
+        throw_invalid("prepare.precision", "no GradScaler in full mode",
+                      "scaler supplied",
+                      "Bind a scaler only for CUDA float16 mode.");
+      }
+      break;
+    case PrecisionMode::cpu_bfloat16:
+      if (!cpu || request.gradient_scaler ||
+          request.gradient_scaler_checkpoint) {
+        throw_invalid("prepare.precision", "CPU device without GradScaler",
+                      device, "Use CPU bfloat16 with a CPU strategy only.");
+      }
+      break;
+    case PrecisionMode::cuda_float16:
+      if (!cuda || !request.gradient_scaler ||
+          !request.gradient_scaler_checkpoint ||
+          !request.gradient_scaler->options().enabled) {
+        throw_invalid(
+            "prepare.precision",
+            "CUDA device with an enabled GradScaler and its checkpoint", device,
+            "Bind both scaler objects for CUDA float16 mode.");
+      }
+      if (&request.gradient_scaler_checkpoint->scaler() !=
+          request.gradient_scaler.get()) {
+        throw_incompatible(
+            "prepare.gradient_scaler_participant",
+            request.gradient_scaler->options().scaler_id,
+            request.gradient_scaler_checkpoint->scaler().options().scaler_id,
+            "Bind the checkpoint participant for this GradScaler.");
+      }
+      break;
+    case PrecisionMode::cuda_bfloat16:
+      if (!cuda || request.gradient_scaler ||
+          request.gradient_scaler_checkpoint) {
+        throw_invalid("prepare.precision", "CUDA bfloat16 without GradScaler",
+                      device, "Use CUDA float16 for dynamic scaling.");
+      }
+      break;
+  }
   if (request.optimizer->completed_steps() != 0U) {
     throw_not_ready("prepare.optimizer", "a fresh optimizer with zero steps",
                     std::to_string(request.optimizer->completed_steps()),
@@ -982,6 +1092,9 @@ void Trainer::prepare(FitRequest request) {
     }
     if (impl_->request.event_outbox) {
       registry->register_participant(impl_->request.event_outbox);
+    }
+    if (impl_->request.gradient_scaler_checkpoint) {
+      registry->register_participant(impl_->request.gradient_scaler_checkpoint);
     }
     register_callback_checkpoint_participants(*registry,
                                               impl_->request.callbacks);
@@ -1080,8 +1193,11 @@ FitResult Trainer::fit(std::stop_token stop) {
         const auto loss_value = output.loss.detach().item<double>();
         add_output(impl_->state.training, output, loss_value, "training.loss",
                    impl_->options);
-        const auto backward_loss =
+        auto backward_loss =
             output.loss / static_cast<double>(impl_->options.accumulate_steps);
+        if (impl_->request.gradient_scaler) {
+          backward_loss = impl_->request.gradient_scaler->scale(backward_loss);
+        }
         impl_->request.strategy->backward(backward_loss);
         ++impl_->state.pending_micro_steps;
         if (impl_->state.pending_micro_steps ==
@@ -1292,7 +1408,7 @@ std::string Trainer::participant_id() const {
 StateManifest Trainer::describe_state() const {
   StateManifest manifest{
       .participant_id = participant_id(),
-      .schema_version = 1,
+      .schema_version = 2,
       .restore_level = RestoreLevel::exact,
       .fields = {{.name = kTopologyField,
                   .media_type = kTopologyMediaType,

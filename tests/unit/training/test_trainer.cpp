@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/core/device.hpp>
 #include <jyppx/data/iterable_data_pipeline.hpp>
 #include <jyppx/data/samplers/sequential_sampler.hpp>
 #include <jyppx/foundation/random_checkpoint_participant.hpp>
@@ -10,6 +11,9 @@
 #include <jyppx/optim/event_lr_scheduler.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 #include <jyppx/optim/step_lr_scheduler.hpp>
+#include <jyppx/training/amp/autocast.hpp>
+#include <jyppx/training/amp/grad_scaler.hpp>
+#include <jyppx/training/amp/grad_scaler_checkpoint_participant.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 #include <jyppx/training/scheduler_adapter.hpp>
@@ -305,22 +309,27 @@ jyppx::training::FitRequest make_request(
     std::shared_ptr<jyppx::training::CallbackDispatcher> callbacks = {},
     std::shared_ptr<jyppx::training::SchedulerAdapter> scheduler = {},
     std::function<void(const jyppx::training::CheckpointCoordinator&)>
-        checkpoint_action = {}) {
+        checkpoint_action = {},
+    jyppx::Device device = jyppx::Device(torch::kCPU),
+    bool include_cuda_rng = false) {
   auto model_checkpoint =
       std::make_shared<jyppx::nn::ModelCheckpointParticipant>(*domain.model);
   auto optimizer_checkpoint =
       std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
           domain.optimizer);
   auto rng_checkpoint = std::make_shared<jyppx::core::RngCheckpointParticipant>(
-      jyppx::core::RngCheckpointParticipantOptions{.include_cuda = false});
-  auto strategy = std::make_shared<jyppx::training::SingleDeviceStrategy>();
-  const auto mapper = [](const jyppx::data::BatchEnvelope& batch) {
+      jyppx::core::RngCheckpointParticipantOptions{.include_cuda =
+                                                       include_cuda_rng});
+  auto strategy = std::make_shared<jyppx::training::SingleDeviceStrategy>(
+      jyppx::training::SingleDeviceStrategyOptions{.device = device});
+  const auto mapper = [device](const jyppx::data::BatchEnvelope& batch) {
     return jyppx::nn::Invocation{
-        .positional = {batch.value.toTuple()->elements().at(0)}};
+        .positional = {
+            batch.value.toTuple()->elements().at(0).toTensor().to(device)}};
   };
-  const auto target = [](const jyppx::data::BatchEnvelope& batch)
+  const auto target = [device](const jyppx::data::BatchEnvelope& batch)
       -> std::optional<c10::IValue> {
-    return batch.value.toTuple()->elements().at(1);
+    return batch.value.toTuple()->elements().at(1).toTensor().to(device);
   };
   const auto step = [](const jyppx::training::StepInput& input) {
     const auto prediction =
@@ -407,6 +416,88 @@ TEST(TrainerTest, IterablePipelineCommitsFiniteBatches) {
   EXPECT_EQ(third->source_watermark, "5");
   EXPECT_TRUE(pipeline->capability().iterable_style);
   pipeline->close();
+}
+
+TEST(TrainerTest, CpuBfloat16PrecisionScopesTrainingAndValidationAutocast) {
+  auto domain = make_domain();
+  auto request = make_request(domain);
+  auto training_step = request.training_step;
+  auto validation_step = request.validation_step;
+  bool training_autocast = false;
+  bool validation_autocast = false;
+  request.training_step = [&](const jyppx::training::StepInput& input) {
+    training_autocast =
+        at::autocast::is_autocast_enabled(c10::DeviceType::CPU) &&
+        at::autocast::get_autocast_dtype(c10::DeviceType::CPU) == at::kBFloat16;
+    return training_step(input);
+  };
+  request.validation_step = [&](const jyppx::training::StepInput& input) {
+    validation_autocast =
+        at::autocast::is_autocast_enabled(c10::DeviceType::CPU) &&
+        at::autocast::get_autocast_dtype(c10::DeviceType::CPU) == at::kBFloat16;
+    return validation_step(input);
+  };
+  jyppx::training::Trainer trainer(
+      {.trainer_id = "trainer.bfloat16",
+       .run_id = "run.bfloat16",
+       .trace_id = "trace.bfloat16",
+       .max_epochs = 1,
+       .precision = jyppx::training::PrecisionMode::cpu_bfloat16});
+  trainer.prepare(std::move(request));
+  EXPECT_EQ(trainer.fit().global_step, 4U);
+  EXPECT_TRUE(training_autocast);
+  EXPECT_TRUE(validation_autocast);
+  EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CPU));
+}
+
+TEST(TrainerTest, FullPrecisionRejectsGradientScalerState) {
+  auto domain = make_domain();
+  auto request = make_request(domain);
+  request.gradient_scaler =
+      std::make_shared<jyppx::training::amp::GradScaler>();
+  request.gradient_scaler_checkpoint =
+      std::make_shared<jyppx::training::amp::GradScalerCheckpointParticipant>(
+          request.gradient_scaler);
+  jyppx::training::Trainer trainer(options(1));
+  EXPECT_THROW(trainer.prepare(std::move(request)), jyppx::InvalidArgument);
+}
+
+TEST(TrainerCudaTest, Float16PrecisionOwnsScalerAndCheckpointState) {
+  if (!jyppx::cuda_is_available()) {
+    GTEST_SKIP() << "CUDA not available";
+  }
+  auto domain = make_domain();
+  auto request =
+      make_request(domain, {}, {}, {}, jyppx::Device(torch::kCUDA), true);
+  auto scaler = std::make_shared<jyppx::training::amp::GradScaler>(
+      jyppx::training::amp::GradScalerOptions{
+          .init_scale = 8.0,
+          .growth_factor = 2.0,
+          .growth_interval = 1,
+          .scaler_id = "grad_scaler.trainer.cuda"});
+  auto scaler_checkpoint =
+      std::make_shared<jyppx::training::amp::GradScalerCheckpointParticipant>(
+          scaler);
+  request.gradient_scaler = scaler;
+  request.gradient_scaler_checkpoint = scaler_checkpoint;
+  jyppx::training::Trainer trainer(
+      {.trainer_id = "trainer.cuda.float16",
+       .run_id = "run.cuda.float16",
+       .trace_id = "trace.cuda.float16",
+       .max_epochs = 1,
+       .precision = jyppx::training::PrecisionMode::cuda_float16});
+  trainer.prepare(std::move(request));
+  const auto result = trainer.fit();
+  EXPECT_EQ(result.global_step, 4U);
+  EXPECT_EQ(domain.optimizer->completed_steps(), 4U);
+  EXPECT_DOUBLE_EQ(scaler->get_scale(), 128.0);
+  EXPECT_TRUE(scaler->checkpoint_ready());
+  const auto descriptor = trainer.checkpoint_coordinator().describe();
+  EXPECT_TRUE(std::any_of(
+      descriptor.participants.begin(), descriptor.participants.end(),
+      [&](const jyppx::StateManifest& participant) {
+        return participant.participant_id == scaler->options().scaler_id;
+      }));
 }
 
 TEST(TrainerTest, AccumulationTailFlushAndDropAreExplicit) {

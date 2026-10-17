@@ -12,7 +12,7 @@
  */
 
 #include <jyppx/core/types.hpp>
-#include <jyppx/optim/optimizer.hpp>
+#include <jyppx/optim/optimizer_adapter.hpp>
 
 #include <cstdint>
 #include <map>
@@ -62,10 +62,11 @@ struct GradScalerState {
 /**
  * @brief Coordinates dynamic loss scaling across one or more optimizers.
  *
- * Each optimizer is unscaled and conditionally stepped independently. One
- * call to `update()` then applies the global scale decision for the complete
- * iteration. Checkpoint state is available only after construction or after
- * `update()` has completed the active multi-optimizer cycle.
+ * Each optimizer is unscaled and receives an explicit overflow decision. Its
+ * owning strategy applies or skips the update and reports that result through
+ * `mark_step()`. One call to `update()` then applies the global scale decision
+ * for the complete iteration. Checkpoint state is available only after
+ * construction or a completed multi-optimizer cycle.
  *
  * This class is not thread-safe. The caller must serialize access with
  * optimizer mutation and checkpoint operations.
@@ -90,23 +91,35 @@ class GradScaler {
    * @brief Divides gradients by the current scale and records non-finite data.
    * @param optimizer Non-null optimizer participating in the active cycle.
    * @throws std::invalid_argument If `optimizer` is null.
-   * @throws std::logic_error If the optimizer already stepped this cycle.
-   * @note Repeating `unscale()` before `step()` is idempotent.
+   * @throws std::logic_error If the optimizer was already marked this cycle.
+   * @note Repeating `unscale()` before `mark_step()` is idempotent.
    */
-  void unscale(const std::shared_ptr<optim::Optimizer>& optimizer);
+  void unscale(const std::shared_ptr<optim::OptimizerAdapter>& optimizer);
 
   /**
-   * @brief Unscales and conditionally steps one optimizer.
-   * @param optimizer Non-null optimizer participating in the active cycle.
+   * @brief Reports whether a strategy-owned optimizer step may be applied.
+   * @param optimizer Non-null optimizer already passed to `unscale()`.
+   * @return `false` when this optimizer observed a non-finite gradient.
    * @throws std::invalid_argument If `optimizer` is null.
-   * @throws std::logic_error If the optimizer already stepped this cycle.
+   * @throws std::logic_error If `unscale()` has not started its cycle.
    */
-  void step(const std::shared_ptr<optim::Optimizer>& optimizer);
+  bool step_allowed(
+      const std::shared_ptr<optim::OptimizerAdapter>& optimizer) const;
+
+  /**
+   * @brief Commits the strategy-owned result for one optimizer.
+   * @param optimizer Non-null optimizer passed to `unscale()`.
+   * @param applied Whether the strategy actually applied the update.
+   * @throws std::invalid_argument If `optimizer` is null.
+   * @throws std::logic_error If the optimizer is not in the active cycle.
+   */
+  void mark_step(const std::shared_ptr<optim::OptimizerAdapter>& optimizer,
+                 bool applied);
 
   /**
    * @brief Commits one global scale transition for the active optimizer set.
-   * @throws std::logic_error If no optimizer stepped or one remains unstepped.
-   * @throws std::overflow_error If scale growth is not finite.
+   * @throws std::logic_error If no optimizer was marked or one remains open.
+   * Scale growth saturates at the largest finite `double` value.
    */
   void update();
 
@@ -163,8 +176,8 @@ class GradScaler {
  private:
   /** @brief Tracks one optimizer's transition within the active cycle. */
   enum class OptimizerStage {
-    unscaled,  ///< Gradients were checked but the optimizer has not stepped.
-    stepped,   ///< The optimizer stepped or was skipped due to overflow.
+    unscaled,  ///< Gradients were checked but no outcome was reported.
+    stepped,   ///< The optimizer applied or skipped its strategy-owned update.
   };
 
   /** @brief Stores the active-cycle status for one optimizer identity. */
@@ -178,7 +191,7 @@ class GradScaler {
   double scale_;  ///< Positive dynamic scale used for the active cycle.
   std::uint64_t growth_tracker_;  ///< Consecutive finite completed cycles.
   bool found_inf_;  ///< Aggregate non-finite result for the latest cycle.
-  std::map<const optim::Optimizer*, OptimizerState>
+  std::map<const optim::OptimizerAdapter*, OptimizerState>
       optimizer_states_;  ///< Non-owning active-cycle optimizer states.
 };
 
