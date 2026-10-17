@@ -29,6 +29,14 @@
 namespace jyppx::optim {
 namespace {
 
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#define JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION "native"
+#define JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE "Native"
+#else
+#define JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION "delegated"
+#define JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE "Delegated"
+#endif
+
 constexpr char kComponent[] = JYPPX_STATEFUL_OPTIMIZER_COMPONENT;
 constexpr std::uint32_t kSchemaVersion = 1;
 constexpr std::uint32_t kTopologyVersion = 1;
@@ -37,6 +45,9 @@ constexpr std::size_t kMaximumRank = 64;
 constexpr std::size_t kAdapterMaximumIdentifierBytes = 4096;
 #if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
 constexpr std::array<std::string_view, 1> kStateFieldNames = {"sum"};
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+constexpr std::array<std::string_view, 2> kStateFieldNames = {"exp_avg",
+                                                              "exp_avg_sq"};
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
 constexpr std::array<std::string_view, 3> kStateFieldNames = {
     "square_avg", "momentum_buffer", "grad_avg"};
@@ -83,6 +94,8 @@ struct OptimizerSnapshot {
   std::vector<Tensor> third_state;   ///< Optional third state by parameter.
   std::vector<bool> has_state;       ///< Native state presence by parameter.
   std::vector<std::int64_t> parameter_steps;  ///< Native step counters.
+  std::vector<double>
+      auxiliary_state;     ///< Optional scalar algorithm state by parameter.
   StateManifest manifest;  ///< Complete storage-neutral state contract.
 };
 
@@ -91,12 +104,14 @@ struct DecodedControl {
   std::vector<double> learning_rates;  ///< Mutable rates in group order.
   std::vector<bool> has_state;         ///< Presence bit in parameter order.
   std::vector<std::int64_t> parameter_steps;  ///< Native step counters.
+  std::vector<double>
+      auxiliary_state;  ///< Optional scalar algorithm state by parameter.
 };
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
-  throw InvalidArgument("Invalid delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
-                        " state",
+  throw InvalidArgument("Invalid " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                        " " JYPPX_STATEFUL_OPTIMIZER_NAME " state",
                         ErrorDetails{.component = kComponent,
                                      .operation = std::move(operation),
                                      .expected = std::move(expected),
@@ -107,7 +122,8 @@ struct DecodedControl {
 [[noreturn]] void throw_serialization(std::string operation,
                                       std::string expected, std::string actual,
                                       std::string hint) {
-  throw SerializationError("Malformed delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
+  throw SerializationError("Malformed " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                           " " JYPPX_STATEFUL_OPTIMIZER_NAME
                            " checkpoint state",
                            ErrorDetails{.component = kComponent,
                                         .operation = std::move(operation),
@@ -120,7 +136,8 @@ struct DecodedControl {
                                       std::string expected, std::string actual,
                                       std::string hint) {
   throw CompatibilityError(
-      "Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
+      JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE
+      " " JYPPX_STATEFUL_OPTIMIZER_NAME
       " checkpoint is incompatible with the current optimizer",
       ErrorDetails{.component = kComponent,
                    .operation = std::move(operation),
@@ -131,7 +148,8 @@ struct DecodedControl {
 
 [[noreturn]] void throw_resource(std::string operation, std::uint64_t expected,
                                  std::uint64_t actual, std::string hint) {
-  throw ResourceExhausted("Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
+  throw ResourceExhausted(JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE
+                          " " JYPPX_STATEFUL_OPTIMIZER_NAME
                           " resource limit exceeded",
                           ErrorDetails{.component = kComponent,
                                        .operation = std::move(operation),
@@ -142,7 +160,8 @@ struct DecodedControl {
 
 [[noreturn]] void translate_bad_alloc(std::string_view operation) {
   throw ResourceExhausted(
-      "Unable to allocate delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state",
+      "Unable to allocate " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+      " " JYPPX_STATEFUL_OPTIMIZER_NAME " state",
       ErrorDetails{.component = kComponent,
                    .operation = std::string(operation),
                    .expected = "memory within configured optimizer limits",
@@ -199,6 +218,16 @@ void validate_family_options(const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options,
     throw_invalid(std::string(group_id) + ".alpha", "a finite value in [0, 1]",
                   std::to_string(options.alpha),
                   "Use an RMSprop smoothing factor accepted by JYPPX.");
+  }
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+  require_non_negative(options.momentum_decay, "momentum_decay");
+  if (!std::isfinite(options.beta1) || options.beta1 < 0.0 ||
+      options.beta1 >= 1.0 || !std::isfinite(options.beta2) ||
+      options.beta2 < 0.0 || options.beta2 >= 1.0) {
+    throw_invalid(
+        std::string(group_id) + ".betas", "finite values in [0, 1)",
+        std::to_string(options.beta1) + ":" + std::to_string(options.beta2),
+        "Use NAdam decay factors accepted by the native algorithm.");
   }
 #else
   if (!std::isfinite(options.beta1) || options.beta1 < 0.0 ||
@@ -325,6 +354,13 @@ JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS make_native_options(
       .weight_decay(options.weight_decay)
       .momentum(options.momentum)
       .centered(options.centered);
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+  native.betas({options.beta1, options.beta2})
+      .eps(options.epsilon)
+      .weight_decay(options.weight_decay)
+      .momentum_decay(options.momentum_decay)
+      .decoupled_weight_decay(options.decoupled_weight_decay)
+      .maximize(options.maximize);
 #else
   native.betas({options.beta1, options.beta2})
       .eps(options.epsilon)
@@ -339,6 +375,9 @@ bool second_state_required(
     const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
 #if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return options.momentum != 0.0;
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+  static_cast<void>(options);
+  return true;
 #else
   static_cast<void>(options);
   return true;
@@ -349,6 +388,9 @@ bool third_state_required(
     const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
 #if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return options.centered;
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+  static_cast<void>(options);
+  return false;
 #else
   return options.amsgrad;
 #endif
@@ -374,6 +416,8 @@ const Tensor& second_state_tensor(
   return undefined;
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return state.momentum_buffer();
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+  return state.exp_avg_sq();
 #else
   return state.exp_avg_sq();
 #endif
@@ -387,6 +431,10 @@ const Tensor& third_state_tensor(
   return undefined;
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return state.grad_avg();
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+  static_cast<void>(state);
+  static const Tensor undefined;
+  return undefined;
 #else
   return state.max_exp_avg_sq();
 #endif
@@ -403,12 +451,28 @@ void set_native_state_tensors(JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state,
   state.square_avg(first);
   state.momentum_buffer(second);
   state.grad_avg(third);
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+  state.exp_avg(first);
+  state.exp_avg_sq(second);
+  static_cast<void>(third);
 #else
   state.exp_avg(first);
   state.exp_avg_sq(second);
   state.max_exp_avg_sq(third);
 #endif
 }
+
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+double auxiliary_state_scalar(
+    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state) noexcept {
+  return static_cast<double>(state.mu_product());
+}
+
+void set_auxiliary_state_scalar(JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state,
+                                double value) noexcept {
+  state.mu_product(static_cast<float>(value));
+}
+#endif
 
 #if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
 using NativeStateMap = std::remove_reference_t<
@@ -468,7 +532,7 @@ const JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS& native_options(
     throw_invalid("native.options",
                   JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS_NAME,
                   "unexpected optimizer option type",
-                  "Do not mutate the delegated native optimizer.");
+                  "Do not mutate the internal optimizer.");
   }
   return *options;
 }
@@ -481,7 +545,7 @@ JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS& native_options(
     throw_invalid("native.options",
                   JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS_NAME,
                   "unexpected optimizer option type",
-                  "Do not mutate the delegated native optimizer.");
+                  "Do not mutate the internal optimizer.");
   }
   return *options;
 }
@@ -625,6 +689,15 @@ std::vector<std::byte> encode_topology(
     append_double(output, group.options.weight_decay);
     append_double(output, group.options.momentum);
     append_u8(output, group.options.centered ? 1 : 0);
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    append_double(output, group.options.beta1);
+    append_double(output, group.options.beta2);
+    append_double(output, group.options.epsilon);
+    append_double(output, group.options.weight_decay);
+    append_double(output, group.options.momentum_decay);
+    std::uint8_t flags = group.options.decoupled_weight_decay ? 1 : 0;
+    flags |= group.options.maximize ? 2 : 0;
+    append_u8(output, flags);
 #else
     append_double(output, group.options.beta1);
     append_double(output, group.options.beta2);
@@ -666,6 +739,9 @@ std::vector<std::byte> encode_control(
     std::uint64_t completed_steps, const std::vector<double>& learning_rates,
     const std::vector<bool>& has_state,
     const std::vector<std::int64_t>& parameter_steps,
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    const std::vector<double>& auxiliary_state,
+#endif
     const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits) {
   std::vector<std::byte> output(kControlMagic.begin(), kControlMagic.end());
   append_u32(output, kControlVersion);
@@ -679,6 +755,9 @@ std::vector<std::byte> encode_control(
     const auto present = has_state[index];
     append_u8(output, present ? 1 : 0);
     append_i64(output, parameter_steps.at(index));
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    append_double(output, auxiliary_state.at(index));
+#endif
   }
   if (output.size() > limits.max_control_bytes) {
     throw_resource("control.bytes", limits.max_control_bytes, output.size(),
@@ -784,6 +863,20 @@ void validate_topology_blob(
                           "Reject invalid optimizer options.");
     }
     options.centered = centered == 1;
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    options.beta1 = cursor.read_double("topology.beta1");
+    options.beta2 = cursor.read_double("topology.beta2");
+    options.epsilon = cursor.read_double("topology.epsilon");
+    options.weight_decay = cursor.read_double("topology.weight_decay");
+    options.momentum_decay = cursor.read_double("topology.momentum_decay");
+    const auto flags = cursor.read_u8("topology.nadam_flags");
+    if ((flags & static_cast<std::uint8_t>(~3U)) != 0) {
+      throw_serialization("topology.nadam_flags", "known NAdam flags",
+                          std::to_string(flags),
+                          "Reject unknown NAdam topology extensions.");
+    }
+    options.decoupled_weight_decay = (flags & 1U) != 0;
+    options.maximize = (flags & 2U) != 0;
 #else
     options.beta1 = cursor.read_double("topology.beta1");
     options.beta2 = cursor.read_double("topology.beta2");
@@ -816,6 +909,14 @@ void validate_topology_blob(
         options.epsilon <= 0.0 || !std::isfinite(options.weight_decay) ||
         options.weight_decay < 0.0 || !std::isfinite(options.momentum) ||
         options.momentum < 0.0) {
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    if (!std::isfinite(options.beta1) || options.beta1 < 0.0 ||
+        options.beta1 >= 1.0 || !std::isfinite(options.beta2) ||
+        options.beta2 < 0.0 || options.beta2 >= 1.0 ||
+        !std::isfinite(options.epsilon) || options.epsilon <= 0.0 ||
+        !std::isfinite(options.weight_decay) || options.weight_decay < 0.0 ||
+        !std::isfinite(options.momentum_decay) ||
+        options.momentum_decay < 0.0) {
 #else
     if (!std::isfinite(options.beta1) || options.beta1 < 0.0 ||
         options.beta1 >= 1.0 || !std::isfinite(options.beta2) ||
@@ -965,6 +1066,9 @@ DecodedControl decode_control(
   }
   decoded.has_state.reserve(parameter_count);
   decoded.parameter_steps.reserve(parameter_count);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+  decoded.auxiliary_state.reserve(parameter_count);
+#endif
   for (std::uint32_t index = 0; index < parameter_count; ++index) {
     const auto present = cursor.read_u8("control.state_presence");
     if (present > 1) {
@@ -974,6 +1078,9 @@ DecodedControl decode_control(
                           " state presence metadata.");
     }
     const auto step = cursor.read_i64("control.parameter_step");
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    const auto auxiliary = cursor.read_double("control.mu_product");
+#endif
 #if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
     if (present == 0 || step < 0 ||
         (step > 0 &&
@@ -996,8 +1103,21 @@ DecodedControl decode_control(
           " counters before optimizer mutation.");
     }
 #endif
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    if (!std::isfinite(auxiliary) || auxiliary < 0.0 || auxiliary > 1.0 ||
+        (present == 0 && auxiliary != 1.0)) {
+      throw_serialization(
+          "control.mu_product",
+          "one for absent state or a finite initialized product in [0, 1]",
+          std::to_string(auxiliary),
+          "Reject inconsistent NAdam momentum-schedule state.");
+    }
+#endif
     decoded.has_state.push_back(present == 1);
     decoded.parameter_steps.push_back(step);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    decoded.auxiliary_state.push_back(auxiliary);
+#endif
   }
   if (!cursor.empty()) {
     throw_serialization("control.trailing_bytes", "no trailing metadata",
@@ -1086,7 +1206,7 @@ std::vector<double> inspect_native_groups(
   if (native_groups.size() != groups.size()) {
     throw_invalid("native.group_count", std::to_string(groups.size()),
                   std::to_string(native_groups.size()),
-                  "Do not mutate delegated native parameter groups.");
+                  "Do not mutate internal parameter groups.");
   }
   std::vector<double> learning_rates;
   learning_rates.reserve(groups.size());
@@ -1099,7 +1219,7 @@ std::vector<double> inspect_native_groups(
       throw_invalid("native.parameter_count",
                     std::to_string(expected.parameters.size()),
                     std::to_string(actual.params().size()),
-                    "Do not mutate delegated native parameter groups.");
+                    "Do not mutate internal parameter groups.");
     }
     const auto& options = native_options(actual);
 #if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
@@ -1116,6 +1236,16 @@ std::vector<double> inspect_native_groups(
         options.weight_decay() != expected.options.weight_decay ||
         options.momentum() != expected.options.momentum ||
         options.centered() != expected.options.centered) {
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    const auto [beta1, beta2] = options.betas();
+    if (!std::isfinite(options.lr()) || options.lr() < 0.0 ||
+        beta1 != expected.options.beta1 || beta2 != expected.options.beta2 ||
+        options.eps() != expected.options.epsilon ||
+        options.weight_decay() != expected.options.weight_decay ||
+        options.momentum_decay() != expected.options.momentum_decay ||
+        options.decoupled_weight_decay() !=
+            expected.options.decoupled_weight_decay ||
+        options.maximize() != expected.options.maximize) {
 #else
     const auto [beta1, beta2] = options.betas();
     if (!std::isfinite(options.lr()) || options.lr() < 0.0 ||
@@ -1136,7 +1266,7 @@ std::vector<double> inspect_native_groups(
           parameters.at(flat_index++).parameter.unsafeGetTensorImpl()) {
         throw_invalid("native.parameter_order", "the stable binding order",
                       expected.parameters[parameter_index].parameter_id,
-                      "Do not replace delegated native parameter handles.");
+                      "Do not replace internal parameter handles.");
       }
       const auto& parameter = parameters[flat_index - 1];
       const auto& tensor = actual.params()[parameter_index];
@@ -1170,7 +1300,8 @@ void validate_step_gradients(const std::vector<FlatParameter>& parameters) {
     }
     if (gradient.layout() != c10::Layout::Strided) {
       throw NotImplemented(
-          "Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
+          JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE
+          " " JYPPX_STATEFUL_OPTIMIZER_NAME
           " does not support sparse gradients",
           ErrorDetails{
               .component = kComponent,
@@ -1219,11 +1350,13 @@ OptimizerSnapshot inspect_optimizer(
   std::vector<Tensor> third_state;
   std::vector<bool> has_state;
   std::vector<std::int64_t> parameter_steps;
+  std::vector<double> auxiliary_state;
   first_state.reserve(parameters.size());
   second_state.reserve(parameters.size());
   third_state.reserve(parameters.size());
   has_state.reserve(parameters.size());
   parameter_steps.reserve(parameters.size());
+  auxiliary_state.reserve(parameters.size());
   for (const auto& parameter : parameters) {
     const auto state =
         native.state().find(parameter.parameter.unsafeGetTensorImpl());
@@ -1239,6 +1372,7 @@ OptimizerSnapshot inspect_optimizer(
       third_state.emplace_back();
       has_state.push_back(false);
       parameter_steps.push_back(0);
+      auxiliary_state.push_back(1.0);
       continue;
 #endif
     }
@@ -1272,6 +1406,18 @@ OptimizerSnapshot inspect_optimizer(
                           kStateFieldNames[0]);
 #if !defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
     const auto& descriptor = groups[parameter.group_index].options;
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    validate_state_tensor(second_state_tensor(*family_state),
+                          kStateFieldNames[1]);
+    if (!std::isfinite(auxiliary_state_scalar(*family_state)) ||
+        auxiliary_state_scalar(*family_state) < 0.0 ||
+        auxiliary_state_scalar(*family_state) > 1.0) {
+      throw_invalid("native.mu_product", "a finite value in [0, 1]",
+                    parameter.parameter_id,
+                    "Recover from a valid NAdam checkpoint.");
+    }
+    static_cast<void>(descriptor);
+#else
     if (second_state_required(descriptor)) {
       validate_state_tensor(second_state_tensor(*family_state),
                             kStateFieldNames[1]);
@@ -1288,6 +1434,7 @@ OptimizerSnapshot inspect_optimizer(
                     "no disabled optional state", parameter.parameter_id,
                     "Recover from a checkpoint matching immutable options.");
     }
+#endif
 #endif
 #if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
     if (family_state->step() < 0 ||
@@ -1311,11 +1458,20 @@ OptimizerSnapshot inspect_optimizer(
     third_state.push_back(third_state_tensor(*family_state));
     has_state.push_back(true);
     parameter_steps.push_back(family_state->step());
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+    auxiliary_state.push_back(auxiliary_state_scalar(*family_state));
+#else
+    auxiliary_state.push_back(0.0);
+#endif
   }
 
   auto topology = encode_topology(groups, parameters, limits);
   auto control = encode_control(completed_steps, learning_rates, has_state,
-                                parameter_steps, limits);
+                                parameter_steps,
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+                                auxiliary_state,
+#endif
+                                limits);
   std::uint64_t total =
       checked_add(topology.size(), control.size(), limits.max_total_bytes,
                   "state.total_bytes");
@@ -1358,6 +1514,7 @@ OptimizerSnapshot inspect_optimizer(
           .third_state = std::move(third_state),
           .has_state = std::move(has_state),
           .parameter_steps = std::move(parameter_steps),
+          .auxiliary_state = std::move(auxiliary_state),
           .manifest = std::move(manifest)};
 }
 
@@ -1370,7 +1527,7 @@ struct JYPPX_STATEFUL_OPTIMIZER_ADAPTER::Impl {
       groups;                             ///< Stable public descriptor.
   std::vector<FlatParameter> parameters;  ///< Flattened checkpoint order.
   std::unique_ptr<JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER>
-      native;                         ///< Delegated algorithm owner.
+      native;                         ///< Internal algorithm owner.
   std::uint64_t completed_steps = 0;  ///< Successful native step count.
 };
 
@@ -1495,7 +1652,8 @@ JYPPX_STATEFUL_OPTIMIZER_ADAPTER::JYPPX_STATEFUL_OPTIMIZER_ADAPTER(
     translate_bad_alloc("construct");
   } catch (const c10::Error& cause) {
     translate_backend(cause,
-                      "construct delegated " JYPPX_STATEFUL_OPTIMIZER_NAME);
+                      "construct " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                      " " JYPPX_STATEFUL_OPTIMIZER_NAME);
   }
 }
 
@@ -1505,7 +1663,8 @@ Tensor JYPPX_STATEFUL_OPTIMIZER_ADAPTER::step(LossClosure closure) {
   try {
     if (impl_->completed_steps == std::numeric_limits<std::uint64_t>::max()) {
       throw ResourceExhausted(
-          "Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " step counter exhausted",
+          JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE
+          " " JYPPX_STATEFUL_OPTIMIZER_NAME " step counter exhausted",
           ErrorDetails{.component = kComponent,
                        .operation = "step.completed_steps",
                        .expected = "a count below uint64 maximum",
@@ -1532,8 +1691,8 @@ Tensor JYPPX_STATEFUL_OPTIMIZER_ADAPTER::step(LossClosure closure) {
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("step");
   } catch (const c10::Error& cause) {
-    translate_backend(cause,
-                      "delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " step");
+    translate_backend(cause, JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                      " " JYPPX_STATEFUL_OPTIMIZER_NAME " step");
   }
 }
 
@@ -1543,8 +1702,8 @@ void JYPPX_STATEFUL_OPTIMIZER_ADAPTER::zero_grad(bool set_to_none) {
   } catch (const Error&) {
     throw;
   } catch (const c10::Error& cause) {
-    translate_backend(
-        cause, "zero delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " gradients");
+    translate_backend(cause, "zero " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                             " " JYPPX_STATEFUL_OPTIMIZER_NAME " gradients");
   }
 }
 
@@ -1553,8 +1712,9 @@ void JYPPX_STATEFUL_OPTIMIZER_ADAPTER::synchronize_parameter_placement() {
 #if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
     if (impl_->completed_steps != 0) {
       throw NotReady(
-          "Cannot synchronize placement after "
-          "delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " has stepped",
+          "Cannot synchronize placement "
+          "after " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+          " " JYPPX_STATEFUL_OPTIMIZER_NAME " has stepped",
           ErrorDetails{
               .component = kComponent,
               .operation = "synchronize_parameter_placement",
@@ -1568,8 +1728,9 @@ void JYPPX_STATEFUL_OPTIMIZER_ADAPTER::synchronize_parameter_placement() {
 #else
     if (impl_->completed_steps != 0 || !impl_->native->state().empty()) {
       throw NotReady(
-          "Cannot synchronize placement after "
-          "delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state exists",
+          "Cannot synchronize placement "
+          "after " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+          " " JYPPX_STATEFUL_OPTIMIZER_NAME " state exists",
           ErrorDetails{
               .component = kComponent,
               .operation = "synchronize_parameter_placement",
@@ -1618,8 +1779,8 @@ void JYPPX_STATEFUL_OPTIMIZER_ADAPTER::synchronize_parameter_placement() {
     translate_bad_alloc("synchronize_parameter_placement");
   } catch (const c10::Error& cause) {
     translate_backend(cause,
-                      "synchronize delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
-                      " placement");
+                      "synchronize " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                      " " JYPPX_STATEFUL_OPTIMIZER_NAME " placement");
   }
 }
 
@@ -1700,7 +1861,8 @@ JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT(
   }
   if constexpr (std::endian::native != std::endian::little) {
     throw NotImplemented(
-        "Delegated " JYPPX_STATEFUL_OPTIMIZER_NAME
+        JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE
+        " " JYPPX_STATEFUL_OPTIMIZER_NAME
         " checkpoint byte order is unsupported",
         ErrorDetails{.component = kComponent,
                      .operation = "platform.endian",
@@ -1728,8 +1890,8 @@ StateManifest JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::describe_state() const {
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("describe");
   } catch (const c10::Error& cause) {
-    translate_backend(
-        cause, "describe delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
+    translate_backend(cause, "describe " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                             " " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
   }
 }
 
@@ -1765,7 +1927,9 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::save_state(
       write_tensor(kStateFieldNames[0], snapshot.first_state[index]);
 #if !defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
       write_tensor(kStateFieldNames[1], snapshot.second_state[index]);
+#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
       write_tensor(kStateFieldNames[2], snapshot.third_state[index]);
+#endif
 #endif
     }
   } catch (const Error&) {
@@ -1773,8 +1937,8 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::save_state(
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("save");
   } catch (const c10::Error& cause) {
-    translate_backend(cause,
-                      "save delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
+    translate_backend(cause, "save " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                             " " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
   }
 }
 
@@ -1846,8 +2010,10 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
 #if !defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
       second_state_bytes = reader.read_blob(
           state_field_name(kStateFieldNames[1], index), maximum);
+#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
       third_state_bytes = reader.read_blob(
           state_field_name(kStateFieldNames[2], index), maximum);
+#endif
       const auto& descriptor =
           optimizer_->impl_->groups[parameter.group_index].options;
 #endif
@@ -1903,6 +2069,9 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
         }
         second_state_candidates.emplace_back();
       }
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+      third_state_candidates.emplace_back();
+#else
       if (third_state_required(descriptor)) {
         third_state_candidates.push_back(
             decode_tensor(kStateFieldNames[2], third_state_bytes));
@@ -1917,6 +2086,7 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
         }
         third_state_candidates.emplace_back();
       }
+#endif
 #else
       second_state_candidates.emplace_back();
       third_state_candidates.emplace_back();
@@ -1938,6 +2108,9 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
       set_native_state_tensors(*state, first_state_candidates[index],
                                second_state_candidates[index],
                                third_state_candidates[index]);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+      set_auxiliary_state_scalar(*state, decoded.auxiliary_state[index]);
+#endif
       replacement.emplace(
           optimizer_->impl_->parameters[index].parameter.unsafeGetTensorImpl(),
           std::move(state));
@@ -1964,8 +2137,8 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
   } catch (const std::bad_alloc&) {
     translate_bad_alloc("restore");
   } catch (const c10::Error& cause) {
-    translate_backend(
-        cause, "restore delegated " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
+    translate_backend(cause, "restore " JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
+                             " " JYPPX_STATEFUL_OPTIMIZER_NAME " state");
   }
 }
 
@@ -1983,5 +2156,8 @@ const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS&
 JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::options() const noexcept {
   return options_;
 }
+
+#undef JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE
+#undef JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION
 
 }  // namespace jyppx::optim

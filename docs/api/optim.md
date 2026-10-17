@@ -8,8 +8,10 @@ The migrated optimizer boundary includes independently exported
 [`AdamWOptimizerAdapter`](adamw_adapter.md),
 [`RmspropOptimizerAdapter`](rmsprop_adapter.md), and
 [`AdagradOptimizerAdapter`](adagrad_adapter.md). They delegate numerical
-updates to LibTorch and supply stable parameter identity plus storage-neutral
-recovery.
+updates to LibTorch. The current-only
+[`NAdamOptimizerAdapter`](nadam_adapter.md) supplies the same stable identity
+and storage-neutral recovery contract around a JYPPX-native kernel because
+LibTorch has no public C++ NAdam optimizer.
 The migrated scheduler boundary includes descriptor-first
 [`StepLrScheduler`](step_lr_scheduler.md) plus transactional
 [`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md)
@@ -18,11 +20,10 @@ and the [epoch scheduler family](epoch_lr_scheduler.md), including the
 [event-driven schedulers](event_lr_scheduler.md).
 They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
-The hand-written hierarchy documented below remains only for optimizer
+The legacy hierarchy documented below remains only for optimizer
 algorithms that have not yet migrated. It is not a compatibility wrapper for
-the delegated API. The old hand-written SGD, Adam, AdamW, RMSprop, Adagrad,
-and `optim/schedulers`
-hierarchy have been removed.
+the current API. The old hand-written SGD, Adam, AdamW, RMSprop, Adagrad,
+NAdam, and `optim/schedulers` hierarchy have been removed.
 
 ## Legacy optimizer base
 
@@ -91,9 +92,12 @@ Notes:
 - **Adagrad** eagerly initializes each sum accumulator, preserves independent
   per-parameter step counters when gradients are absent, and checkpoints both
   values exactly.
+- **NAdam** follows the documented momentum schedule, including `mu_next` and
+  a float32-compatible cumulative momentum product. It supports coupled NAdam,
+  decoupled NAdamW, and maximize mode with exact per-parameter recovery.
 - Remaining legacy optimizers expose mutable `options()`. Delegated SGD, Adam,
-  AdamW, RMSprop, and Adagrad use `set_learning_rates()` as their only mutable
-  hyperparameter operation.
+  AdamW, RMSprop, and Adagrad, plus native NAdam, use
+  `set_learning_rates()` as their only mutable hyperparameter operation.
 
 ## Learning-rate schedulers
 

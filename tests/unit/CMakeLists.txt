@@ -52,6 +52,11 @@ jyppx_add_gtest(jyppx_test_optim_adamw_adapter
     optim/test_adamw_adapter.cpp
 )
 
+jyppx_add_gtest(jyppx_test_optim_nadam_adapter
+    LINK_TARGET jyppx::optim
+    optim/test_nadam_adapter.cpp
+)
+
 jyppx_add_gtest(jyppx_test_optim_rmsprop_adapter
     LINK_TARGET jyppx::optim
     optim/test_rmsprop_adapter.cpp

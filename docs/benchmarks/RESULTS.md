@@ -11,6 +11,7 @@ tests/benchmarks/bench_adam_adapter_overhead
 tests/benchmarks/bench_adamw_adapter_overhead
 tests/benchmarks/bench_rmsprop_adapter_overhead
 tests/benchmarks/bench_adagrad_adapter_overhead
+tests/benchmarks/bench_nadam_native_throughput
 tests/benchmarks/bench_memory_usage
 ```
 
@@ -39,6 +40,11 @@ state branches enabled.
 
 `bench_adagrad_adapter_overhead` applies it to Adagrad with learning-rate
 decay, coupled weight decay, and a nonzero initial accumulator.
+
+`bench_nadam_native_throughput` records absolute NAdam median nanoseconds per
+step. LibTorch does not expose a public C++ NAdam optimizer, so this benchmark
+does not manufacture an incomparable adapter/native ratio. Numerical parity
+is covered separately by the independent reference and convergence tests.
 
 The 2026-10-18 RMSprop Windows Release sample (MSVC 19.44, LibTorch 2.14.1,
 CPU, 4096 float32 parameters, 2000 steps, two warmups, five paired samples)

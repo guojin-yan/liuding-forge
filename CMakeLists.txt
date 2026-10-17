@@ -293,6 +293,7 @@ add_library(jyppx_optim STATIC
     src/jyppx/optim/adagrad_adapter.cpp
     src/jyppx/optim/adam_adapter.cpp
     src/jyppx/optim/adamw_adapter.cpp
+    src/jyppx/optim/nadam_adapter.cpp
     src/jyppx/optim/rmsprop_adapter.cpp
     src/jyppx/optim/composite_lr_scheduler.cpp
     src/jyppx/optim/epoch_lr_scheduler.cpp

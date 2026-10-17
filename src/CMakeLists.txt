@@ -4,7 +4,6 @@ target_sources(jyppx_training_framework PRIVATE
     # Optim
     jyppx/optim/optimizer.cpp
     # Optim (extended)
-    jyppx/optim/nadam.cpp
     jyppx/optim/lamb.cpp
 
     # Legacy SDK-only utilities

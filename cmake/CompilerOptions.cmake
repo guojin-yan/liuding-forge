@@ -213,6 +213,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/sgd_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/adam_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/adamw_adapter.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/optim/nadam_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/rmsprop_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/step_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/composite_lr_scheduler.cpp
@@ -223,6 +224,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/adam_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/adamw_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/optim/nadam_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/rmsprop_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/detail/stateful_optimizer_adapter.inc
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/step_lr_scheduler.cpp
@@ -234,6 +236,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_adam_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_adamw_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_nadam_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_rmsprop_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_step_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_optimizer_convergence.cpp
@@ -241,6 +244,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_sgd_adapter_overhead.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adam_adapter_overhead.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adamw_adapter_overhead.cpp
+        ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_nadam_native_throughput.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_rmsprop_adapter_overhead.cpp
     )
     add_custom_target(jyppx_migrated_format_check ALL

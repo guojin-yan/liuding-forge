@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A LibTorch-delegated Adagrad adapter with typed decay and accumulator
   topology, stable identities, independent per-parameter step recovery, and
   atomic storage-neutral checkpoint restore.
+- A current-only native NAdam/NAdamW adapter with the complete scheduled
+  Nesterov update, typed stable topology, per-parameter momentum-product and
+  step recovery, independent numerical coverage, and bounded atomic restore.
 - An exact `jyppx::nn` model checkpoint participant with versioned topology,
   bounded non-pickle tensor blobs, strict state-key/type/shape/alias preflight,
   and rollback-protected parameter and buffer restore.
@@ -101,6 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   coupled weight decay, initial accumulator value, and epsilon are immutable
   topology, while eager accumulators and per-parameter steps are recovered
   exactly.
+- NAdam consumers now use `NAdamOptimizerAdapter`; coupled and decoupled
+  weight decay, maximize mode, momentum decay, and all scheduled state are
+  represented without mutable option maps or exposed pointer-keyed state.
 - Delegated optimizers now synchronize model-owned dtype/device placement once
   during strategy preparation, then reject every placement change after native
   state or a successful step exists. This keeps CUDA Trainer checkpoints valid
@@ -134,6 +140,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The hand-written `Adagrad` implementation and mutable options surface.
   Current consumers use the delegated adapter directly with no compatibility
   header, forwarding type, or legacy map checkpoint reader.
+- The incomplete hand-written `NAdam` implementation and mutable options
+  surface. The native adapter is a direct replacement with no forwarding
+  header, legacy map checkpoint reader, or compatibility alias.
 - The legacy Trainer, mutable callback aggregate, callback implementations,
   compatibility headers, old callback tests, and the duplicate complete
   training example. No forwarding API or legacy state reader is retained.

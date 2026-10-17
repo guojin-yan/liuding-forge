@@ -26,7 +26,7 @@
 #include <jyppx/optim/lamb.hpp>
 #include <jyppx/optim/linear_lr_scheduler.hpp>
 #include <jyppx/optim/lr_scheduler.hpp>
-#include <jyppx/optim/nadam.hpp>
+#include <jyppx/optim/nadam_adapter.hpp>
 #include <jyppx/optim/optimizer.hpp>
 #include <jyppx/optim/optimizer_rate_control.hpp>
 #include <jyppx/optim/rmsprop_adapter.hpp>

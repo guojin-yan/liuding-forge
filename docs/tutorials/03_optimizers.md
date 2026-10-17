@@ -2,10 +2,10 @@
 
 JYPPX provides a shrinking legacy hand-written optimizer family alongside a
 descriptor-first migration path backed by LibTorch. SGD, Adam, AdamW, RMSprop,
-and Adagrad have crossed that migration boundary. The compatibility tables
-and quality records identify which algorithms have completed delegated
-execution, typed checkpoint recovery, and numerical comparison; algorithms
-that have not crossed those gates remain explicitly marked as legacy.
+and Adagrad have crossed that delegated boundary. NAdam has crossed the same
+descriptor, checkpoint, and quality gates with a native kernel because
+LibTorch has no public C++ NAdam optimizer. Algorithms that have not crossed
+those gates remain explicitly marked as legacy.
 
 ## Choosing an optimizer
 
@@ -16,6 +16,7 @@ that have not crossed those gates remain explicitly marked as legacy.
 | `AdamW` | transformer/decoder training with weight decay | decoupled `weight_decay` |
 | `RMSprop` | RNNs, non-stationary objectives | `alpha`, `centered`, `momentum` |
 | `Adagrad` | adaptive decay for dense feature updates | `lr_decay`, `initial_accumulator_value` |
+| `NAdam` | Adam-style adaptation with Nesterov momentum | `momentum_decay`, coupled or decoupled `weight_decay`, `maximize` |
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
@@ -29,7 +30,7 @@ auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
          .options = {.learning_rate = 3e-4, .weight_decay = 0.0}}});
 ```
 
-Delegated descriptors validate all options at construction. Invalid rates,
+Current descriptors validate all options at construction. Invalid rates,
 betas, epsilon, decay values, identities, or parameter topology raise typed
 JYPPX errors before a native optimizer is created. The common adapter contract
 provides `step()`, `zero_grad()`, `learning_rates()`,
@@ -40,9 +41,8 @@ participant; no native optimizer or legacy map state is public.
 ### Checkpointing an optimizer
 
 Current Trainer accepts an `OptimizerAdapter` plus an explicit checkpoint
-participant. For delegated SGD, Adam, AdamW, RMSprop, or Adagrad, register the
-matching
-participant in `FitRequest::optimizer_checkpoint`:
+participant. Register the algorithm's matching participant in
+`FitRequest::optimizer_checkpoint`:
 
 ```cpp
 auto optimizer_state =
@@ -69,6 +69,12 @@ averages according to the immutable group options.
 Adagrad uses `AdagradOptimizerCheckpointParticipant`. It stores each eagerly
 initialized sum accumulator and its independent per-parameter native step, so
 missing gradients resume with the same learning-rate-decay trajectory.
+
+NAdam uses `NAdamOptimizerCheckpointParticipant`. It stores each initialized
+parameter's first and second moments, independent update step, and cumulative
+momentum product. That last scalar is required to resume the scheduled
+Nesterov correction exactly when parameters have different missing-gradient
+histories.
 
 ## Epoch-based schedulers
 

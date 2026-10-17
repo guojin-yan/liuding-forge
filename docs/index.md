@@ -57,6 +57,8 @@ metrics, callbacks, checkpointing and mixed precision.
   typed centered/momentum topology and exact bounded state recovery
 - [Delegated Adagrad Adapter](api/adagrad_adapter.md) — LibTorch Adagrad with
   eager accumulators, per-parameter steps, and exact bounded state recovery
+- [Native NAdam Adapter](api/nadam_adapter.md) — current-only NAdam/NAdamW
+  with the complete momentum schedule and exact per-parameter recovery
 - [Descriptor-First StepLR](api/step_lr_scheduler.md) — typed scheduler
   semantics, stable optimizer linkage, and exact bounded checkpoint state
 - [Transactional Composite Schedulers](api/composite_lr_scheduler.md) —

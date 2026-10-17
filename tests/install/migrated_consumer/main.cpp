@@ -19,6 +19,7 @@
 #include <jyppx/optim/epoch_lr_scheduler.hpp>
 #include <jyppx/optim/event_lr_scheduler.hpp>
 #include <jyppx/optim/linear_lr_scheduler.hpp>
+#include <jyppx/optim/nadam_adapter.hpp>
 #include <jyppx/optim/optimizer_adapter.hpp>
 #include <jyppx/optim/rmsprop_adapter.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
@@ -441,6 +442,25 @@ int main() {
   const bool valid_adagrad =
       installed_adagrad_participant.describe_state().fields.size() == 3 &&
       installed_adagrad->completed_steps() == 1;
+  auto installed_nadam_parameter = torch::ones(
+      {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+  auto installed_nadam = std::make_shared<jyppx::optim::NAdamOptimizerAdapter>(
+      "optimizer.nadam",
+      std::vector<jyppx::optim::NAdamParameterGroup>{
+          {.group_id = "main",
+           .parameters = {{.parameter_id = "weight",
+                           .parameter = installed_nadam_parameter}},
+           .options = {.learning_rate = 0.002,
+                       .weight_decay = 0.01,
+                       .decoupled_weight_decay = true}}});
+  installed_nadam_parameter.mutable_grad() =
+      torch::ones_like(installed_nadam_parameter);
+  installed_nadam->step();
+  jyppx::optim::NAdamOptimizerCheckpointParticipant installed_nadam_participant(
+      installed_nadam);
+  const bool valid_nadam =
+      installed_nadam_participant.describe_state().fields.size() == 4 &&
+      installed_nadam->completed_steps() == 1;
   auto installed_scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
       installed_optimizer,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
@@ -524,7 +544,7 @@ int main() {
                  valid_contrastive && valid_focal && valid_dice &&
                  valid_adapter && valid_metric && valid_ranking_metric &&
                  valid_classwise_metric && valid_optimizer && valid_adam &&
-                 valid_adamw && valid_rmsprop && valid_adagrad &&
+                 valid_adamw && valid_rmsprop && valid_adagrad && valid_nadam &&
                  valid_scheduler && valid_callback && valid_event_sink &&
                  valid_strategy && valid_trainer
              ? 0

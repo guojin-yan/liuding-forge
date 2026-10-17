@@ -180,11 +180,13 @@ $executableSuffix = if ($runningOnWindows) { ".exe" } else { "" }
 $dataLoaderExecutable = Join-Path $benchmarkDir "jyppx_bench_dataloader$executableSuffix"
 $trainerExecutable = Join-Path $benchmarkDir "jyppx_bench_trainer_throughput$executableSuffix"
 $optimizerExecutable = Join-Path $benchmarkDir "jyppx_bench_optimizer_convergence$executableSuffix"
+$nadamExecutable = Join-Path $benchmarkDir "jyppx_bench_nadam_native_throughput$executableSuffix"
 $memoryExecutable = Join-Path $benchmarkDir "jyppx_bench_memory_usage$executableSuffix"
 foreach ($executable in @(
         $dataLoaderExecutable,
         $trainerExecutable,
         $optimizerExecutable,
+        $nadamExecutable,
         $memoryExecutable)) {
     if (-not (Test-Path $executable -PathType Leaf)) {
         throw "Expected benchmark executable is missing: $executable"
@@ -247,6 +249,8 @@ for ($sample = 1; $sample -le $Samples; ++$sample) {
 # timing metric, so one complete trajectory is retained without aggregation.
 $benchmarkRuns.Add((Invoke-Captured -Name $optimizerExecutable -Arguments @() `
         -LogName "benchmark-optimizer-convergence.csv"))
+$benchmarkRuns.Add((Invoke-Captured -Name $nadamExecutable -Arguments @() `
+        -LogName "benchmark-nadam-native-throughput.csv"))
 
 $libtorchBuild = (Get-Content (
         Join-Path $sourceRoot "third_party/install/libtorch/build-version") -Raw).Trim()
