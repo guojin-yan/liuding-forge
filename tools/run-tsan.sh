@@ -62,9 +62,20 @@ if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; t
   address_layout_runner=(setarch "$(uname -m)" -R)
   address_layout_mode=setarch-no-randomize
 fi
+run_logged 00-test-discovery.log "${address_layout_runner[@]}" ctest \
+  --test-dir "$build_root" \
+  -N \
+  --tests-regex 'ThreadSafeQueueTest|DataLoaderTest|ConcurrentStressTest'
 run_logged 03-ctest.log "${address_layout_runner[@]}" ctest --test-dir "$build_root" \
   --output-on-failure \
   --tests-regex 'ThreadSafeQueueTest|DataLoaderTest|ConcurrentStressTest'
+
+discovered_test_count=$(grep -cE '^ *Test +#[0-9]+:' \
+  "$output_root/00-test-discovery.log" || true)
+if [ "$discovered_test_count" -lt 1 ]; then
+  echo "TSan test discovery selected no tests" >&2
+  exit 2
+fi
 
 cat > "$output_root/metadata.txt" <<EOF
 commit=$(git -C "$source_root" rev-parse HEAD)
@@ -74,6 +85,8 @@ build_parallelism=$build_parallelism
 compiler=$(${CXX:-c++} --version | head -n 1)
 tsan_options=$TSAN_OPTIONS
 address_layout=$address_layout_mode
+discovered_test_count=$discovered_test_count
+discovered_test_list=00-test-discovery.log
 EOF
 
 echo "TSan report: $output_root"

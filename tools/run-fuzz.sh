@@ -12,6 +12,10 @@ data_fixture_root="$source_root/tests/fixtures/fuzz/data_pipeline"
 data_output_root="$output_root/data-pipeline"
 data_corpus_root="$data_output_root/corpus"
 data_artifact_root="$data_output_root/artifacts"
+iterable_fixture_root="$source_root/tests/fixtures/fuzz/iterable_pipeline"
+iterable_output_root="$output_root/iterable-pipeline"
+iterable_corpus_root="$iterable_output_root/corpus"
+iterable_artifact_root="$iterable_output_root/artifacts"
 
 case "$build_root" in
   "$source_root/out/build/"*) ;;
@@ -44,8 +48,10 @@ done
 rm -rf "$build_root" "$output_root"
 mkdir -p "$device_corpus_root" "$device_artifact_root"
 mkdir -p "$data_corpus_root" "$data_artifact_root"
+mkdir -p "$iterable_corpus_root" "$iterable_artifact_root"
 cp -R "$device_fixture_root/corpus/." "$device_corpus_root/"
 cp -R "$data_fixture_root/corpus/." "$data_corpus_root/"
+cp -R "$iterable_fixture_root/corpus/." "$iterable_corpus_root/"
 
 run_logged() {
   local log_path=$1
@@ -68,6 +74,7 @@ run_logged "$output_root/01-configure.log" cmake \
 
 run_logged "$output_root/02-build.log" cmake --build "$build_root" \
   --target jyppx_fuzz_device_parse jyppx_fuzz_data_pipeline_state \
+  jyppx_fuzz_iterable_pipeline_state \
   --parallel "$build_parallelism"
 
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1:strict_string_checks=1}"
@@ -96,6 +103,14 @@ run_logged "$data_output_root/03-fuzz.log" "${address_layout_runner[@]}" \
   -max_len=4096 \
   -timeout=5 \
   -runs="$fuzz_runs"
+run_logged "$iterable_output_root/03-fuzz.log" "${address_layout_runner[@]}" \
+  "$build_root/tests/fuzz/jyppx_fuzz_iterable_pipeline_state" \
+  "$iterable_corpus_root" \
+  -dict="$iterable_fixture_root/iterable_pipeline.dict" \
+  -artifact_prefix="$iterable_artifact_root/" \
+  -max_len=4096 \
+  -timeout=5 \
+  -runs="$fuzz_runs"
 
 cat > "$output_root/metadata.txt" <<EOF
 commit=$(git -C "$source_root" rev-parse HEAD)
@@ -107,6 +122,7 @@ compiler=$(clang++ --version | head -n 1)
 asan_options=$ASAN_OPTIONS
 ubsan_options=$UBSAN_OPTIONS
 address_layout=$address_layout_mode
+fuzz_targets=device_parse,data_pipeline_state,iterable_pipeline_state
 EOF
 
 echo "Fuzz report: $output_root"
