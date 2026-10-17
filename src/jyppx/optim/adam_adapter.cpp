@@ -257,6 +257,11 @@ std::uint64_t checked_tensor_bytes(const Tensor& tensor, std::uint8_t code) {
   }
   const auto unsigned_count = static_cast<std::uint64_t>(count);
   const auto width = element_size(code);
+  if (width == 0) {
+    throw_invalid("parameter.dtype", "a supported floating dtype code",
+                  std::to_string(code),
+                  "Reject unknown optimizer tensor encodings.");
+  }
   if (unsigned_count > std::numeric_limits<std::uint64_t>::max() / width) {
     throw_resource("parameter.byte_count",
                    std::numeric_limits<std::uint64_t>::max(), unsigned_count,
