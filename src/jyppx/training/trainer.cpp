@@ -251,7 +251,6 @@ class ByteReader final {
       return {};
     }
     const auto start = bytes_.begin() + static_cast<std::ptrdiff_t>(offset_);
-    const auto finish = start + static_cast<std::ptrdiff_t>(length);
     offset_ += static_cast<std::size_t>(length);
     return {reinterpret_cast<const char*>(&*start),
             static_cast<std::size_t>(length)};
