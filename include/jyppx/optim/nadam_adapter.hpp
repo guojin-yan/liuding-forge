@@ -123,7 +123,10 @@ class NAdamOptimizerAdapter final : public OptimizerAdapter {
   /** @copydoc OptimizerAdapter::synchronize_parameter_placement */
   void synchronize_parameter_placement() override;
 
-  /** @brief Returns one current learning rate per stable parameter group. */
+  /**
+   * @brief Returns one current learning rate per stable parameter group.
+   * @return Rates in the same order as `groups()`.
+   */
   std::vector<double> learning_rates() const override;
 
   /**
@@ -133,22 +136,41 @@ class NAdamOptimizerAdapter final : public OptimizerAdapter {
    */
   void set_learning_rates(const std::vector<double>& learning_rates) override;
 
-  /** @brief Returns the immutable optimizer identity. */
+  /**
+   * @brief Returns the immutable optimizer identity.
+   * @return Identity used by the optimizer and associated schedulers.
+   */
   const std::string& optimizer_id() const noexcept override;
 
-  /** @brief Returns immutable parameter-group identities in update order. */
+  /**
+   * @brief Returns immutable parameter-group identities in update order.
+   * @return IDs in native optimizer and learning-rate order.
+   */
   const std::vector<std::string>& parameter_group_ids() const noexcept override;
 
-  /** @brief Returns the number of successfully completed optimizer calls. */
+  /**
+   * @brief Returns the number of successfully completed optimizer calls.
+   * @return Monotonic count restored by the checkpoint participant.
+   */
   std::uint64_t completed_steps() const noexcept override;
 
-  /** @brief Returns the immutable stable NAdam descriptor. */
+  /**
+   * @brief Returns the immutable stable NAdam descriptor.
+   * @return Groups and bindings in native optimizer order.
+   */
   const std::vector<NAdamParameterGroup>& groups() const noexcept;
 
-  /** @brief Returns stable flattened parameter bindings in update order. */
+  /**
+   * @brief Returns stable flattened parameter bindings in update order.
+   * @return Copies of lightweight tensor handles in checkpoint order.
+   * @throws InvalidArgument If current topology violates its descriptor.
+   */
   std::vector<OptimizerParameterBinding> parameter_bindings() const override;
 
-  /** @brief Returns the total number of bound parameters. */
+  /**
+   * @brief Returns the total number of bound parameters.
+   * @return Sum of all stable group parameter counts.
+   */
   std::size_t parameter_count() const noexcept override;
 
  private:
@@ -204,13 +226,27 @@ class NAdamOptimizerCheckpointParticipant final : public CheckpointParticipant {
       std::shared_ptr<NAdamOptimizerAdapter> optimizer,
       NAdamOptimizerCheckpointOptions options = {});
 
-  /** @brief Returns the optimizer's stable registry identifier. */
+  /**
+   * @brief Returns the optimizer's stable registry identifier.
+   * @return The immutable optimizer ID owned by the retained adapter.
+   */
   std::string participant_id() const override;
 
-  /** @brief Describes exact topology, control, and moment state fields. */
+  /**
+   * @brief Describes exact topology, control, and moment state fields.
+   * @return An exact schema-version-1 optimizer manifest.
+   * @throws InvalidArgument If current native state violates the descriptor.
+   * @throws ResourceExhausted If state exceeds a configured limit.
+   */
   StateManifest describe_state() const override;
 
-  /** @brief Writes current-only storage-neutral NAdam state. */
+  /**
+   * @brief Writes current-only storage-neutral NAdam state.
+   * @param writer Storage-neutral destination supplied by the coordinator.
+   * @throws SerializationError If native state cannot be represented.
+   * @throws ResourceExhausted If state exceeds a configured limit.
+   * @throws BackendError If LibTorch cannot materialize canonical bytes.
+   */
   void save_state(StateWriter& writer) const override;
 
   /**
@@ -220,13 +256,22 @@ class NAdamOptimizerCheckpointParticipant final : public CheckpointParticipant {
    */
   void load_state(const StateReader& reader, RestorePolicy policy) override;
 
-  /** @brief Returns mutable access to the retained optimizer. */
+  /**
+   * @brief Returns mutable access to the retained optimizer.
+   * @return A reference valid for the participant lifetime.
+   */
   NAdamOptimizerAdapter& optimizer() noexcept;
 
-  /** @brief Returns read-only access to the retained optimizer. */
+  /**
+   * @brief Returns read-only access to the retained optimizer.
+   * @return A reference valid for the participant lifetime.
+   */
   const NAdamOptimizerAdapter& optimizer() const noexcept;
 
-  /** @brief Returns immutable checkpoint resource limits. */
+  /**
+   * @brief Returns immutable checkpoint resource limits.
+   * @return A reference valid for the participant lifetime.
+   */
   const NAdamOptimizerCheckpointOptions& options() const noexcept;
 
  private:
