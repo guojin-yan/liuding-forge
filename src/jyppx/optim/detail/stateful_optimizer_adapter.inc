@@ -334,12 +334,10 @@ JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS make_native_options(
   return native;
 }
 
+#if !defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
 bool second_state_required(
     const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
-#if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
-  static_cast<void>(options);
-  return false;
-#elif defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return options.momentum != 0.0;
 #else
   static_cast<void>(options);
@@ -349,15 +347,13 @@ bool second_state_required(
 
 bool third_state_required(
     const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
-#if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
-  static_cast<void>(options);
-  return false;
-#elif defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
+#if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return options.centered;
 #else
   return options.amsgrad;
 #endif
 }
+#endif
 
 const Tensor& first_state_tensor(
     const JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state) noexcept {
