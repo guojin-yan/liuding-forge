@@ -149,6 +149,8 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/stack_dataset.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/subset.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/tensor_dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/iterable_source.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/iterable_data_pipeline.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/thread_safe_queue.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/samplers/batch_sampler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/samplers/random_sampler.hpp
@@ -159,6 +161,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/transform.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/vision.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/tensor_dataset.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/iterable_data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/batch_sampler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/random_sampler.cpp
@@ -166,12 +169,14 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataloader.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataloader_exceptions.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_data_pipeline.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_iterable_data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataset_utils.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_samplers.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_tensor_dataset.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_thread_safe_queue.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_transforms.cpp
         ${PROJECT_SOURCE_DIR}/tests/fuzz/data_pipeline_state_fuzz.cpp
+        ${PROJECT_SOURCE_DIR}/tests/fuzz/iterable_pipeline_state_fuzz.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/invocation.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/model_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/model_checkpoint_participant.hpp

@@ -40,9 +40,10 @@ struct BatchEnvelope {
   std::string schema_id;  ///< Stable producer schema label.
   std::vector<std::uint64_t>
       sample_ids;  ///< Dataset-local IDs in the committed batch order.
-  std::string dataset_version;  ///< Immutable dataset lineage identifier.
-  std::uint64_t epoch = 0;      ///< Logical epoch that produced this batch.
-  std::uint64_t sequence = 0;   ///< Zero-based committed batch sequence.
+  std::string dataset_version;   ///< Immutable dataset lineage identifier.
+  std::uint64_t epoch = 0;       ///< Logical epoch that produced this batch.
+  std::uint64_t sequence = 0;    ///< Zero-based committed batch sequence.
+  std::string source_watermark;  ///< Opaque iterable position; empty for maps.
 };
 
 /**
@@ -50,6 +51,8 @@ struct BatchEnvelope {
  */
 struct DataCapability {
   bool map_style = true;  ///< The source is addressed by finite sample indices.
+  bool iterable_style =
+      false;  ///< The source is consumed through an independent cursor.
   bool deterministic_epoch = false;  ///< Epoch selection is reproducible.
   bool in_epoch_cursor = true;       ///< Batch commit cursor is checkpointable.
   bool worker_prefetch = false;  ///< Whether background workers build batches.
@@ -60,7 +63,11 @@ struct DataCapability {
       false;  ///< Whether worker threads survive epoch boundaries.
   bool batch_timeout = false;  ///< Whether consumer waits have a deadline.
   std::size_t max_replayed_batches =
-      0;  ///< Maximum prefetched batches rebuilt after restore.
+      0;  ///< Maximum uncommitted batches rebuilt after restore.
+  std::optional<std::uint64_t>
+      max_replayed_samples;  ///< Source-level duplicate bound, if finite.
+  std::optional<std::uint64_t>
+      max_omitted_samples;  ///< Source-level omission bound, if finite.
   RestoreLevel restore_level =
       RestoreLevel::bounded;  ///< Strongest declared restore guarantee.
   std::vector<std::string>

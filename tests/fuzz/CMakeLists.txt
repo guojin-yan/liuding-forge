@@ -16,3 +16,5 @@ endfunction()
 jyppx_add_fuzz_target(jyppx_fuzz_device_parse device_parse_fuzz.cpp)
 jyppx_add_fuzz_target(jyppx_fuzz_data_pipeline_state
                       data_pipeline_state_fuzz.cpp)
+jyppx_add_fuzz_target(jyppx_fuzz_iterable_pipeline_state
+                      iterable_pipeline_state_fuzz.cpp)

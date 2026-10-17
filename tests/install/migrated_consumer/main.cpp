@@ -1,5 +1,6 @@
 #include <jyppx/core/device.hpp>
 #include <jyppx/data/data_pipeline.hpp>
+#include <jyppx/data/iterable_data_pipeline.hpp>
 #include <jyppx/data/samplers/sequential_sampler.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
 #include <jyppx/foundation/error.hpp>
@@ -28,13 +29,17 @@
 #include <jyppx/training/single_device_strategy.hpp>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <sstream>
+#include <stop_token>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -63,6 +68,67 @@ class ConsumerParticipant final : public jyppx::CheckpointParticipant {
       throw jyppx::CompatibilityError("consumer policy rejected");
     }
     (void)reader.read_blob("value", 8);
+  }
+};
+
+/** @brief Minimal installed-package cursor used to consume iterable APIs. */
+class ConsumerIterableCursor final : public jyppx::data::IterableSourceCursor {
+ public:
+  /** @brief Returns one stable sample and then reports exhaustion. */
+  std::optional<jyppx::data::IterableSample> next(
+      std::stop_token stop) override {
+    if (closed_.load(std::memory_order_acquire) || stop.stop_requested() ||
+        position_ != 0) {
+      return std::nullopt;
+    }
+    ++position_;
+    return jyppx::data::IterableSample{.value = c10::IValue(std::int64_t{7}),
+                                       .sample_id = 11,
+                                       .watermark = "position:1"};
+  }
+
+  /** @brief Saves the next integer position as decimal text. */
+  std::string save_state() const override { return std::to_string(position_); }
+
+  /** @brief Restores the only two valid cursor positions. */
+  void load_state(std::string_view state) override {
+    if (state == "0") {
+      position_ = 0;
+    } else if (state == "1") {
+      position_ = 1;
+    } else {
+      throw jyppx::SerializationError("invalid consumer cursor state");
+    }
+  }
+
+  /** @brief Permanently disables future pulls without blocking. */
+  void close() noexcept override {
+    closed_.store(true, std::memory_order_release);
+  }
+
+ private:
+  std::size_t position_ = 0;  ///< Next sample position owned by the producer.
+  std::atomic<bool> closed_{false};  ///< Cooperative close flag.
+};
+
+/** @brief Installed-package source factory for iterable API verification. */
+class ConsumerIterableSource final : public jyppx::data::IterableSource {
+ public:
+  /** @brief Reports a deterministic exact one-sample source contract. */
+  jyppx::data::IterableSourceDescriptor descriptor() const override {
+    return {.source_id = "consumer.iterable-source/v1",
+            .finite_epoch = true,
+            .deterministic_epoch = true,
+            .checkpointable = true,
+            .restore_level = jyppx::RestoreLevel::exact,
+            .max_replayed_samples = 0,
+            .max_omitted_samples = 0};
+  }
+
+  /** @brief Opens an isolated cursor for the selected logical epoch. */
+  std::unique_ptr<jyppx::data::IterableSourceCursor> open_epoch(
+      std::uint64_t) const override {
+    return std::make_unique<ConsumerIterableCursor>();
   }
 };
 
@@ -154,6 +220,20 @@ int main() {
       installed_batch.has_value() && installed_batch->sample_ids.size() == 2 &&
       installed_pipeline.describe_state().restore_level ==
           jyppx::RestoreLevel::exact;
+  auto installed_iterable_pipeline = jyppx::data::IterableDataPipeline(
+      std::make_shared<ConsumerIterableSource>(),
+      {.pipeline_id = "data.iterable.consumer",
+       .dataset_version = "dataset.iterable.consumer/v1",
+       .batch_factory_id = "factory.iterable.consumer/v1"},
+      [](std::span<const jyppx::data::IterableSample> samples, std::uint64_t,
+         std::uint64_t, std::stop_token) { return samples.front().value; });
+  installed_iterable_pipeline.set_epoch(0);
+  const auto installed_iterable_batch = installed_iterable_pipeline.next();
+  const bool valid_iterable_pipeline =
+      installed_iterable_batch.has_value() &&
+      installed_iterable_batch->value.toInt() == 7 &&
+      installed_iterable_batch->source_watermark == "position:1" &&
+      installed_iterable_pipeline.capability().iterable_style;
   const auto logits = torch::tensor({{2.0, -1.0}}, torch::kFloat64);
   const auto target = torch::tensor({0}, torch::kLong);
   const auto loss =
@@ -355,11 +435,11 @@ int main() {
   return valid_version && valid_error && valid_device &&
                  valid_checkpoint_contract && valid_checkpoint_coordinator &&
                  valid_rng_checkpoint && valid_model_checkpoint && valid_data &&
-                 valid_data_pipeline && valid_nn && valid_contrastive &&
-                 valid_focal && valid_dice && valid_adapter && valid_metric &&
-                 valid_ranking_metric && valid_classwise_metric &&
-                 valid_optimizer && valid_scheduler && valid_callback &&
-                 valid_event_sink && valid_strategy
+                 valid_data_pipeline && valid_iterable_pipeline && valid_nn &&
+                 valid_contrastive && valid_focal && valid_dice &&
+                 valid_adapter && valid_metric && valid_ranking_metric &&
+                 valid_classwise_metric && valid_optimizer && valid_scheduler &&
+                 valid_callback && valid_event_sink && valid_strategy
              ? 0
              : 1;
 }
