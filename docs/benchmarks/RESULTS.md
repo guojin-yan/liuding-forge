@@ -6,6 +6,7 @@ The benchmark programs emit CSV and need no database service:
 tests/benchmarks/bench_dataloader
 tests/benchmarks/bench_trainer_throughput
 tests/benchmarks/bench_optimizer_convergence
+tests/benchmarks/bench_sgd_adapter_overhead
 tests/benchmarks/bench_memory_usage
 ```
 
@@ -16,6 +17,11 @@ standard deviation, coefficient of variation (CV), and regression allowance.
 DataLoader latency and peak memory are lower-is-better; Trainer throughput is
 higher-is-better. Optimizer convergence remains deterministic correctness
 evidence and is not treated as a timing metric.
+
+`bench_sgd_adapter_overhead` alternates five direct LibTorch SGD and delegated
+adapter samples after two warmups. It reports nanoseconds per step and the
+median adapter/native ratio for the exact host and build. Treat the ratio as a
+local regression observation, not a threshold that transfers across machines.
 
 A run is unstable when any metric exceeds 10% CV. A stable reference stores a
 per-metric regression allowance of `max(10%, 3 * CV)`. References are valid

@@ -70,12 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transactional Trainer checkpoint restore covering model, optimizer,
   scheduler, AMP scaler, callbacks, RNG, loaders, and loop counters.
 - Optimizer parameter-group insertion with topology validation.
-- Learning-rate scheduler state serialization via `state_dict()` and
-  `load_state_dict()`, including step counters and all optimizer-group rates.
-- `ReduceLROnPlateau` checkpoint state for the best metric and consecutive
-  bad-epoch counter.
 
 ### Changed
+- Delegated SGD now preflights every gradient after an optional closure and
+  rejects sparse layouts before any parameter update. CPU bfloat16, long-run
+  LibTorch differential, CUDA capability, and adapter-overhead coverage are
+  part of the optimizer quality matrix.
 - Training examples, tutorials, the throughput benchmark, and the installed
   consumer now use explicit `ModelAdapter`, task step, participant, and
   `prepare()`/`fit()` contracts. Precision remains explicit task/strategy work;
@@ -91,6 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for hosts that need a different budget.
 
 ### Removed
+- The hand-written `SGD` implementation and the old `optim/schedulers`
+  hierarchy. Current consumers use `SgdOptimizerAdapter` and descriptor-first
+  schedulers directly; no aliases or forwarding APIs remain.
 - The legacy Trainer, mutable callback aggregate, callback implementations,
   compatibility headers, old callback tests, and the duplicate complete
   training example. No forwarding API or legacy state reader is retained.

@@ -3,12 +3,15 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/core/device.hpp>
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 
 #include <torch/optim/sgd.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <gtest/gtest.h>
@@ -23,6 +26,8 @@
 #include <vector>
 
 namespace {
+
+using jyppx::cuda_is_available;
 
 class MemoryStateStore final : public jyppx::StateWriter,
                                public jyppx::StateReader {
@@ -155,6 +160,184 @@ TEST(SgdOptimizerAdapterTest, DelegatesUpdatesAndTracksSuccessfulSteps) {
                            torch::zeros_like(adapted_parameter)));
   adapted.zero_grad(true);
   EXPECT_FALSE(adapted_parameter.grad().defined());
+}
+
+TEST(SgdOptimizerAdapterTest,
+     MatchesLibTorchAcrossLongRunsAndOptionCombinations) {
+  const std::array<jyppx::optim::SgdAdapterOptions, 4> option_matrix = {
+      jyppx::optim::SgdAdapterOptions{.learning_rate = 0.03},
+      jyppx::optim::SgdAdapterOptions{
+          .learning_rate = 0.02, .momentum = 0.85, .dampening = 0.15},
+      jyppx::optim::SgdAdapterOptions{.learning_rate = 0.015,
+                                      .momentum = 0.9,
+                                      .weight_decay = 0.02,
+                                      .nesterov = true},
+      jyppx::optim::SgdAdapterOptions{
+          .learning_rate = 0.0, .momentum = 0.75, .weight_decay = 0.1}};
+
+  for (const auto& options : option_matrix) {
+    auto adapted_parameter = torch::tensor(
+        {1.0, -2.0, 0.5},
+        torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+    auto native_parameter =
+        adapted_parameter.detach().clone().set_requires_grad(true);
+    jyppx::optim::SgdOptimizerAdapter adapted(
+        "optimizer.long_run",
+        {make_group("main", "weight", adapted_parameter, options)});
+    torch::optim::SGD native({native_parameter},
+                             torch::optim::SGDOptions(options.learning_rate)
+                                 .momentum(options.momentum)
+                                 .dampening(options.dampening)
+                                 .weight_decay(options.weight_decay)
+                                 .nesterov(options.nesterov));
+
+    for (std::int64_t step = 0; step < 512; ++step) {
+      const auto phase = static_cast<double>(step + 1);
+      const auto gradient =
+          torch::tensor({std::sin(phase * 0.013), std::cos(phase * 0.017),
+                         std::sin(phase * 0.019) * std::cos(phase * 0.023)},
+                        torch::kFloat64);
+      adapted_parameter.mutable_grad() = gradient.clone();
+      native_parameter.mutable_grad() = gradient.clone();
+      adapted.step();
+      native.step();
+    }
+
+    EXPECT_EQ(adapted.completed_steps(), 512U);
+    EXPECT_TRUE(torch::equal(adapted_parameter, native_parameter));
+  }
+}
+
+TEST(SgdOptimizerAdapterTest,
+     RejectsSparseGradientsBeforeAnyParameterMutation) {
+  auto first = torch::tensor(
+      {1.0, 2.0},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto second = torch::tensor(
+      {-1.0, 3.0},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  const auto first_before = first.detach().clone();
+  const auto second_before = second.detach().clone();
+  jyppx::optim::SgdOptimizerAdapter optimizer(
+      "optimizer.sparse",
+      {{.group_id = "main",
+        .parameters = {{.parameter_id = "first", .parameter = first},
+                       {.parameter_id = "second", .parameter = second}},
+        .options = {.learning_rate = 0.1, .momentum = 0.9}}});
+
+  first.mutable_grad() = torch::ones_like(first);
+  const auto indices = torch::tensor({{0, 1}}, torch::kLong);
+  const auto values = torch::tensor({0.5, -0.25}, torch::kFloat64);
+  second.mutable_grad() =
+      torch::sparse_coo_tensor(indices, values, second.sizes()).coalesce();
+
+  EXPECT_THROW(optimizer.step(), jyppx::NotImplemented);
+  EXPECT_TRUE(torch::equal(first, first_before));
+  EXPECT_TRUE(torch::equal(second, second_before));
+  EXPECT_EQ(optimizer.completed_steps(), 0U);
+}
+
+TEST(SgdOptimizerAdapterTest,
+     ValidatesClosureProducedGradientsBeforeAnyParameterMutation) {
+  auto parameter = torch::tensor(
+      {1.0, -2.0},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  const auto before = parameter.detach().clone();
+  jyppx::optim::SgdOptimizerAdapter optimizer(
+      "optimizer.closure",
+      {make_group("main", "weight", parameter, {.learning_rate = 0.1})});
+  const auto indices = torch::tensor({{0, 1}}, torch::kLong);
+  const auto values = torch::tensor({0.5, -0.25}, torch::kFloat64);
+
+  EXPECT_THROW(optimizer.step([&]() {
+    parameter.mutable_grad() =
+        torch::sparse_coo_tensor(indices, values, parameter.sizes()).coalesce();
+    return torch::tensor(1.0);
+  }),
+               jyppx::NotImplemented);
+  EXPECT_TRUE(torch::equal(parameter, before));
+  EXPECT_EQ(optimizer.completed_steps(), 0U);
+}
+
+TEST(SgdOptimizerAdapterTest,
+     RejectsMismatchedDenseGradientBeforeParameterMutation) {
+  auto parameter = torch::tensor(
+      {1.0, -2.0},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  const auto before = parameter.detach().clone();
+  jyppx::optim::SgdOptimizerAdapter optimizer(
+      "optimizer.gradient_descriptor",
+      {make_group("main", "weight", parameter, {.learning_rate = 0.1})});
+  parameter.mutable_grad() = torch::ones({3}, torch::kFloat64);
+
+  EXPECT_THROW(optimizer.step(), jyppx::InvalidArgument);
+  EXPECT_TRUE(torch::equal(parameter, before));
+  EXPECT_EQ(optimizer.completed_steps(), 0U);
+}
+
+TEST(SgdOptimizerAdapterTest, MatchesLibTorchForCpuBfloat16) {
+  auto adapted_parameter = torch::tensor(
+      {1.0, -2.0, 0.5},
+      torch::TensorOptions().dtype(torch::kBFloat16).requires_grad(true));
+  auto native_parameter =
+      adapted_parameter.detach().clone().set_requires_grad(true);
+  const jyppx::optim::SgdAdapterOptions options{
+      .learning_rate = 0.02, .momentum = 0.9, .weight_decay = 0.01};
+  jyppx::optim::SgdOptimizerAdapter adapted(
+      "optimizer.bfloat16",
+      {make_group("main", "weight", adapted_parameter, options)});
+  torch::optim::SGD native({native_parameter},
+                           torch::optim::SGDOptions(options.learning_rate)
+                               .momentum(options.momentum)
+                               .weight_decay(options.weight_decay));
+
+  for (std::int64_t step = 1; step <= 32; ++step) {
+    const auto gradient = torch::full_like(adapted_parameter, 0.015625 * step);
+    adapted_parameter.mutable_grad() = gradient.clone();
+    native_parameter.mutable_grad() = gradient.clone();
+    adapted.step();
+    native.step();
+  }
+
+  EXPECT_TRUE(torch::equal(adapted_parameter, native_parameter));
+}
+
+TEST(SgdOptimizerAdapterCudaTest, MatchesLibTorchForFloat32AndFloat16) {
+  if (!cuda_is_available()) {
+    GTEST_SKIP() << "CUDA not available";
+  }
+
+  const auto device = torch::Device(torch::kCUDA, 0);
+  for (const auto dtype : {torch::kFloat32, torch::kFloat16}) {
+    auto adapted_parameter = torch::tensor(
+        {1.0, -2.0, 0.5},
+        torch::TensorOptions().dtype(dtype).device(device).requires_grad(true));
+    auto native_parameter =
+        adapted_parameter.detach().clone().set_requires_grad(true);
+    const jyppx::optim::SgdAdapterOptions options{.learning_rate = 0.02,
+                                                  .momentum = 0.9,
+                                                  .weight_decay = 0.01,
+                                                  .nesterov = true};
+    jyppx::optim::SgdOptimizerAdapter adapted(
+        "optimizer.cuda",
+        {make_group("main", "weight", adapted_parameter, options)});
+    torch::optim::SGD native({native_parameter},
+                             torch::optim::SGDOptions(options.learning_rate)
+                                 .momentum(options.momentum)
+                                 .weight_decay(options.weight_decay)
+                                 .nesterov(options.nesterov));
+
+    for (std::int64_t step = 1; step <= 32; ++step) {
+      const auto gradient =
+          torch::full_like(adapted_parameter, 0.015625 * step);
+      adapted_parameter.mutable_grad() = gradient.clone();
+      native_parameter.mutable_grad() = gradient.clone();
+      adapted.step();
+      native.step();
+    }
+
+    EXPECT_TRUE(torch::equal(adapted_parameter, native_parameter));
+  }
 }
 
 TEST(SgdOptimizerAdapterTest, PreservesExplicitPerGroupOptionsAndRateUpdates) {
@@ -306,6 +489,37 @@ TEST(SgdOptimizerCheckpointTest, FreshStateRestoreRemovesStaleMomentum) {
   EXPECT_TRUE(
       torch::allclose(fresh_parameter, resumed_parameter, 1e-12, 1e-12));
   EXPECT_EQ(resumed->completed_steps(), 1U);
+}
+
+TEST(SgdOptimizerCheckpointTest,
+     RestoresCpuBfloat16MomentumForExactContinuation) {
+  const jyppx::optim::SgdAdapterOptions options{
+      .learning_rate = 0.03125, .momentum = 0.875, .weight_decay = 0.015625};
+  auto source_parameter = torch::tensor(
+      {1.0, -2.0},
+      torch::TensorOptions().dtype(torch::kBFloat16).requires_grad(true));
+  auto source = make_optimizer(source_parameter, options);
+  for (std::int64_t step = 1; step <= 8; ++step) {
+    source_parameter.mutable_grad() =
+        torch::full_like(source_parameter, 0.03125 * step);
+    source->step();
+  }
+  jyppx::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  const auto store = save_participant(source_participant);
+
+  auto resumed_parameter =
+      source_parameter.detach().clone().set_requires_grad(true);
+  auto resumed = make_optimizer(resumed_parameter, options);
+  jyppx::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
+  resumed_participant.load_state(store, jyppx::RestorePolicy::exact_only);
+
+  const auto next_gradient = torch::full_like(source_parameter, -0.125);
+  source_parameter.mutable_grad() = next_gradient.clone();
+  resumed_parameter.mutable_grad() = next_gradient.clone();
+  source->step();
+  resumed->step();
+  EXPECT_TRUE(torch::equal(source_parameter, resumed_parameter));
+  EXPECT_EQ(resumed->completed_steps(), source->completed_steps());
 }
 
 TEST(SgdOptimizerCheckpointTest,

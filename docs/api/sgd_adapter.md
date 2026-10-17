@@ -41,6 +41,13 @@ float16, bfloat16, float32, or float64 dtype. Parameters must require
 gradients. Group IDs, parameter IDs, tensor identities, and options must be
 unique and valid when construction completes.
 
+Before every update, the adapter checks all defined gradients as one preflight.
+Each gradient must be dense and match its parameter dtype, device, and shape.
+Sparse gradients are rejected before any parameter is modified; use a
+sparse-aware optimizer instead. Undefined gradients retain LibTorch's skip
+semantics. Non-finite gradient detection belongs to the Trainer precision
+boundary so direct adapter use does not add an implicit device synchronization.
+
 ## Checkpoint participant
 
 `SgdOptimizerCheckpointParticipant` provides exact, storage-neutral recovery:
@@ -73,8 +80,8 @@ quiescent during checkpoint describe, save, and load operations.
 
 ## Migration status
 
-This is the first optimizer algorithm on the delegated path. The older
-hand-written optimizer hierarchy remains separate while its consumers are
-migrated algorithm by algorithm. There is no alias or forwarding bridge
-between the two APIs; the old implementation will be deleted after all owned
-consumers move to the delegated target and the optimizer ledger gates pass.
+This is the first optimizer algorithm on the delegated path. Its older
+hand-written SGD implementation and the old `optim/schedulers` hierarchy have
+been deleted after all owned consumers moved to descriptor-first schedulers.
+There is no alias or forwarding bridge. Hand-written implementations of other
+algorithms remain separate until they are migrated algorithm by algorithm.

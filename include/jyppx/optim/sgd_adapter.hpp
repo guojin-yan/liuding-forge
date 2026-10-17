@@ -98,9 +98,16 @@ class SgdOptimizerAdapter final : public OptimizerAdapter {
    * @brief Applies one LibTorch SGD update and records successful completion.
    * @param closure Optional closure evaluated by LibTorch before the update.
    * @return The closure result, or an undefined tensor when no closure is used.
+   * @throws InvalidArgument If a gradient does not match its parameter.
+   * @throws NotImplemented If any bound parameter has a sparse gradient.
    * @throws BackendError If LibTorch cannot complete the step.
    * @throws ResourceExhausted If bookkeeping allocation fails.
    * @throws Any exception raised by `closure` is propagated unchanged.
+   *
+   * Gradient validation occurs after an optional closure and before LibTorch
+   * mutates any parameter. Undefined gradients are skipped. Dense gradients
+   * must match the parameter dtype, device, and shape. Sparse gradients are an
+   * explicit unsupported capability in schema version 1.
    */
   Tensor step(LossClosure closure = {}) override;
 

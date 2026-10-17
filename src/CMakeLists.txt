@@ -3,16 +3,10 @@
 target_sources(jyppx_training_framework PRIVATE
     # Optim
     jyppx/optim/optimizer.cpp
-    jyppx/optim/sgd.cpp
     jyppx/optim/adam.cpp
     jyppx/optim/adamw.cpp
     jyppx/optim/rmsprop.cpp
     jyppx/optim/adagrad.cpp
-
-    # Optim schedulers
-    jyppx/optim/schedulers/lr_scheduler.cpp
-    jyppx/optim/schedulers/step_lr.cpp
-    jyppx/optim/schedulers/reduce_lr_on_plateau.cpp
 
     # Optim (extended)
     jyppx/optim/nadam.cpp

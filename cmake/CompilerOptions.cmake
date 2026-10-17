@@ -223,6 +223,8 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_linear_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_step_lr_scheduler.cpp
+        ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_optimizer_convergence.cpp
+        ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_sgd_adapter_overhead.cpp
     )
     add_custom_target(jyppx_migrated_format_check ALL
         COMMAND ${JYPPX_CLANG_FORMAT_EXECUTABLE}

@@ -13,9 +13,10 @@ and the [epoch scheduler family](epoch_lr_scheduler.md), including the
 [event-driven schedulers](event_lr_scheduler.md).
 They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
-The hand-written hierarchy documented below is the legacy path still used by
-unmigrated trainer and scheduler consumers; it is not a compatibility wrapper
-for the delegated API.
+The hand-written hierarchy documented below remains only for optimizer
+algorithms that have not yet migrated. It is not a compatibility wrapper for
+the delegated API. The old hand-written SGD and `optim/schedulers` hierarchy
+have been removed.
 
 ## Optimizer base
 
@@ -61,8 +62,6 @@ the hyperparameters at construction. All of them are validated numerically
 against `torch::optim` (float64, tolerance 1e-9) by the unit tests.
 
 ```cpp
-struct SGDOptions   { double lr = 0.01; double momentum = 0.0; double dampening = 0.0;
-                      double weight_decay = 0.0; bool nesterov = false; };
 struct AdamOptions  { double lr = 0.001; double beta1 = 0.9; double beta2 = 0.999;
                       double eps = 1e-8; double weight_decay = 0.0; bool amsgrad = false; };
 struct AdamWOptions { double lr = 0.001; double beta1 = 0.9; double beta2 = 0.999;
@@ -75,7 +74,7 @@ struct AdagradOptions { double lr = 0.01; double lr_decay = 0.0;
 ```
 
 ```cpp
-#include <jyppx/optim/sgd.hpp>       // also adam.hpp, adamw.hpp, rmsprop.hpp, adagrad.hpp
+#include <jyppx/optim/adam.hpp>  // also adamw.hpp, rmsprop.hpp, adagrad.hpp
 
 auto optimizer = std::make_shared<jyppx::optim::Adam>(
     model->parameters(), jyppx::optim::AdamOptions{.lr = 1e-3, .weight_decay = 1e-4});
@@ -128,18 +127,10 @@ scheduler->step();  // after one completed epoch
 | `SequentialLrScheduler` | children, `milestones` | selects one ordered child per event |
 | `ChainedLrScheduler` | ordered children | previews every child and commits once |
 
-These APIs do not wrap or forward to `jyppx::optim::schedulers`. The following
-legacy algorithms remain available only for unmigrated Trainer/callback
-consumers and are not checkpoint-safe under the new participant contract:
-
-| Legacy scheduler | Parameters | Status |
-|------------------|------------|--------|
-| `ReduceLROnPlateau` | mode, factor, patience, threshold | retained only by the unmigrated Trainer contract |
-
-The obsolete OneCycle/Cyclic/Lambda/warm-restart headers and implementations
-were removed. Their direct descriptor-first replacements do not accept old map
-checkpoints. Momentum cycling is explicitly rejected until optimizer
-hyperparameters have an atomic control and participant contract.
+The obsolete scheduler headers and implementations have been removed. Their
+direct descriptor-first replacements do not accept old map checkpoints.
+Momentum cycling is explicitly rejected until optimizer hyperparameters have
+an atomic control and participant contract.
 
 ```cpp
 #include <jyppx/optim/event_lr_scheduler.hpp>
@@ -158,6 +149,4 @@ The migrated plateau scheduler exposes `has_best()`, `best()`,
 `bad_observations()`, and `cooldown_remaining()`. Legacy `state_dict()` maps
 are not accepted. The checkpoint participant only accepts the current
 descriptor/control schema and restores optimizer rates atomically after
-complete preflight. The similarly named legacy type remains solely because
-the old Trainer contract still owns a legacy optimizer; it is not forwarded
-from the new API.
+complete preflight.

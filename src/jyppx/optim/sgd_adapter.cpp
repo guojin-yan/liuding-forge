@@ -853,6 +853,35 @@ std::vector<double> inspect_native_groups(
   return learning_rates;
 }
 
+void validate_step_gradients(const std::vector<FlatParameter>& parameters) {
+  for (const auto& parameter : parameters) {
+    const auto& gradient = parameter.parameter.grad();
+    if (!gradient.defined()) {
+      continue;
+    }
+    if (gradient.layout() != c10::Layout::Strided) {
+      throw NotImplemented(
+          "Delegated SGD does not support sparse gradients",
+          ErrorDetails{
+              .component = kComponent,
+              .operation = "step.gradient_layout",
+              .expected = "a dense strided gradient",
+              .actual = parameter.parameter_id,
+              .hint = "Use a dense gradient or a sparse-aware optimizer."});
+    }
+    if (gradient.is_meta() || gradient.is_quantized() ||
+        gradient.scalar_type() != parameter.parameter.scalar_type() ||
+        gradient.device() != parameter.parameter.device() ||
+        gradient.sizes().vec() != parameter.sizes) {
+      throw_invalid(
+          "step.gradient_descriptor",
+          "a dense gradient matching the parameter dtype, device, and shape",
+          parameter.parameter_id,
+          "Recompute gradients for the unchanged optimizer topology.");
+    }
+  }
+}
+
 OptimizerSnapshot inspect_optimizer(
     const std::vector<SgdParameterGroup>& groups,
     const std::vector<FlatParameter>& parameters,
@@ -1098,7 +1127,19 @@ Tensor SgdOptimizerAdapter::step(LossClosure closure) {
                        .actual = "uint64 maximum",
                        .hint = "Start a new training run identity."});
     }
-    auto result = impl_->native->step(std::move(closure));
+    Tensor result;
+    if (closure) {
+      auto validating_closure =
+          [this, closure = std::move(closure)]() mutable -> Tensor {
+        auto loss = closure();
+        validate_step_gradients(impl_->parameters);
+        return loss;
+      };
+      result = impl_->native->step(std::move(validating_closure));
+    } else {
+      validate_step_gradients(impl_->parameters);
+      result = impl_->native->step();
+    }
     ++impl_->completed_steps;
     return result;
   } catch (const Error&) {

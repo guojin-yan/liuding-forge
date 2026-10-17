@@ -30,11 +30,11 @@ momentum or betas. Larger batches may permit a larger learning rate, but check
 the first epochs rather than assuming linear scaling. Use `drop_last` when a
 model requires equal batch shapes.
 
-AMP primitives are available for CUDA training and can reduce memory traffic
-on Tensor Core GPUs. Current Trainer integration requires an explicit
-precision-aware strategy; there is no implicit `use_amp` option. Monitor
-`GradScaler::found_inf()` and lower the learning rate if every update
-overflows.
+Select precision explicitly through `TrainerOptions::precision`. CUDA float16
+requires an enabled `GradScaler` and its checkpoint participant in
+`FitRequest`; CPU/CUDA bfloat16 deliberately run without loss scaling. There
+is no implicit `use_amp` option. Overflowed float16 updates do not advance the
+Trainer global step or scheduler and publish `optimizer.applied=0`.
 
 ## Profiling and memory
 
@@ -48,6 +48,8 @@ build-framework/tests/benchmarks/Release/jyppx_bench_dataloader.exe \
 
 `bench_trainer_throughput` reports samples per second for batch sizes 16, 32,
 64, and 128. `bench_optimizer_convergence` emits 100 loss values for SGD,
-Adam, and AdamW. `bench_memory_usage` reports resident bytes for worker
-counts 0, 1, 4, and 8. Compare PyTorch with the same seed, model, tensors,
-dtype, and steps. These are engineering measurements, not universal limits.
+Adam, and AdamW. `bench_sgd_adapter_overhead` measures the local median cost of
+the adapter preflight relative to direct LibTorch SGD. `bench_memory_usage`
+reports resident bytes for worker counts 0, 1, 4, and 8. Compare PyTorch with
+the same seed, model, tensors, dtype, and steps. These are engineering
+measurements, not universal limits.
