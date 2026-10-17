@@ -1,7 +1,8 @@
 # Tutorial 3: Optimizers and Schedulers
 
-JYPPX currently provides a legacy hand-written optimizer family alongside a
-descriptor-first migration path backed by LibTorch. The compatibility tables
+JYPPX provides a shrinking legacy hand-written optimizer family alongside a
+descriptor-first migration path backed by LibTorch. SGD and Adam have crossed
+that migration boundary. The compatibility tables
 and quality records identify which algorithms have completed delegated
 execution, typed checkpoint recovery, and numerical comparison; algorithms
 that have not crossed those gates remain explicitly marked as legacy.
@@ -30,8 +31,9 @@ eps etc. throw `std::invalid_argument`). All optimizers expose
 ### Checkpointing an optimizer
 
 Legacy optimizers expose `state_dict()`, but current Trainer accepts only an
-`OptimizerAdapter` plus an explicit checkpoint participant. For migrated SGD,
-register the participant in `FitRequest::optimizer_checkpoint`:
+`OptimizerAdapter` plus an explicit checkpoint participant. For migrated SGD
+or Adam, register the matching participant in
+`FitRequest::optimizer_checkpoint`:
 
 ```cpp
 auto optimizer_state =
@@ -41,6 +43,11 @@ auto optimizer_state =
 
 The participant stores stable group/parameter identities, options, completed
 steps, current rates and momentum without persisting native pointer keys.
+
+Adam uses `AdamOptimizerCheckpointParticipant`; it additionally stores every
+initialized parameter's native step, first and second moments, and optional
+AMSGrad maximum tensor. Restore requires identical stable topology and the
+declared exact LibTorch version.
 
 ## Epoch-based schedulers
 

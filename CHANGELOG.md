@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An independently exported `jyppx::optim` target with a LibTorch-delegated
   SGD adapter, stable group/parameter identities, fixed versioned raw state
   fields, bounded preflight, and atomic exact checkpoint restore.
+- A LibTorch-delegated Adam adapter with stable groups and parameter IDs,
+  long-run exact differential coverage, per-parameter moment/step recovery,
+  AMSGrad state, and atomic storage-neutral checkpoint restore.
 - An exact `jyppx::nn` model checkpoint participant with versioned topology,
   bounded non-pickle tensor blobs, strict state-key/type/shape/alias preflight,
   and rollback-protected parameter and buffer restore.
@@ -76,6 +79,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejects sparse layouts before any parameter update. CPU bfloat16, long-run
   LibTorch differential, CUDA capability, and adapter-overhead coverage are
   part of the optimizer quality matrix.
+- Adam consumers now use `AdamOptimizerAdapter`; sparse gradients and invalid
+  descriptors are rejected before mutation, while learning-rate control is
+  exposed through the same narrow scheduler contract as delegated SGD.
 - Training examples, tutorials, the throughput benchmark, and the installed
   consumer now use explicit `ModelAdapter`, task step, participant, and
   `prepare()`/`fit()` contracts. Precision remains explicit task/strategy work;
@@ -94,6 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The hand-written `SGD` implementation and the old `optim/schedulers`
   hierarchy. Current consumers use `SgdOptimizerAdapter` and descriptor-first
   schedulers directly; no aliases or forwarding APIs remain.
+- The hand-written `Adam` implementation and mutable options surface. Current
+  consumers use the delegated adapter directly; no compatibility header,
+  forwarding type, or legacy map checkpoint reader remains.
 - The legacy Trainer, mutable callback aggregate, callback implementations,
   compatibility headers, old callback tests, and the duplicate complete
   training example. No forwarding API or legacy state reader is retained.

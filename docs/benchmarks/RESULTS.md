@@ -7,6 +7,7 @@ tests/benchmarks/bench_dataloader
 tests/benchmarks/bench_trainer_throughput
 tests/benchmarks/bench_optimizer_convergence
 tests/benchmarks/bench_sgd_adapter_overhead
+tests/benchmarks/bench_adam_adapter_overhead
 tests/benchmarks/bench_memory_usage
 ```
 
@@ -22,6 +23,9 @@ evidence and is not treated as a timing metric.
 adapter samples after two warmups. It reports nanoseconds per step and the
 median adapter/native ratio for the exact host and build. Treat the ratio as a
 local regression observation, not a threshold that transfers across machines.
+
+`bench_adam_adapter_overhead` applies the same paired methodology to AMSGrad
+Adam so adapter validation cost is tracked independently from SGD.
 
 A run is unstable when any metric exceeds 10% CV. A stable reference stores a
 per-metric regression allowance of `max(10%, 3 * CV)`. References are valid

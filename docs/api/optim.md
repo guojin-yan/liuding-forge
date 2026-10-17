@@ -2,9 +2,10 @@
 
 All types live in the `jyppx::optim` namespace.
 
-The migrated optimizer boundary starts with the independently exported
-[`SgdOptimizerAdapter`](sgd_adapter.md). It delegates numerical updates to
-LibTorch and supplies stable parameter identity plus storage-neutral recovery.
+The migrated optimizer boundary includes independently exported
+[`SgdOptimizerAdapter`](sgd_adapter.md) and
+[`AdamOptimizerAdapter`](adam_adapter.md). They delegate numerical updates to
+LibTorch and supply stable parameter identity plus storage-neutral recovery.
 The migrated scheduler boundary includes descriptor-first
 [`StepLrScheduler`](step_lr_scheduler.md) plus transactional
 [`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md)
@@ -15,8 +16,8 @@ They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
 The hand-written hierarchy documented below remains only for optimizer
 algorithms that have not yet migrated. It is not a compatibility wrapper for
-the delegated API. The old hand-written SGD and `optim/schedulers` hierarchy
-have been removed.
+the delegated API. The old hand-written SGD, Adam, and `optim/schedulers`
+hierarchy have been removed.
 
 ## Optimizer base
 
@@ -62,8 +63,6 @@ the hyperparameters at construction. All of them are validated numerically
 against `torch::optim` (float64, tolerance 1e-9) by the unit tests.
 
 ```cpp
-struct AdamOptions  { double lr = 0.001; double beta1 = 0.9; double beta2 = 0.999;
-                      double eps = 1e-8; double weight_decay = 0.0; bool amsgrad = false; };
 struct AdamWOptions { double lr = 0.001; double beta1 = 0.9; double beta2 = 0.999;
                       double eps = 1e-8; double weight_decay = 0.01; bool amsgrad = false; };
 struct RMSpropOptions { double lr = 0.01; double alpha = 0.99; double eps = 1e-8;
@@ -74,10 +73,14 @@ struct AdagradOptions { double lr = 0.01; double lr_decay = 0.0;
 ```
 
 ```cpp
-#include <jyppx/optim/adam.hpp>  // also adamw.hpp, rmsprop.hpp, adagrad.hpp
+#include <jyppx/optim/adam_adapter.hpp>
 
-auto optimizer = std::make_shared<jyppx::optim::Adam>(
-    model->parameters(), jyppx::optim::AdamOptions{.lr = 1e-3, .weight_decay = 1e-4});
+auto optimizer = std::make_shared<jyppx::optim::AdamOptimizerAdapter>(
+    "optimizer.adam",
+    std::vector<jyppx::optim::AdamParameterGroup>{{
+        .group_id = "main",
+        .parameters = stable_parameter_bindings,
+        .options = {.learning_rate = 1e-3, .weight_decay = 1e-4}}});
 ```
 
 Notes:
@@ -88,8 +91,8 @@ Notes:
   accumulates the normalized gradient `grad / avg` and the step is
   `-lr * buffer`. This coincides with `torch.optim.rmsprop` in Python on the
   first step and differs from the second step on.
-- Mutating `options()` (e.g. `optimizer->options().lr = 0.01`) is picked up
-  on the next `step()`; schedulers use `set_lr`/`set_lrs` instead.
+- Remaining legacy optimizers expose mutable `options()`. Delegated Adam uses
+  `set_learning_rates()` as its only mutable hyperparameter operation.
 
 ## Learning-rate schedulers
 

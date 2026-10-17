@@ -290,6 +290,7 @@ target_include_directories(jyppx_training
 target_link_libraries(jyppx_training PUBLIC jyppx_foundation)
 
 add_library(jyppx_optim STATIC
+    src/jyppx/optim/adam_adapter.cpp
     src/jyppx/optim/composite_lr_scheduler.cpp
     src/jyppx/optim/epoch_lr_scheduler.cpp
     src/jyppx/optim/event_lr_scheduler.cpp

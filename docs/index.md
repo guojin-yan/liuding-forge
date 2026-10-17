@@ -49,6 +49,8 @@ metrics, callbacks, checkpointing and mixed precision.
   and composite schedulers
 - [Delegated SGD Adapter](api/sgd_adapter.md) — LibTorch-backed SGD with
   stable group and parameter identities plus exact bounded checkpoint state
+- [Delegated Adam Adapter](api/adam_adapter.md) — LibTorch-backed Adam with
+  stable identities and exact moment, step-counter, and AMSGrad recovery
 - [Descriptor-First StepLR](api/step_lr_scheduler.md) — typed scheduler
   semantics, stable optimizer linkage, and exact bounded checkpoint state
 - [Transactional Composite Schedulers](api/composite_lr_scheduler.md) —

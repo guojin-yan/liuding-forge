@@ -3,7 +3,7 @@
 #include <jyppx/core/tensor_utils.hpp>
 #include <jyppx/data/dataloader.hpp>
 #include <jyppx/data/tensor_dataset.hpp>
-#include <jyppx/optim/adam.hpp>
+#include <jyppx/optim/adam_adapter.hpp>
 #include <jyppx/optim/adamw.hpp>
 
 #include <gtest/gtest.h>
@@ -24,8 +24,12 @@ TEST(ExtremeOptimizerParamsTest, AdamVariantsRemainFiniteAtLargeLearningRate) {
                                     {.lr = 1e2, .weight_decay = 1e-1});
       optimizer.step();
     } else {
-      jyppx::optim::Adam optimizer({parameter},
-                                   {.lr = 1e2, .weight_decay = 1e-1});
+      jyppx::optim::AdamOptimizerAdapter optimizer(
+          "optimizer.adam",
+          {{.group_id = "main",
+            .parameters = {{.parameter_id = "parameter",
+                            .parameter = parameter}},
+            .options = {.learning_rate = 1e2, .weight_decay = 1e-1}}});
       optimizer.step();
     }
     EXPECT_TRUE(jyppx::is_finite(parameter));

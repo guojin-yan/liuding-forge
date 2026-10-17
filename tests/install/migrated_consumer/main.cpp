@@ -12,6 +12,7 @@
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #include <jyppx/nn/model_adapter.hpp>
 #include <jyppx/nn/model_checkpoint_participant.hpp>
+#include <jyppx/optim/adam_adapter.hpp>
 #include <jyppx/optim/composite_lr_scheduler.hpp>
 #include <jyppx/optim/epoch_lr_scheduler.hpp>
 #include <jyppx/optim/event_lr_scheduler.hpp>
@@ -363,6 +364,23 @@ int main() {
   const bool valid_optimizer =
       installed_optimizer_participant.describe_state().fields.size() == 3 &&
       installed_optimizer->parameter_count() == 1;
+  auto installed_adam_parameter = torch::ones(
+      {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+  auto installed_adam = std::make_shared<jyppx::optim::AdamOptimizerAdapter>(
+      "optimizer.adam",
+      std::vector<jyppx::optim::AdamParameterGroup>{
+          {.group_id = "main",
+           .parameters = {{.parameter_id = "weight",
+                           .parameter = installed_adam_parameter}},
+           .options = {.learning_rate = 0.001, .amsgrad = true}}});
+  installed_adam_parameter.mutable_grad() =
+      torch::ones_like(installed_adam_parameter);
+  installed_adam->step();
+  jyppx::optim::AdamOptimizerCheckpointParticipant installed_adam_participant(
+      installed_adam);
+  const bool valid_adam =
+      installed_adam_participant.describe_state().fields.size() == 5 &&
+      installed_adam->completed_steps() == 1;
   auto installed_scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
       installed_optimizer,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
@@ -445,9 +463,9 @@ int main() {
                  valid_data_pipeline && valid_iterable_pipeline && valid_nn &&
                  valid_contrastive && valid_focal && valid_dice &&
                  valid_adapter && valid_metric && valid_ranking_metric &&
-                 valid_classwise_metric && valid_optimizer && valid_scheduler &&
-                 valid_callback && valid_event_sink && valid_strategy &&
-                 valid_trainer
+                 valid_classwise_metric && valid_optimizer && valid_adam &&
+                 valid_scheduler && valid_callback && valid_event_sink &&
+                 valid_strategy && valid_trainer
              ? 0
              : 1;
 }

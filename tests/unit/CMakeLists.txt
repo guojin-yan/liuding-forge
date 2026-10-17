@@ -29,7 +29,6 @@ jyppx_add_gtest(jyppx_test_data
 )
 
 jyppx_add_gtest(jyppx_test_optim
-    optim/test_adam.cpp
     optim/test_adamw.cpp
     optim/test_rmsprop_adagrad.cpp
     optim/test_extreme_params.cpp
@@ -38,6 +37,11 @@ jyppx_add_gtest(jyppx_test_optim
 jyppx_add_gtest(jyppx_test_optim_sgd_adapter
     LINK_TARGET jyppx::optim
     optim/test_sgd_adapter.cpp
+)
+
+jyppx_add_gtest(jyppx_test_optim_adam_adapter
+    LINK_TARGET jyppx::optim
+    optim/test_adam_adapter.cpp
 )
 
 jyppx_add_gtest(jyppx_test_optim_step_lr_scheduler
