@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A current-only native NAdam/NAdamW adapter with the complete scheduled
   Nesterov update, typed stable topology, per-parameter momentum-product and
   step recovery, independent numerical coverage, and bounded atomic restore.
+- A current-only native Adadelta adapter with typed rho/epsilon/coupled-decay
+  semantics, two per-parameter accumulators, independent numerical coverage,
+  and bounded atomic checkpoint restore.
 - An exact `jyppx::nn` model checkpoint participant with versioned topology,
   bounded non-pickle tensor blobs, strict state-key/type/shape/alias preflight,
   and rollback-protected parameter and buffer restore.
@@ -106,6 +109,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly.
 - NAdam consumers now use `NAdamOptimizerAdapter`; coupled and decoupled
   weight decay, maximize mode, momentum decay, and all scheduled state are
+  represented without mutable option maps or exposed pointer-keyed state.
+- Adadelta consumers now use `AdadeltaOptimizerAdapter`; rho, epsilon, coupled
+  weight decay, maximize mode, lazy steps, and both accumulator tensors are
   represented without mutable option maps or exposed pointer-keyed state.
 - Delegated optimizers now synchronize model-owned dtype/device placement once
   during strategy preparation, then reject every placement change after native

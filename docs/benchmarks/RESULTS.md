@@ -11,6 +11,7 @@ tests/benchmarks/bench_adam_adapter_overhead
 tests/benchmarks/bench_adamw_adapter_overhead
 tests/benchmarks/bench_rmsprop_adapter_overhead
 tests/benchmarks/bench_adagrad_adapter_overhead
+tests/benchmarks/bench_adadelta_native_throughput
 tests/benchmarks/bench_nadam_native_throughput
 tests/benchmarks/bench_memory_usage
 ```
@@ -40,6 +41,11 @@ state branches enabled.
 
 `bench_adagrad_adapter_overhead` applies it to Adagrad with learning-rate
 decay, coupled weight decay, and a nonzero initial accumulator.
+
+`bench_adadelta_native_throughput` records absolute Adadelta median
+nanoseconds per step. The candidate LibTorch C++ APIs do not expose Adadelta,
+so numerical behavior is gated by the independent reference and convergence
+tests instead of an incomparable adapter/native ratio.
 
 `bench_nadam_native_throughput` records absolute NAdam median nanoseconds per
 step. LibTorch does not expose a public C++ NAdam optimizer, so this benchmark

@@ -29,7 +29,8 @@
 namespace jyppx::optim {
 namespace {
 
-#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) || \
+    defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
 #define JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION "native"
 #define JYPPX_STATEFUL_OPTIMIZER_IMPLEMENTATION_TITLE "Native"
 #else
@@ -45,6 +46,9 @@ constexpr std::size_t kMaximumRank = 64;
 constexpr std::size_t kAdapterMaximumIdentifierBytes = 4096;
 #if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
 constexpr std::array<std::string_view, 1> kStateFieldNames = {"sum"};
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+constexpr std::array<std::string_view, 2> kStateFieldNames = {"square_avg",
+                                                              "acc_delta"};
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
 constexpr std::array<std::string_view, 2> kStateFieldNames = {"exp_avg",
                                                               "exp_avg_sq"};
@@ -229,6 +233,13 @@ void validate_family_options(const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options,
         std::to_string(options.beta1) + ":" + std::to_string(options.beta2),
         "Use NAdam decay factors accepted by the native algorithm.");
   }
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+  if (!std::isfinite(options.rho) || options.rho < 0.0 || options.rho > 1.0) {
+    throw_invalid(std::string(group_id) + ".rho", "a finite value in [0, 1]",
+                  std::to_string(options.rho),
+                  "Use an Adadelta decay factor accepted by the native "
+                  "algorithm.");
+  }
 #else
   if (!std::isfinite(options.beta1) || options.beta1 < 0.0 ||
       options.beta1 >= 1.0 || !std::isfinite(options.beta2) ||
@@ -361,6 +372,11 @@ JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIONS make_native_options(
       .momentum_decay(options.momentum_decay)
       .decoupled_weight_decay(options.decoupled_weight_decay)
       .maximize(options.maximize);
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+  native.rho(options.rho)
+      .eps(options.epsilon)
+      .weight_decay(options.weight_decay)
+      .maximize(options.maximize);
 #else
   native.betas({options.beta1, options.beta2})
       .eps(options.epsilon)
@@ -375,7 +391,8 @@ bool second_state_required(
     const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
 #if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return options.momentum != 0.0;
-#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) || \
+    defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
   static_cast<void>(options);
   return true;
 #else
@@ -384,7 +401,8 @@ bool second_state_required(
 #endif
 }
 
-#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) && \
+    !defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
 bool third_state_required(
     const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
 #if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
@@ -400,6 +418,8 @@ const Tensor& first_state_tensor(
     const JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state) noexcept {
 #if defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
   return state.sum();
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+  return state.square_avg();
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return state.square_avg();
 #else
@@ -415,6 +435,8 @@ const Tensor& second_state_tensor(
   return undefined;
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return state.momentum_buffer();
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+  return state.acc_delta();
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
   return state.exp_avg_sq();
 #else
@@ -430,7 +452,8 @@ const Tensor& third_state_tensor(
   return undefined;
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return state.grad_avg();
-#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) || \
+    defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
   static_cast<void>(state);
   static const Tensor undefined;
   return undefined;
@@ -450,6 +473,10 @@ void set_native_state_tensors(JYPPX_STATEFUL_OPTIMIZER_NATIVE_STATE& state,
   state.square_avg(first);
   state.momentum_buffer(second);
   state.grad_avg(third);
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+  state.square_avg(first);
+  state.acc_delta(second);
+  static_cast<void>(third);
 #elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
   state.exp_avg(first);
   state.exp_avg_sq(second);
@@ -697,6 +724,11 @@ std::vector<std::byte> encode_topology(
     std::uint8_t flags = group.options.decoupled_weight_decay ? 1 : 0;
     flags |= group.options.maximize ? 2 : 0;
     append_u8(output, flags);
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+    append_double(output, group.options.rho);
+    append_double(output, group.options.epsilon);
+    append_double(output, group.options.weight_decay);
+    append_u8(output, group.options.maximize ? 1 : 0);
 #else
     append_double(output, group.options.beta1);
     append_double(output, group.options.beta2);
@@ -876,6 +908,17 @@ void validate_topology_blob(
     }
     options.decoupled_weight_decay = (flags & 1U) != 0;
     options.maximize = (flags & 2U) != 0;
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+    options.rho = cursor.read_double("topology.rho");
+    options.epsilon = cursor.read_double("topology.epsilon");
+    options.weight_decay = cursor.read_double("topology.weight_decay");
+    const auto maximize = cursor.read_u8("topology.maximize");
+    if (maximize > 1) {
+      throw_serialization("topology.maximize", "a boolean",
+                          std::to_string(maximize),
+                          "Reject invalid optimizer options.");
+    }
+    options.maximize = maximize == 1;
 #else
     options.beta1 = cursor.read_double("topology.beta1");
     options.beta2 = cursor.read_double("topology.beta2");
@@ -916,6 +959,10 @@ void validate_topology_blob(
         !std::isfinite(options.weight_decay) || options.weight_decay < 0.0 ||
         !std::isfinite(options.momentum_decay) ||
         options.momentum_decay < 0.0) {
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+    if (!std::isfinite(options.rho) || options.rho < 0.0 || options.rho > 1.0 ||
+        !std::isfinite(options.epsilon) || options.epsilon <= 0.0 ||
+        !std::isfinite(options.weight_decay) || options.weight_decay < 0.0) {
 #else
     if (!std::isfinite(options.beta1) || options.beta1 < 0.0 ||
         options.beta1 >= 1.0 || !std::isfinite(options.beta2) ||
@@ -1245,6 +1292,12 @@ std::vector<double> inspect_native_groups(
         options.decoupled_weight_decay() !=
             expected.options.decoupled_weight_decay ||
         options.maximize() != expected.options.maximize) {
+#elif defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
+    if (!std::isfinite(options.lr()) || options.lr() < 0.0 ||
+        options.rho() != expected.options.rho ||
+        options.eps() != expected.options.epsilon ||
+        options.weight_decay() != expected.options.weight_decay ||
+        options.maximize() != expected.options.maximize) {
 #else
     const auto [beta1, beta2] = options.betas();
     if (!std::isfinite(options.lr()) || options.lr() < 0.0 ||
@@ -1405,9 +1458,11 @@ OptimizerSnapshot inspect_optimizer(
                           kStateFieldNames[0]);
 #if !defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
     const auto& descriptor = groups[parameter.group_index].options;
-#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) || \
+    defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
     validate_state_tensor(second_state_tensor(*family_state),
                           kStateFieldNames[1]);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
     if (!std::isfinite(auxiliary_state_scalar(*family_state)) ||
         auxiliary_state_scalar(*family_state) < 0.0 ||
         auxiliary_state_scalar(*family_state) > 1.0) {
@@ -1415,6 +1470,7 @@ OptimizerSnapshot inspect_optimizer(
                     parameter.parameter_id,
                     "Recover from a valid NAdam checkpoint.");
     }
+#endif
     static_cast<void>(descriptor);
 #else
     if (second_state_required(descriptor)) {
@@ -1926,7 +1982,8 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::save_state(
       write_tensor(kStateFieldNames[0], snapshot.first_state[index]);
 #if !defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
       write_tensor(kStateFieldNames[1], snapshot.second_state[index]);
-#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) && \
+    !defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
       write_tensor(kStateFieldNames[2], snapshot.third_state[index]);
 #endif
 #endif
@@ -2009,7 +2066,8 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
 #if !defined(JYPPX_STATEFUL_OPTIMIZER_ADAGRAD)
       second_state_bytes = reader.read_blob(
           state_field_name(kStateFieldNames[1], index), maximum);
-#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) && \
+    !defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
       third_state_bytes = reader.read_blob(
           state_field_name(kStateFieldNames[2], index), maximum);
 #endif
@@ -2068,7 +2126,8 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
         }
         second_state_candidates.emplace_back();
       }
-#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
+#if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) || \
+    defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA)
       third_state_candidates.emplace_back();
 #else
       if (third_state_required(descriptor)) {

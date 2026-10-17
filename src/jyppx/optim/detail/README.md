@@ -11,9 +11,9 @@ This directory contains private implementation fragments shared by concrete
 optimizer adapters. Files here are not installed and are not part of the
 public API.
 
-`stateful_optimizer_adapter.inc` is instantiated only by the Adam, AdamW, and
-RMSprop adapter translation units. Each translation unit supplies its own
-public descriptor types, native LibTorch optimizer types, diagnostics, wire
-magic, media types, and algorithm family selector before including the
-fragment. This keeps checkpoint schemas distinct while centralizing their
-common validation and atomic-restore behavior.
+`stateful_optimizer_adapter.inc` is instantiated by the Adadelta, Adagrad,
+Adam, AdamW, NAdam, and RMSprop adapter translation units. Each translation
+unit supplies its own public descriptor types, native optimizer types,
+diagnostics, wire magic, media types, and algorithm family selector before
+including the fragment. This keeps checkpoint schemas distinct while
+centralizing their common validation and atomic-restore behavior.

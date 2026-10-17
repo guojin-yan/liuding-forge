@@ -48,16 +48,17 @@ build-framework/tests/benchmarks/Release/jyppx_bench_dataloader.exe \
 
 `bench_trainer_throughput` reports samples per second for batch sizes 16, 32,
 64, and 128. `bench_optimizer_convergence` emits 100 loss values for SGD,
-Adagrad, Adam, AdamW, NAdam, and RMSprop. `bench_sgd_adapter_overhead` and
+Adadelta, Adagrad, Adam, AdamW, NAdam, and RMSprop.
+`bench_sgd_adapter_overhead` and
 `bench_adam_adapter_overhead` measure the local median cost of adapter
 preflight relative to direct LibTorch execution. The equivalent
 `bench_adamw_adapter_overhead` covers decoupled AdamW, while
 `bench_rmsprop_adapter_overhead` covers centered RMSprop with momentum and
 `bench_adagrad_adapter_overhead` covers decayed Adagrad with a nonzero initial
 accumulator.
-LibTorch does not expose NAdam in C++, so
-`bench_nadam_native_throughput` reports absolute median time per step instead
-of an invalid adapter/native ratio.
+The supported LibTorch C++ candidates expose neither NAdam nor Adadelta, so
+`bench_nadam_native_throughput` and `bench_adadelta_native_throughput` report
+absolute median time per step instead of invalid adapter/native ratios.
 `bench_memory_usage` reports resident bytes for worker counts 0, 1, 4, and 8.
 Compare PyTorch with the same seed, model, tensors, dtype, and steps. These are
 engineering measurements, not universal limits.

@@ -180,12 +180,14 @@ $executableSuffix = if ($runningOnWindows) { ".exe" } else { "" }
 $dataLoaderExecutable = Join-Path $benchmarkDir "jyppx_bench_dataloader$executableSuffix"
 $trainerExecutable = Join-Path $benchmarkDir "jyppx_bench_trainer_throughput$executableSuffix"
 $optimizerExecutable = Join-Path $benchmarkDir "jyppx_bench_optimizer_convergence$executableSuffix"
+$adadeltaExecutable = Join-Path $benchmarkDir "jyppx_bench_adadelta_native_throughput$executableSuffix"
 $nadamExecutable = Join-Path $benchmarkDir "jyppx_bench_nadam_native_throughput$executableSuffix"
 $memoryExecutable = Join-Path $benchmarkDir "jyppx_bench_memory_usage$executableSuffix"
 foreach ($executable in @(
         $dataLoaderExecutable,
         $trainerExecutable,
         $optimizerExecutable,
+        $adadeltaExecutable,
         $nadamExecutable,
         $memoryExecutable)) {
     if (-not (Test-Path $executable -PathType Leaf)) {
@@ -249,6 +251,8 @@ for ($sample = 1; $sample -le $Samples; ++$sample) {
 # timing metric, so one complete trajectory is retained without aggregation.
 $benchmarkRuns.Add((Invoke-Captured -Name $optimizerExecutable -Arguments @() `
         -LogName "benchmark-optimizer-convergence.csv"))
+$benchmarkRuns.Add((Invoke-Captured -Name $adadeltaExecutable -Arguments @() `
+        -LogName "benchmark-adadelta-native-throughput.csv"))
 $benchmarkRuns.Add((Invoke-Captured -Name $nadamExecutable -Arguments @() `
         -LogName "benchmark-nadam-native-throughput.csv"))
 

@@ -9,9 +9,10 @@ The migrated optimizer boundary includes independently exported
 [`RmspropOptimizerAdapter`](rmsprop_adapter.md), and
 [`AdagradOptimizerAdapter`](adagrad_adapter.md). They delegate numerical
 updates to LibTorch. The current-only
-[`NAdamOptimizerAdapter`](nadam_adapter.md) supplies the same stable identity
-and storage-neutral recovery contract around a JYPPX-native kernel because
-LibTorch has no public C++ NAdam optimizer.
+[`NAdamOptimizerAdapter`](nadam_adapter.md) and
+[`AdadeltaOptimizerAdapter`](adadelta_adapter.md) supply the same stable
+identity and storage-neutral recovery contract around JYPPX-native kernels
+because the supported LibTorch C++ candidates expose neither algorithm.
 The migrated scheduler boundary includes descriptor-first
 [`StepLrScheduler`](step_lr_scheduler.md) plus transactional
 [`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md)
@@ -23,7 +24,7 @@ exact storage-neutral recovery.
 The legacy hierarchy documented below remains only for optimizer
 algorithms that have not yet migrated. It is not a compatibility wrapper for
 the current API. The old hand-written SGD, Adam, AdamW, RMSprop, Adagrad,
-NAdam, and `optim/schedulers` hierarchy have been removed.
+NAdam, Adadelta, and `optim/schedulers` hierarchy have been removed.
 
 ## Legacy optimizer base
 
@@ -95,8 +96,11 @@ Notes:
 - **NAdam** follows the documented momentum schedule, including `mu_next` and
   a float32-compatible cumulative momentum product. It supports coupled NAdam,
   decoupled NAdamW, and maximize mode with exact per-parameter recovery.
+- **Adadelta** follows the documented two-accumulator update, coupled weight
+  decay, and maximize semantics. Lazy per-parameter steps, squared-gradient
+  averages, and accumulated-delta averages are recovered exactly.
 - Remaining legacy optimizers expose mutable `options()`. Delegated SGD, Adam,
-  AdamW, RMSprop, and Adagrad, plus native NAdam, use
+  AdamW, RMSprop, and Adagrad, plus native NAdam and Adadelta, use
   `set_learning_rates()` as their only mutable hyperparameter operation.
 
 ## Learning-rate schedulers

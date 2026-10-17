@@ -42,6 +42,7 @@ jobs:
           mkdir -p benchmark-results
           build/tests/benchmarks/jyppx_bench_trainer_throughput > benchmark-results/trainer_throughput.csv
           build/tests/benchmarks/jyppx_bench_optimizer_convergence > benchmark-results/optimizer_convergence.csv
+          build/tests/benchmarks/jyppx_bench_adadelta_native_throughput > benchmark-results/adadelta_native_throughput.csv
           build/tests/benchmarks/jyppx_bench_nadam_native_throughput > benchmark-results/nadam_native_throughput.csv
           build/tests/benchmarks/jyppx_bench_memory_usage > benchmark-results/memory_usage.csv
       - name: Upload benchmark results

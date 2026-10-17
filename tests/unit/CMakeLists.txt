@@ -32,6 +32,11 @@ jyppx_add_gtest(jyppx_test_optim
     optim/test_extreme_params.cpp
 )
 
+jyppx_add_gtest(jyppx_test_optim_adadelta_adapter
+    LINK_TARGET jyppx::optim
+    optim/test_adadelta_adapter.cpp
+)
+
 jyppx_add_gtest(jyppx_test_optim_adagrad_adapter
     LINK_TARGET jyppx::optim
     optim/test_adagrad_adapter.cpp

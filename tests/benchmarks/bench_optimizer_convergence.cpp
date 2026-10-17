@@ -6,6 +6,7 @@
 // Optimizer convergence benchmark. Output is CSV for comparison with an
 // equivalent PyTorch script using the same seed and generated tensors.
 
+#include <jyppx/optim/adadelta_adapter.hpp>
 #include <jyppx/optim/adagrad_adapter.hpp>
 #include <jyppx/optim/adam_adapter.hpp>
 #include <jyppx/optim/adamw_adapter.hpp>
@@ -19,6 +20,33 @@
 #include <string>
 
 namespace {
+
+void benchmark_adadelta() {
+  torch::manual_seed(20261012);
+  auto first =
+      torch::randn({32, 16}, torch::TensorOptions().requires_grad(true));
+  auto second =
+      torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
+  const auto inputs = torch::randn({128, 32});
+  const auto targets = torch::randn({128, 1});
+  jyppx::optim::AdadeltaOptimizerAdapter optimizer(
+      "optimizer.adadelta",
+      {{.group_id = "main",
+        .parameters = {{.parameter_id = "first", .parameter = first},
+                       {.parameter_id = "second", .parameter = second}},
+        .options = {.learning_rate = 1.0}}});
+
+  std::cout << "Adadelta,step,loss\n";
+  for (int step = 0; step < 100; ++step) {
+    optimizer.zero_grad();
+    const auto prediction = inputs.matmul(first).matmul(second);
+    const auto loss = torch::mse_loss(prediction, targets);
+    loss.backward();
+    optimizer.step();
+    std::cout << "Adadelta," << step << ',' << std::setprecision(10)
+              << loss.item<double>() << '\n';
+  }
+}
 
 void benchmark_adagrad() {
   torch::manual_seed(20261012);
@@ -187,6 +215,7 @@ void benchmark_sgd() {
 
 int main() {
   benchmark_sgd();
+  benchmark_adadelta();
   benchmark_adagrad();
   benchmark_adam();
   benchmark_adamw();

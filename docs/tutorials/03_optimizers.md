@@ -2,10 +2,11 @@
 
 JYPPX provides a shrinking legacy hand-written optimizer family alongside a
 descriptor-first migration path backed by LibTorch. SGD, Adam, AdamW, RMSprop,
-and Adagrad have crossed that delegated boundary. NAdam has crossed the same
-descriptor, checkpoint, and quality gates with a native kernel because
-LibTorch has no public C++ NAdam optimizer. Algorithms that have not crossed
-those gates remain explicitly marked as legacy.
+and Adagrad have crossed that delegated boundary. NAdam and Adadelta have
+crossed the same descriptor, checkpoint, and quality gates with native kernels
+because the supported LibTorch C++ candidates expose neither optimizer.
+Algorithms that have not crossed those gates remain explicitly marked as
+legacy.
 
 ## Choosing an optimizer
 
@@ -17,6 +18,7 @@ those gates remain explicitly marked as legacy.
 | `RMSprop` | RNNs, non-stationary objectives | `alpha`, `centered`, `momentum` |
 | `Adagrad` | adaptive decay for dense feature updates | `lr_decay`, `initial_accumulator_value` |
 | `NAdam` | Adam-style adaptation with Nesterov momentum | `momentum_decay`, coupled or decoupled `weight_decay`, `maximize` |
+| `Adadelta` | adaptive updates without a manually scaled gradient history | `rho`, `epsilon`, coupled `weight_decay`, `maximize` |
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
@@ -75,6 +77,11 @@ parameter's first and second moments, independent update step, and cumulative
 momentum product. That last scalar is required to resume the scheduled
 Nesterov correction exactly when parameters have different missing-gradient
 histories.
+
+Adadelta uses `AdadeltaOptimizerCheckpointParticipant`. It stores each
+initialized parameter's squared-gradient average, accumulated-delta average,
+and independent update step. Fresh parameters retain lazy empty state, and
+missing gradients do not advance their accumulators.
 
 ## Epoch-based schedulers
 

@@ -44,7 +44,7 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Data](api/data.md) — datasets, subset/concat/split, DataLoader,
   samplers, thread-safe queue
 - [Optimizers and Schedulers](api/optim.md) — SGD, Adam, AdamW, RMSprop,
-  Adagrad, NAdam, Lamb, RAdam, Adamax, ASGD, Rprop, Adadelta, SparseAdam,
+  Adagrad, NAdam, Adadelta, Lamb, RAdam, Adamax, ASGD, Rprop, SparseAdam,
   LBFGS, LARS and Lookahead; the complete scheduler family including warmup
   and composite schedulers
 - [Delegated SGD Adapter](api/sgd_adapter.md) — LibTorch-backed SGD with
@@ -59,6 +59,8 @@ metrics, callbacks, checkpointing and mixed precision.
   eager accumulators, per-parameter steps, and exact bounded state recovery
 - [Native NAdam Adapter](api/nadam_adapter.md) — current-only NAdam/NAdamW
   with the complete momentum schedule and exact per-parameter recovery
+- [Native Adadelta Adapter](api/adadelta_adapter.md) — current-only two-state
+  Adadelta with independent reference coverage and exact bounded recovery
 - [Descriptor-First StepLR](api/step_lr_scheduler.md) — typed scheduler
   semantics, stable optimizer linkage, and exact bounded checkpoint state
 - [Transactional Composite Schedulers](api/composite_lr_scheduler.md) —
