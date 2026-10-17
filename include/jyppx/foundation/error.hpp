@@ -39,6 +39,8 @@ enum class ErrorCode : std::uint16_t {
   internal = 11,  ///< A JYPPX invariant was violated.
   not_ready =
       12,  ///< A valid stateful result is unavailable until more input arrives.
+  deadline_exceeded =
+      13,  ///< An operation did not finish before its declared deadline.
 };
 
 /**
@@ -364,6 +366,28 @@ class NotReady : public Error {
    */
   NotReady(std::string message, std::string hint)
       : Error(ErrorCode::not_ready, std::move(message), std::move(hint)) {}
+};
+
+/** @brief Reports that an operation exceeded a caller-visible deadline. */
+class DeadlineExceeded : public Error {
+ public:
+  /**
+   * @brief Creates a deadline error with structured context.
+   * @param message Concise description of the timed-out operation.
+   * @param details Owned fields describing the deadline and active work.
+   */
+  explicit DeadlineExceeded(std::string message, ErrorDetails details = {})
+      : Error(ErrorCode::deadline_exceeded, std::move(message),
+              std::move(details)) {}
+
+  /**
+   * @brief Creates a deadline error with remediation guidance.
+   * @param message Concise description of the timed-out operation.
+   * @param hint Actionable timeout, cancellation, or workload guidance.
+   */
+  DeadlineExceeded(std::string message, std::string hint)
+      : Error(ErrorCode::deadline_exceeded, std::move(message),
+              std::move(hint)) {}
 };
 
 namespace detail {

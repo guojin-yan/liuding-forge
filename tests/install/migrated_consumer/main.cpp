@@ -142,8 +142,10 @@ int main() {
       {.pipeline_id = "data.consumer",
        .dataset_version = "dataset.consumer/v1",
        .dataset_size = 3,
+       .batch_factory_id = "factory.consumer/v1",
        .batch_size = 2},
-      [](std::span<const std::size_t> batch_indices) {
+      [](std::span<const std::size_t> batch_indices,
+         const jyppx::data::DataWorkerContext&, std::stop_token) {
         return c10::IValue(static_cast<std::int64_t>(batch_indices.size()));
       });
   installed_pipeline.set_epoch(0);

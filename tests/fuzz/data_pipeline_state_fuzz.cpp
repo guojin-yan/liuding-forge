@@ -76,8 +76,10 @@ FuzzStateStore make_baseline() {
        .dataset_version = "dataset.fuzz/v1",
        .dataset_size = 4,
        .schema_id = "batch.fuzz/v1",
+       .batch_factory_id = "factory.fuzz/v1",
        .batch_size = 2},
-      [](std::span<const std::size_t> indices) {
+      [](std::span<const std::size_t> indices,
+         const jyppx::data::DataWorkerContext&, std::stop_token) {
         return c10::IValue(static_cast<std::int64_t>(indices.size()));
       });
   pipeline.set_epoch(2);
@@ -167,8 +169,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
          .dataset_version = "dataset.fuzz/v1",
          .dataset_size = 4,
          .schema_id = "batch.fuzz/v1",
+         .batch_factory_id = "factory.fuzz/v1",
          .batch_size = 2},
-        [](std::span<const std::size_t> indices) {
+        [](std::span<const std::size_t> indices,
+           const jyppx::data::DataWorkerContext&, std::stop_token) {
           return c10::IValue(static_cast<std::int64_t>(indices.size()));
         });
     pipeline.load_state(store, jyppx::RestorePolicy::exact_only);

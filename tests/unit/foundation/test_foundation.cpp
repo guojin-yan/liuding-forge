@@ -28,7 +28,7 @@ TEST(FoundationErrorTest, PreservesStableCodeAndStructuredContext) {
 }
 
 TEST(FoundationErrorTest, KeepsSerializedCodeValuesAndNamesStable) {
-  constexpr std::array<std::pair<jyppx::ErrorCode, const char*>, 12> kCases{{
+  constexpr std::array<std::pair<jyppx::ErrorCode, const char*>, 13> kCases{{
       {jyppx::ErrorCode::invalid_argument, "invalid_argument"},
       {jyppx::ErrorCode::not_implemented, "not_implemented"},
       {jyppx::ErrorCode::device, "device"},
@@ -41,6 +41,7 @@ TEST(FoundationErrorTest, KeepsSerializedCodeValuesAndNamesStable) {
       {jyppx::ErrorCode::backend, "backend"},
       {jyppx::ErrorCode::internal, "internal"},
       {jyppx::ErrorCode::not_ready, "not_ready"},
+      {jyppx::ErrorCode::deadline_exceeded, "deadline_exceeded"},
   }};
 
   for (std::size_t index = 0; index < kCases.size(); ++index) {

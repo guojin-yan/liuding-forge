@@ -11,15 +11,20 @@
 #include <jyppx/foundation/error.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -170,7 +175,8 @@ std::shared_ptr<TensorRowsDataset> make_dataset() {
 
 jyppx::data::DataBatchFactory make_factory(
     const std::shared_ptr<TensorRowsDataset>& dataset) {
-  return [dataset](std::span<const std::size_t> indices) {
+  return [dataset](std::span<const std::size_t> indices,
+                   const jyppx::data::DataWorkerContext&, std::stop_token) {
     std::vector<jyppx::Tensor> rows;
     rows.reserve(indices.size());
     for (const auto index : indices) {
@@ -186,6 +192,70 @@ MemoryStateStore save_state(const jyppx::data::DataPipeline& pipeline) {
   return store;
 }
 
+/** @brief Creates one deterministic worker topology for pipeline tests. */
+jyppx::data::DataPipelineOptions make_worker_options(
+    std::string pipeline_id, std::size_t workers = 3,
+    std::size_t prefetch_batches = 2, bool persistent_workers = true) {
+  return {.pipeline_id = std::move(pipeline_id),
+          .dataset_version = "dataset.worker/v1",
+          .dataset_size = 6,
+          .schema_id = "worker.batch/v1",
+          .batch_factory_id = "factory.worker/v1",
+          .batch_size = 2,
+          .drop_last = false,
+          .num_workers = workers,
+          .prefetch_batches = prefetch_batches,
+          .persistent_workers = persistent_workers,
+          .deterministic_batch_factory = true,
+          .worker_seed = 1977};
+}
+
+/** @brief Drains integer-valued worker batches in committed order. */
+std::vector<std::pair<std::vector<std::uint64_t>, std::int64_t>>
+consume_worker_pipeline(jyppx::data::DataPipeline& pipeline) {
+  std::vector<std::pair<std::vector<std::uint64_t>, std::int64_t>> batches;
+  while (const auto batch = pipeline.next()) {
+    batches.emplace_back(batch->sample_ids, batch->value.toInt());
+  }
+  return batches;
+}
+
+/** @brief Blocks test factories until cooperative cancellation. */
+class StoppableGate final {
+ public:
+  /** @brief Enters the gate and waits for the supplied stop token. */
+  void enter(std::stop_token stop) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    ++entered_;
+    maximum_entered_ = std::max(maximum_entered_, entered_);
+    changed_.notify_all();
+    std::stop_callback notify_stop(stop, [this] { changed_.notify_all(); });
+    changed_.wait(lock, [&] { return stop.stop_requested(); });
+    --entered_;
+    changed_.notify_all();
+  }
+
+  /** @brief Waits until at least @p expected factories entered the gate. */
+  bool wait_for_entered(std::size_t expected,
+                        std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, timeout,
+                             [&] { return entered_ >= expected; });
+  }
+
+  /** @brief Returns the largest simultaneous factory count observed. */
+  std::size_t maximum_entered() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return maximum_entered_;
+  }
+
+ private:
+  mutable std::mutex mutex_;         ///< Protects gate concurrency counters.
+  std::condition_variable changed_;  ///< Announces entry or cancellation.
+  std::size_t entered_ = 0;          ///< Factories currently inside the gate.
+  std::size_t maximum_entered_ = 0;  ///< Peak simultaneous factory count.
+};
+
 TEST(DataPipelineTest, RequiresExplicitEpochAndDoesNotImplicitlyAdvance) {
   auto dataset = make_dataset();
   auto pipeline = jyppx::data::DataPipeline(
@@ -194,6 +264,7 @@ TEST(DataPipelineTest, RequiresExplicitEpochAndDoesNotImplicitlyAdvance) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       make_factory(dataset));
 
@@ -211,6 +282,7 @@ TEST(DataPipelineTest, RequiresExplicitEpochAndDoesNotImplicitlyAdvance) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       make_factory(dataset));
   peer.set_epoch(3);
@@ -226,6 +298,7 @@ TEST(DataPipelineCheckpointTest, RestoresExactInEpochCursor) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   source.set_epoch(4);
@@ -238,6 +311,7 @@ TEST(DataPipelineCheckpointTest, RestoresExactInEpochCursor) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   target.load_state(store, jyppx::RestorePolicy::exact_only);
@@ -270,8 +344,10 @@ TEST(DataPipelineTest, FactoryFailureDoesNotAdvanceCursor) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
-      [&fail, dataset](std::span<const std::size_t> indices) {
+      [&fail, dataset](std::span<const std::size_t> indices,
+                       const jyppx::data::DataWorkerContext&, std::stop_token) {
         if (fail) {
           fail = false;
           throw std::runtime_error("factory failure");
@@ -297,6 +373,7 @@ TEST(DataPipelineTest, CancellationAndDropLastDoNotOverCommit) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 4,
        .drop_last = true},
       make_factory(dataset));
@@ -323,6 +400,7 @@ TEST(DataPipelineTest, FailedEpochPreparationRollsBackSamplerAndCursor) {
                                  .dataset_version = "dataset/v1",
                                  .dataset_size = 6,
                                  .schema_id = "tensor.rows/v1",
+                                 .batch_factory_id = "factory.tensor-rows/v1",
                                  .batch_size = 2},
                                 make_factory(dataset));
   pipeline.set_epoch(3);
@@ -346,6 +424,7 @@ TEST(DataPipelineTest, MissingSamplerIdentityDowngradesRestoreGuarantee) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       make_factory(dataset));
 
@@ -363,6 +442,7 @@ TEST(DataPipelineCheckpointTest, RejectsTopologyMismatchWithoutMutation) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   source.set_epoch(0);
@@ -375,6 +455,7 @@ TEST(DataPipelineCheckpointTest, RejectsTopologyMismatchWithoutMutation) {
        .dataset_version = "dataset/v2",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   const auto before = target.state();
@@ -395,6 +476,7 @@ TEST(DataPipelineCheckpointTest,
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   source.set_epoch(0);
@@ -406,6 +488,7 @@ TEST(DataPipelineCheckpointTest,
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   const auto before = target.state();
@@ -424,6 +507,7 @@ TEST(DataPipelineCheckpointTest, RejectsCorruptCursorWithoutMutation) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   source.set_epoch(2);
@@ -436,6 +520,7 @@ TEST(DataPipelineCheckpointTest, RejectsCorruptCursorWithoutMutation) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   target.set_epoch(5);
@@ -456,6 +541,7 @@ TEST(DataPipelineCheckpointTest, RejectsCursorInsideUncommittedBatch) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   source.set_epoch(0);
@@ -469,6 +555,7 @@ TEST(DataPipelineCheckpointTest, RejectsCursorInsideUncommittedBatch) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   EXPECT_THROW(target.load_state(store, jyppx::RestorePolicy::exact_only),
@@ -485,6 +572,7 @@ TEST(DataPipelineCheckpointTest, RejectsOutOfRangeRestoredSampleId) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   source.set_epoch(0);
@@ -497,11 +585,277 @@ TEST(DataPipelineCheckpointTest, RejectsOutOfRangeRestoredSampleId) {
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
        .schema_id = "tensor.rows/v1",
+       .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
   EXPECT_THROW(target.load_state(store, jyppx::RestorePolicy::exact_only),
                jyppx::SerializationError);
   EXPECT_FALSE(target.state().prepared);
+}
+
+TEST(DataPipelineWorkerTest, PreservesOrderAndStableWorkerContext) {
+  std::mutex contexts_mutex;
+  std::map<std::uint64_t, jyppx::data::DataWorkerContext> contexts;
+  auto factory = [&contexts_mutex, &contexts](
+                     std::span<const std::size_t>,
+                     const jyppx::data::DataWorkerContext& context,
+                     std::stop_token) {
+    if (context.sequence == 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    } else if (context.sequence == 1) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    {
+      std::lock_guard<std::mutex> lock(contexts_mutex);
+      contexts.emplace(context.sequence, context);
+    }
+    return c10::IValue(static_cast<std::int64_t>(context.sequence));
+  };
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6),
+      make_worker_options("data.pipeline.worker-order"), factory);
+
+  pipeline.set_epoch(4);
+  EXPECT_EQ(pipeline.outstanding_batches(), 2U);
+  const auto batches = consume_worker_pipeline(pipeline);
+  ASSERT_EQ(batches.size(), 3U);
+  EXPECT_EQ(batches[0].first, std::vector<std::uint64_t>({0U, 1U}));
+  EXPECT_EQ(batches[1].first, std::vector<std::uint64_t>({2U, 3U}));
+  EXPECT_EQ(batches[2].first, std::vector<std::uint64_t>({4U, 5U}));
+  EXPECT_EQ(batches[0].second, 0);
+  EXPECT_EQ(batches[1].second, 1);
+  EXPECT_EQ(batches[2].second, 2);
+  EXPECT_EQ(pipeline.outstanding_batches(), 0U);
+
+  std::lock_guard<std::mutex> lock(contexts_mutex);
+  ASSERT_EQ(contexts.size(), 3U);
+  for (std::uint64_t sequence = 0; sequence < 3; ++sequence) {
+    const auto& context = contexts.at(sequence);
+    EXPECT_EQ(context.epoch, 4U);
+    EXPECT_EQ(context.sequence, sequence);
+    EXPECT_EQ(context.worker_count, 3U);
+    EXPECT_EQ(context.worker_id, sequence % 3U);
+  }
+  EXPECT_NE(contexts.at(0).worker_seed, contexts.at(1).worker_seed);
+}
+
+TEST(DataPipelineWorkerTest, BoundsTotalPrefetchAndCloseCancelsFactories) {
+  StoppableGate gate;
+  auto factory = [&gate](std::span<const std::size_t>,
+                         const jyppx::data::DataWorkerContext& context,
+                         std::stop_token stop) {
+    gate.enter(stop);
+    return c10::IValue(static_cast<std::int64_t>(context.sequence));
+  };
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6),
+      make_worker_options("data.pipeline.worker-bound", 4, 2), factory);
+
+  pipeline.set_epoch(0);
+  ASSERT_TRUE(gate.wait_for_entered(2, std::chrono::seconds(1)));
+  EXPECT_EQ(pipeline.outstanding_batches(), 2U);
+  EXPECT_EQ(gate.maximum_entered(), 2U);
+  pipeline.close();
+  EXPECT_TRUE(pipeline.closed());
+  EXPECT_EQ(gate.maximum_entered(), 2U);
+  EXPECT_THROW(pipeline.next(), jyppx::NotReady);
+  EXPECT_THROW(pipeline.set_epoch(1), jyppx::NotReady);
+  EXPECT_THROW(static_cast<void>(save_state(pipeline)), jyppx::NotReady);
+}
+
+TEST(DataPipelineWorkerTest, CheckpointReplaysOnlyUncommittedBatchesExactly) {
+  auto factory = [](std::span<const std::size_t>,
+                    const jyppx::data::DataWorkerContext& context,
+                    std::stop_token) {
+    return c10::IValue(
+        static_cast<std::int64_t>(context.sequence * 10U + context.worker_id));
+  };
+  const auto options =
+      make_worker_options("data.pipeline.worker-restore", 3, 3);
+  jyppx::data::DataPipeline source(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      factory);
+  source.set_epoch(8);
+  ASSERT_EQ(source.outstanding_batches(), 3U);
+  const auto first = source.next();
+  ASSERT_TRUE(first.has_value());
+  EXPECT_EQ(first->sequence, 0U);
+  auto store = save_state(source);
+  const auto expected = consume_worker_pipeline(source);
+
+  jyppx::data::DataPipeline restored(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      factory);
+  restored.load_state(store, jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(restored.state().next_sequence, 1U);
+  EXPECT_EQ(consume_worker_pipeline(restored), expected);
+}
+
+TEST(DataPipelineWorkerTest,
+     NonDeterministicFactoryDeclaresBoundedReplayWindow) {
+  auto options = make_worker_options("data.pipeline.worker-bounded", 2, 4);
+  options.deterministic_batch_factory = false;
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      [](std::span<const std::size_t>,
+         const jyppx::data::DataWorkerContext& context, std::stop_token) {
+        return c10::IValue(static_cast<std::int64_t>(context.sequence));
+      });
+
+  const auto capability = pipeline.capability();
+  EXPECT_TRUE(capability.worker_prefetch);
+  EXPECT_EQ(capability.worker_count, 2U);
+  EXPECT_EQ(capability.prefetch_batches, 4U);
+  EXPECT_TRUE(capability.persistent_workers);
+  EXPECT_EQ(capability.max_replayed_batches, 4U);
+  EXPECT_EQ(capability.restore_level, jyppx::RestoreLevel::bounded);
+  EXPECT_FALSE(capability.degradation_reasons.empty());
+}
+
+TEST(DataPipelineWorkerTest, CancellationStopsEpochWithoutCommittingBatch) {
+  auto factory = [](std::span<const std::size_t>,
+                    const jyppx::data::DataWorkerContext& context,
+                    std::stop_token) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    return c10::IValue(static_cast<std::int64_t>(context.sequence));
+  };
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6),
+      make_worker_options("data.pipeline.worker-cancel", 1, 1), factory);
+  pipeline.set_epoch(0);
+
+  std::stop_source cancelled;
+  std::jthread request_cancel([&cancelled] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    cancelled.request_stop();
+  });
+  EXPECT_FALSE(pipeline.next(cancelled.get_token()).has_value());
+  EXPECT_EQ(pipeline.state().next_cursor, 0U);
+  EXPECT_THROW(pipeline.next(), jyppx::Cancelled);
+  pipeline.set_epoch(1);
+  const auto resumed = pipeline.next();
+  ASSERT_TRUE(resumed.has_value());
+  EXPECT_EQ(resumed->epoch, 1U);
+}
+
+TEST(DataPipelineWorkerTest, TimeoutCancelsEpochWithoutAdvancingCursor) {
+  auto options = make_worker_options("data.pipeline.worker-timeout", 1, 1);
+  options.batch_timeout = std::chrono::milliseconds(20);
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      [](std::span<const std::size_t>,
+         const jyppx::data::DataWorkerContext& context, std::stop_token stop) {
+        while (!stop.stop_requested()) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return c10::IValue(static_cast<std::int64_t>(context.sequence));
+      });
+  pipeline.set_epoch(0);
+
+  EXPECT_THROW(pipeline.next(), jyppx::DeadlineExceeded);
+  EXPECT_EQ(pipeline.state().next_cursor, 0U);
+  EXPECT_THROW(pipeline.next(), jyppx::DeadlineExceeded);
+  pipeline.close();
+  EXPECT_TRUE(pipeline.closed());
+}
+
+TEST(DataPipelineWorkerTest, WorkerFailureIsStructuredAndStopsTheEpoch) {
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6),
+      make_worker_options("data.pipeline.worker-error", 2, 2),
+      [](std::span<const std::size_t>,
+         const jyppx::data::DataWorkerContext& context, std::stop_token) {
+        if (context.sequence == 0) {
+          throw std::runtime_error("synthetic worker failure");
+        }
+        return c10::IValue(static_cast<std::int64_t>(context.sequence));
+      });
+  pipeline.set_epoch(0);
+
+  EXPECT_THROW(pipeline.next(), jyppx::BackendError);
+  EXPECT_EQ(pipeline.state().next_cursor, 0U);
+  EXPECT_THROW(pipeline.next(), jyppx::BackendError);
+}
+
+TEST(DataPipelineWorkerTest, PersistentWorkersAcceptASecondExplicitEpoch) {
+  std::atomic<std::uint64_t> calls{0};
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6),
+      make_worker_options("data.pipeline.worker-persistent", 2, 2, true),
+      [&calls](std::span<const std::size_t>,
+               const jyppx::data::DataWorkerContext& context, std::stop_token) {
+        calls.fetch_add(1, std::memory_order_relaxed);
+        return c10::IValue(static_cast<std::int64_t>(context.epoch));
+      });
+
+  pipeline.set_epoch(2);
+  const auto first_epoch = consume_worker_pipeline(pipeline);
+  pipeline.set_epoch(3);
+  const auto second_epoch = consume_worker_pipeline(pipeline);
+  ASSERT_EQ(first_epoch.size(), 3U);
+  ASSERT_EQ(second_epoch.size(), 3U);
+  EXPECT_EQ(first_epoch.front().second, 2);
+  EXPECT_EQ(second_epoch.front().second, 3);
+  EXPECT_EQ(calls.load(std::memory_order_relaxed), 6U);
+}
+
+TEST(DataPipelineWorkerTest, RejectsWorkerTopologyMismatchWithoutMutation) {
+  auto factory = [](std::span<const std::size_t>,
+                    const jyppx::data::DataWorkerContext& context,
+                    std::stop_token) {
+    return c10::IValue(static_cast<std::int64_t>(context.sequence));
+  };
+  auto source_options =
+      make_worker_options("data.pipeline.worker-topology", 2, 2);
+  jyppx::data::DataPipeline source(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6),
+      source_options, factory);
+  source.set_epoch(1);
+  ASSERT_TRUE(source.next().has_value());
+  auto store = save_state(source);
+
+  auto target_options = source_options;
+  target_options.num_workers = 3;
+  jyppx::data::DataPipeline target(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6),
+      target_options, factory);
+  target.set_epoch(9);
+  const auto before = target.state();
+  EXPECT_THROW(target.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(target.state().epoch, before.epoch);
+  EXPECT_EQ(target.state().next_cursor, before.next_cursor);
+}
+
+TEST(DataPipelineWorkerTest, RejectsInvalidWorkerOptionsBeforeStarting) {
+  auto sampler = std::make_shared<jyppx::data::samplers::SequentialSampler>(6);
+  auto factory = [](std::span<const std::size_t>,
+                    const jyppx::data::DataWorkerContext& context,
+                    std::stop_token) {
+    return c10::IValue(static_cast<std::int64_t>(context.sequence));
+  };
+
+  auto missing_identity = make_worker_options("data.pipeline.invalid-id");
+  missing_identity.batch_factory_id.clear();
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, missing_identity, factory),
+               jyppx::InvalidArgument);
+
+  auto no_workers = make_worker_options("data.pipeline.invalid-persistent");
+  no_workers.num_workers = 0;
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, no_workers, factory),
+               jyppx::InvalidArgument);
+
+  auto no_prefetch = make_worker_options("data.pipeline.invalid-prefetch");
+  no_prefetch.prefetch_batches = 0;
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, no_prefetch, factory),
+               jyppx::InvalidArgument);
+
+  auto inline_timeout = make_worker_options("data.pipeline.invalid-timeout");
+  inline_timeout.num_workers = 0;
+  inline_timeout.persistent_workers = false;
+  inline_timeout.batch_timeout = std::chrono::milliseconds(1);
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, inline_timeout, factory),
+               jyppx::InvalidArgument);
 }
 
 }  // namespace

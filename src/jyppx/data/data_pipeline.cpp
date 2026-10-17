@@ -7,23 +7,33 @@
 #include <jyppx/foundation/error.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
 #include <exception>
 #include <limits>
-#include <stdexcept>
+#include <map>
+#include <mutex>
+#include <thread>
+#include <type_traits>
 #include <utility>
 
 namespace jyppx::data {
 namespace {
 
 constexpr char kComponent[] = "data.pipeline";
-constexpr char kTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v1";
-constexpr char kCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v1";
+constexpr char kTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v2";
+constexpr char kCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v2";
 constexpr std::uint64_t kMaxTopologyBytes = 32U * 1024U * 1024U;
 constexpr std::uint64_t kMaxCursorBytes = 128U;
 constexpr std::uint64_t kMaxIndexCount = 2U * 1024U * 1024U;
 constexpr std::uint64_t kMaxMetadataBytes = 4096U;
 constexpr std::uint64_t kMaxSamplerIdentityBytes = 4096U;
 constexpr std::uint64_t kMaxSamplerStateBytes = 8U * 1024U * 1024U;
+constexpr std::size_t kMaxWorkerCount = 256U;
+constexpr std::size_t kMaxPrefetchBatches = 4096U;
+constexpr std::uint64_t kMaxBatchTimeoutMs = 24ULL * 60ULL * 60ULL * 1000ULL;
+
+static_assert(std::is_nothrow_move_assignable_v<DataPipelineState>);
 
 void append_byte(std::string& output, std::uint8_t value) {
   output.push_back(static_cast<char>(value));
@@ -59,6 +69,34 @@ std::uint64_t read_u64(std::span<const std::byte> input, std::size_t& offset) {
   return value;
 }
 
+std::size_t read_size(std::span<const std::byte> input, std::size_t& offset,
+                      std::string_view field) {
+  const auto value = read_u64(input, offset);
+  if (value > std::numeric_limits<std::size_t>::max()) {
+    throw SerializationError("DataPipeline size field is out of range",
+                             ErrorDetails{.component = kComponent,
+                                          .operation = std::string(field),
+                                          .expected = "size_t range",
+                                          .actual = std::to_string(value),
+                                          .hint = "Use valid current state."});
+  }
+  return static_cast<std::size_t>(value);
+}
+
+bool read_bool(std::span<const std::byte> input, std::size_t& offset,
+               std::string_view field) {
+  const auto value = read_byte(input, offset);
+  if (value > 1U) {
+    throw SerializationError("DataPipeline state contains an invalid boolean",
+                             ErrorDetails{.component = kComponent,
+                                          .operation = std::string(field),
+                                          .expected = "0 or 1",
+                                          .actual = std::to_string(value),
+                                          .hint = "Use valid current state."});
+  }
+  return value != 0U;
+}
+
 std::string read_string(std::span<const std::byte> input, std::size_t& offset,
                         std::uint64_t max_bytes) {
   const auto size = read_u64(input, offset);
@@ -68,7 +106,7 @@ std::string read_string(std::span<const std::byte> input, std::size_t& offset,
                                          .operation = "decode.string",
                                          .expected = "bounded string",
                                          .actual = std::to_string(size),
-                                         .hint = "Use a valid current state."});
+                                         .hint = "Use valid current state."});
   }
   if (size > input.size() - offset) {
     throw SerializationError("DataPipeline state ended while reading a string");
@@ -92,7 +130,7 @@ void require_magic(const std::string& actual, const char* expected) {
                      .operation = "decode.magic",
                      .expected = expected,
                      .actual = actual,
-                     .hint = "Use a state produced by the current schema."});
+                     .hint = "Use state produced by the current schema."});
   }
 }
 
@@ -109,10 +147,17 @@ std::string encode_topology(const DataPipelineState& state) {
   append_string(output, state.dataset_version);
   append_u64(output, state.dataset_size);
   append_string(output, state.schema_id);
+  append_string(output, state.batch_factory_id);
   append_string(output, state.sampler_identity);
   append_u64(output, state.batch_size);
-  append_byte(output, state.drop_last ? 1 : 0);
-  append_byte(output, state.sampler_state_supported ? 1 : 0);
+  append_byte(output, state.drop_last ? 1U : 0U);
+  append_u64(output, state.num_workers);
+  append_u64(output, state.prefetch_batches);
+  append_byte(output, state.persistent_workers ? 1U : 0U);
+  append_byte(output, state.deterministic_batch_factory ? 1U : 0U);
+  append_u64(output, state.worker_seed);
+  append_u64(output, state.batch_timeout_ms);
+  append_byte(output, state.sampler_state_supported ? 1U : 0U);
   append_string(output, state.sampler_state);
   append_u64(output, static_cast<std::uint64_t>(state.epoch_indices.size()));
   for (const auto index : state.epoch_indices) {
@@ -124,7 +169,7 @@ std::string encode_topology(const DataPipelineState& state) {
 std::string encode_cursor(const DataPipelineState& state) {
   std::string output;
   append_string(output, kCursorMagic);
-  append_byte(output, state.prepared ? 1 : 0);
+  append_byte(output, state.prepared ? 1U : 0U);
   append_u64(output, state.epoch);
   append_u64(output, state.next_cursor);
   append_u64(output, state.next_sequence);
@@ -139,26 +184,25 @@ DataPipelineState decode_state(std::span<const std::byte> topology,
   state.pipeline_id = read_string(topology, topology_offset, kMaxMetadataBytes);
   state.dataset_version =
       read_string(topology, topology_offset, kMaxMetadataBytes);
-  const auto dataset_size = read_u64(topology, topology_offset);
-  if (dataset_size > std::numeric_limits<std::size_t>::max()) {
-    throw SerializationError("DataPipeline dataset size is out of range");
-  }
-  state.dataset_size = static_cast<std::size_t>(dataset_size);
+  state.dataset_size = read_size(topology, topology_offset, "dataset_size");
   state.schema_id = read_string(topology, topology_offset, kMaxMetadataBytes);
+  state.batch_factory_id =
+      read_string(topology, topology_offset, kMaxMetadataBytes);
   state.sampler_identity =
       read_string(topology, topology_offset, kMaxSamplerIdentityBytes);
-  const auto batch_size = read_u64(topology, topology_offset);
-  if (batch_size > std::numeric_limits<std::size_t>::max()) {
-    throw SerializationError("DataPipeline batch size is out of range");
-  }
-  state.batch_size = static_cast<std::size_t>(batch_size);
-  const auto drop_last = read_byte(topology, topology_offset);
-  const auto sampler_supported = read_byte(topology, topology_offset);
-  if (drop_last > 1 || sampler_supported > 1) {
-    throw SerializationError("DataPipeline state contains an invalid boolean");
-  }
-  state.drop_last = drop_last != 0;
-  state.sampler_state_supported = sampler_supported != 0;
+  state.batch_size = read_size(topology, topology_offset, "batch_size");
+  state.drop_last = read_bool(topology, topology_offset, "drop_last");
+  state.num_workers = read_size(topology, topology_offset, "num_workers");
+  state.prefetch_batches =
+      read_size(topology, topology_offset, "prefetch_batches");
+  state.persistent_workers =
+      read_bool(topology, topology_offset, "persistent_workers");
+  state.deterministic_batch_factory =
+      read_bool(topology, topology_offset, "deterministic_batch_factory");
+  state.worker_seed = read_u64(topology, topology_offset);
+  state.batch_timeout_ms = read_u64(topology, topology_offset);
+  state.sampler_state_supported =
+      read_bool(topology, topology_offset, "sampler_state_supported");
   state.sampler_state =
       read_string(topology, topology_offset, kMaxSamplerStateBytes);
   const auto count = read_u64(topology, topology_offset);
@@ -171,21 +215,14 @@ DataPipelineState decode_state(std::span<const std::byte> topology,
   }
   state.epoch_indices.reserve(static_cast<std::size_t>(count));
   for (std::uint64_t index = 0; index < count; ++index) {
-    const auto value = read_u64(topology, topology_offset);
-    if (value > std::numeric_limits<std::size_t>::max()) {
-      throw SerializationError("DataPipeline index is out of range");
-    }
-    state.epoch_indices.push_back(static_cast<std::size_t>(value));
+    state.epoch_indices.push_back(
+        read_size(topology, topology_offset, "sample_index"));
   }
   require_end(topology, topology_offset);
 
   std::size_t cursor_offset = 0;
   require_magic(read_string(cursor, cursor_offset, 128), kCursorMagic);
-  const auto prepared = read_byte(cursor, cursor_offset);
-  if (prepared > 1) {
-    throw SerializationError("DataPipeline cursor contains an invalid boolean");
-  }
-  state.prepared = prepared != 0;
+  state.prepared = read_bool(cursor, cursor_offset, "prepared");
   state.epoch = read_u64(cursor, cursor_offset);
   state.next_cursor = read_u64(cursor, cursor_offset);
   state.next_sequence = read_u64(cursor, cursor_offset);
@@ -202,82 +239,606 @@ void write_blob(StateWriter& writer, std::string_view name,
   writer.write_blob(name, std::as_bytes(std::span(value.data(), value.size())));
 }
 
-}  // namespace
+std::uint64_t fnv1a(std::string_view value) noexcept {
+  std::uint64_t hash = 1469598103934665603ULL;
+  for (const auto character : value) {
+    hash ^= static_cast<unsigned char>(character);
+    hash *= 1099511628211ULL;
+  }
+  return hash;
+}
 
-DataPipeline::DataPipeline(std::shared_ptr<samplers::Sampler> sampler,
-                           DataPipelineOptions options,
-                           DataBatchFactory batch_factory)
-    : sampler_(std::move(sampler)),
-      options_(std::move(options)),
-      batch_factory_(std::move(batch_factory)) {
-  if (!sampler_) {
-    throw InvalidArgument("DataPipeline sampler cannot be null");
+std::uint64_t mix64(std::uint64_t value) noexcept {
+  value += 0x9e3779b97f4a7c15ULL;
+  value = (value ^ (value >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+  value = (value ^ (value >> 27U)) * 0x94d049bb133111ebULL;
+  return value ^ (value >> 31U);
+}
+
+std::uint64_t derive_worker_seed(const DataPipelineOptions& options,
+                                 std::uint64_t epoch, std::uint32_t worker_id,
+                                 std::uint64_t sequence) noexcept {
+  auto seed = mix64(options.worker_seed ^ fnv1a(options.dataset_version));
+  seed = mix64(seed ^ epoch);
+  seed = mix64(seed ^ worker_id);
+  return mix64(seed ^ sequence);
+}
+
+DataWorkerContext make_worker_context(const DataPipelineOptions& options,
+                                      std::uint64_t epoch,
+                                      std::uint64_t sequence) noexcept {
+  const auto worker_count = static_cast<std::uint32_t>(
+      options.num_workers == 0 ? 1U : options.num_workers);
+  const auto worker_id = static_cast<std::uint32_t>(sequence % worker_count);
+  return {
+      .worker_id = worker_id,
+      .worker_count = worker_count,
+      .worker_seed = derive_worker_seed(options, epoch, worker_id, sequence),
+      .epoch = epoch,
+      .sequence = sequence};
+}
+
+[[noreturn]] void rethrow_factory_failure(std::string_view operation) {
+  try {
+    throw;
+  } catch (const Error&) {
+    throw;
+  } catch (const std::exception& cause) {
+    std::throw_with_nested(BackendError(
+        "DataPipeline batch factory failed",
+        ErrorDetails{.component = kComponent,
+                     .operation = std::string(operation),
+                     .expected = "one complete batch",
+                     .actual = cause.what(),
+                     .hint = "Inspect the nested factory error."}));
+  } catch (...) {
+    std::throw_with_nested(BackendError(
+        "DataPipeline batch factory failed",
+        ErrorDetails{.component = kComponent,
+                     .operation = std::string(operation),
+                     .expected = "one complete batch",
+                     .actual = "non-standard exception",
+                     .hint = "Inspect the nested factory error."}));
   }
-  if (!batch_factory_) {
-    throw InvalidArgument("DataPipeline batch factory cannot be empty");
+}
+
+c10::IValue invoke_factory(const DataBatchFactory& factory,
+                           std::span<const std::size_t> indices,
+                           const DataWorkerContext& context,
+                           std::stop_token stop) {
+  try {
+    return factory(indices, context, stop);
+  } catch (...) {
+    rethrow_factory_failure("batch_factory");
   }
-  if (options_.pipeline_id.empty() || options_.dataset_version.empty() ||
-      options_.schema_id.empty()) {
+}
+
+struct BatchWork {
+  // Monotonic batch position used to restore consumer-visible ordering.
+  std::uint64_t sequence = 0;
+  // Cursor value to commit only after this batch is delivered successfully.
+  std::size_t end_cursor = 0;
+  // Stable sample selection captured when the epoch is prepared.
+  std::vector<std::size_t> indices;
+  // Deterministic logical-worker metadata passed to the batch factory.
+  DataWorkerContext context;
+};
+
+struct BatchResult {
+  // Sequence copied from the claimed work item.
+  std::uint64_t sequence = 0;
+  // Cursor boundary validated before the pipeline commits the result.
+  std::size_t end_cursor = 0;
+  // Materialized batch value when the factory succeeds.
+  c10::IValue value;
+  // Structured factory failure retained for ordered propagation.
+  std::exception_ptr error;
+};
+
+struct EpochWork {
+  // Cooperative cancellation shared by all factories serving this epoch.
+  std::stop_source stop_source;
+  // Immutable work plan created from the committed pipeline cursor.
+  std::vector<BatchWork> batches;
+  // First work-plan entry that has not yet been claimed by a worker.
+  std::size_t next_claim = 0;
+  // Exclusive scheduling boundary that enforces total prefetch capacity.
+  std::size_t allowed = 0;
+  // Number of results already delivered and committed by the consumer.
+  std::size_t committed = 0;
+  // Only this sequence may be observed by the consumer next.
+  std::uint64_t next_commit_sequence = 0;
+  // Out-of-order completions retained until their sequence becomes visible.
+  std::map<std::uint64_t, std::shared_ptr<BatchResult>> results;
+  // First cancellation, timeout, or factory failure terminating the epoch.
+  std::exception_ptr terminal_error;
+};
+
+std::shared_ptr<EpochWork> make_epoch_work(const DataPipelineState& state,
+                                           const DataPipelineOptions& options) {
+  auto epoch = std::make_shared<EpochWork>();
+  epoch->next_commit_sequence = state.next_sequence;
+  auto cursor = static_cast<std::size_t>(state.next_cursor);
+  auto sequence = state.next_sequence;
+  while (cursor < state.epoch_indices.size()) {
+    if (sequence == std::numeric_limits<std::uint64_t>::max()) {
+      throw ResourceExhausted("DataPipeline batch sequence exhausted");
+    }
+    const auto end =
+        std::min(cursor + options.batch_size, state.epoch_indices.size());
+    BatchWork work;
+    work.sequence = sequence;
+    work.end_cursor = end;
+    work.indices.assign(
+        state.epoch_indices.begin() + static_cast<std::ptrdiff_t>(cursor),
+        state.epoch_indices.begin() + static_cast<std::ptrdiff_t>(end));
+    work.context = make_worker_context(options, state.epoch, sequence);
+    epoch->batches.push_back(std::move(work));
+    cursor = end;
+    ++sequence;
+  }
+  epoch->allowed = std::min(options.prefetch_batches, epoch->batches.size());
+  return epoch;
+}
+
+class WorkerRuntime final {
+ public:
+  // Starts a fixed worker pool. Workers remain idle until activate() installs
+  // an epoch plan.
+  WorkerRuntime(DataBatchFactory factory, std::size_t workers,
+                std::chrono::milliseconds timeout)
+      : factory_(std::move(factory)), timeout_(timeout) {
+    workers_.reserve(workers);
+    try {
+      for (std::size_t index = 0; index < workers; ++index) {
+        workers_.emplace_back(
+            [this](std::stop_token stop) { worker_loop(stop); });
+      }
+    } catch (...) {
+      close();
+      throw;
+    }
+  }
+
+  WorkerRuntime(const WorkerRuntime&) = delete;
+  WorkerRuntime& operator=(const WorkerRuntime&) = delete;
+
+  // Cooperatively closes the pool and joins every worker.
+  ~WorkerRuntime() { close(); }
+
+  // Replaces the active epoch after cancelling any prior in-flight work.
+  void activate(std::shared_ptr<EpochWork> epoch) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (active_) {
+      active_->stop_source.request_stop();
+    }
+    active_ = std::move(epoch);
+    condition_.notify_all();
+  }
+
+  // Waits for the next consumer-visible sequence while retaining later
+  // completions in the reorder buffer.
+  std::shared_ptr<const BatchResult> wait_for(std::uint64_t sequence,
+                                              std::stop_token stop) {
+    std::stop_callback notify_stop(stop, [this] { cancel_active(); });
+    std::unique_lock<std::mutex> lock(mutex_);
+    const auto deadline = std::chrono::steady_clock::now() + timeout_;
+    while (true) {
+      if (stop.stop_requested()) {
+        return {};
+      }
+      if (closing_) {
+        throw NotReady("DataPipeline worker runtime is closed");
+      }
+      if (!active_ || sequence != active_->next_commit_sequence) {
+        throw InternalError("DataPipeline worker sequence is inconsistent");
+      }
+      if (active_->terminal_error) {
+        std::rethrow_exception(active_->terminal_error);
+      }
+      const auto found = active_->results.find(sequence);
+      if (found != active_->results.end()) {
+        const auto result = found->second;
+        if (result->error) {
+          active_->terminal_error = result->error;
+          active_->stop_source.request_stop();
+          condition_.notify_all();
+          std::rethrow_exception(result->error);
+        }
+        return result;
+      }
+      if (timeout_.count() == 0) {
+        condition_.wait(lock);
+        continue;
+      }
+      if (condition_.wait_until(lock, deadline) == std::cv_status::timeout) {
+        if (active_->results.contains(sequence)) {
+          continue;
+        }
+        active_->terminal_error = std::make_exception_ptr(DeadlineExceeded(
+            "DataPipeline batch wait exceeded its deadline",
+            ErrorDetails{
+                .component = kComponent,
+                .operation = "next.wait",
+                .expected = "completion within " +
+                            std::to_string(timeout_.count()) + " ms",
+                .actual = "batch sequence " + std::to_string(sequence) +
+                          " still pending",
+                .hint = "Increase batch_timeout or fix the factory."}));
+        active_->stop_source.request_stop();
+        condition_.notify_all();
+        std::rethrow_exception(active_->terminal_error);
+      }
+    }
+  }
+
+  // Advances the scheduling window only after successful consumer delivery.
+  void commit(std::uint64_t sequence) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!active_ || active_->terminal_error ||
+        active_->next_commit_sequence != sequence) {
+      return;
+    }
+    active_->results.erase(sequence);
+    ++active_->committed;
+    ++active_->next_commit_sequence;
+    if (active_->allowed < active_->batches.size()) {
+      ++active_->allowed;
+    }
+    condition_.notify_all();
+  }
+
+  // Reports scheduled but uncommitted batches, including completed results.
+  std::size_t outstanding_batches() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!active_ || active_->terminal_error || closing_ ||
+        active_->allowed < active_->committed) {
+      return 0;
+    }
+    return active_->allowed - active_->committed;
+  }
+
+  // Terminates the active epoch without advancing its committed cursor.
+  void cancel_active() noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!active_ || active_->terminal_error) {
+      condition_.notify_all();
+      return;
+    }
+    active_->terminal_error = std::make_exception_ptr(Cancelled(
+        "DataPipeline epoch was cancelled before the next batch committed"));
+    active_->stop_source.request_stop();
+    condition_.notify_all();
+  }
+
+  // Requests cooperative cancellation and joins every worker exactly once.
+  void close() noexcept {
+    std::vector<std::jthread> workers;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (closing_ && workers_.empty()) {
+        return;
+      }
+      closing_ = true;
+      if (active_) {
+        active_->stop_source.request_stop();
+      }
+      for (auto& worker : workers_) {
+        worker.request_stop();
+      }
+      workers.swap(workers_);
+      condition_.notify_all();
+    }
+    workers.clear();
+    std::lock_guard<std::mutex> lock(mutex_);
+    active_.reset();
+  }
+
+ private:
+  // Claims eligible work, invokes the factory without holding the runtime
+  // mutex, and publishes completion back into the ordered result map.
+  void worker_loop(std::stop_token thread_stop) {
+    std::stop_callback notify_stop(thread_stop,
+                                   [this] { condition_.notify_all(); });
+    while (true) {
+      std::shared_ptr<EpochWork> epoch;
+      const BatchWork* work = nullptr;
+      {
+        std::unique_lock<std::mutex> lock(mutex_);
+        condition_.wait(lock, [&] {
+          return closing_ || thread_stop.stop_requested() ||
+                 (active_ && !active_->terminal_error &&
+                  active_->next_claim < active_->allowed);
+        });
+        if (closing_ || thread_stop.stop_requested()) {
+          return;
+        }
+        epoch = active_;
+        work = &epoch->batches[epoch->next_claim++];
+      }
+
+      auto result = std::make_shared<BatchResult>();
+      result->sequence = work->sequence;
+      result->end_cursor = work->end_cursor;
+      try {
+        if (epoch->stop_source.stop_requested()) {
+          continue;
+        }
+        result->value = invoke_factory(factory_, work->indices, work->context,
+                                       epoch->stop_source.get_token());
+      } catch (...) {
+        result->error = std::current_exception();
+      }
+
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!closing_ && active_ == epoch && !epoch->terminal_error &&
+          !epoch->stop_source.stop_requested()) {
+        epoch->results.emplace(result->sequence, std::move(result));
+        condition_.notify_all();
+      }
+    }
+  }
+
+  // User factory copied into the runtime so persistent workers can reuse it.
+  DataBatchFactory factory_;
+  // Zero means an unbounded wait; positive values apply per next() call.
+  std::chrono::milliseconds timeout_;
+  // Guards all fields below and every mutable EpochWork scheduling field.
+  mutable std::mutex mutex_;
+  // Wakes workers for scheduling and consumers for completion or shutdown.
+  std::condition_variable condition_;
+  // Join-on-destruction worker threads owned exclusively by this runtime.
+  std::vector<std::jthread> workers_;
+  // Current epoch plan; null while persistent workers are idle.
+  std::shared_ptr<EpochWork> active_;
+  // Prevents new work from being claimed once shutdown begins.
+  bool closing_ = false;
+};
+
+void validate_options(const DataPipelineOptions& options) {
+  if (options.pipeline_id.empty() || options.dataset_version.empty() ||
+      options.schema_id.empty() || options.batch_factory_id.empty()) {
     throw InvalidArgument(
-        "DataPipeline identity, dataset version, and schema ID are required");
+        "DataPipeline identity, dataset, schema, and factory IDs are required");
   }
-  if (options_.pipeline_id.size() > kMaxMetadataBytes ||
-      options_.dataset_version.size() > kMaxMetadataBytes ||
-      options_.schema_id.size() > kMaxMetadataBytes) {
+  if (options.pipeline_id.size() > kMaxMetadataBytes ||
+      options.dataset_version.size() > kMaxMetadataBytes ||
+      options.schema_id.size() > kMaxMetadataBytes ||
+      options.batch_factory_id.size() > kMaxMetadataBytes) {
     throw ResourceExhausted(
         "DataPipeline identity metadata exceeds its declared bound");
   }
-  if (options_.dataset_size == 0) {
+  if (options.dataset_size == 0) {
     throw InvalidArgument("DataPipeline dataset_size must be positive");
   }
-  if (options_.batch_size == 0) {
+  if (options.batch_size == 0) {
     throw InvalidArgument("DataPipeline batch_size must be positive");
   }
-  if (sampler_->size() == 0) {
+  if (options.num_workers > kMaxWorkerCount) {
+    throw ResourceExhausted("DataPipeline worker count exceeds its bound");
+  }
+  if (options.prefetch_batches == 0 ||
+      options.prefetch_batches > kMaxPrefetchBatches) {
+    throw InvalidArgument(
+        "DataPipeline prefetch_batches must be within the supported bound");
+  }
+  if (options.num_workers == 0 && options.persistent_workers) {
+    throw InvalidArgument(
+        "DataPipeline persistent_workers requires background workers");
+  }
+  if (options.batch_timeout.count() < 0 ||
+      static_cast<std::uint64_t>(options.batch_timeout.count()) >
+          kMaxBatchTimeoutMs) {
+    throw InvalidArgument("DataPipeline batch_timeout is out of range");
+  }
+  if (options.num_workers == 0 && options.batch_timeout.count() != 0) {
+    throw InvalidArgument(
+        "DataPipeline batch_timeout requires background workers");
+  }
+}
+
+DataPipelineState make_initial_state(const DataPipelineOptions& options,
+                                     const samplers::Sampler& sampler) {
+  DataPipelineState state;
+  state.pipeline_id = options.pipeline_id;
+  state.dataset_version = options.dataset_version;
+  state.dataset_size = options.dataset_size;
+  state.schema_id = options.schema_id;
+  state.batch_factory_id = options.batch_factory_id;
+  state.batch_size = options.batch_size;
+  state.drop_last = options.drop_last;
+  state.num_workers = options.num_workers;
+  state.prefetch_batches = options.prefetch_batches;
+  state.persistent_workers = options.persistent_workers;
+  state.deterministic_batch_factory = options.deterministic_batch_factory;
+  state.worker_seed = options.worker_seed;
+  state.batch_timeout_ms =
+      static_cast<std::uint64_t>(options.batch_timeout.count());
+  state.sampler_state_supported = sampler.supports_state();
+  state.sampler_identity = sampler.configuration_identity();
+  if (state.sampler_state_supported) {
+    state.sampler_state = sampler.save_state();
+  }
+  return state;
+}
+
+}  // namespace
+
+struct DataPipeline::Impl {
+  std::shared_ptr<samplers::Sampler> sampler;
+  DataPipelineOptions options;
+  DataBatchFactory batch_factory;
+  DataPipelineState state;
+  std::unique_ptr<WorkerRuntime> runtime;
+  bool closed = false;
+
+  DataCapability capability() const {
+    DataCapability result;
+    result.deterministic_epoch = sampler->supports_epoch_control();
+    result.worker_prefetch = options.num_workers != 0;
+    result.worker_count = options.num_workers;
+    result.prefetch_batches =
+        options.num_workers == 0 ? 0 : options.prefetch_batches;
+    result.persistent_workers = options.persistent_workers;
+    result.batch_timeout = options.batch_timeout.count() != 0;
+    result.max_replayed_batches =
+        options.num_workers == 0 ? 0 : options.prefetch_batches;
+
+    const auto has_state = sampler->supports_state();
+    const auto has_identity = !sampler->configuration_identity().empty();
+    const auto replayable = options.deterministic_batch_factory;
+    result.restore_level = has_state && has_identity && replayable
+                               ? RestoreLevel::exact
+                               : RestoreLevel::bounded;
+    if (!has_state) {
+      result.degradation_reasons.emplace_back(
+          "sampler does not expose exact state");
+    }
+    if (!has_identity) {
+      result.degradation_reasons.emplace_back(
+          "sampler does not expose a stable configuration identity");
+    }
+    if (!replayable) {
+      result.degradation_reasons.emplace_back(
+          "batch factory does not guarantee deterministic replay");
+    }
+    return result;
+  }
+
+  void validate_state(const DataPipelineState& candidate) const {
+    if (candidate.version != DataPipelineState::format_version ||
+        candidate.pipeline_id != options.pipeline_id ||
+        candidate.dataset_version != options.dataset_version ||
+        candidate.dataset_size != options.dataset_size ||
+        candidate.schema_id != options.schema_id ||
+        candidate.batch_factory_id != options.batch_factory_id ||
+        candidate.sampler_identity != sampler->configuration_identity() ||
+        candidate.batch_size != options.batch_size ||
+        candidate.drop_last != options.drop_last ||
+        candidate.num_workers != options.num_workers ||
+        candidate.prefetch_batches != options.prefetch_batches ||
+        candidate.persistent_workers != options.persistent_workers ||
+        candidate.deterministic_batch_factory !=
+            options.deterministic_batch_factory ||
+        candidate.worker_seed != options.worker_seed ||
+        candidate.batch_timeout_ms !=
+            static_cast<std::uint64_t>(options.batch_timeout.count())) {
+      throw CompatibilityError("DataPipeline state topology is incompatible");
+    }
+    if (candidate.sampler_state_supported != sampler->supports_state()) {
+      throw CompatibilityError("DataPipeline sampler state capability changed");
+    }
+    if (!candidate.prepared) {
+      if (candidate.next_cursor != 0 || candidate.next_sequence != 0 ||
+          !candidate.epoch_indices.empty()) {
+        throw SerializationError(
+            "Unprepared DataPipeline state contains cursor or indices");
+      }
+      return;
+    }
+    const auto expected = sampler->size();
+    const auto expected_indices =
+        candidate.drop_last
+            ? (expected / candidate.batch_size) * candidate.batch_size
+            : expected;
+    if (candidate.epoch_indices.size() != expected_indices ||
+        candidate.next_cursor > candidate.epoch_indices.size()) {
+      throw CompatibilityError("DataPipeline state has an invalid epoch shape");
+    }
+    for (const auto index : candidate.epoch_indices) {
+      if (index >= candidate.dataset_size) {
+        throw SerializationError(
+            "DataPipeline state contains an out-of-range sample index");
+      }
+    }
+    const auto full_boundary =
+        candidate.next_cursor % candidate.batch_size == 0;
+    const auto partial_final =
+        candidate.next_cursor == candidate.epoch_indices.size();
+    if (!full_boundary && !partial_final) {
+      throw SerializationError(
+          "DataPipeline cursor is not at a batch boundary");
+    }
+    const auto expected_sequence =
+        candidate.next_cursor / candidate.batch_size +
+        (full_boundary ? 0U : 1U);
+    if (candidate.next_sequence != expected_sequence) {
+      throw SerializationError(
+          "DataPipeline cursor is not at a batch boundary");
+    }
+  }
+
+  std::unique_ptr<WorkerRuntime> make_runtime() const {
+    return std::make_unique<WorkerRuntime>(batch_factory, options.num_workers,
+                                           options.batch_timeout);
+  }
+
+  void install_epoch(DataPipelineState candidate,
+                     std::unique_ptr<WorkerRuntime> replacement,
+                     std::shared_ptr<EpochWork> epoch) noexcept {
+    state = std::move(candidate);
+    if (replacement) {
+      runtime = std::move(replacement);
+    }
+    if (runtime) {
+      runtime->activate(std::move(epoch));
+    }
+  }
+};
+
+DataPipeline::DataPipeline(std::shared_ptr<samplers::Sampler> sampler,
+                           DataPipelineOptions options,
+                           DataBatchFactory batch_factory) {
+  if (!sampler) {
+    throw InvalidArgument("DataPipeline sampler cannot be null");
+  }
+  if (!batch_factory) {
+    throw InvalidArgument("DataPipeline batch factory cannot be empty");
+  }
+  validate_options(options);
+  if (sampler->size() == 0) {
     throw InvalidArgument("DataPipeline sampler must produce samples");
   }
-  if (sampler_->size() > kMaxIndexCount) {
+  if (sampler->size() > kMaxIndexCount) {
     throw ResourceExhausted(
         "DataPipeline sampler exceeds the checkpointable index bound");
   }
-  const auto sampler_identity = sampler_->configuration_identity();
+  const auto sampler_identity = sampler->configuration_identity();
   if (sampler_identity.size() > kMaxSamplerIdentityBytes) {
     throw ResourceExhausted(
         "DataPipeline sampler identity exceeds its declared bound");
   }
-  state_.pipeline_id = options_.pipeline_id;
-  state_.dataset_version = options_.dataset_version;
-  state_.dataset_size = options_.dataset_size;
-  state_.schema_id = options_.schema_id;
-  state_.batch_size = options_.batch_size;
-  state_.drop_last = options_.drop_last;
-  state_.sampler_state_supported = sampler_->supports_state();
-  state_.sampler_identity = sampler_identity;
-  if (state_.sampler_state_supported) {
-    state_.sampler_state = sampler_->save_state();
-    if (state_.sampler_state.size() > kMaxSamplerStateBytes) {
-      throw ResourceExhausted(
-          "DataPipeline sampler state exceeds its declared bound");
-    }
+  auto state = make_initial_state(options, *sampler);
+  if (state.sampler_state.size() > kMaxSamplerStateBytes) {
+    throw ResourceExhausted(
+        "DataPipeline sampler state exceeds its declared bound");
   }
+  impl_ = std::make_unique<Impl>(Impl{.sampler = std::move(sampler),
+                                      .options = std::move(options),
+                                      .batch_factory = std::move(batch_factory),
+                                      .state = std::move(state)});
   validate_checkpoint_participant(*this);
 }
 
-DataPipeline::~DataPipeline() = default;
+DataPipeline::~DataPipeline() { close(); }
 
 void DataPipeline::set_epoch(std::uint64_t epoch) {
-  const auto supports_state = sampler_->supports_state();
-  const auto sampler_identity = sampler_->configuration_identity();
-  if (sampler_identity != state_.sampler_identity) {
+  if (impl_->closed) {
+    throw NotReady("DataPipeline is closed");
+  }
+  const auto supports_state = impl_->sampler->supports_state();
+  const auto sampler_identity = impl_->sampler->configuration_identity();
+  if (sampler_identity != impl_->state.sampler_identity ||
+      supports_state != impl_->state.sampler_state_supported) {
     throw CompatibilityError(
-        "DataPipeline sampler configuration changed after construction");
+        "DataPipeline sampler contract changed after construction");
   }
   const auto previous_sampler_state =
-      supports_state ? sampler_->save_state() : std::string{};
+      supports_state ? impl_->sampler->save_state() : std::string{};
   try {
-    sampler_->set_epoch(epoch);
-    auto indices = sampler_->indices();
-    const auto expected = sampler_->size();
+    impl_->sampler->set_epoch(epoch);
+    auto indices = impl_->sampler->indices();
+    const auto expected = impl_->sampler->size();
     if (expected > kMaxIndexCount) {
       throw ResourceExhausted(
           "DataPipeline sampler exceeds the checkpointable index bound");
@@ -292,47 +853,47 @@ void DataPipeline::set_epoch(std::uint64_t epoch) {
                        .hint = "Fix the sampler size contract."});
     }
     for (const auto index : indices) {
-      if (index >= options_.dataset_size) {
+      if (index >= impl_->options.dataset_size) {
         throw InvalidArgument(
             "DataPipeline sampler returned an out-of-range sample index",
             ErrorDetails{
                 .component = kComponent,
                 .operation = "set_epoch",
-                .expected = "index < " + std::to_string(options_.dataset_size),
+                .expected =
+                    "index < " + std::to_string(impl_->options.dataset_size),
                 .actual = std::to_string(index),
                 .hint = "Fix the sampler dataset topology."});
       }
     }
-    if (options_.drop_last) {
-      indices.resize((indices.size() / options_.batch_size) *
-                     options_.batch_size);
+    if (impl_->options.drop_last) {
+      indices.resize((indices.size() / impl_->options.batch_size) *
+                     impl_->options.batch_size);
     }
 
-    DataPipelineState candidate;
-    candidate.pipeline_id = options_.pipeline_id;
-    candidate.dataset_version = options_.dataset_version;
-    candidate.dataset_size = options_.dataset_size;
-    candidate.schema_id = options_.schema_id;
-    candidate.sampler_identity = sampler_identity;
-    candidate.batch_size = options_.batch_size;
-    candidate.drop_last = options_.drop_last;
+    auto candidate = make_initial_state(impl_->options, *impl_->sampler);
     candidate.epoch = epoch;
     candidate.prepared = true;
-    candidate.sampler_state_supported = supports_state;
     candidate.epoch_indices = std::move(indices);
-    if (supports_state) {
-      candidate.sampler_state = sampler_->save_state();
-      if (candidate.sampler_state.size() > kMaxSamplerStateBytes) {
-        throw ResourceExhausted(
-            "DataPipeline sampler state exceeds its declared bound");
+    if (candidate.sampler_state.size() > kMaxSamplerStateBytes) {
+      throw ResourceExhausted(
+          "DataPipeline sampler state exceeds its declared bound");
+    }
+
+    std::unique_ptr<WorkerRuntime> replacement;
+    std::shared_ptr<EpochWork> epoch_work;
+    if (impl_->options.num_workers != 0) {
+      epoch_work = make_epoch_work(candidate, impl_->options);
+      if (!impl_->options.persistent_workers || !impl_->runtime) {
+        replacement = impl_->make_runtime();
       }
     }
-    state_ = std::move(candidate);
+    impl_->install_epoch(std::move(candidate), std::move(replacement),
+                         std::move(epoch_work));
   } catch (...) {
     const auto cause = std::current_exception();
     if (supports_state) {
       try {
-        sampler_->load_state(previous_sampler_state);
+        impl_->sampler->load_state(previous_sampler_state);
       } catch (...) {
         std::throw_with_nested(
             InternalError("DataPipeline epoch preparation rollback failed"));
@@ -343,10 +904,16 @@ void DataPipeline::set_epoch(std::uint64_t epoch) {
 }
 
 std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
+  if (impl_->closed) {
+    throw NotReady("DataPipeline is closed");
+  }
   if (stop_token.stop_requested()) {
+    if (impl_->runtime) {
+      impl_->runtime->cancel_active();
+    }
     return std::nullopt;
   }
-  if (!state_.prepared) {
+  if (!impl_->state.prepared) {
     throw InvalidArgument(
         "DataPipeline requires set_epoch before next",
         ErrorDetails{.component = kComponent,
@@ -355,56 +922,88 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
                      .actual = "no epoch",
                      .hint = "Call set_epoch exactly once per epoch."});
   }
-  if (state_.next_cursor >= state_.epoch_indices.size()) {
+  if (impl_->state.next_cursor >= impl_->state.epoch_indices.size()) {
     return std::nullopt;
   }
-  const auto start = state_.next_cursor;
-  const auto count =
-      std::min(options_.batch_size, state_.epoch_indices.size() - start);
-  const auto end = start + count;
-  const std::span<const std::size_t> indices(
-      state_.epoch_indices.data() + start, end - start);
-  const auto value = batch_factory_(indices);
-  if (state_.next_sequence == std::numeric_limits<std::uint64_t>::max()) {
-    throw ResourceExhausted("DataPipeline batch sequence exhausted");
+
+  const auto start = static_cast<std::size_t>(impl_->state.next_cursor);
+  const auto end = std::min(start + impl_->options.batch_size,
+                            impl_->state.epoch_indices.size());
+  const auto sequence = impl_->state.next_sequence;
+  c10::IValue value;
+  if (impl_->options.num_workers == 0) {
+    const std::span<const std::size_t> indices(
+        impl_->state.epoch_indices.data() + start, end - start);
+    const auto context =
+        make_worker_context(impl_->options, impl_->state.epoch, sequence);
+    value = invoke_factory(impl_->batch_factory, indices, context, stop_token);
+    if (stop_token.stop_requested()) {
+      return std::nullopt;
+    }
+  } else {
+    const auto result = impl_->runtime->wait_for(sequence, stop_token);
+    if (!result) {
+      return std::nullopt;
+    }
+    if (result->sequence != sequence || result->end_cursor != end) {
+      throw InternalError(
+          "DataPipeline worker result topology is inconsistent");
+    }
+    value = result->value;
   }
+
   BatchEnvelope envelope;
-  envelope.value = value;
-  envelope.schema_id = options_.schema_id;
-  envelope.dataset_version = options_.dataset_version;
-  envelope.epoch = state_.epoch;
-  envelope.sequence = state_.next_sequence;
-  envelope.sample_ids.reserve(indices.size());
-  for (const auto index : indices) {
-    envelope.sample_ids.push_back(static_cast<std::uint64_t>(index));
+  envelope.value = std::move(value);
+  envelope.schema_id = impl_->options.schema_id;
+  envelope.dataset_version = impl_->options.dataset_version;
+  envelope.epoch = impl_->state.epoch;
+  envelope.sequence = sequence;
+  envelope.sample_ids.reserve(end - start);
+  for (auto cursor = start; cursor < end; ++cursor) {
+    envelope.sample_ids.push_back(
+        static_cast<std::uint64_t>(impl_->state.epoch_indices[cursor]));
   }
-  state_.next_cursor = end;
-  ++state_.next_sequence;
+
+  impl_->state.next_cursor = end;
+  ++impl_->state.next_sequence;
+  if (impl_->runtime) {
+    impl_->runtime->commit(sequence);
+    if (end == impl_->state.epoch_indices.size() &&
+        !impl_->options.persistent_workers) {
+      impl_->runtime->close();
+      impl_->runtime.reset();
+    }
+  }
   return envelope;
 }
 
-DataCapability DataPipeline::capability() const {
-  DataCapability capability;
-  capability.deterministic_epoch = sampler_->supports_epoch_control();
-  const auto has_state = sampler_->supports_state();
-  const auto has_identity = !sampler_->configuration_identity().empty();
-  capability.restore_level =
-      has_state && has_identity ? RestoreLevel::exact : RestoreLevel::bounded;
-  if (!has_state) {
-    capability.degradation_reasons.emplace_back(
-        "sampler does not expose exact state");
+void DataPipeline::close() noexcept {
+  if (!impl_ || impl_->closed) {
+    return;
   }
-  if (!has_identity) {
-    capability.degradation_reasons.emplace_back(
-        "sampler does not expose a stable configuration identity");
+  impl_->closed = true;
+  if (impl_->runtime) {
+    impl_->runtime->close();
+    impl_->runtime.reset();
   }
-  return capability;
 }
 
-DataPipelineState DataPipeline::state() const { return state_; }
+bool DataPipeline::closed() const noexcept { return impl_->closed; }
+
+std::size_t DataPipeline::outstanding_batches() const noexcept {
+  return impl_->runtime ? impl_->runtime->outstanding_batches() : 0U;
+}
+
+const DataPipelineOptions& DataPipeline::options() const noexcept {
+  return impl_->options;
+}
+
+DataCapability DataPipeline::capability() const { return impl_->capability(); }
+
+DataPipelineState DataPipeline::state() const { return impl_->state; }
 
 std::string DataPipeline::participant_id() const {
-  return options_.pipeline_id;
+  return impl_->options.pipeline_id;
 }
 
 StateManifest DataPipeline::describe_state() const {
@@ -420,61 +1019,18 @@ StateManifest DataPipeline::describe_state() const {
 }
 
 void DataPipeline::save_state(StateWriter& writer) const {
-  const auto snapshot = state();
+  if (impl_->closed) {
+    throw NotReady("Closed DataPipeline state cannot be saved");
+  }
+  const auto snapshot = impl_->state;
   write_blob(writer, "topology", encode_topology(snapshot), kMaxTopologyBytes);
   write_blob(writer, "cursor", encode_cursor(snapshot), kMaxCursorBytes);
 }
 
-void DataPipeline::validate_state(const DataPipelineState& state) const {
-  if (state.version != DataPipelineState::format_version ||
-      state.pipeline_id != options_.pipeline_id ||
-      state.dataset_version != options_.dataset_version ||
-      state.dataset_size != options_.dataset_size ||
-      state.schema_id != options_.schema_id ||
-      state.sampler_identity != sampler_->configuration_identity() ||
-      state.batch_size != options_.batch_size ||
-      state.drop_last != options_.drop_last) {
-    throw CompatibilityError("DataPipeline state topology is incompatible");
-  }
-  if (state.sampler_state_supported != sampler_->supports_state()) {
-    throw CompatibilityError("DataPipeline sampler state capability changed");
-  }
-  if (!state.prepared) {
-    if (state.next_cursor != 0 || state.next_sequence != 0 ||
-        !state.epoch_indices.empty()) {
-      throw SerializationError(
-          "Unprepared DataPipeline state contains cursor or indices");
-    }
-    return;
-  }
-  const auto expected = sampler_->size();
-  const auto expected_indices =
-      state.drop_last ? (expected / state.batch_size) * state.batch_size
-                      : expected;
-  if (state.epoch_indices.size() != expected_indices ||
-      state.next_cursor > state.epoch_indices.size()) {
-    throw CompatibilityError("DataPipeline state has an invalid epoch shape");
-  }
-  for (const auto index : state.epoch_indices) {
-    if (index >= state.dataset_size) {
-      throw SerializationError(
-          "DataPipeline state contains an out-of-range sample index");
-    }
-  }
-  const auto is_full_batch_boundary = state.next_cursor % state.batch_size == 0;
-  const auto is_partial_final_boundary =
-      state.next_cursor == state.epoch_indices.size();
-  if (!is_full_batch_boundary && !is_partial_final_boundary) {
-    throw SerializationError("DataPipeline cursor is not at a batch boundary");
-  }
-  const auto expected_sequence =
-      state.next_cursor / state.batch_size + (is_full_batch_boundary ? 0 : 1);
-  if (state.next_sequence != expected_sequence) {
-    throw SerializationError("DataPipeline cursor is not at a batch boundary");
-  }
-}
-
 void DataPipeline::load_state(const StateReader& reader, RestorePolicy policy) {
+  if (impl_->closed) {
+    throw NotReady("Closed DataPipeline state cannot be restored");
+  }
   const auto& manifest = reader.manifest();
   validate_state_manifest(manifest);
   const auto expected_manifest = describe_state();
@@ -487,29 +1043,51 @@ void DataPipeline::load_state(const StateReader& reader, RestorePolicy policy) {
   const auto topology = reader.read_blob("topology", kMaxTopologyBytes);
   const auto cursor = reader.read_blob("cursor", kMaxCursorBytes);
   auto decoded = decode_state(topology, cursor);
-  validate_state(decoded);
+  impl_->validate_state(decoded);
 
-  const auto supports_state = sampler_->supports_state();
-  const std::string previous_sampler_state =
-      supports_state ? sampler_->save_state() : std::string{};
-  const auto previous = state_;
+  std::unique_ptr<WorkerRuntime> replacement;
+  std::shared_ptr<EpochWork> epoch_work;
+  if (impl_->options.num_workers != 0 && decoded.prepared &&
+      decoded.next_cursor < decoded.epoch_indices.size()) {
+    epoch_work = make_epoch_work(decoded, impl_->options);
+    if (!impl_->options.persistent_workers || !impl_->runtime) {
+      replacement = impl_->make_runtime();
+    }
+  }
+
+  const auto supports_state = impl_->sampler->supports_state();
+  const auto previous_sampler_state =
+      supports_state ? impl_->sampler->save_state() : std::string{};
   try {
     if (supports_state) {
-      sampler_->load_state(decoded.sampler_state);
+      impl_->sampler->load_state(decoded.sampler_state);
     }
-    state_ = std::move(decoded);
   } catch (...) {
     const auto cause = std::current_exception();
     try {
       if (supports_state) {
-        sampler_->load_state(previous_sampler_state);
+        impl_->sampler->load_state(previous_sampler_state);
       }
-      state_ = previous;
     } catch (...) {
       std::throw_with_nested(
           InternalError("DataPipeline restore rollback failed"));
     }
     std::rethrow_exception(cause);
+  }
+
+  impl_->state = std::move(decoded);
+  if (replacement) {
+    impl_->runtime = std::move(replacement);
+  }
+  if (impl_->runtime) {
+    impl_->runtime->activate(std::move(epoch_work));
+    if (!impl_->state.prepared ||
+        impl_->state.next_cursor >= impl_->state.epoch_indices.size()) {
+      if (!impl_->options.persistent_workers) {
+        impl_->runtime->close();
+        impl_->runtime.reset();
+      }
+    }
   }
 }
 

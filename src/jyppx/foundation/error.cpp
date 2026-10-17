@@ -48,6 +48,8 @@ std::string_view error_code_name(ErrorCode code) noexcept {
       return "internal";
     case ErrorCode::not_ready:
       return "not_ready";
+    case ErrorCode::deadline_exceeded:
+      return "deadline_exceeded";
   }
   return "unknown";
 }
