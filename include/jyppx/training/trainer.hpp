@@ -312,22 +312,40 @@ class Trainer final : public CheckpointParticipant {
    */
   void close(std::stop_token stop = {});
 
-  /** @brief Returns immutable validated construction options. */
+  /**
+   * @brief Returns immutable validated construction options.
+   * @return Options retained by this Trainer instance.
+   */
   const TrainerOptions& options() const noexcept;
 
-  /** @brief Returns the current loop lifecycle. */
+  /**
+   * @brief Returns the current loop lifecycle.
+   * @return Current prepared, running, terminal, or closed phase.
+   */
   TrainerPhase phase() const noexcept;
 
-  /** @brief Returns fully committed optimizer updates. */
+  /**
+   * @brief Returns fully committed optimizer updates.
+   * @return Number of optimizer updates committed at safe boundaries.
+   */
   std::uint64_t global_step() const noexcept;
 
-  /** @brief Returns fully completed training epochs. */
+  /**
+   * @brief Returns fully completed training epochs.
+   * @return Number of epochs whose final event and state were committed.
+   */
   std::uint64_t completed_epochs() const noexcept;
 
-  /** @brief Returns last fully completed training epoch observations. */
+  /**
+   * @brief Returns last fully completed training epoch observations.
+   * @return Immutable name-to-value map for the last completed epoch.
+   */
   const std::map<std::string, double>& training_metrics() const noexcept;
 
-  /** @brief Returns last completed validation observations. */
+  /**
+   * @brief Returns last completed validation observations.
+   * @return Immutable name-to-value map for the last validation pass.
+   */
   const std::map<std::string, double>& validation_metrics() const noexcept;
 
   /**
