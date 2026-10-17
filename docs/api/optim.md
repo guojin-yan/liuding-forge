@@ -5,8 +5,9 @@ All types live in the `jyppx::optim` namespace.
 The migrated optimizer boundary includes independently exported
 [`SgdOptimizerAdapter`](sgd_adapter.md) and
 [`AdamOptimizerAdapter`](adam_adapter.md), plus
-[`AdamWOptimizerAdapter`](adamw_adapter.md) and
-[`RmspropOptimizerAdapter`](rmsprop_adapter.md). They delegate numerical
+[`AdamWOptimizerAdapter`](adamw_adapter.md),
+[`RmspropOptimizerAdapter`](rmsprop_adapter.md), and
+[`AdagradOptimizerAdapter`](adagrad_adapter.md). They delegate numerical
 updates to LibTorch and supply stable parameter identity plus storage-neutral
 recovery.
 The migrated scheduler boundary includes descriptor-first
@@ -19,8 +20,8 @@ They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
 The hand-written hierarchy documented below remains only for optimizer
 algorithms that have not yet migrated. It is not a compatibility wrapper for
-the delegated API. The old hand-written SGD, Adam, AdamW, RMSprop, and
-`optim/schedulers`
+the delegated API. The old hand-written SGD, Adam, AdamW, RMSprop, Adagrad,
+and `optim/schedulers`
 hierarchy have been removed.
 
 ## Legacy optimizer base
@@ -62,16 +63,9 @@ with stale state.
 
 ## Remaining legacy optimizers
 
-The hand-written base currently remains only for Adagrad and the experimental
-LAMB implementation. Adagrad takes a parameter list plus an options struct and
-is compared numerically with its LibTorch counterpart. These APIs are not the
-target contract for new algorithms and will be retired as their delegated
-ledgers close.
-
-```cpp
-struct AdagradOptions { double lr = 0.01; double lr_decay = 0.0;
-                        double weight_decay = 0.0; double eps = 1e-10; };
-```
+The hand-written base currently remains only for the experimental LAMB
+implementation. That API is not the target contract and will be retired when
+its delegated ledger closes.
 
 ```cpp
 #include <jyppx/optim/adamw_adapter.hpp>
@@ -94,8 +88,11 @@ Notes:
 - **RMSprop momentum** follows the `torch::optim` C++ semantics: the buffer
   accumulates the normalized gradient `grad / avg` and the step is
   `-lr * buffer`. The delegated adapter owns that exact LibTorch behavior.
+- **Adagrad** eagerly initializes each sum accumulator, preserves independent
+  per-parameter step counters when gradients are absent, and checkpoints both
+  values exactly.
 - Remaining legacy optimizers expose mutable `options()`. Delegated SGD, Adam,
-  AdamW, and RMSprop use `set_learning_rates()` as their only mutable
+  AdamW, RMSprop, and Adagrad use `set_learning_rates()` as their only mutable
   hyperparameter operation.
 
 ## Learning-rate schedulers

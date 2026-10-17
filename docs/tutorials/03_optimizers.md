@@ -1,8 +1,8 @@
 # Tutorial 3: Optimizers and Schedulers
 
 JYPPX provides a shrinking legacy hand-written optimizer family alongside a
-descriptor-first migration path backed by LibTorch. SGD, Adam, AdamW, and
-RMSprop have crossed that migration boundary. The compatibility tables
+descriptor-first migration path backed by LibTorch. SGD, Adam, AdamW, RMSprop,
+and Adagrad have crossed that migration boundary. The compatibility tables
 and quality records identify which algorithms have completed delegated
 execution, typed checkpoint recovery, and numerical comparison; algorithms
 that have not crossed those gates remain explicitly marked as legacy.
@@ -15,7 +15,7 @@ that have not crossed those gates remain explicitly marked as legacy.
 | `Adam` | default first choice for most tasks | `beta1`, `beta2`, `eps`, `amsgrad` |
 | `AdamW` | transformer/decoder training with weight decay | decoupled `weight_decay` |
 | `RMSprop` | RNNs, non-stationary objectives | `alpha`, `centered`, `momentum` |
-| `Adagrad` | sparse features, no manual schedule | `lr_decay` |
+| `Adagrad` | adaptive decay for dense feature updates | `lr_decay`, `initial_accumulator_value` |
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
@@ -40,7 +40,8 @@ participant; no native optimizer or legacy map state is public.
 ### Checkpointing an optimizer
 
 Current Trainer accepts an `OptimizerAdapter` plus an explicit checkpoint
-participant. For delegated SGD, Adam, AdamW, or RMSprop, register the matching
+participant. For delegated SGD, Adam, AdamW, RMSprop, or Adagrad, register the
+matching
 participant in `FitRequest::optimizer_checkpoint`:
 
 ```cpp
@@ -64,6 +65,10 @@ and step-state boundary while freezing decoupled weight decay in topology.
 RMSprop uses `RmspropOptimizerCheckpointParticipant`. It always stores square
 averages and conditionally stores momentum buffers and centered gradient
 averages according to the immutable group options.
+
+Adagrad uses `AdagradOptimizerCheckpointParticipant`. It stores each eagerly
+initialized sum accumulator and its independent per-parameter native step, so
+missing gradients resume with the same learning-rate-decay trajectory.
 
 ## Epoch-based schedulers
 

@@ -12,6 +12,7 @@
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #include <jyppx/nn/model_adapter.hpp>
 #include <jyppx/nn/model_checkpoint_participant.hpp>
+#include <jyppx/optim/adagrad_adapter.hpp>
 #include <jyppx/optim/adam_adapter.hpp>
 #include <jyppx/optim/adamw_adapter.hpp>
 #include <jyppx/optim/composite_lr_scheduler.hpp>
@@ -421,6 +422,25 @@ int main() {
   const bool valid_rmsprop =
       installed_rmsprop_participant.describe_state().fields.size() == 5 &&
       installed_rmsprop->completed_steps() == 1;
+  auto installed_adagrad_parameter = torch::ones(
+      {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+  auto installed_adagrad =
+      std::make_shared<jyppx::optim::AdagradOptimizerAdapter>(
+          "optimizer.adagrad",
+          std::vector<jyppx::optim::AdagradParameterGroup>{
+              {.group_id = "main",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = installed_adagrad_parameter}},
+               .options = {.learning_rate = 0.01,
+                           .initial_accumulator_value = 0.1}}});
+  installed_adagrad_parameter.mutable_grad() =
+      torch::ones_like(installed_adagrad_parameter);
+  installed_adagrad->step();
+  jyppx::optim::AdagradOptimizerCheckpointParticipant
+      installed_adagrad_participant(installed_adagrad);
+  const bool valid_adagrad =
+      installed_adagrad_participant.describe_state().fields.size() == 3 &&
+      installed_adagrad->completed_steps() == 1;
   auto installed_scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
       installed_optimizer,
       jyppx::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
@@ -504,9 +524,9 @@ int main() {
                  valid_contrastive && valid_focal && valid_dice &&
                  valid_adapter && valid_metric && valid_ranking_metric &&
                  valid_classwise_metric && valid_optimizer && valid_adam &&
-                 valid_adamw && valid_rmsprop && valid_scheduler &&
-                 valid_callback && valid_event_sink && valid_strategy &&
-                 valid_trainer
+                 valid_adamw && valid_rmsprop && valid_adagrad &&
+                 valid_scheduler && valid_callback && valid_event_sink &&
+                 valid_strategy && valid_trainer
              ? 0
              : 1;
 }

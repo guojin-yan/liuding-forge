@@ -10,6 +10,7 @@ tests/benchmarks/bench_sgd_adapter_overhead
 tests/benchmarks/bench_adam_adapter_overhead
 tests/benchmarks/bench_adamw_adapter_overhead
 tests/benchmarks/bench_rmsprop_adapter_overhead
+tests/benchmarks/bench_adagrad_adapter_overhead
 tests/benchmarks/bench_memory_usage
 ```
 
@@ -36,10 +37,18 @@ AdamW, including LibTorch's decoupled weight-decay path.
 and coupled weight decay, so validation overhead is measured with all native
 state branches enabled.
 
-The 2026-10-18 Windows Release sample (MSVC 19.44, LibTorch 2.14.1, CPU,
-4096 float32 parameters, 2000 steps, two warmups, five paired samples) produced
-an adapter/native median ratio of `1.014278332`. This is local evidence only;
-the environment-keyed repeated-sampling gate remains authoritative.
+`bench_adagrad_adapter_overhead` applies it to Adagrad with learning-rate
+decay, coupled weight decay, and a nonzero initial accumulator.
+
+The 2026-10-18 RMSprop Windows Release sample (MSVC 19.44, LibTorch 2.14.1,
+CPU, 4096 float32 parameters, 2000 steps, two warmups, five paired samples)
+produced an adapter/native median ratio of `1.014278332`.
+
+The 2026-10-18 Adagrad Windows Release sample (MSVC 19.51, LibTorch 2.14.1,
+CPU, 4096 float32 parameters, 2000 steps, two warmups, five paired samples)
+produced an adapter/native median ratio of `1.040400845`. These measurements
+are local evidence only; the environment-keyed repeated-sampling gate remains
+authoritative.
 
 A run is unstable when any metric exceeds 10% CV. A stable reference stores a
 per-metric regression allowance of `max(10%, 3 * CV)`. References are valid

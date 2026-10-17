@@ -17,7 +17,7 @@
 #include <jyppx/core/types.hpp>
 
 // Optimizers
-#include <jyppx/optim/adagrad.hpp>
+#include <jyppx/optim/adagrad_adapter.hpp>
 #include <jyppx/optim/adam_adapter.hpp>
 #include <jyppx/optim/adamw_adapter.hpp>
 #include <jyppx/optim/composite_lr_scheduler.hpp>

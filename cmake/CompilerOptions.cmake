@@ -206,6 +206,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/composite_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/optimizer_adapter.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/optim/adagrad_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/epoch_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/event_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/linear_lr_scheduler.hpp
@@ -218,6 +219,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/epoch_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/event_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/linear_lr_scheduler.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/optim/adagrad_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/adam_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/adamw_adapter.cpp
@@ -228,12 +230,14 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_epoch_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_event_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_linear_lr_scheduler.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_adagrad_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_adam_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_adamw_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_rmsprop_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_step_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_optimizer_convergence.cpp
+        ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adagrad_adapter_overhead.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_sgd_adapter_overhead.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adam_adapter_overhead.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adamw_adapter_overhead.cpp

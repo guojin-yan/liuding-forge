@@ -3,8 +3,6 @@
 target_sources(jyppx_training_framework PRIVATE
     # Optim
     jyppx/optim/optimizer.cpp
-    jyppx/optim/adagrad.cpp
-
     # Optim (extended)
     jyppx/optim/nadam.cpp
     jyppx/optim/lamb.cpp
