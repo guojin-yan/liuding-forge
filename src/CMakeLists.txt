@@ -19,20 +19,12 @@ target_sources(jyppx_training_framework PRIVATE
     jyppx/optim/lamb.cpp
 
     # Training
-    jyppx/training/trainer.cpp
     jyppx/training/amp/grad_scaler.cpp
     jyppx/training/amp/grad_scaler_checkpoint_participant.cpp
     jyppx/training/metrics/accuracy.cpp
     jyppx/training/metrics/topk_accuracy.cpp
     jyppx/training/metrics/regression.cpp
     jyppx/training/metrics/average_meter.cpp
-    jyppx/training/callbacks/early_stopping.cpp
-    jyppx/training/callbacks/lr_scheduler_callback.cpp
-    jyppx/training/callbacks/model_checkpoint.cpp
-    jyppx/training/callbacks/progress_callback.cpp
-    jyppx/training/callbacks/logging_callback.cpp
-    jyppx/training/callbacks/tensorboard_callback.cpp
-
     # Utils
     jyppx/utils/logger.cpp
     jyppx/utils/tensorboard.cpp

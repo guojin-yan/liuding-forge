@@ -43,6 +43,7 @@ doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/scheduler_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/single_device_strategy.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/training/strategy.hpp"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/training/trainer.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/optimizer_adapter.hpp"
     COMMENT "Validating and generating migrated API documentation"
 )

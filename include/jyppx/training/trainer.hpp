@@ -1,633 +1,361 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
 #ifndef JYPPX_TRAINING_TRAINER_HPP
 #define JYPPX_TRAINING_TRAINER_HPP
 
-#include <jyppx/core/types.hpp>
-#include <jyppx/data/dataloader.hpp>
-#include <jyppx/optim/optimizer.hpp>
-#include <jyppx/optim/schedulers/lr_scheduler.hpp>
-#include <jyppx/training/amp/grad_scaler.hpp>
-#include <jyppx/training/callback.hpp>
+/**
+ * @file trainer.hpp
+ * @brief Defines the current-only transactional training-loop coordinator.
+ */
 
-#include <torch/nn/module.h>
-#include <torch/nn/utils.h>
+#include <jyppx/data/data_pipeline.hpp>
+#include <jyppx/foundation/checkpoint.hpp>
+#include <jyppx/nn/invocation.hpp>
 
-#include <ATen/core/ScalarType.h>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
-#include <stdexcept>
+#include <stop_token>
 #include <string>
-#include <type_traits>
-#include <utility>
 #include <vector>
 
-namespace jyppx {
-namespace training {
+namespace jyppx::core {
+class RngCheckpointParticipant;
+}  // namespace jyppx::core
+
+namespace jyppx::nn {
+class ModelAdapter;
+class ModelCheckpointParticipant;
+}  // namespace jyppx::nn
+
+namespace jyppx::optim {
+class OptimizerAdapter;
+}  // namespace jyppx::optim
+
+namespace jyppx::training {
+
+class CallbackDispatcher;
+class CheckpointCoordinator;
+struct CheckpointDescriptor;
+class CheckpointStateSink;
+class CheckpointStateSource;
+class EventOutbox;
+class SchedulerAdapter;
+class TrainingStrategy;
 
 /**
- * @brief Configures one Trainer's loop, device, precision, and callbacks.
+ * @brief Selects how an incomplete gradient-accumulation tail is handled.
+ *
+ * Numeric values are persisted by the Trainer participant and must remain
+ * stable.
+ */
+enum class AccumulationTailPolicy : std::uint8_t {
+  flush = 1,  ///< Rescales and commits the final partial accumulation window.
+  drop = 2,   ///< Clears gradients without applying a partial update.
+};
+
+/**
+ * @brief Identifies the immutable task phase supplied to a step function.
+ *
+ * Numeric values form part of the public step-function contract.
+ */
+enum class StepPhase : std::uint8_t {
+  training = 1,    ///< The step may create a differentiable scalar loss.
+  validation = 2,  ///< The step executes under a no-gradient evaluation guard.
+};
+
+/**
+ * @brief Identifies the Trainer lifecycle captured by checkpoints and results.
+ *
+ * A restored `running` state resumes the exact committed data/optimizer
+ * boundary. Terminal states cannot start a second run.
+ */
+enum class TrainerPhase : std::uint8_t {
+  created = 1,    ///< No execution domain has been prepared.
+  prepared = 2,   ///< Participants are registered and the strategy is ready.
+  running = 3,    ///< A fresh or restored run owns the execution domain.
+  completed = 4,  ///< The run reached an epoch, step, or callback stop limit.
+  cancelled = 5,  ///< Cooperative cancellation ended the run.
+  failed = 6,     ///< An exception ended the run after failure publication.
+  closed = 7,     ///< Explicit resource finalization completed.
+};
+
+/** @brief Reports the non-failure terminal disposition of one fit call. */
+enum class FitStatus : std::uint8_t {
+  completed = 1,  ///< Configured epoch or optimizer-step limit was reached.
+  stopped = 2,    ///< A callback requested a safe-boundary stop.
+  cancelled = 3,  ///< The caller's stop token was honored.
+};
+
+/** @brief Configures one current-only Trainer instance and its resource limits.
  */
 struct TrainerOptions {
-  /** @brief Callable mapping one input tensor to one prediction tensor. */
-  using ForwardFn = std::function<Tensor(const Tensor&)>;
+  std::string trainer_id =
+      "training.trainer";  ///< Stable checkpoint participant identity.
+  std::string run_id = "run.default";  ///< Stable callback/event run identity.
+  std::string trace_id =
+      "trace.default";  ///< Nonempty trace identity propagated to events.
+  std::uint64_t max_epochs = 1;  ///< Positive exclusive epoch upper bound.
+  std::uint64_t max_steps =
+      0;  ///< Positive optimizer-step limit; zero means epoch-limited.
+  std::size_t accumulate_steps =
+      1;  ///< Positive number of micro-batches per optimizer update.
+  AccumulationTailPolicy accumulation_tail =
+      AccumulationTailPolicy::flush;  ///< Partial epoch/stop window policy.
+  std::optional<double>
+      gradient_clip_norm;  ///< Positive finite global norm, or disabled.
+  std::string scheduler_metric =
+      "validation.loss";  ///< Metric supplied to metric-triggered schedulers.
+  RestorePolicy restore_policy =
+      RestorePolicy::exact_only;  ///< Minimum accepted participant guarantee.
+  bool drain_events =
+      true;  ///< Whether the loop synchronously drains its optional outbox.
+  std::size_t max_metrics =
+      4096;  ///< Maximum metric names retained in loop/checkpoint state.
+  std::size_t max_identifier_bytes =
+      4096;  ///< Maximum bytes in one identity or metric name.
+  std::uint64_t max_topology_bytes =
+      1024ULL * 1024ULL;  ///< Maximum encoded Trainer topology bytes.
+  std::uint64_t max_control_bytes =
+      16ULL * 1024ULL * 1024ULL;  ///< Maximum mutable loop-state bytes.
+};
 
-  /** @brief Callable reducing prediction and target tensors to one scalar loss.
-   */
-  using LossFn = std::function<Tensor(const Tensor&, const Tensor&)>;
-
-  int max_epochs =
-      10;  ///< Non-negative exclusive upper bound for epoch indices.
-  int max_steps = -1;  ///< Positive optimizer-step limit; -1 means unlimited.
-  Device device = torch::kCPU;  ///< Device receiving model and batch tensors.
-  double gradient_clip_val =
-      0.0;  ///< Non-negative clip threshold; zero disables clipping.
-  std::string gradient_clip_mode =
-      "norm";            ///< Clipping algorithm: `norm` or `value`.
-  bool use_amp = false;  ///< Whether forward and loss execute under autocast.
-  at::ScalarType amp_dtype =
-      at::kHalf;                       ///< CUDA Half/BFloat16 or CPU BFloat16.
-  amp::GradScalerOptions amp_options;  ///< Float16 loss-scaling configuration.
-  int accumulation_steps = 1;  ///< Positive batch count per optimizer update.
-  ForwardFn
-      forward_fn;  ///< Optional invocation override for non-standard modules.
-
-  /** @brief Scalar objective; defaults to mean-squared error. */
-  LossFn loss_fn = [](const Tensor& prediction, const Tensor& target) {
-    return torch::mse_loss(prediction, target);
-  };
-  std::vector<std::shared_ptr<Callback>>
-      callbacks;  ///< Ordered shared lifecycle observers.
-  uint64_t max_checkpoint_bytes =
-      4ULL * 1024ULL * 1024ULL *
-      1024ULL;  ///< Positive archive read/write limit in bytes.
+/** @brief Carries immutable cursor information to one task step. */
+struct StepContext {
+  StepPhase phase = StepPhase::training;  ///< Training or validation phase.
+  std::uint64_t epoch = 0;                ///< Zero-based logical epoch.
+  std::uint64_t global_step = 0;  ///< Optimizer updates committed before step.
+  std::uint64_t batch_sequence = 0;  ///< Pipeline batch sequence in the epoch.
+  std::size_t micro_step =
+      0;  ///< One-based position in the active accumulation window.
 };
 
 /**
- * @brief Coordinates model training, validation, callbacks, and recovery.
+ * @brief Supplies mapped batch values and execution context to task code.
  *
- * The Trainer shares ownership of the model, optimizer, scheduler, and
- * callbacks. It owns the GradScaler and loop state. Instances are not
- * thread-safe and checkpoint operations require an epoch consistency boundary.
+ * The Trainer does not infer target, loss, or model-call semantics. A step may
+ * call `model.invoke(invocation)` once or multiple times and return any
+ * schema-validated prediction value.
  */
-class Trainer {
- public:
-  /**
-   * @brief Creates a trainer for a type-erased module.
-   * @param model Shared non-null LibTorch module.
-   * @param optimizer Shared non-null optimizer referencing model parameters.
-   * @param options Valid training configuration.
-   * @throws std::invalid_argument A required object or option is invalid.
-   * @throws std::runtime_error Requested AMP is unavailable on the device.
-   */
-  Trainer(std::shared_ptr<torch::nn::Module> model,
-          std::shared_ptr<optim::Optimizer> optimizer,
-          const TrainerOptions& options = TrainerOptions{});
-
-  /**
-   * @brief Construct a trainer from a concrete LibTorch module.
-   *
-   * The concrete module type supplies the type-safe `forward(Tensor)` call;
-   * the trainer stores the resulting callable in a type-erased form.
-   *
-   * @tparam ModuleT Concrete LibTorch module with `forward(Tensor)`.
-   * @param model Shared non-null concrete module.
-   * @param optimizer Shared non-null optimizer referencing model parameters.
-   * @param options Valid training configuration.
-   * @throws std::invalid_argument A required object or option is invalid.
-   * @throws std::runtime_error Requested AMP is unavailable on the device.
-   */
-  template <typename ModuleT,
-            typename =
-                std::enable_if_t<std::is_base_of_v<torch::nn::Module, ModuleT>>>
-  Trainer(std::shared_ptr<ModuleT> model,
-          std::shared_ptr<optim::Optimizer> optimizer,
-          const TrainerOptions& options = TrainerOptions{})
-      : Trainer(std::static_pointer_cast<torch::nn::Module>(model), optimizer,
-                options) {
-    if (!options.forward_fn) {
-      forward_fn_ = [model](const Tensor& input) {
-        return model->forward(input);
-      };
-    }
-  }
-
-  /**
-   * @brief Fits the model until the epoch, step, or callback stop limit.
-   * @tparam T Supported batch sample type (`Tensor` or `data::Example`).
-   * @param train_loader Non-empty training loader.
-   * @param val_loader Optional validation loader; borrowed for the call.
-   */
-  template <typename T = Tensor>
-  void fit(data::DataLoader<T>& train_loader,
-           data::DataLoader<T>* val_loader = nullptr);
-
-  /**
-   * @brief Evaluates mean loss without updating parameters.
-   * @tparam T Supported batch sample type.
-   * @param val_loader Non-empty validation loader.
-   * @return Sample-weighted mean validation loss.
-   */
-  template <typename T = Tensor>
-  double validate(data::DataLoader<T>& val_loader);
-
-  /**
-   * @brief Evaluates mean test loss without validation callbacks.
-   * @tparam T Supported batch sample type.
-   * @param test_loader Non-empty test loader.
-   * @return Sample-weighted mean test loss.
-   */
-  template <typename T = Tensor>
-  double test(data::DataLoader<T>& test_loader);
-
-  /**
-   * @brief Sets or replaces the type-erased model forward function.
-   * @param forward_fn Non-empty callable retained by value.
-   * @throws std::invalid_argument @p forward_fn is empty.
-   */
-  void set_forward_fn(TrainerOptions::ForwardFn forward_fn);
-
-  /**
-   * @brief Sets or replaces the scalar loss function.
-   * @param loss_fn Non-empty callable retained by value.
-   * @throws std::invalid_argument @p loss_fn is empty.
-   */
-  void set_loss_fn(TrainerOptions::LossFn loss_fn);
-
-  /**
-   * @brief Attaches a scheduler stepped after each epoch.
-   * @param scheduler Shared scheduler, or null to detach the current scheduler.
-   * @throws std::invalid_argument Scheduler and optimizer group counts differ.
-   */
-  void set_scheduler(std::shared_ptr<optim::schedulers::LRScheduler> scheduler);
-
-  /**
-   * @brief Appends a callback to lifecycle order.
-   * @param callback Shared non-null callback retained by the Trainer.
-   * @throws std::invalid_argument @p callback is null.
-   */
-  void add_callback(std::shared_ptr<Callback> callback);
-
-  /** @brief Requests that fit stop after the current safe boundary. */
-  void request_stop() { should_stop_ = true; }
-
-  /**
-   * @brief Runs an action after every callback observes the epoch end.
-   * @param action Non-empty action, usually atomic checkpoint publication.
-   * @throws std::invalid_argument @p action is empty.
-   */
-  void defer_epoch_end_action(std::function<void()> action);
-
-  /**
-   * @brief Save the versioned training state at a consistent epoch boundary.
-   *
-   * Saving from a batch callback is rejected because the current loader does
-   * not yet expose an exact in-epoch cursor or accumulated-gradient state.
-   *
-   * @param path Non-empty destination path atomically replaced on success.
-   * @throws std::logic_error The Trainer is not at an epoch boundary.
-   * @throws std::runtime_error Serialization, size checks, or publication fail.
-   */
-  void save_checkpoint(const std::string& path) const;
-
-  /**
-   * @brief Restores a complete checkpoint as one transaction.
-   *
-   * All archive fields are parsed before mutation. If any participant fails,
-   * every already-applied serializable state is rolled back.
-   *
-   * @param path Existing checkpoint path within max_checkpoint_bytes.
-   * @throws std::invalid_argument Runtime topology or configuration differs.
-   * @throws std::runtime_error The archive is missing, malformed, or
-   * incomplete.
-   */
-  void load_checkpoint(const std::string& path);
-
-  /** @brief Returns the shared model used by the training loop. */
-  const std::shared_ptr<torch::nn::Module>& model() const { return model_; }
-
-  /** @brief Returns the shared optimizer used by the training loop. */
-  const std::shared_ptr<optim::Optimizer>& optimizer() const {
-    return optimizer_;
-  }
-
-  /** @brief Returns the attached scheduler, or null when none is configured. */
-  const std::shared_ptr<optim::schedulers::LRScheduler>& scheduler() const {
-    return scheduler_;
-  }
-
-  /** @brief Active gradient scaler, or null for disabled AMP and bfloat16. */
-  const std::unique_ptr<amp::GradScaler>& grad_scaler() const {
-    return grad_scaler_;
-  }
-
-  /** @brief Returns the last completed epoch's sample-weighted train loss. */
-  double last_train_loss() const { return last_train_loss_; }
-
-  /** @brief Returns the latest sample-weighted validation loss. */
-  double last_val_loss() const { return last_val_loss_; }
-
-  /** @brief Returns whether last_val_loss() contains a completed result. */
-  bool has_validation_loss() const { return has_validation_loss_; }
-
-  /** @brief Returns whether a callback requested training termination. */
-  bool should_stop() const { return should_stop_; }
-
-  /**
-   * @brief Returns completed optimizer updates across all epochs.
-   */
-  int64_t global_step() const { return global_step_; }
-
-  /**
-   * @brief Returns the zero-based active or most recently completed epoch.
-   */
-  int current_epoch() const { return current_epoch_; }
-
- private:
-  std::shared_ptr<torch::nn::Module>
-      model_;  ///< Shared model whose tensors are mutated.
-  std::shared_ptr<optim::Optimizer>
-      optimizer_;  ///< Shared optimizer for model parameters.
-  std::shared_ptr<optim::schedulers::LRScheduler>
-      scheduler_;  ///< Optional shared epoch scheduler.
-  std::unique_ptr<amp::GradScaler>
-      grad_scaler_;  ///< Owned float16 loss scaler, if required.
-  TrainerOptions
-      options_;  ///< Validated immutable loop configuration and callbacks.
-  TrainerOptions::ForwardFn forward_fn_;  ///< Type-erased model invocation.
-  TrainerOptions::LossFn
-      loss_fn_;          ///< Scalar training and evaluation objective.
-  int64_t global_step_;  ///< Completed optimizer updates; always non-negative.
-  int current_epoch_;    ///< Zero-based active or last completed loop epoch.
-  int next_epoch_;       ///< First epoch to execute after checkpoint recovery.
-  bool should_stop_;     ///< Callback-controlled fit termination request.
-  double last_train_loss_;  ///< Sample-weighted mean from the last completed
-                            ///< train epoch.
-  double last_val_loss_;    ///< Sample-weighted mean from the latest validation
-                            ///< pass.
-  bool has_validation_loss_;  ///< Whether last_val_loss_ is valid.
-  std::optional<data::DataLoaderState>
-      train_loader_state_;  ///< Saved train order at a boundary.
-  std::optional<data::DataLoaderState>
-      validation_loader_state_;  ///< Saved validation order.
-  bool restore_train_loader_state_ =
-      false;  ///< Whether fit must apply train_loader_state_.
-  bool restore_validation_loader_state_ =
-      false;  ///< Whether fit must apply validation state.
-  bool checkpoint_at_epoch_boundary_ =
-      true;  ///< Whether exact checkpoint save is permitted.
-  bool dispatching_epoch_end_callbacks_ =
-      false;  ///< Whether epoch-end hooks are active.
-  std::vector<std::function<void()>>
-      deferred_epoch_end_actions_;  ///< Post-hook actions.
-
-  /**
-   * @brief Converts supported batch representations to input and target
-   * tensors.
-   * @tparam T Batch sample type.
-   * @param batch Loaded batch.
-   * @return Input/target pair borrowed from the batch tensors.
-   */
-  template <typename T>
-  static std::pair<Tensor, Tensor> unpack_batch(const data::Batch<T>& batch) {
-    if constexpr (std::is_same_v<T, Tensor>) {
-      // A tensor-only loader has no separate labels. Treat it as an
-      // autoencoder-style batch so the default MSE loss remains useful.
-      return {batch.data, batch.data};
-    } else if constexpr (std::is_same_v<T, data::Example>) {
-      return {batch.data, batch.targets};
-    } else {
-      throw std::invalid_argument(
-          "Trainer supports Tensor and TensorDataset::Example batches; "
-          "provide a custom training loop for other sample types");
-    }
-  }
-
-  /**
-   * @brief Validates all Trainer options and owned participant pointers.
-   * @throws std::invalid_argument A configuration field is invalid.
-   * @throws std::runtime_error Requested AMP is unavailable.
-   */
-  void validate_configuration() const;
-
-  /**
-   * @brief Rejects training when no forward function is available.
-   * @throws std::invalid_argument forward_fn_ is empty.
-   */
-  void require_forward_fn() const;
-
-  /**
-   * @brief Invokes the model and scalar loss under configured autocast.
-   * @param input Batch input tensor on the configured device.
-   * @param target Batch target tensor on the configured device.
-   * @return Loss tensor produced by loss_fn_.
-   */
-  Tensor compute_loss(const Tensor& input, const Tensor& target) const;
-
-  /** @brief Applies the configured norm or value gradient clipping. */
-  void clip_gradients();
-
-  /**
-   * @brief Multiplies every defined model gradient by @p scale.
-   * @param scale Finite correction applied in place to accumulated gradients.
-   */
-  void scale_gradients(double scale);
-
-  /**
-   * @brief Runs one validation pass and optionally dispatches callbacks.
-   * @tparam T Supported batch sample type.
-   * @param loader Non-empty loader borrowed for the call.
-   * @param fire_callbacks Whether validation lifecycle hooks are dispatched.
-   * @return Sample-weighted mean loss for the pass.
-   */
-  template <typename T>
-  double run_validation(data::DataLoader<T>& loader, bool fire_callbacks);
+struct StepInput {
+  nn::ModelAdapter& model;           ///< Prepared model invocation adapter.
+  const data::BatchEnvelope& batch;  ///< Consumer-committed source batch.
+  const nn::Invocation& invocation;  ///< Mapper-produced model arguments.
+  const std::optional<c10::IValue>& target;  ///< Optional task target value.
+  const StepContext& context;  ///< Immutable run and cursor snapshot.
 };
 
-template <typename T>
-void Trainer::fit(data::DataLoader<T>& train_loader,
-                  data::DataLoader<T>* val_loader) {
-  validate_configuration();
-  require_forward_fn();
-  if (train_loader.size() == 0) {
-    throw std::invalid_argument("Trainer requires a non-empty training loader");
-  }
+/** @brief Returns task loss, prediction, metrics, and observation cardinality.
+ */
+struct StepOutput {
+  Tensor loss;  ///< Scalar finite training loss; optional during validation.
+  std::optional<nn::InvocationResult>
+      prediction;  ///< Optional schema-checked model result for consumers.
+  std::map<std::string, double>
+      metrics;  ///< Finite per-batch observations averaged by sample count.
+  std::uint64_t sample_count =
+      0;  ///< Positive number of observations represented by this output.
+};
 
-  if (restore_train_loader_state_) {
-    train_loader.load_state_dict(*train_loader_state_);
-    restore_train_loader_state_ = false;
-  }
-  if (val_loader != nullptr && restore_validation_loader_state_) {
-    val_loader->load_state_dict(*validation_loader_state_);
-    restore_validation_loader_state_ = false;
-  } else if (val_loader == nullptr) {
-    validation_loader_state_.reset();
-    restore_validation_loader_state_ = false;
-  }
+/** @brief Converts an opaque data envelope into model invocation arguments. */
+using BatchMapper =
+    std::function<nn::Invocation(const data::BatchEnvelope& batch)>;
 
-  train_loader_state_ = train_loader.state_dict();
-  if (val_loader != nullptr) {
-    validation_loader_state_ = val_loader->state_dict();
-  }
-  checkpoint_at_epoch_boundary_ = true;
+/** @brief Extracts an optional task target from an opaque data envelope. */
+using TargetMapper =
+    std::function<std::optional<c10::IValue>(const data::BatchEnvelope& batch)>;
 
-  model_->to(options_.device);
-  model_->train();
-  optimizer_->zero_grad();
-  should_stop_ = false;
-  has_validation_loss_ = false;
+/** @brief Implements task-specific forward, loss, and batch metric semantics.
+ */
+using StepFunction = std::function<StepOutput(const StepInput& input)>;
 
-  for (const auto& callback : options_.callbacks) {
-    if (callback) {
-      callback->on_fit_start(this);
-    }
-  }
+/**
+ * @brief Publishes one participant-consistent checkpoint through an external
+ * artifact boundary.
+ *
+ * The callback owns the storage/container format and must call
+ * `CheckpointCoordinator::save()` or an equivalent interop adapter. It runs
+ * only when no micro-step or validation aggregate is uncommitted.
+ */
+using CheckpointAction =
+    std::function<void(const CheckpointCoordinator& coordinator)>;
 
-  bool reached_max_steps = false;
-  for (current_epoch_ = next_epoch_;
-       current_epoch_ < options_.max_epochs &&
-       (options_.max_steps < 0 || global_step_ < options_.max_steps);
-       ++current_epoch_) {
-    checkpoint_at_epoch_boundary_ = false;
-    for (const auto& callback : options_.callbacks) {
-      if (callback) {
-        callback->on_epoch_start(this);
-        callback->on_train_epoch_start(this);
-      }
-    }
+/**
+ * @brief Binds all shared objects required for one prepared training run.
+ *
+ * Shared ownership keeps every checkpoint participant alive for the prepared
+ * Trainer lifetime. The model and optimizer participants are required so a
+ * run cannot advertise exact recovery while omitting primary trainable state.
+ */
+struct FitRequest {
+  std::shared_ptr<nn::ModelAdapter> model;  ///< Schema-checked model boundary.
+  std::shared_ptr<optim::OptimizerAdapter>
+      optimizer;  ///< Optimizer bound to the model's stable parameters.
+  std::shared_ptr<data::BatchPipeline>
+      training_data;  ///< Required map- or iterable-style training stream.
+  BatchMapper training_batch_mapper;  ///< Required training invocation mapper.
+  TargetMapper training_target_mapper;  ///< Optional training target mapper.
+  StepFunction training_step;  ///< Required task-specific training operation.
+  std::shared_ptr<data::BatchPipeline>
+      validation_data;                  ///< Optional validation stream.
+  BatchMapper validation_batch_mapper;  ///< Required when validation is set.
+  TargetMapper
+      validation_target_mapper;  ///< Optional validation target mapper.
+  StepFunction validation_step;  ///< Required when validation is set.
+  std::shared_ptr<TrainingStrategy>
+      strategy;  ///< Required device/backward/update execution owner.
+  std::shared_ptr<SchedulerAdapter>
+      scheduler;  ///< Optional strictly ordered scheduler event adapter.
+  std::shared_ptr<CallbackDispatcher>
+      callbacks;  ///< Optional immutable-event callback transaction owner.
+  std::shared_ptr<EventOutbox>
+      event_outbox;  ///< Optional bounded post-callback delivery queue.
+  std::shared_ptr<nn::ModelCheckpointParticipant>
+      model_checkpoint;  ///< Required participant for exact model state.
+  std::shared_ptr<CheckpointParticipant>
+      optimizer_checkpoint;  ///< Required optimizer algorithm participant.
+  std::shared_ptr<core::RngCheckpointParticipant>
+      rng_checkpoint;  ///< Required process RNG participant.
+  std::vector<std::shared_ptr<CheckpointParticipant>>
+      additional_participants;  ///< Metric/scaler or task state participants.
+  CheckpointAction
+      checkpoint_action;  ///< Optional callback-command publication action.
+};
 
-    model_->train();
-    optimizer_->zero_grad();
-    double weighted_loss = 0.0;
-    size_t sample_count = 0;
-    int pending_batches = 0;
-    int batch_index = 0;
+/** @brief Summarizes one successful, stopped, or cancelled fit execution. */
+struct FitResult {
+  FitStatus status = FitStatus::completed;  ///< Terminal non-failure outcome.
+  std::uint64_t completed_epochs = 0;       ///< Fully committed epoch count.
+  std::uint64_t global_step = 0;  ///< Committed optimizer update count.
+  std::map<std::string, double>
+      training_metrics;  ///< Last fully completed training epoch metrics.
+  std::map<std::string, double>
+      validation_metrics;  ///< Last completed validation metrics, if any.
+  std::string reason;  ///< Callback or cancellation rationale, if applicable.
+};
 
-    for (const auto batch : train_loader) {
-      for (const auto& callback : options_.callbacks) {
-        if (callback) {
-          callback->on_train_batch_start(this, batch_index);
-        }
-      }
+/**
+ * @brief Coordinates one transactional single-owner training run.
+ *
+ * The Trainer owns only loop/control state. Model, optimizer, data, strategy,
+ * scheduler, callbacks, outbox, RNG, and task state remain independent
+ * checkpoint participants registered with one `CheckpointCoordinator` during
+ * `prepare()`. Checkpoints are allowed only when the accumulation window is
+ * empty and validation is not active. Schema version 1 reads only the current
+ * format; no legacy Trainer archive or callback API is accepted.
+ */
+class Trainer final : public CheckpointParticipant {
+ public:
+  /**
+   * @brief Creates an unprepared training-loop owner.
+   * @param options Stable identities, limits, and loop policies.
+   * @throws InvalidArgument If an option is malformed or contradictory.
+   */
+  explicit Trainer(TrainerOptions options = {});
 
-      auto [input, target] = unpack_batch<T>(batch);
-      if (!input.defined() || !target.defined() || input.size(0) == 0) {
-        throw std::invalid_argument(
-            "Trainer received an empty or undefined batch");
-      }
-      input = input.to(options_.device);
-      target = target.to(options_.device);
+  /** @brief Leaves resource finalization to explicit `close()`. */
+  ~Trainer() override;
 
-      Tensor loss = compute_loss(input, target);
-      if (!loss.defined() || loss.numel() != 1) {
-        throw std::invalid_argument(
-            "Trainer loss function must return one scalar tensor");
-      }
-      const auto batch_size = batch.batch_size();
-      const double batch_loss = loss.detach().item<double>();
-      weighted_loss += batch_loss * static_cast<double>(batch_size);
-      sample_count += batch_size;
+  Trainer(const Trainer&) = delete;  ///< Loop state has unique ownership.
+  Trainer& operator=(const Trainer&) = delete;  ///< Trainer is non-copyable.
+  Trainer(Trainer&&) = delete;  ///< Registered self state cannot move safely.
+  Trainer& operator=(Trainer&&) = delete;  ///< Trainer is non-movable.
 
-      const Tensor backward_loss =
-          grad_scaler_
-              ? grad_scaler_->scale(loss) /
-                    static_cast<double>(options_.accumulation_steps)
-              : loss / static_cast<double>(options_.accumulation_steps);
-      backward_loss.backward();
-      ++pending_batches;
-      const bool accumulation_boundary =
-          pending_batches == options_.accumulation_steps;
-      const bool last_batch =
-          (batch_index + 1) >= static_cast<int>(train_loader.size());
-      if (accumulation_boundary || last_batch) {
-        if (pending_batches < options_.accumulation_steps) {
-          scale_gradients(static_cast<double>(options_.accumulation_steps) /
-                          static_cast<double>(pending_batches));
-        }
-        if (grad_scaler_) {
-          // Unscale first so clipping sees true gradient magnitudes;
-          // step() reuses the unscale result and skips on overflow.
-          if (options_.gradient_clip_val > 0.0) {
-            grad_scaler_->unscale(optimizer_);
-          }
-          grad_scaler_->step(optimizer_);
-          grad_scaler_->update();
-        } else {
-          if (options_.gradient_clip_val > 0.0) {
-            clip_gradients();
-          }
-          optimizer_->step();
-        }
-        optimizer_->zero_grad();
-        pending_batches = 0;
-        ++global_step_;
-        if (options_.max_steps > 0 && global_step_ >= options_.max_steps) {
-          reached_max_steps = true;
-        }
-      }
+  /**
+   * @brief Validates and binds one complete execution/checkpoint domain.
+   * @param request Shared model, task, pipeline, and participant objects.
+   * @throws Error If topology, ownership, capability, or registration fails.
+   *
+   * Trainer-owned state remains created on failure. External participants
+   * retain the failure guarantees documented by their own `prepare()` calls.
+   */
+  void prepare(FitRequest request);
 
-      for (const auto& callback : options_.callbacks) {
-        if (callback) {
-          callback->on_train_batch_end(this, batch_index, batch_loss);
-        }
-      }
-      ++batch_index;
-      if (reached_max_steps) {
-        break;
-      }
-    }
+  /**
+   * @brief Executes or resumes the prepared run until a terminal boundary.
+   * @param stop Cooperative cancellation checked across data, events, and work.
+   * @return Completed, callback-stopped, or cancelled run summary.
+   * @throws Error If task, strategy, callback, sink, or checkpoint work fails.
+   */
+  FitResult fit(std::stop_token stop = {});
 
-    last_train_loss_ = sample_count == 0
-                           ? 0.0
-                           : weighted_loss / static_cast<double>(sample_count);
-    for (const auto& callback : options_.callbacks) {
-      if (callback) {
-        callback->on_train_epoch_end(this);
-      }
-    }
+  /**
+   * @brief Saves every registered participant at a current safe boundary.
+   * @param sink Transactional storage destination owned by interop code.
+   * @return Aggregate descriptor committed by the coordinator.
+   * @throws NotReady If preparation or consistency requirements are unmet.
+   */
+  CheckpointDescriptor save_checkpoint(CheckpointStateSink& sink);
 
-    if (val_loader != nullptr) {
-      last_val_loss_ = run_validation(*val_loader, true);
-      has_validation_loss_ = true;
-    } else {
-      has_validation_loss_ = false;
-    }
+  /**
+   * @brief Restores the prepared execution domain before fit or resume.
+   * @param source Complete participant source with stored descriptors.
+   * @param policy Weakest accepted aggregate restore guarantee. `nullopt`
+   * selects `TrainerOptions::restore_policy`.
+   * @return Aggregate descriptor restored by the coordinator.
+   * @throws NotReady If training already advanced after preparation.
+   */
+  CheckpointDescriptor restore_checkpoint(
+      const CheckpointStateSource& source,
+      std::optional<RestorePolicy> policy = std::nullopt);
 
-    if (scheduler_) {
-      if (scheduler_->requires_metric()) {
-        if (!has_validation_loss_) {
-          throw std::invalid_argument(
-              "Metric-driven scheduler requires a validation loader");
-        }
-        scheduler_->step(last_val_loss_);
-      } else {
-        scheduler_->step();
-      }
-    }
-    next_epoch_ = current_epoch_ + 1;
-    train_loader_state_ = train_loader.state_dict();
-    if (val_loader != nullptr) {
-      validation_loader_state_ = val_loader->state_dict();
-    }
-    checkpoint_at_epoch_boundary_ = true;
-    deferred_epoch_end_actions_.clear();
-    dispatching_epoch_end_callbacks_ = true;
-    try {
-      for (const auto& callback : options_.callbacks) {
-        if (callback) {
-          callback->on_epoch_end(this);
-        }
-      }
-    } catch (...) {
-      dispatching_epoch_end_callbacks_ = false;
-      deferred_epoch_end_actions_.clear();
-      throw;
-    }
-    dispatching_epoch_end_callbacks_ = false;
-    auto deferred_actions = std::move(deferred_epoch_end_actions_);
-    deferred_epoch_end_actions_.clear();
-    for (auto& action : deferred_actions) {
-      action();
-    }
-    if (reached_max_steps || should_stop_) {
-      break;
-    }
-  }
+  /**
+   * @brief Drains events and closes data and strategy resources explicitly.
+   * @param stop Cooperative shutdown cancellation.
+   * @throws Error If event delivery, barrier, or strategy finalization fails.
+   */
+  void close(std::stop_token stop = {});
 
-  for (const auto& callback : options_.callbacks) {
-    if (callback) {
-      callback->on_fit_end(this);
-    }
-  }
-}
+  /** @brief Returns immutable validated construction options. */
+  const TrainerOptions& options() const noexcept;
 
-template <typename T>
-double Trainer::validate(data::DataLoader<T>& val_loader) {
-  validate_configuration();
-  require_forward_fn();
-  return run_validation(val_loader, true);
-}
+  /** @brief Returns the current loop lifecycle. */
+  TrainerPhase phase() const noexcept;
 
-template <typename T>
-double Trainer::test(data::DataLoader<T>& test_loader) {
-  validate_configuration();
-  require_forward_fn();
-  return run_validation(test_loader, false);
-}
+  /** @brief Returns fully committed optimizer updates. */
+  std::uint64_t global_step() const noexcept;
 
-template <typename T>
-double Trainer::run_validation(data::DataLoader<T>& loader,
-                               bool fire_callbacks) {
-  if (loader.size() == 0) {
-    throw std::invalid_argument(
-        "Trainer requires a non-empty validation loader");
-  }
-  if (fire_callbacks) {
-    for (const auto& callback : options_.callbacks) {
-      if (callback) {
-        callback->on_validation_epoch_start(this);
-      }
-    }
-  }
+  /** @brief Returns fully completed training epochs. */
+  std::uint64_t completed_epochs() const noexcept;
 
-  const bool was_training = model_->is_training();
-  /** @brief Restores a borrowed module's entry training mode on scope exit. */
-  struct TrainingModeGuard {
-    torch::nn::Module& module;  ///< Borrowed module whose mode is restored.
-    bool was_training;          ///< Training flag observed before validation.
+  /** @brief Returns last fully completed training epoch observations. */
+  const std::map<std::string, double>& training_metrics() const noexcept;
 
-    /** @brief Restores the captured training flag. */
-    ~TrainingModeGuard() { module.train(was_training); }
-  } mode_guard{*model_, was_training};
-  model_->eval();
-  torch::NoGradGuard no_grad;
-  double weighted_loss = 0.0;
-  size_t sample_count = 0;
-  int batch_index = 0;
-  for (const auto batch : loader) {
-    for (const auto& callback : options_.callbacks) {
-      if (fire_callbacks && callback) {
-        callback->on_validation_batch_start(this, batch_index);
-      }
-    }
-    auto [input, target] = unpack_batch<T>(batch);
-    if (!input.defined() || !target.defined() || input.size(0) == 0) {
-      throw std::invalid_argument(
-          "Trainer received an empty or undefined validation batch");
-    }
-    input = input.to(options_.device);
-    target = target.to(options_.device);
-    Tensor loss = compute_loss(input, target);
-    if (!loss.defined() || loss.numel() != 1) {
-      throw std::invalid_argument(
-          "Trainer loss function must return one scalar tensor");
-    }
-    const auto batch_size = batch.batch_size();
-    weighted_loss += loss.item<double>() * static_cast<double>(batch_size);
-    sample_count += batch_size;
-    for (const auto& callback : options_.callbacks) {
-      if (fire_callbacks && callback) {
-        callback->on_validation_batch_end(this, batch_index);
-      }
-    }
-    ++batch_index;
-  }
+  /** @brief Returns last completed validation observations. */
+  const std::map<std::string, double>& validation_metrics() const noexcept;
 
-  const double mean_loss =
-      sample_count == 0 ? 0.0
-                        : weighted_loss / static_cast<double>(sample_count);
-  if (fire_callbacks) {
-    last_val_loss_ = mean_loss;
-    has_validation_loss_ = true;
-    for (const auto& callback : options_.callbacks) {
-      if (callback) {
-        callback->on_validation_epoch_end(this);
-      }
-    }
-  }
-  return mean_loss;
-}
+  /**
+   * @brief Returns the prepared coordinator for interop checkpoint actions.
+   * @return Coordinator reference valid until Trainer destruction.
+   * @throws NotReady If `prepare()` has not completed.
+   */
+  const CheckpointCoordinator& checkpoint_coordinator() const;
 
-}  // namespace training
-}  // namespace jyppx
+  /** @copydoc CheckpointParticipant::participant_id */
+  std::string participant_id() const override;
+
+  /** @copydoc CheckpointParticipant::describe_state */
+  StateManifest describe_state() const override;
+
+  /** @copydoc CheckpointParticipant::save_state */
+  void save_state(StateWriter& writer) const override;
+
+  /** @copydoc CheckpointParticipant::load_state */
+  void load_state(const StateReader& reader, RestorePolicy policy) override;
+
+ private:
+  /** @brief Hides loop execution, aggregate, registry, and codec state. */
+  struct Impl;
+
+  std::unique_ptr<Impl> impl_;  ///< Owned current-only Trainer implementation.
+};
+
+}  // namespace jyppx::training
 
 #endif  // JYPPX_TRAINING_TRAINER_HPP

@@ -105,7 +105,7 @@ using IterableBatchFactory = std::function<c10::IValue(
  * cursors and the batch factory must honor their stop token/close contract so
  * cancellation and destruction can join the producer.
  */
-class IterableDataPipeline final : public CheckpointParticipant {
+class IterableDataPipeline final : public BatchPipeline {
  public:
   /**
    * @brief Creates an unprepared pipeline over an immutable source factory.
@@ -131,7 +131,7 @@ class IterableDataPipeline final : public CheckpointParticipant {
    * @param epoch Explicit non-negative logical epoch number.
    * @throws Error If cursor creation or initial state capture fails.
    */
-  void set_epoch(std::uint64_t epoch);
+  void set_epoch(std::uint64_t epoch) override;
 
   /**
    * @brief Commits and returns the next source batch.
@@ -142,20 +142,20 @@ class IterableDataPipeline final : public CheckpointParticipant {
    * @throws DeadlineExceeded If `batch_timeout` expires.
    * @throws BackendError If source or collator user code fails.
    */
-  std::optional<BatchEnvelope> next(std::stop_token stop_token = {});
+  std::optional<BatchEnvelope> next(std::stop_token stop_token = {}) override;
 
   /**
    * @brief Permanently closes the cursor and joins the producer.
    *
    * The operation is idempotent and never starts another source operation.
    */
-  void close() noexcept;
+  void close() noexcept override;
 
   /**
    * @brief Returns whether permanent close has begun.
    * @return `true` after `close()` permanently disables the pipeline.
    */
-  bool closed() const noexcept;
+  bool closed() const noexcept override;
 
   /**
    * @brief Returns produced or in-flight batches occupying queue capacity.
@@ -173,7 +173,7 @@ class IterableDataPipeline final : public CheckpointParticipant {
    * @brief Reports source, prefetch, and restore capabilities.
    * @return Immutable source guarantees and runtime queue configuration.
    */
-  DataCapability capability() const;
+  DataCapability capability() const override;
 
   /**
    * @brief Returns the last consumer-committed source state.

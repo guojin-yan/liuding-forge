@@ -1,963 +1,1374 @@
-#include <jyppx/core/device.hpp>
-#include <jyppx/foundation/random.hpp>
-#include <jyppx/training/amp/autocast.hpp>
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
+#include <jyppx/foundation/error.hpp>
+#include <jyppx/foundation/random_checkpoint_participant.hpp>
+#include <jyppx/nn/model_adapter.hpp>
+#include <jyppx/nn/model_checkpoint_participant.hpp>
+#include <jyppx/optim/lr_scheduler.hpp>
+#include <jyppx/optim/optimizer_adapter.hpp>
+#include <jyppx/training/callback_dispatcher.hpp>
+#include <jyppx/training/checkpoint_coordinator.hpp>
+#include <jyppx/training/event_sink.hpp>
+#include <jyppx/training/scheduler_adapter.hpp>
+#include <jyppx/training/strategy.hpp>
 #include <jyppx/training/trainer.hpp>
 
-#include <torch/serialize.h>
+#include <torch/nn/utils.h>
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
+#include <bit>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <exception>
-#include <filesystem>
-#include <fstream>
 #include <limits>
 #include <map>
-#include <sstream>
-#include <stdexcept>
+#include <memory>
+#include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
-
-namespace jyppx {
-namespace training {
-
+namespace jyppx::training {
 namespace {
 
-constexpr int64_t kCheckpointFormatVersion = 3;
+constexpr char kComponent[] = "training.trainer";
+constexpr char kTopologyField[] = "topology";
+constexpr char kControlField[] = "control";
+constexpr char kTopologyMediaType[] =
+    "application/vnd.jyppx.trainer-topology-v1";
+constexpr char kControlMediaType[] = "application/vnd.jyppx.trainer-control-v1";
+constexpr std::string_view kTopologyMagic = "JYPPX-TRAINER-TOPOLOGY-V1";
+constexpr std::string_view kControlMagic = "JYPPX-TRAINER-CONTROL-V1";
 
-void atomic_write_file(const std::string& path, std::string_view bytes) {
-  static std::atomic<uint64_t> sequence{0};
-  const std::filesystem::path destination(path);
-  auto temporary = destination;
-  temporary +=
-      ".tmp-" +
-      std::to_string(
-          std::chrono::steady_clock::now().time_since_epoch().count()) +
-      "-" + std::to_string(sequence.fetch_add(1, std::memory_order_relaxed));
+[[noreturn]] void throw_invalid(std::string operation, std::string expected,
+                                std::string actual, std::string hint) {
+  throw InvalidArgument("Invalid Trainer contract",
+                        ErrorDetails{.component = kComponent,
+                                     .operation = std::move(operation),
+                                     .expected = std::move(expected),
+                                     .actual = std::move(actual),
+                                     .hint = std::move(hint)});
+}
 
-  try {
-    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-    if (!output) throw std::runtime_error("Cannot create checkpoint: " + path);
-    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    output.flush();
-    if (!output)
-      throw std::runtime_error("Failed to write checkpoint: " + path);
-    output.close();
+[[noreturn]] void throw_not_ready(std::string operation, std::string expected,
+                                  std::string actual, std::string hint) {
+  throw NotReady("Trainer is not at the required lifecycle boundary",
+                 ErrorDetails{.component = kComponent,
+                              .operation = std::move(operation),
+                              .expected = std::move(expected),
+                              .actual = std::move(actual),
+                              .hint = std::move(hint)});
+}
 
-#ifdef _WIN32
-    if (!MoveFileExW(temporary.c_str(), destination.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-      throw std::system_error(static_cast<int>(GetLastError()),
-                              std::system_category(),
-                              "Failed to atomically replace checkpoint");
+[[noreturn]] void throw_exhausted(std::string operation, std::string expected,
+                                  std::string actual, std::string hint) {
+  throw ResourceExhausted("Trainer resource limit exceeded",
+                          ErrorDetails{.component = kComponent,
+                                       .operation = std::move(operation),
+                                       .expected = std::move(expected),
+                                       .actual = std::move(actual),
+                                       .hint = std::move(hint)});
+}
+
+[[noreturn]] void throw_incompatible(std::string operation,
+                                     std::string expected, std::string actual,
+                                     std::string hint) {
+  throw CompatibilityError("Trainer checkpoint is incompatible",
+                           ErrorDetails{.component = kComponent,
+                                        .operation = std::move(operation),
+                                        .expected = std::move(expected),
+                                        .actual = std::move(actual),
+                                        .hint = std::move(hint)});
+}
+
+[[noreturn]] void throw_serialization(std::string operation,
+                                      std::string expected, std::string actual,
+                                      std::string hint) {
+  throw SerializationError("Malformed Trainer checkpoint state",
+                           ErrorDetails{.component = kComponent,
+                                        .operation = std::move(operation),
+                                        .expected = std::move(expected),
+                                        .actual = std::move(actual),
+                                        .hint = std::move(hint)});
+}
+
+[[noreturn]] void throw_numerical(std::string operation, std::string actual) {
+  throw NumericalError(
+      "Trainer observed a non-finite numeric value",
+      ErrorDetails{.component = kComponent,
+                   .operation = std::move(operation),
+                   .expected = "finite loss, metrics, and gradients",
+                   .actual = std::move(actual),
+                   .hint = "Inspect the task loss, inputs, and optimizer "
+                           "configuration before retrying."});
+}
+
+bool is_identifier(std::string_view value) {
+  if (value.empty()) {
+    return false;
+  }
+  return std::all_of(value.begin(), value.end(), [](char character) {
+    const auto byte = static_cast<unsigned char>(character);
+    return (byte >= static_cast<unsigned char>('a') &&
+            byte <= static_cast<unsigned char>('z')) ||
+           (byte >= static_cast<unsigned char>('A') &&
+            byte <= static_cast<unsigned char>('Z')) ||
+           (byte >= static_cast<unsigned char>('0') &&
+            byte <= static_cast<unsigned char>('9')) ||
+           byte == static_cast<unsigned char>('.') ||
+           byte == static_cast<unsigned char>('_') ||
+           byte == static_cast<unsigned char>('-');
+  });
+}
+
+std::string phase_name(TrainerPhase phase) {
+  switch (phase) {
+    case TrainerPhase::created:
+      return "created";
+    case TrainerPhase::prepared:
+      return "prepared";
+    case TrainerPhase::running:
+      return "running";
+    case TrainerPhase::completed:
+      return "completed";
+    case TrainerPhase::cancelled:
+      return "cancelled";
+    case TrainerPhase::failed:
+      return "failed";
+    case TrainerPhase::closed:
+      return "closed";
+  }
+  return "unknown";
+}
+
+bool valid_tail_policy(AccumulationTailPolicy policy) {
+  return policy == AccumulationTailPolicy::flush ||
+         policy == AccumulationTailPolicy::drop;
+}
+
+bool restorable_phase(TrainerPhase phase) {
+  return phase == TrainerPhase::prepared || phase == TrainerPhase::running ||
+         phase == TrainerPhase::completed || phase == TrainerPhase::cancelled;
+}
+
+void validate_manifest(const StateManifest& stored,
+                       const StateManifest& expected, RestorePolicy policy) {
+  validate_state_manifest(stored);
+  if (!restore_policy_accepts(policy, stored.restore_level)) {
+    throw_incompatible("manifest.restore_level",
+                       std::string(restore_policy_name(policy)),
+                       std::string(restore_level_name(stored.restore_level)),
+                       "Use a policy that accepts the stored guarantee.");
+  }
+  if (stored.participant_id != expected.participant_id ||
+      stored.schema_version != expected.schema_version ||
+      stored.restore_level != RestoreLevel::exact ||
+      stored.fields.size() != expected.fields.size()) {
+    throw_incompatible("manifest", expected.participant_id,
+                       stored.participant_id,
+                       "Restore only current state for the same Trainer.");
+  }
+  for (std::size_t index = 0; index < expected.fields.size(); ++index) {
+    const auto& left = stored.fields[index];
+    const auto& right = expected.fields[index];
+    if (left.name != right.name || left.media_type != right.media_type ||
+        left.required != right.required || left.max_bytes > right.max_bytes) {
+      throw_incompatible("manifest.fields", right.name, left.name,
+                         "Reject a changed Trainer field contract.");
     }
-#else
-    std::filesystem::rename(temporary, destination);
-#endif
-  } catch (...) {
-    std::error_code error;
-    std::filesystem::remove(temporary, error);
-    throw;
   }
 }
 
-void write_scalar_state(torch::serialize::OutputArchive& archive,
-                        const std::map<std::string, double>& state) {
-  for (const auto& [name, value] : state) {
-    archive.write(
-        name,
-        torch::tensor(value, torch::TensorOptions().dtype(torch::kFloat64)));
+void append_u8(std::vector<std::byte>& output, std::uint8_t value) {
+  output.push_back(static_cast<std::byte>(value));
+}
+
+void append_u64(std::vector<std::byte>& output, std::uint64_t value) {
+  for (std::size_t index = 0; index < sizeof(value); ++index) {
+    output.push_back(static_cast<std::byte>((value >> (index * 8U)) & 0xffU));
   }
 }
 
-std::map<std::string, double> read_scalar_state(
-    torch::serialize::InputArchive& archive) {
-  std::map<std::string, double> state;
-  for (const auto& key : archive.keys()) {
-    torch::Tensor value;
-    if (archive.try_read(key, value) && value.defined() && value.numel() == 1) {
-      state.emplace(key, value.item<double>());
-    }
-  }
-  return state;
+void append_double(std::vector<std::byte>& output, double value) {
+  append_u64(output, std::bit_cast<std::uint64_t>(value));
 }
 
-void write_grad_scaler_state(torch::serialize::OutputArchive& archive,
-                             const amp::GradScalerState& state) {
-  archive.write("format_version",
-                torch::IValue(static_cast<int64_t>(state.format_version)));
-  archive.write("scaler_id", torch::IValue(state.scaler_id));
-  archive.write("init_scale", torch::IValue(state.init_scale));
-  archive.write("growth_factor", torch::IValue(state.growth_factor));
-  archive.write("backoff_factor", torch::IValue(state.backoff_factor));
-  archive.write("growth_interval",
-                torch::IValue(static_cast<int64_t>(state.growth_interval)));
-  archive.write("enabled", torch::IValue(state.enabled));
-  archive.write("scale", torch::IValue(state.scale));
-  archive.write("growth_tracker",
-                torch::IValue(static_cast<int64_t>(state.growth_tracker)));
+void append_string(std::vector<std::byte>& output, std::string_view value) {
+  append_u64(output, static_cast<std::uint64_t>(value.size()));
+  for (const auto character : value) {
+    output.push_back(
+        static_cast<std::byte>(static_cast<unsigned char>(character)));
+  }
 }
 
-amp::GradScalerState read_grad_scaler_state(
-    torch::serialize::InputArchive& archive) {
-  torch::IValue value;
-  const auto require_int = [&](const char* key) {
-    if (!archive.try_read(key, value) || !value.isInt()) {
-      throw std::runtime_error(std::string("Invalid GradScaler field: ") + key);
-    }
-    return value.toInt();
-  };
-  const auto require_double = [&](const char* key) {
-    if (!archive.try_read(key, value) || !value.isDouble()) {
-      throw std::runtime_error(std::string("Invalid GradScaler field: ") + key);
-    }
-    return value.toDouble();
-  };
-  const auto require_bool = [&](const char* key) {
-    if (!archive.try_read(key, value) || !value.isBool()) {
-      throw std::runtime_error(std::string("Invalid GradScaler field: ") + key);
-    }
-    return value.toBool();
-  };
-  const auto require_string = [&](const char* key) {
-    if (!archive.try_read(key, value) || !value.isString()) {
-      throw std::runtime_error(std::string("Invalid GradScaler field: ") + key);
-    }
-    return value.toStringRef();
-  };
-
-  const auto format_version = require_int("format_version");
-  const auto growth_interval = require_int("growth_interval");
-  const auto growth_tracker = require_int("growth_tracker");
-  if (format_version < 0 ||
-      format_version > std::numeric_limits<std::uint32_t>::max() ||
-      growth_interval < 0 ||
-      growth_interval > std::numeric_limits<int>::max() || growth_tracker < 0) {
-    throw std::runtime_error("GradScaler checkpoint integer is out of range");
+void append_metrics(std::vector<std::byte>& output,
+                    const std::map<std::string, double>& values) {
+  append_u64(output, static_cast<std::uint64_t>(values.size()));
+  for (const auto& [name, value] : values) {
+    append_string(output, name);
+    append_double(output, value);
   }
-  return {.format_version = static_cast<std::uint32_t>(format_version),
-          .scaler_id = require_string("scaler_id"),
-          .init_scale = require_double("init_scale"),
-          .growth_factor = require_double("growth_factor"),
-          .backoff_factor = require_double("backoff_factor"),
-          .growth_interval = static_cast<int>(growth_interval),
-          .enabled = require_bool("enabled"),
-          .scale = require_double("scale"),
-          .growth_tracker = static_cast<std::uint64_t>(growth_tracker)};
 }
 
-void write_callback_state(torch::serialize::OutputArchive& archive,
-                          const CallbackState& state) {
-  torch::serialize::OutputArchive scalar_archive(archive.compilation_unit());
-  write_scalar_state(scalar_archive, state.scalars);
-  archive.write("scalars", scalar_archive);
+class ByteReader final {
+ public:
+  explicit ByteReader(std::span<const std::byte> bytes) : bytes_(bytes) {}
 
-  torch::serialize::OutputArchive string_archive(archive.compilation_unit());
-  for (const auto& [name, value] : state.strings) {
-    string_archive.write(name, torch::IValue(value));
+  std::uint8_t read_u8(std::string_view field) {
+    require(sizeof(std::uint8_t), field);
+    return std::to_integer<std::uint8_t>(bytes_[offset_++]);
   }
-  archive.write("strings", string_archive);
-}
 
-CallbackState read_callback_state(torch::serialize::InputArchive& archive) {
-  CallbackState state;
-  torch::serialize::InputArchive scalar_archive;
-  if (archive.try_read("scalars", scalar_archive)) {
-    state.scalars = read_scalar_state(scalar_archive);
+  std::uint64_t read_u64(std::string_view field) {
+    require(sizeof(std::uint64_t), field);
+    std::uint64_t value = 0;
+    for (std::size_t index = 0; index < sizeof(value); ++index) {
+      value |= static_cast<std::uint64_t>(
+                   std::to_integer<std::uint8_t>(bytes_[offset_++]))
+               << (index * 8U);
+    }
+    return value;
   }
-  torch::serialize::InputArchive string_archive;
-  if (archive.try_read("strings", string_archive)) {
-    for (const auto& key : string_archive.keys()) {
-      torch::IValue value;
-      if (string_archive.try_read(key, value) && value.isString()) {
-        state.strings.emplace(key, value.toStringRef());
+
+  double read_double(std::string_view field) {
+    return std::bit_cast<double>(read_u64(field));
+  }
+
+  std::string read_string(std::string_view field, std::size_t max_bytes) {
+    const auto length = read_u64(field);
+    if (length > max_bytes || length > remaining()) {
+      throw_serialization(std::string(field),
+                          "a bounded string within the remaining field",
+                          std::to_string(length),
+                          "Reject truncated or oversized Trainer state.");
+    }
+    if (length == 0U) {
+      return {};
+    }
+    const auto start = bytes_.begin() + static_cast<std::ptrdiff_t>(offset_);
+    const auto finish = start + static_cast<std::ptrdiff_t>(length);
+    offset_ += static_cast<std::size_t>(length);
+    return {reinterpret_cast<const char*>(&*start),
+            static_cast<std::size_t>(length)};
+  }
+
+  std::map<std::string, double> read_metrics(std::string_view field,
+                                             std::size_t max_metrics,
+                                             std::size_t max_name_bytes) {
+    const auto count = read_u64(field);
+    if (count > max_metrics) {
+      throw_exhausted(std::string(field), std::to_string(max_metrics),
+                      std::to_string(count),
+                      "Reduce retained Trainer metric cardinality.");
+    }
+    std::map<std::string, double> result;
+    for (std::uint64_t index = 0; index < count; ++index) {
+      auto name = read_string(std::string(field) + ".name", max_name_bytes);
+      const auto value = read_double(std::string(field) + ".value");
+      if (!is_identifier(name) || !std::isfinite(value) ||
+          !result.emplace(std::move(name), value).second) {
+        throw_serialization(std::string(field),
+                            "unique bounded names with finite values",
+                            "invalid metric entry",
+                            "Reject ambiguous Trainer aggregate state.");
       }
     }
+    return result;
   }
-  return state;
-}
 
-void write_data_loader_state(torch::serialize::OutputArchive& archive,
-                             const data::DataLoaderState& state) {
-  if (state.dataset_size >
-          static_cast<size_t>(std::numeric_limits<int64_t>::max()) ||
-      state.batch_size >
-          static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
-    throw std::overflow_error(
-        "DataLoader dimensions cannot be represented in a checkpoint");
-  }
-  archive.write("version", torch::IValue(static_cast<int64_t>(state.version)));
-  archive.write("dataset_size",
-                torch::IValue(static_cast<int64_t>(state.dataset_size)));
-  archive.write("batch_size",
-                torch::IValue(static_cast<int64_t>(state.batch_size)));
-  archive.write("drop_last", torch::IValue(state.drop_last));
-  archive.write("epoch_prepared", torch::IValue(state.epoch_prepared));
-  archive.write("sampler_state_supported",
-                torch::IValue(state.sampler_state_supported));
-  archive.write("sampler_state", torch::IValue(state.sampler_state));
-
-  std::vector<int64_t> indices;
-  indices.reserve(state.prepared_indices.size());
-  for (const auto index : state.prepared_indices) {
-    if (index > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
-      throw std::overflow_error("DataLoader index cannot be checkpointed");
+  void expect_magic(std::string_view expected, std::size_t max_bytes,
+                    std::string_view field) {
+    const auto actual = read_string(field, max_bytes);
+    if (actual != expected) {
+      throw_serialization(std::string(field), std::string(expected), actual,
+                          "Use only the current Trainer state schema.");
     }
-    indices.push_back(static_cast<int64_t>(index));
   }
-  archive.write(
-      "prepared_indices",
-      torch::tensor(indices, torch::TensorOptions().dtype(torch::kInt64)));
-}
 
-data::DataLoaderState read_data_loader_state(
-    torch::serialize::InputArchive& archive) {
-  data::DataLoaderState state;
-  torch::IValue value;
-  auto read_nonnegative = [&](const char* key) -> uint64_t {
-    if (!archive.try_read(key, value) || !value.isInt() || value.toInt() < 0) {
-      throw std::runtime_error(
-          std::string("Invalid DataLoader checkpoint field: ") + key);
+  void finish(std::string_view field) const {
+    if (offset_ != bytes_.size()) {
+      throw_serialization(std::string(field), "no trailing bytes",
+                          std::to_string(bytes_.size() - offset_),
+                          "Reject ambiguous state extensions without a new "
+                          "schema version.");
     }
-    return static_cast<uint64_t>(value.toInt());
+  }
+
+ private:
+  void require(std::size_t count, std::string_view field) const {
+    if (count > remaining()) {
+      throw_serialization(
+          std::string(field), std::to_string(count) + " available bytes",
+          std::to_string(remaining()), "Reject truncated Trainer state.");
+    }
+  }
+
+  std::size_t remaining() const noexcept { return bytes_.size() - offset_; }
+
+  std::span<const std::byte> bytes_;  ///< Borrowed bounded field bytes.
+  std::size_t offset_ = 0;            ///< Next unread byte offset.
+};
+
+struct MetricAccumulator {
+  std::map<std::string, double> weighted_sums;  ///< Weighted finite totals.
+  std::uint64_t sample_count = 0;  ///< Observations represented by totals.
+
+  void clear() {
+    weighted_sums.clear();
+    sample_count = 0;
+  }
+};
+
+struct TrainerControlState {
+  TrainerPhase phase = TrainerPhase::created;
+  bool run_started = false;
+  bool epoch_in_progress = false;
+  bool validation_active = false;
+  bool checkpoint_in_progress = false;
+  bool callback_stop = false;
+  bool skip_validation = false;
+  bool checkpoint_pending = false;
+  std::uint64_t active_epoch = 0;
+  std::uint64_t next_epoch = 0;
+  std::uint64_t completed_epochs = 0;
+  std::uint64_t global_step = 0;
+  std::uint64_t scheduler_events = 0;
+  std::uint64_t checkpoint_count = 0;
+  std::size_t pending_micro_steps = 0;
+  std::string stop_reason;
+  MetricAccumulator training;
+  std::map<std::string, double> last_training;
+  std::map<std::string, double> last_validation;
+};
+
+void validate_options(const TrainerOptions& options) {
+  const auto valid_identity = [&](std::string_view value) {
+    return is_identifier(value) && value.size() <= options.max_identifier_bytes;
   };
-
-  const auto version = read_nonnegative("version");
-  const auto dataset_size = read_nonnegative("dataset_size");
-  const auto batch_size = read_nonnegative("batch_size");
-  if (version > std::numeric_limits<std::uint32_t>::max() ||
-      dataset_size > std::numeric_limits<size_t>::max() ||
-      batch_size > std::numeric_limits<size_t>::max()) {
-    throw std::runtime_error("DataLoader checkpoint field is out of range");
+  if (options.max_identifier_bytes == 0U || options.max_topology_bytes == 0U ||
+      options.max_control_bytes == 0U || options.max_metrics == 0U) {
+    throw_invalid("options.limits", "positive resource limits", "zero",
+                  "Configure explicit positive Trainer limits.");
   }
-  state.version = static_cast<std::uint32_t>(version);
-  state.dataset_size = static_cast<size_t>(dataset_size);
-  state.batch_size = static_cast<size_t>(batch_size);
-
-  if (!archive.try_read("drop_last", value) || !value.isBool()) {
-    throw std::runtime_error("Invalid DataLoader checkpoint field: drop_last");
+  if (!valid_identity(options.trainer_id) || !valid_identity(options.run_id) ||
+      options.trace_id.empty() ||
+      options.trace_id.size() > options.max_identifier_bytes ||
+      !valid_identity(options.scheduler_metric)) {
+    throw_invalid("options.identity", "bounded stable identities",
+                  options.trainer_id + "/" + options.run_id,
+                  "Use alphanumeric, dot, underscore, or dash identities.");
   }
-  state.drop_last = value.toBool();
-  if (!archive.try_read("epoch_prepared", value) || !value.isBool()) {
-    throw std::runtime_error(
-        "Invalid DataLoader checkpoint field: epoch_prepared");
+  if (options.max_epochs == 0U || options.accumulate_steps == 0U ||
+      !valid_tail_policy(options.accumulation_tail)) {
+    throw_invalid("options.loop", "positive epochs/accumulation and known tail",
+                  std::to_string(options.max_epochs) + "/" +
+                      std::to_string(options.accumulate_steps),
+                  "Select a finite epoch limit and an explicit tail policy.");
   }
-  state.epoch_prepared = value.toBool();
-  if (state.version >= 2) {
-    if (!archive.try_read("sampler_state_supported", value) ||
-        !value.isBool()) {
-      throw std::runtime_error(
-          "Invalid DataLoader checkpoint field: sampler_state_supported");
-    }
-    state.sampler_state_supported = value.toBool();
-  } else {
-    state.sampler_state_supported = true;
+  if (options.gradient_clip_norm.has_value() &&
+      (!std::isfinite(*options.gradient_clip_norm) ||
+       *options.gradient_clip_norm <= 0.0)) {
+    throw_invalid("options.gradient_clip_norm", "a positive finite norm",
+                  std::to_string(*options.gradient_clip_norm),
+                  "Unset clipping or provide a positive threshold.");
   }
-  if (!archive.try_read("sampler_state", value) || !value.isString()) {
-    throw std::runtime_error(
-        "Invalid DataLoader checkpoint field: sampler_state");
-  }
-  state.sampler_state = value.toStringRef();
-
-  Tensor indices;
-  if (!archive.try_read("prepared_indices", indices) ||
-      indices.scalar_type() != torch::kInt64 || indices.dim() != 1) {
-    throw std::runtime_error("Invalid DataLoader checkpoint indices");
-  }
-  indices = indices.cpu().contiguous();
-  const auto* values = indices.const_data_ptr<int64_t>();
-  state.prepared_indices.reserve(static_cast<size_t>(indices.numel()));
-  for (int64_t i = 0; i < indices.numel(); ++i) {
-    if (values[i] < 0) {
-      throw std::runtime_error(
-          "DataLoader checkpoint contains a negative index");
-    }
-    state.prepared_indices.push_back(static_cast<size_t>(values[i]));
-  }
-  return state;
 }
 
-std::vector<std::shared_ptr<Callback>> checkpointable_callbacks(
-    const std::vector<std::shared_ptr<Callback>>& callbacks) {
-  std::vector<std::shared_ptr<Callback>> result;
-  for (const auto& callback : callbacks) {
-    if (callback && !callback->state_key().empty()) {
-      result.push_back(callback);
+void validate_metric_map(const std::map<std::string, double>& metrics,
+                         const TrainerOptions& options,
+                         std::string_view operation) {
+  if (metrics.size() > options.max_metrics) {
+    throw_exhausted(std::string(operation), std::to_string(options.max_metrics),
+                    std::to_string(metrics.size()),
+                    "Reduce task metric cardinality.");
+  }
+  for (const auto& [name, value] : metrics) {
+    if (!is_identifier(name) || name.size() > options.max_identifier_bytes) {
+      throw_invalid(std::string(operation), "bounded stable metric names", name,
+                    "Use stable machine-readable metric identities.");
+    }
+    if (!std::isfinite(value)) {
+      throw_numerical(std::string(operation), name);
     }
   }
+}
+
+void checked_increment(std::uint64_t& value, std::string_view operation) {
+  if (value == std::numeric_limits<std::uint64_t>::max()) {
+    throw_exhausted(std::string(operation), "a counter below uint64 maximum",
+                    "uint64 maximum", "Start a new bounded training run.");
+  }
+  ++value;
+}
+
+void add_output(MetricAccumulator& accumulator, const StepOutput& output,
+                std::optional<double> loss, std::string_view loss_name,
+                const TrainerOptions& options) {
+  validate_metric_map(output.metrics, options, "step.metrics");
+  if (output.sample_count == 0U ||
+      (loss.has_value() && !std::isfinite(*loss))) {
+    if (loss.has_value() && !std::isfinite(*loss)) {
+      throw_numerical("step.loss", "non-finite scalar");
+    }
+    throw_invalid("step.sample_count", "a positive observation count", "0",
+                  "Return the batch cardinality from the step function.");
+  }
+  if (accumulator.sample_count >
+      std::numeric_limits<std::uint64_t>::max() - output.sample_count) {
+    throw_exhausted("step.sample_count", "a bounded cumulative count",
+                    "uint64 overflow", "Use a shorter run or smaller epoch.");
+  }
+  auto add_value = [&](std::string name, double value) {
+    const auto weighted = value * static_cast<double>(output.sample_count);
+    auto& total = accumulator.weighted_sums[std::move(name)];
+    total += weighted;
+    if (!std::isfinite(total)) {
+      throw_numerical("step.metric_accumulation", "overflowed aggregate");
+    }
+  };
+  if (loss.has_value()) {
+    add_value(std::string(loss_name), *loss);
+  }
+  for (const auto& [name, value] : output.metrics) {
+    if (name == loss_name) {
+      throw_invalid("step.metrics", "task metrics distinct from loss identity",
+                    name, "Let the Trainer own the phase loss observation.");
+    }
+    add_value(name, value);
+  }
+  if (accumulator.weighted_sums.size() > options.max_metrics) {
+    throw_exhausted("step.metric_accumulation",
+                    std::to_string(options.max_metrics),
+                    std::to_string(accumulator.weighted_sums.size()),
+                    "Reduce task metric cardinality.");
+  }
+  accumulator.sample_count += output.sample_count;
+}
+
+std::map<std::string, double> finish_metrics(
+    const MetricAccumulator& accumulator) {
+  std::map<std::string, double> result;
+  if (accumulator.sample_count == 0U) {
+    return result;
+  }
+  for (const auto& [name, total] : accumulator.weighted_sums) {
+    result.emplace(name, total / static_cast<double>(accumulator.sample_count));
+  }
+  return result;
+}
+
+void validate_step_output(const StepOutput& output,
+                          const data::BatchEnvelope& batch, bool require_loss) {
+  if (output.sample_count == 0U ||
+      output.sample_count != batch.sample_ids.size()) {
+    throw_invalid("step.sample_count", "the committed batch sample count",
+                  std::to_string(output.sample_count),
+                  "Report exactly one observation per committed sample ID.");
+  }
+  if (require_loss && (!output.loss.defined() || output.loss.numel() != 1 ||
+                       !output.loss.requires_grad())) {
+    throw_invalid(
+        "step.loss", "one defined differentiable scalar training loss",
+        output.loss.defined() ? std::to_string(output.loss.numel()) + " values"
+                              : "undefined",
+        "Return the scalar objective used for backward.");
+  }
+  if (output.loss.defined()) {
+    if (output.loss.numel() != 1) {
+      throw_invalid("step.loss", "one scalar value",
+                    std::to_string(output.loss.numel()),
+                    "Reduce task loss before returning it.");
+    }
+    if (!std::isfinite(output.loss.detach().item<double>())) {
+      throw_numerical("step.loss", "non-finite scalar");
+    }
+  }
+}
+
+std::vector<std::byte> encode_topology(
+    const TrainerOptions& options, const FitRequest& request,
+    const std::vector<std::string>& participant_ids) {
+  std::vector<std::byte> output;
+  append_string(output, kTopologyMagic);
+  append_string(output, options.trainer_id);
+  append_string(output, options.run_id);
+  append_string(output, options.trace_id);
+  append_u64(output, options.max_epochs);
+  append_u64(output, options.max_steps);
+  append_u64(output, static_cast<std::uint64_t>(options.accumulate_steps));
+  append_u8(output, static_cast<std::uint8_t>(options.accumulation_tail));
+  append_u8(output, options.gradient_clip_norm.has_value() ? 1U : 0U);
+  append_double(output, options.gradient_clip_norm.value_or(0.0));
+  append_string(output, options.scheduler_metric);
+  append_u8(output, static_cast<std::uint8_t>(options.restore_policy));
+  append_u8(output, options.drain_events ? 1U : 0U);
+  append_u64(output, static_cast<std::uint64_t>(options.max_metrics));
+  append_u64(output, static_cast<std::uint64_t>(options.max_identifier_bytes));
+  append_string(output, request.training_data->participant_id());
+  append_string(output, request.validation_data
+                            ? request.validation_data->participant_id()
+                            : std::string{});
+  append_string(output, request.optimizer->optimizer_id());
+  append_string(output, request.strategy->participant_id());
+  append_string(output, request.scheduler ? request.scheduler->participant_id()
+                                          : std::string{});
+  append_string(output, request.callbacks->participant_id());
+  append_string(output, request.event_outbox
+                            ? request.event_outbox->participant_id()
+                            : std::string{});
+  append_string(output, request.model_checkpoint->participant_id());
+  append_string(output, request.optimizer_checkpoint->participant_id());
+  append_string(output, request.rng_checkpoint->participant_id());
+  append_u64(output, static_cast<std::uint64_t>(participant_ids.size()));
+  for (const auto& participant_id : participant_ids) {
+    append_string(output, participant_id);
+  }
+  return output;
+}
+
+std::vector<std::byte> encode_control(const TrainerControlState& state) {
+  std::vector<std::byte> output;
+  append_string(output, kControlMagic);
+  append_u8(output, static_cast<std::uint8_t>(state.phase));
+  append_u8(output, state.run_started ? 1U : 0U);
+  append_u8(output, state.epoch_in_progress ? 1U : 0U);
+  append_u8(output, state.validation_active ? 1U : 0U);
+  append_u8(output, state.checkpoint_in_progress ? 1U : 0U);
+  append_u8(output, state.callback_stop ? 1U : 0U);
+  append_u8(output, state.skip_validation ? 1U : 0U);
+  append_u8(output, state.checkpoint_pending ? 1U : 0U);
+  append_u64(output, state.active_epoch);
+  append_u64(output, state.next_epoch);
+  append_u64(output, state.completed_epochs);
+  append_u64(output, state.global_step);
+  append_u64(output, state.scheduler_events);
+  append_u64(output, state.checkpoint_count);
+  append_u64(output, static_cast<std::uint64_t>(state.pending_micro_steps));
+  append_string(output, state.stop_reason);
+  append_u64(output, state.training.sample_count);
+  append_metrics(output, state.training.weighted_sums);
+  append_metrics(output, state.last_training);
+  append_metrics(output, state.last_validation);
+  return output;
+}
+
+TrainerControlState decode_control(std::span<const std::byte> bytes,
+                                   const TrainerOptions& options) {
+  ByteReader reader(bytes);
+  reader.expect_magic(kControlMagic, options.max_identifier_bytes,
+                      "control.magic");
+  TrainerControlState result;
+  result.phase = static_cast<TrainerPhase>(reader.read_u8("control.phase"));
+  auto read_bool = [&](std::string_view field) {
+    const auto value = reader.read_u8(field);
+    if (value > 1U) {
+      throw_serialization(std::string(field), "0 or 1", std::to_string(value),
+                          "Reject malformed Boolean state.");
+    }
+    return value == 1U;
+  };
+  result.run_started = read_bool("control.run_started");
+  result.epoch_in_progress = read_bool("control.epoch_in_progress");
+  result.validation_active = read_bool("control.validation_active");
+  result.checkpoint_in_progress = read_bool("control.checkpoint_in_progress");
+  result.callback_stop = read_bool("control.callback_stop");
+  result.skip_validation = read_bool("control.skip_validation");
+  result.checkpoint_pending = read_bool("control.checkpoint_pending");
+  result.active_epoch = reader.read_u64("control.active_epoch");
+  result.next_epoch = reader.read_u64("control.next_epoch");
+  result.completed_epochs = reader.read_u64("control.completed_epochs");
+  result.global_step = reader.read_u64("control.global_step");
+  result.scheduler_events = reader.read_u64("control.scheduler_events");
+  result.checkpoint_count = reader.read_u64("control.checkpoint_count");
+  const auto pending = reader.read_u64("control.pending_micro_steps");
+  if (pending > std::numeric_limits<std::size_t>::max()) {
+    throw_serialization("control.pending_micro_steps", "a size_t value",
+                        std::to_string(pending), "Reject foreign-width state.");
+  }
+  result.pending_micro_steps = static_cast<std::size_t>(pending);
+  result.stop_reason =
+      reader.read_string("control.stop_reason", options.max_identifier_bytes);
+  result.training.sample_count = reader.read_u64("control.training.samples");
+  result.training.weighted_sums =
+      reader.read_metrics("control.training.sums", options.max_metrics,
+                          options.max_identifier_bytes);
+  result.last_training =
+      reader.read_metrics("control.last_training", options.max_metrics,
+                          options.max_identifier_bytes);
+  result.last_validation =
+      reader.read_metrics("control.last_validation", options.max_metrics,
+                          options.max_identifier_bytes);
+  reader.finish("control");
   return result;
 }
 
 }  // namespace
 
-Trainer::Trainer(std::shared_ptr<torch::nn::Module> model,
-                 std::shared_ptr<optim::Optimizer> optimizer,
-                 const TrainerOptions& options)
-    : model_(std::move(model)),
-      optimizer_(std::move(optimizer)),
-      options_(options),
-      forward_fn_(options_.forward_fn),
-      loss_fn_(options_.loss_fn),
-      global_step_(0),
-      current_epoch_(0),
-      next_epoch_(0),
-      should_stop_(false),
-      last_train_loss_(0.0),
-      last_val_loss_(0.0),
-      has_validation_loss_(false) {
-  if (!model_) {
-    throw std::invalid_argument("Trainer model cannot be null");
-  }
-  if (!optimizer_) {
-    throw std::invalid_argument("Trainer optimizer cannot be null");
-  }
-  if (options_.use_amp && options_.amp_dtype == at::kHalf) {
-    grad_scaler_ = std::make_unique<amp::GradScaler>(options_.amp_options);
-  }
-  validate_configuration();
-}
+struct Trainer::Impl {
+  explicit Impl(TrainerOptions trainer_options)
+      : options(std::move(trainer_options)) {}
 
-void Trainer::validate_configuration() const {
-  if (!model_) {
-    throw std::invalid_argument("Trainer model cannot be null");
+  TrainerOptions options;
+  FitRequest request;
+  bool prepared = false;
+  TrainerControlState state;
+  std::vector<std::string> participant_ids;
+  std::unique_ptr<CheckpointParticipantRegistry> registry;
+  std::unique_ptr<CheckpointCoordinator> coordinator;
+
+  bool checkpoint_safe() const noexcept {
+    return prepared && state.pending_micro_steps == 0U &&
+           !state.validation_active && state.phase != TrainerPhase::created &&
+           state.phase != TrainerPhase::failed &&
+           state.phase != TrainerPhase::closed;
   }
-  if (!optimizer_) {
-    throw std::invalid_argument("Trainer optimizer cannot be null");
-  }
-  if (options_.max_epochs < 0) {
-    throw std::invalid_argument("Trainer max_epochs must be non-negative");
-  }
-  if (options_.max_steps == 0 || options_.max_steps < -1) {
-    throw std::invalid_argument("Trainer max_steps must be -1 or positive");
-  }
-  if (options_.accumulation_steps <= 0) {
-    throw std::invalid_argument("Trainer accumulation_steps must be positive");
-  }
-  if (options_.gradient_clip_val < 0.0) {
-    throw std::invalid_argument(
-        "Trainer gradient_clip_val must be non-negative");
-  }
-  if (options_.gradient_clip_mode != "norm" &&
-      options_.gradient_clip_mode != "value") {
-    throw std::invalid_argument(
-        "Trainer gradient_clip_mode must be 'norm' or 'value'");
-  }
-  if (options_.max_checkpoint_bytes == 0) {
-    throw std::invalid_argument(
-        "Trainer max_checkpoint_bytes must be positive");
-  }
-  if (!loss_fn_) {
-    throw std::invalid_argument("Trainer loss function cannot be empty");
-  }
-  if (options_.use_amp) {
-    if (options_.amp_dtype != at::kHalf &&
-        options_.amp_dtype != at::kBFloat16) {
-      throw std::invalid_argument(
-          "Trainer AMP dtype must be torch::kFloat16 or torch::kBFloat16");
+
+  void accept_command(const CallbackDispatchResult& result,
+                      bool accept_commands) {
+    if (!accept_commands || !result.effective_command.has_value()) {
+      return;
     }
-    if (options_.amp_dtype == at::kHalf &&
-        options_.device.type() != torch::kCUDA) {
-      throw std::runtime_error("float16 AMP requires a CUDA device");
-    }
-    if (options_.device.type() == torch::kCUDA && !cuda_is_available()) {
-      throw std::runtime_error(
-          "Trainer AMP requires CUDA, but no CUDA device is available");
+    const auto& command = *result.effective_command;
+    switch (command.kind) {
+      case CallbackCommandKind::none:
+        return;
+      case CallbackCommandKind::skip_validation:
+        state.skip_validation = true;
+        return;
+      case CallbackCommandKind::request_checkpoint:
+        state.checkpoint_pending = true;
+        return;
+      case CallbackCommandKind::stop:
+        state.callback_stop = true;
+        state.stop_reason = command.callback_id + ":" + command.reason;
+        return;
     }
   }
-}
 
-void Trainer::require_forward_fn() const {
-  if (!forward_fn_) {
-    throw std::invalid_argument(
-        "Trainer requires a forward function; construct it with a concrete "
-        "module, "
-        "set TrainerOptions::forward_fn, or call Trainer::set_forward_fn");
-  }
-}
-
-Tensor Trainer::compute_loss(const Tensor& input, const Tensor& target) const {
-  if (options_.use_amp) {
-    // The loss itself comes back in float32 where supported, so logging
-    // and backward retain eager-mode numerical behavior.
-    amp::AutocastGuard autocast{options_.device.type(), options_.amp_dtype};
-    return loss_fn_(forward_fn_(input), target);
-  }
-  return loss_fn_(forward_fn_(input), target);
-}
-
-void Trainer::set_forward_fn(TrainerOptions::ForwardFn forward_fn) {
-  if (!forward_fn) {
-    throw std::invalid_argument("Trainer forward function cannot be empty");
-  }
-  forward_fn_ = std::move(forward_fn);
-  options_.forward_fn = forward_fn_;
-}
-
-void Trainer::set_loss_fn(TrainerOptions::LossFn loss_fn) {
-  if (!loss_fn) {
-    throw std::invalid_argument("Trainer loss function cannot be empty");
-  }
-  loss_fn_ = std::move(loss_fn);
-  options_.loss_fn = loss_fn_;
-}
-
-void Trainer::set_scheduler(
-    std::shared_ptr<optim::schedulers::LRScheduler> scheduler) {
-  if (scheduler &&
-      scheduler->get_last_lrs().size() != optimizer_->param_groups().size()) {
-    throw std::invalid_argument(
-        "Trainer scheduler parameter groups must match the optimizer");
-  }
-  scheduler_ = std::move(scheduler);
-}
-
-void Trainer::add_callback(std::shared_ptr<Callback> callback) {
-  if (!callback) {
-    throw std::invalid_argument("Trainer callback cannot be null");
-  }
-  options_.callbacks.push_back(std::move(callback));
-}
-
-void Trainer::clip_gradients() {
-  const auto parameters = model_->parameters();
-  if (options_.gradient_clip_mode == "value") {
-    torch::nn::utils::clip_grad_value_(parameters, options_.gradient_clip_val);
-  } else {
-    torch::nn::utils::clip_grad_norm_(parameters, options_.gradient_clip_val);
-  }
-}
-
-void Trainer::scale_gradients(double scale) {
-  if (scale == 1.0) {
-    return;
-  }
-  torch::NoGradGuard no_grad;
-  for (const auto& parameter : model_->parameters()) {
-    if (!parameter.defined() || !parameter.requires_grad()) {
-      continue;
+  CallbackDispatchResult emit(CallbackEventKind kind, CallbackPhase phase,
+                              std::map<std::string, double> metrics,
+                              std::stop_token stop, bool accept_commands = true,
+                              bool drain = true) {
+    validate_metric_map(metrics, options, "event.metrics");
+    if (request.callbacks->last_event_index() ==
+        std::numeric_limits<std::uint64_t>::max()) {
+      throw_exhausted("event.index", "a value below uint64 maximum",
+                      "uint64 maximum", "Start a new run.");
     }
-    auto gradient = parameter.grad();
-    if (gradient.defined()) {
-      gradient.mul_(scale);
+    CallbackEvent event{
+        .schema_version = 1,
+        .kind = kind,
+        .phase = phase,
+        .event_index = request.callbacks->last_event_index() + 1U,
+        .run_id = options.run_id,
+        .trace_id = options.trace_id,
+        .epoch = state.active_epoch,
+        .global_step = state.global_step,
+        .metrics = std::move(metrics)};
+    auto result = request.event_outbox ? request.callbacks->dispatch(
+                                             event, *request.event_outbox)
+                                       : request.callbacks->dispatch(event);
+    accept_command(result, accept_commands);
+    if (request.event_outbox && options.drain_events && drain) {
+      request.event_outbox->drain(stop);
     }
-  }
-}
-
-void Trainer::defer_epoch_end_action(std::function<void()> action) {
-  if (!action) {
-    throw std::invalid_argument("Deferred epoch-end action cannot be empty");
-  }
-  if (dispatching_epoch_end_callbacks_) {
-    deferred_epoch_end_actions_.push_back(std::move(action));
-    return;
-  }
-  action();
-}
-
-void Trainer::save_checkpoint(const std::string& path) const {
-  validate_configuration();
-  if (path.empty()) {
-    throw std::invalid_argument("Checkpoint path cannot be empty");
-  }
-  if (!checkpoint_at_epoch_boundary_) {
-    throw std::logic_error(
-        "Checkpoint save requires an epoch boundary; in-epoch exact state is "
-        "not available");
+    return result;
   }
 
-  torch::serialize::OutputArchive archive;
-  archive.write("checkpoint/format_version",
-                torch::IValue(kCheckpointFormatVersion));
-  archive.write("checkpoint/consistency_boundary", torch::IValue("epoch"));
-  archive.write("checkpoint/has_scheduler",
-                torch::IValue(scheduler_ != nullptr));
-  archive.write("checkpoint/has_grad_scaler",
-                torch::IValue(grad_scaler_ != nullptr));
-  archive.write(
-      "config/accumulation_steps",
-      torch::IValue(static_cast<int64_t>(options_.accumulation_steps)));
-  archive.write("config/use_amp", torch::IValue(options_.use_amp));
-  archive.write("config/amp_dtype",
-                torch::IValue(static_cast<int64_t>(options_.amp_dtype)));
-  archive.write("config/device_type",
-                torch::IValue(static_cast<int64_t>(options_.device.type())));
-  archive.write("config/device_index",
-                torch::IValue(static_cast<int64_t>(options_.device.index())));
-
-  torch::serialize::OutputArchive model_archive(archive.compilation_unit());
-  model_->save(model_archive);
-  archive.write("model", model_archive);
-
-  torch::serialize::OutputArchive optimizer_archive(archive.compilation_unit());
-  for (const auto& [name, value] : optimizer_->state_dict()) {
-    if (value.defined()) {
-      optimizer_archive.write(name, value.detach().cpu());
+  void publish_checkpoint(std::stop_token stop) {
+    if (!state.checkpoint_pending) {
+      return;
     }
-  }
-  archive.write("optimizer", optimizer_archive);
-
-  if (scheduler_) {
-    torch::serialize::OutputArchive scheduler_archive(
-        archive.compilation_unit());
-    write_scalar_state(scheduler_archive, scheduler_->state_dict());
-    archive.write("scheduler", scheduler_archive);
-  }
-
-  if (grad_scaler_) {
-    torch::serialize::OutputArchive scaler_archive(archive.compilation_unit());
-    write_grad_scaler_state(scaler_archive, grad_scaler_->capture_state());
-    archive.write("grad_scaler", scaler_archive);
-  }
-
-  archive.write("trainer/global_step", torch::IValue(global_step_));
-  archive.write("trainer/current_epoch",
-                torch::IValue(static_cast<int64_t>(current_epoch_)));
-  archive.write("trainer/next_epoch",
-                torch::IValue(static_cast<int64_t>(next_epoch_)));
-  archive.write("trainer/last_train_loss", torch::IValue(last_train_loss_));
-  archive.write("trainer/last_val_loss", torch::IValue(last_val_loss_));
-  archive.write("trainer/has_validation_loss",
-                torch::IValue(has_validation_loss_));
-  archive.write("trainer/should_stop", torch::IValue(should_stop_));
-
-  const auto rng_state = core::get_rng_state(options_.device.is_cuda());
-  archive.write("rng/cpu", rng_state.cpu);
-  const int64_t cuda_rng_count = static_cast<int64_t>(rng_state.cuda.size());
-  archive.write("rng/cuda_count", torch::IValue(cuda_rng_count));
-  for (int64_t i = 0; i < cuda_rng_count; ++i) {
-    archive.write("rng/cuda/" + std::to_string(i),
-                  rng_state.cuda[static_cast<size_t>(i)]);
-  }
-
-  const auto callbacks = checkpointable_callbacks(options_.callbacks);
-  torch::serialize::OutputArchive callbacks_archive(archive.compilation_unit());
-  callbacks_archive.write(
-      "count", torch::IValue(static_cast<int64_t>(callbacks.size())));
-  for (size_t i = 0; i < callbacks.size(); ++i) {
-    torch::serialize::OutputArchive callback_archive(
-        archive.compilation_unit());
-    callback_archive.write("state_key",
-                           torch::IValue(callbacks[i]->state_key()));
-    write_callback_state(callback_archive, callbacks[i]->state_dict());
-    callbacks_archive.write(std::to_string(i), callback_archive);
-  }
-  archive.write("callbacks", callbacks_archive);
-
-  if (train_loader_state_) {
-    if (!train_loader_state_->sampler_state_supported) {
-      throw std::logic_error(
-          "Training DataLoader sampler does not support checkpoint state");
+    if (!checkpoint_safe()) {
+      return;
     }
-    torch::serialize::OutputArchive loader_archive(archive.compilation_unit());
-    write_data_loader_state(loader_archive, *train_loader_state_);
-    archive.write("data/train_loader", loader_archive);
-  }
-  if (validation_loader_state_) {
-    if (!validation_loader_state_->sampler_state_supported) {
-      throw std::logic_error(
-          "Validation DataLoader sampler does not support checkpoint state");
+    if (!request.checkpoint_action) {
+      throw_not_ready(
+          "checkpoint.action", "a configured CheckpointAction", "empty",
+          "Provide an interop-owned checkpoint publication action.");
     }
-    torch::serialize::OutputArchive loader_archive(archive.compilation_unit());
-    write_data_loader_state(loader_archive, *validation_loader_state_);
-    archive.write("data/validation_loader", loader_archive);
-  }
-
-  std::ostringstream serialized(std::ios::binary | std::ios::out);
-  archive.save_to(serialized);
-  const std::string raw = serialized.str();
-  if (raw.size() > options_.max_checkpoint_bytes) {
-    throw std::runtime_error("Checkpoint exceeds max_checkpoint_bytes");
-  }
-  atomic_write_file(path, raw);
-}
-
-void Trainer::load_checkpoint(const std::string& path) {
-  validate_configuration();
-  if (path.empty()) {
-    throw std::invalid_argument("Checkpoint path cannot be empty");
-  }
-
-  std::error_code file_error;
-  const auto file_size = std::filesystem::file_size(path, file_error);
-  if (file_error) {
-    throw std::runtime_error("Cannot inspect checkpoint: " + path);
-  }
-  if (file_size > options_.max_checkpoint_bytes) {
-    throw std::runtime_error("Checkpoint exceeds max_checkpoint_bytes");
-  }
-
-  torch::serialize::InputArchive archive;
-  archive.load_from(path, options_.device);
-
-  torch::IValue value;
-  if (!archive.try_read("checkpoint/format_version", value) || !value.isInt() ||
-      value.toInt() != kCheckpointFormatVersion) {
-    throw std::runtime_error(
-        "Unsupported or missing checkpoint format version");
-  }
-
-  std::optional<data::DataLoaderState> restored_train_loader;
-  std::optional<data::DataLoaderState> restored_validation_loader;
-  std::vector<std::pair<std::shared_ptr<Callback>, CallbackState>>
-      restored_callbacks;
-  Tensor restored_cpu_rng;
-  std::vector<Tensor> restored_cuda_rng;
-
-  {
-    auto require_int = [&](const char* key) -> int64_t {
-      if (!archive.try_read(key, value) || !value.isInt()) {
-        throw std::runtime_error(std::string("Missing checkpoint field: ") +
-                                 key);
+    state.checkpoint_pending = false;
+    state.checkpoint_in_progress = true;
+    emit(CallbackEventKind::checkpoint_started, CallbackPhase::checkpointing,
+         {}, stop, false);
+    request.strategy->barrier(StrategyBarrierReason::checkpoint, stop);
+    try {
+      request.checkpoint_action(*coordinator);
+    } catch (...) {
+      const auto original = std::current_exception();
+      state.checkpoint_in_progress = false;
+      try {
+        emit(CallbackEventKind::checkpoint_failed, CallbackPhase::checkpointing,
+             {}, stop, false, false);
+      } catch (...) {
       }
-      return value.toInt();
-    };
-    auto require_bool = [&](const char* key) -> bool {
-      if (!archive.try_read(key, value) || !value.isBool()) {
-        throw std::runtime_error(std::string("Missing checkpoint field: ") +
-                                 key);
-      }
-      return value.toBool();
-    };
-
-    if (require_int("config/accumulation_steps") !=
-            options_.accumulation_steps ||
-        require_bool("config/use_amp") != options_.use_amp ||
-        require_int("config/amp_dtype") !=
-            static_cast<int64_t>(options_.amp_dtype) ||
-        require_int("config/device_type") !=
-            static_cast<int64_t>(options_.device.type()) ||
-        require_int("config/device_index") !=
-            static_cast<int64_t>(options_.device.index())) {
-      throw std::invalid_argument(
-          "Checkpoint training configuration is incompatible with this "
-          "Trainer");
+      std::rethrow_exception(original);
     }
-    if (!archive.try_read("checkpoint/consistency_boundary", value) ||
-        !value.isString() || value.toStringRef() != "epoch") {
-      throw std::runtime_error(
-          "Checkpoint does not declare a supported consistency boundary");
-    }
-    if (require_bool("checkpoint/has_scheduler") != (scheduler_ != nullptr)) {
-      throw std::invalid_argument(
-          "Checkpoint scheduler configuration does not match this Trainer");
-    }
-    if (require_bool("checkpoint/has_grad_scaler") !=
-        (grad_scaler_ != nullptr)) {
-      throw std::invalid_argument(
-          "Checkpoint GradScaler configuration does not match this Trainer");
-    }
-
-    torch::serialize::InputArchive callbacks_archive;
-    if (!archive.try_read("callbacks", callbacks_archive)) {
-      throw std::runtime_error("Checkpoint callback state is missing");
-    }
-    if (!callbacks_archive.try_read("count", value) || !value.isInt() ||
-        value.toInt() < 0) {
-      throw std::runtime_error("Checkpoint callback count is invalid");
-    }
-    const auto callbacks = checkpointable_callbacks(options_.callbacks);
-    if (static_cast<uint64_t>(value.toInt()) != callbacks.size()) {
-      throw std::invalid_argument(
-          "Checkpoint callback configuration does not match this Trainer");
-    }
-    restored_callbacks.reserve(callbacks.size());
-    for (size_t i = 0; i < callbacks.size(); ++i) {
-      torch::serialize::InputArchive callback_archive;
-      if (!callbacks_archive.try_read(std::to_string(i), callback_archive)) {
-        throw std::runtime_error("Checkpoint callback state is incomplete");
-      }
-      if (!callback_archive.try_read("state_key", value) || !value.isString() ||
-          value.toStringRef() != callbacks[i]->state_key()) {
-        throw std::invalid_argument(
-            "Checkpoint callback order or type does not match this Trainer");
-      }
-      restored_callbacks.emplace_back(callbacks[i],
-                                      read_callback_state(callback_archive));
-    }
-
-    torch::serialize::InputArchive loader_archive;
-    if (archive.try_read("data/train_loader", loader_archive)) {
-      restored_train_loader = read_data_loader_state(loader_archive);
-    }
-    torch::serialize::InputArchive validation_archive;
-    if (archive.try_read("data/validation_loader", validation_archive)) {
-      restored_validation_loader = read_data_loader_state(validation_archive);
-    }
-    if (!archive.try_read("rng/cpu", restored_cpu_rng) ||
-        !restored_cpu_rng.defined()) {
-      throw std::runtime_error("Checkpoint CPU RNG state is missing");
-    }
-    const int64_t cuda_rng_count = require_int("rng/cuda_count");
-    const int64_t available_cuda_rng_count = static_cast<int64_t>(
-        core::get_rng_state(options_.device.is_cuda()).cuda.size());
-    if (cuda_rng_count < 0 || cuda_rng_count != available_cuda_rng_count) {
-      throw std::invalid_argument(
-          "Checkpoint CUDA RNG topology does not match this Trainer");
-    }
-    restored_cuda_rng.reserve(static_cast<size_t>(cuda_rng_count));
-    for (int64_t i = 0; i < cuda_rng_count; ++i) {
-      Tensor rng_state;
-      if (!archive.try_read("rng/cuda/" + std::to_string(i), rng_state) ||
-          !rng_state.defined()) {
-        throw std::runtime_error("Checkpoint CUDA RNG state is incomplete");
-      }
-      restored_cuda_rng.push_back(rng_state.cpu());
-    }
-    core::validate_rng_state(
-        core::RngState{restored_cpu_rng.cpu(), restored_cuda_rng},
-        options_.device.is_cuda());
+    state.checkpoint_in_progress = false;
+    checked_increment(state.checkpoint_count, "checkpoint.count");
+    emit(CallbackEventKind::checkpoint_committed, CallbackPhase::checkpointing,
+         {}, stop, false);
   }
 
-  torch::serialize::InputArchive model_archive;
-  if (!archive.try_read("model", model_archive)) {
-    throw std::runtime_error("Checkpoint model state is missing");
+  StepOutput invoke_step(const data::BatchEnvelope& batch,
+                         const BatchMapper& mapper,
+                         const TargetMapper& target_mapper,
+                         const StepFunction& step, StepPhase phase) {
+    try {
+      auto invocation = mapper(batch);
+      std::optional<c10::IValue> target;
+      if (target_mapper) {
+        target = target_mapper(batch);
+      }
+      const StepContext context{.phase = phase,
+                                .epoch = state.active_epoch,
+                                .global_step = state.global_step,
+                                .batch_sequence = batch.sequence,
+                                .micro_step = state.pending_micro_steps + 1U};
+      return step(StepInput{.model = *request.model,
+                            .batch = batch,
+                            .invocation = invocation,
+                            .target = target,
+                            .context = context});
+    } catch (const Error&) {
+      throw;
+    } catch (...) {
+      std::throw_with_nested(BackendError(
+          "Task step raised a non-JYPPX exception",
+          ErrorDetails{.component = kComponent,
+                       .operation = phase == StepPhase::training
+                                        ? "training_step"
+                                        : "validation_step",
+                       .expected = "a valid StepOutput",
+                       .actual = "user exception",
+                       .hint = "Inspect the mapper and task step cause."}));
+    }
   }
 
-  std::optional<std::map<std::string, Tensor>> restored_optimizer;
-  torch::serialize::InputArchive optimizer_archive;
-  if (archive.try_read("optimizer", optimizer_archive)) {
-    std::map<std::string, Tensor> state;
-    for (const auto& key : optimizer_archive.keys()) {
-      Tensor tensor_value;
-      if (optimizer_archive.try_read(key, tensor_value)) {
-        state.emplace(key, std::move(tensor_value));
+  void ensure_finite_gradients() const {
+    for (const auto& binding : request.optimizer->parameter_bindings()) {
+      const auto gradient = binding.parameter.grad();
+      if (gradient.defined() && !torch::isfinite(gradient).all().item<bool>()) {
+        throw_numerical("optimizer.gradient", binding.parameter_id);
       }
     }
-    restored_optimizer = std::move(state);
-  } else {
-    throw std::runtime_error("Checkpoint optimizer state is missing");
   }
 
-  std::optional<std::map<std::string, double>> restored_scheduler;
-  torch::serialize::InputArchive scheduler_archive;
-  if (scheduler_ && archive.try_read("scheduler", scheduler_archive)) {
-    restored_scheduler = read_scalar_state(scheduler_archive);
-  } else if (scheduler_) {
-    throw std::runtime_error("Checkpoint scheduler state is missing");
+  void scale_gradients(double scale) const {
+    torch::NoGradGuard guard;
+    for (const auto& binding : request.optimizer->parameter_bindings()) {
+      auto gradient = binding.parameter.grad();
+      if (gradient.defined()) {
+        gradient.mul_(scale);
+      }
+    }
   }
 
-  std::optional<amp::GradScalerState> restored_scaler;
-  torch::serialize::InputArchive scaler_archive;
-  if (grad_scaler_ && archive.try_read("grad_scaler", scaler_archive)) {
-    restored_scaler = read_grad_scaler_state(scaler_archive);
-    grad_scaler_->validate_state(*restored_scaler);
-  } else if (grad_scaler_) {
-    throw std::runtime_error("Checkpoint GradScaler state is missing");
+  void clip_gradients() const {
+    if (!options.gradient_clip_norm.has_value()) {
+      return;
+    }
+    std::vector<Tensor> parameters;
+    for (const auto& binding : request.optimizer->parameter_bindings()) {
+      parameters.push_back(binding.parameter);
+    }
+    torch::nn::utils::clip_grad_norm_(parameters, *options.gradient_clip_norm);
   }
 
-  auto read_int_field = [&](const char* key) -> std::optional<int64_t> {
-    torch::IValue field;
-    if (!archive.try_read(key, field)) {
-      throw std::runtime_error(std::string("Missing checkpoint field: ") + key);
+  void step_scheduler(optim::SchedulerStepMode trigger,
+                      std::optional<double> metric = std::nullopt) {
+    if (!request.scheduler || request.scheduler->mode() != trigger) {
+      return;
     }
-    if (!field.isInt()) {
-      throw std::runtime_error(std::string("Invalid checkpoint field: ") + key);
-    }
-    return field.toInt();
-  };
-  auto read_double_field = [&](const char* key) -> std::optional<double> {
-    torch::IValue field;
-    if (!archive.try_read(key, field)) {
-      throw std::runtime_error(std::string("Missing checkpoint field: ") + key);
-    }
-    if (!field.isDouble()) {
-      throw std::runtime_error(std::string("Invalid checkpoint field: ") + key);
-    }
-    return field.toDouble();
-  };
-  auto read_bool_field = [&](const char* key) -> std::optional<bool> {
-    torch::IValue field;
-    if (!archive.try_read(key, field)) {
-      throw std::runtime_error(std::string("Missing checkpoint field: ") + key);
-    }
-    if (!field.isBool()) {
-      throw std::runtime_error(std::string("Invalid checkpoint field: ") + key);
-    }
-    return field.toBool();
-  };
+    checked_increment(state.scheduler_events, "scheduler.events");
+    request.scheduler->step({.trigger = trigger,
+                             .event_index = state.scheduler_events,
+                             .metric = metric});
+  }
 
-  const auto restored_global_step = read_int_field("trainer/global_step");
-  const auto restored_current_epoch = read_int_field("trainer/current_epoch");
-  const auto restored_next_epoch = read_int_field("trainer/next_epoch");
-  const auto restored_last_train_loss =
-      read_double_field("trainer/last_train_loss");
-  const auto restored_last_val_loss =
-      read_double_field("trainer/last_val_loss");
-  const auto restored_has_validation_loss =
-      read_bool_field("trainer/has_validation_loss");
-  const auto restored_should_stop = read_bool_field("trainer/should_stop");
-
-  if (restored_global_step && *restored_global_step < 0) {
-    throw std::runtime_error("Checkpoint global_step must be non-negative");
-  }
-  const auto validate_epoch = [](const std::optional<int64_t>& epoch,
-                                 const char* name) {
-    if (epoch && (*epoch < 0 || *epoch > std::numeric_limits<int>::max())) {
-      throw std::runtime_error(std::string("Checkpoint ") + name +
-                               " is out of range");
+  void optimizer_step(std::stop_token stop, bool partial_tail) {
+    if (state.pending_micro_steps == 0U) {
+      return;
     }
-  };
-  validate_epoch(restored_current_epoch, "current_epoch");
-  validate_epoch(restored_next_epoch, "next_epoch");
+    if (partial_tail &&
+        options.accumulation_tail == AccumulationTailPolicy::drop) {
+      request.strategy->zero_grad(*request.optimizer);
+      state.pending_micro_steps = 0;
+      return;
+    }
+    emit(CallbackEventKind::optimizer_step_started, CallbackPhase::training, {},
+         stop);
+    if (partial_tail && state.pending_micro_steps < options.accumulate_steps) {
+      scale_gradients(static_cast<double>(options.accumulate_steps) /
+                      static_cast<double>(state.pending_micro_steps));
+    }
+    ensure_finite_gradients();
+    clip_gradients();
+    const auto outcome = request.strategy->optimizer_step(*request.optimizer);
+    if (outcome.status != StrategyStepStatus::applied ||
+        outcome.optimizer_completed_steps != state.global_step + 1U) {
+      throw_incompatible("optimizer.step",
+                         "one strategy-owned consecutive optimizer update",
+                         std::to_string(outcome.optimizer_completed_steps),
+                         "Do not update the optimizer outside the strategy.");
+    }
+    checked_increment(state.global_step, "trainer.global_step");
+    state.pending_micro_steps = 0;
+    request.strategy->zero_grad(*request.optimizer);
+    step_scheduler(optim::SchedulerStepMode::batch);
+    emit(CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
+         {}, stop);
+  }
 
-  const auto model_parameters = model_->parameters();
-  const auto model_buffers = model_->buffers();
-  std::vector<Tensor> parameter_snapshot;
-  std::vector<Tensor> buffer_snapshot;
-  parameter_snapshot.reserve(model_parameters.size());
-  buffer_snapshot.reserve(model_buffers.size());
-  for (const auto& parameter : model_parameters) {
-    parameter_snapshot.push_back(parameter.detach().clone());
+  std::map<std::string, double> validate_epoch(std::stop_token stop) {
+    state.validation_active = true;
+    MetricAccumulator aggregate;
+    const bool was_training = request.model->state().module().is_training();
+    request.model->state().module().eval();
+    try {
+      emit(CallbackEventKind::validation_started, CallbackPhase::validation, {},
+           stop);
+      request.validation_data->set_epoch(state.active_epoch);
+      torch::NoGradGuard no_grad;
+      while (!stop.stop_requested()) {
+        auto batch = request.validation_data->next(stop);
+        if (!batch.has_value()) {
+          break;
+        }
+        emit(CallbackEventKind::batch_started, CallbackPhase::validation, {},
+             stop);
+        auto output =
+            invoke_step(*batch, request.validation_batch_mapper,
+                        request.validation_target_mapper,
+                        request.validation_step, StepPhase::validation);
+        validate_step_output(output, *batch, false);
+        const auto loss =
+            output.loss.defined()
+                ? std::optional<double>(output.loss.detach().item<double>())
+                : std::nullopt;
+        add_output(aggregate, output, loss, "validation.loss", options);
+        auto batch_metrics = output.metrics;
+        if (loss.has_value()) {
+          batch_metrics.emplace("validation.loss", *loss);
+        }
+        emit(CallbackEventKind::batch_finished, CallbackPhase::validation,
+             std::move(batch_metrics), stop);
+      }
+      auto values = finish_metrics(aggregate);
+      values = request.strategy->reduce_metrics(values);
+      validate_metric_map(values, options, "validation.metrics");
+      emit(CallbackEventKind::validation_finished, CallbackPhase::validation,
+           values, stop);
+      state.validation_active = false;
+      request.model->state().module().train(was_training);
+      return values;
+    } catch (...) {
+      state.validation_active = false;
+      request.model->state().module().train(was_training);
+      throw;
+    }
   }
-  for (const auto& buffer : model_buffers) {
-    buffer_snapshot.push_back(buffer.detach().clone());
+
+  void finalize_terminal_event(CallbackEventKind kind, CallbackPhase phase,
+                               std::stop_token stop) {
+    emit(kind, phase, {}, stop, false, false);
+    if (request.event_outbox && options.drain_events) {
+      request.event_outbox->drain(stop);
+    }
   }
-  const auto optimizer_snapshot = optimizer_->state_dict();
-  const auto scheduler_snapshot =
-      scheduler_ ? std::optional<std::map<std::string, double>>(
-                       scheduler_->state_dict())
-                 : std::nullopt;
-  const auto scaler_snapshot =
-      grad_scaler_
-          ? std::optional<amp::GradScalerState>(grad_scaler_->capture_state())
-          : std::nullopt;
-  std::vector<std::pair<std::shared_ptr<Callback>, CallbackState>>
-      callback_snapshot;
-  callback_snapshot.reserve(restored_callbacks.size());
-  for (const auto& [callback, state] : restored_callbacks) {
-    (void)state;
-    callback_snapshot.emplace_back(callback, callback->state_dict());
+};
+
+Trainer::Trainer(TrainerOptions options)
+    : impl_(std::make_unique<Impl>(std::move(options))) {
+  validate_options(impl_->options);
+}
+
+Trainer::~Trainer() = default;
+
+void Trainer::prepare(FitRequest request) {
+  if (impl_->prepared || impl_->state.phase != TrainerPhase::created) {
+    throw_not_ready("prepare", "a newly created Trainer",
+                    phase_name(impl_->state.phase),
+                    "Create one Trainer per execution domain.");
   }
-  const auto rng_snapshot = core::get_rng_state(options_.device.is_cuda());
-  const auto train_loader_snapshot = train_loader_state_;
-  const auto validation_loader_snapshot = validation_loader_state_;
-  const bool restore_train_loader_snapshot = restore_train_loader_state_;
-  const bool restore_validation_loader_snapshot =
-      restore_validation_loader_state_;
-  const bool checkpoint_boundary_snapshot = checkpoint_at_epoch_boundary_;
-  const int64_t global_step_snapshot = global_step_;
-  const int current_epoch_snapshot = current_epoch_;
-  const int next_epoch_snapshot = next_epoch_;
-  const double last_train_loss_snapshot = last_train_loss_;
-  const double last_val_loss_snapshot = last_val_loss_;
-  const bool has_validation_loss_snapshot = has_validation_loss_;
-  const bool should_stop_snapshot = should_stop_;
+  if (!request.model || !request.optimizer || !request.training_data ||
+      !request.training_batch_mapper || !request.training_step ||
+      !request.strategy || !request.model_checkpoint ||
+      !request.optimizer_checkpoint || !request.rng_checkpoint) {
+    throw_invalid("prepare.required_objects",
+                  "model, optimizer, data, task, strategy, and primary state",
+                  "one or more null objects",
+                  "Bind a complete execution and checkpoint domain.");
+  }
+  const bool any_validation =
+      request.validation_data || request.validation_batch_mapper ||
+      request.validation_target_mapper || request.validation_step;
+  const bool complete_validation = request.validation_data &&
+                                   request.validation_batch_mapper &&
+                                   request.validation_step;
+  if (any_validation && !complete_validation) {
+    throw_invalid("prepare.validation", "data, batch mapper, and step together",
+                  "partial validation configuration",
+                  "Configure the complete validation domain or none of it.");
+  }
+  if (request.training_data->closed() ||
+      (request.validation_data && request.validation_data->closed()) ||
+      request.strategy->closed()) {
+    throw_not_ready("prepare.lifecycle", "open data and strategy objects",
+                    "closed object", "Create fresh execution resources.");
+  }
+  if (request.validation_data &&
+      request.validation_data.get() == request.training_data.get()) {
+    throw_invalid("prepare.validation_data",
+                  "an independent validation pipeline",
+                  "the training pipeline instance",
+                  "Use separate cursor state for training and validation.");
+  }
+  if (request.optimizer->completed_steps() != 0U) {
+    throw_not_ready("prepare.optimizer", "a fresh optimizer with zero steps",
+                    std::to_string(request.optimizer->completed_steps()),
+                    "Restore prior state only through the coordinator.");
+  }
+  if (request.scheduler &&
+      request.scheduler->scheduler().completed_steps() != 0U) {
+    throw_not_ready(
+        "prepare.scheduler", "a fresh scheduler with zero steps",
+        std::to_string(request.scheduler->scheduler().completed_steps()),
+        "Restore prior state only through the coordinator.");
+  }
+  if (request.scheduler &&
+      request.scheduler->mode() == optim::SchedulerStepMode::metric &&
+      !request.validation_data) {
+    throw_invalid("prepare.scheduler_metric",
+                  "a validation domain for a metric scheduler", "missing",
+                  "Configure validation to publish the monitored metric.");
+  }
+  if (request.optimizer_checkpoint->participant_id() !=
+      request.optimizer->optimizer_id()) {
+    throw_incompatible("prepare.optimizer_participant",
+                       request.optimizer->optimizer_id(),
+                       request.optimizer_checkpoint->participant_id(),
+                       "Bind the checkpoint participant for this optimizer.");
+  }
+  if (request.model_checkpoint->state().shared_module().get() !=
+      request.model->state().shared_module().get()) {
+    throw_incompatible(
+        "prepare.model_participant", "the adapted model module",
+        "a different module",
+        "Bind the checkpoint participant to the FitRequest model.");
+  }
+  if (!request.callbacks) {
+    request.callbacks = std::make_shared<CallbackDispatcher>();
+  }
+
+  impl_->request = std::move(request);
+  try {
+    auto registry = std::make_unique<CheckpointParticipantRegistry>();
+    registry->register_participants(
+        {std::shared_ptr<CheckpointParticipant>(this,
+                                                [](CheckpointParticipant*) {}),
+         impl_->request.training_data, impl_->request.strategy,
+         impl_->request.model_checkpoint, impl_->request.optimizer_checkpoint,
+         impl_->request.rng_checkpoint});
+    if (impl_->request.validation_data) {
+      registry->register_participant(impl_->request.validation_data);
+    }
+    if (impl_->request.scheduler) {
+      registry->register_participant(impl_->request.scheduler);
+    }
+    if (impl_->request.event_outbox) {
+      registry->register_participant(impl_->request.event_outbox);
+    }
+    register_callback_checkpoint_participants(*registry,
+                                              impl_->request.callbacks);
+    if (!impl_->request.additional_participants.empty()) {
+      registry->register_participants(impl_->request.additional_participants);
+    }
+    impl_->request.strategy->prepare(*impl_->request.model,
+                                     *impl_->request.optimizer);
+    impl_->request.strategy->zero_grad(*impl_->request.optimizer);
+    impl_->participant_ids = registry->participant_ids();
+    impl_->registry = std::move(registry);
+    impl_->coordinator =
+        std::make_unique<CheckpointCoordinator>(*impl_->registry);
+    impl_->state = TrainerControlState{};
+    impl_->state.phase = TrainerPhase::prepared;
+    impl_->prepared = true;
+  } catch (...) {
+    impl_->request = {};
+    impl_->participant_ids.clear();
+    impl_->registry.reset();
+    impl_->coordinator.reset();
+    throw;
+  }
+}
+
+FitResult Trainer::fit(std::stop_token stop) {
+  if (!impl_->prepared || (impl_->state.phase != TrainerPhase::prepared &&
+                           impl_->state.phase != TrainerPhase::running)) {
+    throw_not_ready("fit", "a prepared or resumable Trainer",
+                    phase_name(impl_->state.phase),
+                    "Call prepare(), optionally restore(), then fit() once.");
+  }
+  if (impl_->request.event_outbox && impl_->options.drain_events) {
+    impl_->request.event_outbox->drain(stop);
+  }
+  if (impl_->request.optimizer->completed_steps() != impl_->state.global_step) {
+    throw_incompatible(
+        "fit.optimizer_steps", std::to_string(impl_->state.global_step),
+        std::to_string(impl_->request.optimizer->completed_steps()),
+        "Restore Trainer and optimizer state together.");
+  }
+  if (impl_->request.scheduler &&
+      impl_->request.scheduler->scheduler().completed_steps() !=
+          impl_->state.scheduler_events) {
+    throw_incompatible(
+        "fit.scheduler_steps", std::to_string(impl_->state.scheduler_events),
+        std::to_string(impl_->request.scheduler->scheduler().completed_steps()),
+        "Restore Trainer and scheduler state together.");
+  }
 
   try {
-    model_->load(model_archive);
-    if (restored_optimizer) {
-      optimizer_->load_state_dict(*restored_optimizer);
-    }
-    if (scheduler_ && restored_scheduler) {
-      scheduler_->load_state_dict(*restored_scheduler);
-    }
-    if (grad_scaler_ && restored_scaler) {
-      grad_scaler_->restore_state(*restored_scaler);
-    }
-    for (auto& [callback, state] : restored_callbacks) {
-      callback->load_state_dict(state);
+    if (!impl_->state.run_started) {
+      impl_->state.phase = TrainerPhase::running;
+      impl_->emit(CallbackEventKind::run_started, CallbackPhase::preparing, {},
+                  stop);
+      impl_->state.run_started = true;
+    } else if (impl_->state.checkpoint_in_progress) {
+      impl_->state.checkpoint_in_progress = false;
+      checked_increment(impl_->state.checkpoint_count, "checkpoint.count");
+      impl_->emit(CallbackEventKind::checkpoint_committed,
+                  CallbackPhase::checkpointing, {}, stop, false);
     }
 
-    if (restored_global_step) global_step_ = *restored_global_step;
-    if (restored_current_epoch) {
-      current_epoch_ = static_cast<int>(*restored_current_epoch);
-    }
-    if (restored_next_epoch) {
-      next_epoch_ = static_cast<int>(*restored_next_epoch);
-    }
-    if (restored_last_train_loss) last_train_loss_ = *restored_last_train_loss;
-    if (restored_last_val_loss) last_val_loss_ = *restored_last_val_loss;
-    if (restored_has_validation_loss) {
-      has_validation_loss_ = *restored_has_validation_loss;
-    }
-    if (restored_should_stop) should_stop_ = *restored_should_stop;
+    impl_->request.model->state().module().train();
+    bool cancelled = stop.stop_requested();
+    bool reached_step_limit =
+        impl_->options.max_steps != 0U &&
+        impl_->state.global_step >= impl_->options.max_steps;
 
-    train_loader_state_ = std::move(restored_train_loader);
-    validation_loader_state_ = std::move(restored_validation_loader);
-    restore_train_loader_state_ = train_loader_state_.has_value();
-    restore_validation_loader_state_ = validation_loader_state_.has_value();
-    if (restored_cpu_rng.defined()) {
-      core::set_rng_state(
-          core::RngState{restored_cpu_rng.cpu(), restored_cuda_rng},
-          options_.device.is_cuda());
+    while (!cancelled && !impl_->state.callback_stop && !reached_step_limit &&
+           impl_->state.next_epoch < impl_->options.max_epochs) {
+      if (!impl_->state.epoch_in_progress) {
+        impl_->state.active_epoch = impl_->state.next_epoch;
+        impl_->state.training.clear();
+        impl_->state.last_validation.clear();
+        impl_->state.skip_validation = false;
+        impl_->request.training_data->set_epoch(impl_->state.active_epoch);
+        impl_->state.epoch_in_progress = true;
+        impl_->emit(CallbackEventKind::epoch_started, CallbackPhase::training,
+                    {}, stop);
+      }
+
+      while (!cancelled && !impl_->state.callback_stop && !reached_step_limit) {
+        auto batch = impl_->request.training_data->next(stop);
+        if (!batch.has_value()) {
+          cancelled = stop.stop_requested();
+          break;
+        }
+        impl_->emit(CallbackEventKind::batch_started, CallbackPhase::training,
+                    {}, stop);
+        auto output = impl_->invoke_step(
+            *batch, impl_->request.training_batch_mapper,
+            impl_->request.training_target_mapper, impl_->request.training_step,
+            StepPhase::training);
+        validate_step_output(output, *batch, true);
+        const auto loss_value = output.loss.detach().item<double>();
+        add_output(impl_->state.training, output, loss_value, "training.loss",
+                   impl_->options);
+        const auto backward_loss =
+            output.loss / static_cast<double>(impl_->options.accumulate_steps);
+        impl_->request.strategy->backward(backward_loss);
+        ++impl_->state.pending_micro_steps;
+        if (impl_->state.pending_micro_steps ==
+            impl_->options.accumulate_steps) {
+          impl_->optimizer_step(stop, false);
+        }
+        auto batch_metrics = output.metrics;
+        batch_metrics.emplace("training.loss", loss_value);
+        impl_->emit(CallbackEventKind::batch_finished, CallbackPhase::training,
+                    std::move(batch_metrics), stop);
+        reached_step_limit =
+            impl_->options.max_steps != 0U &&
+            impl_->state.global_step >= impl_->options.max_steps;
+        cancelled = stop.stop_requested();
+        if (!cancelled && impl_->state.pending_micro_steps == 0U) {
+          impl_->publish_checkpoint(stop);
+        }
+      }
+
+      if (cancelled) {
+        if (impl_->state.pending_micro_steps != 0U) {
+          impl_->request.strategy->zero_grad(*impl_->request.optimizer);
+          impl_->state.pending_micro_steps = 0;
+        }
+        break;
+      }
+      if (impl_->state.callback_stop) {
+        if (impl_->state.pending_micro_steps != 0U) {
+          impl_->request.strategy->zero_grad(*impl_->request.optimizer);
+          impl_->state.pending_micro_steps = 0;
+        }
+        break;
+      }
+      if (impl_->state.pending_micro_steps != 0U) {
+        impl_->optimizer_step(stop, true);
+        reached_step_limit =
+            impl_->options.max_steps != 0U &&
+            impl_->state.global_step >= impl_->options.max_steps;
+      }
+      if (impl_->state.training.sample_count == 0U) {
+        throw_not_ready("training.epoch", "at least one committed batch",
+                        "empty data stream",
+                        "Provide training data for every configured epoch.");
+      }
+      impl_->state.last_training = impl_->request.strategy->reduce_metrics(
+          finish_metrics(impl_->state.training));
+      validate_metric_map(impl_->state.last_training, impl_->options,
+                          "training.metrics");
+
+      if (impl_->request.validation_data && !impl_->state.skip_validation &&
+          !stop.stop_requested()) {
+        impl_->state.last_validation = impl_->validate_epoch(stop);
+      }
+      if (impl_->request.scheduler) {
+        const auto mode = impl_->request.scheduler->mode();
+        if (mode == optim::SchedulerStepMode::epoch) {
+          impl_->step_scheduler(optim::SchedulerStepMode::epoch);
+        } else if (mode == optim::SchedulerStepMode::metric) {
+          const auto metric = impl_->state.last_validation.find(
+              impl_->options.scheduler_metric);
+          if (metric == impl_->state.last_validation.end()) {
+            throw_not_ready(
+                "scheduler.metric", impl_->options.scheduler_metric, "missing",
+                "Run validation and publish the configured metric.");
+          }
+          impl_->step_scheduler(optim::SchedulerStepMode::metric,
+                                metric->second);
+        }
+      }
+
+      auto epoch_metrics = impl_->state.last_training;
+      epoch_metrics.insert(impl_->state.last_validation.begin(),
+                           impl_->state.last_validation.end());
+      impl_->state.epoch_in_progress = false;
+      checked_increment(impl_->state.completed_epochs,
+                        "trainer.completed_epochs");
+      impl_->state.next_epoch = impl_->state.active_epoch + 1U;
+      impl_->emit(CallbackEventKind::epoch_finished, CallbackPhase::training,
+                  std::move(epoch_metrics), stop);
+      impl_->publish_checkpoint(stop);
+      cancelled = stop.stop_requested();
+      reached_step_limit = impl_->options.max_steps != 0U &&
+                           impl_->state.global_step >= impl_->options.max_steps;
     }
-    checkpoint_at_epoch_boundary_ = true;
+
+    FitResult result{.status = FitStatus::completed,
+                     .completed_epochs = impl_->state.completed_epochs,
+                     .global_step = impl_->state.global_step,
+                     .training_metrics = impl_->state.last_training,
+                     .validation_metrics = impl_->state.last_validation};
+    if (cancelled) {
+      impl_->state.phase = TrainerPhase::cancelled;
+      result.status = FitStatus::cancelled;
+      result.reason = "stop token requested";
+      impl_->finalize_terminal_event(CallbackEventKind::run_cancelled,
+                                     CallbackPhase::cancelled, stop);
+    } else {
+      impl_->state.phase = TrainerPhase::completed;
+      if (impl_->state.callback_stop) {
+        result.status = FitStatus::stopped;
+        result.reason = impl_->state.stop_reason;
+      }
+      impl_->finalize_terminal_event(CallbackEventKind::run_finished,
+                                     CallbackPhase::completed, stop);
+    }
+    return result;
   } catch (...) {
-    const std::exception_ptr restore_error = std::current_exception();
-    std::string rollback_errors;
-    auto rollback = [&](const char* component, auto&& action) {
+    const auto original = std::current_exception();
+    if (impl_->state.phase == TrainerPhase::running) {
+      if (impl_->state.pending_micro_steps != 0U) {
+        try {
+          impl_->request.strategy->zero_grad(*impl_->request.optimizer);
+        } catch (...) {
+        }
+        impl_->state.pending_micro_steps = 0;
+      }
+      impl_->state.validation_active = false;
+      impl_->state.phase = TrainerPhase::failed;
       try {
-        action();
-      } catch (const std::exception& error) {
-        if (!rollback_errors.empty()) rollback_errors += "; ";
-        rollback_errors += std::string(component) + ": " + error.what();
+        impl_->finalize_terminal_event(CallbackEventKind::run_failed,
+                                       CallbackPhase::failed, stop);
       } catch (...) {
-        if (!rollback_errors.empty()) rollback_errors += "; ";
-        rollback_errors += std::string(component) + ": unknown error";
-      }
-    };
-
-    rollback("model", [&]() {
-      torch::NoGradGuard no_grad;
-      for (size_t i = 0; i < model_parameters.size(); ++i) {
-        model_parameters[i].copy_(parameter_snapshot[i]);
-      }
-      for (size_t i = 0; i < model_buffers.size(); ++i) {
-        model_buffers[i].copy_(buffer_snapshot[i]);
-      }
-    });
-    rollback("optimizer",
-             [&]() { optimizer_->load_state_dict(optimizer_snapshot); });
-    if (scheduler_ && scheduler_snapshot) {
-      rollback("scheduler",
-               [&]() { scheduler_->load_state_dict(*scheduler_snapshot); });
-    }
-    if (grad_scaler_ && scaler_snapshot) {
-      rollback("grad_scaler",
-               [&]() { grad_scaler_->restore_state(*scaler_snapshot); });
-    }
-    for (auto& callback_state : callback_snapshot) {
-      auto& callback = callback_state.first;
-      auto& state = callback_state.second;
-      rollback("callback", [&]() { callback->load_state_dict(state); });
-    }
-    rollback("rng", [&]() {
-      core::set_rng_state(rng_snapshot, options_.device.is_cuda());
-    });
-
-    train_loader_state_ = train_loader_snapshot;
-    validation_loader_state_ = validation_loader_snapshot;
-    restore_train_loader_state_ = restore_train_loader_snapshot;
-    restore_validation_loader_state_ = restore_validation_loader_snapshot;
-    checkpoint_at_epoch_boundary_ = checkpoint_boundary_snapshot;
-    global_step_ = global_step_snapshot;
-    current_epoch_ = current_epoch_snapshot;
-    next_epoch_ = next_epoch_snapshot;
-    last_train_loss_ = last_train_loss_snapshot;
-    last_val_loss_ = last_val_loss_snapshot;
-    has_validation_loss_ = has_validation_loss_snapshot;
-    should_stop_ = should_stop_snapshot;
-
-    if (!rollback_errors.empty()) {
-      try {
-        std::rethrow_exception(restore_error);
-      } catch (...) {
-        std::throw_with_nested(std::runtime_error(
-            "Checkpoint restore failed and rollback was incomplete: " +
-            rollback_errors));
       }
     }
-    std::rethrow_exception(restore_error);
+    std::rethrow_exception(original);
   }
 }
 
-}  // namespace training
-}  // namespace jyppx
+CheckpointDescriptor Trainer::save_checkpoint(CheckpointStateSink& sink) {
+  if (!impl_->checkpoint_safe()) {
+    throw_not_ready("save_checkpoint", "an empty accumulation safe boundary",
+                    phase_name(impl_->state.phase),
+                    "Wait for an optimizer or epoch boundary.");
+  }
+  impl_->request.strategy->barrier(StrategyBarrierReason::checkpoint);
+  return impl_->coordinator->save(sink);
+}
+
+CheckpointDescriptor Trainer::restore_checkpoint(
+    const CheckpointStateSource& source, std::optional<RestorePolicy> policy) {
+  if (!impl_->prepared || impl_->state.phase != TrainerPhase::prepared ||
+      impl_->state.run_started) {
+    throw_not_ready("restore_checkpoint", "prepared state before fit",
+                    phase_name(impl_->state.phase),
+                    "Prepare a fresh matching domain before restore.");
+  }
+  impl_->request.strategy->barrier(StrategyBarrierReason::checkpoint);
+  return impl_->coordinator->restore(
+      source, policy.value_or(impl_->options.restore_policy));
+}
+
+void Trainer::close(std::stop_token stop) {
+  if (impl_->state.phase == TrainerPhase::closed) {
+    return;
+  }
+  if (!impl_->prepared) {
+    impl_->state.phase = TrainerPhase::closed;
+    return;
+  }
+  if (impl_->request.event_outbox) {
+    impl_->request.event_outbox->close(stop);
+  }
+  impl_->request.training_data->close();
+  if (impl_->request.validation_data) {
+    impl_->request.validation_data->close();
+  }
+  impl_->request.strategy->barrier(StrategyBarrierReason::shutdown, stop);
+  impl_->request.strategy->close();
+  impl_->state.phase = TrainerPhase::closed;
+}
+
+const TrainerOptions& Trainer::options() const noexcept {
+  return impl_->options;
+}
+
+TrainerPhase Trainer::phase() const noexcept { return impl_->state.phase; }
+
+std::uint64_t Trainer::global_step() const noexcept {
+  return impl_->state.global_step;
+}
+
+std::uint64_t Trainer::completed_epochs() const noexcept {
+  return impl_->state.completed_epochs;
+}
+
+const std::map<std::string, double>& Trainer::training_metrics()
+    const noexcept {
+  return impl_->state.last_training;
+}
+
+const std::map<std::string, double>& Trainer::validation_metrics()
+    const noexcept {
+  return impl_->state.last_validation;
+}
+
+const CheckpointCoordinator& Trainer::checkpoint_coordinator() const {
+  if (!impl_->coordinator) {
+    throw_not_ready("checkpoint_coordinator", "a prepared Trainer", "created",
+                    "Call prepare() before accessing checkpoint state.");
+  }
+  return *impl_->coordinator;
+}
+
+std::string Trainer::participant_id() const {
+  return impl_->options.trainer_id;
+}
+
+StateManifest Trainer::describe_state() const {
+  StateManifest manifest{
+      .participant_id = participant_id(),
+      .schema_version = 1,
+      .restore_level = RestoreLevel::exact,
+      .fields = {{.name = kTopologyField,
+                  .media_type = kTopologyMediaType,
+                  .max_bytes = impl_->options.max_topology_bytes,
+                  .required = true},
+                 {.name = kControlField,
+                  .media_type = kControlMediaType,
+                  .max_bytes = impl_->options.max_control_bytes,
+                  .required = true}}};
+  validate_state_manifest(manifest);
+  return manifest;
+}
+
+void Trainer::save_state(StateWriter& writer) const {
+  if (!impl_->checkpoint_safe()) {
+    throw_not_ready(
+        "save_state", "a prepared safe consistency boundary",
+        phase_name(impl_->state.phase),
+        "Checkpoint only with no pending micro-step or validation.");
+  }
+  const auto topology =
+      encode_topology(impl_->options, impl_->request, impl_->participant_ids);
+  const auto control = encode_control(impl_->state);
+  if (topology.size() > impl_->options.max_topology_bytes ||
+      control.size() > impl_->options.max_control_bytes) {
+    throw_exhausted("save_state", "state within configured byte limits",
+                    std::to_string(topology.size() + control.size()),
+                    "Reduce identities or retained metric state.");
+  }
+  writer.write_blob(kTopologyField, topology);
+  writer.write_blob(kControlField, control);
+}
+
+void Trainer::load_state(const StateReader& reader, RestorePolicy policy) {
+  if (!impl_->prepared || impl_->state.phase != TrainerPhase::prepared) {
+    throw_not_ready("load_state", "fresh prepared state",
+                    phase_name(impl_->state.phase),
+                    "Restore before starting the run.");
+  }
+  validate_manifest(reader.manifest(), describe_state(), policy);
+  const auto stored_topology =
+      reader.read_blob(kTopologyField, impl_->options.max_topology_bytes);
+  const auto expected_topology =
+      encode_topology(impl_->options, impl_->request, impl_->participant_ids);
+  if (stored_topology.size() != expected_topology.size() ||
+      !std::equal(stored_topology.begin(), stored_topology.end(),
+                  expected_topology.begin())) {
+    throw_incompatible("load_state.topology", "identical Trainer topology",
+                       "different encoded topology",
+                       "Restore with the same options and participant domain.");
+  }
+  auto candidate = decode_control(
+      reader.read_blob(kControlField, impl_->options.max_control_bytes),
+      impl_->options);
+  if (!restorable_phase(candidate.phase) || candidate.validation_active ||
+      candidate.pending_micro_steps != 0U ||
+      candidate.next_epoch > impl_->options.max_epochs ||
+      candidate.completed_epochs > candidate.next_epoch ||
+      (impl_->options.max_steps != 0U &&
+       candidate.global_step > impl_->options.max_steps) ||
+      (!candidate.run_started && candidate.phase != TrainerPhase::prepared) ||
+      (candidate.epoch_in_progress &&
+       candidate.active_epoch != candidate.next_epoch)) {
+    throw_serialization("load_state.control",
+                        "a safe internally consistent Trainer boundary",
+                        "invalid lifecycle or cursor relationship",
+                        "Reject incomplete micro-step and validation state.");
+  }
+  validate_metric_map(candidate.training.weighted_sums, impl_->options,
+                      "load_state.training");
+  validate_metric_map(candidate.last_training, impl_->options,
+                      "load_state.last_training");
+  validate_metric_map(candidate.last_validation, impl_->options,
+                      "load_state.last_validation");
+  impl_->state = std::move(candidate);
+}
+
+}  // namespace jyppx::training

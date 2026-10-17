@@ -27,6 +27,7 @@
 #include <jyppx/training/metrics/ranking.hpp>
 #include <jyppx/training/scheduler_adapter.hpp>
 #include <jyppx/training/single_device_strategy.hpp>
+#include <jyppx/training/trainer.hpp>
 
 #include <array>
 #include <atomic>
@@ -135,6 +136,12 @@ class ConsumerIterableSource final : public jyppx::data::IterableSource {
 }  // namespace
 
 int main() {
+  jyppx::training::Trainer installed_trainer({.trainer_id = "trainer.consumer",
+                                              .run_id = "run.consumer",
+                                              .trace_id = "trace.consumer"});
+  const bool valid_trainer =
+      installed_trainer.phase() == jyppx::training::TrainerPhase::created &&
+      installed_trainer.options().trainer_id == "trainer.consumer";
   const jyppx::InvalidArgument error(
       "consumer probe", jyppx::ErrorDetails{.component = "InstallConsumer"});
   const bool valid_version = std::string(jyppx::version()) == "0.3.0";
@@ -439,7 +446,8 @@ int main() {
                  valid_contrastive && valid_focal && valid_dice &&
                  valid_adapter && valid_metric && valid_ranking_metric &&
                  valid_classwise_metric && valid_optimizer && valid_scheduler &&
-                 valid_callback && valid_event_sink && valid_strategy
+                 valid_callback && valid_event_sink && valid_strategy &&
+                 valid_trainer
              ? 0
              : 1;
 }

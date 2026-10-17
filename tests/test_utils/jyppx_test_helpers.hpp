@@ -57,53 +57,6 @@ inline void expect_tensor_lists_close(
     }
 }
 
-// Records the callback lifecycle events a Trainer fires, in order.
-class RecordingCallback : public jyppx::training::Callback {
-public:
-    void on_fit_start(jyppx::training::Trainer* trainer) override {
-        events_.emplace_back("fit_start");
-    }
-    void on_fit_end(jyppx::training::Trainer* trainer) override {
-        events_.emplace_back("fit_end");
-    }
-    void on_epoch_start(jyppx::training::Trainer* trainer) override {
-        events_.emplace_back("epoch_start");
-    }
-    void on_epoch_end(jyppx::training::Trainer* trainer) override {
-        events_.emplace_back("epoch_end");
-    }
-    void on_train_epoch_start(jyppx::training::Trainer* trainer) override {
-        events_.emplace_back("train_epoch_start");
-    }
-    void on_train_epoch_end(jyppx::training::Trainer* trainer) override {
-        events_.emplace_back("train_epoch_end");
-    }
-    void on_validation_epoch_start(jyppx::training::Trainer* trainer) override {
-        events_.emplace_back("validation_epoch_start");
-    }
-    void on_validation_epoch_end(jyppx::training::Trainer* trainer) override {
-        events_.emplace_back("validation_epoch_end");
-    }
-    void on_train_batch_start(jyppx::training::Trainer* trainer, int batch_idx) override {
-        events_.emplace_back("train_batch_start:" + std::to_string(batch_idx));
-    }
-    void on_train_batch_end(jyppx::training::Trainer* trainer, int batch_idx, double loss) override {
-        events_.emplace_back("train_batch_end:" + std::to_string(batch_idx));
-    }
-    void on_validation_batch_start(jyppx::training::Trainer* trainer, int batch_idx) override {
-        events_.emplace_back("validation_batch_start:" + std::to_string(batch_idx));
-    }
-    void on_validation_batch_end(jyppx::training::Trainer* trainer, int batch_idx) override {
-        events_.emplace_back("validation_batch_end:" + std::to_string(batch_idx));
-    }
-
-    const std::vector<std::string>& events() const { return events_; }
-    void clear() { events_.clear(); }
-
-private:
-    std::vector<std::string> events_;
-};
-
 // Builds an (inputs, targets) pair for y = 2*x0 - x1 + 0.5 with deterministic
 // inputs. Both tensors are float32 with `samples` rows.
 inline std::pair<Tensor, Tensor> make_linear_data(int samples, int64_t seed = 1234) {

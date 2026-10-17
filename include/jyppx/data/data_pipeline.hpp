@@ -75,6 +75,50 @@ struct DataCapability {
 };
 
 /**
+ * @brief Defines the common batch stream consumed by the training engine.
+ *
+ * Map-style and iterable-style implementations remain separate concrete
+ * contracts. This interface exposes only their shared lifecycle and committed
+ * batch boundary; it does not add a synthetic size, sampler, or random-access
+ * operation to iterable sources. Public calls are single-owner unless a
+ * concrete implementation documents a stronger guarantee.
+ */
+class BatchPipeline : public CheckpointParticipant {
+ public:
+  /** @brief Enables destruction through the shared pipeline contract. */
+  ~BatchPipeline() override = default;
+
+  /**
+   * @brief Selects exactly one logical epoch and prepares its first batch.
+   * @param epoch Zero-based logical epoch selected by the coordinator.
+   */
+  virtual void set_epoch(std::uint64_t epoch) = 0;
+
+  /**
+   * @brief Commits and returns the next batch at the pipeline boundary.
+   * @param stop_token Cooperative cancellation request from the consumer.
+   * @return A committed batch, or empty at cancellation or exhaustion.
+   */
+  virtual std::optional<BatchEnvelope> next(
+      std::stop_token stop_token = {}) = 0;
+
+  /** @brief Permanently cancels and releases active pipeline resources. */
+  virtual void close() noexcept = 0;
+
+  /**
+   * @brief Reports whether permanent shutdown has begun.
+   * @return `true` when no future epoch or batch operation is accepted.
+   */
+  virtual bool closed() const noexcept = 0;
+
+  /**
+   * @brief Reports map/iterable, prefetch, and restore capabilities.
+   * @return Immutable capability declaration for the concrete pipeline.
+   */
+  virtual DataCapability capability() const = 0;
+};
+
+/**
  * @brief Configures a map-style DataPipeline.
  */
 struct DataPipelineOptions {
@@ -181,7 +225,7 @@ using DataBatchFactory = std::function<c10::IValue(
  * method calls. The factory itself must be safe for `num_workers` concurrent
  * calls and must honor its stop token for bounded close.
  */
-class DataPipeline final : public CheckpointParticipant {
+class DataPipeline final : public BatchPipeline {
  public:
   /**
    * @brief Creates a pipeline over a caller-owned sampler.
@@ -204,7 +248,7 @@ class DataPipeline final : public CheckpointParticipant {
    * @param epoch Non-negative logical epoch number.
    * @throws InvalidArgument If the sampler produces an invalid epoch shape.
    */
-  void set_epoch(std::uint64_t epoch);
+  void set_epoch(std::uint64_t epoch) override;
 
   /**
    * @brief Commits and returns the next batch in the selected epoch.
@@ -215,7 +259,7 @@ class DataPipeline final : public CheckpointParticipant {
    * @throws DeadlineExceeded A worker batch exceeded `batch_timeout`.
    * @throws BackendError A worker batch factory raised a non-JYPPX exception.
    */
-  std::optional<BatchEnvelope> next(std::stop_token stop_token = {});
+  std::optional<BatchEnvelope> next(std::stop_token stop_token = {}) override;
 
   /**
    * @brief Cooperatively stops workers and permanently closes the pipeline.
@@ -223,13 +267,13 @@ class DataPipeline final : public CheckpointParticipant {
    * The operation is idempotent. A running factory must honor its stop token;
    * C++ cannot forcibly terminate a user callback that ignores cancellation.
    */
-  void close() noexcept;
+  void close() noexcept override;
 
   /**
    * @brief Reports whether explicit or destructor shutdown began.
    * @return `true` after `close()` permanently disables the pipeline.
    */
-  bool closed() const noexcept;
+  bool closed() const noexcept override;
 
   /**
    * @brief Returns scheduled but not yet committed worker batches.
@@ -247,7 +291,7 @@ class DataPipeline final : public CheckpointParticipant {
    * @brief Reports the configured pipeline capabilities.
    * @return Capability declaration owned by this pipeline.
    */
-  DataCapability capability() const;
+  DataCapability capability() const override;
 
   /**
    * @brief Returns a storage-neutral snapshot without changing state.

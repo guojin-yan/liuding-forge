@@ -119,6 +119,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/scheduler_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/single_device_strategy.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/training/strategy.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/training/trainer.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/checkpoint_coordinator.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/callback_dispatcher.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/callbacks/early_stopping_callback.cpp
@@ -128,6 +129,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/metrics/ranking.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/scheduler_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/training/single_device_strategy.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/training/trainer.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_callback_dispatcher.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_checkpoint_coordinator.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_event_sink.cpp
@@ -135,6 +137,8 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_ranking_metric.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_scheduler_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/training/test_single_device_strategy.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/training/test_trainer.cpp
+        ${PROJECT_SOURCE_DIR}/examples/basic_trainer.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/device.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/tensor_utils.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/types.hpp

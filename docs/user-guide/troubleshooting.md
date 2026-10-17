@@ -29,10 +29,9 @@ clean build directory after changing the toolchain.
 
 ### CUDA out of memory
 
-Reduce `batch_size`, use `TrainerOptions::accumulation_steps`, or temporarily
-move the trainer to CPU. A smaller `prefetch_factor` limits queued batches
-when `num_workers > 0`. Release references to old batches before the next
-iteration.
+Reduce `batch_size`, use `TrainerOptions::accumulate_steps`, or configure a CPU
+`SingleDeviceStrategy`. A smaller pipeline `prefetch_batches` value limits
+queued batches. Release references to old batches before the next iteration.
 
 ### Loss becomes NaN or Inf
 
@@ -50,10 +49,12 @@ then reproduce with `num_workers = 0`. Dataset access must be thread-safe.
 
 ### Checkpoint does not load
 
-Construct compatible model, optimizer, scheduler, and AMP objects before
-calling `load_checkpoint`. Check the path and device. Optional scheduler and
-scaler fields are absent from older checkpoints and keep their defaults;
-changed model shapes require a migration or a new checkpoint.
+Prepare a fresh domain with identical Trainer options and participant IDs,
+topology, model shapes, optimizer groups, scheduler tree, callbacks, data and
+RNG scope. Then pass a complete `CheckpointStateSource` to
+`restore_checkpoint()`. Current schemas intentionally reject old archives and
+partial participant sets; use an explicit offline migration or start a new
+checkpoint lineage.
 
 ## Performance diagnosis
 

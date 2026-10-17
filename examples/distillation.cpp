@@ -139,18 +139,17 @@ int main() {
         auto val_x = torch::rand({200, 2}) * 3.0f - 0.5f;
         auto val_y = cluster_targets(val_x);
 
-        jyppx::data::DataLoader train_loader(
-            std::make_shared<jyppx::data::TensorDataset>(train_x, train_y),
-            {.batch_size = 64, .shuffle = true, .seed = 3});
-
         // ---- Teacher: wide model, all 800 labeled samples -------------------
         auto teacher = std::make_shared<Mlp>(3, 96);
         auto teacher_optimizer = std::make_shared<jyppx::optim::Adam>(
             teacher->parameters(), jyppx::optim::AdamOptions{.lr = 3e-3});
-        jyppx::training::Trainer teacher_trainer(teacher, teacher_optimizer,
-                                                 {.max_epochs = 40});
-        teacher_trainer.set_loss_fn(cross_entropy);
-        teacher_trainer.fit(train_loader);
+        for (int epoch = 0; epoch < 40; ++epoch) {
+            teacher_optimizer->zero_grad();
+            const auto teacher_loss =
+                cross_entropy(teacher->forward(train_x), train_y);
+            teacher_loss.backward();
+            teacher_optimizer->step();
+        }
         std::cout << "teacher accuracy:      "
                   << evaluate(teacher, val_x, val_y) << "\n";
 

@@ -384,8 +384,9 @@ TEST(CallbackDispatcherTest, LaterInvalidCommandRollsBackEarlierStatefulWork) {
   jyppx::training::CallbackDispatcher dispatcher({invalid, early});
   dispatcher.dispatch(run_started());
 
-  EXPECT_THROW(dispatcher.dispatch(epoch_finished(2, 1, {{"val_loss", 1.0}})),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(
+      dispatcher.dispatch(epoch_finished(2, 1, {{"validation.loss", 1.0}})),
+      jyppx::CompatibilityError);
   EXPECT_FALSE(early->has_best_value());
   EXPECT_EQ(early->non_improving_observations(), 0U);
   EXPECT_EQ(dispatcher.last_event_index(), 1U);
@@ -498,13 +499,13 @@ TEST(CallbackDispatcherTest, RestoresDispatcherAndStatefulCallbackExactly) {
 TEST(EarlyStoppingCallbackTest, RejectsCorruptStateTransactionally) {
   using jyppx::training::callbacks::EarlyStoppingCallback;
   EarlyStoppingCallback source;
-  source.handle(epoch_finished(2, 1, {{"val_loss", 1.0}}));
+  source.handle(epoch_finished(2, 1, {{"validation.loss", 1.0}}));
   MemoryStateStore store(source.describe_state());
   source.save_state(store);
   store.overwrite_from_end("state", 0, std::byte{1});
 
   EarlyStoppingCallback restored;
-  restored.handle(epoch_finished(2, 1, {{"val_loss", 2.0}}));
+  restored.handle(epoch_finished(2, 1, {{"validation.loss", 2.0}}));
   EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
                jyppx::SerializationError);
   EXPECT_TRUE(restored.has_best_value());

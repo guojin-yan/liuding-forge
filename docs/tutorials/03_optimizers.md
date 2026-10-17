@@ -29,12 +29,18 @@ eps etc. throw `std::invalid_argument`). All optimizers expose
 
 ### Checkpointing an optimizer
 
-Optimizer state (momentum buffers, Adam moments, step counts) round-trips
-through `state_dict()`, which is what `Trainer::save_checkpoint` captures:
+Legacy optimizers expose `state_dict()`, but current Trainer accepts only an
+`OptimizerAdapter` plus an explicit checkpoint participant. For migrated SGD,
+register the participant in `FitRequest::optimizer_checkpoint`:
 
 ```cpp
-optimizer->load_state_dict(saved.state_dict());
+auto optimizer_state =
+    std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+        delegated_sgd);
 ```
+
+The participant stores stable group/parameter identities, options, completed
+steps, current rates and momentum without persisting native pointer keys.
 
 ## Epoch-based schedulers
 
@@ -90,9 +96,9 @@ checkpoint_registry.register_participant(participant);
 ```
 
 Restore requires the same scheduler type, typed options, base rates, stable
-optimizer ID and ordered group IDs. The current legacy `Trainer` has not yet
-been migrated to `OptimizerRateControl`; drive these schedulers from a manual
-loop until the new Trainer consumes the participant registry directly.
+optimizer ID and ordered group IDs. Wrap the scheduler in `SchedulerAdapter`
+and place it in `FitRequest::scheduler`; Trainer then owns the only ordered
+batch, epoch or metric event stream and checkpoints the same adapter.
 
 ## Metric-driven scheduling
 
@@ -110,9 +116,11 @@ auto plateau = std::make_shared<jyppx::optim::ReduceLrOnPlateauScheduler>(
         .patience = 3,
         .min_learning_rates = {1e-6}});
 
-// inside a manual loop (not Trainer::fit):
-double val_loss = trainer.validate(val_loader);
-plateau->step(val_loss);   // decays when val_loss stagnates
+// Direct use in a manual loop:
+plateau->step(validation_loss);
+
+// Or bind SchedulerAdapter to Trainer and return the configured validation
+// metric from the validation StepOutput.
 ```
 
 Metric-driven schedulers use `step(metric)`; all other descriptor-first

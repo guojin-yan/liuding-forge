@@ -1,39 +1,131 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
 #include <jyppx/jyppx.hpp>
 
 #include <iostream>
+#include <memory>
+#include <optional>
+#include <span>
+#include <vector>
 
-class LinearModelImpl : public torch::nn::Module {
-public:
-    LinearModelImpl() : linear(register_module("linear", torch::nn::Linear(1, 1))) {}
+namespace {
 
-    jyppx::Tensor forward(const jyppx::Tensor& input) {
-        return linear->forward(input);
-    }
+using jyppx::Tensor;
 
-    torch::nn::Linear linear{nullptr};
-};
+/** @brief Creates a linear regression batch stream over in-memory tensors. */
+std::shared_ptr<jyppx::data::DataPipeline> make_pipeline(
+    const Tensor& inputs, const Tensor& targets, std::string pipeline_id) {
+  auto sampler = std::make_shared<jyppx::data::samplers::SequentialSampler>(
+      static_cast<std::size_t>(inputs.size(0)));
+  return std::make_shared<jyppx::data::DataPipeline>(
+      std::move(sampler),
+      jyppx::data::DataPipelineOptions{
+          .pipeline_id = std::move(pipeline_id),
+          .dataset_version = "example.linear/v1",
+          .dataset_size = static_cast<std::size_t>(inputs.size(0)),
+          .schema_id = "example.linear.batch/v1",
+          .batch_factory_id = "example.linear.tensor-slice/v1",
+          .batch_size = 4},
+      [inputs, targets](std::span<const std::size_t> indices,
+                        const jyppx::data::DataWorkerContext&,
+                        std::stop_token) {
+        std::vector<std::int64_t> rows;
+        rows.reserve(indices.size());
+        for (const auto index : indices) {
+          rows.push_back(static_cast<std::int64_t>(index));
+        }
+        const auto row_tensor = torch::tensor(rows, torch::kLong);
+        return c10::ivalue::Tuple::create(
+            {inputs.index_select(0, row_tensor),
+             targets.index_select(0, row_tensor)});
+      });
+}
+
+/** @brief Builds the new type-erased model/optimizer training domain. */
+jyppx::training::FitRequest make_request(
+    const std::shared_ptr<jyppx::nn::ModelAdapter>& model,
+    const std::shared_ptr<jyppx::optim::SgdOptimizerAdapter>& optimizer,
+    const std::shared_ptr<jyppx::data::BatchPipeline>& training_data,
+    const std::shared_ptr<jyppx::data::BatchPipeline>& validation_data) {
+  auto strategy = std::make_shared<jyppx::training::SingleDeviceStrategy>();
+  auto model_checkpoint =
+      std::make_shared<jyppx::nn::ModelCheckpointParticipant>(*model);
+  auto optimizer_checkpoint =
+      std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+          optimizer);
+  auto rng_checkpoint = std::make_shared<jyppx::core::RngCheckpointParticipant>(
+      jyppx::core::RngCheckpointParticipantOptions{.include_cuda = false});
+  const auto mapper = [](const jyppx::data::BatchEnvelope& batch) {
+    const auto& values = batch.value.toTuple()->elements();
+    return jyppx::nn::Invocation{.positional = {values.at(0)}};
+  };
+  const auto targets = [](const jyppx::data::BatchEnvelope& batch)
+      -> std::optional<c10::IValue> {
+    return batch.value.toTuple()->elements().at(1);
+  };
+  const auto step = [](const jyppx::training::StepInput& input) {
+    const auto prediction =
+        input.model.invoke(input.invocation).value.toTensor();
+    const auto target = input.target->toTensor();
+    return jyppx::training::StepOutput{
+        .loss = (prediction - target).pow(2).mean(),
+        .sample_count = input.batch.sample_ids.size()};
+  };
+  return {.model = model,
+          .optimizer = optimizer,
+          .training_data = training_data,
+          .training_batch_mapper = mapper,
+          .training_target_mapper = targets,
+          .training_step = step,
+          .validation_data = validation_data,
+          .validation_batch_mapper = mapper,
+          .validation_target_mapper = targets,
+          .validation_step = step,
+          .strategy = std::move(strategy),
+          .model_checkpoint = std::move(model_checkpoint),
+          .optimizer_checkpoint = std::move(optimizer_checkpoint),
+          .rng_checkpoint = std::move(rng_checkpoint)};
+}
+
+}  // namespace
 
 int main() {
-    try {
-        torch::manual_seed(7);
-        auto data =
-            torch::arange(0, 8, torch::TensorOptions().dtype(torch::kFloat32)).view({8, 1});
-        auto targets = data * 2.0 + 1.0;
-        auto dataset = std::make_shared<jyppx::data::TensorDataset>(data, targets);
-        jyppx::data::DataLoader loader(dataset, {.batch_size = 4});
-
-        auto model = std::make_shared<LinearModelImpl>();
-        auto optimizer = std::make_shared<jyppx::optim::SGD>(
-            model->parameters(), jyppx::optim::SGDOptions{.lr = 0.01});
-        jyppx::training::Trainer trainer(
-            model,
-            optimizer,
-            jyppx::training::TrainerOptions{.max_epochs = 2});
-        trainer.fit(loader);
-        std::cout << "final loss=" << trainer.last_train_loss() << '\n';
-        return 0;
-    } catch (const std::exception& e) {
-        std::cerr << "error: " << e.what() << '\n';
-        return 1;
+  try {
+    torch::manual_seed(7);
+    const auto inputs =
+        torch::arange(0, 8, torch::TensorOptions().dtype(torch::kFloat32))
+            .view({8, 1});
+    const auto targets = inputs * 2.0 + 1.0;
+    auto holder = torch::nn::Linear(torch::nn::LinearOptions(1, 1));
+    auto model = std::make_shared<jyppx::nn::ModelAdapter>(
+        jyppx::nn::adapt_tensor_holder(holder));
+    std::vector<jyppx::optim::OptimizerParameterBinding> bindings;
+    for (const auto& item : model->state().named_parameters()) {
+      bindings.push_back(
+          {.parameter_id = item.key(), .parameter = item.value()});
     }
+    auto optimizer = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+        "optimizer.example", std::vector<jyppx::optim::SgdParameterGroup>{
+                                 {.group_id = "main",
+                                  .parameters = std::move(bindings),
+                                  .options = {.learning_rate = 0.01}}});
+    auto train = make_pipeline(inputs, targets, "data.example.train");
+    auto validation = make_pipeline(inputs, targets, "data.example.validation");
+    jyppx::training::Trainer trainer({.trainer_id = "trainer.example",
+                                      .run_id = "run.example",
+                                      .trace_id = "trace.example",
+                                      .max_epochs = 2});
+    trainer.prepare(make_request(model, optimizer, train, validation));
+    const auto result = trainer.fit();
+    std::cout << "status=" << static_cast<int>(result.status)
+              << " global_step=" << result.global_step << '\n';
+    trainer.close();
+    return 0;
+  } catch (const std::exception& error) {
+    std::cerr << "error: " << error.what() << '\n';
+    return 1;
+  }
 }

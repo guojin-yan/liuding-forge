@@ -71,47 +71,18 @@ provided.
 
 ### Basic Usage
 
-```cpp
-#include <jyppx/jyppx.hpp>
+The current Trainer uses explicit contracts instead of inferring task
+semantics. Adapt the model with `ModelAdapter`, create a map- or iterable-style
+`BatchPipeline`, bind a descriptor-first optimizer and `TrainingStrategy`, and
+provide mappers plus a `StepFunction`. See
+[`examples/basic_trainer.cpp`](examples/basic_trainer.cpp) for a complete
+linear-regression program.
 
-int main() {
-    // Create dataset
-    auto data = torch::randn({100, 10});
-    auto targets = torch::rand({100, 2});
-    auto dataset = std::make_shared<jyppx::data::TensorDataset>(data, targets);
-    
-    // Create dataloader
-    jyppx::data::DataLoader loader(dataset, {
-        .batch_size = 32,
-        .shuffle = true
-    });
-    
-    // Create model
-    auto model = std::make_shared<torch::nn::LinearImpl>(10, 2);
-    
-    // Create optimizer
-    auto optimizer = std::make_shared<jyppx::optim::Adam>(
-        model->parameters(),
-        jyppx::optim::AdamOptions{.lr = 0.001}
-    );
-    
-    // Create trainer
-    jyppx::training::Trainer trainer(model, optimizer, {
-        .max_epochs = 10,
-        .device = torch::kCPU
-    });
-    
-    // Train
-    trainer.fit(loader);
-    
-    return 0;
-}
-```
-
-`Trainer::save_checkpoint()` stores model weights, optimizer state, scheduler
-and AMP scaler state, recent losses, and loop counters. Construct a compatible
-trainer and call `load_checkpoint()` before `fit()` to continue from the saved
-epoch.
+`Trainer::prepare()` registers model, optimizer, data, strategy, RNG,
+scheduler, callback and task state as one checkpoint domain. `fit()` then
+returns a `FitResult` containing committed epoch/step counters and final metric
+maps. `save_checkpoint()` and `restore_checkpoint()` use storage-neutral
+transaction interfaces; file/container formats belong to interop adapters.
 
 ## Documentation
 

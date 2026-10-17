@@ -44,6 +44,8 @@
 #include <jyppx/data/tensor_dataset.hpp>
 #include <jyppx/data/dataloader.hpp>
 #include <jyppx/data/data_pipeline.hpp>
+#include <jyppx/data/iterable_data_pipeline.hpp>
+#include <jyppx/data/iterable_source.hpp>
 #include <jyppx/data/thread_safe_queue.hpp>
 #include <jyppx/data/subset.hpp>
 #include <jyppx/data/concat_dataset.hpp>
@@ -66,22 +68,16 @@
 #include <jyppx/training/checkpoint_coordinator.hpp>
 #include <jyppx/training/scheduler_adapter.hpp>
 #include <jyppx/training/trainer.hpp>
-#include <jyppx/training/callback.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
 #include <jyppx/training/callbacks/early_stopping_callback.hpp>
+#include <jyppx/training/event_sink.hpp>
+#include <jyppx/training/single_device_strategy.hpp>
+#include <jyppx/training/strategy.hpp>
 
 // Mixed precision
 #include <jyppx/training/amp/autocast.hpp>
 #include <jyppx/training/amp/grad_scaler.hpp>
 #include <jyppx/training/amp/grad_scaler_checkpoint_participant.hpp>
-
-// Callbacks
-#include <jyppx/training/callbacks/model_checkpoint.hpp>
-#include <jyppx/training/callbacks/early_stopping.hpp>
-#include <jyppx/training/callbacks/lr_scheduler_callback.hpp>
-#include <jyppx/training/callbacks/progress_callback.hpp>
-#include <jyppx/training/callbacks/logging_callback.hpp>
-#include <jyppx/training/callbacks/tensorboard_callback.hpp>
 
 // Metrics
 #include <jyppx/training/metric.hpp>

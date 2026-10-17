@@ -41,7 +41,7 @@ struct EarlyStoppingOptions {
   std::string callback_id =
       "callback.early_stopping";  ///< Stable callback participant identity.
   std::string monitor =
-      "val_loss";  ///< Exact metric key required on `epoch_finished`.
+      "validation.loss";  ///< Exact metric key required on `epoch_finished`.
   std::uint64_t patience =
       10;  ///< Allowed consecutive non-improving observations before stopping.
   double min_delta =

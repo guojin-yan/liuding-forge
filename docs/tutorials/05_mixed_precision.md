@@ -1,107 +1,62 @@
-# Tutorial 5: Mixed Precision (AMP)
+# Tutorial 5: Mixed Precision Primitives
 
-Mixed-precision training runs the forward pass in float16 and keeps
-accumulation, master weights and reductions in float32 — faster on GPUs with
-Tensor Cores and roughly 30% less memory. JYPPX provides the same building
-blocks as `torch.cuda.amp`.
+JYPPX currently provides explicit autocast and gradient-scaling primitives.
+The current Trainer does not expose an implicit `use_amp` switch: precision,
+scaler and multi-optimizer ordering will enter Trainer through a dedicated
+precision contract rather than hidden option-dependent behavior.
 
-## Requirements
+## Autocast
 
-- A CUDA device: `use_amp = true` is validated at construction and throws
-  `std::runtime_error` on CPU builds of the training loop.
-
-## With the Trainer
-
-One flag — the trainer handles autocast, loss scaling, unscaling, gradient
-clipping order and skip-on-overflow:
+`AutocastGuard` scopes backend autocast state and restores the prior enabled
+flag and dtype on destruction, including nested use:
 
 ```cpp
-jyppx::training::Trainer trainer(
-    model,
-    optimizer,
-    jyppx::training::TrainerOptions{
-        .max_epochs = 20,
-        .device = torch::kCUDA,
-        .gradient_clip_val = 1.0,           // recommended with AMP
-        .use_amp = true});                  // enable mixed precision
-trainer.fit(train_loader, &val_loader);
+jyppx::training::amp::AutocastGuard autocast{
+    c10::DeviceType::CUDA, at::kHalf};
+auto prediction = model.forward(input);
+auto loss = torch::mse_loss(prediction, target);
 ```
 
-What the loop does per batch, in order:
+Use CUDA Half/BFloat16 only on supported hardware. Validate device and dtype
+before entering the region.
 
-1. forward pass inside an autocast region (float16 where beneficial);
-2. `scaler.scale(loss / accumulation_steps).backward()`;
-3. at each accumulation boundary: `scaler.unscale(optimizer)` (so gradient
-   clipping sees true magnitudes), optional clipping,
-   `scaler.step(optimizer)` (skipped entirely if inf/NaN gradients were
-   found), `scaler.update()`, `optimizer->zero_grad()`.
+## GradScaler
 
-The scaler backs its scale factor off on overflow and grows it again after
-`growth_interval` clean steps — the same policy as `torch.cuda.amp`.
-
-## Manual loop
-
-Use the pieces directly when not using `Trainer::fit`:
+`GradScaler` owns the scale, overflow history and growth/backoff policy:
 
 ```cpp
-#include <jyppx/training/amp/autocast.hpp>
-#include <jyppx/training/amp/grad_scaler.hpp>
-
 jyppx::training::amp::GradScaler scaler;
-for (const auto& batch : loader) {
-    optimizer->zero_grad();
-
-    jyppx::Tensor loss;
-    {
-        jyppx::training::amp::AutocastGuard autocast{c10::DeviceType::CUDA,
-                                                     at::kHalf};
-        loss = torch::mse_loss(model->forward(batch.data.to(torch::kCUDA)),
-                               batch.targets.to(torch::kCUDA));
-    }
-
-    scaler.scale(loss).backward();
-    scaler.step(optimizer);   // unscales, checks for inf/NaN, steps if clean
-    scaler.update();
-}
+optimizer.zero_grad();
+auto scaled = scaler.scale(loss);
+scaled.backward();
+scaler.unscale(optimizer);
+// Inspect or clip true gradients here.
+const bool applied = scaler.step(optimizer);
+scaler.update();
 ```
 
-`AutocastGuard` restores the previous autocast state on destruction, so
-nested or sequential scopes behave sensibly.
+The exact overloads depend on the optimizer surface being used. Overflow must
+skip every optimizer that belongs to the same logical update; do not advance a
+batch scheduler for a skipped update.
 
-## GradScaler options
+## Checkpoint state
 
-```cpp
-struct GradScalerOptions {
-    double init_scale = 65536.0;    // 2^16
-    double growth_factor = 2.0;     // multiply on growth
-    double backoff_factor = 0.5;    // multiply on overflow
-    int growth_interval = 2000;     // clean steps between growths
-    bool enabled = true;            // false = pass-through
-};
-```
+Register `GradScalerCheckpointParticipant` with the same coordinated domain as
+the model, every optimizer, data cursor, RNG and Trainer state. Restoring only
+the scale while omitting optimizer or loop counters is not an exact resume.
 
-Pass it through the trainer with `TrainerOptions::amp_options`, or construct
-`GradScaler{options}` directly. The scaler state serializes via
-`state_dict()`/`load_state_dict()` for long-running jobs.
+## Integration rules
 
-## Best practices
+When implementing a custom precision-aware strategy, preserve this order:
 
-- **Validate precision**: compare final AMP and FP32 validation losses on
-  your task before committing; expect agreement to within a small fraction
-  of a percent.
-- **Keep gradient clipping on**: AMP can produce large early gradients.
-- **Watch the scale**: `scaler.get_scale()` should climb over time; constant
-  back-offs mean the initial scale is too high or the learning rate too
-  large.
-- **Batch size**: the memory savings usually allow a larger batch; adjust
-  the learning rate together with it.
-- **Small models**: autocast overhead can exceed its savings on tiny
-  workloads — measure before enabling.
+1. run forward and loss under the selected autocast policy;
+2. divide by the configured accumulation window and scale the loss;
+3. backward each micro-batch;
+4. at an optimizer boundary, unscale every participating optimizer;
+5. detect non-finite gradients, then clip true gradients;
+6. apply or atomically skip all optimizer updates;
+7. update the scaler and advance schedulers only for committed updates;
+8. checkpoint only after the complete boundary is committed.
 
-## Troubleshooting
-
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| Loss becomes NaN | repeated overflow | lower the learning rate, lower `init_scale`, keep clipping on |
-| No speedup | model too small for Tensor Cores | increase model/batch size, profile first |
-| AMP throws at construction | CPU device or no CUDA driver | run on CUDA, or leave `use_amp = false` |
+Compare FP32 and mixed-precision convergence on the actual model. Record
+device, dtype, LibTorch version and scaler configuration with benchmark results.

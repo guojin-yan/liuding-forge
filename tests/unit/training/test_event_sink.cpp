@@ -188,7 +188,7 @@ jyppx::training::CallbackEvent epoch_finished(std::uint64_t index,
           .trace_id = "trace.test",
           .epoch = index - 1U,
           .global_step = index - 1U,
-          .metrics = {{"val_loss", loss}}};
+          .metrics = {{"validation.loss", loss}}};
 }
 
 TEST(EventOutboxTest, PublishesOnlyAfterCallbackTransactionCommits) {

@@ -1,10 +1,9 @@
-// Unit tests for jyppx::training::amp: GradScaler and the Trainer AMP path.
+// Unit tests for the legacy-independent AMP primitives and scaler participant.
 
 #include "test_utils/jyppx_test_helpers.hpp"
 
 #include <jyppx/training/amp/autocast.hpp>
 #include <jyppx/training/amp/grad_scaler.hpp>
-#include <jyppx/training/trainer.hpp>
 
 #include <cmath>
 #include <gtest/gtest.h>
@@ -327,67 +326,6 @@ TEST(GradScalerTest, NullOptimizerThrows) {
   std::shared_ptr<optim::Optimizer> null_optimizer;
   EXPECT_THROW(scaler.unscale(null_optimizer), std::invalid_argument);
   EXPECT_THROW(scaler.step(null_optimizer), std::invalid_argument);
-}
-
-// ---- Trainer integration --------------------------------------------------
-
-TEST(TrainerAMPTest, AmpOnCpuThrowsAtConstruction) {
-  torch::manual_seed(42);
-  auto model = std::make_shared<LinearModel>(2, 1);
-  auto optimizer =
-      std::make_shared<optim::Adam>(model->parameters(), optim::AdamOptions{});
-
-  EXPECT_THROW(training::Trainer(model, optimizer,
-                                 training::TrainerOptions{.use_amp = true}),
-               std::runtime_error);
-}
-
-TEST(TrainerAMPTest, BFloat16AmpOnCpuDoesNotCreateLossScaler) {
-  auto model = std::make_shared<LinearModel>(2, 1);
-  auto optimizer =
-      std::make_shared<optim::Adam>(model->parameters(), optim::AdamOptions{});
-
-  training::Trainer trainer(
-      model, optimizer,
-      training::TrainerOptions{.use_amp = true, .amp_dtype = at::kBFloat16});
-
-  EXPECT_FALSE(trainer.grad_scaler());
-}
-
-TEST(TrainerAMPTest, AmpFitsOnCudaAndReducesLoss) {
-  if (!cuda_is_available()) {
-    GTEST_SKIP() << "CUDA not available";
-  }
-
-  const auto training_data = make_linear_data(64);
-  const auto& inputs = training_data.first;
-  const auto& targets = training_data.second;
-
-  auto make_and_fit = [&](bool use_amp) {
-    torch::manual_seed(2026);
-    auto model = std::make_shared<LinearModel>(2, 1);
-    auto optimizer = std::make_shared<optim::Adam>(
-        model->parameters(), optim::AdamOptions{.lr = 0.1});
-    training::Trainer trainer(
-        model, optimizer,
-        training::TrainerOptions{
-            .max_epochs = 10, .device = torch::kCUDA, .use_amp = use_amp});
-    auto loader = data::DataLoader<data::Example>(
-        std::make_shared<jyppx::data::TensorDataset>(inputs, targets),
-        data::DataLoaderOptions{.batch_size = 16});
-    trainer.fit(loader);
-    return std::make_pair(trainer.last_train_loss(), trainer.global_step());
-  };
-
-  const auto [loss_fp32, steps_fp32] = make_and_fit(false);
-  const auto [loss_amp, steps_amp] = make_and_fit(true);
-
-  EXPECT_EQ(steps_fp32, steps_amp);
-  // Half-precision rounding makes the AMP trajectory diverge slightly from
-  // the FP32 one; both must converge well below the initial loss (~30).
-  EXPECT_LT(loss_amp, 0.2);
-  EXPECT_LT(loss_fp32, 0.2);
-  EXPECT_LT(std::abs(loss_amp - loss_fp32), 0.15);
 }
 
 }  // namespace

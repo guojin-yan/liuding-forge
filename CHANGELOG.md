@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A current-only transactional `Trainer` that directly composes map/iterable
+  pipelines, model/optimizer/RNG checkpoint participants, scheduler events,
+  callbacks, the bounded event outbox, and a training strategy. It supports
+  accumulation tail policies, validation, gradient clipping, cancellation,
+  and safe-boundary checkpoint save/restore.
+- A shared `BatchPipeline` contract implemented by both map-style and iterable
+  data pipelines, removing data-style branching from the training loop.
 - Descriptor-first `SequentialLrScheduler` and `ChainedLrScheduler` with unique
   child ownership, ordered typed descriptors, pure full-tree preflight, one
   atomic optimizer update, and exact recursive checkpoint recovery.
@@ -69,6 +76,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bad-epoch counter.
 
 ### Changed
+- Training examples, tutorials, the throughput benchmark, and the installed
+  consumer now use explicit `ModelAdapter`, task step, participant, and
+  `prepare()`/`fit()` contracts. Precision remains explicit task/strategy work;
+  the current Trainer does not retain the legacy implicit `use_amp` switch.
 - Removed the replaced legacy composite scheduler implementation and its two
   forwarding headers; composite scheduling now has one direct public API.
 - Windows tests, benchmarks, and examples now copy LibTorch runtime DLLs once
@@ -78,6 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Linux coverage and sanitizer builds now bound parallelism to avoid exhausting
   memory on constrained runners; coverage exposes `JYPPX_BUILD_PARALLEL_LEVEL`
   for hosts that need a different budget.
+
+### Removed
+- The legacy Trainer, mutable callback aggregate, callback implementations,
+  compatibility headers, old callback tests, and the duplicate complete
+  training example. No forwarding API or legacy state reader is retained.
 - Foundation headers now define fully documented error, RNG, version, and
   build-fingerprint contracts; backend failures encountered while collecting
   the fingerprint are translated into the stable JYPPX error taxonomy with

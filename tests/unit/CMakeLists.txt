@@ -133,6 +133,11 @@ jyppx_add_gtest(jyppx_test_training_single_device_strategy
     training/test_single_device_strategy.cpp
 )
 
+jyppx_add_gtest(jyppx_test_training_trainer
+    LINK_TARGET jyppx::training
+    training/test_trainer.cpp
+)
+
 jyppx_add_gtest(jyppx_test_plan
     test_plan_completion.cpp
 )
@@ -141,9 +146,7 @@ jyppx_add_gtest(jyppx_test_training
     training/test_accuracy.cpp
     training/test_amp.cpp
     training/test_grad_scaler_checkpoint_participant.cpp
-    training/test_callbacks.cpp
     training/test_metrics.cpp
-    training/test_trainer.cpp
     training/test_nan_inf.cpp
 )
 

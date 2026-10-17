@@ -1,108 +1,92 @@
 # Tutorial 1: Basic Training
 
-This tutorial trains a linear model on a synthetic dataset using the
-`Trainer` — the smallest complete JYPPX program.
+JYPPX separates task semantics from loop mechanics. A complete run explicitly
+binds model invocation, data, target extraction, loss, strategy and recovery
+state.
 
-## Prerequisites
+## 1. Adapt the model
 
-- A project configured with `find_package(jyppx_training_framework CONFIG REQUIRED)`
-  and linked against `jyppx_training_framework::jyppx_training_framework`
-  (see the README for the CMake setup).
-
-## 1. Define a model
-
-Models are ordinary `torch::nn::Module`s; the Trainer consumes them through
-a type-erased forward call:
+Ordinary LibTorch modules are wrapped in `ModelAdapter` so input and output
+schemas are checked at the framework boundary:
 
 ```cpp
-#include <jyppx/jyppx.hpp>
+auto holder = torch::nn::Linear(torch::nn::LinearOptions(2, 1));
+auto model = std::make_shared<jyppx::nn::ModelAdapter>(
+    jyppx::nn::adapt_tensor_holder(holder));
+```
 
-class LinearModel : public torch::nn::Module {
-public:
-    LinearModel()
-        : linear(register_module("linear", torch::nn::Linear(2, 1))) {}
+Use explicit `TensorSchema` values in production when rank, dtype or fixed
+dimensions must be enforced.
 
-    jyppx::Tensor forward(const jyppx::Tensor& input) {
-        return linear->forward(input);
-    }
+## 2. Create a committed batch pipeline
 
-    torch::nn::Linear linear{nullptr};
+`DataPipeline` combines a sampler, stable dataset/collator identity and a
+factory. The factory returns an opaque `IValue`; Trainer consumes the common
+`BatchPipeline` interface shared with `IterableDataPipeline`.
+
+```cpp
+auto pipeline = std::make_shared<jyppx::data::DataPipeline>(
+    std::make_shared<jyppx::data::samplers::SequentialSampler>(sample_count),
+    jyppx::data::DataPipelineOptions{
+        .pipeline_id = "data.train",
+        .dataset_version = "linear/v1",
+        .dataset_size = sample_count,
+        .batch_factory_id = "linear.tensor-slice/v1",
+        .batch_size = 8,
+    },
+    batch_factory);
+```
+
+Create a separate pipeline instance for validation. Sharing the training cursor
+is rejected because the two participant states cannot resume independently.
+
+## 3. Bind optimizer, strategy and checkpoint state
+
+Build `OptimizerParameterBinding` entries from the adapter's named parameters,
+then create a descriptor-first optimizer. A `SingleDeviceStrategy` owns device
+placement, backward and optimizer updates. The FitRequest also requires model,
+optimizer and RNG checkpoint participants so exact recovery cannot omit primary
+state.
+
+## 4. Define task semantics
+
+The batch mapper produces an `Invocation`; the optional target mapper extracts
+the target; the step function performs forward and returns loss/metrics:
+
+```cpp
+auto step = [](const jyppx::training::StepInput& input) {
+    auto prediction = input.model.invoke(input.invocation).value.toTensor();
+    auto target = input.target->toTensor();
+    return jyppx::training::StepOutput{
+        .loss = (prediction - target).pow(2).mean(),
+        .sample_count = input.batch.sample_ids.size(),
+    };
 };
 ```
 
-## 2. Build a dataset and loader
+Training loss must be a finite differentiable scalar. `sample_count` must match
+the committed sample IDs exactly.
+
+## 5. Prepare, fit and close
 
 ```cpp
-torch::manual_seed(7);
-auto inputs = torch::rand({32, 2});
-auto targets = 2.0 * inputs.select(1, 0) - inputs.select(1, 1) + 0.5;
-
-auto dataset = std::make_shared<jyppx::data::TensorDataset>(
-    inputs, targets.view({32, 1}));
-
-jyppx::data::DataLoader loader(dataset, {.batch_size = 8});
+jyppx::training::Trainer trainer({
+    .trainer_id = "trainer.linear",
+    .run_id = "run.linear",
+    .trace_id = "trace.linear",
+    .max_epochs = 20,
+});
+trainer.prepare(std::move(request));
+auto result = trainer.fit();
+std::cout << result.training_metrics.at("training.loss") << '\n';
+trainer.close();
 ```
 
-`DataLoader` deduces the sample type from the dataset, so no explicit
-template argument is needed. The batch type for a `TensorDataset` exposes
-`.data` and `.targets`.
+`FitResult` reports committed epochs, optimizer steps, final training and
+validation metric maps, and whether the run completed, stopped, or was
+cancelled. Exceptions put Trainer in `failed`; use a fresh domain or restore a
+checkpoint rather than continuing mutated backend state.
 
-## 3. Create the trainer
-
-```cpp
-auto model = std::make_shared<LinearModel>();
-auto optimizer = std::make_shared<jyppx::optim::Adam>(
-    model->parameters(), jyppx::optim::AdamOptions{.lr = 0.05});
-
-jyppx::training::Trainer trainer(
-    model,
-    optimizer,
-    jyppx::training::TrainerOptions{.max_epochs = 20});
-```
-
-## 4. Fit and read the result
-
-```cpp
-trainer.fit(loader);
-std::cout << "final loss=" << trainer.last_train_loss() << '\n';
-```
-
-`fit` runs the full loop: batching, forward, loss, backward, optimizer step,
-gradient handling, and the callback lifecycle. After it returns,
-`last_train_loss()` holds the mean training loss of the final epoch,
-`global_step()` the number of optimizer steps.
-
-For the same run with a validation pass each epoch:
-
-```cpp
-jyppx::data::DataLoader val_loader(dataset, {.batch_size = 8});
-trainer.fit(loader, &val_loader);   // pointer to the validation loader
-```
-
-`last_val_loss()` then holds the latest validation loss.
-
-## 5. Custom objectives
-
-The default loss is mean squared error. Replace it through the options:
-
-```cpp
-jyppx::training::TrainerOptions options;
-options.max_epochs = 20;
-options.loss_fn = [](const jyppx::Tensor& prediction,
-                     const jyppx::Tensor& target) {
-    return torch::nn::functional::cross_entropy(prediction, target);
-};
-```
-
-The loss function must return a scalar tensor.
-
-## Complete example
-
-`examples/basic_trainer.cpp` in the repository implements exactly this flow
-and prints `final loss=...`. Build it with `JYPPX_BUILD_EXAMPLES=ON`.
-
-## What to read next
-
-- Tutorial 2 covers datasets, splits and multi-worker loading.
-- Tutorial 3 compares optimizers and learning-rate schedulers.
-- Tutorial 4 adds callbacks: checkpointing, early stopping and metrics.
+The repository's `examples/basic_trainer.cpp` contains the complete compilable
+program. Tutorial 2 covers data sources, Tutorial 3 covers schedulers, and
+Tutorial 4 covers immutable callbacks and coordinated checkpoints.

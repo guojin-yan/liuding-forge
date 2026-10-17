@@ -16,8 +16,8 @@ If the desired effective batch does not fit device memory, use accumulation:
 
 ```cpp
 jyppx::training::TrainerOptions options;
-options.accumulation_steps = 4;
-options.gradient_clip_val = 1.0;
+options.accumulate_steps = 4;
+options.gradient_clip_norm = 1.0;
 ```
 
 Use a fixed `seed` for deterministic shuffled experiments. Custom datasets
@@ -30,9 +30,11 @@ momentum or betas. Larger batches may permit a larger learning rate, but check
 the first epochs rather than assuming linear scaling. Use `drop_last` when a
 model requires equal batch shapes.
 
-AMP is available for CUDA training and can reduce memory traffic on Tensor
-Core GPUs. Keep the scaler enabled, monitor `GradScaler::found_inf()`, and
-lower the learning rate if overflows occur every step. AMP is rejected on CPU.
+AMP primitives are available for CUDA training and can reduce memory traffic
+on Tensor Core GPUs. Current Trainer integration requires an explicit
+precision-aware strategy; there is no implicit `use_amp` option. Monitor
+`GradScaler::found_inf()` and lower the learning rate if every update
+overflows.
 
 ## Profiling and memory
 
