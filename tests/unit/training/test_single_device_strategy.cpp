@@ -302,12 +302,16 @@ TEST(SingleDeviceStrategyTest, RunsOnRealCudaWhenAvailable) {
   const auto device = jyppx::Device(torch::kCUDA, 0);
   jyppx::training::SingleDeviceStrategy strategy(
       {.strategy_id = "strategy.cuda", .device = device});
+  jyppx::optim::SgdOptimizerCheckpointParticipant optimizer_state(
+      domain.optimizer);
   strategy.prepare(domain.model, *domain.optimizer);
+  EXPECT_NO_THROW(static_cast<void>(optimizer_state.describe_state()));
 
   const auto outcome = train_once(domain, strategy, device);
   EXPECT_EQ(outcome.optimizer_completed_steps, 1U);
   EXPECT_TRUE(domain.linear->weight.device().is_cuda());
   EXPECT_TRUE(torch::isfinite(domain.linear->weight).all().item<bool>());
+  EXPECT_NO_THROW(static_cast<void>(optimizer_state.describe_state()));
 }
 
 }  // namespace

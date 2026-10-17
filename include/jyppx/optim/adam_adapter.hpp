@@ -120,6 +120,9 @@ class AdamOptimizerAdapter final : public OptimizerAdapter {
    */
   void zero_grad(bool set_to_none = true) override;
 
+  /** @copydoc OptimizerAdapter::synchronize_parameter_placement */
+  void synchronize_parameter_placement() override;
+
   /**
    * @brief Returns one current learning rate per stable parameter group.
    * @return Rates in the same order as `groups()`.

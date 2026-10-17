@@ -163,6 +163,23 @@ TEST(SgdOptimizerAdapterTest, DelegatesUpdatesAndTracksSuccessfulSteps) {
 }
 
 TEST(SgdOptimizerAdapterTest,
+     SynchronizesFreshInPlacePlacementAndThenFreezesIt) {
+  auto parameter = torch::ones(
+      {3}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+  auto optimizer = make_optimizer(parameter);
+  jyppx::optim::SgdOptimizerCheckpointParticipant participant(optimizer);
+
+  parameter.set_data(parameter.to(torch::kFloat64));
+  EXPECT_NO_THROW(optimizer->synchronize_parameter_placement());
+  EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
+  parameter.mutable_grad() = torch::ones_like(parameter);
+  optimizer->step();
+
+  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::NotReady);
+  EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
+}
+
+TEST(SgdOptimizerAdapterTest,
      MatchesLibTorchAcrossLongRunsAndOptionCombinations) {
   const std::array<jyppx::optim::SgdAdapterOptions, 4> option_matrix = {
       jyppx::optim::SgdAdapterOptions{.learning_rate = 0.03},

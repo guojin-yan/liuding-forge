@@ -4,7 +4,7 @@
 #include <jyppx/data/dataloader.hpp>
 #include <jyppx/data/tensor_dataset.hpp>
 #include <jyppx/optim/adam_adapter.hpp>
-#include <jyppx/optim/adamw.hpp>
+#include <jyppx/optim/adamw_adapter.hpp>
 
 #include <gtest/gtest.h>
 #include <memory>
@@ -20,8 +20,12 @@ TEST(ExtremeOptimizerParamsTest, AdamVariantsRemainFiniteAtLargeLearningRate) {
         torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
     parameter.mutable_grad() = torch::full_like(parameter, 0.5);
     if (decoupled) {
-      jyppx::optim::AdamW optimizer({parameter},
-                                    {.lr = 1e2, .weight_decay = 1e-1});
+      jyppx::optim::AdamWOptimizerAdapter optimizer(
+          "optimizer.adamw",
+          {{.group_id = "main",
+            .parameters = {{.parameter_id = "parameter",
+                            .parameter = parameter}},
+            .options = {.learning_rate = 1e2, .weight_decay = 1e-1}}});
       optimizer.step();
     } else {
       jyppx::optim::AdamOptimizerAdapter optimizer(

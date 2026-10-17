@@ -8,6 +8,12 @@ stable optimizer ID, ordered group IDs, globally unique parameter IDs, and
 typed `AdamAdapterOptions`. The adapter does not expose the native optimizer,
 mutable parameter groups, or pointer-keyed state.
 
+During `SingleDeviceStrategy::prepare()`, the same model-owned tensors may be
+moved in place before the first update. The strategy synchronizes only fresh
+dtype/device placement metadata; identity, shape, stride, group order, and
+options remain fixed. Any later synchronization attempt is rejected once a
+step or native Adam state exists.
+
 ```cpp
 auto optimizer = std::make_shared<jyppx::optim::AdamOptimizerAdapter>(
     "optimizer.adam",

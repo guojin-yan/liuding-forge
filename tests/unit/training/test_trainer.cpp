@@ -468,7 +468,7 @@ TEST(TrainerCudaTest, Float16PrecisionOwnsScalerAndCheckpointState) {
   }
   auto domain = make_domain();
   auto request =
-      make_request(domain, {}, {}, {}, jyppx::Device(torch::kCUDA), true);
+      make_request(domain, {}, {}, {}, jyppx::Device(torch::kCUDA, 0), true);
   auto scaler = std::make_shared<jyppx::training::amp::GradScaler>(
       jyppx::training::amp::GradScalerOptions{
           .init_scale = 8.0,

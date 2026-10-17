@@ -520,6 +520,7 @@ void SingleDeviceStrategy::prepare(nn::ModelAdapter& model,
                 .expected = impl_->options.device.str(),
                 .hint = "Verify backend availability and device memory."});
   }
+  optimizer.synchronize_parameter_placement();
   for (const auto& binding : bindings) {
     if (binding.parameter.device() != impl_->options.device) {
       throw DeviceError(

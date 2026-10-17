@@ -51,6 +51,8 @@ metrics, callbacks, checkpointing and mixed precision.
   stable group and parameter identities plus exact bounded checkpoint state
 - [Delegated Adam Adapter](api/adam_adapter.md) — LibTorch-backed Adam with
   stable identities and exact moment, step-counter, and AMSGrad recovery
+- [Delegated AdamW Adapter](api/adamw_adapter.md) — decoupled LibTorch AdamW
+  with stable identities and exact bounded optimizer-state recovery
 - [Descriptor-First StepLR](api/step_lr_scheduler.md) — typed scheduler
   semantics, stable optimizer linkage, and exact bounded checkpoint state
 - [Transactional Composite Schedulers](api/composite_lr_scheduler.md) —

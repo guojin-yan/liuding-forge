@@ -65,6 +65,20 @@ class OptimizerAdapter : public OptimizerRateControl {
   virtual void zero_grad(bool set_to_none = true) = 0;
 
   /**
+   * @brief Synchronizes fresh parameter placement after an in-place model move.
+   *
+   * A training strategy calls this after moving model-owned parameter tensors
+   * in place and before the first optimizer update. Implementations may update
+   * only dtype, device, and derived byte metadata for the same tensor
+   * identities, shapes, strides, and group order. Synchronization must reject
+   * an optimizer that has completed a step or initialized native state.
+   *
+   * @throws Error If the optimizer is not fresh or topology changed beyond
+   * supported placement metadata.
+   */
+  virtual void synchronize_parameter_placement() = 0;
+
+  /**
    * @brief Returns stable parameter identities and model-owned tensor handles.
    * @return Bindings in deterministic optimizer group and parameter order.
    * @throws Error If current native topology violates the frozen descriptor.

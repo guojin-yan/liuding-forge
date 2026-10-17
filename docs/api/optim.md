@@ -4,8 +4,9 @@ All types live in the `jyppx::optim` namespace.
 
 The migrated optimizer boundary includes independently exported
 [`SgdOptimizerAdapter`](sgd_adapter.md) and
-[`AdamOptimizerAdapter`](adam_adapter.md). They delegate numerical updates to
-LibTorch and supply stable parameter identity plus storage-neutral recovery.
+[`AdamOptimizerAdapter`](adam_adapter.md), plus
+[`AdamWOptimizerAdapter`](adamw_adapter.md). They delegate numerical updates
+to LibTorch and supply stable parameter identity plus storage-neutral recovery.
 The migrated scheduler boundary includes descriptor-first
 [`StepLrScheduler`](step_lr_scheduler.md) plus transactional
 [`SequentialLrScheduler` and `ChainedLrScheduler`](composite_lr_scheduler.md)
@@ -16,10 +17,10 @@ They record typed semantics and stable optimizer/group identity and provide
 exact storage-neutral recovery.
 The hand-written hierarchy documented below remains only for optimizer
 algorithms that have not yet migrated. It is not a compatibility wrapper for
-the delegated API. The old hand-written SGD, Adam, and `optim/schedulers`
+the delegated API. The old hand-written SGD, Adam, AdamW, and `optim/schedulers`
 hierarchy have been removed.
 
-## Optimizer base
+## Legacy optimizer base
 
 `#include <jyppx/optim/optimizer.hpp>`
 
@@ -56,15 +57,15 @@ format metadata, validates parameter-group and parameter counts plus every
 declared state count, and replaces buffers atomically instead of merging them
 with stale state.
 
-## Optimizers
+## Remaining legacy optimizers
 
-Every optimizer takes the parameter list plus an options struct and validates
-the hyperparameters at construction. All of them are validated numerically
-against `torch::optim` (float64, tolerance 1e-9) by the unit tests.
+The hand-written base currently remains only for RMSprop, Adagrad, and the
+experimental LAMB implementation. RMSprop and Adagrad take a parameter list
+plus an options struct and are compared numerically with their LibTorch
+counterparts. These APIs are not the target contract for new algorithms and
+will be retired as their delegated ledgers close.
 
 ```cpp
-struct AdamWOptions { double lr = 0.001; double beta1 = 0.9; double beta2 = 0.999;
-                      double eps = 1e-8; double weight_decay = 0.01; bool amsgrad = false; };
 struct RMSpropOptions { double lr = 0.01; double alpha = 0.99; double eps = 1e-8;
                         double weight_decay = 0.0; double momentum = 0.0;
                         bool centered = false; };
@@ -73,26 +74,30 @@ struct AdagradOptions { double lr = 0.01; double lr_decay = 0.0;
 ```
 
 ```cpp
-#include <jyppx/optim/adam_adapter.hpp>
+#include <jyppx/optim/adamw_adapter.hpp>
 
-auto optimizer = std::make_shared<jyppx::optim::AdamOptimizerAdapter>(
-    "optimizer.adam",
-    std::vector<jyppx::optim::AdamParameterGroup>{{
-        .group_id = "main",
-        .parameters = stable_parameter_bindings,
-        .options = {.learning_rate = 1e-3, .weight_decay = 1e-4}}});
+auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
+    "optimizer.adamw",
+    std::vector<jyppx::optim::AdamWParameterGroup>{
+        {.group_id = "decay",
+         .parameters = decay_parameter_bindings,
+         .options = {.learning_rate = 1e-3, .weight_decay = 1e-2}},
+        {.group_id = "no_decay",
+         .parameters = no_decay_parameter_bindings,
+         .options = {.learning_rate = 1e-3, .weight_decay = 0.0}}});
 ```
 
 Notes:
 
 - **AdamW** applies decoupled weight decay (`param *= 1 - lr * wd`) like
-  `torch.optim.AdamW`.
+  `torch.optim.AdamW`; the delegated adapter owns this behavior directly.
 - **RMSprop momentum** follows the `torch::optim` C++ semantics: the buffer
   accumulates the normalized gradient `grad / avg` and the step is
   `-lr * buffer`. This coincides with `torch.optim.rmsprop` in Python on the
   first step and differs from the second step on.
-- Remaining legacy optimizers expose mutable `options()`. Delegated Adam uses
-  `set_learning_rates()` as its only mutable hyperparameter operation.
+- Remaining legacy optimizers expose mutable `options()`. Delegated Adam and
+  AdamW use `set_learning_rates()` as their only mutable hyperparameter
+  operation.
 
 ## Learning-rate schedulers
 

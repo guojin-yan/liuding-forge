@@ -8,6 +8,7 @@ tests/benchmarks/bench_trainer_throughput
 tests/benchmarks/bench_optimizer_convergence
 tests/benchmarks/bench_sgd_adapter_overhead
 tests/benchmarks/bench_adam_adapter_overhead
+tests/benchmarks/bench_adamw_adapter_overhead
 tests/benchmarks/bench_memory_usage
 ```
 
@@ -26,6 +27,14 @@ local regression observation, not a threshold that transfers across machines.
 
 `bench_adam_adapter_overhead` applies the same paired methodology to AMSGrad
 Adam so adapter validation cost is tracked independently from SGD.
+
+`bench_adamw_adapter_overhead` applies the same paired methodology to AMSGrad
+AdamW, including LibTorch's decoupled weight-decay path.
+
+The 2026-10-18 Windows Release sample (MSVC 19.44, LibTorch 2.14.1, CPU,
+4096 float32 parameters, 2000 steps, two warmups, five paired samples) produced
+an adapter/native median ratio of `1.014278332`. This is local evidence only;
+the environment-keyed repeated-sampling gate remains authoritative.
 
 A run is unstable when any metric exceeds 10% CV. A stable reference stores a
 per-metric regression allowance of `max(10%, 3 * CV)`. References are valid

@@ -266,6 +266,24 @@ TEST(AdamOptimizerAdapterTest, MalformedCheckpointLeavesStateUnchanged) {
   EXPECT_TRUE(torch::equal(parameter, reference_parameter));
 }
 
+TEST(AdamOptimizerAdapterTest,
+     SynchronizesFreshInPlacePlacementAndThenFreezesIt) {
+  auto parameter = make_parameter({3});
+  auto optimizer = std::make_shared<AdamOptimizerAdapter>(
+      "optimizer.adam",
+      std::vector<AdamParameterGroup>{make_group("main", "weight", parameter)});
+  AdamOptimizerCheckpointParticipant participant(optimizer);
+
+  parameter.set_data(parameter.to(torch::kFloat32));
+  EXPECT_NO_THROW(optimizer->synchronize_parameter_placement());
+  EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
+  parameter.mutable_grad() = torch::ones_like(parameter);
+  optimizer->step();
+
+  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::NotReady);
+  EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
+}
+
 TEST(AdamOptimizerAdapterTest, SupportsCpuBfloat16AndCudaCapability) {
   auto cpu = make_parameter({8}, torch::kBFloat16);
   AdamOptimizerAdapter cpu_optimizer(

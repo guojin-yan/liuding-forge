@@ -19,7 +19,7 @@
 // Optimizers
 #include <jyppx/optim/adagrad.hpp>
 #include <jyppx/optim/adam_adapter.hpp>
-#include <jyppx/optim/adamw.hpp>
+#include <jyppx/optim/adamw_adapter.hpp>
 #include <jyppx/optim/composite_lr_scheduler.hpp>
 #include <jyppx/optim/epoch_lr_scheduler.hpp>
 #include <jyppx/optim/event_lr_scheduler.hpp>

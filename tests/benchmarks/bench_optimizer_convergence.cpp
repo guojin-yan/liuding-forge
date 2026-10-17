@@ -7,7 +7,7 @@
 // equivalent PyTorch script using the same seed and generated tensors.
 
 #include <jyppx/optim/adam_adapter.hpp>
-#include <jyppx/optim/adamw.hpp>
+#include <jyppx/optim/adamw_adapter.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 
 #include <iomanip>
@@ -52,7 +52,12 @@ void benchmark_adamw() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::AdamW optimizer({first, second}, {.lr = 1e-3});
+  jyppx::optim::AdamWOptimizerAdapter optimizer(
+      "optimizer.adamw",
+      {{.group_id = "main",
+        .parameters = {{.parameter_id = "first", .parameter = first},
+                       {.parameter_id = "second", .parameter = second}},
+        .options = {.learning_rate = 1e-3}}});
 
   std::cout << "AdamW,step,loss\n";
   for (int step = 0; step < 100; ++step) {

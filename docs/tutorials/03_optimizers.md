@@ -1,8 +1,8 @@
 # Tutorial 3: Optimizers and Schedulers
 
 JYPPX provides a shrinking legacy hand-written optimizer family alongside a
-descriptor-first migration path backed by LibTorch. SGD and Adam have crossed
-that migration boundary. The compatibility tables
+descriptor-first migration path backed by LibTorch. SGD, Adam, and AdamW have
+crossed that migration boundary. The compatibility tables
 and quality records identify which algorithms have completed delegated
 execution, typed checkpoint recovery, and numerical comparison; algorithms
 that have not crossed those gates remain explicitly marked as legacy.
@@ -18,36 +18,48 @@ that have not crossed those gates remain explicitly marked as legacy.
 | `Adagrad` | sparse features, no manual schedule | `lr_decay` |
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::AdamW>(
-    model->parameters(),
-    jyppx::optim::AdamWOptions{.lr = 3e-4, .weight_decay = 0.01});
+auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
+    "optimizer.adamw",
+    std::vector<jyppx::optim::AdamWParameterGroup>{
+        {.group_id = "decay",
+         .parameters = decay_parameter_bindings,
+         .options = {.learning_rate = 3e-4, .weight_decay = 0.01}},
+        {.group_id = "no_decay",
+         .parameters = no_decay_parameter_bindings,
+         .options = {.learning_rate = 3e-4, .weight_decay = 0.0}}});
 ```
 
-Options validate at construction (negative lr, `beta1 >= 1`, non-positive
-eps etc. throw `std::invalid_argument`). All optimizers expose
-`step()`, `zero_grad(bool set_to_none = false)`, `get_lrs()/set_lr()`,
-`step_count()` and `state_dict()/load_state_dict()`.
+Delegated descriptors validate all options at construction. Invalid rates,
+betas, epsilon, decay values, identities, or parameter topology raise typed
+JYPPX errors before a native optimizer is created. The common adapter contract
+provides `step()`, `zero_grad()`, `learning_rates()`,
+`set_learning_rates()`, `completed_steps()`, and stable parameter bindings.
+Checkpoint state is deliberately exposed only through the matching typed
+participant; no native optimizer or legacy map state is public.
 
 ### Checkpointing an optimizer
 
-Legacy optimizers expose `state_dict()`, but current Trainer accepts only an
-`OptimizerAdapter` plus an explicit checkpoint participant. For migrated SGD
-or Adam, register the matching participant in
-`FitRequest::optimizer_checkpoint`:
+Current Trainer accepts an `OptimizerAdapter` plus an explicit checkpoint
+participant. For delegated SGD, Adam, or AdamW, register the matching
+participant in `FitRequest::optimizer_checkpoint`:
 
 ```cpp
 auto optimizer_state =
-    std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
-        delegated_sgd);
+    std::make_shared<jyppx::optim::AdamWOptimizerCheckpointParticipant>(
+        optimizer);
 ```
 
-The participant stores stable group/parameter identities, options, completed
-steps, current rates and momentum without persisting native pointer keys.
+The participant stores stable group and parameter identities, immutable
+options, completed steps, current rates, and algorithm state without
+persisting native pointer keys.
 
 Adam uses `AdamOptimizerCheckpointParticipant`; it additionally stores every
 initialized parameter's native step, first and second moments, and optional
 AMSGrad maximum tensor. Restore requires identical stable topology and the
 declared exact LibTorch version.
+
+AdamW uses `AdamWOptimizerCheckpointParticipant` with the same complete moment
+and step-state boundary while freezing decoupled weight decay in topology.
 
 ## Epoch-based schedulers
 

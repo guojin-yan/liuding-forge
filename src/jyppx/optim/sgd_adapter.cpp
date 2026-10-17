@@ -1161,6 +1161,57 @@ void SgdOptimizerAdapter::zero_grad(bool set_to_none) {
   }
 }
 
+void SgdOptimizerAdapter::synchronize_parameter_placement() {
+  try {
+    if (impl_->completed_steps != 0 || !impl_->native->state().empty()) {
+      throw NotReady(
+          "Cannot synchronize placement after delegated SGD state exists",
+          ErrorDetails{
+              .component = kComponent,
+              .operation = "synchronize_parameter_placement",
+              .expected = "a fresh zero-step optimizer with no native state",
+              .actual = std::to_string(impl_->completed_steps) +
+                        " completed steps and " +
+                        std::to_string(impl_->native->state().size()) +
+                        " native state entries",
+              .hint = "Move the model through its strategy before the first "
+                      "optimizer update."});
+    }
+
+    auto candidate = impl_->parameters;
+    for (auto& descriptor : candidate) {
+      const auto& parameter = descriptor.parameter;
+      if (!parameter.defined() || !parameter.requires_grad() ||
+          parameter.is_meta() || parameter.is_quantized() ||
+          parameter.layout() != c10::Layout::Strided ||
+          !parameter.is_non_overlapping_and_dense() ||
+          parameter.sizes().vec() != descriptor.sizes ||
+          parameter.strides().vec() != descriptor.strides) {
+        throw_invalid(
+            "synchronize_parameter_placement",
+            "the same dense trainable tensor identity, shape, and strides",
+            descriptor.parameter_id,
+            "Rebuild the optimizer after changing parameter topology.");
+      }
+      descriptor.dtype_code = dtype_code(parameter.scalar_type());
+      descriptor.device_code = device_code(parameter.device());
+      descriptor.device_index =
+          static_cast<std::int32_t>(parameter.device().index());
+      descriptor.byte_count =
+          checked_tensor_bytes(parameter, descriptor.dtype_code);
+    }
+    static_cast<void>(
+        inspect_native_groups(impl_->groups, candidate, *impl_->native));
+    impl_->parameters.swap(candidate);
+  } catch (const Error&) {
+    throw;
+  } catch (const std::bad_alloc&) {
+    translate_bad_alloc("synchronize_parameter_placement");
+  } catch (const c10::Error& cause) {
+    translate_backend(cause, "synchronize delegated SGD placement");
+  }
+}
+
 std::vector<double> SgdOptimizerAdapter::learning_rates() const {
   try {
     return inspect_native_groups(impl_->groups, impl_->parameters,

@@ -46,7 +46,10 @@ Build `OptimizerParameterBinding` entries from the adapter's named parameters,
 then create a descriptor-first optimizer. A `SingleDeviceStrategy` owns device
 placement, backward and optimizer updates. The FitRequest also requires model,
 optimizer and RNG checkpoint participants so exact recovery cannot omit primary
-state.
+state. The optimizer is created from model-owned handles before `prepare()`;
+the strategy moves those handles in place and synchronizes their fresh
+placement before the first update. Do not move the model again after training
+has begun.
 
 ## 4. Define task semantics
 

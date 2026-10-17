@@ -41,6 +41,12 @@ policies and rejects a different topology during restore.
 - scheduler, callbacks, event outbox and additional task participants are
   optional but become part of the same coordinated checkpoint.
 
+`SingleDeviceStrategy::prepare()` preflights model and optimizer identity,
+moves model parameters and buffers to its explicit device, and synchronizes
+the fresh optimizer's placement descriptor before checkpoint topology is
+observed. The optimizer must have zero completed steps and no native state;
+after preparation and the first update, dtype/device placement is immutable.
+
 The training step returns a differentiable scalar loss and the exact number
 of committed sample IDs. Validation may omit loss, but a metric scheduler then
 requires the configured `scheduler_metric` to be present in validation output.

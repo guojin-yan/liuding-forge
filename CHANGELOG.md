@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A LibTorch-delegated Adam adapter with stable groups and parameter IDs,
   long-run exact differential coverage, per-parameter moment/step recovery,
   AMSGrad state, and atomic storage-neutral checkpoint restore.
+- A LibTorch-delegated AdamW adapter with decoupled weight-decay semantics,
+  stable groups and parameter IDs, complete moment/step recovery, and atomic
+  storage-neutral checkpoint restore.
 - An exact `jyppx::nn` model checkpoint participant with versioned topology,
   bounded non-pickle tensor blobs, strict state-key/type/shape/alias preflight,
   and rollback-protected parameter and buffer restore.
@@ -82,6 +85,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Adam consumers now use `AdamOptimizerAdapter`; sparse gradients and invalid
   descriptors are rejected before mutation, while learning-rate control is
   exposed through the same narrow scheduler contract as delegated SGD.
+- AdamW consumers now use `AdamWOptimizerAdapter`; immutable decoupled decay
+  policy and complete state are represented without exposing mutable native
+  options or pointer-keyed state.
+- Delegated optimizers now synchronize model-owned dtype/device placement once
+  during strategy preparation, then reject every placement change after native
+  state or a successful step exists. This keeps CUDA Trainer checkpoints valid
+  without exposing mutable parameter groups.
 - Training examples, tutorials, the throughput benchmark, and the installed
   consumer now use explicit `ModelAdapter`, task step, participant, and
   `prepare()`/`fit()` contracts. Precision remains explicit task/strategy work;
@@ -103,6 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The hand-written `Adam` implementation and mutable options surface. Current
   consumers use the delegated adapter directly; no compatibility header,
   forwarding type, or legacy map checkpoint reader remains.
+- The hand-written `AdamW` implementation and mutable options surface. Current
+  consumers use the delegated adapter directly with no forwarding API.
 - The legacy Trainer, mutable callback aggregate, callback implementations,
   compatibility headers, old callback tests, and the duplicate complete
   training example. No forwarding API or legacy state reader is retained.
