@@ -384,17 +384,16 @@ bool second_state_required(
 #endif
 }
 
+#if !defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
 bool third_state_required(
     const JYPPX_STATEFUL_OPTIMIZER_OPTIONS& options) noexcept {
 #if defined(JYPPX_STATEFUL_OPTIMIZER_RMSPROP)
   return options.centered;
-#elif defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
-  static_cast<void>(options);
-  return false;
 #else
   return options.amsgrad;
 #endif
 }
+#endif
 #endif
 
 const Tensor& first_state_tensor(
