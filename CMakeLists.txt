@@ -202,7 +202,11 @@ foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
         $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
     )
 endforeach()
-target_link_libraries(jyppx_core PUBLIC ${TORCH_LIBRARIES})
+# Device parsing exposes foundation::InvalidArgument, so core owns the
+# foundation link edge. Foundation only consumes core's header-level tensor
+# aliases and must not link back to core, which would create a static-library
+# cycle for consumers of the core target.
+target_link_libraries(jyppx_core PUBLIC ${TORCH_LIBRARIES} jyppx_foundation)
 if(MSVC)
     # Official Windows LibTorch binaries use the release DLL runtime and STL
     # iterator ABI in every configuration. Export these as usage requirements
@@ -210,10 +214,6 @@ if(MSVC)
     target_compile_options(jyppx_core PUBLIC /MD)
     target_compile_definitions(jyppx_core PUBLIC _ITERATOR_DEBUG_LEVEL=0)
 endif()
-
-# Foundation public contracts use the LibTorch-backed value types owned by
-# core. Keep that provider edge explicit in both build and installed packages.
-target_link_libraries(jyppx_foundation PUBLIC jyppx_core)
 
 add_library(jyppx_data STATIC
     src/jyppx/data/data_pipeline.cpp
