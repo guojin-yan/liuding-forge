@@ -45,18 +45,19 @@
           "tests": "527/527; 17 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "15734/19752 (79.66%); target policy remains frozen",
-            "function_coverage": "1716/1889 (90.84%); target policy remains frozen",
-            "branch_coverage": "15130/38824 (38.97%); target policy remains frozen",
-            "training_target_coverage": "line 4522/5604 (80.69%); function 510/543 (93.92%); branch 4174/10468 (39.87%)",
-            "coverage_sampling": "current 527-test sample at 575134d passes the unchanged policy after a deterministic unsupported CUDA dtype boundary test; first run at the unchanged threshold failed and was fixed without lowering policy",
-            "tsan": "31/31 discovered targeted tests at 575134d; no race/deadlock/sanitizer diagnostics",
-            "fuzz": "3 targets x 10000 libFuzzer iterations at 575134d; no ASan/UBSan diagnostics or crash/leak/oom/timeout artifacts",
+            "line_coverage": "15858/19829 (79.97%); target policy remains frozen",
+            "function_coverage": "1725/1896 (90.98%); target policy remains frozen",
+            "branch_coverage": "15553/39561 (39.31%); target policy remains frozen",
+            "data_target_coverage": "line 2509/2936 (85.46%); function 319/342 (93.27%); branch 2277/4831 (47.13%)",
+            "training_target_coverage": "line 4522/5604 (80.69%); function 510/543 (93.92%); branch 4174/10454 (39.93%)",
+            "coverage_sampling": "current 531-test sample at 57d6763 passes the unchanged policy after deterministic malformed data and complete ColorJitter boundary tests; first data run at the unchanged threshold failed and was fixed without lowering policy",
+            "tsan": "32/32 discovered targeted tests at 57d6763; no race/deadlock/sanitizer diagnostics",
+            "fuzz": "3 targets x 10000 libFuzzer iterations at 57d6763; no ASan/UBSan diagnostics or crash/leak/oom/timeout artifacts",
             "tsan_fuzz_metadata": "dirty=false; GCC 11.4 TSan and Clang 14 ASan+UBSan; setarch-no-randomize; build parallelism 2",
-            "repeated_sampling_audit": "benchmark/tool/input/compiler/LibTorch/environment key unchanged between 2ba2fa4 and 575134d; record 17 Windows 1 warmup + 5 samples remains valid",
+            "repeated_sampling_audit": "benchmark/tool/input/compiler/LibTorch/environment key unchanged between 2ba2fa4 and 57d6763; record 17 Windows 1 warmup + 5 samples remains valid",
             "coverage_policy": "coverage-policy.json at a20d2ec; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "575134d"
+          "commit": "57d6763"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-release",
@@ -128,6 +129,24 @@
             "source_quality": "Ubuntu Clang 14 strict target passed clang-format, Doxygen, -Werror and core regression at the same source commit"
           },
           "commit": "575134d"
+        },
+        {
+          "id": "local-ubuntu-gcc-cuda-cu124-data-foundation-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "111/111 data target tests; 0 skipped",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; fixed CMAKE_CUDA_ARCHITECTURES=75",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75 and CUDA standard 17",
+            "build": "jyppx_test_data passed",
+            "cuda_data": "map/iterable data, sampler/DataLoader structured errors and tensor-native transforms: 111/111 passed; zero skipped",
+            "cuda_transform_pipeline": "Resize, CenterCrop, HorizontalFlip, Normalize, RandomRotation, Grayscale, affine grid, device-aware statistics and ColorJitter path executed on CUDA tensors",
+            "source_quality": "Ubuntu Clang 14 strict format, Doxygen, -Werror and data/plan regression passed at the same source commit"
+          },
+          "commit": "57d6763"
         },
         {
           "id": "local-ubuntu-gcc-cpu-release",
