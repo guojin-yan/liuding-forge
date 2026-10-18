@@ -315,8 +315,7 @@ TEST(EventOutboxTest, RejectsInvalidControlFlagsWithoutMutation) {
   MemoryStateStore state(source.describe_state());
   source.save_state(state);
 
-  constexpr std::string_view kControlMagic =
-      "JYPPX-EVENT-OUTBOX-CONTROL-V1";
+  constexpr std::string_view kControlMagic = "JYPPX-EVENT-OUTBOX-CONTROL-V1";
   auto& control = state.mutable_blob("control");
   control.at(sizeof(std::uint64_t) + kControlMagic.size()) = std::byte{2};
 
@@ -339,9 +338,8 @@ TEST(EventOutboxTest, RejectsTruncatedControlAndUnknownPolicy) {
 
   auto target_sink = std::make_shared<RecordingSink>("sink.recording");
   jyppx::training::EventOutbox target({target_sink});
-  EXPECT_THROW(
-      target.load_state(state, static_cast<jyppx::RestorePolicy>(255)),
-      jyppx::CompatibilityError);
+  EXPECT_THROW(target.load_state(state, static_cast<jyppx::RestorePolicy>(255)),
+               jyppx::CompatibilityError);
   EXPECT_EQ(target.pending_events(), 0U);
 
   auto& control = state.mutable_blob("control");
