@@ -211,10 +211,10 @@ TEST_F(TransformsTest, ExecutesTensorNativePipelineOnCudaWhenAvailable) {
 }
 
 TEST_F(TransformsTest, ColorJitterExecutesEveryEnabledAdjustment) {
-  const auto rgb = torch::linspace(
-                       0.0, 1.0, 48,
-                       torch::TensorOptions().dtype(torch::kFloat32))
-                       .view({3, 4, 4});
+  const auto rgb =
+      torch::linspace(0.0, 1.0, 48,
+                      torch::TensorOptions().dtype(torch::kFloat32))
+          .view({3, 4, 4});
   const ColorJitter jitter(/*brightness=*/0.2, /*contrast=*/0.2,
                            /*saturation=*/0.2, /*hue=*/0.1);
   torch::manual_seed(2026);
