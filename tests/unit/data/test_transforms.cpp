@@ -173,10 +173,10 @@ TEST_F(TransformsTest, RejectsNonFiniteRangesAndMalformedImageShapes) {
     EXPECT_EQ(error.details().component, "data.transforms.vision");
     EXPECT_EQ(error.details().operation, "pad.padding");
   }
-  EXPECT_THROW(RandomHorizontalFlip(nan), jyppx::InvalidArgument);
+  EXPECT_THROW((void)RandomHorizontalFlip{nan}, jyppx::InvalidArgument);
   EXPECT_THROW((void)RandomRotation{nan}, jyppx::InvalidArgument);
   EXPECT_THROW((void)RandomAffine{nan}, jyppx::InvalidArgument);
-  EXPECT_THROW(ColorJitter(nan), jyppx::InvalidArgument);
+  EXPECT_THROW((void)ColorJitter{nan}, jyppx::InvalidArgument);
   EXPECT_THROW(Normalize({nan}, {1.0}), jyppx::InvalidArgument);
   EXPECT_THROW(Normalize({0.0}, {infinity}), jyppx::InvalidArgument);
 
