@@ -103,8 +103,12 @@ class VectorCursor final : public IterableSourceCursor {
  public:
   /** @brief Creates a cursor for one immutable epoch value vector. */
   VectorCursor(std::vector<std::int64_t> values, std::uint64_t epoch,
-               std::shared_ptr<CursorStats> stats)
-      : values_(std::move(values)), epoch_(epoch), stats_(std::move(stats)) {}
+               std::shared_ptr<CursorStats> stats,
+               std::optional<std::string> watermark_override)
+      : values_(std::move(values)),
+        epoch_(epoch),
+        stats_(std::move(stats)),
+        watermark_override_(std::move(watermark_override)) {}
 
   /** @brief Returns the next value unless stopped or exhausted. */
   std::optional<IterableSample> next(std::stop_token stop) override {
@@ -120,7 +124,8 @@ class VectorCursor final : public IterableSourceCursor {
     }
     return IterableSample{.value = c10::IValue(values_[position]),
                           .sample_id = epoch_ * 1000U + position,
-                          .watermark = std::to_string(position + 1U)};
+                          .watermark = watermark_override_.value_or(
+                              std::to_string(position + 1U))};
   }
 
   /** @brief Encodes the next position as bounded decimal text. */
@@ -161,9 +166,11 @@ class VectorCursor final : public IterableSourceCursor {
   std::vector<std::int64_t> values_;    ///< Immutable epoch values.
   std::uint64_t epoch_ = 0;             ///< Logical epoch used in sample IDs.
   std::shared_ptr<CursorStats> stats_;  ///< Optional observation counters.
-  mutable std::mutex mutex_;            ///< Protects position and close state.
-  std::size_t position_ = 0;            ///< Next unread value position.
-  bool closed_ = false;  ///< Whether this cursor has been closed.
+  std::optional<std::string>
+      watermark_override_;    ///< Optional invalid watermark used by tests.
+  mutable std::mutex mutex_;  ///< Protects position and close state.
+  std::size_t position_ = 0;  ///< Next unread value position.
+  bool closed_ = false;       ///< Whether this cursor has been closed.
 };
 
 /** @brief Immutable source factory returning isolated vector cursors. */
@@ -172,10 +179,12 @@ class VectorSource final : public IterableSource {
   /** @brief Creates a source with values, guarantees, and test counters. */
   VectorSource(std::vector<std::int64_t> values,
                IterableSourceDescriptor descriptor,
-               std::shared_ptr<CursorStats> stats = nullptr)
+               std::shared_ptr<CursorStats> stats = nullptr,
+               std::optional<std::string> watermark_override = std::nullopt)
       : values_(std::move(values)),
         descriptor_(std::move(descriptor)),
-        stats_(std::move(stats)) {}
+        stats_(std::move(stats)),
+        watermark_override_(std::move(watermark_override)) {}
 
   /** @brief Returns the frozen source descriptor. */
   IterableSourceDescriptor descriptor() const override { return descriptor_; }
@@ -186,16 +195,19 @@ class VectorSource final : public IterableSource {
     if (fail_epoch_ && *fail_epoch_ == epoch) {
       throw std::runtime_error("synthetic epoch open failure");
     }
-    return std::make_unique<VectorCursor>(values_, epoch, stats_);
+    return std::make_unique<VectorCursor>(values_, epoch, stats_,
+                                          watermark_override_);
   }
 
   /** @brief Causes one future epoch open to fail for rollback testing. */
   void fail_epoch(std::uint64_t epoch) { fail_epoch_ = epoch; }
 
  private:
-  std::vector<std::int64_t> values_;         ///< Immutable source values.
-  IterableSourceDescriptor descriptor_;      ///< Frozen source guarantees.
-  std::shared_ptr<CursorStats> stats_;       ///< Optional pull/close counters.
+  std::vector<std::int64_t> values_;     ///< Immutable source values.
+  IterableSourceDescriptor descriptor_;  ///< Frozen source guarantees.
+  std::shared_ptr<CursorStats> stats_;   ///< Optional pull/close counters.
+  std::optional<std::string>
+      watermark_override_;  ///< Optional watermark returned for every sample.
   std::optional<std::uint64_t> fail_epoch_;  ///< Optional failing epoch.
 };
 
@@ -320,9 +332,11 @@ IterableDataPipelineOptions options(std::string id,
 std::shared_ptr<VectorSource> make_source(
     std::vector<std::int64_t> values,
     IterableSourceDescriptor descriptor = exact_descriptor(),
-    std::shared_ptr<CursorStats> stats = nullptr) {
-  return std::make_shared<VectorSource>(
-      std::move(values), std::move(descriptor), std::move(stats));
+    std::shared_ptr<CursorStats> stats = nullptr,
+    std::optional<std::string> watermark_override = std::nullopt) {
+  return std::make_shared<VectorSource>(std::move(values),
+                                        std::move(descriptor), std::move(stats),
+                                        std::move(watermark_override));
 }
 
 auto sum_factory() {
@@ -557,6 +571,22 @@ TEST(IterableDataPipelineTest, SourceFailureIsStructuredAndStopsEpoch) {
   EXPECT_THROW(pipeline.next(), jyppx::BackendError);
   EXPECT_EQ(pipeline.state().committed_samples, 0U);
   EXPECT_THROW(pipeline.next(), jyppx::BackendError);
+}
+
+TEST(IterableDataPipelineTest, RejectsInvalidWatermarksWithoutCommittingState) {
+  IterableDataPipeline oversized(
+      make_source({1}, exact_descriptor(), nullptr, std::string(4097, 'x')),
+      options("data.iterable.oversized-watermark"), sum_factory());
+  oversized.set_epoch(0);
+  EXPECT_THROW(oversized.next(), jyppx::ResourceExhausted);
+  EXPECT_EQ(oversized.state().committed_samples, 0U);
+
+  IterableDataPipeline empty(
+      make_source({1}, exact_descriptor(), nullptr, std::string{}),
+      options("data.iterable.empty-watermark"), sum_factory());
+  empty.set_epoch(0);
+  EXPECT_THROW(empty.next(), jyppx::InvalidArgument);
+  EXPECT_EQ(empty.state().committed_samples, 0U);
 }
 
 TEST(IterableDataPipelineTest,
