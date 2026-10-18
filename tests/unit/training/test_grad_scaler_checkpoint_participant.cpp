@@ -227,12 +227,12 @@ TEST(GradScalerCheckpointParticipantTest, RejectsInvalidResourceLimits) {
                    std::make_shared<GradScaler>(),
                    jyppx::training::amp::GradScalerCheckpointOptions{
                        .max_control_bytes = 23}),
-      jyppx::InvalidArgument);
+               jyppx::InvalidArgument);
   EXPECT_THROW(GradScalerCheckpointParticipant(
                    std::make_shared<GradScaler>(),
                    jyppx::training::amp::GradScalerCheckpointOptions{
                        .max_total_bytes = 1}),
-      jyppx::ResourceExhausted);
+               jyppx::ResourceExhausted);
   EXPECT_THROW(
       GradScalerCheckpointParticipant(
           std::make_shared<GradScaler>(
