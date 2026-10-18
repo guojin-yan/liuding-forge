@@ -65,6 +65,27 @@
       "platforms": ["windows-x86_64", "linux-x86_64", "macos-arm64"],
       "linkage": "dynamic",
       "support_status": "candidate"
+    },
+    {
+      "id": "libtorch-candidate-cuda-cu124",
+      "scope": "ci-candidate",
+      "version": "2.5.1+cu124",
+      "source": {
+        "type": "official-binary",
+        "url": "https://download.pytorch.org/libtorch/cu124/libtorch-cxx11-abi-shared-with-deps-2.5.1%2Bcu124.zip",
+        "cache_file": "third_party/downloads/libtorch-cxx11-abi-shared-with-deps-2.5.1+cu124.zip"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "08552b1d13de1389d01c64aaa5e2c6c5092f922618b0d32ccff8ed9099d75735"
+      },
+      "license": {
+        "spdx": ["BSD-3-Clause"],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": ["linux-x86_64"],
+      "linkage": "dynamic",
+      "support_status": "candidate"
     }
   ]
 }

@@ -32,7 +32,7 @@
     },
     "compatibility_candidate": {
       "version": "2.5.1",
-      "distribution": "cpu",
+      "distribution": "cpu-and-cuda",
       "status": "candidate",
       "verified_lanes": [
         {
@@ -42,18 +42,37 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "CPU",
           "build_type": "Debug",
-          "tests": "521/521; 17 CUDA-only tests skipped",
+          "tests": "522/522; 17 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "15662/19682 (79.58%); target policy frozen",
-            "function_coverage": "1706/1881 (90.70%); target policy frozen",
-            "branch_coverage": "15026/38582 (38.95%); target policy frozen",
-            "coverage_sampling": "two full 521-test samples plus deterministic iterable watermark boundary; data target stabilized above the frozen threshold",
+            "line_coverage": "15666/19686 (79.58%); target policy remains frozen",
+            "function_coverage": "1706/1881 (90.70%); target policy remains frozen",
+            "branch_coverage": "15026/38582 (38.95%); target policy remains frozen",
+            "coverage_sampling": "two full 521-test samples plus deterministic iterable watermark boundary at a20d2ec; current 522-test sample at cd9f607 passes the unchanged policy",
             "tsan": "31/31 discovered targeted tests at 48d1f0d; discovery list retained; no diagnostics; affected concurrent paths unchanged",
             "fuzz": "3 targets x 10000 libFuzzer iterations at 48d1f0d; no ASan/UBSan diagnostics; affected parser paths unchanged",
             "coverage_policy": "coverage-policy.json at a20d2ec; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "a20d2ec"
+          "commit": "cd9f607"
+        },
+        {
+          "id": "local-ubuntu-gcc-cuda-cu124-release",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "17/17 CUDA capability tests",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; fixed CMAKE_CUDA_ARCHITECTURES=75",
+          "quality_evidence": {
+            "artifact": "libtorch-cxx11-abi-shared-with-deps-2.5.1+cu124.zip",
+            "artifact_sha256": "08552b1d13de1389d01c64aaa5e2c6c5092f922618b0d32ccff8ed9099d75735",
+            "configure": "passed with CUDA architecture 75 and CUDA standard 17",
+            "build": "all targets passed",
+            "cuda_ctest": "17/17 passed; zero skipped",
+            "coverage_scope": "RNG generator, seven optimizer capability paths plus SGD CUDA, loss/metric CUDA, SingleDeviceStrategy CUDA, multi-optimizer Trainer float16 AMP, autocast and GradScaler"
+          },
+          "commit": "cd9f607"
         },
         {
           "id": "local-ubuntu-gcc-cpu-release",
