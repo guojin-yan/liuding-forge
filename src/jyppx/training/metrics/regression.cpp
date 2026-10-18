@@ -1,6 +1,8 @@
+#include <jyppx/foundation/error.hpp>
 #include <jyppx/training/metrics/regression.hpp>
 
-#include <stdexcept>
+#include <string>
+#include <utility>
 
 namespace jyppx {
 namespace training {
@@ -8,16 +10,33 @@ namespace metrics {
 
 namespace {
 
+constexpr char kComponent[] = "training.metrics.regression";
+
+[[noreturn]] void throw_invalid(std::string operation, std::string expected,
+                                std::string actual, std::string hint) {
+    throw InvalidArgument(
+        "Invalid regression metric contract",
+        ErrorDetails{.component = kComponent,
+                     .operation = std::move(operation),
+                     .expected = std::move(expected),
+                     .actual = std::move(actual),
+                     .hint = std::move(hint)});
+}
+
 // Flattens and validates a prediction/target pair for elementwise metrics.
 std::pair<Tensor, Tensor> flatten_pair(const Tensor& preds, const Tensor& targets) {
     if (!preds.defined() || !targets.defined()) {
-        throw std::invalid_argument("Metric inputs must be defined");
+        throw_invalid("update.inputs", "defined prediction and target tensors",
+                      "undefined", "Provide both tensors.");
     }
     if (preds.numel() == 0 || targets.numel() == 0) {
         return {};
     }
     if (preds.numel() != targets.numel()) {
-        throw std::invalid_argument("Metric prediction and target sizes differ");
+        throw_invalid("update.targets.shape",
+                      std::to_string(preds.numel()) + " target elements",
+                      std::to_string(targets.numel()),
+                      "Provide matching prediction and target element counts.");
     }
     return {preds.reshape({-1}).to(torch::kFloat64),
             targets.reshape({-1}).to(torch::kFloat64)};

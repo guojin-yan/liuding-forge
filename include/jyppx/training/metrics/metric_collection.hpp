@@ -1,11 +1,11 @@
 #ifndef JYPPX_TRAINING_METRICS_METRIC_COLLECTION_HPP
 #define JYPPX_TRAINING_METRICS_METRIC_COLLECTION_HPP
 
+#include <jyppx/foundation/error.hpp>
 #include <jyppx/training/metric.hpp>
 
 #include <map>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,25 +24,58 @@ class MetricCollection {
 public:
     MetricCollection() = default;
 
-    /** @brief Adds a metric; takes ownership of its name for lookups. */
+    /**
+     * @brief Adds a metric and retains it under its stable name.
+     * @param metric Metric instance to retain; must not be null.
+     * @throws InvalidArgument If the metric is null, unnamed, or duplicated.
+     */
     void add(std::shared_ptr<Metric> metric) {
         if (!metric) {
-            throw std::invalid_argument("MetricCollection metric cannot be null");
+            throw InvalidArgument(
+                "MetricCollection metric cannot be null",
+                ErrorDetails{.component = "training.metrics.collection",
+                             .operation = "add.metric",
+                             .expected = "a non-null metric",
+                             .actual = "null",
+                             .hint = "Construct the metric before adding it."});
         }
         if (metric->name().empty()) {
-            throw std::invalid_argument("MetricCollection metric name cannot be empty");
+            throw InvalidArgument(
+                "MetricCollection metric name cannot be empty",
+                ErrorDetails{.component = "training.metrics.collection",
+                             .operation = "add.metric.name",
+                             .expected = "a non-empty stable name",
+                             .actual = "empty",
+                             .hint = "Give each metric a stable lookup name."});
         }
         if (!metrics_.emplace(metric->name(), metric).second) {
-            throw std::invalid_argument("MetricCollection already contains '" + metric->name() + "'");
+            throw InvalidArgument(
+                "MetricCollection already contains '" + metric->name() + "'",
+                ErrorDetails{.component = "training.metrics.collection",
+                             .operation = "add.metric.name",
+                             .expected = "a unique metric name",
+                             .actual = metric->name(),
+                             .hint = "Use a distinct name or replace the collection entry."});
         }
         order_.push_back(metric->name());
     }
 
-    /** @brief Access a metric by name. */
+    /**
+     * @brief Accesses a metric by its stable name.
+     * @param name Name registered with add().
+     * @return The retained metric instance.
+     * @throws InvalidArgument If name is not registered.
+     */
     std::shared_ptr<Metric> at(const std::string& name) const {
         const auto it = metrics_.find(name);
         if (it == metrics_.end()) {
-            throw std::out_of_range("MetricCollection has no metric named '" + name + "'");
+            throw InvalidArgument(
+                "MetricCollection has no metric named '" + name + "'",
+                ErrorDetails{.component = "training.metrics.collection",
+                             .operation = "at.name",
+                             .expected = "a registered metric name",
+                             .actual = name,
+                             .hint = "Register the metric before accessing it."});
         }
         return it->second;
     }

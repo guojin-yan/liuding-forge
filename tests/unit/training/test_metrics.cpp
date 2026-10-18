@@ -6,6 +6,7 @@
 #include <jyppx/training/metrics/metric_collection.hpp>
 #include <jyppx/training/metrics/regression.hpp>
 #include <jyppx/training/metrics/topk_accuracy.hpp>
+#include <jyppx/foundation/error.hpp>
 
 #include <gtest/gtest.h>
 
@@ -57,8 +58,8 @@ TEST(TopKAccuracyTest, RejectsOneDimensionalPredictions) {
     TopKAccuracy top3(3);
     EXPECT_THROW(
         top3.update(torch::tensor({0.1f, 0.9f}), torch::tensor({0.0f})),
-        std::invalid_argument);
-    EXPECT_THROW(TopKAccuracy invalid(0), std::invalid_argument);
+        jyppx::InvalidArgument);
+    EXPECT_THROW(TopKAccuracy invalid(0), jyppx::InvalidArgument);
 }
 
 TEST(MSETest, ComputesMeanSquaredError) {
@@ -122,7 +123,23 @@ TEST(AverageMeterTest, AcceptsTensorMeans) {
 
 TEST(AverageMeterTest, RejectsInvalidCounts) {
     AverageMeter meter;
-    EXPECT_THROW(meter.update(1.0, 0), std::invalid_argument);
+    EXPECT_THROW(meter.update(1.0, 0), jyppx::InvalidArgument);
+}
+
+TEST(MetricErrorTest, PreservesStableCodeAndStructuredContext) {
+    AverageMeter meter;
+    bool caught = false;
+    try {
+        meter.update(1.0, 0);
+    } catch (const jyppx::InvalidArgument& error) {
+        caught = true;
+        EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+        EXPECT_EQ(error.details().component, "training.metrics.average_meter");
+        EXPECT_EQ(error.details().operation, "update.count");
+        EXPECT_EQ(error.details().expected, "a positive observation count");
+        EXPECT_EQ(error.details().actual, "0");
+    }
+    EXPECT_TRUE(caught);
 }
 
 TEST(MetricCollectionTest, UpdatesAndComputesAllMetrics) {
@@ -146,9 +163,9 @@ TEST(MetricCollectionTest, UpdatesAndComputesAllMetrics) {
 TEST(MetricCollectionTest, RejectsDuplicateAndUnknownNames) {
     MetricCollection collection;
     collection.add(std::make_shared<MSE>());
-    EXPECT_THROW(collection.add(std::make_shared<MSE>()), std::invalid_argument);
-    EXPECT_THROW(collection.add(nullptr), std::invalid_argument);
-    EXPECT_THROW(collection.at("missing"), std::out_of_range);
+    EXPECT_THROW(collection.add(std::make_shared<MSE>()), jyppx::InvalidArgument);
+    EXPECT_THROW(collection.add(nullptr), jyppx::InvalidArgument);
+    EXPECT_THROW(collection.at("missing"), jyppx::InvalidArgument);
     EXPECT_EQ(collection.size(), 1);
 }
 

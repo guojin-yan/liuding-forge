@@ -1,14 +1,34 @@
+#include <jyppx/foundation/error.hpp>
 #include <jyppx/training/metrics/accuracy.hpp>
 
-#include <stdexcept>
+#include <string>
+#include <utility>
 
 namespace jyppx {
 namespace training {
 namespace metrics {
 
+namespace {
+
+constexpr char kComponent[] = "training.metrics.accuracy";
+
+[[noreturn]] void throw_invalid(std::string operation, std::string expected,
+                                std::string actual, std::string hint) {
+    throw InvalidArgument(
+        "Invalid accuracy metric contract",
+        ErrorDetails{.component = kComponent,
+                     .operation = std::move(operation),
+                     .expected = std::move(expected),
+                     .actual = std::move(actual),
+                     .hint = std::move(hint)});
+}
+
+} // namespace
+
 void Accuracy::update(const Tensor& preds, const Tensor& targets) {
     if (!preds.defined() || !targets.defined()) {
-        throw std::invalid_argument("Accuracy inputs must be defined");
+        throw_invalid("update.inputs", "defined prediction and target tensors",
+                      "undefined", "Provide both tensors.");
     }
     if (preds.numel() == 0 || targets.numel() == 0) {
         return;
@@ -23,7 +43,10 @@ void Accuracy::update(const Tensor& preds, const Tensor& targets) {
     auto expected = targets.to(torch::kInt64).reshape({-1});
     predicted = predicted.reshape({-1});
     if (predicted.numel() != expected.numel()) {
-        throw std::invalid_argument("Accuracy prediction and target sizes differ");
+        throw_invalid("update.targets.shape",
+                      std::to_string(predicted.numel()) + " labels",
+                      std::to_string(expected.numel()),
+                      "Provide one target for every prediction.");
     }
     correct_ += predicted.eq(expected).sum().item<int64_t>();
     total_ += expected.numel();
