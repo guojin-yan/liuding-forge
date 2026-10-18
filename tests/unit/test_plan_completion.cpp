@@ -341,49 +341,6 @@ TEST_F(TransformsExtraTest, ColorJitterValidatesArguments) {
   EXPECT_THROW(ColorJitter(0.0, 0.0, 0.0, 0.9), std::invalid_argument);
 }
 
-// ---- LAMB
-// ------------------------------------------------------------------------
-
-TEST(LambTest, ZeroParameterFallsBackToPlainAdamStep) {
-  // p = 0 -> weight_norm = 0 -> trust ratio 1 -> LAMB == AdamW-style step.
-  auto params = torch::zeros(
-      {1}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
-  params.mutable_grad() = torch::ones_like(params);
-
-  optim::Lamb lamb(TensorList{params},
-                   optim::LambOptions{.lr = 0.01, .eps = 1e-6});
-  lamb.step();
-
-  // adam_step = (1/1) / (sqrt(1/1) + eps) ~= 1 / (1 + 1e-6)
-  const double expected = -0.01 * (1.0 / (1.0 + 1e-6));
-  EXPECT_NEAR(params[0].item<double>(), expected, 1e-9);
-}
-
-TEST(LambTest, TrustRatioLimitsSmallParameters) {
-  // p = 0.01 with unit grad: weight_norm << adam_norm -> update is tiny.
-  auto params = torch::full(
-      {1}, 0.01,
-      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
-  params.mutable_grad() = torch::ones_like(params);
-
-  optim::Lamb lamb(TensorList{params},
-                   optim::LambOptions{.lr = 0.01, .eps = 1e-6});
-  lamb.step();
-
-  const double movement = std::abs(0.01 - params[0].item<double>());
-  EXPECT_LT(movement, 0.01);  // far below the unadapted ~0.01 step
-}
-
-TEST(LambTest, ValidatesArguments) {
-  auto params = torch::ones({1}, torch::TensorOptions().requires_grad(true));
-  EXPECT_THROW(
-      optim::Lamb(TensorList{params}, optim::LambOptions{.beta1 = 1.0}),
-      std::invalid_argument);
-  EXPECT_THROW(
-      optim::Lamb(TensorList{params}, optim::LambOptions{.weight_decay = -1.0}),
-      std::invalid_argument);
-}
-
 // ---- TensorBoard writer
 // --------------------------------------------------------------
 

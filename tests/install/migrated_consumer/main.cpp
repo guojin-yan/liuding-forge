@@ -19,6 +19,7 @@
 #include <jyppx/optim/composite_lr_scheduler.hpp>
 #include <jyppx/optim/epoch_lr_scheduler.hpp>
 #include <jyppx/optim/event_lr_scheduler.hpp>
+#include <jyppx/optim/lamb_adapter.hpp>
 #include <jyppx/optim/linear_lr_scheduler.hpp>
 #include <jyppx/optim/nadam_adapter.hpp>
 #include <jyppx/optim/optimizer_adapter.hpp>
@@ -462,6 +463,23 @@ int main() {
   const bool valid_adadelta =
       installed_adadelta_participant.describe_state().fields.size() == 4 &&
       installed_adadelta->completed_steps() == 1;
+  auto installed_lamb_parameter = torch::ones(
+      {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
+  auto installed_lamb = std::make_shared<jyppx::optim::LambOptimizerAdapter>(
+      "optimizer.lamb",
+      std::vector<jyppx::optim::LambParameterGroup>{
+          {.group_id = "main",
+           .parameters = {{.parameter_id = "weight",
+                           .parameter = installed_lamb_parameter}},
+           .options = {.learning_rate = 0.001, .weight_decay = 0.01}}});
+  installed_lamb_parameter.mutable_grad() =
+      torch::ones_like(installed_lamb_parameter);
+  installed_lamb->step();
+  jyppx::optim::LambOptimizerCheckpointParticipant installed_lamb_participant(
+      installed_lamb);
+  const bool valid_lamb =
+      installed_lamb_participant.describe_state().fields.size() == 4 &&
+      installed_lamb->completed_steps() == 1;
   auto installed_nadam_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   auto installed_nadam = std::make_shared<jyppx::optim::NAdamOptimizerAdapter>(
@@ -565,9 +583,9 @@ int main() {
                  valid_adapter && valid_metric && valid_ranking_metric &&
                  valid_classwise_metric && valid_optimizer && valid_adam &&
                  valid_adamw && valid_rmsprop && valid_adagrad &&
-                 valid_adadelta && valid_nadam && valid_scheduler &&
-                 valid_callback && valid_event_sink && valid_strategy &&
-                 valid_trainer
+                 valid_adadelta && valid_lamb && valid_nadam &&
+                 valid_scheduler && valid_callback && valid_event_sink &&
+                 valid_strategy && valid_trainer
              ? 0
              : 1;
 }

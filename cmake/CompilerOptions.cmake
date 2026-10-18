@@ -207,6 +207,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/composite_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/optimizer_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/adadelta_adapter.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/optim/lamb_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/adagrad_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/epoch_lr_scheduler.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/optim/event_lr_scheduler.hpp
@@ -222,6 +223,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/event_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/linear_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/adadelta_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/optim/lamb_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/adagrad_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/optim/adam_adapter.cpp
@@ -235,6 +237,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_event_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_linear_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_adadelta_adapter.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_lamb_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_adagrad_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_sgd_adapter.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_adam_adapter.cpp
@@ -244,6 +247,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/optim/test_step_lr_scheduler.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_optimizer_convergence.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adadelta_native_throughput.cpp
+        ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_lamb_native_throughput.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adagrad_adapter_overhead.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_sgd_adapter_overhead.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adam_adapter_overhead.cpp

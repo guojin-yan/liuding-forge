@@ -1,0 +1,280 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
+#ifndef JYPPX_OPTIM_LAMB_ADAPTER_HPP
+#define JYPPX_OPTIM_LAMB_ADAPTER_HPP
+
+/**
+ * @file lamb_adapter.hpp
+ * @brief Defines the native LAMB adapter and checkpoint participant.
+ */
+
+#include <jyppx/core/types.hpp>
+#include <jyppx/foundation/checkpoint.hpp>
+#include <jyppx/optim/optimizer_adapter.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace jyppx::optim {
+
+/**
+ * @brief Configures one native LAMB parameter group.
+ *
+ * LAMB applies bias-corrected Adam moments, adds coupled update-direction
+ * weight decay, and scales the complete direction by a layer-wise trust ratio.
+ * The parameter norm is capped at 10 and the trust ratio is 1 when either norm
+ * is zero. Only `learning_rate` may change after construction; every other
+ * field is immutable checkpoint topology.
+ */
+struct LambAdapterOptions {
+  double learning_rate = 1e-3;  ///< Non-negative group learning rate.
+  double beta1 = 0.9;           ///< First-moment decay factor in `[0, 1)`.
+  double beta2 = 0.999;         ///< Second-moment decay factor in `[0, 1)`.
+  double epsilon = 1e-6;        ///< Positive denominator stability constant.
+  double weight_decay = 0.0;  ///< Non-negative update-direction L2 coefficient.
+  bool maximize = false;  ///< Maximizes the objective by negating gradients.
+};
+
+/** @brief Defines one stable parameter group updated by native LAMB. */
+struct LambParameterGroup {
+  std::string group_id;  ///< Stable nonempty identity within an optimizer.
+  std::vector<OptimizerParameterBinding>
+      parameters;  ///< Nonempty, globally unique parameter bindings.
+  LambAdapterOptions options;  ///< Validated immutable group descriptor.
+};
+
+/**
+ * @brief Runs the JYPPX native LAMB implementation.
+ *
+ * Model tensors remain model-owned. Native state, mutable LibTorch groups, and
+ * pointer keys are intentionally hidden behind stable logical identities.
+ * Undefined gradients preserve skip semantics and therefore do not advance a
+ * parameter's independent bias-correction step.
+ *
+ * Instances are not internally synchronized. Callers must serialize gradient,
+ * step, learning-rate, placement, and checkpoint operations. A backend failure
+ * during `step()` may leave state modified; recover from a checkpoint before
+ * continuing after such a failure.
+ */
+class LambOptimizerAdapter final : public OptimizerAdapter {
+ public:
+  /** @brief Preserves the common closure type on the concrete adapter API. */
+  using LossClosure = OptimizerAdapter::LossClosure;
+
+  /**
+   * @brief Creates a native LAMB optimizer from stable parameter groups.
+   * @param optimizer_id Stable nonempty scheduler and checkpoint identity.
+   * @param groups Nonempty groups with unique group and parameter identities.
+   * @throws InvalidArgument If topology, tensors, or options are invalid.
+   * @throws BackendError If LibTorch rejects tensor state construction.
+   */
+  explicit LambOptimizerAdapter(std::string optimizer_id,
+                                std::vector<LambParameterGroup> groups);
+
+  /** @brief Releases the opaque native optimizer implementation. */
+  ~LambOptimizerAdapter() override;
+
+  /** @brief Prevents duplicating pointer-bound optimizer state. */
+  LambOptimizerAdapter(const LambOptimizerAdapter&) = delete;
+
+  /** @brief Prevents assigning pointer-bound optimizer state. */
+  LambOptimizerAdapter& operator=(const LambOptimizerAdapter&) = delete;
+
+  /** @brief Prevents moving an object retained by checkpoint participants. */
+  LambOptimizerAdapter(LambOptimizerAdapter&&) = delete;
+
+  /** @brief Prevents move assignment of participant-retained state. */
+  LambOptimizerAdapter& operator=(LambOptimizerAdapter&&) = delete;
+
+  /**
+   * @brief Applies one LAMB update and records completion.
+   * @param closure Optional closure evaluated before gradient validation.
+   * @return Closure result, or an undefined tensor when no closure is used.
+   * @throws InvalidArgument If a gradient does not match its parameter.
+   * @throws NotImplemented If any bound parameter has a sparse gradient.
+   * @throws BackendError If a tensor operation cannot complete.
+   * @throws ResourceExhausted If state or bookkeeping allocation fails.
+   * @throws Any exception raised by `closure` is propagated unchanged.
+   *
+   * Dense gradients must match parameter dtype, device, and shape. Every
+   * gradient is checked before the first parameter or state tensor is changed.
+   */
+  Tensor step(LossClosure closure = {}) override;
+
+  /**
+   * @brief Clears all bound gradients.
+   * @param set_to_none Whether to release gradients instead of zeroing them.
+   * @throws BackendError If LibTorch cannot clear a gradient.
+   */
+  void zero_grad(bool set_to_none = true) override;
+
+  /** @copydoc OptimizerAdapter::synchronize_parameter_placement */
+  void synchronize_parameter_placement() override;
+
+  /**
+   * @brief Returns one current learning rate per stable parameter group.
+   * @return Rates in the same order as `groups()`.
+   */
+  std::vector<double> learning_rates() const override;
+
+  /**
+   * @brief Atomically validates and sets every group learning rate.
+   * @param learning_rates Finite non-negative values matching group count.
+   * @throws InvalidArgument If a count or value is invalid.
+   */
+  void set_learning_rates(const std::vector<double>& learning_rates) override;
+
+  /**
+   * @brief Returns the immutable optimizer identity.
+   * @return Identity used by the optimizer and associated schedulers.
+   */
+  const std::string& optimizer_id() const noexcept override;
+
+  /**
+   * @brief Returns immutable parameter-group identities in update order.
+   * @return IDs in native optimizer and learning-rate order.
+   */
+  const std::vector<std::string>& parameter_group_ids() const noexcept override;
+
+  /**
+   * @brief Returns the number of successfully completed optimizer calls.
+   * @return Monotonic count restored by the checkpoint participant.
+   */
+  std::uint64_t completed_steps() const noexcept override;
+
+  /**
+   * @brief Returns the immutable stable LAMB descriptor.
+   * @return Groups and bindings in native optimizer order.
+   */
+  const std::vector<LambParameterGroup>& groups() const noexcept;
+
+  /**
+   * @brief Returns stable flattened parameter bindings in update order.
+   * @return Copies of lightweight tensor handles in checkpoint order.
+   * @throws InvalidArgument If current topology violates its descriptor.
+   */
+  std::vector<OptimizerParameterBinding> parameter_bindings() const override;
+
+  /**
+   * @brief Returns the total number of bound parameters.
+   * @return Sum of all stable group parameter counts.
+   */
+  std::size_t parameter_count() const noexcept override;
+
+ private:
+  /** @brief Opaque owner of the native implementation and algorithm state. */
+  struct Impl;
+
+  /** @brief Allows exact state encoding and atomic state replacement. */
+  friend class LambOptimizerCheckpointParticipant;
+
+  std::unique_ptr<Impl> impl_;  ///< Non-null native implementation owner.
+};
+
+/** @brief Configures LAMB checkpoint resource limits. */
+struct LambOptimizerCheckpointOptions {
+  std::size_t max_groups = 4096;  ///< Positive maximum parameter-group count.
+  std::size_t max_parameters =
+      100000;  ///< Positive maximum total parameter count.
+  std::size_t max_identifier_bytes =
+      4096;  ///< Positive maximum bytes in one stable identity.
+  std::uint64_t max_topology_bytes =
+      64ULL * 1024ULL * 1024ULL;  ///< Maximum immutable descriptor size.
+  std::uint64_t max_control_bytes =
+      16ULL * 1024ULL * 1024ULL;  ///< Maximum mutable metadata size.
+  std::uint64_t max_tensor_bytes =
+      16ULL * 1024ULL * 1024ULL *
+      1024ULL;  ///< Maximum bytes in one moment tensor.
+  std::uint64_t max_total_bytes =
+      64ULL * 1024ULL * 1024ULL *
+      1024ULL;  ///< Maximum metadata plus bounded tensor fields.
+};
+
+/**
+ * @brief Exposes native LAMB state through the exact checkpoint contract.
+ *
+ * Schema version 1 stores stable topology, completed adapter steps, current
+ * learning rates, independent per-parameter steps, and both moment tensors.
+ * Topology includes stable IDs, tensor descriptors, immutable LAMB options,
+ * and the compile-time LibTorch version. Pointer keys and legacy optimizer
+ * maps are never persisted or accepted.
+ *
+ * Restore validates every field and allocates all candidate tensors before a
+ * nothrow state-map swap. Failure before commit leaves the optimizer unchanged.
+ */
+class LambOptimizerCheckpointParticipant final : public CheckpointParticipant {
+ public:
+  /**
+   * @brief Creates a participant retaining a native LAMB adapter.
+   * @param optimizer Non-null optimizer shared with the training loop.
+   * @param options Positive resource limits for state preflight and decoding.
+   * @throws InvalidArgument If optimizer, topology, or limits are invalid.
+   */
+  explicit LambOptimizerCheckpointParticipant(
+      std::shared_ptr<LambOptimizerAdapter> optimizer,
+      LambOptimizerCheckpointOptions options = {});
+
+  /**
+   * @brief Returns the optimizer's stable registry identifier.
+   * @return The immutable optimizer ID owned by the retained adapter.
+   */
+  std::string participant_id() const override;
+
+  /**
+   * @brief Describes exact topology, control, and moment state fields.
+   * @return An exact schema-version-1 optimizer manifest.
+   * @throws InvalidArgument If current native state violates the descriptor.
+   * @throws ResourceExhausted If state exceeds a configured limit.
+   */
+  StateManifest describe_state() const override;
+
+  /**
+   * @brief Writes current-only storage-neutral LAMB state.
+   * @param writer Storage-neutral destination supplied by the coordinator.
+   * @throws SerializationError If native state cannot be represented.
+   * @throws ResourceExhausted If state exceeds a configured limit.
+   * @throws BackendError If LibTorch cannot materialize canonical bytes.
+   */
+  void save_state(StateWriter& writer) const override;
+
+  /**
+   * @brief Validates and atomically restores current-only LAMB state.
+   * @param reader Source containing schema-version-1 LAMB state.
+   * @param policy Restore policy that must accept exact state.
+   */
+  void load_state(const StateReader& reader, RestorePolicy policy) override;
+
+  /**
+   * @brief Returns mutable access to the retained optimizer.
+   * @return A reference valid for the participant lifetime.
+   */
+  LambOptimizerAdapter& optimizer() noexcept;
+
+  /**
+   * @brief Returns read-only access to the retained optimizer.
+   * @return A reference valid for the participant lifetime.
+   */
+  const LambOptimizerAdapter& optimizer() const noexcept;
+
+  /**
+   * @brief Returns immutable checkpoint resource limits.
+   * @return A reference valid for the participant lifetime.
+   */
+  const LambOptimizerCheckpointOptions& options() const noexcept;
+
+ private:
+  std::shared_ptr<LambOptimizerAdapter>
+      optimizer_;  ///< Shared native optimizer whose state is persisted.
+  LambOptimizerCheckpointOptions
+      options_;  ///< Immutable checkpoint resource limits.
+};
+
+}  // namespace jyppx::optim
+
+#endif  // JYPPX_OPTIM_LAMB_ADAPTER_HPP

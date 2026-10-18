@@ -61,6 +61,8 @@ metrics, callbacks, checkpointing and mixed precision.
   with the complete momentum schedule and exact per-parameter recovery
 - [Native Adadelta Adapter](api/adadelta_adapter.md) — current-only two-state
   Adadelta with independent reference coverage and exact bounded recovery
+- [Native LAMB Adapter](api/lamb_adapter.md) — current-only layer-wise trust
+  ratio updates with independent reference coverage and exact recovery
 - [Descriptor-First StepLR](api/step_lr_scheduler.md) — typed scheduler
   semantics, stable optimizer linkage, and exact bounded checkpoint state
 - [Transactional Composite Schedulers](api/composite_lr_scheduler.md) —

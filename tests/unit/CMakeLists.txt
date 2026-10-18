@@ -42,6 +42,11 @@ jyppx_add_gtest(jyppx_test_optim_adagrad_adapter
     optim/test_adagrad_adapter.cpp
 )
 
+jyppx_add_gtest(jyppx_test_optim_lamb_adapter
+    LINK_TARGET jyppx::optim
+    optim/test_lamb_adapter.cpp
+)
+
 jyppx_add_gtest(jyppx_test_optim_sgd_adapter
     LINK_TARGET jyppx::optim
     optim/test_sgd_adapter.cpp

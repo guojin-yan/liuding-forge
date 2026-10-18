@@ -34,6 +34,7 @@ doxygen_add_docs(jyppx_migrated_api_docs
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/adam_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/adamw_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/adadelta_adapter.hpp"
+    "${PROJECT_SOURCE_DIR}/include/jyppx/optim/lamb_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/nadam_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/rmsprop_adapter.hpp"
     "${PROJECT_SOURCE_DIR}/include/jyppx/optim/adagrad_adapter.hpp"

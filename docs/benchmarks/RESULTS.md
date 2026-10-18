@@ -12,6 +12,7 @@ tests/benchmarks/bench_adamw_adapter_overhead
 tests/benchmarks/bench_rmsprop_adapter_overhead
 tests/benchmarks/bench_adagrad_adapter_overhead
 tests/benchmarks/bench_adadelta_native_throughput
+tests/benchmarks/bench_lamb_native_throughput
 tests/benchmarks/bench_nadam_native_throughput
 tests/benchmarks/bench_memory_usage
 ```
@@ -47,6 +48,11 @@ nanoseconds per step. The candidate LibTorch C++ APIs do not expose Adadelta,
 so numerical behavior is gated by the independent reference and convergence
 tests instead of an incomparable adapter/native ratio.
 
+`bench_lamb_native_throughput` records absolute LAMB median nanoseconds per
+step. LibTorch does not expose a comparable public C++ LAMB optimizer, so no
+adapter/native ratio is reported. Numerical behavior is gated by the
+independent tensor reference and checkpoint-resume tests.
+
 `bench_nadam_native_throughput` records absolute NAdam median nanoseconds per
 step. LibTorch does not expose a public C++ NAdam optimizer, so this benchmark
 does not manufacture an incomparable adapter/native ratio. Numerical parity
@@ -61,6 +67,12 @@ CPU, 4096 float32 parameters, 2000 steps, two warmups, five paired samples)
 produced an adapter/native median ratio of `1.040400845`. These measurements
 are local evidence only; the environment-keyed repeated-sampling gate remains
 authoritative.
+
+The 2026-10-18 LAMB Windows Release sample (MSVC 19.51, LibTorch 2.5.1 CPU,
+4096 float32 parameters, 2000 steps, two warmups, five samples) produced an
+absolute median of `58003 ns/step`. LibTorch has no comparable public C++ LAMB
+optimizer, so this is a local regression observation rather than a parity
+ratio or a cross-machine threshold.
 
 A run is unstable when any metric exceeds 10% CV. A stable reference stores a
 per-metric regression allowance of `max(10%, 3 * CV)`. References are valid
