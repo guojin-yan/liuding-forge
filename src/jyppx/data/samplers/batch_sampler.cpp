@@ -27,8 +27,9 @@ std::vector<size_t> BatchSampler::indices() const {
 
 size_t BatchSampler::size() const {
   const size_t sample_count = sampler_->size();
-  return drop_last_ ? sample_count / batch_size_
-                    : (sample_count + batch_size_ - 1) / batch_size_;
+  const size_t complete_batches = sample_count / batch_size_;
+  const size_t remainder = sample_count % batch_size_;
+  return drop_last_ || remainder == 0 ? complete_batches : complete_batches + 1;
 }
 
 }  // namespace jyppx::data::samplers

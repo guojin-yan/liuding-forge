@@ -105,6 +105,54 @@ TEST(FoundationRandomTest, RejectsMalformedCpuStateWithoutMutation) {
   EXPECT_TRUE(torch::equal(jyppx::core::get_rng_state(false).cpu, before.cpu));
 }
 
+TEST(FoundationRandomTest, RejectsEveryInvalidCpuRepresentation) {
+  jyppx::core::RngGuard restore(78, false);
+  const auto valid = jyppx::core::get_rng_state(false);
+
+  auto undefined = valid;
+  undefined.cpu = jyppx::Tensor{};
+  EXPECT_THROW(jyppx::core::validate_rng_state(undefined, false),
+               jyppx::InvalidArgument);
+
+  auto wrong_type = valid;
+  wrong_type.cpu = valid.cpu.to(torch::kInt64);
+  EXPECT_THROW(jyppx::core::validate_rng_state(wrong_type, false),
+               jyppx::InvalidArgument);
+
+  auto wrong_rank = valid;
+  wrong_rank.cpu = valid.cpu.reshape({1, valid.cpu.numel()});
+  EXPECT_THROW(jyppx::core::validate_rng_state(wrong_rank, false),
+               jyppx::InvalidArgument);
+
+  auto unexpected_cuda = valid;
+  unexpected_cuda.cuda.push_back(valid.cpu.clone());
+  EXPECT_THROW(jyppx::core::validate_rng_state(unexpected_cuda, false),
+               jyppx::InvalidArgument);
+}
+
+TEST(FoundationRandomTest, ManualSeedReproducesCpuSequence) {
+  jyppx::core::RngGuard restore(79, false);
+  jyppx::core::manual_seed(20261018, false);
+  const auto expected = torch::rand({16});
+
+  jyppx::core::manual_seed(20261018, false);
+  EXPECT_TRUE(torch::equal(torch::rand({16}), expected));
+}
+
+TEST(FoundationRandomTest, GuardRestoresExactCpuContinuation) {
+  jyppx::core::RngGuard restore(80, false);
+  const auto before_scope = jyppx::core::get_rng_state(false);
+  const auto expected = torch::rand({16});
+  jyppx::core::set_rng_state(before_scope, false);
+
+  {
+    jyppx::core::RngGuard temporary_seed(1234, false);
+    (void)torch::rand({64});
+  }
+
+  EXPECT_TRUE(torch::equal(torch::rand({16}), expected));
+}
+
 TEST(FoundationRandomTest, SeedDerivationIsStableAndSeparatesStreams) {
   const auto seed = jyppx::core::derive_seed(42, 7, 3, 1);
   EXPECT_EQ(seed, jyppx::core::derive_seed(42, 7, 3, 1));

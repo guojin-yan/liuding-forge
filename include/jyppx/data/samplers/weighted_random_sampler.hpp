@@ -346,15 +346,9 @@ class DistributedSampler : public Sampler {
    * @return Deterministic rank-local partition.
    */
   std::vector<size_t> indices() const override {
-    // Pad so every rank receives the same number of samples.
-    size_t padded = size_;
-    if (!drop_last_) {
-      padded = (size_ + world_size_ - 1) / world_size_ * world_size_;
-    }
-    std::vector<size_t> all(padded);
-    for (size_t i = 0; i < padded; ++i) {
-      all[i] =
-          i % size_;  // pad by repeating from the start (PyTorch semantics)
+    std::vector<size_t> all(size_);
+    for (size_t i = 0; i < size_; ++i) {
+      all[i] = i;
     }
 
     if (shuffle_) {
@@ -362,12 +356,16 @@ class DistributedSampler : public Sampler {
           seed_ + static_cast<uint64_t>(epoch_)));
       std::shuffle(all.begin(), all.end(), generator);
     }
-    // Drop the tail so every rank gets the same count under drop_last.
-    const size_t per_rank = padded / world_size_;
+
+    // Virtual padding repeats the shuffled prefix without allocating a padded
+    // global vector. This also keeps the count arithmetic valid at size_t's
+    // upper bound.
+    const size_t per_rank = size();
     std::vector<size_t> mine;
     mine.reserve(per_rank);
-    for (size_t i = rank_; i < per_rank * world_size_; i += world_size_) {
-      mine.push_back(all[i]);
+    for (size_t local_index = 0; local_index < per_rank; ++local_index) {
+      const size_t global_index = rank_ + local_index * world_size_;
+      mine.push_back(all[global_index % size_]);
     }
     return mine;
   }
@@ -377,10 +375,10 @@ class DistributedSampler : public Sampler {
    * @return Equalized rank-local sample count.
    */
   size_t size() const override {
-    const size_t padded =
-        drop_last_ ? (size_ / world_size_) * world_size_
-                   : (size_ + world_size_ - 1) / world_size_ * world_size_;
-    return padded / world_size_;
+    const size_t complete_samples = size_ / world_size_;
+    const size_t remainder = size_ % world_size_;
+    return drop_last_ || remainder == 0 ? complete_samples
+                                        : complete_samples + 1;
   }
 
   /**

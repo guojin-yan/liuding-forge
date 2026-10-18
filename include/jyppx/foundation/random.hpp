@@ -78,6 +78,9 @@ void set_rng_state(const RngState& state, bool include_cuda = true);
  * @param seed Unsigned 64-bit seed applied identically to each selected device.
  * @param include_cuda Whether to seed every visible CUDA generator.
  * @throws DeviceError If a backend generator cannot accept the seed.
+ * @note The function snapshots selected generators before mutation and attempts
+ * to restore them if a backend rejects the seed. A second backend failure
+ * during rollback cannot provide the strong exception guarantee.
  * @note This mutates process-global state and requires external synchronization
  * with concurrent random-number consumers.
  */

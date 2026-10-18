@@ -41,20 +41,21 @@ void validate_generator_state(const Tensor& state, const Tensor& reference,
 }
 
 void apply_rng_state(const RngState& state, bool include_cuda) {
+  auto generators =
+      include_cuda ? cuda_generators() : std::vector<at::Generator>{};
   auto cpu_generator = at::detail::getDefaultCPUGenerator();
   cpu_generator.set_state(state.cpu.contiguous());
-  if (!include_cuda) return;
-  auto generators = cuda_generators();
   for (size_t i = 0; i < generators.size(); ++i) {
     generators[i].set_state(state.cuda[i].contiguous());
   }
 }
 
 void seed_generators(std::uint64_t seed, bool include_cuda) {
+  auto generators =
+      include_cuda ? cuda_generators() : std::vector<at::Generator>{};
   auto cpu_generator = at::detail::getDefaultCPUGenerator();
   cpu_generator.set_current_seed(seed);
-  if (!include_cuda) return;
-  for (auto& generator : cuda_generators()) generator.set_current_seed(seed);
+  for (auto& generator : generators) generator.set_current_seed(seed);
 }
 
 [[noreturn]] void translate_backend(const c10::Error& cause,
@@ -66,6 +67,19 @@ void seed_generators(std::uint64_t seed, bool include_cuda) {
        .failure_kind = detail::BackendFailureKind::device,
        .expected = "compatible CPU/CUDA default generator state",
        .hint = "Check the active device topology and LibTorch/CUDA build."});
+}
+
+void seed_generators_atomically(std::uint64_t seed, bool include_cuda,
+                                const RngState& previous) {
+  try {
+    seed_generators(seed, include_cuda);
+  } catch (const c10::Error& cause) {
+    try {
+      apply_rng_state(previous, include_cuda);
+    } catch (...) {
+    }
+    translate_backend(cause, "manual_seed");
+  }
 }
 
 std::uint64_t splitmix64(std::uint64_t value) noexcept {
@@ -145,11 +159,8 @@ void set_rng_state(const RngState& state, bool include_cuda) {
 }
 
 void manual_seed(std::uint64_t seed, bool include_cuda) {
-  try {
-    seed_generators(seed, include_cuda);
-  } catch (const c10::Error& cause) {
-    translate_backend(cause, "manual_seed");
-  }
+  const auto previous = get_rng_state(include_cuda);
+  seed_generators_atomically(seed, include_cuda, previous);
 }
 
 std::uint64_t derive_seed(std::uint64_t base_seed, std::uint64_t stream_id,
@@ -163,7 +174,7 @@ std::uint64_t derive_seed(std::uint64_t base_seed, std::uint64_t stream_id,
 
 RngGuard::RngGuard(std::uint64_t seed, bool include_cuda)
     : previous_(get_rng_state(include_cuda)), include_cuda_(include_cuda) {
-  manual_seed(seed, include_cuda_);
+  seed_generators_atomically(seed, include_cuda_, previous_);
 }
 
 RngGuard::~RngGuard() noexcept {

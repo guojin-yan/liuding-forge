@@ -4,15 +4,31 @@
 #include <jyppx/data/samplers/batch_sampler.hpp>
 #include <jyppx/data/samplers/random_sampler.hpp>
 #include <jyppx/data/samplers/sequential_sampler.hpp>
+#include <jyppx/data/samplers/weighted_random_sampler.hpp>
 
 #include <algorithm>
 #include <gtest/gtest.h>
+#include <limits>
+#include <memory>
 #include <numeric>
 #include <set>
+#include <stdexcept>
 
 namespace {
 
 using namespace jyppx::data;
+
+class SizeOnlySampler final : public samplers::Sampler {
+ public:
+  explicit SizeOnlySampler(size_t size) : size_(size) {}
+
+  std::vector<size_t> indices() const override { return {}; }
+
+  size_t size() const override { return size_; }
+
+ private:
+  size_t size_;
+};
 
 TEST(SequentialSamplerTest, YieldsAscendingIndices) {
   const samplers::SequentialSampler sampler(5);
@@ -71,6 +87,74 @@ TEST(BatchSamplerTest, ExactMultipleHasNoRemainder) {
   auto base = std::make_shared<samplers::SequentialSampler>(8);
   const samplers::BatchSampler sampler(base, 4, /*drop_last=*/false);
   EXPECT_EQ(sampler.size(), 2);
+}
+
+TEST(BatchSamplerTest, RejectsNullSamplerAndZeroBatchSize) {
+  EXPECT_THROW(samplers::BatchSampler(nullptr, 1), std::invalid_argument);
+  auto base = std::make_shared<samplers::SequentialSampler>(8);
+  EXPECT_THROW(samplers::BatchSampler(base, 0), std::invalid_argument);
+}
+
+TEST(BatchSamplerTest, CountsMaximumPopulationWithoutOverflow) {
+  constexpr size_t kMaximum = std::numeric_limits<size_t>::max();
+  auto base = std::make_shared<SizeOnlySampler>(kMaximum);
+
+  const samplers::BatchSampler keep_tail(base, 2, /*drop_last=*/false);
+  const samplers::BatchSampler drop_tail(base, 2, /*drop_last=*/true);
+
+  EXPECT_EQ(keep_tail.size(), kMaximum / 2 + 1);
+  EXPECT_EQ(drop_tail.size(), kMaximum / 2);
+}
+
+TEST(DistributedSamplerTest, CountsMaximumPopulationWithoutOverflow) {
+  constexpr size_t kMaximum = std::numeric_limits<size_t>::max();
+  const samplers::DistributedSampler keep_tail(
+      kMaximum, /*rank=*/0, /*world_size=*/2, /*shuffle=*/false,
+      /*seed=*/std::nullopt, /*drop_last=*/false);
+  const samplers::DistributedSampler drop_tail(
+      kMaximum, /*rank=*/0, /*world_size=*/2, /*shuffle=*/false,
+      /*seed=*/std::nullopt, /*drop_last=*/true);
+
+  EXPECT_EQ(keep_tail.size(), kMaximum / 2 + 1);
+  EXPECT_EQ(drop_tail.size(), kMaximum / 2);
+}
+
+TEST(WeightedRandomSamplerTest, RestoresExactContinuationInBothModes) {
+  const auto expect_exact_continuation = [](bool replacement) {
+    samplers::WeightedRandomSampler sampler({1.0, 0.0, 2.0, 4.0}, 3,
+                                            replacement, 20261018);
+    (void)sampler.indices();
+    const auto state = sampler.save_state();
+    const auto expected = sampler.indices();
+    (void)sampler.indices();
+
+    sampler.load_state(state);
+    EXPECT_EQ(sampler.indices(), expected);
+  };
+
+  expect_exact_continuation(true);
+  expect_exact_continuation(false);
+}
+
+TEST(WeightedRandomSamplerTest, NeverSelectsZeroMassWithoutReplacement) {
+  samplers::WeightedRandomSampler sampler({1.0, 0.0, 2.0, 0.0, 4.0}, 3,
+                                          /*replacement=*/false, 91);
+  const auto indices = sampler.indices();
+
+  EXPECT_EQ(indices.size(), 3U);
+  EXPECT_EQ(std::set<size_t>(indices.begin(), indices.end()),
+            std::set<size_t>({0, 2, 4}));
+}
+
+TEST(SubsetRandomSamplerTest, RestoresExactContinuation) {
+  samplers::SubsetRandomSampler sampler({3, 5, 8, 13, 21}, 34);
+  (void)sampler.indices();
+  const auto state = sampler.save_state();
+  const auto expected = sampler.indices();
+  (void)sampler.indices();
+
+  sampler.load_state(state);
+  EXPECT_EQ(sampler.indices(), expected);
 }
 
 }  // namespace

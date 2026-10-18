@@ -24,6 +24,14 @@
 
 namespace {
 
+enum class SnapshotViolation {
+  none,
+  undeclared_field,
+  duplicate_field,
+  oversized_field,
+  missing_required_field,
+};
+
 class MemoryStateStore final : public jyppx::StateWriter,
                                public jyppx::StateReader {
  public:
@@ -205,7 +213,22 @@ class CounterParticipant final : public jyppx::CheckpointParticipant {
     }
     std::array<std::byte, sizeof(value_)> bytes{};
     std::memcpy(bytes.data(), &value_, sizeof(value_));
+    if (snapshot_violation_ == SnapshotViolation::undeclared_field) {
+      writer.write_blob("undeclared", bytes);
+      return;
+    }
+    if (snapshot_violation_ == SnapshotViolation::oversized_field) {
+      std::array<std::byte, sizeof(value_) + 1> oversized{};
+      writer.write_blob("value", oversized);
+      return;
+    }
+    if (snapshot_violation_ == SnapshotViolation::missing_required_field) {
+      return;
+    }
     writer.write_blob("value", bytes);
+    if (snapshot_violation_ == SnapshotViolation::duplicate_field) {
+      writer.write_blob("value", bytes);
+    }
   }
 
   void load_state(const jyppx::StateReader& reader,
@@ -239,6 +262,9 @@ class CounterParticipant final : public jyppx::CheckpointParticipant {
   std::int32_t value() const { return value_; }
   void set_value(std::int32_t value) { value_ = value; }
   void set_fail_save(bool fail_save) { fail_save_ = fail_save; }
+  void set_snapshot_violation(SnapshotViolation violation) {
+    snapshot_violation_ = violation;
+  }
   void reject_value(std::optional<std::int32_t> value) {
     rejected_values_.clear();
     if (value.has_value()) {
@@ -258,6 +284,7 @@ class CounterParticipant final : public jyppx::CheckpointParticipant {
   std::int32_t value_;
   jyppx::RestoreLevel restore_level_;
   bool fail_save_ = false;
+  SnapshotViolation snapshot_violation_ = SnapshotViolation::none;
   std::vector<std::int32_t> rejected_values_;
   std::optional<std::string> mismatch_manifest_id_;
   std::vector<std::string>* events_ = nullptr;
@@ -516,6 +543,28 @@ TEST(CheckpointCoordinatorTest, EnforcesRollbackBudgetBeforeMutation) {
   EXPECT_THROW(coordinator.restore(store), jyppx::ResourceExhausted);
   EXPECT_EQ(first->value(), 10);
   EXPECT_EQ(second->value(), 20);
+}
+
+TEST(CheckpointCoordinatorTest,
+     RejectsMalformedRollbackSnapshotsBeforeParticipantMutation) {
+  const auto expect_rejected = [](SnapshotViolation violation) {
+    auto participant = std::make_shared<CounterParticipant>("model", 1);
+    jyppx::training::CheckpointParticipantRegistry registry;
+    registry.register_participant(participant);
+    jyppx::training::CheckpointCoordinator coordinator(registry);
+    MemoryCheckpointStore store;
+    coordinator.save(store);
+
+    participant->set_value(10);
+    participant->set_snapshot_violation(violation);
+    EXPECT_THROW(coordinator.restore(store), jyppx::Error);
+    EXPECT_EQ(participant->value(), 10);
+  };
+
+  expect_rejected(SnapshotViolation::undeclared_field);
+  expect_rejected(SnapshotViolation::duplicate_field);
+  expect_rejected(SnapshotViolation::oversized_field);
+  expect_rejected(SnapshotViolation::missing_required_field);
 }
 
 TEST(CheckpointCoordinatorTest, RejectsEmptyRegistryAndZeroLimits) {
