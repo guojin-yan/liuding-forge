@@ -28,57 +28,57 @@ namespace utils {
  * @endcode
  */
 class TensorBoardWriter {
-public:
-    /**
-     * @brief Creates an append-only TensorBoard event writer.
-     * @param log_dir Directory that will contain the event file.
-     * @throws jyppx::IoError If the directory or event file cannot be created.
-     */
-    explicit TensorBoardWriter(const std::string& log_dir);
-    /** @brief Flushes the event stream before destruction. */
-    ~TensorBoardWriter();
+ public:
+  /**
+   * @brief Creates an append-only TensorBoard event writer.
+   * @param log_dir Directory that will contain the event file.
+   * @throws jyppx::IoError If the directory or event file cannot be created.
+   */
+  explicit TensorBoardWriter(const std::string& log_dir);
+  /** @brief Flushes the event stream before destruction. */
+  ~TensorBoardWriter();
 
-    TensorBoardWriter(const TensorBoardWriter&) = delete;  ///< Non-copyable.
-    TensorBoardWriter& operator=(const TensorBoardWriter&) = delete;
+  TensorBoardWriter(const TensorBoardWriter&) = delete;  ///< Non-copyable.
+  TensorBoardWriter& operator=(const TensorBoardWriter&) = delete;
 
-    /**
-     * @brief Adds a scalar summary point.
-     * @param tag TensorBoard summary tag.
-     * @param value Scalar value to record.
-     * @param step Training step associated with the value.
-     * @throws jyppx::NotReady If the event stream is closed.
-     * @throws jyppx::IoError If the event cannot be written.
-     */
-    void add_scalar(const std::string& tag, double value, int64_t step);
+  /**
+   * @brief Adds a scalar summary point.
+   * @param tag TensorBoard summary tag.
+   * @param value Scalar value to record.
+   * @param step Training step associated with the value.
+   * @throws jyppx::NotReady If the event stream is closed.
+   * @throws jyppx::IoError If the event cannot be written.
+   */
+  void add_scalar(const std::string& tag, double value, int64_t step);
 
-    /**
-     * @brief Adds a plain text summary entry.
-     * @param tag TensorBoard summary tag.
-     * @param text Text value to record.
-     * @param step Training step associated with the value.
-     * @throws jyppx::NotReady If the event stream is closed.
-     * @throws jyppx::IoError If the event cannot be written.
-     */
-    void add_text(const std::string& tag, const std::string& text, int64_t step);
+  /**
+   * @brief Adds a plain text summary entry.
+   * @param tag TensorBoard summary tag.
+   * @param text Text value to record.
+   * @param step Training step associated with the value.
+   * @throws jyppx::NotReady If the event stream is closed.
+   * @throws jyppx::IoError If the event cannot be written.
+   */
+  void add_text(const std::string& tag, const std::string& text, int64_t step);
 
-    /**
-     * @brief Flushes buffered bytes to disk.
-     * @throws jyppx::NotReady If the event stream is closed.
-     * @throws jyppx::IoError If the stream reports a write failure.
-     */
-    void flush();
+  /**
+   * @brief Flushes buffered bytes to disk.
+   * @throws jyppx::NotReady If the event stream is closed.
+   * @throws jyppx::IoError If the stream reports a write failure.
+   */
+  void flush();
 
-    /** @brief Returns the directory this writer logs into. */
-    const std::string& log_dir() const { return log_dir_; }
+  /** @brief Returns the directory this writer logs into. */
+  const std::string& log_dir() const { return log_dir_; }
 
-private:
-    /** @brief Encodes and writes one already-serialized Event message. */
-    void write_event(const std::string& encoded_event);
+ private:
+  /** @brief Encodes and writes one already-serialized Event message. */
+  void write_event(const std::string& encoded_event);
 
-    std::string log_dir_;          ///< Directory containing the event file.
-    std::string file_path_;        ///< Fully qualified event file path.
-    std::ofstream file_;           ///< Binary TFRecord output stream.
-    double wall_time_base_ = 0.0;  ///< Creation timestamp used for file header.
+  std::string log_dir_;          ///< Directory containing the event file.
+  std::string file_path_;        ///< Fully qualified event file path.
+  std::ofstream file_;           ///< Binary TFRecord output stream.
+  double wall_time_base_ = 0.0;  ///< Creation timestamp used for file header.
 };
 
 /**
@@ -89,7 +89,7 @@ private:
  */
 uint32_t tfrecord_crc(const char* data, size_t length);
 
-} // namespace utils
-} // namespace jyppx
+}  // namespace utils
+}  // namespace jyppx
 
-#endif // JYPPX_UTILS_TENSORBOARD_HPP
+#endif  // JYPPX_UTILS_TENSORBOARD_HPP

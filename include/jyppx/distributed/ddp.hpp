@@ -38,8 +38,7 @@ class DistributedDataParallel {
   explicit DistributedDataParallel(std::shared_ptr<ModuleT> module)
       : module_(std::move(module)) {
     if (!module_) {
-      throw InvalidArgument(
-          "DistributedDataParallel module cannot be null");
+      throw InvalidArgument("DistributedDataParallel module cannot be null");
     }
     install_hooks();
   }

@@ -63,7 +63,7 @@ void barrier();
  */
 Tensor average_gradients(Tensor gradient);
 
-} // namespace distributed
-} // namespace jyppx
+}  // namespace distributed
+}  // namespace jyppx
 
-#endif // JYPPX_DISTRIBUTED_DISTRIBUTED_HPP
+#endif  // JYPPX_DISTRIBUTED_DISTRIBUTED_HPP

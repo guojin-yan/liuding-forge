@@ -382,8 +382,8 @@ TEST(TensorBoardTest, WritesEventFileWithScalarsAndText) {
 }
 
 TEST(TensorBoardTest, RejectsRegularFileAsLogDirectory) {
-  const auto path = std::filesystem::temp_directory_path() /
-                    "jyppx_tensorboard_regular_file";
+  const auto path =
+      std::filesystem::temp_directory_path() / "jyppx_tensorboard_regular_file";
   std::error_code ec;
   std::filesystem::remove_all(path, ec);
   {
@@ -469,17 +469,15 @@ TEST(DistributedTest, SingleProcessGroupLifecycle) {
 }
 
 TEST(DistributedTest, RejectsUnsupportedBackends) {
-  EXPECT_THROW(distributed::init_process_group("gloo", 0, 4),
-               NotImplemented);
+  EXPECT_THROW(distributed::init_process_group("gloo", 0, 4), NotImplemented);
   EXPECT_THROW(distributed::init_process_group("single-process", 2, 4),
                InvalidArgument);
 }
 
 TEST(DistributedDDPTest, RejectsNullModule) {
-  EXPECT_THROW(
-      distributed::DistributedDataParallel<torch::nn::Module>(
-          std::shared_ptr<torch::nn::Module>{}),
-      InvalidArgument);
+  EXPECT_THROW(distributed::DistributedDataParallel<torch::nn::Module>(
+                   std::shared_ptr<torch::nn::Module>{}),
+               InvalidArgument);
 }
 
 TEST(DistributedDDPTest, ForwardsAndRunsGradientsThroughHooks) {
