@@ -338,21 +338,24 @@ TEST(SingleDeviceStrategyTest, CorruptRestoreHasStrongGuarantee) {
   TrainingDomain source_domain;
   jyppx::training::SingleDeviceStrategy source;
   prepare_strategy(source, source_domain.model, *source_domain.optimizer);
-  MemoryStateStore state(source.describe_state());
-  source.save_state(state);
+  MemoryStateStore valid_state(source.describe_state());
+  source.save_state(valid_state);
   constexpr std::string_view kControlMagic =
       "JYPPX-SINGLE-DEVICE-STRATEGY-CONTROL-V2";
-  state.overwrite_at("control", sizeof(std::uint64_t) + kControlMagic.size(),
-                     std::byte{2});
+  for (const auto invalid_closed : {std::byte{1}, std::byte{2}}) {
+    auto state = valid_state;
+    state.overwrite_at("control", sizeof(std::uint64_t) + kControlMagic.size(),
+                       invalid_closed);
 
-  TrainingDomain target_domain;
-  jyppx::training::SingleDeviceStrategy target;
-  prepare_strategy(target, target_domain.model, *target_domain.optimizer);
-  EXPECT_THROW(target.load_state(state, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
-  EXPECT_FALSE(target.closed());
-  EXPECT_EQ(target.completed_backward_calls(), 0U);
-  EXPECT_EQ(target.completed_optimizer_steps("optimizer.main"), 0U);
+    TrainingDomain target_domain;
+    jyppx::training::SingleDeviceStrategy target;
+    prepare_strategy(target, target_domain.model, *target_domain.optimizer);
+    EXPECT_THROW(target.load_state(state, jyppx::RestorePolicy::exact_only),
+                 jyppx::SerializationError);
+    EXPECT_FALSE(target.closed());
+    EXPECT_EQ(target.completed_backward_calls(), 0U);
+    EXPECT_EQ(target.completed_optimizer_steps("optimizer.main"), 0U);
+  }
 }
 
 TEST(SingleDeviceStrategyTest, RestoreOrderDoesNotDependOnParticipantIdentity) {
@@ -393,6 +396,7 @@ TEST(SingleDeviceStrategyTest, RejectsRestoreIntoClosedInstance) {
   strategy.save_state(state);
   strategy.close();
 
+  EXPECT_THROW(strategy.save_state(state), jyppx::NotReady);
   EXPECT_THROW(strategy.load_state(state, jyppx::RestorePolicy::exact_only),
                jyppx::NotReady);
   EXPECT_TRUE(strategy.closed());

@@ -72,6 +72,8 @@ class MemoryStateStore final : public jyppx::StateWriter,
     return blobs_.at(std::string(name));
   }
 
+  void erase_blob(std::string_view name) { blobs_.erase(std::string(name)); }
+
   jyppx::StateManifest& mutable_manifest() noexcept { return manifest_; }
 
  private:
@@ -128,6 +130,38 @@ TEST(RngCheckpointParticipantTest, RejectsManifestAndResourceMismatch) {
   EXPECT_THROW(jyppx::core::RngCheckpointParticipant(
                    {.include_cuda = false, .max_total_bytes = 1}),
                jyppx::ResourceExhausted);
+}
+
+TEST(RngCheckpointParticipantTest,
+     RejectsUnknownPolicyAndMissingCpuStateWithoutMutation) {
+  jyppx::core::RngGuard guard(83, false);
+  jyppx::core::RngCheckpointParticipant participant({.include_cuda = false});
+  auto store = save_participant(participant);
+
+  jyppx::core::manual_seed(101, false);
+  const auto before = jyppx::core::get_rng_state(false);
+  EXPECT_THROW(
+      participant.load_state(store, static_cast<jyppx::RestorePolicy>(255)),
+      jyppx::CompatibilityError);
+  EXPECT_TRUE(torch::equal(jyppx::core::get_rng_state(false).cpu, before.cpu));
+
+  store.erase_blob("cpu");
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  EXPECT_TRUE(torch::equal(jyppx::core::get_rng_state(false).cpu, before.cpu));
+}
+
+TEST(RngCheckpointParticipantTest, RejectsTruncatedCpuStateWithoutMutation) {
+  jyppx::core::RngGuard guard(89, false);
+  jyppx::core::RngCheckpointParticipant participant({.include_cuda = false});
+  auto store = save_participant(participant);
+  store.mutable_blob("cpu").pop_back();
+
+  jyppx::core::manual_seed(103, false);
+  const auto before = jyppx::core::get_rng_state(false);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  EXPECT_TRUE(torch::equal(jyppx::core::get_rng_state(false).cpu, before.cpu));
 }
 
 TEST(RngCheckpointParticipantCudaTest, RestoresEveryVisibleGenerator) {

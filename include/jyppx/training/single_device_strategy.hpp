@@ -148,10 +148,32 @@ class SingleDeviceStrategy final : public TrainingStrategy {
   /** @copydoc CheckpointParticipant::describe_state */
   StateManifest describe_state() const override;
 
-  /** @copydoc CheckpointParticipant::save_state */
+  /**
+   * @brief Saves exact prepared topology and strategy-owned counters.
+   * @param writer Storage-neutral destination supplied by the coordinator.
+   * @throws NotReady If the strategy is unprepared or already closed.
+   * @throws CompatibilityError If an optimizer changed outside this strategy.
+   * @throws ResourceExhausted If encoded state exceeds configured limits.
+   *
+   * A saved snapshot always represents an open lifecycle boundary. Closing a
+   * strategy is terminal and cannot be checkpointed for later continuation.
+   */
   void save_state(StateWriter& writer) const override;
 
-  /** @copydoc CheckpointParticipant::load_state */
+  /**
+   * @brief Restores exact counters into a matching prepared open strategy.
+   * @param reader Source containing schema-version-2 strategy state.
+   * @param policy Restore policy that must accept exact state.
+   * @throws NotReady If the strategy is unprepared or already closed.
+   * @throws CompatibilityError If policy, manifest, topology, or optimizer
+   * cursors are incompatible.
+   * @throws SerializationError If control state is malformed or encodes a
+   * closed lifecycle.
+   * @throws ResourceExhausted If a field exceeds configured limits.
+   *
+   * All fields are validated before counters are committed. Failure leaves
+   * lifecycle and strategy-owned counters unchanged.
+   */
   void load_state(const StateReader& reader, RestorePolicy policy) override;
 
  private:

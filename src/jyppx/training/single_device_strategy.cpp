@@ -800,7 +800,7 @@ StateManifest SingleDeviceStrategy::describe_state() const {
 }
 
 void SingleDeviceStrategy::save_state(StateWriter& writer) const {
-  ensure_ready(impl_->prepared, false, "save_state");
+  ensure_ready(impl_->prepared, impl_->closed, "save_state");
   verify_all_optimizer_cursors(*impl_, "save_state.cursor");
   const auto topology = encode_topology(*impl_);
   const auto control = encode_control(*impl_);
@@ -884,12 +884,15 @@ void SingleDeviceStrategy::load_state(const StateReader& reader,
     cursors.emplace_back(baseline, completed);
   }
   control.require_finished("control");
-  if (closed > 1U) {
-    throw_serialization("control", "valid flags and representable counters",
-                        "invalid", "Reject corrupt strategy counters.");
+  if (closed != 0U) {
+    throw_serialization(
+        "control.closed", "zero for a restorable open strategy",
+        std::to_string(closed),
+        "Reject closed or invalid lifecycle state; closed strategies cannot "
+        "be checkpointed.");
   }
 
-  impl_->closed = closed == 1U;
+  impl_->closed = false;
   impl_->completed_backward_calls = backward_calls;
   for (std::size_t index = 0; index < impl_->optimizers.size(); ++index) {
     impl_->optimizers[index].completed_steps = cursors[index].second;
