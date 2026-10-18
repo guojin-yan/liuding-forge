@@ -157,7 +157,7 @@ TEST(GradScalerCheckpointParticipantTest, RejectsActiveOptimizerCycle) {
 
   parameter.mutable_grad() = torch::full_like(parameter, 2.0);
   scaler->unscale(optimizer);
-  EXPECT_THROW(participant.save_state(store), std::logic_error);
+  EXPECT_THROW(participant.save_state(store), jyppx::NotReady);
   const bool applied = scaler->step_allowed(optimizer);
   if (applied) {
     optimizer->step();

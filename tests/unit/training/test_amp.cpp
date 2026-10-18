@@ -327,48 +327,80 @@ TEST(GradScalerTest, TypedStateRoundTrip) {
 }
 
 TEST(GradScalerTest, InvalidOptionsThrow) {
-  EXPECT_THROW(GradScaler({.init_scale = 0.0}), std::invalid_argument);
-  EXPECT_THROW(GradScaler({.growth_factor = 1.0}), std::invalid_argument);
-  EXPECT_THROW(GradScaler({.backoff_factor = 1.0}), std::invalid_argument);
-  EXPECT_THROW(GradScaler({.growth_interval = 0}), std::invalid_argument);
+  EXPECT_THROW(GradScaler({.init_scale = 0.0}), InvalidArgument);
+  EXPECT_THROW(GradScaler({.growth_factor = 1.0}), InvalidArgument);
+  EXPECT_THROW(GradScaler({.backoff_factor = 1.0}), InvalidArgument);
+  EXPECT_THROW(GradScaler({.growth_interval = 0}), InvalidArgument);
   EXPECT_THROW(
       GradScaler({.init_scale = std::numeric_limits<double>::quiet_NaN()}),
-      std::invalid_argument);
+      InvalidArgument);
 }
 
 TEST(GradScalerTest, EnforcesStepUpdateStateMachineAndValidatesState) {
   auto params = make_params({{1}});
   auto optimizer = make_optimizer(params);
   GradScaler scaler({.init_scale = 2.0});
-  EXPECT_THROW(scaler.update(), std::logic_error);
+  EXPECT_THROW(scaler.update(), NotReady);
 
   params[0].mutable_grad() = torch::full_like(params[0], 2.0);
   EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
   EXPECT_FALSE(scaler.checkpoint_ready());
-  EXPECT_THROW(scaler.capture_state(), std::logic_error);
-  EXPECT_THROW(scaler.step_allowed(optimizer), std::logic_error);
-  EXPECT_THROW(scaler.unscale(optimizer), std::logic_error);
+  EXPECT_THROW(scaler.capture_state(), NotReady);
+  EXPECT_THROW(scaler.step_allowed(optimizer), InvalidArgument);
+  EXPECT_THROW(scaler.unscale(optimizer), InvalidArgument);
   scaler.update();
 
   auto invalid = scaler.capture_state();
   invalid.scale = std::numeric_limits<double>::quiet_NaN();
-  EXPECT_THROW(scaler.restore_state(invalid), std::invalid_argument);
+  EXPECT_THROW(scaler.restore_state(invalid), SerializationError);
 
   GradScaler incompatible({.init_scale = 4.0});
   EXPECT_THROW(incompatible.restore_state(scaler.capture_state()),
-               std::invalid_argument);
+               CompatibilityError);
 
   auto wrong_identity = scaler.capture_state();
   wrong_identity.scaler_id = "grad_scaler.other";
-  EXPECT_THROW(scaler.restore_state(wrong_identity), std::invalid_argument);
+  EXPECT_THROW(scaler.restore_state(wrong_identity), CompatibilityError);
+}
+
+TEST(GradScalerTest, ErrorsPreserveStableCodesAndContext) {
+  try {
+    GradScaler({.init_scale = 0.0});
+    FAIL() << "invalid options must throw";
+  } catch (const InvalidArgument& error) {
+    EXPECT_EQ(error.code(), ErrorCode::invalid_argument);
+    EXPECT_EQ(error.details().component, "training.amp.grad_scaler");
+    EXPECT_EQ(error.details().operation, "init_scale");
+    EXPECT_FALSE(error.details().expected.empty());
+    EXPECT_FALSE(error.details().hint.empty());
+  }
+
+  GradScaler scaler;
+  try {
+    scaler.update();
+    FAIL() << "an optimizer cycle is required for update";
+  } catch (const NotReady& error) {
+    EXPECT_EQ(error.code(), ErrorCode::not_ready);
+    EXPECT_EQ(error.details().operation, "update");
+  }
+
+  auto incompatible = scaler.capture_state();
+  incompatible.format_version++;
+  try {
+    scaler.restore_state(incompatible);
+    FAIL() << "an unsupported state schema must throw";
+  } catch (const CompatibilityError& error) {
+    EXPECT_EQ(error.code(), ErrorCode::compatibility);
+    EXPECT_EQ(error.details().operation, "format_version");
+  }
 }
 
 TEST(GradScalerTest, NullOptimizerThrows) {
   GradScaler scaler;
   std::shared_ptr<optim::OptimizerAdapter> null_optimizer;
-  EXPECT_THROW(scaler.unscale(null_optimizer), std::invalid_argument);
-  EXPECT_THROW(scaler.step_allowed(null_optimizer), std::invalid_argument);
-  EXPECT_THROW(scaler.mark_step(null_optimizer, false), std::invalid_argument);
+  EXPECT_THROW(scaler.unscale(null_optimizer), InvalidArgument);
+  EXPECT_THROW(scaler.step_allowed(null_optimizer), InvalidArgument);
+  EXPECT_THROW(scaler.mark_step(null_optimizer, false), InvalidArgument);
 }
 
 }  // namespace

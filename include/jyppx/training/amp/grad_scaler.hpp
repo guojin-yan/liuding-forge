@@ -12,6 +12,7 @@
  */
 
 #include <jyppx/core/types.hpp>
+#include <jyppx/foundation/error.hpp>
 #include <jyppx/optim/optimizer_adapter.hpp>
 
 #include <cstdint>
@@ -77,7 +78,7 @@ class GradScaler {
   /**
    * @brief Creates a scaler with validated immutable options.
    * @param options Dynamic scaling configuration and stable identity.
-   * @throws std::invalid_argument If an option is invalid.
+   * @throws InvalidArgument If an option is invalid.
    */
   explicit GradScaler(GradScalerOptions options = {});
 
@@ -91,8 +92,7 @@ class GradScaler {
   /**
    * @brief Divides gradients by the current scale and records non-finite data.
    * @param optimizer Non-null optimizer participating in the active cycle.
-   * @throws std::invalid_argument If `optimizer` is null.
-   * @throws std::logic_error If the optimizer was already marked this cycle.
+   * @throws InvalidArgument If `optimizer` is null or already marked.
    * @note Repeating `unscale()` before `mark_step()` is idempotent.
    */
   void unscale(const std::shared_ptr<optim::OptimizerAdapter>& optimizer);
@@ -101,8 +101,8 @@ class GradScaler {
    * @brief Reports whether a strategy-owned optimizer step may be applied.
    * @param optimizer Non-null optimizer already passed to `unscale()`.
    * @return `false` when this optimizer observed a non-finite gradient.
-   * @throws std::invalid_argument If `optimizer` is null.
-   * @throws std::logic_error If `unscale()` has not started its cycle.
+   * @throws InvalidArgument If `optimizer` is null or already marked.
+   * @throws NotReady If `unscale()` has not started its cycle.
    */
   bool step_allowed(
       const std::shared_ptr<optim::OptimizerAdapter>& optimizer) const;
@@ -110,8 +110,8 @@ class GradScaler {
   /**
    * @brief Reports the aggregate decision for the active optimizer cycle.
    * @return `false` when any optimizer observed a non-finite gradient.
-   * @throws std::logic_error If no optimizer has been unscaled or an outcome
-   * was already reported.
+   * @throws InvalidArgument If an outcome was already reported.
+   * @throws NotReady If no optimizer has been unscaled.
    * @note Call only after every optimizer in the logical cycle is unscaled.
    */
   bool cycle_allowed() const;
@@ -120,16 +120,17 @@ class GradScaler {
    * @brief Commits the strategy-owned result for one optimizer.
    * @param optimizer Non-null optimizer passed to `unscale()`.
    * @param applied Whether every optimizer in the cycle applied its update.
-   * @throws std::invalid_argument If `optimizer` is null.
-   * @throws std::logic_error If the optimizer is not in the active cycle or
-   * the result conflicts with the aggregate overflow decision.
+   * @throws InvalidArgument If `optimizer` is null, already marked, or the
+   * result conflicts with the aggregate overflow decision.
+   * @throws NotReady If the optimizer is not in the active cycle.
    */
   void mark_step(const std::shared_ptr<optim::OptimizerAdapter>& optimizer,
                  bool applied);
 
   /**
    * @brief Commits one global scale transition for the active optimizer set.
-   * @throws std::logic_error If no optimizer was marked or one remains open.
+   * @throws InvalidArgument If an optimizer outcome conflicts with the cycle.
+   * @throws NotReady If no optimizer was marked or one remains open.
    * Scale growth saturates at the largest finite `double` value.
    */
   void update();
@@ -156,25 +157,27 @@ class GradScaler {
   /**
    * @brief Captures complete typed state at a consistency boundary.
    * @return An owned state including immutable configuration.
-   * @throws std::logic_error If an optimizer cycle is in progress.
+   * @throws NotReady If an optimizer cycle is in progress.
    */
   GradScalerState capture_state() const;
 
   /**
    * @brief Validates typed state without changing scaler state.
    * @param state Candidate state including immutable configuration.
-   * @throws std::logic_error If an optimizer cycle is in progress.
-   * @throws std::invalid_argument If schema, identity, configuration, or
-   * mutable values are incompatible.
+   * @throws NotReady If an optimizer cycle is in progress.
+   * @throws CompatibilityError If schema, identity, or configuration is
+   * incompatible.
+   * @throws SerializationError If mutable values are malformed.
    */
   void validate_state(const GradScalerState& state) const;
 
   /**
    * @brief Atomically restores compatible typed state.
    * @param state Candidate state to validate before mutation.
-   * @throws std::logic_error If an optimizer cycle is in progress.
-   * @throws std::invalid_argument If schema, identity, configuration, or
-   * mutable values are incompatible.
+   * @throws NotReady If an optimizer cycle is in progress.
+   * @throws CompatibilityError If schema, identity, or configuration is
+   * incompatible.
+   * @throws SerializationError If mutable values are malformed.
    */
   void restore_state(const GradScalerState& state);
 

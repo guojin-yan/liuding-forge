@@ -69,7 +69,7 @@ class GradScalerCheckpointParticipant final : public CheckpointParticipant {
   /**
    * @brief Writes immutable topology and typed boundary state.
    * @param writer Storage-neutral destination supplied by the coordinator.
-   * @throws std::logic_error If an optimizer cycle is in progress.
+   * @throws NotReady If an optimizer cycle is in progress.
    * @throws ResourceExhausted If state exceeds configured limits.
    */
   void save_state(StateWriter& writer) const override;
@@ -78,7 +78,7 @@ class GradScalerCheckpointParticipant final : public CheckpointParticipant {
    * @brief Validates and atomically restores exact scaler state.
    * @param reader Source containing a schema-version-1 scaler snapshot.
    * @param policy Restore policy that must accept exact state.
-   * @throws std::logic_error If an optimizer cycle is in progress.
+   * @throws NotReady If an optimizer cycle is in progress.
    * @throws CompatibilityError If manifest or topology is incompatible.
    * @throws SerializationError If a required field is malformed.
    * @throws ResourceExhausted If state exceeds configured limits.
