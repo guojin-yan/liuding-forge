@@ -258,8 +258,8 @@ TEST(GradScalerCheckpointParticipantTest, RejectsDifferentFrozenOptions) {
 }
 
 TEST(GradScalerCheckpointParticipantTest, ExposesStableIdentityAndAccessors) {
-  auto scaler = std::make_shared<GradScaler>(
-      jyppx::training::amp::GradScalerOptions{
+  auto scaler =
+      std::make_shared<GradScaler>(jyppx::training::amp::GradScalerOptions{
           .scaler_id = "grad_scaler.accessors"});
   GradScalerCheckpointParticipant participant(scaler);
 

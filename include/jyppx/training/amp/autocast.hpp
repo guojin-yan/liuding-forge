@@ -11,10 +11,10 @@
  * @brief Defines scoped CPU and CUDA autocast state ownership.
  */
 
+#include <jyppx/foundation/error.hpp>
+
 #include <ATen/autocast_mode.h>
 #include <c10/core/DeviceType.h>
-
-#include <jyppx/foundation/error.hpp>
 
 namespace jyppx::training::amp {
 

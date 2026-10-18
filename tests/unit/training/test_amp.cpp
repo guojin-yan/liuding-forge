@@ -80,8 +80,7 @@ TEST(AutocastGuardTest, RestoresCpuStateAndRejectsUnsupportedDtype) {
     EXPECT_EQ(error.code(), ErrorCode::invalid_argument);
     EXPECT_EQ(error.details().component, "training.amp.autocast");
     EXPECT_EQ(error.details().operation, "device_dtype");
-    EXPECT_EQ(error.details().expected,
-              "CPU/BFloat16 or CUDA/Half|BFloat16");
+    EXPECT_EQ(error.details().expected, "CPU/BFloat16 or CUDA/Half|BFloat16");
     EXPECT_EQ(error.details().actual, "unsupported device/dtype pair");
     EXPECT_EQ(error.details().hint, "Use CPU/BFloat16 or CUDA/Half|BFloat16");
   } catch (...) {
@@ -372,12 +371,12 @@ TEST(GradScalerTest, InvalidOptionsThrow) {
   EXPECT_THROW(
       GradScaler({.init_scale = std::numeric_limits<double>::quiet_NaN()}),
       InvalidArgument);
-  EXPECT_THROW(GradScaler({.growth_factor =
-                               std::numeric_limits<double>::quiet_NaN()}),
-               InvalidArgument);
-  EXPECT_THROW(GradScaler({.backoff_factor =
-                               std::numeric_limits<double>::quiet_NaN()}),
-               InvalidArgument);
+  EXPECT_THROW(
+      GradScaler({.growth_factor = std::numeric_limits<double>::quiet_NaN()}),
+      InvalidArgument);
+  EXPECT_THROW(
+      GradScaler({.backoff_factor = std::numeric_limits<double>::quiet_NaN()}),
+      InvalidArgument);
   EXPECT_THROW(GradScaler({.backoff_factor = 0.0}), InvalidArgument);
   EXPECT_THROW(GradScaler({.scaler_id = ""}), InvalidArgument);
   EXPECT_THROW(GradScaler({.scaler_id = std::string{"bad\0id", 6}}),
