@@ -42,16 +42,17 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "CPU",
           "build_type": "Debug",
-          "tests": "486/486; 16 CUDA-only tests skipped",
+          "tests": "514/514; 17 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "14837/18951 (78.29%)",
-            "function_coverage": "1638/1821 (89.95%)",
-            "branch_coverage": "14124/37042 (38.13%)",
+            "line_coverage": "15615/19681 (79.34%); target policy frozen",
+            "function_coverage": "1703/1881 (90.54%); target policy frozen",
+            "branch_coverage": "14940/38582 (38.72%); target policy frozen",
             "tsan": "31/31 discovered targeted tests; discovery list retained; no diagnostics",
-            "fuzz": "3 targets x 10000 libFuzzer iterations; no ASan/UBSan diagnostics"
+            "fuzz": "3 targets x 10000 libFuzzer iterations; no ASan/UBSan diagnostics",
+            "coverage_policy": "coverage-policy.json; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "65542af"
+          "commit": "48d1f0d"
         },
         {
           "id": "local-ubuntu-gcc-cpu-release",
