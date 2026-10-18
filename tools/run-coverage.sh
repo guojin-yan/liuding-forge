@@ -75,6 +75,11 @@ gcovr "${coverage_args[@]}" \
 python3 "$source_root/tools/coverage_summary.py" \
   "$output_root/coverage-summary.json" \
   > "$output_root/coverage-summary.txt"
+python3 "$source_root/tools/coverage_gate.py" \
+  "$output_root/coverage-summary.json" \
+  "$source_root/coverage-policy.json" \
+  --output "$output_root/coverage-targets.json" \
+  > "$output_root/coverage-targets.txt"
 
 cat > "$output_root/coverage-metadata.txt" <<EOF
 commit=$(git -C "$source_root" rev-parse HEAD)
@@ -82,6 +87,8 @@ dirty=$(test -n "$(git -C "$source_root" status --porcelain)" && echo true || ec
 build_type=Debug
 build_parallelism=$build_parallelism
 coverage_tool=$(gcovr --version | head -n 1)
+coverage_policy=coverage-policy.json
+coverage_policy_sha256=$(sha256sum "$source_root/coverage-policy.json" | awk '{print $1}')
 EOF
 
 echo "Coverage report: $output_root/coverage.xml"

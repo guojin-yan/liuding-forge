@@ -1,0 +1,38 @@
+{
+  "gcovr/summary_format_version": "0.6",
+  "line_covered": 25,
+  "line_total": 30,
+  "line_percent": 83.333333,
+  "function_covered": 14,
+  "function_total": 15,
+  "function_percent": 93.333333,
+  "branch_covered": 21,
+  "branch_total": 30,
+  "branch_percent": 70.0,
+  "files": [
+    {
+      "filename": "src/jyppx/core/device.cpp",
+      "line_covered": 7,
+      "line_total": 10,
+      "line_percent": 70.0,
+      "function_covered": 5,
+      "function_total": 5,
+      "function_percent": 100.0,
+      "branch_covered": 7,
+      "branch_total": 10,
+      "branch_percent": 70.0
+    },
+    {
+      "filename": "src/jyppx/training/trainer.cpp",
+      "line_covered": 18,
+      "line_total": 20,
+      "line_percent": 90.0,
+      "function_covered": 9,
+      "function_total": 10,
+      "function_percent": 90.0,
+      "branch_covered": 14,
+      "branch_total": 20,
+      "branch_percent": 70.0
+    }
+  ]
+}

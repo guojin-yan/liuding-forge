@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "kind": "jyppx-target-coverage-policy",
+  "baseline": {
+    "commit": "pending-current-g3-refresh",
+    "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug"
+  },
+  "targets": {
+    "core": {
+      "path_prefixes": [
+        "include/jyppx/core/",
+        "src/jyppx/core/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "function": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "branch": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        }
+      }
+    },
+    "data": {
+      "path_prefixes": [
+        "include/jyppx/data/",
+        "src/jyppx/data/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "function": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "branch": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        }
+      }
+    },
+    "foundation": {
+      "path_prefixes": [
+        "include/jyppx/foundation/",
+        "src/jyppx/foundation/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "function": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "branch": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        }
+      }
+    },
+    "nn": {
+      "path_prefixes": [
+        "include/jyppx/nn/",
+        "src/jyppx/nn/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "function": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "branch": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        }
+      }
+    },
+    "optim": {
+      "path_prefixes": [
+        "include/jyppx/optim/",
+        "src/jyppx/optim/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "function": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "branch": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        }
+      }
+    },
+    "training": {
+      "path_prefixes": [
+        "include/jyppx/training/",
+        "src/jyppx/training/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "function": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "branch": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        }
+      }
+    },
+    "sdk_legacy": {
+      "path_prefixes": [
+        "include/jyppx/distributed/",
+        "include/jyppx/utils/",
+        "src/jyppx/distributed/",
+        "src/jyppx/utils/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "function": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        },
+        "branch": {
+          "baseline_covered": 0,
+          "baseline_total": 1,
+          "minimum_percent": 0.0
+        }
+      }
+    }
+  }
+}

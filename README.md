@@ -184,7 +184,12 @@ libraries and test/benchmark executables. AddressSanitizer and ThreadSanitizer
 cannot be combined; coverage and ThreadSanitizer are also rejected. The
 coverage runner limits compilation to two jobs by default; set
 `JYPPX_BUILD_PARALLEL_LEVEL` to a positive integer when the host has more
-memory or needs an even smaller resource footprint.
+memory or needs an even smaller resource footprint. The runner also applies
+the checked-in `coverage-policy.json`: every instrumented project file must
+belong to exactly one module, and line/function/branch covered counts,
+denominators, and percentages may not fall below that module's reviewed
+baseline. A deliberate source removal or baseline reduction therefore needs
+an explicit policy update in the same review.
 
 ## Building Documentation
 

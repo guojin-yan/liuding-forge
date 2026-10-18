@@ -44,6 +44,47 @@ if(Python3_Interpreter_FOUND)
         WILL_FAIL TRUE
     )
     add_test(
+        NAME CoverageTargetGate
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_gate.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary.json
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-policy.json
+                --output ${CMAKE_CURRENT_BINARY_DIR}/coverage-targets.json
+    )
+    set_tests_properties(CoverageTargetGate PROPERTIES
+        LABELS "hygiene;coverage"
+        PASS_REGULAR_EXPRESSION "training: line=18/20 [(]90[.]00%[)]"
+    )
+    add_test(
+        NAME CoverageTargetGateRejectsRegression
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_gate.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary-regressed.json
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-policy.json
+    )
+    set_tests_properties(CoverageTargetGateRejectsRegression PROPERTIES
+        LABELS "hygiene;coverage"
+        WILL_FAIL TRUE
+    )
+    add_test(
+        NAME CoverageTargetGateRejectsDenominatorShrink
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_gate.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary-shrunk.json
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-policy.json
+    )
+    set_tests_properties(CoverageTargetGateRejectsDenominatorShrink PROPERTIES
+        LABELS "hygiene;coverage"
+        WILL_FAIL TRUE
+    )
+    add_test(
+        NAME CoverageTargetGateRejectsUnownedFile
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_gate.py
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary-unowned.json
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-policy.json
+    )
+    set_tests_properties(CoverageTargetGateRejectsUnownedFile PROPERTIES
+        LABELS "hygiene;coverage"
+        WILL_FAIL TRUE
+    )
+    add_test(
         NAME BaselineStatisticsTool
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/baseline_stats.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/stable-samples.json

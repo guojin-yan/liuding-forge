@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "kind": "jyppx-target-coverage-policy",
+  "baseline": {
+    "commit": "fixture",
+    "environment": "fixture-linux-debug"
+  },
+  "targets": {
+    "core": {
+      "path_prefixes": [
+        "include/jyppx/core/",
+        "src/jyppx/core/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 8,
+          "baseline_total": 10,
+          "minimum_percent": 80.0
+        },
+        "function": {
+          "baseline_covered": 4,
+          "baseline_total": 5,
+          "minimum_percent": 80.0
+        },
+        "branch": {
+          "baseline_covered": 6,
+          "baseline_total": 10,
+          "minimum_percent": 60.0
+        }
+      }
+    },
+    "training": {
+      "path_prefixes": [
+        "include/jyppx/training/",
+        "src/jyppx/training/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 18,
+          "baseline_total": 20,
+          "minimum_percent": 90.0
+        },
+        "function": {
+          "baseline_covered": 9,
+          "baseline_total": 10,
+          "minimum_percent": 90.0
+        },
+        "branch": {
+          "baseline_covered": 14,
+          "baseline_total": 20,
+          "minimum_percent": 70.0
+        }
+      }
+    }
+  }
+}
