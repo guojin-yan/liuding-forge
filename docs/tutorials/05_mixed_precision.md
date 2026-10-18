@@ -1,9 +1,9 @@
 # Tutorial 5: Mixed Precision Primitives
 
-JYPPX currently provides explicit autocast and gradient-scaling primitives.
-The current Trainer does not expose an implicit `use_amp` switch: precision,
-scaler and multi-optimizer ordering will enter Trainer through a dedicated
-precision contract rather than hidden option-dependent behavior.
+JYPPX provides explicit autocast and gradient-scaling primitives plus a
+current-only Trainer precision contract. There is no implicit `use_amp`
+compatibility switch: select `TrainerOptions::precision`, and bind an enabled
+`GradScaler` with its checkpoint participant for CUDA float16.
 
 ## Autocast
 
@@ -31,13 +31,33 @@ auto scaled = scaler.scale(loss);
 scaled.backward();
 scaler.unscale(optimizer);
 // Inspect or clip true gradients here.
-const bool applied = scaler.step(optimizer);
+const bool applied = scaler.step_allowed(optimizer);
+if (applied) {
+  optimizer->step();
+}
+scaler.mark_step(optimizer, applied);
 scaler.update();
 ```
 
-The exact overloads depend on the optimizer surface being used. Overflow must
-skip every optimizer that belongs to the same logical update; do not advance a
-batch scheduler for a skipped update.
+For a manual multi-optimizer cycle, unscale every optimizer before asking for
+the aggregate decision. Report the same group result for every participant and
+update the scaler exactly once:
+
+```cpp
+scaler.unscale(encoder_optimizer);
+scaler.unscale(head_optimizer);
+const bool apply_group = scaler.cycle_allowed();
+if (apply_group) {
+  encoder_optimizer->step();
+  head_optimizer->step();
+}
+scaler.mark_step(encoder_optimizer, apply_group);
+scaler.mark_step(head_optimizer, apply_group);
+scaler.update();
+```
+
+Overflow skips every optimizer in the logical update; batch schedulers and the
+Trainer global step advance only after a committed group update.
 
 ## Checkpoint state
 

@@ -30,6 +30,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -43,10 +44,10 @@ constexpr char kComponent[] = "training.trainer";
 constexpr char kTopologyField[] = "topology";
 constexpr char kControlField[] = "control";
 constexpr char kTopologyMediaType[] =
-    "application/vnd.jyppx.trainer-topology-v2";
-constexpr char kControlMediaType[] = "application/vnd.jyppx.trainer-control-v2";
-constexpr std::string_view kTopologyMagic = "JYPPX-TRAINER-TOPOLOGY-V2";
-constexpr std::string_view kControlMagic = "JYPPX-TRAINER-CONTROL-V2";
+    "application/vnd.jyppx.trainer-topology-v3";
+constexpr char kControlMediaType[] = "application/vnd.jyppx.trainer-control-v3";
+constexpr std::string_view kTopologyMagic = "JYPPX-TRAINER-TOPOLOGY-V3";
+constexpr std::string_view kControlMagic = "JYPPX-TRAINER-CONTROL-V3";
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
@@ -353,7 +354,8 @@ struct TrainerControlState {
   std::uint64_t next_epoch = 0;
   std::uint64_t completed_epochs = 0;
   std::uint64_t global_step = 0;
-  std::uint64_t scheduler_events = 0;
+  std::map<std::string, std::uint64_t>
+      scheduler_events;  ///< Per-scheduler committed event indices.
   std::uint64_t checkpoint_count = 0;
   std::size_t pending_micro_steps = 0;
   std::string stop_reason;
@@ -367,7 +369,8 @@ void validate_options(const TrainerOptions& options) {
     return is_identifier(value) && value.size() <= options.max_identifier_bytes;
   };
   if (options.max_identifier_bytes == 0U || options.max_topology_bytes == 0U ||
-      options.max_control_bytes == 0U || options.max_metrics == 0U) {
+      options.max_control_bytes == 0U || options.max_metrics == 0U ||
+      options.max_optimizers == 0U) {
     throw_invalid("options.limits", "positive resource limits", "zero",
                   "Configure explicit positive Trainer limits.");
   }
@@ -526,25 +529,30 @@ std::vector<std::byte> encode_topology(
   append_u8(output, static_cast<std::uint8_t>(options.restore_policy));
   append_u8(output, options.drain_events ? 1U : 0U);
   append_u64(output, static_cast<std::uint64_t>(options.max_metrics));
+  append_u64(output, static_cast<std::uint64_t>(options.max_optimizers));
   append_u64(output, static_cast<std::uint64_t>(options.max_identifier_bytes));
   append_string(output, request.training_data->participant_id());
   append_string(output, request.validation_data
                             ? request.validation_data->participant_id()
                             : std::string{});
-  append_string(output, request.optimizer->optimizer_id());
   append_string(output, request.strategy->participant_id());
-  append_string(output, request.scheduler ? request.scheduler->participant_id()
-                                          : std::string{});
   append_string(output, request.callbacks->participant_id());
   append_string(output, request.event_outbox
                             ? request.event_outbox->participant_id()
                             : std::string{});
   append_string(output, request.model_checkpoint->participant_id());
-  append_string(output, request.optimizer_checkpoint->participant_id());
   append_string(output, request.rng_checkpoint->participant_id());
   append_string(output, request.gradient_scaler
                             ? request.gradient_scaler->options().scaler_id
                             : std::string{});
+  append_u64(output, static_cast<std::uint64_t>(request.optimizers.size()));
+  for (const auto& binding : request.optimizers) {
+    append_string(output, binding.optimizer->optimizer_id());
+    append_string(output, binding.checkpoint->participant_id());
+    append_string(output, binding.scheduler
+                              ? binding.scheduler->participant_id()
+                              : std::string{});
+  }
   append_u64(output, static_cast<std::uint64_t>(participant_ids.size()));
   for (const auto& participant_id : participant_ids) {
     append_string(output, participant_id);
@@ -567,7 +575,11 @@ std::vector<std::byte> encode_control(const TrainerControlState& state) {
   append_u64(output, state.next_epoch);
   append_u64(output, state.completed_epochs);
   append_u64(output, state.global_step);
-  append_u64(output, state.scheduler_events);
+  append_u64(output, static_cast<std::uint64_t>(state.scheduler_events.size()));
+  for (const auto& [scheduler_id, event_index] : state.scheduler_events) {
+    append_string(output, scheduler_id);
+    append_u64(output, event_index);
+  }
   append_u64(output, state.checkpoint_count);
   append_u64(output, static_cast<std::uint64_t>(state.pending_micro_steps));
   append_string(output, state.stop_reason);
@@ -604,7 +616,25 @@ TrainerControlState decode_control(std::span<const std::byte> bytes,
   result.next_epoch = reader.read_u64("control.next_epoch");
   result.completed_epochs = reader.read_u64("control.completed_epochs");
   result.global_step = reader.read_u64("control.global_step");
-  result.scheduler_events = reader.read_u64("control.scheduler_events");
+  const auto scheduler_count = reader.read_u64("control.scheduler_event_count");
+  if (scheduler_count > options.max_optimizers) {
+    throw_serialization(
+        "control.scheduler_event_count", std::to_string(options.max_optimizers),
+        std::to_string(scheduler_count), "Reject oversized scheduler state.");
+  }
+  for (std::uint64_t index = 0; index < scheduler_count; ++index) {
+    auto scheduler_id = reader.read_string("control.scheduler_id",
+                                           options.max_identifier_bytes);
+    const auto event_index = reader.read_u64("control.scheduler_event_index");
+    if (!is_identifier(scheduler_id) || event_index == 0U ||
+        !result.scheduler_events.emplace(std::move(scheduler_id), event_index)
+             .second) {
+      throw_serialization("control.scheduler_events",
+                          "unique scheduler IDs with positive event indices",
+                          "invalid entry",
+                          "Reject malformed scheduler cursor state.");
+    }
+  }
   result.checkpoint_count = reader.read_u64("control.checkpoint_count");
   const auto pending = reader.read_u64("control.pending_micro_steps");
   if (pending > std::numeric_limits<std::size_t>::max()) {
@@ -783,20 +813,25 @@ struct Trainer::Impl {
   }
 
   void ensure_finite_gradients() const {
-    for (const auto& binding : request.optimizer->parameter_bindings()) {
-      const auto gradient = binding.parameter.grad();
-      if (gradient.defined() && !torch::isfinite(gradient).all().item<bool>()) {
-        throw_numerical("optimizer.gradient", binding.parameter_id);
+    for (const auto& optimizer : request.optimizers) {
+      for (const auto& binding : optimizer.optimizer->parameter_bindings()) {
+        const auto gradient = binding.parameter.grad();
+        if (gradient.defined() &&
+            !torch::isfinite(gradient).all().item<bool>()) {
+          throw_numerical("optimizer.gradient", binding.parameter_id);
+        }
       }
     }
   }
 
   void scale_gradients(double scale) const {
     torch::NoGradGuard guard;
-    for (const auto& binding : request.optimizer->parameter_bindings()) {
-      auto gradient = binding.parameter.grad();
-      if (gradient.defined()) {
-        gradient.mul_(scale);
+    for (const auto& optimizer : request.optimizers) {
+      for (const auto& binding : optimizer.optimizer->parameter_bindings()) {
+        auto gradient = binding.parameter.grad();
+        if (gradient.defined()) {
+          gradient.mul_(scale);
+        }
       }
     }
   }
@@ -806,21 +841,35 @@ struct Trainer::Impl {
       return;
     }
     std::vector<Tensor> parameters;
-    for (const auto& binding : request.optimizer->parameter_bindings()) {
-      parameters.push_back(binding.parameter);
+    for (const auto& optimizer : request.optimizers) {
+      for (const auto& binding : optimizer.optimizer->parameter_bindings()) {
+        parameters.push_back(binding.parameter);
+      }
     }
     torch::nn::utils::clip_grad_norm_(parameters, *options.gradient_clip_norm);
   }
 
-  void step_scheduler(optim::SchedulerStepMode trigger,
-                      std::optional<double> metric = std::nullopt) {
-    if (!request.scheduler || request.scheduler->mode() != trigger) {
-      return;
+  void zero_grad_all() {
+    for (const auto& optimizer : request.optimizers) {
+      request.strategy->zero_grad(*optimizer.optimizer);
     }
-    checked_increment(state.scheduler_events, "scheduler.events");
-    request.scheduler->step({.trigger = trigger,
-                             .event_index = state.scheduler_events,
-                             .metric = metric});
+  }
+
+  void step_schedulers(optim::SchedulerStepMode trigger,
+                       std::optional<double> metric = std::nullopt) {
+    for (const auto& optimizer : request.optimizers) {
+      if (!optimizer.scheduler || optimizer.scheduler->mode() != trigger) {
+        continue;
+      }
+      const auto scheduler_id = optimizer.scheduler->participant_id();
+      auto [cursor, inserted] = state.scheduler_events.try_emplace(
+          scheduler_id, static_cast<std::uint64_t>(0));
+      static_cast<void>(inserted);
+      checked_increment(cursor->second, "scheduler.events." + scheduler_id);
+      optimizer.scheduler->step({.trigger = trigger,
+                                 .event_index = cursor->second,
+                                 .metric = metric});
+    }
   }
 
   void optimizer_step(std::stop_token stop, bool partial_tail) {
@@ -829,7 +878,7 @@ struct Trainer::Impl {
     }
     if (partial_tail &&
         options.accumulation_tail == AccumulationTailPolicy::drop) {
-      request.strategy->zero_grad(*request.optimizer);
+      zero_grad_all();
       state.pending_micro_steps = 0;
       return;
     }
@@ -841,8 +890,10 @@ struct Trainer::Impl {
     }
     bool scaler_applied = true;
     if (request.gradient_scaler) {
-      request.gradient_scaler->unscale(request.optimizer);
-      scaler_applied = request.gradient_scaler->step_allowed(request.optimizer);
+      for (const auto& optimizer : request.optimizers) {
+        request.gradient_scaler->unscale(optimizer.optimizer);
+      }
+      scaler_applied = request.gradient_scaler->cycle_allowed();
       if (scaler_applied) {
         ensure_finite_gradients();
         clip_gradients();
@@ -852,32 +903,48 @@ struct Trainer::Impl {
       clip_gradients();
     }
     if (!scaler_applied) {
-      request.gradient_scaler->mark_step(request.optimizer, false);
+      for (const auto& optimizer : request.optimizers) {
+        request.gradient_scaler->mark_step(optimizer.optimizer, false);
+      }
       request.gradient_scaler->update();
       state.pending_micro_steps = 0;
-      request.strategy->zero_grad(*request.optimizer);
-      emit(CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
-           {{"optimizer.applied", 0.0}}, stop);
+      zero_grad_all();
+      emit(
+          CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
+          {{"optimizer.applied", 0.0},
+           {"optimizer.count", static_cast<double>(request.optimizers.size())}},
+          stop);
       return;
     }
-    const auto outcome = request.strategy->optimizer_step(*request.optimizer);
-    if (request.gradient_scaler) {
-      request.gradient_scaler->mark_step(request.optimizer, true);
-      request.gradient_scaler->update();
+    for (const auto& optimizer : request.optimizers) {
+      const auto outcome =
+          request.strategy->optimizer_step(*optimizer.optimizer);
+      if (outcome.status != StrategyStepStatus::applied ||
+          outcome.optimizer_id != optimizer.optimizer->optimizer_id() ||
+          outcome.optimizer_completed_steps != state.global_step + 1U) {
+        throw_incompatible(
+            "optimizer.step",
+            "one strategy-owned consecutive update for " +
+                optimizer.optimizer->optimizer_id(),
+            outcome.optimizer_id + ":" +
+                std::to_string(outcome.optimizer_completed_steps),
+            "Do not update any optimizer outside the strategy.");
+      }
     }
-    if (outcome.status != StrategyStepStatus::applied ||
-        outcome.optimizer_completed_steps != state.global_step + 1U) {
-      throw_incompatible("optimizer.step",
-                         "one strategy-owned consecutive optimizer update",
-                         std::to_string(outcome.optimizer_completed_steps),
-                         "Do not update the optimizer outside the strategy.");
+    if (request.gradient_scaler) {
+      for (const auto& optimizer : request.optimizers) {
+        request.gradient_scaler->mark_step(optimizer.optimizer, true);
+      }
+      request.gradient_scaler->update();
     }
     checked_increment(state.global_step, "trainer.global_step");
     state.pending_micro_steps = 0;
-    request.strategy->zero_grad(*request.optimizer);
-    step_scheduler(optim::SchedulerStepMode::batch);
+    zero_grad_all();
+    step_schedulers(optim::SchedulerStepMode::batch);
     emit(CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
-         {{"optimizer.applied", 1.0}}, stop);
+         {{"optimizer.applied", 1.0},
+          {"optimizer.count", static_cast<double>(request.optimizers.size())}},
+         stop);
   }
 
   std::map<std::string, double> validate_epoch(std::stop_token stop) {
@@ -951,14 +1018,70 @@ void Trainer::prepare(FitRequest request) {
                     phase_name(impl_->state.phase),
                     "Create one Trainer per execution domain.");
   }
-  if (!request.model || !request.optimizer || !request.training_data ||
-      !request.training_batch_mapper || !request.training_step ||
-      !request.strategy || !request.model_checkpoint ||
-      !request.optimizer_checkpoint || !request.rng_checkpoint) {
+  if (!request.model || request.optimizers.empty() ||
+      request.optimizers.size() > impl_->options.max_optimizers ||
+      !request.training_data || !request.training_batch_mapper ||
+      !request.training_step || !request.strategy ||
+      !request.model_checkpoint || !request.rng_checkpoint) {
     throw_invalid("prepare.required_objects",
-                  "model, optimizer, data, task, strategy, and primary state",
+                  "model, bounded optimizers, data, task, strategy, and state",
                   "one or more null objects",
                   "Bind a complete execution and checkpoint domain.");
+  }
+  std::sort(request.optimizers.begin(), request.optimizers.end(),
+            [](const auto& left, const auto& right) {
+              if (!left.optimizer) {
+                return static_cast<bool>(right.optimizer);
+              }
+              if (!right.optimizer) {
+                return false;
+              }
+              return left.optimizer->optimizer_id() <
+                     right.optimizer->optimizer_id();
+            });
+  std::set<std::string> optimizer_ids;
+  for (const auto& binding : request.optimizers) {
+    if (!binding.optimizer || !binding.checkpoint) {
+      throw_invalid("prepare.optimizer_binding",
+                    "non-null optimizer and checkpoint participant", "null",
+                    "Bind complete optimizer execution entries.");
+    }
+    const auto& optimizer_id = binding.optimizer->optimizer_id();
+    if (!is_identifier(optimizer_id) ||
+        optimizer_id.size() > impl_->options.max_identifier_bytes ||
+        !optimizer_ids.insert(optimizer_id).second) {
+      throw_invalid("prepare.optimizer_id",
+                    "unique bounded stable optimizer identities", optimizer_id,
+                    "Assign one distinct identity to each optimizer.");
+    }
+    if (binding.optimizer->completed_steps() != 0U) {
+      throw_not_ready("prepare.optimizer", "a fresh optimizer with zero steps",
+                      optimizer_id + ":" +
+                          std::to_string(binding.optimizer->completed_steps()),
+                      "Restore prior state only through the coordinator.");
+    }
+    if (binding.checkpoint->participant_id() != optimizer_id) {
+      throw_incompatible("prepare.optimizer_participant", optimizer_id,
+                         binding.checkpoint->participant_id(),
+                         "Bind each checkpoint participant to its optimizer.");
+    }
+    if (binding.scheduler) {
+      if (binding.scheduler->scheduler().completed_steps() != 0U) {
+        throw_not_ready(
+            "prepare.scheduler", "a fresh scheduler with zero steps",
+            binding.scheduler->participant_id() + ":" +
+                std::to_string(
+                    binding.scheduler->scheduler().completed_steps()),
+            "Restore prior state only through the coordinator.");
+      }
+      if (binding.scheduler->scheduler().descriptor().optimizer_id !=
+          optimizer_id) {
+        throw_incompatible(
+            "prepare.scheduler_optimizer", optimizer_id,
+            binding.scheduler->scheduler().descriptor().optimizer_id,
+            "Bind each scheduler to the optimizer in the same entry.");
+      }
+    }
   }
   const bool any_validation =
       request.validation_data || request.validation_batch_mapper ||
@@ -1038,31 +1161,15 @@ void Trainer::prepare(FitRequest request) {
       }
       break;
   }
-  if (request.optimizer->completed_steps() != 0U) {
-    throw_not_ready("prepare.optimizer", "a fresh optimizer with zero steps",
-                    std::to_string(request.optimizer->completed_steps()),
-                    "Restore prior state only through the coordinator.");
-  }
-  if (request.scheduler &&
-      request.scheduler->scheduler().completed_steps() != 0U) {
-    throw_not_ready(
-        "prepare.scheduler", "a fresh scheduler with zero steps",
-        std::to_string(request.scheduler->scheduler().completed_steps()),
-        "Restore prior state only through the coordinator.");
-  }
-  if (request.scheduler &&
-      request.scheduler->mode() == optim::SchedulerStepMode::metric &&
-      !request.validation_data) {
-    throw_invalid("prepare.scheduler_metric",
-                  "a validation domain for a metric scheduler", "missing",
-                  "Configure validation to publish the monitored metric.");
-  }
-  if (request.optimizer_checkpoint->participant_id() !=
-      request.optimizer->optimizer_id()) {
-    throw_incompatible("prepare.optimizer_participant",
-                       request.optimizer->optimizer_id(),
-                       request.optimizer_checkpoint->participant_id(),
-                       "Bind the checkpoint participant for this optimizer.");
+  for (const auto& binding : request.optimizers) {
+    if (binding.scheduler &&
+        binding.scheduler->mode() == optim::SchedulerStepMode::metric &&
+        !request.validation_data) {
+      throw_invalid("prepare.scheduler_metric",
+                    "a validation domain for every metric scheduler",
+                    binding.scheduler->participant_id(),
+                    "Configure validation to publish monitored metrics.");
+    }
   }
   if (request.model_checkpoint->state().shared_module().get() !=
       request.model->state().shared_module().get()) {
@@ -1082,13 +1189,15 @@ void Trainer::prepare(FitRequest request) {
         {std::shared_ptr<CheckpointParticipant>(this,
                                                 [](CheckpointParticipant*) {}),
          impl_->request.training_data, impl_->request.strategy,
-         impl_->request.model_checkpoint, impl_->request.optimizer_checkpoint,
-         impl_->request.rng_checkpoint});
+         impl_->request.model_checkpoint, impl_->request.rng_checkpoint});
+    for (const auto& binding : impl_->request.optimizers) {
+      registry->register_participant(binding.checkpoint);
+      if (binding.scheduler) {
+        registry->register_participant(binding.scheduler);
+      }
+    }
     if (impl_->request.validation_data) {
       registry->register_participant(impl_->request.validation_data);
-    }
-    if (impl_->request.scheduler) {
-      registry->register_participant(impl_->request.scheduler);
     }
     if (impl_->request.event_outbox) {
       registry->register_participant(impl_->request.event_outbox);
@@ -1101,9 +1210,13 @@ void Trainer::prepare(FitRequest request) {
     if (!impl_->request.additional_participants.empty()) {
       registry->register_participants(impl_->request.additional_participants);
     }
-    impl_->request.strategy->prepare(*impl_->request.model,
-                                     *impl_->request.optimizer);
-    impl_->request.strategy->zero_grad(*impl_->request.optimizer);
+    std::vector<optim::OptimizerAdapter*> optimizers;
+    optimizers.reserve(impl_->request.optimizers.size());
+    for (const auto& binding : impl_->request.optimizers) {
+      optimizers.push_back(binding.optimizer.get());
+    }
+    impl_->request.strategy->prepare(*impl_->request.model, optimizers);
+    impl_->zero_grad_all();
     impl_->participant_ids = registry->participant_ids();
     impl_->registry = std::move(registry);
     impl_->coordinator =
@@ -1130,19 +1243,27 @@ FitResult Trainer::fit(std::stop_token stop) {
   if (impl_->request.event_outbox && impl_->options.drain_events) {
     impl_->request.event_outbox->drain(stop);
   }
-  if (impl_->request.optimizer->completed_steps() != impl_->state.global_step) {
-    throw_incompatible(
-        "fit.optimizer_steps", std::to_string(impl_->state.global_step),
-        std::to_string(impl_->request.optimizer->completed_steps()),
-        "Restore Trainer and optimizer state together.");
-  }
-  if (impl_->request.scheduler &&
-      impl_->request.scheduler->scheduler().completed_steps() !=
-          impl_->state.scheduler_events) {
-    throw_incompatible(
-        "fit.scheduler_steps", std::to_string(impl_->state.scheduler_events),
-        std::to_string(impl_->request.scheduler->scheduler().completed_steps()),
-        "Restore Trainer and scheduler state together.");
+  for (const auto& binding : impl_->request.optimizers) {
+    if (binding.optimizer->completed_steps() != impl_->state.global_step) {
+      throw_incompatible(
+          "fit.optimizer_steps." + binding.optimizer->optimizer_id(),
+          std::to_string(impl_->state.global_step),
+          std::to_string(binding.optimizer->completed_steps()),
+          "Restore Trainer and every optimizer state together.");
+    }
+    if (binding.scheduler) {
+      const auto scheduler_id = binding.scheduler->participant_id();
+      const auto cursor = impl_->state.scheduler_events.find(scheduler_id);
+      const auto expected = cursor == impl_->state.scheduler_events.end()
+                                ? static_cast<std::uint64_t>(0)
+                                : cursor->second;
+      if (binding.scheduler->scheduler().completed_steps() != expected) {
+        throw_incompatible(
+            "fit.scheduler_steps." + scheduler_id, std::to_string(expected),
+            std::to_string(binding.scheduler->scheduler().completed_steps()),
+            "Restore Trainer and every scheduler state together.");
+      }
+    }
   }
 
   try {
@@ -1219,14 +1340,14 @@ FitResult Trainer::fit(std::stop_token stop) {
 
       if (cancelled) {
         if (impl_->state.pending_micro_steps != 0U) {
-          impl_->request.strategy->zero_grad(*impl_->request.optimizer);
+          impl_->zero_grad_all();
           impl_->state.pending_micro_steps = 0;
         }
         break;
       }
       if (impl_->state.callback_stop) {
         if (impl_->state.pending_micro_steps != 0U) {
-          impl_->request.strategy->zero_grad(*impl_->request.optimizer);
+          impl_->zero_grad_all();
           impl_->state.pending_micro_steps = 0;
         }
         break;
@@ -1251,21 +1372,23 @@ FitResult Trainer::fit(std::stop_token stop) {
           !stop.stop_requested()) {
         impl_->state.last_validation = impl_->validate_epoch(stop);
       }
-      if (impl_->request.scheduler) {
-        const auto mode = impl_->request.scheduler->mode();
-        if (mode == optim::SchedulerStepMode::epoch) {
-          impl_->step_scheduler(optim::SchedulerStepMode::epoch);
-        } else if (mode == optim::SchedulerStepMode::metric) {
-          const auto metric = impl_->state.last_validation.find(
-              impl_->options.scheduler_metric);
-          if (metric == impl_->state.last_validation.end()) {
-            throw_not_ready(
-                "scheduler.metric", impl_->options.scheduler_metric, "missing",
-                "Run validation and publish the configured metric.");
-          }
-          impl_->step_scheduler(optim::SchedulerStepMode::metric,
-                                metric->second);
+      impl_->step_schedulers(optim::SchedulerStepMode::epoch);
+      const bool has_metric_scheduler = std::any_of(
+          impl_->request.optimizers.begin(), impl_->request.optimizers.end(),
+          [](const auto& binding) {
+            return binding.scheduler && binding.scheduler->mode() ==
+                                            optim::SchedulerStepMode::metric;
+          });
+      if (has_metric_scheduler) {
+        const auto metric =
+            impl_->state.last_validation.find(impl_->options.scheduler_metric);
+        if (metric == impl_->state.last_validation.end()) {
+          throw_not_ready("scheduler.metric", impl_->options.scheduler_metric,
+                          "missing",
+                          "Run validation and publish the configured metric.");
         }
+        impl_->step_schedulers(optim::SchedulerStepMode::metric,
+                               metric->second);
       }
 
       auto epoch_metrics = impl_->state.last_training;
@@ -1309,7 +1432,7 @@ FitResult Trainer::fit(std::stop_token stop) {
     if (impl_->state.phase == TrainerPhase::running) {
       if (impl_->state.pending_micro_steps != 0U) {
         try {
-          impl_->request.strategy->zero_grad(*impl_->request.optimizer);
+          impl_->zero_grad_all();
         } catch (...) {
         }
         impl_->state.pending_micro_steps = 0;
@@ -1408,7 +1531,7 @@ std::string Trainer::participant_id() const {
 StateManifest Trainer::describe_state() const {
   StateManifest manifest{
       .participant_id = participant_id(),
-      .schema_version = 2,
+      .schema_version = 3,
       .restore_level = RestoreLevel::exact,
       .fields = {{.name = kTopologyField,
                   .media_type = kTopologyMediaType,
@@ -1463,6 +1586,20 @@ void Trainer::load_state(const StateReader& reader, RestorePolicy policy) {
   auto candidate = decode_control(
       reader.read_blob(kControlField, impl_->options.max_control_bytes),
       impl_->options);
+  std::set<std::string> configured_schedulers;
+  for (const auto& binding : impl_->request.optimizers) {
+    if (binding.scheduler) {
+      configured_schedulers.insert(binding.scheduler->participant_id());
+    }
+  }
+  for (const auto& [scheduler_id, event_index] : candidate.scheduler_events) {
+    static_cast<void>(event_index);
+    if (!configured_schedulers.contains(scheduler_id)) {
+      throw_serialization("load_state.scheduler_events",
+                          "only configured scheduler identities", scheduler_id,
+                          "Reject state from another optimizer topology.");
+    }
+  }
   if (!restorable_phase(candidate.phase) || candidate.validation_active ||
       candidate.pending_micro_steps != 0U ||
       candidate.next_epoch > impl_->options.max_epochs ||

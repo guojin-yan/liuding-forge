@@ -31,13 +31,13 @@ constexpr char kComponent[] = "training.single_device_strategy";
 constexpr char kTopologyField[] = "topology";
 constexpr char kControlField[] = "control";
 constexpr char kTopologyMediaType[] =
-    "application/vnd.jyppx.single-device-strategy-topology-v1";
+    "application/vnd.jyppx.single-device-strategy-topology-v2";
 constexpr char kControlMediaType[] =
-    "application/vnd.jyppx.single-device-strategy-control-v1";
+    "application/vnd.jyppx.single-device-strategy-control-v2";
 constexpr std::string_view kTopologyMagic =
-    "JYPPX-SINGLE-DEVICE-STRATEGY-TOPOLOGY-V1";
+    "JYPPX-SINGLE-DEVICE-STRATEGY-TOPOLOGY-V2";
 constexpr std::string_view kControlMagic =
-    "JYPPX-SINGLE-DEVICE-STRATEGY-CONTROL-V1";
+    "JYPPX-SINGLE-DEVICE-STRATEGY-CONTROL-V2";
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
@@ -94,9 +94,10 @@ bool is_identifier(std::string_view value) {
 }
 
 void validate_options(const SingleDeviceStrategyOptions& options) {
-  if (!is_identifier(options.strategy_id) || options.max_parameters == 0 ||
-      options.max_metrics == 0 || options.max_string_bytes == 0 ||
-      options.max_topology_bytes == 0 || options.max_control_bytes == 0) {
+  if (!is_identifier(options.strategy_id) || options.max_optimizers == 0 ||
+      options.max_parameters == 0 || options.max_metrics == 0 ||
+      options.max_string_bytes == 0 || options.max_topology_bytes == 0 ||
+      options.max_control_bytes == 0) {
     throw_invalid("options", "a stable ID and positive resource limits",
                   options.strategy_id,
                   "Configure explicit nonzero strategy bounds.");
@@ -295,15 +296,22 @@ struct SingleDeviceStrategy::Impl {
     std::vector<std::int64_t> shape;  ///< Fixed parameter dimensions.
   };
 
+  /** @brief Tracks one canonical prepared optimizer and its cursor. */
+  struct OptimizerState {
+    optim::OptimizerAdapter* optimizer = nullptr;  ///< Borrowed exact adapter.
+    std::string optimizer_id;  ///< Stable identity and canonical order key.
+    std::vector<ParameterTopology>
+        parameters;  ///< Disjoint parameter subset owned by this optimizer.
+    std::uint64_t steps_at_prepare = 0;  ///< Adapter counter baseline.
+    std::uint64_t completed_steps = 0;   ///< Strategy-owned updates after bind.
+  };
+
   SingleDeviceStrategyOptions options;  ///< Immutable runtime limits.
   StrategyDescriptor descriptor;        ///< Immutable strategy identity.
   nn::ModelAdapter* model = nullptr;    ///< Borrowed prepared model adapter.
-  optim::OptimizerAdapter* optimizer = nullptr;  ///< Borrowed optimizer.
-  std::string optimizer_id;  ///< Stable prepared optimizer identity.
-  std::vector<ParameterTopology> parameters;     ///< Prepared named topology.
-  std::uint64_t optimizer_steps_at_prepare = 0;  ///< Adapter baseline count.
-  std::uint64_t completed_backward_calls = 0;    ///< Successful backward count.
-  std::uint64_t completed_optimizer_steps = 0;   ///< Strategy-owned step count.
+  std::vector<OptimizerState>
+      optimizers;  ///< Canonical disjoint optimizer execution domain.
+  std::uint64_t completed_backward_calls = 0;  ///< Successful backward count.
   bool prepared = false;  ///< Whether topology and placement committed.
   bool closed = false;    ///< Whether explicit finalization completed.
 };
@@ -321,15 +329,18 @@ std::vector<std::byte> encode_topology(const ImplType& impl) {
   append_u32(output, impl.descriptor.world_size);
   append_u32(output, impl.descriptor.rank);
   append_u8(output, impl.options.non_blocking_transfer ? 1U : 0U);
-  append_string(output, impl.optimizer_id);
-  append_u64(output, static_cast<std::uint64_t>(impl.parameters.size()));
-  for (const auto& parameter : impl.parameters) {
-    append_string(output, parameter.parameter_id);
-    append_string(output, parameter.device);
-    append_i64(output, parameter.scalar_type);
-    append_u64(output, static_cast<std::uint64_t>(parameter.shape.size()));
-    for (const auto extent : parameter.shape) {
-      append_i64(output, extent);
+  append_u64(output, static_cast<std::uint64_t>(impl.optimizers.size()));
+  for (const auto& optimizer : impl.optimizers) {
+    append_string(output, optimizer.optimizer_id);
+    append_u64(output, static_cast<std::uint64_t>(optimizer.parameters.size()));
+    for (const auto& parameter : optimizer.parameters) {
+      append_string(output, parameter.parameter_id);
+      append_string(output, parameter.device);
+      append_i64(output, parameter.scalar_type);
+      append_u64(output, static_cast<std::uint64_t>(parameter.shape.size()));
+      for (const auto extent : parameter.shape) {
+        append_i64(output, extent);
+      }
     }
   }
   return output;
@@ -340,17 +351,20 @@ std::vector<std::byte> encode_control(const ImplType& impl) {
   std::vector<std::byte> output;
   append_string(output, kControlMagic);
   append_u8(output, impl.closed ? 1U : 0U);
-  append_u64(output, impl.optimizer_steps_at_prepare);
   append_u64(output, impl.completed_backward_calls);
-  append_u64(output, impl.completed_optimizer_steps);
+  append_u64(output, static_cast<std::uint64_t>(impl.optimizers.size()));
+  for (const auto& optimizer : impl.optimizers) {
+    append_u64(output, optimizer.steps_at_prepare);
+    append_u64(output, optimizer.completed_steps);
+  }
   return output;
 }
 
-template <typename ImplType>
-void verify_optimizer_cursor(const ImplType& impl, std::string operation) {
-  if (impl.optimizer_steps_at_prepare >
-      std::numeric_limits<std::uint64_t>::max() -
-          impl.completed_optimizer_steps) {
+template <typename OptimizerState>
+void verify_optimizer_cursor(const OptimizerState& state,
+                             std::string operation) {
+  if (state.steps_at_prepare >
+      std::numeric_limits<std::uint64_t>::max() - state.completed_steps) {
     throw InternalError(
         "Strategy optimizer counter overflow",
         ErrorDetails{.component = kComponent,
@@ -359,9 +373,8 @@ void verify_optimizer_cursor(const ImplType& impl, std::string operation) {
                      .actual = "counter overflow",
                      .hint = "Start a new run before uint64 exhaustion."});
   }
-  const auto expected =
-      impl.optimizer_steps_at_prepare + impl.completed_optimizer_steps;
-  const auto actual = impl.optimizer->completed_steps();
+  const auto expected = state.steps_at_prepare + state.completed_steps;
+  const auto actual = state.optimizer->completed_steps();
   if (actual != expected) {
     throw CompatibilityError(
         "Optimizer was updated outside the prepared strategy",
@@ -371,6 +384,15 @@ void verify_optimizer_cursor(const ImplType& impl, std::string operation) {
                      .actual = std::to_string(actual),
                      .hint = "Route every optimizer update through the active "
                              "TrainingStrategy."});
+  }
+}
+
+template <typename ImplType>
+void verify_all_optimizer_cursors(const ImplType& impl,
+                                  std::string_view operation) {
+  for (const auto& optimizer : impl.optimizers) {
+    verify_optimizer_cursor(
+        optimizer, std::string(operation) + "." + optimizer.optimizer_id);
   }
 }
 
@@ -388,8 +410,8 @@ SingleDeviceStrategy::SingleDeviceStrategy(SingleDeviceStrategyOptions options)
                      .hint = "Add an explicit byte-swap codec."});
   }
   validate_options(options);
-  impl_->descriptor = {.schema_version = 1,
-                       .type_id = "jyppx.strategy.single-device/v1",
+  impl_->descriptor = {.schema_version = 2,
+                       .type_id = "jyppx.strategy.single-device/v2",
                        .strategy_id = options.strategy_id,
                        .device = options.device.str(),
                        .world_size = 1,
@@ -403,8 +425,9 @@ const StrategyDescriptor& SingleDeviceStrategy::descriptor() const noexcept {
   return impl_->descriptor;
 }
 
-void SingleDeviceStrategy::prepare(nn::ModelAdapter& model,
-                                   optim::OptimizerAdapter& optimizer) {
+void SingleDeviceStrategy::prepare(
+    nn::ModelAdapter& model,
+    std::span<optim::OptimizerAdapter* const> optimizers) {
   if (impl_->closed) {
     throw NotReady(
         "Cannot prepare a closed single-device strategy",
@@ -414,19 +437,40 @@ void SingleDeviceStrategy::prepare(nn::ModelAdapter& model,
                      .actual = "closed",
                      .hint = "Create a new strategy for another run."});
   }
+  if (optimizers.empty() || optimizers.size() > impl_->options.max_optimizers) {
+    throw_invalid("optimizers",
+                  "one to " + std::to_string(impl_->options.max_optimizers) +
+                      " optimizer adapters",
+                  std::to_string(optimizers.size()),
+                  "Bind a bounded multi-optimizer execution domain.");
+  }
+
+  std::vector<optim::OptimizerAdapter*> canonical(optimizers.begin(),
+                                                  optimizers.end());
+  if (std::any_of(canonical.begin(), canonical.end(),
+                  [](const auto* optimizer) { return optimizer == nullptr; })) {
+    throw_invalid("optimizers", "non-null optimizer adapters", "null",
+                  "Remove null entries before strategy preparation.");
+  }
+  std::sort(canonical.begin(), canonical.end(),
+            [](const auto* left, const auto* right) {
+              return left->optimizer_id() < right->optimizer_id();
+            });
   if (impl_->prepared) {
-    if (impl_->model != &model || impl_->optimizer != &optimizer) {
+    const bool same_domain =
+        impl_->model == &model &&
+        impl_->optimizers.size() == canonical.size() &&
+        std::equal(impl_->optimizers.begin(), impl_->optimizers.end(),
+                   canonical.begin(), [](const auto& state, const auto* value) {
+                     return state.optimizer == value &&
+                            state.optimizer_id == value->optimizer_id();
+                   });
+    if (!same_domain) {
       throw_incompatible("prepare", "the originally prepared adapters",
-                         optimizer.optimizer_id(),
+                         "different model or optimizer set",
                          "Do not rebind a live strategy to new state.");
     }
     return;
-  }
-  if (optimizer.optimizer_id().empty() ||
-      optimizer.optimizer_id().size() > impl_->options.max_string_bytes) {
-    throw_invalid("optimizer.optimizer_id", "a bounded stable identity",
-                  optimizer.optimizer_id(),
-                  "Use a descriptor-backed optimizer adapter.");
   }
   if (impl_->options.device.is_cuda()) {
     const auto index = impl_->options.device.index();
@@ -442,15 +486,6 @@ void SingleDeviceStrategy::prepare(nn::ModelAdapter& model,
     }
   }
 
-  const auto bindings = optimizer.parameter_bindings();
-  if (bindings.empty() || bindings.size() > impl_->options.max_parameters ||
-      bindings.size() != optimizer.parameter_count()) {
-    throw_invalid("optimizer.parameters",
-                  "one to " + std::to_string(impl_->options.max_parameters) +
-                      " stable bindings",
-                  std::to_string(bindings.size()),
-                  "Bind every trainable model parameter exactly once.");
-  }
   const auto named_parameters = model.state().named_parameters();
   std::map<std::string, Tensor> trainable;
   for (const auto& item : named_parameters) {
@@ -458,48 +493,72 @@ void SingleDeviceStrategy::prepare(nn::ModelAdapter& model,
       trainable.emplace(item.key(), item.value());
     }
   }
-  if (trainable.size() != bindings.size()) {
+
+  std::vector<Impl::OptimizerState> optimizer_states;
+  optimizer_states.reserve(canonical.size());
+  std::set<std::string> optimizer_ids;
+  std::set<std::string> binding_ids;
+  std::size_t parameter_count = 0;
+  for (auto* optimizer : canonical) {
+    const auto& optimizer_id = optimizer->optimizer_id();
+    if (!is_identifier(optimizer_id) ||
+        optimizer_id.size() > impl_->options.max_string_bytes ||
+        !optimizer_ids.insert(optimizer_id).second) {
+      throw_invalid("optimizer.optimizer_id",
+                    "unique bounded stable optimizer identities", optimizer_id,
+                    "Use a distinct descriptor-backed optimizer ID.");
+    }
+    const auto bindings = optimizer->parameter_bindings();
+    if (bindings.empty() || bindings.size() != optimizer->parameter_count() ||
+        bindings.size() > impl_->options.max_parameters ||
+        parameter_count > impl_->options.max_parameters - bindings.size()) {
+      throw_invalid("optimizer.parameters",
+                    "a bounded nonempty stable parameter subset",
+                    std::to_string(bindings.size()),
+                    "Bind each optimizer to a disjoint model subset.");
+    }
+    parameter_count += bindings.size();
+    Impl::OptimizerState state{
+        .optimizer = optimizer,
+        .optimizer_id = optimizer_id,
+        .steps_at_prepare = optimizer->completed_steps()};
+    state.parameters.reserve(bindings.size());
+    for (const auto& binding : bindings) {
+      if (!is_identifier(binding.parameter_id) ||
+          binding.parameter_id.size() > impl_->options.max_string_bytes ||
+          !binding_ids.insert(binding.parameter_id).second) {
+        throw_invalid("optimizer.parameter_id",
+                      "globally unique bounded named model parameters",
+                      binding.parameter_id,
+                      "Do not bind one parameter to multiple optimizers.");
+      }
+      const auto expected = trainable.find(binding.parameter_id);
+      if (expected == trainable.end() || !binding.parameter.defined() ||
+          binding.parameter.unsafeGetTensorImpl() !=
+              expected->second.unsafeGetTensorImpl()) {
+        throw_incompatible(
+            "prepare.parameter_binding", binding.parameter_id,
+            "missing or different tensor",
+            "Bind optimizer IDs and handles from named_parameters().");
+      }
+      state.parameters.push_back({.parameter_id = binding.parameter_id,
+                                  .device = impl_->options.device.str(),
+                                  .scalar_type = static_cast<std::int64_t>(
+                                      binding.parameter.scalar_type()),
+                                  .shape = binding.parameter.sizes().vec()});
+    }
+    optimizer_states.push_back(std::move(state));
+  }
+  if (parameter_count != trainable.size()) {
     throw_incompatible("prepare.parameter_count",
                        std::to_string(trainable.size()),
-                       std::to_string(bindings.size()),
-                       "Bind exactly the model's named trainable parameters.");
-  }
-  std::set<std::string> binding_ids;
-  for (const auto& binding : bindings) {
-    if (!is_identifier(binding.parameter_id) ||
-        binding.parameter_id.size() > impl_->options.max_string_bytes ||
-        !binding_ids.insert(binding.parameter_id).second) {
-      throw_invalid(
-          "optimizer.parameter_id", "unique bounded named model parameters",
-          binding.parameter_id, "Use ModelStateView named parameter keys.");
-    }
-    const auto expected = trainable.find(binding.parameter_id);
-    if (expected == trainable.end() || !binding.parameter.defined() ||
-        binding.parameter.unsafeGetTensorImpl() !=
-            expected->second.unsafeGetTensorImpl()) {
-      throw_incompatible(
-          "prepare.parameter_binding", binding.parameter_id,
-          "missing or different tensor",
-          "Bind optimizer IDs and handles from named_parameters().");
-    }
+                       std::to_string(parameter_count),
+                       "Cover each trainable model parameter exactly once.");
   }
 
-  std::vector<Impl::ParameterTopology> topology;
-  topology.reserve(bindings.size());
-  for (const auto& binding : bindings) {
-    topology.push_back({.parameter_id = binding.parameter_id,
-                        .device = impl_->options.device.str(),
-                        .scalar_type = static_cast<std::int64_t>(
-                            binding.parameter.scalar_type()),
-                        .shape = binding.parameter.sizes().vec()});
-  }
-  auto optimizer_id = optimizer.optimizer_id();
   Impl candidate = *impl_;
   candidate.model = &model;
-  candidate.optimizer = &optimizer;
-  candidate.optimizer_id = std::move(optimizer_id);
-  candidate.parameters = std::move(topology);
-  candidate.optimizer_steps_at_prepare = optimizer.completed_steps();
+  candidate.optimizers = std::move(optimizer_states);
   candidate.prepared = true;
   const auto encoded = encode_topology(candidate);
   if (encoded.size() > impl_->options.max_topology_bytes) {
@@ -520,17 +579,19 @@ void SingleDeviceStrategy::prepare(nn::ModelAdapter& model,
                 .expected = impl_->options.device.str(),
                 .hint = "Verify backend availability and device memory."});
   }
-  optimizer.synchronize_parameter_placement();
-  for (const auto& binding : bindings) {
-    if (binding.parameter.device() != impl_->options.device) {
-      throw DeviceError(
-          "Optimizer parameter did not move with its model",
-          ErrorDetails{.component = kComponent,
-                       .operation = "prepare.parameter_device",
-                       .expected = impl_->options.device.str(),
-                       .actual = binding.parameter.device().str(),
-                       .hint = "Construct the optimizer from model-owned "
-                               "parameter handles before prepare()."});
+  for (auto& optimizer : candidate.optimizers) {
+    optimizer.optimizer->synchronize_parameter_placement();
+    for (const auto& binding : optimizer.optimizer->parameter_bindings()) {
+      if (binding.parameter.device() != impl_->options.device) {
+        throw DeviceError(
+            "Optimizer parameter did not move with its model",
+            ErrorDetails{.component = kComponent,
+                         .operation = "prepare.parameter_device",
+                         .expected = impl_->options.device.str(),
+                         .actual = binding.parameter.device().str(),
+                         .hint = "Construct each optimizer from model-owned "
+                                 "parameter handles before prepare()."});
+      }
     }
   }
   for (const auto& buffer : model.state().buffers()) {
@@ -547,10 +608,7 @@ void SingleDeviceStrategy::prepare(nn::ModelAdapter& model,
   }
 
   impl_->model = candidate.model;
-  impl_->optimizer = candidate.optimizer;
-  impl_->optimizer_id = std::move(candidate.optimizer_id);
-  impl_->parameters = std::move(candidate.parameters);
-  impl_->optimizer_steps_at_prepare = candidate.optimizer_steps_at_prepare;
+  impl_->optimizers = std::move(candidate.optimizers);
   impl_->prepared = true;
 }
 
@@ -596,28 +654,37 @@ void SingleDeviceStrategy::backward(const Tensor& loss) {
 void SingleDeviceStrategy::zero_grad(optim::OptimizerAdapter& optimizer,
                                      bool set_to_none) {
   ensure_ready(impl_->prepared, impl_->closed, "zero_grad");
-  if (&optimizer != impl_->optimizer ||
-      optimizer.optimizer_id() != impl_->optimizer_id) {
-    throw_incompatible("zero_grad.optimizer", impl_->optimizer_id,
+  const auto prepared =
+      std::find_if(impl_->optimizers.begin(), impl_->optimizers.end(),
+                   [&optimizer](const auto& state) {
+                     return state.optimizer == &optimizer;
+                   });
+  if (prepared == impl_->optimizers.end() ||
+      optimizer.optimizer_id() != prepared->optimizer_id) {
+    throw_incompatible("zero_grad.optimizer", "a prepared optimizer",
                        optimizer.optimizer_id(),
                        "Use the exact optimizer supplied to prepare().");
   }
-  verify_optimizer_cursor(*impl_, "zero_grad.cursor");
+  verify_optimizer_cursor(*prepared, "zero_grad.cursor");
   optimizer.zero_grad(set_to_none);
 }
 
 StrategyStepOutcome SingleDeviceStrategy::optimizer_step(
     optim::OptimizerAdapter& optimizer) {
   ensure_ready(impl_->prepared, impl_->closed, "optimizer_step");
-  if (&optimizer != impl_->optimizer ||
-      optimizer.optimizer_id() != impl_->optimizer_id) {
-    throw_incompatible("optimizer_step.optimizer", impl_->optimizer_id,
+  const auto prepared =
+      std::find_if(impl_->optimizers.begin(), impl_->optimizers.end(),
+                   [&optimizer](const auto& state) {
+                     return state.optimizer == &optimizer;
+                   });
+  if (prepared == impl_->optimizers.end() ||
+      optimizer.optimizer_id() != prepared->optimizer_id) {
+    throw_incompatible("optimizer_step.optimizer", "a prepared optimizer",
                        optimizer.optimizer_id(),
                        "Use the exact optimizer supplied to prepare().");
   }
-  verify_optimizer_cursor(*impl_, "optimizer_step.cursor");
-  if (impl_->completed_optimizer_steps ==
-      std::numeric_limits<std::uint64_t>::max()) {
+  verify_optimizer_cursor(*prepared, "optimizer_step.cursor");
+  if (prepared->completed_steps == std::numeric_limits<std::uint64_t>::max()) {
     throw_exhausted("optimizer_step.count", "below uint64 maximum",
                     "uint64 maximum", "Start a new training run.");
   }
@@ -634,9 +701,9 @@ StrategyStepOutcome SingleDeviceStrategy::optimizer_step(
                      .actual = std::to_string(after),
                      .hint = "Fix the optimizer adapter before continuing."});
   }
-  ++impl_->completed_optimizer_steps;
+  ++prepared->completed_steps;
   return {.status = StrategyStepStatus::applied,
-          .optimizer_id = impl_->optimizer_id,
+          .optimizer_id = prepared->optimizer_id,
           .optimizer_completed_steps = after};
 }
 
@@ -682,7 +749,7 @@ void SingleDeviceStrategy::close() {
     return;
   }
   if (impl_->prepared) {
-    verify_optimizer_cursor(*impl_, "close.cursor");
+    verify_all_optimizer_cursors(*impl_, "close.cursor");
   }
   impl_->closed = true;
 }
@@ -695,8 +762,19 @@ std::uint64_t SingleDeviceStrategy::completed_backward_calls() const noexcept {
   return impl_->completed_backward_calls;
 }
 
-std::uint64_t SingleDeviceStrategy::completed_optimizer_steps() const noexcept {
-  return impl_->completed_optimizer_steps;
+std::uint64_t SingleDeviceStrategy::completed_optimizer_steps(
+    std::string_view optimizer_id) const {
+  const auto optimizer =
+      std::find_if(impl_->optimizers.begin(), impl_->optimizers.end(),
+                   [optimizer_id](const auto& state) {
+                     return state.optimizer_id == optimizer_id;
+                   });
+  if (optimizer == impl_->optimizers.end()) {
+    throw_invalid("completed_optimizer_steps.optimizer_id",
+                  "a prepared optimizer identity", std::string(optimizer_id),
+                  "Query an optimizer supplied to prepare().");
+  }
+  return optimizer->completed_steps;
 }
 
 const SingleDeviceStrategyOptions& SingleDeviceStrategy::options()
@@ -710,7 +788,7 @@ std::string SingleDeviceStrategy::participant_id() const {
 
 StateManifest SingleDeviceStrategy::describe_state() const {
   return {.participant_id = impl_->descriptor.strategy_id,
-          .schema_version = 1,
+          .schema_version = 2,
           .restore_level = RestoreLevel::exact,
           .fields = {{.name = kTopologyField,
                       .media_type = kTopologyMediaType,
@@ -723,7 +801,7 @@ StateManifest SingleDeviceStrategy::describe_state() const {
 
 void SingleDeviceStrategy::save_state(StateWriter& writer) const {
   ensure_ready(impl_->prepared, false, "save_state");
-  verify_optimizer_cursor(*impl_, "save_state.cursor");
+  verify_all_optimizer_cursors(*impl_, "save_state.cursor");
   const auto topology = encode_topology(*impl_);
   const auto control = encode_control(*impl_);
   if (topology.size() > impl_->options.max_topology_bytes ||
@@ -771,27 +849,51 @@ void SingleDeviceStrategy::load_state(const StateReader& reader,
                         "different", "Reject unknown strategy state encoding.");
   }
   const auto closed = control.read_u8("control.closed");
-  const auto baseline = control.read_u64("control.optimizer_baseline");
   const auto backward_calls = control.read_u64("control.backward_calls");
-  const auto optimizer_steps = control.read_u64("control.optimizer_steps");
+  const auto optimizer_count = control.read_u64("control.optimizer_count");
+  if (optimizer_count != impl_->optimizers.size()) {
+    throw_serialization("control.optimizer_count",
+                        std::to_string(impl_->optimizers.size()),
+                        std::to_string(optimizer_count),
+                        "Reject state for a different optimizer topology.");
+  }
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> cursors;
+  cursors.reserve(impl_->optimizers.size());
+  for (std::size_t index = 0; index < impl_->optimizers.size(); ++index) {
+    const auto baseline = control.read_u64("control.optimizer_baseline");
+    const auto completed =
+        control.read_u64("control.optimizer_completed_steps");
+    if (baseline > std::numeric_limits<std::uint64_t>::max() - completed) {
+      throw_serialization("control.optimizer_cursor",
+                          "representable optimizer counters", "overflow",
+                          "Reject corrupt strategy counters.");
+    }
+    const auto expected = baseline + completed;
+    const auto actual = impl_->optimizers[index].optimizer->completed_steps();
+    const auto prepared_baseline = impl_->optimizers[index].steps_at_prepare;
+    if (baseline != prepared_baseline ||
+        (actual != prepared_baseline && actual != expected)) {
+      throw_incompatible(
+          "control.optimizer_steps." + impl_->optimizers[index].optimizer_id,
+          std::to_string(prepared_baseline) + " before optimizer restore or " +
+              std::to_string(expected) + " after it",
+          std::to_string(actual),
+          "Prepare the same fresh optimizer domain and restore all checkpoint "
+          "participants together.");
+    }
+    cursors.emplace_back(baseline, completed);
+  }
   control.require_finished("control");
-  if (closed > 1U ||
-      baseline > std::numeric_limits<std::uint64_t>::max() - optimizer_steps) {
+  if (closed > 1U) {
     throw_serialization("control", "valid flags and representable counters",
                         "invalid", "Reject corrupt strategy counters.");
   }
-  const auto expected_optimizer_steps = baseline + optimizer_steps;
-  if (impl_->optimizer->completed_steps() != expected_optimizer_steps) {
-    throw_incompatible(
-        "control.optimizer_steps", std::to_string(expected_optimizer_steps),
-        std::to_string(impl_->optimizer->completed_steps()),
-        "Restore optimizer state before restoring its training strategy.");
-  }
 
   impl_->closed = closed == 1U;
-  impl_->optimizer_steps_at_prepare = baseline;
   impl_->completed_backward_calls = backward_calls;
-  impl_->completed_optimizer_steps = optimizer_steps;
+  for (std::size_t index = 0; index < impl_->optimizers.size(); ++index) {
+    impl_->optimizers[index].completed_steps = cursors[index].second;
+  }
 }
 
 }  // namespace jyppx::training

@@ -32,20 +32,39 @@ policies and rejects a different topology during restore.
 `prepare(FitRequest)` binds one complete execution and recovery domain:
 
 - `ModelAdapter` validates invocation and result schemas.
-- `OptimizerAdapter` exposes stable parameter identities and update counters.
+- Each `OptimizerExecutionBinding` owns one optimizer, its exact checkpoint
+  participant, and an optional scheduler.
 - `BatchPipeline` accepts either map-style `DataPipeline` or
   `IterableDataPipeline` without inventing random access for streams.
 - `BatchMapper`, optional `TargetMapper`, and `StepFunction` own task semantics.
 - `TrainingStrategy` owns placement, backward, zero-grad, updates and barriers.
-- model, optimizer and RNG checkpoint participants are required.
+- model, every optimizer and RNG checkpoint participant are required.
 - scheduler, callbacks, event outbox and additional task participants are
   optional but become part of the same coordinated checkpoint.
 
-`SingleDeviceStrategy::prepare()` preflights model and optimizer identity,
-moves model parameters and buffers to its explicit device, and synchronizes
-the fresh optimizer's placement descriptor before checkpoint topology is
-observed. The optimizer must have zero completed steps and no native state;
-after preparation and the first update, dtype/device placement is immutable.
+`SingleDeviceStrategy::prepare()` canonicalizes optimizers by stable identity,
+then preflights their parameter ownership before moving model state. Optimizer
+parameter sets must be disjoint and together cover every named trainable model
+parameter exactly once. Each optimizer must have zero completed steps and no
+native state; after preparation and the first update, dtype/device placement
+is immutable.
+
+```cpp
+request.optimizers = {
+    {.optimizer = encoder_optimizer,
+     .checkpoint = encoder_optimizer_state,
+     .scheduler = encoder_scheduler},
+    {.optimizer = head_optimizer,
+     .checkpoint = head_optimizer_state,
+     .scheduler = head_scheduler},
+};
+```
+
+One logical Trainer step applies every optimizer once in canonical identity
+order and advances `global_step` only after the complete group succeeds.
+Backend exceptions during an optimizer or scheduler call are fail-stop: the
+Trainer enters `failed` and cannot advertise a checkpoint-safe continuation;
+the framework does not claim rollback of arbitrary backend side effects.
 
 The training step returns a differentiable scalar loss and the exact number
 of committed sample IDs. Validation may omit loss, but a metric scheduler then
@@ -124,11 +143,12 @@ when they must resume exactly. Per-batch scalar observations returned by
 ## Mixed Precision
 
 The AMP module exposes `AutocastGuard`, `GradScaler`, and
-`GradScalerCheckpointParticipant`. These primitives are independently usable
-and checkpointable. The current Trainer does not yet expose a precision policy
-or silently insert autocast/scaler operations; task code must not assume that
-an old `use_amp` Trainer option exists. Precision integration will be added as
-an explicit strategy/precision contract with multi-optimizer ordering tests.
+`GradScalerCheckpointParticipant`. `TrainerOptions::precision` selects full,
+CPU bfloat16, CUDA float16, or CUDA bfloat16 execution. CUDA float16 requires
+an enabled scaler plus its checkpoint participant. Trainer unscales every
+optimizer before deciding the cycle; one non-finite gradient skips the entire
+optimizer group, updates the scaler once, and does not advance `global_step` or
+batch schedulers. There is no legacy `use_amp` compatibility switch.
 
 ## Loss Functions
 

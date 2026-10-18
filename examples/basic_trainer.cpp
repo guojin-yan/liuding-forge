@@ -75,7 +75,8 @@ jyppx::training::FitRequest make_request(
         .sample_count = input.batch.sample_ids.size()};
   };
   return {.model = model,
-          .optimizer = optimizer,
+          .optimizers = {{.optimizer = optimizer,
+                          .checkpoint = std::move(optimizer_checkpoint)}},
           .training_data = training_data,
           .training_batch_mapper = mapper,
           .training_target_mapper = targets,
@@ -86,7 +87,6 @@ jyppx::training::FitRequest make_request(
           .validation_step = step,
           .strategy = std::move(strategy),
           .model_checkpoint = std::move(model_checkpoint),
-          .optimizer_checkpoint = std::move(optimizer_checkpoint),
           .rng_checkpoint = std::move(rng_checkpoint)};
 }
 

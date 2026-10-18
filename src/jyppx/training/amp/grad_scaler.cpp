@@ -125,6 +125,21 @@ bool GradScaler::step_allowed(
   return !existing->second.found_inf;
 }
 
+bool GradScaler::cycle_allowed() const {
+  if (optimizer_states_.empty()) {
+    throw std::logic_error(
+        "GradScaler.cycle_allowed() requires preceding unscale()");
+  }
+  if (std::any_of(optimizer_states_.begin(), optimizer_states_.end(),
+                  [](const auto& entry) {
+                    return entry.second.stage == OptimizerStage::stepped;
+                  })) {
+    throw std::logic_error(
+        "GradScaler cycle decision must precede every mark_step()");
+  }
+  return !found_inf_;
+}
+
 void GradScaler::mark_step(
     const std::shared_ptr<optim::OptimizerAdapter>& optimizer, bool applied) {
   if (!optimizer) {
@@ -139,11 +154,12 @@ void GradScaler::mark_step(
         "GradScaler.mark_step() for this optimizer must be followed by "
         "update()");
   }
-  if (applied == existing->second.found_inf) {
+  if (applied == found_inf_) {
     throw std::logic_error(
-        "GradScaler applied result conflicts with its overflow decision");
+        "GradScaler applied result conflicts with the cycle overflow decision");
   }
   existing->second.stage = OptimizerStage::stepped;
+  existing->second.applied = applied;
 }
 
 void GradScaler::update() {
@@ -156,6 +172,10 @@ void GradScaler::update() {
     if (state.stage != OptimizerStage::stepped) {
       throw std::logic_error(
           "GradScaler.update() requires mark_step() for every optimizer");
+    }
+    if (state.applied == found_inf_) {
+      throw std::logic_error(
+          "GradScaler optimizer outcomes disagree with the cycle decision");
     }
   }
 

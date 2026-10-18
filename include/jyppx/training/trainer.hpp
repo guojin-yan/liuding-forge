@@ -138,6 +138,8 @@ struct TrainerOptions {
       true;  ///< Whether the loop synchronously drains its optional outbox.
   std::size_t max_metrics =
       4096;  ///< Maximum metric names retained in loop/checkpoint state.
+  std::size_t max_optimizers =
+      256;  ///< Maximum disjoint optimizers in one logical update cycle.
   std::size_t max_identifier_bytes =
       4096;  ///< Maximum bytes in one identity or metric name.
   std::uint64_t max_topology_bytes =
@@ -207,6 +209,24 @@ using CheckpointAction =
     std::function<void(const CheckpointCoordinator& coordinator)>;
 
 /**
+ * @brief Binds one optimizer to its exact state and optional scheduler.
+ *
+ * Trainer sorts bindings by `OptimizerAdapter::optimizer_id()` before
+ * preparation and update. Optimizer parameter sets must be disjoint and their
+ * union must cover every trainable model parameter. The checkpoint participant
+ * must own the same optimizer; a scheduler, when present, must identify it in
+ * its immutable descriptor.
+ */
+struct OptimizerExecutionBinding {
+  std::shared_ptr<optim::OptimizerAdapter>
+      optimizer;  ///< Required current optimizer adapter.
+  std::shared_ptr<CheckpointParticipant>
+      checkpoint;  ///< Required exact algorithm-state participant.
+  std::shared_ptr<SchedulerAdapter>
+      scheduler;  ///< Optional event-ordered scheduler for this optimizer.
+};
+
+/**
  * @brief Binds all shared objects required for one prepared training run.
  *
  * Shared ownership keeps every checkpoint participant alive for the prepared
@@ -215,8 +235,8 @@ using CheckpointAction =
  */
 struct FitRequest {
   std::shared_ptr<nn::ModelAdapter> model;  ///< Schema-checked model boundary.
-  std::shared_ptr<optim::OptimizerAdapter>
-      optimizer;  ///< Optimizer bound to the model's stable parameters.
+  std::vector<OptimizerExecutionBinding>
+      optimizers;  ///< Nonempty disjoint optimizer execution domain.
   std::shared_ptr<data::BatchPipeline>
       training_data;  ///< Required map- or iterable-style training stream.
   BatchMapper training_batch_mapper;  ///< Required training invocation mapper.
@@ -234,16 +254,12 @@ struct FitRequest {
       gradient_scaler;  ///< Required only for CUDA float16 training.
   std::shared_ptr<amp::GradScalerCheckpointParticipant>
       gradient_scaler_checkpoint;  ///< Exact state for the configured scaler.
-  std::shared_ptr<SchedulerAdapter>
-      scheduler;  ///< Optional strictly ordered scheduler event adapter.
   std::shared_ptr<CallbackDispatcher>
       callbacks;  ///< Optional immutable-event callback transaction owner.
   std::shared_ptr<EventOutbox>
       event_outbox;  ///< Optional bounded post-callback delivery queue.
   std::shared_ptr<nn::ModelCheckpointParticipant>
       model_checkpoint;  ///< Required participant for exact model state.
-  std::shared_ptr<CheckpointParticipant>
-      optimizer_checkpoint;  ///< Required optimizer algorithm participant.
   std::shared_ptr<core::RngCheckpointParticipant>
       rng_checkpoint;  ///< Required process RNG participant.
   std::vector<std::shared_ptr<CheckpointParticipant>>
@@ -271,7 +287,7 @@ struct FitResult {
  * scheduler, callbacks, outbox, RNG, and task state remain independent
  * checkpoint participants registered with one `CheckpointCoordinator` during
  * `prepare()`. Checkpoints are allowed only when the accumulation window is
- * empty and validation is not active. Schema version 2 reads only the current
+ * empty and validation is not active. Schema version 3 reads only the current
  * format; no legacy Trainer archive or callback API is accepted.
  */
 class Trainer final : public CheckpointParticipant {

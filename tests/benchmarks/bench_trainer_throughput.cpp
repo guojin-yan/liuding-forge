@@ -94,7 +94,10 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
                                     .max_epochs = epochs});
   trainer.prepare(
       {.model = model,
-       .optimizer = optimizer,
+       .optimizers = {{.optimizer = optimizer,
+                       .checkpoint = std::make_shared<
+                           jyppx::optim::SgdOptimizerCheckpointParticipant>(
+                           optimizer)}},
        .training_data = pipeline,
        .training_batch_mapper = mapper,
        .training_target_mapper = target,
@@ -102,9 +105,6 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
        .strategy = std::make_shared<jyppx::training::SingleDeviceStrategy>(),
        .model_checkpoint =
            std::make_shared<jyppx::nn::ModelCheckpointParticipant>(*model),
-       .optimizer_checkpoint =
-           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
-               optimizer),
        .rng_checkpoint =
            std::make_shared<jyppx::core::RngCheckpointParticipant>(
                jyppx::core::RngCheckpointParticipantOptions{.include_cuda =

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Current-only multi-optimizer Trainer execution with disjoint complete
+  parameter ownership, canonical update order, independent scheduler cursors,
+  exact coordinated recovery, and all-or-none AMP overflow handling.
 - A current-only transactional `Trainer` that directly composes map/iterable
   pipelines, model/optimizer/RNG checkpoint participants, scheduler events,
   callbacks, the bounded event outbox, and a training strategy. It supports

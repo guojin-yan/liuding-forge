@@ -176,7 +176,7 @@ TEST(GradScalerTest, InfGradientSkipsStepAndBacksOff) {
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 1.0);  // 2.0 * 0.5
 }
 
-TEST(GradScalerTest, TracksMultipleOptimizersIndependently) {
+TEST(GradScalerTest, OverflowSkipsTheCompleteMultiOptimizerCycle) {
   auto finite_params = make_params({{2}});
   auto overflow_params = make_params({{2}});
   const auto finite_initial = finite_params[0].detach().clone();
@@ -191,10 +191,14 @@ TEST(GradScalerTest, TracksMultipleOptimizersIndependently) {
   overflow_params[0].mutable_grad() = torch::full_like(
       overflow_params[0], std::numeric_limits<double>::infinity());
 
-  EXPECT_TRUE(apply_scaler_step(scaler, finite_optimizer));
-  EXPECT_FALSE(apply_scaler_step(scaler, overflow_optimizer));
-  EXPECT_TRUE(
-      torch::allclose(finite_params[0], finite_initial - 0.1, 1e-12, 1e-12));
+  scaler.unscale(finite_optimizer);
+  scaler.unscale(overflow_optimizer);
+  EXPECT_TRUE(scaler.step_allowed(finite_optimizer));
+  EXPECT_FALSE(scaler.step_allowed(overflow_optimizer));
+  EXPECT_FALSE(scaler.cycle_allowed());
+  scaler.mark_step(finite_optimizer, false);
+  scaler.mark_step(overflow_optimizer, false);
+  EXPECT_TRUE(torch::equal(finite_params[0], finite_initial));
   EXPECT_TRUE(torch::equal(overflow_params[0], overflow_initial));
   EXPECT_TRUE(scaler.found_inf());
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 8.0);
@@ -202,7 +206,7 @@ TEST(GradScalerTest, TracksMultipleOptimizersIndependently) {
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
 }
 
-TEST(GradScalerCudaTest, MultipleOptimizersUseRealCudaGradients) {
+TEST(GradScalerCudaTest, MultiOptimizerOverflowSkipsAllCudaUpdates) {
   if (!cuda_is_available()) {
     GTEST_SKIP() << "CUDA not available";
   }
@@ -223,11 +227,14 @@ TEST(GradScalerCudaTest, MultipleOptimizersUseRealCudaGradients) {
   overflow_params[0].mutable_grad() = torch::full_like(
       overflow_params[0], std::numeric_limits<float>::infinity());
 
-  EXPECT_TRUE(apply_scaler_step(scaler, finite_optimizer));
-  EXPECT_FALSE(apply_scaler_step(scaler, overflow_optimizer));
+  scaler.unscale(finite_optimizer);
+  scaler.unscale(overflow_optimizer);
+  EXPECT_FALSE(scaler.cycle_allowed());
+  scaler.mark_step(finite_optimizer, false);
+  scaler.mark_step(overflow_optimizer, false);
   scaler.update();
 
-  EXPECT_TRUE(torch::allclose(finite_params[0].cpu(), torch::full({2}, 0.9f)));
+  EXPECT_TRUE(torch::equal(finite_params[0].cpu(), torch::ones({2})));
   EXPECT_TRUE(torch::equal(overflow_params[0].cpu(), torch::ones({2})));
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
 }

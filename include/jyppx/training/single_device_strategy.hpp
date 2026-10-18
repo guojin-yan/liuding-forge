@@ -16,7 +16,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace jyppx::training {
 
@@ -27,6 +29,8 @@ struct SingleDeviceStrategyOptions {
   Device device = Device(torch::kCPU);  ///< Required model and loss device.
   bool non_blocking_transfer =
       false;  ///< Requests eligible asynchronous module transfers.
+  std::size_t max_optimizers =
+      256;  ///< Maximum disjoint optimizers in one execution domain.
   std::size_t max_parameters =
       100'000;  ///< Maximum bound trainable parameter count.
   std::size_t max_metrics =
@@ -43,16 +47,17 @@ struct SingleDeviceStrategyOptions {
  * @brief Executes one model and optimizer on one validated LibTorch device.
  *
  * `prepare()` moves model parameters and buffers to the configured device, then
- * verifies that optimizer bindings exactly match named trainable parameters by
- * stable ID and tensor identity. Backward accepts only finite scalar losses on
- * that device. Optimizer calls must pass the exact prepared adapter; external
- * updates are detected before the next strategy step or checkpoint save.
+ * verifies that optimizer bindings are disjoint and together match every named
+ * trainable parameter by stable ID and tensor identity. Backward accepts only
+ * finite scalar losses on that device. Optimizer calls must pass an exact
+ * prepared adapter; external updates are detected before the next strategy
+ * step or checkpoint save.
  *
- * Current-only checkpoint schema 1 stores the prepared parameter topology,
- * backward/step counters, optimizer baseline count, and closed state. Saving is
- * allowed only after `prepare()` and outside an in-flight operation. Restoring
- * validates all bytes before replacing counters and never mutates model or
- * optimizer tensors.
+ * Current-only checkpoint schema 2 stores the prepared parameter topology,
+ * backward counter, every optimizer baseline/step cursor, and closed state.
+ * Saving is allowed only after `prepare()` and outside an in-flight operation.
+ * Restoring validates all bytes before replacing counters and never mutates
+ * model or optimizer tensors.
  *
  * Instances are single-owner and not internally synchronized. Model and
  * optimizer objects must outlive the prepared strategy.
@@ -87,7 +92,7 @@ class SingleDeviceStrategy final : public TrainingStrategy {
 
   /** @copydoc TrainingStrategy::prepare */
   void prepare(nn::ModelAdapter& model,
-               optim::OptimizerAdapter& optimizer) override;
+               std::span<optim::OptimizerAdapter* const> optimizers) override;
 
   /** @copydoc TrainingStrategy::backward */
   void backward(const Tensor& loss) override;
@@ -124,10 +129,12 @@ class SingleDeviceStrategy final : public TrainingStrategy {
   std::uint64_t completed_backward_calls() const noexcept;
 
   /**
-   * @brief Returns optimizer updates committed through this strategy.
+   * @brief Returns updates committed for one prepared optimizer.
+   * @param optimizer_id Stable identity supplied during `prepare()`.
    * @return Monotonic counter restored from checkpoint state.
+   * @throws InvalidArgument If the identity was not prepared.
    */
-  std::uint64_t completed_optimizer_steps() const noexcept;
+  std::uint64_t completed_optimizer_steps(std::string_view optimizer_id) const;
 
   /**
    * @brief Returns immutable strategy options.

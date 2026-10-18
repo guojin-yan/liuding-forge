@@ -303,6 +303,36 @@ Domain make_domain(std::size_t samples = 8, std::size_t batch_size = 2) {
   return domain;
 }
 
+/** @brief Owns two optimizers over disjoint linear-model parameters. */
+struct SplitOptimizers {
+  std::shared_ptr<jyppx::optim::SgdOptimizerAdapter>
+      bias;  ///< Optimizer owning only the bias parameter.
+  std::shared_ptr<jyppx::optim::SgdOptimizerAdapter>
+      weight;  ///< Optimizer owning only the weight parameter.
+};
+
+/** @brief Splits one linear model's trainable parameters by stable key. */
+SplitOptimizers make_split_optimizers(const Domain& domain) {
+  std::map<std::string, Tensor> parameters;
+  for (const auto& item : domain.model->state().named_parameters()) {
+    parameters.emplace(item.key(), item.value());
+  }
+  return {.bias = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+              "optimizer.bias",
+              std::vector<jyppx::optim::SgdParameterGroup>{
+                  {.group_id = "bias",
+                   .parameters = {{.parameter_id = "bias",
+                                   .parameter = parameters.at("bias")}},
+                   .options = {.learning_rate = 1e-4}}}),
+          .weight = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+              "optimizer.weight",
+              std::vector<jyppx::optim::SgdParameterGroup>{
+                  {.group_id = "weight",
+                   .parameters = {{.parameter_id = "weight",
+                                   .parameter = parameters.at("weight")}},
+                   .options = {.learning_rate = 1e-4}}})};
+}
+
 /** @brief Creates the complete current Trainer request for a domain. */
 jyppx::training::FitRequest make_request(
     const Domain& domain,
@@ -340,7 +370,9 @@ jyppx::training::FitRequest make_request(
         .sample_count = input.batch.sample_ids.size()};
   };
   return {.model = domain.model,
-          .optimizer = domain.optimizer,
+          .optimizers = {{.optimizer = domain.optimizer,
+                          .checkpoint = std::move(optimizer_checkpoint),
+                          .scheduler = std::move(scheduler)}},
           .training_data = domain.train,
           .training_batch_mapper = mapper,
           .training_target_mapper = target,
@@ -350,10 +382,8 @@ jyppx::training::FitRequest make_request(
           .validation_target_mapper = target,
           .validation_step = step,
           .strategy = std::move(strategy),
-          .scheduler = std::move(scheduler),
           .callbacks = std::move(callbacks),
           .model_checkpoint = std::move(model_checkpoint),
-          .optimizer_checkpoint = std::move(optimizer_checkpoint),
           .rng_checkpoint = std::move(rng_checkpoint),
           .checkpoint_action = std::move(checkpoint_action)};
 }
@@ -389,6 +419,78 @@ TEST(TrainerTest, FitMapPipelinePublishesOrderedEventsAndMetrics) {
   EXPECT_EQ(dispatcher->last_event_index(), 58U);
   trainer.close();
   EXPECT_EQ(trainer.phase(), jyppx::training::TrainerPhase::closed);
+}
+
+TEST(TrainerTest, CommitsDisjointOptimizersAsOneLogicalStep) {
+  auto domain = make_domain();
+  auto optimizers = make_split_optimizers(domain);
+  auto request = make_request(domain);
+  request.optimizers = {
+      {.optimizer = optimizers.weight,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.weight)},
+      {.optimizer = optimizers.bias,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.bias)}};
+  const auto strategy =
+      std::dynamic_pointer_cast<jyppx::training::SingleDeviceStrategy>(
+          request.strategy);
+  jyppx::training::Trainer trainer(options(1));
+  trainer.prepare(std::move(request));
+  const auto result = trainer.fit();
+
+  EXPECT_EQ(result.global_step, 4U);
+  EXPECT_EQ(optimizers.bias->completed_steps(), result.global_step);
+  EXPECT_EQ(optimizers.weight->completed_steps(), result.global_step);
+  ASSERT_TRUE(strategy);
+  EXPECT_EQ(strategy->completed_optimizer_steps("optimizer.bias"), 4U);
+  EXPECT_EQ(strategy->completed_optimizer_steps("optimizer.weight"), 4U);
+  const auto descriptor = trainer.checkpoint_coordinator().describe();
+  EXPECT_TRUE(
+      std::any_of(descriptor.participants.begin(),
+                  descriptor.participants.end(), [](const auto& participant) {
+                    return participant.participant_id == "optimizer.bias";
+                  }));
+  EXPECT_TRUE(
+      std::any_of(descriptor.participants.begin(),
+                  descriptor.participants.end(), [](const auto& participant) {
+                    return participant.participant_id == "optimizer.weight";
+                  }));
+}
+
+TEST(TrainerTest, TracksIndependentSchedulerEventCursors) {
+  auto domain = make_domain();
+  auto optimizers = make_split_optimizers(domain);
+  auto epoch_scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
+      optimizers.weight,
+      jyppx::optim::StepLrSchedulerOptions{
+          .scheduler_id = "scheduler.weight", .step_size = 1, .gamma = 0.5});
+  auto metric_scheduler =
+      std::make_shared<jyppx::optim::ReduceLrOnPlateauScheduler>(
+          optimizers.bias,
+          jyppx::optim::ReduceLrOnPlateauSchedulerOptions{
+              .scheduler_id = "scheduler.bias", .patience = 0});
+  auto request = make_request(domain);
+  request.optimizers = {
+      {.optimizer = optimizers.weight,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.weight),
+       .scheduler = std::make_shared<jyppx::training::SchedulerAdapter>(
+           epoch_scheduler)},
+      {.optimizer = optimizers.bias,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.bias),
+       .scheduler = std::make_shared<jyppx::training::SchedulerAdapter>(
+           metric_scheduler)}};
+  jyppx::training::Trainer trainer(options(2));
+  trainer.prepare(std::move(request));
+  EXPECT_EQ(trainer.fit().completed_epochs, 2U);
+  EXPECT_EQ(epoch_scheduler->completed_steps(), 2U);
+  EXPECT_EQ(metric_scheduler->completed_steps(), 2U);
 }
 
 TEST(TrainerTest, IterablePipelineCommitsFiniteBatches) {
@@ -462,13 +564,23 @@ TEST(TrainerTest, FullPrecisionRejectsGradientScalerState) {
   EXPECT_THROW(trainer.prepare(std::move(request)), jyppx::InvalidArgument);
 }
 
-TEST(TrainerCudaTest, Float16PrecisionOwnsScalerAndCheckpointState) {
+TEST(TrainerCudaTest, Float16PrecisionOwnsMultiOptimizerScalerCycle) {
   if (!jyppx::cuda_is_available()) {
     GTEST_SKIP() << "CUDA not available";
   }
   auto domain = make_domain();
+  auto optimizers = make_split_optimizers(domain);
   auto request =
       make_request(domain, {}, {}, {}, jyppx::Device(torch::kCUDA, 0), true);
+  request.optimizers = {
+      {.optimizer = optimizers.weight,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.weight)},
+      {.optimizer = optimizers.bias,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.bias)}};
   auto scaler = std::make_shared<jyppx::training::amp::GradScaler>(
       jyppx::training::amp::GradScalerOptions{
           .init_scale = 8.0,
@@ -489,7 +601,8 @@ TEST(TrainerCudaTest, Float16PrecisionOwnsScalerAndCheckpointState) {
   trainer.prepare(std::move(request));
   const auto result = trainer.fit();
   EXPECT_EQ(result.global_step, 4U);
-  EXPECT_EQ(domain.optimizer->completed_steps(), 4U);
+  EXPECT_EQ(optimizers.bias->completed_steps(), 4U);
+  EXPECT_EQ(optimizers.weight->completed_steps(), 4U);
   EXPECT_DOUBLE_EQ(scaler->get_scale(), 128.0);
   EXPECT_TRUE(scaler->checkpoint_ready());
   const auto descriptor = trainer.checkpoint_coordinator().describe();
@@ -574,8 +687,18 @@ TEST(TrainerTest, CallbackStopRequestsSafeBoundary) {
 
 TEST(TrainerTest, CheckpointResumeMatchesUninterruptedMidEpoch) {
   auto source_domain = make_domain(8, 2);
+  auto source_optimizers = make_split_optimizers(source_domain);
   auto checkpoint = std::make_shared<MemoryCheckpoint>();
   auto request = make_request(source_domain);
+  request.optimizers = {
+      {.optimizer = source_optimizers.weight,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               source_optimizers.weight)},
+      {.optimizer = source_optimizers.bias,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               source_optimizers.bias)}};
   auto callback = std::make_shared<RecordingCallback>(
       "callback.checkpoint", jyppx::training::CallbackEventKind::batch_finished,
       std::vector<jyppx::training::CallbackCommandKind>{
@@ -602,6 +725,7 @@ TEST(TrainerTest, CheckpointResumeMatchesUninterruptedMidEpoch) {
   ASSERT_EQ(expected.status, jyppx::training::FitStatus::completed);
 
   auto restored_domain = make_domain(8, 2);
+  auto restored_optimizers = make_split_optimizers(restored_domain);
   jyppx::training::Trainer restored(options(2));
   auto restored_callback = std::make_shared<RecordingCallback>(
       "callback.checkpoint", jyppx::training::CallbackEventKind::batch_finished,
@@ -611,11 +735,23 @@ TEST(TrainerTest, CheckpointResumeMatchesUninterruptedMidEpoch) {
       std::make_shared<jyppx::training::CallbackDispatcher>(
           std::vector<std::shared_ptr<jyppx::training::CallbackHandler>>{
               restored_callback});
-  restored.prepare(make_request(restored_domain, restored_dispatcher));
+  auto restored_request = make_request(restored_domain, restored_dispatcher);
+  restored_request.optimizers = {
+      {.optimizer = restored_optimizers.weight,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               restored_optimizers.weight)},
+      {.optimizer = restored_optimizers.bias,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               restored_optimizers.bias)}};
+  restored.prepare(std::move(restored_request));
   restored.restore_checkpoint(*checkpoint);
   const auto actual = restored.fit();
   EXPECT_EQ(actual.global_step, expected.global_step);
   EXPECT_EQ(actual.completed_epochs, expected.completed_epochs);
+  EXPECT_EQ(restored_optimizers.bias->completed_steps(), actual.global_step);
+  EXPECT_EQ(restored_optimizers.weight->completed_steps(), actual.global_step);
   EXPECT_TRUE(torch::allclose(restored_domain.model->state().parameters().at(0),
                               source_domain.model->state().parameters().at(0),
                               0.0, 0.0));
@@ -651,6 +787,57 @@ TEST(TrainerTest,
   jyppx::training::Trainer shared_cursor(options(1));
   EXPECT_THROW(shared_cursor.prepare(std::move(request)),
                jyppx::InvalidArgument);
+}
+
+TEST(TrainerTest, PreparationRejectsDuplicateOptimizerIdentities) {
+  auto domain = make_domain();
+  auto optimizers = make_split_optimizers(domain);
+  const auto bias_bindings = optimizers.bias->parameter_bindings();
+  auto duplicate_identity = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+      "optimizer.weight",
+      std::vector<jyppx::optim::SgdParameterGroup>{
+          {.group_id = "bias",
+           .parameters = std::vector<jyppx::optim::OptimizerParameterBinding>(
+               bias_bindings.begin(), bias_bindings.end()),
+           .options = {.learning_rate = 1e-4}}});
+  auto request = make_request(domain);
+  request.optimizers = {
+      {.optimizer = optimizers.weight,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.weight)},
+      {.optimizer = duplicate_identity,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               duplicate_identity)}};
+  jyppx::training::Trainer trainer(options(1));
+
+  EXPECT_THROW(trainer.prepare(std::move(request)), jyppx::InvalidArgument);
+}
+
+TEST(TrainerTest, PreparationRejectsSchedulerForDifferentOptimizer) {
+  auto domain = make_domain();
+  auto optimizers = make_split_optimizers(domain);
+  auto mismatched_scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
+      optimizers.bias, jyppx::optim::StepLrSchedulerOptions{
+                           .scheduler_id = "scheduler.mismatched",
+                           .step_size = 1,
+                           .gamma = 0.5});
+  auto request = make_request(domain);
+  request.optimizers = {
+      {.optimizer = optimizers.weight,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.weight),
+       .scheduler = std::make_shared<jyppx::training::SchedulerAdapter>(
+           mismatched_scheduler)},
+      {.optimizer = optimizers.bias,
+       .checkpoint =
+           std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+               optimizers.bias)}};
+  jyppx::training::Trainer trainer(options(1));
+
+  EXPECT_THROW(trainer.prepare(std::move(request)), jyppx::CompatibilityError);
 }
 
 }  // namespace

@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <map>
+#include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -113,14 +114,15 @@ class TrainingStrategy : public CheckpointParticipant {
   virtual const StrategyDescriptor& descriptor() const noexcept = 0;
 
   /**
-   * @brief Places and validates a model/optimizer execution domain.
+   * @brief Places and validates a model/multi-optimizer execution domain.
    * @param model Model state and invocation adapter retained by the caller.
-   * @param optimizer Optimizer bound to exactly the model's trainable
-   * parameters.
+   * @param optimizers Nonempty borrowed adapters whose disjoint bindings
+   * together cover exactly the model's trainable parameters.
    * @throws Error If placement or topology validation fails.
    */
-  virtual void prepare(nn::ModelAdapter& model,
-                       optim::OptimizerAdapter& optimizer) = 0;
+  virtual void prepare(
+      nn::ModelAdapter& model,
+      std::span<optim::OptimizerAdapter* const> optimizers) = 0;
 
   /**
    * @brief Runs reverse-mode differentiation for one scalar loss.

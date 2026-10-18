@@ -1,12 +1,11 @@
 # Tutorial 3: Optimizers and Schedulers
 
-JYPPX provides a shrinking legacy hand-written optimizer family alongside a
-descriptor-first migration path backed by LibTorch. SGD, Adam, AdamW, RMSprop,
-and Adagrad have crossed that delegated boundary. NAdam and Adadelta have
-crossed the same descriptor, checkpoint, and quality gates with native kernels
-because the supported LibTorch C++ candidates expose neither optimizer.
-Algorithms that have not crossed those gates remain explicitly marked as
-legacy.
+JYPPX provides a current-only descriptor-first optimizer family. SGD, Adam,
+AdamW, RMSprop, and Adagrad delegate their update kernels to LibTorch. NAdam,
+Adadelta, and LAMB use audited native kernels because the supported LibTorch
+C++ surface does not provide equivalent public implementations. Every current
+algorithm has stable identities, typed options, bounded exact checkpoint state,
+and the same Trainer-facing adapter contract; no legacy optimizer API is kept.
 
 ## Choosing an optimizer
 
@@ -19,6 +18,7 @@ legacy.
 | `Adagrad` | adaptive decay for dense feature updates | `lr_decay`, `initial_accumulator_value` |
 | `NAdam` | Adam-style adaptation with Nesterov momentum | `momentum_decay`, coupled or decoupled `weight_decay`, `maximize` |
 | `Adadelta` | adaptive updates without a manually scaled gradient history | `rho`, `epsilon`, coupled `weight_decay`, `maximize` |
+| `LAMB` | large-batch training with layer-wise trust ratios | `beta1`, `beta2`, `eps`, `weight_decay`, `trust_clip` |
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
@@ -42,14 +42,18 @@ participant; no native optimizer or legacy map state is public.
 
 ### Checkpointing an optimizer
 
-Current Trainer accepts an `OptimizerAdapter` plus an explicit checkpoint
-participant. Register the algorithm's matching participant in
-`FitRequest::optimizer_checkpoint`:
+Current Trainer accepts one or more `OptimizerExecutionBinding` values. Each
+binding pairs an `OptimizerAdapter` with its matching checkpoint participant
+and optional scheduler:
 
 ```cpp
 auto optimizer_state =
     std::make_shared<jyppx::optim::AdamWOptimizerCheckpointParticipant>(
         optimizer);
+
+request.optimizers.push_back({.optimizer = optimizer,
+                              .checkpoint = optimizer_state,
+                              .scheduler = scheduler_adapter});
 ```
 
 The participant stores stable group and parameter identities, immutable
@@ -82,6 +86,10 @@ Adadelta uses `AdadeltaOptimizerCheckpointParticipant`. It stores each
 initialized parameter's squared-gradient average, accumulated-delta average,
 and independent update step. Fresh parameters retain lazy empty state, and
 missing gradients do not advance their accumulators.
+
+LAMB uses `LambOptimizerCheckpointParticipant`. It stores first and second
+moments, independent parameter steps, stable group topology, and immutable
+trust-ratio options required for exact continuation.
 
 ## Epoch-based schedulers
 
@@ -138,8 +146,9 @@ checkpoint_registry.register_participant(participant);
 
 Restore requires the same scheduler type, typed options, base rates, stable
 optimizer ID and ordered group IDs. Wrap the scheduler in `SchedulerAdapter`
-and place it in `FitRequest::scheduler`; Trainer then owns the only ordered
-batch, epoch or metric event stream and checkpoints the same adapter.
+and place it in the same `OptimizerExecutionBinding` as its optimizer. Trainer
+then owns an independent ordered batch, epoch or metric event cursor for every
+scheduler and checkpoints each adapter.
 
 ## Metric-driven scheduling
 

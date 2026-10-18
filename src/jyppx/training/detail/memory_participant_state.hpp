@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <new>
 #include <span>
@@ -81,7 +82,7 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
               .actual = std::to_string(data.size()),
               .hint = "Increase the declared field bound deliberately."});
     }
-    if (blobs_.contains(std::string(name))) {
+    if (blobs_.contains(name)) {
       throw SerializationError(
           "Participant wrote a rollback field more than once",
           ErrorDetails{.component = component_,
@@ -113,7 +114,7 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
    * @return True when the snapshot owns bytes for the requested field.
    */
   bool contains(std::string_view name) const override {
-    return blobs_.contains(std::string(name));
+    return blobs_.contains(name);
   }
 
   /**
@@ -126,7 +127,7 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
    */
   std::span<const std::byte> read_blob(std::string_view name,
                                        std::uint64_t max_bytes) const override {
-    const auto blob = blobs_.find(std::string(name));
+    const auto blob = blobs_.find(name);
     if (blob == blobs_.end()) {
       throw SerializationError(
           "Rollback snapshot field is missing",
@@ -175,7 +176,8 @@ class MemoryParticipantState final : public StateWriter, public StateReader {
       manifest_;           ///< Immutable field schema and participant identity.
   std::string component_;  ///< Stable component attached to snapshot errors.
   std::string operation_prefix_;  ///< Owning transaction operation prefix.
-  std::map<std::string, std::vector<std::byte>> blobs_;  ///< Owned field bytes.
+  std::map<std::string, std::vector<std::byte>, std::less<>>
+      blobs_;  ///< Owned fields with allocation-free heterogeneous lookup.
 };
 
 }  // namespace jyppx::training::detail

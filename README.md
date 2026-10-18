@@ -78,8 +78,8 @@ provide mappers plus a `StepFunction`. See
 [`examples/basic_trainer.cpp`](examples/basic_trainer.cpp) for a complete
 linear-regression program.
 
-`Trainer::prepare()` registers model, optimizer, data, strategy, RNG,
-scheduler, callback and task state as one checkpoint domain. `fit()` then
+`Trainer::prepare()` registers model, every optimizer/scheduler binding, data,
+strategy, RNG, callback and task state as one checkpoint domain. `fit()` then
 returns a `FitResult` containing committed epoch/step counters and final metric
 maps. `save_checkpoint()` and `restore_checkpoint()` use storage-neutral
 transaction interfaces; file/container formats belong to interop adapters.

@@ -340,7 +340,9 @@ int main() {
                                  .parameters = std::move(strategy_bindings),
                                  .options = {.learning_rate = 0.0}}});
   jyppx::training::SingleDeviceStrategy installed_strategy;
-  installed_strategy.prepare(adapter, *strategy_optimizer);
+  jyppx::optim::OptimizerAdapter* strategy_optimizers[] = {
+      strategy_optimizer.get()};
+  installed_strategy.prepare(adapter, strategy_optimizers);
   installed_strategy.zero_grad(*strategy_optimizer);
   const auto strategy_loss =
       adapter.invoke({.positional = {torch::ones({1, 2})}})

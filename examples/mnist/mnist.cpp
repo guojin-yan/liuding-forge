@@ -187,7 +187,10 @@ int main(int argc, char** argv) {
                                       .max_epochs = epochs});
     trainer.prepare(
         {.model = model,
-         .optimizer = optimizer,
+         .optimizers = {{.optimizer = optimizer,
+                         .checkpoint = std::make_shared<
+                             jyppx::optim::SgdOptimizerCheckpointParticipant>(
+                             optimizer)}},
          .training_data = train,
          .training_batch_mapper = mapper,
          .training_target_mapper = target,
@@ -201,9 +204,6 @@ int main(int argc, char** argv) {
                  .strategy_id = "strategy.mnist", .device = device}),
          .model_checkpoint =
              std::make_shared<jyppx::nn::ModelCheckpointParticipant>(*model),
-         .optimizer_checkpoint =
-             std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
-                 optimizer),
          .rng_checkpoint =
              std::make_shared<jyppx::core::RngCheckpointParticipant>()});
     const auto result = trainer.fit();

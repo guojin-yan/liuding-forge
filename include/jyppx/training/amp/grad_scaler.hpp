@@ -62,11 +62,12 @@ struct GradScalerState {
 /**
  * @brief Coordinates dynamic loss scaling across one or more optimizers.
  *
- * Each optimizer is unscaled and receives an explicit overflow decision. Its
- * owning strategy applies or skips the update and reports that result through
- * `mark_step()`. One call to `update()` then applies the global scale decision
- * for the complete iteration. Checkpoint state is available only after
- * construction or a completed multi-optimizer cycle.
+ * Every optimizer in one logical update must be unscaled before the caller
+ * asks for the aggregate `cycle_allowed()` decision. If any participant has a
+ * non-finite gradient, all optimizer updates in that cycle are skipped. The
+ * owning strategy reports each identical group result through `mark_step()`,
+ * then one `update()` applies the scale transition. Checkpoint state is
+ * available only after construction or a completed multi-optimizer cycle.
  *
  * This class is not thread-safe. The caller must serialize access with
  * optimizer mutation and checkpoint operations.
@@ -107,11 +108,21 @@ class GradScaler {
       const std::shared_ptr<optim::OptimizerAdapter>& optimizer) const;
 
   /**
+   * @brief Reports the aggregate decision for the active optimizer cycle.
+   * @return `false` when any optimizer observed a non-finite gradient.
+   * @throws std::logic_error If no optimizer has been unscaled or an outcome
+   * was already reported.
+   * @note Call only after every optimizer in the logical cycle is unscaled.
+   */
+  bool cycle_allowed() const;
+
+  /**
    * @brief Commits the strategy-owned result for one optimizer.
    * @param optimizer Non-null optimizer passed to `unscale()`.
-   * @param applied Whether the strategy actually applied the update.
+   * @param applied Whether every optimizer in the cycle applied its update.
    * @throws std::invalid_argument If `optimizer` is null.
-   * @throws std::logic_error If the optimizer is not in the active cycle.
+   * @throws std::logic_error If the optimizer is not in the active cycle or
+   * the result conflicts with the aggregate overflow decision.
    */
   void mark_step(const std::shared_ptr<optim::OptimizerAdapter>& optimizer,
                  bool applied);
@@ -185,6 +196,7 @@ class GradScaler {
     OptimizerStage stage =
         OptimizerStage::unscaled;  ///< Current per-optimizer cycle stage.
     bool found_inf = false;  ///< Whether this optimizer had inf or NaN data.
+    bool applied = false;    ///< Whether the group-approved update was applied.
   };
 
   GradScalerOptions options_;  ///< Immutable behavior and checkpoint identity.
