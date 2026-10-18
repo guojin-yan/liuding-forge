@@ -210,6 +210,24 @@ TEST_F(TransformsTest, ExecutesTensorNativePipelineOnCudaWhenAvailable) {
   EXPECT_TRUE(torch::isfinite(result).all().item<bool>());
 }
 
+TEST_F(TransformsTest, ColorJitterExecutesEveryEnabledAdjustment) {
+  const auto rgb = torch::linspace(
+                       0.0, 1.0, 48,
+                       torch::TensorOptions().dtype(torch::kFloat32))
+                       .view({3, 4, 4});
+  const ColorJitter jitter(/*brightness=*/0.2, /*contrast=*/0.2,
+                           /*saturation=*/0.2, /*hue=*/0.1);
+  torch::manual_seed(2026);
+
+  const auto result = jitter(rgb);
+
+  EXPECT_EQ(result.sizes(), rgb.sizes());
+  EXPECT_EQ(result.scalar_type(), torch::kFloat32);
+  EXPECT_TRUE(torch::isfinite(result).all().item<bool>());
+  EXPECT_FALSE(torch::equal(result, rgb));
+  EXPECT_EQ(jitter.name(), "ColorJitter");
+}
+
 TEST_F(TransformsTest, RandomChoiceSelectsConfiguredTransforms) {
   // Two transforms produce distinct constants; repeated draws over many
   // calls must only ever yield those two outputs.
