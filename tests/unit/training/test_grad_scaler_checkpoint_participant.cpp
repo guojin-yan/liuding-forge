@@ -75,6 +75,8 @@ class MemoryStateStore final : public jyppx::StateWriter,
     return blobs_.at(std::string(name));
   }
 
+  void erase_blob(std::string_view name) { blobs_.erase(std::string(name)); }
+
  private:
   jyppx::StateManifest manifest_;  ///< Descriptor enforced by this test store.
   std::map<std::string, std::vector<std::byte>>
@@ -179,6 +181,67 @@ TEST(GradScalerCheckpointParticipantTest,
   const auto after = scaler->capture_state();
   EXPECT_DOUBLE_EQ(after.scale, before.scale);
   EXPECT_EQ(after.growth_tracker, before.growth_tracker);
+}
+
+TEST(GradScalerCheckpointParticipantTest,
+     RejectsUnknownPolicyAndMissingRequiredFieldWithoutMutation) {
+  auto scaler = std::make_shared<GradScaler>(
+      jyppx::training::amp::GradScalerOptions{.init_scale = 4.0});
+  GradScalerCheckpointParticipant participant(scaler);
+  auto store = save_participant(participant);
+  const auto before = scaler->capture_state();
+
+  EXPECT_THROW(
+      participant.load_state(store, static_cast<jyppx::RestorePolicy>(255)),
+      jyppx::CompatibilityError);
+  EXPECT_DOUBLE_EQ(scaler->capture_state().scale, before.scale);
+
+  store.erase_blob("control");
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  const auto after = scaler->capture_state();
+  EXPECT_DOUBLE_EQ(after.scale, before.scale);
+  EXPECT_EQ(after.growth_tracker, before.growth_tracker);
+}
+
+TEST(GradScalerCheckpointParticipantTest,
+     RejectsCorruptTopologyAndInvalidControlHeader) {
+  auto scaler = std::make_shared<GradScaler>(
+      jyppx::training::amp::GradScalerOptions{.init_scale = 4.0});
+  GradScalerCheckpointParticipant participant(scaler);
+  auto topology_store = save_participant(participant);
+  topology_store.mutable_blob("topology").front() ^= std::byte{0x01};
+  EXPECT_THROW(
+      participant.load_state(topology_store, jyppx::RestorePolicy::exact_only),
+      jyppx::CompatibilityError);
+
+  auto control_store = save_participant(participant);
+  control_store.mutable_blob("control").front() ^= std::byte{0x01};
+  EXPECT_THROW(
+      participant.load_state(control_store, jyppx::RestorePolicy::exact_only),
+      jyppx::SerializationError);
+}
+
+TEST(GradScalerCheckpointParticipantTest, RejectsInvalidResourceLimits) {
+  EXPECT_THROW(
+      GradScalerCheckpointParticipant(
+          std::make_shared<GradScaler>(),
+          jyppx::training::amp::GradScalerCheckpointOptions{
+              .max_control_bytes = 23}),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(
+      GradScalerCheckpointParticipant(
+          std::make_shared<GradScaler>(),
+          jyppx::training::amp::GradScalerCheckpointOptions{
+              .max_total_bytes = 1}),
+      jyppx::ResourceExhausted);
+  EXPECT_THROW(
+      GradScalerCheckpointParticipant(
+          std::make_shared<GradScaler>(
+              jyppx::training::amp::GradScalerOptions{.scaler_id = "long"}),
+          jyppx::training::amp::GradScalerCheckpointOptions{
+              .max_identifier_bytes = 3}),
+      jyppx::ResourceExhausted);
 }
 
 TEST(GradScalerCheckpointParticipantTest, RejectsDifferentFrozenOptions) {

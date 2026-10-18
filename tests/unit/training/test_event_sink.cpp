@@ -73,6 +73,10 @@ class MemoryStateStore final : public jyppx::StateWriter,
     data.at(data.size() - 1U - trailing_offset) = value;
   }
 
+  std::vector<std::byte>& mutable_blob(std::string_view name) {
+    return blobs_.at(std::string(name));
+  }
+
  private:
   jyppx::StateManifest manifest_;  ///< Participant-owned field contract.
   std::map<std::string, std::vector<std::byte>>
@@ -302,6 +306,50 @@ TEST(EventOutboxTest, CorruptRestoreLeavesLiveQueueUnchanged) {
                jyppx::Error);
   EXPECT_EQ(target.pending_events(), 1U);
   EXPECT_EQ(target.last_enqueued_event_index(), 1U);
+}
+
+TEST(EventOutboxTest, RejectsInvalidControlFlagsWithoutMutation) {
+  auto source_sink = std::make_shared<RecordingSink>("sink.recording");
+  jyppx::training::EventOutbox source({source_sink});
+  source.enqueue(run_started(), {});
+  MemoryStateStore state(source.describe_state());
+  source.save_state(state);
+
+  constexpr std::string_view kControlMagic =
+      "JYPPX-EVENT-OUTBOX-CONTROL-V1";
+  auto& control = state.mutable_blob("control");
+  control.at(sizeof(std::uint64_t) + kControlMagic.size()) = std::byte{2};
+
+  auto target_sink = std::make_shared<RecordingSink>("sink.recording");
+  jyppx::training::EventOutbox target({target_sink});
+  target.enqueue(run_started(), {});
+  EXPECT_THROW(target.load_state(state, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  EXPECT_EQ(target.pending_events(), 1U);
+  EXPECT_EQ(target.last_enqueued_event_index(), 1U);
+  EXPECT_EQ(target.last_delivered_event_index(), 0U);
+}
+
+TEST(EventOutboxTest, RejectsTruncatedControlAndUnknownPolicy) {
+  auto sink = std::make_shared<RecordingSink>("sink.recording");
+  jyppx::training::EventOutbox source({sink});
+  source.enqueue(run_started(), {});
+  MemoryStateStore state(source.describe_state());
+  source.save_state(state);
+
+  auto target_sink = std::make_shared<RecordingSink>("sink.recording");
+  jyppx::training::EventOutbox target({target_sink});
+  EXPECT_THROW(
+      target.load_state(state, static_cast<jyppx::RestorePolicy>(255)),
+      jyppx::CompatibilityError);
+  EXPECT_EQ(target.pending_events(), 0U);
+
+  auto& control = state.mutable_blob("control");
+  control.pop_back();
+  EXPECT_THROW(target.load_state(state, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  EXPECT_EQ(target.pending_events(), 0U);
+  EXPECT_EQ(target.last_enqueued_event_index(), 0U);
 }
 
 TEST(EventOutboxTest, CancellationAndCloseHaveExplicitBoundaries) {
