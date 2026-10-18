@@ -50,8 +50,10 @@
             "branch_coverage": "15097/38754 (38.96%); target policy remains frozen",
             "training_target_coverage": "line 4520/5603 (80.67%); function 510/543 (93.92%); branch 4164/10442 (39.88%)",
             "coverage_sampling": "two full 521-test samples plus deterministic iterable watermark boundary at a20d2ec; current 527-test sample at 51f80a2 passes the unchanged policy",
-            "tsan": "31/31 discovered targeted tests at 2ba2fa4; no race/deadlock/sanitizer diagnostics",
-            "fuzz": "3 targets x 10000 libFuzzer iterations at 2ba2fa4; no ASan/UBSan diagnostics",
+            "tsan": "31/31 discovered targeted tests at 569c5c9; no race/deadlock/sanitizer diagnostics",
+            "fuzz": "3 targets x 10000 libFuzzer iterations at 569c5c9; no ASan/UBSan diagnostics",
+            "tsan_fuzz_metadata": "dirty=false; GCC 11.4 TSan and Clang 14 ASan+UBSan; setarch-no-randomize",
+            "repeated_sampling_audit": "benchmark/tool/input/compiler/LibTorch/environment key unchanged; record 17 Windows 1 warmup + 5 samples remains valid",
             "coverage_policy": "coverage-policy.json at a20d2ec; seven target owners; denominator and covered-count regression rejection"
           },
           "commit": "51f80a2"
