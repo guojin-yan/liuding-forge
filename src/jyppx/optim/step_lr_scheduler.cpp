@@ -1258,12 +1258,13 @@ detail::SchedulerTransition StepLrScheduler::preview_step_impl(
       }
     }
   }
-  return {.state = {.completed_steps = next_step, .children = {}},
-          .learning_rates = std::move(candidate)};
+  return {
+      .state = {.completed_steps = next_step, .control = {}, .children = {}},
+      .learning_rates = std::move(candidate)};
 }
 
 detail::SchedulerState StepLrScheduler::capture_state_impl() const {
-  return {.completed_steps = completed_steps_, .children = {}};
+  return {.completed_steps = completed_steps_, .control = {}, .children = {}};
 }
 
 std::uint64_t StepLrScheduler::completed_steps_impl() const noexcept {

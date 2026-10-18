@@ -518,10 +518,11 @@ void SingleDeviceStrategy::prepare(
                     "Bind each optimizer to a disjoint model subset.");
     }
     parameter_count += bindings.size();
-    Impl::OptimizerState state{
-        .optimizer = optimizer,
-        .optimizer_id = optimizer_id,
-        .steps_at_prepare = optimizer->completed_steps()};
+    Impl::OptimizerState state{.optimizer = optimizer,
+                               .optimizer_id = optimizer_id,
+                               .parameters = {},
+                               .steps_at_prepare = optimizer->completed_steps(),
+                               .completed_steps = 0};
     state.parameters.reserve(bindings.size());
     for (const auto& binding : bindings) {
       if (!is_identifier(binding.parameter_id) ||

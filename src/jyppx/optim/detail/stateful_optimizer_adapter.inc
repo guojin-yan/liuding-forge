@@ -27,7 +27,27 @@
 #include <vector>
 
 namespace jyppx::optim {
+
+namespace stateful_optimizer_detail {
+
+/** @brief Source-private flattened parameter descriptor shared by adapters. */
+struct StatefulOptimizerFlatParameter {
+  std::size_t group_index;    ///< Owning stable group position.
+  std::string parameter_id;   ///< Stable identity independent of pointers.
+  Tensor parameter;           ///< Model-owned tensor handle used by LibTorch.
+  std::uint8_t dtype_code;    ///< Versioned scalar-type encoding.
+  std::uint8_t device_code;   ///< Versioned CPU or CUDA encoding.
+  std::int32_t device_index;  ///< Concrete device ordinal, or -1 for CPU.
+  std::vector<std::int64_t> sizes;    ///< Immutable construction-time shape.
+  std::vector<std::int64_t> strides;  ///< Immutable construction-time strides.
+  std::uint64_t byte_count;  ///< Logical dense bytes in one state tensor.
+};
+
+}  // namespace stateful_optimizer_detail
+
 namespace {
+
+using FlatParameter = stateful_optimizer_detail::StatefulOptimizerFlatParameter;
 
 #if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM) ||    \
     defined(JYPPX_STATEFUL_OPTIMIZER_ADADELTA) || \
@@ -81,18 +101,6 @@ constexpr std::array<std::byte, 8> kControlMagic = {
     std::byte{'A'},
     std::byte{JYPPX_STATEFUL_OPTIMIZER_MAGIC_TAG},
     std::byte{'C'}};
-
-struct FlatParameter {
-  std::size_t group_index;    ///< Owning stable group position.
-  std::string parameter_id;   ///< Stable identity independent of pointers.
-  Tensor parameter;           ///< Model-owned tensor handle used by LibTorch.
-  std::uint8_t dtype_code;    ///< Versioned scalar-type encoding.
-  std::uint8_t device_code;   ///< Versioned CPU or CUDA encoding.
-  std::int32_t device_index;  ///< Concrete device ordinal, or -1 for CPU.
-  std::vector<std::int64_t> sizes;    ///< Immutable construction-time shape.
-  std::vector<std::int64_t> strides;  ///< Immutable construction-time strides.
-  std::uint64_t byte_count;  ///< Logical dense bytes in one state tensor.
-};
 
 struct OptimizerSnapshot {
   std::vector<std::byte> topology;   ///< Immutable descriptor bytes.
@@ -549,9 +557,8 @@ NativeStateMap make_fresh_native_state(
   return replacement;
 }
 
-void validate_fresh_native_state(
-    const std::vector<FlatParameter>& parameters,
-    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER& native) {
+void validate_fresh_native_state(const std::vector<FlatParameter>& parameters,
+                                 const torch::optim::Optimizer& native) {
   if (native.state().size() != parameters.size()) {
     throw_invalid("native.state_count", std::to_string(parameters.size()),
                   std::to_string(native.state().size()),
@@ -1296,7 +1303,7 @@ void validate_current_topology(
 std::vector<double> inspect_native_groups(
     const std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>& groups,
     const std::vector<FlatParameter>& parameters,
-    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER& native) {
+    const torch::optim::Optimizer& native) {
   const auto& native_groups = native.param_groups();
   if (native_groups.size() != groups.size()) {
     throw_invalid("native.group_count", std::to_string(groups.size()),
@@ -1434,8 +1441,7 @@ void validate_step_gradients(const std::vector<FlatParameter>& parameters) {
 OptimizerSnapshot inspect_optimizer(
     const std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>& groups,
     const std::vector<FlatParameter>& parameters,
-    const JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER& native,
-    std::uint64_t completed_steps,
+    const torch::optim::Optimizer& native, std::uint64_t completed_steps,
     const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits,
     std::string participant_id) {
   validate_current_topology(groups, parameters, limits);
@@ -1638,7 +1644,7 @@ struct JYPPX_STATEFUL_OPTIMIZER_ADAPTER::Impl {
   std::vector<JYPPX_STATEFUL_OPTIMIZER_GROUP>
       groups;                             ///< Stable public descriptor.
   std::vector<FlatParameter> parameters;  ///< Flattened checkpoint order.
-  std::unique_ptr<JYPPX_STATEFUL_OPTIMIZER_NATIVE_OPTIMIZER>
+  std::unique_ptr<torch::optim::Optimizer>
       native;                         ///< Internal algorithm owner.
   std::uint64_t completed_steps = 0;  ///< Successful native step count.
 };

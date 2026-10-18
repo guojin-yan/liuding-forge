@@ -202,13 +202,13 @@ detail::SchedulerTransition LinearLrScheduler::preview_step_impl(
                     options_.total_iters, completed_steps_);
   const double next_factor = linear_factor(
       options_.start_factor, options_.end_factor, options_.total_iters, next);
-  return {.state = {.completed_steps = next, .children = {}},
+  return {.state = {.completed_steps = next, .control = {}, .children = {}},
           .learning_rates = scale_rates(learning_rates, previous_factor,
                                         next_factor, kLinearTypeId)};
 }
 
 detail::SchedulerState LinearLrScheduler::capture_state_impl() const {
-  return {.completed_steps = completed_steps_, .children = {}};
+  return {.completed_steps = completed_steps_, .control = {}, .children = {}};
 }
 
 std::uint64_t LinearLrScheduler::completed_steps_impl() const noexcept {
@@ -255,13 +255,13 @@ detail::SchedulerTransition ConstantLrScheduler::preview_step_impl(
       completed_steps_ <= options_.total_iters ? options_.factor : 1.0;
   const double next_factor =
       next <= options_.total_iters ? options_.factor : 1.0;
-  return {.state = {.completed_steps = next, .children = {}},
+  return {.state = {.completed_steps = next, .control = {}, .children = {}},
           .learning_rates = scale_rates(learning_rates, previous_factor,
                                         next_factor, kConstantTypeId)};
 }
 
 detail::SchedulerState ConstantLrScheduler::capture_state_impl() const {
-  return {.completed_steps = completed_steps_, .children = {}};
+  return {.completed_steps = completed_steps_, .control = {}, .children = {}};
 }
 
 std::uint64_t ConstantLrScheduler::completed_steps_impl() const noexcept {
@@ -305,13 +305,13 @@ detail::SchedulerTransition PolynomialLrScheduler::preview_step_impl(
       polynomial_factor(options_.total_iters, options_.power, completed_steps_);
   const double next_factor =
       polynomial_factor(options_.total_iters, options_.power, next);
-  return {.state = {.completed_steps = next, .children = {}},
+  return {.state = {.completed_steps = next, .control = {}, .children = {}},
           .learning_rates = scale_rates(learning_rates, previous_factor,
                                         next_factor, kPolynomialTypeId)};
 }
 
 detail::SchedulerState PolynomialLrScheduler::capture_state_impl() const {
-  return {.completed_steps = completed_steps_, .children = {}};
+  return {.completed_steps = completed_steps_, .control = {}, .children = {}};
 }
 
 std::uint64_t PolynomialLrScheduler::completed_steps_impl() const noexcept {
@@ -362,13 +362,13 @@ detail::SchedulerTransition WarmupLrScheduler::preview_step_impl(
       options_.start_factor, 1.0, options_.warmup_iters, completed_steps_);
   const double next_factor =
       linear_factor(options_.start_factor, 1.0, options_.warmup_iters, next);
-  return {.state = {.completed_steps = next, .children = {}},
+  return {.state = {.completed_steps = next, .control = {}, .children = {}},
           .learning_rates = scale_rates(learning_rates, previous_factor,
                                         next_factor, kWarmupTypeId)};
 }
 
 detail::SchedulerState WarmupLrScheduler::capture_state_impl() const {
-  return {.completed_steps = completed_steps_, .children = {}};
+  return {.completed_steps = completed_steps_, .control = {}, .children = {}};
 }
 
 std::uint64_t WarmupLrScheduler::completed_steps_impl() const noexcept {

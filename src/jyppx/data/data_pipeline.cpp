@@ -816,7 +816,9 @@ DataPipeline::DataPipeline(std::shared_ptr<samplers::Sampler> sampler,
   impl_ = std::make_unique<Impl>(Impl{.sampler = std::move(sampler),
                                       .options = std::move(options),
                                       .batch_factory = std::move(batch_factory),
-                                      .state = std::move(state)});
+                                      .state = std::move(state),
+                                      .runtime = nullptr,
+                                      .closed = false});
   validate_checkpoint_participant(*this);
 }
 

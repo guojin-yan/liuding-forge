@@ -214,12 +214,12 @@ detail::SchedulerTransition ExponentialLrScheduler::preview_step_impl(
     rate *= options_.gamma;
     validate_rate(rate, "exponential");
   }
-  return {.state = {.completed_steps = next, .children = {}},
+  return {.state = {.completed_steps = next, .control = {}, .children = {}},
           .learning_rates = std::move(candidate)};
 }
 
 detail::SchedulerState ExponentialLrScheduler::capture_state_impl() const {
-  return {.completed_steps = completed_steps_, .children = {}};
+  return {.completed_steps = completed_steps_, .control = {}, .children = {}};
 }
 
 std::uint64_t ExponentialLrScheduler::completed_steps_impl() const noexcept {
@@ -283,12 +283,12 @@ detail::SchedulerTransition MultiStepLrScheduler::preview_step_impl(
       validate_rate(rate, "multi_step");
     }
   }
-  return {.state = {.completed_steps = next, .children = {}},
+  return {.state = {.completed_steps = next, .control = {}, .children = {}},
           .learning_rates = std::move(candidate)};
 }
 
 detail::SchedulerState MultiStepLrScheduler::capture_state_impl() const {
-  return {.completed_steps = completed_steps_, .children = {}};
+  return {.completed_steps = completed_steps_, .control = {}, .children = {}};
 }
 
 std::uint64_t MultiStepLrScheduler::completed_steps_impl() const noexcept {
@@ -369,12 +369,12 @@ detail::SchedulerTransition CosineAnnealingLrScheduler::preview_step_impl(
       candidate.push_back(rate);
     }
   }
-  return {.state = {.completed_steps = next, .children = {}},
+  return {.state = {.completed_steps = next, .control = {}, .children = {}},
           .learning_rates = std::move(candidate)};
 }
 
 detail::SchedulerState CosineAnnealingLrScheduler::capture_state_impl() const {
-  return {.completed_steps = completed_steps_, .children = {}};
+  return {.completed_steps = completed_steps_, .control = {}, .children = {}};
 }
 
 std::uint64_t CosineAnnealingLrScheduler::completed_steps_impl()

@@ -845,7 +845,9 @@ IterableDataPipeline::IterableDataPipeline(
                                       .descriptor = std::move(descriptor),
                                       .options = std::move(options),
                                       .batch_factory = std::move(batch_factory),
-                                      .state = std::move(state)});
+                                      .state = std::move(state),
+                                      .runtime = nullptr,
+                                      .closed = false});
   validate_checkpoint_participant(*this);
 }
 

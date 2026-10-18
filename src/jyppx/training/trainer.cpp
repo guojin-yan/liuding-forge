@@ -1410,7 +1410,8 @@ FitResult Trainer::fit(std::stop_token stop) {
                      .completed_epochs = impl_->state.completed_epochs,
                      .global_step = impl_->state.global_step,
                      .training_metrics = impl_->state.last_training,
-                     .validation_metrics = impl_->state.last_validation};
+                     .validation_metrics = impl_->state.last_validation,
+                     .reason = {}};
     if (cancelled) {
       impl_->state.phase = TrainerPhase::cancelled;
       result.status = FitStatus::cancelled;
@@ -1540,7 +1541,8 @@ StateManifest Trainer::describe_state() const {
                  {.name = kControlField,
                   .media_type = kControlMediaType,
                   .max_bytes = impl_->options.max_control_bytes,
-                  .required = true}}};
+                  .required = true}},
+      .degradation_reasons = {}};
   validate_state_manifest(manifest);
   return manifest;
 }

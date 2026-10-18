@@ -114,6 +114,7 @@ detail::SchedulerState capture_children(
     const std::vector<std::unique_ptr<LrScheduler>>& children) {
   detail::SchedulerState state{
       .completed_steps = completed_steps,
+      .control = {},
       .children = {},
   };
   state.children.reserve(children.size());
