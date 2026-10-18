@@ -49,8 +49,8 @@
             "function_coverage": "1706/1881 (90.70%); target policy remains frozen",
             "branch_coverage": "15026/38582 (38.95%); target policy remains frozen",
             "coverage_sampling": "two full 521-test samples plus deterministic iterable watermark boundary at a20d2ec; current 522-test sample at cd9f607 passes the unchanged policy",
-            "tsan": "31/31 discovered targeted tests at 48d1f0d; discovery list retained; no diagnostics; affected concurrent paths unchanged",
-            "fuzz": "3 targets x 10000 libFuzzer iterations at 48d1f0d; no ASan/UBSan diagnostics; affected parser paths unchanged",
+            "tsan": "31/31 discovered targeted tests at 2ba2fa4; no race/deadlock/sanitizer diagnostics",
+            "fuzz": "3 targets x 10000 libFuzzer iterations at 2ba2fa4; no ASan/UBSan diagnostics",
             "coverage_policy": "coverage-policy.json at a20d2ec; seven target owners; denominator and covered-count regression rejection"
           },
           "commit": "cd9f607"
