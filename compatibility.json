@@ -42,18 +42,19 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "CPU",
           "build_type": "Debug",
-          "tests": "522/522; 17 CUDA-only tests skipped",
+          "tests": "527/527; 17 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "15666/19686 (79.58%); target policy remains frozen",
-            "function_coverage": "1706/1881 (90.70%); target policy remains frozen",
-            "branch_coverage": "15026/38582 (38.95%); target policy remains frozen",
-            "coverage_sampling": "two full 521-test samples plus deterministic iterable watermark boundary at a20d2ec; current 522-test sample at cd9f607 passes the unchanged policy",
+            "line_coverage": "15724/19744 (79.64%); target policy remains frozen",
+            "function_coverage": "1716/1889 (90.84%); target policy remains frozen",
+            "branch_coverage": "15097/38754 (38.96%); target policy remains frozen",
+            "training_target_coverage": "line 4520/5603 (80.67%); function 510/543 (93.92%); branch 4164/10442 (39.88%)",
+            "coverage_sampling": "two full 521-test samples plus deterministic iterable watermark boundary at a20d2ec; current 527-test sample at 51f80a2 passes the unchanged policy",
             "tsan": "31/31 discovered targeted tests at 2ba2fa4; no race/deadlock/sanitizer diagnostics",
             "fuzz": "3 targets x 10000 libFuzzer iterations at 2ba2fa4; no ASan/UBSan diagnostics",
             "coverage_policy": "coverage-policy.json at a20d2ec; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "cd9f607"
+          "commit": "51f80a2"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-release",
@@ -62,17 +63,18 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
           "build_type": "Release",
-          "tests": "17/17 CUDA capability tests",
+          "tests": "17/17 GradScaler CUDA tests; 26/26 AMP filtered tests",
           "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; fixed CMAKE_CUDA_ARCHITECTURES=75",
           "quality_evidence": {
             "artifact": "libtorch-cxx11-abi-shared-with-deps-2.5.1+cu124.zip",
             "artifact_sha256": "08552b1d13de1389d01c64aaa5e2c6c5092f922618b0d32ccff8ed9099d75735",
             "configure": "passed with CUDA architecture 75 and CUDA standard 17",
             "build": "all targets passed",
-            "cuda_ctest": "17/17 passed; zero skipped",
+            "cuda_ctest": "17/17 GradScalerTest.* + GradScalerCudaTest.* passed; zero skipped",
+            "amp_filtered_tests": "26/26 passed: CUDA Autocast, GradScaler and checkpoint participant",
             "coverage_scope": "RNG generator, seven optimizer capability paths plus SGD CUDA, loss/metric CUDA, SingleDeviceStrategy CUDA, multi-optimizer Trainer float16 AMP, autocast and GradScaler"
           },
-          "commit": "cd9f607"
+          "commit": "51f80a2"
         },
         {
           "id": "local-ubuntu-gcc-cpu-release",
