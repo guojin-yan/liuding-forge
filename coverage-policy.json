@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "jyppx-target-coverage-policy",
   "baseline": {
-    "commit": "pending-current-g3-refresh",
+    "commit": "48d1f0d7a07172edea806467d723ad0d0dd2d122",
     "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug"
   },
   "targets": {
@@ -13,19 +13,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 33,
+          "baseline_total": 38,
+          "minimum_percent": 86.842105
         },
         "function": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 8,
+          "baseline_total": 9,
+          "minimum_percent": 88.888889
         },
         "branch": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 52,
+          "baseline_total": 102,
+          "minimum_percent": 50.980392
         }
       }
     },
@@ -36,19 +36,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 2380,
+          "baseline_total": 2857,
+          "minimum_percent": 83.304165
         },
         "function": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 310,
+          "baseline_total": 335,
+          "minimum_percent": 92.537313
         },
         "branch": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 1849,
+          "baseline_total": 4080,
+          "minimum_percent": 45.318627
         }
       }
     },
@@ -59,19 +59,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 451,
+          "baseline_total": 593,
+          "minimum_percent": 76.053963
         },
         "function": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 73,
+          "baseline_total": 81,
+          "minimum_percent": 90.123457
         },
         "branch": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 465,
+          "baseline_total": 1121,
+          "minimum_percent": 41.480821
         }
       }
     },
@@ -82,19 +82,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 971,
+          "baseline_total": 1240,
+          "minimum_percent": 78.306452
         },
         "function": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 130,
+          "baseline_total": 138,
+          "minimum_percent": 94.202899
         },
         "branch": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 1435,
+          "baseline_total": 3926,
+          "minimum_percent": 36.551197
         }
       }
     },
@@ -105,19 +105,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 7035,
+          "baseline_total": 9066,
+          "minimum_percent": 77.597617
         },
         "function": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 632,
+          "baseline_total": 730,
+          "minimum_percent": 86.575342
         },
         "branch": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 6884,
+          "baseline_total": 18620,
+          "minimum_percent": 36.970999
         }
       }
     },
@@ -128,19 +128,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 4429,
+          "baseline_total": 5542,
+          "minimum_percent": 79.916997
         },
         "function": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 498,
+          "baseline_total": 535,
+          "minimum_percent": 93.084112
         },
         "branch": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 4032,
+          "baseline_total": 10270,
+          "minimum_percent": 39.25998
         }
       }
     },
@@ -153,19 +153,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 316,
+          "baseline_total": 345,
+          "minimum_percent": 91.594203
         },
         "function": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 52,
+          "baseline_total": 53,
+          "minimum_percent": 98.113208
         },
         "branch": {
-          "baseline_covered": 0,
-          "baseline_total": 1,
-          "minimum_percent": 0.0
+          "baseline_covered": 223,
+          "baseline_total": 463,
+          "minimum_percent": 48.164147
         }
       }
     }
