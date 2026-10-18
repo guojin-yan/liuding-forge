@@ -42,17 +42,18 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "CPU",
           "build_type": "Debug",
-          "tests": "514/514; 17 CUDA-only tests skipped",
+          "tests": "521/521; 17 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "15615/19681 (79.34%); target policy frozen",
-            "function_coverage": "1703/1881 (90.54%); target policy frozen",
-            "branch_coverage": "14940/38582 (38.72%); target policy frozen",
-            "tsan": "31/31 discovered targeted tests; discovery list retained; no diagnostics",
-            "fuzz": "3 targets x 10000 libFuzzer iterations; no ASan/UBSan diagnostics",
-            "coverage_policy": "coverage-policy.json; seven target owners; denominator and covered-count regression rejection"
+            "line_coverage": "15662/19682 (79.58%); target policy frozen",
+            "function_coverage": "1706/1881 (90.70%); target policy frozen",
+            "branch_coverage": "15026/38582 (38.95%); target policy frozen",
+            "coverage_sampling": "two full 521-test samples plus deterministic iterable watermark boundary; data target stabilized above the frozen threshold",
+            "tsan": "31/31 discovered targeted tests at 48d1f0d; discovery list retained; no diagnostics; affected concurrent paths unchanged",
+            "fuzz": "3 targets x 10000 libFuzzer iterations at 48d1f0d; no ASan/UBSan diagnostics; affected parser paths unchanged",
+            "coverage_policy": "coverage-policy.json at a20d2ec; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "48d1f0d"
+          "commit": "a20d2ec"
         },
         {
           "id": "local-ubuntu-gcc-cpu-release",
