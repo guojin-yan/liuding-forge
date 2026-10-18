@@ -20,26 +20,24 @@ constexpr std::string_view kComponent = "training.amp.grad_scaler";
                                 std::string_view expected,
                                 std::string_view actual,
                                 std::string_view hint) {
-  throw InvalidArgument(
-      "GradScaler rejected " + std::string(operation),
-      ErrorDetails{.component = std::string(kComponent),
-                   .operation = std::string(operation),
-                   .expected = std::string(expected),
-                   .actual = std::string(actual),
-                   .hint = std::string(hint)});
+  throw InvalidArgument("GradScaler rejected " + std::string(operation),
+                        ErrorDetails{.component = std::string(kComponent),
+                                     .operation = std::string(operation),
+                                     .expected = std::string(expected),
+                                     .actual = std::string(actual),
+                                     .hint = std::string(hint)});
 }
 
 [[noreturn]] void throw_not_ready(std::string_view operation,
                                   std::string_view expected,
                                   std::string_view actual,
                                   std::string_view hint) {
-  throw NotReady(
-      "GradScaler " + std::string(operation) + " is not ready",
-      ErrorDetails{.component = std::string(kComponent),
-                   .operation = std::string(operation),
-                   .expected = std::string(expected),
-                   .actual = std::string(actual),
-                   .hint = std::string(hint)});
+  throw NotReady("GradScaler " + std::string(operation) + " is not ready",
+                 ErrorDetails{.component = std::string(kComponent),
+                              .operation = std::string(operation),
+                              .expected = std::string(expected),
+                              .actual = std::string(actual),
+                              .hint = std::string(hint)});
 }
 
 [[noreturn]] void throw_incompatible(std::string_view operation,
@@ -71,7 +69,8 @@ constexpr std::string_view kComponent = "training.amp.grad_scaler";
 void validate_options(const GradScalerOptions& options) {
   if (!std::isfinite(options.init_scale) || options.init_scale <= 0.0) {
     throw_invalid("init_scale", "a finite value greater than zero",
-                  "non-positive or non-finite", "Choose a finite positive scale");
+                  "non-positive or non-finite",
+                  "Choose a finite positive scale");
   }
   if (!std::isfinite(options.growth_factor) || options.growth_factor <= 1.0) {
     throw_invalid("growth_factor", "a finite value greater than one",
@@ -80,7 +79,8 @@ void validate_options(const GradScalerOptions& options) {
   if (!std::isfinite(options.backoff_factor) || options.backoff_factor <= 0.0 ||
       options.backoff_factor >= 1.0) {
     throw_invalid("backoff_factor", "a finite value in (0, 1)",
-                  "outside the open interval", "Choose a backoff factor in (0, 1)");
+                  "outside the open interval",
+                  "Choose a backoff factor in (0, 1)");
   }
   if (options.growth_interval <= 0) {
     throw_invalid("growth_interval", "a positive integer", "non-positive",
@@ -89,7 +89,8 @@ void validate_options(const GradScalerOptions& options) {
   if (options.scaler_id.empty() ||
       options.scaler_id.find('\0') != std::string::npos) {
     throw_invalid("scaler_id", "a nonempty identifier without NUL bytes",
-                  "empty or contains NUL", "Choose a stable checkpoint identity");
+                  "empty or contains NUL",
+                  "Choose a stable checkpoint identity");
   }
 }
 
@@ -116,7 +117,8 @@ void validate_state_values(const GradScalerState& state,
       state.growth_tracker >=
           static_cast<std::uint64_t>(state.growth_interval)) {
     throw_malformed("mutable_state", "finite positive scale and valid tracker",
-                    "invalid scale or growth_tracker", "Repair or discard the checkpoint");
+                    "invalid scale or growth_tracker",
+                    "Repair or discard the checkpoint");
   }
 }
 
@@ -227,8 +229,9 @@ void GradScaler::mark_step(
                   "Call update() before reporting another result");
   }
   if (applied == found_inf_) {
-    throw_invalid("mark_step", "applied=false when the cycle overflowed and "
-                              "applied=true otherwise",
+    throw_invalid("mark_step",
+                  "applied=false when the cycle overflowed and "
+                  "applied=true otherwise",
                   "result conflicts with the aggregate overflow decision",
                   "Use the value returned by step_allowed()");
   }
