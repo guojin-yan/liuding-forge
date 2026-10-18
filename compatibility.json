@@ -45,18 +45,18 @@
           "tests": "527/527; 17 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "15724/19744 (79.64%); target policy remains frozen",
+            "line_coverage": "15734/19752 (79.66%); target policy remains frozen",
             "function_coverage": "1716/1889 (90.84%); target policy remains frozen",
-            "branch_coverage": "15097/38754 (38.96%); target policy remains frozen",
-            "training_target_coverage": "line 4520/5603 (80.67%); function 510/543 (93.92%); branch 4164/10442 (39.88%)",
-            "coverage_sampling": "two full 521-test samples plus deterministic iterable watermark boundary at a20d2ec; current 527-test sample at 51f80a2 passes the unchanged policy",
-            "tsan": "31/31 discovered targeted tests at 569c5c9; no race/deadlock/sanitizer diagnostics",
-            "fuzz": "3 targets x 10000 libFuzzer iterations at 569c5c9; no ASan/UBSan diagnostics",
-            "tsan_fuzz_metadata": "dirty=false; GCC 11.4 TSan and Clang 14 ASan+UBSan; setarch-no-randomize",
-            "repeated_sampling_audit": "benchmark/tool/input/compiler/LibTorch/environment key unchanged; record 17 Windows 1 warmup + 5 samples remains valid",
+            "branch_coverage": "15130/38824 (38.97%); target policy remains frozen",
+            "training_target_coverage": "line 4522/5604 (80.69%); function 510/543 (93.92%); branch 4174/10468 (39.87%)",
+            "coverage_sampling": "current 527-test sample at 575134d passes the unchanged policy after a deterministic unsupported CUDA dtype boundary test; first run at the unchanged threshold failed and was fixed without lowering policy",
+            "tsan": "31/31 discovered targeted tests at 575134d; no race/deadlock/sanitizer diagnostics",
+            "fuzz": "3 targets x 10000 libFuzzer iterations at 575134d; no ASan/UBSan diagnostics or crash/leak/oom/timeout artifacts",
+            "tsan_fuzz_metadata": "dirty=false; GCC 11.4 TSan and Clang 14 ASan+UBSan; setarch-no-randomize; build parallelism 2",
+            "repeated_sampling_audit": "benchmark/tool/input/compiler/LibTorch/environment key unchanged between 2ba2fa4 and 575134d; record 17 Windows 1 warmup + 5 samples remains valid",
             "coverage_policy": "coverage-policy.json at a20d2ec; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "51f80a2"
+          "commit": "575134d"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-release",
@@ -90,9 +90,9 @@
             "configure": "passed with CUDA architecture 75 and CUDA standard 17",
             "build": "jyppx_test_training_amp passed",
             "cuda_amp": "17/17 GradScaler tests passed; zero skipped",
-            "amp_filtered_tests": "26/26 passed: CUDA Autocast, GradScaler and checkpoint participant"
+            "amp_filtered_tests": "27/27 passed: CUDA Autocast, GradScaler and checkpoint participant; 0 skipped"
           },
-          "commit": "51f80a2"
+          "commit": "575134d"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-autocast-foundation-current",
@@ -110,7 +110,7 @@
             "autocast_error_contract": "Unsupported device/dtype raises foundation InvalidArgument with stable invalid_argument code and component/operation/expected/actual/hint context",
             "source_quality": "Ubuntu Clang 14 strict target passed clang-format, Doxygen and AMP CPU regression at the same source commit"
           },
-          "commit": "259cc64"
+          "commit": "575134d"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-core-device-foundation-current",
@@ -127,7 +127,7 @@
             "cuda_core": "device parsing, invalid-argument context, default-device discovery and tensor utilities: 8/8 passed; zero skipped",
             "source_quality": "Ubuntu Clang 14 strict target passed clang-format, Doxygen, -Werror and core regression at the same source commit"
           },
-          "commit": "4c6bbca"
+          "commit": "575134d"
         },
         {
           "id": "local-ubuntu-gcc-cpu-release",
