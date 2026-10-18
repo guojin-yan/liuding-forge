@@ -1,82 +1,85 @@
 #ifndef JYPPX_UTILS_LOGGER_HPP
 #define JYPPX_UTILS_LOGGER_HPP
 
-#include <string>
+#include <jyppx/foundation/error.hpp>
+
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <string>
 
 namespace jyppx {
 namespace utils {
 
 /**
- * @brief Log level enum
+ * @brief Severity threshold used by `Logger`.
  */
 enum class LogLevel {
-    DEBUG,
-    INFO,
-    WARNING,
-    ERROR
+    DEBUG,    ///< Diagnostic messages useful during development.
+    INFO,     ///< Normal progress and lifecycle messages.
+    WARNING,  ///< Recoverable condition that needs attention.
+    ERROR     ///< Operation failure that was handled by the caller.
 };
 
 /**
- * @brief Simple logger singleton
+ * @brief Thread-safe process logger with optional append-only file output.
+ *
+ * Messages at or above the configured threshold are written to standard
+ * output and, when configured, to the selected file. File configuration
+ * failures use the stable `jyppx::IoError` contract.
  */
 class Logger {
 public:
-    /**
-     * @brief Get logger instance
-     */
+    /** @brief Returns the process-wide logger instance. */
     static Logger& instance();
 
-    /**
-     * @brief Set log level
-     */
+    /** @brief Sets the minimum severity emitted by this logger. */
     void set_level(LogLevel level);
 
     /**
-     * @brief Set log file
+     * @brief Opens an append-only log file.
+     * @param filepath Path to a writable file.
+     * @throws jyppx::IoError If the path cannot be opened for appending.
      */
     void set_file(const std::string& filepath);
 
-    /**
-     * @brief Log debug message
-     */
+    /** @brief Emits a debug message when the threshold permits it. */
     void debug(const std::string& message);
 
-    /**
-     * @brief Log info message
-     */
+    /** @brief Emits an informational message when permitted. */
     void info(const std::string& message);
 
-    /**
-     * @brief Log warning message
-     */
+    /** @brief Emits a warning message when permitted. */
     void warning(const std::string& message);
 
-    /**
-     * @brief Log error message
-     */
+    /** @brief Emits an error message when permitted. */
     void error(const std::string& message);
 
 private:
+    /** @brief Initializes the logger with an informational threshold. */
     Logger();
+    /** @brief Flushes and releases the optional file stream. */
     ~Logger();
-    Logger(const Logger&) = delete;
-    Logger& operator=(const Logger&) = delete;
+    Logger(const Logger&) = delete;  ///< Logger is process-global.
+    Logger& operator=(const Logger&) = delete;  ///< Logger is process-global.
 
+    /** @brief Emits one message while holding the logger mutex. */
     void log(LogLevel level, const std::string& message);
+    /** @brief Converts a severity to its stable text representation. */
     std::string level_to_string(LogLevel level) const;
 
-    LogLevel level_;
-    std::unique_ptr<std::ofstream> file_;
-    std::mutex mutex_;
+    LogLevel level_;                       ///< Current minimum severity.
+    std::unique_ptr<std::ofstream> file_;  ///< Optional append-only sink.
+    std::mutex mutex_;                    ///< Protects configuration and writes.
 };
 
-// Convenience macros
+/** @brief Convenience macro for emitting a debug message. */
 #define LOG_DEBUG(msg) jyppx::utils::Logger::instance().debug(msg)
+/** @brief Convenience macro for emitting an informational message. */
 #define LOG_INFO(msg) jyppx::utils::Logger::instance().info(msg)
+/** @brief Convenience macro for emitting a warning message. */
 #define LOG_WARNING(msg) jyppx::utils::Logger::instance().warning(msg)
+/** @brief Convenience macro for emitting an error message. */
 #define LOG_ERROR(msg) jyppx::utils::Logger::instance().error(msg)
 
 } // namespace utils

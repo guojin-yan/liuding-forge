@@ -192,18 +192,35 @@ TensorBoardWriter::TensorBoardWriter(const std::string& log_dir)
             now.time_since_epoch())
             .count();
 
-    file_path_ = log_dir_ + "/events.out.tfevents." +
-                 std::to_string(static_cast<long long>(wall_time_base_)) + "." +
-                 host_name() + "." + std::to_string(process_id());
+    const auto filename =
+        "events.out.tfevents." +
+        std::to_string(static_cast<long long>(wall_time_base_)) + "." +
+        host_name() + "." + std::to_string(process_id());
+    file_path_ = (std::filesystem::path(log_dir_) / filename).string();
 
-    if (!std::filesystem::create_directories(log_dir_) &&
-        !std::filesystem::is_directory(log_dir_)) {
-        throw std::runtime_error("TensorBoardWriter cannot create log dir: " +
-                                 log_dir_);
+    std::error_code filesystem_error;
+    const bool created =
+        std::filesystem::create_directories(log_dir_, filesystem_error);
+    const bool directory =
+        std::filesystem::is_directory(log_dir_, filesystem_error);
+    if (filesystem_error || (!created && !directory)) {
+        throw IoError(
+            "TensorBoardWriter cannot create log dir: " + log_dir_,
+            ErrorDetails{.component = "utils.tensorboard",
+                          .operation = "create_log_directory",
+                          .expected = "writable directory",
+                          .actual = log_dir_,
+                          .hint = "Choose a directory path with write permission"});
     }
     file_.open(file_path_, std::ios::binary | std::ios::app);
     if (!file_.is_open()) {
-        throw std::runtime_error("TensorBoardWriter cannot open " + file_path_);
+        throw IoError(
+            "TensorBoardWriter cannot open " + file_path_,
+            ErrorDetails{.component = "utils.tensorboard",
+                          .operation = "open_event_file",
+                          .expected = "writable binary event file",
+                          .actual = file_path_,
+                          .hint = "Check the directory permissions and free space"});
     }
 
     // Mandatory file-version event.
@@ -221,7 +238,13 @@ TensorBoardWriter::~TensorBoardWriter() {
 
 void TensorBoardWriter::write_event(const std::string& encoded_event) {
     if (!file_.is_open()) {
-        throw std::runtime_error("TensorBoardWriter event file is closed");
+        throw NotReady(
+            "TensorBoardWriter event file is closed",
+            ErrorDetails{.component = "utils.tensorboard",
+                          .operation = "write_event",
+                          .expected = "open event file",
+                          .actual = "closed event file",
+                          .hint = "Create a new TensorBoardWriter"});
     }
     std::string length_bytes;
     append_u64(length_bytes, encoded_event.size());
@@ -232,6 +255,15 @@ void TensorBoardWriter::write_event(const std::string& encoded_event) {
     record.append(encoded_event);
     append_u32(record, masked_crc(encoded_event.data(), encoded_event.size()));
     file_.write(record.data(), static_cast<std::streamsize>(record.size()));
+    if (!file_) {
+        throw IoError(
+            "TensorBoardWriter failed to write an event",
+            ErrorDetails{.component = "utils.tensorboard",
+                          .operation = "write_event",
+                          .expected = "successful binary stream write",
+                          .actual = file_path_,
+                          .hint = "Check free space and filesystem permissions"});
+    }
 }
 
 void TensorBoardWriter::add_scalar(const std::string& tag, double value,
@@ -253,8 +285,24 @@ void TensorBoardWriter::add_text(const std::string& tag, const std::string& text
 }
 
 void TensorBoardWriter::flush() {
-    if (file_.is_open()) {
-        file_.flush();
+    if (!file_.is_open()) {
+        throw NotReady(
+            "TensorBoardWriter event file is closed",
+            ErrorDetails{.component = "utils.tensorboard",
+                          .operation = "flush",
+                          .expected = "open event file",
+                          .actual = "closed event file",
+                          .hint = "Create a new TensorBoardWriter"});
+    }
+    file_.flush();
+    if (!file_) {
+        throw IoError(
+            "TensorBoardWriter failed to flush the event file",
+            ErrorDetails{.component = "utils.tensorboard",
+                          .operation = "flush",
+                          .expected = "successful binary stream flush",
+                          .actual = file_path_,
+                          .hint = "Check free space and filesystem permissions"});
     }
 }
 

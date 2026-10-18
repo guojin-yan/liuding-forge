@@ -9,7 +9,6 @@
 #include <jyppx/distributed/distributed.hpp>
 
 #include <memory>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -34,12 +33,12 @@ class DistributedDataParallel {
    *
    * @param module Module whose trainable parameters participate in gradient
    * averaging.
-   * @throws std::invalid_argument If `module` is null.
+   * @throws InvalidArgument If `module` is null.
    */
   explicit DistributedDataParallel(std::shared_ptr<ModuleT> module)
       : module_(std::move(module)) {
     if (!module_) {
-      throw std::invalid_argument(
+      throw InvalidArgument(
           "DistributedDataParallel module cannot be null");
     }
     install_hooks();

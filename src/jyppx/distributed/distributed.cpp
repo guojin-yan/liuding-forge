@@ -1,7 +1,5 @@
 #include <jyppx/distributed/distributed.hpp>
 
-#include <stdexcept>
-
 namespace jyppx {
 namespace distributed {
 
@@ -23,15 +21,28 @@ GroupState& state() {
 
 void init_process_group(const std::string& backend, int rank, int world_size) {
     if (backend != "single-process") {
-        throw std::runtime_error(
+        throw NotImplemented(
             "distributed backend '" + backend +
             "' requires c10d support, which is not available in this build; "
-            "use backend='single-process' (rank=0, world_size=1)");
+            "use backend='single-process' (rank=0, world_size=1)",
+            ErrorDetails{.component = "distributed",
+                          .operation = "init_process_group",
+                          .expected = "backend=single-process",
+                          .actual = backend,
+                          .hint =
+                              "Build with c10d support for cross-process training"});
     }
     if (world_size != 1 || rank != 0) {
-        throw std::runtime_error(
+        throw InvalidArgument(
             "the single-process backend only supports rank=0 and world_size=1; "
-            "cross-process training requires a c10d backend build");
+            "cross-process training requires a c10d backend build",
+            ErrorDetails{.component = "distributed",
+                          .operation = "init_process_group",
+                          .expected = "rank=0, world_size=1",
+                          .actual = "rank=" + std::to_string(rank) +
+                                    ", world_size=" +
+                                    std::to_string(world_size),
+                          .hint = "Use a c10d backend for multiple processes"});
     }
     auto& group = state();
     group.initialized = true;
@@ -60,9 +71,15 @@ Tensor average_gradients(Tensor gradient) {
     if (state().world_size <= 1) {
         return gradient;
     }
-    throw std::runtime_error(
+    throw NotImplemented(
         "gradient all-reduce requires c10d support, which is not available in "
-        "this build");
+        "this build",
+        ErrorDetails{.component = "distributed",
+                      .operation = "average_gradients",
+                      .expected = "c10d process group",
+                      .actual = "single-process backend",
+                      .hint =
+                          "Initialize a c10d backend before reducing gradients"});
 }
 
 } // namespace distributed

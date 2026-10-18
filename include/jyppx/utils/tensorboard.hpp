@@ -2,11 +2,11 @@
 #define JYPPX_UTILS_TENSORBOARD_HPP
 
 #include <jyppx/core/types.hpp>
+#include <jyppx/foundation/error.hpp>
 
 #include <cstdint>
 #include <fstream>
 #include <map>
-#include <stdexcept>
 #include <string>
 
 namespace jyppx {
@@ -29,35 +29,63 @@ namespace utils {
  */
 class TensorBoardWriter {
 public:
+    /**
+     * @brief Creates an append-only TensorBoard event writer.
+     * @param log_dir Directory that will contain the event file.
+     * @throws jyppx::IoError If the directory or event file cannot be created.
+     */
     explicit TensorBoardWriter(const std::string& log_dir);
+    /** @brief Flushes the event stream before destruction. */
     ~TensorBoardWriter();
 
-    TensorBoardWriter(const TensorBoardWriter&) = delete;
+    TensorBoardWriter(const TensorBoardWriter&) = delete;  ///< Non-copyable.
     TensorBoardWriter& operator=(const TensorBoardWriter&) = delete;
 
-    /** @brief Adds a scalar summary point. */
+    /**
+     * @brief Adds a scalar summary point.
+     * @param tag TensorBoard summary tag.
+     * @param value Scalar value to record.
+     * @param step Training step associated with the value.
+     * @throws jyppx::NotReady If the event stream is closed.
+     * @throws jyppx::IoError If the event cannot be written.
+     */
     void add_scalar(const std::string& tag, double value, int64_t step);
 
-    /** @brief Adds a plain text entry. */
+    /**
+     * @brief Adds a plain text summary entry.
+     * @param tag TensorBoard summary tag.
+     * @param text Text value to record.
+     * @param step Training step associated with the value.
+     * @throws jyppx::NotReady If the event stream is closed.
+     * @throws jyppx::IoError If the event cannot be written.
+     */
     void add_text(const std::string& tag, const std::string& text, int64_t step);
 
-    /** @brief Flushes buffered bytes to disk. */
+    /**
+     * @brief Flushes buffered bytes to disk.
+     * @throws jyppx::NotReady If the event stream is closed.
+     * @throws jyppx::IoError If the stream reports a write failure.
+     */
     void flush();
 
-    /** @brief Directory this writer logs into. */
+    /** @brief Returns the directory this writer logs into. */
     const std::string& log_dir() const { return log_dir_; }
 
 private:
+    /** @brief Encodes and writes one already-serialized Event message. */
     void write_event(const std::string& encoded_event);
 
-    std::string log_dir_;
-    std::string file_path_;
-    std::ofstream file_;
-    double wall_time_base_ = 0.0;
+    std::string log_dir_;          ///< Directory containing the event file.
+    std::string file_path_;        ///< Fully qualified event file path.
+    std::ofstream file_;           ///< Binary TFRecord output stream.
+    double wall_time_base_ = 0.0;  ///< Creation timestamp used for file header.
 };
 
 /**
- * @brief CRC32C (Castagnoli) checksum with the TFRecord mask applied
+ * @brief Computes a masked CRC32C (Castagnoli) checksum for TFRecord data.
+ * @param data Bytes to checksum.
+ * @param length Number of bytes at @p data.
+ * @return TensorFlow's masked CRC32C value.
  */
 uint32_t tfrecord_crc(const char* data, size_t length);
 

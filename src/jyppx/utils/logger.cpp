@@ -5,7 +5,6 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
-#include <stdexcept>
 
 namespace jyppx {
 namespace utils {
@@ -27,7 +26,13 @@ void Logger::set_level(LogLevel level) {
 void Logger::set_file(const std::string& filepath) {
     auto file = std::make_unique<std::ofstream>(filepath, std::ios::out | std::ios::app);
     if (!file->is_open()) {
-        throw std::runtime_error("Failed to open log file: " + filepath);
+        throw IoError(
+            "Failed to open log file: " + filepath,
+            ErrorDetails{.component = "utils.logger",
+                          .operation = "set_file",
+                          .expected = "writable append-only file",
+                          .actual = filepath,
+                          .hint = "Create the parent directory and check permissions"});
     }
 
     std::lock_guard<std::mutex> lock(mutex_);

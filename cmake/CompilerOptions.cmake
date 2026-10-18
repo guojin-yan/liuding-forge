@@ -57,9 +57,9 @@ if(JYPPX_ENABLE_WARNINGS_AS_ERRORS)
 endif()
 
 # The strict quality gates expand one migrated component at a time. Foundation
-# core, data, migrated nn, and migrated optim slices are completed ownership
-# boundaries; adding a target here requires its headers and sources to pass the
-# same gate first.
+# core, data, migrated nn, migrated optim, and the current training slices are
+# completed ownership boundaries; adding a source to the migrated list requires
+# its declarations, implementation, and tests to pass the same gate first.
 if(JYPPX_ENABLE_CLANG_TIDY)
     if(NOT JYPPX_CLANG_TIDY_EXECUTABLE)
         find_program(JYPPX_CLANG_TIDY_EXECUTABLE
@@ -184,6 +184,15 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_transforms.cpp
         ${PROJECT_SOURCE_DIR}/tests/fuzz/data_pipeline_state_fuzz.cpp
         ${PROJECT_SOURCE_DIR}/tests/fuzz/iterable_pipeline_state_fuzz.cpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/utils/logger.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/utils/tensorboard.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/utils/logger.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/utils/tensorboard.cpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/distributed/ddp.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/distributed/distributed.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/distributed/distributed.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/utils/test_logger.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/test_plan_completion.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/invocation.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/model_adapter.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/model_checkpoint_participant.hpp

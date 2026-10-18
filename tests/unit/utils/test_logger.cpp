@@ -1,5 +1,6 @@
 // Unit tests for jyppx::utils::Logger.
 
+#include <jyppx/foundation/error.hpp>
 #include <jyppx/utils/logger.hpp>
 
 #include <gtest/gtest.h>
@@ -81,7 +82,7 @@ TEST_F(LoggerTest, SetFileRejectsUnwritablePath) {
 #else
     const std::string bad_path = "/definitely/missing/dir/jyppx.log";
 #endif
-    EXPECT_THROW(logger.set_file(bad_path), std::runtime_error);
+    EXPECT_THROW(logger.set_file(bad_path), jyppx::IoError);
 }
 
 } // namespace
