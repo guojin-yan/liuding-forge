@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <jyppx/foundation/error.hpp>
 #include <string>
 #include <vector>
 
@@ -88,7 +89,7 @@ class Sampler {
   /**
    * @brief Restores state previously returned by save_state().
    * @param state Opaque state from the same sampler type and configuration.
-   * @throws std::invalid_argument The state is malformed or incompatible.
+   * @throws jyppx::SerializationError The state is malformed or incompatible.
    */
   virtual void load_state(const std::string& state) { (void)state; }
 };

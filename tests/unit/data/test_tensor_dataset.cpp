@@ -1,6 +1,7 @@
 // Unit tests for jyppx::data: TensorDataset.
 
 #include <jyppx/data/tensor_dataset.hpp>
+#include <jyppx/foundation/error.hpp>
 
 #include <gtest/gtest.h>
 
@@ -50,11 +51,18 @@ TEST_F(TensorDatasetTest, UnderlyingTensorsAreExposed) {
 TEST_F(TensorDatasetTest, MismatchedSizesThrow) {
   const auto too_few_targets = torch::zeros({3});
   EXPECT_THROW(data::TensorDataset(inputs_, too_few_targets),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
 }
 
 TEST_F(TensorDatasetTest, OutOfRangeGetThrows) {
-  EXPECT_THROW(dataset_->get(6), std::exception);
+  try {
+    (void)dataset_->get(6);
+    FAIL() << "out-of-range access must throw";
+  } catch (const jyppx::InvalidArgument& error) {
+    EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+    EXPECT_EQ(error.details().component, "data.tensor_dataset");
+    EXPECT_EQ(error.details().operation, "get");
+  }
 }
 
 }  // namespace

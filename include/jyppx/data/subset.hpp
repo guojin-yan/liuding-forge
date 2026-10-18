@@ -7,12 +7,12 @@
  */
 
 #include <jyppx/data/dataset.hpp>
+#include <jyppx/data/detail/error.hpp>
 
 #include <algorithm>
 #include <memory>
 #include <numeric>
 #include <random>
-#include <stdexcept>
 #include <vector>
 
 namespace jyppx {
@@ -33,17 +33,20 @@ class Subset : public Dataset<T> {
    * @brief Creates an ordered indexed view over a dataset.
    * @param dataset Shared non-null source dataset.
    * @param indices Source indices in exposed subset order; duplicates allowed.
-   * @throws std::invalid_argument @p dataset is null.
-   * @throws std::out_of_range Any source index is invalid.
+   * @throws jyppx::InvalidArgument @p dataset is null or a source index is
+   * invalid.
    */
   Subset(std::shared_ptr<Dataset<T>> dataset, std::vector<size_t> indices)
       : dataset_(std::move(dataset)), indices_(std::move(indices)) {
     if (!dataset_) {
-      throw std::invalid_argument("Subset dataset cannot be null");
+      detail::throw_invalid("data.subset", "constructor.dataset",
+                            "non-null dataset", "null dataset",
+                            "Provide a valid source dataset.");
     }
     for (const size_t index : indices_) {
       if (index >= dataset_->size()) {
-        throw std::out_of_range("Subset index is outside the dataset");
+        detail::throw_index_error("data.subset", "constructor.indices", index,
+                                  dataset_->size());
       }
     }
   }
@@ -52,11 +55,11 @@ class Subset : public Dataset<T> {
    * @brief Returns the source sample selected by a subset position.
    * @param index Zero-based position in this view.
    * @return Source sample referenced by the selected index.
-   * @throws std::out_of_range The subset position is invalid.
+   * @throws jyppx::InvalidArgument The subset position is invalid.
    */
   T get(size_t index) const override {
     if (index >= indices_.size()) {
-      throw std::out_of_range("Subset index out of range");
+      detail::throw_index_error("data.subset", "get", index, indices_.size());
     }
     return dataset_->get(indices_[index]);
   }
@@ -99,22 +102,28 @@ class Subset : public Dataset<T> {
  * @param lengths Result sizes whose sum must equal the dataset size.
  * @param seed Optional deterministic shuffle seed.
  * @return Disjoint subsets in the same order as @p lengths.
- * @throws std::invalid_argument The dataset is null or lengths do not cover it.
+ * @throws jyppx::InvalidArgument The dataset is null or lengths do not cover
+ * the dataset.
  */
 template <typename DatasetT, typename T = typename DatasetT::value_type>
 std::vector<std::shared_ptr<Subset<T>>> random_split(
     std::shared_ptr<DatasetT> dataset, const std::vector<size_t>& lengths,
     Optional<int64_t> seed = std::nullopt) {
   if (!dataset) {
-    throw std::invalid_argument("random_split dataset cannot be null");
+    detail::throw_invalid("data.random_split", "dataset",
+                          "non-null dataset", "null dataset",
+                          "Provide a valid source dataset.");
   }
   size_t total = 0;
   for (const size_t length : lengths) {
     total += length;
   }
   if (total != dataset->size()) {
-    throw std::invalid_argument(
-        "random_split lengths must sum to the dataset size");
+    detail::throw_invalid(
+        "data.random_split", "lengths", "sum equal to dataset size",
+        "sum=" + std::to_string(total) +
+            ", dataset_size=" + std::to_string(dataset->size()),
+        "Adjust split lengths to cover every sample exactly once.");
   }
 
   std::vector<size_t> indices(dataset->size());

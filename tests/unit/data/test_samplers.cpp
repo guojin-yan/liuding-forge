@@ -5,6 +5,7 @@
 #include <jyppx/data/samplers/random_sampler.hpp>
 #include <jyppx/data/samplers/sequential_sampler.hpp>
 #include <jyppx/data/samplers/weighted_random_sampler.hpp>
+#include <jyppx/foundation/error.hpp>
 
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -12,7 +13,6 @@
 #include <memory>
 #include <numeric>
 #include <set>
-#include <stdexcept>
 
 namespace {
 
@@ -90,9 +90,9 @@ TEST(BatchSamplerTest, ExactMultipleHasNoRemainder) {
 }
 
 TEST(BatchSamplerTest, RejectsNullSamplerAndZeroBatchSize) {
-  EXPECT_THROW(samplers::BatchSampler(nullptr, 1), std::invalid_argument);
+  EXPECT_THROW(samplers::BatchSampler(nullptr, 1), jyppx::InvalidArgument);
   auto base = std::make_shared<samplers::SequentialSampler>(8);
-  EXPECT_THROW(samplers::BatchSampler(base, 0), std::invalid_argument);
+  EXPECT_THROW(samplers::BatchSampler(base, 0), jyppx::InvalidArgument);
 }
 
 TEST(BatchSamplerTest, CountsMaximumPopulationWithoutOverflow) {

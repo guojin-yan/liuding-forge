@@ -4,6 +4,7 @@
 #include <jyppx/data/dataloader.hpp>
 #include <jyppx/data/subset.hpp>
 #include <jyppx/data/tensor_dataset.hpp>
+#include <jyppx/foundation/error.hpp>
 
 #include <gtest/gtest.h>
 #include <numeric>
@@ -40,10 +41,11 @@ TEST_F(DatasetUtilsTest, SubsetExposesSelectedSamples) {
 
 TEST_F(DatasetUtilsTest, SubsetValidatesArguments) {
   EXPECT_THROW(data::Subset<data::Example>(nullptr, {0}),
-               std::invalid_argument);
-  EXPECT_THROW(data::Subset<data::Example>(dataset_, {10}), std::out_of_range);
+               jyppx::InvalidArgument);
+  EXPECT_THROW(data::Subset<data::Example>(dataset_, {10}),
+               jyppx::InvalidArgument);
   const data::Subset<data::Example> subset(dataset_, {0});
-  EXPECT_THROW(subset.get(1), std::out_of_range);
+  EXPECT_THROW(subset.get(1), jyppx::InvalidArgument);
 }
 
 TEST_F(DatasetUtilsTest, SubsetFeedsDataLoader) {
@@ -78,16 +80,16 @@ TEST_F(DatasetUtilsTest, ConcatDatasetSpansDatasets) {
 }
 
 TEST_F(DatasetUtilsTest, ConcatDatasetValidatesArguments) {
-  EXPECT_THROW(data::ConcatDataset<data::Example>({}), std::invalid_argument);
+  EXPECT_THROW(data::ConcatDataset<data::Example>({}), jyppx::InvalidArgument);
 
   std::shared_ptr<data::Dataset<data::Example>> null_dataset;
   auto valid = std::make_shared<data::Subset<data::Example>>(
       dataset_, std::vector<size_t>{0});
   EXPECT_THROW(data::ConcatDataset<data::Example>({valid, null_dataset}),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
 
   const data::ConcatDataset<data::Example> concatenated({valid});
-  EXPECT_THROW(concatenated.get(1), std::out_of_range);
+  EXPECT_THROW(concatenated.get(1), jyppx::InvalidArgument);
 }
 
 TEST_F(DatasetUtilsTest, RandomSplitPartitionsEverySample) {
@@ -124,11 +126,11 @@ TEST_F(DatasetUtilsTest, RandomSplitIsDeterministicWithSeed) {
 
 TEST_F(DatasetUtilsTest, RandomSplitValidatesLengths) {
   EXPECT_THROW(data::random_split(dataset_, std::vector<size_t>{5, 6}, 1),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
   EXPECT_THROW(
       data::random_split(std::shared_ptr<data::Dataset<data::Example>>(),
                          std::vector<size_t>{10}, 1),
-      std::invalid_argument);
+      jyppx::InvalidArgument);
 }
 
 TEST_F(DatasetUtilsTest, RandomSplitTrainValLoadersWork) {

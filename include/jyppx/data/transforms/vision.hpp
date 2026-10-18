@@ -6,6 +6,7 @@
  * @brief Defines tensor-native image preprocessing and augmentation transforms.
  */
 
+#include <jyppx/data/detail/error.hpp>
 #include <jyppx/data/transforms/transform.hpp>
 
 #include <torch/nn/functional.h>
@@ -13,7 +14,6 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,10 +25,38 @@ namespace transforms {
 namespace detail {
 
 /**
+ * @brief Throws a structured invalid-argument error for a vision transform.
+ * @param operation Transform and field or invocation being validated.
+ * @param expected Required range, shape, or configuration.
+ * @param actual Observed invalid value or shape.
+ * @param hint Actionable remediation guidance for the caller.
+ * @throws jyppx::InvalidArgument Always.
+ */
+[[noreturn]] inline void throw_transform_invalid(
+    std::string operation, std::string expected, std::string actual,
+    std::string hint) {
+  ::jyppx::data::detail::throw_invalid(
+      "data.transforms.vision", operation, std::move(expected),
+      std::move(actual), std::move(hint));
+}
+
+/**
+ * @brief Describes whether a tensor is undefined or reports its rank.
+ * @param input Tensor whose definition state and rank are inspected.
+ * @return Stable text suitable for structured error details.
+ */
+inline std::string describe_tensor_rank(const Tensor& input) {
+  if (!input.defined()) {
+    return "undefined tensor";
+  }
+  return std::to_string(input.dim()) + " dimensions";
+}
+
+/**
  * @brief Normalizes a one- or two-value crop size.
  * @param size `{n}` for a square or `{height, width}` for a rectangle.
  * @return Normalized height and width pair.
- * @throws std::invalid_argument The vector does not contain one or two values.
+ * @throws jyppx::InvalidArgument The vector does not contain one or two values.
  */
 inline std::pair<int64_t, int64_t> crop_size(const std::vector<int64_t>& size) {
   if (size.size() == 1) {
@@ -37,8 +65,9 @@ inline std::pair<int64_t, int64_t> crop_size(const std::vector<int64_t>& size) {
   if (size.size() == 2) {
     return {size[0], size[1]};
   }
-  throw std::invalid_argument(
-      "size must contain one (square) or two (h, w) values");
+  throw_transform_invalid("crop_size", "one or two dimensions",
+                          std::to_string(size.size()) + " dimensions",
+                          "Use {size} or {height, width}.");
 }
 
 /** Pi used for degree-to-radian conversion without platform macros. */
@@ -60,7 +89,9 @@ inline Tensor affine_warp(const Tensor& input, double t00, double t01,
   const int64_t h = input.size(-2);
   const int64_t w = input.size(-1);
   auto theta = torch::tensor({{t00, t01, t02}, {t10, t11, t12}},
-                             torch::TensorOptions().dtype(torch::kFloat32))
+                             torch::TensorOptions()
+                                 .dtype(torch::kFloat32)
+                                 .device(input.device()))
                    .unsqueeze(0);
   auto grid = torch::nn::functional::affine_grid(
       theta, {1, input.size(-3), h, w}, /*align_corners=*/false);
@@ -110,21 +141,27 @@ inline Tensor affine_rotate(const Tensor& input, double degrees) {
  * @brief Converts RGB to one ITU-R 601-2 luma channel.
  * @param input Tensor shaped `{1, H, W}` or `{3, H, W}`.
  * @return Original one-channel tensor or a Float32 luma tensor.
- * @throws std::invalid_argument Shape or channel count is unsupported.
+ * @throws jyppx::InvalidArgument Shape or channel count is unsupported.
  */
 inline Tensor rgb_to_grayscale(const Tensor& input) {
-  if (input.dim() < 3) {
-    throw std::invalid_argument("grayscale expects a {C, H, W} tensor");
+  if (!input.defined() || input.dim() != 3) {
+    throw_transform_invalid("grayscale.input_shape", "{C, H, W}",
+                            describe_tensor_rank(input),
+                            "Provide a channel-first image tensor.");
   }
   if (input.size(0) == 1) {
     return input;
   }
   if (input.size(0) != 3) {
-    throw std::invalid_argument("grayscale expects 1 or 3 channels");
+    throw_transform_invalid("grayscale.channels", "1 or 3 channels",
+                            std::to_string(input.size(0)) + " channels",
+                            "Provide a grayscale or RGB image.");
   }
   auto floats = input.to(torch::kFloat32);
   auto weights = torch::tensor({0.299f, 0.587f, 0.114f},
-                               torch::TensorOptions().dtype(torch::kFloat32))
+                               torch::TensorOptions()
+                                   .dtype(torch::kFloat32)
+                                   .device(input.device()))
                      .view({3, 1, 1});
   return (floats * weights).sum(0, /*keepdim=*/true);
 }
@@ -196,7 +233,7 @@ class Normalize : public TensorTransform {
    * @brief Creates a per-channel affine normalization.
    * @param mean Finite mean value for each input channel.
    * @param std Positive standard deviation for each input channel.
-   * @throws std::invalid_argument Vectors are empty, differ in length, or a
+   * @throws jyppx::InvalidArgument Vectors are empty, differ in length, or a
    * standard deviation is not positive.
    */
   Normalize(std::vector<double> mean, std::vector<double> std)
@@ -205,12 +242,24 @@ class Normalize : public TensorTransform {
         std_(
             torch::tensor(std, torch::TensorOptions().dtype(torch::kFloat32))) {
     if (mean.empty() || mean.size() != std.size()) {
-      throw std::invalid_argument(
-          "Normalize mean and std must be non-empty and equal length");
+      detail::throw_transform_invalid(
+          "normalize.constructor", "non-empty equal-length mean and std",
+          "mean=" + std::to_string(mean.size()) +
+              ", std=" + std::to_string(std.size()),
+          "Provide one positive standard deviation per channel.");
+    }
+    for (const double value : mean) {
+      if (!std::isfinite(value)) {
+        detail::throw_transform_invalid(
+            "normalize.mean", "finite channel means", std::to_string(value),
+            "Replace NaN or infinite channel means.");
+      }
     }
     for (const double s : std) {
-      if (s <= 0.0) {
-        throw std::invalid_argument("Normalize std values must be positive");
+      if (!std::isfinite(s) || s <= 0.0) {
+        detail::throw_transform_invalid(
+            "normalize.std", "positive standard deviations",
+            std::to_string(s), "Replace zero or negative standard deviations.");
       }
     }
     // Keep the broadcast shape ready for {C, H, W} inputs.
@@ -223,19 +272,25 @@ class Normalize : public TensorTransform {
    * @brief Normalizes one channel-first tensor.
    * @param input Tensor shaped `{C, ...}` with configured channel count.
    * @return Floating tensor containing `(input - mean) / std`.
-   * @throws std::invalid_argument Input channel count is incompatible.
+   * @throws jyppx::InvalidArgument Input channel count is incompatible.
    */
   Tensor operator()(const Tensor& input) const override {
-    if (input.dim() < 1 || input.size(0) != mean_.size(0)) {
-      throw std::invalid_argument(
-          "Normalize expects a {C, ...} tensor with C = " +
-          std::to_string(mean_.size(0)));
+    if (!input.defined() || input.dim() < 1 ||
+        input.size(0) != mean_.size(0)) {
+      detail::throw_transform_invalid(
+          "normalize.input_shape",
+          "a {C, ...} tensor with C=" + std::to_string(mean_.size(0)),
+          !input.defined() || input.dim() < 1 ? "undefined or scalar tensor"
+                          : "C=" + std::to_string(input.size(0)),
+          "Match the input channels to the configured statistics.");
     }
     Tensor float_input = input;
     if (!at::isFloatingType(input.scalar_type())) {
       float_input = input.to(torch::kFloat32);
     }
-    return (float_input - mean_) / std_;
+    const auto mean = mean_.to(float_input.options());
+    const auto std = std_.to(float_input.options());
+    return (float_input - mean) / std;
   }
 
   /**
@@ -261,33 +316,42 @@ class Resize : public TensorTransform {
    * @brief Creates a spatial resize operation.
    * @param size `{n}` for square output or `{height, width}`.
    * @param mode Either `bilinear` or `nearest`.
-   * @throws std::invalid_argument Size or interpolation mode is invalid.
+   * @throws jyppx::InvalidArgument Size or interpolation mode is invalid.
    */
   explicit Resize(std::vector<int64_t> size, std::string mode = "bilinear")
       : size_(std::move(size)), mode_(std::move(mode)) {
     if (size_.empty() || size_.size() > 2) {
-      throw std::invalid_argument("Resize size must contain one or two values");
+      detail::throw_transform_invalid(
+          "resize.size", "one or two dimensions",
+          std::to_string(size_.size()) + " dimensions",
+          "Use {size} or {height, width}.");
     }
     if (mode_ != "bilinear" && mode_ != "nearest") {
-      throw std::invalid_argument(
-          "Resize mode must be 'bilinear' or 'nearest'");
+      detail::throw_transform_invalid(
+          "resize.mode", "bilinear or nearest", mode_,
+          "Choose a supported interpolation mode.");
     }
     for (const int64_t dim : size_) {
       if (dim <= 0) {
-        throw std::invalid_argument("Resize size values must be positive");
+        detail::throw_transform_invalid(
+            "resize.size", "positive dimensions", std::to_string(dim),
+            "Use output dimensions greater than zero.");
       }
     }
   }
 
   /**
    * @brief Resizes the trailing two spatial dimensions.
-   * @param input Tensor shaped at least `{H, W}`, normally `{C, H, W}`.
+   * @param input Image tensor shaped `{C, H, W}`.
    * @return Tensor with configured output height and width.
-   * @throws std::invalid_argument Input has fewer than two dimensions.
+   * @throws jyppx::InvalidArgument Input is not a channel-first image.
    */
   Tensor operator()(const Tensor& input) const override {
-    if (input.dim() < 2) {
-      throw std::invalid_argument("Resize expects a {C, H, W} tensor");
+    if (!input.defined() || input.dim() != 3) {
+      detail::throw_transform_invalid(
+          "resize.input_shape", "{C, H, W}",
+          detail::describe_tensor_rank(input),
+          "Provide an image tensor with spatial dimensions.");
     }
     // interpolate() needs an explicit (h, w) pair; a single size means a
     // square output.
@@ -332,12 +396,15 @@ class CenterCrop : public TensorTransform {
   /**
    * @brief Creates a fixed center crop.
    * @param size `{n}` for a square or `{height, width}`.
-   * @throws std::invalid_argument Shape count or dimensions are invalid.
+   * @throws jyppx::InvalidArgument Shape count or dimensions are invalid.
    */
   explicit CenterCrop(std::vector<int64_t> size)
       : size_(detail::crop_size(size)) {
     if (size_.first <= 0 || size_.second <= 0) {
-      throw std::invalid_argument("CenterCrop size values must be positive");
+      detail::throw_transform_invalid(
+          "center_crop.size", "positive height and width",
+          std::to_string(size_.first) + "x" + std::to_string(size_.second),
+          "Use crop dimensions greater than zero.");
     }
   }
 
@@ -345,17 +412,24 @@ class CenterCrop : public TensorTransform {
    * @brief Extracts the configured region from the image center.
    * @param input Image tensor shaped `{C, H, W}`.
    * @return Spatial tensor view of the centered crop.
-   * @throws std::invalid_argument Input shape or crop extent is incompatible.
+   * @throws jyppx::InvalidArgument Input shape or crop extent is incompatible.
    */
   Tensor operator()(const Tensor& input) const override {
-    if (input.dim() < 3) {
-      throw std::invalid_argument("CenterCrop expects a {C, H, W} tensor");
+    if (!input.defined() || input.dim() != 3) {
+      detail::throw_transform_invalid(
+          "center_crop.input_shape", "{C, H, W}",
+          detail::describe_tensor_rank(input),
+          "Provide a channel-first image tensor.");
     }
     const int64_t h = input.size(1);
     const int64_t w = input.size(2);
     if (h < size_.first || w < size_.second) {
-      throw std::invalid_argument(
-          "CenterCrop size is larger than the input image");
+      detail::throw_transform_invalid(
+          "center_crop.extent", "crop no larger than input",
+          "crop=" + std::to_string(size_.first) + "x" +
+              std::to_string(size_.second) + ", input=" +
+              std::to_string(h) + "x" + std::to_string(w),
+          "Reduce the crop or provide a larger image.");
     }
     const int64_t top = (h - size_.first) / 2;
     const int64_t left = (w - size_.second) / 2;
@@ -388,12 +462,15 @@ class RandomCrop : public TensorTransform {
   /**
    * @brief Creates a random fixed-size crop.
    * @param size `{n}` for a square or `{height, width}`.
-   * @throws std::invalid_argument Shape count or dimensions are invalid.
+   * @throws jyppx::InvalidArgument Shape count or dimensions are invalid.
    */
   explicit RandomCrop(std::vector<int64_t> size)
       : size_(detail::crop_size(size)) {
     if (size_.first <= 0 || size_.second <= 0) {
-      throw std::invalid_argument("RandomCrop size values must be positive");
+      detail::throw_transform_invalid(
+          "random_crop.size", "positive height and width",
+          std::to_string(size_.first) + "x" + std::to_string(size_.second),
+          "Use crop dimensions greater than zero.");
     }
   }
 
@@ -401,17 +478,24 @@ class RandomCrop : public TensorTransform {
    * @brief Extracts one uniformly positioned crop.
    * @param input Image tensor shaped `{C, H, W}`.
    * @return Spatial tensor view selected using the global Torch RNG.
-   * @throws std::invalid_argument Input shape or crop extent is incompatible.
+   * @throws jyppx::InvalidArgument Input shape or crop extent is incompatible.
    */
   Tensor operator()(const Tensor& input) const override {
-    if (input.dim() < 3) {
-      throw std::invalid_argument("RandomCrop expects a {C, H, W} tensor");
+    if (!input.defined() || input.dim() != 3) {
+      detail::throw_transform_invalid(
+          "random_crop.input_shape", "{C, H, W}",
+          detail::describe_tensor_rank(input),
+          "Provide a channel-first image tensor.");
     }
     const int64_t h = input.size(1);
     const int64_t w = input.size(2);
     if (h < size_.first || w < size_.second) {
-      throw std::invalid_argument(
-          "RandomCrop size is larger than the input image");
+      detail::throw_transform_invalid(
+          "random_crop.extent", "crop no larger than input",
+          "crop=" + std::to_string(size_.first) + "x" +
+              std::to_string(size_.second) + ", input=" +
+              std::to_string(h) + "x" + std::to_string(w),
+          "Reduce the crop or provide a larger image.");
     }
 
     const int64_t top =
@@ -444,17 +528,19 @@ namespace detail {
  * @param p Flip probability in the closed range `[0, 1]`.
  * @param name Transform name included in diagnostic messages.
  * @return Flipped tensor or the original handle when the draw is rejected.
- * @throws std::invalid_argument Probability or input shape is invalid.
+ * @throws jyppx::InvalidArgument Probability or input shape is invalid.
  */
 inline Tensor random_flip(const Tensor& input, int64_t dim, double p,
                           const char* name) {
-  if (p < 0.0 || p > 1.0) {
-    throw std::invalid_argument(std::string(name) +
-                                " probability must be in [0, 1]");
+  if (!std::isfinite(p) || p < 0.0 || p > 1.0) {
+    throw_transform_invalid(std::string(name) + ".probability", "[0, 1]",
+                            std::to_string(p),
+                            "Use a finite probability in the closed interval.");
   }
-  if (input.dim() < 3) {
-    throw std::invalid_argument(std::string(name) +
-                                " expects a {C, H, W} tensor");
+  if (!input.defined() || input.dim() != 3) {
+    throw_transform_invalid(std::string(name) + ".input_shape", "{C, H, W}",
+                            describe_tensor_rank(input),
+                            "Provide a channel-first image tensor.");
   }
   const double draw = torch::rand({1}).item<double>();
   if (draw < p) {
@@ -473,12 +559,13 @@ class RandomHorizontalFlip : public TensorTransform {
   /**
    * @brief Creates a probabilistic horizontal flip.
    * @param p Flip probability in the closed range `[0, 1]`.
-   * @throws std::invalid_argument @p p is outside the valid range.
+   * @throws jyppx::InvalidArgument @p p is outside the valid range.
    */
   explicit RandomHorizontalFlip(double p = 0.5) : p_(p) {
-    if (p_ < 0.0 || p_ > 1.0) {
-      throw std::invalid_argument(
-          "RandomHorizontalFlip probability must be in [0, 1]");
+    if (!std::isfinite(p_) || p_ < 0.0 || p_ > 1.0) {
+      detail::throw_transform_invalid(
+          "random_horizontal_flip.probability", "[0, 1]", std::to_string(p_),
+          "Use a finite probability in the closed interval.");
     }
   }
 
@@ -509,12 +596,13 @@ class RandomVerticalFlip : public TensorTransform {
   /**
    * @brief Creates a probabilistic vertical flip.
    * @param p Flip probability in the closed range `[0, 1]`.
-   * @throws std::invalid_argument @p p is outside the valid range.
+   * @throws jyppx::InvalidArgument @p p is outside the valid range.
    */
   explicit RandomVerticalFlip(double p = 0.5) : p_(p) {
-    if (p_ < 0.0 || p_ > 1.0) {
-      throw std::invalid_argument(
-          "RandomVerticalFlip probability must be in [0, 1]");
+    if (!std::isfinite(p_) || p_ < 0.0 || p_ > 1.0) {
+      detail::throw_transform_invalid(
+          "random_vertical_flip.probability", "[0, 1]", std::to_string(p_),
+          "Use a finite probability in the closed interval.");
     }
   }
 
@@ -549,12 +637,16 @@ class Pad : public TensorTransform {
    * @brief Creates a constant padding operation.
    * @param padding One, two, or four side widths in torchvision order.
    * @param fill Scalar value written outside the source image.
-   * @throws std::invalid_argument Padding count is unsupported.
+   * @throws jyppx::InvalidArgument Padding count is unsupported.
    */
   explicit Pad(std::vector<int64_t> padding, double fill = 0.0)
       : padding_(std::move(padding)), fill_(fill) {
-    if (padding_.empty() || padding_.size() > 4) {
-      throw std::invalid_argument("Pad padding must contain 1, 2 or 4 values");
+    if (padding_.size() != 1 && padding_.size() != 2 &&
+        padding_.size() != 4) {
+      detail::throw_transform_invalid(
+          "pad.padding", "one, two, or four values",
+          std::to_string(padding_.size()) + " values",
+          "Use torchvision-compatible padding arity.");
     }
   }
 
@@ -562,11 +654,14 @@ class Pad : public TensorTransform {
    * @brief Pads the two trailing spatial dimensions.
    * @param input Tensor shaped at least `{H, W}`, normally `{C, H, W}`.
    * @return Constant-padded tensor.
-   * @throws std::invalid_argument Input has fewer than two dimensions.
+   * @throws jyppx::InvalidArgument Input has fewer than two dimensions.
    */
   Tensor operator()(const Tensor& input) const override {
-    if (input.dim() < 2) {
-      throw std::invalid_argument("Pad expects a {C, H, W} tensor");
+    if (!input.defined() || input.dim() < 2) {
+      detail::throw_transform_invalid(
+          "pad.input_shape", "at least two dimensions",
+          detail::describe_tensor_rank(input),
+          "Provide a tensor with spatial dimensions.");
     }
     // Expand {n} -> {n, n, n, n} and {l, r} -> {l, r, l, r} (torchvision).
     std::vector<int64_t> pad;
@@ -606,12 +701,13 @@ class RandomRotation : public TensorTransform {
   /**
    * @brief Creates a symmetric random rotation range.
    * @param degrees Non-negative maximum absolute angle in degrees.
-   * @throws std::invalid_argument @p degrees is negative.
+   * @throws jyppx::InvalidArgument @p degrees is negative.
    */
   explicit RandomRotation(double degrees) : degrees_(degrees) {
-    if (degrees_ < 0.0) {
-      throw std::invalid_argument(
-          "RandomRotation degrees must be non-negative");
+    if (!std::isfinite(degrees_) || degrees_ < 0.0) {
+      detail::throw_transform_invalid(
+          "random_rotation.degrees", "non-negative degrees",
+          std::to_string(degrees_), "Use a non-negative rotation extent.");
     }
   }
 
@@ -619,8 +715,15 @@ class RandomRotation : public TensorTransform {
    * @brief Rotates an image by one uniformly drawn angle.
    * @param input Image tensor shaped `{C, H, W}`.
    * @return Float32 rotated image with zero fill.
+   * @throws jyppx::InvalidArgument Input is not a channel-first image.
    */
   Tensor operator()(const Tensor& input) const override {
+    if (!input.defined() || input.dim() != 3) {
+      detail::throw_transform_invalid(
+          "random_rotation.input_shape", "{C, H, W}",
+          detail::describe_tensor_rank(input),
+          "Provide a channel-first image tensor.");
+    }
     const double angle =
         (torch::rand({1}).item<double>() * 2.0 - 1.0) * degrees_;
     return detail::affine_rotate(input, angle);
@@ -651,22 +754,33 @@ class RandomAffine : public TensorTransform {
    * @param degrees Non-negative maximum absolute rotation in degrees.
    * @param translate Maximum absolute width and height fractions.
    * @param scale Positive inclusive scale interval.
-   * @throws std::invalid_argument Any configured range is invalid.
+   * @throws jyppx::InvalidArgument Any configured range is invalid.
    */
   RandomAffine(double degrees, std::pair<double, double> translate = {0.0, 0.0},
                std::pair<double, double> scale = {1.0, 1.0})
       : degrees_(degrees), translate_(translate), scale_(scale) {
-    if (degrees_ < 0.0) {
-      throw std::invalid_argument("RandomAffine degrees must be non-negative");
+    if (!std::isfinite(degrees_) || degrees_ < 0.0) {
+      detail::throw_transform_invalid(
+          "random_affine.degrees", "non-negative degrees",
+          std::to_string(degrees_), "Use a non-negative rotation extent.");
     }
-    if (translate_.first < 0.0 || translate_.second < 0.0 ||
+    if (!std::isfinite(translate_.first) ||
+        !std::isfinite(translate_.second) || translate_.first < 0.0 ||
+        translate_.second < 0.0 ||
         translate_.first > 1.0 || translate_.second > 1.0) {
-      throw std::invalid_argument(
-          "RandomAffine translate must be within [0, 1]");
+      detail::throw_transform_invalid(
+          "random_affine.translate", "both fractions in [0, 1]",
+          std::to_string(translate_.first) + "," +
+              std::to_string(translate_.second),
+          "Use bounded width and height translation fractions.");
     }
-    if (scale_.first <= 0.0 || scale_.second < scale_.first) {
-      throw std::invalid_argument(
-          "RandomAffine scale must be positive and increasing");
+    if (!std::isfinite(scale_.first) || !std::isfinite(scale_.second) ||
+        scale_.first <= 0.0 || scale_.second < scale_.first) {
+      detail::throw_transform_invalid(
+          "random_affine.scale", "0 < minimum <= maximum",
+          std::to_string(scale_.first) + "," +
+              std::to_string(scale_.second),
+          "Use a positive ordered scale interval.");
     }
   }
 
@@ -674,11 +788,14 @@ class RandomAffine : public TensorTransform {
    * @brief Draws and applies one affine transform.
    * @param input Image tensor shaped `{C, H, W}`.
    * @return Float32 affine-warped image with zero fill.
-   * @throws std::invalid_argument Input has fewer than two dimensions.
+   * @throws jyppx::InvalidArgument Input is not a channel-first image.
    */
   Tensor operator()(const Tensor& input) const override {
-    if (input.dim() < 2) {
-      throw std::invalid_argument("RandomAffine expects a {C, H, W} tensor");
+    if (!input.defined() || input.dim() != 3) {
+      detail::throw_transform_invalid(
+          "random_affine.input_shape", "{C, H, W}",
+          detail::describe_tensor_rank(input),
+          "Provide an image tensor with spatial dimensions.");
     }
     const int64_t h = input.size(input.dim() - 2);
     const int64_t w = input.size(input.dim() - 1);
@@ -720,13 +837,15 @@ class Grayscale : public TensorTransform {
   /**
    * @brief Creates a deterministic grayscale conversion.
    * @param num_output_channels One luma channel or three replicated channels.
-   * @throws std::invalid_argument Output channel count is not one or three.
+   * @throws jyppx::InvalidArgument Output channel count is not one or three.
    */
   explicit Grayscale(int64_t num_output_channels = 1)
       : channels_(num_output_channels) {
     if (channels_ != 1 && channels_ != 3) {
-      throw std::invalid_argument(
-          "Grayscale num_output_channels must be 1 or 3");
+      detail::throw_transform_invalid(
+          "grayscale.output_channels", "1 or 3",
+          std::to_string(channels_),
+          "Select one luma or three replicated channels.");
     }
   }
 
@@ -761,12 +880,13 @@ class RandomGrayscale : public TensorTransform {
   /**
    * @brief Creates a probabilistic three-channel grayscale conversion.
    * @param p Conversion probability in the closed range `[0, 1]`.
-   * @throws std::invalid_argument @p p is outside the valid range.
+   * @throws jyppx::InvalidArgument @p p is outside the valid range.
    */
   explicit RandomGrayscale(double p = 0.1) : p_(p) {
-    if (p_ < 0.0 || p_ > 1.0) {
-      throw std::invalid_argument(
-          "RandomGrayscale probability must be in [0, 1]");
+    if (!std::isfinite(p_) || p_ < 0.0 || p_ > 1.0) {
+      detail::throw_transform_invalid(
+          "random_grayscale.probability", "[0, 1]", std::to_string(p_),
+          "Use a finite probability in the closed interval.");
     }
   }
 
@@ -774,11 +894,14 @@ class RandomGrayscale : public TensorTransform {
    * @brief Optionally replaces RGB channels with replicated luma.
    * @param input Image tensor shaped `{C, H, W}`.
    * @return Three-channel grayscale or the original tensor handle.
-   * @throws std::invalid_argument Input has fewer than three dimensions.
+   * @throws jyppx::InvalidArgument Input is not a channel-first image.
    */
   Tensor operator()(const Tensor& input) const override {
-    if (input.dim() < 3) {
-      throw std::invalid_argument("RandomGrayscale expects a {C, H, W} tensor");
+    if (!input.defined() || input.dim() != 3) {
+      detail::throw_transform_invalid(
+          "random_grayscale.input_shape", "{C, H, W}",
+          detail::describe_tensor_rank(input),
+          "Provide a channel-first image tensor.");
     }
     const double draw = torch::rand({1}).item<double>();
     if (draw < p_ && input.size(0) == 3) {
@@ -814,7 +937,7 @@ class ColorJitter : public TensorTransform {
    * @param contrast Non-negative symmetric contrast range around one.
    * @param saturation Non-negative symmetric saturation range around one.
    * @param hue Maximum hue offset in turns, within `[0, 0.5]`.
-   * @throws std::invalid_argument Any range is outside its valid domain.
+   * @throws jyppx::InvalidArgument Any range is outside its valid domain.
    */
   ColorJitter(double brightness = 0.0, double contrast = 0.0,
               double saturation = 0.0, double hue = 0.0)
@@ -822,11 +945,19 @@ class ColorJitter : public TensorTransform {
         contrast_(contrast),
         saturation_(saturation),
         hue_(hue) {
-    if (brightness_ < 0.0 || contrast_ < 0.0 || saturation_ < 0.0) {
-      throw std::invalid_argument("ColorJitter factors must be non-negative");
+    if (!std::isfinite(brightness_) || !std::isfinite(contrast_) ||
+        !std::isfinite(saturation_) || brightness_ < 0.0 ||
+        contrast_ < 0.0 || saturation_ < 0.0) {
+      detail::throw_transform_invalid(
+          "color_jitter.factors", "non-negative factors",
+          std::to_string(brightness_) + "," + std::to_string(contrast_) +
+              "," + std::to_string(saturation_),
+          "Use non-negative brightness, contrast, and saturation ranges.");
     }
-    if (hue_ < 0.0 || hue_ > 0.5) {
-      throw std::invalid_argument("ColorJitter hue must be in [0, 0.5]");
+    if (!std::isfinite(hue_) || hue_ < 0.0 || hue_ > 0.5) {
+      detail::throw_transform_invalid(
+          "color_jitter.hue", "[0, 0.5]", std::to_string(hue_),
+          "Use a hue range no larger than half a turn.");
     }
   }
 
@@ -834,11 +965,14 @@ class ColorJitter : public TensorTransform {
    * @brief Applies enabled adjustments in randomized order.
    * @param input Image tensor shaped `{C, H, W}`.
    * @return Float32 adjusted image.
-   * @throws std::invalid_argument Input has fewer than three dimensions.
+   * @throws jyppx::InvalidArgument Input is not a channel-first image.
    */
   Tensor operator()(const Tensor& input) const override {
-    if (input.dim() < 3) {
-      throw std::invalid_argument("ColorJitter expects a {C, H, W} tensor");
+    if (!input.defined() || input.dim() != 3) {
+      detail::throw_transform_invalid(
+          "color_jitter.input_shape", "{C, H, W}",
+          detail::describe_tensor_rank(input),
+          "Provide a channel-first image tensor.");
     }
     Tensor result = input.to(torch::kFloat32);
 

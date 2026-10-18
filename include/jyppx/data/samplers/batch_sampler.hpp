@@ -7,6 +7,7 @@
  */
 
 #include <jyppx/data/samplers/sampler.hpp>
+#include <jyppx/data/detail/error.hpp>
 
 #include <memory>
 
@@ -27,7 +28,7 @@ class BatchSampler : public Sampler {
    * @param sampler Shared underlying sample-order provider; must not be null.
    * @param batch_size Samples per complete batch; must be positive.
    * @param drop_last Whether to omit the final incomplete batch.
-   * @throws std::invalid_argument A required argument is invalid.
+   * @throws jyppx::InvalidArgument A required argument is invalid.
    */
   BatchSampler(std::shared_ptr<Sampler> sampler, size_t batch_size,
                bool drop_last = false);

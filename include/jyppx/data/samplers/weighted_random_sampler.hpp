@@ -7,13 +7,13 @@
  */
 
 #include <jyppx/data/samplers/sampler.hpp>
+#include <jyppx/data/detail/error.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <random>
 #include <sstream>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -35,7 +35,7 @@ class WeightedRandomSampler : public Sampler {
    * @param num_samples Number of indices produced per epoch; positive.
    * @param replacement Whether the same index may be drawn more than once.
    * @param seed Optional deterministic engine seed.
-   * @throws std::invalid_argument Weights or sample count cannot form a valid
+   * @throws jyppx::InvalidArgument Weights or sample count cannot form a valid
    * draw.
    */
   WeightedRandomSampler(std::vector<double> weights, size_t num_samples,
@@ -49,31 +49,42 @@ class WeightedRandomSampler : public Sampler {
                        : static_cast<std::mt19937_64::result_type>(
                              std::random_device{}())) {
     if (weights_.empty()) {
-      throw std::invalid_argument("WeightedRandomSampler requires weights");
+      ::jyppx::data::detail::throw_invalid(
+          "data.weighted_random_sampler", "constructor.weights",
+          "non-empty weights", "empty weights",
+          "Provide one finite weight per population entry.");
     }
     if (num_samples_ == 0) {
-      throw std::invalid_argument(
-          "WeightedRandomSampler num_samples must be positive");
+      ::jyppx::data::detail::throw_invalid(
+          "data.weighted_random_sampler", "constructor.num_samples",
+          "positive sample count", "zero",
+          "Set num_samples to at least one.");
     }
     size_t positive_weights = 0;
     double total = 0.0;
     for (const double weight : weights_) {
       if (!std::isfinite(weight) || weight < 0.0) {
-        throw std::invalid_argument(
-            "WeightedRandomSampler weights must be finite and non-negative");
+        ::jyppx::data::detail::throw_invalid(
+            "data.weighted_random_sampler", "constructor.weights",
+            "finite non-negative weights", std::to_string(weight),
+            "Replace NaN, infinity, or negative weights.");
       }
       positive_weights += weight > 0.0 ? 1 : 0;
       total += weight;
     }
     if (!std::isfinite(total) || total <= 0.0) {
-      throw std::invalid_argument(
-          "WeightedRandomSampler weights must have a finite positive sum");
+      ::jyppx::data::detail::throw_invalid(
+          "data.weighted_random_sampler", "constructor.weights",
+          "finite positive weight sum", std::to_string(total),
+          "Provide at least one positive finite weight.");
     }
     if (!replacement_ && num_samples_ > positive_weights) {
-      throw std::invalid_argument(
-          "WeightedRandomSampler without replacement cannot exceed the number "
-          "of "
-          "positive weights");
+      ::jyppx::data::detail::throw_invalid(
+          "data.weighted_random_sampler", "constructor.num_samples",
+          "num_samples <= positive weight count",
+          "num_samples=" + std::to_string(num_samples_) +
+              ", positive_weights=" + std::to_string(positive_weights),
+          "Enable replacement or reduce num_samples.");
     }
     // Precompute cumulative weights for the sampling walk.
     cumulative_.reserve(weights_.size());
@@ -144,18 +155,19 @@ class WeightedRandomSampler : public Sampler {
   /**
    * @brief Restores random-engine state atomically.
    * @param state Value returned by save_state().
-   * @throws std::invalid_argument The state is malformed.
+   * @throws jyppx::SerializationError The state is malformed.
    */
   void load_state(const std::string& state) override {
     auto restored = generator_;
     std::istringstream stream(state);
     if (!(stream >> restored)) {
-      throw std::invalid_argument("Invalid WeightedRandomSampler state");
+      ::jyppx::data::detail::throw_state_error(
+          "data.weighted_random_sampler", "load_state", "invalid engine state");
     }
     stream >> std::ws;
     if (!stream.eof()) {
-      throw std::invalid_argument(
-          "WeightedRandomSampler state contains trailing data");
+      ::jyppx::data::detail::throw_state_error(
+          "data.weighted_random_sampler", "load_state", "trailing bytes");
     }
     generator_ = restored;
   }
@@ -195,7 +207,7 @@ class SubsetRandomSampler : public Sampler {
    * @brief Creates a permutation sampler for a caller-provided subset.
    * @param indices Non-empty dataset indices to permute.
    * @param seed Optional deterministic engine seed.
-   * @throws std::invalid_argument @p indices is empty.
+   * @throws jyppx::InvalidArgument @p indices is empty.
    */
   SubsetRandomSampler(std::vector<size_t> indices,
                       Optional<uint64_t> seed = std::nullopt)
@@ -205,8 +217,10 @@ class SubsetRandomSampler : public Sampler {
                        : static_cast<std::mt19937_64::result_type>(
                              std::random_device{}())) {
     if (indices_.empty()) {
-      throw std::invalid_argument(
-          "SubsetRandomSampler requires a non-empty index set");
+      ::jyppx::data::detail::throw_invalid(
+          "data.subset_random_sampler", "constructor.indices",
+          "non-empty index set", "empty index set",
+          "Provide at least one source index.");
     }
   }
 
@@ -245,18 +259,19 @@ class SubsetRandomSampler : public Sampler {
   /**
    * @brief Restores random-engine state atomically.
    * @param state Value returned by save_state().
-   * @throws std::invalid_argument The state is malformed.
+   * @throws jyppx::SerializationError The state is malformed.
    */
   void load_state(const std::string& state) override {
     auto restored = generator_;
     std::istringstream stream(state);
     if (!(stream >> restored)) {
-      throw std::invalid_argument("Invalid SubsetRandomSampler state");
+      ::jyppx::data::detail::throw_state_error(
+          "data.subset_random_sampler", "load_state", "invalid engine state");
     }
     stream >> std::ws;
     if (!stream.eof()) {
-      throw std::invalid_argument(
-          "SubsetRandomSampler state contains trailing data");
+      ::jyppx::data::detail::throw_state_error(
+          "data.subset_random_sampler", "load_state", "trailing bytes");
     }
     generator_ = restored;
   }
@@ -285,7 +300,7 @@ class DistributedSampler : public Sampler {
    * @param shuffle Whether to permute using seed plus epoch.
    * @param seed Base deterministic seed; defaults to zero.
    * @param drop_last Whether to drop the uneven global tail instead of padding.
-   * @throws std::invalid_argument Size or rank topology is invalid.
+   * @throws jyppx::InvalidArgument Size or rank topology is invalid.
    */
   DistributedSampler(size_t size, size_t rank, size_t world_size,
                      bool shuffle = true,
@@ -298,15 +313,23 @@ class DistributedSampler : public Sampler {
         drop_last_(drop_last),
         seed_(seed.value_or(0)) {
     if (size_ == 0) {
-      throw std::invalid_argument("DistributedSampler size must be positive");
+      ::jyppx::data::detail::throw_invalid(
+          "data.distributed_sampler", "constructor.size", "positive size",
+          "zero", "Provide a non-empty global dataset.");
     }
     if (world_size_ == 0) {
-      throw std::invalid_argument(
-          "DistributedSampler world_size must be positive");
+      ::jyppx::data::detail::throw_invalid(
+          "data.distributed_sampler", "constructor.world_size",
+          "positive world size", "zero",
+          "Provide at least one participating rank.");
     }
     if (rank_ >= world_size_) {
-      throw std::invalid_argument(
-          "DistributedSampler rank must be < world_size");
+      ::jyppx::data::detail::throw_invalid(
+          "data.distributed_sampler", "constructor.rank",
+          "rank < world_size", "rank=" + std::to_string(rank_) +
+                                     ", world_size=" +
+                                         std::to_string(world_size_),
+          "Use a zero-based rank within the distributed topology.");
     }
   }
 
@@ -396,21 +419,26 @@ class DistributedSampler : public Sampler {
   /**
    * @brief Restores the shuffle epoch atomically.
    * @param state Decimal state returned by save_state().
-   * @throws std::invalid_argument The state is malformed or negative.
+   * @throws jyppx::SerializationError The state is malformed or negative.
    */
   void load_state(const std::string& state) override {
     size_t consumed = 0;
     try {
       if (state.empty() || state.front() == '-') {
-        throw std::invalid_argument("negative epoch");
+        ::jyppx::data::detail::throw_state_error(
+            "data.distributed_sampler", "load_state", "negative epoch");
       }
       const auto restored = std::stoull(state, &consumed);
       if (consumed != state.size()) {
-        throw std::invalid_argument("trailing data");
+        ::jyppx::data::detail::throw_state_error(
+            "data.distributed_sampler", "load_state", "trailing bytes");
       }
       epoch_ = restored;
+    } catch (const ::jyppx::SerializationError&) {
+      throw;
     } catch (const std::exception&) {
-      throw std::invalid_argument("Invalid DistributedSampler state");
+      ::jyppx::data::detail::throw_state_error(
+          "data.distributed_sampler", "load_state", "invalid epoch");
     }
   }
 

@@ -1,10 +1,10 @@
 #include <jyppx/data/samplers/random_sampler.hpp>
+#include <jyppx/data/detail/error.hpp>
 
 #include <algorithm>
 #include <numeric>
 #include <random>
 #include <sstream>
-#include <stdexcept>
 
 namespace jyppx::data::samplers {
 
@@ -26,7 +26,9 @@ RandomSampler::RandomSampler(size_t size, Optional<int64_t> seed)
                                   : random_seed()),
       generator_(static_cast<std::mt19937_64::result_type>(base_seed_)) {
   if (size_ == 0) {
-    throw std::invalid_argument("RandomSampler size must be positive");
+    ::jyppx::data::detail::throw_invalid(
+        "data.random_sampler", "constructor.size", "positive population",
+        "zero", "Provide a dataset with at least one sample.");
   }
 }
 
@@ -62,11 +64,13 @@ void RandomSampler::load_state(const std::string& state) {
   std::istringstream stream(state);
   if (!std::getline(stream, magic) || magic != kStateMagic ||
       !(stream >> restored_seed) || !(stream >> restored)) {
-    throw std::invalid_argument("Invalid RandomSampler state");
+    ::jyppx::data::detail::throw_state_error(
+        "data.random_sampler", "load_state", "invalid header, seed, or engine");
   }
   stream >> std::ws;
   if (!stream.eof()) {
-    throw std::invalid_argument("RandomSampler state contains trailing data");
+    ::jyppx::data::detail::throw_state_error(
+        "data.random_sampler", "load_state", "trailing bytes");
   }
   base_seed_ = restored_seed;
   generator_ = restored;

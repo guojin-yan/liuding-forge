@@ -7,10 +7,10 @@
  */
 
 #include <jyppx/data/dataset.hpp>
+#include <jyppx/data/detail/error.hpp>
 
 #include <limits>
 #include <memory>
-#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <variant>
@@ -68,7 +68,7 @@ class StackDataset : public Dataset<std::tuple<Ts...>> {
   /**
    * @brief Creates a positional zip of non-empty datasets.
    * @param datasets Non-null dataset handles, one per sample type.
-   * @throws std::invalid_argument No datasets are supplied, a handle is null,
+   * @throws jyppx::InvalidArgument No datasets are supplied, a handle is null,
    * or the smallest dataset is empty.
    */
   explicit StackDataset(std::shared_ptr<Dataset<Ts>>... datasets)
@@ -80,13 +80,19 @@ class StackDataset : public Dataset<std::tuple<Ts...>> {
         },
         datasets_);
     if (!all_defined) {
-      throw std::invalid_argument("StackDataset datasets cannot be null");
+      detail::throw_invalid("data.stack_dataset", "constructor.datasets",
+                            "non-null datasets", "null dataset",
+                            "Provide a dataset handle for every sample type.");
     }
     if (sizeof...(Ts) == 0) {
-      throw std::invalid_argument("StackDataset requires at least one dataset");
+      detail::throw_invalid("data.stack_dataset", "constructor.datasets",
+                            "at least one dataset", "empty parameter pack",
+                            "Provide at least one dataset.");
     }
     if (size() == 0) {
-      throw std::invalid_argument("StackDataset datasets must be non-empty");
+      detail::throw_invalid("data.stack_dataset", "constructor.datasets",
+                            "non-empty datasets", "empty dataset",
+                            "Provide datasets containing at least one sample.");
     }
   }
 
@@ -94,11 +100,11 @@ class StackDataset : public Dataset<std::tuple<Ts...>> {
    * @brief Returns one tuple of positionally matched samples.
    * @param index Zero-based index less than `size()`.
    * @return Tuple containing one sample from every child dataset.
-   * @throws std::out_of_range The index is outside the shared prefix.
+   * @throws jyppx::InvalidArgument The index is outside the shared prefix.
    */
   std::tuple<Ts...> get(size_t index) const override {
     if (index >= size()) {
-      throw std::out_of_range("StackDataset index out of range");
+      detail::throw_index_error("data.stack_dataset", "get", index, size());
     }
     return detail::stack_get_at(datasets_, index,
                                 std::index_sequence_for<Ts...>{});

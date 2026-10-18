@@ -3,6 +3,7 @@
 // writer, model summary/profiler and distributed helpers.
 
 #include <jyppx/jyppx.hpp>
+#include <jyppx/foundation/error.hpp>
 
 #include <cmath>
 #include <filesystem>
@@ -95,16 +96,16 @@ TEST(WeightedRandomSamplerTest, DeterministicWithSeed) {
 }
 
 TEST(WeightedRandomSamplerTest, ValidatesArguments) {
-  EXPECT_THROW(samplers::WeightedRandomSampler({}, 10), std::invalid_argument);
+  EXPECT_THROW(samplers::WeightedRandomSampler({}, 10), jyppx::InvalidArgument);
   EXPECT_THROW(samplers::WeightedRandomSampler({1.0}, 0),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
   EXPECT_THROW(samplers::WeightedRandomSampler({1.0, -1.0}, 10),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
   EXPECT_THROW(samplers::WeightedRandomSampler({0.0, 0.0}, 10),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
   EXPECT_THROW(
       samplers::WeightedRandomSampler({1.0, 2.0}, 5, /*replacement=*/false),
-      std::invalid_argument);
+      jyppx::InvalidArgument);
 }
 
 TEST(WeightedRandomSamplerTest, WithoutReplacementYieldsDistinctIndices) {
@@ -164,8 +165,8 @@ TEST(DistributedSamplerTest, SingleProcessBehavesLikeIdentity) {
 }
 
 TEST(DistributedSamplerTest, ValidatesArguments) {
-  EXPECT_THROW(samplers::DistributedSampler(10, 1, 1), std::invalid_argument);
-  EXPECT_THROW(samplers::DistributedSampler(10, 0, 0), std::invalid_argument);
+  EXPECT_THROW(samplers::DistributedSampler(10, 1, 1), jyppx::InvalidArgument);
+  EXPECT_THROW(samplers::DistributedSampler(10, 0, 0), jyppx::InvalidArgument);
 }
 
 // ---- Chain / Stack datasets
@@ -219,7 +220,7 @@ TEST(StackDatasetTest, LengthIsTheSmallestDataset) {
   auto small = std::make_shared<TensorRows>(torch::randn({2, 1}));
   const data::StackDataset<Tensor, Tensor> stacked(big, small);
   EXPECT_EQ(stacked.size(), 2);
-  EXPECT_THROW(stacked.get(2), std::out_of_range);
+  EXPECT_THROW(stacked.get(2), jyppx::InvalidArgument);
 }
 
 // ---- Extended transforms
@@ -270,9 +271,9 @@ TEST_F(TransformsExtraTest, AffineIdentityAndValidation) {
   const RandomAffine affine(0.0);  // no rotation/translate/scale variation
   EXPECT_TRUE(torch::allclose(affine(image_), image_, 1e-3, 1e-3));
 
-  EXPECT_THROW(RandomAffine(10.0, {1.5, 0.0}), std::invalid_argument);
+  EXPECT_THROW(RandomAffine(10.0, {1.5, 0.0}), jyppx::InvalidArgument);
   EXPECT_THROW(RandomAffine(10.0, {0.0, 0.0}, {0.0, 1.0}),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
 }
 
 TEST_F(TransformsExtraTest, AffineTranslateShiftsContent) {
@@ -307,8 +308,8 @@ TEST_F(TransformsExtraTest, GrayscaleLumaWeights) {
 }
 
 TEST_F(TransformsExtraTest, GrayscaleValidatesChannels) {
-  EXPECT_THROW(Grayscale(2), std::invalid_argument);
-  EXPECT_THROW(Grayscale(5), std::invalid_argument);
+  EXPECT_THROW(Grayscale(2), jyppx::InvalidArgument);
+  EXPECT_THROW(Grayscale(5), jyppx::InvalidArgument);
 }
 
 TEST_F(TransformsExtraTest, RandomGrayscaleKeepsThreeChannels) {
@@ -337,8 +338,8 @@ TEST_F(TransformsExtraTest, ColorJitterBrightnessScales) {
 }
 
 TEST_F(TransformsExtraTest, ColorJitterValidatesArguments) {
-  EXPECT_THROW(ColorJitter(-0.5), std::invalid_argument);
-  EXPECT_THROW(ColorJitter(0.0, 0.0, 0.0, 0.9), std::invalid_argument);
+  EXPECT_THROW(ColorJitter(-0.5), jyppx::InvalidArgument);
+  EXPECT_THROW(ColorJitter(0.0, 0.0, 0.0, 0.9), jyppx::InvalidArgument);
 }
 
 // ---- TensorBoard writer

@@ -31,7 +31,7 @@ class TensorDataset : public Dataset<Example> {
    * @brief Creates a paired tensor dataset.
    * @param data Defined tensor with a leading sample dimension.
    * @param targets Defined target tensor with the same leading size.
-   * @throws std::invalid_argument A tensor is undefined, scalar, or has a
+   * @throws jyppx::InvalidArgument A tensor is undefined, scalar, or has a
    * mismatched leading size.
    */
   TensorDataset(const Tensor& data, const Tensor& targets);
@@ -40,7 +40,7 @@ class TensorDataset : public Dataset<Example> {
    * @brief Returns matching input and target slices.
    * @param index Zero-based sample index.
    * @return Paired slices at @p index.
-   * @throws std::out_of_range The index is outside the dataset.
+   * @throws jyppx::InvalidArgument The index is outside the dataset.
    */
   Example get(size_t index) const override;
 

@@ -34,7 +34,7 @@ class Dataset {
    * @brief Returns one sample.
    * @param index Zero-based sample index, less than `size()`.
    * @return Sample at @p index.
-   * @throws std::out_of_range The index is outside the dataset.
+   * @throws jyppx::InvalidArgument The index is outside the dataset.
    */
   virtual T get(size_t index) const = 0;
 
@@ -61,7 +61,7 @@ class Dataset {
    * @brief Returns samples in caller-provided order.
    * @param indices Zero-based sample indices; duplicates are preserved.
    * @return Samples corresponding one-for-one with @p indices.
-   * @throws std::out_of_range Any index is outside the dataset.
+   * @throws jyppx::InvalidArgument Any index is outside the dataset.
    */
   virtual std::vector<T> get_batch(const std::vector<size_t>& indices) const {
     std::vector<T> batch;

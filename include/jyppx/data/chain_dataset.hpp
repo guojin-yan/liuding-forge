@@ -26,7 +26,7 @@ class ChainDataset : public ConcatDataset<T> {
   /**
    * @brief Creates a chain in caller-provided dataset order.
    * @param datasets Non-empty collection of non-null datasets.
-   * @throws std::invalid_argument The collection is empty or contains null.
+   * @throws jyppx::InvalidArgument The collection is empty or contains null.
    */
   explicit ChainDataset(std::vector<std::shared_ptr<Dataset<T>>> datasets)
       : ConcatDataset<T>(std::move(datasets)) {}

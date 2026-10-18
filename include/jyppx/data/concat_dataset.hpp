@@ -7,10 +7,10 @@
  */
 
 #include <jyppx/data/dataset.hpp>
+#include <jyppx/data/detail/error.hpp>
 
 #include <algorithm>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -31,19 +31,22 @@ class ConcatDataset : public Dataset<T> {
   /**
    * @brief Creates a concatenated view in caller-provided order.
    * @param datasets Non-empty collection of non-null datasets.
-   * @throws std::invalid_argument The collection is empty or contains null.
+   * @throws jyppx::InvalidArgument The collection is empty or contains null.
    */
   explicit ConcatDataset(std::vector<std::shared_ptr<Dataset<T>>> datasets)
       : datasets_(std::move(datasets)) {
     if (datasets_.empty()) {
-      throw std::invalid_argument(
-          "ConcatDataset requires at least one dataset");
+      detail::throw_invalid("data.concat_dataset", "constructor.datasets",
+                            "at least one dataset", "empty collection",
+                            "Provide a non-empty dataset collection.");
     }
     cumulative_sizes_.reserve(datasets_.size());
     size_t cumulative = 0;
     for (const auto& dataset : datasets_) {
       if (!dataset) {
-        throw std::invalid_argument("ConcatDataset datasets cannot be null");
+        detail::throw_invalid("data.concat_dataset", "constructor.datasets",
+                              "non-null datasets", "null dataset",
+                              "Provide valid shared dataset handles.");
       }
       cumulative += dataset->size();
       cumulative_sizes_.push_back(cumulative);
@@ -54,7 +57,7 @@ class ConcatDataset : public Dataset<T> {
    * @brief Resolves and returns one logical sample.
    * @param index Zero-based index in the concatenated view.
    * @return Sample from the owning child dataset.
-   * @throws std::out_of_range The index is outside the combined range.
+   * @throws jyppx::InvalidArgument The index is outside the combined range.
    */
   T get(size_t index) const override {
     const auto [dataset, local_index] = locate(index);
@@ -80,11 +83,11 @@ class ConcatDataset : public Dataset<T> {
    * @brief Maps a concatenated index to a child dataset and local index.
    * @param index Zero-based index in the concatenated view.
    * @return Child dataset handle and its local index.
-   * @throws std::out_of_range The index is outside the combined range.
+   * @throws jyppx::InvalidArgument The index is outside the combined range.
    */
   std::pair<std::shared_ptr<Dataset<T>>, size_t> locate(size_t index) const {
     if (index >= size()) {
-      throw std::out_of_range("ConcatDataset index out of range");
+      detail::throw_index_error("data.concat_dataset", "get", index, size());
     }
     const auto upper = std::upper_bound(cumulative_sizes_.begin(),
                                         cumulative_sizes_.end(), index);

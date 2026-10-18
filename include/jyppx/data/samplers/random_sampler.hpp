@@ -27,7 +27,7 @@ class RandomSampler : public Sampler {
    * @brief Creates a permutation sampler.
    * @param size Number of dataset entries; must be positive.
    * @param seed Optional deterministic seed.
-   * @throws std::invalid_argument @p size is zero.
+   * @throws jyppx::InvalidArgument @p size is zero.
    */
   explicit RandomSampler(size_t size, Optional<int64_t> seed = std::nullopt);
 
@@ -76,7 +76,7 @@ class RandomSampler : public Sampler {
   /**
    * @brief Restores generator state atomically.
    * @param state Value returned by save_state().
-   * @throws std::invalid_argument The engine state is malformed.
+   * @throws jyppx::SerializationError The engine state is malformed.
    */
   void load_state(const std::string& state) override;
 

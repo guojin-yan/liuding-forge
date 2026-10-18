@@ -1,6 +1,5 @@
 #include <jyppx/data/samplers/batch_sampler.hpp>
-
-#include <stdexcept>
+#include <jyppx/data/detail/error.hpp>
 
 namespace jyppx::data::samplers {
 
@@ -10,10 +9,14 @@ BatchSampler::BatchSampler(std::shared_ptr<Sampler> sampler, size_t batch_size,
       batch_size_(batch_size),
       drop_last_(drop_last) {
   if (!sampler_) {
-    throw std::invalid_argument("BatchSampler sampler cannot be null");
+    ::jyppx::data::detail::throw_invalid(
+        "data.batch_sampler", "constructor.sampler", "non-null sampler",
+        "null sampler", "Provide a valid sampler handle.");
   }
   if (batch_size_ == 0) {
-    throw std::invalid_argument("BatchSampler batch_size must be positive");
+    ::jyppx::data::detail::throw_invalid(
+        "data.batch_sampler", "constructor.batch_size", "positive batch size",
+        "zero", "Set batch_size to at least one.");
   }
 }
 

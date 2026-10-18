@@ -7,6 +7,7 @@
  */
 
 #include <jyppx/data/dataset.hpp>
+#include <jyppx/data/detail/error.hpp>
 #include <jyppx/data/samplers/batch_sampler.hpp>
 #include <jyppx/data/samplers/random_sampler.hpp>
 #include <jyppx/data/samplers/sampler.hpp>
@@ -21,7 +22,6 @@
 #include <iterator>
 #include <map>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -200,7 +200,7 @@ class DataLoader {
    * @brief Creates a loader with a built-in sequential or random sampler.
    * @param dataset Shared non-empty map-style dataset.
    * @param options Valid batching and worker options.
-   * @throws std::invalid_argument Dataset or an option is invalid.
+   * @throws jyppx::InvalidArgument Dataset or an option is invalid.
    */
   DataLoader(std::shared_ptr<Dataset<T>> dataset,
              const DataLoaderOptions& options = DataLoaderOptions{})
@@ -216,7 +216,7 @@ class DataLoader {
    * @param dataset Shared non-empty map-style dataset.
    * @param options Valid batching and worker options.
    * @param collate_fn Optional custom sample-to-batch function.
-   * @throws std::invalid_argument Dataset or an option is invalid.
+   * @throws jyppx::InvalidArgument Dataset or an option is invalid.
    */
   DataLoader(std::shared_ptr<Dataset<T>> dataset,
              const DataLoaderOptions& options, CollateFn<T> collate_fn)
@@ -224,17 +224,24 @@ class DataLoader {
         options_(options),
         collate_fn_(std::move(collate_fn)) {
     if (!dataset_) {
-      throw std::invalid_argument("DataLoader dataset cannot be null");
+      detail::throw_invalid("data.dataloader", "constructor.dataset",
+                            "non-null dataset", "null dataset",
+                            "Provide a valid map-style dataset.");
     }
     if (dataset_->size() == 0) {
-      throw std::invalid_argument("DataLoader dataset cannot be empty");
+      detail::throw_invalid("data.dataloader", "constructor.dataset_size",
+                            "positive dataset size", "zero",
+                            "Provide a dataset containing at least one sample.");
     }
     if (options_.batch_size == 0) {
-      throw std::invalid_argument("DataLoader batch_size must be positive");
+      detail::throw_invalid("data.dataloader", "constructor.batch_size",
+                            "positive batch size", "zero",
+                            "Set batch_size to at least one.");
     }
     if (options_.prefetch_factor == 0) {
-      throw std::invalid_argument(
-          "DataLoader prefetch_factor must be positive");
+      detail::throw_invalid("data.dataloader", "constructor.prefetch_factor",
+                            "positive prefetch factor", "zero",
+                            "Set prefetch_factor to at least one.");
     }
 
     if (options_.shuffle) {
@@ -257,7 +264,7 @@ class DataLoader {
    * @param sampler Shared non-null sampler for dataset indices.
    * @param options Valid batching and worker options.
    * @param collate_fn Optional custom sample-to-batch function.
-   * @throws std::invalid_argument A required object or option is invalid.
+   * @throws jyppx::InvalidArgument A required object or option is invalid.
    */
   DataLoader(std::shared_ptr<Dataset<T>> dataset,
              std::shared_ptr<samplers::Sampler> sampler,
@@ -268,20 +275,29 @@ class DataLoader {
         options_(options),
         collate_fn_(std::move(collate_fn)) {
     if (!dataset_) {
-      throw std::invalid_argument("DataLoader dataset cannot be null");
+      detail::throw_invalid("data.dataloader", "constructor.dataset",
+                            "non-null dataset", "null dataset",
+                            "Provide a valid map-style dataset.");
     }
     if (!sampler_) {
-      throw std::invalid_argument("DataLoader sampler cannot be null");
+      detail::throw_invalid("data.dataloader", "constructor.sampler",
+                            "non-null sampler", "null sampler",
+                            "Provide a valid sampler handle.");
     }
     if (dataset_->size() == 0) {
-      throw std::invalid_argument("DataLoader dataset cannot be empty");
+      detail::throw_invalid("data.dataloader", "constructor.dataset_size",
+                            "positive dataset size", "zero",
+                            "Provide a dataset containing at least one sample.");
     }
     if (options_.batch_size == 0) {
-      throw std::invalid_argument("DataLoader batch_size must be positive");
+      detail::throw_invalid("data.dataloader", "constructor.batch_size",
+                            "positive batch size", "zero",
+                            "Set batch_size to at least one.");
     }
     if (options_.prefetch_factor == 0) {
-      throw std::invalid_argument(
-          "DataLoader prefetch_factor must be positive");
+      detail::throw_invalid("data.dataloader", "constructor.prefetch_factor",
+                            "positive prefetch factor", "zero",
+                            "Set prefetch_factor to at least one.");
     }
     batch_sampler_ = std::make_shared<samplers::BatchSampler>(
         sampler_, options_.batch_size, options_.drop_last);
@@ -312,7 +328,7 @@ class DataLoader {
      * @brief Creates an iterator at a batch position.
      * @param loader Borrowed non-null loader.
      * @param batch_idx Zero-based batch position, including end().
-     * @throws std::invalid_argument @p loader is null.
+     * @throws jyppx::InvalidArgument @p loader is null.
      */
     Iterator(DataLoader* loader, size_t batch_idx);
 
@@ -393,27 +409,41 @@ class DataLoader {
   /**
    * @brief Restores a state produced by state_dict().
    * @param state State from a compatible loader and checkpointable sampler.
-   * @throws std::invalid_argument Schema, loader configuration, indices, or
-   *     sampler state is incompatible.
+   * @throws jyppx::CompatibilityError The schema, loader topology, or sampler
+   *     capability is incompatible.
+   * @throws jyppx::SerializationError Prepared indices or sampler state are
+   *     malformed.
    */
   void load_state_dict(const DataLoaderState& state) {
     if (state.version != DataLoaderState::format_version) {
-      throw std::invalid_argument("Unsupported DataLoader state version");
+      detail::throw_compatibility(
+          "data.dataloader", "load_state_dict.version",
+          std::to_string(DataLoaderState::format_version),
+          std::to_string(state.version),
+          "Migrate the checkpoint to the current DataLoader schema.");
     }
     if (state.dataset_size != dataset_->size() ||
         state.batch_size != options_.batch_size ||
         state.drop_last != options_.drop_last) {
-      throw std::invalid_argument(
-          "DataLoader state is incompatible with the current loader");
+      detail::throw_compatibility(
+          "data.dataloader", "load_state_dict.topology",
+          "matching dataset size, batch size, and drop_last policy",
+          "checkpoint topology differs from the current loader",
+          "Construct the loader with the saved topology.");
     }
     if (!state.sampler_state_supported || !sampler_->supports_state()) {
-      throw std::invalid_argument(
-          "DataLoader sampler does not support exact state restoration");
+      detail::throw_compatibility(
+          "data.dataloader", "load_state_dict.sampler_capability",
+          "checkpointable current and saved samplers",
+          "exact sampler state is unavailable",
+          "Use a sampler that supports exact checkpoint state.");
     }
     for (const auto index : state.prepared_indices) {
       if (index >= dataset_->size()) {
-        throw std::invalid_argument(
-            "DataLoader state contains an invalid index");
+        detail::throw_serialization(
+            "data.dataloader", "load_state_dict.prepared_indices",
+            "every index < dataset size", std::to_string(index),
+            "Discard or repair the malformed DataLoader checkpoint.");
       }
     }
     const std::size_t sampler_size = sampler_->size();
@@ -423,12 +453,18 @@ class DataLoader {
             : sampler_size;
     if (state.epoch_prepared &&
         state.prepared_indices.size() != expected_indices) {
-      throw std::invalid_argument(
-          "Prepared DataLoader state has an incompatible index count");
+      detail::throw_serialization(
+          "data.dataloader", "load_state_dict.prepared_indices.size",
+          std::to_string(expected_indices),
+          std::to_string(state.prepared_indices.size()),
+          "Restore a complete prepared epoch from the matching loader.");
     }
     if (!state.epoch_prepared && !state.prepared_indices.empty()) {
-      throw std::invalid_argument(
-          "Unprepared DataLoader state unexpectedly contains indices");
+      detail::throw_serialization(
+          "data.dataloader", "load_state_dict.epoch_prepared",
+          "no prepared indices when epoch_prepared is false",
+          std::to_string(state.prepared_indices.size()) + " indices",
+          "Discard the inconsistent prepared index payload.");
     }
 
     const std::string previous_sampler_state = sampler_->save_state();
@@ -459,8 +495,14 @@ class DataLoader {
           }
         }
       } catch (...) {
-        std::throw_with_nested(std::runtime_error(
-            "DataLoader state restore failed and rollback was incomplete"));
+        std::throw_with_nested(InternalError(
+            "DataLoader state rollback was incomplete",
+            ErrorDetails{.component = "data.dataloader",
+                         .operation = "load_state_dict.rollback",
+                         .expected = "the pre-restore loader state",
+                         .actual = "rollback operation failed",
+                         .hint = "Discard this loader instance and recreate "
+                                 "it before retrying."}));
       }
       std::rethrow_exception(restore_error);
     }
@@ -563,13 +605,14 @@ class DataLoader {
    * @brief Loads one batch synchronously from epoch_indices_.
    * @param batch_idx Zero-based batch index.
    * @return Loaded batch.
-   * @throws std::out_of_range @p batch_idx is outside the epoch.
+   * @throws jyppx::InvalidArgument @p batch_idx is outside the epoch.
    */
   Batch<T> fetch_batch(size_t batch_idx) const {
     const size_t start = batch_idx * options_.batch_size;
     const size_t total = epoch_indices_.size();
     if (start >= total) {
-      throw std::out_of_range("DataLoader batch index out of range");
+      detail::throw_index_error("data.dataloader", "fetch_batch", batch_idx,
+                                size());
     }
     const size_t end = std::min(start + options_.batch_size, total);
     std::vector<size_t> indices(
@@ -680,7 +723,7 @@ class DataLoader {
    * @brief Consumes ordered worker results through a target sequence.
    * @param target_seq Sequence number whose batch must be returned.
    * @return Batch for @p target_seq.
-   * @throws std::runtime_error The worker pipeline closes prematurely.
+   * @throws jyppx::InternalError The worker pipeline closes prematurely.
    */
   Batch<T> receive_until(std::uint64_t target_seq) {
     while (true) {
@@ -688,9 +731,15 @@ class DataLoader {
       if (buffered == pending_.end()) {
         TaggedResult result;
         if (!data_queue_->get(result)) {
-          throw std::runtime_error(
+          throw InternalError(
               "DataLoader worker pipeline ended before all batches were "
-              "produced");
+              "produced",
+              ErrorDetails{.component = "data.dataloader",
+                           .operation = "receive_until",
+                           .expected = "one result per submitted batch",
+                           .actual = "closed result queue",
+                           .hint = "Recreate the loader and report the "
+                                   "unexpected worker shutdown."});
         }
         if (result.seq == next_consume_seq_) {
           ++next_consume_seq_;
@@ -726,14 +775,17 @@ template <typename T>
 DataLoader<T>::Iterator::Iterator(DataLoader* loader, size_t batch_idx)
     : loader_(loader), batch_idx_(batch_idx) {
   if (!loader_) {
-    throw std::invalid_argument("DataLoader iterator requires a loader");
+    detail::throw_invalid("data.dataloader", "iterator.constructor",
+                          "non-null loader", "null loader",
+                          "Construct iterators through begin() or end().");
   }
 }
 
 template <typename T>
 Batch<T> DataLoader<T>::Iterator::operator*() {
   if (batch_idx_ >= loader_->size()) {
-    throw std::out_of_range("Cannot dereference DataLoader end iterator");
+    detail::throw_index_error("data.dataloader", "iterator.dereference",
+                              batch_idx_, loader_->size());
   }
   if (!cached_) {
     cache_ =

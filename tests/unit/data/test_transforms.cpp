@@ -5,11 +5,12 @@
 #include <jyppx/data/transforms/compose.hpp>
 #include <jyppx/data/transforms/transform.hpp>
 #include <jyppx/data/transforms/vision.hpp>
+#include <jyppx/foundation/error.hpp>
 
 #include <cmath>
 #include <gtest/gtest.h>
+#include <limits>
 #include <memory>
-#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -61,8 +62,15 @@ TEST_F(TransformsTest, ComposeAppliesTransformsInOrder) {
 }
 
 TEST_F(TransformsTest, ComposeRejectsNullTransforms) {
-  EXPECT_THROW(Compose({nullptr}), std::invalid_argument);
-  EXPECT_THROW(RandomChoice({}), std::invalid_argument);
+  try {
+    (void)Compose({nullptr});
+    FAIL() << "a null transform must be rejected";
+  } catch (const jyppx::InvalidArgument& error) {
+    EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+    EXPECT_EQ(error.details().component, "data.transforms.compose");
+    EXPECT_EQ(error.details().operation, "constructor.transforms");
+  }
+  EXPECT_THROW(RandomChoice({}), jyppx::InvalidArgument);
 }
 
 TEST_F(TransformsTest, NormalizeSubtractsMeanAndDividesStd) {
@@ -83,11 +91,11 @@ TEST_F(TransformsTest, NormalizePromotesIntegralInputs) {
 }
 
 TEST_F(TransformsTest, NormalizeValidatesArguments) {
-  EXPECT_THROW(Normalize({}, {1.0}), std::invalid_argument);
-  EXPECT_THROW(Normalize({1.0}, {1.0, 2.0}), std::invalid_argument);
-  EXPECT_THROW(Normalize({1.0}, {0.0}), std::invalid_argument);
+  EXPECT_THROW(Normalize({}, {1.0}), jyppx::InvalidArgument);
+  EXPECT_THROW(Normalize({1.0}, {1.0, 2.0}), jyppx::InvalidArgument);
+  EXPECT_THROW(Normalize({1.0}, {0.0}), jyppx::InvalidArgument);
   EXPECT_THROW(Normalize({1.0, 2.0}, {1.0, 2.0})(torch::ones({1, 2, 2})),
-               std::invalid_argument);  // channel mismatch
+               jyppx::InvalidArgument);  // channel mismatch
 }
 
 TEST_F(TransformsTest, ResizeProducesRequestedShape) {
@@ -134,9 +142,9 @@ TEST_F(TransformsTest, RandomCropIsDeterministicUnderSeed) {
 
 TEST_F(TransformsTest, RandomCropRejectsOversizedCrops) {
   const RandomCrop crop({4, 4});
-  EXPECT_THROW(crop(image_), std::invalid_argument);
+  EXPECT_THROW(crop(image_), jyppx::InvalidArgument);
   const CenterCrop center({4, 4});
-  EXPECT_THROW(center(image_), std::invalid_argument);
+  EXPECT_THROW(center(image_), jyppx::InvalidArgument);
 }
 
 TEST_F(TransformsTest, FlipsWithProbabilityOneAndZero) {
@@ -149,8 +157,57 @@ TEST_F(TransformsTest, FlipsWithProbabilityOneAndZero) {
   const RandomVerticalFlip always_v(1.0);
   EXPECT_TRUE(torch::equal(always_v(image_), torch::flip(image_, {1})));
 
-  EXPECT_THROW(RandomHorizontalFlip(1.5), std::invalid_argument);
-  EXPECT_THROW(RandomVerticalFlip(-0.1), std::invalid_argument);
+  EXPECT_THROW(RandomHorizontalFlip(1.5), jyppx::InvalidArgument);
+  EXPECT_THROW(RandomVerticalFlip(-0.1), jyppx::InvalidArgument);
+}
+
+TEST_F(TransformsTest, RejectsNonFiniteRangesAndMalformedImageShapes) {
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  const double infinity = std::numeric_limits<double>::infinity();
+
+  try {
+    (void)Pad({1, 2, 3});
+    FAIL() << "three-value padding must be rejected";
+  } catch (const jyppx::InvalidArgument& error) {
+    EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+    EXPECT_EQ(error.details().component, "data.transforms.vision");
+    EXPECT_EQ(error.details().operation, "pad.padding");
+  }
+  EXPECT_THROW(RandomHorizontalFlip(nan), jyppx::InvalidArgument);
+  EXPECT_THROW(RandomRotation(nan), jyppx::InvalidArgument);
+  EXPECT_THROW(RandomAffine(nan), jyppx::InvalidArgument);
+  EXPECT_THROW(ColorJitter(nan), jyppx::InvalidArgument);
+  EXPECT_THROW(Normalize({nan}, {1.0}), jyppx::InvalidArgument);
+  EXPECT_THROW(Normalize({0.0}, {infinity}), jyppx::InvalidArgument);
+
+  const auto matrix = torch::ones({2, 2});
+  EXPECT_THROW(RandomRotation(10.0)(matrix), jyppx::InvalidArgument);
+  EXPECT_THROW(RandomAffine(10.0)(matrix), jyppx::InvalidArgument);
+  EXPECT_THROW(Resize({4})(Tensor{}), jyppx::InvalidArgument);
+}
+
+TEST_F(TransformsTest, ExecutesTensorNativePipelineOnCudaWhenAvailable) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA not available";
+  }
+
+  Compose pipeline({
+      std::make_shared<Resize>(std::vector<int64_t>{10, 10}),
+      std::make_shared<CenterCrop>(std::vector<int64_t>{8, 8}),
+      std::make_shared<RandomHorizontalFlip>(1.0),
+      std::make_shared<Normalize>(std::vector<double>{0.5, 0.5, 0.5},
+                                  std::vector<double>{0.5, 0.5, 0.5}),
+      std::make_shared<RandomRotation>(0.0),
+      std::make_shared<Grayscale>(3),
+  });
+  const auto input = torch::rand(
+      {3, 8, 8},
+      torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+  const auto result = pipeline(input);
+
+  EXPECT_TRUE(result.is_cuda());
+  EXPECT_EQ(result.sizes(), (std::vector<int64_t>{3, 8, 8}));
+  EXPECT_TRUE(torch::isfinite(result).all().item<bool>());
 }
 
 TEST_F(TransformsTest, RandomChoiceSelectsConfiguredTransforms) {

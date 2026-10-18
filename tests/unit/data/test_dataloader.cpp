@@ -3,6 +3,7 @@
 #include <jyppx/data/dataloader.hpp>
 #include <jyppx/data/samplers/weighted_random_sampler.hpp>
 #include <jyppx/data/tensor_dataset.hpp>
+#include <jyppx/foundation/error.hpp>
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -170,7 +171,34 @@ TEST_F(DataLoaderTest, CustomSamplerMustDeclareCheckpointSupport) {
   const auto state = loader.state_dict();
 
   EXPECT_FALSE(state.sampler_state_supported);
-  EXPECT_THROW(loader.load_state_dict(state), std::invalid_argument);
+  try {
+    loader.load_state_dict(state);
+    FAIL() << "a non-checkpointable sampler must be rejected";
+  } catch (const jyppx::CompatibilityError& error) {
+    EXPECT_EQ(error.code(), jyppx::ErrorCode::compatibility);
+    EXPECT_EQ(error.details().component, "data.dataloader");
+    EXPECT_EQ(error.details().operation,
+              "load_state_dict.sampler_capability");
+  }
+}
+
+TEST_F(DataLoaderTest, MalformedPreparedIndicesUseSerializationError) {
+  data::DataLoader loader(dataset_,
+                          {.batch_size = 5, .shuffle = true, .seed = 123});
+  loader.reset();
+  auto state = loader.state_dict();
+  ASSERT_FALSE(state.prepared_indices.empty());
+  state.prepared_indices.front() = dataset_->size();
+
+  try {
+    loader.load_state_dict(state);
+    FAIL() << "an invalid prepared index must be rejected";
+  } catch (const jyppx::SerializationError& error) {
+    EXPECT_EQ(error.code(), jyppx::ErrorCode::serialization);
+    EXPECT_EQ(error.details().component, "data.dataloader");
+    EXPECT_EQ(error.details().operation,
+              "load_state_dict.prepared_indices");
+  }
 }
 
 TEST_F(DataLoaderTest, SamplerStateRestoresFutureEpochOrder) {
@@ -201,10 +229,10 @@ TEST(SamplerRegressionTest, WeightedSamplerRejectsNonTerminatingInputs) {
   EXPECT_THROW(
       data::samplers::WeightedRandomSampler({1.0, 0.0}, /*num_samples=*/2,
                                             /*replacement=*/false, /*seed=*/7),
-      std::invalid_argument);
+      jyppx::InvalidArgument);
   EXPECT_THROW(data::samplers::WeightedRandomSampler(
                    {1.0, std::numeric_limits<double>::infinity()}, 1),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
 }
 
 TEST(SamplerRegressionTest, InvalidStateDoesNotAdvanceGenerator) {
@@ -212,14 +240,21 @@ TEST(SamplerRegressionTest, InvalidStateDoesNotAdvanceGenerator) {
   data::samplers::WeightedRandomSampler control({1.0, 2.0, 3.0}, 16, true, 9);
   const std::string invalid_state = sampler.save_state() + " trailing";
 
-  EXPECT_THROW(sampler.load_state(invalid_state), std::invalid_argument);
+  try {
+    sampler.load_state(invalid_state);
+    FAIL() << "malformed sampler state must be rejected";
+  } catch (const jyppx::SerializationError& error) {
+    EXPECT_EQ(error.code(), jyppx::ErrorCode::serialization);
+    EXPECT_EQ(error.details().component, "data.weighted_random_sampler");
+    EXPECT_EQ(error.details().operation, "load_state");
+  }
   EXPECT_EQ(sampler.indices(), control.indices());
 }
 
 TEST(SamplerRegressionTest, DistributedSamplerRejectsEmptyPopulation) {
   EXPECT_THROW(
       data::samplers::DistributedSampler(0, /*rank=*/0, /*world_size=*/1),
-      std::invalid_argument);
+      jyppx::InvalidArgument);
 }
 
 TEST_F(DataLoaderTest, CustomCollateIsApplied) {
@@ -272,13 +307,13 @@ TEST_F(DataLoaderTest, TensorValuedLoaderStacksSamples) {
 
 TEST_F(DataLoaderTest, ZeroBatchSizeThrows) {
   EXPECT_THROW(data::DataLoader(dataset_, {.batch_size = 0}),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
 }
 
 TEST_F(DataLoaderTest, NullDatasetThrows) {
   std::shared_ptr<data::Dataset<data::Example>> null_dataset;
   EXPECT_THROW(data::DataLoader(null_dataset, {.batch_size = 2}),
-               std::invalid_argument);
+               jyppx::InvalidArgument);
 }
 
 TEST_F(DataLoaderTest, DatasetSizeExposesSampleCount) {
@@ -415,7 +450,7 @@ TEST_F(DataLoaderTest, MultiWorkerPrefetchFactorMustBePositive) {
   EXPECT_THROW(
       data::DataLoader(
           dataset_, {.batch_size = 2, .num_workers = 2, .prefetch_factor = 0}),
-      std::invalid_argument);
+      jyppx::InvalidArgument);
 }
 
 }  // namespace

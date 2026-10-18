@@ -152,6 +152,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/data_pipeline.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/dataloader.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/detail/error.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/stack_dataset.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/subset.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/tensor_dataset.hpp

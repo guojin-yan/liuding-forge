@@ -6,10 +6,10 @@
  * @brief Defines sequential and randomly selected tensor transforms.
  */
 
+#include <jyppx/data/detail/error.hpp>
 #include <jyppx/data/transforms/transform.hpp>
 
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,13 +27,16 @@ class Compose : public TensorTransform {
    * @brief Creates an ordered transform pipeline.
    * @param transforms Transform handles applied from first to last; an empty
    * list is the identity transform.
-   * @throws std::invalid_argument Any transform handle is null.
+   * @throws jyppx::InvalidArgument Any transform handle is null.
    */
   explicit Compose(std::vector<std::shared_ptr<TensorTransform>> transforms)
       : transforms_(std::move(transforms)) {
     for (const auto& transform : transforms_) {
       if (!transform) {
-        throw std::invalid_argument("Compose transforms cannot be null");
+        ::jyppx::data::detail::throw_invalid(
+            "data.transforms.compose", "constructor.transforms",
+            "non-null transform handles", "null transform",
+            "Remove or replace the null transform handle.");
       }
     }
   }
@@ -89,18 +92,23 @@ class RandomChoice : public TensorTransform {
   /**
    * @brief Creates a uniformly selected transform set.
    * @param transforms Non-empty collection of non-null transform handles.
-   * @throws std::invalid_argument The collection is empty or contains null.
+   * @throws jyppx::InvalidArgument The collection is empty or contains null.
    */
   explicit RandomChoice(
       std::vector<std::shared_ptr<TensorTransform>> transforms)
       : transforms_(std::move(transforms)) {
     if (transforms_.empty()) {
-      throw std::invalid_argument(
-          "RandomChoice requires at least one transform");
+      ::jyppx::data::detail::throw_invalid(
+          "data.transforms.random_choice", "constructor.transforms",
+          "at least one transform", "empty collection",
+          "Provide a non-empty transform collection.");
     }
     for (const auto& transform : transforms_) {
       if (!transform) {
-        throw std::invalid_argument("RandomChoice transforms cannot be null");
+        ::jyppx::data::detail::throw_invalid(
+            "data.transforms.random_choice", "constructor.transforms",
+            "non-null transform handles", "null transform",
+            "Remove or replace the null transform handle.");
       }
     }
   }
