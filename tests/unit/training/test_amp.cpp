@@ -87,6 +87,21 @@ TEST(AutocastGuardTest, RestoresCpuStateAndRejectsUnsupportedDtype) {
     FAIL() << "Unsupported CPU autocast dtype raised the wrong exception";
   }
 
+  try {
+    AutocastGuard unsupported(c10::DeviceType::CUDA, at::kFloat);
+    (void)unsupported;
+    FAIL() << "Unsupported CUDA autocast dtype was accepted";
+  } catch (const InvalidArgument& error) {
+    EXPECT_EQ(error.code(), ErrorCode::invalid_argument);
+    EXPECT_EQ(error.details().component, "training.amp.autocast");
+    EXPECT_EQ(error.details().operation, "device_dtype");
+    EXPECT_EQ(error.details().expected, "CPU/BFloat16 or CUDA/Half|BFloat16");
+    EXPECT_EQ(error.details().actual, "unsupported device/dtype pair");
+    EXPECT_EQ(error.details().hint, "Use CPU/BFloat16 or CUDA/Half|BFloat16");
+  } catch (...) {
+    FAIL() << "Unsupported CUDA autocast dtype raised the wrong exception";
+  }
+
   at::autocast::set_autocast_dtype(c10::DeviceType::CPU, previous_dtype);
   at::autocast::set_autocast_enabled(c10::DeviceType::CPU, previous_enabled);
 }
