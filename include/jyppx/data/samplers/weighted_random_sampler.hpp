@@ -6,8 +6,8 @@
  * @brief Defines weighted, subset, and distributed sampling strategies.
  */
 
-#include <jyppx/data/samplers/sampler.hpp>
 #include <jyppx/data/detail/error.hpp>
+#include <jyppx/data/samplers/sampler.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -57,8 +57,7 @@ class WeightedRandomSampler : public Sampler {
     if (num_samples_ == 0) {
       ::jyppx::data::detail::throw_invalid(
           "data.weighted_random_sampler", "constructor.num_samples",
-          "positive sample count", "zero",
-          "Set num_samples to at least one.");
+          "positive sample count", "zero", "Set num_samples to at least one.");
     }
     size_t positive_weights = 0;
     double total = 0.0;
@@ -166,8 +165,8 @@ class WeightedRandomSampler : public Sampler {
     }
     stream >> std::ws;
     if (!stream.eof()) {
-      ::jyppx::data::detail::throw_state_error(
-          "data.weighted_random_sampler", "load_state", "trailing bytes");
+      ::jyppx::data::detail::throw_state_error("data.weighted_random_sampler",
+                                               "load_state", "trailing bytes");
     }
     generator_ = restored;
   }
@@ -270,8 +269,8 @@ class SubsetRandomSampler : public Sampler {
     }
     stream >> std::ws;
     if (!stream.eof()) {
-      ::jyppx::data::detail::throw_state_error(
-          "data.subset_random_sampler", "load_state", "trailing bytes");
+      ::jyppx::data::detail::throw_state_error("data.subset_random_sampler",
+                                               "load_state", "trailing bytes");
     }
     generator_ = restored;
   }
@@ -325,10 +324,9 @@ class DistributedSampler : public Sampler {
     }
     if (rank_ >= world_size_) {
       ::jyppx::data::detail::throw_invalid(
-          "data.distributed_sampler", "constructor.rank",
-          "rank < world_size", "rank=" + std::to_string(rank_) +
-                                     ", world_size=" +
-                                         std::to_string(world_size_),
+          "data.distributed_sampler", "constructor.rank", "rank < world_size",
+          "rank=" + std::to_string(rank_) +
+              ", world_size=" + std::to_string(world_size_),
           "Use a zero-based rank within the distributed topology.");
     }
   }
@@ -437,8 +435,8 @@ class DistributedSampler : public Sampler {
     } catch (const ::jyppx::SerializationError&) {
       throw;
     } catch (const std::exception&) {
-      ::jyppx::data::detail::throw_state_error(
-          "data.distributed_sampler", "load_state", "invalid epoch");
+      ::jyppx::data::detail::throw_state_error("data.distributed_sampler",
+                                               "load_state", "invalid epoch");
     }
   }
 

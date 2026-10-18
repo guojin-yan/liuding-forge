@@ -2,8 +2,8 @@
 // extended samplers/datasets, extended transforms, LAMB, TensorBoard
 // writer, model summary/profiler and distributed helpers.
 
-#include <jyppx/jyppx.hpp>
 #include <jyppx/foundation/error.hpp>
+#include <jyppx/jyppx.hpp>
 
 #include <cmath>
 #include <filesystem>
@@ -423,12 +423,8 @@ TEST(ProfilerTest, AggregatesScopedTimings) {
     utils::ScopedTimer timer(report, "scope_a");
     // minimal work
   }
-  {
-    utils::ScopedTimer timer(report, "scope_b");
-  }
-  {
-    utils::ScopedTimer timer(report, "scope_a");
-  }
+  { utils::ScopedTimer timer(report, "scope_b"); }
+  { utils::ScopedTimer timer(report, "scope_a"); }
 
   const auto summary = report.summary();
   EXPECT_NE(summary.find("scope_a"), std::string::npos);

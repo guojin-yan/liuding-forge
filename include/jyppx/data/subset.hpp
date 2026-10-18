@@ -110,9 +110,8 @@ std::vector<std::shared_ptr<Subset<T>>> random_split(
     std::shared_ptr<DatasetT> dataset, const std::vector<size_t>& lengths,
     Optional<int64_t> seed = std::nullopt) {
   if (!dataset) {
-    detail::throw_invalid("data.random_split", "dataset",
-                          "non-null dataset", "null dataset",
-                          "Provide a valid source dataset.");
+    detail::throw_invalid("data.random_split", "dataset", "non-null dataset",
+                          "null dataset", "Provide a valid source dataset.");
   }
   size_t total = 0;
   for (const size_t length : lengths) {

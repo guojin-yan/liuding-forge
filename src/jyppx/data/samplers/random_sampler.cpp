@@ -1,5 +1,5 @@
-#include <jyppx/data/samplers/random_sampler.hpp>
 #include <jyppx/data/detail/error.hpp>
+#include <jyppx/data/samplers/random_sampler.hpp>
 
 #include <algorithm>
 #include <numeric>
@@ -69,8 +69,8 @@ void RandomSampler::load_state(const std::string& state) {
   }
   stream >> std::ws;
   if (!stream.eof()) {
-    ::jyppx::data::detail::throw_state_error(
-        "data.random_sampler", "load_state", "trailing bytes");
+    ::jyppx::data::detail::throw_state_error("data.random_sampler",
+                                             "load_state", "trailing bytes");
   }
   base_seed_ = restored_seed;
   generator_ = restored;

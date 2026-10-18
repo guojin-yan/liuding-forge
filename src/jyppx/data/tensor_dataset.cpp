@@ -1,5 +1,5 @@
-#include <jyppx/data/tensor_dataset.hpp>
 #include <jyppx/data/detail/error.hpp>
+#include <jyppx/data/tensor_dataset.hpp>
 
 namespace jyppx::data {
 
@@ -17,11 +17,11 @@ TensorDataset::TensorDataset(const Tensor& data, const Tensor& targets)
                           "Provide tensors with dimension zero as samples.");
   }
   if (data_.size(0) != targets_.size(0)) {
-    detail::throw_invalid(
-        "data.tensor_dataset", "constructor.batch_size",
-        "matching leading dimensions", "data=" + std::to_string(data_.size(0)) +
-            ", targets=" + std::to_string(targets_.size(0)),
-        "Provide one target for every input sample.");
+    detail::throw_invalid("data.tensor_dataset", "constructor.batch_size",
+                          "matching leading dimensions",
+                          "data=" + std::to_string(data_.size(0)) +
+                              ", targets=" + std::to_string(targets_.size(0)),
+                          "Provide one target for every input sample.");
   }
 }
 

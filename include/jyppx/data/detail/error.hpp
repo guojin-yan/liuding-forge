@@ -25,10 +25,9 @@ namespace jyppx::data::detail {
  * @throws jyppx::InvalidArgument Always.
  */
 [[noreturn]] inline void throw_invalid(std::string_view component,
-                                        std::string_view operation,
-                                        std::string expected,
-                                        std::string actual,
-                                        std::string hint) {
+                                       std::string_view operation,
+                                       std::string expected, std::string actual,
+                                       std::string hint) {
   throw ::jyppx::InvalidArgument(
       "Invalid data API argument",
       ::jyppx::ErrorDetails{.component = std::string(component),
@@ -47,9 +46,9 @@ namespace jyppx::data::detail {
  * @throws jyppx::InvalidArgument Always.
  */
 [[noreturn]] inline void throw_index_error(std::string_view component,
-                                            std::string_view operation,
-                                            std::size_t index,
-                                            std::size_t size) {
+                                           std::string_view operation,
+                                           std::size_t index,
+                                           std::size_t size) {
   throw_invalid(component, operation, "index < size", std::to_string(index),
                 "The valid index range is [0, " + std::to_string(size) + ")");
 }
@@ -62,8 +61,8 @@ namespace jyppx::data::detail {
  * @throws jyppx::SerializationError Always.
  */
 [[noreturn]] inline void throw_state_error(std::string_view component,
-                                            std::string_view operation,
-                                            std::string actual) {
+                                           std::string_view operation,
+                                           std::string actual) {
   throw ::jyppx::SerializationError(
       "Invalid data sampler state",
       ::jyppx::ErrorDetails{.component = std::string(component),
@@ -83,9 +82,11 @@ namespace jyppx::data::detail {
  * @param hint Actionable migration or configuration guidance.
  * @throws jyppx::CompatibilityError Always.
  */
-[[noreturn]] inline void throw_compatibility(
-    std::string_view component, std::string_view operation,
-    std::string expected, std::string actual, std::string hint) {
+[[noreturn]] inline void throw_compatibility(std::string_view component,
+                                             std::string_view operation,
+                                             std::string expected,
+                                             std::string actual,
+                                             std::string hint) {
   throw ::jyppx::CompatibilityError(
       "Incompatible data state",
       ::jyppx::ErrorDetails{.component = std::string(component),
@@ -104,9 +105,11 @@ namespace jyppx::data::detail {
  * @param hint Actionable repair or checkpoint guidance.
  * @throws jyppx::SerializationError Always.
  */
-[[noreturn]] inline void throw_serialization(
-    std::string_view component, std::string_view operation,
-    std::string expected, std::string actual, std::string hint) {
+[[noreturn]] inline void throw_serialization(std::string_view component,
+                                             std::string_view operation,
+                                             std::string expected,
+                                             std::string actual,
+                                             std::string hint) {
   throw ::jyppx::SerializationError(
       "Invalid serialized data state",
       ::jyppx::ErrorDetails{.component = std::string(component),

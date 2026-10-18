@@ -1,5 +1,5 @@
-#include <jyppx/data/samplers/batch_sampler.hpp>
 #include <jyppx/data/detail/error.hpp>
+#include <jyppx/data/samplers/batch_sampler.hpp>
 
 namespace jyppx::data::samplers {
 

@@ -6,9 +6,10 @@
  * @brief Defines the epoch index-order and checkpoint-state contract.
  */
 
+#include <jyppx/foundation/error.hpp>
+
 #include <cstddef>
 #include <cstdint>
-#include <jyppx/foundation/error.hpp>
 #include <string>
 #include <vector>
 

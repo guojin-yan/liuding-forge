@@ -177,8 +177,7 @@ TEST_F(DataLoaderTest, CustomSamplerMustDeclareCheckpointSupport) {
   } catch (const jyppx::CompatibilityError& error) {
     EXPECT_EQ(error.code(), jyppx::ErrorCode::compatibility);
     EXPECT_EQ(error.details().component, "data.dataloader");
-    EXPECT_EQ(error.details().operation,
-              "load_state_dict.sampler_capability");
+    EXPECT_EQ(error.details().operation, "load_state_dict.sampler_capability");
   }
 }
 
@@ -196,8 +195,7 @@ TEST_F(DataLoaderTest, MalformedPreparedIndicesUseSerializationError) {
   } catch (const jyppx::SerializationError& error) {
     EXPECT_EQ(error.code(), jyppx::ErrorCode::serialization);
     EXPECT_EQ(error.details().component, "data.dataloader");
-    EXPECT_EQ(error.details().operation,
-              "load_state_dict.prepared_indices");
+    EXPECT_EQ(error.details().operation, "load_state_dict.prepared_indices");
   }
 }
 

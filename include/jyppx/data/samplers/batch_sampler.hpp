@@ -6,8 +6,8 @@
  * @brief Defines batch-tail policy over an underlying sampler.
  */
 
-#include <jyppx/data/samplers/sampler.hpp>
 #include <jyppx/data/detail/error.hpp>
+#include <jyppx/data/samplers/sampler.hpp>
 
 #include <memory>
 

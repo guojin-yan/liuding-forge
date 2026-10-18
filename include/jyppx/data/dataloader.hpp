@@ -229,9 +229,10 @@ class DataLoader {
                             "Provide a valid map-style dataset.");
     }
     if (dataset_->size() == 0) {
-      detail::throw_invalid("data.dataloader", "constructor.dataset_size",
-                            "positive dataset size", "zero",
-                            "Provide a dataset containing at least one sample.");
+      detail::throw_invalid(
+          "data.dataloader", "constructor.dataset_size",
+          "positive dataset size", "zero",
+          "Provide a dataset containing at least one sample.");
     }
     if (options_.batch_size == 0) {
       detail::throw_invalid("data.dataloader", "constructor.batch_size",
@@ -285,9 +286,10 @@ class DataLoader {
                             "Provide a valid sampler handle.");
     }
     if (dataset_->size() == 0) {
-      detail::throw_invalid("data.dataloader", "constructor.dataset_size",
-                            "positive dataset size", "zero",
-                            "Provide a dataset containing at least one sample.");
+      detail::throw_invalid(
+          "data.dataloader", "constructor.dataset_size",
+          "positive dataset size", "zero",
+          "Provide a dataset containing at least one sample.");
     }
     if (options_.batch_size == 0) {
       detail::throw_invalid("data.dataloader", "constructor.batch_size",
