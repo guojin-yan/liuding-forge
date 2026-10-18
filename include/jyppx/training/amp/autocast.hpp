@@ -13,7 +13,8 @@
 
 #include <ATen/autocast_mode.h>
 #include <c10/core/DeviceType.h>
-#include <stdexcept>
+
+#include <jyppx/foundation/error.hpp>
 
 namespace jyppx::training::amp {
 
@@ -44,7 +45,7 @@ class AutocastGuard {
    *
    * @param device_type Device whose autocast dispatcher is configured.
    * @param dtype Lower-precision dtype used by eligible operations.
-   * @throws std::invalid_argument if the device/dtype pair is unsupported.
+   * @throws jyppx::InvalidArgument if the device/dtype pair is unsupported.
    */
   AutocastGuard(c10::DeviceType device_type, at::ScalarType dtype)
       : device_type_(device_type) {
@@ -54,8 +55,14 @@ class AutocastGuard {
         device_type == c10::DeviceType::CUDA &&
         (dtype == at::kHalf || dtype == at::kBFloat16);
     if (!cpu_dtype_supported && !cuda_dtype_supported) {
-      throw std::invalid_argument(
-          "Autocast requires CPU/BFloat16 or CUDA/Half|BFloat16");
+      throw ::jyppx::InvalidArgument(
+          "Autocast rejected unsupported device/dtype pair",
+          ::jyppx::ErrorDetails{
+              .component = "training.amp.autocast",
+              .operation = "device_dtype",
+              .expected = "CPU/BFloat16 or CUDA/Half|BFloat16",
+              .actual = "unsupported device/dtype pair",
+              .hint = "Use CPU/BFloat16 or CUDA/Half|BFloat16"});
     }
 
     previous_dtype_ = at::autocast::get_autocast_dtype(device_type_);
