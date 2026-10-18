@@ -19,6 +19,7 @@
 namespace jyppx::training::amp {
 
 /**
+ * @class AutocastGuard
  * @brief RAII guard enabling autocast for the current scope.
  *
  * Wraps the ATen autocast thread-local state: while the guard is alive, ops
