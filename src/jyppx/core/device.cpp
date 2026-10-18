@@ -8,7 +8,7 @@
 #include <torch/cuda.h>
 
 #include <cstddef>
-#include <stdexcept>
+#include <exception>
 
 namespace jyppx {
 
@@ -30,21 +30,43 @@ int cuda_device_count() {
 
 Device parse_device(const std::string& device_str) {
   if (device_str.empty()) {
-    throw std::invalid_argument("Device string must not be empty");
+    throw InvalidArgument(
+        "Device string must not be empty",
+        ErrorDetails{.component = "core.device",
+                     .operation = "parse_device",
+                     .expected = "a non-empty device specification",
+                     .actual = "empty",
+                     .hint = "Use cpu, cuda, or cuda:<index>"});
   }
   if (device_str.size() > kMaxDeviceStringLength) {
-    throw std::invalid_argument("Device string exceeds the 64-byte limit");
+    throw InvalidArgument(
+        "Device string exceeds the 64-byte limit",
+        ErrorDetails{.component = "core.device",
+                     .operation = "parse_device",
+                     .expected = "at most 64 bytes",
+                     .actual = "more than 64 bytes",
+                     .hint = "Use a bounded device specification"});
   }
   if (device_str.find('\0') != std::string::npos) {
-    throw std::invalid_argument(
-        "Device string must not contain an embedded NUL byte");
+    throw InvalidArgument(
+        "Device string must not contain an embedded NUL byte",
+        ErrorDetails{.component = "core.device",
+                     .operation = "parse_device",
+                     .expected = "a NUL-free device specification",
+                     .actual = "embedded NUL byte",
+                     .hint = "Remove the embedded NUL byte"});
   }
 
   try {
     return Device(device_str);
   } catch (const std::exception& error) {
-    throw std::invalid_argument("Invalid device string '" + device_str +
-                                "': " + error.what());
+    throw InvalidArgument(
+        "Invalid device string: " + std::string(error.what()),
+        ErrorDetails{.component = "core.device",
+                     .operation = "parse_device",
+                     .expected = "cpu, cuda, or cuda:<index>",
+                     .actual = "rejected by the LibTorch device parser",
+                     .hint = "Use a valid LibTorch device specification"});
   }
 }
 

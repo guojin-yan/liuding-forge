@@ -13,6 +13,8 @@
 
 #include "jyppx/core/types.hpp"
 
+#include <jyppx/foundation/error.hpp>
+
 #include <string>
 
 namespace jyppx {
@@ -51,7 +53,7 @@ int cuda_device_count();
  *
  * @param device_str Device specification to parse.
  * @return Parsed LibTorch device.
- * @throws std::invalid_argument The string is empty, too long, contains an
+ * @throws jyppx::InvalidArgument The string is empty, too long, contains an
  * embedded NUL byte, or is not a valid device specification.
  */
 Device parse_device(const std::string& device_str);

@@ -25,11 +25,28 @@ TEST(DeviceTest, ParseDeviceStrings) {
   EXPECT_EQ(cuda_indexed.index(), 1);
 }
 
-TEST(DeviceTest, ParseInvalidDeviceThrows) {
-  EXPECT_THROW(parse_device("not-a-device"), std::exception);
-  EXPECT_THROW(parse_device(std::string(65, 'c')), std::invalid_argument);
-  EXPECT_THROW(parse_device(std::string("cpu\0cuda", 8)),
-               std::invalid_argument);
+TEST(DeviceTest, ParseInvalidDevicePreservesStableErrorContext) {
+  const auto expect_invalid = [](const std::string& value,
+                                 const std::string& actual) {
+    try {
+      (void)parse_device(value);
+      FAIL() << "Invalid device input was accepted";
+    } catch (const InvalidArgument& error) {
+      EXPECT_EQ(error.code(), ErrorCode::invalid_argument);
+      EXPECT_EQ(error.details().component, "core.device");
+      EXPECT_EQ(error.details().operation, "parse_device");
+      EXPECT_EQ(error.details().actual, actual);
+      EXPECT_FALSE(error.details().expected.empty());
+      EXPECT_FALSE(error.details().hint.empty());
+    } catch (...) {
+      FAIL() << "Invalid device input raised the wrong exception type";
+    }
+  };
+
+  expect_invalid("", "empty");
+  expect_invalid(std::string(65, 'c'), "more than 64 bytes");
+  expect_invalid(std::string("cpu\0cuda", 8), "embedded NUL byte");
+  expect_invalid("not-a-device", "rejected by the LibTorch device parser");
 }
 
 TEST(DeviceTest, DefaultDeviceIsValid) {
