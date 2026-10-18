@@ -257,4 +257,17 @@ TEST(GradScalerCheckpointParticipantTest, RejectsDifferentFrozenOptions) {
   EXPECT_DOUBLE_EQ(target->get_scale(), 4.0);
 }
 
+TEST(GradScalerCheckpointParticipantTest, ExposesStableIdentityAndAccessors) {
+  auto scaler = std::make_shared<GradScaler>(
+      jyppx::training::amp::GradScalerOptions{
+          .scaler_id = "grad_scaler.accessors"});
+  GradScalerCheckpointParticipant participant(scaler);
+
+  EXPECT_EQ(participant.participant_id(), "grad_scaler.accessors");
+  EXPECT_EQ(&participant.scaler(), scaler.get());
+  const auto& const_participant = participant;
+  EXPECT_EQ(&const_participant.scaler(), scaler.get());
+  EXPECT_EQ(&const_participant.options(), &participant.options());
+}
+
 }  // namespace

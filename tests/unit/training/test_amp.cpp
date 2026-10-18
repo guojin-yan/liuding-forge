@@ -283,6 +283,31 @@ TEST(GradScalerTest, UpdateGrowsScaleAfterInterval) {
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
 }
 
+TEST(GradScalerTest, UnscaleSkipsParametersWithoutGradient) {
+  auto params = make_params({{2}});
+  auto optimizer = make_optimizer(params);
+  GradScaler scaler({.init_scale = 4.0});
+
+  // A parameter may legitimately have no gradient in a partial model update.
+  EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
+  EXPECT_FALSE(scaler.found_inf());
+  scaler.update();
+  EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
+}
+
+TEST(GradScalerTest, GrowthSaturatesAtFiniteMaximum) {
+  GradScaler scaler({.init_scale = std::numeric_limits<double>::max(),
+                     .growth_factor = 2.0,
+                     .growth_interval = 1});
+  auto params = make_params({{1}});
+  auto optimizer = make_optimizer(params);
+  params[0].mutable_grad() = torch::ones_like(params[0]);
+
+  EXPECT_TRUE(apply_scaler_step(scaler, optimizer));
+  scaler.update();
+  EXPECT_DOUBLE_EQ(scaler.get_scale(), std::numeric_limits<double>::max());
+}
+
 TEST(GradScalerTest, OverflowingStepsDoNotCountTowardGrowth) {
   torch::manual_seed(5);
   auto params = make_params({{2}});
@@ -334,6 +359,16 @@ TEST(GradScalerTest, InvalidOptionsThrow) {
   EXPECT_THROW(
       GradScaler({.init_scale = std::numeric_limits<double>::quiet_NaN()}),
       InvalidArgument);
+  EXPECT_THROW(GradScaler({.growth_factor =
+                               std::numeric_limits<double>::quiet_NaN()}),
+               InvalidArgument);
+  EXPECT_THROW(GradScaler({.backoff_factor =
+                               std::numeric_limits<double>::quiet_NaN()}),
+               InvalidArgument);
+  EXPECT_THROW(GradScaler({.backoff_factor = 0.0}), InvalidArgument);
+  EXPECT_THROW(GradScaler({.scaler_id = ""}), InvalidArgument);
+  EXPECT_THROW(GradScaler({.scaler_id = std::string{"bad\0id", 6}}),
+               InvalidArgument);
 }
 
 TEST(GradScalerTest, EnforcesStepUpdateStateMachineAndValidatesState) {
@@ -353,6 +388,14 @@ TEST(GradScalerTest, EnforcesStepUpdateStateMachineAndValidatesState) {
   auto invalid = scaler.capture_state();
   invalid.scale = std::numeric_limits<double>::quiet_NaN();
   EXPECT_THROW(scaler.restore_state(invalid), SerializationError);
+  invalid = scaler.capture_state();
+  invalid.growth_tracker = invalid.growth_interval;
+  EXPECT_THROW(scaler.restore_state(invalid), SerializationError);
+
+  GradScaler disabled({.enabled = false});
+  auto disabled_state = disabled.capture_state();
+  disabled_state.scale = 2.0;
+  EXPECT_THROW(disabled.restore_state(disabled_state), SerializationError);
 
   GradScaler incompatible({.init_scale = 4.0});
   EXPECT_THROW(incompatible.restore_state(scaler.capture_state()),
