@@ -113,6 +113,23 @@
           "commit": "259cc64"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-core-device-foundation-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "RelWithDebInfo",
+          "tests": "8/8 core target tests; 0 skipped",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; fixed CMAKE_CUDA_ARCHITECTURES=75",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75 and CUDA standard 17",
+            "build": "jyppx_test_core passed; core -> foundation static dependency linked successfully",
+            "cuda_core": "device parsing, invalid-argument context, default-device discovery and tensor utilities: 8/8 passed; zero skipped",
+            "source_quality": "Ubuntu Clang 14 strict target passed clang-format, Doxygen, -Werror and core regression at the same source commit"
+          },
+          "commit": "4c6bbca"
+        },
+        {
           "id": "local-ubuntu-gcc-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
