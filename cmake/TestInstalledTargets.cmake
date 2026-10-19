@@ -23,6 +23,17 @@ if(JYPPX_TEST_CONFIG)
     list(APPEND build_args --config "${JYPPX_TEST_CONFIG}")
     list(APPEND test_args -C "${JYPPX_TEST_CONFIG}")
 endif()
+if(JYPPX_CUDA_STANDARD)
+    list(APPEND config_args "-DCMAKE_CUDA_STANDARD=${JYPPX_CUDA_STANDARD}")
+endif()
+if(JYPPX_CUDA_ARCHITECTURES)
+    list(APPEND config_args
+         "-DCMAKE_CUDA_ARCHITECTURES=${JYPPX_CUDA_ARCHITECTURES}")
+endif()
+if(JYPPX_TORCH_CUDA_ARCH_LIST)
+    list(APPEND config_args
+         "-DTORCH_CUDA_ARCH_LIST=${JYPPX_TORCH_CUDA_ARCH_LIST}")
+endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --install "${build_dir}"
