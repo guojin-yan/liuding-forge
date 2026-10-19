@@ -288,6 +288,13 @@ void TensorBoardWriter::add_text(const std::string& tag,
   write_event(encode_text_event(tag, text, step, wall_time));
 }
 
+void TensorBoardWriter::close() {
+  if (file_.is_open()) {
+    file_.flush();
+    file_.close();
+  }
+}
+
 void TensorBoardWriter::flush() {
   if (!file_.is_open()) {
     throw NotReady("TensorBoardWriter event file is closed",

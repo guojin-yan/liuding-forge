@@ -62,6 +62,15 @@ class TensorBoardWriter {
   void add_text(const std::string& tag, const std::string& text, int64_t step);
 
   /**
+   * @brief Closes the event stream and releases its file handle.
+   *
+   * Closing is idempotent. A closed writer cannot accept new events or flush;
+   * those operations raise `jyppx::NotReady` so lifecycle mistakes are
+   * visible to the caller.
+   */
+  void close();
+
+  /**
    * @brief Flushes buffered bytes to disk.
    * @throws jyppx::NotReady If the event stream is closed.
    * @throws jyppx::IoError If the stream reports a write failure.

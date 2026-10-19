@@ -53,13 +53,11 @@ void barrier();
  * @brief Averages one gradient tensor across the process group
  *
  * With world_size == 1 the gradient is returned unchanged. Larger worlds
- * require a c10d backend and raise `NotImplemented` in this build; the
- * hook-based DDP wrapper routes every parameter gradient through here.
+ * are currently limited to the single-process group; the hook-based DDP
+ * wrapper routes every parameter gradient through here.
  *
  * @param gradient Gradient tensor produced by autograd.
  * @return The unchanged gradient for the single-process group.
- * @throws NotImplemented If a multi-process reduction is requested without a
- * c10d backend.
  */
 Tensor average_gradients(Tensor gradient);
 

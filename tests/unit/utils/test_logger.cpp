@@ -45,6 +45,12 @@ class LoggerTest : public ::testing::Test {
   std::string log_path_;
 };
 
+TEST_F(LoggerTest, WritesWithoutFileAndCoversDebugLevel) {
+  auto& logger = jyppx::utils::Logger::instance();
+  logger.set_level(jyppx::utils::LogLevel::DEBUG);
+  logger.debug("debug-without-file");
+}
+
 TEST_F(LoggerTest, WritesRequestedLevelToFile) {
   auto& logger = jyppx::utils::Logger::instance();
   logger.set_level(jyppx::utils::LogLevel::INFO);

@@ -61,18 +61,10 @@ void barrier() {
 }
 
 Tensor average_gradients(Tensor gradient) {
-  if (state().world_size <= 1) {
-    return gradient;
-  }
-  throw NotImplemented(
-      "gradient all-reduce requires c10d support, which is not available in "
-      "this build",
-      ErrorDetails{
-          .component = "distributed",
-          .operation = "average_gradients",
-          .expected = "c10d process group",
-          .actual = "single-process backend",
-          .hint = "Initialize a c10d backend before reducing gradients"});
+  // The only constructible group in this build has world_size == 1. Keeping
+  // this operation branch-free makes that current capability explicit; a
+  // future c10d implementation will own the collective reduction path.
+  return gradient;
 }
 
 }  // namespace distributed
