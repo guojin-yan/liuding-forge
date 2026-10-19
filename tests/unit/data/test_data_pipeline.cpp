@@ -204,6 +204,29 @@ class FaultingSampler final : public jyppx::data::samplers::Sampler {
   bool fail_ = false;        ///< Whether indices() violates its size contract.
 };
 
+/**
+ * @brief Stateless sampler used to verify restore-capability degradation.
+ *
+ * The sampler exposes a stable immutable identity but deliberately retains the
+ * base class state contract. This isolates missing mutable-state support from
+ * missing configuration identity when DataPipeline reports restore guarantees.
+ */
+class StatelessSampler final : public jyppx::data::samplers::Sampler {
+ public:
+  /** @brief Returns the fixed six-sample epoch used by the test dataset. */
+  std::vector<std::size_t> indices() const override {
+    return {0U, 1U, 2U, 3U, 4U, 5U};
+  }
+
+  /** @brief Returns the fixed epoch cardinality. */
+  std::size_t size() const override { return 6U; }
+
+  /** @brief Returns a stable identity while leaving state support disabled. */
+  std::string configuration_identity() const override {
+    return "test.stateless-sampler/v1:size=6";
+  }
+};
+
 std::shared_ptr<TensorRowsDataset> make_dataset() {
   return std::make_shared<TensorRowsDataset>(
       torch::arange(0, 12, torch::TensorOptions().dtype(torch::kFloat32))
@@ -676,6 +699,25 @@ TEST(DataPipelineTest, MissingSamplerIdentityDowngradesRestoreGuarantee) {
   const auto capability = pipeline.capability();
   EXPECT_EQ(capability.restore_level, jyppx::RestoreLevel::bounded);
   EXPECT_FALSE(capability.degradation_reasons.empty());
+}
+
+TEST(DataPipelineTest, StatelessSamplerDowngradesRestoreGuarantee) {
+  auto dataset = make_dataset();
+  auto pipeline = jyppx::data::DataPipeline(
+      std::make_shared<StatelessSampler>(),
+      {.pipeline_id = "data.pipeline.stateless",
+       .dataset_version = "dataset/v1",
+       .dataset_size = 6,
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
+       .batch_factory_id = "factory.tensor-rows/v1",
+       .batch_size = 2},
+      make_factory(dataset));
+
+  const auto capability = pipeline.capability();
+  EXPECT_EQ(capability.restore_level, jyppx::RestoreLevel::bounded);
+  EXPECT_EQ(capability.degradation_reasons,
+            std::vector<std::string>{
+                "sampler does not expose exact state"});
 }
 
 TEST(DataPipelineTest, PublishesStructuredCrossDomainCapability) {
