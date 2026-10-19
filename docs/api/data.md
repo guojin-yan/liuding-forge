@@ -21,9 +21,9 @@ public:
 ```
 
 `Dataset` is the map-style base class. `get_batch` can be overridden for
-faster batched access; the default loops over `get`. When a DataLoader runs
-with `num_workers > 0`, `get` is called from multiple threads and **must be
-thread-safe**.
+faster batched access; the default loops over `get`. A `DataPipeline` batch
+factory may call `get` from multiple worker threads, so such implementations
+must be thread-safe.
 
 ### TensorDataset
 
@@ -81,7 +81,7 @@ public:
 ### random_split
 
 ```cpp
-// Returns heap-allocated subsets, ready for DataLoader consumption.
+// Returns heap-allocated subsets ready for a DataPipeline batch factory.
 template <typename DatasetT>
 std::vector<std::shared_ptr<Subset<typename DatasetT::value_type>>>
 random_split(std::shared_ptr<DatasetT> dataset,
@@ -94,83 +94,16 @@ seed is given) and assigned to consecutive subsets. `lengths` must sum to the
 dataset size.
 
 ```cpp
-auto subsets = jyppx::data::random_split(dataset, std::vector<size_t>{80, 20}, /*seed=*/42);
-jyppx::data::DataLoader train_loader(subsets[0], {.batch_size = 8});
-jyppx::data::DataLoader val_loader(subsets[1], {.batch_size = 8});
+auto subsets = jyppx::data::random_split(
+    dataset, std::vector<size_t>{80, 20}, /*seed=*/42);
+// Capture subsets[0] and subsets[1] in independent DataPipeline factories.
 ```
-
-## DataLoader
-
-`#include <jyppx/data/dataloader.hpp>`
-
-```cpp
-struct DataLoaderOptions {
-    size_t batch_size = 1;
-    bool shuffle = false;
-    size_t num_workers = 0;        // worker threads (0 = calling thread)
-    bool drop_last = false;
-    size_t prefetch_factor = 2;    // batches each worker keeps queued ahead
-    Optional<int64_t> seed;        // seed for the shuffling sampler
-};
-
-template <typename T = Tensor>
-class DataLoader {
-public:
-    DataLoader(std::shared_ptr<Dataset<T>> dataset,
-               const DataLoaderOptions& options = {});
-    DataLoader(std::shared_ptr<Dataset<T>> dataset,
-               const DataLoaderOptions& options,
-               CollateFn<T> collate_fn);
-    DataLoader(std::shared_ptr<Dataset<T>> dataset,
-               std::shared_ptr<samplers::Sampler> sampler,
-               const DataLoaderOptions& options = {},
-               CollateFn<T> collate_fn = {});
-
-    class Iterator;               // input iterator over batches
-    Iterator begin();             // starts a (fresh) epoch
-    Iterator end();
-
-    size_t size() const;          // number of batches per epoch
-    size_t dataset_size() const;
-    const DataLoaderOptions& options() const;
-    void reset();                 // start a new epoch on the next begin()
-    DataLoaderState state_dict() const;
-    void load_state_dict(const DataLoaderState& state);
-};
-```
-
-The sample type is deduced from the dataset's `value_type`
-(`TensorDataset` yields `DataLoader<Example>`). Batches are `Batch<T>`:
-
-- `Batch<Example>` has `.data` and `.targets` tensors;
-- `Batch<Tensor>` has `.data` (default collate stacks samples).
-
-```cpp
-jyppx::data::DataLoader loader(dataset, {.batch_size = 4, .shuffle = true, .seed = 7});
-for (const auto& batch : loader) {
-    // batch.data {N, ...}, batch.targets {N, ...}
-}
-```
-
-`reset()` prepares exactly one epoch; the following `begin()` consumes that
-prepared order instead of advancing the sampler again. `state_dict()` is an
-epoch-boundary snapshot of the current-version loader and sampler state.
-`load_state_dict()` validates the dataset and batching topology, prepared
-indices, sampler capability, and exact format version before applying the
-state. A failed restore rolls the sampler, prepared epoch, and worker pipeline
-back to their entry state. Custom samplers must explicitly implement
-`supports_state()`, `save_state()`, and `load_state()` to participate.
-
-Weighted sampling without replacement uses a bounded exponential-race draw.
-It rejects non-finite or negative weights, a non-positive total, and requests
-larger than the number of positive-weight entries, so zero-weight inputs cannot
-cause a non-terminating retry loop.
 
 ## DataPipeline
 
 `#include <jyppx/data/data_pipeline.hpp>`
 
-`DataPipeline` is the new explicit-epoch, cursor-aware contract used by the
+`DataPipeline` is the explicit-epoch, cursor-aware contract used by the
 checkpoint coordinator. `set_epoch(epoch)` is the only operation that creates
 an epoch order; `next()` never advances an epoch implicitly. Each successful
 `next()` commits one batch and returns a `BatchEnvelope` containing the
@@ -224,51 +157,48 @@ explicitly exposes worker model, schema, resource limits, and restore bounds.
 Set `num_workers > 0` to load batches on a worker pool with prefetching:
 
 - Output order is identical to single-threaded loading (results are sequenced).
-- Exceptions thrown inside `Dataset::get` or the collate function are
-  rethrown on the consuming thread when their batch is reached.
-- At most `num_workers * prefetch_factor` batches are in flight.
-- Workers restart per epoch; breaking out of a range-for loop early is safe.
+- Exceptions thrown inside `Dataset::get` or the batch factory become a
+  structured `jyppx::BackendError` on the consuming thread.
+- At most `prefetch_batches` batches are scheduled but uncommitted.
+- `persistent_workers` controls whether worker threads survive explicit epoch
+  replacement; `set_epoch` cancels any uncommitted work before replacement.
 - `Dataset::get` must be thread-safe when `num_workers > 0`.
 
 ### Exception Handling
 
-`DataLoader` captures exceptions raised by `Dataset::get` or the collate
-function in a worker and rethrows the original exception on the consuming
-thread when that batch reaches the front of the output stream. Results remain
-ordered even when another worker finishes first:
+`DataPipeline` captures exceptions raised by a batch factory and reports a
+stable `jyppx::BackendError` with component, operation, expected/actual values,
+hint, and nested cause. Results remain ordered even when another worker
+finishes first:
 
 ```cpp
 try {
-    for (const auto& batch : loader) {
-        train_step(batch);
+    while (const auto batch = pipeline.next()) {
+        train_step(*batch);
     }
-} catch (const std::runtime_error& error) {
+} catch (const jyppx::BackendError& error) {
     std::cerr << "data loading failed: " << error.what() << '\\n';
 }
 ```
 
-Standard exceptions and LibTorch `c10::Error` preserve their type and message.
-Set `num_workers = 0` to debug a failing dataset in the calling thread. A
-worker exception ends the current iteration; create a fresh epoch after
-handling it. Dataset access and custom collate functions must be safe for
-concurrent calls when workers are enabled.
+Set `num_workers = 0` to debug a failing factory on the calling thread. A
+worker exception stops the current epoch without committing the failed batch;
+select a fresh epoch or restore committed state after handling it. Dataset
+access and custom factories must be safe for concurrent calls when workers are
+enabled and must honor the supplied stop token.
 
 ## Collate functions
 
-`CollateFn<T>` is `std::function<Batch<T>(const std::vector<T>&)>`. Provide
-one to control batching for custom sample types:
+`DataBatchFactory` receives the ordered sample-index span, stable worker
+context, and cooperative stop token. Capture a dataset to define collation:
 
 ```cpp
-jyppx::data::DataLoader loader(
-    dataset,
-    {.batch_size = 4},
-    [](const std::vector<MySample>& samples) {
-        // build Batch<MySample> from the samples
-    });
+[](std::span<const std::size_t> indices,
+   const jyppx::data::DataWorkerContext& context,
+   std::stop_token stop) -> c10::IValue {
+    // Fetch, collate, and return one IValue matching the declared BatchSchema.
+}
 ```
-
-The default collate for `T = Tensor` and `T = Example` stacks the samples
-with `torch::stack`.
 
 ## Transforms
 
@@ -309,9 +239,10 @@ auto transformed = pipeline(image);   // {C, H, W} float tensor
 | `RandomChoice(transforms)` | one transform per call, drawn from the global RNG |
 
 `size` accepts `{n}` (square) or `{h, w}`. Random transforms draw from the
-global torch RNG — seed with `torch::manual_seed` for reproducible runs; the
-draws are safe under the multi-worker DataLoader. Crops and resizes require
-`{C, H, W}` inputs and throw `std::invalid_argument` on shape mismatches.
+global torch RNG. Seed with `torch::manual_seed` for reproducible inline runs.
+A deterministic multi-worker factory should instead isolate random state
+through the supplied worker context. Crops and resizes require `{C, H, W}`
+inputs and throw `std::invalid_argument` on shape mismatches.
 
 ## Samplers
 
@@ -343,14 +274,5 @@ rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks
 epoch to reshuffle, and wire `distributed::get_rank()`/`get_world_size()`
 from the process group (single-process reference: rank 0, world size 1).
 
-Pass a custom sampler to the fourth DataLoader constructor for index
-strategies the built-ins do not cover (e.g. weighted sampling).
-
-## ThreadSafeQueue
-
-`#include <jyppx/data/thread_safe_queue.hpp>`
-
-`ThreadSafeQueue<T>` is the bounded blocking queue used by the multi-worker
-pipeline (blocking `put`/`get`, non-blocking `try_get`, `close` semantics
-that keep already-queued items retrievable). It is public API and generally
-useful for producer/consumer code.
+Pass a custom sampler to the `DataPipeline` constructor for index strategies
+the built-ins do not cover, such as weighted sampling.

@@ -93,8 +93,8 @@ class Subset : public Dataset<T> {
  * Mirrors torch.utils.data.random_split: the sample indices are shuffled
  * (optionally with a seed) and then assigned to consecutive subsets whose
  * sizes are `lengths`. The returned subsets are heap-allocated so they can be
- * handed to a DataLoader directly. The sample type is deduced from the
- * dataset's value_type.
+ * captured by a DataPipeline batch factory. The sample type is deduced from
+ * the dataset's value_type.
  *
  * @tparam DatasetT Concrete dataset type exposing `value_type`.
  * @tparam T Dataset sample type deduced from @p dataset.

@@ -455,7 +455,7 @@ class CenterCrop : public TensorTransform {
  *
  * The crop position is drawn from the global torch RNG, so sequences are
  * reproducible via torch::manual_seed and safe under the multi-worker
- * DataLoader (ATen guards the default generator).
+ * DataPipeline batch factory (ATen guards the default generator).
  */
 class RandomCrop : public TensorTransform {
  public:

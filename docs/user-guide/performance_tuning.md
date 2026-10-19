@@ -4,13 +4,14 @@ JYPPX performance depends on the input pipeline, batch shape, device, and
 optimizer state. Change one setting at a time and record throughput with the
 LibTorch and compiler versions.
 
-## DataLoader optimization
+## DataPipeline optimization
 
 Start with `num_workers = 0` as a baseline. Increase it until the device is
 fed continuously; a useful starting point is logical CPU cores minus two,
-capped by the number of batches that can be in flight. `prefetch_factor`
-controls queued batches per worker. Values of 2 or 4 are usually sufficient;
-larger values consume memory without helping CPU-bound datasets.
+capped by the number of batches that can be in flight. `prefetch_batches`
+is the total scheduled-but-uncommitted batch capacity for the pipeline. Start
+with two to four batches and increase it only when measurements show consumer
+starvation; larger values consume memory and enlarge bounded replay work.
 
 If the desired effective batch does not fit device memory, use accumulation:
 
@@ -20,8 +21,10 @@ options.accumulate_steps = 4;
 options.gradient_clip_norm = 1.0;
 ```
 
-Use a fixed `seed` for deterministic shuffled experiments. Custom datasets
-should return cloned samples when a shared backing tensor could be mutated.
+Use a fixed sampler seed and pass the logical epoch to `set_epoch()` for
+deterministic shuffled experiments. A deterministic batch factory must derive
+random work from `DataWorkerContext::worker_seed`. Custom datasets should
+return cloned samples when a shared backing tensor could be mutated.
 
 ## Training optimization
 
@@ -38,11 +41,11 @@ Trainer global step or scheduler and publish `optimizer.applied=0`.
 
 ## Profiling and memory
 
-Profile a complete epoch, separating loader wait from forward/backward time.
-The DataLoader benchmark simulates preprocessing:
+Profile a complete epoch, separating pipeline wait from forward/backward time.
+The DataPipeline benchmark simulates preprocessing:
 
 ```text
-build-framework/tests/benchmarks/Release/jyppx_bench_dataloader.exe \
+build-framework/tests/benchmarks/Release/jyppx_bench_data_pipeline.exe \
   --work-ms 2 --batches 64 --batch-size 32
 ```
 

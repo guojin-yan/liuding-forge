@@ -83,7 +83,7 @@ lengths, aggregate archive limits, decompression ratios, and strong digests.
 ## Current boundary
 
 This API establishes coordination mechanics only. Exact training recovery is
-not supported until model, optimizer, scheduler, scaler, RNG, DataLoader,
+not supported until model, optimizer, scheduler, scaler, RNG, DataPipeline,
 metric, callback, and strategy participants have their own tested schemas and
 the interop checkpoint container has passed corruption and interruption tests.
 The legacy Trainer checkpoint format is not adapted or forwarded by this API.

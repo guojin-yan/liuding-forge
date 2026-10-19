@@ -6,6 +6,7 @@ param(
     [string]$SourceDir = (Resolve-Path (Join-Path $PSScriptRoot "..")),
     [string]$BuildDir = "",
     [string]$OutputDir = "",
+    [string]$LibTorchDir = "",
     [ValidateRange(3, 20)]
     [int]$Samples = 5,
     [ValidateRange(0, 10)]
@@ -25,6 +26,21 @@ $ErrorActionPreference = "Stop"
 # raw samples and statistics; command logs can be deleted after the evidence
 # summary and reference threshold are recorded.
 $sourceRoot = (Resolve-Path $SourceDir).Path
+if ([string]::IsNullOrWhiteSpace($LibTorchDir)) {
+    $LibTorchDir = Join-Path $sourceRoot "third_party/install/libtorch"
+}
+if (-not (Test-Path -LiteralPath $LibTorchDir -PathType Container)) {
+    throw "LibTorchDir does not exist: $LibTorchDir"
+}
+$libTorchRoot = (Resolve-Path -LiteralPath $LibTorchDir).Path
+$torchConfig = Join-Path $libTorchRoot "share/cmake/Torch/TorchConfig.cmake"
+if (-not (Test-Path -LiteralPath $torchConfig -PathType Leaf)) {
+    throw "LibTorchDir does not contain TorchConfig.cmake: $libTorchRoot"
+}
+$libTorchBuildFile = Join-Path $libTorchRoot "build-version"
+if (-not (Test-Path -LiteralPath $libTorchBuildFile -PathType Leaf)) {
+    throw "LibTorchDir does not contain build-version: $libTorchRoot"
+}
 if ([string]::IsNullOrWhiteSpace($BuildDir)) {
     $BuildDir = Join-Path $sourceRoot "out/build/baseline-release"
 }
@@ -128,7 +144,7 @@ $steps.Add((Invoke-Captured cmake @(
         "-DJYPPX_BUILD_BENCHMARKS=ON",
         "-DJYPPX_BUILD_EXAMPLES=OFF",
         "-DJYPPX_BUILD_DOCS=OFF",
-        "-DCMAKE_PREFIX_PATH=$(Join-Path $sourceRoot 'third_party/install/libtorch')"
+        "-DCMAKE_PREFIX_PATH=$libTorchRoot"
     ) "01-configure.log"))
 $pythonCacheEntry = Get-Content (Join-Path $BuildDir "CMakeCache.txt") |
     Where-Object { $_ -match '^_?Python3_EXECUTABLE:(?:FILEPATH|INTERNAL)=(.+)$' } |
@@ -177,14 +193,14 @@ $benchmarkDir = if ($runningOnWindows) {
     Join-Path $BuildDir "tests/benchmarks"
 }
 $executableSuffix = if ($runningOnWindows) { ".exe" } else { "" }
-$dataLoaderExecutable = Join-Path $benchmarkDir "jyppx_bench_dataloader$executableSuffix"
+$dataPipelineExecutable = Join-Path $benchmarkDir "jyppx_bench_data_pipeline$executableSuffix"
 $trainerExecutable = Join-Path $benchmarkDir "jyppx_bench_trainer_throughput$executableSuffix"
 $optimizerExecutable = Join-Path $benchmarkDir "jyppx_bench_optimizer_convergence$executableSuffix"
 $adadeltaExecutable = Join-Path $benchmarkDir "jyppx_bench_adadelta_native_throughput$executableSuffix"
 $nadamExecutable = Join-Path $benchmarkDir "jyppx_bench_nadam_native_throughput$executableSuffix"
 $memoryExecutable = Join-Path $benchmarkDir "jyppx_bench_memory_usage$executableSuffix"
 foreach ($executable in @(
-        $dataLoaderExecutable,
+        $dataPipelineExecutable,
         $trainerExecutable,
         $optimizerExecutable,
         $adadeltaExecutable,
@@ -199,9 +215,9 @@ foreach ($executable in @(
 # enter the statistics. This avoids silently mixing cold-start and steady-state
 # samples while still making warmup behavior auditable.
 for ($index = 1; $index -le $Warmup; ++$index) {
-    $benchmarkRuns.Add((Invoke-Captured -Name $dataLoaderExecutable `
+    $benchmarkRuns.Add((Invoke-Captured -Name $dataPipelineExecutable `
             -Arguments @("--repeats", "1") `
-            -LogName "warmup-dataloader-$index.csv"))
+            -LogName "warmup-data-pipeline-$index.csv"))
     $benchmarkRuns.Add((Invoke-Captured -Name $trainerExecutable `
             -Arguments @() -LogName "warmup-trainer-$index.csv"))
     foreach ($workers in @(0, 1, 4, 8)) {
@@ -212,14 +228,14 @@ for ($index = 1; $index -le $Warmup; ++$index) {
 }
 
 for ($sample = 1; $sample -le $Samples; ++$sample) {
-    $dataLog = "sample-dataloader-$sample.csv"
-    $benchmarkRuns.Add((Invoke-Captured $dataLoaderExecutable @("--repeats", "1") $dataLog))
+    $dataLog = "sample-data-pipeline-$sample.csv"
+    $benchmarkRuns.Add((Invoke-Captured $dataPipelineExecutable @("--repeats", "1") $dataLog))
     $dataRows = @(Import-Csv (Join-Path $outputRoot $dataLog))
     if ($dataRows.Count -ne 5) {
-        throw "DataLoader sample $sample must contain exactly five worker rows"
+        throw "DataPipeline sample $sample must contain exactly five worker rows"
     }
     foreach ($row in $dataRows) {
-        Add-MetricSample "dataloader.elapsed_ms.workers_$($row.workers)" "lower" `
+        Add-MetricSample "data_pipeline.elapsed_ms.workers_$($row.workers)" "lower" `
             "milliseconds" ([double]$row.elapsed_ms)
     }
 
@@ -256,8 +272,7 @@ $benchmarkRuns.Add((Invoke-Captured -Name $adadeltaExecutable -Arguments @() `
 $benchmarkRuns.Add((Invoke-Captured -Name $nadamExecutable -Arguments @() `
         -LogName "benchmark-nadam-native-throughput.csv"))
 
-$libtorchBuild = (Get-Content (
-        Join-Path $sourceRoot "third_party/install/libtorch/build-version") -Raw).Trim()
+$libtorchBuild = (Get-Content -LiteralPath $libTorchBuildFile -Raw).Trim()
 $osDescription = [Runtime.InteropServices.RuntimeInformation]::OSDescription
 $architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
 $processor = if ([string]::IsNullOrWhiteSpace($env:PROCESSOR_IDENTIFIER)) {
@@ -328,7 +343,7 @@ $libraryNames = if ($runningOnWindows) {
 $artifactPaths = @(
     $libraryNames | ForEach-Object { Join-Path $libraryDir $_ }
     @(
-        $dataLoaderExecutable,
+        $dataPipelineExecutable,
         $trainerExecutable,
         $optimizerExecutable,
         $memoryExecutable

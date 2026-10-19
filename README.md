@@ -104,9 +104,10 @@ transaction interfaces; file/container formats belong to interop adapters.
 ## Known Limitations
 
 - AMP currently requires CUDA; CPU training uses full precision.
-- DataLoader workers use threads in one process. Dataset access must be
-  thread-safe, and cross-process distributed Gloo support is deferred until a
-  LibTorch package with the required development headers is available.
+- DataPipeline workers use threads in one process. Dataset access and captured
+  batch-factory state must be thread-safe; cross-process distributed Gloo
+  support is deferred until a LibTorch package with the required development
+  headers is available.
 - Performance benchmark output is hardware-dependent and should be compared
   on matched environments.
 

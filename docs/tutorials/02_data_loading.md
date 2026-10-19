@@ -1,153 +1,143 @@
 # Tutorial 2: Data Loading
 
-This tutorial covers the data layer end to end: `TensorDataset`, custom
-datasets, train/validation splits, custom collate functions and
-multi-worker loading.
+JYPPX uses an explicit-epoch `DataPipeline`. A sampler selects sample IDs,
+a `DataBatchFactory` fetches and collates those samples, and every committed
+batch carries schema, lineage, epoch, and sequence metadata. The pipeline
+never advances to another epoch implicitly.
 
-## TensorDataset
+## Tensor datasets
 
-The quickest way to feed tensors:
+`TensorDataset` exposes paired input and target tensors as `Example` values.
+The following factory turns its samples into the tuple consumed by a typical
+training step:
 
 ```cpp
 auto inputs = torch::rand({100, 3});
 auto targets = torch::randint(0, 2, {100});
+auto dataset =
+    std::make_shared<jyppx::data::TensorDataset>(inputs, targets);
+auto sampler =
+    std::make_shared<jyppx::data::samplers::RandomSampler>(dataset->size(), 7);
 
-auto dataset = std::make_shared<jyppx::data::TensorDataset>(inputs, targets);
-jyppx::data::DataLoader loader(dataset, {.batch_size = 16});
+jyppx::data::DataPipeline pipeline(
+    std::move(sampler),
+    {.pipeline_id = "data.train",
+     .dataset_version = "example.train/v1",
+     .dataset_size = dataset->size(),
+     .schema = jyppx::data::BatchSchema::any("example.train.batch", 1),
+     .batch_factory_id = "example.tensor-pair/v1",
+     .batch_size = 16},
+    [dataset](std::span<const std::size_t> indices,
+              const jyppx::data::DataWorkerContext&,
+              std::stop_token) {
+      std::vector<torch::Tensor> data;
+      std::vector<torch::Tensor> targets;
+      data.reserve(indices.size());
+      targets.reserve(indices.size());
+      for (const auto index : indices) {
+        const auto sample = dataset->get(index);
+        data.push_back(sample.data);
+        targets.push_back(sample.target);
+      }
+      return c10::ivalue::Tuple::create(
+          {torch::stack(data), torch::stack(targets)});
+    });
 
-for (const auto& batch : loader) {
-    // batch.data {16, 3}, batch.targets {16}
+pipeline.set_epoch(0);
+while (const auto batch = pipeline.next()) {
+  const auto& values = batch->value.toTuple()->elements();
+  train_step(values.at(0).toTensor(), values.at(1).toTensor());
 }
 ```
 
-The last batch is smaller unless you set `.drop_last = true`. With
-`.shuffle = true` and a `.seed`, every run shuffles identically.
+The final batch is smaller unless `.drop_last = true`. `set_epoch(epoch)`
+selects exactly one sampler order and resets the committed cursor. `next()`
+returns an empty optional at exhaustion and does not start another epoch.
 
 ## Custom datasets
 
-Derive from `jyppx::data::Dataset<T>` and implement `get` and `size`. To use
-a dataset directly with the Trainer, make its sample type
-`TensorDataset::Example`:
+Derive from `jyppx::data::Dataset<T>` and implement `get()` and `size()`:
 
 ```cpp
-class MyDataset : public jyppx::data::Dataset<jyppx::data::Example> {
-public:
-    jyppx::data::Example get(size_t index) const override {
-        return {features_[index], labels_[index]};   // input row, target row
-    }
-    size_t size() const override { return features_.size(0); }
+class MyDataset final : public jyppx::data::Dataset<jyppx::data::Example> {
+ public:
+  jyppx::data::Example get(std::size_t index) const override {
+    return {features_[index], labels_[index]};
+  }
 
-private:
-    torch::Tensor features_ = torch::randn({500, 8});
-    torch::Tensor labels_ = torch::randint(0, 3, {500});
+  std::size_t size() const override {
+    return static_cast<std::size_t>(features_.size(0));
+  }
+
+ private:
+  torch::Tensor features_ = torch::randn({500, 8});
+  torch::Tensor labels_ = torch::randint(0, 3, {500});
 };
-
-jyppx::data::DataLoader loader(std::make_shared<MyDataset>(), {.batch_size = 32});
-// batch.data {32, 8}, batch.targets {32}
 ```
 
-## Collate functions
+The batch factory owns collation policy. It may return any `c10::IValue` that
+matches the declared `BatchSchema`, including a tensor, tuple, list, or
+dictionary. Its `batch_factory_id` must change whenever behavior that affects
+replay compatibility changes.
 
-Datasets with non-Tensor sample types pair with a **collate function**, which
-turns a vector of samples into a batch of the same type:
+## Train and validation splits
+
+`random_split` produces deterministic subset views when given a seed:
 
 ```cpp
-struct Sample {
-    torch::Tensor features;
-    int64_t label;
-};
-
-class SampleDataset : public jyppx::data::Dataset<Sample> { /* ... */ };
-
-jyppx::data::DataLoader loader(
-    std::make_shared<SampleDataset>(),
-    {.batch_size = 32},
-    [](const std::vector<Sample>& samples) {
-        return jyppx::data::Batch<Sample>{samples};   // keep samples together
-    });
-
-for (const auto& batch : loader) {
-    // batch.samples is std::vector<Sample> — useful in manual training loops
-}
+const auto subsets = jyppx::data::random_split(
+    dataset, std::vector<std::size_t>{80, 20}, /*seed=*/42);
 ```
 
-The default collate for `T = Tensor` and `T = Example` stacks the samples
-with `torch::stack` (that is what `TensorDataset` loaders use). The Trainer's
-built-in loop consumes `Tensor` and `Example` batches; other batch types work
-in manual loops via `batch.samples`.
+Create an independent sampler and pipeline for each subset. Give each pipeline
+a unique `pipeline_id` and a dataset version that identifies the underlying
+data lineage. Training and validation cursors can then participate in the same
+checkpoint without identity collisions.
 
-## Train/validation splits
+## Worker prefetch
 
-`random_split` shuffles indices once (seeded) and hands back subset views:
+Set `.num_workers` to use the in-process worker pool and set
+`.prefetch_batches` to the total number of scheduled but uncommitted batches:
 
 ```cpp
-auto subsets = jyppx::data::random_split(
-    dataset, std::vector<size_t>{80, 20}, /*seed=*/42);
-
-jyppx::data::DataLoader train_loader(subsets[0], {.batch_size = 8, .shuffle = true});
-jyppx::data::DataLoader val_loader(subsets[1], {.batch_size = 8});
+jyppx::data::DataPipelineOptions options{
+    .pipeline_id = "data.train",
+    .dataset_version = "example.train/v1",
+    .dataset_size = dataset->size(),
+    .schema = jyppx::data::BatchSchema::any("example.train.batch", 1),
+    .batch_factory_id = "example.tensor-pair/v1",
+    .batch_size = 32,
+    .num_workers = 4,
+    .prefetch_batches = 8,
+    .persistent_workers = true,
+    .worker_seed = 7};
 ```
 
-Subsets are ordinary datasets: compose them with
-`jyppx::data::ConcatDataset` to merge datasets, or index them directly for
-inspection.
+Worker completion may be out of order, but consumer-visible batches remain in
+sampler order. Dataset access and captured factory state must be safe for
+concurrent calls. Long-running factories must honor the supplied stop token so
+epoch replacement and `close()` remain bounded.
 
-## Multi-worker loading
+A non-JYPPX exception from a worker is reported as a structured
+`jyppx::BackendError` on the consuming thread. The failed batch is not
+committed. Use `.num_workers = 0` to reproduce factory failures inline.
 
-Set `num_workers` to load batches on a worker pool with prefetching:
+## Determinism and checkpointing
 
-```cpp
-jyppx::data::DataLoader loader(
-    dataset,
-    {.batch_size = 64,
-     .shuffle = true,
-     .num_workers = 4,      // worker threads
-     .prefetch_factor = 2,  // batches queued ahead per worker
-     .seed = 7});
-```
+`DataWorkerContext` provides stable `epoch`, `sequence`, `worker_id`, and
+`worker_seed` values. A factory declared deterministic must derive random work
+from that context rather than mutable process-global state. The pipeline saves
+only committed state; prefetched batches are rebuilt after restore.
 
-What to expect:
+Use `SequentialSampler` for fixed order, `RandomSampler` for seeded epoch
+permutations, `WeightedRandomSampler` for weighted draws,
+`SubsetRandomSampler` for a subset, and `DistributedSampler` for rank-local
+sharding. Sampler configuration and state are part of restore compatibility.
 
-- **Identical output** to single-threaded loading — batches arrive in
-  dataset order (or in the seeded shuffle order), so training results do not
-  change when you add workers.
-- Up to `num_workers * prefetch_factor` batches are prepared ahead of the
-  training loop.
-- Exceptions raised inside `Dataset::get` or the collate function surface on
-  the consuming thread, at the point the failing batch would have arrived.
-- Breaking out of a range-for loop early is safe; the next epoch starts
-  clean.
-- **Requirement**: `Dataset::get` is called from multiple threads, so it must
-  be thread-safe. Tensor indexing is; hand-rolled datasets with shared
-  mutable state need synchronization.
+## Transforms
 
-## Samplers
-
-Built-in samplers (`SequentialSampler`, `RandomSampler`, `BatchSampler`)
-cover sequential access, shuffling and batching. A custom sampler plugs into
-the fourth DataLoader constructor:
-
-```cpp
-class EveryOtherSampler : public jyppx::data::samplers::Sampler {
-public:
-    explicit EveryOtherSampler(size_t size) : size_(size) {}
-    std::vector<size_t> indices() const override {
-        std::vector<size_t> result;
-        for (size_t i = 0; i < size_; i += 2) result.push_back(i);
-        return result;
-    }
-    size_t size() const override { return (size_ + 1) / 2; }
-
-private:
-    size_t size_;
-};
-
-jyppx::data::DataLoader loader(
-    dataset,
-    std::make_shared<EveryOtherSampler>(dataset->size()),
-    {.batch_size = 8});
-```
-
-## What to read next
-
-- Tutorial 3 pairs the loader with different optimizers and schedulers.
+Apply transforms inside `Dataset::get()` or the batch factory. Tensor
+transforms include normalization, resize, crop, flip, padding, rotation,
+affine, grayscale, and color jitter. When workers are enabled, the transform
+and all captured state must satisfy the same concurrency and deterministic
+replay rules as the rest of the factory.

@@ -1,6 +1,6 @@
 # Benchmarks. Built when JYPPX_BUILD_BENCHMARKS=ON (off by default).
 
-jyppx_add_bench(jyppx_bench_dataloader bench_dataloader.cpp)
+jyppx_add_bench(jyppx_bench_data_pipeline bench_data_pipeline.cpp)
 jyppx_add_bench(jyppx_bench_trainer_throughput bench_trainer_throughput.cpp)
 jyppx_add_bench(jyppx_bench_optimizer_convergence bench_optimizer_convergence.cpp)
 jyppx_add_bench(jyppx_bench_adadelta_native_throughput bench_adadelta_native_throughput.cpp)

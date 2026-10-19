@@ -22,9 +22,9 @@ application build to avoid ABI changes after a system upgrade. Verify a small
 CPU job and checkpoint save/load cycle in the target image before shipping a
 GPU image.
 
-Production services should validate input shapes, cap DataLoader workers,
-handle worker exceptions at the job boundary, and store checkpoints on
-durable storage with framework, LibTorch, device, and optimizer metadata. The
-distributed API currently provides the single-process reference path; Gloo
-cross-process development is deferred until a package with its development
-headers is available.
+Production services should validate input schemas, cap DataPipeline workers
+and prefetch capacity, handle structured pipeline failures at the job
+boundary, and store checkpoints on durable storage with framework, LibTorch,
+device, data-lineage, and optimizer metadata. The distributed API currently
+provides the single-process reference path; Gloo cross-process development is
+deferred until a package with its development headers is available.

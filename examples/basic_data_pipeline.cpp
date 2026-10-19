@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-/** @file basic_dataloader.cpp
+/** @file basic_data_pipeline.cpp
  * @brief Demonstrates the current explicit-epoch map-style data pipeline.
  */
 
@@ -18,13 +18,13 @@
 #include <vector>
 
 int main() {
-  const auto data = torch::arange(
-                        0, 10, torch::TensorOptions().dtype(torch::kFloat32))
-                        .view({10, 1});
+  const auto data =
+      torch::arange(0, 10, torch::TensorOptions().dtype(torch::kFloat32))
+          .view({10, 1});
   const auto targets =
       torch::arange(0, 10, torch::TensorOptions().dtype(torch::kFloat32));
-  auto sampler = std::make_shared<jyppx::data::samplers::RandomSampler>(
-      10, /*seed=*/7);
+  auto sampler =
+      std::make_shared<jyppx::data::samplers::RandomSampler>(10, /*seed=*/7);
   jyppx::data::DataPipeline pipeline(
       std::move(sampler),
       jyppx::data::DataPipelineOptions{
@@ -35,8 +35,7 @@ int main() {
           .batch_factory_id = "example.basic.tensor-pair/v1",
           .batch_size = 4},
       [data, targets](std::span<const std::size_t> indices,
-                      const jyppx::data::DataWorkerContext&,
-                      std::stop_token) {
+                      const jyppx::data::DataWorkerContext&, std::stop_token) {
         std::vector<std::int64_t> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {

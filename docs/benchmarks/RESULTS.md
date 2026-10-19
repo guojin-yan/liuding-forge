@@ -3,7 +3,7 @@
 The benchmark programs emit CSV and need no database service:
 
 ```text
-tests/benchmarks/bench_dataloader
+tests/benchmarks/bench_data_pipeline
 tests/benchmarks/bench_trainer_throughput
 tests/benchmarks/bench_optimizer_convergence
 tests/benchmarks/bench_sgd_adapter_overhead
@@ -17,11 +17,13 @@ tests/benchmarks/bench_nadam_native_throughput
 tests/benchmarks/bench_memory_usage
 ```
 
-Run `tools/Run-Baseline.ps1` from a quiet machine. The runner performs one
-warmup process and five independent sample processes by default, then records
-the environment identity, raw samples, median, nearest-rank p95, sample
-standard deviation, coefficient of variation (CV), and regression allowance.
-DataLoader latency and peak memory are lower-is-better; Trainer throughput is
+Run `tools/Run-Baseline.ps1` from a quiet machine. Pass `-LibTorchDir` when
+LibTorch is installed outside `third_party/install/libtorch`. The runner
+performs one warmup process and five independent sample processes by default,
+then records the environment identity, raw samples, median, nearest-rank p95,
+sample standard deviation, coefficient of variation (CV), and regression
+allowance.
+DataPipeline latency and peak memory are lower-is-better; Trainer throughput is
 higher-is-better. Optimizer convergence remains deterministic correctness
 evidence and is not treated as a timing metric.
 

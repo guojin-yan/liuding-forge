@@ -1,84 +1,137 @@
-// Extreme-condition tests for logically large datasets.
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
 
-#include <jyppx/data/dataloader.hpp>
+/** @file test_large_dataset.cpp
+ * @brief Exercises current map pipeline geometry with a logical 10 GiB source.
+ */
+
 #include <jyppx/core/tensor_utils.hpp>
-
-#include <gtest/gtest.h>
+#include <jyppx/data/data_pipeline.hpp>
+#include <jyppx/data/dataset.hpp>
+#include <jyppx/data/samplers/sequential_sampler.hpp>
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
+#include <gtest/gtest.h>
 #include <memory>
+#include <span>
+#include <stdexcept>
+#include <stop_token>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
 using jyppx::Tensor;
 
-// A row is 1 KiB, so this dataset represents more than 10 GiB without
-// allocating the backing storage.  The test validates index arithmetic,
-// batching, and repeated epochs; production datasets can replace get() with
-// mmap or streaming I/O while retaining the same contract.
+/** @brief Represents more than 10 GiB without allocating backing storage. */
 class VirtualLargeDataset final : public jyppx::data::Dataset<Tensor> {
-public:
-    static constexpr std::size_t kRows = 10'485'760;
+ public:
+  static constexpr std::size_t kRows = 2'000'000;  ///< Logical row count.
+  static constexpr std::size_t kElementsPerRow =
+      1536;  ///< Float elements in one 6 KiB row.
+  static constexpr std::uint64_t kLogicalBytes =
+      kRows * kElementsPerRow * sizeof(float);  ///< Total logical capacity.
 
-    Tensor get(std::size_t index) const override {
-        calls_.fetch_add(1, std::memory_order_relaxed);
-        if (index >= kRows) {
-            throw std::out_of_range("virtual dataset index out of range");
-        }
-        return torch::full({256}, static_cast<double>(index),
-                           torch::TensorOptions().dtype(torch::kFloat32));
+  static_assert(kLogicalBytes > 10ULL * 1024ULL * 1024ULL * 1024ULL);
+
+  /** @brief Materializes one 6 KiB logical row and records the access. */
+  Tensor get(std::size_t index) const override {
+    calls_.fetch_add(1, std::memory_order_relaxed);
+    if (index >= kRows) {
+      throw std::out_of_range("virtual dataset index out of range");
     }
+    return torch::full({static_cast<std::int64_t>(kElementsPerRow)},
+                       static_cast<double>(index),
+                       torch::TensorOptions().dtype(torch::kFloat32));
+  }
 
-    std::size_t size() const override { return kRows; }
+  /** @brief Returns the fixed logical row count. */
+  std::size_t size() const override { return kRows; }
 
-    std::size_t calls() const { return calls_.load(std::memory_order_relaxed); }
+  /** @brief Returns the number of rows materialized by batch factories. */
+  std::size_t calls() const { return calls_.load(std::memory_order_relaxed); }
 
-private:
-    mutable std::atomic<std::size_t> calls_{0};
+ private:
+  mutable std::atomic<std::size_t> calls_{0};  ///< Materialized row count.
 };
 
+/** @brief Creates a current map pipeline over the logical dataset. */
+std::unique_ptr<jyppx::data::DataPipeline> make_pipeline(
+    const std::shared_ptr<VirtualLargeDataset>& dataset, std::size_t workers,
+    std::size_t prefetch_batches) {
+  return std::make_unique<jyppx::data::DataPipeline>(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+          dataset->size()),
+      jyppx::data::DataPipelineOptions{
+          .pipeline_id = "data.integration.large",
+          .dataset_version = "test.virtual_10gib/v1",
+          .dataset_size = dataset->size(),
+          .schema =
+              jyppx::data::BatchSchema::any("test.large_dataset.batch", 1),
+          .batch_factory_id = "test.large_dataset.stack/v1",
+          .batch_size = workers == 0 ? 1024U : 256U,
+          .num_workers = workers,
+          .prefetch_batches = prefetch_batches,
+          .persistent_workers = workers > 0},
+      [dataset](std::span<const std::size_t> indices,
+                const jyppx::data::DataWorkerContext&, std::stop_token) {
+        std::vector<Tensor> rows;
+        rows.reserve(indices.size());
+        for (const auto index : indices) {
+          rows.push_back(dataset->get(index));
+        }
+        return c10::IValue(torch::stack(rows));
+      });
+}
+
 TEST(LargeDatasetTest, LogicalTenGiBDatasetHasStableBatchGeometry) {
-    auto dataset = std::make_shared<VirtualLargeDataset>();
-    jyppx::data::DataLoader loader(dataset, {.batch_size = 1024});
+  auto dataset = std::make_shared<VirtualLargeDataset>();
+  auto pipeline = make_pipeline(dataset, /*workers=*/0, /*prefetch_batches=*/2);
+  pipeline->set_epoch(0);
 
-    EXPECT_EQ(loader.dataset_size(), VirtualLargeDataset::kRows);
-    EXPECT_EQ(loader.size(), (VirtualLargeDataset::kRows + 1023) / 1024);
+  const auto state = pipeline->state();
+  EXPECT_EQ(state.dataset_size, VirtualLargeDataset::kRows);
+  EXPECT_EQ(state.epoch_indices.size(), VirtualLargeDataset::kRows);
+  EXPECT_EQ((state.dataset_size + state.batch_size - 1) / state.batch_size,
+            (VirtualLargeDataset::kRows + 1023) / 1024);
 
-    auto iterator = loader.begin();
-    const auto first = *iterator;
-    EXPECT_EQ(first.data.sizes(), torch::IntArrayRef({1024, 256}));
-    EXPECT_EQ(first.data[0][0].item<int>(), 0);
-    EXPECT_EQ(first.data[1023][0].item<int>(), 1023);
+  const auto first = pipeline->next();
+  ASSERT_TRUE(first.has_value());
+  const auto first_rows = first->value.toTensor();
+  EXPECT_EQ(first_rows.sizes(), torch::IntArrayRef({1024, 1536}));
+  EXPECT_EQ(first_rows[0][0].item<int>(), 0);
+  EXPECT_EQ(first_rows[1023][0].item<int>(), 1023);
 
-    ++iterator;
-    const auto second = *iterator;
-    EXPECT_EQ(second.data[0][0].item<int>(), 1024);
-    EXPECT_TRUE(jyppx::is_finite(second.data));
-    EXPECT_EQ(dataset->calls(), 2048U);
+  const auto second = pipeline->next();
+  ASSERT_TRUE(second.has_value());
+  EXPECT_EQ(second->value.toTensor()[0][0].item<int>(), 1024);
+  EXPECT_TRUE(jyppx::is_finite(second->value.toTensor()));
+  EXPECT_EQ(dataset->calls(), 2048U);
 }
 
 TEST(LargeDatasetTest, RepeatedPartialEpochsDoNotRetainBatches) {
-    auto dataset = std::make_shared<VirtualLargeDataset>();
-    jyppx::data::DataLoader loader(
-        dataset, {.batch_size = 256, .num_workers = 4, .prefetch_factor = 2});
+  auto dataset = std::make_shared<VirtualLargeDataset>();
+  auto pipeline = make_pipeline(dataset, /*workers=*/4, /*prefetch_batches=*/8);
 
-    // Repeatedly consume a small prefix.  This exercises worker shutdown and
-    // restart without making CI walk ten million samples per epoch.
-    for (int epoch = 0; epoch < 8; ++epoch) {
-        int batches = 0;
-        for (const auto& batch : loader) {
-            ASSERT_EQ(batch.data.size(0), 256);
-            ASSERT_TRUE(jyppx::is_finite(batch.data));
-            if (++batches == 3) {
-                break;
-            }
-        }
+  for (std::uint64_t epoch = 0; epoch < 8; ++epoch) {
+    pipeline->set_epoch(epoch);
+    for (int batch = 0; batch < 3; ++batch) {
+      const auto value = pipeline->next();
+      ASSERT_TRUE(value.has_value());
+      ASSERT_EQ(value->value.toTensor().size(0), 256);
+      ASSERT_TRUE(jyppx::is_finite(value->value.toTensor()));
     }
+  }
+  pipeline->close();
 
-    // Prefetching may finish additional batches before the consumer breaks;
-    // the important invariant is that every requested prefix was produced.
-    EXPECT_GE(dataset->calls(), 8U * 3U * 256U);
+  // Prefetch may finish extra batches before the next explicit epoch. Every
+  // committed prefix must nevertheless have been materialized completely.
+  EXPECT_GE(dataset->calls(), 8U * 3U * 256U);
 }
 
-} // namespace
+}  // namespace

@@ -24,8 +24,6 @@ jyppx_add_gtest(jyppx_test_data
     data/test_iterable_data_pipeline.cpp
     data/test_tensor_dataset.cpp
     data/test_samplers.cpp
-    data/test_dataloader.cpp
-    data/test_thread_safe_queue.cpp
     data/test_dataset_utils.cpp
     data/test_transforms.cpp
 )
@@ -183,9 +181,4 @@ jyppx_add_gtest(jyppx_test_plan
 jyppx_add_gtest(jyppx_test_training
     training/test_accuracy.cpp
     training/test_metrics.cpp
-)
-
-jyppx_add_gtest(jyppx_test_data_exceptions
-    LINK_TARGET jyppx::data
-    data/test_dataloader_exceptions.cpp
 )

@@ -41,7 +41,7 @@ metrics, callbacks, checkpointing and mixed precision.
   mergeable Precision, Recall, and F1 with exact checkpoint state
 - [Model Checkpoint Participant](api/model_checkpoint_participant.md) — exact
   model topology, bounded raw tensor state, strict preflight, and atomic restore
-- [Data](api/data.md) — datasets, subset/concat/split, DataLoader,
+- [Data](api/data.md) — datasets, subset/concat/split, DataPipeline,
   samplers, thread-safe queue
 - [Optimizers and Schedulers](api/optim.md) — SGD, Adam, AdamW, RMSprop,
   Adagrad, NAdam, Adadelta, Lamb, RAdam, Adamax, ASGD, Rprop, SparseAdam,

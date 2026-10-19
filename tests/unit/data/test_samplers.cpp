@@ -13,6 +13,7 @@
 #include <memory>
 #include <numeric>
 #include <set>
+#include <string>
 
 namespace {
 
@@ -144,6 +145,38 @@ TEST(WeightedRandomSamplerTest, NeverSelectsZeroMassWithoutReplacement) {
   EXPECT_EQ(indices.size(), 3U);
   EXPECT_EQ(std::set<size_t>(indices.begin(), indices.end()),
             std::set<size_t>({0, 2, 4}));
+}
+
+TEST(WeightedRandomSamplerTest, RejectsNonTerminatingInputs) {
+  EXPECT_THROW(
+      samplers::WeightedRandomSampler({1.0, 0.0}, /*num_samples=*/2,
+                                      /*replacement=*/false, /*seed=*/7),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(
+      samplers::WeightedRandomSampler(
+          {1.0, std::numeric_limits<double>::infinity()}, /*num_samples=*/1),
+      jyppx::InvalidArgument);
+}
+
+TEST(WeightedRandomSamplerTest, InvalidStateDoesNotAdvanceGenerator) {
+  samplers::WeightedRandomSampler sampler({1.0, 2.0, 3.0}, 16, true, 9);
+  samplers::WeightedRandomSampler control({1.0, 2.0, 3.0}, 16, true, 9);
+  const std::string invalid_state = sampler.save_state() + " trailing";
+
+  try {
+    sampler.load_state(invalid_state);
+    FAIL() << "malformed sampler state must be rejected";
+  } catch (const jyppx::SerializationError& error) {
+    EXPECT_EQ(error.code(), jyppx::ErrorCode::serialization);
+    EXPECT_EQ(error.details().component, "data.weighted_random_sampler");
+    EXPECT_EQ(error.details().operation, "load_state");
+  }
+  EXPECT_EQ(sampler.indices(), control.indices());
+}
+
+TEST(DistributedSamplerTest, RejectsEmptyPopulation) {
+  EXPECT_THROW(samplers::DistributedSampler(0, /*rank=*/0, /*world_size=*/1),
+               jyppx::InvalidArgument);
 }
 
 TEST(SubsetRandomSamplerTest, RestoresExactContinuation) {

@@ -11,7 +11,7 @@ namespace {
 
 TEST(FoundationErrorTest, PreservesStableCodeAndStructuredContext) {
   jyppx::ErrorDetails details{
-      .component = "DataLoader",
+      .component = "DataPipeline",
       .operation = "batch_size",
       .expected = "> 0",
       .actual = "0",
@@ -20,7 +20,7 @@ TEST(FoundationErrorTest, PreservesStableCodeAndStructuredContext) {
   const jyppx::InvalidArgument error("Invalid batch size", details);
 
   EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
-  EXPECT_EQ(error.details().component, "DataLoader");
+  EXPECT_EQ(error.details().component, "DataPipeline");
   EXPECT_NE(std::string(error.what()).find("Expected:  > 0"),
             std::string::npos);
   EXPECT_NE(std::string(error.what()).find("Actual:    0"), std::string::npos);

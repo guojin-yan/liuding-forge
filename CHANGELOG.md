@@ -93,6 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimizer parameter-group insertion with topology validation.
 
 ### Changed
+- Dataset utilities, transforms, stress tests, examples, documentation, and
+  throughput benchmarks now use the explicit-epoch `DataPipeline` contract.
+  The baseline runner accepts an explicit external `LibTorchDir` so durable
+  dependencies do not need to be copied into the source tree.
 - Delegated SGD now preflights every gradient after an optional closure and
   rejects sparse layouts before any parameter update. CPU bfloat16, long-run
   LibTorch differential, CUDA capability, and adapter-overhead coverage are
@@ -135,6 +139,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for hosts that need a different budget.
 
 ### Removed
+- The legacy iterator-style `DataLoader` and its private-purpose
+  `ThreadSafeQueue` public header. Current consumers use `DataPipeline`
+  directly; no forwarding header, target alias, or compatibility type remains.
 - The hand-written `SGD` implementation and the old `optim/schedulers`
   hierarchy. Current consumers use `SgdOptimizerAdapter` and descriptor-first
   schedulers directly; no aliases or forwarding APIs remain.

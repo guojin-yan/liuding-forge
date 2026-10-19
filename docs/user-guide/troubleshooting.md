@@ -39,13 +39,14 @@ Check inputs and targets with `jyppx::is_finite`, lower the learning rate, and
 inspect normalization divisors. With AMP, use `GradScaler`; an overflow sets
 `found_inf()` and skips the optimizer step while backing off the scale.
 
-### DataLoader order or worker failures
+### DataPipeline order or worker failures
 
-DataLoader output order is stable even when workers finish out of order. Set
-`shuffle = false` to isolate ordering bugs and use a fixed `seed` for a
-repeatable shuffled run. Exceptions from `Dataset::get` or collate are
-rethrows on the consuming thread, so wrap the range loop in `try/catch` and
-then reproduce with `num_workers = 0`. Dataset access must be thread-safe.
+DataPipeline output order follows the sampler even when workers finish out of
+order. Use `SequentialSampler` to isolate ordering bugs, or use a fixed sampler
+seed and explicit `set_epoch()` calls for repeatable shuffled runs. A worker's
+non-JYPPX exception is reported as `jyppx::BackendError` by `next()`, so catch
+it at the job boundary and reproduce with `num_workers = 0`. Dataset access
+and captured factory state must be thread-safe when workers are enabled.
 
 ### Checkpoint does not load
 
@@ -59,6 +60,7 @@ checkpoint lineage.
 ## Performance diagnosis
 
 Warm up for one epoch before measuring. Compare `num_workers = 0, 1, 2, 4`
-and adjust `prefetch_factor`; too many workers add context-switch overhead.
+and adjust total `prefetch_batches`; too many workers add context-switch
+overhead.
 The benchmark executables under `tests/benchmarks` print CSV that can be saved
 with the commit and compared across machines.

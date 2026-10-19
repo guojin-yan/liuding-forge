@@ -19,8 +19,8 @@
 #include <iostream>
 #include <memory>
 #include <span>
-#include <string>
 #include <stop_token>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -131,7 +131,7 @@ double milliseconds_since(Clock::time_point start) {
 std::vector<BenchResult> bench_workers(
     const std::shared_ptr<jyppx::data::Dataset<jyppx::data::Example>>& dataset,
     int batches, int batch_size, std::size_t workers, int repeats,
-    std::size_t prefetch_factor) {
+    std::size_t prefetch_batches) {
   std::vector<BenchResult> results;
   results.reserve(static_cast<std::size_t>(repeats));
   const auto expected =
@@ -149,7 +149,7 @@ std::vector<BenchResult> bench_workers(
             .batch_factory_id = "benchmark.slow_dataset.collate/v1",
             .batch_size = static_cast<std::size_t>(batch_size),
             .num_workers = workers,
-            .prefetch_batches = prefetch_factor},
+            .prefetch_batches = prefetch_batches},
         [dataset](std::span<const std::size_t> indices,
                   const jyppx::data::DataWorkerContext&, std::stop_token) {
           std::vector<jyppx::Tensor> data;
@@ -184,7 +184,7 @@ std::vector<BenchResult> bench_workers(
 
 /// Prints accepted command-line options.
 void print_help() {
-  std::cerr << "usage: jyppx_bench_dataloader [--work-ms ms] [--batches n] "
+  std::cerr << "usage: jyppx_bench_data_pipeline [--work-ms ms] [--batches n] "
                "[--batch-size n] [--repeats n]\n";
 }
 

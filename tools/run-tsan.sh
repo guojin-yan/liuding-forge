@@ -54,12 +54,11 @@ run_logged 01-configure.log cmake \
   -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:?CMAKE_PREFIX_PATH must point to LibTorch}"
 
 run_logged 02-build.log cmake --build "$build_root" \
-  --target jyppx_test_data jyppx_test_data_exceptions \
-  jyppx_test_concurrent_stress \
+  --target jyppx_test_data jyppx_test_concurrent_stress \
   --parallel "$build_parallelism"
 
 export TSAN_OPTIONS="${TSAN_OPTIONS:-halt_on_error=1:second_deadlock_stack=1}"
-tsan_test_regex='^(ThreadSafeQueueTest|DataLoaderTest|DataLoaderExceptionTest|DataPipelineTest|DataPipelineCheckpointTest|DataPipelineWorkerTest|IterableDataPipelineTest|BatchMemoryPipelineTest|ValueSchemaPipelineTest|ConcurrentStressTest)\.'
+tsan_test_regex='^(DataPipelineTest|DataPipelineCheckpointTest|DataPipelineWorkerTest|IterableDataPipelineTest|BatchMemoryPipelineTest|ValueSchemaPipelineTest|ConcurrentStressTest)\.'
 address_layout_runner=()
 address_layout_mode=native
 if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; then

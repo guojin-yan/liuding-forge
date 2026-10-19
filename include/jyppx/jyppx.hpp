@@ -40,14 +40,12 @@
 #include <jyppx/data/chain_dataset.hpp>
 #include <jyppx/data/concat_dataset.hpp>
 #include <jyppx/data/data_pipeline.hpp>
-#include <jyppx/data/dataloader.hpp>
 #include <jyppx/data/dataset.hpp>
 #include <jyppx/data/iterable_data_pipeline.hpp>
 #include <jyppx/data/iterable_source.hpp>
 #include <jyppx/data/stack_dataset.hpp>
 #include <jyppx/data/subset.hpp>
 #include <jyppx/data/tensor_dataset.hpp>
-#include <jyppx/data/thread_safe_queue.hpp>
 
 // Transforms
 #include <jyppx/data/transforms/compose.hpp>

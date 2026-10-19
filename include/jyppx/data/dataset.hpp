@@ -3,7 +3,7 @@
 
 /**
  * @file dataset.hpp
- * @brief Defines the map-style dataset contract used by JYPPX data loaders.
+ * @brief Defines the map-style dataset contract used by JYPPX data pipelines.
  */
 
 #include <jyppx/core/types.hpp>
@@ -17,14 +17,14 @@ namespace data {
 /**
  * @brief Random-access source of a finite sequence of samples.
  * @tparam T Value returned for one sample.
- * @note Implementations must keep `size()` stable while a DataLoader epoch is
- * active. Concurrent `get()` calls require an implementation to provide its
- * own synchronization.
+ * @note Implementations must keep `size()` stable while a DataPipeline epoch
+ * is active. Concurrent `get()` calls from batch factories require an
+ * implementation to provide its own synchronization.
  */
 template <typename T = Tensor>
 class Dataset {
  public:
-  /** Value returned by `get()` and used for DataLoader type deduction. */
+  /** Value returned by `get()` and consumed by a batch factory. */
   using value_type = T;
 
   /** @brief Destroys a dataset through the base interface. */

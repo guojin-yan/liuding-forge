@@ -1,7 +1,17 @@
-// Unit tests for jyppx::data::transforms.
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
 
-#include <jyppx/data/dataloader.hpp>
+/**
+ * @file test_transforms.cpp
+ * @brief Tests tensor transforms and their current pipeline integration.
+ */
+
+#include <jyppx/data/data_pipeline.hpp>
 #include <jyppx/data/dataset.hpp>
+#include <jyppx/data/samplers/sequential_sampler.hpp>
+#include <jyppx/data/tensor_dataset.hpp>
 #include <jyppx/data/transforms/compose.hpp>
 #include <jyppx/data/transforms/transform.hpp>
 #include <jyppx/data/transforms/vision.hpp>
@@ -11,6 +21,8 @@
 #include <gtest/gtest.h>
 #include <limits>
 #include <memory>
+#include <span>
+#include <stop_token>
 #include <vector>
 
 namespace {
@@ -279,7 +291,7 @@ TEST_F(TransformsTest, TransformPipelineWithCompose) {
             "RandomHorizontalFlip, Normalize)");
 }
 
-TEST_F(TransformsTest, TransformsWorkInsideDataLoader) {
+TEST_F(TransformsTest, TransformsWorkInsideDataPipeline) {
   // A dataset whose get() applies the transform: the standard integration.
   class TransformedDataset : public jyppx::data::Dataset<jyppx::data::Example> {
    public:
@@ -302,11 +314,35 @@ TEST_F(TransformsTest, TransformsWorkInsideDataLoader) {
 
   auto dataset = std::make_shared<TransformedDataset>(image_, torch::zeros({2}),
                                                       Normalize({0.0}, {1.0}));
-  jyppx::data::DataLoader loader(dataset, {.batch_size = 2});
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+          dataset->size()),
+      {.pipeline_id = "data.transforms.pipeline",
+       .dataset_version = "test.transforms.dataset/v1",
+       .dataset_size = dataset->size(),
+       .schema = jyppx::data::BatchSchema::any("test.transforms.batch", 1),
+       .batch_factory_id = "test.transforms.collate/v1",
+       .batch_size = 2},
+      [dataset](std::span<const std::size_t> indices,
+                const jyppx::data::DataWorkerContext&, std::stop_token) {
+        std::vector<Tensor> inputs;
+        std::vector<Tensor> targets;
+        inputs.reserve(indices.size());
+        targets.reserve(indices.size());
+        for (const auto index : indices) {
+          const auto sample = dataset->get(index);
+          inputs.push_back(sample.data);
+          targets.push_back(sample.target);
+        }
+        return c10::ivalue::Tuple::create(
+            {torch::stack(inputs), torch::stack(targets)});
+      });
+  pipeline.set_epoch(0);
 
   int batches = 0;
-  for (const auto& batch : loader) {
-    EXPECT_EQ(batch.data.size(1), 6);  // normalized rows keep their shape
+  while (const auto batch = pipeline.next()) {
+    const auto inputs = batch->value.toTuple()->elements().at(0).toTensor();
+    EXPECT_EQ(inputs.size(1), 6);  // Normalized rows keep their shape.
     ++batches;
   }
   EXPECT_EQ(batches, 1);

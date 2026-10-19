@@ -1,20 +1,72 @@
-// Unit tests for dataset utilities: Subset, ConcatDataset, random_split.
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
+/**
+ * @file test_dataset_utils.cpp
+ * @brief Tests dataset views, splitting, and current pipeline integration.
+ */
 
 #include <jyppx/data/concat_dataset.hpp>
-#include <jyppx/data/dataloader.hpp>
+#include <jyppx/data/data_pipeline.hpp>
+#include <jyppx/data/samplers/sequential_sampler.hpp>
 #include <jyppx/data/subset.hpp>
 #include <jyppx/data/tensor_dataset.hpp>
 #include <jyppx/foundation/error.hpp>
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <gtest/gtest.h>
+#include <memory>
 #include <numeric>
+#include <span>
+#include <stop_token>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
 using namespace jyppx;
 
+/** @brief Builds a tuple-producing pipeline for an Example dataset view. */
+std::unique_ptr<data::DataPipeline> make_example_pipeline(
+    std::shared_ptr<const data::Dataset<data::Example>> dataset,
+    std::string pipeline_id, std::size_t batch_size) {
+  const auto dataset_size = dataset->size();
+  auto sampler =
+      std::make_shared<data::samplers::SequentialSampler>(dataset_size);
+  return std::make_unique<data::DataPipeline>(
+      std::move(sampler),
+      data::DataPipelineOptions{
+          .pipeline_id = std::move(pipeline_id),
+          .dataset_version = "test.dataset_utils/v1",
+          .dataset_size = dataset_size,
+          .schema = data::BatchSchema::any("test.dataset_utils.batch", 1),
+          .batch_factory_id = "test.dataset_utils.example_collate/v1",
+          .batch_size = batch_size},
+      [dataset = std::move(dataset)](std::span<const std::size_t> indices,
+                                     const data::DataWorkerContext&,
+                                     std::stop_token) {
+        std::vector<Tensor> inputs;
+        std::vector<Tensor> targets;
+        inputs.reserve(indices.size());
+        targets.reserve(indices.size());
+        for (const auto index : indices) {
+          const auto sample = dataset->get(index);
+          inputs.push_back(sample.data);
+          targets.push_back(sample.target);
+        }
+        return c10::ivalue::Tuple::create(
+            {torch::stack(inputs), torch::stack(targets)});
+      });
+}
+
 class DatasetUtilsTest : public ::testing::Test {
  protected:
+  /** @brief Creates ten deterministic feature and target rows. */
   void SetUp() override {
     inputs_ =
         torch::arange(0, 20, torch::TensorOptions().dtype(torch::kFloat32))
@@ -24,9 +76,10 @@ class DatasetUtilsTest : public ::testing::Test {
     dataset_ = std::make_shared<data::TensorDataset>(inputs_, targets_);
   }
 
-  Tensor inputs_;
-  Tensor targets_;
-  std::shared_ptr<data::TensorDataset> dataset_;
+  Tensor inputs_;   ///< Two-feature input rows shared by every test.
+  Tensor targets_;  ///< Scalar target row paired with each input.
+  std::shared_ptr<data::TensorDataset>
+      dataset_;  ///< Dataset under test and source for derived views.
 };
 
 TEST_F(DatasetUtilsTest, SubsetExposesSelectedSamples) {
@@ -48,18 +101,22 @@ TEST_F(DatasetUtilsTest, SubsetValidatesArguments) {
   EXPECT_THROW(subset.get(1), jyppx::InvalidArgument);
 }
 
-TEST_F(DatasetUtilsTest, SubsetFeedsDataLoader) {
+TEST_F(DatasetUtilsTest, SubsetFeedsDataPipeline) {
   auto subset = std::make_shared<data::Subset<data::Example>>(
       dataset_, std::vector<size_t>{1, 3, 5, 7, 9});
-  data::DataLoader loader(subset, {.batch_size = 2});
+  auto pipeline = make_example_pipeline(subset, "data.dataset_utils.subset", 2);
+  pipeline->set_epoch(0);
 
-  ASSERT_EQ(loader.size(), 3);
   std::vector<float> first_column;
-  for (const auto& batch : loader) {
-    for (int64_t row = 0; row < batch.data.size(0); ++row) {
-      first_column.push_back(batch.data[row][0].item<float>());
+  std::size_t batch_count = 0;
+  while (const auto batch = pipeline->next()) {
+    const auto inputs = batch->value.toTuple()->elements().at(0).toTensor();
+    for (std::int64_t row = 0; row < inputs.size(0); ++row) {
+      first_column.push_back(inputs[row][0].item<float>());
     }
+    ++batch_count;
   }
+  EXPECT_EQ(batch_count, 3U);
   // Odd samples only, in subset order.
   const std::vector<float> expected{2.f, 6.f, 10.f, 14.f, 18.f};
   EXPECT_EQ(first_column, expected);
@@ -133,21 +190,28 @@ TEST_F(DatasetUtilsTest, RandomSplitValidatesLengths) {
       jyppx::InvalidArgument);
 }
 
-TEST_F(DatasetUtilsTest, RandomSplitTrainValLoadersWork) {
-  // The canonical train/validation split flows through DataLoader.
+TEST_F(DatasetUtilsTest, RandomSplitTrainValPipelinesWork) {
+  // The canonical train/validation split flows through current pipelines.
   const auto subsets =
       data::random_split(dataset_, std::vector<size_t>{8, 2}, /*seed=*/42);
-  data::DataLoader train_loader(subsets[0], {.batch_size = 4});
-  data::DataLoader val_loader(subsets[1], {.batch_size = 2});
+  auto train = make_example_pipeline(subsets[0], "data.dataset_utils.train", 4);
+  auto validation =
+      make_example_pipeline(subsets[1], "data.dataset_utils.validation", 2);
+  train->set_epoch(0);
+  validation->set_epoch(0);
 
-  EXPECT_EQ(train_loader.size(), 2);
-  EXPECT_EQ(val_loader.size(), 1);
-  for (const auto& batch : train_loader) {
-    EXPECT_EQ(batch.data.size(0), 4);
+  std::size_t train_batches = 0;
+  while (const auto batch = train->next()) {
+    EXPECT_EQ(batch->value.toTuple()->elements().at(0).toTensor().size(0), 4);
+    ++train_batches;
   }
-  for (const auto& batch : val_loader) {
-    EXPECT_EQ(batch.data.size(0), 2);
+  std::size_t validation_batches = 0;
+  while (const auto batch = validation->next()) {
+    EXPECT_EQ(batch->value.toTuple()->elements().at(0).toTensor().size(0), 2);
+    ++validation_batches;
   }
+  EXPECT_EQ(train_batches, 2U);
+  EXPECT_EQ(validation_batches, 1U);
 }
 
 }  // namespace
