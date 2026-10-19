@@ -16,6 +16,10 @@ esac
 
 command -v cmake >/dev/null
 command -v ctest >/dev/null
+command -v clang++ >/dev/null || {
+  echo "clang++ with ThreadSanitizer support is required" >&2
+  exit 2
+}
 
 build_parallelism="${JYPPX_BUILD_PARALLEL_LEVEL:-2}"
 case "$build_parallelism" in
@@ -42,6 +46,7 @@ run_logged 01-configure.log cmake \
   -S "$source_root" \
   -B "$build_root" \
   -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=clang++ \
   -DJYPPX_BUILD_TESTS=ON \
   -DJYPPX_BUILD_EXAMPLES=OFF \
   -DJYPPX_BUILD_BENCHMARKS=OFF \
@@ -84,7 +89,7 @@ commit=$(git -C "$source_root" rev-parse HEAD)
 dirty=$(test -n "$(git -C "$source_root" status --porcelain)" && echo true || echo false)
 build_type=Debug
 build_parallelism=$build_parallelism
-compiler=$(${CXX:-c++} --version | head -n 1)
+compiler=$(clang++ --version | head -n 1)
 tsan_options=$TSAN_OPTIONS
 address_layout=$address_layout_mode
 test_regex=$tsan_test_regex
