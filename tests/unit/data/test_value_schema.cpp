@@ -155,6 +155,265 @@ TEST(ValueSchemaTest, RejectsUnboundedOrMalformedSchemaAndRuntimeTrees) {
       jyppx::ResourceExhausted);
 }
 
+TEST(ValueSchemaTest, CoversEveryStableKindNameAndRuntimeCategory) {
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::any), "any");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::tensor), "tensor");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::tuple), "tuple");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::list), "list");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::dictionary), "dictionary");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::integer), "integer");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::floating), "floating");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::boolean), "boolean");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::string), "string");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::none), "none");
+  EXPECT_EQ(jyppx::value_kind_name(jyppx::ValueKind::device), "device");
+  EXPECT_EQ(jyppx::value_kind_name(static_cast<jyppx::ValueKind>(255)),
+            "unknown");
+
+  EXPECT_NO_THROW(jyppx::validate_value(
+      c10::IValue(std::int64_t{7}),
+      jyppx::ValueSchema{.kind = jyppx::ValueKind::integer}));
+  EXPECT_NO_THROW(jyppx::validate_value(
+      c10::IValue(1.25),
+      jyppx::ValueSchema{.kind = jyppx::ValueKind::floating}));
+  EXPECT_NO_THROW(jyppx::validate_value(
+      c10::IValue(true),
+      jyppx::ValueSchema{.kind = jyppx::ValueKind::boolean}));
+  EXPECT_NO_THROW(jyppx::validate_value(
+      c10::IValue(std::string("annotation")),
+      jyppx::ValueSchema{.kind = jyppx::ValueKind::string}));
+  EXPECT_NO_THROW(jyppx::validate_value(
+      c10::IValue(), jyppx::ValueSchema{.kind = jyppx::ValueKind::none}));
+  EXPECT_NO_THROW(jyppx::validate_value(
+      c10::IValue(c10::Device(c10::kCPU)),
+      jyppx::ValueSchema{.kind = jyppx::ValueKind::device}));
+  EXPECT_NO_THROW(jyppx::validate_value(
+      c10::IValue(),
+      jyppx::ValueSchema{.kind = jyppx::ValueKind::integer, .nullable = true}));
+
+  c10::impl::GenericList list(c10::IntType::get());
+  list.push_back(std::int64_t{3});
+  list.push_back(std::int64_t{5});
+  const auto list_schema = jyppx::ValueSchema::list(
+      jyppx::ValueSchema{.kind = jyppx::ValueKind::integer});
+  EXPECT_NO_THROW(jyppx::validate_value(c10::IValue(list), list_schema));
+
+  const auto tuple_schema = jyppx::ValueSchema::tuple(
+      {jyppx::ValueSchema{.kind = jyppx::ValueKind::integer},
+       jyppx::ValueSchema{.kind = jyppx::ValueKind::floating}});
+  const auto tuple = c10::ivalue::Tuple::create(
+      {c10::IValue(std::int64_t{2}), c10::IValue(0.5)});
+  EXPECT_NO_THROW(jyppx::validate_value(c10::IValue(tuple), tuple_schema));
+  EXPECT_THROW(jyppx::validate_value(c10::IValue(c10::ivalue::Tuple::create(
+                                         {c10::IValue(std::int64_t{2})})),
+                                     tuple_schema),
+               jyppx::InvalidArgument);
+
+  EXPECT_THROW(jyppx::validate_value(
+                   c10::IValue(false),
+                   jyppx::ValueSchema{.name = "count",
+                                      .kind = jyppx::ValueKind::integer}),
+               jyppx::InvalidArgument);
+}
+
+TEST(ValueSchemaTest, RejectsEveryMalformedSchemaCombinationAndLimit) {
+  auto limits = jyppx::ValueSchemaLimits{};
+  limits.max_depth = 0;
+  EXPECT_THROW(jyppx::validate_value_schema({}, "value", limits),
+               jyppx::InvalidArgument);
+  limits = {};
+  limits.max_schema_nodes = 0;
+  EXPECT_THROW(jyppx::validate_value_schema({}, "value", limits),
+               jyppx::InvalidArgument);
+  limits = {};
+  limits.max_metadata_bytes = 0;
+  EXPECT_THROW(jyppx::validate_value_schema({}, "value", limits),
+               jyppx::InvalidArgument);
+  limits = {};
+  limits.max_runtime_nodes = 0;
+  EXPECT_THROW(jyppx::validate_value_schema({}, "value", limits),
+               jyppx::InvalidArgument);
+
+  auto primitive = jyppx::ValueSchema{.kind = jyppx::ValueKind::integer};
+  primitive.elements.push_back(jyppx::ValueSchema{});
+  EXPECT_THROW(jyppx::validate_value_schema(primitive), jyppx::InvalidArgument);
+
+  auto tensor_with_children = jyppx::ValueSchema::tensor({}, "invalid_tensor");
+  tensor_with_children.fields.emplace("child", jyppx::ValueSchema{});
+  EXPECT_THROW(jyppx::validate_value_schema(tensor_with_children),
+               jyppx::InvalidArgument);
+  EXPECT_NO_THROW(jyppx::validate_value_schema(
+      jyppx::ValueSchema{.kind = jyppx::ValueKind::tensor}));
+
+  jyppx::TensorSchema negative_rank;
+  negative_rank.rank = -1;
+  EXPECT_THROW(
+      jyppx::validate_value_schema(jyppx::ValueSchema::tensor(negative_rank)),
+      jyppx::InvalidArgument);
+
+  jyppx::TensorSchema mismatched_rank;
+  mismatched_rank.rank = 1;
+  mismatched_rank.shape = std::vector<std::optional<std::int64_t>>{2, 3};
+  EXPECT_THROW(
+      jyppx::validate_value_schema(jyppx::ValueSchema::tensor(mismatched_rank)),
+      jyppx::InvalidArgument);
+
+  jyppx::TensorSchema negative_extent;
+  negative_extent.shape =
+      std::vector<std::optional<std::int64_t>>{std::int64_t{-2}};
+  EXPECT_THROW(
+      jyppx::validate_value_schema(jyppx::ValueSchema::tensor(negative_extent)),
+      jyppx::InvalidArgument);
+
+  jyppx::TensorSchema bounded_device;
+  bounded_device.device = jyppx::Device(torch::kCUDA);
+  EXPECT_THROW(jyppx::validate_value_schema(
+                   jyppx::ValueSchema::tensor(bounded_device), "value",
+                   {.max_depth = 8,
+                    .max_schema_nodes = 16,
+                    .max_metadata_bytes = 3,
+                    .max_runtime_nodes = 16}),
+               jyppx::ResourceExhausted);
+
+  auto malformed_tuple = jyppx::ValueSchema::tuple({});
+  malformed_tuple.allow_extra_fields = true;
+  EXPECT_THROW(jyppx::validate_value_schema(malformed_tuple),
+               jyppx::InvalidArgument);
+
+  auto malformed_list = jyppx::ValueSchema{.kind = jyppx::ValueKind::list};
+  EXPECT_THROW(jyppx::validate_value_schema(malformed_list),
+               jyppx::InvalidArgument);
+  malformed_list.elements = {jyppx::ValueSchema{}, jyppx::ValueSchema{}};
+  EXPECT_THROW(jyppx::validate_value_schema(malformed_list),
+               jyppx::InvalidArgument);
+
+  auto malformed_dictionary = jyppx::ValueSchema::dictionary({});
+  malformed_dictionary.elements.push_back(jyppx::ValueSchema{});
+  EXPECT_THROW(jyppx::validate_value_schema(malformed_dictionary),
+               jyppx::InvalidArgument);
+
+  auto empty_key_dictionary = jyppx::ValueSchema::dictionary({});
+  empty_key_dictionary.fields.emplace("", jyppx::ValueSchema{});
+  EXPECT_THROW(jyppx::validate_value_schema(empty_key_dictionary),
+               jyppx::InvalidArgument);
+
+  auto invalid_kind = jyppx::ValueSchema{};
+  invalid_kind.kind = static_cast<jyppx::ValueKind>(255);
+  EXPECT_THROW(jyppx::validate_value_schema(invalid_kind),
+               jyppx::InvalidArgument);
+
+  EXPECT_THROW(jyppx::validate_value_schema(
+                   jyppx::ValueSchema::any("oversized-name"), "value",
+                   {.max_depth = 8,
+                    .max_schema_nodes = 16,
+                    .max_metadata_bytes = 4,
+                    .max_runtime_nodes = 16}),
+               jyppx::ResourceExhausted);
+}
+
+TEST(ValueSchemaTest, ValidatesEveryTensorConstraintFailureAtomically) {
+  EXPECT_THROW(jyppx::validate_value(c10::IValue(jyppx::Tensor()),
+                                     jyppx::ValueSchema::tensor()),
+               jyppx::InvalidArgument);
+
+  jyppx::TensorSchema dtype;
+  dtype.dtype = torch::kFloat32;
+  EXPECT_THROW(
+      jyppx::validate_value(c10::IValue(torch::ones({2}, torch::kInt64)),
+                            jyppx::ValueSchema::tensor(dtype)),
+      jyppx::InvalidArgument);
+
+  jyppx::TensorSchema device;
+  device.device = jyppx::Device(torch::kCUDA);
+  EXPECT_THROW(
+      jyppx::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
+                            jyppx::ValueSchema::tensor(device)),
+      jyppx::InvalidArgument);
+
+  jyppx::TensorSchema rank;
+  rank.rank = 2;
+  EXPECT_THROW(
+      jyppx::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
+                            jyppx::ValueSchema::tensor(rank)),
+      jyppx::InvalidArgument);
+
+  jyppx::TensorSchema shape_rank;
+  shape_rank.shape = std::vector<std::optional<std::int64_t>>{2, std::nullopt};
+  EXPECT_THROW(
+      jyppx::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
+                            jyppx::ValueSchema::tensor(shape_rank)),
+      jyppx::InvalidArgument);
+
+  jyppx::TensorSchema extent;
+  extent.shape = std::vector<std::optional<std::int64_t>>{3};
+  EXPECT_THROW(
+      jyppx::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
+                            jyppx::ValueSchema::tensor(extent)),
+      jyppx::InvalidArgument);
+
+  EXPECT_NO_THROW(
+      jyppx::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
+                            jyppx::ValueSchema::tensor()));
+}
+
+TEST(ValueSchemaTest, TraversesAnyValuesAndOpenDictionaryExtrasWithinLimits) {
+  c10::impl::GenericList list(c10::AnyType::get());
+  list.push_back(std::int64_t{1});
+  list.push_back(std::string("two"));
+
+  c10::impl::GenericDict nested_dictionary(c10::StringType::get(),
+                                           c10::AnyType::get());
+  nested_dictionary.insert("items", c10::IValue(list));
+  const auto nested = c10::IValue(c10::ivalue::Tuple::create(
+      {c10::IValue(nested_dictionary), c10::IValue(list)}));
+
+  EXPECT_NO_THROW(jyppx::validate_value(
+      nested, jyppx::ValueSchema::any("payload", "untyped_payload")));
+  EXPECT_THROW(jyppx::validate_value(nested, jyppx::ValueSchema::any(), "value",
+                                     {.max_depth = 1,
+                                      .max_schema_nodes = 16,
+                                      .max_metadata_bytes = 1024,
+                                      .max_runtime_nodes = 32}),
+               jyppx::ResourceExhausted);
+
+  const auto open_schema = jyppx::ValueSchema::dictionary(
+      {{"required", jyppx::ValueSchema{.kind = jyppx::ValueKind::integer}},
+       {"optional", jyppx::ValueSchema{.kind = jyppx::ValueKind::string,
+                                       .required = false}}},
+      true, "open_payload");
+  c10::impl::GenericDict open_value(c10::StringType::get(),
+                                    c10::AnyType::get());
+  open_value.insert("required", std::int64_t{4});
+  open_value.insert("extra", nested);
+  EXPECT_NO_THROW(jyppx::validate_value(c10::IValue(open_value), open_schema));
+
+  c10::impl::GenericDict missing(c10::StringType::get(), c10::AnyType::get());
+  EXPECT_THROW(jyppx::validate_value(c10::IValue(missing), open_schema),
+               jyppx::InvalidArgument);
+
+  c10::impl::GenericDict non_string_key(c10::IntType::get(),
+                                        c10::AnyType::get());
+  non_string_key.insert(std::int64_t{1}, std::int64_t{2});
+  EXPECT_THROW(jyppx::validate_value(c10::IValue(non_string_key),
+                                     jyppx::ValueSchema::dictionary({}, true)),
+               jyppx::InvalidArgument);
+}
+
+TEST(ValueSchemaTest, DirectFingerprintIsStableAndCoversCompleteDescriptor) {
+  const auto schema = jyppx::ValueSchema::tuple(
+      {jyppx::ValueSchema::tensor({}, "features"),
+       jyppx::ValueSchema::list(
+           jyppx::ValueSchema{.kind = jyppx::ValueKind::integer}, "labels")},
+      "batch", "training_batch");
+  const auto fingerprint = jyppx::value_schema_fingerprint(schema);
+  EXPECT_EQ(fingerprint.size(), 16U);
+  EXPECT_EQ(fingerprint, jyppx::value_schema_fingerprint(schema));
+
+  auto changed = schema;
+  changed.elements.front().semantic_tag = "model_input";
+  EXPECT_NE(fingerprint, jyppx::value_schema_fingerprint(changed));
+}
+
 TEST(ValueSchemaPipelineTest,
      PublishesCompleteCapabilityAndValidatedEnvelopeSchema) {
   const auto schema = tensor_batch_schema("pipeline.features");
