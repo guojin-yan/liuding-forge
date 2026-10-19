@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- The v1.0 single-process distributed-process-group and DDP placeholders. The
+  framework will not publish distributed APIs until they provide real
+  multi-process collectives, rank-safe training, and checkpoint semantics.
+
 ### Added
 - A real-GPU CUDA Trainer benchmark and repeated-sampling runner covering
   FP32/single-SGD and FP16/two-SGD/AMP execution, explicit synchronization,

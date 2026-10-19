@@ -90,10 +90,6 @@
 #include <jyppx/utils/progress_bar.hpp>
 #include <jyppx/utils/tensorboard.hpp>
 
-// Distributed (Phase 5)
-#include <jyppx/distributed/ddp.hpp>
-#include <jyppx/distributed/distributed.hpp>
-
 // NN
 #include <jyppx/nn/invocation.hpp>
 #include <jyppx/nn/loss/contrastive_loss.hpp>

@@ -194,9 +194,6 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/utils/tensorboard.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/utils/logger.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/utils/tensorboard.cpp
-        ${PROJECT_SOURCE_DIR}/include/jyppx/distributed/ddp.hpp
-        ${PROJECT_SOURCE_DIR}/include/jyppx/distributed/distributed.hpp
-        ${PROJECT_SOURCE_DIR}/src/jyppx/distributed/distributed.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/utils/test_logger.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/test_plan_completion.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/nn/invocation.hpp

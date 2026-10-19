@@ -87,8 +87,6 @@ metrics, callbacks, checkpointing and mixed precision.
   with explicit alpha/gamma and tensor contracts
 - [Utilities](api/utils.md) — devices, tensor checks, logger, parameter
   initialization, version
-- [Distributed](api/distributed.md) — process group, DDP wrapper,
-  DistributedSampler
 
 ## Project status
 

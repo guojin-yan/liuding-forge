@@ -67,7 +67,17 @@ endif()
 
 string(REPLACE "\r\n" "\n" tracked_output "${tracked_output}")
 string(REPLACE "\n" ";" tracked_files "${tracked_output}")
+set(retired_placeholder_paths
+    docs/api/distributed.md
+    include/jyppx/distributed/ddp.hpp
+    include/jyppx/distributed/distributed.hpp
+    src/jyppx/distributed/distributed.cpp
+)
 foreach(path IN LISTS tracked_files)
+    if(path IN_LIST retired_placeholder_paths)
+        list(APPEND violations
+             "retired v1.0 distributed placeholder: ${path}")
+    endif()
     if(path MATCHES "^(build[^/]*/|out/|Testing/|data/|runs/|artifacts/|test-output/)")
         list(APPEND violations "tracked generated/runtime path: ${path}")
     endif()

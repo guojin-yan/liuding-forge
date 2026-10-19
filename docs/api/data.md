@@ -318,8 +318,8 @@ batch_size, drop_last)` reports the number of batches via `size()`.
 indices with probability proportional to `weights`. `DistributedSampler(size,
 rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks
 (padding to even counts unless `drop_last`); call `set_epoch()` once per
-epoch to reshuffle, and wire `distributed::get_rank()`/`get_world_size()`
-from the process group (single-process reference: rank 0, world size 1).
+epoch to reshuffle. Pass `rank` and `world_size` explicitly from the external
+launcher or job configuration. v1.0 does not publish a process-group API.
 
 Pass a custom sampler to the `DataPipeline` constructor for index strategies
 the built-ins do not cover, such as weighted sampling.

@@ -44,5 +44,6 @@ ctest --test-dir <build-dir> -C Release -R RepositoryHygiene --output-on-failure
 The gate rejects top-level numeric directories, legacy top-level build trees,
 root logs/temp files, tracked build/runtime paths, unreviewed test data files
 larger than 5 MiB, missing legal files, and project-license metadata that
-drifts from Apache-2.0-only. Ignoring a path in `.gitignore` does not make root
-pollution acceptable.
+drifts from Apache-2.0-only. It also rejects retired placeholder APIs whose
+paths are reserved until a complete, versioned implementation is approved.
+Ignoring a path in `.gitignore` does not make root pollution acceptable.

@@ -9,7 +9,4 @@ target_sources(jyppx_training_framework PRIVATE
     # Utils
     jyppx/utils/logger.cpp
     jyppx/utils/tensorboard.cpp
-
-    # Distributed (Phase 5, single-process reference)
-    jyppx/distributed/distributed.cpp
 )

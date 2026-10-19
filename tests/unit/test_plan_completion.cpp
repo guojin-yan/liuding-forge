@@ -1,6 +1,6 @@
 // Unit tests for the plan-completion modules: classification metrics,
 // extended samplers/datasets, extended transforms, LAMB, TensorBoard
-// writer, model summary/profiler and distributed helpers.
+// writer and model summary/profiler helpers.
 
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/jyppx.hpp>
@@ -544,53 +544,6 @@ TEST(ProfilerTest, AggregatesScopedTimings) {
   ASSERT_EQ(sorted.size(), 2);
   EXPECT_EQ(sorted[0].first, "scope_a");  // 2 calls sort first by total
   EXPECT_EQ(sorted[0].second.count, 2);
-}
-
-// ---- Distributed / DDP
-// -----------------------------------------------------------
-
-TEST(DistributedTest, SingleProcessGroupLifecycle) {
-  EXPECT_FALSE(distributed::is_initialized());
-  EXPECT_EQ(distributed::get_world_size(), 1);
-  EXPECT_EQ(distributed::get_rank(), 0);
-
-  distributed::init_process_group("single-process", 0, 1);
-  EXPECT_TRUE(distributed::is_initialized());
-  distributed::barrier();
-
-  // Gradients pass through unchanged.
-  auto grad = torch::ones({3});
-  EXPECT_TRUE(torch::equal(distributed::average_gradients(grad), grad));
-}
-
-TEST(DistributedTest, RejectsUnsupportedBackends) {
-  EXPECT_THROW(distributed::init_process_group("gloo", 0, 4), NotImplemented);
-  EXPECT_THROW(distributed::init_process_group("single-process", 2, 4),
-               InvalidArgument);
-}
-
-TEST(DistributedDDPTest, RejectsNullModule) {
-  EXPECT_THROW(distributed::DistributedDataParallel<torch::nn::Module>(
-                   std::shared_ptr<torch::nn::Module>{}),
-               InvalidArgument);
-}
-
-TEST(DistributedDDPTest, ForwardsAndRunsGradientsThroughHooks) {
-  distributed::init_process_group("single-process", 0, 1);
-
-  class Tiny : public torch::nn::Module {
-   public:
-    Tiny() : w(register_parameter("w", torch::ones({1}, torch::kFloat64))) {}
-    Tensor forward(const Tensor& x) { return w * x; }
-    torch::Tensor w;
-  };
-
-  distributed::DistributedDataParallel<Tiny> ddp(std::make_shared<Tiny>());
-  auto loss = ddp.forward(torch::ones({1}, torch::kFloat64)).sum();
-  loss.backward();
-
-  // The hook chain passes the gradient through; the parameter gets it.
-  EXPECT_NEAR(ddp.module()->w.grad().item<double>(), 1.0, 1e-12);
 }
 
 }  // namespace
