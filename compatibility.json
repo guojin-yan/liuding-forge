@@ -404,6 +404,28 @@
           "commit": "7a0fdc9"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-iterable-pipeline-n1-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "117/117 data target tests; 0 skipped; 3 migration tests repeated 20 times",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; TORCH_CUDA_ARCH_LIST=7.5; data target -Werror; Clang 14 CPU TSan, ASan and UBSan; Doxygen 1.9.1 strict gate",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75, CUDA standard 17 and project C++ standard 20",
+            "build": "jyppx_test_data and its current dependencies passed with warnings as errors",
+            "cuda_data": "complete data target executed on CUDA LibTorch and RTX 2060: 117/117 passed; zero skipped",
+            "checkpoint_migration": "IterableDataPipeline writer remains schema v3; the explicit N-1 schema-v2 reader migrated canonical exact, bounded and best-effort source fixtures without upgrading their restore guarantees",
+            "failure_atomicity": "obsolete, future, relabelled, malformed, identity-mismatched and unproven structured-schema checkpoints were rejected before replacing live source cursor state",
+            "repeated_regression": "3 iterable migration and rejection tests repeated 20 times without failure or skip",
+            "sanitizers": "Clang 14 CPU LibTorch TSan scope passed 53/53; device, map pipeline and iterable pipeline fuzz targets each completed 10000 ASan/UBSan runs",
+            "fixture_integrity": "historical schema-v2 fixtures from 0a92ddba record CUDA LibTorch 2.5.1+cu124 producer metadata, decoded sizes and SHA-256 digests; repository verifier passed",
+            "source_quality": "clang-format dry-run, strict migrated API Doxygen and compatibility validation passed"
+          },
+          "commit": "537935f"
+        },
+        {
           "id": "local-ubuntu-gcc-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
