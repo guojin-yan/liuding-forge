@@ -716,8 +716,7 @@ TEST(DataPipelineTest, StatelessSamplerDowngradesRestoreGuarantee) {
   const auto capability = pipeline.capability();
   EXPECT_EQ(capability.restore_level, jyppx::RestoreLevel::bounded);
   EXPECT_EQ(capability.degradation_reasons,
-            std::vector<std::string>{
-                "sampler does not expose exact state"});
+            std::vector<std::string>{"sampler does not expose exact state"});
 }
 
 TEST(DataPipelineTest, PublishesStructuredCrossDomainCapability) {
