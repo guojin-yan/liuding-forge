@@ -238,9 +238,21 @@ class StoppableGate final {
   /** @brief Waits until at least @p expected factories entered the gate. */
   bool wait_for_entered(std::size_t expected,
                         std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    return changed_.wait_for(lock, timeout,
-                             [&] { return entered_ >= expected; });
+    // Explicit lock/unlock polling remains observable to the GCC 11 TSan
+    // runtime, which does not reliably model timed condition waits.
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    for (;;) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (entered_ >= expected) {
+          return true;
+        }
+      }
+      if (std::chrono::steady_clock::now() >= deadline) {
+        return false;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
   }
 
   /** @brief Returns the largest simultaneous factory count observed. */

@@ -92,10 +92,9 @@ class MemoryStateStore final : public jyppx::StateWriter,
 
 /** @brief Shared counters used to assert bounded producer behavior. */
 struct CursorStats {
-  mutable std::mutex mutex;         ///< Protects counter and close state.
-  std::condition_variable changed;  ///< Announces pulls and closure.
-  std::size_t pulls = 0;            ///< Number of values returned by `next()`.
-  bool closed = false;              ///< Whether `close()` was invoked.
+  mutable std::mutex mutex;  ///< Protects the pull counter and close state.
+  std::size_t pulls = 0;     ///< Number of values returned by `next()`.
+  bool closed = false;       ///< Whether `close()` was invoked.
 };
 
 /** @brief Deterministic vector cursor with a serializable item position. */
@@ -120,7 +119,6 @@ class VectorCursor final : public IterableSourceCursor {
     if (stats_) {
       std::lock_guard<std::mutex> stats_lock(stats_->mutex);
       ++stats_->pulls;
-      stats_->changed.notify_all();
     }
     return IterableSample{.value = c10::IValue(values_[position]),
                           .sample_id = epoch_ * 1000U + position,
@@ -158,7 +156,6 @@ class VectorCursor final : public IterableSourceCursor {
     if (stats_) {
       std::lock_guard<std::mutex> stats_lock(stats_->mutex);
       stats_->closed = true;
-      stats_->changed.notify_all();
     }
   }
 
@@ -362,9 +359,21 @@ MemoryStateStore save_state(const IterableDataPipeline& pipeline) {
 
 bool wait_for_pulls(const std::shared_ptr<CursorStats>& stats,
                     std::size_t expected, std::chrono::milliseconds timeout) {
-  std::unique_lock<std::mutex> lock(stats->mutex);
-  return stats->changed.wait_for(lock, timeout,
-                                 [&] { return stats->pulls >= expected; });
+  // Explicit lock/unlock polling remains observable to the GCC 11 TSan
+  // runtime, which does not reliably model timed condition waits.
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  for (;;) {
+    {
+      std::lock_guard<std::mutex> lock(stats->mutex);
+      if (stats->pulls >= expected) {
+        return true;
+      }
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 }
 
 TEST(IterableDataPipelineTest, ValidatesRestoreDescriptorMatrix) {
