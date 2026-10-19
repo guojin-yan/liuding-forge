@@ -135,6 +135,9 @@ TEST(BatchMemoryTest, EnablementCoversEveryPinningAndTargetCombination) {
   options.target_device = jyppx::Device(torch::kCPU);
   EXPECT_TRUE(jyppx::data::batch_memory_stage_enabled(options));
 
+  options.non_blocking = true;
+  EXPECT_NO_THROW(jyppx::data::validate_batch_memory_options(options));
+
   options.pin_memory = true;
   EXPECT_TRUE(jyppx::data::batch_memory_stage_enabled(options));
 
