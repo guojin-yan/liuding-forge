@@ -64,8 +64,8 @@ find_package(jyppx_training_framework CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE jyppx::sdk)
 ```
 
-Use `jyppx::foundation` when a tool only needs the error, RNG, and build
-fingerprint contracts. Public C++ headers, namespaces, and exported CMake
+Use `jyppx::foundation` when a tool only needs the capability, error, RNG, and
+build-fingerprint contracts. Public C++ headers, namespaces, and exported CMake
 targets all use the `jyppx` name; legacy target aliases are intentionally not
 provided.
 

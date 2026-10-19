@@ -29,6 +29,8 @@ metrics, callbacks, checkpointing and mixed precision.
 
 ## API reference
 
+- [Capability Manifest](api/capability_manifest.md) — bounded cross-domain
+  feature descriptors, exact build identity, validation, and deterministic JSON
 - [Checkpoint Participant](api/checkpoint_participant.md) — storage-neutral
   recovery levels, state descriptors, bounded blob I/O, and participant
   ownership boundaries
@@ -41,8 +43,8 @@ metrics, callbacks, checkpointing and mixed precision.
   mergeable Precision, Recall, and F1 with exact checkpoint state
 - [Model Checkpoint Participant](api/model_checkpoint_participant.md) — exact
   model topology, bounded raw tensor state, strict preflight, and atomic restore
-- [Data](api/data.md) — datasets, subset/concat/split, DataPipeline,
-  samplers, thread-safe queue
+- [Data](api/data.md) — datasets, subset/concat/split, map/iterable pipelines,
+  samplers, structured batches, workers, and capability descriptors
 - [Optimizers and Schedulers](api/optim.md) — SGD, Adam, AdamW, RMSprop,
   Adagrad, NAdam, Adadelta, Lamb, RAdam, Adamax, ASGD, Rprop, SparseAdam,
   LBFGS, LARS and Lookahead; the complete scheduler family including warmup

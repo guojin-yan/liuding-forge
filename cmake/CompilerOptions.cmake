@@ -89,12 +89,14 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
             "JYPPX_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
     endif()
     set(JYPPX_MIGRATED_FORMAT_FILES
+        ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/capability.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/checkpoint.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/error.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/foundation.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/random.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/random_checkpoint_participant.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/foundation/version.hpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/capability.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/checkpoint.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/error.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/foundation/random.cpp
@@ -172,6 +174,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/tensor_dataset.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/batch_memory.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/batch_schema.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/data_capability.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/iterable_data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/batch_sampler.cpp

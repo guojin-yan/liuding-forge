@@ -321,6 +321,17 @@ TEST(BatchMemoryCudaTest, PipelineCheckpointContinuesExactlyOnCuda) {
       .non_blocking = true,
       .stage_capacity = 1};
   auto source = make_pipeline("batch-memory.cuda-checkpoint", memory, 2, 3);
+  const auto capability =
+      jyppx::data::describe_data_capability(source.capability());
+  EXPECT_EQ(capability.devices, (std::vector<std::string>{"cuda:0"}));
+  EXPECT_NE(
+      std::find(capability.operations.begin(), capability.operations.end(),
+                "memory.transfer.non-blocking"),
+      capability.operations.end());
+  EXPECT_NE(
+      std::find(capability.operations.begin(), capability.operations.end(),
+                "memory.stream.caller-current"),
+      capability.operations.end());
   source.set_epoch(11);
   const auto first = source.next();
   ASSERT_TRUE(first.has_value());

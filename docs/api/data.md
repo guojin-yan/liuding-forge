@@ -219,6 +219,21 @@ migration is limited to the provably equivalent unconstrained
 `BatchSchema::any(id, version)` contract. Structured schemas require an
 explicit external migration. A migrated checkpoint is always rewritten as v3.
 
+### Capability manifest integration
+
+`describe_data_capability()` converts the configured pipeline's existing
+`DataCapability` into the foundation schema-v1 `CapabilityDescriptor`. The
+entry reports source style, worker/shard/stream policy, device and constrained
+dtypes, batch schema identity and fingerprint, restore operation, and numeric
+worker/prefetch/memory/schema/replay limits. It does not infer process workers
+or backend features that the pipeline did not declare.
+
+Use `make_current_capability_manifest()` to aggregate this entry with other
+domain descriptors under one exact `BuildFingerprint`, then serialize it with
+`capability_manifest_json()`. Output order is deterministic and numeric limits
+remain JSON numbers. The data conversion does not create another checkpoint
+format or a second source of pipeline capability state.
+
 ## Collate functions
 
 `DataBatchFactory` receives the ordered sample-index span, stable worker

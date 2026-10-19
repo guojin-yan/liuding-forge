@@ -3,6 +3,7 @@
 #include <jyppx/data/data_pipeline.hpp>
 #include <jyppx/data/iterable_data_pipeline.hpp>
 #include <jyppx/data/samplers/sequential_sampler.hpp>
+#include <jyppx/foundation/capability.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/foundation/random_checkpoint_participant.hpp>
@@ -236,6 +237,17 @@ int main() {
       installed_batch.has_value() && installed_batch->sample_ids.size() == 2 &&
       installed_pipeline.describe_state().restore_level ==
           jyppx::RestoreLevel::exact;
+  const auto installed_data_capability =
+      jyppx::data::describe_data_capability(installed_pipeline.capability());
+  const auto installed_capability_manifest =
+      jyppx::make_current_capability_manifest({installed_data_capability});
+  const bool valid_capability_manifest =
+      installed_capability_manifest.schema_version == 1 &&
+      installed_capability_manifest.features.size() == 1 &&
+      installed_capability_manifest.features.front().feature_id ==
+          "jyppx.data.pipeline.map" &&
+      jyppx::capability_manifest_json(installed_capability_manifest)
+              .find("\"source\":\"configured-instance\"") != std::string::npos;
   auto installed_iterable_pipeline = jyppx::data::IterableDataPipeline(
       std::make_shared<ConsumerIterableSource>(),
       {.pipeline_id = "data.iterable.consumer",
@@ -600,6 +612,7 @@ int main() {
       {"data", valid_data},
       {"batch_schema", valid_batch_schema},
       {"data_pipeline", valid_data_pipeline},
+      {"capability_manifest", valid_capability_manifest},
       {"iterable_pipeline", valid_iterable_pipeline},
       {"nn", valid_nn},
       {"contrastive", valid_contrastive},

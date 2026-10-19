@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -190,6 +191,144 @@ TEST(FoundationVersionTest, ExposesStructuredAndJsonFingerprint) {
   const auto compact = jyppx::build_fingerprint();
   EXPECT_NE(compact.find("jyppx=0.3.0"), std::string::npos);
   EXPECT_NE(compact.find("libtorch="), std::string::npos);
+}
+
+/** @brief Returns a deterministic non-host-specific test build identity. */
+jyppx::BuildFingerprint test_build_fingerprint() {
+  return {.jyppx_version = "0.3.0",
+          .git_commit = "0123456789abcdef",
+          .compiler = "test-compiler",
+          .cxx_standard = "202002",
+          .os_arch = "test-x86_64",
+          .build_type = "Release",
+          .libtorch_version = "2.5.1",
+          .libtorch_build = "cuda-12.4-test-abi",
+          .accelerator_runtime = "cuda:available:1",
+          .dependency_lock_digest = std::string(64U, 'a')};
+}
+
+TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
+  EXPECT_EQ(jyppx::capability_status_name(jyppx::CapabilityStatus::available),
+            "available");
+  EXPECT_EQ(jyppx::capability_implementation_name(
+                jyppx::CapabilityImplementation::delegated),
+            "delegated");
+  EXPECT_EQ(jyppx::capability_source_name(
+                jyppx::CapabilitySource::configured_instance),
+            "configured-instance");
+  EXPECT_EQ(
+      jyppx::capability_status_name(static_cast<jyppx::CapabilityStatus>(0)),
+      "unknown");
+  EXPECT_EQ(jyppx::capability_implementation_name(
+                static_cast<jyppx::CapabilityImplementation>(0)),
+            "unknown");
+  EXPECT_EQ(
+      jyppx::capability_source_name(static_cast<jyppx::CapabilitySource>(0)),
+      "unknown");
+}
+
+TEST(FoundationCapabilityTest, CanonicalizesAndSerializesTypedManifest) {
+  jyppx::CapabilityDescriptor second{
+      .feature_id = "jyppx.training.strategy.single-device",
+      .feature_version = 1,
+      .status = jyppx::CapabilityStatus::available,
+      .implementation = jyppx::CapabilityImplementation::native,
+      .source = jyppx::CapabilitySource::runtime,
+      .backend = "libtorch",
+      .devices = {"cuda:0", "cpu"},
+      .dtypes = {"Float", "Half"},
+      .schemas = {"strategy/v1"},
+      .operations = {"optimizer.step", "model.forward"},
+      .limits = {{.name = "world_size", .value = 1, .unit = "ranks"}},
+      .limitations = {},
+  };
+  jyppx::CapabilityDescriptor first{
+      .feature_id = "jyppx.data.pipeline.map",
+      .feature_version = 1,
+      .status = jyppx::CapabilityStatus::experimental,
+      .implementation = jyppx::CapabilityImplementation::adapted,
+      .source = jyppx::CapabilitySource::configured_instance,
+      .backend = "libtorch",
+      .devices = {"cuda:0"},
+      .schemas = {"batch/v1", "fnv1a64/0123456789abcdef"},
+      .operations = {"worker.prefetch", "epoch.explicit"},
+      .limits = {{.name = "worker_count", .value = 4, .unit = "workers"},
+                 {.name = "max_batch_bytes", .value = 4096, .unit = "bytes"}},
+      .limitations = {"process workers are unsupported"},
+  };
+
+  const auto manifest = jyppx::make_capability_manifest(
+      {second, first}, test_build_fingerprint());
+  ASSERT_EQ(manifest.features.size(), 2U);
+  EXPECT_EQ(manifest.features[0].feature_id, "jyppx.data.pipeline.map");
+  EXPECT_EQ(manifest.features[0].operations,
+            (std::vector<std::string>{"epoch.explicit", "worker.prefetch"}));
+  EXPECT_EQ(manifest.features[0].limits.front().name, "max_batch_bytes");
+
+  const auto json = jyppx::capability_manifest_json(manifest);
+  EXPECT_EQ(json, jyppx::capability_manifest_json(manifest));
+  EXPECT_LT(json.find("jyppx.data.pipeline.map"),
+            json.find("jyppx.training.strategy.single-device"));
+  EXPECT_NE(json.find("\"status\":\"experimental\""), std::string::npos);
+  EXPECT_NE(json.find("\"value\":4096"), std::string::npos);
+  EXPECT_EQ(json.find("\"value\":\"4096\""), std::string::npos);
+  EXPECT_NE(json.find("\"build\":{\"jyppx_version\":\"0.3.0\""),
+            std::string::npos);
+}
+
+TEST(FoundationCapabilityTest, RejectsContradictionsDuplicatesAndBounds) {
+  jyppx::CapabilityDescriptor unsupported{
+      .feature_id = "jyppx.distributed.collective",
+      .feature_version = 1,
+      .status = jyppx::CapabilityStatus::unsupported,
+      .implementation = jyppx::CapabilityImplementation::native,
+      .source = jyppx::CapabilitySource::build,
+      .backend = "libtorch",
+      .devices = {},
+      .dtypes = {},
+      .schemas = {},
+      .operations = {},
+      .limits = {},
+      .limitations = {"collective backend is not implemented"},
+  };
+  EXPECT_THROW(jyppx::validate_capability_descriptor(unsupported),
+               jyppx::InvalidArgument);
+
+  unsupported.implementation = jyppx::CapabilityImplementation::unsupported;
+  unsupported.operations = {"collective.all-reduce"};
+  EXPECT_THROW(jyppx::validate_capability_descriptor(unsupported),
+               jyppx::InvalidArgument);
+  unsupported.operations.clear();
+  EXPECT_NO_THROW(jyppx::validate_capability_descriptor(unsupported));
+
+  auto duplicate_value = unsupported;
+  duplicate_value.devices = {"cpu", "cpu"};
+  EXPECT_THROW(jyppx::validate_capability_descriptor(duplicate_value),
+               jyppx::InvalidArgument);
+
+  auto uppercase_identifier = unsupported;
+  uppercase_identifier.backend = "LibTorch";
+  EXPECT_THROW(jyppx::validate_capability_descriptor(uppercase_identifier),
+               jyppx::InvalidArgument);
+
+  EXPECT_THROW(jyppx::make_capability_manifest({unsupported, unsupported},
+                                               test_build_fingerprint()),
+               jyppx::InvalidArgument);
+
+  std::vector<jyppx::CapabilityDescriptor> excessive(
+      jyppx::kMaxCapabilityFeatures + 1U, unsupported);
+  for (std::size_t index = 0; index < excessive.size(); ++index) {
+    excessive[index].feature_id =
+        "jyppx.unsupported.feature-" + std::to_string(index);
+  }
+  EXPECT_THROW(jyppx::make_capability_manifest(std::move(excessive),
+                                               test_build_fingerprint()),
+               jyppx::ResourceExhausted);
+
+  auto invalid_utf8 = unsupported;
+  invalid_utf8.limitations = {std::string("\xC3\x28", 2)};
+  EXPECT_THROW(jyppx::validate_capability_descriptor(invalid_utf8),
+               jyppx::InvalidArgument);
 }
 
 }  // namespace

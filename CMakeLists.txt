@@ -151,6 +151,7 @@ configure_file(
 # JYPPX Libraries
 # ============================================
 add_library(jyppx_foundation STATIC
+    src/jyppx/foundation/capability.cpp
     src/jyppx/foundation/checkpoint.cpp
     src/jyppx/foundation/error.cpp
     src/jyppx/foundation/random.cpp
@@ -219,6 +220,7 @@ endif()
 add_library(jyppx_data STATIC
     src/jyppx/data/batch_memory.cpp
     src/jyppx/data/batch_schema.cpp
+    src/jyppx/data/data_capability.cpp
     src/jyppx/data/data_pipeline.cpp
     src/jyppx/data/iterable_data_pipeline.cpp
     src/jyppx/data/tensor_dataset.cpp

@@ -678,6 +678,80 @@ TEST(DataPipelineTest, MissingSamplerIdentityDowngradesRestoreGuarantee) {
   EXPECT_FALSE(capability.degradation_reasons.empty());
 }
 
+TEST(DataPipelineTest, PublishesStructuredCrossDomainCapability) {
+  auto dataset = make_dataset();
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+          dataset->size()),
+      {.pipeline_id = "data.pipeline.capability",
+       .dataset_version = "dataset/v1",
+       .dataset_size = dataset->size(),
+       .schema = jyppx::data::BatchSchema::tensor(
+           "tensor.rows", {.dtype = torch::kFloat32, .rank = 2}, 1, "features"),
+       .batch_factory_id = "factory.tensor-rows/v1",
+       .batch_size = 2,
+       .num_workers = 2,
+       .prefetch_batches = 3,
+       .persistent_workers = true},
+      make_factory(dataset));
+
+  const auto descriptor =
+      jyppx::data::describe_data_capability(pipeline.capability());
+  EXPECT_EQ(descriptor.feature_id, "jyppx.data.pipeline.map");
+  EXPECT_EQ(descriptor.status, jyppx::CapabilityStatus::available);
+  EXPECT_EQ(descriptor.implementation, jyppx::CapabilityImplementation::native);
+  EXPECT_EQ(descriptor.source, jyppx::CapabilitySource::configured_instance);
+  EXPECT_EQ(descriptor.backend, "libtorch");
+  EXPECT_NE(
+      std::find(descriptor.dtypes.begin(), descriptor.dtypes.end(), "Float"),
+      descriptor.dtypes.end());
+  EXPECT_NE(std::find(descriptor.operations.begin(),
+                      descriptor.operations.end(), "worker.thread-pool"),
+            descriptor.operations.end());
+  EXPECT_NE(std::find(descriptor.operations.begin(),
+                      descriptor.operations.end(), "restore.exact"),
+            descriptor.operations.end());
+  const auto worker_limit =
+      std::find_if(descriptor.limits.begin(), descriptor.limits.end(),
+                   [](const jyppx::CapabilityLimit& limit) {
+                     return limit.name == "worker_count";
+                   });
+  ASSERT_NE(worker_limit, descriptor.limits.end());
+  EXPECT_EQ(worker_limit->value, 2U);
+  EXPECT_EQ(worker_limit->unit, "workers");
+
+  const auto manifest = jyppx::make_current_capability_manifest({descriptor});
+  const auto json = jyppx::capability_manifest_json(manifest);
+  EXPECT_NE(json.find("\"feature_id\":\"jyppx.data.pipeline.map\""),
+            std::string::npos);
+  EXPECT_NE(json.find("\"source\":\"configured-instance\""), std::string::npos);
+  EXPECT_NE(json.find("\"value\":2"), std::string::npos);
+}
+
+TEST(DataPipelineTest, RejectsTamperedCrossDomainCapability) {
+  auto dataset = make_dataset();
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+          dataset->size()),
+      {.pipeline_id = "data.pipeline.capability-negative",
+       .dataset_version = "dataset/v1",
+       .dataset_size = dataset->size(),
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
+       .batch_factory_id = "factory.tensor-rows/v1",
+       .batch_size = 2},
+      make_factory(dataset));
+  auto capability = pipeline.capability();
+  capability.batch_schema_fingerprint = "relabelled";
+  EXPECT_THROW(jyppx::data::describe_data_capability(capability),
+               jyppx::InvalidArgument);
+
+  capability = pipeline.capability();
+  capability.worker_shard_policy =
+      jyppx::data::DataWorkerShardPolicy::round_robin_batch;
+  EXPECT_THROW(jyppx::data::describe_data_capability(capability),
+               jyppx::InvalidArgument);
+}
+
 TEST(DataPipelineCheckpointTest,
      RejectsStructuralSchemaMismatchWithoutMutation) {
   auto dataset = make_dataset();

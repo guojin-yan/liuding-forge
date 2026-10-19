@@ -14,6 +14,7 @@
 #include <jyppx/data/batch_memory.hpp>
 #include <jyppx/data/batch_schema.hpp>
 #include <jyppx/data/samplers/sampler.hpp>
+#include <jyppx/foundation/capability.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
 
 #include <ATen/core/ivalue.h>
@@ -124,6 +125,22 @@ struct DataCapability {
   std::vector<std::string>
       degradation_reasons;  ///< Reasons the guarantee is weaker than exact.
 };
+
+/**
+ * @brief Maps one configured pipeline capability into manifest schema v1.
+ *
+ * `DataCapability` remains the data-domain fact source. This conversion does
+ * not infer process workers, devices, dtypes, restore guarantees, or limits
+ * that the configured pipeline did not declare.
+ *
+ * @param capability Valid configured map or iterable pipeline capability.
+ * @return Structured configured-instance descriptor for cross-domain
+ * aggregation.
+ * @throws InvalidArgument If style, enum, schema, or restore semantics are
+ * inconsistent.
+ * @throws ResourceExhausted If capability metadata exceeds manifest bounds.
+ */
+CapabilityDescriptor describe_data_capability(const DataCapability& capability);
 
 /**
  * @brief Defines the common batch stream consumed by the training engine.

@@ -1061,6 +1061,16 @@ TEST(IterableBatchMemoryCudaTest, PinsTransfersAndRestoresExactCursor) {
   };
   auto source = make_source({1, 2, 3, 4, 5, 6});
   IterableDataPipeline original(source, config, factory);
+  const auto capability =
+      jyppx::data::describe_data_capability(original.capability());
+  EXPECT_EQ(capability.feature_id, "jyppx.data.pipeline.iterable");
+  EXPECT_EQ(capability.devices, (std::vector<std::string>{"cuda:0"}));
+  EXPECT_NE(std::find(capability.operations.begin(),
+                      capability.operations.end(), "worker.producer-thread"),
+            capability.operations.end());
+  EXPECT_NE(std::find(capability.operations.begin(),
+                      capability.operations.end(), "restore.exact"),
+            capability.operations.end());
   original.set_epoch(9);
   const auto first = original.next();
   ASSERT_TRUE(first.has_value());

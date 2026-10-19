@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Foundation-owned schema-v1 capability manifests with bounded validation,
+  deterministic JSON, exact build fingerprints, and configured data-pipeline
+  capability descriptors.
 - Explicit `IterableDataPipeline` schema-v2 to schema-v3 checkpoint migration
   with historical exact, bounded, and best-effort fixtures, strict manifest
   compatibility, and failure-atomic source cursor replacement.

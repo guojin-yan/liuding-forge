@@ -3,10 +3,11 @@
 
 /**
  * @file foundation.hpp
- * @brief Aggregates stable checkpoint, error, RNG, and build-diagnostic
- * contracts owned by `jyppx::foundation`.
+ * @brief Aggregates stable capability, checkpoint, error, RNG, and build
+ * diagnostic contracts owned by `jyppx::foundation`.
  */
 
+#include "jyppx/foundation/capability.hpp"
 #include "jyppx/foundation/checkpoint.hpp"
 #include "jyppx/foundation/error.hpp"
 #include "jyppx/foundation/random.hpp"
