@@ -1761,18 +1761,20 @@ OptimizerSnapshot inspect_optimizer(
   }
   static_cast<void>(total);
   validate_state_manifest(manifest);
-  return {.topology = std::move(topology),
+  OptimizerSnapshot snapshot;
+  snapshot.topology = std::move(topology);
 #if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
-          .producer = std::move(producer),
+  snapshot.producer = std::move(producer);
 #endif
-          .control = std::move(control),
-          .first_state = std::move(first_state),
-          .second_state = std::move(second_state),
-          .third_state = std::move(third_state),
-          .has_state = std::move(has_state),
-          .parameter_steps = std::move(parameter_steps),
-          .auxiliary_state = std::move(auxiliary_state),
-          .manifest = std::move(manifest)};
+  snapshot.control = std::move(control);
+  snapshot.first_state = std::move(first_state);
+  snapshot.second_state = std::move(second_state);
+  snapshot.third_state = std::move(third_state);
+  snapshot.has_state = std::move(has_state);
+  snapshot.parameter_steps = std::move(parameter_steps);
+  snapshot.auxiliary_state = std::move(auxiliary_state);
+  snapshot.manifest = std::move(manifest);
+  return snapshot;
 }
 
 }  // namespace
