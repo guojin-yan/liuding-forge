@@ -282,6 +282,25 @@
           "commit": "1c1e0d6"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-adadelta-migration-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "16/16 Adadelta target tests; 0 skipped",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; fixed CMAKE_CUDA_ARCHITECTURES=75; migrated target -Werror",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75 and CUDA standard 17",
+            "build": "jyppx_test_optim_adadelta_adapter passed with warnings as errors",
+            "cuda_adadelta": "Adadelta independent long-run differential, CPU bfloat16 and CUDA float32/float16 capability, schema-v1 canonical fixture migration and schema-v1 GPU continuation with both accumulators, coupled weight decay and maximize mode: 16/16 passed; zero skipped",
+            "checkpoint_migration": "canonical schema-v1 fixture produced by commit e835573, with producer metadata and SHA-256 field digests for per-parameter squared-gradient and accumulated-delta averages, restored and continued exactly under schema-v2 reader",
+            "negative_paths": "future/relabelled schema, malformed producer and producer resource bounds rejected without state mutation",
+            "fixture_integrity": "checkpoint fixture verifier passed for Adadelta, NAdam, Adagrad, RMSprop, AdamW, Adam and SGD fixture sets"
+          },
+          "commit": "b43eb86"
+        },
+        {
           "id": "local-ubuntu-gcc-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
