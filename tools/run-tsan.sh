@@ -53,6 +53,7 @@ run_logged 02-build.log cmake --build "$build_root" \
   --parallel "$build_parallelism"
 
 export TSAN_OPTIONS="${TSAN_OPTIONS:-halt_on_error=1:second_deadlock_stack=1}"
+tsan_test_regex='^(ThreadSafeQueueTest|DataLoaderTest|DataLoaderExceptionTest|DataPipelineTest|DataPipelineCheckpointTest|DataPipelineWorkerTest|IterableDataPipelineTest|BatchMemoryPipelineTest|ValueSchemaPipelineTest|ConcurrentStressTest)\.'
 address_layout_runner=()
 address_layout_mode=native
 if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; then
@@ -65,10 +66,10 @@ fi
 run_logged 00-test-discovery.log "${address_layout_runner[@]}" ctest \
   --test-dir "$build_root" \
   -N \
-  --tests-regex 'ThreadSafeQueueTest|DataLoaderTest|ConcurrentStressTest'
+  --tests-regex "$tsan_test_regex"
 run_logged 03-ctest.log "${address_layout_runner[@]}" ctest --test-dir "$build_root" \
   --output-on-failure \
-  --tests-regex 'ThreadSafeQueueTest|DataLoaderTest|ConcurrentStressTest'
+  --tests-regex "$tsan_test_regex"
 
 discovered_test_count=$(grep -cE '^ *Test +#[0-9]+:' \
   "$output_root/00-test-discovery.log" || true)
@@ -85,6 +86,7 @@ build_parallelism=$build_parallelism
 compiler=$(${CXX:-c++} --version | head -n 1)
 tsan_options=$TSAN_OPTIONS
 address_layout=$address_layout_mode
+test_regex=$tsan_test_regex
 discovered_test_count=$discovered_test_count
 discovered_test_list=00-test-discovery.log
 EOF
