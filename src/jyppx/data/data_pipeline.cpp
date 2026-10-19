@@ -485,9 +485,7 @@ class WorkerRuntime final {
   // an epoch plan.
   WorkerRuntime(DataBatchFactory factory, BatchMemoryOptions memory,
                 std::size_t workers, std::chrono::milliseconds timeout)
-      : factory_(std::move(factory)),
-        memory_(std::move(memory)),
-        timeout_(timeout) {
+      : factory_(std::move(factory)), memory_(memory), timeout_(timeout) {
     workers_.reserve(workers);
     try {
       for (std::size_t index = 0; index < workers; ++index) {
@@ -670,7 +668,7 @@ class WorkerRuntime final {
             !epoch->stop_source.stop_requested()) {
           auto staged = prepare_batch_memory(result->value, memory_);
           result->value = std::move(staged.value);
-          result->memory = std::move(staged.metadata);
+          result->memory = staged.metadata;
         }
       } catch (...) {
         result->error = std::current_exception();
@@ -1098,7 +1096,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
     if (batch_memory_stage_enabled(impl_->options.memory)) {
       auto staged = stage_batch_memory(value, impl_->options.memory);
       value = std::move(staged.value);
-      memory = std::move(staged.metadata);
+      memory = staged.metadata;
     }
     validate_batch_value(value, impl_->options.schema);
   } else {
@@ -1113,11 +1111,11 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
     value = result->value;
     memory = result->memory;
     if (batch_memory_stage_enabled(impl_->options.memory)) {
-      auto staged = transfer_batch_memory(
-          {.value = std::move(value), .metadata = std::move(memory)},
-          impl_->options.memory);
+      auto staged =
+          transfer_batch_memory({.value = std::move(value), .metadata = memory},
+                                impl_->options.memory);
       value = std::move(staged.value);
-      memory = std::move(staged.metadata);
+      memory = staged.metadata;
     }
     validate_batch_value(value, impl_->options.schema);
   }
@@ -1128,7 +1126,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
   envelope.dataset_version = impl_->options.dataset_version;
   envelope.epoch = impl_->state.epoch;
   envelope.sequence = sequence;
-  envelope.memory = std::move(memory);
+  envelope.memory = memory;
   envelope.sample_ids.reserve(end - start);
   for (auto cursor = start; cursor < end; ++cursor) {
     envelope.sample_ids.push_back(

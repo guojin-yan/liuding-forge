@@ -672,7 +672,7 @@ class IterableRuntime final {
     if (batch_memory_stage_enabled(options_.memory)) {
       auto staged = prepare_batch_memory(envelope.value, options_.memory);
       envelope.value = std::move(staged.value);
-      envelope.memory = std::move(staged.metadata);
+      envelope.memory = staged.metadata;
     }
     envelope.schema = options_.schema;
     envelope.dataset_version = options_.dataset_version;
@@ -1028,12 +1028,11 @@ std::optional<BatchEnvelope> IterableDataPipeline::next(
 
   auto envelope = *result->envelope;
   if (batch_memory_stage_enabled(impl_->options.memory)) {
-    auto staged =
-        transfer_batch_memory({.value = std::move(envelope.value),
-                               .metadata = std::move(envelope.memory)},
-                              impl_->options.memory);
+    auto staged = transfer_batch_memory(
+        {.value = std::move(envelope.value), .metadata = envelope.memory},
+        impl_->options.memory);
     envelope.value = std::move(staged.value);
-    envelope.memory = std::move(staged.metadata);
+    envelope.memory = staged.metadata;
   }
   validate_batch_value(envelope.value, impl_->options.schema);
   if (envelope.sample_ids.size() >

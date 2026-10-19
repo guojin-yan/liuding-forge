@@ -4,6 +4,7 @@
 #include <jyppx/core/types.hpp>
 #include <jyppx/foundation/error.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <map>
@@ -17,10 +18,10 @@ namespace utils {
  *
  * Writes `events.out.tfevents.*` files consumable by TensorBoard: TFRecord
  * framing (length + masked CRC32C checksums) around hand-encoded Event
- * protobuf messages. Supports scalar summaries — the feature the framework's
+ * protobuf messages. Supports scalar summaries, the feature the framework's
  * training loop needs; histograms and images are future work.
  *
- * @example
+ * @par Example
  * @code
  * utils::TensorBoardWriter writer("runs/linear");
  * writer.add_scalar("train/loss", 0.5, 1);
@@ -77,11 +78,19 @@ class TensorBoardWriter {
    */
   void flush();
 
-  /** @brief Returns the directory this writer logs into. */
+  /**
+   * @brief Returns the directory this writer logs into.
+   * @return Configured directory path, valid for the writer's lifetime.
+   */
   const std::string& log_dir() const { return log_dir_; }
 
  private:
-  /** @brief Encodes and writes one already-serialized Event message. */
+  /**
+   * @brief Writes one already-serialized Event message using TFRecord framing.
+   * @param encoded_event Serialized TensorBoard Event protobuf bytes.
+   * @throws jyppx::NotReady If the event stream is closed.
+   * @throws jyppx::IoError If the framed event cannot be written.
+   */
   void write_event(const std::string& encoded_event);
 
   std::string log_dir_;          ///< Directory containing the event file.

@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 #include <numeric>
 #include <set>
+#include <sstream>
 
 #ifdef _WIN32
 #include <process.h>
@@ -533,8 +534,11 @@ TEST(ProfilerTest, AggregatesScopedTimings) {
     utils::ScopedTimer timer(report, "scope_a");
     // minimal work
   }
-  { utils::ScopedTimer timer(report, "scope_b"); }
-  { utils::ScopedTimer timer(report, "scope_a"); }
+  const auto record_scope = [&report](const std::string& name) {
+    utils::ScopedTimer timer(report, name);
+  };
+  record_scope("scope_b");
+  record_scope("scope_a");
 
   const auto summary = report.summary();
   EXPECT_NE(summary.find("scope_a"), std::string::npos);
@@ -544,6 +548,31 @@ TEST(ProfilerTest, AggregatesScopedTimings) {
   ASSERT_EQ(sorted.size(), 2);
   EXPECT_EQ(sorted[0].first, "scope_a");  // 2 calls sort first by total
   EXPECT_EQ(sorted[0].second.count, 2);
+}
+
+TEST(ProgressBarTest, SaturatesProgressAndClosesOutputOnce) {
+  std::ostringstream output;
+  std::streambuf* const original_buffer = std::cout.rdbuf(output.rdbuf());
+  {
+    utils::ProgressBar bar(/*total=*/3, /*width=*/2);
+    bar.set_description("epoch");
+    bar.set_postfix({{"loss", "0.25"}});
+    bar.update(2);
+    EXPECT_EQ(bar.current(), 2);
+    bar.update(-10);
+    EXPECT_EQ(bar.current(), 0);
+    EXPECT_DOUBLE_EQ(bar.progress(), 0.0);
+    bar.update(99);
+    EXPECT_EQ(bar.current(), 3);
+    EXPECT_DOUBLE_EQ(bar.progress(), 1.0);
+    bar.close();
+  }
+  std::cout.rdbuf(original_buffer);
+
+  const std::string rendered = output.str();
+  EXPECT_NE(rendered.find("epoch [#####] 3/3 (100%) loss=0.25"),
+            std::string::npos);
+  EXPECT_EQ(std::count(rendered.begin(), rendered.end(), '\n'), 1);
 }
 
 }  // namespace

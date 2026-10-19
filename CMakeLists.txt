@@ -13,10 +13,10 @@ option(JYPPX_ENABLE_COVERAGE "Enable code coverage" OFF)
 option(JYPPX_ENABLE_ASAN "Enable Address Sanitizer" OFF)
 option(JYPPX_ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
 option(JYPPX_ENABLE_TSAN "Enable Thread Sanitizer" OFF)
-option(JYPPX_ENABLE_CLANG_TIDY "Run clang-tidy on migrated targets" OFF)
-option(JYPPX_ENABLE_FORMAT_CHECK "Check migrated sources with clang-format" OFF)
+option(JYPPX_ENABLE_CLANG_TIDY "Run clang-tidy on all framework targets" OFF)
+option(JYPPX_ENABLE_FORMAT_CHECK "Check all project C/C++ sources with clang-format" OFF)
 option(JYPPX_ENABLE_WARNINGS_AS_ERRORS
-       "Treat warnings as errors on migrated GNU/Clang targets" OFF)
+       "Treat warnings as errors on all framework GNU/Clang targets" OFF)
 
 if(JYPPX_BUILD_FUZZERS AND NOT JYPPX_BUILD_TESTS)
     message(FATAL_ERROR "JYPPX_BUILD_FUZZERS=ON requires JYPPX_BUILD_TESTS=ON")

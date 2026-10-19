@@ -30,10 +30,16 @@ enum class LogLevel {
  */
 class Logger {
  public:
-  /** @brief Returns the process-wide logger instance. */
+  /**
+   * @brief Returns the process-wide logger instance.
+   * @return Singleton logger shared by the current process.
+   */
   static Logger& instance();
 
-  /** @brief Sets the minimum severity emitted by this logger. */
+  /**
+   * @brief Sets the minimum severity emitted by this logger.
+   * @param level Lowest severity that may be written to configured sinks.
+   */
   void set_level(LogLevel level);
 
   /**
@@ -43,16 +49,28 @@ class Logger {
    */
   void set_file(const std::string& filepath);
 
-  /** @brief Emits a debug message when the threshold permits it. */
+  /**
+   * @brief Emits a debug message when the threshold permits it.
+   * @param message Plain-text message to write.
+   */
   void debug(const std::string& message);
 
-  /** @brief Emits an informational message when permitted. */
+  /**
+   * @brief Emits an informational message when permitted.
+   * @param message Plain-text message to write.
+   */
   void info(const std::string& message);
 
-  /** @brief Emits a warning message when permitted. */
+  /**
+   * @brief Emits a warning message when permitted.
+   * @param message Plain-text message to write.
+   */
   void warning(const std::string& message);
 
-  /** @brief Emits an error message when permitted. */
+  /**
+   * @brief Emits an error message when permitted.
+   * @param message Plain-text message to write.
+   */
   void error(const std::string& message);
 
  private:
@@ -63,9 +81,18 @@ class Logger {
   Logger(const Logger&) = delete;             ///< Logger is process-global.
   Logger& operator=(const Logger&) = delete;  ///< Logger is process-global.
 
-  /** @brief Emits one message while holding the logger mutex. */
+  /**
+   * @brief Emits one message while holding the logger mutex.
+   * @param level Severity associated with the message.
+   * @param message Plain-text message to write.
+   */
   void log(LogLevel level, const std::string& message);
-  /** @brief Converts a severity to its stable text representation. */
+
+  /**
+   * @brief Converts a severity to its stable text representation.
+   * @param level Severity to convert.
+   * @return Uppercase non-localized severity name.
+   */
   std::string level_to_string(LogLevel level) const;
 
   LogLevel level_;                       ///< Current minimum severity.

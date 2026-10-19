@@ -289,7 +289,7 @@ c10::IValue transform_value(const c10::IValue& value, TransformContext& context,
           transform_value(list.get(index), context, phase,
                           path + "[" + std::to_string(index) + "]"));
     }
-    return c10::IValue(std::move(transformed));
+    return c10::IValue(transformed);
   }
   if (value.isGenericDict()) {
     const auto dictionary = value.toGenericDict();
@@ -303,7 +303,7 @@ c10::IValue transform_value(const c10::IValue& value, TransformContext& context,
                           path + ".value[" + std::to_string(index) + "]"));
       ++index;
     }
-    return c10::IValue(std::move(transformed));
+    return c10::IValue(transformed);
   }
   return value;
 }
@@ -390,7 +390,7 @@ BatchMemoryStageResult prepare_batch_memory(const c10::IValue& value,
                            .metadata = make_metadata(options, inspection)};
   result.value =
       transform_value(value, context, TransformPhase::prepare, "batch");
-  result.metadata = std::move(context.metadata);
+  result.metadata = context.metadata;
   return result;
 }
 
@@ -410,11 +410,10 @@ BatchMemoryStageResult transfer_batch_memory(
   Inspection inspection;
   inspect_value(prepared.value, options, inspection, 0, "batch");
   validate_prepared_metadata(prepared, options, inspection);
-  TransformContext context{.options = options,
-                           .metadata = std::move(prepared.metadata)};
+  TransformContext context{.options = options, .metadata = prepared.metadata};
   prepared.value = transform_value(prepared.value, context,
                                    TransformPhase::transfer, "batch");
-  prepared.metadata = std::move(context.metadata);
+  prepared.metadata = context.metadata;
   return prepared;
 }
 
