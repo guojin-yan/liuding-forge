@@ -42,27 +42,27 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "CPU",
           "build_type": "Debug",
-          "tests": "597/597 coverage-lane tests; 29 CUDA-only tests skipped",
+          "tests": "594/594 coverage-lane tests; 29 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "17113/21050 (81.30%); target policy passed",
-            "function_coverage": "1772/1924 (92.10%); target policy passed",
-            "branch_coverage": "17372/42633 (40.75%); target policy passed",
-            "core_target_coverage": "line 465/470 (98.94%); function 45/45 (100.00%); branch 627/992 (63.21%)",
-            "data_target_coverage": "line 2653/3035 (87.41%); function 291/297 (97.98%); branch 2791/5628 (49.59%)",
+            "line_coverage": "17068/20995 (81.30%); target policy passed",
+            "function_coverage": "1760/1911 (92.10%); target policy passed",
+            "branch_coverage": "17335/42533 (40.76%); target policy passed",
+            "core_target_coverage": "line 465/470 (98.94%); function 45/45 (100.00%); branch 628/992 (63.31%)",
+            "data_target_coverage": "line 2654/3035 (87.45%); function 291/297 (97.98%); branch 2795/5628 (49.66%)",
             "foundation_target_coverage": "line 759/917 (82.77%); function 101/108 (93.52%); branch 804/1668 (48.20%)",
             "nn_target_coverage": "line 815/1015 (80.30%); function 118/125 (94.40%); branch 1251/3420 (36.58%)",
             "optim_target_coverage": "line 7533/9621 (78.30%); function 652/750 (86.93%); branch 7406/19854 (37.30%)",
             "training_target_coverage": "line 4525/5604 (80.75%); function 510/543 (93.92%); branch 4182/10468 (39.95%)",
-            "sdk_legacy_target_coverage": "line 363/388 (93.56%); function 55/56 (98.21%); branch 311/603 (51.58%)",
-            "coverage_sampling": "clean 597-test sample at 2a4b2c5 passes the prior seven-target policy; CapabilityManifest and data descriptor additions are covered without lowering any target percentage",
+            "sdk_legacy_target_coverage": "line 317/333 (95.20%); function 43/43 (100.00%); branch 269/503 (53.48%)",
+            "coverage_sampling": "clean 594-test sample at b186b49 with atomic gcov counters; retired distributed placeholder paths removed from sdk_legacy ownership; all seven target percentages retained or raised",
             "tsan": "46/46 current map/iterable pipeline, batch-memory, schema and concurrent-stress tests at eb244bc under Clang 14 TSan; no race/deadlock/sanitizer diagnostics",
             "fuzz": "3 targets x 10000 libFuzzer iterations at eb244bc; final coverage/features: device 109/246, map state 1733/2469, iterable state 2034/2953; no ASan/UBSan diagnostics or artifacts",
             "tsan_fuzz_metadata": "dirty=false; Clang 14 TSan and Clang 14 ASan+UBSan; setarch-no-randomize; build parallelism 2",
             "repeated_sampling_audit": "Windows Release at clean 0626e9d: 1 warmup + 5 independent samples; 13 metrics; maximum CV 3.12% with a 10% stability threshold",
-            "coverage_policy": "coverage-policy.json ratcheted to clean 2a4b2c5 observation; seven target owners; denominator and covered-count regression rejection"
+            "coverage_policy": "coverage-policy.json ratcheted to clean b186b49 observation; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "2a4b2c5"
+          "commit": "b186b49"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-release",
@@ -554,19 +554,19 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "NVIDIA GeForce RTX 2060 sm_75; driver 580.178.04; LibTorch 2.5.1+cu124",
           "build_type": "Release",
-          "tests": "597/597; 0 skipped",
+          "tests": "594/594; 0 skipped",
           "instrumentation": "LibTorch 2.5.1+cu124; CUDA standard 17; CMAKE_CUDA_ARCHITECTURES=75; TORCH_CUDA_ARCH_LIST=7.5; all project targets -Werror",
           "quality_evidence": {
             "libtorch": "/home/ygj/jyppx-deps/libtorch-cu124/libtorch",
             "host_cuda_toolkit": "11.5 nvcc used for toolchain discovery; runtime and libraries are from LibTorch cu124",
             "configure": "passed with CUDA architecture 75 and CUDA standard 17",
             "build": "all framework, test, example and benchmark targets passed with warnings as errors and clang-format 14",
-            "ctest": "597/597 passed; zero skipped",
+            "ctest": "594/594 passed; zero skipped",
             "cuda_scope": "full CTest including CUDA-only data, loss, optimizer, strategy, Trainer and AMP tests executed on RTX 2060",
             "install_consumer": "passed as part of the full CTest lane",
-            "source": "clean detached checkout at 2a4b2c5d382077c260aa0c527b70435a50665725"
+            "source": "clean detached checkout at dbee9ed1d83dcf5b8018157702bc1552797edeb8"
           },
-          "commit": "2a4b2c5"
+          "commit": "dbee9ed"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-training-performance-current",
