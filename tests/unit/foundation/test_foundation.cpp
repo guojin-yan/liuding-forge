@@ -336,4 +336,98 @@ TEST(FoundationCapabilityTest, RejectsContradictionsDuplicatesAndBounds) {
                jyppx::InvalidArgument);
 }
 
+TEST(FoundationCapabilityTest, RejectsEverySchemaV1ControlBoundary) {
+  const jyppx::CapabilityDescriptor valid{
+      .feature_id = "jyppx.test.feature",
+      .feature_version = 1,
+      .status = jyppx::CapabilityStatus::available,
+      .implementation = jyppx::CapabilityImplementation::native,
+      .source = jyppx::CapabilitySource::build,
+      .backend = "libtorch",
+      .devices = {"cpu"},
+      .operations = {"test.execute"},
+      .limits = {{.name = "items", .value = 1, .unit = "count"}},
+  };
+  const auto expect_invalid = [&valid](const auto& mutate) {
+    auto candidate = valid;
+    mutate(candidate);
+    EXPECT_THROW(jyppx::validate_capability_descriptor(candidate),
+                 jyppx::InvalidArgument);
+  };
+
+  expect_invalid([](auto& value) { value.feature_id.clear(); });
+  expect_invalid([](auto& value) { value.feature_version = 0; });
+  expect_invalid([](auto& value) {
+    value.status = static_cast<jyppx::CapabilityStatus>(0);
+  });
+  expect_invalid([](auto& value) {
+    value.implementation = static_cast<jyppx::CapabilityImplementation>(0);
+  });
+  expect_invalid([](auto& value) {
+    value.source = static_cast<jyppx::CapabilitySource>(0);
+  });
+  expect_invalid(
+      [](auto& value) { value.limits.push_back(value.limits.front()); });
+  expect_invalid([](auto& value) {
+    value.status = jyppx::CapabilityStatus::unsupported;
+    value.implementation = jyppx::CapabilityImplementation::unsupported;
+    value.operations.clear();
+    value.limitations.clear();
+  });
+
+  auto too_many_values = valid;
+  too_many_values.devices.assign(jyppx::kMaxCapabilityValues + 1U, "cpu");
+  EXPECT_THROW(jyppx::validate_capability_descriptor(too_many_values),
+               jyppx::ResourceExhausted);
+
+  auto too_many_limits = valid;
+  too_many_limits.limits.assign(jyppx::kMaxCapabilityValues + 1U,
+                                {.name = "items", .value = 1, .unit = "count"});
+  EXPECT_THROW(jyppx::validate_capability_descriptor(too_many_limits),
+               jyppx::ResourceExhausted);
+
+  auto oversized_string = valid;
+  oversized_string.backend.assign(jyppx::kMaxCapabilityStringBytes + 1U, 'a');
+  EXPECT_THROW(jyppx::validate_capability_descriptor(oversized_string),
+               jyppx::ResourceExhausted);
+
+  auto manifest =
+      jyppx::make_capability_manifest({valid}, test_build_fingerprint());
+  manifest.schema_version = 2;
+  EXPECT_THROW(jyppx::validate_capability_manifest(manifest),
+               jyppx::InvalidArgument);
+  manifest.schema_version = jyppx::CapabilityManifest::format_version;
+  manifest.build.git_commit.clear();
+  EXPECT_THROW(jyppx::validate_capability_manifest(manifest),
+               jyppx::InvalidArgument);
+}
+
+TEST(FoundationCapabilityTest, ValidatesUtf8AndEscapesJsonText) {
+  jyppx::CapabilityDescriptor descriptor{
+      .feature_id = "jyppx.test.utf8",
+      .feature_version = 1,
+      .status = jyppx::CapabilityStatus::available,
+      .implementation = jyppx::CapabilityImplementation::native,
+      .source = jyppx::CapabilitySource::runtime,
+      .backend = "libtorch",
+      .limitations = {"quoted \"text\" with \\ and \xC2\xA2 \xE2\x82\xAC "
+                      "\xF0\x90\x8D\x88"},
+  };
+  EXPECT_NO_THROW(jyppx::validate_capability_descriptor(descriptor));
+  const auto json = jyppx::capability_manifest_json(
+      jyppx::make_capability_manifest({descriptor}, test_build_fingerprint()));
+  EXPECT_NE(json.find("quoted \\\"text\\\" with \\\\"), std::string::npos);
+
+  const std::vector<std::string> invalid_utf8{
+      std::string("\x80", 1),         std::string("\xC2", 1),
+      std::string("\xC2\x20", 2),     std::string("\xC0\x80", 2),
+      std::string("\xED\xA0\x80", 3), std::string("\xF4\x90\x80\x80", 4),
+  };
+  for (const auto& invalid : invalid_utf8) {
+    descriptor.limitations = {invalid};
+    EXPECT_THROW(jyppx::validate_capability_descriptor(descriptor),
+                 jyppx::InvalidArgument);
+  }
+}
+
 }  // namespace

@@ -752,6 +752,127 @@ TEST(DataPipelineTest, RejectsTamperedCrossDomainCapability) {
                jyppx::InvalidArgument);
 }
 
+TEST(DataPipelineTest, RejectsEveryCrossDomainCapabilityInvariant) {
+  auto dataset = make_dataset();
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+          dataset->size()),
+      {.pipeline_id = "data.pipeline.capability-invariants",
+       .dataset_version = "dataset/v1",
+       .dataset_size = dataset->size(),
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
+       .batch_factory_id = "factory.tensor-rows/v1",
+       .batch_size = 2},
+      make_factory(dataset));
+  const auto valid = pipeline.capability();
+  const auto expect_invalid = [&valid](const auto& mutate) {
+    auto candidate = valid;
+    mutate(candidate);
+    EXPECT_THROW(jyppx::data::describe_data_capability(candidate),
+                 jyppx::InvalidArgument);
+  };
+
+  expect_invalid([](auto& value) { value.iterable_style = true; });
+  expect_invalid([](auto& value) { value.worker_count = 1; });
+  expect_invalid([](auto& value) {
+    value.worker_model = jyppx::data::DataWorkerModel::thread_pool;
+    value.worker_shard_policy =
+        jyppx::data::DataWorkerShardPolicy::round_robin_batch;
+  });
+  expect_invalid([](auto& value) {
+    value.worker_model = jyppx::data::DataWorkerModel::producer_thread;
+  });
+  expect_invalid([](auto& value) {
+    value.worker_model = static_cast<jyppx::data::DataWorkerModel>(255);
+  });
+  expect_invalid([](auto& value) {
+    value.worker_shard_policy =
+        static_cast<jyppx::data::DataWorkerShardPolicy>(255);
+  });
+  expect_invalid([](auto& value) {
+    value.degradation_reasons = {"unexpected degradation"};
+  });
+  expect_invalid(
+      [](auto& value) { value.restore_level = jyppx::RestoreLevel::bounded; });
+  expect_invalid([](auto& value) {
+    value.restore_level = static_cast<jyppx::RestoreLevel>(255);
+    value.degradation_reasons = {"invalid restore level"};
+  });
+  expect_invalid([](auto& value) { value.non_blocking_transfer = true; });
+  expect_invalid([](auto& value) { value.pin_memory = true; });
+  expect_invalid([](auto& value) { value.memory_stage = true; });
+  expect_invalid([](auto& value) { value.memory_stage_capacity = 1; });
+  expect_invalid([](auto& value) {
+    value.transfer_stream_policy =
+        static_cast<jyppx::data::BatchTransferStreamPolicy>(255);
+  });
+
+  auto excessive_metadata = valid;
+  excessive_metadata.restore_level = jyppx::RestoreLevel::bounded;
+  excessive_metadata.degradation_reasons.assign(
+      jyppx::kMaxCapabilityValues + 1U, "bounded replay");
+  EXPECT_THROW(jyppx::data::describe_data_capability(excessive_metadata),
+               jyppx::ResourceExhausted);
+}
+
+TEST(DataPipelineTest, PublishesEveryOptionalCrossDomainCapabilityField) {
+  auto dataset = make_dataset();
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+          dataset->size()),
+      {.pipeline_id = "data.pipeline.capability-complete",
+       .dataset_version = "dataset/v1",
+       .dataset_size = dataset->size(),
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
+       .batch_factory_id = "factory.tensor-rows/v1",
+       .batch_size = 2},
+      make_factory(dataset));
+  auto capability = pipeline.capability();
+  capability.batch_schema.value = jyppx::ValueSchema::dictionary(
+      {{"payload",
+        jyppx::ValueSchema::tuple({jyppx::ValueSchema::tensor(
+            {.dtype = torch::kFloat32, .device = jyppx::Device(torch::kCPU)},
+            "features")})}});
+  capability.batch_schema_fingerprint = jyppx::data::batch_schema_fingerprint(
+      capability.batch_schema, capability.schema_limits);
+  capability.process_workers = true;
+  capability.batch_timeout = true;
+  capability.memory_stage = true;
+  capability.pin_memory = true;
+  capability.non_blocking_transfer = true;
+  capability.target_device = jyppx::Device(torch::kCPU);
+  capability.memory_stage_capacity = 1;
+  capability.max_replayed_samples = 4;
+  capability.max_omitted_samples = 2;
+
+  const auto descriptor = jyppx::data::describe_data_capability(capability);
+  const auto has_operation = [&descriptor](std::string_view operation) {
+    return std::find(descriptor.operations.begin(), descriptor.operations.end(),
+                     operation) != descriptor.operations.end();
+  };
+  EXPECT_EQ(descriptor.devices, (std::vector<std::string>{"cpu"}));
+  EXPECT_EQ(descriptor.dtypes, (std::vector<std::string>{"Float"}));
+  EXPECT_TRUE(has_operation("worker.process"));
+  EXPECT_TRUE(has_operation("batch.timeout"));
+  EXPECT_TRUE(has_operation("memory.stage"));
+  EXPECT_TRUE(has_operation("memory.pin"));
+  EXPECT_TRUE(has_operation("memory.transfer"));
+  EXPECT_TRUE(has_operation("memory.transfer.non-blocking"));
+  EXPECT_TRUE(has_operation("memory.stream.caller-current"));
+  EXPECT_NE(std::find_if(descriptor.limits.begin(), descriptor.limits.end(),
+                         [](const jyppx::CapabilityLimit& limit) {
+                           return limit.name == "max_replayed_samples" &&
+                                  limit.value == 4;
+                         }),
+            descriptor.limits.end());
+  EXPECT_NE(std::find_if(descriptor.limits.begin(), descriptor.limits.end(),
+                         [](const jyppx::CapabilityLimit& limit) {
+                           return limit.name == "max_omitted_samples" &&
+                                  limit.value == 2;
+                         }),
+            descriptor.limits.end());
+}
+
 TEST(DataPipelineCheckpointTest,
      RejectsStructuralSchemaMismatchWithoutMutation) {
   auto dataset = make_dataset();

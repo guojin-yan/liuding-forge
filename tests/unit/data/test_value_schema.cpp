@@ -242,6 +242,10 @@ TEST(ValueSchemaTest, RejectsEveryMalformedSchemaCombinationAndLimit) {
   tensor_with_children.fields.emplace("child", jyppx::ValueSchema{});
   EXPECT_THROW(jyppx::validate_value_schema(tensor_with_children),
                jyppx::InvalidArgument);
+  auto tensor_with_extra_fields = jyppx::ValueSchema::tensor();
+  tensor_with_extra_fields.allow_extra_fields = true;
+  EXPECT_THROW(jyppx::validate_value_schema(tensor_with_extra_fields),
+               jyppx::InvalidArgument);
   EXPECT_NO_THROW(jyppx::validate_value_schema(
       jyppx::ValueSchema{.kind = jyppx::ValueKind::tensor}));
 

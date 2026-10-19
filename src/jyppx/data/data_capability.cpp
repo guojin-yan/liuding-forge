@@ -30,14 +30,14 @@ constexpr char kComponent[] = "data.capability";
                            "DataPipeline or IterableDataPipeline instance."});
 }
 
-[[noreturn]] void throw_resource() {
-  throw ResourceExhausted(
-      "Unable to describe data capability",
-      ErrorDetails{.component = kComponent,
-                   .operation = "describe",
-                   .expected = "bounded capability metadata allocation",
-                   .actual = "allocation failed",
-                   .hint = "Reduce schema or degradation metadata."});
+[[noreturn]] void throw_resource(std::string operation, std::string expected,
+                                 std::string actual, std::string hint) {
+  throw ResourceExhausted("Unable to describe data capability",
+                          ErrorDetails{.component = kComponent,
+                                       .operation = std::move(operation),
+                                       .expected = std::move(expected),
+                                       .actual = std::move(actual),
+                                       .hint = std::move(hint)});
 }
 
 std::string worker_operation(DataWorkerModel model) {
@@ -129,6 +129,13 @@ void validate_data_capability(const DataCapability& capability) {
   if (capability.worker_shard_policy != expected_shard_policy) {
     throw_invalid("worker_shard_policy", shard_operation(expected_shard_policy),
                   shard_operation(capability.worker_shard_policy));
+  }
+  if (capability.degradation_reasons.size() > kMaxCapabilityValues) {
+    throw_resource(
+        "degradation_reasons",
+        "at most " + std::to_string(kMaxCapabilityValues) + " reasons",
+        std::to_string(capability.degradation_reasons.size()) + " reasons",
+        "Reduce degradation metadata before capability publication.");
   }
   if (capability.restore_level == RestoreLevel::exact &&
       !capability.degradation_reasons.empty()) {
@@ -296,7 +303,9 @@ CapabilityDescriptor describe_data_capability(
   } catch (const Error&) {
     throw;
   } catch (const std::bad_alloc&) {
-    throw_resource();
+    throw_resource("describe", "bounded capability metadata allocation",
+                   "allocation failed",
+                   "Reduce schema or degradation metadata.");
   }
 }
 
