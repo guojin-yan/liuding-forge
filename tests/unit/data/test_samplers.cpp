@@ -107,6 +107,36 @@ TEST(BatchSamplerTest, CountsMaximumPopulationWithoutOverflow) {
   EXPECT_EQ(drop_tail.size(), kMaximum / 2);
 }
 
+TEST(SamplerContractTest, PublishesAndRestoresCurrentStateCapabilities) {
+  const SizeOnlySampler state_less(4);
+  EXPECT_FALSE(state_less.supports_state());
+
+  auto subset = std::make_shared<samplers::SubsetRandomSampler>(
+      std::vector<size_t>{2, 4, 6, 8}, 2026);
+  EXPECT_EQ(subset->size(), 4U);
+  EXPECT_TRUE(subset->supports_state());
+
+  samplers::BatchSampler batches(subset, 2, /*drop_last=*/false);
+  EXPECT_TRUE(batches.supports_state());
+  const auto batch_state = batches.save_state();
+  const auto expected_subset = subset->indices();
+  batches.load_state(batch_state);
+  EXPECT_EQ(subset->indices(), expected_subset);
+
+  samplers::DistributedSampler distributed(
+      /*size=*/9, /*rank=*/1, /*world_size=*/2, /*shuffle=*/true,
+      /*seed=*/17, /*drop_last=*/false);
+  EXPECT_TRUE(distributed.supports_epoch_control());
+  EXPECT_TRUE(distributed.supports_state());
+  EXPECT_NE(distributed.configuration_identity().find("world_size=2"),
+            std::string::npos);
+  distributed.set_epoch(7);
+  const auto distributed_state = distributed.save_state();
+  distributed.set_epoch(8);
+  distributed.load_state(distributed_state);
+  EXPECT_EQ(distributed.epoch(), 7U);
+}
+
 TEST(DistributedSamplerTest, CountsMaximumPopulationWithoutOverflow) {
   constexpr size_t kMaximum = std::numeric_limits<size_t>::max();
   const samplers::DistributedSampler keep_tail(

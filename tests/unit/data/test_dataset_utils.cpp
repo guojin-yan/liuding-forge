@@ -92,6 +92,15 @@ TEST_F(DatasetUtilsTest, SubsetExposesSelectedSamples) {
   EXPECT_TRUE(torch::equal(subset.get(2).target, targets_[7]));
 }
 
+TEST_F(DatasetUtilsTest, DefaultBatchLookupPreservesOrderAndDuplicates) {
+  const auto samples = dataset_->get_batch({2, 0, 2});
+
+  ASSERT_EQ(samples.size(), 3U);
+  EXPECT_TRUE(torch::equal(samples[0].data, inputs_[2]));
+  EXPECT_TRUE(torch::equal(samples[1].data, inputs_[0]));
+  EXPECT_TRUE(torch::equal(samples[2].target, targets_[2]));
+}
+
 TEST_F(DatasetUtilsTest, SubsetValidatesArguments) {
   EXPECT_THROW(data::Subset<data::Example>(nullptr, {0}),
                jyppx::InvalidArgument);

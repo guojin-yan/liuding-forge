@@ -16,6 +16,18 @@ namespace {
 using jyppx::Tensor;
 using namespace jyppx::training::metrics;
 
+/**
+ * @brief Minimal metric used to verify that empty stable names are rejected.
+ */
+class EmptyNameMetric final : public jyppx::training::Metric {
+ public:
+  EmptyNameMetric() : Metric("") {}
+
+  void update(const Tensor&, const Tensor&) override {}
+  double compute() override { return 0.0; }
+  void reset() override {}
+};
+
 TEST(TopKAccuracyTest, CountsTopKHits) {
   TopKAccuracy top1(1);
   // Row scores; target classes.
@@ -165,6 +177,8 @@ TEST(MetricCollectionTest, RejectsDuplicateAndUnknownNames) {
   collection.add(std::make_shared<MSE>());
   EXPECT_THROW(collection.add(std::make_shared<MSE>()), jyppx::InvalidArgument);
   EXPECT_THROW(collection.add(nullptr), jyppx::InvalidArgument);
+  EXPECT_THROW(collection.add(std::make_shared<EmptyNameMetric>()),
+               jyppx::InvalidArgument);
   EXPECT_THROW(collection.at("missing"), jyppx::InvalidArgument);
   EXPECT_EQ(collection.size(), 1);
 }

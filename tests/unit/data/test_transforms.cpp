@@ -269,6 +269,17 @@ TEST_F(TransformsTest, RandomChoiceSelectsConfiguredTransforms) {
     if (first != second) saw_both = true;
   }
   EXPECT_TRUE(saw_both);  // both branches are reachable
+  EXPECT_EQ(choice.name(), "RandomChoice");
+}
+
+TEST_F(TransformsTest, PublishesStableNamesForCurrentVisionTransforms) {
+  EXPECT_EQ(RandomCrop({1, 2}).name(), "RandomCrop(1, 2)");
+  EXPECT_EQ(RandomVerticalFlip().name(), "RandomVerticalFlip");
+  EXPECT_EQ(Pad({1}).name(), "Pad");
+  EXPECT_EQ(RandomRotation(10.0).name(), "RandomRotation");
+  EXPECT_EQ(RandomAffine(10.0).name(), "RandomAffine");
+  EXPECT_EQ(Grayscale().name(), "Grayscale");
+  EXPECT_EQ(RandomGrayscale().name(), "RandomGrayscale");
 }
 
 TEST_F(TransformsTest, TransformPipelineWithCompose) {

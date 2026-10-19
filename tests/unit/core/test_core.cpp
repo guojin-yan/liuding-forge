@@ -51,6 +51,7 @@ TEST(DeviceTest, ParseInvalidDevicePreservesStableErrorContext) {
 
 TEST(DeviceTest, DefaultDeviceIsValid) {
   const auto device = get_default_device();
+  EXPECT_GE(cuda_device_count(), 0);
   if (cuda_is_available()) {
     EXPECT_EQ(device.type(), torch::kCUDA);
     EXPECT_GT(cuda_device_count(), 0);
@@ -82,7 +83,7 @@ TEST(TensorUtilsTest, IsFiniteRejectsNaNAndInf) {
 TEST(TensorUtilsTest, CloneTensorsProducesIndependentCopies) {
   auto first = torch::ones({2, 2});
   auto second = torch::full({3}, 2.0);
-  TensorList originals{first, second};
+  TensorList originals{first, Tensor{}, second};
 
   const auto copies = clone_tensors(originals);
 
@@ -90,15 +91,19 @@ TEST(TensorUtilsTest, CloneTensorsProducesIndependentCopies) {
   torch::NoGradGuard no_grad;
   copies[0].mul_(5.0);
   EXPECT_TRUE(torch::equal(first, torch::ones({2, 2})));
+  EXPECT_FALSE(copies[1].defined());
 }
 
 TEST(TensorUtilsTest, ToDeviceMovesTensorsToCpu) {
-  TensorList tensors{torch::ones({2}), torch::zeros({3})};
+  TensorList tensors{torch::ones({2}), Tensor{}, torch::zeros({3})};
   const auto moved = to_device(tensors, torch::kCPU);
-  ASSERT_EQ(moved.size(), 2);
+  ASSERT_EQ(moved.size(), 3);
   for (const auto& tensor : moved) {
-    EXPECT_EQ(tensor.device().type(), torch::kCPU);
+    if (tensor.defined()) {
+      EXPECT_EQ(tensor.device().type(), torch::kCPU);
+    }
   }
+  EXPECT_FALSE(moved[1].defined());
 }
 
 }  // namespace
