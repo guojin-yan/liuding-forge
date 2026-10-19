@@ -195,6 +195,8 @@ struct AdagradOptimizerCheckpointOptions {
       4096;  ///< Positive maximum bytes in one stable ID.
   std::uint64_t max_topology_bytes =
       64ULL * 1024ULL * 1024ULL;  ///< Maximum descriptor metadata size.
+  std::uint64_t max_producer_bytes =
+      4096;  ///< Maximum producer/runtime compatibility metadata size.
   std::uint64_t max_control_bytes =
       16ULL * 1024ULL * 1024ULL;  ///< Maximum mutable control metadata size.
   std::uint64_t max_tensor_bytes =
@@ -208,11 +210,14 @@ struct AdagradOptimizerCheckpointOptions {
 /**
  * @brief Exposes delegated Adagrad state through the checkpoint contract.
  *
- * Schema version 1 stores immutable stable topology, completed adapter step
- * count, current learning rates, per-parameter native step counters, and sum
- * accumulators. Topology includes stable IDs, dtype, device, shape, stride,
- * immutable Adagrad options, and the compile-time LibTorch version. Native
- * pointer keys and LibTorch archive formats are never persisted.
+ * The current writer emits schema version 2 with immutable stable topology,
+ * bounded producer/runtime provenance, completed adapter step count, current
+ * learning rates, per-parameter native step counters, and eager sum
+ * accumulators. The topology includes stable IDs, dtype, device, shape,
+ * stride, immutable Adagrad options, and the compile-time LibTorch version.
+ * The reader accepts the immediately prior schema version 1 as an explicit
+ * migration input; schema version 1 has no producer field. Native pointer keys
+ * and LibTorch archive formats are never persisted.
  *
  * Loading validates every field and allocates every candidate accumulator
  * before swapping native state. Any exception before commit leaves the
@@ -240,7 +245,7 @@ class AdagradOptimizerCheckpointParticipant final
 
   /**
    * @brief Describes topology, control, and accumulator state fields.
-   * @return An exact schema-version-1 optimizer manifest.
+   * @return An exact current schema-version-2 optimizer manifest.
    * @throws InvalidArgument If current native state violates the descriptor.
    * @throws ResourceExhausted If state exceeds a configured limit.
    */
@@ -257,10 +262,12 @@ class AdagradOptimizerCheckpointParticipant final
 
   /**
    * @brief Validates and atomically restores delegated Adagrad state.
-   * @param reader Source containing a schema-version-1 Adagrad snapshot.
+   * @param reader Source containing a current schema-version-2 or N-1
+   * schema-version-1 Adagrad snapshot.
    * @param policy Restore policy that must accept exact state.
    * @throws CompatibilityError If manifest, policy, or topology differs.
    * @throws SerializationError If a required field is malformed.
+   * @throws InvalidArgument If the checkpoint resource options are invalid.
    * @throws ResourceExhausted If decoded state exceeds a configured limit.
    * @throws BackendError If LibTorch cannot allocate restored state.
    */

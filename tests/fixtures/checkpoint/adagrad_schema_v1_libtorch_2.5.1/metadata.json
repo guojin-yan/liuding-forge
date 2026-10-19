@@ -1,0 +1,61 @@
+{
+  "fixture_schema": 1,
+  "participant_id": "optimizer.adagrad.fixture",
+  "participant_schema": 1,
+  "restore_level": "exact",
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "887567491e1ab431a4200c70a4216551d2f9754d",
+    "libtorch_version": "2.5.1",
+    "writer": "AdagradOptimizerCheckpointParticipant schema-v1 writer"
+  },
+  "scenario": {
+    "dtype": "float64",
+    "device": "cpu",
+    "shape": [3],
+    "initial_parameter": [1.25, -0.5, 0.75],
+    "learning_rate": 0.012,
+    "learning_rate_decay": 0.003,
+    "weight_decay": 0.03,
+    "initial_accumulator_value": 0.2,
+    "epsilon": 0.0000001,
+    "completed_steps": 2,
+    "saved_learning_rate": 0.004,
+    "gradients": [
+      [0.2, -0.1, 0.05],
+      [0.4, -0.2, 0.1]
+    ]
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/vnd.jyppx.adagrad-topology-v1",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 130,
+      "decoded_size": 130,
+      "sha256": "01eb660256298db63c8ae99e02a5d9b6c8d32a15a50d71fe972646632097464f"
+    },
+    {
+      "name": "control",
+      "media_type": "application/vnd.jyppx.adagrad-control-v1",
+      "required": true,
+      "file": "control.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 45,
+      "decoded_size": 45,
+      "sha256": "2547c7f4fcbaf43ccc2521ce9fac49e783396256099a72341b48e9d7ba0be45a"
+    },
+    {
+      "name": "sum.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "sum.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "5f775c7cdcd535fefa831cd55b8ad7612ffd3568aad8718ce82dc73b15fb5c19"
+    }
+  ]
+}
