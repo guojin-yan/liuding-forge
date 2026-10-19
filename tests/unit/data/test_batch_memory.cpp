@@ -151,8 +151,21 @@ TEST(BatchMemoryTest, PreservesNestedContainerTypesAndReportsCpuMetadata) {
   EXPECT_EQ(result.metadata.value_node_count, 7U);
   EXPECT_EQ(result.metadata.tensor_bytes, 20U);
   EXPECT_EQ(result.metadata.transferred_tensor_count, 0U);
+  EXPECT_EQ(result.metadata.transfer_stream_policy,
+            jyppx::data::BatchTransferStreamPolicy::caller_current);
   ASSERT_TRUE(result.metadata.target_device.has_value());
   EXPECT_TRUE(result.metadata.target_device->is_cpu());
+}
+
+TEST(BatchMemoryTest, RejectsModifiedPreparationMetadataBeforeTransfer) {
+  const jyppx::data::BatchMemoryOptions options{.target_device =
+                                                    jyppx::Device(torch::kCPU)};
+  auto prepared = jyppx::data::prepare_batch_memory(
+      c10::IValue(torch::ones({2}, torch::kFloat32)), options);
+  ++prepared.metadata.tensor_count;
+
+  EXPECT_THROW(jyppx::data::transfer_batch_memory(std::move(prepared), options),
+               jyppx::CompatibilityError);
 }
 
 TEST(BatchMemoryTest, RejectsInvalidPolicyAndPreflightsResourceLimits) {
@@ -207,6 +220,8 @@ TEST(BatchMemoryPipelineTest, ExposesIndependentStageCapacityAndMetadata) {
   EXPECT_EQ(capability.prefetch_batches, 4U);
   EXPECT_EQ(capability.memory_stage_capacity, 1U);
   EXPECT_EQ(capability.max_replayed_batches, 1U);
+  EXPECT_EQ(capability.transfer_stream_policy,
+            jyppx::data::BatchTransferStreamPolicy::caller_current);
   EXPECT_LE(pipeline.outstanding_batches(), 1U);
 
   const auto batch = pipeline.next();
@@ -256,16 +271,30 @@ TEST(BatchMemoryCudaTest, PinsCpuLeavesAndTransfersNestedBatchToCuda) {
   if (!torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA runtime is unavailable";
   }
+  EXPECT_THROW(jyppx::data::prepare_batch_memory(
+                   c10::IValue(torch::ones({1}, torch::kCUDA)),
+                   {.target_device = jyppx::Device(torch::kCUDA, 0)}),
+               jyppx::InvalidArgument);
   const auto source = torch::arange(0, 6, torch::kFloat32).view({2, 3});
   c10::impl::GenericList list(c10::TensorType::get());
   list.push_back(source);
   const auto value = c10::IValue(
       c10::ivalue::Tuple::create({c10::IValue(list), c10::IValue(source + 1)}));
 
-  const auto result = jyppx::data::stage_batch_memory(
+  auto prepared = jyppx::data::prepare_batch_memory(
       value, {.pin_memory = true,
               .target_device = jyppx::Device(torch::kCUDA, 0),
               .non_blocking = true});
+  const auto& prepared_elements = prepared.value.toTupleRef().elements();
+  EXPECT_TRUE(prepared_elements[0].toListRef()[0].toTensor().is_pinned());
+  EXPECT_TRUE(prepared_elements[1].toTensor().is_pinned());
+  EXPECT_FALSE(prepared_elements[0].toListRef()[0].toTensor().is_cuda());
+  EXPECT_EQ(prepared.metadata.transferred_tensor_count, 0U);
+
+  const auto result = jyppx::data::transfer_batch_memory(
+      std::move(prepared), {.pin_memory = true,
+                            .target_device = jyppx::Device(torch::kCUDA, 0),
+                            .non_blocking = true});
 
   const auto& elements = result.value.toTupleRef().elements();
   ASSERT_TRUE(elements[0].toListRef()[0].toTensor().is_cuda());
@@ -276,6 +305,8 @@ TEST(BatchMemoryCudaTest, PinsCpuLeavesAndTransfersNestedBatchToCuda) {
   EXPECT_EQ(result.metadata.pinned_tensor_count, 2U);
   EXPECT_EQ(result.metadata.transferred_tensor_count, 2U);
   EXPECT_TRUE(result.metadata.non_blocking_requested);
+  EXPECT_EQ(result.metadata.transfer_stream_policy,
+            jyppx::data::BatchTransferStreamPolicy::caller_current);
   EXPECT_FALSE(source.is_pinned());
   EXPECT_TRUE(source.device().is_cpu());
 }

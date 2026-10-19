@@ -882,8 +882,42 @@ TEST(DataPipelineWorkerTest, PreservesOrderAndStableWorkerContext) {
     EXPECT_EQ(context.sequence, sequence);
     EXPECT_EQ(context.worker_count, 3U);
     EXPECT_EQ(context.worker_id, sequence % 3U);
+    EXPECT_EQ(context.shard_sequence, sequence / 3U);
   }
   EXPECT_NE(contexts.at(0).worker_seed, contexts.at(1).worker_seed);
+}
+
+TEST(DataPipelineWorkerTest, AssignsStableRoundRobinBatchShards) {
+  std::mutex contexts_mutex;
+  std::map<std::uint64_t, jyppx::data::DataWorkerContext> contexts;
+  auto factory = [&contexts_mutex, &contexts](
+                     std::span<const std::size_t>,
+                     const jyppx::data::DataWorkerContext& context,
+                     std::stop_token) {
+    std::lock_guard<std::mutex> lock(contexts_mutex);
+    contexts.emplace(context.sequence, context);
+    return c10::IValue(static_cast<std::int64_t>(context.shard_sequence));
+  };
+  auto options = make_worker_options("data.pipeline.worker-shards", 3U, 6U);
+  options.dataset_size = 12U;
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(12U), options,
+      factory);
+
+  pipeline.set_epoch(5U);
+  const auto capability = pipeline.capability();
+  EXPECT_EQ(capability.worker_shard_policy,
+            jyppx::data::DataWorkerShardPolicy::round_robin_batch);
+  const auto batches = consume_worker_pipeline(pipeline);
+  ASSERT_EQ(batches.size(), 6U);
+
+  std::lock_guard<std::mutex> lock(contexts_mutex);
+  ASSERT_EQ(contexts.size(), 6U);
+  for (std::uint64_t sequence = 0; sequence < 6U; ++sequence) {
+    const auto& context = contexts.at(sequence);
+    EXPECT_EQ(context.worker_id, sequence % 3U);
+    EXPECT_EQ(context.shard_sequence, sequence / 3U);
+  }
 }
 
 TEST(DataPipelineWorkerTest, BoundsTotalPrefetchAndCloseCancelsFactories) {
@@ -951,6 +985,8 @@ TEST(DataPipelineWorkerTest,
 
   const auto capability = pipeline.capability();
   EXPECT_TRUE(capability.worker_prefetch);
+  EXPECT_EQ(capability.worker_shard_policy,
+            jyppx::data::DataWorkerShardPolicy::round_robin_batch);
   EXPECT_EQ(capability.worker_count, 2U);
   EXPECT_EQ(capability.prefetch_batches, 4U);
   EXPECT_TRUE(capability.persistent_workers);

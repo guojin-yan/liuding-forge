@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Checkpoint-stable logical data-worker shard identities and an explicit
+  caller-current CUDA transfer-stream policy with two-phase background
+  preparation and consumer-thread publication.
 - Current-only multi-optimizer Trainer execution with disjoint complete
   parameter ownership, canonical update order, independent scheduler cursors,
   exact coordinated recovery, and all-or-none AMP overflow handling.

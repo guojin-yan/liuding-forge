@@ -26,6 +26,13 @@ deterministic shuffled experiments. A deterministic batch factory must derive
 random work from `DataWorkerContext::worker_seed`. Custom datasets should
 return cloned samples when a shared backing tensor could be mutated.
 
+For CUDA input, return CPU tensors from the batch factory and enable
+`pin_memory` with a CUDA `target_device`. Workers validate and pin batches;
+the thread calling `next()` performs the device transfer on its current CUDA
+stream. Install a custom stream guard around `next()` when input copies must be
+ordered on a non-default training stream. `non_blocking` requests asynchronous
+transfer but does not create or synchronize a hidden stream.
+
 ## Training optimization
 
 Use Adam or AdamW as a robust baseline and tune learning rate before changing

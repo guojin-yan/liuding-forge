@@ -192,11 +192,27 @@ struct TransformContext {
   BatchMemoryMetadata metadata;
 };
 
-Tensor stage_tensor(const Tensor& tensor, TransformContext& context,
-                    const std::string& path) {
+enum class TransformPhase : std::uint8_t {
+  prepare = 0,
+  transfer = 1,
+};
+
+Tensor transform_tensor(const Tensor& tensor, TransformContext& context,
+                        TransformPhase phase, const std::string& path) {
   try {
     Tensor staged = tensor;
-    if (context.options.pin_memory) {
+    if (phase == TransformPhase::prepare && context.options.target_device &&
+        !staged.device().is_cpu()) {
+      throw InvalidArgument(
+          "Two-phase batch transfer requires CPU source tensors",
+          ErrorDetails{.component = kComponent,
+                       .operation = path,
+                       .expected = "CPU source tensor",
+                       .actual = staged.device().str(),
+                       .hint = "Return CPU data from background factories; "
+                               "the next() consumer owns device transfer."});
+    }
+    if (phase == TransformPhase::prepare && context.options.pin_memory) {
       if (!staged.device().is_cpu()) {
         throw InvalidArgument(
             "Batch host pinning requires CPU source tensors",
@@ -212,7 +228,18 @@ Tensor stage_tensor(const Tensor& tensor, TransformContext& context,
       }
       ++context.metadata.pinned_tensor_count;
     }
-    if (context.options.target_device &&
+    if (phase == TransformPhase::transfer && context.options.pin_memory &&
+        staged.device().is_cpu() && !staged.is_pinned()) {
+      throw CompatibilityError(
+          "Prepared batch tensor is not pinned",
+          ErrorDetails{.component = kComponent,
+                       .operation = path,
+                       .expected = "a pinned CPU tensor",
+                       .actual = "unpinned CPU tensor",
+                       .hint = "Pass the unmodified result of "
+                               "prepare_batch_memory to the transfer phase."});
+    }
+    if (phase == TransformPhase::transfer && context.options.target_device &&
         staged.device() != *context.options.target_device) {
       staged = staged.to(*context.options.target_device, staged.scalar_type(),
                          context.options.non_blocking, false);
@@ -235,9 +262,10 @@ Tensor stage_tensor(const Tensor& tensor, TransformContext& context,
 }
 
 c10::IValue transform_value(const c10::IValue& value, TransformContext& context,
-                            const std::string& path) {
+                            TransformPhase phase, const std::string& path) {
   if (value.isTensor()) {
-    return c10::IValue(stage_tensor(value.toTensor(), context, path));
+    return c10::IValue(
+        transform_tensor(value.toTensor(), context, phase, path));
   }
   if (value.isTuple()) {
     const auto tuple = value.toTuple();
@@ -245,8 +273,9 @@ c10::IValue transform_value(const c10::IValue& value, TransformContext& context,
     std::vector<c10::IValue> transformed;
     transformed.reserve(elements.size());
     for (std::size_t index = 0; index < elements.size(); ++index) {
-      transformed.push_back(transform_value(
-          elements[index], context, path + "[" + std::to_string(index) + "]"));
+      transformed.push_back(
+          transform_value(elements[index], context, phase,
+                          path + "[" + std::to_string(index) + "]"));
     }
     return c10::IValue(
         c10::ivalue::Tuple::createNamed(std::move(transformed), tuple->type()));
@@ -256,8 +285,9 @@ c10::IValue transform_value(const c10::IValue& value, TransformContext& context,
     c10::impl::GenericList transformed(list.elementType());
     transformed.reserve(list.size());
     for (std::size_t index = 0; index < list.size(); ++index) {
-      transformed.push_back(transform_value(
-          list.get(index), context, path + "[" + std::to_string(index) + "]"));
+      transformed.push_back(
+          transform_value(list.get(index), context, phase,
+                          path + "[" + std::to_string(index) + "]"));
     }
     return c10::IValue(std::move(transformed));
   }
@@ -269,13 +299,51 @@ c10::IValue transform_value(const c10::IValue& value, TransformContext& context,
     for (const auto& entry : dictionary) {
       transformed.insert(
           entry.key(),
-          transform_value(entry.value(), context,
+          transform_value(entry.value(), context, phase,
                           path + ".value[" + std::to_string(index) + "]"));
       ++index;
     }
     return c10::IValue(std::move(transformed));
   }
   return value;
+}
+
+BatchMemoryMetadata make_metadata(const BatchMemoryOptions& options,
+                                  const Inspection& inspection) {
+  return {.staged = true,
+          .pin_memory_requested = options.pin_memory,
+          .non_blocking_requested = options.non_blocking,
+          .target_device = options.target_device,
+          .transfer_stream_policy = BatchTransferStreamPolicy::caller_current,
+          .tensor_count = inspection.tensor_count,
+          .value_node_count = inspection.value_node_count,
+          .tensor_bytes = inspection.tensor_bytes};
+}
+
+void validate_prepared_metadata(const BatchMemoryStageResult& prepared,
+                                const BatchMemoryOptions& options,
+                                const Inspection& inspection) {
+  const auto& metadata = prepared.metadata;
+  if (!metadata.staged || metadata.pin_memory_requested != options.pin_memory ||
+      metadata.non_blocking_requested != options.non_blocking ||
+      metadata.target_device != options.target_device ||
+      metadata.transfer_stream_policy !=
+          BatchTransferStreamPolicy::caller_current ||
+      metadata.tensor_count != inspection.tensor_count ||
+      metadata.value_node_count != inspection.value_node_count ||
+      metadata.tensor_bytes != inspection.tensor_bytes ||
+      metadata.transferred_tensor_count != 0U ||
+      metadata.pinned_tensor_count !=
+          (options.pin_memory ? inspection.tensor_count : 0U)) {
+    throw CompatibilityError(
+        "Prepared batch metadata is incompatible with the transfer policy",
+        ErrorDetails{.component = kComponent,
+                     .operation = "transfer.metadata",
+                     .expected = "metadata emitted by prepare_batch_memory",
+                     .actual = "policy or resource summary mismatch",
+                     .hint = "Do not modify a prepared value or its metadata "
+                             "before device transfer."});
+  }
 }
 
 }  // namespace
@@ -302,32 +370,57 @@ void validate_batch_memory_options(const BatchMemoryOptions& options) {
   }
 }
 
-BatchMemoryStageResult stage_batch_memory(const c10::IValue& value,
-                                          const BatchMemoryOptions& options) {
+BatchMemoryStageResult prepare_batch_memory(const c10::IValue& value,
+                                            const BatchMemoryOptions& options) {
   validate_batch_memory_options(options);
   BatchMemoryStageResult result;
   result.value = value;
   result.metadata.pin_memory_requested = options.pin_memory;
   result.metadata.non_blocking_requested = options.non_blocking;
   result.metadata.target_device = options.target_device;
+  result.metadata.transfer_stream_policy =
+      BatchTransferStreamPolicy::caller_current;
   if (!batch_memory_stage_enabled(options)) {
     return result;
   }
 
   Inspection inspection;
   inspect_value(value, options, inspection, 0, "batch");
-  TransformContext context{
-      .options = options,
-      .metadata = {.staged = true,
-                   .pin_memory_requested = options.pin_memory,
-                   .non_blocking_requested = options.non_blocking,
-                   .target_device = options.target_device,
-                   .tensor_count = inspection.tensor_count,
-                   .value_node_count = inspection.value_node_count,
-                   .tensor_bytes = inspection.tensor_bytes}};
-  result.value = transform_value(value, context, "batch");
+  TransformContext context{.options = options,
+                           .metadata = make_metadata(options, inspection)};
+  result.value =
+      transform_value(value, context, TransformPhase::prepare, "batch");
   result.metadata = std::move(context.metadata);
   return result;
+}
+
+BatchMemoryStageResult transfer_batch_memory(
+    BatchMemoryStageResult prepared, const BatchMemoryOptions& options) {
+  validate_batch_memory_options(options);
+  if (!batch_memory_stage_enabled(options)) {
+    if (prepared.metadata.staged || prepared.metadata.pin_memory_requested ||
+        prepared.metadata.non_blocking_requested ||
+        prepared.metadata.target_device) {
+      throw CompatibilityError(
+          "Prepared batch metadata enables a disabled memory stage");
+    }
+    return prepared;
+  }
+
+  Inspection inspection;
+  inspect_value(prepared.value, options, inspection, 0, "batch");
+  validate_prepared_metadata(prepared, options, inspection);
+  TransformContext context{.options = options,
+                           .metadata = std::move(prepared.metadata)};
+  prepared.value = transform_value(prepared.value, context,
+                                   TransformPhase::transfer, "batch");
+  prepared.metadata = std::move(context.metadata);
+  return prepared;
+}
+
+BatchMemoryStageResult stage_batch_memory(const c10::IValue& value,
+                                          const BatchMemoryOptions& options) {
+  return transfer_batch_memory(prepare_batch_memory(value, options), options);
 }
 
 }  // namespace jyppx::data

@@ -510,6 +510,10 @@ TEST(IterableDataPipelineTest,
   EXPECT_FALSE(capability.process_workers);
   EXPECT_EQ(capability.worker_model,
             jyppx::data::DataWorkerModel::producer_thread);
+  EXPECT_EQ(capability.worker_shard_policy,
+            jyppx::data::DataWorkerShardPolicy::single_shard);
+  EXPECT_EQ(capability.transfer_stream_policy,
+            jyppx::data::BatchTransferStreamPolicy::caller_current);
   EXPECT_TRUE(capability.schema_validation);
   EXPECT_EQ(capability.batch_schema.id, "batch.iterable");
   EXPECT_FALSE(capability.batch_schema_fingerprint.empty());

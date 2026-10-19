@@ -603,11 +603,10 @@ class IterableRuntime final {
       return {};
     }
     if (batch_memory_stage_enabled(options_.memory)) {
-      auto staged = stage_batch_memory(envelope.value, options_.memory);
+      auto staged = prepare_batch_memory(envelope.value, options_.memory);
       envelope.value = std::move(staged.value);
       envelope.memory = std::move(staged.metadata);
     }
-    validate_batch_value(envelope.value, options_.schema);
     envelope.schema = options_.schema;
     envelope.dataset_version = options_.dataset_version;
     envelope.epoch = epoch_;
@@ -961,6 +960,15 @@ std::optional<BatchEnvelope> IterableDataPipeline::next(
   }
 
   auto envelope = *result->envelope;
+  if (batch_memory_stage_enabled(impl_->options.memory)) {
+    auto staged =
+        transfer_batch_memory({.value = std::move(envelope.value),
+                               .metadata = std::move(envelope.memory)},
+                              impl_->options.memory);
+    envelope.value = std::move(staged.value);
+    envelope.memory = std::move(staged.metadata);
+  }
+  validate_batch_value(envelope.value, impl_->options.schema);
   if (envelope.sample_ids.size() >
       std::numeric_limits<std::uint64_t>::max() - candidate.committed_samples) {
     throw ResourceExhausted(
@@ -1011,6 +1019,7 @@ DataCapability IterableDataPipeline::capability() const {
   result.deterministic_epoch = impl_->descriptor.deterministic_epoch;
   result.in_epoch_cursor = impl_->descriptor.checkpointable;
   result.worker_model = DataWorkerModel::producer_thread;
+  result.worker_shard_policy = DataWorkerShardPolicy::single_shard;
   result.worker_prefetch = true;
   result.worker_count = 1;
   result.prefetch_batches = impl_->options.prefetch_batches;
@@ -1018,6 +1027,7 @@ DataCapability IterableDataPipeline::capability() const {
   result.memory_stage = batch_memory_stage_enabled(impl_->options.memory);
   result.pin_memory = impl_->options.memory.pin_memory;
   result.non_blocking_transfer = impl_->options.memory.non_blocking;
+  result.transfer_stream_policy = BatchTransferStreamPolicy::caller_current;
   result.target_device = impl_->options.memory.target_device;
   result.memory_stage_capacity =
       result.memory_stage ? impl_->options.memory.stage_capacity : 0U;

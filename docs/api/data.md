@@ -157,12 +157,29 @@ explicitly exposes worker model, schema, resource limits, and restore bounds.
 Set `num_workers > 0` to load batches on a worker pool with prefetching:
 
 - Output order is identical to single-threaded loading (results are sequenced).
+- Logical shard assignment is stable: batch sequence `s` uses
+  `worker_id = s % num_workers` and `shard_sequence = s / num_workers`.
+  These identities do not depend on which physical thread executes the task.
 - Exceptions thrown inside `Dataset::get` or the batch factory become a
   structured `jyppx::BackendError` on the consuming thread.
 - At most `prefetch_batches` batches are scheduled but uncommitted.
 - `persistent_workers` controls whether worker threads survive explicit epoch
   replacement; `set_epoch` cancels any uncommitted work before replacement.
 - `Dataset::get` must be thread-safe when `num_workers > 0`.
+
+### Memory staging and CUDA streams
+
+When `BatchMemoryOptions` configures pinning or a target device, background
+workers validate resource bounds and may pin CPU tensor leaves. They do not
+perform device transfer. The `next()` consumer transfers the prepared batch
+and validates its final schema before committing the cursor.
+
+A configured target requires the batch factory to return CPU tensors. CUDA
+transfer uses the backend current stream of the thread calling `next()`; the
+pipeline creates no hidden stream or cross-stream event. Set the desired CUDA
+stream around `next()` when using a custom training stream. Non-blocking
+transfer requires both a target device and, for asynchronous host-to-device
+behavior, pinned source memory.
 
 ### Exception Handling
 

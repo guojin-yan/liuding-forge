@@ -124,10 +124,13 @@ committed. Use `.num_workers = 0` to reproduce factory failures inline.
 
 ## Determinism and checkpointing
 
-`DataWorkerContext` provides stable `epoch`, `sequence`, `worker_id`, and
-`worker_seed` values. A factory declared deterministic must derive random work
-from that context rather than mutable process-global state. The pipeline saves
-only committed state; prefetched batches are rebuilt after restore.
+`DataWorkerContext` provides stable `epoch`, `sequence`, `worker_id`,
+`shard_sequence`, and `worker_seed` values. With `n` workers, batch sequence
+`s` belongs to logical shard `s % n` and has shard-local sequence `s / n`.
+These identities are independent of physical thread scheduling. A factory
+declared deterministic must derive random work from that context rather than
+mutable process-global state. The pipeline saves only committed state;
+prefetched batches are rebuilt after restore.
 
 Use `SequentialSampler` for fixed order, `RandomSampler` for seeded epoch
 permutations, `WeightedRandomSampler` for weighted draws,

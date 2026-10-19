@@ -364,6 +364,7 @@ DataWorkerContext make_worker_context(const DataPipelineOptions& options,
   return {
       .worker_id = worker_id,
       .worker_count = worker_count,
+      .shard_sequence = sequence / worker_count,
       .worker_seed = derive_worker_seed(options, epoch, worker_id, sequence),
       .epoch = epoch,
       .sequence = sequence};
@@ -483,11 +484,9 @@ class WorkerRuntime final {
   // Starts a fixed worker pool. Workers remain idle until activate() installs
   // an epoch plan.
   WorkerRuntime(DataBatchFactory factory, BatchMemoryOptions memory,
-                BatchSchema schema, std::size_t workers,
-                std::chrono::milliseconds timeout)
+                std::size_t workers, std::chrono::milliseconds timeout)
       : factory_(std::move(factory)),
         memory_(std::move(memory)),
-        schema_(std::move(schema)),
         timeout_(timeout) {
     workers_.reserve(workers);
     try {
@@ -669,12 +668,9 @@ class WorkerRuntime final {
                                        epoch->stop_source.get_token());
         if (batch_memory_stage_enabled(memory_) &&
             !epoch->stop_source.stop_requested()) {
-          auto staged = stage_batch_memory(result->value, memory_);
+          auto staged = prepare_batch_memory(result->value, memory_);
           result->value = std::move(staged.value);
           result->memory = std::move(staged.metadata);
-        }
-        if (!epoch->stop_source.stop_requested()) {
-          validate_batch_value(result->value, schema_);
         }
       } catch (...) {
         result->error = std::current_exception();
@@ -693,8 +689,6 @@ class WorkerRuntime final {
   DataBatchFactory factory_;
   // Immutable memory-stage policy shared by every worker invocation.
   BatchMemoryOptions memory_;
-  // Complete consumer-visible schema checked before publishing a result.
-  BatchSchema schema_;
   // Zero means an unbounded wait; positive values apply per next() call.
   std::chrono::milliseconds timeout_;
   // Guards all fields below and every mutable EpochWork scheduling field.
@@ -803,6 +797,9 @@ struct DataPipeline::Impl {
     result.worker_model = options.num_workers == 0
                               ? DataWorkerModel::inline_execution
                               : DataWorkerModel::thread_pool;
+    result.worker_shard_policy = options.num_workers == 0
+                                     ? DataWorkerShardPolicy::single_shard
+                                     : DataWorkerShardPolicy::round_robin_batch;
     result.worker_prefetch = options.num_workers != 0;
     result.worker_count = options.num_workers;
     result.prefetch_batches =
@@ -812,6 +809,7 @@ struct DataPipeline::Impl {
     result.memory_stage = batch_memory_stage_enabled(options.memory);
     result.pin_memory = options.memory.pin_memory;
     result.non_blocking_transfer = options.memory.non_blocking;
+    result.transfer_stream_policy = BatchTransferStreamPolicy::caller_current;
     result.target_device = options.memory.target_device;
     result.memory_stage_capacity =
         result.memory_stage ? options.memory.stage_capacity : 0U;
@@ -923,7 +921,7 @@ struct DataPipeline::Impl {
 
   std::unique_ptr<WorkerRuntime> make_runtime() const {
     return std::make_unique<WorkerRuntime>(batch_factory, options.memory,
-                                           options.schema, options.num_workers,
+                                           options.num_workers,
                                            options.batch_timeout);
   }
 
@@ -1114,6 +1112,14 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
     }
     value = result->value;
     memory = result->memory;
+    if (batch_memory_stage_enabled(impl_->options.memory)) {
+      auto staged = transfer_batch_memory(
+          {.value = std::move(value), .metadata = std::move(memory)},
+          impl_->options.memory);
+      value = std::move(staged.value);
+      memory = std::move(staged.metadata);
+    }
+    validate_batch_value(value, impl_->options.schema);
   }
 
   BatchEnvelope envelope;

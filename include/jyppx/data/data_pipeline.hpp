@@ -60,6 +60,17 @@ enum class DataWorkerModel : std::uint8_t {
 };
 
 /**
+ * @brief Identifies how committed batch sequences map to logical shards.
+ *
+ * Logical shards are checkpoint-stable identities and are independent of the
+ * physical thread that happens to execute a factory invocation.
+ */
+enum class DataWorkerShardPolicy : std::uint8_t {
+  single_shard = 0,       ///< All batches belong to one logical shard.
+  round_robin_batch = 1,  ///< Batch `s` belongs to shard `s % worker_count`.
+};
+
+/**
  * @brief Reports the capabilities of a configured DataPipeline.
  */
 struct DataCapability {
@@ -71,6 +82,8 @@ struct DataCapability {
   bool in_epoch_cursor = true;       ///< Batch commit cursor is checkpointable.
   DataWorkerModel worker_model =
       DataWorkerModel::inline_execution;  ///< In-process execution topology.
+  DataWorkerShardPolicy worker_shard_policy =
+      DataWorkerShardPolicy::single_shard;  ///< Stable logical assignment.
   bool process_workers =
       false;  ///< Process/fork/spawn workers are not implemented.
   bool worker_prefetch = false;  ///< Whether background workers build batches.
@@ -84,6 +97,8 @@ struct DataCapability {
   bool pin_memory = false;     ///< Whether CPU tensor pinning is requested.
   bool non_blocking_transfer =
       false;  ///< Whether device transfers request non-blocking execution.
+  BatchTransferStreamPolicy transfer_stream_policy =
+      BatchTransferStreamPolicy::caller_current;  ///< Transfer stream owner.
   std::optional<Device>
       target_device;  ///< Configured batch destination, when present.
   std::size_t memory_stage_capacity =
@@ -239,8 +254,10 @@ struct DataPipelineState {
  * the task.
  */
 struct DataWorkerContext {
-  std::uint32_t worker_id = 0;     ///< Logical worker assigned to this batch.
-  std::uint32_t worker_count = 1;  ///< Logical workers in the active topology.
+  std::uint32_t worker_id = 0;     ///< Logical shard assigned to this batch.
+  std::uint32_t worker_count = 1;  ///< Logical shards in the active topology.
+  std::uint64_t shard_sequence =
+      0;  ///< Zero-based sequence local to the assigned logical shard.
   std::uint64_t worker_seed = 0;  ///< Fully mixed per-batch deterministic seed.
   std::uint64_t epoch = 0;     ///< Explicit epoch selected by the coordinator.
   std::uint64_t sequence = 0;  ///< Batch sequence within the selected epoch.
