@@ -128,6 +128,23 @@ TEST(BatchMemoryTest, DisabledStagePreservesTheValueWithoutTraversal) {
   EXPECT_TRUE(result.value.toTensor().is_same(tensor));
 }
 
+TEST(BatchMemoryTest, EnablementCoversEveryPinningAndTargetCombination) {
+  auto options = jyppx::data::BatchMemoryOptions{};
+  EXPECT_FALSE(jyppx::data::batch_memory_stage_enabled(options));
+
+  options.target_device = jyppx::Device(torch::kCPU);
+  EXPECT_TRUE(jyppx::data::batch_memory_stage_enabled(options));
+
+  options.pin_memory = true;
+  EXPECT_TRUE(jyppx::data::batch_memory_stage_enabled(options));
+
+  options.target_device.reset();
+  EXPECT_TRUE(jyppx::data::batch_memory_stage_enabled(options));
+
+  options.pin_memory = false;
+  EXPECT_FALSE(jyppx::data::batch_memory_stage_enabled(options));
+}
+
 TEST(BatchMemoryTest, PreservesNestedContainerTypesAndReportsCpuMetadata) {
   c10::impl::GenericList list(c10::TensorType::get());
   list.push_back(torch::ones({2}, torch::kFloat32));
