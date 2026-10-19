@@ -383,6 +383,27 @@
           "commit": "f2d5c99"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-data-worker-shard-stream-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "114/114 data target tests; 0 skipped; 14 CUDA/worker tests repeated 20 times",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; TORCH_CUDA_ARCH_LIST=7.5; data target -Werror; Clang 14 CPU TSan; Doxygen 1.9.1 strict gate",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75, CUDA standard 17 and project C++ standard 20",
+            "build": "jyppx_test_data and its current dependencies passed with warnings as errors",
+            "cuda_data": "complete data target executed on CUDA LibTorch and RTX 2060: 114/114 passed; zero skipped",
+            "shard_contract": "map worker batches use checkpoint-stable round-robin logical shards and shard-local sequences derived from committed batch sequence; iterable and inline paths report a single logical shard",
+            "stream_contract": "background workers prepare and optionally pin CPU tensors; next() transfers and performs final schema validation on the consumer thread current backend stream without hidden streams or checkpointed stream handles",
+            "repeated_regression": "14 CUDA memory-stage, checkpoint, iterable and worker-shard tests repeated 20 times without failure or skip",
+            "tsan": "Clang 14 CPU LibTorch TSan data concurrency scope passed 50/50 without diagnostics",
+            "source_quality": "clang-format dry-run, strict migrated API Doxygen, compatibility validation and checkpoint fixture integrity passed"
+          },
+          "commit": "7a0fdc9"
+        },
+        {
           "id": "local-ubuntu-gcc-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
