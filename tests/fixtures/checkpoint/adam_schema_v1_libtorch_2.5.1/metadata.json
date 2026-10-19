@@ -1,0 +1,81 @@
+{
+  "fixture_schema": 1,
+  "participant_id": "optimizer.adam.fixture",
+  "participant_schema": 1,
+  "restore_level": "exact",
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "d44f2e8725920fc5f771da7aa0fe31a3edf20a2e",
+    "libtorch_version": "2.5.1",
+    "writer": "AdamOptimizerCheckpointParticipant schema-v1 writer"
+  },
+  "scenario": {
+    "dtype": "float64",
+    "device": "cpu",
+    "shape": [3],
+    "initial_parameter": [1.5, -0.75, 0.25],
+    "learning_rate": 0.015,
+    "betas": [0.88, 0.97],
+    "epsilon": 0.0000001,
+    "weight_decay": 0.02,
+    "amsgrad": true,
+    "completed_steps": 2,
+    "saved_learning_rate": 0.006,
+    "gradients": [
+      [0.25, -0.125, 0.0625],
+      [0.5, -0.25, 0.125]
+    ]
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/vnd.jyppx.adam-topology-v1",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 130,
+      "decoded_size": 130,
+      "sha256": "8653fd77cc59c384d02337a6eb11f887752dc56aea982bb08c6208fd82b038ac"
+    },
+    {
+      "name": "control",
+      "media_type": "application/vnd.jyppx.adam-control-v1",
+      "required": true,
+      "file": "control.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 45,
+      "decoded_size": 45,
+      "sha256": "f59eb0129f4df5d4937a6a20f260dc47f2d02e58f24594397f13e573a327edc1"
+    },
+    {
+      "name": "exp_avg.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "exp_avg.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "eccf65b37066453496334a269912e198cdd9258b0636d2d0045698b88e7c556b"
+    },
+    {
+      "name": "exp_avg_sq.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "exp_avg_sq.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "7e9e6de7be167212d290f8ce825b84bae4fb7ec4e56099b03a407bf26798fc3c"
+    },
+    {
+      "name": "max_exp_avg_sq.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "max_exp_avg_sq.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "7e9e6de7be167212d290f8ce825b84bae4fb7ec4e56099b03a407bf26798fc3c"
+    }
+  ]
+}

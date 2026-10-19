@@ -4,6 +4,9 @@
 // you may not use this file except in compliance with the License.
 
 #include <jyppx/foundation/error.hpp>
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+#include <jyppx/foundation/version.hpp>
+#endif
 
 #include <torch/version.h>
 
@@ -60,7 +63,13 @@ using FlatParameter = stateful_optimizer_detail::StatefulOptimizerFlatParameter;
 #endif
 
 constexpr char kComponent[] = JYPPX_STATEFUL_OPTIMIZER_COMPONENT;
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+constexpr std::uint32_t kPreviousSchemaVersion = 1;
+constexpr std::uint32_t kSchemaVersion = 2;
+constexpr std::uint32_t kProducerVersion = 1;
+#else
 constexpr std::uint32_t kSchemaVersion = 1;
+#endif
 constexpr std::uint32_t kTopologyVersion = 1;
 constexpr std::uint32_t kControlVersion = 1;
 constexpr std::size_t kMaximumRank = 64;
@@ -101,9 +110,23 @@ constexpr std::array<std::byte, 8> kControlMagic = {
     std::byte{'A'},
     std::byte{JYPPX_STATEFUL_OPTIMIZER_MAGIC_TAG},
     std::byte{'C'}};
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+constexpr std::array<std::byte, 8> kProducerMagic = {
+    std::byte{'J'},
+    std::byte{'Y'},
+    std::byte{'P'},
+    std::byte{'P'},
+    std::byte{'X'},
+    std::byte{'A'},
+    std::byte{JYPPX_STATEFUL_OPTIMIZER_PRODUCER_MAGIC_TAG},
+    std::byte{'P'}};
+#endif
 
 struct OptimizerSnapshot {
   std::vector<std::byte> topology;   ///< Immutable descriptor bytes.
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+  std::vector<std::byte> producer;   ///< Producer and LibTorch versions.
+#endif
   std::vector<std::byte> control;    ///< Mutable counters and presence bytes.
   std::vector<Tensor> first_state;   ///< Required first state by parameter.
   std::vector<Tensor> second_state;  ///< Optional second state by parameter.
@@ -804,6 +827,25 @@ std::vector<std::byte> encode_topology(
   return output;
 }
 
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+std::vector<std::byte> encode_producer(
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits) {
+  std::vector<std::byte> output(kProducerMagic.begin(), kProducerMagic.end());
+  append_u32(output, kProducerVersion);
+  append_u32(output, static_cast<std::uint32_t>(version_major()));
+  append_u32(output, static_cast<std::uint32_t>(version_minor()));
+  append_u32(output, static_cast<std::uint32_t>(version_patch()));
+  append_u32(output, TORCH_VERSION_MAJOR);
+  append_u32(output, TORCH_VERSION_MINOR);
+  append_u32(output, TORCH_VERSION_PATCH);
+  if (output.size() > limits.max_producer_bytes) {
+    throw_resource("producer.bytes", limits.max_producer_bytes, output.size(),
+                   "Raise max_producer_bytes for the fixed producer record.");
+  }
+  return output;
+}
+#endif
+
 std::vector<std::byte> encode_control(
     std::uint64_t completed_steps, const std::vector<double>& learning_rates,
     const std::vector<bool>& has_state,
@@ -845,6 +887,51 @@ void validate_magic(ByteCursor& cursor,
     }
   }
 }
+
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+void validate_producer_blob(
+    std::span<const std::byte> bytes,
+    const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& limits) {
+  if (bytes.size() > limits.max_producer_bytes) {
+    throw_resource("producer.bytes", limits.max_producer_bytes, bytes.size(),
+                   "Reject oversized producer metadata before parsing.");
+  }
+  ByteCursor cursor(bytes);
+  validate_magic(cursor, kProducerMagic, "producer.magic",
+                 JYPPX_STATEFUL_OPTIMIZER_PRODUCER_MAGIC);
+  const auto version = cursor.read_u32("producer.version");
+  if (version != kProducerVersion) {
+    throw_compatibility("producer.version", std::to_string(kProducerVersion),
+                        std::to_string(version),
+                        "Use a supported producer metadata version.");
+  }
+
+  // Producer SemVer is provenance; schema negotiation governs compatibility.
+  static_cast<void>(cursor.read_u32("producer.jyppx_major"));
+  static_cast<void>(cursor.read_u32("producer.jyppx_minor"));
+  static_cast<void>(cursor.read_u32("producer.jyppx_patch"));
+  const auto torch_major = cursor.read_u32("producer.torch_major");
+  const auto torch_minor = cursor.read_u32("producer.torch_minor");
+  const auto torch_patch = cursor.read_u32("producer.torch_patch");
+  if (torch_major != TORCH_VERSION_MAJOR ||
+      torch_minor != TORCH_VERSION_MINOR ||
+      torch_patch != TORCH_VERSION_PATCH) {
+    throw_compatibility(
+        "producer.libtorch_version",
+        std::to_string(TORCH_VERSION_MAJOR) + "." +
+            std::to_string(TORCH_VERSION_MINOR) + "." +
+            std::to_string(TORCH_VERSION_PATCH),
+        std::to_string(torch_major) + "." + std::to_string(torch_minor) +
+            "." + std::to_string(torch_patch),
+        "Run an explicitly validated cross-LibTorch migration.");
+  }
+  if (!cursor.empty()) {
+    throw_serialization("producer.trailing_bytes", "no trailing metadata",
+                        "present",
+                        "Reject ambiguous producer metadata extensions.");
+  }
+}
+#endif
 
 void validate_topology_blob(
     std::span<const std::byte> bytes,
@@ -1244,11 +1331,37 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
                     right.fields.begin(), state_field_equal);
 }
 
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+StateManifest make_schema_v1_manifest(const StateManifest& current) {
+  StateManifest legacy = current;
+  legacy.schema_version = kPreviousSchemaVersion;
+  const auto producer = std::find_if(
+      legacy.fields.begin(), legacy.fields.end(),
+      [](const StateFieldDescriptor& field) { return field.name == "producer"; });
+  if (producer == legacy.fields.end()) {
+    throw InternalError(
+        "Current optimizer manifest is missing producer metadata",
+        ErrorDetails{
+            .component = kComponent,
+            .operation = "migration.v1_manifest",
+            .expected = "a schema-v2 producer field",
+            .actual = "missing",
+            .hint = "Keep the current writer and N-1 reader aligned."});
+  }
+  legacy.fields.erase(producer);
+  validate_state_manifest(legacy);
+  return legacy;
+}
+#endif
+
 void validate_checkpoint_options(
     const JYPPX_STATEFUL_OPTIMIZER_CHECKPOINT_OPTIONS& options,
     std::string_view participant_id) {
   if (options.max_groups == 0 || options.max_parameters == 0 ||
       options.max_identifier_bytes == 0 || options.max_topology_bytes == 0 ||
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+      options.max_producer_bytes == 0 ||
+#endif
       options.max_control_bytes == 0 || options.max_tensor_bytes == 0 ||
       options.max_total_bytes == 0) {
     throw_invalid("checkpoint.options", "positive resource limits", "zero",
@@ -1584,15 +1697,25 @@ OptimizerSnapshot inspect_optimizer(
   }
 
   auto topology = encode_topology(groups, parameters, limits);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+  auto producer = encode_producer(limits);
+#endif
   auto control = encode_control(completed_steps, learning_rates, has_state,
                                 parameter_steps,
 #if defined(JYPPX_STATEFUL_OPTIMIZER_NADAM)
                                 auxiliary_state,
 #endif
                                 limits);
-  std::uint64_t total =
-      checked_add(topology.size(), control.size(), limits.max_total_bytes,
-                  "state.total_bytes");
+  std::uint64_t total = 0;
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+  total = checked_add(topology.size(), producer.size(), limits.max_total_bytes,
+                      "state.total_bytes");
+  total = checked_add(total, control.size(), limits.max_total_bytes,
+                      "state.total_bytes");
+#else
+  total = checked_add(topology.size(), control.size(), limits.max_total_bytes,
+                      "state.total_bytes");
+#endif
   StateManifest manifest{
       .participant_id = std::move(participant_id),
       .schema_version = kSchemaVersion,
@@ -1603,6 +1726,13 @@ OptimizerSnapshot inspect_optimizer(
                 "application/vnd.jyppx." JYPPX_STATEFUL_OPTIMIZER_MEDIA_STEM
                 "-topology-v1",
             .max_bytes = topology.size()},
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+           {.name = "producer",
+            .media_type =
+                "application/vnd.jyppx." JYPPX_STATEFUL_OPTIMIZER_MEDIA_STEM
+                "-producer-v1",
+            .max_bytes = producer.size()},
+#endif
            {.name = "control",
             .media_type =
                 "application/vnd.jyppx." JYPPX_STATEFUL_OPTIMIZER_MEDIA_STEM
@@ -1610,7 +1740,12 @@ OptimizerSnapshot inspect_optimizer(
             .max_bytes = control.size()}},
       .degradation_reasons = {},
   };
-  manifest.fields.reserve(parameters.size() * kStateFieldNames.size() + 2);
+  manifest.fields.reserve(parameters.size() * kStateFieldNames.size() +
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+                          3);
+#else
+                          2);
+#endif
   for (std::size_t index = 0; index < parameters.size(); ++index) {
     const auto maximum =
         std::max<std::uint64_t>(1, parameters[index].byte_count);
@@ -1626,6 +1761,9 @@ OptimizerSnapshot inspect_optimizer(
   static_cast<void>(total);
   validate_state_manifest(manifest);
   return {.topology = std::move(topology),
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+          .producer = std::move(producer),
+#endif
           .control = std::move(control),
           .first_state = std::move(first_state),
           .second_state = std::move(second_state),
@@ -2021,6 +2159,9 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::save_state(
         *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
         options_, optimizer_->optimizer_id());
     writer.write_blob("topology", snapshot.topology);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+    writer.write_blob("producer", snapshot.producer);
+#endif
     writer.write_blob("control", snapshot.control);
     for (std::size_t index = 0; index < snapshot.has_state.size(); ++index) {
       const auto& parameter = optimizer_->impl_->parameters[index];
@@ -2076,6 +2217,30 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
         options_, optimizer_->optimizer_id());
     const auto& stored_manifest = reader.manifest();
     validate_state_manifest(stored_manifest);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+    StateManifest expected_manifest;
+    if (stored_manifest.schema_version == kSchemaVersion) {
+      expected_manifest = current.manifest;
+    } else if (stored_manifest.schema_version == kPreviousSchemaVersion) {
+      expected_manifest = make_schema_v1_manifest(current.manifest);
+    } else {
+      throw_compatibility(
+          "restore.schema_version",
+          std::to_string(kPreviousSchemaVersion) + " or " +
+              std::to_string(kSchemaVersion),
+          std::to_string(stored_manifest.schema_version),
+          "Migrate checkpoints through the explicit N-1 schema chain.");
+    }
+    if (!manifest_equal(stored_manifest, expected_manifest)) {
+      throw_compatibility(
+          "restore.manifest",
+          "the exact " JYPPX_STATEFUL_OPTIMIZER_NAME " schema-v" +
+              std::to_string(stored_manifest.schema_version) + " manifest",
+          stored_manifest.participant_id,
+          "Do not relabel fields from another schema or optimizer.");
+    }
+#else
+    const auto& expected_manifest = current.manifest;
     if (!manifest_equal(stored_manifest, current.manifest)) {
       throw_compatibility(
           "restore.manifest", optimizer_->optimizer_id(),
@@ -2083,7 +2248,8 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
           "Use state produced by the same " JYPPX_STATEFUL_OPTIMIZER_NAME
           " schema.");
     }
-    for (const auto& field : current.manifest.fields) {
+#endif
+    for (const auto& field : expected_manifest.fields) {
       if (field.required && !reader.contains(field.name)) {
         throw_serialization(
             "restore.field", field.name, "missing",
@@ -2093,7 +2259,7 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
     }
 
     const auto topology =
-        reader.read_blob("topology", current.manifest.fields.front().max_bytes);
+        reader.read_blob("topology", expected_manifest.fields.front().max_bytes);
     validate_topology_blob(topology, options_);
     if (topology.size() != current.topology.size() ||
         !std::equal(topology.begin(), topology.end(),
@@ -2106,8 +2272,20 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
           "Apply an explicit optimizer state migration before restore.");
     }
 
-    const auto control_bytes =
-        reader.read_blob("control", current.manifest.fields[1].max_bytes);
+#if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
+    const auto is_current_schema =
+        stored_manifest.schema_version == kSchemaVersion;
+    if (is_current_schema) {
+      const auto producer =
+          reader.read_blob("producer", current.manifest.fields[1].max_bytes);
+      validate_producer_blob(producer, options_);
+    }
+    const auto control_field_index = is_current_schema ? 2U : 1U;
+#else
+    constexpr auto control_field_index = 1U;
+#endif
+    const auto control_bytes = reader.read_blob(
+        "control", expected_manifest.fields[control_field_index].max_bytes);
     const auto decoded =
         decode_control(control_bytes, optimizer_->impl_->groups.size(),
                        optimizer_->impl_->parameters.size(), options_);
