@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A real-GPU CUDA Trainer benchmark and repeated-sampling runner covering
+  FP32/single-SGD and FP16/two-SGD/AMP execution, explicit synchronization,
+  correctness counters, peak allocated/reserved VRAM, environment identity,
+  stability checks, and environment-bound regression references.
 - Foundation-owned schema-v1 capability manifests with bounded validation,
   deterministic JSON, exact build fingerprints, and configured data-pipeline
   capability descriptors.
@@ -102,6 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimizer parameter-group insertion with topology validation.
 
 ### Changed
+- Build fingerprints now derive CUDA LibTorch package identity from the
+  official `build-version` tag when available, preventing CUDA distributions
+  that omit `TORCH_CUDA_VERSION` from being mislabeled as CPU builds. Dirty
+  state detection now includes untracked files.
 - Dataset utilities, transforms, stress tests, examples, documentation, and
   throughput benchmarks now use the explicit-epoch `DataPipeline` contract.
   The baseline runner accepts an explicit external `LibTorchDir` so durable

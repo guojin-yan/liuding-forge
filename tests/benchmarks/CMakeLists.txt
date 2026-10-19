@@ -15,3 +15,9 @@ jyppx_add_bench(jyppx_bench_memory_usage bench_memory_usage.cpp)
 if(WIN32)
     target_link_libraries(jyppx_bench_memory_usage PRIVATE Psapi)
 endif()
+
+# The target includes CUDA allocator APIs and is intentionally absent from
+# CPU-only LibTorch builds rather than compiling a benchmark that can only skip.
+if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    jyppx_add_bench(jyppx_bench_cuda_training bench_cuda_training.cpp)
+endif()

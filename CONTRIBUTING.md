@@ -89,6 +89,13 @@ Generate the local Release timing, artifact-size, throughput, and peak-memory
 baseline with `pwsh -NoProfile -File tools/Run-Baseline.ps1`. The default clean
 build is required for comparable compile-time evidence.
 
+Changes affecting CUDA data transfer, Trainer execution, optimizer orchestration,
+AMP, or allocator behavior also require `tools/run_cuda_baseline.py` on CUDA
+LibTorch and a real GPU. Keep its default one warmup plus five independent
+sample processes for both frozen modes. A reference is valid only for its exact
+environment key; never compare or copy thresholds across GPUs, drivers, power
+limits, LibTorch builds, host CUDA toolkits, workloads, or compiler builds.
+
 The Linux coverage lane is `bash tools/run-coverage.sh`; it requires `gcovr 5.0`
 or newer and
 `CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. Coverage and

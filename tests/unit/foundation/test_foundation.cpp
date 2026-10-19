@@ -177,6 +177,11 @@ TEST(FoundationVersionTest, ExposesStructuredAndJsonFingerprint) {
   EXPECT_FALSE(fingerprint.libtorch_version.empty());
   EXPECT_FALSE(fingerprint.libtorch_build.empty());
   EXPECT_EQ(fingerprint.libtorch_build.find_first_of("/\\"), std::string::npos);
+  if (fingerprint.accelerator_runtime.starts_with("cuda:")) {
+    EXPECT_TRUE(fingerprint.libtorch_build.starts_with("cuda-"));
+  } else {
+    EXPECT_TRUE(fingerprint.libtorch_build.starts_with("cpu-"));
+  }
   EXPECT_FALSE(fingerprint.accelerator_runtime.empty());
   EXPECT_EQ(fingerprint.dependency_lock_digest.size(), 64U);
   EXPECT_EQ(fingerprint.dependency_lock_digest.find_first_not_of(

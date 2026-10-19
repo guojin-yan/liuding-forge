@@ -312,12 +312,11 @@ TEST(ValueSchemaTest, RejectsEveryMalformedSchemaCombinationAndLimit) {
 
   const auto cumulative_metadata = jyppx::ValueSchema::dictionary(
       {{"field", jyppx::ValueSchema::any("child")}}, false, "root");
-  EXPECT_THROW(jyppx::validate_value_schema(
-                   cumulative_metadata, "value",
-                   {.max_depth = 8,
-                    .max_schema_nodes = 16,
-                    .max_metadata_bytes = 8,
-                    .max_runtime_nodes = 16}),
+  EXPECT_THROW(jyppx::validate_value_schema(cumulative_metadata, "value",
+                                            {.max_depth = 8,
+                                             .max_schema_nodes = 16,
+                                             .max_metadata_bytes = 8,
+                                             .max_runtime_nodes = 16}),
                jyppx::ResourceExhausted);
 }
 

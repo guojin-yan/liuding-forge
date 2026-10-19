@@ -171,6 +171,24 @@ size, throughput, and isolated peak-memory evidence under
 `out/baseline/release`. Use `-ReuseBuild` only for diagnosing the baseline
 tool itself; reused build time is not comparable to a clean compile baseline.
 
+CUDA Trainer baselines require a Release build linked to CUDA LibTorch and a
+visible NVIDIA GPU. After building with `JYPPX_BUILD_BENCHMARKS=ON`, run:
+
+```bash
+LD_LIBRARY_PATH=/path/to/libtorch/lib \
+python3 tools/run_cuda_baseline.py \
+  --benchmark out/build/cuda/tests/benchmarks/jyppx_bench_cuda_training \
+  --output-dir out/baseline/cuda \
+  --write-reference out/baseline/cuda/reference.json
+```
+
+The runner executes one independent warmup and five independent samples for
+both the FP32/single-SGD and FP16/two-SGD/AMP paths. It rejects missing CUDA,
+incomplete Trainer or optimizer steps, scaler state outside a checkpoint
+boundary, process-to-process identity drift, CV above 10%, and references from
+a different build, GPU, driver, power limit, workload, or runtime environment.
+Results and logs remain under the ignored `out/` tree.
+
 ## Debug, Coverage, and Sanitizers
 
 Debug uses the same release CRT and iterator-debug level as LibTorch on Windows;

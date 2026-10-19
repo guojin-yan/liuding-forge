@@ -270,6 +270,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_adamw_adapter_overhead.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_nadam_native_throughput.cpp
         ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_rmsprop_adapter_overhead.cpp
+        ${PROJECT_SOURCE_DIR}/tests/benchmarks/bench_cuda_training.cpp
     )
     add_custom_target(jyppx_migrated_format_check ALL
         COMMAND ${JYPPX_CLANG_FORMAT_EXECUTABLE}

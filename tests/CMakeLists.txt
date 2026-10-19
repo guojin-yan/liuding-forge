@@ -126,6 +126,15 @@ if(Python3_Interpreter_FOUND)
         WILL_FAIL TRUE
     )
     add_test(
+        NAME CudaBaselineRunnerUnitTests
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+                ${CMAKE_SOURCE_DIR}/tests/tools/test_cuda_baseline.py
+    )
+    set_tests_properties(CudaBaselineRunnerUnitTests PROPERTIES
+        LABELS "hygiene;performance;cuda"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    add_test(
         NAME PublicHeaderGuards
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/header_guards.py
                 --root ${CMAKE_SOURCE_DIR}/include/jyppx

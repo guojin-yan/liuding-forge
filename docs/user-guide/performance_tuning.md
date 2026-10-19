@@ -73,3 +73,13 @@ absolute median time per step instead of invalid adapter/native ratios.
 `bench_memory_usage` reports resident bytes for worker counts 0, 1, 4, and 8.
 Compare PyTorch with the same seed, model, tensors, dtype, and steps. These are
 engineering measurements, not universal limits.
+
+For a real-GPU end-to-end baseline, build `jyppx_bench_cuda_training` against
+CUDA LibTorch and invoke it through `tools/run_cuda_baseline.py`. The frozen
+workload covers FP32 with one SGD optimizer and FP16 autocast with two disjoint
+SGD optimizers plus one Trainer-owned GradScaler cycle. Each process verifies
+the committed Trainer and optimizer steps before publishing throughput, mean
+step time, peak allocated VRAM, and peak reserved VRAM. Timing is enclosed by
+CUDA synchronization. The runner keeps raw process output, samples transient
+GPU state, requires at least five stable samples per mode, and binds references
+to the complete build/workload/GPU environment.

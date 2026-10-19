@@ -15,6 +15,7 @@ tests/benchmarks/bench_adadelta_native_throughput
 tests/benchmarks/bench_lamb_native_throughput
 tests/benchmarks/bench_nadam_native_throughput
 tests/benchmarks/bench_memory_usage
+tests/benchmarks/bench_cuda_training
 ```
 
 Run `tools/Run-Baseline.ps1` from a quiet machine. Pass `-LibTorchDir` when
@@ -60,6 +61,15 @@ step. LibTorch does not expose a public C++ NAdam optimizer, so this benchmark
 does not manufacture an incomparable adapter/native ratio. Numerical parity
 is covered separately by the independent reference and convergence tests.
 
+`bench_cuda_training` is built only when CMake detects CUDA LibTorch. Run it
+through `tools/run_cuda_baseline.py`, which collects the frozen FP32/single-SGD
+and FP16/two-SGD/AMP modes in separate processes. Each structured JSON sample
+contains the workload digest, exact BuildFingerprint, CUDA device and compile
+toolkit identity, Trainer/optimizer/scaler correctness counters, throughput,
+mean step time, and CUDA allocator peaks. The runner adds `nvidia-smi` driver,
+UUID, power-limit, persistence-mode and noise observations, then delegates CV
+and regression enforcement to `tools/baseline_stats.py`.
+
 The 2026-10-18 RMSprop Windows Release sample (MSVC 19.44, LibTorch 2.14.1,
 CPU, 4096 float32 parameters, 2000 steps, two warmups, five paired samples)
 produced an adapter/native median ratio of `1.014278332`.
@@ -91,6 +101,12 @@ Values are regression references and are never thresholds across different
 CPU, compiler, LibTorch, or BLAS implementations. For a PyTorch comparison,
 use identical generated tensors, dimensions, dtype, seed, batch sizes, and
 optimizer steps.
+
+CUDA references are additionally invalid across GPU, compute capability,
+driver, power limit, persistence mode, official LibTorch package build tag,
+host CUDA compile toolkit, or either frozen workload mode. Keep raw reports in
+CI artifacts or the ignored `out/` tree; commit only reviewed aggregate evidence
+when a compatibility lane is established.
 
 Checked-in JSON records live under `docs/benchmarks/results/`. The initial
 Windows reference is a local measurement and does not claim PyTorch parity
