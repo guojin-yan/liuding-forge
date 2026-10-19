@@ -189,6 +189,25 @@ boundary, process-to-process identity drift, CV above 10%, and references from
 a different build, GPU, driver, power limit, workload, or runtime environment.
 Results and logs remain under the ignored `out/` tree.
 
+The same gate records isolated CUDA performance and allocator behavior for all
+eight supported optimizers. Each algorithm is compared only with its own
+environment-bound reference; the results are not a cross-algorithm ranking:
+
+```bash
+LD_LIBRARY_PATH=/path/to/libtorch/lib \
+python3 tools/run_cuda_baseline.py \
+  --suite optimizer \
+  --benchmark out/build/cuda/tests/benchmarks/jyppx_bench_cuda_optimizer \
+  --output-dir out/baseline/cuda-optimizer \
+  --write-reference out/baseline/cuda-optimizer/reference.json
+```
+
+Every optimizer process uses the same FP32 CUDA tensors and fixed dense
+gradients, verifies 200 committed steps, finite outputs and a real parameter
+change, and publishes element throughput, mean step time, and CUDA allocator
+peaks. The default run collects one warmup plus five independent samples for
+SGD, Adam, AdamW, RMSprop, Adagrad, NAdam, Adadelta, and LAMB.
+
 ## Debug, Coverage, and Sanitizers
 
 Debug uses the same release CRT and iterator-debug level as LibTorch on Windows;

@@ -75,6 +75,41 @@ def _sample(mode: str, throughput: float = 1000.0) -> dict[str, object]:
     }
 
 
+def _optimizer_sample(
+    mode: str, throughput: float = 1000000.0
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "kind": "jyppx-cuda-optimizer-benchmark-sample",
+        "mode": mode,
+        "workload": {
+            "id": "jyppx.cuda.optimizer.dense/v1",
+            "digest": "fnv1a64:fedcba9876543210",
+            "seed": 7,
+            "steps": 10,
+            "parameter_count": 8,
+            "parameter_elements": 2048,
+            "dtype": "float32",
+            "gradient_policy": "fixed-dense-per-parameter/v1",
+            "option_profile": "stateful-representative/v1",
+        },
+        "build_fingerprint": _sample(
+            "cuda-fp32-single-sgd"
+        )["build_fingerprint"],
+        "cuda": _sample("cuda-fp32-single-sgd")["cuda"],
+        "runtime": {"intraop_threads": 1, "interop_threads": 1},
+        "result": {
+            "parameter_elements_per_second": throughput,
+            "mean_step_milliseconds": 2.0,
+            "peak_allocated_bytes": 4096,
+            "peak_reserved_bytes": 8192,
+            "completed_steps": 10,
+            "parameters_finite": True,
+            "parameters_changed": True,
+        },
+    }
+
+
 def _gpu_identity() -> dict[str, str]:
     return {
         "index": "0",
@@ -92,7 +127,7 @@ class CudaBaselineTest(unittest.TestCase):
     def test_builds_two_mode_report_with_eight_metrics(self) -> None:
         measured = {
             mode: [_sample(mode, 1000.0 + index) for index in range(5)]
-            for mode in run_cuda_baseline.SUPPORTED_MODES
+            for mode in run_cuda_baseline.TRAINING_MODES
         }
         warmups = {mode: [_sample(mode)] for mode in measured}
         report = run_cuda_baseline.build_raw_report(
@@ -109,6 +144,40 @@ class CudaBaselineTest(unittest.TestCase):
         sample["result"]["optimizer_steps"][1] = 9
         with self.assertRaisesRegex(ValueError, "optimizer step counter"):
             run_cuda_baseline.validate_sample(sample)
+
+    def test_builds_eight_mode_optimizer_report(self) -> None:
+        measured = {
+            mode: [_optimizer_sample(mode, 1000000.0 + index) for index in range(5)]
+            for mode in run_cuda_baseline.OPTIMIZER_MODES
+        }
+        warmups = {mode: [_optimizer_sample(mode)] for mode in measured}
+        report = run_cuda_baseline.build_raw_report(
+            measured,
+            warmups,
+            _gpu_identity(),
+            [{"status": "recorded"}],
+            suite="optimizer",
+        )
+        self.assertTrue(
+            report["environment_key"].startswith("jyppx-cuda-optimizer-v1:")
+        )
+        self.assertEqual(len(report["metrics"]), 32)
+        self.assertTrue(
+            all(len(metric["samples"]) == 5 for metric in report["metrics"])
+        )
+
+    def test_rejects_optimizer_without_semantic_postconditions(self) -> None:
+        sample = _optimizer_sample("cuda-fp32-optimizer-lamb")
+        sample["result"]["parameters_changed"] = False
+        with self.assertRaisesRegex(ValueError, "did not update"):
+            run_cuda_baseline.validate_sample(sample)
+
+    def test_rejects_mode_from_another_suite(self) -> None:
+        sample = _optimizer_sample("cuda-fp32-optimizer-adam")
+        with self.assertRaisesRegex(ValueError, "expected suite training"):
+            run_cuda_baseline.validate_sample(
+                sample, expected_suite="training"
+            )
 
     def test_rejects_cross_process_workload_change(self) -> None:
         first = _sample("cuda-fp32-single-sgd")

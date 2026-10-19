@@ -70,6 +70,16 @@ mean step time, and CUDA allocator peaks. The runner adds `nvidia-smi` driver,
 UUID, power-limit, persistence-mode and noise observations, then delegates CV
 and regression enforcement to `tools/baseline_stats.py`.
 
+`bench_cuda_optimizer` is also CUDA-only. Invoke the same runner with
+`--suite optimizer` to collect isolated FP32 update-path measurements for SGD,
+Adam, AdamW, RMSprop, Adagrad, NAdam, Adadelta, and LAMB. The frozen workload
+uses eight equal-size CUDA tensors, fixed dense gradients, a stateful option
+profile, 200 steps, and synchronized timing boundaries. A sample is rejected
+unless the adapter commits every step, changes at least one parameter, and
+leaves every parameter finite. Throughput and allocator results are regression
+references for the same algorithm and exact environment, never a ranking
+between algorithms.
+
 The 2026-10-18 RMSprop Windows Release sample (MSVC 19.44, LibTorch 2.14.1,
 CPU, 4096 float32 parameters, 2000 steps, two warmups, five paired samples)
 produced an adapter/native median ratio of `1.014278332`.

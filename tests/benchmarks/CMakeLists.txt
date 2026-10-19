@@ -20,4 +20,5 @@ endif()
 # CPU-only LibTorch builds rather than compiling a benchmark that can only skip.
 if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
     jyppx_add_bench(jyppx_bench_cuda_training bench_cuda_training.cpp)
+    jyppx_add_bench(jyppx_bench_cuda_optimizer bench_cuda_optimizer.cpp)
 endif()

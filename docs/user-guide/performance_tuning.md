@@ -83,3 +83,11 @@ step time, peak allocated VRAM, and peak reserved VRAM. Timing is enclosed by
 CUDA synchronization. The runner keeps raw process output, samples transient
 GPU state, requires at least five stable samples per mode, and binds references
 to the complete build/workload/GPU environment.
+
+For optimizer-only diagnosis, build `jyppx_bench_cuda_optimizer` and pass
+`--suite optimizer` to the same runner. This removes data loading, model
+forward/backward, and Trainer orchestration from the timed region while keeping
+real CUDA synchronization and allocator peaks. It runs all eight optimizers by
+default. Compare each mode only with a reference created from the same mode and
+environment key; absolute timings across algorithms reflect different update
+semantics and state sizes and are not directly interchangeable.

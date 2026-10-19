@@ -4,7 +4,7 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 
-"""Collect environment-bound CUDA Trainer performance samples."""
+"""Collect environment-bound CUDA training and optimizer samples."""
 
 from __future__ import annotations
 
@@ -21,20 +21,51 @@ from pathlib import Path
 from typing import Any
 
 
-SUPPORTED_MODES = (
+TRAINING_MODES = (
     "cuda-fp32-single-sgd",
     "cuda-fp16-multi-sgd-amp",
+)
+OPTIMIZER_MODES = tuple(
+    f"cuda-fp32-optimizer-{algorithm}"
+    for algorithm in (
+        "sgd",
+        "adam",
+        "adamw",
+        "rmsprop",
+        "adagrad",
+        "nadam",
+        "adadelta",
+        "lamb",
+    )
 )
 EXPECTED_OPTIMIZERS = {
     "cuda-fp32-single-sgd": 1,
     "cuda-fp16-multi-sgd-amp": 2,
 }
-METRICS = (
+TRAINING_METRICS = (
     ("samples_per_second", "higher", "samples_per_second"),
     ("mean_step_milliseconds", "lower", "milliseconds"),
     ("peak_allocated_bytes", "lower", "bytes"),
     ("peak_reserved_bytes", "lower", "bytes"),
 )
+OPTIMIZER_METRICS = (
+    ("parameter_elements_per_second", "higher", "elements_per_second"),
+    ("mean_step_milliseconds", "lower", "milliseconds"),
+    ("peak_allocated_bytes", "lower", "bytes"),
+    ("peak_reserved_bytes", "lower", "bytes"),
+)
+SUITE_MODES = {
+    "training": TRAINING_MODES,
+    "optimizer": OPTIMIZER_MODES,
+}
+SUITE_KINDS = {
+    "training": "jyppx-cuda-training-benchmark-sample",
+    "optimizer": "jyppx-cuda-optimizer-benchmark-sample",
+}
+SUITE_METRICS = {
+    "training": TRAINING_METRICS,
+    "optimizer": OPTIMIZER_METRICS,
+}
 BUILD_FIELDS = (
     "jyppx_version",
     "git_commit",
@@ -52,17 +83,23 @@ BUILD_FIELDS = (
 def _parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run independent CUDA Trainer benchmark processes and enforce "
+            "Run independent CUDA benchmark processes and enforce "
             "stable, environment-bound statistics."
         )
+    )
+    parser.add_argument(
+        "--suite",
+        choices=tuple(SUITE_MODES),
+        default="training",
+        help="Benchmark protocol to collect (default: training)",
     )
     parser.add_argument("--benchmark", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument(
         "--mode",
         action="append",
-        choices=SUPPORTED_MODES,
-        help="Mode to collect; repeat to select modes (default: both)",
+        choices=TRAINING_MODES + OPTIMIZER_MODES,
+        help="Mode to collect; repeat to select modes (default: every suite mode)",
     )
     parser.add_argument("--samples", type=int, default=5)
     parser.add_argument("--warmup", type=int, default=1)
@@ -106,16 +143,28 @@ def _object(value: Any, label: str) -> dict[str, Any]:
     return value
 
 
+def _sample_suite(sample: dict[str, Any]) -> str:
+    """Return the suite named by a sample kind."""
+    kind = sample.get("kind")
+    for suite, expected_kind in SUITE_KINDS.items():
+        if kind == expected_kind:
+            return suite
+    raise ValueError("sample kind is not a supported CUDA benchmark sample")
+
+
 def validate_sample(
-    sample: dict[str, Any], expected_mode: str | None = None
+    sample: dict[str, Any],
+    expected_mode: str | None = None,
+    expected_suite: str | None = None,
 ) -> dict[str, Any]:
     """Validate one benchmark document and return its stable identity."""
     if sample.get("schema_version") != 1:
         raise ValueError("sample schema_version must be 1")
-    if sample.get("kind") != "jyppx-cuda-training-benchmark-sample":
-        raise ValueError("sample kind is not a CUDA training benchmark sample")
+    suite = _sample_suite(sample)
+    if expected_suite is not None and suite != expected_suite:
+        raise ValueError(f"expected suite {expected_suite}, received {suite}")
     mode = _nonempty_string(sample.get("mode"), "sample mode")
-    if mode not in SUPPORTED_MODES:
+    if mode not in SUITE_MODES[suite]:
         raise ValueError(f"unsupported sample mode: {mode}")
     if expected_mode is not None and mode != expected_mode:
         raise ValueError(f"expected mode {expected_mode}, received {mode}")
@@ -123,20 +172,31 @@ def validate_sample(
     workload = _object(sample.get("workload"), "workload")
     _nonempty_string(workload.get("id"), "workload.id")
     _nonempty_string(workload.get("digest"), "workload.digest")
-    for field in (
-        "seed",
-        "batch_size",
-        "steps",
-        "sample_count",
-        "input_features",
-        "hidden_features",
-        "output_features",
-        "worker_count",
-        "prefetch_batches",
-    ):
+    integer_fields = (
+        (
+            "seed",
+            "batch_size",
+            "steps",
+            "sample_count",
+            "input_features",
+            "hidden_features",
+            "output_features",
+            "worker_count",
+            "prefetch_batches",
+        )
+        if suite == "training"
+        else ("seed", "steps", "parameter_count", "parameter_elements")
+    )
+    for field in integer_fields:
         _positive_integer(workload.get(field), f"workload.{field}")
-    if workload["sample_count"] != workload["batch_size"] * workload["steps"]:
+    if suite == "training" and workload["sample_count"] != (
+        workload["batch_size"] * workload["steps"]
+    ):
         raise ValueError("workload.sample_count must equal batch_size * steps")
+    if suite == "optimizer":
+        _nonempty_string(workload.get("dtype"), "workload.dtype")
+        _nonempty_string(workload.get("gradient_policy"), "workload.gradient_policy")
+        _nonempty_string(workload.get("option_profile"), "workload.option_profile")
 
     build = _object(sample.get("build_fingerprint"), "build_fingerprint")
     for field in BUILD_FIELDS:
@@ -160,32 +220,43 @@ def validate_sample(
     _positive_integer(runtime.get("interop_threads"), "runtime.interop_threads")
 
     result = _object(sample.get("result"), "result")
-    for field, _, _ in METRICS:
+    for field, _, _ in SUITE_METRICS[suite]:
         _positive_number(result.get(field), f"result.{field}")
     steps = workload["steps"]
-    if result.get("global_step") != steps:
-        raise ValueError("result.global_step does not match workload.steps")
-    optimizer_steps = result.get("optimizer_steps")
-    expected_optimizers = EXPECTED_OPTIMIZERS[mode]
-    if not isinstance(optimizer_steps, list) or len(optimizer_steps) != expected_optimizers:
-        raise ValueError(
-            f"{mode} requires exactly {expected_optimizers} optimizer step counters"
-        )
-    if any(value != steps for value in optimizer_steps):
-        raise ValueError("every optimizer step counter must match workload.steps")
+    if suite == "training":
+        if result.get("global_step") != steps:
+            raise ValueError("result.global_step does not match workload.steps")
+        optimizer_steps = result.get("optimizer_steps")
+        expected_optimizers = EXPECTED_OPTIMIZERS[mode]
+        if not isinstance(optimizer_steps, list) or (
+            len(optimizer_steps) != expected_optimizers
+        ):
+            raise ValueError(
+                f"{mode} requires exactly {expected_optimizers} optimizer step counters"
+            )
+        if any(value != steps for value in optimizer_steps):
+            raise ValueError("every optimizer step counter must match workload.steps")
 
-    scaler = result.get("grad_scaler")
-    if mode == "cuda-fp16-multi-sgd-amp":
-        scaler_object = _object(scaler, "result.grad_scaler")
-        if scaler_object.get("enabled") is not True:
-            raise ValueError("AMP sample requires an enabled GradScaler")
-        _positive_number(scaler_object.get("scale"), "result.grad_scaler.scale")
-        if scaler_object.get("checkpoint_ready") is not True:
-            raise ValueError("AMP sample GradScaler is not checkpoint-ready")
-    elif scaler is not None:
-        raise ValueError("full-precision sample must not publish GradScaler state")
+        scaler = result.get("grad_scaler")
+        if mode == "cuda-fp16-multi-sgd-amp":
+            scaler_object = _object(scaler, "result.grad_scaler")
+            if scaler_object.get("enabled") is not True:
+                raise ValueError("AMP sample requires an enabled GradScaler")
+            _positive_number(scaler_object.get("scale"), "result.grad_scaler.scale")
+            if scaler_object.get("checkpoint_ready") is not True:
+                raise ValueError("AMP sample GradScaler is not checkpoint-ready")
+        elif scaler is not None:
+            raise ValueError("full-precision sample must not publish GradScaler state")
+    else:
+        if result.get("completed_steps") != steps:
+            raise ValueError("result.completed_steps does not match workload.steps")
+        if result.get("parameters_finite") is not True:
+            raise ValueError("optimizer sample contains non-finite parameters")
+        if result.get("parameters_changed") is not True:
+            raise ValueError("optimizer sample did not update its parameters")
 
     return {
+        "suite": suite,
         "mode": mode,
         "workload": workload,
         "build_fingerprint": build,
@@ -263,7 +334,7 @@ def _query_gpu_noise(device_index: int) -> dict[str, str]:
 
 
 def _run_process(
-    benchmark: Path, mode: str, output_dir: Path, label: str
+    benchmark: Path, suite: str, mode: str, output_dir: Path, label: str
 ) -> dict[str, Any]:
     completed = subprocess.run(
         [str(benchmark), "--mode", mode],
@@ -290,7 +361,7 @@ def _run_process(
         raise ValueError(f"benchmark {label} did not emit one JSON document") from error
     if not isinstance(sample, dict):
         raise ValueError(f"benchmark {label} output must be a JSON object")
-    validate_sample(sample, mode)
+    validate_sample(sample, mode, suite)
     return sample
 
 
@@ -299,20 +370,28 @@ def build_raw_report(
     warmups: dict[str, list[dict[str, Any]]],
     gpu_identity: dict[str, str],
     noise: list[dict[str, str]],
+    suite: str | None = None,
 ) -> dict[str, Any]:
     """Build a baseline_stats-compatible report after identity validation."""
     if not measured:
         raise ValueError("at least one measured mode is required")
+    first_samples = next(iter(measured.values()))
+    if not first_samples:
+        raise ValueError("measured modes must contain at least one sample")
+    first_sample = first_samples[0]
+    resolved_suite = _sample_suite(first_sample) if suite is None else suite
+    if resolved_suite not in SUITE_MODES:
+        raise ValueError(f"unsupported benchmark suite: {resolved_suite}")
     identities: dict[str, dict[str, Any]] = {}
     metric_rows: list[dict[str, Any]] = []
     for mode, samples in measured.items():
-        if mode not in SUPPORTED_MODES or not samples:
+        if mode not in SUITE_MODES[resolved_suite] or not samples:
             raise ValueError(f"invalid or empty measured mode: {mode}")
         all_samples = list(warmups.get(mode, [])) + samples
-        expected_identity = validate_sample(all_samples[0], mode)
+        expected_identity = validate_sample(all_samples[0], mode, resolved_suite)
         expected_canonical = _canonical_json(expected_identity)
         for sample in all_samples[1:]:
-            identity = validate_sample(sample, mode)
+            identity = validate_sample(sample, mode, resolved_suite)
             if _canonical_json(identity) != expected_canonical:
                 raise ValueError(f"{mode} changed identity between processes")
         if expected_identity["cuda"]["device_name"] != gpu_identity.get("name"):
@@ -320,10 +399,10 @@ def build_raw_report(
                 f"{mode} CUDA device name differs from nvidia-smi identity"
             )
         identities[mode] = expected_identity
-        for field, direction, unit in METRICS:
+        for field, direction, unit in SUITE_METRICS[resolved_suite]:
             metric_rows.append(
                 {
-                    "name": f"training.{mode}.{field}",
+                    "name": f"{resolved_suite}.{mode}.{field}",
                     "direction": direction,
                     "unit": unit,
                     "samples": [sample["result"][field] for sample in samples],
@@ -351,7 +430,7 @@ def build_raw_report(
     ).hexdigest()
     return {
         "schema_version": 1,
-        "environment_key": f"jyppx-cuda-training-v1:{environment_digest}",
+        "environment_key": f"jyppx-cuda-{resolved_suite}-v1:{environment_digest}",
         "metadata": {
             "protocol": {
                 "independent_processes": True,
@@ -438,7 +517,12 @@ def main() -> int:
         raise ValueError(f"baseline statistics tool does not exist: {baseline_stats}")
     args.baseline_stats = baseline_stats
     args.output_dir = _prepare_output_directory(args.output_dir)
-    modes = tuple(dict.fromkeys(args.mode or SUPPORTED_MODES))
+    modes = tuple(dict.fromkeys(args.mode or SUITE_MODES[args.suite]))
+    invalid_modes = tuple(mode for mode in modes if mode not in SUITE_MODES[args.suite])
+    if invalid_modes:
+        raise ValueError(
+            f"suite {args.suite} does not support mode(s): {', '.join(invalid_modes)}"
+        )
 
     identity_before = _query_gpu_identity(args.device_index)
     noise = [_query_gpu_noise(args.device_index)]
@@ -449,6 +533,7 @@ def main() -> int:
             warmups[mode].append(
                 _run_process(
                     benchmark,
+                    args.suite,
                     mode,
                     args.output_dir,
                     f"warmup-{mode}-{index}",
@@ -458,6 +543,7 @@ def main() -> int:
             measured[mode].append(
                 _run_process(
                     benchmark,
+                    args.suite,
                     mode,
                     args.output_dir,
                     f"sample-{mode}-{index}",
@@ -468,7 +554,9 @@ def main() -> int:
     identity_after = _query_gpu_identity(args.device_index)
     if identity_after != identity_before:
         raise ValueError("nvidia-smi identity changed during the benchmark run")
-    report = build_raw_report(measured, warmups, identity_before, noise)
+    report = build_raw_report(
+        measured, warmups, identity_before, noise, suite=args.suite
+    )
     samples_path = args.output_dir / "samples.json"
     _write_json(samples_path, report)
     _run_statistics(args, samples_path)
