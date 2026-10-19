@@ -567,6 +567,31 @@
             "source": "clean detached checkout at eb244bc3d2e7d0da172d3ffefbf0d44e96699058"
           },
           "commit": "eb244bc"
+        },
+        {
+          "id": "local-ubuntu-gcc-cuda-cu124-training-performance-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA GeForce RTX 2060 sm_75; driver 580.178.04; LibTorch 2.5.1+cu124",
+          "build_type": "Release",
+          "tests": "593/593; 0 skipped; CUDA performance 1 warmup + 5 independent samples per mode",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; TORCH_CUDA_ARCH_LIST=7.5; all project targets -Werror; clang-format 14",
+          "quality_evidence": {
+            "environment_key": "jyppx-cuda-training-v1:41a80df4c8f675333db0fbc68ce3f1f0899d40949b605b09704754030ea1ebaf",
+            "build_fingerprint": "git 7e69ed8210f7782bee034f4502a050601927997f; cuda-cu124-cxx11-abi1; CUDA available:1; dependency lock bab5f0b0425373992bb0219aae0770e376cc8b524be5f9fe2b05d698f7c5a64c",
+            "gpu_identity": "GPU-21ab6639-1a66-b8da-6755-6b7ddda5c17f; power limit unavailable; persistence mode disabled",
+            "workload": "jyppx.cuda.training.mlp/v1; fnv1a64:0c3dfb544ba8d0ca; batch 128; 200 steps; 25600 samples; 2 workers; prefetch 4",
+            "full_cuda_ctest": "593/593 passed; zero skipped; install consumer, repository hygiene and CUDA runner unit tests included",
+            "fp32_single_sgd": "median 33211.427 samples/s; 3.854095 ms/step; CV 0.212%; peak allocated 101616640 bytes; peak reserved 123731968 bytes",
+            "fp16_multi_sgd_amp": "median 27303.659 samples/s; 4.688016 ms/step; max CV 0.806%; peak allocated 101616640 bytes; peak reserved 119537664 bytes",
+            "stability_gate": "all eight metrics passed CV <= 10%; reference regression allowance max(10%, 3 * reference CV) resolved to 10%",
+            "sample_sha256": "01c77804672479771bde12c9f43a26c0f3c406f59f9082fb5caa125e72ca51ba",
+            "statistics_sha256": "4c3ecc7ffffc5e1dceaf88f5605ed5df7ca8813d9eb985049e27c80e97a2e8a5",
+            "reference_sha256": "8facf76e40141251e0af07e3e7cd17cbb36ac8f4e4d0f0daffc8a961e3e51d4b",
+            "source": "clean branch checkout at 7e69ed8210f7782bee034f4502a050601927997f"
+          },
+          "commit": "7e69ed8"
         }
       ]
     }

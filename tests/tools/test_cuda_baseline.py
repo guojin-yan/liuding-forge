@@ -136,6 +136,23 @@ class CudaBaselineTest(unittest.TestCase):
         )
         self.assertNotEqual(first["environment_key"], second["environment_key"])
 
+    def test_rejects_nonzero_process_visible_device(self) -> None:
+        original = sys.argv
+        try:
+            sys.argv = [
+                "run_cuda_baseline.py",
+                "--benchmark",
+                __file__,
+                "--output-dir",
+                str(Path(__file__).parent / "unused-output"),
+                "--device-index",
+                "1",
+            ]
+            with self.assertRaisesRegex(ValueError, "must be 0"):
+                run_cuda_baseline.main()
+        finally:
+            sys.argv = original
+
 
 if __name__ == "__main__":
     unittest.main()

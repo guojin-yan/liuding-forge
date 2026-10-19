@@ -426,8 +426,8 @@ def main() -> int:
         raise ValueError("--samples must be at least 5 for the CUDA gate")
     if args.warmup < 1:
         raise ValueError("--warmup must be at least 1")
-    if args.device_index < 0:
-        raise ValueError("--device-index must be non-negative")
+    if args.device_index != 0:
+        raise ValueError("--device-index must be 0 because the benchmark uses cuda:0")
     if args.reference is not None and args.write_reference is not None:
         raise ValueError("--reference and --write-reference are mutually exclusive")
     benchmark = args.benchmark.resolve()
