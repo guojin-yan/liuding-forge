@@ -426,6 +426,28 @@
           "commit": "537935f"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-capability-manifest-data-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "28/28 foundation and 119/119 data target tests; 0 skipped; 3 capability/CUDA paths repeated 20 times",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; CMAKE_CUDA_ARCHITECTURES=75; foundation/data targets -Werror; Doxygen 1.9.1 strict gate",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75, CUDA standard 17 and project C++ standard 20",
+            "build": "foundation, data and complete installable framework targets passed with warnings as errors",
+            "cuda_targets": "foundation 28/28 and complete data target 119/119 executed with CUDA LibTorch on RTX 2060; zero skipped",
+            "manifest_contract": "schema v1 enforces exact build fingerprint binding, stable ASCII identifiers, valid UTF-8 text, bounded collections, duplicate rejection, unsupported-feature consistency, typed numeric limits and deterministic JSON",
+            "data_mapping": "validated configured map and iterable pipeline facts publish source style, schema identity/fingerprint, dtype/device scope, worker/shard/stream operations, restore guarantee and finite numeric limits without inferred process-worker support",
+            "repeated_regression": "map descriptor, map CUDA checkpoint and iterable CUDA transfer/restore paths repeated 20 times without failure or skip",
+            "install_consumer": "installed package compiled, linked and executed the public capability manifest and configured data descriptor APIs",
+            "source_quality": "clang-format dry-run, strict migrated API Doxygen and compatibility JSON validation passed",
+            "source": "feature implementation commit 4cbc3ed7b774b5160fba9f703624fbc18be9bc9f"
+          },
+          "commit": "4cbc3ed"
+        },
+        {
           "id": "local-ubuntu-gcc-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
