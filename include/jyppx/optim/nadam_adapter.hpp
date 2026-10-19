@@ -192,6 +192,8 @@ struct NAdamOptimizerCheckpointOptions {
       4096;  ///< Positive maximum bytes in one stable identity.
   std::uint64_t max_topology_bytes =
       64ULL * 1024ULL * 1024ULL;  ///< Maximum immutable descriptor size.
+  std::uint64_t max_producer_bytes =
+      4096;  ///< Maximum producer/runtime compatibility metadata size.
   std::uint64_t max_control_bytes =
       16ULL * 1024ULL * 1024ULL;  ///< Maximum mutable metadata size.
   std::uint64_t max_tensor_bytes =
@@ -205,11 +207,14 @@ struct NAdamOptimizerCheckpointOptions {
 /**
  * @brief Exposes native NAdam state through the exact checkpoint contract.
  *
- * Schema version 1 stores stable topology, completed adapter steps, current
- * learning rates, per-parameter steps, momentum products, and both moment
- * tensors. Topology includes stable IDs, tensor descriptors, all immutable
- * NAdam/NAdamW options, and the compile-time LibTorch version. Pointer keys and
- * legacy optimizer maps are never persisted.
+ * The current writer emits schema version 2 with stable topology, bounded
+ * producer/runtime provenance, completed adapter steps, current learning
+ * rates, per-parameter steps, momentum products, and both moment tensors.
+ * Topology includes stable IDs, tensor descriptors, all immutable
+ * NAdam/NAdamW options, and the compile-time LibTorch version. The reader
+ * accepts the immediately prior schema version 1 as an explicit migration
+ * input; schema version 1 has no producer field. Pointer keys and legacy
+ * optimizer maps are never persisted.
  *
  * Restore validates every field and allocates all candidate tensors before a
  * nothrow state-map swap. Failure before commit leaves the optimizer unchanged.
@@ -234,14 +239,14 @@ class NAdamOptimizerCheckpointParticipant final : public CheckpointParticipant {
 
   /**
    * @brief Describes exact topology, control, and moment state fields.
-   * @return An exact schema-version-1 optimizer manifest.
+   * @return An exact current schema-version-2 optimizer manifest.
    * @throws InvalidArgument If current native state violates the descriptor.
    * @throws ResourceExhausted If state exceeds a configured limit.
    */
   StateManifest describe_state() const override;
 
   /**
-   * @brief Writes current-only storage-neutral NAdam state.
+   * @brief Writes current schema-version-2 storage-neutral NAdam state.
    * @param writer Storage-neutral destination supplied by the coordinator.
    * @throws SerializationError If native state cannot be represented.
    * @throws ResourceExhausted If state exceeds a configured limit.
@@ -250,9 +255,15 @@ class NAdamOptimizerCheckpointParticipant final : public CheckpointParticipant {
   void save_state(StateWriter& writer) const override;
 
   /**
-   * @brief Validates and atomically restores current-only NAdam state.
-   * @param reader Source containing schema-version-1 NAdam state.
+   * @brief Validates and atomically restores current or N-1 NAdam state.
+   * @param reader Source containing current schema-version-2 or N-1
+   * schema-version-1 NAdam state.
    * @param policy Restore policy that must accept exact state.
+   * @throws CompatibilityError If manifest, policy, or topology differs.
+   * @throws SerializationError If a required field is malformed.
+   * @throws InvalidArgument If checkpoint resource options are invalid.
+   * @throws ResourceExhausted If decoded state exceeds a configured limit.
+   * @throws BackendError If LibTorch cannot allocate restored state.
    */
   void load_state(const StateReader& reader, RestorePolicy policy) override;
 

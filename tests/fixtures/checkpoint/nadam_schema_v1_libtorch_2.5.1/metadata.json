@@ -1,0 +1,118 @@
+{
+  "fixture_schema": 1,
+  "participant_id": "optimizer.nadam.fixture",
+  "participant_schema": 1,
+  "restore_level": "exact",
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "cdd3bb68967d536cdd878812ead62ffa043c96a4",
+    "libtorch_version": "2.5.1",
+    "writer": "NAdamOptimizerCheckpointParticipant schema-v1 writer"
+  },
+  "scenario": {
+    "dtype": "float64",
+    "device": "cpu",
+    "shape": [3],
+    "completed_steps": 3,
+    "groups": [
+      {
+        "group_id": "coupled",
+        "parameter_id": "weight",
+        "initial_parameter": [1.25, -0.5, 0.75],
+        "learning_rate": 0.012,
+        "saved_learning_rate": 0.005,
+        "betas": [0.83, 0.97],
+        "epsilon": 0.0000001,
+        "weight_decay": 0.03,
+        "momentum_decay": 0.006,
+        "decoupled_weight_decay": false,
+        "maximize": false,
+        "gradients": [
+          [0.2, -0.1, 0.05],
+          [0.4, -0.2, 0.1],
+          [0.6, -0.3, 0.15]
+        ]
+      },
+      {
+        "group_id": "decoupled",
+        "parameter_id": "bias",
+        "initial_parameter": [-0.75, 0.25, 1.5],
+        "learning_rate": 0.004,
+        "saved_learning_rate": 0.003,
+        "betas": [0.91, 0.995],
+        "epsilon": 0.000000001,
+        "weight_decay": 0.02,
+        "momentum_decay": 0.002,
+        "decoupled_weight_decay": true,
+        "maximize": true,
+        "gradients": [
+          [-0.15, 0.08, 0.12],
+          null,
+          [-0.45, 0.24, 0.36]
+        ]
+      }
+    ]
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/vnd.jyppx.nadam-topology-v1",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 250,
+      "decoded_size": 250,
+      "sha256": "5f319d4f3f13f5bc58790c1152d96c3407c35cfed32e3868ea084737183f1c3c"
+    },
+    {
+      "name": "control",
+      "media_type": "application/vnd.jyppx.nadam-control-v1",
+      "required": true,
+      "file": "control.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 78,
+      "decoded_size": 78,
+      "sha256": "32f1d5356de0ef885b1acd5a3e16410908a95611c89e86c306bf3fdb68400b58"
+    },
+    {
+      "name": "exp_avg.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "exp_avg.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "e7c621156efeac126c3d7fa08b8b5fe2aae6eb14aadc3ed7d099b42a6f88b056"
+    },
+    {
+      "name": "exp_avg.0000000001",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "exp_avg.0000000001.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "1fe3d80acbe939cee47c4b9bb451edc5001b826c8082f415395e14ecf8c7c54a"
+    },
+    {
+      "name": "exp_avg_sq.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "exp_avg_sq.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "5aed8d99402d0e40a8c552b64cf778b0637225398a73c5feb282433e6dead9ab"
+    },
+    {
+      "name": "exp_avg_sq.0000000001",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "exp_avg_sq.0000000001.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "0c5bb902ef9002c8cdbabbe3e43461496437249042ba100c83c1636eb28d0ff2"
+    }
+  ]
+}

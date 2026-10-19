@@ -6,10 +6,14 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/optim/nadam_adapter.hpp>
 
+#include <torch/version.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <limits>
 #include <map>
@@ -27,6 +31,7 @@ using jyppx::StateManifest;
 using jyppx::Tensor;
 using jyppx::optim::NAdamAdapterOptions;
 using jyppx::optim::NAdamOptimizerAdapter;
+using jyppx::optim::NAdamOptimizerCheckpointOptions;
 using jyppx::optim::NAdamOptimizerCheckpointParticipant;
 using jyppx::optim::NAdamParameterGroup;
 
@@ -70,6 +75,12 @@ class MemoryStateStore final : public jyppx::StateWriter,
     blobs_[std::move(name)] = std::move(bytes);
   }
 
+  /** @brief Removes one field to exercise required-field migration checks. */
+  void erase(std::string_view name) { blobs_.erase(std::string(name)); }
+
+  /** @brief Replaces the stored manifest without changing owned field bytes. */
+  void set_manifest(StateManifest manifest) { manifest_ = std::move(manifest); }
+
  private:
   StateManifest manifest_;  ///< Stored participant state contract.
   std::map<std::string, std::vector<std::byte>> blobs_;  ///< Owned blobs.
@@ -105,6 +116,126 @@ void assign_gradient(const Tensor& parameter, std::int64_t step,
                      double phase = 0.0) {
   parameter.mutable_grad() = torch::sin(
       parameter.detach() * 0.17 + static_cast<double>(step) * 0.03 + phase);
+}
+
+StateManifest make_schema_v1_manifest(const StateManifest& current) {
+  StateManifest legacy = current;
+  legacy.schema_version = 1;
+  const auto producer =
+      std::find_if(legacy.fields.begin(), legacy.fields.end(),
+                   [](const jyppx::StateFieldDescriptor& field) {
+                     return field.name == "producer";
+                   });
+  EXPECT_NE(producer, legacy.fields.end());
+  if (producer != legacy.fields.end()) {
+    legacy.fields.erase(producer);
+  }
+  return legacy;
+}
+
+void copy_parameter(const Tensor& source, Tensor& destination) {
+  torch::NoGradGuard no_grad;
+  destination.copy_(source);
+}
+
+std::vector<std::byte> read_base64_fixture(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  std::string encoded;
+  std::string trailing;
+  if (!(input >> encoded) || (input >> trailing) || encoded.empty() ||
+      encoded.size() % 4 != 0) {
+    throw std::runtime_error("invalid NAdam checkpoint fixture: " +
+                             path.string());
+  }
+  constexpr std::string_view alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const auto decode = [&](char value) -> std::uint32_t {
+    const auto position = alphabet.find(value);
+    if (position == std::string_view::npos) {
+      throw std::runtime_error("invalid NAdam checkpoint fixture byte: " +
+                               path.string());
+    }
+    return static_cast<std::uint32_t>(position);
+  };
+  std::vector<std::byte> decoded;
+  decoded.reserve((encoded.size() / 4) * 3);
+  for (std::size_t offset = 0; offset < encoded.size(); offset += 4) {
+    const auto final_group = offset + 4 == encoded.size();
+    const auto third_padding = encoded[offset + 2] == '=';
+    const auto fourth_padding = encoded[offset + 3] == '=';
+    if (encoded[offset] == '=' || encoded[offset + 1] == '=' ||
+        (!final_group && (third_padding || fourth_padding)) ||
+        (third_padding && !fourth_padding)) {
+      throw std::runtime_error("invalid NAdam checkpoint fixture padding: " +
+                               path.string());
+    }
+    const auto packed =
+        (decode(encoded[offset]) << 18U) |
+        (decode(encoded[offset + 1]) << 12U) |
+        (third_padding ? 0U : decode(encoded[offset + 2]) << 6U) |
+        (fourth_padding ? 0U : decode(encoded[offset + 3]));
+    decoded.push_back(
+        std::byte{static_cast<unsigned char>((packed >> 16U) & 0xFFU)});
+    if (!third_padding) {
+      decoded.push_back(
+          std::byte{static_cast<unsigned char>((packed >> 8U) & 0xFFU)});
+    }
+    if (!fourth_padding) {
+      decoded.push_back(std::byte{static_cast<unsigned char>(packed & 0xFFU)});
+    }
+  }
+  return decoded;
+}
+
+std::vector<NAdamParameterGroup> make_fixture_groups(
+    const Tensor& coupled_parameter, const Tensor& decoupled_parameter,
+    double coupled_rate = 0.012, double decoupled_rate = 0.004) {
+  return {make_group("coupled", "weight", coupled_parameter,
+                     {.learning_rate = coupled_rate,
+                      .beta1 = 0.83,
+                      .beta2 = 0.97,
+                      .epsilon = 1e-7,
+                      .weight_decay = 0.03,
+                      .momentum_decay = 0.006}),
+          make_group("decoupled", "bias", decoupled_parameter,
+                     {.learning_rate = decoupled_rate,
+                      .beta1 = 0.91,
+                      .beta2 = 0.995,
+                      .epsilon = 1e-9,
+                      .weight_decay = 0.02,
+                      .momentum_decay = 0.002,
+                      .decoupled_weight_decay = true,
+                      .maximize = true})};
+}
+
+void apply_fixture_gradients(const Tensor& coupled_parameter,
+                             const Tensor& decoupled_parameter,
+                             std::int64_t step) {
+  coupled_parameter.mutable_grad() = torch::tensor(
+      {0.2 * static_cast<double>(step), -0.1 * static_cast<double>(step),
+       0.05 * static_cast<double>(step)},
+      coupled_parameter.options().requires_grad(false));
+  if (step == 2) {
+    decoupled_parameter.mutable_grad() = Tensor();
+  } else {
+    decoupled_parameter.mutable_grad() = torch::tensor(
+        {-0.15 * static_cast<double>(step), 0.08 * static_cast<double>(step),
+         0.12 * static_cast<double>(step)},
+        decoupled_parameter.options().requires_grad(false));
+  }
+}
+
+MemoryStateStore load_canonical_schema_v1_fixture(
+    const NAdamOptimizerCheckpointParticipant& participant) {
+  MemoryStateStore fixture(
+      make_schema_v1_manifest(participant.describe_state()));
+  const auto fixture_dir = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
+                           "checkpoint" / "nadam_schema_v1_libtorch_2.5.1";
+  for (const auto& field : fixture.manifest().fields) {
+    fixture.replace(field.name, read_base64_fixture(fixture_dir /
+                                                    (field.name + ".bin.b64")));
+  }
+  return fixture;
 }
 
 void update_reference(ScalarNAdamState& state, double gradient,
@@ -376,6 +507,163 @@ TEST(NAdamOptimizerAdapterTest, MalformedCheckpointLeavesStateUnchanged) {
 }
 
 TEST(NAdamOptimizerAdapterTest,
+     MigratesSchemaV1MomentumProductAndContinuesExactly) {
+  torch::manual_seed(20261019);
+  auto uninterrupted = make_parameter({6, 3});
+  auto resumed = uninterrupted.detach().clone().set_requires_grad(true);
+  const NAdamAdapterOptions options{.learning_rate = 2e-3,
+                                    .beta1 = 0.87,
+                                    .beta2 = 0.98,
+                                    .epsilon = 1e-7,
+                                    .weight_decay = 0.015,
+                                    .momentum_decay = 0.007,
+                                    .decoupled_weight_decay = true,
+                                    .maximize = true};
+  auto first = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam", std::vector<NAdamParameterGroup>{make_group(
+                             "main", "weight", uninterrupted, options)});
+  auto second = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam", std::vector<NAdamParameterGroup>{
+                             make_group("main", "weight", resumed, options)});
+  NAdamOptimizerCheckpointParticipant first_state(first);
+  NAdamOptimizerCheckpointParticipant second_state(second);
+
+  for (std::int64_t step = 0; step < 19; ++step) {
+    assign_gradient(uninterrupted, step, 0.4);
+    first->step();
+  }
+  MemoryStateStore store(first_state.describe_state());
+  first_state.save_state(store);
+  const auto current_manifest = store.manifest();
+  store.erase("producer");
+  store.set_manifest(make_schema_v1_manifest(current_manifest));
+
+  copy_parameter(uninterrupted, resumed);
+  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(second->completed_steps(), first->completed_steps());
+  EXPECT_EQ(second->learning_rates(), first->learning_rates());
+
+  for (std::int64_t step = 19; step < 57; ++step) {
+    assign_gradient(uninterrupted, step, 0.4);
+    resumed.mutable_grad() = uninterrupted.grad().clone();
+    first->step();
+    second->step();
+  }
+  EXPECT_TRUE(torch::equal(uninterrupted, resumed));
+  EXPECT_EQ(second->completed_steps(), first->completed_steps());
+}
+
+TEST(NAdamOptimizerAdapterTest,
+     MigratesCanonicalSchemaV1FixtureFromLibtorch251) {
+  if (TORCH_VERSION_MAJOR != 2 || TORCH_VERSION_MINOR != 5 ||
+      TORCH_VERSION_PATCH != 1) {
+    GTEST_SKIP() << "canonical fixture requires exact LibTorch 2.5.1";
+  }
+  auto expected_coupled = torch::tensor(
+      {1.25, -0.5, 0.75},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto expected_decoupled = torch::tensor(
+      {-0.75, 0.25, 1.5},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto expected = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam.fixture",
+      make_fixture_groups(expected_coupled, expected_decoupled));
+  for (std::int64_t step = 1; step <= 3; ++step) {
+    apply_fixture_gradients(expected_coupled, expected_decoupled, step);
+    expected->step();
+  }
+  expected->set_learning_rates({0.005, 0.003});
+
+  auto resumed_coupled =
+      expected_coupled.detach().clone().set_requires_grad(true);
+  auto resumed_decoupled =
+      expected_decoupled.detach().clone().set_requires_grad(true);
+  auto resumed = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam.fixture",
+      make_fixture_groups(resumed_coupled, resumed_decoupled, 0.9, 0.8));
+  NAdamOptimizerCheckpointParticipant resumed_participant(resumed);
+  const auto fixture = load_canonical_schema_v1_fixture(resumed_participant);
+  resumed_participant.load_state(fixture, jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(resumed->completed_steps(), 3U);
+  EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.005, 0.003}));
+
+  apply_fixture_gradients(expected_coupled, expected_decoupled, 4);
+  resumed_coupled.mutable_grad() = expected_coupled.grad().clone();
+  resumed_decoupled.mutable_grad() = expected_decoupled.grad().clone();
+  expected->step();
+  resumed->step();
+  EXPECT_TRUE(torch::equal(expected_coupled, resumed_coupled));
+  EXPECT_TRUE(torch::equal(expected_decoupled, resumed_decoupled));
+}
+
+TEST(NAdamOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
+  auto parameter = make_parameter({4});
+  auto optimizer = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam", std::vector<NAdamParameterGroup>{
+                             make_group("main", "weight", parameter)});
+  NAdamOptimizerCheckpointParticipant participant(optimizer);
+  assign_gradient(parameter, 1);
+  optimizer->step();
+  const auto before = parameter.detach().clone();
+  const auto before_steps = optimizer->completed_steps();
+  const auto before_rates = optimizer->learning_rates();
+  MemoryStateStore store(participant.describe_state());
+  participant.save_state(store);
+
+  auto future = store.manifest();
+  future.schema_version = 3;
+  store.set_manifest(future);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_TRUE(torch::equal(parameter, before));
+  EXPECT_EQ(optimizer->completed_steps(), before_steps);
+  EXPECT_EQ(optimizer->learning_rates(), before_rates);
+
+  auto relabelled = participant.describe_state();
+  relabelled.schema_version = 1;
+  store.set_manifest(relabelled);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_TRUE(torch::equal(parameter, before));
+  EXPECT_EQ(optimizer->completed_steps(), before_steps);
+  EXPECT_EQ(optimizer->learning_rates(), before_rates);
+}
+
+TEST(NAdamOptimizerAdapterTest,
+     RejectsMalformedProducerAndLeavesStateUnchanged) {
+  auto parameter = make_parameter({4});
+  auto optimizer = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam", std::vector<NAdamParameterGroup>{
+                             make_group("main", "weight", parameter)});
+  NAdamOptimizerCheckpointParticipant participant(optimizer);
+  assign_gradient(parameter, 1);
+  optimizer->step();
+  const auto before = parameter.detach().clone();
+  const auto before_steps = optimizer->completed_steps();
+  const auto before_rates = optimizer->learning_rates();
+  MemoryStateStore store(participant.describe_state());
+  participant.save_state(store);
+  store.replace("producer", {std::byte{0x01}});
+
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  EXPECT_TRUE(torch::equal(parameter, before));
+  EXPECT_EQ(optimizer->completed_steps(), before_steps);
+  EXPECT_EQ(optimizer->learning_rates(), before_rates);
+}
+
+TEST(NAdamOptimizerAdapterTest, EnforcesProducerResourceLimit) {
+  auto parameter = make_parameter({2});
+  auto optimizer = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam", std::vector<NAdamParameterGroup>{
+                             make_group("main", "weight", parameter)});
+  NAdamOptimizerCheckpointOptions options;
+  options.max_producer_bytes = 1;
+  EXPECT_THROW(NAdamOptimizerCheckpointParticipant(optimizer, options),
+               jyppx::ResourceExhausted);
+}
+
+TEST(NAdamOptimizerAdapterTest,
      SynchronizesFreshInPlacePlacementAndThenFreezesIt) {
   auto parameter = make_parameter({3});
   auto optimizer = std::make_shared<NAdamOptimizerAdapter>(
@@ -391,6 +679,54 @@ TEST(NAdamOptimizerAdapterTest,
 
   EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::NotReady);
   EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
+}
+
+TEST(NAdamOptimizerAdapterCudaTest,
+     MigratesSchemaV1StateForExactGpuContinuation) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is not available";
+  }
+  auto uninterrupted =
+      make_parameter({8}, torch::kFloat32, torch::Device(torch::kCUDA, 0));
+  auto resumed = uninterrupted.detach().clone().set_requires_grad(true);
+  const NAdamAdapterOptions options{.learning_rate = 1e-3,
+                                    .beta1 = 0.86,
+                                    .beta2 = 0.98,
+                                    .epsilon = 1e-7,
+                                    .weight_decay = 0.02,
+                                    .momentum_decay = 0.006,
+                                    .decoupled_weight_decay = true,
+                                    .maximize = true};
+  auto first = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam.cuda", std::vector<NAdamParameterGroup>{make_group(
+                                  "main", "weight", uninterrupted, options)});
+  auto second = std::make_shared<NAdamOptimizerAdapter>(
+      "optimizer.nadam.cuda", std::vector<NAdamParameterGroup>{make_group(
+                                  "main", "weight", resumed, options)});
+  NAdamOptimizerCheckpointParticipant first_state(first);
+  NAdamOptimizerCheckpointParticipant second_state(second);
+  for (std::int64_t step = 0; step < 13; ++step) {
+    assign_gradient(uninterrupted, step, 0.25);
+    first->step();
+  }
+  MemoryStateStore store(first_state.describe_state());
+  first_state.save_state(store);
+  const auto current_manifest = store.manifest();
+  store.erase("producer");
+  store.set_manifest(make_schema_v1_manifest(current_manifest));
+  copy_parameter(uninterrupted, resumed);
+  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+
+  for (std::int64_t step = 13; step < 37; ++step) {
+    assign_gradient(uninterrupted, step, 0.25);
+    resumed.mutable_grad() = uninterrupted.grad().clone();
+    first->step();
+    second->step();
+  }
+  EXPECT_TRUE(torch::equal(uninterrupted, resumed));
+  EXPECT_EQ(second->completed_steps(), first->completed_steps());
+  EXPECT_TRUE(uninterrupted.is_cuda());
+  EXPECT_TRUE(resumed.is_cuda());
 }
 
 TEST(NAdamOptimizerAdapterTest, SupportsCpuBfloat16AndCudaCapability) {
