@@ -42,27 +42,27 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "CPU",
           "build_type": "Debug",
-          "tests": "609/609; 29 CUDA-only tests skipped",
+          "tests": "579/579 coverage-lane tests; 29 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "17027/21016 (81.02%); target policy passed",
-            "function_coverage": "1795/1966 (91.30%); target policy passed",
-            "branch_coverage": "16892/41982 (40.24%); target policy passed",
-            "core_target_coverage": "line 463/470 (98.51%); function 44/45 (97.78%); branch 625/992 (63.00%)",
-            "data_target_coverage": "line 2864/3322 (86.21%); function 339/363 (93.39%); branch 2641/5538 (47.69%)",
+            "line_coverage": "16459/20345 (80.90%); target policy passed",
+            "function_coverage": "1728/1880 (91.91%); target policy passed",
+            "branch_coverage": "16576/41236 (40.20%); target policy passed",
+            "core_target_coverage": "line 465/470 (98.94%); function 45/45 (100.00%); branch 626/992 (63.10%)",
+            "data_target_coverage": "line 2291/2651 (86.42%); function 271/277 (97.83%); branch 2316/4778 (48.47%)",
             "foundation_target_coverage": "line 467/596 (78.36%); function 77/84 (91.67%); branch 484/1121 (43.18%)",
             "nn_target_coverage": "line 815/1015 (80.30%); function 118/125 (94.40%); branch 1251/3420 (36.58%)",
             "optim_target_coverage": "line 7533/9621 (78.30%); function 652/750 (86.93%); branch 7406/19854 (37.30%)",
-            "training_target_coverage": "line 4522/5604 (80.69%); function 510/543 (93.92%); branch 4174/10454 (39.93%)",
+            "training_target_coverage": "line 4525/5604 (80.75%); function 510/543 (93.92%); branch 4182/10468 (39.95%)",
             "sdk_legacy_target_coverage": "line 363/388 (93.56%); function 55/56 (98.21%); branch 311/603 (51.58%)",
-            "coverage_sampling": "clean 609-test sample at 6815006 passes the ratcheted seven-target policy; no percentage threshold was lowered",
-            "tsan": "79/79 discovered pipeline, DataLoader, queue and concurrent-stress tests at aa99154 under Clang 14 TSan; no race/deadlock/sanitizer diagnostics",
-            "fuzz": "3 targets x 10000 libFuzzer iterations at aa99154; final coverage/features: device 109/246, map state 1733/2438, iterable state 2029/2932; no ASan/UBSan diagnostics or artifacts",
+            "coverage_sampling": "clean 579-test sample at 0626e9d passes the ratcheted seven-target policy at eb244bc; deleted legacy DataLoader/queue files are removed from the denominator without lowering any target percentage",
+            "tsan": "46/46 current map/iterable pipeline, batch-memory, schema and concurrent-stress tests at eb244bc under Clang 14 TSan; no race/deadlock/sanitizer diagnostics",
+            "fuzz": "3 targets x 10000 libFuzzer iterations at eb244bc; final coverage/features: device 109/246, map state 1733/2469, iterable state 2034/2953; no ASan/UBSan diagnostics or artifacts",
             "tsan_fuzz_metadata": "dirty=false; Clang 14 TSan and Clang 14 ASan+UBSan; setarch-no-randomize; build parallelism 2",
-            "repeated_sampling_audit": "benchmark implementation/input/runner/compiler/LibTorch/environment key unchanged from 2ba2fa4 through aa99154; record 17 Windows 1 warmup + 5 samples remains valid",
-            "coverage_policy": "coverage-policy.json at e98e723; seven target owners; denominator and covered-count regression rejection"
+            "repeated_sampling_audit": "Windows Release at clean 0626e9d: 1 warmup + 5 independent samples; 13 metrics; maximum CV 3.12% with a 10% stability threshold",
+            "coverage_policy": "coverage-policy.json at eb244bc with baseline 0626e9d; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "6815006"
+          "commit": "eb244bc"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-release",
@@ -426,19 +426,20 @@
           "compiler": "MSVC 19.51.36257.0",
           "accelerator": "CPU",
           "build_type": "Release",
-          "tests": "328/328; 4 CUDA-only tests skipped",
-          "instrumentation": "Windows official LibTorch 2.5.1 CPU candidate; exported ABI requirements",
+          "tests": "578/578; 29 CUDA-only tests skipped",
+          "instrumentation": "Windows official LibTorch 2.5.1 CPU candidate; exported ABI requirements; repeated performance and memory sampling",
           "quality_evidence": {
             "artifact": "libtorch-win-shared-with-deps-2.5.1+cpu.zip",
             "artifact_sha256": "176f3c501e50694cec2f23ca512ca36c0c268f523e90d91c8fca57bed56a6a65",
             "configure": "passed",
             "build": "passed; MSVC upstream C4267/C4702 warnings retained without global suppression",
-            "ctest": "328/328; 4 CUDA-only tests skipped",
+            "ctest": "578/578; 29 CUDA-only tests skipped",
             "install_consumer": "passed",
             "repository_hygiene": "passed",
-            "fingerprint": "cpu-msvc-md-iterator0; dependency lock digest recorded"
+            "fingerprint": "cpu-msvc-md-iterator0; dependency lock digest recorded",
+            "repeated_baseline": "1 warmup + 5 independent samples; 13 metrics; maximum CV 3.12%; all metrics below the 10% stability threshold"
           },
-          "commit": "32a7708"
+          "commit": "0626e9d"
         },
         {
           "id": "local-windows-msvc-cpu-debug",
@@ -468,19 +469,19 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "NVIDIA GeForce RTX 2060 sm_75; driver 580.178.04; LibTorch 2.5.1+cu124",
           "build_type": "Release",
-          "tests": "609/609; 0 skipped",
-          "instrumentation": "CUDA standard 17; CMAKE_CUDA_ARCHITECTURES=75; TORCH_CUDA_ARCH_LIST=7.5; migrated target -Werror",
+          "tests": "579/579; 0 skipped",
+          "instrumentation": "LibTorch 2.5.1+cu124; CUDA standard 17; CMAKE_CUDA_ARCHITECTURES=75; TORCH_CUDA_ARCH_LIST=7.5; all project targets -Werror",
           "quality_evidence": {
             "libtorch": "/home/ygj/jyppx-deps/libtorch-cu124/libtorch",
             "host_cuda_toolkit": "11.5 nvcc used for toolchain discovery; runtime and libraries are from LibTorch cu124",
             "configure": "passed with CUDA architecture 75 and CUDA standard 17",
             "build": "all framework, test and example targets passed with warnings as errors",
-            "ctest": "609/609 passed; zero skipped",
+            "ctest": "579/579 passed; zero skipped",
             "cuda_scope": "full CTest including CUDA-only data, loss, optimizer, strategy, Trainer and AMP tests executed on RTX 2060",
             "install_consumer": "passed as part of the full CTest lane",
-            "source": "clean detached checkout at 3198d6b45aa5059e22f31ba11548c77d32becfa9"
+            "source": "clean detached checkout at eb244bc3d2e7d0da172d3ffefbf0d44e96699058"
           },
-          "commit": "3198d6b"
+          "commit": "eb244bc"
         }
       ]
     }
