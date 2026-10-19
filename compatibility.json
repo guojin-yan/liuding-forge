@@ -460,6 +460,27 @@
             "fingerprint": "cpu-msvc-md-iterator0; dependency lock digest recorded"
           },
           "commit": "32a7708"
+        },
+        {
+          "id": "local-ubuntu-gcc-cuda-cu124-current-full",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA GeForce RTX 2060 sm_75; driver 580.178.04; LibTorch 2.5.1+cu124",
+          "build_type": "Release",
+          "tests": "609/609; 0 skipped",
+          "instrumentation": "CUDA standard 17; CMAKE_CUDA_ARCHITECTURES=75; TORCH_CUDA_ARCH_LIST=7.5; migrated target -Werror",
+          "quality_evidence": {
+            "libtorch": "/home/ygj/jyppx-deps/libtorch-cu124/libtorch",
+            "host_cuda_toolkit": "11.5 nvcc used for toolchain discovery; runtime and libraries are from LibTorch cu124",
+            "configure": "passed with CUDA architecture 75 and CUDA standard 17",
+            "build": "all framework, test and example targets passed with warnings as errors",
+            "ctest": "609/609 passed; zero skipped",
+            "cuda_scope": "full CTest including CUDA-only data, loss, optimizer, strategy, Trainer and AMP tests executed on RTX 2060",
+            "install_consumer": "passed as part of the full CTest lane",
+            "source": "clean detached checkout at 3198d6b45aa5059e22f31ba11548c77d32becfa9"
+          },
+          "commit": "3198d6b"
         }
       ]
     }
