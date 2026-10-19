@@ -347,7 +347,8 @@ void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
             << "\"runtime\":{"
             << "\"intraop_threads\":" << torch::get_num_threads() << ','
             << "\"interop_threads\":" << torch::get_num_interop_threads()
-            << "}," << "\"result\":{"
+            << "},"
+            << "\"result\":{"
             << "\"parameter_elements_per_second\":"
             << result.parameter_elements_per_second << ','
             << "\"mean_step_milliseconds\":" << result.mean_step_milliseconds
