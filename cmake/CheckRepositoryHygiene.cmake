@@ -74,7 +74,8 @@ set(retired_placeholder_paths
     src/jyppx/distributed/distributed.cpp
 )
 foreach(path IN LISTS tracked_files)
-    if(path IN_LIST retired_placeholder_paths)
+    list(FIND retired_placeholder_paths "${path}" retired_placeholder_index)
+    if(NOT retired_placeholder_index EQUAL -1)
         list(APPEND violations
              "retired v1.0 distributed placeholder: ${path}")
     endif()
