@@ -1,0 +1,82 @@
+{
+  "fixture_schema": 1,
+  "participant_id": "optimizer.rmsprop.fixture",
+  "participant_schema": 1,
+  "restore_level": "exact",
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "18b683bb916dd18e9febc40d666bd732a7ebf01b",
+    "libtorch_version": "2.5.1",
+    "writer": "RmspropOptimizerCheckpointParticipant schema-v1 writer"
+  },
+  "scenario": {
+    "dtype": "float64",
+    "device": "cpu",
+    "shape": [3],
+    "initial_parameter": [1.25, -0.5, 0.75],
+    "learning_rate": 0.012,
+    "alpha": 0.91,
+    "epsilon": 0.0000001,
+    "weight_decay": 0.03,
+    "momentum": 0.65,
+    "centered": true,
+    "completed_steps": 2,
+    "saved_learning_rate": 0.004,
+    "gradients": [
+      [0.2, -0.1, 0.05],
+      [0.4, -0.2, 0.1]
+    ]
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/vnd.jyppx.rmsprop-topology-v1",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 130,
+      "decoded_size": 130,
+      "sha256": "b46b867daa2d5b9c0ecf305c82311c1ba2a7674560d6897ee41d7ac5fc1fa9ff"
+    },
+    {
+      "name": "control",
+      "media_type": "application/vnd.jyppx.rmsprop-control-v1",
+      "required": true,
+      "file": "control.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 45,
+      "decoded_size": 45,
+      "sha256": "1aca114667ce7c7f0571d23b6ee919238f6b82521116218daf5f2052a2832dd6"
+    },
+    {
+      "name": "square_avg.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "square_avg.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "64d366b96737d8e752a10789896aae80a0221604d36e3fb1591521dad5aa85d8"
+    },
+    {
+      "name": "momentum_buffer.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "momentum_buffer.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "cfd6beb1053e5ab22833db4bb97286eb315b9b116402f7408849590f8d1a942f"
+    },
+    {
+      "name": "grad_avg.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "grad_avg.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "77864fc59d6b8d37ffaedb01fd915d557d0b072050f6e7def9b4880f1de67e47"
+    }
+  ]
+}
