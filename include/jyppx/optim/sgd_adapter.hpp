@@ -192,6 +192,8 @@ struct SgdOptimizerCheckpointOptions {
       4096;  ///< Positive maximum bytes in one stable ID.
   std::uint64_t max_topology_bytes =
       64ULL * 1024ULL * 1024ULL;  ///< Maximum descriptor metadata size.
+  std::uint64_t max_producer_bytes =
+      4096;  ///< Maximum producer/runtime compatibility metadata size.
   std::uint64_t max_control_bytes =
       16ULL * 1024ULL * 1024ULL;  ///< Maximum mutable control metadata size.
   std::uint64_t max_tensor_bytes =
@@ -205,16 +207,21 @@ struct SgdOptimizerCheckpointOptions {
 /**
  * @brief Exposes delegated SGD state through the checkpoint contract.
  *
- * Schema version 1 stores immutable stable topology, completed step count,
- * current learning rates, and optional raw momentum buffers. The topology
- * includes stable group and parameter IDs plus dtype, device, shape, stride,
- * immutable SGD options, and the compile-time LibTorch version. Native pointer
- * keys and LibTorch archive formats are never persisted.
+ * Schema version 2 stores immutable stable topology, explicit producer/runtime
+ * metadata, completed step count, current learning rates, and optional raw
+ * momentum buffers. The topology includes stable group and parameter IDs plus
+ * dtype, device, shape, stride, immutable SGD options, and the compile-time
+ * LibTorch version. Native pointer keys and LibTorch archive formats are never
+ * persisted.
  *
- * Loading validates every field and allocates all candidate tensors before
- * swapping native state. Any exception before commit leaves the optimizer
- * unchanged. The participant shares ownership of its adapter and is not
- * internally synchronized.
+ * Loading accepts current schema version 2 and the immediately previous schema
+ * version 1. Version 1 is migrated in memory by validating its frozen topology,
+ * control, and raw momentum fields before constructing current candidate state;
+ * no version-1 writer or legacy LibTorch archive reader is retained. Loading
+ * validates every field and allocates all candidate tensors before swapping
+ * native state. Any exception before commit leaves the optimizer unchanged.
+ * The participant shares ownership of its adapter and is not internally
+ * synchronized.
  */
 class SgdOptimizerCheckpointParticipant final : public CheckpointParticipant {
  public:
@@ -235,8 +242,8 @@ class SgdOptimizerCheckpointParticipant final : public CheckpointParticipant {
   std::string participant_id() const override;
 
   /**
-   * @brief Describes topology, control, and fixed momentum fields.
-   * @return An exact schema-version-1 optimizer manifest.
+   * @brief Describes topology, producer, control, and fixed momentum fields.
+   * @return An exact schema-version-2 optimizer manifest.
    * @throws InvalidArgument If current native state violates the descriptor.
    * @throws ResourceExhausted If state exceeds a configured limit.
    */
@@ -253,8 +260,9 @@ class SgdOptimizerCheckpointParticipant final : public CheckpointParticipant {
 
   /**
    * @brief Validates and atomically restores delegated SGD state.
-   * @param reader Source containing a schema-version-1 SGD snapshot.
+   * @param reader Source containing a schema-version-2 or N-1 SGD snapshot.
    * @param policy Restore policy that must accept exact state.
+   * @throws InvalidArgument If the stored manifest violates base invariants.
    * @throws CompatibilityError If manifest, policy, or topology differs.
    * @throws SerializationError If a required field is malformed.
    * @throws ResourceExhausted If decoded state exceeds a configured limit.

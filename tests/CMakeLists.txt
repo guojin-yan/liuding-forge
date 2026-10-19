@@ -26,6 +26,15 @@ if(Python3_Interpreter_FOUND)
     )
     set_tests_properties(DependencyManifest PROPERTIES LABELS "hygiene;dependency")
     add_test(
+        NAME CheckpointFixtureIntegrity
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/verify_checkpoint_fixtures.py
+                --root ${CMAKE_SOURCE_DIR}/tests/fixtures/checkpoint
+    )
+    set_tests_properties(CheckpointFixtureIntegrity PROPERTIES
+        LABELS "hygiene;checkpoint;compatibility"
+    )
+    add_test(
         NAME CoverageSummaryTool
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_summary.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/summary.json
@@ -192,6 +201,9 @@ function(jyppx_add_gtest test_name)
     jyppx_apply_instrumentation(${test_name})
     # Expose tests/test_utils/ to test sources via "test_utils/..." includes.
     target_include_directories(${test_name} PRIVATE "${JYPPX_TESTS_SOURCE_DIR}")
+    target_compile_definitions(${test_name} PRIVATE
+        JYPPX_TEST_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures"
+    )
 
     jyppx_add_torch_runtime_dependency(${test_name})
 

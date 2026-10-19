@@ -1,0 +1,56 @@
+{
+  "fixture_schema": 1,
+  "participant_id": "optimizer.main",
+  "participant_schema": 1,
+  "restore_level": "exact",
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "4b32573294d81648635c5717fbb2c98c4a1def1e",
+    "libtorch_version": "2.5.1",
+    "writer": "SgdOptimizerCheckpointParticipant schema-v1 writer"
+  },
+  "scenario": {
+    "dtype": "float64",
+    "device": "cpu",
+    "shape": [2],
+    "initial_parameter": [2.0, -1.0],
+    "learning_rate": 0.04,
+    "momentum": 0.8,
+    "weight_decay": 0.02,
+    "completed_steps": 2,
+    "saved_learning_rate": 0.015,
+    "gradients": [[0.5, -0.25], [1.0, -0.5]]
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/vnd.jyppx.sgd-topology-v1",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 128,
+      "decoded_size": 128,
+      "sha256": "e14f8773385ed0f41644b670218bc95a5d361a377306cbb44807933b9ce98294"
+    },
+    {
+      "name": "control",
+      "media_type": "application/vnd.jyppx.sgd-control-v1",
+      "required": true,
+      "file": "control.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 37,
+      "decoded_size": 37,
+      "sha256": "ecb7350eb71f9a78aa7586980978e0650582314f63803de5c3d2f205bbd37d2f"
+    },
+    {
+      "name": "momentum.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "momentum.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 16,
+      "decoded_size": 16,
+      "sha256": "2bb3d8d951d3847f5db5ed92f4f883e0e4f5e78259bd67d2697f483369677a1c"
+    }
+  ]
+}

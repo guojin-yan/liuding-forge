@@ -14,6 +14,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <limits>
 #include <map>
@@ -82,6 +84,10 @@ class MemoryStateStore final : public jyppx::StateWriter,
     return blobs_.at(std::string(name));
   }
 
+  jyppx::StateManifest& mutable_manifest() noexcept { return manifest_; }
+
+  void erase_blob(std::string_view name) { blobs_.erase(std::string(name)); }
+
   const std::map<std::string, std::vector<std::byte>>& blobs() const noexcept {
     return blobs_;
   }
@@ -113,6 +119,101 @@ MemoryStateStore save_participant(
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   return store;
+}
+
+MemoryStateStore make_schema_v1_fixture(const MemoryStateStore& current) {
+  MemoryStateStore fixture = current;
+  auto& manifest = fixture.mutable_manifest();
+  manifest.schema_version = 1;
+  std::erase_if(manifest.fields, [](const jyppx::StateFieldDescriptor& field) {
+    return field.name == "producer";
+  });
+  fixture.erase_blob("producer");
+  jyppx::validate_state_manifest(manifest);
+  return fixture;
+}
+
+std::vector<std::byte> read_base64_fixture(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  std::string encoded;
+  std::string trailing;
+  if (!(input >> encoded) || (input >> trailing)) {
+    throw std::runtime_error("invalid base64 checkpoint fixture: " +
+                             path.string());
+  }
+  if (encoded.empty() || encoded.size() % 4 != 0) {
+    throw std::runtime_error("invalid base64 checkpoint fixture length: " +
+                             path.string());
+  }
+
+  constexpr std::string_view alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const auto decode = [&](char value) -> std::uint32_t {
+    const auto position = alphabet.find(value);
+    if (position == std::string_view::npos) {
+      throw std::runtime_error("invalid base64 checkpoint fixture byte: " +
+                               path.string());
+    }
+    return static_cast<std::uint32_t>(position);
+  };
+
+  std::vector<std::byte> decoded;
+  decoded.reserve((encoded.size() / 4) * 3);
+  for (std::size_t offset = 0; offset < encoded.size(); offset += 4) {
+    const auto final_group = offset + 4 == encoded.size();
+    const auto third_padding = encoded[offset + 2] == '=';
+    const auto fourth_padding = encoded[offset + 3] == '=';
+    if (encoded[offset] == '=' || encoded[offset + 1] == '=' ||
+        (!final_group && (third_padding || fourth_padding)) ||
+        (third_padding && !fourth_padding)) {
+      throw std::runtime_error("invalid base64 checkpoint fixture padding: " +
+                               path.string());
+    }
+    const auto packed =
+        (decode(encoded[offset]) << 18U) |
+        (decode(encoded[offset + 1]) << 12U) |
+        (third_padding ? 0U : decode(encoded[offset + 2]) << 6U) |
+        (fourth_padding ? 0U : decode(encoded[offset + 3]));
+    decoded.push_back(
+        std::byte{static_cast<unsigned char>((packed >> 16U) & 0xFFU)});
+    if (!third_padding) {
+      decoded.push_back(
+          std::byte{static_cast<unsigned char>((packed >> 8U) & 0xFFU)});
+    }
+    if (!fourth_padding) {
+      decoded.push_back(std::byte{static_cast<unsigned char>(packed & 0xFFU)});
+    }
+  }
+  return decoded;
+}
+
+MemoryStateStore load_canonical_schema_v1_fixture() {
+  MemoryStateStore fixture({
+      .participant_id = "optimizer.main",
+      .schema_version = 1,
+      .restore_level = jyppx::RestoreLevel::exact,
+      .fields = {{.name = "topology",
+                  .media_type = "application/vnd.jyppx.sgd-topology-v1",
+                  .max_bytes = 128,
+                  .required = true},
+                 {.name = "control",
+                  .media_type = "application/vnd.jyppx.sgd-control-v1",
+                  .max_bytes = 37,
+                  .required = true},
+                 {.name = "momentum.0000000000",
+                  .media_type = "application/vnd.jyppx.tensor-raw-v1",
+                  .max_bytes = 16,
+                  .required = true}},
+      .degradation_reasons = {},
+  });
+  const auto fixture_dir = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
+                           "checkpoint" / "sgd_schema_v1_libtorch_2.5.1";
+  for (const auto& field : fixture.manifest().fields) {
+    const auto bytes =
+        read_base64_fixture(fixture_dir / (field.name + ".bin.b64"));
+    fixture.write_blob(field.name, bytes);
+  }
+  return fixture;
 }
 
 TEST(SgdOptimizerAdapterTest, DelegatesUpdatesAndTracksSuccessfulSteps) {
@@ -357,6 +458,50 @@ TEST(SgdOptimizerAdapterCudaTest, MatchesLibTorchForFloat32AndFloat16) {
   }
 }
 
+TEST(SgdOptimizerAdapterCudaTest,
+     MigratesSchemaV1MomentumForExactGpuContinuation) {
+  if (!cuda_is_available()) {
+    GTEST_SKIP() << "CUDA not available";
+  }
+
+  const auto options = jyppx::optim::SgdAdapterOptions{
+      .learning_rate = 0.04, .momentum = 0.8, .weight_decay = 0.02};
+  const auto tensor_options = torch::TensorOptions()
+                                  .dtype(torch::kFloat32)
+                                  .device(torch::kCUDA, 0)
+                                  .requires_grad(true);
+  auto source_parameter = torch::tensor({2.0, -1.0}, tensor_options);
+  auto source = make_optimizer(source_parameter, options);
+  for (std::int64_t step = 1; step <= 3; ++step) {
+    source_parameter.mutable_grad() =
+        torch::tensor({0.25 * step, -0.125 * step}, tensor_options);
+    source->step();
+  }
+  source->set_learning_rates({0.0125});
+  jyppx::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  const auto schema_v1 =
+      make_schema_v1_fixture(save_participant(source_participant));
+
+  auto resumed_parameter =
+      source_parameter.detach().clone().set_requires_grad(true);
+  auto resumed = make_optimizer(
+      resumed_parameter,
+      {.learning_rate = 0.9, .momentum = 0.8, .weight_decay = 0.02});
+  resumed_parameter.mutable_grad() = torch::ones_like(resumed_parameter);
+  resumed->step();
+  resumed_parameter.detach().copy_(source_parameter.detach());
+  jyppx::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
+  resumed_participant.load_state(schema_v1, jyppx::RestorePolicy::exact_only);
+
+  const auto next_gradient = torch::tensor({-0.3, 0.7}, tensor_options);
+  source_parameter.mutable_grad() = next_gradient.clone();
+  resumed_parameter.mutable_grad() = next_gradient.clone();
+  source->step();
+  resumed->step();
+  EXPECT_TRUE(torch::equal(source_parameter, resumed_parameter));
+  EXPECT_EQ(resumed->completed_steps(), 4U);
+}
+
 TEST(SgdOptimizerAdapterTest, PreservesExplicitPerGroupOptionsAndRateUpdates) {
   auto first = torch::tensor(
       {1.0}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
@@ -425,18 +570,23 @@ TEST(SgdOptimizerCheckpointTest, UsesFixedRawFieldsWithoutNativeArchive) {
   jyppx::optim::SgdOptimizerCheckpointParticipant participant(optimizer);
 
   const auto manifest = participant.describe_state();
-  ASSERT_EQ(manifest.schema_version, 1U);
+  ASSERT_EQ(manifest.schema_version, 2U);
   ASSERT_EQ(manifest.restore_level, jyppx::RestoreLevel::exact);
-  ASSERT_EQ(manifest.fields.size(), 3U);
+  ASSERT_EQ(manifest.fields.size(), 4U);
   EXPECT_EQ(manifest.fields[0].name, "topology");
-  EXPECT_EQ(manifest.fields[1].name, "control");
-  EXPECT_EQ(manifest.fields[2].name, "momentum.0000000000");
+  EXPECT_EQ(manifest.fields[1].name, "producer");
+  EXPECT_EQ(manifest.fields[2].name, "control");
+  EXPECT_EQ(manifest.fields[3].name, "momentum.0000000000");
 
   const auto store = save_participant(participant);
   const auto topology = store.read_blob("topology", 1024 * 1024);
+  const auto producer = store.read_blob("producer", 1024);
   ASSERT_GE(topology.size(), 8U);
+  ASSERT_GE(producer.size(), 8U);
   EXPECT_EQ(std::string(reinterpret_cast<const char*>(topology.data()), 8),
             "JYPPXSGD");
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(producer.data()), 8),
+            "JYPPXSGP");
   EXPECT_TRUE(store.read_blob("momentum.0000000000", 1024).empty());
   EXPECT_FALSE(topology[0] == std::byte{'P'} && topology[1] == std::byte{'K'});
 }
@@ -472,6 +622,92 @@ TEST(SgdOptimizerCheckpointTest,
   ASSERT_EQ(resumed->completed_steps(), 2U);
   ASSERT_EQ(resumed->learning_rates().size(), 1U);
   EXPECT_DOUBLE_EQ(resumed->learning_rates()[0], 0.015);
+  const auto next_gradient = torch::tensor({-0.3, 0.7}, torch::kFloat64);
+  source_parameter.mutable_grad() = next_gradient.clone();
+  resumed_parameter.mutable_grad() = next_gradient.clone();
+  source->step();
+  resumed->step();
+  EXPECT_TRUE(
+      torch::allclose(source_parameter, resumed_parameter, 1e-12, 1e-12));
+}
+
+TEST(SgdOptimizerCheckpointTest,
+     MigratesSchemaV1AndWritesOnlyCurrentSchemaAfterRestore) {
+  const jyppx::optim::SgdAdapterOptions source_options{
+      .learning_rate = 0.04, .momentum = 0.8, .weight_decay = 0.02};
+  auto source_parameter = torch::tensor(
+      {2.0, -1.0},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto source = make_optimizer(source_parameter, source_options);
+  for (std::int64_t step = 1; step <= 2; ++step) {
+    source_parameter.mutable_grad() =
+        torch::tensor({0.5 * step, -0.25 * step}, torch::kFloat64);
+    source->step();
+  }
+  source->set_learning_rates({0.015});
+  jyppx::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  const auto schema_v1 =
+      make_schema_v1_fixture(save_participant(source_participant));
+  ASSERT_EQ(schema_v1.manifest().schema_version, 1U);
+  EXPECT_FALSE(schema_v1.contains("producer"));
+
+  auto resumed_parameter =
+      source_parameter.detach().clone().set_requires_grad(true);
+  auto resumed = make_optimizer(
+      resumed_parameter,
+      {.learning_rate = 0.9, .momentum = 0.8, .weight_decay = 0.02});
+  resumed_parameter.mutable_grad() = torch::ones_like(resumed_parameter);
+  resumed->step();
+  resumed_parameter.detach().copy_(source_parameter.detach());
+  jyppx::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
+
+  resumed_participant.load_state(schema_v1, jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(resumed->completed_steps(), 2U);
+  EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.015}));
+  const auto migrated = save_participant(resumed_participant);
+  EXPECT_EQ(migrated.manifest().schema_version, 2U);
+  EXPECT_TRUE(migrated.contains("producer"));
+
+  const auto next_gradient = torch::tensor({-0.3, 0.7}, torch::kFloat64);
+  source_parameter.mutable_grad() = next_gradient.clone();
+  resumed_parameter.mutable_grad() = next_gradient.clone();
+  source->step();
+  resumed->step();
+  EXPECT_TRUE(
+      torch::allclose(source_parameter, resumed_parameter, 1e-12, 1e-12));
+}
+
+TEST(SgdOptimizerCheckpointTest,
+     MigratesCanonicalSchemaV1FixtureFromLibtorch251) {
+  if (TORCH_VERSION_MAJOR != 2 || TORCH_VERSION_MINOR != 5 ||
+      TORCH_VERSION_PATCH != 1) {
+    GTEST_SKIP() << "canonical fixture requires exact LibTorch 2.5.1";
+  }
+
+  const jyppx::optim::SgdAdapterOptions options{
+      .learning_rate = 0.04, .momentum = 0.8, .weight_decay = 0.02};
+  auto source_parameter = torch::tensor(
+      {2.0, -1.0},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto source = make_optimizer(source_parameter, options);
+  for (std::int64_t step = 1; step <= 2; ++step) {
+    source_parameter.mutable_grad() =
+        torch::tensor({0.5 * step, -0.25 * step}, torch::kFloat64);
+    source->step();
+  }
+  source->set_learning_rates({0.015});
+
+  auto resumed_parameter =
+      source_parameter.detach().clone().set_requires_grad(true);
+  auto resumed = make_optimizer(
+      resumed_parameter,
+      {.learning_rate = 0.9, .momentum = 0.8, .weight_decay = 0.02});
+  jyppx::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
+  const auto schema_v1 = load_canonical_schema_v1_fixture();
+  resumed_participant.load_state(schema_v1, jyppx::RestorePolicy::exact_only);
+
+  EXPECT_EQ(resumed->completed_steps(), 2U);
+  EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.015}));
   const auto next_gradient = torch::tensor({-0.3, 0.7}, torch::kFloat64);
   source_parameter.mutable_grad() = next_gradient.clone();
   resumed_parameter.mutable_grad() = next_gradient.clone();
@@ -581,6 +817,69 @@ TEST(SgdOptimizerCheckpointTest,
             before_malformed.blobs());
 }
 
+TEST(SgdOptimizerCheckpointTest,
+     RejectsUnsupportedRelabeledAndMalformedStateWithoutMutation) {
+  auto source_parameter = torch::ones(
+      {2}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto source = make_optimizer(source_parameter);
+  source_parameter.mutable_grad() = torch::ones_like(source_parameter);
+  source->step();
+  jyppx::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  const auto current_store = save_participant(source_participant);
+
+  auto target_parameter = torch::ones(
+      {2}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto target = make_optimizer(target_parameter);
+  target_parameter.mutable_grad() = torch::full_like(target_parameter, 3.0);
+  target->step();
+  target->set_learning_rates({0.2});
+  jyppx::optim::SgdOptimizerCheckpointParticipant target_participant(target);
+  const auto before = save_participant(target_participant);
+
+  auto future = current_store;
+  future.mutable_manifest().schema_version = 3;
+  EXPECT_THROW(
+      target_participant.load_state(future, jyppx::RestorePolicy::exact_only),
+      jyppx::CompatibilityError);
+  EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
+
+  auto obsolete = current_store;
+  obsolete.mutable_manifest().schema_version = 0;
+  EXPECT_THROW(
+      target_participant.load_state(obsolete, jyppx::RestorePolicy::exact_only),
+      jyppx::InvalidArgument);
+  EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
+
+  auto relabeled = current_store;
+  relabeled.mutable_manifest().schema_version = 1;
+  EXPECT_THROW(target_participant.load_state(relabeled,
+                                             jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
+
+  auto malformed_producer = current_store;
+  malformed_producer.mutable_blob("producer").front() = std::byte{'X'};
+  EXPECT_THROW(target_participant.load_state(malformed_producer,
+                                             jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
+
+  auto incompatible_producer = current_store;
+  ASSERT_GT(incompatible_producer.mutable_blob("producer").size(), 24U);
+  incompatible_producer.mutable_blob("producer")[24] = std::byte{0xFF};
+  EXPECT_THROW(target_participant.load_state(incompatible_producer,
+                                             jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
+
+  auto malformed_v1 = make_schema_v1_fixture(current_store);
+  malformed_v1.mutable_blob("control").front() = std::byte{'X'};
+  EXPECT_THROW(target_participant.load_state(malformed_v1,
+                                             jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
+}
+
 TEST(SgdOptimizerCheckpointTest, EnforcesParticipantResourceLimits) {
   auto parameter = torch::ones(
       {4}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
@@ -594,6 +893,9 @@ TEST(SgdOptimizerCheckpointTest, EnforcesParticipantResourceLimits) {
   EXPECT_THROW(jyppx::optim::SgdOptimizerCheckpointParticipant(
                    optimizer, {.max_identifier_bytes = 3}),
                jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::SgdOptimizerCheckpointParticipant(
+                   optimizer, {.max_producer_bytes = 1}),
+               jyppx::ResourceExhausted);
 
   jyppx::optim::SgdOptimizerCheckpointParticipant participant(optimizer);
   parameter.requires_grad_(false);

@@ -4,6 +4,7 @@
 // you may not use this file except in compliance with the License.
 
 #include <jyppx/foundation/error.hpp>
+#include <jyppx/foundation/version.hpp>
 #include <jyppx/optim/sgd_adapter.hpp>
 
 #include <torch/optim/sgd.h>
@@ -32,8 +33,10 @@ namespace jyppx::optim {
 namespace {
 
 constexpr char kComponent[] = "optim.sgd_adapter";
-constexpr std::uint32_t kSchemaVersion = 1;
+constexpr std::uint32_t kPreviousSchemaVersion = 1;
+constexpr std::uint32_t kSchemaVersion = 2;
 constexpr std::uint32_t kTopologyVersion = 1;
+constexpr std::uint32_t kProducerVersion = 1;
 constexpr std::uint32_t kControlVersion = 1;
 constexpr std::size_t kMaximumRank = 64;
 constexpr std::size_t kAdapterMaximumIdentifierBytes = 4096;
@@ -43,6 +46,9 @@ constexpr std::array<std::byte, 8> kTopologyMagic = {
 constexpr std::array<std::byte, 8> kControlMagic = {
     std::byte{'J'}, std::byte{'Y'}, std::byte{'P'}, std::byte{'P'},
     std::byte{'X'}, std::byte{'S'}, std::byte{'G'}, std::byte{'C'}};
+constexpr std::array<std::byte, 8> kProducerMagic = {
+    std::byte{'J'}, std::byte{'Y'}, std::byte{'P'}, std::byte{'P'},
+    std::byte{'X'}, std::byte{'S'}, std::byte{'G'}, std::byte{'P'}};
 
 struct FlatParameter {
   std::size_t group_index;    ///< Owning stable group position.
@@ -58,6 +64,7 @@ struct FlatParameter {
 
 struct OptimizerSnapshot {
   std::vector<std::byte> topology;  ///< Immutable descriptor bytes.
+  std::vector<std::byte> producer;  ///< Producer and LibTorch versions.
   std::vector<std::byte> control;   ///< Mutable counters and presence bytes.
   std::vector<Tensor> momentum_buffers;  ///< Native buffers by stable order.
   std::vector<bool> has_momentum;  ///< Presence bit for every fixed field.
@@ -450,6 +457,23 @@ std::vector<std::byte> encode_topology(
   return output;
 }
 
+std::vector<std::byte> encode_producer(
+    const SgdOptimizerCheckpointOptions& limits) {
+  std::vector<std::byte> output(kProducerMagic.begin(), kProducerMagic.end());
+  append_u32(output, kProducerVersion);
+  append_u32(output, static_cast<std::uint32_t>(version_major()));
+  append_u32(output, static_cast<std::uint32_t>(version_minor()));
+  append_u32(output, static_cast<std::uint32_t>(version_patch()));
+  append_u32(output, TORCH_VERSION_MAJOR);
+  append_u32(output, TORCH_VERSION_MINOR);
+  append_u32(output, TORCH_VERSION_PATCH);
+  if (output.size() > limits.max_producer_bytes) {
+    throw_resource("producer.bytes", limits.max_producer_bytes, output.size(),
+                   "Raise max_producer_bytes for the fixed producer record.");
+  }
+  return output;
+}
+
 std::vector<std::byte> encode_control(
     std::uint64_t completed_steps, const std::vector<double>& learning_rates,
     const std::vector<bool>& has_momentum,
@@ -480,6 +504,47 @@ void validate_magic(ByteCursor& cursor,
       throw_serialization(std::string(field), std::string(rendered), "mismatch",
                           "Use state produced by this optimizer schema.");
     }
+  }
+}
+
+void validate_producer_blob(std::span<const std::byte> bytes,
+                            const SgdOptimizerCheckpointOptions& limits) {
+  if (bytes.size() > limits.max_producer_bytes) {
+    throw_resource("producer.bytes", limits.max_producer_bytes, bytes.size(),
+                   "Reject oversized producer metadata before parsing.");
+  }
+  ByteCursor cursor(bytes);
+  validate_magic(cursor, kProducerMagic, "producer.magic", "JYPPXSGP");
+  const auto version = cursor.read_u32("producer.version");
+  if (version != kProducerVersion) {
+    throw_compatibility("producer.version", std::to_string(kProducerVersion),
+                        std::to_string(version),
+                        "Use a supported producer metadata version.");
+  }
+
+  // Producer SemVer is provenance; schema negotiation governs compatibility.
+  static_cast<void>(cursor.read_u32("producer.jyppx_major"));
+  static_cast<void>(cursor.read_u32("producer.jyppx_minor"));
+  static_cast<void>(cursor.read_u32("producer.jyppx_patch"));
+  const auto torch_major = cursor.read_u32("producer.torch_major");
+  const auto torch_minor = cursor.read_u32("producer.torch_minor");
+  const auto torch_patch = cursor.read_u32("producer.torch_patch");
+  if (torch_major != TORCH_VERSION_MAJOR ||
+      torch_minor != TORCH_VERSION_MINOR ||
+      torch_patch != TORCH_VERSION_PATCH) {
+    throw_compatibility(
+        "producer.libtorch_version",
+        std::to_string(TORCH_VERSION_MAJOR) + "." +
+            std::to_string(TORCH_VERSION_MINOR) + "." +
+            std::to_string(TORCH_VERSION_PATCH),
+        std::to_string(torch_major) + "." + std::to_string(torch_minor) + "." +
+            std::to_string(torch_patch),
+        "Run an explicitly validated cross-LibTorch migration.");
+  }
+  if (!cursor.empty()) {
+    throw_serialization("producer.trailing_bytes", "no trailing metadata",
+                        "present",
+                        "Reject ambiguous producer metadata extensions.");
   }
 }
 
@@ -733,12 +798,34 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
                     right.fields.begin(), state_field_equal);
 }
 
+StateManifest make_schema_v1_manifest(const StateManifest& current) {
+  StateManifest legacy = current;
+  legacy.schema_version = kPreviousSchemaVersion;
+  const auto producer = std::find_if(legacy.fields.begin(), legacy.fields.end(),
+                                     [](const StateFieldDescriptor& field) {
+                                       return field.name == "producer";
+                                     });
+  if (producer == legacy.fields.end()) {
+    throw InternalError(
+        "Current SGD manifest is missing producer metadata",
+        ErrorDetails{
+            .component = kComponent,
+            .operation = "migration.v1_manifest",
+            .expected = "a schema-v2 producer field",
+            .actual = "missing",
+            .hint = "Keep the current writer and N-1 reader aligned."});
+  }
+  legacy.fields.erase(producer);
+  validate_state_manifest(legacy);
+  return legacy;
+}
+
 void validate_checkpoint_options(const SgdOptimizerCheckpointOptions& options,
                                  std::string_view participant_id) {
   if (options.max_groups == 0 || options.max_parameters == 0 ||
       options.max_identifier_bytes == 0 || options.max_topology_bytes == 0 ||
-      options.max_control_bytes == 0 || options.max_tensor_bytes == 0 ||
-      options.max_total_bytes == 0) {
+      options.max_producer_bytes == 0 || options.max_control_bytes == 0 ||
+      options.max_tensor_bytes == 0 || options.max_total_bytes == 0) {
     throw_invalid("checkpoint.options", "positive resource limits", "zero",
                   "Set every optimizer checkpoint limit above zero.");
   }
@@ -947,11 +1034,14 @@ OptimizerSnapshot inspect_optimizer(
   }
 
   auto topology = encode_topology(groups, parameters, limits);
+  auto producer = encode_producer(limits);
   auto control =
       encode_control(completed_steps, learning_rates, has_momentum, limits);
   std::uint64_t total =
-      checked_add(topology.size(), control.size(), limits.max_total_bytes,
+      checked_add(topology.size(), producer.size(), limits.max_total_bytes,
                   "state.total_bytes");
+  total = checked_add(total, control.size(), limits.max_total_bytes,
+                      "state.total_bytes");
   StateManifest manifest{
       .participant_id = std::move(participant_id),
       .schema_version = kSchemaVersion,
@@ -959,12 +1049,15 @@ OptimizerSnapshot inspect_optimizer(
       .fields = {{.name = "topology",
                   .media_type = "application/vnd.jyppx.sgd-topology-v1",
                   .max_bytes = topology.size()},
+                 {.name = "producer",
+                  .media_type = "application/vnd.jyppx.sgd-producer-v1",
+                  .max_bytes = producer.size()},
                  {.name = "control",
                   .media_type = "application/vnd.jyppx.sgd-control-v1",
                   .max_bytes = control.size()}},
       .degradation_reasons = {},
   };
-  manifest.fields.reserve(parameters.size() + 2);
+  manifest.fields.reserve(parameters.size() + 3);
   for (std::size_t index = 0; index < parameters.size(); ++index) {
     const auto maximum =
         std::max<std::uint64_t>(1, parameters[index].byte_count);
@@ -978,6 +1071,7 @@ OptimizerSnapshot inspect_optimizer(
   static_cast<void>(total);
   validate_state_manifest(manifest);
   return {.topology = std::move(topology),
+          .producer = std::move(producer),
           .control = std::move(control),
           .momentum_buffers = std::move(momentum_buffers),
           .has_momentum = std::move(has_momentum),
@@ -1324,6 +1418,7 @@ void SgdOptimizerCheckpointParticipant::save_state(StateWriter& writer) const {
         *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
         options_, optimizer_->optimizer_id());
     writer.write_blob("topology", snapshot.topology);
+    writer.write_blob("producer", snapshot.producer);
     writer.write_blob("control", snapshot.control);
     for (std::size_t index = 0; index < snapshot.momentum_buffers.size();
          ++index) {
@@ -1359,31 +1454,51 @@ void SgdOptimizerCheckpointParticipant::save_state(StateWriter& writer) const {
 void SgdOptimizerCheckpointParticipant::load_state(const StateReader& reader,
                                                    RestorePolicy policy) {
   try {
-    if (!restore_policy_accepts(policy, RestoreLevel::exact)) {
-      throw_compatibility("restore.policy", "a policy accepting exact state",
-                          std::string(restore_policy_name(policy)),
-                          "Use a declared RestorePolicy value.");
-    }
     const auto current = inspect_optimizer(
         optimizer_->impl_->groups, optimizer_->impl_->parameters,
         *optimizer_->impl_->native, optimizer_->impl_->completed_steps,
         options_, optimizer_->optimizer_id());
     const auto& stored_manifest = reader.manifest();
     validate_state_manifest(stored_manifest);
-    if (!manifest_equal(stored_manifest, current.manifest)) {
-      throw_compatibility("restore.manifest", optimizer_->optimizer_id(),
-                          stored_manifest.participant_id,
-                          "Use state produced by the same SGD schema.");
+    if (!restore_policy_accepts(policy, stored_manifest.restore_level)) {
+      throw_compatibility(
+          "restore.policy",
+          "a policy accepting " +
+              std::string(restore_level_name(stored_manifest.restore_level)),
+          std::string(restore_policy_name(policy)),
+          "Use a declared RestorePolicy value accepted by the stored state.");
     }
-    for (const auto& field : current.manifest.fields) {
+
+    StateManifest expected_manifest;
+    if (stored_manifest.schema_version == kSchemaVersion) {
+      expected_manifest = current.manifest;
+    } else if (stored_manifest.schema_version == kPreviousSchemaVersion) {
+      expected_manifest = make_schema_v1_manifest(current.manifest);
+    } else {
+      throw_compatibility(
+          "restore.schema_version",
+          std::to_string(kPreviousSchemaVersion) + " or " +
+              std::to_string(kSchemaVersion),
+          std::to_string(stored_manifest.schema_version),
+          "Migrate checkpoints through the explicit N-1 schema chain.");
+    }
+    if (!manifest_equal(stored_manifest, expected_manifest)) {
+      throw_compatibility(
+          "restore.manifest",
+          "the exact SGD schema-v" +
+              std::to_string(stored_manifest.schema_version) + " manifest",
+          stored_manifest.participant_id,
+          "Do not relabel fields from another schema or optimizer.");
+    }
+    for (const auto& field : expected_manifest.fields) {
       if (field.required && !reader.contains(field.name)) {
         throw_serialization("restore.field", field.name, "missing",
                             "Provide every required SGD state field.");
       }
     }
 
-    const auto topology =
-        reader.read_blob("topology", current.manifest.fields.front().max_bytes);
+    const auto topology = reader.read_blob(
+        "topology", expected_manifest.fields.front().max_bytes);
     validate_topology_blob(topology, options_);
     if (topology.size() != current.topology.size() ||
         !std::equal(topology.begin(), topology.end(),
@@ -1396,8 +1511,17 @@ void SgdOptimizerCheckpointParticipant::load_state(const StateReader& reader,
           "Apply an explicit optimizer state migration before restore.");
     }
 
-    const auto control_bytes =
-        reader.read_blob("control", current.manifest.fields[1].max_bytes);
+    const auto is_current_schema =
+        stored_manifest.schema_version == kSchemaVersion;
+    if (is_current_schema) {
+      const auto producer =
+          reader.read_blob("producer", current.manifest.fields[1].max_bytes);
+      validate_producer_blob(producer, options_);
+    }
+
+    const auto control_field_index = is_current_schema ? 2U : 1U;
+    const auto control_bytes = reader.read_blob(
+        "control", expected_manifest.fields[control_field_index].max_bytes);
     const auto decoded =
         decode_control(control_bytes, optimizer_->impl_->groups.size(),
                        optimizer_->impl_->parameters.size(), options_);
