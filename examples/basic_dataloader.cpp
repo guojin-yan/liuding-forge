@@ -1,19 +1,60 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
+/** @file basic_dataloader.cpp
+ * @brief Demonstrates the current explicit-epoch map-style data pipeline.
+ */
+
 #include <jyppx/jyppx.hpp>
 
+#include <cstdint>
 #include <iostream>
+#include <memory>
+#include <span>
+#include <stop_token>
+#include <utility>
+#include <vector>
 
 int main() {
-    auto data = torch::arange(0, 10, torch::TensorOptions().dtype(torch::kFloat32)).view({10, 1});
-    auto targets = torch::arange(0, 10, torch::TensorOptions().dtype(torch::kFloat32));
-    auto dataset = std::make_shared<jyppx::data::TensorDataset>(data, targets);
+  const auto data = torch::arange(
+                        0, 10, torch::TensorOptions().dtype(torch::kFloat32))
+                        .view({10, 1});
+  const auto targets =
+      torch::arange(0, 10, torch::TensorOptions().dtype(torch::kFloat32));
+  auto sampler = std::make_shared<jyppx::data::samplers::RandomSampler>(
+      10, /*seed=*/7);
+  jyppx::data::DataPipeline pipeline(
+      std::move(sampler),
+      jyppx::data::DataPipelineOptions{
+          .pipeline_id = "example.basic_data_pipeline",
+          .dataset_version = "example.basic_data/v1",
+          .dataset_size = 10,
+          .schema = jyppx::data::BatchSchema::any("example.basic.batch", 1),
+          .batch_factory_id = "example.basic.tensor-pair/v1",
+          .batch_size = 4},
+      [data, targets](std::span<const std::size_t> indices,
+                      const jyppx::data::DataWorkerContext&,
+                      std::stop_token) {
+        std::vector<std::int64_t> rows;
+        rows.reserve(indices.size());
+        for (const auto index : indices) {
+          rows.push_back(static_cast<std::int64_t>(index));
+        }
+        const auto row_tensor = torch::tensor(rows, torch::kLong);
+        return c10::ivalue::Tuple::create(
+            {data.index_select(0, row_tensor),
+             targets.index_select(0, row_tensor)});
+      });
 
-    jyppx::data::DataLoader loader(
-        dataset,
-        {.batch_size = 4, .shuffle = true, .drop_last = false, .seed = 7});
-
-    for (const auto batch : loader) {
-        std::cout << "batch: " << batch.data.size(0)
-                  << " samples, target mean=" << batch.targets.mean().item<double>() << '\n';
-    }
-    return 0;
+  pipeline.set_epoch(0);
+  while (const auto batch = pipeline.next()) {
+    const auto values = batch->value.toTuple()->elements();
+    std::cout << "batch: " << values.at(0).toTensor().size(0)
+              << " samples, target mean="
+              << values.at(1).toTensor().mean().item<double>() << '\n';
+  }
+  pipeline.close();
+  return 0;
 }

@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-// Reproducible DataLoader throughput benchmark with structured CSV output.
+// Reproducible DataPipeline throughput benchmark with structured CSV output.
 //
 // An in-memory TensorDataset loads in microseconds, which would hide worker
 // scaling. SlowDataset therefore applies a calibrated per-sample CPU delay.
@@ -18,7 +18,9 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <string>
+#include <stop_token>
 #include <thread>
 #include <vector>
 
@@ -106,7 +108,7 @@ class SlowDataset final : public jyppx::data::Dataset<jyppx::data::Example> {
 
 /// One raw timing sample for a worker configuration.
 struct BenchResult {
-  /// Configured DataLoader worker count.
+  /// Configured DataPipeline worker count.
   std::size_t workers;
 
   /// Zero-based repetition index within the process.
@@ -125,27 +127,50 @@ double milliseconds_since(Clock::time_point start) {
       .count();
 }
 
-/// Measures one or more epochs for a fixed DataLoader worker count.
+/// Measures one or more epochs for a fixed DataPipeline worker count.
 std::vector<BenchResult> bench_workers(
     const std::shared_ptr<jyppx::data::Dataset<jyppx::data::Example>>& dataset,
     int batches, int batch_size, std::size_t workers, int repeats,
     std::size_t prefetch_factor) {
-  jyppx::data::DataLoaderOptions options;
-  options.batch_size = static_cast<std::size_t>(batch_size);
-  options.num_workers = workers;
-  options.prefetch_factor = prefetch_factor;
-
   std::vector<BenchResult> results;
   results.reserve(static_cast<std::size_t>(repeats));
   const auto expected =
       static_cast<std::size_t>(batches) * static_cast<std::size_t>(batch_size);
   for (int repeat = 0; repeat < repeats; ++repeat) {
-    jyppx::data::DataLoader<jyppx::data::Example> loader(dataset, options);
+    auto sampler = std::make_shared<jyppx::data::samplers::SequentialSampler>(
+        dataset->size());
+    jyppx::data::DataPipeline pipeline(
+        std::move(sampler),
+        jyppx::data::DataPipelineOptions{
+            .pipeline_id = "benchmark.data_pipeline",
+            .dataset_version = "benchmark.slow_dataset/v1",
+            .dataset_size = dataset->size(),
+            .schema = jyppx::data::BatchSchema::any("benchmark.batch", 1),
+            .batch_factory_id = "benchmark.slow_dataset.collate/v1",
+            .batch_size = static_cast<std::size_t>(batch_size),
+            .num_workers = workers,
+            .prefetch_batches = prefetch_factor},
+        [dataset](std::span<const std::size_t> indices,
+                  const jyppx::data::DataWorkerContext&, std::stop_token) {
+          std::vector<jyppx::Tensor> data;
+          std::vector<jyppx::Tensor> targets;
+          data.reserve(indices.size());
+          targets.reserve(indices.size());
+          for (const auto index : indices) {
+            const auto sample = dataset->get(index);
+            data.push_back(sample.data);
+            targets.push_back(sample.target);
+          }
+          return c10::ivalue::Tuple::create(
+              {torch::stack(data), torch::stack(targets)});
+        });
+    pipeline.set_epoch(0);
     const auto start = Clock::now();
     std::size_t seen = 0;
-    for (const auto& batch : loader) {
-      seen += static_cast<std::size_t>(batch.data.size(0));
+    while (const auto batch = pipeline.next()) {
+      seen += batch->sample_ids.size();
     }
+    pipeline.close();
     const double elapsed = milliseconds_since(start);
     if (seen != expected) {
       std::cerr << "configuration with " << workers << " workers produced "

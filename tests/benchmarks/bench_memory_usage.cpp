@@ -1,4 +1,4 @@
-// Memory footprint benchmark for loader and optimizer configurations.
+// Memory footprint benchmark for data pipeline and optimizer configurations.
 
 #include <jyppx/jyppx.hpp>
 
@@ -8,7 +8,9 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <span>
 #include <string>
+#include <stop_token>
 #include <vector>
 
 #if defined(_WIN32)
@@ -97,12 +99,34 @@ int main(int argc, char** argv) {
     for (const std::size_t workers : worker_counts) {
         const auto dataset = std::make_shared<MemoryDataset>(samples);
         const auto before = resident_bytes();
-        jyppx::data::DataLoader loader(
-            dataset, {.batch_size = 64, .num_workers = workers, .prefetch_factor = 2});
+        auto sampler = std::make_shared<
+            jyppx::data::samplers::SequentialSampler>(samples);
+        jyppx::data::DataPipeline pipeline(
+            std::move(sampler),
+            jyppx::data::DataPipelineOptions{
+                .pipeline_id = "benchmark.memory_pipeline",
+                .dataset_version = "benchmark.memory_dataset/v1",
+                .dataset_size = samples,
+                .schema = jyppx::data::BatchSchema::any("benchmark.memory.batch", 1),
+                .batch_factory_id = "benchmark.memory_dataset.collate/v1",
+                .batch_size = 64,
+                .num_workers = workers,
+                .prefetch_batches = 2},
+            [dataset](std::span<const std::size_t> indices,
+                      const jyppx::data::DataWorkerContext&, std::stop_token) {
+              std::vector<jyppx::Tensor> samples;
+              samples.reserve(indices.size());
+              for (const auto index : indices) {
+                  samples.push_back(dataset->get(index));
+              }
+              return torch::stack(samples);
+            });
+        pipeline.set_epoch(0);
         std::size_t seen = 0;
-        for (const auto& batch : loader) {
-            seen += batch.data.size(0);
+        while (const auto batch = pipeline.next()) {
+            seen += batch->sample_ids.size();
         }
+        pipeline.close();
         const auto after = resident_bytes();
         const auto peak = peak_resident_bytes();
         std::cout << workers << ",64," << before << ',' << after << ',' << peak << ','
