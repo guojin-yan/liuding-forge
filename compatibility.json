@@ -363,6 +363,26 @@
           "commit": "21f17a7"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-data-pipeline-n1-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "112/112 data target tests; 0 skipped; schema-v3 migration filter 3/3 and fixture integrity passed",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; TORCH_CUDA_ARCH_LIST=7.5; data target -Werror; clang-format 14 strict gate",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75, CUDA standard 17 and project C++ standard 20",
+            "build": "jyppx_test_data and its current dependencies passed with warnings as errors",
+            "cuda_data": "complete data target executed on CUDA LibTorch and RTX 2060: 112/112 passed; zero skipped, including pinned-memory and device-transfer tests",
+            "checkpoint_migration": "map DataPipeline writer remains schema v4; explicit N-1 schema-v3 reader migrated a canonical three-worker fixture and replayed only uncommitted batches exactly",
+            "negative_paths": "obsolete, future, relabelled and mismatched legacy schemas plus unproven structured-schema upgrades were rejected before live cursor, sampler or worker state mutation",
+            "fixture_integrity": "historical schema-v3 fixture from ad551f45 records producer metadata, decoded sizes and SHA-256 digests; repository verifier passed all checkpoint fixtures",
+            "source_quality": "clang-format dry-run and RepositoryHygiene passed"
+          },
+          "commit": "f2d5c99"
+        },
+        {
           "id": "local-ubuntu-gcc-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
