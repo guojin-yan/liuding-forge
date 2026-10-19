@@ -1,0 +1,50 @@
+{
+  "fixture_schema": 1,
+  "participant_id": "data.pipeline.fixture",
+  "participant_schema": 3,
+  "restore_level": "exact",
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "ad551f45ee4b3eb2615a435ed7910c047af1cf22",
+    "libtorch_version": "2.5.1+cu124",
+    "writer": "DataPipeline schema-v3 writer"
+  },
+  "scenario": {
+    "dataset_version": "dataset.worker/v1",
+    "dataset_size": 6,
+    "schema_id": "worker.batch/v1",
+    "batch_factory_id": "factory.worker/v1",
+    "batch_size": 2,
+    "num_workers": 3,
+    "prefetch_batches": 3,
+    "persistent_workers": true,
+    "deterministic_batch_factory": true,
+    "worker_seed": 1977,
+    "epoch": 8,
+    "committed_batches": 1,
+    "next_cursor": 2,
+    "next_sequence": 1
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/octet-stream",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 33554432,
+      "decoded_size": 341,
+      "sha256": "39dc3606d82999af399ab62502398b3bc6bef3a66557ddddb5f913aefc239326"
+    },
+    {
+      "name": "cursor",
+      "media_type": "application/octet-stream",
+      "required": true,
+      "file": "cursor.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 128,
+      "decoded_size": 62,
+      "sha256": "5d0a6cc7981e1db2d2f553252290e0e83b20970f1ebef5393fe3df0d84d17a47"
+    }
+  ]
+}

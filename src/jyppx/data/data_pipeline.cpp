@@ -21,8 +21,12 @@ namespace jyppx::data {
 namespace {
 
 constexpr char kComponent[] = "data.pipeline";
-constexpr char kTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v4";
-constexpr char kCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v4";
+constexpr char kCurrentTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v4";
+constexpr char kCurrentCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v4";
+constexpr char kPreviousTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v3";
+constexpr char kPreviousCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v3";
+constexpr std::uint32_t kPreviousSchemaVersion =
+    DataPipelineState::format_version - 1U;
 constexpr std::uint64_t kMaxTopologyBytes = 32U * 1024U * 1024U;
 constexpr std::uint64_t kMaxCursorBytes = 128U;
 constexpr std::uint64_t kMaxIndexCount = 2U * 1024U * 1024U;
@@ -131,7 +135,7 @@ void require_magic(const std::string& actual, const char* expected) {
                      .operation = "decode.magic",
                      .expected = expected,
                      .actual = actual,
-                     .hint = "Use state produced by the current schema."});
+                     .hint = "Use state produced by a supported schema."});
   }
 }
 
@@ -143,7 +147,7 @@ void require_end(std::span<const std::byte> input, std::size_t offset) {
 
 std::string encode_topology(const DataPipelineState& state) {
   std::string output;
-  append_string(output, kTopologyMagic);
+  append_string(output, kCurrentTopologyMagic);
   append_string(output, state.pipeline_id);
   append_string(output, state.dataset_version);
   append_u64(output, state.dataset_size);
@@ -176,7 +180,7 @@ std::string encode_topology(const DataPipelineState& state) {
 
 std::string encode_cursor(const DataPipelineState& state) {
   std::string output;
-  append_string(output, kCursorMagic);
+  append_string(output, kCurrentCursorMagic);
   append_byte(output, state.prepared ? 1U : 0U);
   append_u64(output, state.epoch);
   append_u64(output, state.next_cursor);
@@ -184,17 +188,59 @@ std::string encode_cursor(const DataPipelineState& state) {
   return output;
 }
 
+std::string migrate_schema_v3(std::string_view legacy_schema_id,
+                              const BatchSchema& current_schema) {
+  const auto unconstrained_descriptor =
+      canonical_value_schema(ValueSchema::any("batch"));
+  if (canonical_value_schema(current_schema.value) !=
+      unconstrained_descriptor) {
+    throw CompatibilityError(
+        "DataPipeline schema-v3 cannot prove a structured batch contract",
+        ErrorDetails{
+            .component = kComponent,
+            .operation = "migration.v3.schema",
+            .expected = "an unconstrained schema matching the v3 label",
+            .actual = std::string(value_kind_name(current_schema.value.kind)),
+            .hint = "Restore v3 with its original unconstrained schema before "
+                    "adopting a structured batch contract."});
+  }
+  const auto expected_legacy_id =
+      current_schema.id + "/v" + std::to_string(current_schema.version);
+  if (legacy_schema_id != expected_legacy_id) {
+    throw CompatibilityError(
+        "DataPipeline schema-v3 batch identity is incompatible",
+        ErrorDetails{.component = kComponent,
+                     .operation = "migration.v3.schema_id",
+                     .expected = expected_legacy_id,
+                     .actual = std::string(legacy_schema_id),
+                     .hint = "Use the BatchSchema identity and version that "
+                             "produced the v3 checkpoint."});
+  }
+  return canonical_batch_schema(current_schema);
+}
+
 DataPipelineState decode_state(std::span<const std::byte> topology,
-                               std::span<const std::byte> cursor) {
+                               std::span<const std::byte> cursor,
+                               std::uint32_t schema_version,
+                               const BatchSchema& current_schema) {
+  const auto current = schema_version == DataPipelineState::format_version;
   DataPipelineState state;
   std::size_t topology_offset = 0;
-  require_magic(read_string(topology, topology_offset, 128), kTopologyMagic);
+  require_magic(read_string(topology, topology_offset, 128),
+                current ? kCurrentTopologyMagic : kPreviousTopologyMagic);
   state.pipeline_id = read_string(topology, topology_offset, kMaxMetadataBytes);
   state.dataset_version =
       read_string(topology, topology_offset, kMaxMetadataBytes);
   state.dataset_size = read_size(topology, topology_offset, "dataset_size");
-  state.schema_descriptor =
-      read_string(topology, topology_offset, kMaxSchemaDescriptorBytes);
+  if (current) {
+    state.schema_descriptor =
+        read_string(topology, topology_offset, kMaxSchemaDescriptorBytes);
+  } else {
+    const auto legacy_schema_id =
+        read_string(topology, topology_offset, kMaxMetadataBytes);
+    state.schema_descriptor =
+        migrate_schema_v3(legacy_schema_id, current_schema);
+  }
   state.batch_factory_id =
       read_string(topology, topology_offset, kMaxMetadataBytes);
   state.sampler_identity =
@@ -242,7 +288,8 @@ DataPipelineState decode_state(std::span<const std::byte> topology,
   require_end(topology, topology_offset);
 
   std::size_t cursor_offset = 0;
-  require_magic(read_string(cursor, cursor_offset, 128), kCursorMagic);
+  require_magic(read_string(cursor, cursor_offset, 128),
+                current ? kCurrentCursorMagic : kPreviousCursorMagic);
   state.prepared = read_bool(cursor, cursor_offset, "prepared");
   state.epoch = read_u64(cursor, cursor_offset);
   state.next_cursor = read_u64(cursor, cursor_offset);
@@ -250,6 +297,29 @@ DataPipelineState decode_state(std::span<const std::byte> topology,
   require_end(cursor, cursor_offset);
   state.version = DataPipelineState::format_version;
   return state;
+}
+
+bool state_field_equal(const StateFieldDescriptor& left,
+                       const StateFieldDescriptor& right) {
+  return left.name == right.name && left.media_type == right.media_type &&
+         left.max_bytes == right.max_bytes && left.required == right.required;
+}
+
+bool manifest_equal(const StateManifest& left, const StateManifest& right) {
+  return left.participant_id == right.participant_id &&
+         left.schema_version == right.schema_version &&
+         left.restore_level == right.restore_level &&
+         left.degradation_reasons == right.degradation_reasons &&
+         left.fields.size() == right.fields.size() &&
+         std::equal(left.fields.begin(), left.fields.end(),
+                    right.fields.begin(), state_field_equal);
+}
+
+StateManifest make_schema_v3_manifest(const StateManifest& current) {
+  StateManifest previous = current;
+  previous.schema_version = kPreviousSchemaVersion;
+  validate_state_manifest(previous);
+  return previous;
 }
 
 void write_blob(StateWriter& writer, std::string_view name,
@@ -1128,16 +1198,63 @@ void DataPipeline::load_state(const StateReader& reader, RestorePolicy policy) {
   }
   const auto& manifest = reader.manifest();
   validate_state_manifest(manifest);
-  const auto expected_manifest = describe_state();
-  if (manifest.participant_id != participant_id() ||
-      manifest.schema_version != expected_manifest.schema_version ||
-      manifest.restore_level != expected_manifest.restore_level ||
-      !restore_policy_accepts(policy, manifest.restore_level)) {
-    throw CompatibilityError("DataPipeline checkpoint policy is incompatible");
+  if (!restore_policy_accepts(policy, manifest.restore_level)) {
+    throw CompatibilityError(
+        "DataPipeline checkpoint restore policy is incompatible",
+        ErrorDetails{.component = kComponent,
+                     .operation = "restore.policy",
+                     .expected = "a policy accepting the stored restore level",
+                     .actual = "rejected",
+                     .hint = "Use a RestorePolicy compatible with the stored "
+                             "DataPipeline guarantee."});
+  }
+
+  const auto current_manifest = describe_state();
+  StateManifest expected_manifest;
+  if (manifest.schema_version == DataPipelineState::format_version) {
+    expected_manifest = current_manifest;
+  } else if (manifest.schema_version == kPreviousSchemaVersion) {
+    expected_manifest = make_schema_v3_manifest(current_manifest);
+  } else {
+    throw CompatibilityError(
+        "DataPipeline checkpoint schema is unsupported",
+        ErrorDetails{
+            .component = kComponent,
+            .operation = "restore.schema_version",
+            .expected = std::to_string(kPreviousSchemaVersion) + " or " +
+                        std::to_string(DataPipelineState::format_version),
+            .actual = std::to_string(manifest.schema_version),
+            .hint = "Migrate checkpoints through the explicit N-1 schema "
+                    "chain."});
+  }
+  if (!manifest_equal(manifest, expected_manifest)) {
+    throw CompatibilityError(
+        "DataPipeline checkpoint manifest is incompatible",
+        ErrorDetails{.component = kComponent,
+                     .operation = "restore.manifest",
+                     .expected = "the exact DataPipeline schema-v" +
+                                 std::to_string(manifest.schema_version) +
+                                 " manifest",
+                     .actual = manifest.participant_id,
+                     .hint = "Do not relabel fields from another participant "
+                             "or schema."});
+  }
+  for (const auto& field : expected_manifest.fields) {
+    if (field.required && !reader.contains(field.name)) {
+      throw SerializationError(
+          "DataPipeline checkpoint is missing a required field",
+          ErrorDetails{
+              .component = kComponent,
+              .operation = "restore.field",
+              .expected = field.name,
+              .actual = "missing",
+              .hint = "Provide every field declared by the manifest."});
+    }
   }
   const auto topology = reader.read_blob("topology", kMaxTopologyBytes);
   const auto cursor = reader.read_blob("cursor", kMaxCursorBytes);
-  auto decoded = decode_state(topology, cursor);
+  auto decoded = decode_state(topology, cursor, manifest.schema_version,
+                              impl_->options.schema);
   impl_->validate_state(decoded);
 
   std::unique_ptr<WorkerRuntime> replacement;

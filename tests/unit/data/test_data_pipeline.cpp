@@ -16,6 +16,8 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <map>
 #include <memory>
@@ -116,6 +118,41 @@ class MemoryStateStore final : public jyppx::StateWriter,
     }
   }
 
+  /** @brief Returns a mutable manifest for compatibility-negative tests. */
+  jyppx::StateManifest& mutable_manifest() noexcept { return manifest_; }
+
+  /**
+   * @brief Replaces one same-length ASCII fragment in a stored field.
+   * @param name Existing field containing the fragment.
+   * @param original Exact byte sequence to locate once.
+   * @param replacement Same-length byte sequence to install.
+   */
+  void replace_ascii(std::string_view name, std::string_view original,
+                     std::string_view replacement) {
+    if (original.size() != replacement.size()) {
+      throw std::runtime_error("DataPipeline replacement length changed");
+    }
+    auto& blob = blobs_.at(std::string(name));
+    const auto begin = std::search(
+        blob.begin(), blob.end(), original.begin(), original.end(),
+        [](std::byte left, char right) {
+          return left ==
+                 static_cast<std::byte>(static_cast<unsigned char>(right));
+        });
+    if (begin == blob.end()) {
+      throw std::runtime_error("DataPipeline test fragment is absent");
+    }
+    std::transform(
+        replacement.begin(), replacement.end(), begin, [](char value) {
+          return static_cast<std::byte>(static_cast<unsigned char>(value));
+        });
+  }
+
+  /** @brief Returns all stored fields for writer-version assertions. */
+  const std::map<std::string, std::vector<std::byte>>& blobs() const noexcept {
+    return blobs_;
+  }
+
  private:
   jyppx::StateManifest manifest_;  ///< Manifest enforced by this store.
   std::map<std::string, std::vector<std::byte>>
@@ -190,6 +227,85 @@ MemoryStateStore save_state(const jyppx::data::DataPipeline& pipeline) {
   MemoryStateStore store(pipeline.describe_state());
   pipeline.save_state(store);
   return store;
+}
+
+/** @brief Strictly decodes one base64 field from a canonical fixture. */
+std::vector<std::byte> read_base64_fixture(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  std::string encoded;
+  std::string trailing;
+  if (!(input >> encoded) || (input >> trailing) || encoded.empty() ||
+      encoded.size() % 4U != 0U) {
+    throw std::runtime_error("invalid base64 DataPipeline fixture: " +
+                             path.string());
+  }
+
+  constexpr std::string_view alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const auto decode = [&](char value) -> std::uint32_t {
+    const auto position = alphabet.find(value);
+    if (position == std::string_view::npos) {
+      throw std::runtime_error("invalid base64 DataPipeline byte: " +
+                               path.string());
+    }
+    return static_cast<std::uint32_t>(position);
+  };
+
+  std::vector<std::byte> decoded;
+  decoded.reserve((encoded.size() / 4U) * 3U);
+  for (std::size_t offset = 0; offset < encoded.size(); offset += 4U) {
+    const auto final_group = offset + 4U == encoded.size();
+    const auto third_padding = encoded[offset + 2U] == '=';
+    const auto fourth_padding = encoded[offset + 3U] == '=';
+    if (encoded[offset] == '=' || encoded[offset + 1U] == '=' ||
+        (!final_group && (third_padding || fourth_padding)) ||
+        (third_padding && !fourth_padding)) {
+      throw std::runtime_error("invalid base64 DataPipeline padding: " +
+                               path.string());
+    }
+    const auto packed =
+        (decode(encoded[offset]) << 18U) |
+        (decode(encoded[offset + 1U]) << 12U) |
+        (third_padding ? 0U : decode(encoded[offset + 2U]) << 6U) |
+        (fourth_padding ? 0U : decode(encoded[offset + 3U]));
+    decoded.push_back(
+        std::byte{static_cast<unsigned char>((packed >> 16U) & 0xFFU)});
+    if (!third_padding) {
+      decoded.push_back(
+          std::byte{static_cast<unsigned char>((packed >> 8U) & 0xFFU)});
+    }
+    if (!fourth_padding) {
+      decoded.push_back(std::byte{static_cast<unsigned char>(packed & 0xFFU)});
+    }
+  }
+  return decoded;
+}
+
+/** @brief Loads state emitted by the historical schema-v3 writer. */
+MemoryStateStore load_canonical_schema_v3_fixture() {
+  MemoryStateStore fixture({
+      .participant_id = "data.pipeline.fixture",
+      .schema_version = 3,
+      .restore_level = jyppx::RestoreLevel::exact,
+      .fields = {{.name = "topology",
+                  .media_type = "application/octet-stream",
+                  .max_bytes = 32U * 1024U * 1024U,
+                  .required = true},
+                 {.name = "cursor",
+                  .media_type = "application/octet-stream",
+                  .max_bytes = 128U,
+                  .required = true}},
+      .degradation_reasons = {},
+  });
+  const auto fixture_dir = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
+                           "checkpoint" /
+                           "data_pipeline_schema_v3_libtorch_2.5.1";
+  for (const auto& field : fixture.manifest().fields) {
+    fixture.write_blob(
+        field.name,
+        read_base64_fixture(fixture_dir / (field.name + ".bin.b64")));
+  }
+  return fixture;
 }
 
 /** @brief Creates one deterministic worker topology for pipeline tests. */
@@ -345,6 +461,123 @@ TEST(DataPipelineCheckpointTest, RestoresExactInEpochCursor) {
   source.set_epoch(9);
   target.set_epoch(9);
   EXPECT_EQ(target.state().epoch_indices, source.state().epoch_indices);
+}
+
+TEST(DataPipelineCheckpointTest,
+     MigratesCanonicalSchemaV3AndReplaysWorkersExactly) {
+  auto factory = [](std::span<const std::size_t>,
+                    const jyppx::data::DataWorkerContext& context,
+                    std::stop_token) {
+    return c10::IValue(
+        static_cast<std::int64_t>(context.sequence * 10U + context.worker_id));
+  };
+  const auto options =
+      make_worker_options("data.pipeline.fixture", 3U, 3U, true);
+
+  jyppx::data::DataPipeline uninterrupted(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      factory);
+  uninterrupted.set_epoch(8U);
+  ASSERT_TRUE(uninterrupted.next().has_value());
+  const auto expected = consume_worker_pipeline(uninterrupted);
+
+  jyppx::data::DataPipeline restored(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      factory);
+  const auto fixture = load_canonical_schema_v3_fixture();
+  restored.load_state(fixture, jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(restored.state().version,
+            jyppx::data::DataPipelineState::format_version);
+  EXPECT_EQ(restored.state().epoch, 8U);
+  EXPECT_EQ(restored.state().next_cursor, 2U);
+  EXPECT_EQ(restored.state().next_sequence, 1U);
+  EXPECT_EQ(consume_worker_pipeline(restored), expected);
+
+  const auto rewritten = save_state(restored);
+  EXPECT_EQ(rewritten.manifest().schema_version,
+            jyppx::data::DataPipelineState::format_version);
+  const auto& topology = rewritten.blobs().at("topology");
+  const std::string topology_text(
+      reinterpret_cast<const char*>(topology.data()), topology.size());
+  EXPECT_NE(topology_text.find("JYPPX-DATA-PIPELINE-TOPOLOGY/v4"),
+            std::string::npos);
+  EXPECT_EQ(topology_text.find("JYPPX-DATA-PIPELINE-TOPOLOGY/v3"),
+            std::string::npos);
+}
+
+TEST(DataPipelineCheckpointTest,
+     RejectsUnsupportedOrRelabelledSchemaV3WithoutMutation) {
+  auto factory = [](std::span<const std::size_t>,
+                    const jyppx::data::DataWorkerContext& context,
+                    std::stop_token) {
+    return c10::IValue(static_cast<std::int64_t>(context.sequence));
+  };
+  const auto options =
+      make_worker_options("data.pipeline.fixture", 3U, 3U, true);
+  jyppx::data::DataPipeline target(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      factory);
+  target.set_epoch(11U);
+  ASSERT_TRUE(target.next().has_value());
+  const auto before = target.state();
+
+  auto obsolete = load_canonical_schema_v3_fixture();
+  obsolete.mutable_manifest().schema_version = 2U;
+  EXPECT_THROW(target.load_state(obsolete, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(target.state().epoch, before.epoch);
+  EXPECT_EQ(target.state().next_cursor, before.next_cursor);
+
+  auto future = load_canonical_schema_v3_fixture();
+  future.mutable_manifest().schema_version =
+      jyppx::data::DataPipelineState::format_version + 1U;
+  EXPECT_THROW(target.load_state(future, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(target.state().epoch, before.epoch);
+  EXPECT_EQ(target.state().next_cursor, before.next_cursor);
+
+  auto relabelled = load_canonical_schema_v3_fixture();
+  relabelled.mutable_manifest().fields.front().media_type =
+      "application/vnd.jyppx.relabelled";
+  EXPECT_THROW(target.load_state(relabelled, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(target.state().epoch, before.epoch);
+  EXPECT_EQ(target.state().next_cursor, before.next_cursor);
+}
+
+TEST(DataPipelineCheckpointTest,
+     RejectsSchemaV3IdentityOrUnprovenStructureWithoutMutation) {
+  auto factory = [](std::span<const std::size_t>,
+                    const jyppx::data::DataWorkerContext& context,
+                    std::stop_token) {
+    return c10::IValue(static_cast<std::int64_t>(context.sequence));
+  };
+  auto options = make_worker_options("data.pipeline.fixture", 3U, 3U, true);
+  jyppx::data::DataPipeline target(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      factory);
+  target.set_epoch(12U);
+  const auto before = target.state();
+
+  auto mismatched_id = load_canonical_schema_v3_fixture();
+  mismatched_id.replace_ascii("topology", "worker.batch/v1", "worker.other/v1");
+  EXPECT_THROW(
+      target.load_state(mismatched_id, jyppx::RestorePolicy::exact_only),
+      jyppx::CompatibilityError);
+  EXPECT_EQ(target.state().epoch, before.epoch);
+  EXPECT_EQ(target.state().next_cursor, before.next_cursor);
+
+  options.schema = jyppx::data::BatchSchema::tensor("worker.batch");
+  jyppx::data::DataPipeline structured(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(6), options,
+      factory);
+  structured.set_epoch(13U);
+  const auto structured_before = structured.state();
+  const auto fixture = load_canonical_schema_v3_fixture();
+  EXPECT_THROW(structured.load_state(fixture, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(structured.state().epoch, structured_before.epoch);
+  EXPECT_EQ(structured.state().next_cursor, structured_before.next_cursor);
 }
 
 TEST(DataPipelineTest, FactoryFailureDoesNotAdvanceCursor) {

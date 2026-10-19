@@ -186,7 +186,7 @@ struct DataPipelineOptions {
  */
 struct DataPipelineState {
   static constexpr std::uint32_t format_version =
-      4;  ///< Current-only state schema version.
+      4;  ///< Current writer schema; the reader also accepts explicit N-1 v3.
 
   std::uint32_t version = format_version;  ///< Serialized state version.
   std::string pipeline_id;       ///< Participant identity at snapshot time.
