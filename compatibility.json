@@ -320,6 +320,25 @@
           "commit": "a19c234"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-data-batch-memory-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "46/46 batch-memory and current pipeline tests; 0 skipped",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; TORCH_CUDA_ARCH_LIST=7.5; migrated target -Werror; Doxygen 1.9.1 strict gate",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75 and project C++ standard 20",
+            "build": "jyppx_test_data passed with warnings as errors",
+            "cuda_batch_memory": "map-style pin/transfer, map checkpoint continuation and iterable pin/transfer/checkpoint continuation executed on CUDA: 3/3 passed; zero skipped",
+            "filtered_regression": "BatchMemory, DataPipeline, IterableDataPipeline and IterableBatchMemory: 46/46 passed; zero skipped",
+            "failure_contract": "resource preflight, topology mismatch and worker/source staging failures preserve committed cursor and checkpoint state",
+            "source_quality": "clang-format dry-run and strict migrated API Doxygen gate passed at the same source commit"
+          },
+          "commit": "0a92ddb"
+        },
+        {
           "id": "local-ubuntu-gcc-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
