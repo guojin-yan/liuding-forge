@@ -123,9 +123,9 @@ constexpr std::array<std::byte, 8> kProducerMagic = {
 #endif
 
 struct OptimizerSnapshot {
-  std::vector<std::byte> topology;   ///< Immutable descriptor bytes.
+  std::vector<std::byte> topology;  ///< Immutable descriptor bytes.
 #if defined(JYPPX_STATEFUL_OPTIMIZER_N1_MIGRATION)
-  std::vector<std::byte> producer;   ///< Producer and LibTorch versions.
+  std::vector<std::byte> producer;  ///< Producer and LibTorch versions.
 #endif
   std::vector<std::byte> control;    ///< Mutable counters and presence bytes.
   std::vector<Tensor> first_state;   ///< Required first state by parameter.
@@ -921,8 +921,8 @@ void validate_producer_blob(
         std::to_string(TORCH_VERSION_MAJOR) + "." +
             std::to_string(TORCH_VERSION_MINOR) + "." +
             std::to_string(TORCH_VERSION_PATCH),
-        std::to_string(torch_major) + "." + std::to_string(torch_minor) +
-            "." + std::to_string(torch_patch),
+        std::to_string(torch_major) + "." + std::to_string(torch_minor) + "." +
+            std::to_string(torch_patch),
         "Run an explicitly validated cross-LibTorch migration.");
   }
   if (!cursor.empty()) {
@@ -1335,9 +1335,10 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
 StateManifest make_schema_v1_manifest(const StateManifest& current) {
   StateManifest legacy = current;
   legacy.schema_version = kPreviousSchemaVersion;
-  const auto producer = std::find_if(
-      legacy.fields.begin(), legacy.fields.end(),
-      [](const StateFieldDescriptor& field) { return field.name == "producer"; });
+  const auto producer = std::find_if(legacy.fields.begin(), legacy.fields.end(),
+                                     [](const StateFieldDescriptor& field) {
+                                       return field.name == "producer";
+                                     });
   if (producer == legacy.fields.end()) {
     throw InternalError(
         "Current optimizer manifest is missing producer metadata",
@@ -2258,8 +2259,8 @@ void JYPPX_STATEFUL_OPTIMIZER_PARTICIPANT::load_state(const StateReader& reader,
       }
     }
 
-    const auto topology =
-        reader.read_blob("topology", expected_manifest.fields.front().max_bytes);
+    const auto topology = reader.read_blob(
+        "topology", expected_manifest.fields.front().max_bytes);
     validate_topology_blob(topology, options_);
     if (topology.size() != current.topology.size() ||
         !std::equal(topology.begin(), topology.end(),

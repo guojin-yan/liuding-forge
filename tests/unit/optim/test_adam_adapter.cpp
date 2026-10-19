@@ -77,9 +77,7 @@ class MemoryStateStore final : public jyppx::StateWriter,
   void erase(std::string_view name) { blobs_.erase(std::string(name)); }
 
   /** @brief Replaces the stored manifest without changing owned field bytes. */
-  void set_manifest(StateManifest manifest) {
-    manifest_ = std::move(manifest);
-  }
+  void set_manifest(StateManifest manifest) { manifest_ = std::move(manifest); }
 
  private:
   StateManifest manifest_;  ///< Stored participant state contract.
@@ -111,11 +109,11 @@ void assign_gradient(const Tensor& parameter, std::int64_t step) {
 StateManifest make_schema_v1_manifest(const StateManifest& current) {
   StateManifest legacy = current;
   legacy.schema_version = 1;
-  const auto producer = std::find_if(
-      legacy.fields.begin(), legacy.fields.end(),
-      [](const jyppx::StateFieldDescriptor& field) {
-        return field.name == "producer";
-      });
+  const auto producer =
+      std::find_if(legacy.fields.begin(), legacy.fields.end(),
+                   [](const jyppx::StateFieldDescriptor& field) {
+                     return field.name == "producer";
+                   });
   EXPECT_NE(producer, legacy.fields.end());
   if (producer != legacy.fields.end()) {
     legacy.fields.erase(producer);
@@ -179,13 +177,13 @@ std::vector<std::byte> read_base64_fixture(const std::filesystem::path& path) {
 
 MemoryStateStore load_canonical_schema_v1_fixture(
     const AdamOptimizerCheckpointParticipant& participant) {
-  MemoryStateStore fixture(make_schema_v1_manifest(participant.describe_state()));
+  MemoryStateStore fixture(
+      make_schema_v1_manifest(participant.describe_state()));
   const auto fixture_dir = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
-                           "checkpoint" /
-                           "adam_schema_v1_libtorch_2.5.1";
+                           "checkpoint" / "adam_schema_v1_libtorch_2.5.1";
   for (const auto& field : fixture.manifest().fields) {
-    fixture.replace(field.name,
-                    read_base64_fixture(fixture_dir / (field.name + ".bin.b64")));
+    fixture.replace(field.name, read_base64_fixture(fixture_dir /
+                                                    (field.name + ".bin.b64")));
   }
   return fixture;
 }
@@ -366,17 +364,23 @@ TEST(AdamOptimizerAdapterTest,
   auto uninterrupted = make_parameter({6, 3});
   auto resumed = uninterrupted.detach().clone().set_requires_grad(true);
   auto first = std::make_shared<AdamOptimizerAdapter>(
-      "optimizer.adam",
-      std::vector<AdamParameterGroup>{make_group(
-          "main", "weight", uninterrupted,
-          {.learning_rate = 2e-3, .beta1 = 0.87, .beta2 = 0.98,
-           .epsilon = 1e-7, .weight_decay = 0.01, .amsgrad = true})});
+      "optimizer.adam", std::vector<AdamParameterGroup>{
+                            make_group("main", "weight", uninterrupted,
+                                       {.learning_rate = 2e-3,
+                                        .beta1 = 0.87,
+                                        .beta2 = 0.98,
+                                        .epsilon = 1e-7,
+                                        .weight_decay = 0.01,
+                                        .amsgrad = true})});
   auto second = std::make_shared<AdamOptimizerAdapter>(
       "optimizer.adam",
-      std::vector<AdamParameterGroup>{make_group(
-          "main", "weight", resumed,
-          {.learning_rate = 2e-3, .beta1 = 0.87, .beta2 = 0.98,
-           .epsilon = 1e-7, .weight_decay = 0.01, .amsgrad = true})});
+      std::vector<AdamParameterGroup>{make_group("main", "weight", resumed,
+                                                 {.learning_rate = 2e-3,
+                                                  .beta1 = 0.87,
+                                                  .beta2 = 0.98,
+                                                  .epsilon = 1e-7,
+                                                  .weight_decay = 0.01,
+                                                  .amsgrad = true})});
   AdamOptimizerCheckpointParticipant first_state(first);
   AdamOptimizerCheckpointParticipant second_state(second);
 
@@ -405,7 +409,8 @@ TEST(AdamOptimizerAdapterTest,
   EXPECT_EQ(second->completed_steps(), first->completed_steps());
 }
 
-TEST(AdamOptimizerAdapterTest, MigratesCanonicalSchemaV1FixtureFromLibtorch251) {
+TEST(AdamOptimizerAdapterTest,
+     MigratesCanonicalSchemaV1FixtureFromLibtorch251) {
   if (TORCH_VERSION_MAJOR != 2 || TORCH_VERSION_MINOR != 5 ||
       TORCH_VERSION_PATCH != 1) {
     GTEST_SKIP() << "canonical fixture requires exact LibTorch 2.5.1";
@@ -421,12 +426,11 @@ TEST(AdamOptimizerAdapterTest, MigratesCanonicalSchemaV1FixtureFromLibtorch251) 
       torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
   auto expected = std::make_shared<AdamOptimizerAdapter>(
       "optimizer.adam.fixture",
-      std::vector<AdamParameterGroup>{make_group(
-          "main", "weight", expected_parameter, options)});
+      std::vector<AdamParameterGroup>{
+          make_group("main", "weight", expected_parameter, options)});
   for (std::int64_t step = 1; step <= 2; ++step) {
-    expected_parameter.mutable_grad() =
-        torch::tensor({0.25 * step, -0.125 * step, 0.0625 * step},
-                      torch::kFloat64);
+    expected_parameter.mutable_grad() = torch::tensor(
+        {0.25 * step, -0.125 * step, 0.0625 * step}, torch::kFloat64);
     expected->step();
   }
   expected->set_learning_rates({0.006});
@@ -434,36 +438,34 @@ TEST(AdamOptimizerAdapterTest, MigratesCanonicalSchemaV1FixtureFromLibtorch251) 
   auto resumed_parameter =
       expected_parameter.detach().clone().set_requires_grad(true);
   auto resumed = std::make_shared<AdamOptimizerAdapter>(
-      "optimizer.adam.fixture",
-      std::vector<AdamParameterGroup>{make_group(
-          "main", "weight", resumed_parameter,
-          {.learning_rate = 0.9,
-           .beta1 = 0.88,
-           .beta2 = 0.97,
-           .epsilon = 1e-7,
-           .weight_decay = 0.02,
-           .amsgrad = true})});
+      "optimizer.adam.fixture", std::vector<AdamParameterGroup>{make_group(
+                                    "main", "weight", resumed_parameter,
+                                    {.learning_rate = 0.9,
+                                     .beta1 = 0.88,
+                                     .beta2 = 0.97,
+                                     .epsilon = 1e-7,
+                                     .weight_decay = 0.02,
+                                     .amsgrad = true})});
   AdamOptimizerCheckpointParticipant resumed_participant(resumed);
   const auto fixture = load_canonical_schema_v1_fixture(resumed_participant);
   resumed_participant.load_state(fixture, jyppx::RestorePolicy::exact_only);
   EXPECT_EQ(resumed->completed_steps(), 2U);
   EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.006}));
 
-  const auto next_gradient =
-      torch::tensor({-0.3, 0.7, -0.2}, torch::kFloat64);
+  const auto next_gradient = torch::tensor({-0.3, 0.7, -0.2}, torch::kFloat64);
   expected_parameter.mutable_grad() = next_gradient.clone();
   resumed_parameter.mutable_grad() = next_gradient.clone();
   expected->step();
   resumed->step();
-  EXPECT_TRUE(torch::allclose(expected_parameter, resumed_parameter, 1e-12,
-                              1e-12));
+  EXPECT_TRUE(
+      torch::allclose(expected_parameter, resumed_parameter, 1e-12, 1e-12));
 }
 
 TEST(AdamOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
   auto parameter = make_parameter({4});
   auto optimizer = std::make_shared<AdamOptimizerAdapter>(
-      "optimizer.adam", std::vector<AdamParameterGroup>{
-                            make_group("main", "weight", parameter)});
+      "optimizer.adam",
+      std::vector<AdamParameterGroup>{make_group("main", "weight", parameter)});
   AdamOptimizerCheckpointParticipant participant(optimizer);
   assign_gradient(parameter, 1);
   optimizer->step();
@@ -489,11 +491,12 @@ TEST(AdamOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
 }
 
-TEST(AdamOptimizerAdapterTest, RejectsMalformedProducerAndLeavesStateUnchanged) {
+TEST(AdamOptimizerAdapterTest,
+     RejectsMalformedProducerAndLeavesStateUnchanged) {
   auto parameter = make_parameter({4});
   auto optimizer = std::make_shared<AdamOptimizerAdapter>(
-      "optimizer.adam", std::vector<AdamParameterGroup>{
-                            make_group("main", "weight", parameter)});
+      "optimizer.adam",
+      std::vector<AdamParameterGroup>{make_group("main", "weight", parameter)});
   AdamOptimizerCheckpointParticipant participant(optimizer);
   assign_gradient(parameter, 1);
   optimizer->step();
@@ -512,8 +515,8 @@ TEST(AdamOptimizerAdapterTest, RejectsMalformedProducerAndLeavesStateUnchanged) 
 TEST(AdamOptimizerAdapterTest, EnforcesProducerResourceLimit) {
   auto parameter = make_parameter({2});
   auto optimizer = std::make_shared<AdamOptimizerAdapter>(
-      "optimizer.adam", std::vector<AdamParameterGroup>{
-                            make_group("main", "weight", parameter)});
+      "optimizer.adam",
+      std::vector<AdamParameterGroup>{make_group("main", "weight", parameter)});
   AdamOptimizerCheckpointOptions options;
   options.max_producer_bytes = 1;
   EXPECT_THROW(AdamOptimizerCheckpointParticipant(optimizer, options),
@@ -566,21 +569,27 @@ TEST(AdamOptimizerAdapterCudaTest,
   if (!torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA is not available";
   }
-  auto uninterrupted = make_parameter(
-      {8}, torch::kFloat32, torch::Device(torch::kCUDA, 0));
+  auto uninterrupted =
+      make_parameter({8}, torch::kFloat32, torch::Device(torch::kCUDA, 0));
   auto resumed = uninterrupted.detach().clone().set_requires_grad(true);
   auto first = std::make_shared<AdamOptimizerAdapter>(
-      "optimizer.adam.cuda",
-      std::vector<AdamParameterGroup>{make_group(
-          "main", "weight", uninterrupted,
-          {.learning_rate = 1e-3, .beta1 = 0.91, .beta2 = 0.995,
-           .epsilon = 1e-7, .weight_decay = 0.01, .amsgrad = true})});
+      "optimizer.adam.cuda", std::vector<AdamParameterGroup>{
+                                 make_group("main", "weight", uninterrupted,
+                                            {.learning_rate = 1e-3,
+                                             .beta1 = 0.91,
+                                             .beta2 = 0.995,
+                                             .epsilon = 1e-7,
+                                             .weight_decay = 0.01,
+                                             .amsgrad = true})});
   auto second = std::make_shared<AdamOptimizerAdapter>(
       "optimizer.adam.cuda",
-      std::vector<AdamParameterGroup>{make_group(
-          "main", "weight", resumed,
-          {.learning_rate = 1e-3, .beta1 = 0.91, .beta2 = 0.995,
-           .epsilon = 1e-7, .weight_decay = 0.01, .amsgrad = true})});
+      std::vector<AdamParameterGroup>{make_group("main", "weight", resumed,
+                                                 {.learning_rate = 1e-3,
+                                                  .beta1 = 0.91,
+                                                  .beta2 = 0.995,
+                                                  .epsilon = 1e-7,
+                                                  .weight_decay = 0.01,
+                                                  .amsgrad = true})});
   AdamOptimizerCheckpointParticipant first_state(first);
   AdamOptimizerCheckpointParticipant second_state(second);
   for (std::int64_t step = 0; step < 13; ++step) {
