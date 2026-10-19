@@ -58,7 +58,7 @@ run_logged 02-build.log cmake --build "$build_root" \
   --parallel "$build_parallelism"
 
 export TSAN_OPTIONS="${TSAN_OPTIONS:-halt_on_error=1:second_deadlock_stack=1}"
-tsan_test_regex='^(DataPipelineTest|DataPipelineCheckpointTest|DataPipelineWorkerTest|IterableDataPipelineTest|BatchMemoryPipelineTest|ValueSchemaPipelineTest|ConcurrentStressTest)\.'
+tsan_test_regex='^(DataPipelineTest|DataPipelineCheckpointTest|DataPipelineWorkerTest|IterableDataPipelineTest|IterableDataPipelineCheckpointTest|BatchMemoryPipelineTest|ValueSchemaPipelineTest|ConcurrentStressTest)\.'
 address_layout_runner=()
 address_layout_mode=native
 if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; then

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Explicit `IterableDataPipeline` schema-v2 to schema-v3 checkpoint migration
+  with historical exact, bounded, and best-effort fixtures, strict manifest
+  compatibility, and failure-atomic source cursor replacement.
 - Checkpoint-stable logical data-worker shard identities and an explicit
   caller-current CUDA transfer-stream policy with two-phase background
   preparation and consumer-thread publication.

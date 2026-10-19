@@ -13,6 +13,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <map>
 #include <memory>
@@ -82,6 +84,22 @@ class MemoryStateStore final : public jyppx::StateWriter,
       throw std::runtime_error("missing iterable checkpoint field");
     }
     return found->second;
+  }
+
+  /** @brief Returns the mutable manifest for compatibility-negative tests. */
+  jyppx::StateManifest& mutable_manifest() noexcept { return manifest_; }
+
+  /** @brief Removes one field to exercise required-field validation. */
+  void erase_blob(std::string_view name) { blobs_.erase(std::string(name)); }
+
+  /** @brief Appends one byte to exercise trailing-payload validation. */
+  void append_byte(std::string_view name) {
+    blobs_.at(std::string(name)).push_back(std::byte{0});
+  }
+
+  /** @brief Returns all stored fields for writer-version assertions. */
+  const std::map<std::string, std::vector<std::byte>>& blobs() const noexcept {
+    return blobs_;
   }
 
  private:
@@ -357,6 +375,135 @@ MemoryStateStore save_state(const IterableDataPipeline& pipeline) {
   return store;
 }
 
+/** @brief Strictly decodes one base64 field from a canonical fixture. */
+std::vector<std::byte> read_base64_fixture(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  std::string encoded;
+  std::string trailing;
+  if (!(input >> encoded) || (input >> trailing) || encoded.empty() ||
+      encoded.size() % 4U != 0U) {
+    throw std::runtime_error("invalid iterable pipeline fixture: " +
+                             path.string());
+  }
+
+  constexpr std::string_view alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const auto decode = [&](char value) -> std::uint32_t {
+    const auto position = alphabet.find(value);
+    if (position == std::string_view::npos) {
+      throw std::runtime_error("invalid iterable fixture byte: " +
+                               path.string());
+    }
+    return static_cast<std::uint32_t>(position);
+  };
+
+  std::vector<std::byte> decoded;
+  decoded.reserve((encoded.size() / 4U) * 3U);
+  for (std::size_t offset = 0; offset < encoded.size(); offset += 4U) {
+    const auto final_group = offset + 4U == encoded.size();
+    const auto third_padding = encoded[offset + 2U] == '=';
+    const auto fourth_padding = encoded[offset + 3U] == '=';
+    if (encoded[offset] == '=' || encoded[offset + 1U] == '=' ||
+        (!final_group && (third_padding || fourth_padding)) ||
+        (third_padding && !fourth_padding)) {
+      throw std::runtime_error("invalid iterable fixture padding: " +
+                               path.string());
+    }
+    const auto packed =
+        (decode(encoded[offset]) << 18U) |
+        (decode(encoded[offset + 1U]) << 12U) |
+        (third_padding ? 0U : decode(encoded[offset + 2U]) << 6U) |
+        (fourth_padding ? 0U : decode(encoded[offset + 3U]));
+    decoded.push_back(
+        std::byte{static_cast<unsigned char>((packed >> 16U) & 0xFFU)});
+    if (!third_padding) {
+      decoded.push_back(
+          std::byte{static_cast<unsigned char>((packed >> 8U) & 0xFFU)});
+    }
+    if (!fourth_padding) {
+      decoded.push_back(std::byte{static_cast<unsigned char>(packed & 0xFFU)});
+    }
+  }
+  return decoded;
+}
+
+/** @brief Returns the historical fixture descriptor for one restore level. */
+IterableSourceDescriptor fixture_descriptor(std::string_view mode) {
+  if (mode == "exact") {
+    return {.source_id = "fixture.vector/exact/v1",
+            .finite_epoch = true,
+            .deterministic_epoch = true,
+            .checkpointable = true,
+            .restore_level = jyppx::RestoreLevel::exact,
+            .max_replayed_samples = 0,
+            .max_omitted_samples = 0};
+  }
+  if (mode == "bounded") {
+    return {.source_id = "fixture.vector/bounded/v1",
+            .finite_epoch = true,
+            .deterministic_epoch = true,
+            .checkpointable = true,
+            .restore_level = jyppx::RestoreLevel::bounded,
+            .max_replayed_samples = 5,
+            .max_omitted_samples = 1,
+            .degradation_reasons = {"fixture bounded source"}};
+  }
+  if (mode == "best-effort") {
+    return {.source_id = "fixture.vector/best-effort/v1",
+            .finite_epoch = true,
+            .deterministic_epoch = false,
+            .checkpointable = false,
+            .restore_level = jyppx::RestoreLevel::best_effort,
+            .degradation_reasons = {"fixture best-effort source"}};
+  }
+  throw std::runtime_error("unknown iterable fixture mode");
+}
+
+/** @brief Creates options matching one historical schema-v2 fixture. */
+IterableDataPipelineOptions fixture_options(std::string_view mode) {
+  return {.pipeline_id = "data.iterable.fixture." + std::string(mode),
+          .dataset_version = "dataset.iterable/v1",
+          .schema = jyppx::data::BatchSchema::any("batch.iterable", 1),
+          .batch_factory_id = "factory.sum/v1",
+          .batch_size = 2,
+          .prefetch_batches = 3};
+}
+
+/** @brief Loads canonical state emitted by the historical schema-v2 writer. */
+MemoryStateStore load_canonical_schema_v2_fixture(std::string_view mode) {
+  const auto descriptor = fixture_descriptor(mode);
+  MemoryStateStore fixture({
+      .participant_id = "data.iterable.fixture." + std::string(mode),
+      .schema_version = 2,
+      .restore_level = descriptor.restore_level,
+      .fields = {{.name = "topology",
+                  .media_type = "application/octet-stream",
+                  .max_bytes = 64U * 1024U,
+                  .required = true},
+                 {.name = "cursor",
+                  .media_type = "application/octet-stream",
+                  .max_bytes = 8U * 1024U * 1024U,
+                  .required = true}},
+      .degradation_reasons = descriptor.degradation_reasons,
+  });
+  const auto fixture_mode =
+      mode == "best-effort" ? std::string("best_effort") : std::string(mode);
+  const auto fixture_dir =
+      std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) / "checkpoint" /
+      ("iterable_pipeline_schema_v2_" + fixture_mode + "_libtorch_2.5.1");
+  for (const auto& field : fixture.manifest().fields) {
+    fixture.write_blob(
+        field.name,
+        read_base64_fixture(fixture_dir / (field.name + ".bin.b64")));
+  }
+  return fixture;
+}
+
+/** @brief Creates the immutable vector source used by schema-v2 fixtures. */
+std::shared_ptr<VectorSource> make_fixture_source(std::string_view mode) {
+  return make_source({10, 20, 30, 40, 50, 60}, fixture_descriptor(mode));
+}
+
 bool wait_for_pulls(const std::shared_ptr<CursorStats>& stats,
                     std::size_t expected, std::chrono::milliseconds timeout) {
   // Explicit lock/unlock polling remains observable to the GCC 11 TSan
@@ -593,6 +740,140 @@ TEST(IterableDataPipelineTest, RestoresExactStateAtLastCommittedBatch) {
   ASSERT_TRUE(next.has_value());
   EXPECT_EQ(next->sample_ids, (std::vector<std::uint64_t>{7002, 7003}));
   EXPECT_EQ(next->value.toInt(), 70);
+}
+
+TEST(IterableDataPipelineCheckpointTest,
+     MigratesCanonicalSchemaV2AcrossSourceGuarantees) {
+  IterableDataPipeline exact(make_fixture_source("exact"),
+                             fixture_options("exact"), sum_factory());
+  exact.load_state(load_canonical_schema_v2_fixture("exact"),
+                   jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(exact.state().version,
+            jyppx::data::IterableDataPipelineState::format_version);
+  EXPECT_EQ(exact.state().epoch, 7U);
+  EXPECT_EQ(exact.state().committed_samples, 2U);
+  const auto exact_next = exact.next();
+  ASSERT_TRUE(exact_next.has_value());
+  EXPECT_EQ(exact_next->sample_ids, (std::vector<std::uint64_t>{7002U, 7003U}));
+  EXPECT_EQ(exact_next->value.toInt(), 70);
+
+  const auto rewritten = save_state(exact);
+  EXPECT_EQ(rewritten.manifest().schema_version,
+            jyppx::data::IterableDataPipelineState::format_version);
+  const auto& topology = rewritten.blobs().at("topology");
+  const std::string topology_text(
+      reinterpret_cast<const char*>(topology.data()), topology.size());
+  EXPECT_NE(topology_text.find("JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v3"),
+            std::string::npos);
+  EXPECT_EQ(topology_text.find("JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v2"),
+            std::string::npos);
+
+  IterableDataPipeline bounded(make_fixture_source("bounded"),
+                               fixture_options("bounded"), sum_factory());
+  const auto bounded_fixture = load_canonical_schema_v2_fixture("bounded");
+  EXPECT_THROW(
+      bounded.load_state(bounded_fixture, jyppx::RestorePolicy::exact_only),
+      jyppx::CompatibilityError);
+  bounded.load_state(bounded_fixture, jyppx::RestorePolicy::allow_bounded);
+  const auto bounded_next = bounded.next();
+  ASSERT_TRUE(bounded_next.has_value());
+  EXPECT_EQ(bounded_next->sample_ids,
+            (std::vector<std::uint64_t>{7002U, 7003U}));
+
+  IterableDataPipeline best_effort(make_fixture_source("best-effort"),
+                                   fixture_options("best-effort"),
+                                   sum_factory());
+  const auto best_fixture = load_canonical_schema_v2_fixture("best-effort");
+  EXPECT_THROW(
+      best_effort.load_state(best_fixture, jyppx::RestorePolicy::allow_bounded),
+      jyppx::CompatibilityError);
+  best_effort.load_state(best_fixture, jyppx::RestorePolicy::allow_best_effort);
+  const auto replayed = best_effort.next();
+  ASSERT_TRUE(replayed.has_value());
+  EXPECT_EQ(replayed->sample_ids, (std::vector<std::uint64_t>{7000U, 7001U}));
+}
+
+TEST(IterableDataPipelineCheckpointTest,
+     RejectsUnsupportedOrMalformedSchemaV2WithoutMutation) {
+  IterableDataPipeline target(make_fixture_source("exact"),
+                              fixture_options("exact"), sum_factory());
+  target.set_epoch(11U);
+  ASSERT_TRUE(target.next().has_value());
+  const auto before = target.state();
+
+  auto obsolete = load_canonical_schema_v2_fixture("exact");
+  obsolete.mutable_manifest().schema_version = 1U;
+  EXPECT_THROW(target.load_state(obsolete, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+
+  auto future = load_canonical_schema_v2_fixture("exact");
+  future.mutable_manifest().schema_version =
+      jyppx::data::IterableDataPipelineState::format_version + 1U;
+  EXPECT_THROW(target.load_state(future, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+
+  auto relabelled = load_canonical_schema_v2_fixture("exact");
+  relabelled.mutable_manifest().fields.front().max_bytes = 2U * 1024U * 1024U;
+  EXPECT_THROW(target.load_state(relabelled, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+
+  auto missing = load_canonical_schema_v2_fixture("exact");
+  missing.erase_blob("cursor");
+  EXPECT_THROW(target.load_state(missing, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+
+  auto trailing = load_canonical_schema_v2_fixture("exact");
+  trailing.append_byte("cursor");
+  EXPECT_THROW(target.load_state(trailing, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+
+  EXPECT_EQ(target.state().epoch, before.epoch);
+  EXPECT_EQ(target.state().next_sequence, before.next_sequence);
+  EXPECT_EQ(target.state().committed_samples, before.committed_samples);
+  EXPECT_EQ(target.state().source_state, before.source_state);
+  EXPECT_TRUE(target.next().has_value());
+}
+
+TEST(IterableDataPipelineCheckpointTest,
+     RejectsSchemaV2IdentityStructureOrSourceMismatchWithoutMutation) {
+  auto mismatched_options = fixture_options("exact");
+  mismatched_options.schema = jyppx::data::BatchSchema::any("batch.other", 1);
+  IterableDataPipeline mismatched(make_fixture_source("exact"),
+                                  mismatched_options, sum_factory());
+  mismatched.set_epoch(12U);
+  const auto mismatched_before = mismatched.state();
+  EXPECT_THROW(mismatched.load_state(load_canonical_schema_v2_fixture("exact"),
+                                     jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(mismatched.state().epoch, mismatched_before.epoch);
+  EXPECT_EQ(mismatched.state().source_state, mismatched_before.source_state);
+
+  auto structured_options = fixture_options("exact");
+  structured_options.schema =
+      jyppx::data::BatchSchema::tensor("batch.iterable");
+  IterableDataPipeline structured(make_fixture_source("exact"),
+                                  structured_options, sum_factory());
+  structured.set_epoch(13U);
+  const auto structured_before = structured.state();
+  EXPECT_THROW(structured.load_state(load_canonical_schema_v2_fixture("exact"),
+                                     jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(structured.state().epoch, structured_before.epoch);
+  EXPECT_EQ(structured.state().source_state, structured_before.source_state);
+
+  auto changed_descriptor = fixture_descriptor("exact");
+  changed_descriptor.source_id = "fixture.vector/other/v1";
+  IterableDataPipeline changed_source(
+      make_source({10, 20, 30, 40, 50, 60}, changed_descriptor),
+      fixture_options("exact"), sum_factory());
+  changed_source.set_epoch(14U);
+  const auto changed_before = changed_source.state();
+  EXPECT_THROW(
+      changed_source.load_state(load_canonical_schema_v2_fixture("exact"),
+                                jyppx::RestorePolicy::exact_only),
+      jyppx::CompatibilityError);
+  EXPECT_EQ(changed_source.state().epoch, changed_before.epoch);
+  EXPECT_EQ(changed_source.state().source_state, changed_before.source_state);
 }
 
 TEST(IterableDataPipelineTest,

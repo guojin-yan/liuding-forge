@@ -46,11 +46,11 @@ struct IterableDataPipelineOptions {
 };
 
 /**
- * @brief Current-only committed state for an iterable source pipeline.
+ * @brief Current committed state for an iterable source pipeline.
  */
 struct IterableDataPipelineState {
   static constexpr std::uint32_t format_version =
-      3;  ///< Current-only iterable state schema.
+      3;  ///< Current writer schema; the reader accepts explicit N-1 state.
 
   std::uint32_t version = format_version;  ///< Serialized schema version.
   std::string pipeline_id;           ///< Participant identity at snapshot time.
@@ -202,7 +202,7 @@ class IterableDataPipeline final : public BatchPipeline {
   std::string participant_id() const override;
 
   /**
-   * @brief Describes current-only topology and committed cursor fields.
+   * @brief Describes current-writer topology and committed cursor fields.
    * @return Bounded manifest with the source restore guarantee.
    */
   StateManifest describe_state() const override;

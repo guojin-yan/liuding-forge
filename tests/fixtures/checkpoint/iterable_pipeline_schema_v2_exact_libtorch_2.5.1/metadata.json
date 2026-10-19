@@ -1,0 +1,47 @@
+{
+  "fixture_schema": 1,
+  "participant_id": "data.iterable.fixture.exact",
+  "participant_schema": 2,
+  "restore_level": "exact",
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "0a92ddba4a9cac2d15e715571961db5f0ddbae3c",
+    "libtorch_version": "2.5.1+cu124",
+    "writer": "IterableDataPipeline schema-v2 writer"
+  },
+  "scenario": {
+    "source_id": "fixture.vector/exact/v1",
+    "dataset_version": "dataset.iterable/v1",
+    "schema_id": "batch.iterable/v1",
+    "batch_factory_id": "factory.sum/v1",
+    "batch_size": 2,
+    "prefetch_batches": 3,
+    "epoch": 7,
+    "committed_batches": 1,
+    "committed_samples": 2,
+    "source_watermark": "2",
+    "source_state": "2"
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/octet-stream",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 65536,
+      "decoded_size": 272,
+      "sha256": "14bccbcf109eec7602bd207fa65dab24e8379a484645e03dcff1894ca231fc51"
+    },
+    {
+      "name": "cursor",
+      "media_type": "application/octet-stream",
+      "required": true,
+      "file": "cursor.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 8388608,
+      "decoded_size": 85,
+      "sha256": "d155fbaeb84ac1bbe7808a5791fefbad2c00844a8eff68ebe7b3ce5a729ebed9"
+    }
+  ]
+}

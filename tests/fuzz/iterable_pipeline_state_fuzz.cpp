@@ -116,13 +116,16 @@ class FuzzStateStore final : public jyppx::StateWriter,
     return blobs_.at(std::string(name));
   }
 
+  /** @brief Returns the mutable manifest used to select the N-1 decoder. */
+  jyppx::StateManifest& mutable_manifest() noexcept { return manifest_; }
+
  private:
   jyppx::StateManifest manifest_;  ///< Participant descriptor under test.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Mutable encoded fields.
 };
 
-FuzzStateStore make_baseline() {
+FuzzStateStore make_current_baseline() {
   jyppx::data::IterableDataPipeline pipeline(
       std::make_shared<FuzzSource>(),
       {.pipeline_id = "data.iterable.fuzz",
@@ -141,8 +144,74 @@ FuzzStateStore make_baseline() {
   return store;
 }
 
-const FuzzStateStore& baseline() {
-  static const FuzzStateStore value = make_baseline();
+/** @brief Reads one little-endian string size from a valid seed topology. */
+std::uint64_t read_seed_u64(const std::vector<std::byte>& value,
+                            std::size_t offset) {
+  std::uint64_t result = 0;
+  for (unsigned int shift = 0; shift < 64; shift += 8) {
+    result |= static_cast<std::uint64_t>(
+                  std::to_integer<std::uint8_t>(value.at(offset + shift / 8)))
+              << shift;
+  }
+  return result;
+}
+
+/** @brief Writes one little-endian string size into a valid seed topology. */
+void write_seed_u64(std::vector<std::byte>& value, std::size_t offset,
+                    std::uint64_t replacement) {
+  for (unsigned int shift = 0; shift < 64; shift += 8) {
+    value.at(offset + shift / 8) =
+        static_cast<std::byte>(static_cast<std::uint8_t>(replacement >> shift));
+  }
+}
+
+/** @brief Replaces one length-prefixed string in a valid seed topology. */
+void replace_seed_string(std::vector<std::byte>& value, std::size_t index,
+                         std::string_view replacement) {
+  std::size_t offset = 0;
+  for (std::size_t current = 0; current <= index; ++current) {
+    const auto length_offset = offset;
+    const auto length = read_seed_u64(value, length_offset);
+    offset += sizeof(std::uint64_t);
+    if (length > value.size() - offset) {
+      throw jyppx::InternalError("valid iterable fuzz seed is malformed");
+    }
+    if (current == index) {
+      const auto begin = value.begin() + static_cast<std::ptrdiff_t>(offset);
+      const auto end = begin + static_cast<std::ptrdiff_t>(length);
+      value.erase(begin, end);
+      value.insert(value.begin() + static_cast<std::ptrdiff_t>(offset),
+                   reinterpret_cast<const std::byte*>(replacement.data()),
+                   reinterpret_cast<const std::byte*>(replacement.data() +
+                                                      replacement.size()));
+      write_seed_u64(value, length_offset, replacement.size());
+      return;
+    }
+    offset += static_cast<std::size_t>(length);
+  }
+}
+
+/** @brief Derives a valid N-1 seed matching the historical schema-v2 codec. */
+FuzzStateStore make_previous_baseline() {
+  auto store = make_current_baseline();
+  auto& manifest = store.mutable_manifest();
+  manifest.schema_version = 2U;
+  manifest.fields.front().max_bytes = 64U * 1024U;
+  auto& topology = store.mutable_blob("topology");
+  auto& cursor = store.mutable_blob("cursor");
+  replace_seed_string(topology, 0U, "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v2");
+  replace_seed_string(topology, 3U, "batch.fuzz/v1");
+  replace_seed_string(cursor, 0U, "JYPPX-ITERABLE-PIPELINE-CURSOR/v2");
+  return store;
+}
+
+const FuzzStateStore& current_baseline() {
+  static const FuzzStateStore value = make_current_baseline();
+  return value;
+}
+
+const FuzzStateStore& previous_baseline() {
+  static const FuzzStateStore value = make_previous_baseline();
   return value;
 }
 
@@ -211,8 +280,11 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
   if (size > kMaxFuzzInputLength) {
     return 0;
   }
-  auto store = baseline();
-  mutate(store, data, size);
+  const auto use_previous = size > 0 && (data[0] & 0x80U) != 0U;
+  auto store = use_previous ? previous_baseline() : current_baseline();
+  if (size > 0) {
+    mutate(store, data + 1U, size - 1U);
+  }
   try {
     jyppx::data::IterableDataPipeline pipeline(
         std::make_shared<FuzzSource>(),

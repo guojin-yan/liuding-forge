@@ -204,6 +204,21 @@ select a fresh epoch or restore committed state after handling it. Dataset
 access and custom factories must be safe for concurrent calls when workers are
 enabled and must honor the supplied stop token.
 
+### Iterable sources
+
+`IterableDataPipeline` owns one isolated sequential source cursor per explicit
+epoch. Its source descriptor declares finiteness, determinism, checkpoint
+support, exact/bounded/best-effort restore level, and any replay or omission
+bounds. The participant persists only the committed cursor boundary;
+prefetched items are rebuilt after restore.
+
+The current schema-v3 writer stores the complete canonical `BatchSchema`.
+The reader also accepts the explicit adjacent schema-v2 format when its source
+descriptor and complete topology match. Because v2 stored only a schema label,
+migration is limited to the provably equivalent unconstrained
+`BatchSchema::any(id, version)` contract. Structured schemas require an
+explicit external migration. A migrated checkpoint is always rewritten as v3.
+
 ## Collate functions
 
 `DataBatchFactory` receives the ordered sample-index span, stable worker

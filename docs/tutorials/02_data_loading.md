@@ -94,6 +94,13 @@ a unique `pipeline_id` and a dataset version that identifies the underlying
 data lineage. Training and validation cursors can then participate in the same
 checkpoint without identity collisions.
 
+For sequential or remote sources, use `IterableDataPipeline` and declare the
+source's actual restore guarantee. Exact sources must expose deterministic
+cursor state with zero replay and omission. Bounded sources publish finite
+bounds and a degradation reason. Best-effort sources may reopen the saved
+epoch without cursor continuity. Checkpoint migration preserves this declared
+level; it never upgrades a bounded or best-effort source to exact.
+
 ## Worker prefetch
 
 Set `.num_workers` to use the in-process worker pool and set
@@ -131,6 +138,12 @@ These identities are independent of physical thread scheduling. A factory
 declared deterministic must derive random work from that context rather than
 mutable process-global state. The pipeline saves only committed state;
 prefetched batches are rebuilt after restore.
+
+Map pipeline checkpoints use the current v4 writer with an explicit adjacent
+v3 reader. Iterable pipeline checkpoints use the current v3 writer with an
+explicit adjacent v2 reader. Both N-1 readers accept historical schema labels
+only for an equivalent unconstrained `BatchSchema::any(id, version)`; a
+structured schema needs an explicit migration rather than an inferred upgrade.
 
 Use `SequentialSampler` for fixed order, `RandomSampler` for seeded epoch
 permutations, `WeightedRandomSampler` for weighted draws,
