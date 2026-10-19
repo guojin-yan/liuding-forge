@@ -206,6 +206,25 @@
           "commit": "b958352"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-adamw-migration-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "17/17 AdamW target tests; 0 skipped",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; fixed CMAKE_CUDA_ARCHITECTURES=75; migrated target -Werror",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75 and CUDA standard 17",
+            "build": "jyppx_test_optim_adamw_adapter passed with warnings as errors",
+            "cuda_adamw": "AdamW exact differential, CPU bfloat16 and CUDA float16 capability, schema-v1 canonical fixture migration and schema-v1 GPU continuation: 17/17 passed; zero skipped",
+            "checkpoint_migration": "canonical schema-v1 fixture produced by commit b42caab, with producer metadata and SHA-256 field digests, restored and continued exactly under schema-v2 reader",
+            "negative_paths": "future/relabelled schema, malformed producer and producer resource bounds rejected without state mutation",
+            "fixture_integrity": "checkpoint fixture verifier passed for AdamW, Adam and SGD fixture sets"
+          },
+          "commit": "6af334a"
+        },
+        {
           "id": "local-ubuntu-gcc-cpu-release",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
