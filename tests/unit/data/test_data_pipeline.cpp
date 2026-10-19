@@ -842,6 +842,26 @@ TEST(DataPipelineWorkerTest, RejectsInvalidWorkerOptionsBeforeStarting) {
   EXPECT_THROW(jyppx::data::DataPipeline(sampler, missing_identity, factory),
                jyppx::InvalidArgument);
 
+  auto oversized_identity = make_worker_options("data.pipeline.invalid-size");
+  oversized_identity.pipeline_id = std::string(4097, 'x');
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, oversized_identity, factory),
+               jyppx::ResourceExhausted);
+
+  auto empty_dataset = make_worker_options("data.pipeline.empty-dataset");
+  empty_dataset.dataset_size = 0;
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, empty_dataset, factory),
+               jyppx::InvalidArgument);
+
+  auto empty_batch = make_worker_options("data.pipeline.empty-batch");
+  empty_batch.batch_size = 0;
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, empty_batch, factory),
+               jyppx::InvalidArgument);
+
+  auto excessive_workers = make_worker_options("data.pipeline.worker-bound");
+  excessive_workers.num_workers = 257;
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, excessive_workers, factory),
+               jyppx::ResourceExhausted);
+
   auto no_workers = make_worker_options("data.pipeline.invalid-persistent");
   no_workers.num_workers = 0;
   EXPECT_THROW(jyppx::data::DataPipeline(sampler, no_workers, factory),
@@ -850,6 +870,21 @@ TEST(DataPipelineWorkerTest, RejectsInvalidWorkerOptionsBeforeStarting) {
   auto no_prefetch = make_worker_options("data.pipeline.invalid-prefetch");
   no_prefetch.prefetch_batches = 0;
   EXPECT_THROW(jyppx::data::DataPipeline(sampler, no_prefetch, factory),
+               jyppx::InvalidArgument);
+
+  auto excessive_prefetch = make_worker_options("data.pipeline.prefetch-bound");
+  excessive_prefetch.prefetch_batches = 4097;
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, excessive_prefetch, factory),
+               jyppx::InvalidArgument);
+
+  auto negative_timeout = make_worker_options("data.pipeline.negative-timeout");
+  negative_timeout.batch_timeout = std::chrono::milliseconds(-1);
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, negative_timeout, factory),
+               jyppx::InvalidArgument);
+
+  auto excessive_timeout = make_worker_options("data.pipeline.timeout-bound");
+  excessive_timeout.batch_timeout = std::chrono::milliseconds(86400001);
+  EXPECT_THROW(jyppx::data::DataPipeline(sampler, excessive_timeout, factory),
                jyppx::InvalidArgument);
 
   auto inline_timeout = make_worker_options("data.pipeline.invalid-timeout");
