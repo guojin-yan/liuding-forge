@@ -20,11 +20,12 @@ namespace jyppx::data {
 namespace {
 
 constexpr char kComponent[] = "data.iterable_pipeline";
-constexpr char kTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v2";
-constexpr char kCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v2";
-constexpr std::uint64_t kMaxTopologyBytes = 64U * 1024U;
+constexpr char kTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v3";
+constexpr char kCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v3";
+constexpr std::uint64_t kMaxTopologyBytes = 2U * 1024U * 1024U;
 constexpr std::uint64_t kMaxCursorBytes = 8U * 1024U * 1024U;
 constexpr std::uint64_t kMaxMetadataBytes = 4096U;
+constexpr std::uint64_t kMaxSchemaDescriptorBytes = 1024U * 1024U;
 constexpr std::uint64_t kMaxSourceStateBytes = 8U * 1024U * 1024U;
 constexpr std::size_t kMaxBatchSize = 1024U * 1024U;
 constexpr std::size_t kMaxPrefetchBatches = 4096U;
@@ -167,7 +168,7 @@ std::string encode_topology(const IterableDataPipelineState& state) {
   append_string(output, kTopologyMagic);
   append_string(output, state.pipeline_id);
   append_string(output, state.dataset_version);
-  append_string(output, state.schema_id);
+  append_string(output, state.schema_descriptor);
   append_string(output, state.batch_factory_id);
   append_string(output, state.source_id);
   append_byte(output, state.finite_epoch ? 1U : 0U);
@@ -211,7 +212,8 @@ IterableDataPipelineState decode_state(std::span<const std::byte> topology,
   state.pipeline_id = read_string(topology, topology_offset, kMaxMetadataBytes);
   state.dataset_version =
       read_string(topology, topology_offset, kMaxMetadataBytes);
-  state.schema_id = read_string(topology, topology_offset, kMaxMetadataBytes);
+  state.schema_descriptor =
+      read_string(topology, topology_offset, kMaxSchemaDescriptorBytes);
   state.batch_factory_id =
       read_string(topology, topology_offset, kMaxMetadataBytes);
   state.source_id = read_string(topology, topology_offset, kMaxMetadataBytes);
@@ -302,15 +304,15 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
 
 void validate_options(const IterableDataPipelineOptions& options) {
   validate_batch_memory_options(options.memory);
+  validate_batch_schema(options.schema);
   if (options.pipeline_id.empty() || options.dataset_version.empty() ||
-      options.schema_id.empty() || options.batch_factory_id.empty()) {
+      options.batch_factory_id.empty()) {
     throw InvalidArgument(
         "IterableDataPipeline identity, dataset, schema, and factory IDs are "
         "required");
   }
   if (options.pipeline_id.size() > kMaxMetadataBytes ||
       options.dataset_version.size() > kMaxMetadataBytes ||
-      options.schema_id.size() > kMaxMetadataBytes ||
       options.batch_factory_id.size() > kMaxMetadataBytes) {
     throw ResourceExhausted(
         "IterableDataPipeline metadata exceeds its declared bound");
@@ -605,7 +607,8 @@ class IterableRuntime final {
       envelope.value = std::move(staged.value);
       envelope.memory = std::move(staged.metadata);
     }
-    envelope.schema_id = options_.schema_id;
+    validate_batch_value(envelope.value, options_.schema);
+    envelope.schema = options_.schema;
     envelope.dataset_version = options_.dataset_version;
     envelope.epoch = epoch_;
     envelope.sequence = sequence;
@@ -700,7 +703,7 @@ IterableDataPipelineState make_initial_state(
   IterableDataPipelineState state;
   state.pipeline_id = options.pipeline_id;
   state.dataset_version = options.dataset_version;
-  state.schema_id = options.schema_id;
+  state.schema_descriptor = canonical_batch_schema(options.schema);
   state.batch_factory_id = options.batch_factory_id;
   state.source_id = descriptor.source_id;
   state.finite_epoch = descriptor.finite_epoch;
@@ -799,7 +802,7 @@ struct IterableDataPipeline::Impl {
     if (candidate.version != IterableDataPipelineState::format_version ||
         candidate.pipeline_id != options.pipeline_id ||
         candidate.dataset_version != options.dataset_version ||
-        candidate.schema_id != options.schema_id ||
+        candidate.schema_descriptor != canonical_batch_schema(options.schema) ||
         candidate.batch_factory_id != options.batch_factory_id ||
         candidate.source_id != descriptor.source_id ||
         candidate.finite_epoch != descriptor.finite_epoch ||
@@ -1004,8 +1007,10 @@ DataCapability IterableDataPipeline::capability() const {
   DataCapability result;
   result.map_style = false;
   result.iterable_style = true;
+  result.finite_epoch = impl_->descriptor.finite_epoch;
   result.deterministic_epoch = impl_->descriptor.deterministic_epoch;
   result.in_epoch_cursor = impl_->descriptor.checkpointable;
+  result.worker_model = DataWorkerModel::producer_thread;
   result.worker_prefetch = true;
   result.worker_count = 1;
   result.prefetch_batches = impl_->options.prefetch_batches;
@@ -1016,6 +1021,12 @@ DataCapability IterableDataPipeline::capability() const {
   result.target_device = impl_->options.memory.target_device;
   result.memory_stage_capacity =
       result.memory_stage ? impl_->options.memory.stage_capacity : 0U;
+  result.max_batch_tensors = impl_->options.memory.max_tensors;
+  result.max_batch_value_nodes = impl_->options.memory.max_value_nodes;
+  result.max_batch_bytes = impl_->options.memory.max_bytes;
+  result.batch_schema = impl_->options.schema;
+  result.batch_schema_fingerprint =
+      batch_schema_fingerprint(impl_->options.schema);
   result.restore_level = impl_->descriptor.restore_level;
   result.max_replayed_samples = impl_->descriptor.max_replayed_samples;
   result.max_omitted_samples = impl_->descriptor.max_omitted_samples;

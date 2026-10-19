@@ -186,6 +186,7 @@ target_compile_definitions(jyppx_foundation
 add_library(jyppx_core STATIC
     src/jyppx/core/device.cpp
     src/jyppx/core/tensor_utils.cpp
+    src/jyppx/core/value_schema.cpp
 )
 add_library(jyppx::core ALIAS jyppx_core)
 set_target_properties(jyppx_core PROPERTIES
@@ -217,6 +218,7 @@ endif()
 
 add_library(jyppx_data STATIC
     src/jyppx/data/batch_memory.cpp
+    src/jyppx/data/batch_schema.cpp
     src/jyppx/data/data_pipeline.cpp
     src/jyppx/data/iterable_data_pipeline.cpp
     src/jyppx/data/tensor_dataset.cpp

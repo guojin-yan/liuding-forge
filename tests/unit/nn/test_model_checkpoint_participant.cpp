@@ -300,7 +300,7 @@ TEST(ModelCheckpointParticipantTest,
       [](ProbeModelImpl&, const jyppx::nn::Invocation&) {
         return c10::IValue(torch::zeros({1}));
       },
-      {}, jyppx::nn::ValueSchema::tensor());
+      {}, jyppx::ValueSchema::tensor());
   jyppx::nn::ModelCheckpointParticipant participant(adapter);
   model.reset();
   adapter = jyppx::nn::adapt_module(
@@ -308,7 +308,7 @@ TEST(ModelCheckpointParticipantTest,
       [](ProbeModelImpl&, const jyppx::nn::Invocation&) {
         return c10::IValue(torch::zeros({1}));
       },
-      {}, jyppx::nn::ValueSchema::tensor());
+      {}, jyppx::ValueSchema::tensor());
   ASSERT_FALSE(lifetime.expired());
   const auto store = save_participant(participant);
 

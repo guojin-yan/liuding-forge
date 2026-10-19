@@ -15,6 +15,7 @@
 #include <jyppx/core/device.hpp>
 #include <jyppx/core/tensor_utils.hpp>
 #include <jyppx/core/types.hpp>
+#include <jyppx/core/value_schema.hpp>
 
 // Optimizers
 #include <jyppx/optim/adadelta_adapter.hpp>
@@ -35,6 +36,7 @@
 
 // Data
 #include <jyppx/data/batch_memory.hpp>
+#include <jyppx/data/batch_schema.hpp>
 #include <jyppx/data/chain_dataset.hpp>
 #include <jyppx/data/concat_dataset.hpp>
 #include <jyppx/data/data_pipeline.hpp>

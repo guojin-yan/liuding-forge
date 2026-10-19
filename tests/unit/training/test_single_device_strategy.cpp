@@ -78,8 +78,8 @@ class MemoryStateStore final : public jyppx::StateWriter,
       blobs_;  ///< Complete fields by stable name.
 };
 
-jyppx::nn::TensorSchema tensor_schema(std::int64_t second_dimension) {
-  jyppx::nn::TensorSchema schema;
+jyppx::TensorSchema tensor_schema(std::int64_t second_dimension) {
+  jyppx::TensorSchema schema;
   schema.dtype = torch::kFloat32;
   schema.rank = 2;
   schema.shape =

@@ -173,8 +173,9 @@ cause a non-terminating retry loop.
 `DataPipeline` is the new explicit-epoch, cursor-aware contract used by the
 checkpoint coordinator. `set_epoch(epoch)` is the only operation that creates
 an epoch order; `next()` never advances an epoch implicitly. Each successful
-`next()` commits one batch and returns a `BatchEnvelope` containing the opaque
-value, stable schema ID, sample IDs, dataset version, epoch, and batch sequence.
+`next()` commits one batch and returns a `BatchEnvelope` containing the
+validated value, complete versioned `BatchSchema`, sample IDs, dataset version,
+epoch, and batch sequence.
 
 ```cpp
 auto sampler = std::make_shared<jyppx::data::samplers::RandomSampler>(100, 7);
@@ -183,9 +184,16 @@ jyppx::data::DataPipeline pipeline(
     {.pipeline_id = "data.train",
      .dataset_version = "train-set/v1",
      .dataset_size = 100,
-     .schema_id = "train-batch/v1",
+     .schema = jyppx::data::BatchSchema::tensor(
+         "train-batch", {.dtype = torch::kFloat32, .rank = 2}, 1,
+         "features"),
+     .batch_factory_id = "stack/v1",
      .batch_size = 16},
-    [dataset](std::span<const std::size_t> indices) {
+    [dataset](std::span<const std::size_t> indices,
+              const jyppx::data::DataWorkerContext& context,
+              std::stop_token stop) {
+        static_cast<void>(context);
+        static_cast<void>(stop);
         std::vector<torch::Tensor> rows;
         for (const auto index : indices) {
             rows.push_back(dataset->get(index));
@@ -199,17 +207,17 @@ while (const auto batch = pipeline.next()) {
 }
 ```
 
-The current target is deliberately map-style and single-threaded. It provides
-exact in-epoch restore when the sampler exposes both checkpoint state and a
-stable configuration identity. The participant stores dataset/schema identity,
-dataset size, sampler identity, the materialized epoch order, sampler state,
-next sample cursor, and next batch sequence. Generated and restored sample IDs
-are checked against the declared dataset size. A batch-factory exception or
-failed epoch preparation does not advance committed pipeline state. Samplers
-without a stable identity are reported as bounded restore rather than exact restore.
-Worker seed, shard assignment, in-flight prefetch, iterable watermarks, and
-bounded replay remain separate follow-up contracts; the capability report does
-not claim them.
+The map-style pipeline supports inline execution or an ordered worker pool. It
+provides exact in-epoch restore when the sampler has checkpoint state and a
+stable configuration identity, and when the batch factory declares
+deterministic replay. The participant stores dataset identity, the complete
+canonical batch schema, worker and memory-stage topology, sampler identity,
+materialized epoch order, sampler state, next sample cursor, and next batch
+sequence. Generated and restored sample IDs are checked against the declared
+dataset size. Batch values are memory-staged and schema-validated before the
+cursor is committed. A factory, staging, validation, or epoch-preparation
+failure leaves committed pipeline state unchanged. The capability report
+explicitly exposes worker model, schema, resource limits, and restore bounds.
 
 ### Multi-worker loading
 

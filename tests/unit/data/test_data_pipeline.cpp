@@ -199,7 +199,7 @@ jyppx::data::DataPipelineOptions make_worker_options(
   return {.pipeline_id = std::move(pipeline_id),
           .dataset_version = "dataset.worker/v1",
           .dataset_size = 6,
-          .schema_id = "worker.batch/v1",
+          .schema = jyppx::data::BatchSchema::any("worker.batch", 1),
           .batch_factory_id = "factory.worker/v1",
           .batch_size = 2,
           .drop_last = false,
@@ -263,7 +263,7 @@ TEST(DataPipelineTest, RequiresExplicitEpochAndDoesNotImplicitlyAdvance) {
       {.pipeline_id = "data.pipeline.test",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       make_factory(dataset));
@@ -281,7 +281,7 @@ TEST(DataPipelineTest, RequiresExplicitEpochAndDoesNotImplicitlyAdvance) {
       {.pipeline_id = "data.pipeline.test",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       make_factory(dataset));
@@ -297,7 +297,7 @@ TEST(DataPipelineCheckpointTest, RestoresExactInEpochCursor) {
       {.pipeline_id = "data.pipeline.restore",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -310,7 +310,7 @@ TEST(DataPipelineCheckpointTest, RestoresExactInEpochCursor) {
       {.pipeline_id = "data.pipeline.restore",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -343,7 +343,7 @@ TEST(DataPipelineTest, FactoryFailureDoesNotAdvanceCursor) {
       {.pipeline_id = "data.pipeline.failure",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       [&fail, dataset](std::span<const std::size_t> indices,
@@ -372,7 +372,7 @@ TEST(DataPipelineTest, CancellationAndDropLastDoNotOverCommit) {
       {.pipeline_id = "data.pipeline.cancel",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 4,
        .drop_last = true},
@@ -394,15 +394,15 @@ TEST(DataPipelineTest, CancellationAndDropLastDoNotOverCommit) {
 TEST(DataPipelineTest, FailedEpochPreparationRollsBackSamplerAndCursor) {
   auto dataset = make_dataset();
   auto sampler = std::make_shared<FaultingSampler>();
-  auto pipeline =
-      jyppx::data::DataPipeline(sampler,
-                                {.pipeline_id = "data.pipeline.rollback",
-                                 .dataset_version = "dataset/v1",
-                                 .dataset_size = 6,
-                                 .schema_id = "tensor.rows/v1",
-                                 .batch_factory_id = "factory.tensor-rows/v1",
-                                 .batch_size = 2},
-                                make_factory(dataset));
+  auto pipeline = jyppx::data::DataPipeline(
+      sampler,
+      {.pipeline_id = "data.pipeline.rollback",
+       .dataset_version = "dataset/v1",
+       .dataset_size = 6,
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
+       .batch_factory_id = "factory.tensor-rows/v1",
+       .batch_size = 2},
+      make_factory(dataset));
   pipeline.set_epoch(3);
   ASSERT_TRUE(pipeline.next().has_value());
   const auto before = pipeline.state();
@@ -423,7 +423,7 @@ TEST(DataPipelineTest, MissingSamplerIdentityDowngradesRestoreGuarantee) {
       {.pipeline_id = "data.pipeline.bounded",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       make_factory(dataset));
@@ -433,7 +433,8 @@ TEST(DataPipelineTest, MissingSamplerIdentityDowngradesRestoreGuarantee) {
   EXPECT_FALSE(capability.degradation_reasons.empty());
 }
 
-TEST(DataPipelineCheckpointTest, RejectsTopologyMismatchWithoutMutation) {
+TEST(DataPipelineCheckpointTest,
+     RejectsStructuralSchemaMismatchWithoutMutation) {
   auto dataset = make_dataset();
   auto factory = make_factory(dataset);
   auto source = jyppx::data::DataPipeline(
@@ -441,7 +442,7 @@ TEST(DataPipelineCheckpointTest, RejectsTopologyMismatchWithoutMutation) {
       {.pipeline_id = "data.pipeline.topology",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -452,9 +453,10 @@ TEST(DataPipelineCheckpointTest, RejectsTopologyMismatchWithoutMutation) {
   auto target = jyppx::data::DataPipeline(
       std::make_shared<jyppx::data::samplers::RandomSampler>(6, 8),
       {.pipeline_id = "data.pipeline.topology",
-       .dataset_version = "dataset/v2",
+       .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::tensor(
+           "tensor.rows", {.dtype = torch::kFloat32, .rank = 2}, 1, "features"),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -475,7 +477,7 @@ TEST(DataPipelineCheckpointTest,
       {.pipeline_id = "data.pipeline.sampler-mismatch",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -487,7 +489,7 @@ TEST(DataPipelineCheckpointTest,
       {.pipeline_id = "data.pipeline.sampler-mismatch",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -506,7 +508,7 @@ TEST(DataPipelineCheckpointTest, RejectsCorruptCursorWithoutMutation) {
       {.pipeline_id = "data.pipeline.corrupt",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -519,7 +521,7 @@ TEST(DataPipelineCheckpointTest, RejectsCorruptCursorWithoutMutation) {
       {.pipeline_id = "data.pipeline.corrupt",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -540,7 +542,7 @@ TEST(DataPipelineCheckpointTest, RejectsCursorInsideUncommittedBatch) {
       {.pipeline_id = "data.pipeline.cursor-boundary",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -554,7 +556,7 @@ TEST(DataPipelineCheckpointTest, RejectsCursorInsideUncommittedBatch) {
       {.pipeline_id = "data.pipeline.cursor-boundary",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -571,7 +573,7 @@ TEST(DataPipelineCheckpointTest, RejectsOutOfRangeRestoredSampleId) {
       {.pipeline_id = "data.pipeline.sample-bound",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
@@ -584,7 +586,7 @@ TEST(DataPipelineCheckpointTest, RejectsOutOfRangeRestoredSampleId) {
       {.pipeline_id = "data.pipeline.sample-bound",
        .dataset_version = "dataset/v1",
        .dataset_size = 6,
-       .schema_id = "tensor.rows/v1",
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);

@@ -323,7 +323,11 @@ IterableDataPipelineOptions options(std::string id,
                                     std::size_t batch_size = 2) {
   return {.pipeline_id = std::move(id),
           .dataset_version = "dataset.iterable/v1",
-          .schema_id = "batch.iterable/v1",
+          .schema = {.id = "batch.iterable",
+                     .version = 1,
+                     .value =
+                         jyppx::ValueSchema{.semantic_tag = "aggregate",
+                                            .kind = jyppx::ValueKind::integer}},
           .batch_factory_id = "factory.sum/v1",
           .batch_size = batch_size,
           .prefetch_batches = 2};
@@ -473,6 +477,12 @@ TEST(IterableDataPipelineTest,
   config.prefetch_batches = 3;
   config.memory.target_device = jyppx::Device(torch::kCPU);
   config.memory.stage_capacity = 1;
+  config.schema =
+      jyppx::data::BatchSchema::tensor("batch.iterable",
+                                       {.dtype = torch::kFloat32,
+                                        .device = jyppx::Device(torch::kCPU),
+                                        .rank = 1},
+                                       1, "features");
   IterableDataPipeline pipeline(
       source, config,
       [](std::span<const IterableSample> samples, std::uint64_t, std::uint64_t,
@@ -486,6 +496,14 @@ TEST(IterableDataPipelineTest,
   EXPECT_FALSE(wait_for_pulls(stats, 2, std::chrono::milliseconds(80)));
   const auto capability = pipeline.capability();
   EXPECT_TRUE(capability.memory_stage);
+  EXPECT_TRUE(capability.iterable_style);
+  EXPECT_TRUE(capability.finite_epoch);
+  EXPECT_FALSE(capability.process_workers);
+  EXPECT_EQ(capability.worker_model,
+            jyppx::data::DataWorkerModel::producer_thread);
+  EXPECT_TRUE(capability.schema_validation);
+  EXPECT_EQ(capability.batch_schema.id, "batch.iterable");
+  EXPECT_FALSE(capability.batch_schema_fingerprint.empty());
   EXPECT_EQ(capability.prefetch_batches, 3U);
   EXPECT_EQ(capability.memory_stage_capacity, 1U);
   EXPECT_EQ(capability.max_replayed_batches, 1U);
@@ -502,6 +520,8 @@ TEST(IterableDataPipelineTest, MemoryStageFailureDoesNotCommitSourceCursor) {
   auto config = options("data.iterable.memory-failure", 1);
   config.memory.target_device = jyppx::Device(torch::kCPU);
   config.memory.max_bytes = 1;
+  config.schema = jyppx::data::BatchSchema::tensor(
+      "batch.iterable", {.dtype = torch::kFloat32, .rank = 1});
   IterableDataPipeline pipeline(
       make_source({1, 2}), config,
       [](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
@@ -512,6 +532,28 @@ TEST(IterableDataPipelineTest, MemoryStageFailureDoesNotCommitSourceCursor) {
   const auto before = pipeline.state();
 
   EXPECT_THROW(pipeline.next(), jyppx::ResourceExhausted);
+  EXPECT_EQ(pipeline.state().next_sequence, before.next_sequence);
+  EXPECT_EQ(pipeline.state().committed_samples, before.committed_samples);
+  EXPECT_EQ(pipeline.state().source_state, before.source_state);
+}
+
+TEST(IterableDataPipelineTest,
+     SchemaFailureDoesNotCommitSourceCursorOrSequence) {
+  auto config = options("data.iterable.schema-failure", 1);
+  config.schema = {
+      .id = "batch.iterable",
+      .version = 1,
+      .value = jyppx::ValueSchema{.kind = jyppx::ValueKind::integer}};
+  IterableDataPipeline pipeline(
+      make_source({1, 2}), config,
+      [](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
+         std::stop_token) {
+        return c10::IValue(torch::ones({1}, torch::kFloat32));
+      });
+  pipeline.set_epoch(4);
+  const auto before = pipeline.state();
+
+  EXPECT_THROW(pipeline.next(), jyppx::InvalidArgument);
   EXPECT_EQ(pipeline.state().next_sequence, before.next_sequence);
   EXPECT_EQ(pipeline.state().committed_samples, before.committed_samples);
   EXPECT_EQ(pipeline.state().source_state, before.source_state);
@@ -538,6 +580,32 @@ TEST(IterableDataPipelineTest, RestoresExactStateAtLastCommittedBatch) {
   ASSERT_TRUE(next.has_value());
   EXPECT_EQ(next->sample_ids, (std::vector<std::uint64_t>{7002, 7003}));
   EXPECT_EQ(next->value.toInt(), 70);
+}
+
+TEST(IterableDataPipelineTest,
+     RejectsStructuralSchemaMismatchWithoutMutatingPreparedState) {
+  auto source = make_source({1, 2, 3, 4});
+  auto original_config = options("data.iterable.schema-restore");
+  IterableDataPipeline original(source, original_config, sum_factory());
+  original.set_epoch(2);
+  ASSERT_TRUE(original.next().has_value());
+  const auto checkpoint = save_state(original);
+
+  auto changed_config = original_config;
+  changed_config.schema = {
+      .id = "batch.iterable",
+      .version = 1,
+      .value = jyppx::ValueSchema{.semantic_tag = "class-index",
+                                  .kind = jyppx::ValueKind::integer}};
+  IterableDataPipeline changed(source, changed_config, sum_factory());
+  changed.set_epoch(9);
+  const auto before = changed.state();
+
+  EXPECT_THROW(changed.load_state(checkpoint, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_EQ(changed.state().epoch, before.epoch);
+  EXPECT_EQ(changed.state().committed_samples, before.committed_samples);
+  EXPECT_EQ(changed.state().schema_descriptor, before.schema_descriptor);
 }
 
 TEST(IterableDataPipelineTest, BoundedAndBestEffortPoliciesAreExplicit) {
@@ -682,6 +750,12 @@ TEST(IterableBatchMemoryCudaTest, PinsTransfersAndRestoresExactCursor) {
                    .target_device = jyppx::Device(torch::kCUDA, 0),
                    .non_blocking = true,
                    .stage_capacity = 1};
+  config.schema = jyppx::data::BatchSchema::tensor(
+      "batch.iterable",
+      {.dtype = torch::kFloat32,
+       .device = jyppx::Device(torch::kCUDA, 0),
+       .rank = 1},
+      1, "features");
   const auto factory = [](std::span<const IterableSample> samples,
                           std::uint64_t, std::uint64_t, std::stop_token) {
     std::vector<std::int64_t> values;

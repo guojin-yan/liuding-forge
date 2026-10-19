@@ -280,7 +280,7 @@ Domain make_domain(std::size_t samples = 8, std::size_t batch_size = 2) {
             .pipeline_id = std::move(id),
             .dataset_version = "test.linear/v1",
             .dataset_size = samples,
-            .schema_id = "test.linear.batch/v1",
+            .schema = jyppx::data::BatchSchema::any("test.linear.batch", 1),
             .batch_factory_id = "test.linear.factory/v1",
             .batch_size = batch_size},
         train_factory);

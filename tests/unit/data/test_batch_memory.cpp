@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 #include <map>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <stop_token>
@@ -95,12 +96,19 @@ jyppx::data::DataPipeline make_pipeline(std::string id,
                                         jyppx::data::BatchMemoryOptions memory,
                                         std::size_t workers = 0,
                                         std::size_t prefetch = 2) {
+  jyppx::TensorSchema tensor_schema;
+  tensor_schema.dtype = torch::kFloat32;
+  tensor_schema.device =
+      memory.target_device.value_or(jyppx::Device(torch::kCPU));
+  tensor_schema.rank = 1;
+  tensor_schema.shape = std::vector<std::optional<std::int64_t>>{std::nullopt};
   return jyppx::data::DataPipeline(
       std::make_shared<jyppx::data::samplers::SequentialSampler>(4),
       {.pipeline_id = std::move(id),
        .dataset_version = "batch-memory.dataset/v1",
        .dataset_size = 4,
-       .schema_id = "batch-memory.tensor/v1",
+       .schema = jyppx::data::BatchSchema::tensor(
+           "batch-memory.tensor", std::move(tensor_schema), 1, "features"),
        .batch_factory_id = "batch-memory.factory/v1",
        .batch_size = 2,
        .num_workers = workers,

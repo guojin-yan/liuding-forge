@@ -19,6 +19,7 @@ jyppx_add_gtest(jyppx_test_utils
 jyppx_add_gtest(jyppx_test_data
     LINK_TARGET jyppx::data
     data/test_batch_memory.cpp
+    data/test_value_schema.cpp
     data/test_data_pipeline.cpp
     data/test_iterable_data_pipeline.cpp
     data/test_tensor_dataset.cpp

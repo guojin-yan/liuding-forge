@@ -144,10 +144,14 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/device.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/tensor_utils.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/core/types.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/core/value_schema.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/core/device.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/core/tensor_utils.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/core/value_schema.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/core/test_core.cpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/chain_dataset.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/batch_memory.hpp
+        ${PROJECT_SOURCE_DIR}/include/jyppx/data/batch_schema.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/concat_dataset.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/data_pipeline.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/dataloader.hpp
@@ -168,6 +172,8 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/transform.hpp
         ${PROJECT_SOURCE_DIR}/include/jyppx/data/transforms/vision.hpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/tensor_dataset.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/batch_memory.cpp
+        ${PROJECT_SOURCE_DIR}/src/jyppx/data/batch_schema.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/iterable_data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/batch_sampler.cpp
@@ -175,6 +181,8 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
         ${PROJECT_SOURCE_DIR}/src/jyppx/data/samplers/sequential_sampler.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataloader.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataloader_exceptions.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_batch_memory.cpp
+        ${PROJECT_SOURCE_DIR}/tests/unit/data/test_value_schema.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_iterable_data_pipeline.cpp
         ${PROJECT_SOURCE_DIR}/tests/unit/data/test_dataset_utils.cpp

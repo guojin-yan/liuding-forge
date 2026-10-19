@@ -88,7 +88,7 @@ std::shared_ptr<jyppx::data::DataPipeline> make_pipeline(
           .pipeline_id = std::move(pipeline_id),
           .dataset_version = "mnist.idx/v1",
           .dataset_size = size,
-          .schema_id = "mnist.batch/v1",
+          .schema = jyppx::data::BatchSchema::any("mnist.batch", 1),
           .batch_factory_id = "mnist.tensor-slice/v1",
           .batch_size = batch_size,
           .num_workers = shuffle ? 2U : 0U,

@@ -21,12 +21,12 @@ concrete implementation pointer or a LibTorch holder:
 ```cpp
 torch::nn::Linear linear(8, 3);
 
-jyppx::nn::TensorSchema input;
+jyppx::TensorSchema input;
 input.dtype = torch::kFloat32;
 input.rank = 2;
 input.shape = std::vector<std::optional<std::int64_t>>{std::nullopt, 8};
 
-jyppx::nn::TensorSchema output;
+jyppx::TensorSchema output;
 output.dtype = torch::kFloat32;
 output.rank = 2;
 output.shape = std::vector<std::optional<std::int64_t>>{std::nullopt, 3};
@@ -48,13 +48,13 @@ validated invocation:
 ```cpp
 jyppx::nn::InvocationSchema inputs;
 inputs.positional = {
-    jyppx::nn::ValueSchema::tensor({}, "left"),
-    jyppx::nn::ValueSchema::tensor({}, "right"),
+    jyppx::ValueSchema::tensor({}, "left"),
+    jyppx::ValueSchema::tensor({}, "right"),
 };
 
-auto outputs = jyppx::nn::ValueSchema::tuple({
-    jyppx::nn::ValueSchema::tensor({}, "sum"),
-    jyppx::nn::ValueSchema::tensor({}, "difference"),
+auto outputs = jyppx::ValueSchema::tuple({
+    jyppx::ValueSchema::tensor({}, "sum"),
+    jyppx::ValueSchema::tensor({}, "difference"),
 });
 
 auto adapter = jyppx::nn::adapt_module(

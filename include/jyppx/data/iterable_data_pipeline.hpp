@@ -32,8 +32,8 @@ namespace jyppx::data {
 struct IterableDataPipelineOptions {
   std::string pipeline_id = "data.iterable_pipeline";  ///< Participant ID.
   std::string dataset_version;  ///< Required immutable dataset identity.
-  std::string schema_id =
-      "data.iterable_batch/v1";  ///< Stable batch value schema label.
+  BatchSchema schema = BatchSchema::any(
+      "data.iterable_batch");    ///< Validated consumer batch contract.
   std::string batch_factory_id;  ///< Stable collator/configuration identity.
   std::size_t batch_size = 1;    ///< Positive number of source items per batch.
   bool drop_last = false;        ///< Drops an incomplete finite final batch.
@@ -50,12 +50,12 @@ struct IterableDataPipelineOptions {
  */
 struct IterableDataPipelineState {
   static constexpr std::uint32_t format_version =
-      2;  ///< Current-only iterable state schema.
+      3;  ///< Current-only iterable state schema.
 
   std::uint32_t version = format_version;  ///< Serialized schema version.
   std::string pipeline_id;           ///< Participant identity at snapshot time.
   std::string dataset_version;       ///< Dataset identity at snapshot time.
-  std::string schema_id;             ///< Batch schema at snapshot time.
+  std::string schema_descriptor;     ///< Complete canonical batch schema bytes.
   std::string batch_factory_id;      ///< Collator identity at snapshot time.
   std::string source_id;             ///< Source topology identity at snapshot.
   bool finite_epoch = true;          ///< Source finiteness at snapshot time.

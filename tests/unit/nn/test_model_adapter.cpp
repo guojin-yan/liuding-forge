@@ -36,9 +36,9 @@ TORCH_MODULE(ProbeModel);
 static_assert(jyppx::nn::ModuleImplementation<ProbeModelImpl>);
 static_assert(jyppx::nn::ModuleHolderLike<ProbeModel>);
 
-jyppx::nn::TensorSchema matrix_schema(std::int64_t columns,
-                                      torch::Dtype dtype = torch::kFloat32) {
-  jyppx::nn::TensorSchema schema;
+jyppx::TensorSchema matrix_schema(std::int64_t columns,
+                                  torch::Dtype dtype = torch::kFloat32) {
+  jyppx::TensorSchema schema;
   schema.dtype = dtype;
   schema.rank = 2;
   schema.shape =
@@ -47,52 +47,48 @@ jyppx::nn::TensorSchema matrix_schema(std::int64_t columns,
 }
 
 TEST(InvocationSchemaTest, RejectsMalformedTensorAndListSchemas) {
-  auto tensor = jyppx::nn::ValueSchema::tensor();
+  auto tensor = jyppx::ValueSchema::tensor();
   tensor.tensor_constraints->rank = 2;
   tensor.tensor_constraints->shape =
       std::vector<std::optional<std::int64_t>>{3};
-  EXPECT_THROW(jyppx::nn::validate_value_schema(tensor),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::validate_value_schema(tensor), jyppx::InvalidArgument);
 
-  jyppx::nn::ValueSchema list;
-  list.kind = jyppx::nn::ValueKind::list;
-  EXPECT_THROW(jyppx::nn::validate_value_schema(list), jyppx::InvalidArgument);
+  jyppx::ValueSchema list;
+  list.kind = jyppx::ValueKind::list;
+  EXPECT_THROW(jyppx::validate_value_schema(list), jyppx::InvalidArgument);
 }
 
 TEST(InvocationSchemaTest, ValidatesNestedTupleListAndDictionaryValues) {
-  auto optional_note = jyppx::nn::ValueSchema{};
-  optional_note.kind = jyppx::nn::ValueKind::string;
+  auto optional_note = jyppx::ValueSchema{};
+  optional_note.kind = jyppx::ValueKind::string;
   optional_note.required = false;
 
-  const auto output_schema = jyppx::nn::ValueSchema::dictionary(
-      {{"scores", jyppx::nn::ValueSchema::tensor(matrix_schema(2))},
+  const auto output_schema = jyppx::ValueSchema::dictionary(
+      {{"scores", jyppx::ValueSchema::tensor(matrix_schema(2))},
        {"note", optional_note}},
       false, "prediction");
-  jyppx::nn::validate_value_schema(output_schema);
+  jyppx::validate_value_schema(output_schema);
 
   c10::Dict<std::string, torch::Tensor> output;
   output.insert("scores", torch::ones({3, 2}));
-  EXPECT_NO_THROW(
-      jyppx::nn::validate_value(c10::IValue(output), output_schema));
+  EXPECT_NO_THROW(jyppx::validate_value(c10::IValue(output), output_schema));
 
   c10::Dict<std::string, torch::Tensor> unexpected;
   unexpected.insert("scores", torch::ones({3, 2}));
   unexpected.insert("extra", torch::zeros({1}));
-  EXPECT_THROW(
-      jyppx::nn::validate_value(c10::IValue(unexpected), output_schema),
-      jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::validate_value(c10::IValue(unexpected), output_schema),
+               jyppx::InvalidArgument);
 
-  const auto tuple_schema = jyppx::nn::ValueSchema::tuple(
-      {jyppx::nn::ValueSchema::list(
-           jyppx::nn::ValueSchema::tensor(matrix_schema(2))),
-       jyppx::nn::ValueSchema{.kind = jyppx::nn::ValueKind::integer}},
+  const auto tuple_schema = jyppx::ValueSchema::tuple(
+      {jyppx::ValueSchema::list(jyppx::ValueSchema::tensor(matrix_schema(2))),
+       jyppx::ValueSchema{.kind = jyppx::ValueKind::integer}},
       "batched_result");
   c10::impl::GenericList tensors(c10::TensorType::get());
   tensors.push_back(torch::ones({2, 2}));
   tensors.push_back(torch::zeros({1, 2}));
   const auto tuple = c10::ivalue::Tuple::create(
       {c10::IValue(tensors), c10::IValue(std::int64_t{2})});
-  EXPECT_NO_THROW(jyppx::nn::validate_value(c10::IValue(tuple), tuple_schema));
+  EXPECT_NO_THROW(jyppx::validate_value(c10::IValue(tuple), tuple_schema));
 }
 
 TEST(InvocationSchemaTest, ChecksArgumentsBeforeCallingTheModel) {
@@ -100,15 +96,14 @@ TEST(InvocationSchemaTest, ChecksArgumentsBeforeCallingTheModel) {
   int calls = 0;
   jyppx::nn::InvocationSchema input_schema;
   input_schema.positional.push_back(
-      jyppx::nn::ValueSchema::tensor(matrix_schema(2), "features"));
+      jyppx::ValueSchema::tensor(matrix_schema(2), "features"));
   auto adapter = jyppx::nn::adapt_module(
       model,
       [&calls](ProbeModelImpl& concrete, const jyppx::nn::Invocation& input) {
         ++calls;
         return concrete.forward(input.positional.front().toTensor());
       },
-      input_schema,
-      jyppx::nn::ValueSchema::tensor(matrix_schema(1), "prediction"));
+      input_schema, jyppx::ValueSchema::tensor(matrix_schema(1), "prediction"));
 
   EXPECT_THROW(adapter.invoke({.positional = {torch::ones({4, 3})}}),
                jyppx::InvalidArgument);
@@ -153,7 +148,7 @@ TEST(ModelAdapterTest, TensorHelperOwnsConcreteModuleAndValidatesResult) {
   EXPECT_TRUE(result.value.isTensor());
   EXPECT_EQ(result.value.toTensor().sizes().vec(),
             std::vector<std::int64_t>({5, 1}));
-  EXPECT_EQ(result.schema.kind, jyppx::nn::ValueKind::tensor);
+  EXPECT_EQ(result.schema.kind, jyppx::ValueKind::tensor);
 }
 
 TEST(ModelAdapterTest, TensorHolderHelperRetainsTheImplementation) {
@@ -178,14 +173,13 @@ TEST(ModelAdapterTest, BaseModuleFactoryRetainsStateForARawTypedInvoker) {
 
   jyppx::nn::InvocationSchema input_schema;
   input_schema.positional.push_back(
-      jyppx::nn::ValueSchema::tensor(matrix_schema(2)));
+      jyppx::ValueSchema::tensor(matrix_schema(2)));
   auto adapter = jyppx::nn::adapt_module(
       std::move(base),
       jyppx::nn::ModelInvoker([raw](const jyppx::nn::Invocation& input) {
         return raw->forward(input.positional.front().toTensor());
       }),
-      std::move(input_schema),
-      jyppx::nn::ValueSchema::tensor(matrix_schema(1)));
+      std::move(input_schema), jyppx::ValueSchema::tensor(matrix_schema(1)));
 
   ASSERT_FALSE(lifetime.expired());
   EXPECT_TRUE(
@@ -196,8 +190,8 @@ TEST(ModelAdapterTest, SupportsMultipleInputsAndTupleOutputs) {
   auto model = std::make_shared<ProbeModelImpl>();
   jyppx::nn::InvocationSchema input_schema;
   input_schema.positional = {
-      jyppx::nn::ValueSchema::tensor(matrix_schema(2), "left"),
-      jyppx::nn::ValueSchema::tensor(matrix_schema(2), "right")};
+      jyppx::ValueSchema::tensor(matrix_schema(2), "left"),
+      jyppx::ValueSchema::tensor(matrix_schema(2), "right")};
   auto adapter = jyppx::nn::adapt_module(
       model,
       [](ProbeModelImpl&, const jyppx::nn::Invocation& input) {
@@ -207,9 +201,9 @@ TEST(ModelAdapterTest, SupportsMultipleInputsAndTupleOutputs) {
             {c10::IValue(left + right), c10::IValue(left - right)}));
       },
       std::move(input_schema),
-      jyppx::nn::ValueSchema::tuple(
-          {jyppx::nn::ValueSchema::tensor(matrix_schema(2), "sum"),
-           jyppx::nn::ValueSchema::tensor(matrix_schema(2), "difference")}));
+      jyppx::ValueSchema::tuple(
+          {jyppx::ValueSchema::tensor(matrix_schema(2), "sum"),
+           jyppx::ValueSchema::tensor(matrix_schema(2), "difference")}));
 
   const auto result = adapter.invoke(
       {.positional = {torch::ones({3, 2}), torch::full({3, 2}, 2.0)}});
@@ -223,14 +217,13 @@ TEST(ModelAdapterTest, RejectsAnOutputThatViolatesTheDeclaredSchema) {
   auto model = std::make_shared<ProbeModelImpl>();
   jyppx::nn::InvocationSchema input_schema;
   input_schema.positional.push_back(
-      jyppx::nn::ValueSchema::tensor(matrix_schema(2)));
+      jyppx::ValueSchema::tensor(matrix_schema(2)));
   auto adapter = jyppx::nn::adapt_module(
       model,
       [](ProbeModelImpl&, const jyppx::nn::Invocation&) {
         return c10::IValue(std::int64_t{7});
       },
-      std::move(input_schema),
-      jyppx::nn::ValueSchema::tensor(matrix_schema(1)));
+      std::move(input_schema), jyppx::ValueSchema::tensor(matrix_schema(1)));
 
   EXPECT_THROW(adapter.invoke({.positional = {torch::ones({1, 2})}}),
                jyppx::InvalidArgument);
@@ -244,7 +237,7 @@ TEST(ModelAdapterTest, PreservesNestedLibTorchFailureContext) {
         return c10::IValue(
             torch::matmul(torch::ones({2, 3}), torch::ones({5, 4})));
       },
-      jyppx::nn::InvocationSchema{}, jyppx::nn::ValueSchema::tensor());
+      jyppx::nn::InvocationSchema{}, jyppx::ValueSchema::tensor());
 
   try {
     static_cast<void>(adapter.invoke({}));
@@ -260,15 +253,14 @@ TEST(ModelAdapterTest, RejectsMissingModulesHoldersAndInvokers) {
   EXPECT_THROW(jyppx::nn::adapt_module(
                    std::shared_ptr<torch::nn::Module>{},
                    [](const jyppx::nn::Invocation&) { return c10::IValue{}; },
-                   {}, jyppx::nn::ValueSchema::any()),
+                   {}, jyppx::ValueSchema::any()),
                jyppx::InvalidArgument);
 
   auto model = std::make_shared<ProbeModelImpl>();
-  EXPECT_THROW(
-      jyppx::nn::adapt_module(
-          std::static_pointer_cast<torch::nn::Module>(model),
-          jyppx::nn::ModelInvoker{}, {}, jyppx::nn::ValueSchema::any()),
-      jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::nn::adapt_module(
+                   std::static_pointer_cast<torch::nn::Module>(model),
+                   jyppx::nn::ModelInvoker{}, {}, jyppx::ValueSchema::any()),
+               jyppx::InvalidArgument);
 
   ProbeModel empty(nullptr);
   EXPECT_THROW(jyppx::nn::adapt_tensor_holder(empty), jyppx::InvalidArgument);

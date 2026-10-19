@@ -26,7 +26,7 @@ std::shared_ptr<jyppx::data::DataPipeline> make_pipeline(
           .pipeline_id = std::move(pipeline_id),
           .dataset_version = "example.linear/v1",
           .dataset_size = static_cast<std::size_t>(inputs.size(0)),
-          .schema_id = "example.linear.batch/v1",
+          .schema = jyppx::data::BatchSchema::any("example.linear.batch", 1),
           .batch_factory_id = "example.linear.tensor-slice/v1",
           .batch_size = 4},
       [inputs, targets](std::span<const std::size_t> indices,

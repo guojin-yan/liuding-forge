@@ -12,6 +12,7 @@
  */
 
 #include <jyppx/data/batch_memory.hpp>
+#include <jyppx/data/batch_schema.hpp>
 #include <jyppx/data/samplers/sampler.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
 
@@ -32,13 +33,13 @@ namespace jyppx::data {
 /**
  * @brief Type-erased batch produced by a DataPipeline.
  *
- * The data module intentionally carries an opaque `c10::IValue` and a stable
- * schema label instead of depending on the nn invocation schema. A later
- * mapper may validate the value against the consumer-owned schema.
+ * The data module carries an IValue plus the complete versioned schema that
+ * was validated immediately before commit. Consumers can inspect semantic,
+ * dtype, device, and shape constraints without depending on the nn target.
  */
 struct BatchEnvelope {
-  c10::IValue value;      ///< Collated batch value owned by the consumer.
-  std::string schema_id;  ///< Stable producer schema label.
+  c10::IValue value;   ///< Collated batch value owned by the consumer.
+  BatchSchema schema;  ///< Complete validated producer value contract.
   std::vector<std::uint64_t>
       sample_ids;  ///< Dataset-local IDs in the committed batch order.
   std::string dataset_version;   ///< Immutable dataset lineage identifier.
@@ -50,14 +51,28 @@ struct BatchEnvelope {
 };
 
 /**
+ * @brief Identifies the worker execution model used by one pipeline.
+ */
+enum class DataWorkerModel : std::uint8_t {
+  inline_execution = 0,  ///< Collation executes on the consumer thread.
+  thread_pool = 1,       ///< A fixed in-process thread pool performs collation.
+  producer_thread = 2,   ///< One in-process thread owns an iterable cursor.
+};
+
+/**
  * @brief Reports the capabilities of a configured DataPipeline.
  */
 struct DataCapability {
   bool map_style = true;  ///< The source is addressed by finite sample indices.
   bool iterable_style =
       false;  ///< The source is consumed through an independent cursor.
+  bool finite_epoch = true;  ///< Whether every selected epoch must terminate.
   bool deterministic_epoch = false;  ///< Epoch selection is reproducible.
   bool in_epoch_cursor = true;       ///< Batch commit cursor is checkpointable.
+  DataWorkerModel worker_model =
+      DataWorkerModel::inline_execution;  ///< In-process execution topology.
+  bool process_workers =
+      false;  ///< Process/fork/spawn workers are not implemented.
   bool worker_prefetch = false;  ///< Whether background workers build batches.
   std::size_t worker_count = 0;  ///< Number of configured worker threads.
   std::size_t prefetch_batches =
@@ -73,6 +88,16 @@ struct DataCapability {
       target_device;  ///< Configured batch destination, when present.
   std::size_t memory_stage_capacity =
       0;  ///< Maximum staged but uncommitted batches; zero when disabled.
+  std::size_t max_batch_tensors =
+      0;  ///< Maximum tensor occurrences accepted by the memory stage.
+  std::size_t max_batch_value_nodes =
+      0;  ///< Maximum recursive IValue nodes accepted by memory staging.
+  std::uint64_t max_batch_bytes =
+      0;  ///< Maximum logical tensor bytes accepted by memory staging.
+  bool schema_validation = true;  ///< Every consumer-visible batch is checked.
+  BatchSchema batch_schema;  ///< Complete versioned producer value contract.
+  std::string batch_schema_fingerprint;  ///< Compact diagnostic schema digest.
+  ValueSchemaLimits schema_limits;       ///< Schema/runtime traversal bounds.
   std::size_t max_replayed_batches =
       0;  ///< Maximum uncommitted batches rebuilt after restore.
   std::optional<std::uint64_t>
@@ -136,8 +161,8 @@ struct DataPipelineOptions {
   std::string pipeline_id = "data.pipeline";  ///< Stable participant ID.
   std::string dataset_version;   ///< Required immutable dataset version.
   std::size_t dataset_size = 0;  ///< Positive legal sample-index upper bound.
-  std::string schema_id =
-      "data.batch/v1";           ///< Stable batch value schema label.
+  BatchSchema schema =
+      BatchSchema::any("data.batch");  ///< Validated consumer batch contract.
   std::string batch_factory_id;  ///< Required collator/configuration identity.
   std::size_t batch_size = 1;    ///< Samples committed by one call to next().
   bool drop_last = false;  ///< Whether to discard an incomplete final batch.
@@ -161,17 +186,17 @@ struct DataPipelineOptions {
  */
 struct DataPipelineState {
   static constexpr std::uint32_t format_version =
-      3;  ///< Current-only state schema version.
+      4;  ///< Current-only state schema version.
 
   std::uint32_t version = format_version;  ///< Serialized state version.
   std::string pipeline_id;       ///< Participant identity at snapshot time.
   std::string dataset_version;   ///< Dataset lineage identity at snapshot time.
   std::size_t dataset_size = 0;  ///< Exclusive upper bound for sample indices.
-  std::string schema_id;         ///< Batch schema label at snapshot time.
-  std::string batch_factory_id;  ///< Collator identity at snapshot time.
-  std::size_t batch_size = 0;    ///< Batch size at snapshot time.
-  bool drop_last = false;        ///< Tail policy at snapshot time.
-  std::size_t num_workers = 0;   ///< Worker topology at snapshot time.
+  std::string schema_descriptor;  ///< Complete canonical batch schema bytes.
+  std::string batch_factory_id;   ///< Collator identity at snapshot time.
+  std::size_t batch_size = 0;     ///< Batch size at snapshot time.
+  bool drop_last = false;         ///< Tail policy at snapshot time.
+  std::size_t num_workers = 0;    ///< Worker topology at snapshot time.
   std::size_t prefetch_batches =
       0;  ///< Maximum uncommitted work at snapshot time.
   bool persistent_workers =

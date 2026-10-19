@@ -1,4 +1,5 @@
 #include <jyppx/core/device.hpp>
+#include <jyppx/data/batch_schema.hpp>
 #include <jyppx/data/data_pipeline.hpp>
 #include <jyppx/data/iterable_data_pipeline.hpp>
 #include <jyppx/data/samplers/sequential_sampler.hpp>
@@ -41,6 +42,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <span>
@@ -312,12 +314,22 @@ int main() {
       installed_model_state);
   const bool valid_model_checkpoint =
       installed_model_participant.describe_state().fields.size() == 3;
-  jyppx::nn::TensorSchema adapter_input;
+  const auto installed_batch_schema = jyppx::data::BatchSchema::tensor(
+      "consumer.features",
+      {.dtype = torch::kFloat32,
+       .device = jyppx::Device(torch::kCPU),
+       .rank = 2,
+       .shape = std::vector<std::optional<std::int64_t>>{std::nullopt, 2}},
+      1, "features");
+  const bool valid_batch_schema =
+      jyppx::data::batch_schema_fingerprint(installed_batch_schema).size() ==
+      16;
+  jyppx::TensorSchema adapter_input;
   adapter_input.dtype = torch::kFloat32;
   adapter_input.rank = 2;
   adapter_input.shape =
       std::vector<std::optional<std::int64_t>>{std::nullopt, 2};
-  jyppx::nn::TensorSchema adapter_output;
+  jyppx::TensorSchema adapter_output;
   adapter_output.dtype = torch::kFloat32;
   adapter_output.rank = 2;
   adapter_output.shape =
@@ -370,7 +382,7 @@ int main() {
   jyppx::optim::SgdOptimizerCheckpointParticipant
       installed_optimizer_participant(installed_optimizer);
   const bool valid_optimizer =
-      installed_optimizer_participant.describe_state().fields.size() == 3 &&
+      installed_optimizer_participant.describe_state().fields.size() == 4 &&
       installed_optimizer->parameter_count() == 1;
   auto installed_adam_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
@@ -387,7 +399,7 @@ int main() {
   jyppx::optim::AdamOptimizerCheckpointParticipant installed_adam_participant(
       installed_adam);
   const bool valid_adam =
-      installed_adam_participant.describe_state().fields.size() == 5 &&
+      installed_adam_participant.describe_state().fields.size() == 6 &&
       installed_adam->completed_steps() == 1;
   auto installed_adamw_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
@@ -406,7 +418,7 @@ int main() {
   jyppx::optim::AdamWOptimizerCheckpointParticipant installed_adamw_participant(
       installed_adamw);
   const bool valid_adamw =
-      installed_adamw_participant.describe_state().fields.size() == 5 &&
+      installed_adamw_participant.describe_state().fields.size() == 6 &&
       installed_adamw->completed_steps() == 1;
   auto installed_rmsprop_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
@@ -425,7 +437,7 @@ int main() {
   jyppx::optim::RmspropOptimizerCheckpointParticipant
       installed_rmsprop_participant(installed_rmsprop);
   const bool valid_rmsprop =
-      installed_rmsprop_participant.describe_state().fields.size() == 5 &&
+      installed_rmsprop_participant.describe_state().fields.size() == 6 &&
       installed_rmsprop->completed_steps() == 1;
   auto installed_adagrad_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
@@ -444,7 +456,7 @@ int main() {
   jyppx::optim::AdagradOptimizerCheckpointParticipant
       installed_adagrad_participant(installed_adagrad);
   const bool valid_adagrad =
-      installed_adagrad_participant.describe_state().fields.size() == 3 &&
+      installed_adagrad_participant.describe_state().fields.size() == 4 &&
       installed_adagrad->completed_steps() == 1;
   auto installed_adadelta_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
@@ -463,7 +475,7 @@ int main() {
   jyppx::optim::AdadeltaOptimizerCheckpointParticipant
       installed_adadelta_participant(installed_adadelta);
   const bool valid_adadelta =
-      installed_adadelta_participant.describe_state().fields.size() == 4 &&
+      installed_adadelta_participant.describe_state().fields.size() == 5 &&
       installed_adadelta->completed_steps() == 1;
   auto installed_lamb_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
@@ -480,7 +492,7 @@ int main() {
   jyppx::optim::LambOptimizerCheckpointParticipant installed_lamb_participant(
       installed_lamb);
   const bool valid_lamb =
-      installed_lamb_participant.describe_state().fields.size() == 4 &&
+      installed_lamb_participant.describe_state().fields.size() == 5 &&
       installed_lamb->completed_steps() == 1;
   auto installed_nadam_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
@@ -499,7 +511,7 @@ int main() {
   jyppx::optim::NAdamOptimizerCheckpointParticipant installed_nadam_participant(
       installed_nadam);
   const bool valid_nadam =
-      installed_nadam_participant.describe_state().fields.size() == 4 &&
+      installed_nadam_participant.describe_state().fields.size() == 5 &&
       installed_nadam->completed_steps() == 1;
   auto installed_scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
       installed_optimizer,
@@ -577,17 +589,46 @@ int main() {
       installed_event_scheduler->completed_steps() == 1 &&
       installed_composite_participant.describe_state().fields.size() == 2 &&
       installed_composite->descriptor().children.size() == 2;
-  return valid_version && valid_error && valid_device &&
-                 valid_checkpoint_contract && valid_checkpoint_coordinator &&
-                 valid_rng_checkpoint && valid_model_checkpoint && valid_data &&
-                 valid_data_pipeline && valid_iterable_pipeline && valid_nn &&
-                 valid_contrastive && valid_focal && valid_dice &&
-                 valid_adapter && valid_metric && valid_ranking_metric &&
-                 valid_classwise_metric && valid_optimizer && valid_adam &&
-                 valid_adamw && valid_rmsprop && valid_adagrad &&
-                 valid_adadelta && valid_lamb && valid_nadam &&
-                 valid_scheduler && valid_callback && valid_event_sink &&
-                 valid_strategy && valid_trainer
-             ? 0
-             : 1;
+  const std::pair<std::string_view, bool> checks[] = {
+      {"version", valid_version},
+      {"error", valid_error},
+      {"device", valid_device},
+      {"checkpoint_contract", valid_checkpoint_contract},
+      {"checkpoint_coordinator", valid_checkpoint_coordinator},
+      {"rng_checkpoint", valid_rng_checkpoint},
+      {"model_checkpoint", valid_model_checkpoint},
+      {"data", valid_data},
+      {"batch_schema", valid_batch_schema},
+      {"data_pipeline", valid_data_pipeline},
+      {"iterable_pipeline", valid_iterable_pipeline},
+      {"nn", valid_nn},
+      {"contrastive", valid_contrastive},
+      {"focal", valid_focal},
+      {"dice", valid_dice},
+      {"adapter", valid_adapter},
+      {"metric", valid_metric},
+      {"ranking_metric", valid_ranking_metric},
+      {"classwise_metric", valid_classwise_metric},
+      {"optimizer", valid_optimizer},
+      {"adam", valid_adam},
+      {"adamw", valid_adamw},
+      {"rmsprop", valid_rmsprop},
+      {"adagrad", valid_adagrad},
+      {"adadelta", valid_adadelta},
+      {"lamb", valid_lamb},
+      {"nadam", valid_nadam},
+      {"scheduler", valid_scheduler},
+      {"callback", valid_callback},
+      {"event_sink", valid_event_sink},
+      {"strategy", valid_strategy},
+      {"trainer", valid_trainer},
+  };
+  bool all_valid = true;
+  for (const auto& [name, passed] : checks) {
+    if (!passed) {
+      std::cerr << "failed installed API check: " << name << '\n';
+      all_valid = false;
+    }
+  }
+  return all_valid ? 0 : 1;
 }
