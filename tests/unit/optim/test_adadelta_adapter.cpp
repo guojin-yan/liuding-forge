@@ -6,9 +6,14 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/optim/adadelta_adapter.hpp>
 
+#include <torch/version.h>
+
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <limits>
 #include <map>
@@ -26,6 +31,7 @@ using jyppx::StateManifest;
 using jyppx::Tensor;
 using jyppx::optim::AdadeltaAdapterOptions;
 using jyppx::optim::AdadeltaOptimizerAdapter;
+using jyppx::optim::AdadeltaOptimizerCheckpointOptions;
 using jyppx::optim::AdadeltaOptimizerCheckpointParticipant;
 using jyppx::optim::AdadeltaParameterGroup;
 
@@ -69,6 +75,12 @@ class MemoryStateStore final : public jyppx::StateWriter,
     blobs_[std::move(name)] = std::move(bytes);
   }
 
+  /** @brief Removes one field to exercise required-field migration checks. */
+  void erase(std::string_view name) { blobs_.erase(std::string(name)); }
+
+  /** @brief Replaces the stored manifest without changing owned field bytes. */
+  void set_manifest(StateManifest manifest) { manifest_ = std::move(manifest); }
+
  private:
   StateManifest manifest_;  ///< Stored participant state contract.
   std::map<std::string, std::vector<std::byte>> blobs_;  ///< Owned blobs.
@@ -104,6 +116,121 @@ void assign_gradient(const Tensor& parameter, std::int64_t step,
                      double phase = 0.0) {
   parameter.mutable_grad() = torch::sin(
       parameter.detach() * 0.17 + static_cast<double>(step) * 0.03 + phase);
+}
+
+StateManifest make_schema_v1_manifest(const StateManifest& current) {
+  StateManifest legacy = current;
+  legacy.schema_version = 1;
+  const auto producer =
+      std::find_if(legacy.fields.begin(), legacy.fields.end(),
+                   [](const jyppx::StateFieldDescriptor& field) {
+                     return field.name == "producer";
+                   });
+  EXPECT_NE(producer, legacy.fields.end());
+  if (producer != legacy.fields.end()) {
+    legacy.fields.erase(producer);
+  }
+  return legacy;
+}
+
+void copy_parameter(const Tensor& source, Tensor& destination) {
+  torch::NoGradGuard no_grad;
+  destination.copy_(source);
+}
+
+std::vector<std::byte> read_base64_fixture(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  std::string encoded;
+  std::string trailing;
+  if (!(input >> encoded) || (input >> trailing) || encoded.empty() ||
+      encoded.size() % 4 != 0) {
+    throw std::runtime_error("invalid Adadelta checkpoint fixture: " +
+                             path.string());
+  }
+  constexpr std::string_view alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const auto decode = [&](char value) -> std::uint32_t {
+    const auto position = alphabet.find(value);
+    if (position == std::string_view::npos) {
+      throw std::runtime_error("invalid Adadelta checkpoint fixture byte: " +
+                               path.string());
+    }
+    return static_cast<std::uint32_t>(position);
+  };
+  std::vector<std::byte> decoded;
+  decoded.reserve((encoded.size() / 4) * 3);
+  for (std::size_t offset = 0; offset < encoded.size(); offset += 4) {
+    const auto final_group = offset + 4 == encoded.size();
+    const auto third_padding = encoded[offset + 2] == '=';
+    const auto fourth_padding = encoded[offset + 3] == '=';
+    if (encoded[offset] == '=' || encoded[offset + 1] == '=' ||
+        (!final_group && (third_padding || fourth_padding)) ||
+        (third_padding && !fourth_padding)) {
+      throw std::runtime_error("invalid Adadelta checkpoint fixture padding: " +
+                               path.string());
+    }
+    const auto packed =
+        (decode(encoded[offset]) << 18U) |
+        (decode(encoded[offset + 1]) << 12U) |
+        (third_padding ? 0U : decode(encoded[offset + 2]) << 6U) |
+        (fourth_padding ? 0U : decode(encoded[offset + 3]));
+    decoded.push_back(
+        std::byte{static_cast<unsigned char>((packed >> 16U) & 0xFFU)});
+    if (!third_padding) {
+      decoded.push_back(
+          std::byte{static_cast<unsigned char>((packed >> 8U) & 0xFFU)});
+    }
+    if (!fourth_padding) {
+      decoded.push_back(std::byte{static_cast<unsigned char>(packed & 0xFFU)});
+    }
+  }
+  return decoded;
+}
+
+std::vector<AdadeltaParameterGroup> make_fixture_groups(
+    const Tensor& regularized_parameter, const Tensor& maximizing_parameter,
+    double regularized_rate = 0.75, double maximizing_rate = 1.2) {
+  return {make_group("regularized", "weight", regularized_parameter,
+                     {.learning_rate = regularized_rate,
+                      .rho = 0.87,
+                      .epsilon = 2e-7,
+                      .weight_decay = 0.025}),
+          make_group("maximizing", "bias", maximizing_parameter,
+                     {.learning_rate = maximizing_rate,
+                      .rho = 0.96,
+                      .epsilon = 3e-6,
+                      .weight_decay = 0.015,
+                      .maximize = true})};
+}
+
+void apply_fixture_gradients(const Tensor& regularized_parameter,
+                             const Tensor& maximizing_parameter,
+                             std::int64_t step) {
+  regularized_parameter.mutable_grad() = torch::tensor(
+      {0.2 * static_cast<double>(step), -0.1 * static_cast<double>(step),
+       0.05 * static_cast<double>(step)},
+      regularized_parameter.options().requires_grad(false));
+  if (step == 2) {
+    maximizing_parameter.mutable_grad() = Tensor();
+  } else {
+    maximizing_parameter.mutable_grad() = torch::tensor(
+        {-0.15 * static_cast<double>(step), 0.08 * static_cast<double>(step),
+         0.12 * static_cast<double>(step)},
+        maximizing_parameter.options().requires_grad(false));
+  }
+}
+
+MemoryStateStore load_canonical_schema_v1_fixture(
+    const AdadeltaOptimizerCheckpointParticipant& participant) {
+  MemoryStateStore fixture(
+      make_schema_v1_manifest(participant.describe_state()));
+  const auto fixture_dir = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
+                           "checkpoint" / "adadelta_schema_v1_libtorch_2.5.1";
+  for (const auto& field : fixture.manifest().fields) {
+    fixture.replace(field.name, read_base64_fixture(fixture_dir /
+                                                    (field.name + ".bin.b64")));
+  }
+  return fixture;
 }
 
 void update_reference(ScalarAdadeltaState& state, double gradient,
@@ -355,6 +482,160 @@ TEST(AdadeltaOptimizerAdapterTest, MalformedCheckpointLeavesStateUnchanged) {
   EXPECT_TRUE(torch::equal(parameter, reference_parameter));
 }
 
+TEST(AdadeltaOptimizerAdapterTest,
+     MigratesSchemaV1BothAccumulatorsAndContinuesExactly) {
+  torch::manual_seed(20261019);
+  auto uninterrupted = make_parameter({6, 3});
+  auto resumed = uninterrupted.detach().clone().set_requires_grad(true);
+  const AdadeltaAdapterOptions options{.learning_rate = 0.7,
+                                       .rho = 0.88,
+                                       .epsilon = 2e-7,
+                                       .weight_decay = 0.012,
+                                       .maximize = true};
+  auto first = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta", std::vector<AdadeltaParameterGroup>{make_group(
+                                "main", "weight", uninterrupted, options)});
+  auto second = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta", std::vector<AdadeltaParameterGroup>{make_group(
+                                "main", "weight", resumed, options)});
+  AdadeltaOptimizerCheckpointParticipant first_state(first);
+  AdadeltaOptimizerCheckpointParticipant second_state(second);
+
+  for (std::int64_t step = 0; step < 19; ++step) {
+    assign_gradient(uninterrupted, step, 0.4);
+    first->step();
+  }
+  MemoryStateStore store(first_state.describe_state());
+  first_state.save_state(store);
+  const auto current_manifest = store.manifest();
+  store.erase("producer");
+  store.set_manifest(make_schema_v1_manifest(current_manifest));
+
+  copy_parameter(uninterrupted, resumed);
+  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(second->completed_steps(), first->completed_steps());
+  EXPECT_EQ(second->learning_rates(), first->learning_rates());
+
+  for (std::int64_t step = 19; step < 57; ++step) {
+    assign_gradient(uninterrupted, step, 0.4);
+    resumed.mutable_grad() = uninterrupted.grad().clone();
+    first->step();
+    second->step();
+  }
+  EXPECT_TRUE(torch::equal(uninterrupted, resumed));
+  EXPECT_EQ(second->completed_steps(), first->completed_steps());
+}
+
+TEST(AdadeltaOptimizerAdapterTest,
+     MigratesCanonicalSchemaV1FixtureFromLibtorch251) {
+  if (TORCH_VERSION_MAJOR != 2 || TORCH_VERSION_MINOR != 5 ||
+      TORCH_VERSION_PATCH != 1) {
+    GTEST_SKIP() << "canonical fixture requires exact LibTorch 2.5.1";
+  }
+  auto expected_regularized = torch::tensor(
+      {1.25, -0.5, 0.75},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto expected_maximizing = torch::tensor(
+      {-0.75, 0.25, 1.5},
+      torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
+  auto expected = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta.fixture",
+      make_fixture_groups(expected_regularized, expected_maximizing));
+  for (std::int64_t step = 1; step <= 3; ++step) {
+    apply_fixture_gradients(expected_regularized, expected_maximizing, step);
+    expected->step();
+  }
+  expected->set_learning_rates({0.5, 0.4});
+
+  auto resumed_regularized =
+      expected_regularized.detach().clone().set_requires_grad(true);
+  auto resumed_maximizing =
+      expected_maximizing.detach().clone().set_requires_grad(true);
+  auto resumed = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta.fixture",
+      make_fixture_groups(resumed_regularized, resumed_maximizing, 0.9, 0.8));
+  AdadeltaOptimizerCheckpointParticipant resumed_participant(resumed);
+  const auto fixture = load_canonical_schema_v1_fixture(resumed_participant);
+  resumed_participant.load_state(fixture, jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(resumed->completed_steps(), 3U);
+  EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.5, 0.4}));
+
+  apply_fixture_gradients(expected_regularized, expected_maximizing, 4);
+  resumed_regularized.mutable_grad() = expected_regularized.grad().clone();
+  resumed_maximizing.mutable_grad() = expected_maximizing.grad().clone();
+  expected->step();
+  resumed->step();
+  EXPECT_TRUE(torch::equal(expected_regularized, resumed_regularized));
+  EXPECT_TRUE(torch::equal(expected_maximizing, resumed_maximizing));
+}
+
+TEST(AdadeltaOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
+  auto parameter = make_parameter({4});
+  auto optimizer = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta", std::vector<AdadeltaParameterGroup>{
+                                make_group("main", "weight", parameter)});
+  AdadeltaOptimizerCheckpointParticipant participant(optimizer);
+  assign_gradient(parameter, 1);
+  optimizer->step();
+  const auto before = parameter.detach().clone();
+  const auto before_steps = optimizer->completed_steps();
+  const auto before_rates = optimizer->learning_rates();
+  MemoryStateStore store(participant.describe_state());
+  participant.save_state(store);
+
+  auto future = store.manifest();
+  future.schema_version = 3;
+  store.set_manifest(future);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_TRUE(torch::equal(parameter, before));
+  EXPECT_EQ(optimizer->completed_steps(), before_steps);
+  EXPECT_EQ(optimizer->learning_rates(), before_rates);
+
+  auto relabelled = participant.describe_state();
+  relabelled.schema_version = 1;
+  store.set_manifest(relabelled);
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_TRUE(torch::equal(parameter, before));
+  EXPECT_EQ(optimizer->completed_steps(), before_steps);
+  EXPECT_EQ(optimizer->learning_rates(), before_rates);
+}
+
+TEST(AdadeltaOptimizerAdapterTest,
+     RejectsMalformedProducerAndLeavesStateUnchanged) {
+  auto parameter = make_parameter({4});
+  auto optimizer = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta", std::vector<AdadeltaParameterGroup>{
+                                make_group("main", "weight", parameter)});
+  AdadeltaOptimizerCheckpointParticipant participant(optimizer);
+  assign_gradient(parameter, 1);
+  optimizer->step();
+  const auto before = parameter.detach().clone();
+  const auto before_steps = optimizer->completed_steps();
+  const auto before_rates = optimizer->learning_rates();
+  MemoryStateStore store(participant.describe_state());
+  participant.save_state(store);
+  store.replace("producer", {std::byte{0x01}});
+
+  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::SerializationError);
+  EXPECT_TRUE(torch::equal(parameter, before));
+  EXPECT_EQ(optimizer->completed_steps(), before_steps);
+  EXPECT_EQ(optimizer->learning_rates(), before_rates);
+}
+
+TEST(AdadeltaOptimizerAdapterTest, EnforcesProducerResourceLimit) {
+  auto parameter = make_parameter({2});
+  auto optimizer = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta", std::vector<AdadeltaParameterGroup>{
+                                make_group("main", "weight", parameter)});
+  AdadeltaOptimizerCheckpointOptions options;
+  options.max_producer_bytes = 1;
+  EXPECT_THROW(AdadeltaOptimizerCheckpointParticipant(optimizer, options),
+               jyppx::ResourceExhausted);
+}
+
 TEST(AdadeltaOptimizerAdapterTest, FreshCheckpointUsesLazyEmptyState) {
   auto parameter = make_parameter({3});
   auto optimizer = std::make_shared<AdadeltaOptimizerAdapter>(
@@ -387,6 +668,52 @@ TEST(AdadeltaOptimizerAdapterTest,
 
   EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::NotReady);
   EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
+}
+
+TEST(AdadeltaOptimizerAdapterCudaTest,
+     MigratesSchemaV1StateForExactGpuContinuation) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is not available";
+  }
+  auto uninterrupted =
+      make_parameter({8}, torch::kFloat32, torch::Device(torch::kCUDA, 0));
+  auto resumed = uninterrupted.detach().clone().set_requires_grad(true);
+  const AdadeltaAdapterOptions options{.learning_rate = 0.65,
+                                       .rho = 0.89,
+                                       .epsilon = 2e-7,
+                                       .weight_decay = 0.02,
+                                       .maximize = true};
+  auto first = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta.cuda",
+      std::vector<AdadeltaParameterGroup>{
+          make_group("main", "weight", uninterrupted, options)});
+  auto second = std::make_shared<AdadeltaOptimizerAdapter>(
+      "optimizer.adadelta.cuda", std::vector<AdadeltaParameterGroup>{make_group(
+                                     "main", "weight", resumed, options)});
+  AdadeltaOptimizerCheckpointParticipant first_state(first);
+  AdadeltaOptimizerCheckpointParticipant second_state(second);
+  for (std::int64_t step = 0; step < 13; ++step) {
+    assign_gradient(uninterrupted, step, 0.25);
+    first->step();
+  }
+  MemoryStateStore store(first_state.describe_state());
+  first_state.save_state(store);
+  const auto current_manifest = store.manifest();
+  store.erase("producer");
+  store.set_manifest(make_schema_v1_manifest(current_manifest));
+  copy_parameter(uninterrupted, resumed);
+  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+
+  for (std::int64_t step = 13; step < 37; ++step) {
+    assign_gradient(uninterrupted, step, 0.25);
+    resumed.mutable_grad() = uninterrupted.grad().clone();
+    first->step();
+    second->step();
+  }
+  EXPECT_TRUE(torch::equal(uninterrupted, resumed));
+  EXPECT_EQ(second->completed_steps(), first->completed_steps());
+  EXPECT_TRUE(uninterrupted.is_cuda());
+  EXPECT_TRUE(resumed.is_cuda());
 }
 
 TEST(AdadeltaOptimizerAdapterTest, SupportsCpuBfloat16AndCudaCapability) {

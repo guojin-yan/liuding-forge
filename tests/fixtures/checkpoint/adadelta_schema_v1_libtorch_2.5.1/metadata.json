@@ -1,0 +1,114 @@
+{
+  "fixture_schema": 1,
+  "participant_id": "optimizer.adadelta.fixture",
+  "participant_schema": 1,
+  "restore_level": "exact",
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "e835573d265bdbbd26e5ccefb3da56c8e3c274d8",
+    "libtorch_version": "2.5.1",
+    "writer": "AdadeltaOptimizerCheckpointParticipant schema-v1 writer"
+  },
+  "scenario": {
+    "dtype": "float64",
+    "device": "cpu",
+    "shape": [3],
+    "completed_steps": 3,
+    "groups": [
+      {
+        "group_id": "regularized",
+        "parameter_id": "weight",
+        "initial_parameter": [1.25, -0.5, 0.75],
+        "learning_rate": 0.75,
+        "saved_learning_rate": 0.5,
+        "rho": 0.87,
+        "epsilon": 0.0000002,
+        "weight_decay": 0.025,
+        "maximize": false,
+        "gradients": [
+          [0.2, -0.1, 0.05],
+          [0.4, -0.2, 0.1],
+          [0.6, -0.3, 0.15]
+        ]
+      },
+      {
+        "group_id": "maximizing",
+        "parameter_id": "bias",
+        "initial_parameter": [-0.75, 0.25, 1.5],
+        "learning_rate": 1.2,
+        "saved_learning_rate": 0.4,
+        "rho": 0.96,
+        "epsilon": 0.000003,
+        "weight_decay": 0.015,
+        "maximize": true,
+        "gradients": [
+          [-0.15, 0.08, 0.12],
+          null,
+          [-0.45, 0.24, 0.36]
+        ]
+      }
+    ]
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/vnd.jyppx.adadelta-topology-v1",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 223,
+      "decoded_size": 223,
+      "sha256": "1d07978be69b0e2f0016395efecedfe9856054396361f176d694515306a7487e"
+    },
+    {
+      "name": "control",
+      "media_type": "application/vnd.jyppx.adadelta-control-v1",
+      "required": true,
+      "file": "control.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 62,
+      "decoded_size": 62,
+      "sha256": "6b3295eb3043e57c5ffca29a58cfe512bd79ba74cb49dcde992ebc18152dafb5"
+    },
+    {
+      "name": "square_avg.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "square_avg.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "6a4aba165e00d6f79db499353b7f66e13a051125f730a98ec8a710d3ca7ae8af"
+    },
+    {
+      "name": "square_avg.0000000001",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "square_avg.0000000001.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "eeed4f5c5dbdf84621c1653f665bd51887bd87cab08ac42ea0a5ab54d05ce6aa"
+    },
+    {
+      "name": "acc_delta.0000000000",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "acc_delta.0000000000.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "89812b661dc387c97e4bef978ae35d276ed472594cea5aa621f126eba7341d11"
+    },
+    {
+      "name": "acc_delta.0000000001",
+      "media_type": "application/vnd.jyppx.tensor-raw-v1",
+      "required": true,
+      "file": "acc_delta.0000000001.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 24,
+      "decoded_size": 24,
+      "sha256": "1337e59aaa79719fba7bf8972b020ffaefc4ceca98b679382dac97886d7cca71"
+    }
+  ]
+}
