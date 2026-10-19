@@ -144,7 +144,7 @@
         }
       }
     },
-    "sdk_legacy": {
+    "utils": {
       "path_prefixes": [
         "include/jyppx/utils/",
         "src/jyppx/utils/"
