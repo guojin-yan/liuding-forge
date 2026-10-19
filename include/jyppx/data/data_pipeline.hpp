@@ -11,6 +11,7 @@
  * @brief Defines the explicit-epoch, worker-prefetched map-style data pipeline.
  */
 
+#include <jyppx/data/batch_memory.hpp>
 #include <jyppx/data/samplers/sampler.hpp>
 #include <jyppx/foundation/checkpoint.hpp>
 
@@ -44,6 +45,8 @@ struct BatchEnvelope {
   std::uint64_t epoch = 0;       ///< Logical epoch that produced this batch.
   std::uint64_t sequence = 0;    ///< Zero-based committed batch sequence.
   std::string source_watermark;  ///< Opaque iterable position; empty for maps.
+  BatchMemoryMetadata
+      memory;  ///< Pinning, transfer, tensor-count, and byte metadata.
 };
 
 /**
@@ -62,6 +65,14 @@ struct DataCapability {
   bool persistent_workers =
       false;  ///< Whether worker threads survive epoch boundaries.
   bool batch_timeout = false;  ///< Whether consumer waits have a deadline.
+  bool memory_stage = false;   ///< Whether pinning or transfer is configured.
+  bool pin_memory = false;     ///< Whether CPU tensor pinning is requested.
+  bool non_blocking_transfer =
+      false;  ///< Whether device transfers request non-blocking execution.
+  std::optional<Device>
+      target_device;  ///< Configured batch destination, when present.
+  std::size_t memory_stage_capacity =
+      0;  ///< Maximum staged but uncommitted batches; zero when disabled.
   std::size_t max_replayed_batches =
       0;  ///< Maximum uncommitted batches rebuilt after restore.
   std::optional<std::uint64_t>
@@ -141,6 +152,8 @@ struct DataPipelineOptions {
       0;  ///< Stable seed mixed with dataset, epoch, worker, and sequence.
   std::chrono::milliseconds batch_timeout{
       0};  ///< Positive worker wait deadline; zero disables timeout.
+  BatchMemoryOptions
+      memory;  ///< Optional bounded host-pinning and device-transfer stage.
 };
 
 /**
@@ -148,7 +161,7 @@ struct DataPipelineOptions {
  */
 struct DataPipelineState {
   static constexpr std::uint32_t format_version =
-      2;  ///< Current-only state schema version.
+      3;  ///< Current-only state schema version.
 
   std::uint32_t version = format_version;  ///< Serialized state version.
   std::string pipeline_id;       ///< Participant identity at snapshot time.
@@ -168,6 +181,18 @@ struct DataPipelineState {
   std::uint64_t worker_seed = 0;  ///< Base deterministic worker seed.
   std::uint64_t batch_timeout_ms =
       0;                    ///< Consumer wait deadline encoded as milliseconds.
+  bool pin_memory = false;  ///< Host-pinning topology at snapshot time.
+  std::string target_device;  ///< Empty or canonical destination device text.
+  bool non_blocking_transfer =
+      false;  ///< Transfer scheduling policy at snapshot time.
+  std::size_t memory_stage_capacity =
+      0;  ///< Staged-but-uncommitted batch bound at snapshot time.
+  std::size_t max_batch_tensors =
+      0;  ///< Per-batch tensor occurrence limit at snapshot time.
+  std::size_t max_batch_value_nodes =
+      0;  ///< Per-batch recursive value-node limit at snapshot time.
+  std::uint64_t max_batch_bytes =
+      0;  ///< Per-batch logical tensor byte limit at snapshot time.
   bool prepared = false;    ///< Whether an epoch has been selected explicitly.
   std::uint64_t epoch = 0;  ///< Selected logical epoch.
   std::uint64_t next_cursor = 0;    ///< Next uncommitted sample position.

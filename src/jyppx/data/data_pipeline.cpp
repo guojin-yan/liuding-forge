@@ -21,8 +21,8 @@ namespace jyppx::data {
 namespace {
 
 constexpr char kComponent[] = "data.pipeline";
-constexpr char kTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v2";
-constexpr char kCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v2";
+constexpr char kTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v3";
+constexpr char kCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v3";
 constexpr std::uint64_t kMaxTopologyBytes = 32U * 1024U * 1024U;
 constexpr std::uint64_t kMaxCursorBytes = 128U;
 constexpr std::uint64_t kMaxIndexCount = 2U * 1024U * 1024U;
@@ -157,6 +157,13 @@ std::string encode_topology(const DataPipelineState& state) {
   append_byte(output, state.deterministic_batch_factory ? 1U : 0U);
   append_u64(output, state.worker_seed);
   append_u64(output, state.batch_timeout_ms);
+  append_byte(output, state.pin_memory ? 1U : 0U);
+  append_string(output, state.target_device);
+  append_byte(output, state.non_blocking_transfer ? 1U : 0U);
+  append_u64(output, state.memory_stage_capacity);
+  append_u64(output, state.max_batch_tensors);
+  append_u64(output, state.max_batch_value_nodes);
+  append_u64(output, state.max_batch_bytes);
   append_byte(output, state.sampler_state_supported ? 1U : 0U);
   append_string(output, state.sampler_state);
   append_u64(output, static_cast<std::uint64_t>(state.epoch_indices.size()));
@@ -201,6 +208,18 @@ DataPipelineState decode_state(std::span<const std::byte> topology,
       read_bool(topology, topology_offset, "deterministic_batch_factory");
   state.worker_seed = read_u64(topology, topology_offset);
   state.batch_timeout_ms = read_u64(topology, topology_offset);
+  state.pin_memory = read_bool(topology, topology_offset, "pin_memory");
+  state.target_device =
+      read_string(topology, topology_offset, kMaxMetadataBytes);
+  state.non_blocking_transfer =
+      read_bool(topology, topology_offset, "non_blocking_transfer");
+  state.memory_stage_capacity =
+      read_size(topology, topology_offset, "memory_stage_capacity");
+  state.max_batch_tensors =
+      read_size(topology, topology_offset, "max_batch_tensors");
+  state.max_batch_value_nodes =
+      read_size(topology, topology_offset, "max_batch_value_nodes");
+  state.max_batch_bytes = read_u64(topology, topology_offset);
   state.sampler_state_supported =
       read_bool(topology, topology_offset, "sampler_state_supported");
   state.sampler_state =
@@ -331,6 +350,8 @@ struct BatchResult {
   std::size_t end_cursor = 0;
   // Materialized batch value when the factory succeeds.
   c10::IValue value;
+  // Observable pinning and transfer work performed before publication.
+  BatchMemoryMetadata memory;
   // Structured factory failure retained for ordered propagation.
   std::exception_ptr error;
 };
@@ -377,7 +398,11 @@ std::shared_ptr<EpochWork> make_epoch_work(const DataPipelineState& state,
     cursor = end;
     ++sequence;
   }
-  epoch->allowed = std::min(options.prefetch_batches, epoch->batches.size());
+  auto capacity = options.prefetch_batches;
+  if (batch_memory_stage_enabled(options.memory)) {
+    capacity = std::min(capacity, options.memory.stage_capacity);
+  }
+  epoch->allowed = std::min(capacity, epoch->batches.size());
   return epoch;
 }
 
@@ -385,9 +410,11 @@ class WorkerRuntime final {
  public:
   // Starts a fixed worker pool. Workers remain idle until activate() installs
   // an epoch plan.
-  WorkerRuntime(DataBatchFactory factory, std::size_t workers,
-                std::chrono::milliseconds timeout)
-      : factory_(std::move(factory)), timeout_(timeout) {
+  WorkerRuntime(DataBatchFactory factory, BatchMemoryOptions memory,
+                std::size_t workers, std::chrono::milliseconds timeout)
+      : factory_(std::move(factory)),
+        memory_(std::move(memory)),
+        timeout_(timeout) {
     workers_.reserve(workers);
     try {
       for (std::size_t index = 0; index < workers; ++index) {
@@ -566,6 +593,12 @@ class WorkerRuntime final {
         }
         result->value = invoke_factory(factory_, work->indices, work->context,
                                        epoch->stop_source.get_token());
+        if (batch_memory_stage_enabled(memory_) &&
+            !epoch->stop_source.stop_requested()) {
+          auto staged = stage_batch_memory(result->value, memory_);
+          result->value = std::move(staged.value);
+          result->memory = std::move(staged.metadata);
+        }
       } catch (...) {
         result->error = std::current_exception();
       }
@@ -581,6 +614,8 @@ class WorkerRuntime final {
 
   // User factory copied into the runtime so persistent workers can reuse it.
   DataBatchFactory factory_;
+  // Immutable memory-stage policy shared by every worker invocation.
+  BatchMemoryOptions memory_;
   // Zero means an unbounded wait; positive values apply per next() call.
   std::chrono::milliseconds timeout_;
   // Guards all fields below and every mutable EpochWork scheduling field.
@@ -596,6 +631,7 @@ class WorkerRuntime final {
 };
 
 void validate_options(const DataPipelineOptions& options) {
+  validate_batch_memory_options(options.memory);
   if (options.pipeline_id.empty() || options.dataset_version.empty() ||
       options.schema_id.empty() || options.batch_factory_id.empty()) {
     throw InvalidArgument(
@@ -654,6 +690,15 @@ DataPipelineState make_initial_state(const DataPipelineOptions& options,
   state.worker_seed = options.worker_seed;
   state.batch_timeout_ms =
       static_cast<std::uint64_t>(options.batch_timeout.count());
+  state.pin_memory = options.memory.pin_memory;
+  state.target_device = options.memory.target_device
+                            ? options.memory.target_device->str()
+                            : std::string{};
+  state.non_blocking_transfer = options.memory.non_blocking;
+  state.memory_stage_capacity = options.memory.stage_capacity;
+  state.max_batch_tensors = options.memory.max_tensors;
+  state.max_batch_value_nodes = options.memory.max_value_nodes;
+  state.max_batch_bytes = options.memory.max_bytes;
   state.sampler_state_supported = sampler.supports_state();
   state.sampler_identity = sampler.configuration_identity();
   if (state.sampler_state_supported) {
@@ -681,8 +726,19 @@ struct DataPipeline::Impl {
         options.num_workers == 0 ? 0 : options.prefetch_batches;
     result.persistent_workers = options.persistent_workers;
     result.batch_timeout = options.batch_timeout.count() != 0;
+    result.memory_stage = batch_memory_stage_enabled(options.memory);
+    result.pin_memory = options.memory.pin_memory;
+    result.non_blocking_transfer = options.memory.non_blocking;
+    result.target_device = options.memory.target_device;
+    result.memory_stage_capacity =
+        result.memory_stage ? options.memory.stage_capacity : 0U;
+    auto replay_capacity = options.prefetch_batches;
+    if (result.memory_stage) {
+      replay_capacity =
+          std::min(replay_capacity, options.memory.stage_capacity);
+    }
     result.max_replayed_batches =
-        options.num_workers == 0 ? 0 : options.prefetch_batches;
+        options.num_workers == 0 ? 0 : replay_capacity;
 
     const auto has_state = sampler->supports_state();
     const auto has_identity = !sampler->configuration_identity().empty();
@@ -722,7 +778,16 @@ struct DataPipeline::Impl {
             options.deterministic_batch_factory ||
         candidate.worker_seed != options.worker_seed ||
         candidate.batch_timeout_ms !=
-            static_cast<std::uint64_t>(options.batch_timeout.count())) {
+            static_cast<std::uint64_t>(options.batch_timeout.count()) ||
+        candidate.pin_memory != options.memory.pin_memory ||
+        candidate.target_device != (options.memory.target_device
+                                        ? options.memory.target_device->str()
+                                        : std::string{}) ||
+        candidate.non_blocking_transfer != options.memory.non_blocking ||
+        candidate.memory_stage_capacity != options.memory.stage_capacity ||
+        candidate.max_batch_tensors != options.memory.max_tensors ||
+        candidate.max_batch_value_nodes != options.memory.max_value_nodes ||
+        candidate.max_batch_bytes != options.memory.max_bytes) {
       throw CompatibilityError("DataPipeline state topology is incompatible");
     }
     if (candidate.sampler_state_supported != sampler->supports_state()) {
@@ -769,7 +834,8 @@ struct DataPipeline::Impl {
   }
 
   std::unique_ptr<WorkerRuntime> make_runtime() const {
-    return std::make_unique<WorkerRuntime>(batch_factory, options.num_workers,
+    return std::make_unique<WorkerRuntime>(batch_factory, options.memory,
+                                           options.num_workers,
                                            options.batch_timeout);
   }
 
@@ -933,6 +999,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
                             impl_->state.epoch_indices.size());
   const auto sequence = impl_->state.next_sequence;
   c10::IValue value;
+  BatchMemoryMetadata memory;
   if (impl_->options.num_workers == 0) {
     const std::span<const std::size_t> indices(
         impl_->state.epoch_indices.data() + start, end - start);
@@ -941,6 +1008,11 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
     value = invoke_factory(impl_->batch_factory, indices, context, stop_token);
     if (stop_token.stop_requested()) {
       return std::nullopt;
+    }
+    if (batch_memory_stage_enabled(impl_->options.memory)) {
+      auto staged = stage_batch_memory(value, impl_->options.memory);
+      value = std::move(staged.value);
+      memory = std::move(staged.metadata);
     }
   } else {
     const auto result = impl_->runtime->wait_for(sequence, stop_token);
@@ -952,6 +1024,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
           "DataPipeline worker result topology is inconsistent");
     }
     value = result->value;
+    memory = result->memory;
   }
 
   BatchEnvelope envelope;
@@ -960,6 +1033,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
   envelope.dataset_version = impl_->options.dataset_version;
   envelope.epoch = impl_->state.epoch;
   envelope.sequence = sequence;
+  envelope.memory = std::move(memory);
   envelope.sample_ids.reserve(end - start);
   for (auto cursor = start; cursor < end; ++cursor) {
     envelope.sample_ids.push_back(

@@ -465,6 +465,58 @@ TEST(IterableDataPipelineTest, PrefetchStopsAtDeclaredCapacityUntilCommit) {
   EXPECT_TRUE(wait_for_pulls(stats, 3, std::chrono::seconds(1)));
 }
 
+TEST(IterableDataPipelineTest,
+     MemoryStageHasIndependentCapacityAndPublishesMetadata) {
+  auto stats = std::make_shared<CursorStats>();
+  auto source = make_source({1, 2, 3}, exact_descriptor(), stats);
+  auto config = options("data.iterable.memory-capacity", 1);
+  config.prefetch_batches = 3;
+  config.memory.target_device = jyppx::Device(torch::kCPU);
+  config.memory.stage_capacity = 1;
+  IterableDataPipeline pipeline(
+      source, config,
+      [](std::span<const IterableSample> samples, std::uint64_t, std::uint64_t,
+         std::stop_token) {
+        return c10::IValue(
+            torch::tensor({samples.front().value.toInt()}, torch::kFloat32));
+      });
+  pipeline.set_epoch(0);
+
+  ASSERT_TRUE(wait_for_pulls(stats, 1, std::chrono::seconds(1)));
+  EXPECT_FALSE(wait_for_pulls(stats, 2, std::chrono::milliseconds(80)));
+  const auto capability = pipeline.capability();
+  EXPECT_TRUE(capability.memory_stage);
+  EXPECT_EQ(capability.prefetch_batches, 3U);
+  EXPECT_EQ(capability.memory_stage_capacity, 1U);
+  EXPECT_EQ(capability.max_replayed_batches, 1U);
+
+  const auto batch = pipeline.next();
+  ASSERT_TRUE(batch.has_value());
+  EXPECT_TRUE(batch->memory.staged);
+  EXPECT_EQ(batch->memory.tensor_count, 1U);
+  EXPECT_TRUE(batch->value.toTensor().device().is_cpu());
+  EXPECT_TRUE(wait_for_pulls(stats, 2, std::chrono::seconds(1)));
+}
+
+TEST(IterableDataPipelineTest, MemoryStageFailureDoesNotCommitSourceCursor) {
+  auto config = options("data.iterable.memory-failure", 1);
+  config.memory.target_device = jyppx::Device(torch::kCPU);
+  config.memory.max_bytes = 1;
+  IterableDataPipeline pipeline(
+      make_source({1, 2}), config,
+      [](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
+         std::stop_token) {
+        return c10::IValue(torch::ones({2}, torch::kFloat32));
+      });
+  pipeline.set_epoch(4);
+  const auto before = pipeline.state();
+
+  EXPECT_THROW(pipeline.next(), jyppx::ResourceExhausted);
+  EXPECT_EQ(pipeline.state().next_sequence, before.next_sequence);
+  EXPECT_EQ(pipeline.state().committed_samples, before.committed_samples);
+  EXPECT_EQ(pipeline.state().source_state, before.source_state);
+}
+
 TEST(IterableDataPipelineTest, RestoresExactStateAtLastCommittedBatch) {
   auto stats = std::make_shared<CursorStats>();
   auto source =
@@ -618,6 +670,49 @@ TEST(IterableDataPipelineTest, InvalidCheckpointDoesNotMutatePreparedPipeline) {
   EXPECT_EQ(after.epoch, before.epoch);
   EXPECT_EQ(after.prepared, before.prepared);
   EXPECT_EQ(after.source_state, before.source_state);
+}
+
+TEST(IterableBatchMemoryCudaTest, PinsTransfersAndRestoresExactCursor) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA runtime is unavailable";
+  }
+  auto config = options("data.iterable.cuda-memory", 2);
+  config.prefetch_batches = 3;
+  config.memory = {.pin_memory = true,
+                   .target_device = jyppx::Device(torch::kCUDA, 0),
+                   .non_blocking = true,
+                   .stage_capacity = 1};
+  const auto factory = [](std::span<const IterableSample> samples,
+                          std::uint64_t, std::uint64_t, std::stop_token) {
+    std::vector<std::int64_t> values;
+    values.reserve(samples.size());
+    for (const auto& sample : samples) {
+      values.push_back(sample.value.toInt());
+    }
+    return c10::IValue(torch::tensor(values, torch::kFloat32));
+  };
+  auto source = make_source({1, 2, 3, 4, 5, 6});
+  IterableDataPipeline original(source, config, factory);
+  original.set_epoch(9);
+  const auto first = original.next();
+  ASSERT_TRUE(first.has_value());
+  EXPECT_TRUE(first->value.toTensor().is_cuda());
+  EXPECT_EQ(first->memory.pinned_tensor_count, 1U);
+  EXPECT_EQ(first->memory.transferred_tensor_count, 1U);
+
+  const auto checkpoint = save_state(original);
+  const auto expected = original.next();
+  ASSERT_TRUE(expected.has_value());
+  IterableDataPipeline restored(source, config, factory);
+  restored.load_state(checkpoint, jyppx::RestorePolicy::exact_only);
+  const auto actual = restored.next();
+  ASSERT_TRUE(actual.has_value());
+  EXPECT_EQ(actual->sample_ids, expected->sample_ids);
+  EXPECT_TRUE(actual->value.toTensor().is_cuda());
+  EXPECT_TRUE(
+      torch::equal(actual->value.toTensor(), expected->value.toTensor()));
+  EXPECT_EQ(actual->memory.pinned_tensor_count, 1U);
+  EXPECT_EQ(actual->memory.transferred_tensor_count, 1U);
 }
 
 }  // namespace

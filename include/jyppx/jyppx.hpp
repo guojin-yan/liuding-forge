@@ -34,6 +34,7 @@
 #include <jyppx/optim/step_lr_scheduler.hpp>
 
 // Data
+#include <jyppx/data/batch_memory.hpp>
 #include <jyppx/data/chain_dataset.hpp>
 #include <jyppx/data/concat_dataset.hpp>
 #include <jyppx/data/data_pipeline.hpp>

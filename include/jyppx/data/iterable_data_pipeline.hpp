@@ -41,6 +41,8 @@ struct IterableDataPipelineOptions {
       2;  ///< Positive total produced-but-uncommitted batch capacity.
   std::chrono::milliseconds batch_timeout{
       0};  ///< Consumer wait deadline; zero waits without a deadline.
+  BatchMemoryOptions
+      memory;  ///< Optional bounded host-pinning and device-transfer stage.
 };
 
 /**
@@ -48,7 +50,7 @@ struct IterableDataPipelineOptions {
  */
 struct IterableDataPipelineState {
   static constexpr std::uint32_t format_version =
-      1;  ///< Current-only iterable state schema.
+      2;  ///< Current-only iterable state schema.
 
   std::uint32_t version = format_version;  ///< Serialized schema version.
   std::string pipeline_id;           ///< Participant identity at snapshot time.
@@ -69,7 +71,19 @@ struct IterableDataPipelineState {
   bool drop_last = false;      ///< Tail policy at snapshot time.
   std::size_t prefetch_batches = 0;    ///< Bounded producer queue capacity.
   std::uint64_t batch_timeout_ms = 0;  ///< Encoded consumer wait timeout.
-  bool prepared = false;               ///< Whether an epoch cursor was opened.
+  bool pin_memory = false;    ///< Host-pinning topology at snapshot time.
+  std::string target_device;  ///< Empty or canonical destination device text.
+  bool non_blocking_transfer =
+      false;  ///< Transfer scheduling policy at snapshot time.
+  std::size_t memory_stage_capacity =
+      0;  ///< Staged-but-uncommitted batch bound at snapshot time.
+  std::size_t max_batch_tensors =
+      0;  ///< Per-batch tensor occurrence limit at snapshot time.
+  std::size_t max_batch_value_nodes =
+      0;  ///< Per-batch recursive value-node limit at snapshot time.
+  std::uint64_t max_batch_bytes =
+      0;  ///< Per-batch logical tensor byte limit at snapshot time.
+  bool prepared = false;    ///< Whether an epoch cursor was opened.
   bool exhausted = false;   ///< Whether exhaustion was consumer-visible.
   std::uint64_t epoch = 0;  ///< Explicitly selected logical epoch.
   std::uint64_t next_sequence = 0;  ///< Sequence for the next visible batch.

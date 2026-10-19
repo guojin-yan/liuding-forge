@@ -20,8 +20,8 @@ namespace jyppx::data {
 namespace {
 
 constexpr char kComponent[] = "data.iterable_pipeline";
-constexpr char kTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v1";
-constexpr char kCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v1";
+constexpr char kTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v2";
+constexpr char kCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v2";
 constexpr std::uint64_t kMaxTopologyBytes = 64U * 1024U;
 constexpr std::uint64_t kMaxCursorBytes = 8U * 1024U * 1024U;
 constexpr std::uint64_t kMaxMetadataBytes = 4096U;
@@ -180,6 +180,13 @@ std::string encode_topology(const IterableDataPipelineState& state) {
   append_byte(output, state.drop_last ? 1U : 0U);
   append_u64(output, static_cast<std::uint64_t>(state.prefetch_batches));
   append_u64(output, state.batch_timeout_ms);
+  append_byte(output, state.pin_memory ? 1U : 0U);
+  append_string(output, state.target_device);
+  append_byte(output, state.non_blocking_transfer ? 1U : 0U);
+  append_u64(output, state.memory_stage_capacity);
+  append_u64(output, state.max_batch_tensors);
+  append_u64(output, state.max_batch_value_nodes);
+  append_u64(output, state.max_batch_bytes);
   return output;
 }
 
@@ -222,6 +229,18 @@ IterableDataPipelineState decode_state(std::span<const std::byte> topology,
   state.prefetch_batches =
       read_size(topology, topology_offset, "prefetch_batches");
   state.batch_timeout_ms = read_u64(topology, topology_offset);
+  state.pin_memory = read_bool(topology, topology_offset, "pin_memory");
+  state.target_device =
+      read_string(topology, topology_offset, kMaxMetadataBytes);
+  state.non_blocking_transfer =
+      read_bool(topology, topology_offset, "non_blocking_transfer");
+  state.memory_stage_capacity =
+      read_size(topology, topology_offset, "memory_stage_capacity");
+  state.max_batch_tensors =
+      read_size(topology, topology_offset, "max_batch_tensors");
+  state.max_batch_value_nodes =
+      read_size(topology, topology_offset, "max_batch_value_nodes");
+  state.max_batch_bytes = read_u64(topology, topology_offset);
   require_end(topology, topology_offset);
 
   std::size_t cursor_offset = 0;
@@ -282,6 +301,7 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
 }
 
 void validate_options(const IterableDataPipelineOptions& options) {
+  validate_batch_memory_options(options.memory);
   if (options.pipeline_id.empty() || options.dataset_version.empty() ||
       options.schema_id.empty() || options.batch_factory_id.empty()) {
     throw InvalidArgument(
@@ -580,6 +600,11 @@ class IterableRuntime final {
     if (stop.stop_requested()) {
       return {};
     }
+    if (batch_memory_stage_enabled(options_.memory)) {
+      auto staged = stage_batch_memory(envelope.value, options_.memory);
+      envelope.value = std::move(staged.value);
+      envelope.memory = std::move(staged.metadata);
+    }
     envelope.schema_id = options_.schema_id;
     envelope.dataset_version = options_.dataset_version;
     envelope.epoch = epoch_;
@@ -603,7 +628,11 @@ class IterableRuntime final {
         condition_.wait(lock, [&] {
           return closing_ || terminal_error_ || thread_stop.stop_requested() ||
                  epoch_stop_.stop_requested() ||
-                 queue_.size() < options_.prefetch_batches;
+                 queue_.size() <
+                     std::min(options_.prefetch_batches,
+                              batch_memory_stage_enabled(options_.memory)
+                                  ? options_.memory.stage_capacity
+                                  : options_.prefetch_batches);
         });
         if (closing_ || terminal_error_ || thread_stop.stop_requested() ||
             epoch_stop_.stop_requested()) {
@@ -685,6 +714,15 @@ IterableDataPipelineState make_initial_state(
   state.prefetch_batches = options.prefetch_batches;
   state.batch_timeout_ms =
       static_cast<std::uint64_t>(options.batch_timeout.count());
+  state.pin_memory = options.memory.pin_memory;
+  state.target_device = options.memory.target_device
+                            ? options.memory.target_device->str()
+                            : std::string{};
+  state.non_blocking_transfer = options.memory.non_blocking;
+  state.memory_stage_capacity = options.memory.stage_capacity;
+  state.max_batch_tensors = options.memory.max_tensors;
+  state.max_batch_value_nodes = options.memory.max_value_nodes;
+  state.max_batch_bytes = options.memory.max_bytes;
   return state;
 }
 
@@ -774,7 +812,16 @@ struct IterableDataPipeline::Impl {
         candidate.drop_last != options.drop_last ||
         candidate.prefetch_batches != options.prefetch_batches ||
         candidate.batch_timeout_ms !=
-            static_cast<std::uint64_t>(options.batch_timeout.count())) {
+            static_cast<std::uint64_t>(options.batch_timeout.count()) ||
+        candidate.pin_memory != options.memory.pin_memory ||
+        candidate.target_device != (options.memory.target_device
+                                        ? options.memory.target_device->str()
+                                        : std::string{}) ||
+        candidate.non_blocking_transfer != options.memory.non_blocking ||
+        candidate.memory_stage_capacity != options.memory.stage_capacity ||
+        candidate.max_batch_tensors != options.memory.max_tensors ||
+        candidate.max_batch_value_nodes != options.memory.max_value_nodes ||
+        candidate.max_batch_bytes != options.memory.max_bytes) {
       throw CompatibilityError(
           "IterableDataPipeline state topology is incompatible");
     }
@@ -963,10 +1010,19 @@ DataCapability IterableDataPipeline::capability() const {
   result.worker_count = 1;
   result.prefetch_batches = impl_->options.prefetch_batches;
   result.batch_timeout = impl_->options.batch_timeout.count() != 0;
+  result.memory_stage = batch_memory_stage_enabled(impl_->options.memory);
+  result.pin_memory = impl_->options.memory.pin_memory;
+  result.non_blocking_transfer = impl_->options.memory.non_blocking;
+  result.target_device = impl_->options.memory.target_device;
+  result.memory_stage_capacity =
+      result.memory_stage ? impl_->options.memory.stage_capacity : 0U;
   result.restore_level = impl_->descriptor.restore_level;
   result.max_replayed_samples = impl_->descriptor.max_replayed_samples;
   result.max_omitted_samples = impl_->descriptor.max_omitted_samples;
-  result.max_replayed_batches = impl_->options.prefetch_batches;
+  result.max_replayed_batches =
+      result.memory_stage ? std::min(impl_->options.prefetch_batches,
+                                     impl_->options.memory.stage_capacity)
+                          : impl_->options.prefetch_batches;
   result.degradation_reasons = impl_->descriptor.degradation_reasons;
   return result;
 }
