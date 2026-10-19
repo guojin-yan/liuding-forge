@@ -42,22 +42,23 @@
           "compiler": "GCC 11.4.0",
           "accelerator": "CPU",
           "build_type": "Debug",
-          "tests": "527/527; 17 CUDA-only tests skipped",
+          "tests": "538/538 discovered; 18 CUDA-only tests skipped",
           "instrumentation": "coverage (line/function/branch), ASan+UBSan, TSan, and libFuzzer",
           "quality_evidence": {
-            "line_coverage": "15858/19829 (79.97%); target policy remains frozen",
-            "function_coverage": "1725/1896 (90.98%); target policy remains frozen",
-            "branch_coverage": "15553/39561 (39.31%); target policy remains frozen",
-            "data_target_coverage": "line 2509/2936 (85.46%); function 319/342 (93.27%); branch 2277/4831 (47.13%)",
+            "line_coverage": "15905/19872 (80.04%); target policy remains frozen",
+            "function_coverage": "1728/1899 (91.00%); target policy remains frozen",
+            "branch_coverage": "15641/39701 (39.40%); target policy remains frozen",
+            "data_target_coverage": "line 2509/2936 (85.46%); function 319/342 (93.27%); branch 2276/4831 (47.11%)",
             "training_target_coverage": "line 4522/5604 (80.69%); function 510/543 (93.92%); branch 4174/10454 (39.93%)",
-            "coverage_sampling": "current 531-test sample at 57d6763 passes the unchanged policy after deterministic malformed data and complete ColorJitter boundary tests; first data run at the unchanged threshold failed and was fixed without lowering policy",
-            "tsan": "32/32 discovered targeted tests at 57d6763; no race/deadlock/sanitizer diagnostics",
-            "fuzz": "3 targets x 10000 libFuzzer iterations at 57d6763; no ASan/UBSan diagnostics or crash/leak/oom/timeout artifacts",
+            "sdk_legacy_target_coverage": "line 363/388 (93.56%); function 55/56 (98.21%); branch 312/603 (51.74%)",
+            "coverage_sampling": "current 538-test sample at 62604f0 passes the unchanged seven-target policy after distributed and utils foundation-error migration; no threshold was lowered",
+            "tsan": "32/32 discovered targeted tests at 62604f0; no race/deadlock/sanitizer diagnostics",
+            "fuzz": "3 targets x 10000 libFuzzer iterations at 62604f0; no ASan/UBSan diagnostics or crash/leak/oom/timeout artifacts",
             "tsan_fuzz_metadata": "dirty=false; GCC 11.4 TSan and Clang 14 ASan+UBSan; setarch-no-randomize; build parallelism 2",
             "repeated_sampling_audit": "benchmark/tool/input/compiler/LibTorch/environment key unchanged between 2ba2fa4 and 57d6763; record 17 Windows 1 warmup + 5 samples remains valid",
             "coverage_policy": "coverage-policy.json at a20d2ec; seven target owners; denominator and covered-count regression rejection"
           },
-          "commit": "57d6763"
+          "commit": "62604f0"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-release",
@@ -147,6 +148,24 @@
             "source_quality": "Ubuntu Clang 14 strict format, Doxygen, -Werror and data/plan regression passed at the same source commit"
           },
           "commit": "57d6763"
+        },
+        {
+          "id": "local-ubuntu-gcc-cuda-cu124-distributed-utils-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "NVIDIA RTX 2060 sm_75; driver 580.178.04; LibTorch cu124",
+          "build_type": "Release",
+          "tests": "utils 4/4 and plan 40/40; 0 skipped",
+          "instrumentation": "LibTorch 2.5.1+cu124; host CUDA Toolkit 11.5; CUDA standard 17; fixed CMAKE_CUDA_ARCHITECTURES=75",
+          "quality_evidence": {
+            "configure": "passed with CUDA architecture 75 and CUDA standard 17",
+            "build": "jyppx_test_utils and jyppx_test_plan passed",
+            "cuda_linked_regression": "Logger, TensorBoard lifecycle and I/O errors, distributed process-group validation, and DDP gradient hooks: 44/44 passed; zero skipped",
+            "execution_scope": "CUDA LibTorch compatibility and linkage were exercised; these targets use CPU tensors and are not claimed as CUDA-kernel execution",
+            "source_quality": "Ubuntu strict CPU target passed clang-format, Doxygen, -Werror and the same 44 tests at the identical source commit"
+          },
+          "commit": "62604f0"
         },
         {
           "id": "local-ubuntu-gcc-cpu-release",
