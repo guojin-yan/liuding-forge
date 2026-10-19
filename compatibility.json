@@ -569,6 +569,30 @@
           "commit": "dbee9ed"
         },
         {
+          "id": "local-ubuntu-gcc-cuda-cu124-complete-quality-current",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0; clang-tidy 14.0.0; clang-format 14.0.0; Doxygen 1.9.1",
+          "accelerator": "NVIDIA GeForce RTX 2060 sm_75; driver 580.178.04; LibTorch 2.5.1+cu124",
+          "build_type": "Release",
+          "tests": "595/595; 0 skipped",
+          "instrumentation": "LibTorch 2.5.1+cu124; CUDA standard 17; CMAKE_CUDA_ARCHITECTURES=75; TORCH_CUDA_ARCH_LIST=7.5; all seven framework targets -Werror and clang-tidy",
+          "quality_evidence": {
+            "libtorch": "/home/ygj/jyppx-deps/libtorch-cu124/libtorch",
+            "host_cuda_toolkit": "11.5 nvcc used for toolchain discovery; runtime and libraries are from LibTorch cu124",
+            "configure": "passed with CUDA architecture 75, CUDA standard 17 and all quality options enabled",
+            "build": "all framework, test and example targets passed; foundation/core/data/nn/training/optim/sdk compiled with warnings as errors and clang-tidy",
+            "format": "all 209 C/C++ source, header and template files under include/src/tests/examples passed clang-format 14",
+            "documentation": "all installed public headers under include/jyppx passed Doxygen warning-as-error validation",
+            "ctest": "595/595 passed; zero skipped",
+            "cuda_scope": "full CTest including CUDA-only RNG, batch memory, transforms, optimizer, strategy, Trainer and AMP tests executed on RTX 2060",
+            "install_consumer": "passed as part of the full CTest lane",
+            "repository_hygiene": "passed from a clean exact checkout with the build under out/build/g6-cuda",
+            "source": "clean detached checkout at 0a01dad8c1e470caf21dc52bc058755c58c5eed4"
+          },
+          "commit": "0a01dad"
+        },
+        {
           "id": "local-ubuntu-gcc-cuda-cu124-training-performance-current",
           "os": "ubuntu-22.04",
           "architecture": "x86_64",
