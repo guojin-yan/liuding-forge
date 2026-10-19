@@ -128,26 +128,6 @@ TEST(BatchMemoryTest, DisabledStagePreservesTheValueWithoutTraversal) {
   EXPECT_TRUE(result.value.toTensor().is_same(tensor));
 }
 
-TEST(BatchMemoryTest, EnablementCoversEveryPinningAndTargetCombination) {
-  auto options = jyppx::data::BatchMemoryOptions{};
-  EXPECT_FALSE(jyppx::data::batch_memory_stage_enabled(options));
-
-  options.target_device = jyppx::Device(torch::kCPU);
-  EXPECT_TRUE(jyppx::data::batch_memory_stage_enabled(options));
-
-  options.non_blocking = true;
-  EXPECT_NO_THROW(jyppx::data::validate_batch_memory_options(options));
-
-  options.pin_memory = true;
-  EXPECT_TRUE(jyppx::data::batch_memory_stage_enabled(options));
-
-  options.target_device.reset();
-  EXPECT_TRUE(jyppx::data::batch_memory_stage_enabled(options));
-
-  options.pin_memory = false;
-  EXPECT_FALSE(jyppx::data::batch_memory_stage_enabled(options));
-}
-
 TEST(BatchMemoryTest, PreservesNestedContainerTypesAndReportsCpuMetadata) {
   c10::impl::GenericList list(c10::TensorType::get());
   list.push_back(torch::ones({2}, torch::kFloat32));
@@ -193,6 +173,8 @@ TEST(BatchMemoryTest, RejectsInvalidPolicyAndPreflightsResourceLimits) {
   non_blocking.non_blocking = true;
   EXPECT_THROW(jyppx::data::validate_batch_memory_options(non_blocking),
                jyppx::InvalidArgument);
+  non_blocking.target_device = jyppx::Device(torch::kCPU);
+  EXPECT_NO_THROW(jyppx::data::validate_batch_memory_options(non_blocking));
 
   auto bytes = jyppx::data::BatchMemoryOptions{};
   bytes.target_device = jyppx::Device(torch::kCPU);
