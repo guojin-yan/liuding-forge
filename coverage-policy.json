@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "jyppx-target-coverage-policy",
   "baseline": {
-    "commit": "b186b49b11c320ce62d8ae21dae9ce5d7a6cb4e4",
+    "commit": "5718cf0f918f57fe34bbd862377c8168eeaedb89",
     "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug"
   },
   "targets": {
@@ -36,19 +36,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 2654,
-          "baseline_total": 3035,
-          "minimum_percent": 87.446458
+          "baseline_covered": 2664,
+          "baseline_total": 3042,
+          "minimum_percent": 87.573964
         },
         "function": {
-          "baseline_covered": 291,
-          "baseline_total": 297,
-          "minimum_percent": 97.979798
+          "baseline_covered": 295,
+          "baseline_total": 301,
+          "minimum_percent": 98.006645
         },
         "branch": {
-          "baseline_covered": 2795,
-          "baseline_total": 5628,
-          "minimum_percent": 49.662402
+          "baseline_covered": 2808,
+          "baseline_total": 5636,
+          "minimum_percent": 49.822569
         }
       }
     },
@@ -128,19 +128,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 4525,
-          "baseline_total": 5604,
-          "minimum_percent": 80.745896
+          "baseline_covered": 4698,
+          "baseline_total": 5763,
+          "minimum_percent": 81.520042
         },
         "function": {
-          "baseline_covered": 510,
-          "baseline_total": 543,
-          "minimum_percent": 93.922652
+          "baseline_covered": 518,
+          "baseline_total": 550,
+          "minimum_percent": 94.181818
         },
         "branch": {
-          "baseline_covered": 4182,
-          "baseline_total": 10468,
-          "minimum_percent": 39.950325
+          "baseline_covered": 4530,
+          "baseline_total": 11074,
+          "minimum_percent": 40.906628
         }
       }
     },
@@ -151,19 +151,19 @@
       ],
       "metrics": {
         "line": {
-          "baseline_covered": 317,
-          "baseline_total": 333,
-          "minimum_percent": 95.195195
+          "baseline_covered": 138,
+          "baseline_total": 144,
+          "minimum_percent": 95.833333
         },
         "function": {
-          "baseline_covered": 43,
-          "baseline_total": 43,
+          "baseline_covered": 19,
+          "baseline_total": 19,
           "minimum_percent": 100.000000
         },
         "branch": {
-          "baseline_covered": 269,
-          "baseline_total": 503,
-          "minimum_percent": 53.479125
+          "baseline_covered": 131,
+          "baseline_total": 228,
+          "minimum_percent": 57.456140
         }
       }
     }
