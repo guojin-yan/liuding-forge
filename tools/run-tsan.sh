@@ -33,8 +33,7 @@ if [ "$build_parallelism" -lt 1 ]; then
   exit 2
 fi
 
-rm -rf "$build_root" "$output_root"
-mkdir -p "$output_root"
+mkdir -p "$build_root" "$output_root"
 
 run_logged() {
   local log_name=$1

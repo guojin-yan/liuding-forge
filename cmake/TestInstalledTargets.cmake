@@ -10,11 +10,14 @@ file(RELATIVE_PATH test_root_relative "${build_dir}" "${test_root}")
 if(test_root_relative MATCHES "^\\.\\." OR IS_ABSOLUTE "${test_root_relative}")
     message(FATAL_ERROR "Installed target test root must stay inside the build tree")
 endif()
-file(REMOVE_RECURSE "${test_root}")
 file(MAKE_DIRECTORY "${test_root}")
 
 set(install_dir "${test_root}/i")
 set(consumer_build_dir "${test_root}/b")
+# A fresh staging prefix prevents removed package files from surviving between
+# runs, while the consumer build tree remains available for incremental builds.
+file(REMOVE_RECURSE "${install_dir}")
+file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_dir}")
 set(config_args)
 set(build_args)
 set(test_args)
@@ -45,7 +48,8 @@ if(NOT install_result EQUAL 0)
 endif()
 
 execute_process(
-    COMMAND "${CMAKE_COMMAND}"
+    COMMAND "${CMAKE_COMMAND}" -E env "CMAKE_PREFIX_PATH="
+            "${CMAKE_COMMAND}"
             -S "${consumer_source_dir}"
             -B "${consumer_build_dir}"
             "-DCMAKE_PREFIX_PATH=${install_dir}"

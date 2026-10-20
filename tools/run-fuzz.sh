@@ -45,7 +45,7 @@ for value_name in build_parallelism fuzz_runs; do
   fi
 done
 
-rm -rf "$build_root" "$output_root"
+mkdir -p "$build_root" "$output_root"
 mkdir -p "$device_corpus_root" "$device_artifact_root"
 mkdir -p "$data_corpus_root" "$data_artifact_root"
 mkdir -p "$iterable_corpus_root" "$iterable_artifact_root"
