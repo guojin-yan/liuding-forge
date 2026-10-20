@@ -4,6 +4,7 @@
 
 #include <ATen/CPUGeneratorImpl.h>
 #include <ATen/Context.h>
+#include <torch/torch.h>
 #include <string>
 
 namespace jyppx::core {
@@ -21,7 +22,8 @@ std::vector<at::Generator> cuda_generators() {
   return generators;
 }
 
-void validate_generator_state(const Tensor& state, const Tensor& reference,
+void validate_generator_state(const torch::Tensor& state,
+                              const torch::Tensor& reference,
                               const char* name) {
   if (!state.defined() || state.device().type() != torch::kCPU ||
       state.scalar_type() != torch::kUInt8 || state.dim() != 1 ||

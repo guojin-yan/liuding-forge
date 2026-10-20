@@ -1,27 +1,36 @@
 # Unit test executables, one per framework module.
 
+if(TARGET jyppx::foundation)
 jyppx_add_gtest(jyppx_test_foundation
     LINK_TARGET jyppx::foundation
     foundation/test_checkpoint.cpp
     foundation/test_foundation.cpp
     foundation/test_rng_checkpoint_participant.cpp
 )
+endif()
 
+if(TARGET jyppx::core)
 jyppx_add_gtest(jyppx_test_core
     LINK_TARGET jyppx::core
     core/test_core.cpp
 )
+endif()
 
+if(TARGET jyppx::interop)
 jyppx_add_gtest(jyppx_test_interop_checkpoint_manifest
     LINK_TARGET jyppx::interop
     interop/test_checkpoint_manifest.cpp
 )
+endif()
 
+if(TARGET jyppx::experiment)
 jyppx_add_gtest(jyppx_test_experiment_config
     LINK_TARGET jyppx::experiment
     experiment/test_config.cpp
 )
+endif()
 
+if(TARGET jyppx::data)
 jyppx_add_gtest(jyppx_test_data
     LINK_TARGET jyppx::data
     data/test_batch_memory.cpp
@@ -33,11 +42,15 @@ jyppx_add_gtest(jyppx_test_data
     data/test_dataset_utils.cpp
     data/test_transforms.cpp
 )
+endif()
 
+if(TARGET jyppx::sdk)
 jyppx_add_gtest(jyppx_test_optim
     optim/test_extreme_params.cpp
 )
+endif()
 
+if(TARGET jyppx::optim)
 jyppx_add_gtest(jyppx_test_optim_adadelta_adapter
     LINK_TARGET jyppx::optim
     optim/test_adadelta_adapter.cpp
@@ -102,7 +115,9 @@ jyppx_add_gtest(jyppx_test_optim_linear_lr_scheduler
     LINK_TARGET jyppx::optim
     optim/test_linear_lr_scheduler.cpp
 )
+endif()
 
+if(TARGET jyppx::nn)
 jyppx_add_gtest(jyppx_test_nn_label_smoothing
     LINK_TARGET jyppx::nn
     nn/loss/test_label_smoothing_cross_entropy.cpp
@@ -132,7 +147,9 @@ jyppx_add_gtest(jyppx_test_nn_model_checkpoint
     LINK_TARGET jyppx::nn
     nn/test_model_checkpoint_participant.cpp
 )
+endif()
 
+if(TARGET jyppx::training)
 jyppx_add_gtest(jyppx_test_training_checkpoint
     LINK_TARGET jyppx::training
     training/test_checkpoint_coordinator.cpp
@@ -179,13 +196,18 @@ jyppx_add_gtest(jyppx_test_training_amp
     training/test_grad_scaler_checkpoint_participant.cpp
     training/test_nan_inf.cpp
 )
+endif()
 
+if(TARGET jyppx::sdk)
 jyppx_add_gtest(jyppx_test_plan
     test_plan_completion.cpp
 )
+endif()
 
+if(TARGET jyppx::training)
 jyppx_add_gtest(jyppx_test_training
     LINK_TARGET jyppx::training
     training/test_accuracy.cpp
     training/test_metrics.cpp
 )
+endif()

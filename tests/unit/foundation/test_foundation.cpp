@@ -1,5 +1,7 @@
 #include <jyppx/foundation/foundation.hpp>
 
+#include <torch/torch.h>
+
 #include <array>
 #include <cstdint>
 #include <exception>
@@ -111,7 +113,7 @@ TEST(FoundationRandomTest, RejectsEveryInvalidCpuRepresentation) {
   const auto valid = jyppx::core::get_rng_state(false);
 
   auto undefined = valid;
-  undefined.cpu = jyppx::Tensor{};
+  undefined.cpu = torch::Tensor{};
   EXPECT_THROW(jyppx::core::validate_rng_state(undefined, false),
                jyppx::InvalidArgument);
 

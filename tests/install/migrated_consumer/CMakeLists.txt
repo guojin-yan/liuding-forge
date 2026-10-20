@@ -6,11 +6,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(jyppx CONFIG REQUIRED COMPONENTS
-    foundation core interop data nn training optim experiment sdk
+    foundation core interop data nn training optim experiment all sdk
 )
 
 foreach(JYPPX_REQUIRED_COMPONENT IN ITEMS
-        foundation core interop data nn training optim experiment sdk)
+        foundation core interop data nn training optim experiment all sdk)
     if(NOT jyppx_${JYPPX_REQUIRED_COMPONENT}_FOUND)
         message(FATAL_ERROR
             "Installed package did not satisfy component ${JYPPX_REQUIRED_COMPONENT}")
@@ -40,6 +40,9 @@ if(NOT TARGET jyppx::optim)
 endif()
 if(NOT TARGET jyppx::experiment)
     message(FATAL_ERROR "Installed package does not export jyppx::experiment")
+endif()
+if(NOT TARGET jyppx::all)
+    message(FATAL_ERROR "Installed package does not export jyppx::all")
 endif()
 if(NOT TARGET jyppx::sdk)
     message(FATAL_ERROR "Installed package does not export jyppx::sdk")

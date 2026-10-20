@@ -6,6 +6,8 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/foundation/random_checkpoint_participant.hpp>
 
+#include <torch/torch.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -172,7 +174,7 @@ TEST(RngCheckpointParticipantCudaTest, RestoresEveryVisibleGenerator) {
   jyppx::core::RngCheckpointParticipant participant;
   auto store = save_participant(participant);
 
-  std::vector<jyppx::Tensor> expected;
+  std::vector<torch::Tensor> expected;
   const auto device_count = at::getNumGPUs();
   expected.reserve(static_cast<std::size_t>(device_count));
   for (std::int64_t index = 0; index < device_count; ++index) {

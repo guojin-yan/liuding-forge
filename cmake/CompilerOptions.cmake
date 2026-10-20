@@ -17,6 +17,9 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_experiment
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
+    if(NOT TARGET ${JYPPX_TARGET})
+        continue()
+    endif()
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${JYPPX_TARGET} PRIVATE
             -Wall
@@ -43,6 +46,9 @@ if(JYPPX_ENABLE_WARNINGS_AS_ERRORS)
             "The project does not globally suppress that diagnostic.")
     endif()
     foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
+        if(NOT TARGET ${JYPPX_TARGET})
+            continue()
+        endif()
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(${JYPPX_TARGET} PRIVATE -Werror)
         endif()
@@ -62,6 +68,9 @@ if(JYPPX_ENABLE_CLANG_TIDY)
             "JYPPX_ENABLE_CLANG_TIDY=ON requires a clang-tidy executable")
     endif()
     foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
+        if(NOT TARGET ${JYPPX_TARGET})
+            continue()
+        endif()
         set_target_properties(${JYPPX_TARGET} PROPERTIES
             CXX_CLANG_TIDY
                 "${JYPPX_CLANG_TIDY_EXECUTABLE};--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
@@ -112,6 +121,9 @@ endif()
 # Debug Definitions
 # ============================================
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
+    if(NOT TARGET ${JYPPX_TARGET})
+        continue()
+    endif()
     target_compile_definitions(${JYPPX_TARGET} PRIVATE
         $<$<CONFIG:Debug>:JYPPX_DEBUG>
     )
@@ -176,5 +188,8 @@ function(jyppx_apply_instrumentation target_name)
 endfunction()
 
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
+    if(NOT TARGET ${JYPPX_TARGET})
+        continue()
+    endif()
     jyppx_apply_instrumentation(${JYPPX_TARGET})
 endforeach()

@@ -9,6 +9,13 @@ option(JYPPX_BUILD_EXAMPLES "Build examples" ON)
 option(JYPPX_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(JYPPX_BUILD_FUZZERS "Build libFuzzer targets" OFF)
 option(JYPPX_BUILD_DOCS "Build documentation" OFF)
+option(JYPPX_BUILD_CORE "Build the LibTorch value and tensor core" ON)
+option(JYPPX_BUILD_INTEROP "Build interoperability formats and manifests" ON)
+option(JYPPX_BUILD_DATA "Build data pipelines, datasets, and samplers" ON)
+option(JYPPX_BUILD_NN "Build neural-network adapters and losses" ON)
+option(JYPPX_BUILD_OPTIM "Build optimizer and scheduler adapters" ON)
+option(JYPPX_BUILD_TRAINING "Build the training engine" ON)
+option(JYPPX_BUILD_EXPERIMENT "Build local experiment configuration" ON)
 option(JYPPX_ENABLE_COVERAGE "Enable code coverage" OFF)
 option(JYPPX_ENABLE_ASAN "Enable Address Sanitizer" OFF)
 option(JYPPX_ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
@@ -20,6 +27,18 @@ option(JYPPX_ENABLE_WARNINGS_AS_ERRORS
 
 if(JYPPX_BUILD_FUZZERS AND NOT JYPPX_BUILD_TESTS)
     message(FATAL_ERROR "JYPPX_BUILD_FUZZERS=ON requires JYPPX_BUILD_TESTS=ON")
+endif()
+
+foreach(JYPPX_CORE_DEPENDENT IN ITEMS DATA NN OPTIM EXPERIMENT)
+    if(JYPPX_BUILD_${JYPPX_CORE_DEPENDENT} AND NOT JYPPX_BUILD_CORE)
+        message(FATAL_ERROR
+            "JYPPX_BUILD_${JYPPX_CORE_DEPENDENT}=ON requires JYPPX_BUILD_CORE=ON")
+    endif()
+endforeach()
+if(JYPPX_BUILD_TRAINING AND
+   (NOT JYPPX_BUILD_DATA OR NOT JYPPX_BUILD_NN OR NOT JYPPX_BUILD_OPTIM))
+    message(FATAL_ERROR
+        "JYPPX_BUILD_TRAINING=ON requires DATA, NN, and OPTIM components")
 endif()
 
 # ============================================
@@ -86,26 +105,28 @@ include(cmake/CopyTorchRuntime.cmake)
 # ============================================
 # Bounded JSON Parser Implementation Dependency
 # ============================================
-include(FetchContent)
-if(POLICY CMP0135)
-    cmake_policy(SET CMP0135 NEW)
+if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT)
+    include(FetchContent)
+    if(POLICY CMP0135)
+        cmake_policy(SET CMP0135 NEW)
+    endif()
+    set(JYPPX_NLOHMANN_JSON_VERSION 3.12.0)
+    set(JYPPX_NLOHMANN_JSON_ARCHIVE
+        "${PROJECT_SOURCE_DIR}/third_party/downloads/nlohmann-json-${JYPPX_NLOHMANN_JSON_VERSION}.tar.xz")
+    if(EXISTS "${JYPPX_NLOHMANN_JSON_ARCHIVE}")
+        set(JYPPX_NLOHMANN_JSON_URL "${JYPPX_NLOHMANN_JSON_ARCHIVE}")
+    else()
+        set(JYPPX_NLOHMANN_JSON_URL
+            "https://github.com/nlohmann/json/releases/download/v${JYPPX_NLOHMANN_JSON_VERSION}/json.tar.xz")
+    endif()
+    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+    set(JSON_Install OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(jyppx_nlohmann_json
+        URL "${JYPPX_NLOHMANN_JSON_URL}"
+        URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+    )
+    FetchContent_MakeAvailable(jyppx_nlohmann_json)
 endif()
-set(JYPPX_NLOHMANN_JSON_VERSION 3.12.0)
-set(JYPPX_NLOHMANN_JSON_ARCHIVE
-    "${PROJECT_SOURCE_DIR}/third_party/downloads/nlohmann-json-${JYPPX_NLOHMANN_JSON_VERSION}.tar.xz")
-if(EXISTS "${JYPPX_NLOHMANN_JSON_ARCHIVE}")
-    set(JYPPX_NLOHMANN_JSON_URL "${JYPPX_NLOHMANN_JSON_ARCHIVE}")
-else()
-    set(JYPPX_NLOHMANN_JSON_URL
-        "https://github.com/nlohmann/json/releases/download/v${JYPPX_NLOHMANN_JSON_VERSION}/json.tar.xz")
-endif()
-set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-set(JSON_Install OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(jyppx_nlohmann_json
-    URL "${JYPPX_NLOHMANN_JSON_URL}"
-    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
-)
-FetchContent_MakeAvailable(jyppx_nlohmann_json)
 
 # ============================================
 # Generated Foundation Build Metadata
@@ -196,6 +217,10 @@ configure_file(
 # ============================================
 # JYPPX Libraries
 # ============================================
+set(JYPPX_ENABLED_TARGETS)
+set(JYPPX_ENABLED_COMPONENTS)
+set(JYPPX_ENABLED_HEADER_DIRS)
+
 add_library(jyppx_foundation STATIC
     src/jyppx/foundation/capability.cpp
     src/jyppx/foundation/checkpoint.cpp
@@ -229,57 +254,66 @@ target_compile_definitions(jyppx_foundation
     PRIVATE
         JYPPX_BUILD_TYPE="$<CONFIG>"
 )
+list(APPEND JYPPX_ENABLED_TARGETS jyppx_foundation)
+list(APPEND JYPPX_ENABLED_COMPONENTS foundation)
+list(APPEND JYPPX_ENABLED_HEADER_DIRS foundation)
 
-add_library(jyppx_core STATIC
-    src/jyppx/core/device.cpp
-    src/jyppx/core/tensor_utils.cpp
-    src/jyppx/core/value_schema.cpp
-)
-add_library(jyppx::core ALIAS jyppx_core)
-set_target_properties(jyppx_core PROPERTIES
-    OUTPUT_NAME jyppx_core
-    EXPORT_NAME core
-)
-target_include_directories(jyppx_core
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-)
-foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
-    target_include_directories(jyppx_core SYSTEM PUBLIC
-        $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
+if(JYPPX_BUILD_CORE)
+    add_library(jyppx_core STATIC
+        src/jyppx/core/device.cpp
+        src/jyppx/core/tensor_utils.cpp
+        src/jyppx/core/value_schema.cpp
     )
-endforeach()
-# Device parsing exposes foundation::InvalidArgument, so core owns the
-# foundation link edge. Foundation only consumes core's header-level tensor
-# aliases and must not link back to core, which would create a static-library
-# cycle for consumers of the core target.
-target_link_libraries(jyppx_core PUBLIC ${TORCH_LIBRARIES} jyppx_foundation)
-if(MSVC)
-    # Official Windows LibTorch binaries use the release DLL runtime and STL
-    # iterator ABI in every configuration. Export these as usage requirements
-    # so Debug consumers compile with the same ABI as JYPPX and LibTorch.
-    target_compile_options(jyppx_core PUBLIC /MD)
-    target_compile_definitions(jyppx_core PUBLIC _ITERATOR_DEBUG_LEVEL=0)
+    add_library(jyppx::core ALIAS jyppx_core)
+    set_target_properties(jyppx_core PROPERTIES
+        OUTPUT_NAME jyppx_core
+        EXPORT_NAME core
+    )
+    target_include_directories(jyppx_core
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+    )
+    foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
+        target_include_directories(jyppx_core SYSTEM PUBLIC
+            $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
+        )
+    endforeach()
+    target_link_libraries(jyppx_core PUBLIC ${TORCH_LIBRARIES} jyppx_foundation)
+    if(MSVC)
+        # Official Windows LibTorch binaries use the release DLL runtime and
+        # STL iterator ABI in every configuration.
+        target_compile_options(jyppx_core PUBLIC /MD)
+        target_compile_definitions(jyppx_core PUBLIC _ITERATOR_DEBUG_LEVEL=0)
+    endif()
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_core)
+    list(APPEND JYPPX_ENABLED_COMPONENTS core)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS core utils)
 endif()
 
-add_library(jyppx_interop STATIC
-    src/jyppx/interop/checkpoint_manifest.cpp
-)
-add_library(jyppx::interop ALIAS jyppx_interop)
-set_target_properties(jyppx_interop PROPERTIES
-    OUTPUT_NAME jyppx_interop
-    EXPORT_NAME interop
-)
-target_include_directories(jyppx_interop
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-    PRIVATE
-        ${jyppx_nlohmann_json_SOURCE_DIR}/single_include
-)
-target_link_libraries(jyppx_interop PUBLIC jyppx_foundation)
+if(JYPPX_BUILD_INTEROP)
+    add_library(jyppx_interop STATIC
+        src/jyppx/interop/checkpoint_manifest.cpp
+    )
+    add_library(jyppx::interop ALIAS jyppx_interop)
+    set_target_properties(jyppx_interop PROPERTIES
+        OUTPUT_NAME jyppx_interop
+        EXPORT_NAME interop
+    )
+    target_include_directories(jyppx_interop
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${jyppx_nlohmann_json_SOURCE_DIR}/single_include
+    )
+    target_link_libraries(jyppx_interop PUBLIC jyppx_foundation)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_interop)
+    list(APPEND JYPPX_ENABLED_COMPONENTS interop)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS interop)
+endif()
 
+if(JYPPX_BUILD_DATA)
 add_library(jyppx_data STATIC
     src/jyppx/data/batch_memory.cpp
     src/jyppx/data/batch_schema.cpp
@@ -306,7 +340,12 @@ target_link_libraries(jyppx_data
         jyppx_foundation
         jyppx_core
 )
+list(APPEND JYPPX_ENABLED_TARGETS jyppx_data)
+list(APPEND JYPPX_ENABLED_COMPONENTS data)
+list(APPEND JYPPX_ENABLED_HEADER_DIRS data)
+endif()
 
+if(JYPPX_BUILD_NN)
 add_library(jyppx_nn STATIC
     src/jyppx/nn/invocation.cpp
     src/jyppx/nn/model_adapter.cpp
@@ -331,7 +370,12 @@ target_link_libraries(jyppx_nn
         jyppx_foundation
         jyppx_core
 )
+list(APPEND JYPPX_ENABLED_TARGETS jyppx_nn)
+list(APPEND JYPPX_ENABLED_COMPONENTS nn)
+list(APPEND JYPPX_ENABLED_HEADER_DIRS nn)
+endif()
 
+if(JYPPX_BUILD_TRAINING)
 add_library(jyppx_training STATIC
     src/jyppx/training/callback_dispatcher.cpp
     src/jyppx/training/callbacks/early_stopping_callback.cpp
@@ -360,7 +404,12 @@ target_include_directories(jyppx_training
         $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(jyppx_training PUBLIC jyppx_foundation)
+list(APPEND JYPPX_ENABLED_TARGETS jyppx_training)
+list(APPEND JYPPX_ENABLED_COMPONENTS training)
+list(APPEND JYPPX_ENABLED_HEADER_DIRS training)
+endif()
 
+if(JYPPX_BUILD_OPTIM)
 add_library(jyppx_optim STATIC
     src/jyppx/optim/adadelta_adapter.cpp
     src/jyppx/optim/adagrad_adapter.cpp
@@ -391,59 +440,78 @@ target_link_libraries(jyppx_optim
         jyppx_foundation
         jyppx_core
 )
+list(APPEND JYPPX_ENABLED_TARGETS jyppx_optim)
+list(APPEND JYPPX_ENABLED_COMPONENTS optim)
+list(APPEND JYPPX_ENABLED_HEADER_DIRS optim)
+endif()
 
-add_library(jyppx_experiment STATIC
-    src/jyppx/experiment/config.cpp
-)
-add_library(jyppx::experiment ALIAS jyppx_experiment)
-set_target_properties(jyppx_experiment PROPERTIES
-    OUTPUT_NAME jyppx_experiment
-    EXPORT_NAME experiment
-)
-target_include_directories(jyppx_experiment
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-    PRIVATE
-        ${jyppx_nlohmann_json_SOURCE_DIR}/single_include
-)
-target_link_libraries(jyppx_experiment
-    PUBLIC
-        jyppx_foundation
-        jyppx_core
-)
-target_link_libraries(jyppx_training PUBLIC jyppx_data jyppx_optim jyppx_nn)
+if(JYPPX_BUILD_EXPERIMENT)
+    add_library(jyppx_experiment STATIC
+        src/jyppx/experiment/config.cpp
+    )
+    add_library(jyppx::experiment ALIAS jyppx_experiment)
+    set_target_properties(jyppx_experiment PROPERTIES
+        OUTPUT_NAME jyppx_experiment
+        EXPORT_NAME experiment
+    )
+    target_include_directories(jyppx_experiment
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${jyppx_nlohmann_json_SOURCE_DIR}/single_include
+    )
+    target_link_libraries(jyppx_experiment
+        PUBLIC
+            jyppx_foundation
+            jyppx_core
+    )
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_experiment)
+    list(APPEND JYPPX_ENABLED_COMPONENTS experiment)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS experiment)
+endif()
 
-add_library(jyppx_sdk INTERFACE)
-add_library(jyppx::sdk ALIAS jyppx_sdk)
-set_target_properties(jyppx_sdk PROPERTIES
-    EXPORT_NAME sdk
-)
+if(JYPPX_BUILD_TRAINING)
+    target_link_libraries(jyppx_training PUBLIC jyppx_data jyppx_optim jyppx_nn)
+endif()
 
-# Include directories
-target_include_directories(jyppx_sdk
+add_library(jyppx_all INTERFACE)
+add_library(jyppx::all ALIAS jyppx_all)
+set_target_properties(jyppx_all PROPERTIES EXPORT_NAME all)
+target_include_directories(jyppx_all
     INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
 foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
-    target_include_directories(jyppx_sdk SYSTEM INTERFACE
+    target_include_directories(jyppx_all SYSTEM INTERFACE
         $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
     )
 endforeach()
+target_link_libraries(jyppx_all INTERFACE ${JYPPX_ENABLED_TARGETS})
+list(APPEND JYPPX_ENABLED_TARGETS jyppx_all)
+list(APPEND JYPPX_ENABLED_COMPONENTS all)
 
-# The SDK is a pure aggregate and owns no sources or symbols.
-target_link_libraries(jyppx_sdk
-    INTERFACE
-        jyppx_foundation
-        jyppx_core
-        jyppx_interop
-        jyppx_data
-        jyppx_nn
-        jyppx_training
-        jyppx_optim
-        jyppx_experiment
-)
+if(JYPPX_BUILD_CORE AND JYPPX_BUILD_INTEROP AND JYPPX_BUILD_DATA AND
+   JYPPX_BUILD_NN AND JYPPX_BUILD_OPTIM AND JYPPX_BUILD_TRAINING AND
+   JYPPX_BUILD_EXPERIMENT)
+    add_library(jyppx_sdk INTERFACE)
+    add_library(jyppx::sdk ALIAS jyppx_sdk)
+    set_target_properties(jyppx_sdk PROPERTIES EXPORT_NAME sdk)
+    target_include_directories(jyppx_sdk
+        INTERFACE
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+    )
+    foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
+        target_include_directories(jyppx_sdk SYSTEM INTERFACE
+            $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
+        )
+    endforeach()
+    target_link_libraries(jyppx_sdk INTERFACE jyppx_all)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_sdk)
+    list(APPEND JYPPX_ENABLED_COMPONENTS sdk)
+endif()
 
 # Compiler options must be applied after the target has been created.
 include(cmake/CompilerOptions.cmake)
@@ -464,7 +532,9 @@ endif()
 # Examples
 # ============================================
 if(JYPPX_BUILD_EXAMPLES)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
+    if(NOT TARGET jyppx::sdk)
+        message(STATUS "Skipping examples: the complete jyppx::sdk is disabled")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
         add_subdirectory(examples)
     else()
         message(STATUS "Skipping examples: examples/CMakeLists.txt is not present yet")
@@ -482,9 +552,7 @@ endif()
 # ============================================
 # Installation
 # ============================================
-install(TARGETS jyppx_foundation jyppx_core jyppx_interop jyppx_data jyppx_nn
-                jyppx_training jyppx_optim jyppx_experiment
-                jyppx_sdk
+install(TARGETS ${JYPPX_ENABLED_TARGETS}
     EXPORT jyppxTargetsExport
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
@@ -492,9 +560,15 @@ install(TARGETS jyppx_foundation jyppx_core jyppx_interop jyppx_data jyppx_nn
     INCLUDES DESTINATION include
 )
 
-install(DIRECTORY include/jyppx
-    DESTINATION include
-)
+foreach(JYPPX_HEADER_DIR IN LISTS JYPPX_ENABLED_HEADER_DIRS)
+    install(DIRECTORY "include/jyppx/${JYPPX_HEADER_DIR}"
+        DESTINATION include/jyppx
+    )
+endforeach()
+
+if(TARGET jyppx::sdk)
+    install(FILES include/jyppx/jyppx.hpp DESTINATION include/jyppx)
+endif()
 
 install(FILES
     "${JYPPX_GENERATED_INCLUDE_DIR}/jyppx/foundation/build_config.hpp"
@@ -550,6 +624,7 @@ message(STATUS "  Build examples: ${JYPPX_BUILD_EXAMPLES}")
 message(STATUS "  Build benchmarks: ${JYPPX_BUILD_BENCHMARKS}")
 message(STATUS "  Build fuzzers: ${JYPPX_BUILD_FUZZERS}")
 message(STATUS "  Build docs: ${JYPPX_BUILD_DOCS}")
+message(STATUS "  Components: ${JYPPX_ENABLED_COMPONENTS}")
 message(STATUS "  Clang-tidy: ${JYPPX_ENABLE_CLANG_TIDY}")
 message(STATUS "  Format check: ${JYPPX_ENABLE_FORMAT_CHECK}")
 message(STATUS "  Warnings as errors: ${JYPPX_ENABLE_WARNINGS_AS_ERRORS}")

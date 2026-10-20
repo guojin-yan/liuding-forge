@@ -198,6 +198,7 @@ if(WIN32)
     get_filename_component(JYPPX_TORCH_RUNTIME_DIR "${TORCH_LIBRARY}" DIRECTORY)
 endif()
 
+if(TARGET jyppx::sdk)
 add_test(
     NAME MigratedInstallConsumer
     COMMAND ${CMAKE_COMMAND}
@@ -294,6 +295,29 @@ set_tests_properties(ComponentInstallMatrixConsumer PROPERTIES
     RESOURCE_LOCK jyppx_install_consumer
 )
 
+add_test(
+    NAME OptionalComponentMatrix
+    COMMAND ${CMAKE_COMMAND}
+        -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
+        -DJYPPX_TEST_ROOT=${CMAKE_SOURCE_DIR}/out/component-matrix/$<CONFIG>
+        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_TORCH_DIR=${Torch_DIR}
+        -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
+        -DJYPPX_CMAKE_GENERATOR=${CMAKE_GENERATOR}
+        -DJYPPX_CMAKE_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+        -DJYPPX_CMAKE_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+        -DJYPPX_CUDA_STANDARD=${CMAKE_CUDA_STANDARD}
+        -DJYPPX_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}
+        -DJYPPX_TORCH_CUDA_ARCH_LIST=$ENV{TORCH_CUDA_ARCH_LIST}
+        -P ${CMAKE_SOURCE_DIR}/cmake/TestOptionalComponentMatrix.cmake
+)
+set_tests_properties(OptionalComponentMatrix PROPERTIES
+    LABELS "core;data;experiment;foundation;interop;nn;optim;training;packaging"
+    RESOURCE_LOCK jyppx_component_profile_matrix
+)
+endif()
+
 # Adds a GoogleTest executable linked against the framework and registered
 # with CTest. Sources are passed as extra arguments.
 function(jyppx_add_gtest test_name)
@@ -316,13 +340,21 @@ function(jyppx_add_gtest test_name)
 endfunction()
 
 add_subdirectory(unit)
-add_subdirectory(integration)
+if(TARGET jyppx::sdk)
+    add_subdirectory(integration)
+endif()
 
 if(JYPPX_BUILD_FUZZERS)
+    if(NOT TARGET jyppx::sdk)
+        message(FATAL_ERROR "JYPPX_BUILD_FUZZERS=ON requires all Core components")
+    endif()
     add_subdirectory(fuzz)
 endif()
 
 if(JYPPX_BUILD_BENCHMARKS)
+    if(NOT TARGET jyppx::sdk)
+        message(FATAL_ERROR "JYPPX_BUILD_BENCHMARKS=ON requires all Core components")
+    endif()
     # Benchmarks are executables linked like tests but not registered with
     # CTest; they are run manually.
     function(jyppx_add_bench bench_name)

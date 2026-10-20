@@ -66,7 +66,7 @@ if(WIN32 AND DEFINED JYPPX_TORCH_RUNTIME_DIR)
     set(ENV{PATH} "${JYPPX_TORCH_RUNTIME_DIR};$ENV{PATH}")
 endif()
 
-set(components foundation core interop data nn optim training experiment sdk)
+set(components foundation core interop data nn optim training experiment all sdk)
 foreach(component IN LISTS components)
     set(consumer_build_dir "${consumer_build_root}/${component}")
     execute_process(

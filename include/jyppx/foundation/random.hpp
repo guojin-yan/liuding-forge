@@ -7,7 +7,7 @@
  * derivation, and scoped state restoration.
  */
 
-#include "jyppx/core/types.hpp"
+#include <torch/types.h>
 
 #include <cstdint>
 #include <vector>
@@ -31,8 +31,10 @@ inline constexpr std::uint32_t kRngStateFormatVersion = 1;
  * synchronized by this structure.
  */
 struct RngState {
-  Tensor cpu;  ///< CPU generator state as a one-dimensional CPU UInt8 tensor.
-  std::vector<Tensor> cuda;  ///< CUDA generator states ordered by device index.
+  torch::Tensor
+      cpu;  ///< CPU generator state as a one-dimensional CPU UInt8 tensor.
+  std::vector<torch::Tensor>
+      cuda;  ///< CUDA generator states ordered by device index.
   std::uint32_t format_version =
       kRngStateFormatVersion;  ///< Serialized layout version for compatibility
                                ///< checks.

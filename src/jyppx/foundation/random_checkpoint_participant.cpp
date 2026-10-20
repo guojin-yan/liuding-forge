@@ -6,6 +6,8 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/foundation/random_checkpoint_participant.hpp>
 
+#include <torch/torch.h>
+
 #include <algorithm>
 #include <bit>
 #include <cstring>
@@ -99,7 +101,7 @@ std::uint64_t checked_add(std::uint64_t total, std::uint64_t value,
   return total + value;
 }
 
-std::uint64_t tensor_bytes(const Tensor& tensor) {
+std::uint64_t tensor_bytes(const torch::Tensor& tensor) {
   return static_cast<std::uint64_t>(tensor.numel());
 }
 
@@ -226,7 +228,7 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
                     right.fields.begin(), field_equal);
 }
 
-Tensor tensor_from_bytes(std::span<const std::byte> bytes) {
+torch::Tensor tensor_from_bytes(std::span<const std::byte> bytes) {
   auto tensor = torch::empty(
       {static_cast<std::int64_t>(bytes.size())},
       torch::TensorOptions().dtype(torch::kUInt8).device(torch::kCPU));

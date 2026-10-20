@@ -16,11 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs a consumer against each exported target independently.
 - A legacy-surface gate that rejects retired headers, sources, package names,
   and build target names in both the source tree and staged installation.
+- A persistent optional-component matrix that configures, builds, installs,
+  and consumes each current component with unrelated components disabled.
 
 ### Changed
 - The remaining in-tree SDK target and project identifiers now use canonical
   `jyppx` names; the retired package name remains only in enforcement checks
   and historical release notes.
+- Component options now control target creation, tests, exported package
+  components, public headers, and installed libraries as one atomic surface.
 - The installed CMake package now uses the canonical `jyppx` package name,
   validates requested components, and rejects unknown components. Legacy
   package and target entry points are not retained.

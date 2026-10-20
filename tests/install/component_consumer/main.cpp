@@ -19,6 +19,8 @@
 #include <jyppx/training/trainer.hpp>
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)
 #include <jyppx/experiment/config.hpp>
+#elif defined(JYPPX_CONSUMER_ALL)
+#include <jyppx/foundation/version.hpp>
 #elif defined(JYPPX_CONSUMER_SDK)
 #include <jyppx/jyppx.hpp>
 #else
@@ -72,6 +74,8 @@ int main() {
              "secret://env/consumer/token")
              ? 0
              : 1;
+#elif defined(JYPPX_CONSUMER_ALL)
+  return std::string(jyppx::version()).empty() ? 1 : 0;
 #elif defined(JYPPX_CONSUMER_SDK)
   return !std::string(jyppx::version()).empty() &&
                  jyppx::parse_device("cpu").is_cpu()
