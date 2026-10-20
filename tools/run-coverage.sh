@@ -35,8 +35,7 @@ if [ "$build_parallelism" -lt 1 ]; then
   exit 2
 fi
 
-rm -rf "$build_root" "$output_root"
-mkdir -p "$output_root"
+mkdir -p "$build_root" "$output_root"
 
 run_logged() {
   local log_name=$1
@@ -55,6 +54,7 @@ run_logged 01-configure.log cmake \
   -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:?CMAKE_PREFIX_PATH must point to LibTorch}"
 
 run_logged 02-build.log cmake --build "$build_root" --parallel "$build_parallelism"
+find "$build_root" -type f -name '*.gcda' -delete
 run_logged 03-ctest.log ctest --test-dir "$build_root" --output-on-failure
 
 coverage_args=(
