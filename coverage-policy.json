@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "jyppx-target-coverage-policy",
   "baseline": {
-    "commit": "cfc246748dce11c3ce07c2011147bbc7d53830e8",
+    "commit": "f0418d3ce10a23b5d871a075abfa2de5430d57c5",
     "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug"
   },
   "targets": {
@@ -95,6 +95,29 @@
           "baseline_covered": 821,
           "baseline_total": 1694,
           "minimum_percent": 48.465171
+        }
+      }
+    },
+    "interop": {
+      "path_prefixes": [
+        "include/jyppx/interop/",
+        "src/jyppx/interop/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 417,
+          "baseline_total": 480,
+          "minimum_percent": 86.875000
+        },
+        "function": {
+          "baseline_covered": 42,
+          "baseline_total": 43,
+          "minimum_percent": 97.674419
+        },
+        "branch": {
+          "baseline_covered": 657,
+          "baseline_total": 1408,
+          "minimum_percent": 46.661932
         }
       }
     },
