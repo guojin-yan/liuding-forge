@@ -575,22 +575,23 @@
           "compiler": "GCC 11.4.0; clang-tidy 14.0.0; clang-format 14.0.0; Doxygen 1.9.1",
           "accelerator": "NVIDIA GeForce RTX 2060 sm_75; driver 580.178.04; LibTorch 2.5.1+cu124",
           "build_type": "Release",
-          "tests": "595/595; 0 skipped",
-          "instrumentation": "LibTorch 2.5.1+cu124; CUDA standard 17; CMAKE_CUDA_ARCHITECTURES=75; TORCH_CUDA_ARCH_LIST=7.5; all seven framework targets -Werror and clang-tidy",
+          "tests": "591/591; 0 skipped; 12/12 explicit real-GPU optimizer, Trainer and AMP checks",
+          "instrumentation": "LibTorch 2.5.1+cu124; CUDA standard 17; CMAKE_CUDA_ARCHITECTURES=75; TORCH_CUDA_ARCH_LIST=7.5; six compiled component targets use -Werror and clang-tidy; sdk is a source-free INTERFACE aggregate",
           "quality_evidence": {
             "libtorch": "/home/ygj/jyppx-deps/libtorch-cu124/libtorch",
             "host_cuda_toolkit": "11.5 nvcc used for toolchain discovery; runtime and libraries are from LibTorch cu124",
             "configure": "passed with CUDA architecture 75, CUDA standard 17 and all quality options enabled",
-            "build": "all framework, test and example targets passed; foundation/core/data/nn/training/optim/sdk compiled with warnings as errors and clang-tidy",
-            "format": "all 209 C/C++ source, header and template files under include/src/tests/examples passed clang-format 14",
+            "build": "all framework, test and example targets passed; foundation/core/data/nn/training/optim compiled with warnings as errors and clang-tidy; sdk exported as a source-free aggregate",
+            "format": "all 203 C/C++ source, header and template files under include/src/tests/examples passed clang-format 14",
             "documentation": "all installed public headers under include/jyppx passed Doxygen warning-as-error validation",
-            "ctest": "595/595 passed; zero skipped",
-            "cuda_scope": "full CTest including CUDA-only RNG, batch memory, transforms, optimizer, strategy, Trainer and AMP tests executed on RTX 2060",
-            "install_consumer": "passed as part of the full CTest lane",
-            "repository_hygiene": "passed from a clean exact checkout with the build under out/build/g6-cuda",
-            "source": "clean detached checkout at 0a01dad8c1e470caf21dc52bc058755c58c5eed4"
+            "ctest": "591/591 passed; zero skipped",
+            "cuda_scope": "full CTest plus 12/12 explicit *CudaTest.* checks across eight optimizers, Trainer float16 multi-optimizer scaling and GradScaler multi-optimizer overflow on RTX 2060",
+            "install_consumer": "passed while linking only jyppx::sdk, proving the installed INTERFACE aggregate",
+            "repository_hygiene": "passed from a clean exact checkout with the build under out/build/cuda",
+            "removed_surface": "legacy global Logger and hand-encoded TensorBoard writer removed without forwarding APIs",
+            "source": "clean branch checkout at 46c9479c714769df46eb0a6d9d1b6437baca439a"
           },
-          "commit": "0a01dad"
+          "commit": "46c9479"
         },
         {
           "id": "local-ubuntu-gcc-cuda-cu124-training-performance-current",
