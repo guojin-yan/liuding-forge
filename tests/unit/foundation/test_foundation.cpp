@@ -242,22 +242,20 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
   EXPECT_EQ(manifest.build.jyppx_version, jyppx::version());
   EXPECT_EQ(manifest.features.front().feature_id, "jyppx.component.core");
 
-  const std::array<std::pair<std::string_view, bool>, 8U>
-      expected_components{{
-          {"core", JYPPX_COMPONENT_CORE_ENABLED != 0},
-          {"data", JYPPX_COMPONENT_DATA_ENABLED != 0},
-          {"experiment", JYPPX_COMPONENT_EXPERIMENT_ENABLED != 0},
-          {"foundation", true},
-          {"interop", JYPPX_COMPONENT_INTEROP_ENABLED != 0},
-          {"nn", JYPPX_COMPONENT_NN_ENABLED != 0},
-          {"optim", JYPPX_COMPONENT_OPTIM_ENABLED != 0},
-          {"training", JYPPX_COMPONENT_TRAINING_ENABLED != 0},
-      }};
+  const std::array<std::pair<std::string_view, bool>, 8U> expected_components{{
+      {"core", JYPPX_COMPONENT_CORE_ENABLED != 0},
+      {"data", JYPPX_COMPONENT_DATA_ENABLED != 0},
+      {"experiment", JYPPX_COMPONENT_EXPERIMENT_ENABLED != 0},
+      {"foundation", true},
+      {"interop", JYPPX_COMPONENT_INTEROP_ENABLED != 0},
+      {"nn", JYPPX_COMPONENT_NN_ENABLED != 0},
+      {"optim", JYPPX_COMPONENT_OPTIM_ENABLED != 0},
+      {"training", JYPPX_COMPONENT_TRAINING_ENABLED != 0},
+  }};
   for (std::size_t index = 0; index < expected_components.size(); ++index) {
     const auto& [component, enabled] = expected_components[index];
     const auto& feature = manifest.features[index];
-    EXPECT_EQ(feature.feature_id,
-              "jyppx.component." + std::string(component));
+    EXPECT_EQ(feature.feature_id, "jyppx.component." + std::string(component));
     EXPECT_EQ(feature.status, enabled ? jyppx::CapabilityStatus::available
                                       : jyppx::CapabilityStatus::unsupported);
     EXPECT_EQ(feature.implementation,
@@ -265,8 +263,7 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
                       : jyppx::CapabilityImplementation::unsupported);
     EXPECT_EQ(feature.source, jyppx::CapabilitySource::build);
     EXPECT_EQ(feature.backend, "jyppx");
-    EXPECT_EQ(feature.schemas,
-              (std::vector<std::string>{"component/v1"}));
+    EXPECT_EQ(feature.schemas, (std::vector<std::string>{"component/v1"}));
     EXPECT_TRUE(feature.scope_id.empty());
     EXPECT_EQ(feature.limitations.empty(), enabled);
   }

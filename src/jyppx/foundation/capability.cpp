@@ -247,22 +247,26 @@ CapabilityManifest canonicalized(CapabilityManifest manifest) {
   return manifest;
 }
 
-CapabilityDescriptor component_descriptor(std::string component,
-                                          bool enabled) {
+CapabilityDescriptor component_descriptor(std::string component, bool enabled) {
   return CapabilityDescriptor{
       .feature_id = "jyppx.component." + std::move(component),
+      .scope_id = {},
       .feature_version = 1U,
-      .status = enabled ? CapabilityStatus::available
-                        : CapabilityStatus::unsupported,
+      .status =
+          enabled ? CapabilityStatus::available : CapabilityStatus::unsupported,
       .implementation = enabled ? CapabilityImplementation::native
                                 : CapabilityImplementation::unsupported,
       .source = CapabilitySource::build,
       .backend = "jyppx",
+      .devices = {},
+      .dtypes = {},
       .schemas = {"component/v1"},
-      .limitations = enabled
-                         ? std::vector<std::string>{}
-                         : std::vector<std::string>{
-                               "component disabled at configure time"},
+      .operations = {},
+      .limits = {},
+      .limitations =
+          enabled ? std::vector<std::string>{}
+                  : std::vector<
+                        std::string>{"component disabled at configure time"},
   };
 }
 
