@@ -2,9 +2,10 @@
 
 #include "jyppx/foundation/error.hpp"
 
+#include <torch/torch.h>
+
 #include <ATen/CPUGeneratorImpl.h>
 #include <ATen/Context.h>
-#include <torch/torch.h>
 #include <string>
 
 namespace jyppx::core {
