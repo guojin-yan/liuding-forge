@@ -191,6 +191,7 @@ CapabilityDescriptor describe_data_capability(
     CapabilityDescriptor descriptor{
         .feature_id = capability.map_style ? "jyppx.data.pipeline.map"
                                            : "jyppx.data.pipeline.iterable",
+        .scope_id = capability.pipeline_id,
         .feature_version = 1U,
         .status = CapabilityStatus::available,
         .implementation = CapabilityImplementation::native,

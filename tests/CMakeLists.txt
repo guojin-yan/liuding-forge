@@ -21,7 +21,7 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(CompatibilitySource PROPERTIES LABELS "hygiene;compatibility")
     add_test(
         NAME CompatibilityToolUnitTests
-        COMMAND ${Python3_EXECUTABLE} -m unittest
+        COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tests/tools/test_compatibility.py
     )
     set_tests_properties(CompatibilityToolUnitTests PROPERTIES

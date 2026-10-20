@@ -75,6 +75,7 @@ enum class DataWorkerShardPolicy : std::uint8_t {
  * @brief Reports the capabilities of a configured DataPipeline.
  */
 struct DataCapability {
+  std::string pipeline_id;  ///< Stable configured pipeline instance identity.
   bool map_style = true;  ///< The source is addressed by finite sample indices.
   bool iterable_style =
       false;  ///< The source is consumed through an independent cursor.

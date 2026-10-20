@@ -249,6 +249,7 @@ TEST(FoundationCapabilityTest, CanonicalizesAndSerializesTypedManifest) {
   };
   jyppx::CapabilityDescriptor first{
       .feature_id = "jyppx.data.pipeline.map",
+      .scope_id = "data.pipeline.primary",
       .feature_version = 1,
       .status = jyppx::CapabilityStatus::experimental,
       .implementation = jyppx::CapabilityImplementation::adapted,
@@ -266,6 +267,7 @@ TEST(FoundationCapabilityTest, CanonicalizesAndSerializesTypedManifest) {
       {second, first}, test_build_fingerprint());
   ASSERT_EQ(manifest.features.size(), 2U);
   EXPECT_EQ(manifest.features[0].feature_id, "jyppx.data.pipeline.map");
+  EXPECT_EQ(manifest.features[0].scope_id, "data.pipeline.primary");
   EXPECT_EQ(manifest.features[0].operations,
             (std::vector<std::string>{"epoch.explicit", "worker.prefetch"}));
   EXPECT_EQ(manifest.features[0].limits.front().name, "max_batch_bytes");
@@ -275,6 +277,8 @@ TEST(FoundationCapabilityTest, CanonicalizesAndSerializesTypedManifest) {
   EXPECT_LT(json.find("jyppx.data.pipeline.map"),
             json.find("jyppx.training.strategy.single-device"));
   EXPECT_NE(json.find("\"status\":\"experimental\""), std::string::npos);
+  EXPECT_NE(json.find("\"scope_id\":\"data.pipeline.primary\""),
+            std::string::npos);
   EXPECT_NE(json.find("\"value\":4096"), std::string::npos);
   EXPECT_EQ(json.find("\"value\":\"4096\""), std::string::npos);
   EXPECT_NE(json.find("\"build\":{\"jyppx_version\":\"0.3.0\""),
@@ -366,6 +370,10 @@ TEST(FoundationCapabilityTest, RejectsEverySchemaV1ControlBoundary) {
   expect_invalid([](auto& value) {
     value.source = static_cast<jyppx::CapabilitySource>(0);
   });
+  expect_invalid([](auto& value) { value.scope_id = "unexpected.scope"; });
+  expect_invalid([](auto& value) {
+    value.source = jyppx::CapabilitySource::configured_instance;
+  });
   expect_invalid(
       [](auto& value) { value.limits.push_back(value.limits.front()); });
   expect_invalid([](auto& value) {
@@ -400,6 +408,32 @@ TEST(FoundationCapabilityTest, RejectsEverySchemaV1ControlBoundary) {
   manifest.build.git_commit.clear();
   EXPECT_THROW(jyppx::validate_capability_manifest(manifest),
                jyppx::InvalidArgument);
+}
+
+TEST(FoundationCapabilityTest,
+     SupportsScopedInstancesAndRejectsDuplicateCompositeIdentity) {
+  const jyppx::CapabilityDescriptor first{
+      .feature_id = "jyppx.data.pipeline.map",
+      .scope_id = "data.pipeline.first",
+      .feature_version = 1,
+      .status = jyppx::CapabilityStatus::available,
+      .implementation = jyppx::CapabilityImplementation::native,
+      .source = jyppx::CapabilitySource::configured_instance,
+      .backend = "libtorch",
+      .operations = {"source.map"},
+  };
+  auto second = first;
+  second.scope_id = "data.pipeline.second";
+
+  const auto manifest = jyppx::make_capability_manifest(
+      {second, first}, test_build_fingerprint());
+  ASSERT_EQ(manifest.features.size(), 2U);
+  EXPECT_EQ(manifest.features[0].scope_id, "data.pipeline.first");
+  EXPECT_EQ(manifest.features[1].scope_id, "data.pipeline.second");
+
+  EXPECT_THROW(
+      jyppx::make_capability_manifest({first, first}, test_build_fingerprint()),
+      jyppx::InvalidArgument);
 }
 
 TEST(FoundationCapabilityTest, ValidatesUtf8AndEscapesJsonText) {

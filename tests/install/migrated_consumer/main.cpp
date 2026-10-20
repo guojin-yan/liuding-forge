@@ -246,6 +246,10 @@ int main() {
       installed_capability_manifest.features.size() == 1 &&
       installed_capability_manifest.features.front().feature_id ==
           "jyppx.data.pipeline.map" &&
+      installed_capability_manifest.features.front().scope_id ==
+          "data.consumer" &&
+      jyppx::capability_manifest_json(installed_capability_manifest)
+              .find("\"scope_id\":\"data.consumer\"") != std::string::npos &&
       jyppx::capability_manifest_json(installed_capability_manifest)
               .find("\"source\":\"configured-instance\"") != std::string::npos;
   auto installed_iterable_pipeline = jyppx::data::IterableDataPipeline(

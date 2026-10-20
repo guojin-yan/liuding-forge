@@ -238,7 +238,10 @@ CapabilityManifest canonicalized(CapabilityManifest manifest) {
   std::sort(
       manifest.features.begin(), manifest.features.end(),
       [](const CapabilityDescriptor& left, const CapabilityDescriptor& right) {
-        return left.feature_id < right.feature_id;
+        if (left.feature_id != right.feature_id) {
+          return left.feature_id < right.feature_id;
+        }
+        return left.scope_id < right.scope_id;
       });
   return manifest;
 }
@@ -309,6 +312,14 @@ void validate_capability_descriptor(const CapabilityDescriptor& descriptor) {
           "features.source", "a schema-v1 source",
           std::to_string(static_cast<std::uint8_t>(descriptor.source)),
           "Use build, runtime, or configured-instance.");
+    }
+    if (descriptor.source == CapabilitySource::configured_instance) {
+      validate_string(descriptor.scope_id, "features.scope_id", true);
+    } else if (!descriptor.scope_id.empty()) {
+      throw_invalid("features.scope_id",
+                    "empty for build and runtime descriptors",
+                    descriptor.scope_id,
+                    "Use scope_id only for a validated configured instance.");
     }
     validate_string(descriptor.backend, "features.backend", true);
     validate_values(descriptor.devices, "features.devices", false);
@@ -382,13 +393,14 @@ void validate_capability_manifest(const CapabilityManifest& manifest) {
           "at most " + std::to_string(kMaxCapabilityFeatures) + " entries",
           std::to_string(manifest.features.size()) + " entries");
     }
-    std::set<std::string_view> feature_ids;
+    std::set<std::pair<std::string_view, std::string_view>> feature_keys;
     for (const auto& feature : manifest.features) {
       validate_capability_descriptor(feature);
-      if (!feature_ids.emplace(feature.feature_id).second) {
-        throw_invalid("features.feature_id", "unique feature identities",
-                      feature.feature_id,
-                      "Publish one descriptor per cross-domain feature.");
+      if (!feature_keys.emplace(feature.feature_id, feature.scope_id).second) {
+        throw_invalid(
+            "features.identity", "unique (feature_id, scope_id) pairs",
+            feature.feature_id + "/" + feature.scope_id,
+            "Assign every configured instance a stable unique scope.");
       }
     }
   } catch (const Error&) {
@@ -435,7 +447,7 @@ std::string capability_manifest_json(const CapabilityManifest& manifest) {
       }
       const auto& feature = value.features[feature_index];
       output << '{' << "\"feature_id\":\"" << json_escape(feature.feature_id)
-             << "\","
+             << "\",\"scope_id\":\"" << json_escape(feature.scope_id) << "\","
              << "\"feature_version\":" << feature.feature_version << ','
              << "\"status\":\"" << capability_status_name(feature.status)
              << "\",\"implementation\":\""

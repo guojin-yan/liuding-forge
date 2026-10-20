@@ -1079,6 +1079,7 @@ const IterableDataPipelineOptions& IterableDataPipeline::options()
 
 DataCapability IterableDataPipeline::capability() const {
   DataCapability result;
+  result.pipeline_id = impl_->options.pipeline_id;
   result.map_style = false;
   result.iterable_style = true;
   result.finite_epoch = impl_->descriptor.finite_epoch;

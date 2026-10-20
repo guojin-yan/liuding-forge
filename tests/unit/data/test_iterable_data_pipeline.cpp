@@ -1064,6 +1064,7 @@ TEST(IterableBatchMemoryCudaTest, PinsTransfersAndRestoresExactCursor) {
   const auto capability =
       jyppx::data::describe_data_capability(original.capability());
   EXPECT_EQ(capability.feature_id, "jyppx.data.pipeline.iterable");
+  EXPECT_EQ(capability.scope_id, "data.iterable.cuda-memory");
   EXPECT_EQ(capability.devices, (std::vector<std::string>{"cuda:0"}));
   EXPECT_NE(std::find(capability.operations.begin(),
                       capability.operations.end(), "worker.producer-thread"),

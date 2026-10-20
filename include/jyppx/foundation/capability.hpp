@@ -100,11 +100,13 @@ struct CapabilityLimit {
  * @brief Describes one feature/backend capability in structured form.
  *
  * Collections contain machine tokens, not prose. Human-readable constraints
- * belong in `limitations`. A feature identity may appear only once in a
- * manifest regardless of its version.
+ * belong in `limitations`. Manifest identity is the `(feature_id, scope_id)`
+ * pair. Build/runtime descriptors use an empty scope; each configured-instance
+ * descriptor uses the stable identity of the represented object.
  */
 struct CapabilityDescriptor {
   std::string feature_id;  ///< Stable lowercase cross-domain feature identity.
+  std::string scope_id;    ///< Stable configured-instance identity, or empty.
   std::uint32_t feature_version = 1;  ///< Positive semantic descriptor version.
   CapabilityStatus status =
       CapabilityStatus::experimental;  ///< Evidence maturity for this scope.
@@ -133,7 +135,7 @@ struct CapabilityManifest {
       format_version;      ///< Serialized capability manifest schema version.
   BuildFingerprint build;  ///< Exact build and runtime identity for entries.
   std::vector<CapabilityDescriptor>
-      features;  ///< Cross-domain features keyed by unique `feature_id`.
+      features;  ///< Features keyed by unique `(feature_id, scope_id)` pairs.
 };
 
 /**

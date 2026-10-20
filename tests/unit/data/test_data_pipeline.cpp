@@ -739,6 +739,7 @@ TEST(DataPipelineTest, PublishesStructuredCrossDomainCapability) {
   const auto descriptor =
       jyppx::data::describe_data_capability(pipeline.capability());
   EXPECT_EQ(descriptor.feature_id, "jyppx.data.pipeline.map");
+  EXPECT_EQ(descriptor.scope_id, "data.pipeline.capability");
   EXPECT_EQ(descriptor.status, jyppx::CapabilityStatus::available);
   EXPECT_EQ(descriptor.implementation, jyppx::CapabilityImplementation::native);
   EXPECT_EQ(descriptor.source, jyppx::CapabilitySource::configured_instance);
@@ -765,6 +766,8 @@ TEST(DataPipelineTest, PublishesStructuredCrossDomainCapability) {
   const auto json = jyppx::capability_manifest_json(manifest);
   EXPECT_NE(json.find("\"feature_id\":\"jyppx.data.pipeline.map\""),
             std::string::npos);
+  EXPECT_NE(json.find("\"scope_id\":\"data.pipeline.capability\""),
+            std::string::npos);
   EXPECT_NE(json.find("\"source\":\"configured-instance\""), std::string::npos);
   EXPECT_NE(json.find("\"value\":2"), std::string::npos);
 }
@@ -782,6 +785,11 @@ TEST(DataPipelineTest, RejectsTamperedCrossDomainCapability) {
        .batch_size = 2},
       make_factory(dataset));
   auto capability = pipeline.capability();
+  capability.pipeline_id.clear();
+  EXPECT_THROW(jyppx::data::describe_data_capability(capability),
+               jyppx::InvalidArgument);
+
+  capability = pipeline.capability();
   capability.batch_schema_fingerprint = "relabelled";
   EXPECT_THROW(jyppx::data::describe_data_capability(capability),
                jyppx::InvalidArgument);
@@ -936,6 +944,7 @@ TEST(DataPipelineTest, DescribesIterableProducerCapability) {
 
   const auto descriptor = jyppx::data::describe_data_capability(capability);
   EXPECT_EQ(descriptor.feature_id, "jyppx.data.pipeline.iterable");
+  EXPECT_EQ(descriptor.scope_id, "data.pipeline.capability-iterable");
   EXPECT_NE(std::find(descriptor.operations.begin(),
                       descriptor.operations.end(), "worker.producer-thread"),
             descriptor.operations.end());

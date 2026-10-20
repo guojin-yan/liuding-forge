@@ -790,6 +790,7 @@ struct DataPipeline::Impl {
 
   DataCapability capability() const {
     DataCapability result;
+    result.pipeline_id = options.pipeline_id;
     result.finite_epoch = true;
     result.deterministic_epoch = sampler->supports_epoch_control();
     result.worker_model = options.num_workers == 0
