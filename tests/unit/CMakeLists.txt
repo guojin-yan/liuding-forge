@@ -12,6 +12,11 @@ jyppx_add_gtest(jyppx_test_core
     core/test_core.cpp
 )
 
+jyppx_add_gtest(jyppx_test_experiment_config
+    LINK_TARGET jyppx::experiment
+    experiment/test_config.cpp
+)
+
 jyppx_add_gtest(jyppx_test_data
     LINK_TARGET jyppx::data
     data/test_batch_memory.cpp

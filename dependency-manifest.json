@@ -46,6 +46,27 @@
       "support_status": "test-only"
     },
     {
+      "id": "nlohmann-json",
+      "scope": "experiment-config-build",
+      "version": "3.12.0",
+      "source": {
+        "type": "official-release-archive",
+        "url": "https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz",
+        "cache_file": "third_party/downloads/nlohmann-json-3.12.0.tar.xz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa"
+      },
+      "license": {
+        "spdx": ["MIT"],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": ["windows", "linux", "macos"],
+      "linkage": "header-only-private-implementation",
+      "support_status": "required"
+    },
+    {
       "id": "libtorch-candidate-cpu",
       "scope": "ci-candidate",
       "version": "2.5.1",

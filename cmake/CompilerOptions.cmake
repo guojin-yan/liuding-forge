@@ -13,6 +13,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_nn
     jyppx_training
     jyppx_optim
+    jyppx_experiment
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

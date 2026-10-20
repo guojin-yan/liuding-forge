@@ -29,6 +29,18 @@ JYPPX package.
   part of the JYPPX SDK. Any future redistribution must include its upstream
   copyright notice, license conditions and disclaimer.
 
+## Build Dependency
+
+### JSON for Modern C++ (nlohmann/json)
+
+- Project: https://github.com/nlohmann/json
+- Role: strict JSON parsing and serialization inside `jyppx::experiment`
+- Version selected by the current build: 3.12.0
+- Upstream license: MIT
+- Distribution rule: the header is compiled into the experiment config static
+  library and is not exposed by JYPPX public headers. Source or binary
+  redistribution must retain the upstream copyright notice and MIT license.
+
 ## Reference Projects
 
 Projects stored outside the Git repository under the local `refer/` directory

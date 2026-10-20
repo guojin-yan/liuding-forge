@@ -55,7 +55,7 @@ execute_process(
     RESULT_VARIABLE configure_result
 )
 if(NOT configure_result EQUAL 0)
-    message(FATAL_ERROR "Configuring the installed foundation consumer failed")
+    message(FATAL_ERROR "Configuring the installed API consumer failed")
 endif()
 
 execute_process(
@@ -63,7 +63,7 @@ execute_process(
     RESULT_VARIABLE build_result
 )
 if(NOT build_result EQUAL 0)
-    message(FATAL_ERROR "Building the installed foundation consumer failed")
+    message(FATAL_ERROR "Building the installed API consumer failed")
 endif()
 
 if(WIN32 AND DEFINED JYPPX_TORCH_RUNTIME_DIR)
@@ -75,5 +75,5 @@ execute_process(
     RESULT_VARIABLE test_result
 )
 if(NOT test_result EQUAL 0)
-    message(FATAL_ERROR "Running the installed foundation consumer failed")
+    message(FATAL_ERROR "Running the installed API consumer failed")
 endif()

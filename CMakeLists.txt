@@ -84,6 +84,28 @@ message(STATUS "LibTorch libraries: ${TORCH_LIBRARIES}")
 include(cmake/CopyTorchRuntime.cmake)
 
 # ============================================
+# Bounded JSON Parser Implementation Dependency
+# ============================================
+include(FetchContent)
+set(JYPPX_NLOHMANN_JSON_VERSION 3.12.0)
+set(JYPPX_NLOHMANN_JSON_ARCHIVE
+    "${PROJECT_SOURCE_DIR}/third_party/downloads/nlohmann-json-${JYPPX_NLOHMANN_JSON_VERSION}.tar.xz")
+if(EXISTS "${JYPPX_NLOHMANN_JSON_ARCHIVE}")
+    set(JYPPX_NLOHMANN_JSON_URL "${JYPPX_NLOHMANN_JSON_ARCHIVE}")
+else()
+    set(JYPPX_NLOHMANN_JSON_URL
+        "https://github.com/nlohmann/json/releases/download/v${JYPPX_NLOHMANN_JSON_VERSION}/json.tar.xz")
+endif()
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+set(JSON_Install OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(jyppx_nlohmann_json
+    URL "${JYPPX_NLOHMANN_JSON_URL}"
+    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(jyppx_nlohmann_json)
+
+# ============================================
 # Generated Foundation Build Metadata
 # ============================================
 execute_process(
@@ -350,6 +372,27 @@ target_link_libraries(jyppx_optim
         jyppx_foundation
         jyppx_core
 )
+
+add_library(jyppx_experiment STATIC
+    src/jyppx/experiment/config.cpp
+)
+add_library(jyppx::experiment ALIAS jyppx_experiment)
+set_target_properties(jyppx_experiment PROPERTIES
+    OUTPUT_NAME jyppx_experiment
+    EXPORT_NAME experiment
+)
+target_include_directories(jyppx_experiment
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${jyppx_nlohmann_json_SOURCE_DIR}/single_include
+)
+target_link_libraries(jyppx_experiment
+    PUBLIC
+        jyppx_foundation
+        jyppx_core
+)
 target_link_libraries(jyppx_training PUBLIC jyppx_data jyppx_optim jyppx_nn)
 
 add_library(jyppx_training_framework INTERFACE)
@@ -379,6 +422,7 @@ target_link_libraries(jyppx_training_framework
         jyppx_nn
         jyppx_training
         jyppx_optim
+        jyppx_experiment
 )
 
 # Compiler options must be applied after the target has been created.
@@ -419,7 +463,7 @@ endif()
 # Installation
 # ============================================
 install(TARGETS jyppx_foundation jyppx_core jyppx_data jyppx_nn jyppx_training
-                jyppx_optim jyppx_training_framework
+                jyppx_optim jyppx_experiment jyppx_training_framework
     EXPORT jyppx_training_frameworkTargets
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
