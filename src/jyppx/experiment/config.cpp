@@ -1058,7 +1058,7 @@ ResolvedConfig::ResolvedConfig(
     : schema_(std::move(schema)),
       value_(std::move(value)),
       origins_(std::move(origins)),
-      limits_(std::move(limits)) {}
+      limits_(limits) {}
 
 c10::IValue ResolvedConfig::value() const {
   const Json json = ValueToJson(value_, schema_.root, "config");
@@ -1176,7 +1176,7 @@ std::string ResolvedConfig::canonical_json() const {
 }
 
 ConfigResolver::ConfigResolver(ConfigSchema schema, ConfigLimits limits)
-    : schema_(std::move(schema)), limits_(std::move(limits)) {
+    : schema_(std::move(schema)), limits_(limits) {
   validate_config_schema(schema_, limits_);
   if (!schema_.defaults.isNone()) {
     const Json defaults =
