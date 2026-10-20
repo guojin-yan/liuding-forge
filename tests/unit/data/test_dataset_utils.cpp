@@ -31,6 +31,21 @@ namespace {
 
 using namespace jyppx;
 
+/** @brief Minimal dataset that exercises the base get_batch implementation. */
+class IntegerDataset final : public data::Dataset<int> {
+ public:
+  /** @brief Returns the requested index as a signed value. */
+  int get(std::size_t index) const override {
+    if (index >= size()) {
+      throw jyppx::InvalidArgument("integer dataset index is out of range");
+    }
+    return static_cast<int>(index);
+  }
+
+  /** @brief Returns the fixed number of addressable test samples. */
+  std::size_t size() const override { return 4; }
+};
+
 /** @brief Builds a tuple-producing pipeline for an Example dataset view. */
 std::unique_ptr<data::DataPipeline> make_example_pipeline(
     std::shared_ptr<const data::Dataset<data::Example>> dataset,
@@ -99,6 +114,15 @@ TEST_F(DatasetUtilsTest, DefaultBatchLookupPreservesOrderAndDuplicates) {
   EXPECT_TRUE(torch::equal(samples[0].data, inputs_[2]));
   EXPECT_TRUE(torch::equal(samples[1].data, inputs_[0]));
   EXPECT_TRUE(torch::equal(samples[2].target, targets_[2]));
+}
+
+TEST(DatasetBaseTest, DefaultBatchLookupUsesVirtualGetInCallerOrder) {
+  const IntegerDataset dataset;
+  EXPECT_FALSE(dataset.empty());
+  EXPECT_EQ(dataset[3], 3);
+  EXPECT_EQ(dataset.get_batch({2, 0, 2}), (std::vector<int>{2, 0, 2}));
+  EXPECT_TRUE(dataset.get_batch({}).empty());
+  EXPECT_THROW(dataset.get_batch({4}), jyppx::InvalidArgument);
 }
 
 TEST_F(DatasetUtilsTest, SubsetValidatesArguments) {

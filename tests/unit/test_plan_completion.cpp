@@ -358,6 +358,18 @@ class SummaryModel : public torch::nn::Module {
   torch::nn::Linear fc1, fc2;
 };
 
+/** @brief Module containing both trainable parameters and a persistent buffer.
+ */
+class BufferedSummaryModel : public torch::nn::Module {
+ public:
+  BufferedSummaryModel()
+      : weight(register_parameter("weight", torch::ones({2}))),
+        running(register_buffer("running", torch::zeros({3}))) {}
+
+  Tensor weight;   ///< Two trainable float elements.
+  Tensor running;  ///< Three persistent float buffer elements.
+};
+
 TEST(ModelSummaryTest, ReportsParameterCounts) {
   SummaryModel model;
   const auto stats = utils::calculate_model_stats(model);
@@ -376,6 +388,20 @@ TEST(ModelSummaryTest, SummaryListsChildren) {
   EXPECT_NE(text.find("encoder"), std::string::npos);
   EXPECT_NE(text.find("head"), std::string::npos);
   EXPECT_NE(text.find("Total params:        58"), std::string::npos);
+}
+
+TEST(ModelSummaryTest, CountsBuffersAndFormatsEveryStorageUnit) {
+  BufferedSummaryModel model;
+  const auto stats = utils::calculate_model_stats(model);
+  EXPECT_EQ(stats.total_params, 2);
+  EXPECT_EQ(stats.trainable_params, 2);
+  EXPECT_EQ(stats.total_buffers, 3);
+  EXPECT_EQ(stats.memory_bytes, 5 * 4);
+
+  EXPECT_EQ(utils::format_bytes(512), "512 B");
+  EXPECT_EQ(utils::format_bytes(1536), "1.5 KB");
+  EXPECT_EQ(utils::format_bytes(3 * 1024 * 1024), "3 MB");
+  EXPECT_EQ(utils::format_bytes(2LL * 1024 * 1024 * 1024), "2 GB");
 }
 
 TEST(ProfilerTest, AggregatesScopedTimings) {
@@ -400,6 +426,15 @@ TEST(ProfilerTest, AggregatesScopedTimings) {
   EXPECT_EQ(sorted[0].second.count, 2);
 }
 
+TEST(ProfilerTest, ClearRemovesAllAggregates) {
+  utils::ProfilerReport report;
+  report.record("scope", 1.0);
+  report.clear();
+  EXPECT_TRUE(report.sorted().empty());
+  EXPECT_EQ(report.summary(),
+            "Profiler report (scope, total ms, mean ms, max ms, count)\n");
+}
+
 TEST(ProgressBarTest, SaturatesProgressAndClosesOutputOnce) {
   std::ostringstream output;
   std::streambuf* const original_buffer = std::cout.rdbuf(output.rdbuf());
@@ -422,6 +457,27 @@ TEST(ProgressBarTest, SaturatesProgressAndClosesOutputOnce) {
   const std::string rendered = output.str();
   EXPECT_NE(rendered.find("epoch [#####] 3/3 (100%) loss=0.25"),
             std::string::npos);
+  EXPECT_EQ(std::count(rendered.begin(), rendered.end(), '\n'), 1);
+}
+
+TEST(ProgressBarTest, NormalizesInvalidTotalAndIgnoresDrawsAfterClose) {
+  std::ostringstream output;
+  std::streambuf* const original_buffer = std::cout.rdbuf(output.rdbuf());
+  {
+    utils::ProgressBar bar(/*total=*/0, /*width=*/1);
+    bar.set_postfix({{"loss", "0.5"}, {"step", "1"}});
+    bar.update();
+    EXPECT_EQ(bar.current(), 1);
+    EXPECT_DOUBLE_EQ(bar.progress(), 1.0);
+    bar.set_description("ignored");
+    bar.update(-1);
+  }
+  std::cout.rdbuf(original_buffer);
+
+  const std::string rendered = output.str();
+  EXPECT_NE(rendered.find("[#####] 1/1 (100%) loss=0.5, step=1"),
+            std::string::npos);
+  EXPECT_EQ(rendered.find("ignored"), std::string::npos);
   EXPECT_EQ(std::count(rendered.begin(), rendered.end(), '\n'), 1);
 }
 
