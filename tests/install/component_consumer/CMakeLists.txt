@@ -52,6 +52,17 @@ add_executable(jyppx_component_consumer main.cpp)
 target_compile_definitions(jyppx_component_consumer
     PRIVATE JYPPX_CONSUMER_${JYPPX_COMPONENT_MACRO}=1
 )
+foreach(JYPPX_ENTITY_COMPONENT IN ITEMS
+        foundation core interop data nn optim training experiment)
+    string(TOUPPER "${JYPPX_ENTITY_COMPONENT}" JYPPX_ENTITY_COMPONENT_UPPER)
+    if(TARGET jyppx::${JYPPX_ENTITY_COMPONENT})
+        target_compile_definitions(jyppx_component_consumer PRIVATE
+            JYPPX_EXPECT_COMPONENT_${JYPPX_ENTITY_COMPONENT_UPPER}=1)
+    else()
+        target_compile_definitions(jyppx_component_consumer PRIVATE
+            JYPPX_EXPECT_COMPONENT_${JYPPX_ENTITY_COMPONENT_UPPER}=0)
+    endif()
+endforeach()
 target_link_libraries(jyppx_component_consumer
     PRIVATE jyppx::${JYPPX_CONSUMER_COMPONENT}
 )

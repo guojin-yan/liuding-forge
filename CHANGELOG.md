@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and build target names in both the source tree and staged installation.
 - A persistent optional-component matrix that configures, builds, installs,
   and consumes each current component with unrelated components disabled.
+- Build-level capability queries that report enabled and disabled entity
+  components and bind the result to the current build fingerprint.
 
 ### Changed
 - The remaining in-tree SDK target and project identifiers now use canonical

@@ -27,6 +27,14 @@ resource bounds.
 JSON. Feature entries, token collections, numeric limits, and limitations are
 sorted without modifying the caller's object. Limits remain JSON numbers.
 
+`current_capability_manifest()` queries the exact package build without asking
+upper-layer targets to register into foundation. It reports one build-source
+entry for each of the eight entity components. Components disabled at CMake
+configure time remain visible as `unsupported`, while enabled components are
+`available`. `current_capability_manifest_json()` exposes the same inventory as
+deterministic JSON. Aggregate targets are package conveniences and are not
+reported as entity capabilities.
+
 Domain targets do not define competing manifest types. They convert their own
 validated descriptors into foundation entries. The first integration is
 `describe_data_capability()`, which maps an existing configured

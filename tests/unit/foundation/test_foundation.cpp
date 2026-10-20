@@ -3,10 +3,12 @@
 #include <torch/torch.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <gtest/gtest.h>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -232,6 +234,48 @@ TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
   EXPECT_EQ(
       jyppx::capability_source_name(static_cast<jyppx::CapabilitySource>(0)),
       "unknown");
+}
+
+TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
+  const auto manifest = jyppx::current_capability_manifest();
+  ASSERT_EQ(manifest.features.size(), 8U);
+  EXPECT_EQ(manifest.build.jyppx_version, jyppx::version());
+  EXPECT_EQ(manifest.features.front().feature_id, "jyppx.component.core");
+
+  const std::array<std::pair<std::string_view, bool>, 8U>
+      expected_components{{
+          {"core", JYPPX_COMPONENT_CORE_ENABLED != 0},
+          {"data", JYPPX_COMPONENT_DATA_ENABLED != 0},
+          {"experiment", JYPPX_COMPONENT_EXPERIMENT_ENABLED != 0},
+          {"foundation", true},
+          {"interop", JYPPX_COMPONENT_INTEROP_ENABLED != 0},
+          {"nn", JYPPX_COMPONENT_NN_ENABLED != 0},
+          {"optim", JYPPX_COMPONENT_OPTIM_ENABLED != 0},
+          {"training", JYPPX_COMPONENT_TRAINING_ENABLED != 0},
+      }};
+  for (std::size_t index = 0; index < expected_components.size(); ++index) {
+    const auto& [component, enabled] = expected_components[index];
+    const auto& feature = manifest.features[index];
+    EXPECT_EQ(feature.feature_id,
+              "jyppx.component." + std::string(component));
+    EXPECT_EQ(feature.status, enabled ? jyppx::CapabilityStatus::available
+                                      : jyppx::CapabilityStatus::unsupported);
+    EXPECT_EQ(feature.implementation,
+              enabled ? jyppx::CapabilityImplementation::native
+                      : jyppx::CapabilityImplementation::unsupported);
+    EXPECT_EQ(feature.source, jyppx::CapabilitySource::build);
+    EXPECT_EQ(feature.backend, "jyppx");
+    EXPECT_EQ(feature.schemas,
+              (std::vector<std::string>{"component/v1"}));
+    EXPECT_TRUE(feature.scope_id.empty());
+    EXPECT_EQ(feature.limitations.empty(), enabled);
+  }
+
+  const auto json = jyppx::current_capability_manifest_json();
+  EXPECT_EQ(json, jyppx::current_capability_manifest_json());
+  EXPECT_NE(json.find("\"feature_id\":\"jyppx.component.foundation\""),
+            std::string::npos);
+  EXPECT_NE(json.find("\"status\":\"available\""), std::string::npos);
 }
 
 TEST(FoundationCapabilityTest, CanonicalizesAndSerializesTypedManifest) {

@@ -8,6 +8,7 @@
 #include "jyppx/foundation/error.hpp"
 
 #include <algorithm>
+#include <array>
 #include <iomanip>
 #include <new>
 #include <set>
@@ -246,6 +247,25 @@ CapabilityManifest canonicalized(CapabilityManifest manifest) {
   return manifest;
 }
 
+CapabilityDescriptor component_descriptor(std::string component,
+                                          bool enabled) {
+  return CapabilityDescriptor{
+      .feature_id = "jyppx.component." + std::move(component),
+      .feature_version = 1U,
+      .status = enabled ? CapabilityStatus::available
+                        : CapabilityStatus::unsupported,
+      .implementation = enabled ? CapabilityImplementation::native
+                                : CapabilityImplementation::unsupported,
+      .source = CapabilitySource::build,
+      .backend = "jyppx",
+      .schemas = {"component/v1"},
+      .limitations = enabled
+                         ? std::vector<std::string>{}
+                         : std::vector<std::string>{
+                               "component disabled at configure time"},
+  };
+}
+
 }  // namespace
 
 std::string_view capability_status_name(CapabilityStatus status) noexcept {
@@ -433,6 +453,25 @@ CapabilityManifest make_current_capability_manifest(
                                   current_build_fingerprint());
 }
 
+CapabilityManifest current_capability_manifest() {
+  const std::array<std::pair<const char*, bool>, 8U> components{{
+      {"foundation", true},
+      {"core", JYPPX_COMPONENT_CORE_ENABLED != 0},
+      {"interop", JYPPX_COMPONENT_INTEROP_ENABLED != 0},
+      {"data", JYPPX_COMPONENT_DATA_ENABLED != 0},
+      {"nn", JYPPX_COMPONENT_NN_ENABLED != 0},
+      {"optim", JYPPX_COMPONENT_OPTIM_ENABLED != 0},
+      {"training", JYPPX_COMPONENT_TRAINING_ENABLED != 0},
+      {"experiment", JYPPX_COMPONENT_EXPERIMENT_ENABLED != 0},
+  }};
+  std::vector<CapabilityDescriptor> features;
+  features.reserve(components.size());
+  for (const auto& [component, enabled] : components) {
+    features.push_back(component_descriptor(component, enabled));
+  }
+  return make_current_capability_manifest(std::move(features));
+}
+
 std::string capability_manifest_json(const CapabilityManifest& manifest) {
   try {
     const auto value = canonicalized(manifest);
@@ -484,6 +523,10 @@ std::string capability_manifest_json(const CapabilityManifest& manifest) {
   } catch (const std::bad_alloc&) {
     throw_resource("json", "bounded serialization memory", "allocation failed");
   }
+}
+
+std::string current_capability_manifest_json() {
+  return capability_manifest_json(current_capability_manifest());
 }
 
 }  // namespace jyppx

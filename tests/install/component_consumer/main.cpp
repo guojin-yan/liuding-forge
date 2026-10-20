@@ -27,11 +27,48 @@
 #error "Exactly one installed component consumer must be selected"
 #endif
 
+#include <jyppx/foundation/capability.hpp>
+
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
+namespace {
+
+bool BuildCapabilityInventoryMatchesPackage() {
+  constexpr std::array<std::pair<std::string_view, bool>, 8U> kExpected{{
+      {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
+      {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
+      {"experiment", JYPPX_EXPECT_COMPONENT_EXPERIMENT != 0},
+      {"foundation", JYPPX_EXPECT_COMPONENT_FOUNDATION != 0},
+      {"interop", JYPPX_EXPECT_COMPONENT_INTEROP != 0},
+      {"nn", JYPPX_EXPECT_COMPONENT_NN != 0},
+      {"optim", JYPPX_EXPECT_COMPONENT_OPTIM != 0},
+      {"training", JYPPX_EXPECT_COMPONENT_TRAINING != 0},
+  }};
+  const auto manifest = jyppx::current_capability_manifest();
+  if (manifest.features.size() != kExpected.size()) return false;
+  for (std::size_t index = 0; index < kExpected.size(); ++index) {
+    const auto& [component, enabled] = kExpected[index];
+    const auto& feature = manifest.features[index];
+    if (feature.feature_id != "jyppx.component." + std::string(component) ||
+        (feature.status == jyppx::CapabilityStatus::available) != enabled ||
+        (feature.implementation == jyppx::CapabilityImplementation::native) !=
+            enabled) {
+      return false;
+    }
+  }
+  return !jyppx::current_capability_manifest_json().empty();
+}
+
+}  // namespace
+
 int main() {
+  if (!BuildCapabilityInventoryMatchesPackage()) return 1;
 #if defined(JYPPX_CONSUMER_FOUNDATION)
   const auto fingerprint = jyppx::current_build_fingerprint();
   return !std::string(jyppx::version()).empty() &&

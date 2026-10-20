@@ -176,12 +176,34 @@ CapabilityManifest make_current_capability_manifest(
     std::vector<CapabilityDescriptor> features);
 
 /**
+ * @brief Queries the component inventory compiled into the current package.
+ *
+ * The manifest contains one build-source descriptor for each current entity
+ * component. Enabled components are `available`; components disabled at
+ * configure time are explicitly `unsupported`. Aggregate targets and
+ * configured-instance capabilities are intentionally excluded.
+ *
+ * @return Canonical manifest bound to `current_build_fingerprint()`.
+ * @throws Error If runtime discovery, validation, or allocation fails.
+ */
+CapabilityManifest current_capability_manifest();
+
+/**
  * @brief Serializes a validated canonical capability manifest as JSON.
  * @param manifest Manifest to validate and serialize without modifying it.
  * @return Compact deterministic UTF-8 JSON with typed numeric limits.
  * @throws Error If the manifest is invalid or allocation fails.
  */
 std::string capability_manifest_json(const CapabilityManifest& manifest);
+
+/**
+ * @brief Queries and serializes the current component build inventory.
+ * @return Compact deterministic UTF-8 JSON for
+ * `current_capability_manifest()`.
+ * @throws Error If runtime discovery, validation, serialization, or
+ * allocation fails.
+ */
+std::string current_capability_manifest_json();
 
 }  // namespace jyppx
 
