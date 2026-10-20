@@ -355,6 +355,8 @@ StateManifest ParseState(const Json& value) {
       .schema_version = ReadVersion(value.at("schema_version"),
                                     "participants.state.schema_version"),
       .restore_level = ParseRestoreLevel(value.at("restore_level")),
+      .fields = {},
+      .degradation_reasons = {},
   };
   for (const auto& field : value.at("fields")) {
     state.fields.push_back(ParseStateField(field));
@@ -395,8 +397,10 @@ CheckpointBlobEntry ParseBlob(const Json& value) {
 CheckpointParticipantEntry ParseParticipant(const Json& value) {
   RequireFields(value, "participants[]", {"state", "blobs"});
   RequireArray(value.at("blobs"), "participants[].blobs");
-  CheckpointParticipantEntry participant{.state =
-                                             ParseState(value.at("state"))};
+  CheckpointParticipantEntry participant{
+      .state = ParseState(value.at("state")),
+      .blobs = {},
+  };
   for (const auto& blob : value.at("blobs")) {
     participant.blobs.push_back(ParseBlob(blob));
   }
@@ -715,6 +719,7 @@ CheckpointArtifactManifest parse_checkpoint_artifact_manifest_json(
         .schema_version =
             ReadVersion(root.at("schema_version"), "schema_version"),
         .build = ParseBuild(root.at("build")),
+        .participants = {},
     };
     for (const auto& participant : root.at("participants")) {
       manifest.participants.push_back(ParseParticipant(participant));
@@ -783,11 +788,14 @@ CapabilityDescriptor make_checkpoint_manifest_capability(
   ValidateLimits(limits);
   CapabilityDescriptor descriptor{
       .feature_id = "interop.checkpoint_manifest",
+      .scope_id = "",
       .feature_version = 1U,
       .status = CapabilityStatus::experimental,
       .implementation = CapabilityImplementation::native,
       .source = CapabilitySource::build,
       .backend = "jyppx",
+      .devices = {},
+      .dtypes = {},
       .schemas = {"jyppx.checkpoint.artifact_manifest.v1"},
       .operations = {"parse", "serialize", "validate"},
       .limits = {{.name = "max_manifest_bytes",
