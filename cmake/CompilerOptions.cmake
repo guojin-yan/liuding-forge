@@ -9,6 +9,7 @@
 set(JYPPX_COMPILED_TARGETS
     jyppx_foundation
     jyppx_core
+    jyppx_interop
     jyppx_data
     jyppx_nn
     jyppx_training

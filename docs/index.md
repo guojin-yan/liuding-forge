@@ -34,6 +34,8 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Checkpoint Participant](api/checkpoint_participant.md) — storage-neutral
   recovery levels, state descriptors, bounded blob I/O, and participant
   ownership boundaries
+- [Checkpoint Artifact Manifest](api/checkpoint_artifact_manifest.md) — strict
+  bounded format metadata, portable blob paths, digests, and deterministic JSON
 - [Checkpoint Coordinator](api/checkpoint_coordinator.md) — deterministic
   participant registration, transactional capture, restore preflight, and
   cross-participant rollback

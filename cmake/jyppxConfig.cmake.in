@@ -8,6 +8,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/jyppxTargets.cmake")
 set(_jyppx_supported_components
     foundation
     core
+    interop
     data
     nn
     training
@@ -33,8 +34,8 @@ foreach(_jyppx_component IN LISTS jyppx_FIND_COMPONENTS)
 endforeach()
 
 foreach(_jyppx_exported_target IN ITEMS
-        jyppx::foundation jyppx::core jyppx::data jyppx::nn jyppx::training
-        jyppx::optim jyppx::experiment jyppx::sdk)
+        jyppx::foundation jyppx::core jyppx::interop jyppx::data jyppx::nn
+        jyppx::training jyppx::optim jyppx::experiment jyppx::sdk)
     set_property(TARGET ${_jyppx_exported_target} APPEND
         PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")
 endforeach()

@@ -12,6 +12,11 @@ jyppx_add_gtest(jyppx_test_core
     core/test_core.cpp
 )
 
+jyppx_add_gtest(jyppx_test_interop_checkpoint_manifest
+    LINK_TARGET jyppx::interop
+    interop/test_checkpoint_manifest.cpp
+)
+
 jyppx_add_gtest(jyppx_test_experiment_config
     LINK_TARGET jyppx::experiment
     experiment/test_config.cpp

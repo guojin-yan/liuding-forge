@@ -263,6 +263,23 @@ if(MSVC)
     target_compile_definitions(jyppx_core PUBLIC _ITERATOR_DEBUG_LEVEL=0)
 endif()
 
+add_library(jyppx_interop STATIC
+    src/jyppx/interop/checkpoint_manifest.cpp
+)
+add_library(jyppx::interop ALIAS jyppx_interop)
+set_target_properties(jyppx_interop PROPERTIES
+    OUTPUT_NAME jyppx_interop
+    EXPORT_NAME interop
+)
+target_include_directories(jyppx_interop
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${jyppx_nlohmann_json_SOURCE_DIR}/single_include
+)
+target_link_libraries(jyppx_interop PUBLIC jyppx_foundation)
+
 add_library(jyppx_data STATIC
     src/jyppx/data/batch_memory.cpp
     src/jyppx/data/batch_schema.cpp
@@ -420,6 +437,7 @@ target_link_libraries(jyppx_training_framework
     INTERFACE
         jyppx_foundation
         jyppx_core
+        jyppx_interop
         jyppx_data
         jyppx_nn
         jyppx_training
@@ -464,8 +482,9 @@ endif()
 # ============================================
 # Installation
 # ============================================
-install(TARGETS jyppx_foundation jyppx_core jyppx_data jyppx_nn jyppx_training
-                jyppx_optim jyppx_experiment jyppx_training_framework
+install(TARGETS jyppx_foundation jyppx_core jyppx_interop jyppx_data jyppx_nn
+                jyppx_training jyppx_optim jyppx_experiment
+                jyppx_training_framework
     EXPORT jyppx_training_frameworkTargets
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib

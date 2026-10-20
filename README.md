@@ -65,9 +65,10 @@ target_link_libraries(my_app PRIVATE jyppx::sdk)
 ```
 
 Use `jyppx::foundation` when a tool only needs the capability, error, RNG, and
-build-fingerprint contracts. Public C++ headers, namespaces, and exported CMake
-targets all use the `jyppx` name; legacy target aliases are intentionally not
-provided.
+build-fingerprint contracts. Use `jyppx::interop` for the bounded checkpoint
+artifact manifest codec without linking training orchestration. Public C++
+headers, namespaces, and exported CMake targets all use the `jyppx` name;
+legacy target aliases are intentionally not provided.
 
 ### Basic Usage
 

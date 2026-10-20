@@ -8,6 +8,7 @@
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/foundation/random_checkpoint_participant.hpp>
 #include <jyppx/foundation/version.hpp>
+#include <jyppx/interop/checkpoint_manifest.hpp>
 #include <jyppx/nn/loss/contrastive_loss.hpp>
 #include <jyppx/nn/loss/dice_loss.hpp>
 #include <jyppx/nn/loss/focal_loss.hpp>
@@ -605,12 +606,18 @@ int main() {
       installed_event_scheduler->completed_steps() == 1 &&
       installed_composite_participant.describe_state().fields.size() == 2 &&
       installed_composite->descriptor().children.size() == 2;
+  const auto interop_capability =
+      jyppx::interop::make_checkpoint_manifest_capability();
+  const bool valid_interop =
+      interop_capability.feature_id == "interop.checkpoint_manifest" &&
+      interop_capability.operations.size() == 3U;
   const std::pair<std::string_view, bool> checks[] = {
       {"version", valid_version},
       {"error", valid_error},
       {"device", valid_device},
       {"checkpoint_contract", valid_checkpoint_contract},
       {"checkpoint_coordinator", valid_checkpoint_coordinator},
+      {"interop", valid_interop},
       {"rng_checkpoint", valid_rng_checkpoint},
       {"model_checkpoint", valid_model_checkpoint},
       {"data", valid_data},

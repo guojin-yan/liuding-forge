@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- An independently exported `jyppx::interop` target with a schema-v1
+  checkpoint artifact manifest codec, deterministic JSON, strict field and
+  digest validation, portable path checks, resource limits, capability
+  metadata, and an installed-package consumer.
+
 ### Changed
 - The installed CMake package now uses the canonical `jyppx` package name,
   validates requested components, and rejects unknown components. Legacy

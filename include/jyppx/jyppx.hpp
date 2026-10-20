@@ -17,6 +17,9 @@
 #include <jyppx/core/types.hpp>
 #include <jyppx/core/value_schema.hpp>
 
+// Interoperability
+#include <jyppx/interop/checkpoint_manifest.hpp>
+
 // Optimizers
 #include <jyppx/optim/adadelta_adapter.hpp>
 #include <jyppx/optim/adagrad_adapter.hpp>
