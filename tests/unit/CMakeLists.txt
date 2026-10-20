@@ -12,10 +12,6 @@ jyppx_add_gtest(jyppx_test_core
     core/test_core.cpp
 )
 
-jyppx_add_gtest(jyppx_test_utils
-    utils/test_logger.cpp
-)
-
 jyppx_add_gtest(jyppx_test_data
     LINK_TARGET jyppx::data
     data/test_batch_memory.cpp
@@ -179,6 +175,7 @@ jyppx_add_gtest(jyppx_test_plan
 )
 
 jyppx_add_gtest(jyppx_test_training
+    LINK_TARGET jyppx::training
     training/test_accuracy.cpp
     training/test_metrics.cpp
 )

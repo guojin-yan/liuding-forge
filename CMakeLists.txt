@@ -299,7 +299,11 @@ add_library(jyppx_training STATIC
     src/jyppx/training/amp/grad_scaler.cpp
     src/jyppx/training/amp/grad_scaler_checkpoint_participant.cpp
     src/jyppx/training/metrics/classification.cpp
+    src/jyppx/training/metrics/accuracy.cpp
+    src/jyppx/training/metrics/average_meter.cpp
     src/jyppx/training/metrics/ranking.cpp
+    src/jyppx/training/metrics/regression.cpp
+    src/jyppx/training/metrics/topk_accuracy.cpp
     src/jyppx/training/scheduler_adapter.cpp
     src/jyppx/training/single_device_strategy.cpp
     src/jyppx/training/trainer.cpp
@@ -348,44 +352,37 @@ target_link_libraries(jyppx_optim
 )
 target_link_libraries(jyppx_training PUBLIC jyppx_data jyppx_optim jyppx_nn)
 
-add_library(jyppx_training_framework STATIC)
+add_library(jyppx_training_framework INTERFACE)
 add_library(jyppx::sdk ALIAS jyppx_training_framework)
 set_target_properties(jyppx_training_framework PROPERTIES
-    OUTPUT_NAME jyppx_training_framework
     EXPORT_NAME sdk
 )
 
 # Include directories
 target_include_directories(jyppx_training_framework
-    PUBLIC
+    INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
-    target_include_directories(jyppx_training_framework SYSTEM PUBLIC
+    target_include_directories(jyppx_training_framework SYSTEM INTERFACE
         $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
     )
 endforeach()
 
-# Link LibTorch
+# The SDK is a pure aggregate and owns no sources or symbols.
 target_link_libraries(jyppx_training_framework
-    PUBLIC
+    INTERFACE
         jyppx_foundation
         jyppx_core
         jyppx_data
         jyppx_nn
         jyppx_training
         jyppx_optim
-        ${TORCH_LIBRARIES}
 )
 
 # Compiler options must be applied after the target has been created.
 include(cmake/CompilerOptions.cmake)
-
-# Sources will be added via subdirectories
-add_subdirectory(src)
 
 # ============================================
 # Tests

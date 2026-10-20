@@ -9,7 +9,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 namespace jyppx {
 namespace training {
@@ -18,8 +17,8 @@ namespace metrics {
 /**
  * @brief Owns named metrics that receive the same prediction/target batches.
  *
- * Metric names are unique stable keys. compute() preserves insertion order
- * while constructing its ordered map result. The collection and retained
+ * Metric names are unique stable keys. compute() returns them in the
+ * lexicographic order defined by `std::map`. The collection and retained
  * metrics are stateful and are not thread-safe.
  */
 class MetricCollection {
@@ -61,7 +60,6 @@ class MetricCollection {
               .actual = metric->name(),
               .hint = "Use a distinct name or replace the collection entry."});
     }
-    order_.push_back(metric->name());
   }
 
   /**
@@ -101,8 +99,8 @@ class MetricCollection {
    */
   std::map<std::string, double> compute() const {
     std::map<std::string, double> values;
-    for (const auto& name : order_) {
-      values.emplace(name, metrics_.at(name)->compute());
+    for (const auto& [name, metric] : metrics_) {
+      values.emplace(name, metric->compute());
     }
     return values;
   }
@@ -123,9 +121,6 @@ class MetricCollection {
  private:
   /** Metrics indexed by unique stable name. */
   std::map<std::string, std::shared_ptr<Metric>> metrics_;
-
-  /** Stable names in insertion order. */
-  std::vector<std::string> order_;
 };
 
 }  // namespace metrics

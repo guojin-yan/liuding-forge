@@ -1,26 +1,16 @@
 // Unit tests for the plan-completion modules: classification metrics,
-// extended samplers/datasets, extended transforms, LAMB, TensorBoard
-// writer and model summary/profiler helpers.
+// extended samplers/datasets, extended transforms, LAMB, and model
+// summary/profiler helpers.
 
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/jyppx.hpp>
 
-#include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <gtest/gtest.h>
 #include <numeric>
 #include <set>
 #include <sstream>
-
-#ifdef _WIN32
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
 
 namespace {
 
@@ -350,146 +340,6 @@ TEST_F(TransformsExtraTest, ColorJitterBrightnessScales) {
 TEST_F(TransformsExtraTest, ColorJitterValidatesArguments) {
   EXPECT_THROW(ColorJitter(-0.5), jyppx::InvalidArgument);
   EXPECT_THROW(ColorJitter(0.0, 0.0, 0.0, 0.9), jyppx::InvalidArgument);
-}
-
-// ---- TensorBoard writer
-// --------------------------------------------------------------
-
-TEST(TensorBoardTest, WritesEventFileWithScalarsAndText) {
-  const auto dir = std::filesystem::temp_directory_path() / "jyppx_tb_test";
-  std::error_code ec;
-  std::filesystem::remove_all(dir, ec);
-  {
-    utils::TensorBoardWriter writer(dir.string());
-    writer.add_scalar("train/loss", 0.5, 1);
-    writer.add_scalar("train/loss", 0.25, 2);
-    writer.add_text("info/message", "hello tensorboard", 2);
-    writer.flush();
-  }
-
-  // Exactly one event file, non-trivially sized, containing the tag.
-  std::vector<std::string> files;
-  for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-    files.push_back(entry.path().filename().string());
-  }
-  ASSERT_EQ(files.size(), 1);
-  EXPECT_EQ(files[0].rfind("events.out.tfevents.", 0), 0);
-
-  std::ifstream event_file((dir / files[0]).string(), std::ios::binary);
-  const std::string bytes{std::istreambuf_iterator<char>(event_file),
-                          std::istreambuf_iterator<char>()};
-  EXPECT_NE(bytes.find("train/loss"), std::string::npos);
-  EXPECT_NE(bytes.find("info/message"), std::string::npos);
-  EXPECT_NE(bytes.find("brain.Event:2"), std::string::npos);
-
-  // TFRecord framing: first 8 bytes decode to a little-endian length.
-  uint64_t first_length = 0;
-  std::memcpy(&first_length, bytes.data(), 8);
-  EXPECT_GT(first_length, 0u);
-  EXPECT_LT(first_length, 4096u);
-
-  std::filesystem::remove_all(dir, ec);
-}
-
-TEST(TensorBoardTest, ReusesDirectoryAndClosesExplicitly) {
-  const auto dir =
-      std::filesystem::temp_directory_path() / "jyppx_tb_reuse_test";
-  std::error_code ec;
-  std::filesystem::remove_all(dir, ec);
-  {
-    utils::TensorBoardWriter writer(dir.string());
-    utils::TensorBoardWriter second_writer(dir.string());
-    EXPECT_EQ(second_writer.log_dir(), dir.string());
-    second_writer.close();
-    second_writer.close();
-    EXPECT_THROW(second_writer.flush(), NotReady);
-    EXPECT_THROW(second_writer.add_scalar("closed", 1.0, 0), NotReady);
-  }
-  std::filesystem::remove_all(dir, ec);
-}
-
-TEST(TensorBoardTest, RejectsEventPathThatIsAlreadyADirectory) {
-  const auto dir =
-      std::filesystem::temp_directory_path() / "jyppx_tb_event_collision";
-  std::error_code ec;
-  std::filesystem::remove_all(dir, ec);
-  std::filesystem::create_directories(dir, ec);
-  ASSERT_FALSE(ec);
-
-  const auto seconds =
-      std::chrono::duration_cast<std::chrono::duration<double>>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
-#ifdef _WIN32
-  const auto process = static_cast<std::uint64_t>(_getpid());
-  const char* host = std::getenv("COMPUTERNAME");
-#else
-  const auto process = static_cast<std::uint64_t>(getpid());
-  const char* host = std::getenv("HOSTNAME");
-#endif
-  const std::string host_name = host == nullptr ? "localhost" : host;
-  const auto event_name = "events.out.tfevents." +
-                          std::to_string(static_cast<long long>(seconds)) +
-                          "." + host_name + "." + std::to_string(process);
-  std::filesystem::create_directory(dir / event_name, ec);
-  ASSERT_FALSE(ec);
-
-  EXPECT_THROW(utils::TensorBoardWriter(dir.string()), IoError);
-  std::filesystem::remove_all(dir, ec);
-}
-
-#ifndef _WIN32
-TEST(TensorBoardTest, ReportsEventWriteFailure) {
-  const auto dir =
-      std::filesystem::temp_directory_path() / "jyppx_tb_write_failure";
-  std::error_code ec;
-  std::filesystem::remove_all(dir, ec);
-  std::filesystem::create_directories(dir, ec);
-  ASSERT_FALSE(ec);
-
-  const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(
-                           std::chrono::system_clock::now().time_since_epoch())
-                           .count();
-  const char* host = std::getenv("HOSTNAME");
-  const std::string host_name = host == nullptr ? "localhost" : host;
-  const auto process = static_cast<std::uint64_t>(getpid());
-  for (std::int64_t offset = 0; offset <= 1; ++offset) {
-    const auto event_name = "events.out.tfevents." +
-                            std::to_string(seconds + offset) + "." + host_name +
-                            "." + std::to_string(process);
-    std::filesystem::create_symlink("/dev/full", dir / event_name, ec);
-    ASSERT_FALSE(ec);
-  }
-
-  utils::TensorBoardWriter writer(dir.string());
-  EXPECT_THROW(writer.add_text("write/failure", std::string(1 << 20, 'x'), 1),
-               IoError);
-  EXPECT_THROW(writer.flush(), IoError);
-  std::filesystem::remove_all(dir, ec);
-}
-#endif
-
-TEST(TensorBoardTest, ComputesMaskedCrcForEmptyAndNonEmptyBuffers) {
-  EXPECT_NE(utils::tfrecord_crc(nullptr, 0), 0u);
-  const std::string data = "jyppx";
-  EXPECT_NE(utils::tfrecord_crc(data.data(), data.size()), 0u);
-  EXPECT_NE(utils::tfrecord_crc(data.data(), data.size()),
-            utils::tfrecord_crc("other", 5));
-}
-
-TEST(TensorBoardTest, RejectsRegularFileAsLogDirectory) {
-  const auto path =
-      std::filesystem::temp_directory_path() / "jyppx_tensorboard_regular_file";
-  std::error_code ec;
-  std::filesystem::remove_all(path, ec);
-  {
-    std::ofstream marker(path);
-    ASSERT_TRUE(marker.is_open());
-    marker << "not a directory";
-  }
-
-  EXPECT_THROW(utils::TensorBoardWriter(path.string()), IoError);
-  std::filesystem::remove(path, ec);
 }
 
 // ---- Model summary / profiler

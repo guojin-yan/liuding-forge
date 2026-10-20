@@ -19,9 +19,13 @@ class MSE : public Metric {
 
   /**
    * @brief Accumulates squared elementwise errors from one batch.
-   * @param preds Defined predictions; an empty pair is ignored.
-   * @param targets Defined targets with the same element count as `preds`.
-   * @throws InvalidArgument If tensors are undefined or element counts differ.
+   * @param preds Defined finite real predictions; an empty pair is ignored.
+   * @param targets Defined finite real targets on the same device with the
+   *     same element count as `preds`.
+   * @throws InvalidArgument If tensors have incompatible definition, device,
+   *     dtype, emptiness, or element count.
+   * @throws NumericalError If the accumulated squared error is not finite.
+   * @throws ResourceExhausted If the element count would overflow.
    */
   void update(const Tensor& preds, const Tensor& targets) override;
 
@@ -52,9 +56,13 @@ class MAE : public Metric {
 
   /**
    * @brief Accumulates absolute elementwise errors from one batch.
-   * @param preds Defined predictions; an empty pair is ignored.
-   * @param targets Defined targets with the same element count as `preds`.
-   * @throws InvalidArgument If tensors are undefined or element counts differ.
+   * @param preds Defined finite real predictions; an empty pair is ignored.
+   * @param targets Defined finite real targets on the same device with the
+   *     same element count as `preds`.
+   * @throws InvalidArgument If tensors have incompatible definition, device,
+   *     dtype, emptiness, or element count.
+   * @throws NumericalError If the accumulated absolute error is not finite.
+   * @throws ResourceExhausted If the element count would overflow.
    */
   void update(const Tensor& preds, const Tensor& targets) override;
 
@@ -88,15 +96,19 @@ class R2Score : public Metric {
   R2Score()
       : Metric("r2_score"),
         residual_sum_(0.0),
-        target_sum_(0.0),
-        target_sq_sum_(0.0),
+        target_mean_(0.0),
+        target_m2_(0.0),
         count_(0) {}
 
   /**
    * @brief Accumulates residuals and target moments from one batch.
-   * @param preds Defined predictions; an empty pair is ignored.
-   * @param targets Defined targets with the same element count as `preds`.
-   * @throws InvalidArgument If tensors are undefined or element counts differ.
+   * @param preds Defined finite real predictions; an empty pair is ignored.
+   * @param targets Defined finite real targets on the same device with the
+   *     same element count as `preds`.
+   * @throws InvalidArgument If tensors have incompatible definition, device,
+   *     dtype, emptiness, or element count.
+   * @throws NumericalError If a candidate accumulated moment is not finite.
+   * @throws ResourceExhausted If the element count would overflow.
    */
   void update(const Tensor& preds, const Tensor& targets) override;
 
@@ -113,11 +125,11 @@ class R2Score : public Metric {
   /** Sum of squared prediction residuals. */
   double residual_sum_;
 
-  /** Sum of all observed target values. */
-  double target_sum_;
+  /** Online mean of all observed target values. */
+  double target_mean_;
 
-  /** Sum of squared observed target values. */
-  double target_sq_sum_;
+  /** Sum of squared deviations from `target_mean_` using Welford merging. */
+  double target_m2_;
 
   /** Number of target elements included in the moments. */
   int64_t count_;

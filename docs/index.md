@@ -85,15 +85,16 @@ metrics, callbacks, checkpointing and mixed precision.
   metric-learning loss with explicit tensor and label contracts
 - [Focal loss](api/losses/focal_loss.md) — binary and class-index focal loss
   with explicit alpha/gamma and tensor contracts
-- [Utilities](api/utils.md) — devices, tensor checks, logger, parameter
-  initialization, version
+- [Utilities](api/utils.md) — devices, tensor checks, parameter initialization,
+  version
 
 ## Project status
 
 See [CHANGELOG](../CHANGELOG.md) for the running list of changes. The current
-framework scope includes loss, optimizer, scheduler, hooks, TensorBoard,
-augmentation, analysis, metric, checkpoint and AMP extensions. Quantization is
-planned as a separately gated optional component and is not part of the current
-default SDK surface.
+framework scope includes loss, optimizer, scheduler, hooks, augmentation,
+analysis, metric, checkpoint and AMP extensions. TensorBoard will return only
+as an independently gated experiment adapter backed by generated upstream
+schemas. Quantization is planned as a separately gated optional component and
+is not part of the current default SDK surface.
 Planning records are maintained outside the source repository and are not
 part of the installed documentation.

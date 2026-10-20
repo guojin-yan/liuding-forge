@@ -1,8 +1,10 @@
 // Unit tests for the jyppx::training::metrics::Accuracy metric.
 
+#include <jyppx/foundation/error.hpp>
 #include <jyppx/training/metrics/accuracy.hpp>
 
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace {
 
@@ -31,8 +33,8 @@ TEST(AccuracyTest, TwoDimensionalPredictionsUseArgmax) {
 
 TEST(AccuracyTest, PartialCorrectnessScoresFraction) {
   Accuracy accuracy;
-  const auto preds = torch::tensor({1.0f, 0.2f, 2.0f, 0.0f});
-  const auto targets = torch::tensor({1.0f, 1.0f, 2.0f, 3.0f});
+  const auto preds = torch::tensor({1.0f, 0.2f, -2.0f, 0.0f});
+  const auto targets = torch::tensor({1.0f, 0.0f, 0.0f, 1.0f});
   accuracy.update(preds, targets);
   EXPECT_DOUBLE_EQ(accuracy.compute(), 0.5);
 }
@@ -55,6 +57,32 @@ TEST(AccuracyTest, ResetClearsState) {
 
 TEST(AccuracyTest, NoUpdatesScoresZero) {
   Accuracy accuracy;
+  EXPECT_DOUBLE_EQ(accuracy.compute(), 0.0);
+}
+
+TEST(AccuracyTest, RejectsAmbiguousOrInvalidLabelsWithoutChangingState) {
+  Accuracy accuracy;
+  accuracy.update(torch::tensor({1.0f}), torch::tensor({1}));
+
+  EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::tensor({1.5f})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      accuracy.update(torch::tensor({{0.1f, 0.9f}}), torch::tensor({2})),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::tensor({1.0e30f})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::empty({0})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      accuracy.update(torch::tensor({std::numeric_limits<float>::quiet_NaN()}),
+                      torch::tensor({0})),
+      jyppx::InvalidArgument);
+  EXPECT_DOUBLE_EQ(accuracy.compute(), 1.0);
+}
+
+TEST(AccuracyTest, IgnoresOnlyACompleteEmptyPair) {
+  Accuracy accuracy;
+  accuracy.update(torch::empty({0}), torch::empty({0}));
   EXPECT_DOUBLE_EQ(accuracy.compute(), 0.0);
 }
 

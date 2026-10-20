@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace {
 
@@ -71,6 +72,27 @@ TEST(TopKAccuracyTest, RejectsOneDimensionalPredictions) {
   EXPECT_THROW(TopKAccuracy invalid(0), jyppx::InvalidArgument);
 }
 
+TEST(TopKAccuracyTest, RejectsAmbiguousOrInvalidInputsWithoutChangingState) {
+  TopKAccuracy top2(2);
+  top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({0}));
+
+  EXPECT_THROW(top2.update(torch::ones({1, 2, 1}), torch::tensor({0})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({0.5f})),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({2})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(top2.update(torch::empty({0, 2}), torch::tensor({0})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      top2.update(
+          torch::tensor({{std::numeric_limits<float>::quiet_NaN(), 0.1f}}),
+          torch::tensor({0})),
+      jyppx::InvalidArgument);
+  EXPECT_DOUBLE_EQ(top2.compute(), 1.0);
+}
+
 TEST(MSETest, ComputesMeanSquaredError) {
   MSE mse;
   mse.update(torch::tensor({1.0f, 2.0f}),
@@ -115,6 +137,31 @@ TEST(R2ScoreTest, MeanPredictorScoresZero) {
   EXPECT_NEAR(r2.compute(), 0.0, 1e-12);
 }
 
+TEST(R2ScoreTest, UsesStableMomentsForLargeOffsetTargets) {
+  constexpr double base = 1.0e12;
+  R2Score r2;
+  r2.update(torch::tensor({base, base + 1.0}, torch::kFloat64),
+            torch::tensor({base, base + 1.0}, torch::kFloat64));
+  r2.update(torch::tensor({base + 3.0}, torch::kFloat64),
+            torch::tensor({base + 2.0}, torch::kFloat64));
+  EXPECT_NEAR(r2.compute(), 0.5, 1e-12);
+}
+
+TEST(RegressionMetricTest, RejectsInvalidInputWithoutChangingState) {
+  MSE mse;
+  mse.update(torch::tensor({1.0}), torch::tensor({0.0}));
+  EXPECT_THROW(mse.update(torch::tensor({1.0}), torch::empty({0})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      mse.update(torch::tensor({std::numeric_limits<double>::infinity()}),
+                 torch::tensor({0.0})),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(mse.update(torch::tensor({1.0e308}, torch::kFloat64),
+                          torch::tensor({-1.0e308}, torch::kFloat64)),
+               jyppx::NumericalError);
+  EXPECT_DOUBLE_EQ(mse.compute(), 1.0);
+}
+
 TEST(AverageMeterTest, WeightedAveraging) {
   AverageMeter meter;
   meter.update(1.0, 3);
@@ -137,6 +184,20 @@ TEST(AverageMeterTest, AcceptsTensorMeans) {
 TEST(AverageMeterTest, RejectsInvalidCounts) {
   AverageMeter meter;
   EXPECT_THROW(meter.update(1.0, 0), jyppx::InvalidArgument);
+}
+
+TEST(AverageMeterTest, RejectsNonFiniteValuesWithoutChangingState) {
+  AverageMeter meter;
+  meter.update(2.0, 2);
+  EXPECT_THROW(meter.update(std::numeric_limits<double>::infinity()),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      meter.update(torch::tensor({std::numeric_limits<double>::quiet_NaN()},
+                                 torch::kFloat64)),
+      jyppx::InvalidArgument);
+  EXPECT_DOUBLE_EQ(meter.average(), 2.0);
+  EXPECT_EQ(meter.count(), 2);
+  EXPECT_DOUBLE_EQ(meter.last_value(), 2.0);
 }
 
 TEST(MetricErrorTest, PreservesStableCodeAndStructuredContext) {

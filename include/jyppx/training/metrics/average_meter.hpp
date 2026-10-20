@@ -24,7 +24,10 @@ class AverageMeter {
    * @brief Records one scalar value with an observation count.
    * @param value Scalar mean for the represented observations.
    * @param count Number of observations represented by `value`.
-   * @throws InvalidArgument If `count` is not positive.
+   * @throws InvalidArgument If `value` is not finite or `count` is not
+   *     positive.
+   * @throws NumericalError If the candidate weighted sum is not finite.
+   * @throws ResourceExhausted If the accumulated count would overflow.
    */
   void update(double value, int64_t count = 1);
 
@@ -32,7 +35,10 @@ class AverageMeter {
    * @brief Records a tensor's elementwise mean with an observation count.
    * @param value Defined, non-empty tensor whose mean is recorded.
    * @param count Number of observations represented by the tensor mean.
-   * @throws InvalidArgument If the tensor is empty or `count` is not positive.
+   * @throws InvalidArgument If the tensor is undefined, empty, complex, has a
+   *     non-finite mean, or `count` is not positive.
+   * @throws NumericalError If the candidate weighted sum is not finite.
+   * @throws ResourceExhausted If the accumulated count would overflow.
    */
   void update(const Tensor& value, int64_t count = 1);
 

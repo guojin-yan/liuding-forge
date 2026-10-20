@@ -12,9 +12,10 @@ namespace metrics {
 /**
  * @brief Accumulates exact classification accuracy across batches.
  *
- * One-dimensional predictions are converted to labels with a zero threshold.
- * Predictions with two or more dimensions use argmax over dimension 1. Targets
- * are flattened and converted to 64-bit class indices before comparison.
+ * One-dimensional predictions are converted to binary labels with a zero
+ * threshold. Predictions with two or more dimensions use argmax over
+ * dimension 1. Targets must be finite integral class indices on the same
+ * device and are flattened before comparison.
  */
 class Accuracy : public Metric {
  public:
@@ -23,9 +24,13 @@ class Accuracy : public Metric {
 
   /**
    * @brief Accumulates correct predictions from one batch.
-   * @param preds Defined prediction tensor; empty tensors are ignored.
-   * @param targets Defined target tensor with one label per prediction.
-   * @throws InvalidArgument If an input is undefined or label counts differ.
+   * @param preds Defined finite prediction tensor; a pair of empty tensors is
+   *     ignored.
+   * @param targets Defined finite integral class indices with one label per
+   *     prediction.
+   * @throws InvalidArgument If inputs have incompatible shape, device, dtype,
+   *     emptiness, label count, or class range.
+   * @throws ResourceExhausted If the accumulated label count would overflow.
    */
   void update(const Tensor& preds, const Tensor& targets) override;
 

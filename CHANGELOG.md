@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Removed
+- The legacy global text `Logger` and hand-encoded TensorBoard protobuf writer.
+  Structured event sinks remain available; a future TensorBoard adapter must
+  live in its own component and use reviewed generated schemas.
 - The v1.0 single-process distributed-process-group and DDP placeholders. The
   framework will not publish distributed APIs until they provide real
   multi-process collectives, rank-safe training, and checkpoint semantics.

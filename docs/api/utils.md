@@ -44,28 +44,6 @@ template <typename T> using Optional = std::optional<T>;
 }
 ```
 
-## Logger
-
-`#include <jyppx/utils/logger.hpp>`
-
-```cpp
-enum class LogLevel { DEBUG, INFO, WARNING, ERROR };
-
-class Logger {  // thread-safe singleton
-public:
-    static Logger& instance();
-    void set_level(LogLevel level);
-    void set_file(const std::string& filepath);   // appends; throws if unopenable
-    void debug/info/warning/error(const std::string& message);
-};
-
-#define LOG_DEBUG(msg)  // plus LOG_INFO / LOG_WARNING / LOG_ERROR macros
-```
-
-Messages below the configured level are dropped; every accepted line is
-written to `stdout` and, when configured, to the log file with a
-`[timestamp] [LEVEL]` prefix.
-
 ## Parameter initialization
 
 JYPPX does not wrap LibTorch's parameter initialization API. Include

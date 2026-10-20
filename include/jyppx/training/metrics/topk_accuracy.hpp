@@ -12,9 +12,9 @@ namespace metrics {
 /**
  * @brief Accumulates whether each target appears among the highest K scores.
  *
- * Predictions must contain a batch dimension followed by a class dimension.
- * Targets are flattened and converted to 64-bit class indices. If K exceeds
- * the number of classes, all classes participate in the comparison.
+ * Predictions must be a finite rank-2 `{batch, classes}` score tensor.
+ * Targets must be finite integral class indices on the same device. If K
+ * exceeds the number of classes, all classes participate in the comparison.
  */
 class TopKAccuracy : public Metric {
  public:
@@ -27,10 +27,11 @@ class TopKAccuracy : public Metric {
 
   /**
    * @brief Accumulates top-K hits from one batch.
-   * @param preds Defined scores with shape `{batch, classes, ...}`.
+   * @param preds Defined finite scores with shape `{batch, classes}`.
    * @param targets Defined tensor containing one class index per batch row.
-   * @throws InvalidArgument If the inputs violate the documented shape
-   * contract.
+   * @throws InvalidArgument If inputs violate the documented shape, device,
+   *     dtype, emptiness, label-count, or class-range contract.
+   * @throws ResourceExhausted If the accumulated label count would overflow.
    */
   void update(const Tensor& preds, const Tensor& targets) override;
 

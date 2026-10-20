@@ -84,11 +84,9 @@
 #include <jyppx/training/metrics/topk_accuracy.hpp>
 
 // Utils
-#include <jyppx/utils/logger.hpp>
 #include <jyppx/utils/model_summary.hpp>
 #include <jyppx/utils/profiler.hpp>
 #include <jyppx/utils/progress_bar.hpp>
-#include <jyppx/utils/tensorboard.hpp>
 
 // NN
 #include <jyppx/nn/invocation.hpp>
