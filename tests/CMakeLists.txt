@@ -228,6 +228,25 @@ set_tests_properties(ExperimentInstallConsumer PROPERTIES
     RESOURCE_LOCK jyppx_install_consumer
 )
 
+add_test(
+    NAME PackageComponentConsumer
+    COMMAND ${CMAKE_COMMAND}
+        -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
+        -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/package_component_consumer
+        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_package_component_consumer/$<CONFIG>
+        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_TORCH_DIR=${Torch_DIR}
+        -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
+        -DJYPPX_CUDA_STANDARD=${CMAKE_CUDA_STANDARD}
+        -DJYPPX_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}
+        -DJYPPX_TORCH_CUDA_ARCH_LIST=$ENV{TORCH_CUDA_ARCH_LIST}
+        -P ${CMAKE_SOURCE_DIR}/cmake/TestInstalledTargets.cmake
+)
+set_tests_properties(PackageComponentConsumer PROPERTIES
+    LABELS "packaging"
+    RESOURCE_LOCK jyppx_install_consumer
+)
+
 # Adds a GoogleTest executable linked against the framework and registered
 # with CTest. Sources are passed as extra arguments.
 function(jyppx_add_gtest test_name)

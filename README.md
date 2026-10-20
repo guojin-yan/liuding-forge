@@ -60,7 +60,7 @@ After installation, consumers can load the package and link the exported
 target:
 
 ```cmake
-find_package(jyppx_training_framework CONFIG REQUIRED)
+find_package(jyppx CONFIG REQUIRED COMPONENTS sdk)
 target_link_libraries(my_app PRIVATE jyppx::sdk)
 ```
 

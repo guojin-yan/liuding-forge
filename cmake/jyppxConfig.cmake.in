@@ -1,0 +1,46 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Torch REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/jyppxTargets.cmake")
+
+set(_jyppx_supported_components
+    foundation
+    core
+    data
+    nn
+    training
+    optim
+    experiment
+    sdk
+)
+
+foreach(_jyppx_component IN LISTS _jyppx_supported_components)
+    if(TARGET jyppx::${_jyppx_component})
+        set(jyppx_${_jyppx_component}_FOUND TRUE)
+    else()
+        set(jyppx_${_jyppx_component}_FOUND FALSE)
+    endif()
+endforeach()
+
+foreach(_jyppx_component IN LISTS jyppx_FIND_COMPONENTS)
+    if(NOT _jyppx_component IN_LIST _jyppx_supported_components)
+        set(jyppx_${_jyppx_component}_FOUND FALSE)
+        set(jyppx_NOT_FOUND_MESSAGE
+            "Unsupported jyppx component: ${_jyppx_component}")
+    endif()
+endforeach()
+
+foreach(_jyppx_exported_target IN ITEMS
+        jyppx::foundation jyppx::core jyppx::data jyppx::nn jyppx::training
+        jyppx::optim jyppx::experiment jyppx::sdk)
+    set_property(TARGET ${_jyppx_exported_target} APPEND
+        PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")
+endforeach()
+
+check_required_components(jyppx)
+
+unset(_jyppx_component)
+unset(_jyppx_exported_target)
+unset(_jyppx_supported_components)

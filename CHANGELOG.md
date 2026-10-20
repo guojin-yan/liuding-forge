@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The installed CMake package now uses the canonical `jyppx` package name,
+  validates requested components, and rejects unknown components. Legacy
+  package and target entry points are not retained.
+
 ### Removed
 - The legacy global text `Logger` and hand-encoded TensorBoard protobuf writer.
   Structured event sinks remain available; a future TensorBoard adapter must

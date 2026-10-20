@@ -483,9 +483,9 @@ install(FILES
 )
 
 install(EXPORT jyppx_training_frameworkTargets
-    FILE jyppx_training_frameworkTargets.cmake
+    FILE jyppxTargets.cmake
     NAMESPACE jyppx::
-    DESTINATION lib/cmake/jyppx_training_framework
+    DESTINATION lib/cmake/jyppx
 )
 
 # ============================================
@@ -494,21 +494,21 @@ install(EXPORT jyppx_training_frameworkTargets
 include(CMakePackageConfigHelpers)
 
 configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppx_training_frameworkConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/jyppx_training_frameworkConfig.cmake
-    INSTALL_DESTINATION lib/cmake/jyppx_training_framework
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppxConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/jyppxConfig.cmake
+    INSTALL_DESTINATION lib/cmake/jyppx
 )
 
 write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/jyppx_training_frameworkConfigVersion.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/jyppxConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY AnyNewerVersion
 )
 
 install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/jyppx_training_frameworkConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/jyppx_training_frameworkConfigVersion.cmake
-    DESTINATION lib/cmake/jyppx_training_framework
+    ${CMAKE_CURRENT_BINARY_DIR}/jyppxConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/jyppxConfigVersion.cmake
+    DESTINATION lib/cmake/jyppx
 )
 
 install(FILES

@@ -3,11 +3,9 @@
 JYPPX is distributed as a CMake package backed by LibTorch:
 
 ```cmake
-find_package(Torch REQUIRED)
-find_package(jyppx_training_framework CONFIG REQUIRED)
+find_package(jyppx CONFIG REQUIRED COMPONENTS training)
 add_executable(train train.cpp)
-target_link_libraries(train PRIVATE
-    jyppx_training_framework::jyppx_training_framework)
+target_link_libraries(train PRIVATE jyppx::training)
 ```
 
 Public headers remain under `include/jyppx` and the namespace is `jyppx`. On
