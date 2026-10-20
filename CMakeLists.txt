@@ -87,6 +87,9 @@ include(cmake/CopyTorchRuntime.cmake)
 # Bounded JSON Parser Implementation Dependency
 # ============================================
 include(FetchContent)
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
 set(JYPPX_NLOHMANN_JSON_VERSION 3.12.0)
 set(JYPPX_NLOHMANN_JSON_ARCHIVE
     "${PROJECT_SOURCE_DIR}/third_party/downloads/nlohmann-json-${JYPPX_NLOHMANN_JSON_VERSION}.tar.xz")
@@ -101,7 +104,6 @@ set(JSON_Install OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(jyppx_nlohmann_json
     URL "${JYPPX_NLOHMANN_JSON_URL}"
     URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(jyppx_nlohmann_json)
 
