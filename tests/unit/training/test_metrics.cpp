@@ -93,6 +93,41 @@ TEST(TopKAccuracyTest, RejectsAmbiguousOrInvalidInputsWithoutChangingState) {
   EXPECT_DOUBLE_EQ(top2.compute(), 1.0);
 }
 
+TEST(TopKAccuracyTest, RejectsUndefinedComplexAndNegativeInputs) {
+  TopKAccuracy top2(2);
+  top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({0}));
+
+  EXPECT_THROW(top2.update(Tensor{}, torch::tensor({0})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}}), Tensor{}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(top2.update(torch::ones({1, 2}, torch::kComplexFloat),
+                           torch::tensor({0})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}}),
+                           torch::ones({1}, torch::kComplexFloat)),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({-1.0f})),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({-1})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}, {0.1f, 0.9f}}),
+                           torch::tensor({0})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      top2.update(torch::tensor({{0.9f, 0.1f}}),
+                  torch::tensor({std::numeric_limits<float>::quiet_NaN()})),
+      jyppx::InvalidArgument);
+  EXPECT_DOUBLE_EQ(top2.compute(), 1.0);
+}
+
+TEST(TopKAccuracyTest, IgnoresACompleteEmptyPair) {
+  TopKAccuracy top2(2);
+  top2.update(torch::empty({0, 2}), torch::empty({0}));
+  EXPECT_DOUBLE_EQ(top2.compute(), 0.0);
+}
+
 TEST(MSETest, ComputesMeanSquaredError) {
   MSE mse;
   mse.update(torch::tensor({1.0f, 2.0f}),
@@ -162,6 +197,64 @@ TEST(RegressionMetricTest, RejectsInvalidInputWithoutChangingState) {
   EXPECT_DOUBLE_EQ(mse.compute(), 1.0);
 }
 
+TEST(RegressionMetricTest, EmptyPairsAreNoOps) {
+  MSE mse;
+  MAE mae;
+  R2Score r2;
+  const auto empty = torch::empty({0});
+
+  mse.update(empty, empty);
+  mae.update(empty, empty);
+  r2.update(empty, empty);
+  EXPECT_DOUBLE_EQ(mse.compute(), 0.0);
+  EXPECT_DOUBLE_EQ(mae.compute(), 0.0);
+  EXPECT_DOUBLE_EQ(r2.compute(), 0.0);
+}
+
+TEST(RegressionMetricTest, RejectsUndefinedComplexAndMismatchedInputs) {
+  MSE mse;
+  EXPECT_THROW(mse.update(Tensor{}, torch::tensor({0.0f})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(mse.update(torch::tensor({0.0f}), Tensor{}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      mse.update(torch::ones({1}, torch::kComplexFloat), torch::tensor({0.0f})),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(
+      mse.update(torch::tensor({0.0f}), torch::ones({1}, torch::kComplexFloat)),
+      jyppx::InvalidArgument);
+  EXPECT_THROW(mse.update(torch::tensor({0.0f, 1.0f}), torch::tensor({0.0f})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(
+      mse.update(torch::tensor({0.0f}),
+                 torch::tensor({std::numeric_limits<float>::infinity()})),
+      jyppx::InvalidArgument);
+  EXPECT_DOUBLE_EQ(mse.compute(), 0.0);
+}
+
+TEST(MAETest, RejectsNonFiniteBatchAccumulatorAndResets) {
+  MAE mae;
+  EXPECT_THROW(mae.update(torch::tensor({1.0e308}, torch::kFloat64),
+                          torch::tensor({-1.0e308}, torch::kFloat64)),
+               jyppx::NumericalError);
+  EXPECT_DOUBLE_EQ(mae.compute(), 0.0);
+  mae.update(torch::tensor({2.0}), torch::tensor({1.0}));
+  mae.reset();
+  EXPECT_DOUBLE_EQ(mae.compute(), 0.0);
+}
+
+TEST(R2ScoreTest, DefinesConstantTargetSemanticsAndResets) {
+  R2Score exact;
+  exact.update(torch::tensor({2.0, 2.0}), torch::tensor({2.0, 2.0}));
+  EXPECT_DOUBLE_EQ(exact.compute(), 1.0);
+
+  R2Score inexact;
+  inexact.update(torch::tensor({1.0, 1.0}), torch::tensor({2.0, 2.0}));
+  EXPECT_DOUBLE_EQ(inexact.compute(), 0.0);
+  inexact.reset();
+  EXPECT_DOUBLE_EQ(inexact.compute(), 0.0);
+}
+
 TEST(AverageMeterTest, WeightedAveraging) {
   AverageMeter meter;
   meter.update(1.0, 3);
@@ -198,6 +291,29 @@ TEST(AverageMeterTest, RejectsNonFiniteValuesWithoutChangingState) {
   EXPECT_DOUBLE_EQ(meter.average(), 2.0);
   EXPECT_EQ(meter.count(), 2);
   EXPECT_DOUBLE_EQ(meter.last_value(), 2.0);
+}
+
+TEST(AverageMeterTest, RejectsCountAndWeightedSumOverflow) {
+  AverageMeter count_meter;
+  count_meter.update(0.0, std::numeric_limits<std::int64_t>::max());
+  EXPECT_THROW(count_meter.update(0.0, 1), jyppx::ResourceExhausted);
+  EXPECT_EQ(count_meter.count(), std::numeric_limits<std::int64_t>::max());
+  EXPECT_DOUBLE_EQ(count_meter.average(), 0.0);
+
+  AverageMeter sum_meter;
+  EXPECT_THROW(sum_meter.update(std::numeric_limits<double>::max(), 2),
+               jyppx::NumericalError);
+  EXPECT_EQ(sum_meter.count(), 0);
+  EXPECT_DOUBLE_EQ(sum_meter.average(), 0.0);
+}
+
+TEST(AverageMeterTest, RejectsUndefinedEmptyAndComplexTensors) {
+  AverageMeter meter;
+  EXPECT_THROW(meter.update(Tensor{}), jyppx::InvalidArgument);
+  EXPECT_THROW(meter.update(torch::empty({0})), jyppx::InvalidArgument);
+  EXPECT_THROW(meter.update(torch::ones({1}, torch::kComplexFloat)),
+               jyppx::InvalidArgument);
+  EXPECT_EQ(meter.count(), 0);
 }
 
 TEST(MetricErrorTest, PreservesStableCodeAndStructuredContext) {

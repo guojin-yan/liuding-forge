@@ -86,4 +86,30 @@ TEST(AccuracyTest, IgnoresOnlyACompleteEmptyPair) {
   EXPECT_DOUBLE_EQ(accuracy.compute(), 0.0);
 }
 
+TEST(AccuracyTest, RejectsUndefinedScalarComplexAndNegativeInputs) {
+  Accuracy accuracy;
+  accuracy.update(torch::tensor({1.0f}), torch::tensor({1}));
+
+  EXPECT_THROW(accuracy.update(Tensor{}, torch::tensor({1})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), Tensor{}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::tensor(1.0f), torch::tensor({1})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::ones({1}, torch::kComplexFloat),
+                               torch::tensor({1})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::tensor({1.0f}),
+                               torch::ones({1}, torch::kComplexFloat)),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::tensor({-1.0f})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::tensor({-1})),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(accuracy.update(torch::tensor({{0.1f, 0.9f}, {0.9f, 0.1f}}),
+                               torch::tensor({1})),
+               jyppx::InvalidArgument);
+  EXPECT_DOUBLE_EQ(accuracy.compute(), 1.0);
+}
+
 }  // namespace
