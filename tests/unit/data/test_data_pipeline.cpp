@@ -914,6 +914,33 @@ TEST(DataPipelineTest, PublishesEveryOptionalCrossDomainCapabilityField) {
             descriptor.limits.end());
 }
 
+TEST(DataPipelineTest, DescribesIterableProducerCapability) {
+  auto dataset = make_dataset();
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+          dataset->size()),
+      {.pipeline_id = "data.pipeline.capability-iterable",
+       .dataset_version = "dataset/v1",
+       .dataset_size = dataset->size(),
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
+       .batch_factory_id = "factory.tensor-rows/v1",
+       .batch_size = 2},
+      make_factory(dataset));
+  auto capability = pipeline.capability();
+  capability.map_style = false;
+  capability.iterable_style = true;
+  capability.worker_model = jyppx::data::DataWorkerModel::producer_thread;
+  capability.worker_count = 1;
+  capability.worker_shard_policy =
+      jyppx::data::DataWorkerShardPolicy::single_shard;
+
+  const auto descriptor = jyppx::data::describe_data_capability(capability);
+  EXPECT_EQ(descriptor.feature_id, "jyppx.data.pipeline.iterable");
+  EXPECT_NE(std::find(descriptor.operations.begin(),
+                      descriptor.operations.end(), "worker.producer-thread"),
+            descriptor.operations.end());
+}
+
 TEST(DataPipelineCheckpointTest,
      RejectsStructuralSchemaMismatchWithoutMutation) {
   auto dataset = make_dataset();
