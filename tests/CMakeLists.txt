@@ -150,6 +150,14 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(PublicHeaderGuards PROPERTIES LABELS "hygiene;headers")
 endif()
 
+add_test(
+    NAME LegacySurface
+    COMMAND ${CMAKE_COMMAND}
+        -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_SOURCE_DIR}/cmake/CheckLegacySurface.cmake
+)
+set_tests_properties(LegacySurface PROPERTIES LABELS "hygiene;migration")
+
 set(JYPPX_GTEST_VERSION 1.14.0)
 set(JYPPX_GTEST_ZIP "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/downloads/googletest-${JYPPX_GTEST_VERSION}.zip")
 
@@ -269,6 +277,7 @@ set_tests_properties(PackageComponentConsumer PROPERTIES
 add_test(
     NAME ComponentInstallMatrixConsumer
     COMMAND ${CMAKE_COMMAND}
+        -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
         -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_component_install_consumer/$<CONFIG>
@@ -290,7 +299,7 @@ set_tests_properties(ComponentInstallMatrixConsumer PROPERTIES
 function(jyppx_add_gtest test_name)
     cmake_parse_arguments(JYPPX_TEST "" "LINK_TARGET" "" ${ARGN})
     if(NOT JYPPX_TEST_LINK_TARGET)
-        set(JYPPX_TEST_LINK_TARGET jyppx_training_framework)
+        set(JYPPX_TEST_LINK_TARGET jyppx::sdk)
     endif()
     add_executable(${test_name} ${JYPPX_TEST_UNPARSED_ARGUMENTS})
     target_link_libraries(${test_name} PRIVATE ${JYPPX_TEST_LINK_TARGET} GTest::gtest_main)
@@ -318,7 +327,7 @@ if(JYPPX_BUILD_BENCHMARKS)
     # CTest; they are run manually.
     function(jyppx_add_bench bench_name)
         add_executable(${bench_name} ${ARGN})
-        target_link_libraries(${bench_name} PRIVATE jyppx_training_framework)
+        target_link_libraries(${bench_name} PRIVATE jyppx::sdk)
         jyppx_apply_instrumentation(${bench_name})
         jyppx_add_torch_runtime_dependency(${bench_name})
     endfunction()

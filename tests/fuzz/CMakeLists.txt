@@ -6,7 +6,7 @@ endif()
 
 function(jyppx_add_fuzz_target target source)
     add_executable(${target} ${source})
-    target_link_libraries(${target} PRIVATE jyppx_training_framework)
+    target_link_libraries(${target} PRIVATE jyppx::sdk)
     target_compile_options(${target} PRIVATE -fsanitize=fuzzer)
     target_link_options(${target} PRIVATE -fsanitize=fuzzer)
     jyppx_apply_instrumentation(${target})

@@ -1,14 +1,14 @@
 add_executable(jyppx_basic_data_pipeline basic_data_pipeline.cpp)
-target_link_libraries(jyppx_basic_data_pipeline PRIVATE jyppx_training_framework)
+target_link_libraries(jyppx_basic_data_pipeline PRIVATE jyppx::sdk)
 
 add_executable(jyppx_basic_trainer basic_trainer.cpp)
-target_link_libraries(jyppx_basic_trainer PRIVATE jyppx_training_framework)
+target_link_libraries(jyppx_basic_trainer PRIVATE jyppx::sdk)
 
 add_executable(jyppx_mnist mnist/mnist.cpp)
-target_link_libraries(jyppx_mnist PRIVATE jyppx_training_framework)
+target_link_libraries(jyppx_mnist PRIVATE jyppx::sdk)
 
 add_executable(jyppx_distillation distillation.cpp)
-target_link_libraries(jyppx_distillation PRIVATE jyppx_training_framework)
+target_link_libraries(jyppx_distillation PRIVATE jyppx::sdk)
 
 # LibTorch's Windows distribution keeps runtime DLLs beside its import
 # libraries. Copy the DLLs (not the whole directory, which also holds large

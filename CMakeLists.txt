@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
-project(jyppx_training_framework VERSION 0.3.0 LANGUAGES CXX)
+project(jyppx VERSION 0.3.0 LANGUAGES CXX)
 
 # ============================================
 # Project Options
@@ -414,26 +414,26 @@ target_link_libraries(jyppx_experiment
 )
 target_link_libraries(jyppx_training PUBLIC jyppx_data jyppx_optim jyppx_nn)
 
-add_library(jyppx_training_framework INTERFACE)
-add_library(jyppx::sdk ALIAS jyppx_training_framework)
-set_target_properties(jyppx_training_framework PROPERTIES
+add_library(jyppx_sdk INTERFACE)
+add_library(jyppx::sdk ALIAS jyppx_sdk)
+set_target_properties(jyppx_sdk PROPERTIES
     EXPORT_NAME sdk
 )
 
 # Include directories
-target_include_directories(jyppx_training_framework
+target_include_directories(jyppx_sdk
     INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
 foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
-    target_include_directories(jyppx_training_framework SYSTEM INTERFACE
+    target_include_directories(jyppx_sdk SYSTEM INTERFACE
         $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
     )
 endforeach()
 
 # The SDK is a pure aggregate and owns no sources or symbols.
-target_link_libraries(jyppx_training_framework
+target_link_libraries(jyppx_sdk
     INTERFACE
         jyppx_foundation
         jyppx_core
@@ -484,8 +484,8 @@ endif()
 # ============================================
 install(TARGETS jyppx_foundation jyppx_core jyppx_interop jyppx_data jyppx_nn
                 jyppx_training jyppx_optim jyppx_experiment
-                jyppx_training_framework
-    EXPORT jyppx_training_frameworkTargets
+                jyppx_sdk
+    EXPORT jyppxTargetsExport
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
     RUNTIME DESTINATION bin
@@ -501,7 +501,7 @@ install(FILES
     DESTINATION include/jyppx/foundation
 )
 
-install(EXPORT jyppx_training_frameworkTargets
+install(EXPORT jyppxTargetsExport
     FILE jyppxTargets.cmake
     NAMESPACE jyppx::
     DESTINATION lib/cmake/jyppx
@@ -534,7 +534,7 @@ install(FILES
     LICENSE
     NOTICE
     THIRD_PARTY_NOTICES.md
-    DESTINATION share/doc/jyppx_training_framework
+    DESTINATION share/doc/jyppx
     COMPONENT licenses
 )
 

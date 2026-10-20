@@ -14,8 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata, and an installed-package consumer.
 - An installed-package component matrix that configures, builds, links, and
   runs a consumer against each exported target independently.
+- A legacy-surface gate that rejects retired headers, sources, package names,
+  and build target names in both the source tree and staged installation.
 
 ### Changed
+- The remaining in-tree SDK target and project identifiers now use canonical
+  `jyppx` names; the retired package name remains only in enforcement checks
+  and historical release notes.
 - The installed CMake package now uses the canonical `jyppx` package name,
   validates requested components, and rejects unknown components. Legacy
   package and target entry points are not retained.

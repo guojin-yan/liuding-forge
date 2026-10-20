@@ -336,9 +336,27 @@ $libraryDir = if ($runningOnWindows) {
     $BuildDir
 }
 $libraryNames = if ($runningOnWindows) {
-    @("jyppx_foundation.lib", "jyppx_training_framework.lib")
+    @(
+        "jyppx_foundation.lib",
+        "jyppx_core.lib",
+        "jyppx_interop.lib",
+        "jyppx_data.lib",
+        "jyppx_nn.lib",
+        "jyppx_optim.lib",
+        "jyppx_training.lib",
+        "jyppx_experiment.lib"
+    )
 } else {
-    @("libjyppx_foundation.a", "libjyppx_training_framework.a")
+    @(
+        "libjyppx_foundation.a",
+        "libjyppx_core.a",
+        "libjyppx_interop.a",
+        "libjyppx_data.a",
+        "libjyppx_nn.a",
+        "libjyppx_optim.a",
+        "libjyppx_training.a",
+        "libjyppx_experiment.a"
+    )
 }
 $artifactPaths = @(
     $libraryNames | ForEach-Object { Join-Path $libraryDir $_ }

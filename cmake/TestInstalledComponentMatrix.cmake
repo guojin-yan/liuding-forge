@@ -1,9 +1,11 @@
-if(NOT DEFINED JYPPX_BUILD_DIR OR NOT DEFINED JYPPX_CONSUMER_SOURCE_DIR OR
-   NOT DEFINED JYPPX_TEST_ROOT OR NOT DEFINED JYPPX_TORCH_DIR)
+if(NOT DEFINED JYPPX_SOURCE_DIR OR NOT DEFINED JYPPX_BUILD_DIR OR
+   NOT DEFINED JYPPX_CONSUMER_SOURCE_DIR OR NOT DEFINED JYPPX_TEST_ROOT OR
+   NOT DEFINED JYPPX_TORCH_DIR)
     message(FATAL_ERROR "Installed component matrix is missing required paths")
 endif()
 
 get_filename_component(build_dir "${JYPPX_BUILD_DIR}" REALPATH)
+get_filename_component(source_dir "${JYPPX_SOURCE_DIR}" REALPATH)
 get_filename_component(consumer_source_dir
                        "${JYPPX_CONSUMER_SOURCE_DIR}" REALPATH)
 get_filename_component(test_root "${JYPPX_TEST_ROOT}" ABSOLUTE)
@@ -47,6 +49,17 @@ execute_process(
 )
 if(NOT install_result EQUAL 0)
     message(FATAL_ERROR "Installing JYPPX for the component matrix failed")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}"
+            "-DJYPPX_SOURCE_DIR=${source_dir}"
+            "-DJYPPX_INSTALL_DIR=${install_dir}"
+            -P "${source_dir}/cmake/CheckLegacySurface.cmake"
+    RESULT_VARIABLE legacy_surface_result
+)
+if(NOT legacy_surface_result EQUAL 0)
+    message(FATAL_ERROR "Installed package retained a legacy surface")
 endif()
 
 if(WIN32 AND DEFINED JYPPX_TORCH_RUNTIME_DIR)
