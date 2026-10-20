@@ -772,6 +772,35 @@ TEST(DataPipelineTest, PublishesStructuredCrossDomainCapability) {
   EXPECT_NE(json.find("\"value\":2"), std::string::npos);
 }
 
+TEST(DataPipelineTest, PublishesDegradedRestoreCapabilityOperations) {
+  auto dataset = make_dataset();
+  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+          dataset->size()),
+      {.pipeline_id = "data.pipeline.degraded-restore",
+       .dataset_version = "dataset/v1",
+       .dataset_size = dataset->size(),
+       .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
+       .batch_factory_id = "factory.tensor-rows/v1",
+       .batch_size = 2},
+      make_factory(dataset));
+  auto capability = pipeline.capability();
+  capability.restore_level = jyppx::RestoreLevel::bounded;
+  capability.degradation_reasons = {"bounded replay"};
+
+  auto descriptor = jyppx::data::describe_data_capability(capability);
+  EXPECT_NE(std::find(descriptor.operations.begin(),
+                      descriptor.operations.end(), "restore.bounded"),
+            descriptor.operations.end());
+
+  capability.restore_level = jyppx::RestoreLevel::best_effort;
+  capability.degradation_reasons = {"source position is approximate"};
+  descriptor = jyppx::data::describe_data_capability(capability);
+  EXPECT_NE(std::find(descriptor.operations.begin(),
+                      descriptor.operations.end(), "restore.best-effort"),
+            descriptor.operations.end());
+}
+
 TEST(DataPipelineTest, RejectsTamperedCrossDomainCapability) {
   auto dataset = make_dataset();
   jyppx::data::DataPipeline pipeline(
