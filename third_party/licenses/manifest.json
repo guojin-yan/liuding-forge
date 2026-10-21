@@ -372,7 +372,7 @@
   "hash_algorithm": "sha256",
   "limitations": [
     "PyTorch source root licenses do not satisfy the missing bundled LibTorch binary notice audit.",
-    "Optional remediation wheel notices are retained, but chapter installation/acceptance and full transitive review remain pending."
+    "Optional remediation wheel notices are retained and both platform sidecar acceptance gates passed; full transitive review remains pending."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"

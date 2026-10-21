@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Draft chapter gate: official dependencies and real collector are mandatory.
+"""Chapter gate: official dependencies and real collector are mandatory.
 
 Run only when this chapter's unified Windows/Ubuntu validation begins. This
-entry point has not been executed, installed, or registered in production.
+entry point checks the installed runtime adapter through the product CLI.
 """
 
 import importlib.metadata

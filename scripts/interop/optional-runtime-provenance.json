@@ -424,7 +424,7 @@
   "license_and_supply_chain_scope": "Artifact sources, pinned digests, packaged Python/safetensors licenses and pip metadata were recorded. This preparation does not establish full transitive license/SBOM/CVE or signature verification.",
   "security_remediation": {
     "audit_date": "2026-10-21",
-    "status": "windows-upgraded-and-import-probed;linux-upgrade-and-two-platform-acceptance-pending",
+    "status": "both-platforms-upgraded-pip-checked-and-official-sidecar-acceptance-passed",
     "new_versions": {
       "pillow": "13.0.0",
       "protobuf": "6.33.5",
@@ -497,7 +497,92 @@
         "Root integration agent reported pip check passed and EventFileWriter/EventAccumulator/OTLP schema imports passed.",
         "Exact 14-package version probe independently matched the current lock under CPython 3.11.9."
       ],
-      "official_sidecar_acceptance": "pending"
+      "official_sidecar_acceptance": {
+        "status": "passed",
+        "source_commit": "efd9ae8",
+        "test": "OfficialTelemetryAcceptance",
+        "artifacts": [
+          {
+            "path": "out/build/config-windows/m6-remedial-ctest.log",
+            "size_bytes": 248833,
+            "sha256": "c1b6fa94c8679e8a1b42a876c5a03940654094810c3a9be8735d0c46df8e1b17"
+          }
+        ]
+      }
+    },
+    "status_scope": "TensorBoard event writer/accumulator and OpenTelemetry generated schemas/Collector; TensorBoard UI/server is not qualified.",
+    "requirements_lock_sha256_scope": "Windows input bytes; Linux LF snapshot is separately bound below.",
+    "linux": {
+      "recorded_at_utc": "2026-10-21T13:37:16.504290+00:00",
+      "python_version": "3.11.17",
+      "pip_report": {
+        "path": "out/deps/dependency-audit-20261021/remediation/ubuntu-pip-report.json",
+        "size_bytes": 24719,
+        "sha256": "b7962a0363ed70ccf53742874493104f112ae44a776dc7e389beed6cd86fa1a1"
+      },
+      "input_lock_snapshot": {
+        "path": "out/deps/dependency-audit-20261021/remediation/installed-ubuntu-requirements.lock",
+        "size_bytes": 2190,
+        "sha256": "f6cc9eff1d1c6d6543ebfa8db9d5e3d820d4eaaa57f6fe36e8321a05de5ad6ba"
+      },
+      "installed_versions": {
+        "tensorboard": "2.20.0",
+        "opentelemetry-proto": "1.37.0",
+        "protobuf": "6.33.5",
+        "absl-py": "2.3.1",
+        "grpcio": "1.75.1",
+        "markdown": "3.9",
+        "numpy": "2.3.3",
+        "packaging": "25.0",
+        "pillow": "13.0.0",
+        "setuptools": "83.0.0",
+        "tensorboard-data-server": "0.7.2",
+        "werkzeug": "3.1.9",
+        "markupsafe": "3.0.2",
+        "typing-extensions": "4.15.0"
+      },
+      "actual_upgraded_wheels": [
+        {
+          "name": "protobuf",
+          "version": "6.33.5",
+          "url": "file:///home/ygj/jyppx-config-gate/out/deps/sidecar-remediation/wheels/protobuf-6.33.5-cp39-abi3-manylinux2014_x86_64.whl",
+          "sha256": "cbf16ba3350fb7b889fca858fb215967792dc125b35c7976ca4818bee3521cf0"
+        },
+        {
+          "name": "pillow",
+          "version": "13.0.0",
+          "url": "file:///home/ygj/jyppx-config-gate/out/deps/sidecar-remediation/wheels/pillow-13.0.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "a625df9a2a5597fa5e5266e01aefc82604bb85d291e3547981e863560d75da6c"
+        },
+        {
+          "name": "setuptools",
+          "version": "83.0.0",
+          "url": "file:///home/ygj/jyppx-config-gate/out/deps/sidecar-remediation/wheels/setuptools-83.0.0-py3-none-any.whl",
+          "sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3"
+        },
+        {
+          "name": "Werkzeug",
+          "version": "3.1.9",
+          "url": "file:///home/ygj/jyppx-config-gate/out/deps/sidecar-remediation/wheels/werkzeug-3.1.9-py3-none-any.whl",
+          "sha256": "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab"
+        }
+      ],
+      "verification": [
+        "Actual CPython 3.11.17 exact 14-package version probe matched current dependency metadata.",
+        "pip check: No broken requirements found."
+      ],
+      "official_sidecar_acceptance": {
+        "status": "passed",
+        "source_commit": "6cb5b6e5",
+        "test": "OfficialTelemetryAcceptance",
+        "artifacts": [
+          {
+            "path": "out/build/config-windows/m6-ubuntu-full-ctest.log",
+            "size_bytes": 258854,
+            "sha256": "afa510d830d543aee08991597e5c1be56771a75233ecf693a9bfcbb35f4f2ee7"
+          }
+        ]
+      }
     }
   }
 }

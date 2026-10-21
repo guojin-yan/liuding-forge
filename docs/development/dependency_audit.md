@@ -59,10 +59,10 @@ retained in historical environment snapshots:
 
 | Package/version | Advisory IDs observed | Release implication |
 |---|---|---|
-| Werkzeug 3.1.3 | `GHSA-29vq-49wr-vm6x`, `GHSA-87hc-h4r5-73f7`, `GHSA-g6x2-hccm-hh4m`, `GHSA-hgf8-39gv-g3f2`, `PYSEC-2026-2044`, `PYSEC-2026-2046`, `PYSEC-2026-2320`, `PYSEC-2026-4312`; fixed versions reported by OSV are 3.1.4, 3.1.5, 3.1.6, and 3.1.9 depending on the advisory. | **Lock remediated to 3.1.9; environment/acceptance pending.** Rerun the consolidated sidecar gate on both platforms. |
-| protobuf 6.32.1 | `GHSA-7gcm-g887-7qv7` (HIGH) and `PYSEC-2026-1805`; OSV reports the relevant 6.x fix as 6.33.5. | **Lock remediated to 6.33.5; environment/acceptance pending.** Repeat exact version, official message and sidecar verification. |
-| Pillow 11.3.0 | 45 OSV records before GHSA/PYSEC alias deduplication, including CRITICAL `GHSA-8g5g-8vmr-9782` (JPEG heap overflow) and HIGH image/font/PDF issues. Reported fixes range through 13.0.0. | **Lock remediated to 13.0.0; environment/acceptance pending.** The raw 45-record response is retained for review. |
-| setuptools 80.9.0 | `GHSA-h35f-9h28-mq5c` and `PYSEC-2026-3447`, covering Unicode normalization collisions in sdist exclusion; OSV reports fix 83.0.0. | **Lock remediated to 83.0.0; environment/acceptance pending.** Verify the actual event writer/readback imports; TensorBoard 2.20 web UI/server paths depend on retired `pkg_resources` and are not qualified by this sidecar gate. |
+| Werkzeug 3.1.3 | `GHSA-29vq-49wr-vm6x`, `GHSA-87hc-h4r5-73f7`, `GHSA-g6x2-hccm-hh4m`, `GHSA-hgf8-39gv-g3f2`, `PYSEC-2026-2044`, `PYSEC-2026-2046`, `PYSEC-2026-2320`, `PYSEC-2026-4312`; fixed versions reported by OSV are 3.1.4, 3.1.5, 3.1.6, and 3.1.9 depending on the advisory. | **Remediated to 3.1.9.** Both actual environments and official sidecar acceptance passed. |
+| protobuf 6.32.1 | `GHSA-7gcm-g887-7qv7` (HIGH) and `PYSEC-2026-1805`; OSV reports the relevant 6.x fix as 6.33.5. | **Remediated to 6.33.5.** Exact versions, official messages and sidecar acceptance passed on both platforms. |
+| Pillow 11.3.0 | 45 OSV records before GHSA/PYSEC alias deduplication, including CRITICAL `GHSA-8g5g-8vmr-9782` (JPEG heap overflow) and HIGH image/font/PDF issues. Reported fixes range through 13.0.0. | **Remediated to 13.0.0.** Both actual environments and official sidecar acceptance passed; raw findings remain retained. |
+| setuptools 80.9.0 | `GHSA-h35f-9h28-mq5c` and `PYSEC-2026-3447`, covering Unicode normalization collisions in sdist exclusion; OSV reports fix 83.0.0. | **Remediated to 83.0.0.** Event writer/readback passed on both platforms. TensorBoard UI/server uses retired `pkg_resources` and remains unqualified. |
 | GoogleTest 1.14.0 and SQLite 3.54.1 | No advisories returned for the queried OSV package coordinates. | This is a point-in-time query result, not proof of absence; continue normal monitoring. |
 
 An initial nlohmann/json GitHub-coordinate query returned HTTP 400 and an
@@ -94,9 +94,14 @@ upgrade of the four packages, a fresh pip report, `pip check`, exact-version
 probes for all fourteen pins, and EventFileWriter/EventAccumulator/OTLP schema
 imports. The new report and exact lock snapshot are bound in
 `scripts/interop/optional-runtime-provenance.json` under `security_remediation`.
-Ubuntu upgrade and consolidated Windows/Ubuntu official sidecar acceptance
-remain pending; historical reports do not establish installation of the new
-lock on Ubuntu.
+Ubuntu also completed the actual hash-only upgrade, `pip check` and the exact
+fourteen-package probe. The current Windows and Ubuntu CTest runs both passed
+`OfficialTelemetryAcceptance`, which requires the product CLI, real Collector,
+TensorBoard readback and no skipped subtests. Separate pip reports, platform
+input-lock byte snapshots and acceptance-log hashes are bound under
+`security_remediation`. Windows CRLF and Linux LF snapshots have different exact
+digests and are recorded independently. This acceptance covers the runtime
+adapter, not TensorBoard UI/server or a complete transitive security audit.
 
 The corrected PyPI `torch` 2.5.1 query returned 22 raw advisory records,
 including CRITICAL `GHSA-53q9-r3pm-6pq6` for `torch.load(weights_only=True)`
