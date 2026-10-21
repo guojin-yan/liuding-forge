@@ -101,6 +101,8 @@ file(GLOB_RECURSE active_build_files LIST_DIRECTORIES false
     "${source_root}/tests/CMakeLists.txt"
     "${source_root}/tests/fuzz/CMakeLists.txt"
     "${source_root}/tools/*.ps1"
+    "${source_root}/scripts/*.ps1"
+    "${source_root}/scripts/*.sh"
 )
 foreach(active_file IN LISTS active_build_files)
     if(active_file STREQUAL "${source_root}/cmake/CheckLegacySurface.cmake" OR

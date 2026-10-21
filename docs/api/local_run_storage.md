@@ -2,14 +2,18 @@
 
 Target: `jyppx::experiment`  
 Headers: `jyppx/experiment/artifact_store.hpp`, `jyppx/experiment/run.hpp`,
-`jyppx/experiment/run_store.hpp`  
+`jyppx/experiment/run_store.hpp`, `jyppx/experiment/run_events.hpp`,
+`jyppx/experiment/run_telemetry_sink.hpp`
 Shared artifact identity: `jyppx/foundation/artifact.hpp`
 
-This implementation slice provides local artifact bytes, run metadata, and
-run-to-artifact relationships. Chapter validation is pending. `RunSink`
-currently exposes `start`, `transition`, and `attach`; it has no event append,
-event sequence, metric batch, or metric query interface. These remain later
-chapter work. This slice does not establish completion of the full M5 plan.
+Local storage provides artifact bytes, run metadata, run-to-artifact
+relationships, and canonical neutral telemetry. Metadata `RunSink` retains its
+narrow lifecycle/attachment role. Independent `RunEventSink` accepts atomic
+event batches; `SQLiteRunStore` implements both contracts and exposes bounded
+event/metric queries. `SQLiteRunTelemetrySink` adapts the shared foundation
+telemetry sink to an existing SQLite run without a training dependency. Source
+presence is not validation evidence; chapter gates remain responsible for the
+complete acceptance result.
 
 ## Store layout and ownership
 
@@ -151,7 +155,7 @@ metadata, not mutable alias pointers.
 `find` returns `std::nullopt` for a missing run. `references` requires an
 existing run and returns detached records in reference ID order.
 
-## Durability and schema v1
+## Durability and schema v2
 
 SQLite uses WAL, `synchronous=FULL`, foreign-key enforcement, a full-mutex
 connection, and a per-handle mutex. Different handles/processes writing the
@@ -161,15 +165,23 @@ same operation identity. The directory must permit creation of SQLite's WAL
 and shared-memory files and support WAL; this is a local store, with no
 network filesystem or remote-service guarantee.
 
-The current database has `user_version=1` and application ID `0x4a595250`.
+The current database has `user_version=2` and application ID `0x4a595250`.
 A new empty database is initialized transactionally. Foreign application
 identifiers, future/unsupported versions, and nonempty unversioned databases
 are refused. Opening prepares the supported run/reference queries; schema or
 record validation failures are surfaced at open or the relevant operation,
-instead of treating existing data as a fresh database. No historical migration,
-versioned run bundle, export/import, or backup/restore API is implemented yet.
-The WAL files belong to the database; copying only a live `runs.sqlite3` file
-is not a supported backup procedure.
+instead of treating existing data as a fresh database. Recognized schema-v1
+stores can be upgraded transactionally when `allow_v1_migration` is true (the
+default); this adds empty event tables and preserves existing metadata and
+references. It does not fabricate past telemetry, times, or metric definitions.
+Disabling migration rejects an old schema explicitly.
+
+`backup(destination)` publishes a consistent database/live-CAS backup to a new
+directory. `restore_backup(backup_root, new_root)` validates the backup and
+publishes a new store; existing roots are never overwritten. The WAL files
+belong to SQLite; copying only a live `runs.sqlite3` file is not a supported
+backup procedure. Neutral JSONL/TensorBoard/OTel export is an observation
+projection, not a complete restorable store bundle.
 
 CAS publication flushes and closes the upload stream, syncs the temporary
 file, hashes its complete contents, checks size and any expected digest, and
@@ -180,6 +192,51 @@ accepted. Hashing uses bounded 1 MiB heap chunks; it does not load a complete
 artifact or require a 1 MiB thread stack allocation. API immutability does
 not make files OS read-only; later external modification is detected by
 verified open or integrity checks.
+
+## Canonical events, metrics, and snapshots
+
+`append(run_id, batch_key, envelopes, stop, deadline)` validates a complete
+bounded input before effects and commits its events, metric definitions,
+derived indices, stream state, and receipts in one SQLite transaction. The
+run must already exist. Stream/event/idempotency identities, original times,
+correlation, typed payload, and metric semantics come from the immutable
+foundation envelope. Store-assigned `run_sequence` defines commit pagination;
+it never replaces producer sequence, metric step, or observation time.
+
+An exact batch retry returns its original receipts. Stable producer keys with
+identical canonical content are duplicates; conflicting content or a producer
+sequence gap is an error. New events after a run or producer-stream terminal
+are refused while exact replay remains possible. Successful SQLite acceptance
+is durable evidence. An interrupted acknowledgement can follow a successful
+commit, so callers retain and replay the entire unchanged batch. External
+observer effects do not acquire an exactly-once guarantee.
+
+`events()` captures `snapshot_through` on its first page and orders by
+`run_sequence > after_sequence` through that fixed boundary. `metrics()` orders
+by `(run_sequence, point_index)` and filters an explicit semantic metric ID,
+optionally definition version and step kind. Both return an exclusive
+`next_after` only when more results exist. Reuse the boundary and cursor on
+every subsequent page; concurrent appends are outside the original snapshot.
+Neither metric step resets nor out-of-order/absent clocks change this ordering.
+The history is append-only through the API; direct SQL mutation is unsupported.
+
+Metric queries decode the authoritative source envelopes and check the derived
+index. Returned points preserve unit, aggregation, comparison direction,
+parameters, exact context-key set and values, definition digest/version,
+step domain/value, optional sample count, finite/NaN/positive-infinity/
+negative-infinity/missing status and reason. They also retain producer
+identity, clocks, correlation, envelope annotations, and resource identity.
+There is no implicit reaggregation, unit scaling, missing-value replacement,
+or load-time timestamp.
+
+The product CLI exposes `run events`, `run metrics`, and `run export`; see
+[run telemetry commands](run_telemetry_cli.md) for complete options, output
+schemas, subprocess configuration, deadlines, and omission exit codes. Query
+pages contain canonical hex and SHA-256 provenance. Export reads a fixed
+SQLite event snapshot into a bounded JSONL observer or the official
+TensorBoard/OTel sidecar. Destination paths, executable/argv, environment, and
+collector settings are explicit caller configuration and never come from
+event attributes or payloads.
 
 ## CAS publication and GC coordination
 
@@ -212,7 +269,8 @@ rollback cannot restore those removed files.
 
 `integrity_check(true)` checks SQLite, foreign keys, and every distinct live
 artifact's digest and recorded size. `integrity_check(false)` checks only the
-database and relationships. Reports contain at most 64 issues and do not
+database, relationships, canonical telemetry, and derived event/metric indices.
+Reports contain at most 64 issues and do not
 repair data; database/query errors can also throw. `FileArtifactStore::verify`
 checks the whole CAS, including objects with no run reference.
 
@@ -256,6 +314,11 @@ Selected defaults are explicit configuration, not disk-space reservations:
 | run ID / display name bytes | 256 / 512 | `RunMetadataLimits` field bounds |
 | tag count / key bytes / value bytes | 128 / 128 / 512 | Immutable tag bounds |
 | lineage reference bytes | 1,024 | Each optional lineage text reference |
+| `event_limits.max_events_per_run` | 1,000,000 | Unique canonical envelopes |
+| `max_metric_points_per_run` | 10,000,000 | Derived metric point rows |
+| `max_event_bytes_per_run` | 1 GiB | Canonical event bytes |
+| `max_page_events` / `max_page_metric_points` | 1,024 / 4,096 | Per-query count ceilings |
+| `max_page_bytes` | 16 MiB | Canonical source charge per page |
 
 Two distinct relationships to the same deduplicated blob each consume the
 per-run linked-byte quota. CAS total-byte limits exclude temporary uploads,
@@ -314,5 +377,9 @@ Relevant tests are `tests/unit/experiment/test_artifact_store.cpp` and
 multipart streaming, deduplication, limits, stale files, metadata restart,
 idempotency, batch rollback, orphan GC, busy writers, independent handles,
 explicit interruption recovery, schema refusal, and damaged database/content.
-Events/metrics, capacity comparison, export/import, migration, and complete M5
-acceptance require their own implementations and evidence.
+Event persistence/query tests live in `tests/unit/experiment/test_run_events.cpp`;
+`tests/cli/test_run_telemetry.py` exercises product queries, immutable snapshot
+export, and bounded subprocess launch/protocol failures. Official SDK/collector
+interoperability is a separate mandatory gate under
+`tests/integration/telemetry_sidecar`. Capacity/overhead measurements and complete
+chapter acceptance still need their recorded evidence.

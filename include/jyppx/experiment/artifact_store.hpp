@@ -17,6 +17,7 @@
  */
 
 #include <jyppx/foundation/artifact.hpp>
+#include <jyppx/foundation/telemetry.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -238,12 +239,33 @@ class FileArtifactStore final : public ArtifactStore {
   ArtifactRef commit(
       ArtifactUploadSession& session,
       std::optional<ArtifactDigest> expected_digest = std::nullopt) override;
+  /** @brief Publishes with cooperative hash/scan cancellation boundaries.
+   * @param session Open upload created by this store.
+   * @param expected_digest Optional expected content assertion.
+   * @param stop Cooperative cancellation checked per chunk and scan entry.
+   * @param deadline Absolute operation deadline, checked before publication.
+   * @return Committed content identity; no post-publication stop check.
+   */
+  ArtifactRef commit(ArtifactUploadSession& session,
+                     std::optional<ArtifactDigest> expected_digest,
+                     std::stop_token stop,
+                     TelemetryDeadline deadline = std::nullopt);
   /** @brief Verifies and opens one immutable CAS object.
    * @param digest Content identity identifying the object.
    * @return Owning verified reader.
    */
   std::unique_ptr<ArtifactReader> open(
       const ArtifactDigest& digest) const override;
+
+  /** @brief Verifies one immutable open handle with cancellation/deadline.
+   * @param digest Expected immutable SHA-256 identity.
+   * @param stop Cooperative cancellation checked per hashing chunk.
+   * @param deadline Absolute steady-clock verification deadline.
+   * @return Verified reader retaining the exact hashed file handle.
+   */
+  std::unique_ptr<ArtifactReader> open(
+      const ArtifactDigest& digest, std::stop_token stop,
+      TelemetryDeadline deadline = std::nullopt) const;
   /** @brief Reports whether a valid object is present at its content digest.
    * @param digest Content identity identifying the object.
    * @return True only if present and valid.

@@ -15,6 +15,8 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_training
     jyppx_optim
     jyppx_experiment
+    jyppx_cli_transport
+    jyppx_cli
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(NOT TARGET ${JYPPX_TARGET})
@@ -89,7 +91,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
             "JYPPX_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
     endif()
     set(JYPPX_FORMAT_FILES)
-    foreach(JYPPX_FORMAT_ROOT IN ITEMS include src tests examples)
+    foreach(JYPPX_FORMAT_ROOT IN ITEMS include src tests examples tools/cli)
         file(GLOB_RECURSE JYPPX_FORMAT_ROOT_FILES CONFIGURE_DEPENDS
             "${PROJECT_SOURCE_DIR}/${JYPPX_FORMAT_ROOT}/*.c"
             "${PROJECT_SOURCE_DIR}/${JYPPX_FORMAT_ROOT}/*.cc"

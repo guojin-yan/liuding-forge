@@ -29,6 +29,15 @@
 
 #include <jyppx/foundation/capability.hpp>
 
+#if defined(JYPPX_CONSUMER_INTEROP) && JYPPX_EXPECT_COMPONENT_NN
+#include <jyppx/foundation/sha256.hpp>
+#include <jyppx/interop/model_weight_import.hpp>
+#include <jyppx/nn/model_adapter.hpp>
+
+#include <memory>
+#include <span>
+#endif
+
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -38,6 +47,28 @@
 #include <vector>
 
 namespace {
+
+#if defined(JYPPX_CONSUMER_INTEROP) && JYPPX_EXPECT_COMPONENT_NN
+bool InstalledModelWeightImportAppliesVerifiedState() {
+  const auto module = std::make_shared<torch::nn::Module>();
+  const auto weight =
+      module->register_parameter("weight", torch::zeros({2}, torch::kFloat64));
+  const auto* identity = weight.unsafeGetTensorImpl();
+  const std::array<double, 2> values{1.25, -2.5};
+  const std::array<jyppx::interop::SafeTensorSource, 1> tensors{
+      {{.name = "weight",
+        .dtype = jyppx::interop::SafeTensorDtype::f64,
+        .shape = {2U},
+        .data = std::as_bytes(std::span(values))}}};
+  const auto bytes = jyppx::interop::serialize_safetensors(tensors);
+  jyppx::nn::ModelStateView view(module);
+  const auto result = jyppx::interop::import_model_weights(
+      view, bytes, {.hex = jyppx::sha256_hex(bytes)});
+  return result.applied && result.applied_tensors == 1U &&
+         weight.unsafeGetTensorImpl() == identity && weight.requires_grad() &&
+         torch::equal(weight, torch::tensor({1.25, -2.5}, torch::kFloat64));
+}
+#endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
   constexpr std::array<std::pair<std::string_view, bool>, 8U> kExpected{{
@@ -79,7 +110,12 @@ int main() {
   return jyppx::parse_device("cpu").is_cpu() ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_INTEROP)
   const auto capability = jyppx::interop::make_checkpoint_manifest_capability();
-  return capability.feature_id == "interop.checkpoint_manifest" ? 0 : 1;
+  if (capability.feature_id != "interop.checkpoint_manifest") return 1;
+#if JYPPX_EXPECT_COMPONENT_NN
+  return InstalledModelWeightImportAppliesVerifiedState() ? 0 : 1;
+#else
+  return 0;
+#endif
 #elif defined(JYPPX_CONSUMER_DATA)
   const auto indices = jyppx::data::samplers::SequentialSampler(3).indices();
   return indices == std::vector<std::size_t>({0, 1, 2}) ? 0 : 1;

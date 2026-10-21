@@ -43,6 +43,19 @@ metrics, callbacks, checkpointing and mixed precision.
   integrity checks, writer coordination, resource limits, and crash recovery
 - [Local Run Storage](api/local_run_storage.md) — immutable CAS artifacts,
   SQLite run lineage, lifecycle transactions, integrity, and retention
+- [Training telemetry](api/training_telemetry.md) — typed neutral events,
+  shared durable outbox, replay and checkpoint migration
+- [Evaluation evidence](api/evaluation.md) — versioned suites, provenance,
+  local JSON/HTML reports, baseline comparisons and basic data checks
+- [Library CLI](user-guide/cli.md) — text/JSON commands and installation
+- [Sidecar process transport](api/telemetry_sidecar_process.md) — bounded
+  supervised optional telemetry processes
+- [Model weight import](api/model_weight_import.md) — verified safetensors,
+  complete mapping reports and staged model state application
+- [Interop formats and backends](api/interop_backends.md) — raw safetensors
+  and explicit compatibility/ONNX capability boundaries
+- [Model bundles](api/model_bundle.md) — immutable inventory, sharding,
+  safe publication and explicit signature trust
 - [Training Scheduler Adapter](api/scheduler_adapter.md) — ordered lifecycle
   events with exact descriptor-first scheduler checkpoint delegation
 - [Classification Metrics](api/classification_metrics.md) — fixed-topology,

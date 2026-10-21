@@ -19,7 +19,7 @@ tests/benchmarks/bench_memory_usage
 tests/benchmarks/bench_cuda_training
 ```
 
-Run `tools/Run-Baseline.ps1` from a quiet machine. Pass `-LibTorchDir` when
+Run `scripts/benchmarks/Run-Baseline.ps1` from a quiet machine. Pass `-LibTorchDir` when
 LibTorch is installed outside `third_party/install/libtorch`. The runner
 performs one warmup process and five independent sample processes by default,
 then records the environment identity, raw samples, median, nearest-rank p95,
@@ -83,13 +83,13 @@ does not manufacture an incomparable adapter/native ratio. Numerical parity
 is covered separately by the independent reference and convergence tests.
 
 `bench_cuda_training` is built only when CMake detects CUDA LibTorch. Run it
-through `tools/run_cuda_baseline.py`, which collects the frozen FP32/single-SGD
+through `scripts/benchmarks/run_cuda_baseline.py`, which collects the frozen FP32/single-SGD
 and FP16/two-SGD/AMP modes in separate processes. Each structured JSON sample
 contains the workload digest, exact BuildFingerprint, CUDA device and compile
 toolkit identity, Trainer/optimizer/scaler correctness counters, throughput,
 mean step time, and CUDA allocator peaks. The runner adds `nvidia-smi` driver,
 UUID, power-limit, persistence-mode and noise observations, then delegates CV
-and regression enforcement to `tools/baseline_stats.py`.
+and regression enforcement to `scripts/benchmarks/baseline_stats.py`.
 
 `bench_cuda_optimizer` is also CUDA-only. Invoke the same runner with
 `--suite optimizer` to collect isolated FP32 update-path measurements for SGD,
@@ -121,7 +121,7 @@ A run is unstable when any metric exceeds 10% CV. A stable reference stores a
 per-metric regression allowance of `max(10%, 3 * CV)`. References are valid
 only when their exact environment key matches the candidate run, so CPU,
 operating system, toolchain, LibTorch, and build-configuration changes cannot
-be compared accidentally. `tools/baseline_stats.py` rejects unstable samples,
+be compared accidentally. `scripts/benchmarks/baseline_stats.py` rejects unstable samples,
 environment mismatches, and threshold regressions with a nonzero exit code.
 
 | Date | Platform | LibTorch | Batch | Workers | Throughput | Notes |

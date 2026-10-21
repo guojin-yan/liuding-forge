@@ -46,6 +46,11 @@ concurrent replacement. A reader cannot remove an active writer's temporary
 file. Stale temporary files can be discarded when their writer lock is free.
 The lock sidecar remains as a reusable synchronization object.
 
+For inspection tools, set `FileStateArchiveOptions::read_only=true`. This
+requires an existing valid snapshot, rejects capture, and preserves all sibling
+temporary/lock files without creating directories or acquiring a writer lock.
+The CLI's `checkpoint inspect/verify/diff` commands use this mode.
+
 On Windows, publication retries transient sharing, lock, and access conflicts
 for at most 500 milliseconds. A persistent conflict fails without deleting the
 prior destination. Readers open the snapshot directly and treat only a missing

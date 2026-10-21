@@ -78,8 +78,8 @@ corresponding `JYPPX_*_EXECUTABLE` cache entries are supplied explicitly.
 Before configuring a build, validate the repository compatibility source:
 
 ```bash
-python tools/compatibility.py --file compatibility.json --validate
-python tools/dependency_manifest.py --file dependency-manifest.json
+python scripts/validation/compatibility.py --file compatibility.json --validate
+python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 ```
 
 Do not infer support from a version range. Add a verified lane with reproducible
@@ -87,17 +87,17 @@ configure, build, test, and installed-consumer evidence before changing a
 candidate lane to `supported`.
 
 Generate the local Release timing, artifact-size, throughput, and peak-memory
-baseline with `pwsh -NoProfile -File tools/Run-Baseline.ps1`. The default clean
+baseline with `pwsh -NoProfile -File scripts/benchmarks/Run-Baseline.ps1`. The default clean
 build is required for comparable compile-time evidence.
 
 Changes affecting CUDA data transfer, Trainer execution, optimizer orchestration,
-AMP, or allocator behavior also require `tools/run_cuda_baseline.py` on CUDA
+AMP, or allocator behavior also require `scripts/benchmarks/run_cuda_baseline.py` on CUDA
 LibTorch and a real GPU. Keep its default one warmup plus five independent
 sample processes for both frozen modes. A reference is valid only for its exact
 environment key; never compare or copy thresholds across GPUs, drivers, power
 limits, LibTorch builds, host CUDA toolkits, workloads, or compiler builds.
 
-The Linux coverage lane is `bash tools/run-coverage.sh`; it requires `gcovr 5.0`
+The Linux coverage lane is `bash scripts/validation/run-coverage.sh`; it requires `gcovr 5.0`
 or newer and
 `CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. Coverage and
 sanitizer options are rejected on unsupported compilers, and sanitizer flags are

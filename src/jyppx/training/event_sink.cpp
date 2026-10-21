@@ -5,9 +5,11 @@
 
 #include <jyppx/foundation/error.hpp>
 #include <jyppx/training/event_sink.hpp>
+#include <jyppx/training/telemetry_adapter.hpp>
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -17,6 +19,7 @@
 #include <locale>
 #include <map>
 #include <memory>
+#include <random>
 #include <set>
 #include <span>
 #include <sstream>
@@ -32,11 +35,13 @@ constexpr char kComponent[] = "training.event_outbox";
 constexpr char kTopologyField[] = "topology";
 constexpr char kControlField[] = "control";
 constexpr char kTopologyMediaType[] =
-    "application/vnd.jyppx.event-outbox-topology-v1";
+    "application/vnd.jyppx.event-outbox-topology-v2";
 constexpr char kControlMediaType[] =
-    "application/vnd.jyppx.event-outbox-control-v1";
-constexpr std::string_view kTopologyMagic = "JYPPX-EVENT-OUTBOX-TOPOLOGY-V1";
-constexpr std::string_view kControlMagic = "JYPPX-EVENT-OUTBOX-CONTROL-V1";
+    "application/vnd.jyppx.event-outbox-control-v2";
+constexpr std::string_view kTopologyMagic = "JYPPX-EVENT-OUTBOX-TOPOLOGY-V2";
+constexpr std::string_view kControlMagic = "JYPPX-EVENT-OUTBOX-CONTROL-V2";
+constexpr std::string_view kTopologyMagicV1 = "JYPPX-EVENT-OUTBOX-TOPOLOGY-V1";
+constexpr std::string_view kControlMagicV1 = "JYPPX-EVENT-OUTBOX-CONTROL-V1";
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
@@ -224,7 +229,7 @@ void validate_options(const EventOutboxOptions& options) {
                     "Use a shorter stable outbox identity.");
   }
   constexpr std::uint64_t kControlBaseOverhead = 4096U;
-  constexpr std::uint64_t kControlNodeOverheadBeyondQueueCharge = 8U;
+  constexpr std::uint64_t kControlNodeOverheadBeyondQueueCharge = 17U;
   if (options.max_pending_events >
       (std::numeric_limits<std::uint64_t>::max() - kControlBaseOverhead) /
           kControlNodeOverheadBeyondQueueCharge) {
@@ -486,6 +491,20 @@ class ByteReader final {
     return value;
   }
 
+  std::span<const std::byte> read_bytes(std::string_view field,
+                                        std::uint64_t max_bytes) {
+    const auto count = read_u64(field);
+    if (count > max_bytes || count > bytes_.size() - offset_) {
+      throw_serialization(std::string(field), "bounded complete byte string",
+                          std::to_string(count),
+                          "Reject corrupt outbox bytes.");
+    }
+    const auto result =
+        bytes_.subspan(offset_, static_cast<std::size_t>(count));
+    offset_ += static_cast<std::size_t>(count);
+    return result;
+  }
+
   void require_finished(std::string_view field) const {
     if (offset_ != bytes_.size()) {
       throw_serialization(
@@ -619,11 +638,39 @@ EventEnvelope decode_envelope(std::span<const std::byte> bytes,
   return envelope;
 }
 
-std::vector<std::byte> encode_topology(
-    const EventOutboxOptions& options,
-    const std::vector<std::shared_ptr<EventSink>>& sinks) {
-  std::vector<std::byte> output;
-  append_string(output, kTopologyMagic);
+void append_bytes(std::vector<std::byte>& output,
+                  std::span<const std::byte> bytes) {
+  append_u64(output, static_cast<std::uint64_t>(bytes.size()));
+  output.insert(output.end(), bytes.begin(), bytes.end());
+}
+
+std::string new_identity(std::string_view prefix) {
+  std::random_device random;
+  constexpr char hex[] = "0123456789abcdef";
+  std::string result(prefix);
+  for (std::size_t index = 0U; index < 16U; ++index) {
+    const auto value = static_cast<unsigned int>(random()) & 0xffU;
+    result.push_back(hex[value >> 4U]);
+    result.push_back(hex[value & 15U]);
+  }
+  return result;
+}
+
+TelemetryLimits compatibility_limits(const EventOutboxOptions& options) {
+  TelemetryLimits result;
+  result.max_identifier_bytes =
+      std::max<std::size_t>(256U, options.max_string_bytes);
+  result.max_text_bytes =
+      std::max<std::size_t>(4096U, options.max_string_bytes);
+  result.max_metrics_per_envelope = options.max_metrics_per_event;
+  result.max_decisions_per_envelope = options.max_commands_per_event;
+  result.max_envelope_bytes = options.max_event_bytes;
+  result.max_batch_bytes = options.max_event_bytes;
+  return result;
+}
+
+void encode_options(std::vector<std::byte>& output,
+                    const EventOutboxOptions& options) {
   append_string(output, options.outbox_id);
   append_u64(output, options.max_sinks);
   append_u64(output, options.max_pending_events);
@@ -634,16 +681,139 @@ std::vector<std::byte> encode_topology(
   append_u64(output, options.max_pending_bytes);
   append_u64(output, options.max_topology_bytes);
   append_u64(output, options.max_control_bytes);
+}
+
+std::vector<std::byte> encode_topology(
+    const EventOutboxOptions& options,
+    const std::vector<TelemetrySinkDescriptor>& sinks,
+    const TrainingTelemetryAdapterOptions& telemetry, bool compatibility) {
+  std::vector<std::byte> output;
+  append_string(output, kTopologyMagic);
+  encode_options(output, options);
+  append_u8(output, compatibility ? 1U : 0U);
   append_u64(output, static_cast<std::uint64_t>(sinks.size()));
-  for (const auto& sink : sinks) {
-    const auto& descriptor = sink->descriptor();
+  for (const auto& descriptor : sinks) {
     append_u32(output, descriptor.schema_version);
     append_string(output, descriptor.type_id);
     append_string(output, descriptor.sink_id);
     append_string(output, descriptor.destination_id);
-    append_u8(output, static_cast<std::uint8_t>(descriptor.delivery_guarantee));
+    append_u8(output, static_cast<std::uint8_t>(descriptor.role));
   }
+  append_string(output, telemetry.project_id);
+  append_string(output, telemetry.attempt_id);
+  append_u64(output, static_cast<std::uint64_t>(telemetry.metrics.size()));
+  for (const auto& [name, binding] : telemetry.metrics) {
+    append_string(output, name);
+    append_bytes(output, encode_telemetry_metric_definition(binding.definition,
+                                                            telemetry.limits));
+    append_u64(output, static_cast<std::uint64_t>(binding.context.size()));
+    for (const auto& [key, value] : binding.context) {
+      append_string(output, key);
+      append_string(output, value);
+    }
+  }
+  const auto& limits = telemetry.limits;
+  append_u64(output, limits.max_identifier_bytes);
+  append_u64(output, limits.max_text_bytes);
+  append_u64(output, limits.max_attributes);
+  append_u64(output, limits.max_context_fields);
+  append_u64(output, limits.max_metrics_per_envelope);
+  append_u64(output, limits.max_decisions_per_envelope);
+  append_u64(output, limits.max_batch_events);
+  append_u64(output, limits.max_envelope_bytes);
+  append_u64(output, limits.max_batch_bytes);
+  append_u64(output, limits.max_artifact_reference_bytes);
   return output;
+}
+
+EventOutboxOptions decode_v1_topology(
+    std::span<const std::byte> bytes, const EventOutboxOptions& options,
+    const std::vector<TelemetrySinkDescriptor>& current) {
+  ByteReader reader(bytes);
+  if (reader.read_string("topology.magic", kTopologyMagicV1.size()) !=
+          kTopologyMagicV1 ||
+      reader.read_string("topology.outbox_id", options.max_string_bytes) !=
+          options.outbox_id) {
+    throw_incompatible("topology.v1", "recognized same-outbox N-1 topology",
+                       "different", "Keep the original legacy checkpoint.");
+  }
+  const std::uint64_t bounds[] = {options.max_sinks,
+                                  options.max_pending_events,
+                                  options.max_metrics_per_event,
+                                  options.max_commands_per_event,
+                                  options.max_string_bytes,
+                                  options.max_event_bytes,
+                                  options.max_pending_bytes,
+                                  options.max_topology_bytes,
+                                  options.max_control_bytes};
+  std::uint64_t old_bounds[9]{};
+  for (std::size_t index = 0U; index < 9U; ++index) {
+    const auto bound = bounds[index];
+    const auto previous = reader.read_u64("topology.limit");
+    if (previous == 0U || previous > bound) {
+      throw_incompatible("topology.v1.limit", "no smaller explicit new limits",
+                         std::to_string(previous),
+                         "Retain or raise all legacy decode bounds.");
+    }
+    old_bounds[index] = previous;
+  }
+  EventOutboxOptions legacy = options;
+  legacy.max_sinks = static_cast<std::size_t>(old_bounds[0]);
+  legacy.max_pending_events = static_cast<std::size_t>(old_bounds[1]);
+  legacy.max_metrics_per_event = static_cast<std::size_t>(old_bounds[2]);
+  legacy.max_commands_per_event = static_cast<std::size_t>(old_bounds[3]);
+  legacy.max_string_bytes = static_cast<std::size_t>(old_bounds[4]);
+  legacy.max_event_bytes = old_bounds[5];
+  legacy.max_pending_bytes = old_bounds[6];
+  legacy.max_topology_bytes = old_bounds[7];
+  legacy.max_control_bytes = old_bounds[8];
+  if (bytes.size() > legacy.max_topology_bytes) {
+    throw_serialization("topology.v1.size", "within original topology bound",
+                        std::to_string(bytes.size()),
+                        "Reject state outside its own legacy contract.");
+  }
+  const auto count = reader.read_u64("topology.sink_count");
+  if (count != current.size() || count > legacy.max_sinks) {
+    throw_incompatible("topology.v1.sinks", "same logical destinations",
+                       std::to_string(count),
+                       "Do not reset old delivery cursors.");
+  }
+  std::vector<EventSinkDescriptor> result;
+  result.reserve(current.size());
+  for (std::size_t index = 0U; index < current.size(); ++index) {
+    EventSinkDescriptor descriptor;
+    descriptor.schema_version = reader.read_u32("sink.schema");
+    descriptor.type_id =
+        reader.read_string("sink.type", legacy.max_string_bytes);
+    descriptor.sink_id = reader.read_string("sink.id", legacy.max_string_bytes);
+    descriptor.destination_id =
+        reader.read_string("sink.destination", legacy.max_string_bytes);
+    descriptor.delivery_guarantee =
+        static_cast<EventDeliveryGuarantee>(reader.read_u8("sink.guarantee"));
+    validate_sink_descriptor(descriptor, legacy);
+    if (!result.empty() && result.back().sink_id >= descriptor.sink_id) {
+      throw_serialization(
+          "topology.v1.order", "unique ordered legacy sinks",
+          descriptor.sink_id,
+          "Reject duplicate or reordered logical destinations.");
+    }
+    const auto& target = current[index];
+    const auto mapping = std::make_pair(descriptor.type_id, target.type_id);
+    if (descriptor.sink_id != target.sink_id ||
+        descriptor.destination_id != target.destination_id ||
+        (descriptor.type_id != target.type_id &&
+         std::find(options.v1_sink_type_migrations.begin(),
+                   options.v1_sink_type_migrations.end(),
+                   mapping) == options.v1_sink_type_migrations.end())) {
+      throw_incompatible(
+          "topology.v1.destination",
+          "same IDs and explicitly mapped implementation", descriptor.sink_id,
+          "Never replace delivery state with a new destination.");
+    }
+    result.push_back(std::move(descriptor));
+  }
+  reader.require_finished("topology.v1");
+  return legacy;
 }
 
 void validate_manifest(const StateManifest& stored,
@@ -788,68 +958,243 @@ std::string_view event_delivery_guarantee_name(
 
 struct EventOutbox::Impl {
   struct PendingEvent {
-    EventEnvelope envelope;           ///< Complete committed event.
-    std::size_t next_sink_index = 0;  ///< First sink not yet acknowledged.
-    std::uint64_t encoded_bytes = 0;  ///< Queue-budget charge for this node.
+    EventEnvelope snapshot;      ///< Necessary exact callback audit snapshot.
+    TelemetryEnvelope envelope;  ///< Immutable neutral observation.
+    std::vector<std::byte> snapshot_bytes;  ///< Canonical callback snapshot.
+    std::vector<std::byte>
+        canonical;             ///< Canonical neutral bytes, never rebuilt.
+    std::uint8_t format = 1U;  ///< Live typed, live compatibility, or N-1.
+    std::size_t next_sink_index = 0U;
+    std::uint64_t encoded_bytes = 0U;
   };
 
-  EventOutboxOptions options;  ///< Immutable participant limits and identity.
-  std::vector<std::shared_ptr<EventSink>> sinks;  ///< Stable sink order.
-  std::vector<PendingEvent> pending;  ///< Ordered bounded delivery queue.
-  StreamState stream;                 ///< Last accepted event stream cursor.
-  std::uint64_t pending_bytes = 0;    ///< Charged encoded queue bytes.
-  std::uint64_t last_delivered_event_index = 0;  ///< Fully delivered cursor.
-  std::uint64_t last_delivered_epoch = 0;        ///< Epoch at delivered cursor.
-  std::uint64_t last_delivered_global_step = 0;  ///< Step at delivered cursor.
-  std::size_t next_close_sink_index = 0;         ///< First sink not yet closed.
-  bool close_prepared = false;  ///< Whether drain and flush already succeeded.
-  bool closed = false;          ///< Whether explicit finalization completed.
+  EventOutboxOptions options;
+  TrainingTelemetryAdapterOptions telemetry;
+  bool compatibility = false;
+  bool explicit_stream = false;
+  std::string clock_id;
+  std::vector<std::shared_ptr<EventSink>> legacy_sinks;
+  std::vector<std::shared_ptr<TelemetrySink>> neutral_sinks;
+  std::vector<TelemetrySinkDescriptor> descriptors;
+  std::vector<std::byte> topology;
+  std::vector<PendingEvent> pending;
+  StreamState stream;
+  std::uint64_t pending_bytes = 0U;
+  std::uint64_t last_delivered_event_index = 0U;
+  std::uint64_t last_delivered_epoch = 0U;
+  std::uint64_t last_delivered_global_step = 0U;
+  std::size_t next_close_sink_index = 0U;
+  bool close_prepared = false;
+  bool closed = false;
+
+  void prepare() {
+    validate_options(options);
+    validate_telemetry_limits(telemetry.limits);
+    explicit_stream = !telemetry.stream_id.empty();
+    if (!explicit_stream)
+      telemetry.stream_id = new_identity("training.stream/");
+    clock_id = new_identity("training.clock/");
+    if (descriptors.empty() || descriptors.size() > options.max_sinks ||
+        telemetry.metrics.size() > options.max_metrics_per_event ||
+        options.v1_sink_type_migrations.size() > options.max_sinks) {
+      throw_invalid(
+          "topology", "bounded nonempty destinations and metric bindings",
+          "invalid size", "Use explicit finite destination/binding limits.");
+    }
+    for (std::size_t index = 0U; index < descriptors.size(); ++index) {
+      if (!compatibility) {
+        validate_telemetry_sink_descriptor(descriptors[index],
+                                           telemetry.limits);
+      }
+      if (index != 0U &&
+          descriptors[index - 1U].sink_id >= descriptors[index].sink_id) {
+        throw_invalid("sinks.sink_id", "unique sorted logical sink IDs",
+                      descriptors[index].sink_id,
+                      "Remove duplicate destinations.");
+      }
+    }
+    for (const auto& [old_type, new_type] : options.v1_sink_type_migrations) {
+      if (old_type.empty() || new_type.empty() ||
+          old_type.size() > options.max_string_bytes ||
+          new_type.size() > options.max_string_bytes) {
+        throw_invalid("migration.types", "bounded explicit implementation IDs",
+                      "invalid",
+                      "Declare only supported N-1 implementation pairs.");
+      }
+    }
+    EventEnvelope probe;
+    probe.event = {.kind = CallbackEventKind::run_started,
+                   .phase = CallbackPhase::preparing,
+                   .event_index = 1U,
+                   .run_id = "run.validation",
+                   .trace_id = "trace.validation",
+                   .epoch = 0U,
+                   .global_step = 0U,
+                   .metrics = {}};
+    for (const auto& [name, binding] : telemetry.metrics) {
+      static_cast<void>(binding);
+      probe.event.metrics.emplace(name, 0.0);
+    }
+    const TelemetryTime probe_time{
+        .wall_time_unix_ns = 0, .monotonic_time_ns = 0U, .clock_id = clock_id};
+    if (compatibility) {
+      adapt_training_compatibility_event(probe, telemetry.stream_id, probe_time,
+                                         telemetry.limits);
+    } else {
+      validate_event_shape(probe.event, options);
+      adapt_training_event(probe, telemetry, probe_time);
+    }
+    topology = encode_topology(options, descriptors, telemetry, compatibility);
+    if (topology.size() > options.max_topology_bytes) {
+      throw_exhausted("topology", std::to_string(options.max_topology_bytes),
+                      std::to_string(topology.size()),
+                      "Reduce frozen bindings or raise the explicit limit.");
+    }
+    pending.reserve(options.max_pending_events);
+  }
+
+  TelemetryTime capture_time() const {
+    const auto wall = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    const auto monotonic =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    if (monotonic < 0) {
+      throw_incompatible("clock", "nonnegative monotonic clock", "negative",
+                         "Use a supported steady clock.");
+    }
+    return {.wall_time_unix_ns = static_cast<std::int64_t>(wall),
+            .monotonic_time_ns = static_cast<std::uint64_t>(monotonic),
+            .clock_id = clock_id};
+  }
+
+  TelemetryEnvelope adapt(const EventEnvelope& source, std::uint8_t format,
+                          const TelemetryTime& time,
+                          const TrainingTelemetryAdapterOptions& config) const {
+    if (format == 3U)
+      return migrate_training_envelope_v1(source, config.limits);
+    if (format == 2U && compatibility) {
+      return adapt_training_compatibility_event(source, config.stream_id, time,
+                                                config.limits);
+    }
+    if (format == 1U && !compatibility) {
+      return adapt_training_event(source, config, time);
+    }
+    throw_serialization("pending.format", "matching live or N-1 snapshot",
+                        std::to_string(format),
+                        "Reject changed producer semantics.");
+  }
+
+  std::uint64_t charge(std::size_t snapshot_size,
+                       std::size_t canonical_size) const {
+    if (snapshot_size > options.max_event_bytes ||
+        canonical_size > options.max_event_bytes) {
+      throw_exhausted("queue.event_bytes",
+                      std::to_string(options.max_event_bytes),
+                      std::to_string(std::max(snapshot_size, canonical_size)),
+                      "Reduce one event or raise its explicit bound.");
+    }
+    const auto snapshot = static_cast<std::uint64_t>(snapshot_size);
+    const auto canonical = static_cast<std::uint64_t>(canonical_size);
+    constexpr std::uint64_t overhead = 16U;
+    if (snapshot > std::numeric_limits<std::uint64_t>::max() - overhead ||
+        canonical >
+            std::numeric_limits<std::uint64_t>::max() - overhead - snapshot) {
+      throw_exhausted("queue.pending_bytes", "representable node bytes",
+                      "overflow", "Reduce event bounds.");
+    }
+    return snapshot + canonical + overhead;
+  }
+
+  void check_control_budget(std::uint64_t charged, std::uint64_t count,
+                            std::string_view run_id,
+                            std::string_view stream_id) const {
+    constexpr std::uint64_t fixed =
+        8U + kControlMagic.size() + 2U + 8U + 8U * 8U + 8U;
+    const auto maximum = options.max_control_bytes;
+    std::uint64_t remaining = maximum;
+    const auto take = [&](std::uint64_t size) {
+      if (size > remaining) {
+        throw_exhausted("queue.control_bytes", std::to_string(maximum),
+                        "checkpoint metadata exceeds budget",
+                        "Drain events or raise the explicit control bound.");
+      }
+      remaining -= size;
+    };
+    take(fixed);
+    take(static_cast<std::uint64_t>(run_id.size()));
+    take(static_cast<std::uint64_t>(stream_id.size()));
+    if (count > remaining / 17U) {
+      throw_exhausted("queue.control_bytes", std::to_string(maximum),
+                      "too many node headers",
+                      "Raise the explicit control bound.");
+    }
+    take(count * 17U);
+    take(charged);
+  }
 };
 
 EventOutbox::EventOutbox(std::vector<std::shared_ptr<EventSink>> sinks,
                          EventOutboxOptions options)
     : impl_(std::make_unique<Impl>()) {
-  if constexpr (std::endian::native != std::endian::little) {
-    throw NotImplemented(
-        "Event outbox checkpoint byte order is unsupported",
-        ErrorDetails{.component = kComponent,
-                     .operation = "platform.endian",
-                     .expected = "little endian",
-                     .actual = "non-little endian",
-                     .hint = "Add an explicit byte-swap codec."});
-  }
   validate_options(options);
   if (sinks.empty() || sinks.size() > options.max_sinks) {
-    throw_invalid("sinks", "one to " + std::to_string(options.max_sinks),
+    throw_invalid("sinks", "bounded nonempty sinks",
                   std::to_string(sinks.size()),
                   "Attach at least one bounded event destination.");
   }
-  std::set<std::string> sink_ids;
   for (const auto& sink : sinks) {
-    if (!sink) {
-      throw_invalid("sinks", "non-null sink owners", "null",
-                    "Construct each sink before the outbox.");
-    }
+    if (!sink)
+      throw_invalid("sinks", "non-null owners", "null", "Construct each sink.");
     validate_sink_descriptor(sink->descriptor(), options);
-    if (!sink_ids.insert(sink->descriptor().sink_id).second) {
-      throw_invalid("sinks.sink_id", "unique stable sink IDs",
-                    sink->descriptor().sink_id,
-                    "Rename the duplicate sink descriptor.");
-    }
   }
   std::sort(sinks.begin(), sinks.end(),
             [](const auto& left, const auto& right) {
               return left->descriptor().sink_id < right->descriptor().sink_id;
             });
-  const auto topology = encode_topology(options, sinks);
-  if (topology.size() > options.max_topology_bytes) {
-    throw_exhausted("topology", std::to_string(options.max_topology_bytes),
-                    std::to_string(topology.size()),
-                    "Reduce sink descriptors or raise the explicit limit.");
-  }
+  impl_->compatibility = true;
   impl_->options = std::move(options);
-  impl_->sinks = std::move(sinks);
-  impl_->pending.reserve(impl_->options.max_pending_events);
+  impl_->telemetry.limits = compatibility_limits(impl_->options);
+  for (const auto& sink : sinks) {
+    const auto& source = sink->descriptor();
+    impl_->descriptors.push_back({.schema_version = source.schema_version,
+                                  .type_id = source.type_id,
+                                  .sink_id = source.sink_id,
+                                  .destination_id = source.destination_id,
+                                  .role = TelemetrySinkRole::observer});
+  }
+  impl_->legacy_sinks = std::move(sinks);
+  impl_->prepare();
+}
+
+EventOutbox::EventOutbox(std::vector<std::shared_ptr<TelemetrySink>> sinks,
+                         const TrainingTelemetryAdapterOptions& telemetry,
+                         EventOutboxOptions options)
+    : impl_(std::make_unique<Impl>()) {
+  validate_options(options);
+  validate_telemetry_limits(telemetry.limits);
+  if (sinks.empty() || sinks.size() > options.max_sinks) {
+    throw_invalid("sinks", "bounded nonempty sinks",
+                  std::to_string(sinks.size()),
+                  "Attach at least one neutral destination.");
+  }
+  for (const auto& sink : sinks) {
+    if (!sink)
+      throw_invalid("sinks", "non-null owners", "null", "Construct each sink.");
+    validate_telemetry_sink_descriptor(sink->descriptor(), telemetry.limits);
+  }
+  std::sort(sinks.begin(), sinks.end(),
+            [](const auto& left, const auto& right) {
+              return left->descriptor().sink_id < right->descriptor().sink_id;
+            });
+  impl_->options = std::move(options);
+  impl_->telemetry = telemetry;
+  for (const auto& sink : sinks)
+    impl_->descriptors.push_back(sink->descriptor());
+  impl_->neutral_sinks = std::move(sinks);
+  impl_->prepare();
 }
 
 EventOutbox::~EventOutbox() = default;
@@ -857,13 +1202,7 @@ EventOutbox::~EventOutbox() = default;
 void EventOutbox::enqueue(const CallbackEvent& event,
                           const CallbackDispatchResult& callback_result) {
   if (impl_->closed || impl_->close_prepared) {
-    throw NotReady(
-        "Event outbox is already closed",
-        ErrorDetails{.component = kComponent,
-                     .operation = "enqueue",
-                     .expected = "an open outbox",
-                     .actual = impl_->closed ? "closed" : "close in progress",
-                     .hint = "Create a new outbox for a new run."});
+    throw NotReady("Event outbox is closed or finalizing");
   }
   validate_event_shape(event, impl_->options);
   validate_callback_result(callback_result, impl_->options);
@@ -872,124 +1211,124 @@ void EventOutbox::enqueue(const CallbackEvent& event,
     throw_exhausted("queue.events",
                     std::to_string(impl_->options.max_pending_events),
                     std::to_string(impl_->pending.size() + 1U),
-                    "Drain pending events before accepting more work.");
+                    "Drain pending evidence before accepting more work.");
   }
-
-  EventEnvelope candidate{
-      .schema_version = 1, .event = event, .callback_result = callback_result};
-  const auto encoded = encode_envelope(candidate);
-  if (encoded.size() > impl_->options.max_event_bytes) {
-    throw_exhausted("queue.event_bytes",
-                    std::to_string(impl_->options.max_event_bytes),
-                    std::to_string(encoded.size()),
-                    "Reduce event fields or raise the explicit limit.");
-  }
-  constexpr std::uint64_t kNodeOverhead = 16U;
-  const auto charged = static_cast<std::uint64_t>(encoded.size()) +
-                       static_cast<std::uint64_t>(kNodeOverhead);
-  if (charged > impl_->options.max_pending_bytes - impl_->pending_bytes) {
+  Impl::PendingEvent candidate;
+  candidate.snapshot = {
+      .schema_version = 1U, .event = event, .callback_result = callback_result};
+  candidate.format = impl_->compatibility ? 2U : 1U;
+  candidate.snapshot_bytes = encode_envelope(candidate.snapshot);
+  candidate.envelope = impl_->adapt(candidate.snapshot, candidate.format,
+                                    impl_->capture_time(), impl_->telemetry);
+  candidate.canonical =
+      encode_telemetry_envelope(candidate.envelope, impl_->telemetry.limits);
+  candidate.encoded_bytes = impl_->charge(candidate.snapshot_bytes.size(),
+                                          candidate.canonical.size());
+  if (candidate.encoded_bytes >
+      impl_->options.max_pending_bytes - impl_->pending_bytes) {
     throw_exhausted("queue.pending_bytes",
                     std::to_string(impl_->options.max_pending_bytes),
-                    std::to_string(impl_->pending_bytes + charged),
+                    std::to_string(candidate.encoded_bytes),
                     "Drain pending events before accepting more work.");
   }
-
-  impl_->pending.push_back({.envelope = std::move(candidate),
-                            .next_sink_index = 0,
-                            .encoded_bytes = charged});
+  const auto charged = candidate.encoded_bytes;
+  impl_->check_control_budget(
+      impl_->pending_bytes + charged,
+      static_cast<std::uint64_t>(impl_->pending.size()) + 1U,
+      next_stream.run_id, impl_->telemetry.stream_id);
+  impl_->pending.push_back(std::move(candidate));
   impl_->pending_bytes += charged;
   impl_->stream = std::move(next_stream);
 }
 
-bool EventOutbox::drain_one(std::stop_token stop) {
-  if (impl_->pending.empty()) {
-    return false;
-  }
+bool EventOutbox::drain_one(std::stop_token stop, TelemetryDeadline deadline) {
+  if (impl_->pending.empty()) return false;
   auto& pending = impl_->pending.front();
-  while (pending.next_sink_index < impl_->sinks.size()) {
-    check_stop(stop, "drain.publish");
-    impl_->sinks[pending.next_sink_index]->publish(pending.envelope, stop);
+  while (pending.next_sink_index < impl_->descriptors.size()) {
+    check_telemetry_operation(stop, deadline);
+    const auto index = pending.next_sink_index;
+    if (impl_->compatibility) {
+      impl_->legacy_sinks[index]->publish(pending.snapshot, stop);
+    } else {
+      const std::span<const TelemetryEnvelope> batch(&pending.envelope, 1U);
+      const auto receipt =
+          impl_->neutral_sinks[index]->emit(batch, stop, deadline);
+      validate_telemetry_emit_result(impl_->descriptors[index], batch, receipt,
+                                     impl_->telemetry.limits);
+    }
     ++pending.next_sink_index;
   }
-  impl_->last_delivered_event_index = pending.envelope.event.event_index;
-  impl_->last_delivered_epoch = pending.envelope.event.epoch;
-  impl_->last_delivered_global_step = pending.envelope.event.global_step;
+  impl_->last_delivered_event_index = pending.snapshot.event.event_index;
+  impl_->last_delivered_epoch = pending.snapshot.event.epoch;
+  impl_->last_delivered_global_step = pending.snapshot.event.global_step;
   impl_->pending_bytes -= pending.encoded_bytes;
   impl_->pending.erase(impl_->pending.begin());
   return true;
 }
 
-void EventOutbox::drain(std::stop_token stop) {
-  while (drain_one(stop)) {
+void EventOutbox::drain(std::stop_token stop, TelemetryDeadline deadline) {
+  while (drain_one(stop, deadline)) {
   }
 }
 
-void EventOutbox::flush(std::stop_token stop) {
-  if (impl_->closed) {
-    return;
-  }
-  if (impl_->close_prepared && !impl_->closed) {
-    throw NotReady(
-        "Event outbox close is already in progress",
-        ErrorDetails{
-            .component = kComponent,
-            .operation = "flush",
-            .expected = "close() retry",
-            .actual = "partial sink finalization",
-            .hint = "Retry close() so already closed sinks are skipped."});
-  }
-  drain(stop);
-  for (const auto& sink : impl_->sinks) {
-    check_stop(stop, "flush");
-    sink->flush(stop);
+void EventOutbox::flush(std::stop_token stop, TelemetryDeadline deadline) {
+  if (impl_->closed) return;
+  if (impl_->close_prepared)
+    throw NotReady("Retry outbox close after partial finalization");
+  drain(stop, deadline);
+  for (std::size_t index = 0U; index < impl_->descriptors.size(); ++index) {
+    check_telemetry_operation(stop, deadline);
+    if (impl_->compatibility)
+      impl_->legacy_sinks[index]->flush(stop);
+    else
+      impl_->neutral_sinks[index]->flush(stop, deadline);
   }
 }
 
-void EventOutbox::close(std::stop_token stop) {
-  if (impl_->closed) {
-    return;
-  }
+void EventOutbox::close(std::stop_token stop, TelemetryDeadline deadline) {
+  if (impl_->closed) return;
   if (!impl_->close_prepared) {
-    flush(stop);
+    flush(stop, deadline);
     impl_->close_prepared = true;
   }
-  while (impl_->next_close_sink_index < impl_->sinks.size()) {
-    check_stop(stop, "close");
-    impl_->sinks[impl_->next_close_sink_index]->close(stop);
+  while (impl_->next_close_sink_index < impl_->descriptors.size()) {
+    check_telemetry_operation(stop, deadline);
+    const auto index = impl_->next_close_sink_index;
+    if (impl_->compatibility)
+      impl_->legacy_sinks[index]->close(stop);
+    else
+      impl_->neutral_sinks[index]->close(stop, deadline);
     ++impl_->next_close_sink_index;
   }
   impl_->closed = true;
 }
 
 bool EventOutbox::closed() const noexcept { return impl_->closed; }
-
+std::string_view EventOutbox::telemetry_stream_id() const noexcept {
+  return impl_->telemetry.stream_id;
+}
 std::size_t EventOutbox::pending_events() const noexcept {
   return impl_->pending.size();
 }
-
 std::uint64_t EventOutbox::pending_bytes() const noexcept {
   return impl_->pending_bytes;
 }
-
 std::uint64_t EventOutbox::last_enqueued_event_index() const noexcept {
   return impl_->stream.last_event_index;
 }
-
 std::uint64_t EventOutbox::last_delivered_event_index() const noexcept {
   return impl_->last_delivered_event_index;
 }
-
 const EventOutboxOptions& EventOutbox::options() const noexcept {
   return impl_->options;
 }
-
 std::string EventOutbox::participant_id() const {
   return impl_->options.outbox_id;
 }
 
 StateManifest EventOutbox::describe_state() const {
   return {.participant_id = impl_->options.outbox_id,
-          .schema_version = 1,
+          .schema_version = 2U,
           .restore_level = RestoreLevel::exact,
           .fields = {{.name = kTopologyField,
                       .media_type = kTopologyMediaType,
@@ -1002,16 +1341,8 @@ StateManifest EventOutbox::describe_state() const {
 
 void EventOutbox::save_state(StateWriter& writer) const {
   if (impl_->closed || impl_->close_prepared) {
-    throw NotReady(
-        "Cannot checkpoint an event outbox during or after close",
-        ErrorDetails{
-            .component = kComponent,
-            .operation = "save_state",
-            .expected = "an open outbox before sink finalization",
-            .actual = impl_->closed ? "closed" : "close in progress",
-            .hint = "Checkpoint pending delivery before close starts."});
+    throw NotReady("Cannot checkpoint an outbox during or after close");
   }
-  const auto topology = encode_topology(impl_->options, impl_->sinks);
   std::vector<std::byte> control;
   append_string(control, kControlMagic);
   append_u8(control, impl_->stream.initialized ? 1U : 0U);
@@ -1025,56 +1356,63 @@ void EventOutbox::save_state(StateWriter& writer) const {
   append_u64(control, impl_->last_delivered_global_step);
   append_u64(control, impl_->pending_bytes);
   append_u64(control, static_cast<std::uint64_t>(impl_->pending.size()));
+  append_string(control, impl_->telemetry.stream_id);
   for (const auto& pending : impl_->pending) {
-    const auto encoded = encode_envelope(pending.envelope);
+    append_u8(control, pending.format);
     append_u64(control, static_cast<std::uint64_t>(pending.next_sink_index));
     append_u64(control, pending.encoded_bytes);
-    append_u64(control, static_cast<std::uint64_t>(encoded.size()));
-    control.insert(control.end(), encoded.begin(), encoded.end());
+    append_bytes(control, pending.snapshot_bytes);
+    append_bytes(control, pending.canonical);
   }
-  if (topology.size() > impl_->options.max_topology_bytes ||
-      control.size() > impl_->options.max_control_bytes) {
-    throw_exhausted("save_state", "state within configured limits",
-                    std::to_string(topology.size() + control.size()),
+  if (control.size() > impl_->options.max_control_bytes) {
+    throw_exhausted("save_state",
+                    std::to_string(impl_->options.max_control_bytes),
+                    std::to_string(control.size()),
                     "Drain events or raise checkpoint limits.");
   }
-  writer.write_blob(kTopologyField, std::span<const std::byte>(
-                                        topology.data(), topology.size()));
-  writer.write_blob(kControlField,
-                    std::span<const std::byte>(control.data(), control.size()));
+  writer.write_blob(kTopologyField, impl_->topology);
+  writer.write_blob(kControlField, control);
 }
 
 void EventOutbox::load_state(const StateReader& reader, RestorePolicy policy) {
-  if (impl_->closed || impl_->close_prepared) {
-    throw NotReady(
-        "Cannot restore a closed event outbox",
-        ErrorDetails{.component = kComponent,
-                     .operation = "load_state",
-                     .expected = "an open outbox",
-                     .actual = impl_->closed ? "closed" : "close in progress",
-                     .hint = "Restore into a newly constructed "
-                             "outbox with matching sinks."});
+  if (impl_->closed || impl_->close_prepared)
+    throw NotReady("Cannot restore a closed outbox");
+  auto expected_manifest = describe_state();
+  const auto version = reader.manifest().schema_version;
+  const bool old = version == 1U;
+  if (old) {
+    expected_manifest.schema_version = 1U;
+    expected_manifest.fields[0].media_type =
+        "application/vnd.jyppx.event-outbox-topology-v1";
+    expected_manifest.fields[1].media_type =
+        "application/vnd.jyppx.event-outbox-control-v1";
   }
-  const auto expected_manifest = describe_state();
   validate_manifest(reader.manifest(), expected_manifest, policy);
-  const auto stored_topology =
-      reader.read_blob(kTopologyField, impl_->options.max_topology_bytes);
-  const auto expected_topology = encode_topology(impl_->options, impl_->sinks);
-  if (stored_topology.size() != expected_topology.size() ||
-      !std::equal(stored_topology.begin(), stored_topology.end(),
-                  expected_topology.begin())) {
-    throw_incompatible("topology", "identical sink topology and limits",
-                       "different",
-                       "Restore with the same ordered logical destinations.");
+  if (!reader.contains(kTopologyField) || !reader.contains(kControlField)) {
+    throw_serialization(
+        "state.fields", "both complete required blobs", "missing",
+        "Keep the original checkpoint and reject partial state.");
   }
-
-  const auto stored_control =
-      reader.read_blob(kControlField, impl_->options.max_control_bytes);
-  ByteReader control(stored_control);
-  if (control.read_string("control.magic", kControlMagic.size()) !=
-      kControlMagic) {
-    throw_serialization("control.magic", std::string(kControlMagic),
-                        "different", "Reject unknown outbox state encoding.");
+  const auto topology =
+      reader.read_blob(kTopologyField, impl_->options.max_topology_bytes);
+  auto source_options = impl_->options;
+  if (old) {
+    source_options =
+        decode_v1_topology(topology, impl_->options, impl_->descriptors);
+  } else if (topology.size() != impl_->topology.size() ||
+             !std::equal(topology.begin(), topology.end(),
+                         impl_->topology.begin())) {
+    throw_incompatible(
+        "topology", "identical frozen sinks, bindings, and limits", "different",
+        "Restore with the saved observation semantics.");
+  }
+  const auto bytes =
+      reader.read_blob(kControlField, source_options.max_control_bytes);
+  ByteReader control(bytes);
+  const auto magic = old ? kControlMagicV1 : kControlMagic;
+  if (control.read_string("control.magic", magic.size()) != magic) {
+    throw_serialization("control.magic", std::string(magic), "different",
+                        "Reject an unsupported outbox encoding.");
   }
   const auto initialized = control.read_u8("control.initialized");
   const auto terminal = control.read_u8("control.terminal");
@@ -1082,122 +1420,174 @@ void EventOutbox::load_state(const StateReader& reader, RestorePolicy policy) {
     throw_serialization("control.flags", "zero or one", "invalid",
                         "Reject invalid boolean state encoding.");
   }
-  StreamState candidate_stream{
+  StreamState stream{
       .initialized = initialized == 1U,
       .terminal = terminal == 1U,
       .run_id = control.read_string("control.run_id",
-                                    impl_->options.max_string_bytes),
+                                    source_options.max_string_bytes),
       .last_event_index = control.read_u64("control.last_event_index"),
       .last_epoch = control.read_u64("control.last_epoch"),
       .last_global_step = control.read_u64("control.last_global_step")};
-  const auto candidate_delivered =
-      control.read_u64("control.last_delivered_event_index");
-  const auto candidate_delivered_epoch =
-      control.read_u64("control.last_delivered_epoch");
-  const auto candidate_delivered_global_step =
+  const auto delivered = control.read_u64("control.last_delivered_event_index");
+  const auto delivered_epoch = control.read_u64("control.last_delivered_epoch");
+  const auto delivered_step =
       control.read_u64("control.last_delivered_global_step");
-  const auto stored_pending_bytes = control.read_u64("control.pending_bytes");
-  const auto pending_count = control.read_u64("control.pending_count");
-  if (pending_count > impl_->options.max_pending_events) {
-    throw_exhausted("state.pending_count",
-                    std::to_string(impl_->options.max_pending_events),
-                    std::to_string(pending_count),
-                    "Reject checkpoint state above configured limits.");
+  const auto stored_charge = control.read_u64("control.pending_bytes");
+  const auto count = control.read_u64("control.pending_count");
+  if (count > source_options.max_pending_events ||
+      stored_charge > source_options.max_pending_bytes) {
+    throw_exhausted("state.pending", "configured queue bounds", "out of range",
+                    "Reject an oversized checkpoint before allocation.");
   }
-
-  std::vector<Impl::PendingEvent> candidate_pending;
-  candidate_pending.reserve(static_cast<std::size_t>(pending_count));
-  std::uint64_t candidate_pending_bytes = 0;
-  StreamState replay_stream{
-      .initialized = candidate_delivered != 0U,
-      .terminal = false,
-      .run_id =
-          candidate_delivered == 0U ? std::string{} : candidate_stream.run_id,
-      .last_event_index = candidate_delivered,
-      .last_epoch = candidate_delivered_epoch,
-      .last_global_step = candidate_delivered_global_step};
-  std::uint64_t expected_pending_index = candidate_delivered;
-  for (std::uint64_t index = 0; index < pending_count; ++index) {
-    const auto next_sink = control.read_u64("pending.next_sink_index");
+  auto config = impl_->telemetry;
+  if (!old) {
+    config.stream_id = control.read_string("control.stream_id",
+                                           config.limits.max_identifier_bytes);
+  } else if (stream.initialized) {
+    EventEnvelope seed;
+    seed.event = {.kind = CallbackEventKind::run_started,
+                  .phase = CallbackPhase::preparing,
+                  .event_index = 1U,
+                  .run_id = stream.run_id,
+                  .trace_id = "migration.unavailable",
+                  .epoch = 0U,
+                  .global_step = 0U,
+                  .metrics = {}};
+    config.stream_id =
+        migrate_training_envelope_v1(seed, config.limits).identity.stream_id;
+  }
+  if (impl_->explicit_stream &&
+      config.stream_id != impl_->telemetry.stream_id) {
+    throw_incompatible(
+        "control.stream_id", impl_->telemetry.stream_id, config.stream_id,
+        "Resume the saved producer stream; never reset its sequence.");
+  }
+  // Validate even an empty-state stream before accepting it into live state.
+  EventEnvelope identity_probe;
+  identity_probe.event = {.kind = CallbackEventKind::run_started,
+                          .phase = CallbackPhase::preparing,
+                          .event_index = 1U,
+                          .run_id = "run.validation",
+                          .trace_id = "trace.validation",
+                          .epoch = 0U,
+                          .global_step = 0U,
+                          .metrics = {}};
+  impl_->adapt(identity_probe, impl_->compatibility ? 2U : 1U, {}, config);
+  std::vector<Impl::PendingEvent> pending;
+  pending.reserve(static_cast<std::size_t>(count));
+  StreamState replay{.initialized = delivered != 0U,
+                     .terminal = false,
+                     .run_id = delivered == 0U ? std::string{} : stream.run_id,
+                     .last_event_index = delivered,
+                     .last_epoch = delivered_epoch,
+                     .last_global_step = delivered_step};
+  std::uint64_t charged_total = 0U;
+  std::uint64_t old_total = 0U;
+  for (std::uint64_t index = 0U; index < count; ++index) {
+    Impl::PendingEvent node;
+    node.format = old ? 3U : control.read_u8("pending.format");
+    const auto sink = control.read_u64("pending.next_sink_index");
     const auto charged = control.read_u64("pending.encoded_bytes");
-    const auto encoded_size = control.read_u64("pending.envelope_size");
-    if (next_sink > impl_->sinks.size() ||
-        encoded_size > impl_->options.max_event_bytes ||
-        encoded_size > stored_control.size()) {
-      throw_serialization("pending.node", "bounded sink and event sizes",
-                          "out of range",
-                          "Reject corrupt pending event metadata.");
+    if (sink > impl_->descriptors.size() || (index != 0U && sink != 0U)) {
+      throw_serialization(
+          "pending.sink_cursor", "only the front may be partly delivered",
+          std::to_string(sink), "Reject impossible delivery cursors.");
     }
-    std::vector<std::byte> encoded;
-    encoded.reserve(static_cast<std::size_t>(encoded_size));
-    for (std::uint64_t byte = 0; byte < encoded_size; ++byte) {
-      encoded.push_back(
-          static_cast<std::byte>(control.read_u8("pending.envelope")));
+    node.next_sink_index = static_cast<std::size_t>(sink);
+    const auto snapshot =
+        control.read_bytes("pending.snapshot", source_options.max_event_bytes);
+    node.snapshot = decode_envelope(snapshot, source_options);
+    node.snapshot_bytes.assign(snapshot.begin(), snapshot.end());
+    if (encode_envelope(node.snapshot) != node.snapshot_bytes) {
+      throw_serialization("pending.snapshot", "canonical callback snapshot",
+                          "different",
+                          "Reject noncanonical callback ordering.");
     }
-    auto envelope = decode_envelope(encoded, impl_->options);
-    if (expected_pending_index == std::numeric_limits<std::uint64_t>::max() ||
-        envelope.event.event_index != expected_pending_index + 1U) {
-      throw_serialization("pending.event_index", "gap-free delivery order",
-                          std::to_string(envelope.event.event_index),
-                          "Reject duplicate or skipped pending events.");
+    if (old) {
+      const auto expected_old =
+          static_cast<std::uint64_t>(snapshot.size()) + 16U;
+      if (charged != expected_old ||
+          charged > source_options.max_pending_bytes - old_total) {
+        throw_serialization("pending.v1.charge", "exact legacy node accounting",
+                            "different",
+                            "Keep the unmodified legacy checkpoint.");
+      }
+      old_total += charged;
+      node.envelope =
+          migrate_training_envelope_v1(node.snapshot, config.limits);
+      node.canonical = encode_telemetry_envelope(node.envelope, config.limits);
+    } else {
+      const auto canonical = control.read_bytes(
+          "pending.canonical", std::min(impl_->options.max_event_bytes,
+                                        config.limits.max_envelope_bytes));
+      node.envelope = decode_telemetry_envelope(canonical, config.limits);
+      node.canonical.assign(canonical.begin(), canonical.end());
+      const auto expected =
+          impl_->adapt(node.snapshot, node.format, node.envelope.time, config);
+      if (encode_telemetry_envelope(expected, config.limits) !=
+          node.canonical) {
+        throw_serialization(
+            "pending.canonical", "exact staged snapshot and telemetry",
+            "different",
+            "Never recapture time or change saved metric semantics.");
+      }
     }
-    expected_pending_index = envelope.event.event_index;
-    replay_stream = validate_transition(envelope.event, replay_stream);
-    constexpr std::uint64_t kNodeOverhead = 16U;
-    const auto expected_charged = encoded_size + kNodeOverhead;
-    if (charged != expected_charged ||
-        charged > impl_->options.max_pending_bytes - candidate_pending_bytes) {
-      throw_serialization("pending.encoded_bytes",
-                          std::to_string(expected_charged),
-                          std::to_string(charged),
-                          "Reject inconsistent queue resource accounting.");
+    if (node.envelope.identity.stream_id != config.stream_id) {
+      throw_serialization(
+          "pending.stream_id", config.stream_id, "different",
+          "Keep every pending operation in its saved producer stream.");
     }
-    candidate_pending_bytes += charged;
-    candidate_pending.push_back(
-        {.envelope = std::move(envelope),
-         .next_sink_index = static_cast<std::size_t>(next_sink),
-         .encoded_bytes = charged});
+    replay = validate_transition(node.snapshot.event, replay);
+    node.encoded_bytes =
+        impl_->charge(node.snapshot_bytes.size(), node.canonical.size());
+    if ((!old && charged != node.encoded_bytes) ||
+        node.encoded_bytes > impl_->options.max_pending_bytes - charged_total) {
+      throw_exhausted("pending.charge", "exact bounded migrated node bytes",
+                      "different",
+                      "Reject inconsistent accounting or increase explicit "
+                      "migration capacity.");
+    }
+    charged_total += node.encoded_bytes;
+    pending.push_back(std::move(node));
   }
   control.require_finished("control");
-
-  if (stored_pending_bytes != candidate_pending_bytes ||
-      candidate_delivered > candidate_stream.last_event_index ||
-      candidate_delivered_epoch > candidate_stream.last_epoch ||
-      candidate_delivered_global_step > candidate_stream.last_global_step ||
-      (candidate_delivered == 0U && (candidate_delivered_epoch != 0U ||
-                                     candidate_delivered_global_step != 0U)) ||
-      (!candidate_stream.initialized &&
-       (candidate_stream.terminal || !candidate_stream.run_id.empty() ||
-        candidate_stream.last_event_index != 0U || candidate_delivered != 0U ||
-        !candidate_pending.empty())) ||
-      (candidate_stream.initialized &&
-       (!is_identifier(candidate_stream.run_id) ||
-        candidate_stream.run_id.size() > impl_->options.max_string_bytes)) ||
-      (candidate_pending.empty() &&
-       (candidate_delivered != candidate_stream.last_event_index ||
-        candidate_delivered_epoch != candidate_stream.last_epoch ||
-        candidate_delivered_global_step !=
-            candidate_stream.last_global_step)) ||
-      (!candidate_pending.empty() &&
-       (candidate_pending.front().envelope.event.event_index !=
-            candidate_delivered + 1U ||
-        candidate_pending.back().envelope.event.event_index !=
-            candidate_stream.last_event_index ||
-        replay_stream.run_id != candidate_stream.run_id ||
-        replay_stream.last_epoch != candidate_stream.last_epoch ||
-        replay_stream.last_global_step != candidate_stream.last_global_step ||
-        replay_stream.terminal != candidate_stream.terminal))) {
-    throw_serialization("control", "internally consistent stream and queue",
-                        "inconsistent",
-                        "Reject partial or reordered event outbox state.");
+  impl_->check_control_budget(charged_total, count, stream.run_id,
+                              config.stream_id);
+  if (stored_charge != (old ? old_total : charged_total) ||
+      delivered > stream.last_event_index ||
+      delivered_epoch > stream.last_epoch ||
+      delivered_step > stream.last_global_step ||
+      (delivered == 0U && (delivered_epoch != 0U || delivered_step != 0U)) ||
+      (!stream.initialized &&
+       (stream.terminal || !stream.run_id.empty() ||
+        stream.last_event_index != 0U || stream.last_epoch != 0U ||
+        stream.last_global_step != 0U || delivered != 0U ||
+        !pending.empty())) ||
+      (stream.initialized &&
+       (stream.last_event_index == 0U || !is_identifier(stream.run_id) ||
+        stream.run_id.size() > impl_->options.max_string_bytes)) ||
+      (pending.empty() && (delivered != stream.last_event_index ||
+                           delivered_epoch != stream.last_epoch ||
+                           delivered_step != stream.last_global_step)) ||
+      (!pending.empty() &&
+       (replay.run_id != stream.run_id ||
+        replay.last_event_index != stream.last_event_index ||
+        replay.last_epoch != stream.last_epoch ||
+        replay.last_global_step != stream.last_global_step ||
+        replay.terminal != stream.terminal))) {
+    throw_serialization(
+        "control", "internally consistent stream and pending suffix",
+        "inconsistent", "Reject partial or reordered outbox state.");
   }
-
-  impl_->pending.swap(candidate_pending);
-  impl_->stream = std::move(candidate_stream);
-  impl_->pending_bytes = candidate_pending_bytes;
-  impl_->last_delivered_event_index = candidate_delivered;
-  impl_->last_delivered_epoch = candidate_delivered_epoch;
-  impl_->last_delivered_global_step = candidate_delivered_global_step;
+  // All allocations, conversion, topology and receipt-cursor checks precede
+  // commit.
+  impl_->pending.swap(pending);
+  impl_->telemetry = std::move(config);
+  impl_->stream = std::move(stream);
+  impl_->pending_bytes = charged_total;
+  impl_->last_delivered_event_index = delivered;
+  impl_->last_delivered_epoch = delivered_epoch;
+  impl_->last_delivered_global_step = delivered_step;
 }
 
 struct JsonlEventSink::Impl {

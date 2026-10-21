@@ -8,7 +8,7 @@ they cannot satisfy an entity component's required edge.
 
 CMake writes the actual direct target and link-interface edges to
 `component-target-graph.tsv` in the build directory. During configuration,
-`tools/component_graph.py` compares that graph with the policy and scans all
+`scripts/validation/component_graph.py` compares that graph with the policy and scans all
 `jyppx/...` includes in public headers and production sources. A deterministic
 `component-dependency-report.json` is written beside the CMake cache.
 

@@ -24,7 +24,7 @@ A C++ deep learning training framework built on LibTorch, providing PyTorch-styl
 Validate the compatibility source before configuring a local build:
 
 ```bash
-python tools/compatibility.py --file compatibility.json --validate
+python scripts/validation/compatibility.py --file compatibility.json --validate
 ```
 
 ## Quick Start
@@ -87,6 +87,16 @@ maps. `save_checkpoint()` and `restore_checkpoint()` use storage-neutral
 transaction interfaces; file/container formats belong to interop adapters.
 
 ## Documentation
+
+Repository directories have distinct owners:
+
+| Directory | Contents |
+| --- | --- |
+| `include/`, `src/` | Public library contracts and their implementations. |
+| [`tools/`](tools/README.md) | Tools delivered to library users, including the CLI and optional runtime adapters. |
+| [`scripts/`](scripts/README.md) | Repository build checks, CI, coverage and performance baseline orchestration. These are not installed as library tools. |
+| `tests/` | Unit, integration, installation and release acceptance tests, with their fixtures. |
+| `out/` | Ignored incremental builds, reports, logs, downloaded dependencies and virtual environments. |
 
 - [Documentation index](docs/index.md) — tutorials and API reference
 - Tutorials: [basic training](docs/tutorials/01_basic_training.md),
@@ -164,7 +174,7 @@ work), otherwise from GitHub.
 Run the reproducible local baseline from the repository root:
 
 ```powershell
-pwsh -NoProfile -File tools/Run-Baseline.ps1
+pwsh -NoProfile -File scripts/benchmarks/Run-Baseline.ps1
 ```
 
 The command reuses the persistent `out/build/baseline-release` directory, runs
@@ -179,7 +189,7 @@ visible NVIDIA GPU. After building with `JYPPX_BUILD_BENCHMARKS=ON`, run:
 
 ```bash
 LD_LIBRARY_PATH=/path/to/libtorch/lib \
-python3 tools/run_cuda_baseline.py \
+python3 scripts/benchmarks/run_cuda_baseline.py \
   --benchmark out/build/cuda/tests/benchmarks/jyppx_bench_cuda_training \
   --output-dir out/baseline/cuda \
   --write-reference out/baseline/cuda/reference.json
@@ -198,7 +208,7 @@ environment-bound reference; the results are not a cross-algorithm ranking:
 
 ```bash
 LD_LIBRARY_PATH=/path/to/libtorch/lib \
-python3 tools/run_cuda_baseline.py \
+python3 scripts/benchmarks/run_cuda_baseline.py \
   --suite optimizer \
   --benchmark out/build/cuda/tests/benchmarks/jyppx_bench_cuda_optimizer \
   --output-dir out/baseline/cuda-optimizer \
@@ -217,7 +227,7 @@ Debug uses the same release CRT and iterator-debug level as LibTorch on Windows;
 this is required for safe source-level debugging against the official binaries.
 Coverage and sanitizer options require GCC or Clang and fail at configure time
 on unsupported compilers instead of silently producing an uninstrumented build.
-The Linux coverage lane is `bash tools/run-coverage.sh`; it requires `gcovr 5.0`
+The Linux coverage lane is `bash scripts/validation/run-coverage.sh`; it requires `gcovr 5.0`
 or newer and
 `CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. `JYPPX_ENABLE_ASAN`,
 `JYPPX_ENABLE_UBSAN`, and `JYPPX_ENABLE_TSAN` instrument both framework

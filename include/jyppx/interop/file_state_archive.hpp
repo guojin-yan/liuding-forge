@@ -25,6 +25,8 @@ struct FileStateArchiveOptions {
   std::uint64_t min_free_storage_bytes = 0;  ///< Space retained during staging.
   bool synchronize = true;  ///< Synchronize content and publication metadata.
   CheckpointManifestLimits manifest_limits;  ///< Bounds for the embedded JSON.
+  bool read_only =
+      false;  ///< Require an existing archive; never clean or lock.
 };
 
 /**
@@ -49,7 +51,8 @@ class FileStateArchive final {
   /**
    * @brief Opens an existing immutable snapshot or an empty destination.
    * @param path Final file path with an existing or creatable parent directory.
-   * @param options Positive bounds and optional durability policy.
+   * @param options Bounds, durability policy, and optional immutable open mode.
+   * Read-only mode requires existing valid content and preserves sibling files.
    * @throws Error If options, stored bytes, or filesystem state are invalid.
    */
   explicit FileStateArchive(std::filesystem::path path,
@@ -77,7 +80,7 @@ class FileStateArchive final {
   /**
    * @brief Begins capture of a complete, canonically ordered participant set.
    * @param participants Nonempty manifests in strictly ascending ID order.
-   * @throws Error If a transaction is active, locked, invalid, or oversized.
+   * @throws Error If read-only, active, locked, invalid, or oversized.
    */
   void begin(const std::vector<StateManifest>& participants);
   /**

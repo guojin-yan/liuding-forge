@@ -26,9 +26,9 @@ jobs:
       - name: Validate compatibility source
         shell: bash
         run: |
-          python tools/compatibility.py --file compatibility.json --validate
-          echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
-          python tools/dependency_manifest.py --file dependency-manifest.json
+          python scripts/validation/compatibility.py --file compatibility.json --validate
+          echo "LIBTORCH_VERSION=$(python scripts/validation/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
+          python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 
       - name: Install quality tools
         if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'Release'
@@ -123,9 +123,9 @@ jobs:
 
       - name: Validate dependency inputs
         run: |
-          python tools/compatibility.py --file compatibility.json --validate
-          python tools/dependency_manifest.py --file dependency-manifest.json
-          echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
+          python scripts/validation/compatibility.py --file compatibility.json --validate
+          python scripts/validation/dependency_manifest.py --file dependency-manifest.json
+          echo "LIBTORCH_VERSION=$(python scripts/validation/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
 
       - name: Download LibTorch (CPU)
         run: |
@@ -138,7 +138,7 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ github.workspace }}/libtorch-install/libtorch
           LD_LIBRARY_PATH: ${{ github.workspace }}/libtorch-install/libtorch/lib
-        run: bash tools/run-coverage.sh
+        run: bash scripts/validation/run-coverage.sh
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -159,9 +159,9 @@ jobs:
 
       - name: Validate dependency inputs
         run: |
-          python tools/compatibility.py --file compatibility.json --validate
-          python tools/dependency_manifest.py --file dependency-manifest.json
-          echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
+          python scripts/validation/compatibility.py --file compatibility.json --validate
+          python scripts/validation/dependency_manifest.py --file dependency-manifest.json
+          echo "LIBTORCH_VERSION=$(python scripts/validation/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
 
       - name: Download LibTorch (CPU)
         run: |
@@ -203,8 +203,8 @@ jobs:
 
       - name: Resolve candidate LibTorch
         run: |
-          python tools/compatibility.py --file compatibility.json --validate
-          echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
+          python scripts/validation/compatibility.py --file compatibility.json --validate
+          echo "LIBTORCH_VERSION=$(python scripts/validation/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
 
       - name: Download LibTorch (CPU)
         run: |
@@ -217,7 +217,7 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ github.workspace }}/libtorch-install/libtorch
           LD_LIBRARY_PATH: ${{ github.workspace }}/libtorch-install/libtorch/lib
-        run: bash tools/run-tsan.sh
+        run: bash scripts/validation/run-tsan.sh
 
       - name: Upload TSan report on failure
         if: failure()
@@ -242,8 +242,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang
-          python tools/compatibility.py --file compatibility.json --validate
-          echo "LIBTORCH_VERSION=$(python tools/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
+          python scripts/validation/compatibility.py --file compatibility.json --validate
+          echo "LIBTORCH_VERSION=$(python scripts/validation/compatibility.py --file compatibility.json --version compatibility_candidate)" >> "$GITHUB_ENV"
 
       - name: Download LibTorch (CPU)
         run: |
@@ -257,7 +257,7 @@ jobs:
           CMAKE_PREFIX_PATH: ${{ github.workspace }}/libtorch-install/libtorch
           LD_LIBRARY_PATH: ${{ github.workspace }}/libtorch-install/libtorch/lib
           JYPPX_FUZZ_RUNS: 10000
-        run: bash tools/run-fuzz.sh
+        run: bash scripts/validation/run-fuzz.sh
 
       - name: Upload fuzz artifacts on failure
         if: failure()

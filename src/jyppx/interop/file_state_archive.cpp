@@ -481,16 +481,19 @@ class FileStateArchive::Impl {
     }
     // Validate every parsing limit even for a new destination.
     (void)make_checkpoint_manifest_capability(options_.manifest_limits);
-    std::error_code error;
-    const auto temporary = sibling(path_, ".tmp");
-    const auto stale = std::filesystem::exists(temporary, error);
-    if (error) io_failure("exists.temp", temporary, error);
-    if (stale) {
-      try {
-        WriterLock lock;
-        if (lock.acquire(sibling(path_, ".lock"))) remove_temporary(temporary);
-      } catch (const Error&) {
-        // Read-only callers can still open an intact published snapshot.
+    if (!options_.read_only) {
+      std::error_code error;
+      const auto temporary = sibling(path_, ".tmp");
+      const auto stale = std::filesystem::exists(temporary, error);
+      if (error) io_failure("exists.temp", temporary, error);
+      if (stale) {
+        try {
+          WriterLock lock;
+          if (lock.acquire(sibling(path_, ".lock")))
+            remove_temporary(temporary);
+        } catch (const Error&) {
+          // An intact published snapshot can still be read without cleanup.
+        }
       }
     }
     load();
@@ -505,7 +508,13 @@ class FileStateArchive::Impl {
 
   void load() {
     const auto snapshot = read_snapshot(path_, options_.max_artifact_bytes);
-    if (!snapshot) return;
+    if (!snapshot) {
+      if (options_.read_only) {
+        io_failure("read.open", path_,
+                   std::make_error_code(std::errc::no_such_file_or_directory));
+      }
+      return;
+    }
     const auto& bytes = *snapshot;
     const auto payload =
         std::span<const std::byte>(bytes).first(bytes.size() - kDigestBytes);
@@ -630,6 +639,7 @@ const CheckpointArtifactManifest& FileStateArchive::manifest() const noexcept {
 }
 
 void FileStateArchive::begin(const std::vector<StateManifest>& participants) {
+  if (impl_->options_.read_only) throw InvalidArgument("Archive is read-only");
   if (impl_->open_) throw NotReady("Archive transaction is already open");
   if (participants.empty())
     throw InvalidArgument("Cannot publish an empty participant set");

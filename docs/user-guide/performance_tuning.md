@@ -81,7 +81,7 @@ Compare PyTorch with the same seed, model, tensors, dtype, and steps. These are
 engineering measurements, not universal limits.
 
 For a real-GPU end-to-end baseline, build `jyppx_bench_cuda_training` against
-CUDA LibTorch and invoke it through `tools/run_cuda_baseline.py`. The frozen
+CUDA LibTorch and invoke it through `scripts/benchmarks/run_cuda_baseline.py`. The frozen
 workload covers FP32 with one SGD optimizer and FP16 autocast with two disjoint
 SGD optimizers plus one Trainer-owned GradScaler cycle. Each process verifies
 the committed Trainer and optimizer steps before publishing throughput, mean

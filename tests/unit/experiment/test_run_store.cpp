@@ -320,7 +320,9 @@ TEST(SQLiteRunStoreTest, RestartsWithRunLineageTagsCheckpointAndWalIntact) {
               RunStatus::completed);
     RawDatabase raw(store.database_path());
     EXPECT_EQ(raw.scalar_text("PRAGMA journal_mode"), "wal");
-    EXPECT_EQ(raw.scalar_text("PRAGMA user_version"), "1");
+    EXPECT_EQ(
+        raw.scalar_text("PRAGMA user_version"),
+        std::to_string(jyppx::experiment::SQLiteRunStore::schema_version));
   }
   SQLiteRunStore reopened(root.path());
   const auto metadata = reopened.find("run-1");

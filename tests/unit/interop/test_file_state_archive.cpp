@@ -138,6 +138,32 @@ TEST_F(FileStateArchiveTest, CreatesAndReopensNestedDurableDestination) {
             content[0]);
 }
 
+TEST_F(FileStateArchiveTest,
+       ReadOnlySnapshotPreservesRecoveryFilesAndRejectsWrites) {
+  const std::array<std::byte, 1> content{std::byte{42}};
+  save(content);
+  const auto temporary = std::filesystem::path(path_.string() + ".tmp");
+  const auto lock = std::filesystem::path(path_.string() + ".lock");
+  std::filesystem::remove(lock);
+  write_file(temporary, content);
+  jyppx::interop::FileStateArchiveOptions options;
+  options.read_only = true;
+  FileStateArchive reader(path_, options);
+  EXPECT_EQ(reader.reader_for("test.state").read_blob("payload", 1U)[0],
+            content[0]);
+  EXPECT_THROW(reader.begin({state()}), jyppx::InvalidArgument);
+  EXPECT_EQ(read_file(temporary), std::vector(content.begin(), content.end()));
+  EXPECT_FALSE(std::filesystem::exists(lock));
+}
+
+TEST_F(FileStateArchiveTest, ReadOnlyMissingArchiveDoesNotCreateItsParent) {
+  const auto missing = directory_ / "missing" / "state.bin";
+  jyppx::interop::FileStateArchiveOptions options;
+  options.read_only = true;
+  EXPECT_THROW(FileStateArchive(missing, options), jyppx::IoError);
+  EXPECT_FALSE(std::filesystem::exists(missing.parent_path()));
+}
+
 TEST_F(FileStateArchiveTest, ConcurrentReplacementReadsOneCompleteGeneration) {
   const std::array<std::byte, 1> original{std::byte{42}};
   save(original);

@@ -10,7 +10,15 @@ downloaded datasets must not be written to the repository root.
 - Implementations: `src/jyppx/<component>/`
 - Tests: `tests/<level>/<component>/`
 - Build helpers: `cmake/` and `scripts/`
-- Generated files: the active build tree only
+- Product tools: `tools/cli/` and optional runtime adapters in `tools/`
+- Script tests: `tests/scripts/`; runtime backend and release acceptance: `tests/integration/`
+- Generated files, dependency downloads and isolated environments: ignored `out/`
+
+`tools/` is owned by the shipped library tools. Build/CI checks, coverage,
+performance baselines and release orchestration belong in `scripts/`; their
+tests and acceptance fixtures belong in `tests/`. Those developer files are
+not installed. Keep runtime dependency locks with their optional runtime, and
+qualification-only locks with the relevant script/test owner.
 
 Do not create top-level numeric or temporary directories. A new top-level
 directory requires a documented owner, purpose and retention policy.

@@ -127,6 +127,11 @@ foreach(profile IN LISTS profiles)
             endif()
         endif()
     endforeach()
+    if(interop IN_LIST profile_components AND NOT nn IN_LIST profile_components
+       AND EXISTS "${install_dir}/include/jyppx/interop/model_weight_import.hpp")
+        message(FATAL_ERROR
+            "NN adapter header remains installed with nn disabled in ${profile} profile")
+    endif()
     if(NOT core IN_LIST profile_components AND
        EXISTS "${install_dir}/include/jyppx/utils")
         message(FATAL_ERROR "Core-owned utils headers remain with core disabled")

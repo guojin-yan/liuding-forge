@@ -1,0 +1,24 @@
+# Copyright 2026 JYPPX Training Framework Contributors
+# Licensed under the Apache License, Version 2.0.
+#
+# Optional official-Python interoperability test dependency only.
+# Target: 64-bit CPython 3.11, Windows amd64 or Ubuntu x86_64/glibc >= 2.17.
+# Both official wheel files were downloaded and SHA-256 checked on 2026-10-21.
+# Provenance, packaged licenses, compatibility tags, and validation status:
+# scripts/interop/dependency-metadata.json and scripts/interop/README.md.
+#
+# Raw safetensors.serialize/deserialize needs no extras or base dependencies.
+# Do not add [numpy], [torch], [testing], or [all] to this requirement.
+# Check the interpreter before installation: unsupported markers can select
+# no requirement while pip still exits successfully. See README.md.
+
+--index-url https://pypi.org/simple
+--require-hashes
+--only-binary=:all:
+
+# The cp38-abi3 extension supports CPython 3.11; Requires-Python is >=3.9.
+safetensors @ https://files.pythonhosted.org/packages/2c/c3/c0be1135726618dc1e28d181b8c442403d8dbb9e273fd791de2d4384bcdd/safetensors-0.6.2-cp38-abi3-win_amd64.whl ; implementation_name == "cpython" and python_version == "3.11" and sys_platform == "win32" and platform_machine == "AMD64" \
+    --hash=sha256:c7b214870df923cbc1593c3faee16bec59ea462758699bd3fee399d00aac072c
+
+safetensors @ https://files.pythonhosted.org/packages/fe/5d/5a514d7b88e310c8b146e2404e0dc161282e78634d9358975fd56dfd14be/safetensors-0.6.2-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl ; implementation_name == "cpython" and python_version == "3.11" and sys_platform == "linux" and platform_machine == "x86_64" \
+    --hash=sha256:8045db2c872db8f4cbe3faa0495932d89c38c899c603f21e9b6486951a5ecb8f

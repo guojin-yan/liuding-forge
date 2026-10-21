@@ -1,0 +1,32 @@
+# Draft qualification fixture for the pinned official otelcol-contrib 0.135.0.
+# No config field is supplied by an event. The test owns an isolated directory.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: ${env:JYPPX_OTELCOL_ENDPOINT}
+        max_request_body_size: 16777216
+exporters:
+  file:
+    path: ${env:JYPPX_OTELCOL_FILE}
+    format: json
+    flush_interval: 100ms
+    rotation:
+      max_megabytes: 16
+      max_backups: 1
+service:
+  telemetry:
+    logs:
+      level: error
+    metrics:
+      level: none
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [file]
+    logs:
+      receivers: [otlp]
+      exporters: [file]
+    traces:
+      receivers: [otlp]
+      exporters: [file]

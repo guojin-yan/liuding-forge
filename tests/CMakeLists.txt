@@ -15,28 +15,28 @@ find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(
         NAME CompatibilitySource
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/compatibility.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/compatibility.py
                 --file ${CMAKE_SOURCE_DIR}/compatibility.json --validate
     )
     set_tests_properties(CompatibilitySource PROPERTIES LABELS "hygiene;compatibility")
     add_test(
         NAME CompatibilityToolUnitTests
         COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_SOURCE_DIR}/tests/tools/test_compatibility.py
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_compatibility.py
     )
     set_tests_properties(CompatibilityToolUnitTests PROPERTIES
         LABELS "hygiene;compatibility"
     )
     add_test(
         NAME DependencyManifest
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/dependency_manifest.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/dependency_manifest.py
                 --file ${CMAKE_SOURCE_DIR}/dependency-manifest.json
     )
     set_tests_properties(DependencyManifest PROPERTIES LABELS "hygiene;dependency")
     add_test(
         NAME ComponentDependencyGraph
         COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_SOURCE_DIR}/tools/component_graph.py
+                ${CMAKE_SOURCE_DIR}/scripts/validation/component_graph.py
                 --manifest ${CMAKE_SOURCE_DIR}/component-dependencies.json
                 --source-root ${CMAKE_SOURCE_DIR}
                 --target-graph ${JYPPX_COMPONENT_TARGET_GRAPH}
@@ -48,7 +48,7 @@ if(Python3_Interpreter_FOUND)
     add_test(
         NAME ComponentDependencyGraphToolUnitTests
         COMMAND ${Python3_EXECUTABLE} -m unittest
-                ${CMAKE_SOURCE_DIR}/tests/tools/test_component_graph.py
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_component_graph.py
     )
     set_tests_properties(ComponentDependencyGraphToolUnitTests PROPERTIES
         LABELS "hygiene;dependency;architecture"
@@ -57,7 +57,7 @@ if(Python3_Interpreter_FOUND)
     add_test(
         NAME CheckpointFixtureIntegrity
         COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_SOURCE_DIR}/tools/verify_checkpoint_fixtures.py
+                ${CMAKE_SOURCE_DIR}/scripts/validation/verify_checkpoint_fixtures.py
                 --root ${CMAKE_SOURCE_DIR}/tests/fixtures/checkpoint
     )
     set_tests_properties(CheckpointFixtureIntegrity PROPERTIES
@@ -65,7 +65,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME CoverageSummaryTool
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_summary.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/coverage_summary.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/summary.json
     )
     set_tests_properties(CoverageSummaryTool PROPERTIES
@@ -74,7 +74,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME CoverageSummaryRejectsMissingFunction
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_summary.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/coverage_summary.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/missing-function.json
     )
     set_tests_properties(CoverageSummaryRejectsMissingFunction PROPERTIES
@@ -83,7 +83,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME CoverageTargetGate
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_gate.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/coverage_gate.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary.json
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-policy.json
                 --output ${CMAKE_CURRENT_BINARY_DIR}/coverage-targets.json
@@ -94,7 +94,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME CoverageTargetGateRejectsRegression
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_gate.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/coverage_gate.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary-regressed.json
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-policy.json
     )
@@ -104,7 +104,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME CoverageTargetGateRejectsDenominatorShrink
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_gate.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/coverage_gate.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary-shrunk.json
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-policy.json
     )
@@ -114,7 +114,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME CoverageTargetGateRejectsUnownedFile
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/coverage_gate.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/coverage_gate.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary-unowned.json
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-policy.json
     )
@@ -124,7 +124,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME BaselineStatisticsTool
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/baseline_stats.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/benchmarks/baseline_stats.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/stable-samples.json
                 --output ${CMAKE_CURRENT_BINARY_DIR}/baseline-statistics.json
                 --reference ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/reference.json
@@ -135,7 +135,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME BaselineStatisticsRejectsInstability
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/baseline_stats.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/benchmarks/baseline_stats.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/unstable-samples.json
                 --output ${CMAKE_CURRENT_BINARY_DIR}/unstable-statistics.json
     )
@@ -145,7 +145,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME BaselineStatisticsRejectsRegression
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/baseline_stats.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/benchmarks/baseline_stats.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/regressed-samples.json
                 --output ${CMAKE_CURRENT_BINARY_DIR}/regressed-statistics.json
                 --reference ${CMAKE_SOURCE_DIR}/tests/fixtures/performance/reference.json
@@ -157,7 +157,7 @@ if(Python3_Interpreter_FOUND)
     add_test(
         NAME CudaBaselineRunnerUnitTests
         COMMAND ${Python3_EXECUTABLE} -m unittest
-                ${CMAKE_SOURCE_DIR}/tests/tools/test_cuda_baseline.py
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_cuda_baseline.py
     )
     set_tests_properties(CudaBaselineRunnerUnitTests PROPERTIES
         LABELS "hygiene;performance;cuda"
@@ -165,7 +165,7 @@ if(Python3_Interpreter_FOUND)
     )
     add_test(
         NAME PublicHeaderGuards
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/header_guards.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/header_guards.py
                 --root ${CMAKE_SOURCE_DIR}/include/jyppx
     )
     set_tests_properties(PublicHeaderGuards PROPERTIES LABELS "hygiene;headers")
@@ -361,6 +361,21 @@ function(jyppx_add_gtest test_name)
 endfunction()
 
 add_subdirectory(unit)
+if(TARGET jyppx_cli)
+    add_subdirectory(cli)
+endif()
+if(JYPPX_TEST_OFFICIAL_TELEMETRY)
+    if(NOT TARGET jyppx_cli OR NOT EXISTS "${JYPPX_TELEMETRY_PYTHON}" OR
+       NOT EXISTS "${JYPPX_OTELCOL_EXECUTABLE}")
+        message(FATAL_ERROR "Official telemetry acceptance requires product CLI and locked Python/collector executable paths")
+    endif()
+    add_test(NAME OfficialTelemetryAcceptance
+        COMMAND ${CMAKE_COMMAND} -E env "JYPPX_TEST_OTELCOL=${JYPPX_OTELCOL_EXECUTABLE}"
+            "JYPPX_TEST_CLI=$<TARGET_FILE:jyppx_cli>"
+            "${JYPPX_TELEMETRY_PYTHON}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration/telemetry_sidecar/run_acceptance.py")
+    set_tests_properties(OfficialTelemetryAcceptance PROPERTIES LABELS "experiment;official;integration" TIMEOUT 300)
+endif()
 if(TARGET jyppx::sdk)
     add_subdirectory(integration)
 endif()

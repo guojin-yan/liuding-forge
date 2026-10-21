@@ -16,6 +16,19 @@ option(JYPPX_BUILD_NN "Build neural-network adapters and losses" ON)
 option(JYPPX_BUILD_OPTIM "Build optimizer and scheduler adapters" ON)
 option(JYPPX_BUILD_TRAINING "Build the training engine" ON)
 option(JYPPX_BUILD_EXPERIMENT "Build local experiment configuration" ON)
+set(JYPPX_TOOLS_DEFAULT OFF)
+if(JYPPX_BUILD_CORE AND JYPPX_BUILD_INTEROP AND JYPPX_BUILD_DATA AND
+   JYPPX_BUILD_NN AND JYPPX_BUILD_OPTIM AND JYPPX_BUILD_TRAINING AND
+   JYPPX_BUILD_EXPERIMENT)
+    set(JYPPX_TOOLS_DEFAULT ON)
+endif()
+option(JYPPX_BUILD_TOOLS "Build the user-facing jyppx command-line tool" ${JYPPX_TOOLS_DEFAULT})
+option(JYPPX_INSTALL_TELEMETRY_SIDECAR "Install the optional Python telemetry runtime and dependency lock" OFF)
+option(JYPPX_TEST_OFFICIAL_TELEMETRY "Run mandatory official SDK and real collector acceptance" OFF)
+option(JYPPX_TEST_CLI_CUDA "Run product CLI workflows on a real CUDA device" OFF)
+set(JYPPX_TELEMETRY_PYTHON "" CACHE FILEPATH "Locked CPython 3.11 interpreter for optional telemetry acceptance")
+set(JYPPX_OTELCOL_EXECUTABLE "" CACHE FILEPATH "Pinned otelcol-contrib executable for acceptance")
+set(JYPPX_SAFETENSORS_PYTHON "" CACHE FILEPATH "Locked CPython 3.11 interpreter for official safetensors interchange")
 option(JYPPX_ENABLE_COVERAGE "Enable code coverage" OFF)
 option(JYPPX_ENABLE_ASAN "Enable Address Sanitizer" OFF)
 option(JYPPX_ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
@@ -239,6 +252,8 @@ else()
     set(JYPPX_DEPENDENCY_LOCK_DIGEST "unlocked")
 endif()
 set(JYPPX_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(JYPPX_GENERATED_PRIVATE_INCLUDE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/generated-private")
 set(JYPPX_COMPONENT_CORE_ENABLED ${JYPPX_BUILD_CORE})
 set(JYPPX_COMPONENT_INTEROP_ENABLED ${JYPPX_BUILD_INTEROP})
 set(JYPPX_COMPONENT_DATA_ENABLED ${JYPPX_BUILD_DATA})
@@ -251,6 +266,16 @@ configure_file(
     "${JYPPX_GENERATED_INCLUDE_DIR}/jyppx/foundation/build_config.hpp"
     @ONLY
 )
+# Volatile provenance belongs only to version.cpp. Keeping it outside the
+# public include graph avoids recompiling every consumer after each commit.
+# configure_file preserves the output timestamp when the content is unchanged.
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppx_build_metadata.hpp.in"
+    "${JYPPX_GENERATED_PRIVATE_INCLUDE_DIR}/jyppx/foundation/build_metadata.hpp"
+    @ONLY
+)
+set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/jyppx/foundation/version.cpp"
+    APPEND PROPERTY INCLUDE_DIRECTORIES "${JYPPX_GENERATED_PRIVATE_INCLUDE_DIR}")
 
 # ============================================
 # JYPPX Libraries
@@ -266,6 +291,7 @@ add_library(jyppx_foundation STATIC
     src/jyppx/foundation/random.cpp
     src/jyppx/foundation/random_checkpoint_participant.cpp
     src/jyppx/foundation/sha256.cpp
+    src/jyppx/foundation/telemetry.cpp
     src/jyppx/foundation/version.cpp
 )
 add_library(jyppx::foundation ALIAS jyppx_foundation)
@@ -334,6 +360,10 @@ if(JYPPX_BUILD_INTEROP)
     add_library(jyppx_interop STATIC
         src/jyppx/interop/checkpoint_manifest.cpp
         src/jyppx/interop/file_state_archive.cpp
+        src/jyppx/interop/safetensors.cpp
+        src/jyppx/interop/weight_import_report.cpp
+        src/jyppx/interop/export_backend.cpp
+        src/jyppx/interop/model_bundle.cpp
     )
     add_library(jyppx::interop ALIAS jyppx_interop)
     set_target_properties(jyppx_interop PROPERTIES
@@ -421,6 +451,7 @@ add_library(jyppx_training STATIC
     src/jyppx/training/callbacks/early_stopping_callback.cpp
     src/jyppx/training/checkpoint_coordinator.cpp
     src/jyppx/training/event_sink.cpp
+    src/jyppx/training/telemetry_adapter.cpp
     src/jyppx/training/amp/grad_scaler.cpp
     src/jyppx/training/amp/grad_scaler_checkpoint_participant.cpp
     src/jyppx/training/metrics/classification.cpp
@@ -497,6 +528,9 @@ if(JYPPX_BUILD_EXPERIMENT)
         src/jyppx/experiment/config.cpp
         src/jyppx/experiment/run.cpp
         src/jyppx/experiment/run_store.cpp
+        src/jyppx/experiment/run_telemetry_sink.cpp
+        src/jyppx/experiment/telemetry_exporters.cpp
+        src/jyppx/experiment/evaluation.cpp
         $<TARGET_OBJECTS:sqlite3_amalgamation>
     )
     add_library(jyppx::experiment ALIAS jyppx_experiment)
@@ -533,6 +567,11 @@ if(JYPPX_BUILD_TRAINING)
         jyppx_optim
         jyppx_nn
     )
+endif()
+
+if(JYPPX_BUILD_INTEROP AND JYPPX_BUILD_NN)
+    target_sources(jyppx_interop PRIVATE src/jyppx/interop/model_weight_import.cpp)
+    target_link_libraries(jyppx_interop PUBLIC jyppx_nn)
 endif()
 
 add_library(jyppx_all INTERFACE)
@@ -599,12 +638,12 @@ file(GLOB_RECURSE JYPPX_COMPONENT_GRAPH_SCAN_INPUTS CONFIGURE_DEPENDS
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${JYPPX_COMPONENT_DEPENDENCY_MANIFEST}"
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteComponentGraph.cmake"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/component_graph.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/validation/component_graph.py"
     ${JYPPX_COMPONENT_GRAPH_SCAN_INPUTS}
 )
 execute_process(
     COMMAND ${Python3_EXECUTABLE}
-            "${CMAKE_CURRENT_SOURCE_DIR}/tools/component_graph.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/validation/component_graph.py"
             --manifest "${JYPPX_COMPONENT_DEPENDENCY_MANIFEST}"
             --source-root "${CMAKE_CURRENT_SOURCE_DIR}"
             --target-graph "${JYPPX_COMPONENT_TARGET_GRAPH}"
@@ -623,6 +662,14 @@ endif()
 message(STATUS "${JYPPX_COMPONENT_GRAPH_OUTPUT}")
 
 # Compiler options must be applied after the target has been created.
+if(JYPPX_BUILD_TOOLS)
+    if(NOT TARGET jyppx::sdk)
+        message(FATAL_ERROR "JYPPX_BUILD_TOOLS=ON requires the complete jyppx::sdk component closure")
+    endif()
+    add_subdirectory(tools/cli)
+elseif(JYPPX_INSTALL_TELEMETRY_SIDECAR)
+    message(FATAL_ERROR "JYPPX_INSTALL_TELEMETRY_SIDECAR=ON requires JYPPX_BUILD_TOOLS=ON")
+endif()
 include(cmake/CompilerOptions.cmake)
 
 # ============================================
@@ -670,6 +717,13 @@ install(TARGETS ${JYPPX_ENABLED_TARGETS}
 )
 
 foreach(JYPPX_HEADER_DIR IN LISTS JYPPX_ENABLED_HEADER_DIRS)
+    if(JYPPX_HEADER_DIR STREQUAL "interop" AND NOT JYPPX_BUILD_NN)
+        install(DIRECTORY "include/jyppx/interop"
+            DESTINATION include/jyppx
+            PATTERN "model_weight_import.hpp" EXCLUDE
+        )
+        continue()
+    endif()
     if(JYPPX_HEADER_DIR STREQUAL "training" AND NOT JYPPX_BUILD_INTEROP)
         install(DIRECTORY "include/jyppx/training"
             DESTINATION include/jyppx

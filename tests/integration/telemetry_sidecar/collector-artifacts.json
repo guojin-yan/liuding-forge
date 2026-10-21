@@ -1,0 +1,53 @@
+{
+  "version": "0.135.0",
+  "distribution": "otelcol-contrib",
+  "source": "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.135.0",
+  "status": "archives-verified-and-version-probed-on-windows-and-ubuntu; formal-collector-acceptance-not-run-by-preparation",
+  "archives": [
+    {
+      "filename": "otelcol-contrib_0.135.0_linux_amd64.tar.gz",
+      "url": "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.135.0/otelcol-contrib_0.135.0_linux_amd64.tar.gz",
+      "sha256": "43132748eb0effb56b9d508ca789149684bf7ab6ade5d65cd0b22c4d265a30c0",
+      "size_bytes": 90545276,
+      "download_sha256_verified": true,
+      "download_size_verified": true,
+      "executable": "/home/ygj/jyppx-config-gate/out/deps/otelcol-contrib-0.135.0/linux/otelcol-contrib",
+      "executable_sha256": "c5591f72e377608670bd7815c5d66e1f640d95a5d7fd372b2a8d2957a1f8d818",
+      "version_probe": "otelcol-contrib version 0.135.0",
+      "real_collector_acceptance_run_by_preparation": false
+    },
+    {
+      "filename": "otelcol-contrib_0.135.0_windows_amd64.tar.gz",
+      "url": "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.135.0/otelcol-contrib_0.135.0_windows_amd64.tar.gz",
+      "sha256": "1f62ac108461aa381a8af298115f59c7e6400f3501f9ce359268641c01f44d35",
+      "size_bytes": 91754825,
+      "download_sha256_verified": true,
+      "download_size_verified": true,
+      "executable": "F:\\GitSpace\\jyppx-training-framework\\jyppx-training-framework\\out\\deps\\otelcol-contrib-0.135.0\\windows\\otelcol-contrib.exe",
+      "executable_sha256": "1ee6f24d72e7304ee2b18c3ff2a4765171695aa1a8ff9ee95f3d4e5bcc791070",
+      "version_probe": "otelcol-contrib version 0.135.0",
+      "real_collector_acceptance_run_by_preparation": false
+    }
+  ],
+  "recorded_at_utc": "2026-10-21T11:03:24Z",
+  "runtime_provenance": "scripts/interop/optional-runtime-provenance.json",
+  "signature_verification": "not-performed",
+  "checksum_manifests": [
+    {
+      "filename": "opentelemetry-collector-releases_otelcol-contrib_checksums.txt",
+      "url": "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.135.0/opentelemetry-collector-releases_otelcol-contrib_checksums.txt",
+      "sha256": "c1b2e0fb3f6b02ec122be1027ec1a3c4448c8775d21ead27a515be2d51f8620e",
+      "size_bytes": 5176,
+      "download_sha256_verified": true,
+      "selected_archive_digest_matched": true
+    },
+    {
+      "filename": "opentelemetry-collector-releases_otelcol-contrib_windows_checksums.txt",
+      "url": "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.135.0/opentelemetry-collector-releases_otelcol-contrib_windows_checksums.txt",
+      "sha256": "dafbe0a5d0c7ee422eed3fac0315a9f96265b494036a380daabe245ce5526b79",
+      "size_bytes": 672,
+      "download_sha256_verified": true,
+      "selected_archive_digest_matched": true
+    }
+  ]
+}

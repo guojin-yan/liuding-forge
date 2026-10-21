@@ -12,6 +12,7 @@
  */
 
 #include <jyppx/foundation/checkpoint.hpp>
+#include <jyppx/foundation/telemetry.hpp>
 #include <jyppx/training/callback_dispatcher.hpp>
 
 #include <cstddef>
@@ -22,9 +23,12 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace jyppx::training {
+
+struct TrainingTelemetryAdapterOptions;
 
 /**
  * @brief Declares the retry guarantee provided by an event sink.
@@ -134,6 +138,8 @@ struct EventOutboxOptions {
       1024ULL * 1024ULL;  ///< Maximum canonical sink topology bytes.
   std::uint64_t max_control_bytes =
       65ULL * 1024ULL * 1024ULL;  ///< Maximum checkpoint control blob bytes.
+  std::vector<std::pair<std::string, std::string>>
+      v1_sink_type_migrations;  ///< Explicit old/new sink implementation pairs.
 };
 
 /**
@@ -146,9 +152,11 @@ struct EventOutboxOptions {
  * `drain_one()`, `drain()`, `flush()`, or `close()` after that transaction.
  *
  * Delivery is ordered by event index and then sink ID. A sink failure retains
- * the front event and its next-sink cursor for retry. State schema 1 persists
- * the canonical sink topology, complete pending envelopes, and per-envelope
- * delivery cursors. Cross-process delivery remains at-least-once.
+ * the front event and its next-sink cursor for retry. State schema 2 persists
+ * canonical neutral envelopes, callback snapshots, frozen metric bindings,
+ * the producer stream, and per-envelope delivery cursors. The strict N-1 reader
+ * upgrades real schema-1 checkpoint blobs atomically. Cross-process delivery
+ * remains at-least-once.
  *
  * Instances are single-owner and not internally synchronized. Destruction does
  * not perform I/O; callers must invoke `close()` and handle any failure.
@@ -164,6 +172,21 @@ class EventOutbox final : public CheckpointParticipant {
    */
   explicit EventOutbox(std::vector<std::shared_ptr<EventSink>> sinks,
                        EventOutboxOptions options = {});
+
+  /**
+   * @brief Creates the same bounded outbox for neutral telemetry destinations.
+   * @param sinks Nonempty foundation sinks, ordered by immutable sink ID.
+   * @param telemetry Frozen typed metric bindings and optional producer stream.
+   * An empty stream ID generates a new stream once; restore adopts its saved
+   * ID. An explicit stream ID must match the checkpoint being restored.
+   * @param options Stable participant identity, limits, and N-1 type mappings.
+   * @note enqueue captures wall/monotonic time once inside callback staging;
+   * no sink I/O occurs until post-commit drain. Required evidence receipts are
+   * validated before advancing the one shared delivery cursor.
+   */
+  EventOutbox(std::vector<std::shared_ptr<TelemetrySink>> sinks,
+              const TrainingTelemetryAdapterOptions& telemetry,
+              EventOutboxOptions options = {});
 
   /** @brief Prevents copying queued delivery state. */
   EventOutbox(const EventOutbox&) = delete;
@@ -195,36 +218,51 @@ class EventOutbox final : public CheckpointParticipant {
   /**
    * @brief Attempts delivery of the oldest event to all remaining sinks.
    * @param stop Cooperative cancellation checked before each sink call.
+   * @param deadline Optional absolute steady-clock bound for this operation.
    * @return `true` when one complete event was removed, or `false` if empty.
    * @throws Cancelled If cancellation is requested before completion.
+   * @throws DeadlineExceeded If the operation deadline is reached.
    * @throws Error If the next sink rejects the event; queued state is retained.
    */
-  bool drain_one(std::stop_token stop = {});
+  bool drain_one(std::stop_token stop = {},
+                 TelemetryDeadline deadline = std::nullopt);
 
   /**
    * @brief Delivers every currently pending event in order.
    * @param stop Cooperative cancellation checked between sink calls.
+   * @param deadline Optional absolute steady-clock bound for this operation.
    * @throws Cancelled If cancellation is requested before completion.
+   * @throws DeadlineExceeded If the operation deadline is reached.
    * @throws Error If a sink rejects an event; remaining state is retained.
    */
-  void drain(std::stop_token stop = {});
+  void drain(std::stop_token stop = {},
+             TelemetryDeadline deadline = std::nullopt);
 
   /**
    * @brief Drains the outbox and flushes every sink in deterministic order.
    * @param stop Cooperative cancellation checked between sink calls.
+   * @param deadline Optional absolute steady-clock bound for this operation.
    * @throws Cancelled If cancellation is requested before completion.
+   * @throws DeadlineExceeded If the operation deadline is reached.
    * @throws Error If delivery or sink flushing fails.
    */
-  void flush(std::stop_token stop = {});
+  void flush(std::stop_token stop = {},
+             TelemetryDeadline deadline = std::nullopt);
 
   /**
    * @brief Idempotently drains, flushes, and closes every sink.
    * @param stop Cooperative cancellation checked between sink calls.
+   * @param deadline Optional absolute steady-clock bound for this operation.
    * @throws Cancelled If cancellation is requested before completion.
+   * @throws DeadlineExceeded If the operation deadline is reached.
    * @throws Error If delivery or sink close fails; the operation may be
    * retried.
    */
-  void close(std::stop_token stop = {});
+  void close(std::stop_token stop = {},
+             TelemetryDeadline deadline = std::nullopt);
+
+  /** @brief Returns the producer stream reused by retries and restore. */
+  std::string_view telemetry_stream_id() const noexcept;
 
   /**
    * @brief Reports whether finalization completed.

@@ -7,6 +7,7 @@ jyppx_add_gtest(jyppx_test_foundation
     foundation/test_foundation.cpp
     foundation/test_rng_checkpoint_participant.cpp
     foundation/test_sha256.cpp
+    foundation/test_telemetry.cpp
 )
 endif()
 
@@ -26,6 +27,38 @@ jyppx_add_gtest(jyppx_test_interop_file_state_archive
     LINK_TARGET jyppx::interop
     interop/test_file_state_archive.cpp
 )
+jyppx_add_gtest(jyppx_test_interop_formats
+    LINK_TARGET jyppx::interop
+    interop/test_safetensors.cpp
+    interop/test_weight_import_report.cpp
+    interop/test_export_backend.cpp
+    interop/test_model_bundle.cpp
+)
+if(TARGET jyppx::nn)
+    jyppx_add_gtest(jyppx_test_model_weight_import
+        LINK_TARGET jyppx::interop
+        interop/test_model_weight_import.cpp)
+    if(JYPPX_TEST_CLI_CUDA)
+        target_compile_definitions(jyppx_test_model_weight_import PRIVATE JYPPX_TEST_MODEL_IMPORT_CUDA=1)
+    endif()
+endif()
+if(JYPPX_SAFETENSORS_PYTHON)
+    if(NOT EXISTS "${JYPPX_SAFETENSORS_PYTHON}")
+        message(FATAL_ERROR "JYPPX_SAFETENSORS_PYTHON must name the locked CPython 3.11 executable")
+    endif()
+    add_executable(jyppx_test_safetensors_official interop/test_safetensors.cpp)
+    target_link_libraries(jyppx_test_safetensors_official PRIVATE jyppx::interop GTest::gtest_main)
+    target_compile_definitions(jyppx_test_safetensors_official PRIVATE JYPPX_SAFETENSORS_PYTHON_INTEROP=1)
+    jyppx_apply_instrumentation(jyppx_test_safetensors_official)
+    jyppx_add_torch_runtime_dependency(jyppx_test_safetensors_official)
+    add_test(NAME OfficialSafeTensorsInterchange
+        COMMAND "${JYPPX_SAFETENSORS_PYTHON}"
+            "${PROJECT_SOURCE_DIR}/scripts/interop/verify_safetensors_interop.py"
+            --cpp-test-executable $<TARGET_FILE:jyppx_test_safetensors_official>
+            --work-dir "${CMAKE_BINARY_DIR}/evidence/safetensors-$<CONFIG>"
+            --jyppx-commit "${JYPPX_GIT_COMMIT}")
+    set_tests_properties(OfficialSafeTensorsInterchange PROPERTIES LABELS "interop;official;packaging" TIMEOUT 120)
+endif()
 endif()
 
 if(TARGET jyppx::experiment)
@@ -40,6 +73,20 @@ jyppx_add_gtest(jyppx_test_experiment_artifact_store
 jyppx_add_gtest(jyppx_test_experiment_run_store
     LINK_TARGET jyppx::experiment
     experiment/test_run_store.cpp
+)
+jyppx_add_gtest(jyppx_test_experiment_run_events
+    LINK_TARGET jyppx::experiment
+    experiment/test_run_events.cpp
+)
+target_include_directories(jyppx_test_experiment_run_events SYSTEM PRIVATE "${jyppx_sqlite_SOURCE_DIR}")
+jyppx_add_gtest(jyppx_test_experiment_telemetry
+    LINK_TARGET jyppx::experiment
+    experiment/test_telemetry_exporters.cpp
+)
+target_link_libraries(jyppx_test_experiment_telemetry PRIVATE nlohmann_json::nlohmann_json)
+jyppx_add_gtest(jyppx_test_experiment_evaluation
+    LINK_TARGET jyppx::experiment
+    experiment/test_evaluation.cpp
 )
 target_include_directories(jyppx_test_experiment_run_store SYSTEM PRIVATE
     "${jyppx_sqlite_SOURCE_DIR}"
@@ -207,6 +254,7 @@ jyppx_add_gtest(jyppx_test_training_callback_dispatcher
 jyppx_add_gtest(jyppx_test_training_event_sink
     LINK_TARGET jyppx::training
     training/test_event_sink.cpp
+    training/test_telemetry_adapter.cpp
 )
 
 jyppx_add_gtest(jyppx_test_training_single_device_strategy

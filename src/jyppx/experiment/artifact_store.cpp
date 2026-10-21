@@ -273,8 +273,137 @@ void sync_directory(const std::filesystem::path& path) {
 #endif
 }
 
+void create_durable_directories(const std::filesystem::path& leaf) {
+  std::error_code error;
+  std::vector<std::filesystem::path> missing;
+  for (auto path = leaf; !path.empty(); path = path.parent_path()) {
+    const bool present = std::filesystem::exists(path, error);
+    if (error) throw_io("create_directory.exists", path, error);
+    if (present) break;
+    missing.push_back(path);
+  }
+  std::filesystem::create_directories(leaf, error);
+  if (error) throw_io("create_directory", leaf, error);
+  for (const auto& path : missing) {
+    require_unlinked_directory(path);
+    sync_directory(path);
+    if (path.has_parent_path()) sync_directory(path.parent_path());
+  }
+}
+
+// One native regular-file handle supplies size, verification, and every read.
+// Opening the path again after hashing would allow verified A / returned B.
+class VerifiedInput final {
+ public:
+  explicit VerifiedInput(const std::filesystem::path& path) : path_(path) {
+#ifdef _WIN32
+    handle_ = CreateFileW(
+        path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (handle_ == INVALID_HANDLE_VALUE)
+      throw_io("reader.open", path_,
+               {static_cast<int>(GetLastError()), std::system_category()});
+    try {
+      BY_HANDLE_FILE_INFORMATION information{};
+      if (!GetFileInformationByHandle(handle_, &information))
+        throw_io("reader.inspect", path_,
+                 {static_cast<int>(GetLastError()), std::system_category()});
+      if ((information.dwFileAttributes &
+           (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) != 0U ||
+          GetFileType(handle_) != FILE_TYPE_DISK)
+        throw_io("reader.inspect", path_,
+                 std::make_error_code(std::errc::invalid_argument));
+      LARGE_INTEGER length{};
+      if (!GetFileSizeEx(handle_, &length) || length.QuadPart < 0)
+        throw_io("reader.size", path_,
+                 {static_cast<int>(GetLastError()), std::system_category()});
+      size_ = static_cast<std::uint64_t>(length.QuadPart);
+    } catch (...) {
+      close();
+      throw;
+    }
+#else
+    descriptor_ = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (descriptor_ < 0)
+      throw_io("reader.open", path_, {errno, std::generic_category()});
+    try {
+      struct stat information {};
+      if (::fstat(descriptor_, &information) != 0)
+        throw_io("reader.inspect", path_, {errno, std::generic_category()});
+      if (!S_ISREG(information.st_mode) || information.st_size < 0)
+        throw_io("reader.inspect", path_,
+                 std::make_error_code(std::errc::invalid_argument));
+      size_ = static_cast<std::uint64_t>(information.st_size);
+    } catch (...) {
+      close();
+      throw;
+    }
+#endif
+  }
+  ~VerifiedInput() { close(); }
+  VerifiedInput(const VerifiedInput&) = delete;
+  VerifiedInput& operator=(const VerifiedInput&) = delete;
+  std::uint64_t size() const noexcept { return size_; }
+  std::size_t read(std::span<std::byte> bytes) {
+    if (bytes.empty()) return 0U;
+    const auto bounded = std::min(bytes.size(), kHashIoBufferBytes);
+#ifdef _WIN32
+    DWORD count = 0U;
+    if (!ReadFile(handle_, bytes.data(), static_cast<DWORD>(bounded), &count,
+                  nullptr))
+      throw_io("reader.read", path_,
+               {static_cast<int>(GetLastError()), std::system_category()});
+    return count;
+#else
+    ssize_t count;
+    do {
+      count = ::read(descriptor_, bytes.data(), bounded);
+    } while (count < 0 && errno == EINTR);
+    if (count < 0)
+      throw_io("reader.read", path_, {errno, std::generic_category()});
+    return static_cast<std::size_t>(count);
+#endif
+  }
+  void rewind() {
+#ifdef _WIN32
+    LARGE_INTEGER beginning{};
+    if (!SetFilePointerEx(handle_, beginning, nullptr, FILE_BEGIN))
+      throw_io("reader.rewind", path_,
+               {static_cast<int>(GetLastError()), std::system_category()});
+#else
+    if (::lseek(descriptor_, 0, SEEK_SET) < 0)
+      throw_io("reader.rewind", path_, {errno, std::generic_category()});
+#endif
+  }
+
+ private:
+  void close() noexcept {
+#ifdef _WIN32
+    if (handle_ != INVALID_HANDLE_VALUE) {
+      CloseHandle(handle_);
+      handle_ = INVALID_HANDLE_VALUE;
+    }
+#else
+    if (descriptor_ >= 0) {
+      ::close(descriptor_);
+      descriptor_ = -1;
+    }
+#endif
+  }
+  std::filesystem::path path_;
+  std::uint64_t size_ = 0U;
+#ifdef _WIN32
+  HANDLE handle_ = INVALID_HANDLE_VALUE;
+#else
+  int descriptor_ = -1;
+#endif
+};
+
 std::string sha256_file(const std::filesystem::path& path,
-                        std::uint64_t expected_size, std::uint64_t max_size) {
+                        std::uint64_t expected_size, std::uint64_t max_size,
+                        std::stop_token stop = {},
+                        TelemetryDeadline deadline = std::nullopt) {
   std::ifstream input(path, std::ios::binary);
   if (!input) {
     throw IoError(
@@ -289,6 +418,7 @@ std::string sha256_file(const std::filesystem::path& path,
   std::vector<std::byte> buffer(kHashIoBufferBytes);
   std::uint64_t total = 0U;
   while (input) {
+    check_telemetry_operation(stop, deadline);
     input.read(reinterpret_cast<char*>(buffer.data()),
                static_cast<std::streamsize>(buffer.size()));
     const auto count = input.gcount();
@@ -330,7 +460,9 @@ struct ObjectUsage {
   std::uint64_t files = 0U;
 };
 
-ObjectUsage object_usage(const std::filesystem::path& root) {
+ObjectUsage object_usage(const std::filesystem::path& root,
+                         std::stop_token stop = {},
+                         TelemetryDeadline deadline = std::nullopt) {
   std::error_code error;
   const auto object_root = root / "objects";
   const bool present = std::filesystem::exists(object_root, error);
@@ -342,6 +474,7 @@ ObjectUsage object_usage(const std::filesystem::path& root) {
            iterator(object_root, error),
        end;
        iterator != end; iterator.increment(error)) {
+    check_telemetry_operation(stop, deadline);
     if (error) throw_io("scan_objects", object_root, error);
     if (!is_unlinked_regular_file(iterator->path())) {
       continue;
@@ -494,36 +627,39 @@ class FileArtifactStore::FileUploadSession final
 class FileArtifactStore::FileArtifactReader final : public ArtifactReader {
  public:
   FileArtifactReader(std::filesystem::path path, ArtifactDigest digest,
-                     std::uint64_t size)
-      : input_(path, std::ios::binary),
-        digest_(std::move(digest)),
-        size_(size) {
-    if (!input_) {
-      throw IoError(
-          "Could not open artifact for reading",
-          ErrorDetails{.component = "experiment.artifact_store",
-                       .operation = "open",
-                       .expected = "readable immutable blob",
-                       .actual = digest_.hex,
-                       .hint = "Check the artifact root and permissions."});
+                     std::uint64_t maximum, std::stop_token stop,
+                     TelemetryDeadline deadline)
+      : input_(path), digest_(std::move(digest)), size_(input_.size()) {
+    if (size_ > maximum)
+      throw_limit("reader.size", "configured artifact byte bound",
+                  std::to_string(size_));
+    Sha256 hash;
+    std::vector<std::byte> buffer(kHashIoBufferBytes);
+    std::uint64_t total = 0U;
+    for (;;) {
+      check_telemetry_operation(stop, deadline);
+      const auto count = input_.read(buffer);
+      if (count == 0U) break;
+      if (count > maximum - std::min(total, maximum))
+        throw_limit("reader.hash", "configured artifact byte bound",
+                    "growing file");
+      total += count;
+      hash.update(std::span<const std::byte>(buffer.data(), count));
     }
+    if (total != size_ || sha256_digest_hex(hash.finish()) != digest_.hex)
+      throw SerializationError(
+          "Artifact failed content-address validation",
+          ErrorDetails{
+              .component = "experiment.artifact_store",
+              .operation = "reader.hash",
+              .expected = digest_.hex,
+              .actual = path_text(path),
+              .hint = "Restore the immutable object from a trusted copy."});
+    input_.rewind();
   }
 
   std::size_t read(std::span<std::byte> destination) override {
-    if (destination.empty()) return 0U;
-    input_.read(reinterpret_cast<char*>(destination.data()),
-                static_cast<std::streamsize>(destination.size()));
-    const auto count = input_.gcount();
-    if (count < 0 || (!input_.eof() && input_.fail())) {
-      throw IoError(
-          "Could not read artifact",
-          ErrorDetails{.component = "experiment.artifact_store",
-                       .operation = "reader.read",
-                       .expected = "readable immutable blob",
-                       .actual = digest_.hex,
-                       .hint = "Check filesystem health and permissions."});
-    }
-    return static_cast<std::size_t>(count);
+    return input_.read(destination);
   }
 
   std::uint64_t size_bytes() const noexcept override { return size_; }
@@ -531,7 +667,7 @@ class FileArtifactStore::FileArtifactReader final : public ArtifactReader {
   const ArtifactDigest& digest() const noexcept override { return digest_; }
 
  private:
-  std::ifstream input_;
+  VerifiedInput input_;
   ArtifactDigest digest_;
   std::uint64_t size_;
 };
@@ -555,10 +691,8 @@ FileArtifactStore::FileArtifactStore(std::filesystem::path root,
         "at most " + std::to_string(limits_.max_root_path_bytes) + " bytes",
         std::to_string(root_.string().size()) + " bytes");
   }
-  std::filesystem::create_directories(root_ / "objects", error);
-  if (error) throw_io("create_root", root_, error);
-  std::filesystem::create_directories(root_ / "tmp", error);
-  if (error) throw_io("create_tmp", root_ / "tmp", error);
+  create_durable_directories(root_ / "objects");
+  create_durable_directories(root_ / "tmp");
   require_unlinked_directory(root_ / "objects");
   require_unlinked_directory(root_ / "tmp");
   sync_directory(root_);
@@ -587,6 +721,14 @@ std::unique_ptr<ArtifactUploadSession> FileArtifactStore::begin(
 ArtifactRef FileArtifactStore::commit(
     ArtifactUploadSession& session,
     std::optional<ArtifactDigest> expected_digest) {
+  return commit(session, std::move(expected_digest), {}, std::nullopt);
+}
+
+ArtifactRef FileArtifactStore::commit(
+    ArtifactUploadSession& session,
+    std::optional<ArtifactDigest> expected_digest, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  check_telemetry_operation(stop, deadline);
   auto* file_session = dynamic_cast<FileUploadSession*>(&session);
   if (file_session == nullptr || file_session->owner_ != this) {
     throw_invalid("upload.commit", "a session created by this store",
@@ -618,7 +760,7 @@ ArtifactRef FileArtifactStore::commit(
     file_session->close_for_commit();
     sync_file(file_session->temporary_);
     const auto hex = sha256_file(file_session->temporary_, bytes_written,
-                                 limits_.max_artifact_bytes);
+                                 limits_.max_artifact_bytes, stop, deadline);
     ArtifactDigest digest{.algorithm = ArtifactDigestAlgorithm::sha256,
                           .hex = hex};
     if (expected_digest && *expected_digest != digest) {
@@ -644,7 +786,7 @@ ArtifactRef FileArtifactStore::commit(
     const bool destination_exists = std::filesystem::exists(destination, error);
     if (error) throw_io("inspect_existing_object", destination, error);
     if (!destination_exists) {
-      const auto usage = object_usage(root_);
+      const auto usage = object_usage(root_, stop, deadline);
       if (usage.files >= limits_.max_object_files) {
         throw_limit(
             "store.objects",
@@ -668,8 +810,8 @@ ArtifactRef FileArtifactStore::commit(
       }
       const auto existing_size = checked_file_size(destination);
       if (existing_size != bytes_written ||
-          sha256_file(destination, existing_size, limits_.max_artifact_bytes) !=
-              digest.hex) {
+          sha256_file(destination, existing_size, limits_.max_artifact_bytes,
+                      stop, deadline) != digest.hex) {
         throw SerializationError(
             "Existing artifact object failed content-address validation",
             ErrorDetails{
@@ -682,6 +824,7 @@ ArtifactRef FileArtifactStore::commit(
       }
       file_session->abort();
     } else {
+      check_telemetry_operation(stop, deadline);
 #ifdef _WIN32
       if (!MoveFileExW(file_session->temporary_.c_str(), destination.c_str(),
                        MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING)) {
@@ -710,6 +853,13 @@ ArtifactRef FileArtifactStore::commit(
 
 std::unique_ptr<ArtifactReader> FileArtifactStore::open(
     const ArtifactDigest& digest) const {
+  return open(digest, {}, std::nullopt);
+}
+
+std::unique_ptr<ArtifactReader> FileArtifactStore::open(
+    const ArtifactDigest& digest, std::stop_token stop,
+    TelemetryDeadline deadline) const {
+  check_telemetry_operation(stop, deadline);
   validate_artifact_digest(digest);
   const auto path = object_path(root_, digest);
   std::error_code error;
@@ -733,24 +883,8 @@ std::unique_ptr<ArtifactReader> FileArtifactStore::open(
     throw_io("inspect_object", path,
              std::make_error_code(std::errc::invalid_argument));
   }
-  const auto size = checked_file_size(path);
-  if (size > limits_.max_artifact_bytes) {
-    throw_limit(
-        "artifact",
-        "at most " + std::to_string(limits_.max_artifact_bytes) + " bytes",
-        std::to_string(size) + " bytes");
-  }
-  if (sha256_file(path, size, limits_.max_artifact_bytes) != digest.hex) {
-    throw SerializationError(
-        "Artifact failed content-address validation",
-        ErrorDetails{
-            .component = "experiment.artifact_store",
-            .operation = "open",
-            .expected = digest.hex,
-            .actual = path_text(path),
-            .hint = "Restore the immutable object from a trusted copy."});
-  }
-  return std::make_unique<FileArtifactReader>(path, digest, size);
+  return std::make_unique<FileArtifactReader>(
+      path, digest, limits_.max_artifact_bytes, stop, deadline);
 }
 
 bool FileArtifactStore::exists(const ArtifactDigest& digest) const {

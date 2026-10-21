@@ -1,5 +1,6 @@
 #include "jyppx/foundation/version.hpp"
 
+#include "jyppx/foundation/build_metadata.hpp"
 #include "jyppx/foundation/error.hpp"
 
 #include <ATen/Context.h>
