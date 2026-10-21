@@ -232,6 +232,7 @@ Result metrics_command(const Arguments& arguments, SQLiteRunStore& store,
           store.events(run_id,
                        {.after_sequence = stored.cursor.run_sequence - 1U,
                         .snapshot_through = page.snapshot_through,
+                        .kind = {},
                         .limit = 1U},
                        {}, deadline);
       if (source_page.events.size() != 1U ||
