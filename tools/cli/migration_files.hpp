@@ -147,24 +147,26 @@ inline std::string read(const std::filesystem::path& value,
     position += static_cast<std::size_t>(count);
   }
   char extra = 0;
-  struct stat final {};
-  struct stat named {};
+  struct stat final_state {};
+  struct stat named_state {};
   if (::read(handle.value, &extra, 1U) != 0 ||
-      ::fstat(handle.value, &final) != 0 ||
-      ::lstat(absolute.c_str(), &named) != 0 ||
-      initial.st_size != final.st_size || initial.st_mtime != final.st_mtime ||
-      initial.st_ctime != final.st_ctime || initial.st_dev != named.st_dev ||
-      initial.st_ino != named.st_ino || final.st_nlink != 1 ||
-      named.st_nlink != 1 || !S_ISREG(named.st_mode) ||
-      final.st_size != named.st_size)
+      ::fstat(handle.value, &final_state) != 0 ||
+      ::lstat(absolute.c_str(), &named_state) != 0 ||
+      initial.st_size != final_state.st_size ||
+      initial.st_mtime != final_state.st_mtime ||
+      initial.st_ctime != final_state.st_ctime ||
+      initial.st_dev != named_state.st_dev ||
+      initial.st_ino != named_state.st_ino || final_state.st_nlink != 1 ||
+      named_state.st_nlink != 1 || !S_ISREG(named_state.st_mode) ||
+      final_state.st_size != named_state.st_size)
     throw IoError("Migration input changed during read");
 #if defined(__APPLE__)
-  if (initial.st_mtimespec.tv_nsec != final.st_mtimespec.tv_nsec ||
-      initial.st_ctimespec.tv_nsec != final.st_ctimespec.tv_nsec)
+  if (initial.st_mtimespec.tv_nsec != final_state.st_mtimespec.tv_nsec ||
+      initial.st_ctimespec.tv_nsec != final_state.st_ctimespec.tv_nsec)
     throw IoError("Migration input changed during read");
 #else
-  if (initial.st_mtim.tv_nsec != final.st_mtim.tv_nsec ||
-      initial.st_ctim.tv_nsec != final.st_ctim.tv_nsec)
+  if (initial.st_mtim.tv_nsec != final_state.st_mtim.tv_nsec ||
+      initial.st_ctim.tv_nsec != final_state.st_ctim.tv_nsec)
     throw IoError("Migration input changed during read");
 #endif
 #endif
