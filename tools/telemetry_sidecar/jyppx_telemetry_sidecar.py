@@ -40,7 +40,7 @@ ACCEPTED, DUPLICATE, SAMPLED_OUT, UNSUPPORTED = 1, 2, 3, 4
 OFFICIAL_VERSIONS = {
     "tensorboard": "2.20.0",
     "opentelemetry-proto": "1.37.0",
-    "protobuf": "6.32.1",
+    "protobuf": "6.33.5",
 }
 
 

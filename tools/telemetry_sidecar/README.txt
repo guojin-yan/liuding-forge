@@ -1,8 +1,10 @@
 OFFICIAL OBSERVER SIDECAR - OPTIONAL RUNTIME
 Date: 2026-10-21 Asia/Shanghai
-Status: locked Windows/Ubuntu dependency environments prepared and imported;
-Collector archive hashes and version probes verified. This preparation did not
-execute the sidecar, C++ build/tests, readback acceptance or performance gates.
+Status: security remediation lock published; Windows upgraded with pip check,
+exact-version and event writer/readback/OTLP import probes passed. Ubuntu
+upgrade and consolidated official acceptance are pending. Earlier environment reports
+remain historical evidence for their exact lock snapshots. Collector archive
+hashes and version probes are recorded separately.
 
 Ownership and deployment
 
@@ -14,14 +16,18 @@ locked Python environment, bounded pipes, and operation deadline/cancellation
 termination. stdout is protocol JSON only. stderr diagnostics are separate,
 bounded and redacted. No credential/path/collector configuration comes from an
 event. The OS subprocess transport lives in tools/cli/sidecar_process.* and is
-awaiting the consolidated Windows/Ubuntu chapter build and fault tests.
+qualified by the consolidated Windows/Ubuntu chapter build and fault tests.
 
 Qualification environment
 
 CPython 3.11, Windows amd64 and Ubuntu x86_64. requirements.lock pins direct and
 transitive runtime packages, with allowed wheel hashes fetched from official
 PyPI metadata. dependency-metadata.json records filename/hash/source/requirements.
-The pins include TensorBoard 2.20.0, opentelemetry-proto 1.37.0, protobuf 6.32.1.
+The pins include TensorBoard 2.20.0, opentelemetry-proto 1.37.0, protobuf 6.33.5,
+Werkzeug 3.1.9, Pillow 13.0.0, and setuptools 83.0.0. The four updated packages
+replace versions with advisories found in the 2026-10-21 OSV snapshot. Exact
+new wheels, hashes and notices were checked before publishing this lock; an
+empty OSV response for a new pin is a dated query result only.
 scripts/interop/optional-runtime-provenance.json records the exact interpreters,
 pip 25.2, actual selected wheel URLs/hashes, input-lock snapshots and pip report
 digests. Full reports live under out/deps/optional-runtime-provenance/.
@@ -44,9 +50,22 @@ To reproduce dependency installation in a dedicated CPython 3.11 environment:
 Pass the install arguments together on one command line. Reuse the prepared
 environment during chapter validation instead of creating one per build.
 
-Both target locks have been installed with hash enforcement; package pins and
-allowed hashes have not changed. Complete distribution licensing/SBOM and the
-OFF/consumer/package gates remain part of the chapter/release qualification.
+The previous target locks were installed with hash enforcement. Their reports
+do not establish installation or acceptance of the four new pins. Install the
+current lock into the same dedicated environments, record fresh pip reports,
+run pip check and exact-version probes, then run the mandatory chapter gate
+below. The Windows upgrade report and exact input-lock snapshot are recorded in
+scripts/interop/optional-runtime-provenance.json under security_remediation.
+The Windows offline hash-enforced dry run is retained under
+out/deps/dependency-audit-20261021/remediation/pip-dry-run-windows.json.
+Complete distribution licensing/SBOM and the OFF/consumer/package gates remain
+part of chapter/release qualification.
+
+The sidecar uses TensorBoard event writing and event_accumulator readback; it
+does not launch the TensorBoard web UI. TensorBoard 2.20 UI/server modules
+import the retired pkg_resources API and are not qualified with setuptools
+83.0.0. Deploying that UI requires a separately qualified upstream toolchain;
+do not downgrade a security pin to make an unqualified UI path import.
 tests/integration/telemetry_sidecar/collector-artifacts.json separately pins
 official otelcol-contrib 0.135.0
 Windows/Linux archives, official checksum manifests, actual archive sizes,

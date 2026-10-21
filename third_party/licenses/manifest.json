@@ -1,0 +1,379 @@
+{
+  "audit_date": "2026-10-21",
+  "dependency_notice_states": {
+    "googletest": "recorded",
+    "libtorch-candidate-cpu": "pending",
+    "libtorch-candidate-cuda-cu124": "pending",
+    "libtorch-primary-windows-cu126": "pending",
+    "nlohmann-json": "recorded",
+    "sqlite": "recorded"
+  },
+  "files": [
+    {
+      "dependency_id": "googletest",
+      "origin": {
+        "artifact_sha256": "1f357c27ca988c3f7c6b4bf68a9395005ac6761f034046e9dde0896e3aba00e4",
+        "entry": "googletest-1.14.0/LICENSE",
+        "kind": "archive-entry",
+        "url": "https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip"
+      },
+      "path": "googletest-1.14.0-LICENSE",
+      "sha256": "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138",
+      "size_bytes": 1475
+    },
+    {
+      "dependency_id": "nlohmann-json",
+      "origin": {
+        "artifact_sha256": "42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa",
+        "entry": "json/LICENSE.MIT",
+        "kind": "archive-entry",
+        "url": "https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz"
+      },
+      "path": "nlohmann-json-3.12.0-LICENSE.MIT",
+      "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603",
+      "size_bytes": 1076
+    },
+    {
+      "dependency_id": "optional-sidecar:pillow@13.0.0",
+      "origin": {
+        "artifact_sha256": "a625df9a2a5597fa5e5266e01aefc82604bb85d291e3547981e863560d75da6c",
+        "entry": "pillow-13.0.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/36/46/f509b74787f40ce0627501089d630b2c741b63b244c1f40b640b3b01e181/pillow-13.0.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+      },
+      "path": "optional-sidecar/pillow-13.0.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl/pillow-13.0.0.dist-info/licenses/LICENSE",
+      "sha256": "dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce",
+      "size_bytes": 70307
+    },
+    {
+      "dependency_id": "optional-sidecar:pillow@13.0.0",
+      "origin": {
+        "artifact_sha256": "d7710eb676e9bb68965cb045be0d333b4c0d7f9dfbaa7fbf121385b1588683d3",
+        "entry": "pillow-13.0.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/7d/f6/6e2d96413e4c9dbec12ea584d9e646d602877d4cce3ea669099f959deac6/pillow-13.0.0-cp311-cp311-win_amd64.whl"
+      },
+      "path": "optional-sidecar/pillow-13.0.0-cp311-cp311-win_amd64.whl/pillow-13.0.0.dist-info/licenses/LICENSE",
+      "sha256": "988ffe8ab3480b0f4e9a0ab2702bffd73d9fb6b47198043fb3ba101a62fac236",
+      "size_bytes": 78481
+    },
+    {
+      "dependency_id": "optional-sidecar:protobuf@6.33.5",
+      "origin": {
+        "artifact_sha256": "3093804752167bcab3998bec9f1048baae6e29505adaf1afd14a37bddede533c",
+        "entry": "protobuf-6.33.5.dist-info/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/55/75/bb9bc917d10e9ee13dee8607eb9ab963b7cf8be607c46e7862c748aa2af7/protobuf-6.33.5-cp310-abi3-win_amd64.whl"
+      },
+      "path": "optional-sidecar/protobuf-6.33.5-cp310-abi3-win_amd64.whl/protobuf-6.33.5.dist-info/LICENSE",
+      "sha256": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d",
+      "size_bytes": 1732
+    },
+    {
+      "dependency_id": "optional-sidecar:protobuf@6.33.5",
+      "origin": {
+        "artifact_sha256": "cbf16ba3350fb7b889fca858fb215967792dc125b35c7976ca4818bee3521cf0",
+        "entry": "protobuf-6.33.5.dist-info/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/9b/53/a9443aa3ca9ba8724fdfa02dd1887c1bcd8e89556b715cfbacca6b63dbec/protobuf-6.33.5-cp39-abi3-manylinux2014_x86_64.whl"
+      },
+      "path": "optional-sidecar/protobuf-6.33.5-cp39-abi3-manylinux2014_x86_64.whl/protobuf-6.33.5.dist-info/LICENSE",
+      "sha256": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d",
+      "size_bytes": 1732
+    },
+    {
+      "dependency_id": "optional-sidecar:protobuf@6.33.5",
+      "origin": {
+        "artifact_sha256": "69915a973dd0f60f31a08b8318b73eab2bd6a392c79184b3612226b0a3f8ec02",
+        "entry": "protobuf-6.33.5.dist-info/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/57/bf/2086963c69bdac3d7cff1cc7ff79b8ce5ea0bec6797a017e1be338a46248/protobuf-6.33.5-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/protobuf-6.33.5-py3-none-any.whl/protobuf-6.33.5.dist-info/LICENSE",
+      "sha256": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d",
+      "size_bytes": 1732
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools-83.0.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools-83.0.0.dist-info/licenses/LICENSE",
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+      "size_bytes": 1023
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/autocommand-2.2.2.dist-info/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/autocommand-2.2.2.dist-info/LICENSE",
+      "sha256": "ade78d04982d69972d444a8e14a94f87a2334dd3855cc80348ea8e240aa0df2d",
+      "size_bytes": 7634
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/backports.tarfile-1.2.0.dist-info/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/backports.tarfile-1.2.0.dist-info/LICENSE",
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+      "size_bytes": 1023
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/importlib_metadata-8.7.1.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/licenses/LICENSE",
+      "sha256": "458502e12d97bbf64438606a20044aa85eb05fb0a8a807bb35dbec253fd1fc04",
+      "size_bytes": 10278
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/jaraco.text-4.0.0.dist-info/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/jaraco.text-4.0.0.dist-info/LICENSE",
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+      "size_bytes": 1023
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/jaraco_context-6.1.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/jaraco_context-6.1.0.dist-info/licenses/LICENSE",
+      "sha256": "9755a18519666e5f0f4cae3daad3d7012bcae48a600b31237d75e9fe134e6683",
+      "size_bytes": 1076
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/jaraco_functools-4.4.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/jaraco_functools-4.4.0.dist-info/licenses/LICENSE",
+      "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d",
+      "size_bytes": 1076
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/more_itertools-10.8.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/more_itertools-10.8.0.dist-info/licenses/LICENSE",
+      "sha256": "09f1c8c9e941af3e584d59641ea9b87d83c0cb0fd007eb5ef391a7e2643c1a46",
+      "size_bytes": 1053
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/packaging-26.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/packaging-26.0.dist-info/licenses/LICENSE",
+      "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+      "size_bytes": 197
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/packaging-26.0.dist-info/licenses/LICENSE.APACHE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/packaging-26.0.dist-info/licenses/LICENSE.APACHE",
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "size_bytes": 10174
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/packaging-26.0.dist-info/licenses/LICENSE.BSD",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/packaging-26.0.dist-info/licenses/LICENSE.BSD",
+      "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+      "size_bytes": 1344
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/platformdirs-4.4.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/platformdirs-4.4.0.dist-info/licenses/LICENSE",
+      "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6",
+      "size_bytes": 1089
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/tomli-2.4.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/tomli-2.4.0.dist-info/licenses/LICENSE",
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+      "size_bytes": 1072
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/wheel-0.46.3.dist-info/licenses/LICENSE.txt",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/wheel-0.46.3.dist-info/licenses/LICENSE.txt",
+      "sha256": "30c23618679108f3e8ea1d2a658c7ca417bdfc891c98ef1a89fa4ff0c9828654",
+      "size_bytes": 1107
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/_vendor/zipp-3.23.0.dist-info/licenses/LICENSE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/_vendor/zipp-3.23.0.dist-info/licenses/LICENSE",
+      "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d",
+      "size_bytes": 1076
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/config/NOTICE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/config/NOTICE",
+      "sha256": "2dddf08818297a3b89d43d95ff659d8da85741108c9136dfa3a4d856c0623bd8",
+      "size_bytes": 493
+    },
+    {
+      "dependency_id": "optional-sidecar:setuptools@83.0.0",
+      "origin": {
+        "artifact_sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+        "entry": "setuptools/config/_validate_pyproject/NOTICE",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/setuptools-83.0.0-py3-none-any.whl/setuptools/config/_validate_pyproject/NOTICE",
+      "sha256": "09c9bcea95ca086f8bc5bed174e40bc835b297d40fb5f86bbbb570fe0a5581a7",
+      "size_bytes": 18737
+    },
+    {
+      "dependency_id": "optional-sidecar:werkzeug@3.1.9",
+      "origin": {
+        "artifact_sha256": "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab",
+        "entry": "werkzeug-3.1.9.dist-info/licenses/LICENSE.txt",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/a1/38/df03f564f43cec2684823f3cccae1a652ee7face1cbaa76fb223096e64d7/werkzeug-3.1.9-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/werkzeug-3.1.9-py3-none-any.whl/werkzeug-3.1.9.dist-info/licenses/LICENSE.txt",
+      "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b",
+      "size_bytes": 1475
+    },
+    {
+      "dependency_id": "optional-sidecar:werkzeug@3.1.9",
+      "origin": {
+        "artifact_sha256": "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab",
+        "entry": "werkzeug/debug/shared/ICON_LICENSE.md",
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/a1/38/df03f564f43cec2684823f3cccae1a652ee7face1cbaa76fb223096e64d7/werkzeug-3.1.9-py3-none-any.whl"
+      },
+      "path": "optional-sidecar/werkzeug-3.1.9-py3-none-any.whl/werkzeug/debug/shared/ICON_LICENSE.md",
+      "sha256": "0e103a6358149792707e0d0d14df518f8556213b7cb54c7422f7467f4bb1f7eb",
+      "size_bytes": 222
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "origin": {
+        "artifact_sha256": "bd018feef8825e88181c84eb7e3aa4eafb8f08a20d9fd6ef948569610c4a3e43",
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/pytorch/5c4886908584029761b579af026dcfb627c84070/LICENSE"
+      },
+      "path": "pytorch-2.14.1-build-5c488690-LICENSE.txt",
+      "sha256": "bd018feef8825e88181c84eb7e3aa4eafb8f08a20d9fd6ef948569610c4a3e43",
+      "size_bytes": 3464
+    },
+    {
+      "dependency_id": "libtorch-candidate-cuda-cu124",
+      "origin": {
+        "artifact_sha256": "47a26beb94e3f6b333a3677fc85d546f1fdfd2f0b3686c26d2fb5b10e0134165",
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/pytorch/v2.5.1/LICENSE"
+      },
+      "path": "pytorch-2.5.1-LICENSE.txt",
+      "sha256": "47a26beb94e3f6b333a3677fc85d546f1fdfd2f0b3686c26d2fb5b10e0134165",
+      "size_bytes": 3384
+    },
+    {
+      "dependency_id": "sqlite",
+      "origin": {
+        "artifact_sha256": "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9",
+        "byte_length": 294,
+        "byte_offset": 0,
+        "entry": "sqlite-amalgamation-3540100/sqlite3.h",
+        "kind": "archive-excerpt",
+        "url": "https://sqlite.org/2026/sqlite-amalgamation-3540100.zip"
+      },
+      "path": "sqlite-3.54.1-copyright-blessing.txt",
+      "sha256": "d18a5a730e4776a0487cdec51ab38139573711c6387d96745898be4c779bb16e",
+      "size_bytes": 294
+    },
+    {
+      "dependency_id": "sqlite",
+      "origin": {
+        "artifact_sha256": "44ca9f793055c8e32fc65f65a4f5bcf813a33f5bdaaa084067dd617a4ed3cc70",
+        "kind": "upstream-document",
+        "url": "https://sqlite.org/copyright.html"
+      },
+      "path": "sqlite-copyright-page.txt",
+      "sha256": "44ca9f793055c8e32fc65f65a4f5bcf813a33f5bdaaa084067dd617a4ed3cc70",
+      "size_bytes": 8351
+    }
+  ],
+  "hash_algorithm": "sha256",
+  "limitations": [
+    "PyTorch source root licenses do not satisfy the missing bundled LibTorch binary notice audit.",
+    "Optional remediation wheel notices are retained, but chapter installation/acceptance and full transitive review remain pending."
+  ],
+  "schema_version": 1,
+  "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"
+}

@@ -39,7 +39,7 @@
       },
       "license": {
         "spdx": ["BSD-3-Clause"],
-        "third_party_notice_audit": "pending"
+        "third_party_notice_audit": "recorded"
       },
       "platforms": ["windows", "linux", "macos"],
       "linkage": "static",

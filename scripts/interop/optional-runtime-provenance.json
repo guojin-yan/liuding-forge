@@ -421,5 +421,83 @@
     "chapter/full/CUDA acceptance",
     "overhead/capacity/performance gates"
   ],
-  "license_and_supply_chain_scope": "Artifact sources, pinned digests, packaged Python/safetensors licenses and pip metadata were recorded. This preparation does not establish full transitive license/SBOM/CVE or signature verification."
+  "license_and_supply_chain_scope": "Artifact sources, pinned digests, packaged Python/safetensors licenses and pip metadata were recorded. This preparation does not establish full transitive license/SBOM/CVE or signature verification.",
+  "security_remediation": {
+    "audit_date": "2026-10-21",
+    "status": "windows-upgraded-and-import-probed;linux-upgrade-and-two-platform-acceptance-pending",
+    "new_versions": {
+      "pillow": "13.0.0",
+      "protobuf": "6.33.5",
+      "setuptools": "83.0.0",
+      "werkzeug": "3.1.9"
+    },
+    "previous_versions": {
+      "pillow": "11.3.0",
+      "protobuf": "6.32.1",
+      "setuptools": "80.9.0",
+      "werkzeug": "3.1.3"
+    },
+    "requirements_lock_sha256": "f3ebc5f25e7446c483e6a3580286f6365b40b34f2d9ffc7a701d5776b188317e",
+    "dependency_metadata_sha256": "9dbfeac97c01215b2319ec0b306e1687323ece86f9e21fbf81bbd4d1f77e750a",
+    "preparation": "out/deps/dependency-audit-20261021/remediation/preparation.json",
+    "preparation_sha256": "80a25c9789612ccf7f64b9897d195f990f4197b982379913fcffbbfbe631b886",
+    "windows_dry_run": "out/deps/dependency-audit-20261021/remediation/pip-dry-run-windows.json",
+    "windows_dry_run_sha256": "48a290607b7cbc4220966aa98bd7d73d636fa8d13c102a7949d4b313eae10169",
+    "historical_environments_note": "The environments and reports above bind their original lock snapshots; they do not establish the new pins as installed or accepted.",
+    "windows": {
+      "recorded_at_utc": "2026-10-21T13:12:20.172501+00:00",
+      "pip_report": "out/deps/dependency-audit-20261021/remediation/windows-pip-report.json",
+      "pip_report_sha256": "48a290607b7cbc4220966aa98bd7d73d636fa8d13c102a7949d4b313eae10169",
+      "input_lock_snapshot": "out/deps/dependency-audit-20261021/remediation/installed-windows-requirements.lock",
+      "input_lock_sha256": "f3ebc5f25e7446c483e6a3580286f6365b40b34f2d9ffc7a701d5776b188317e",
+      "input_lock_size_bytes": 2207,
+      "installed_versions": {
+        "tensorboard": "2.20.0",
+        "opentelemetry-proto": "1.37.0",
+        "protobuf": "6.33.5",
+        "absl-py": "2.3.1",
+        "grpcio": "1.75.1",
+        "markdown": "3.9",
+        "numpy": "2.3.3",
+        "packaging": "25.0",
+        "pillow": "13.0.0",
+        "setuptools": "83.0.0",
+        "tensorboard-data-server": "0.7.2",
+        "werkzeug": "3.1.9",
+        "markupsafe": "3.0.2",
+        "typing-extensions": "4.15.0"
+      },
+      "actual_upgraded_wheels": [
+        {
+          "name": "protobuf",
+          "version": "6.33.5",
+          "url": "file:///F:/GitSpace/jyppx-training-framework/jyppx-training-framework/out/deps/dependency-audit-20261021/remediation/wheels/protobuf-6.33.5-cp310-abi3-win_amd64.whl",
+          "sha256": "3093804752167bcab3998bec9f1048baae6e29505adaf1afd14a37bddede533c"
+        },
+        {
+          "name": "pillow",
+          "version": "13.0.0",
+          "url": "file:///F:/GitSpace/jyppx-training-framework/jyppx-training-framework/out/deps/dependency-audit-20261021/remediation/wheels/pillow-13.0.0-cp311-cp311-win_amd64.whl",
+          "sha256": "d7710eb676e9bb68965cb045be0d333b4c0d7f9dfbaa7fbf121385b1588683d3"
+        },
+        {
+          "name": "setuptools",
+          "version": "83.0.0",
+          "url": "file:///F:/GitSpace/jyppx-training-framework/jyppx-training-framework/out/deps/dependency-audit-20261021/remediation/wheels/setuptools-83.0.0-py3-none-any.whl",
+          "sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3"
+        },
+        {
+          "name": "Werkzeug",
+          "version": "3.1.9",
+          "url": "file:///F:/GitSpace/jyppx-training-framework/jyppx-training-framework/out/deps/dependency-audit-20261021/remediation/wheels/werkzeug-3.1.9-py3-none-any.whl",
+          "sha256": "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab"
+        }
+      ],
+      "verification": [
+        "Root integration agent reported pip check passed and EventFileWriter/EventAccumulator/OTLP schema imports passed.",
+        "Exact 14-package version probe independently matched the current lock under CPython 3.11.9."
+      ],
+      "official_sidecar_acceptance": "pending"
+    }
+  }
 }

@@ -1,18 +1,17 @@
-# Official PyPI wheel SHA-256 allowlist; exact installed wheel evidence is recorded
-# in scripts/interop/optional-runtime-provenance.json. Formal acceptance is separate.
-# Qualification target: CPython 3.11, Windows amd64 and Ubuntu x86_64.
-# Install in an isolated sidecar environment with --require-hashes --only-binary=:all:.
+# Official PyPI wheel SHA-256 allowlist for CPython 3.11 Windows amd64 / Ubuntu x86_64.
+# Security remediation wheels are verified; installation and chapter acceptance are separate.
+# Install only in an isolated environment using --require-hashes --only-binary=:all:.
 tensorboard==2.20.0 --hash=sha256:9dc9f978cb84c0723acf9a345d96c184f0293d18f166bb8d59ee098e6cfaaba6
 opentelemetry-proto==1.37.0 --hash=sha256:8ed8c066ae8828bbf0c39229979bdf583a126981142378a9cbe9d6fd5701c6e2
-protobuf==6.32.1 --hash=sha256:2601b779fc7d32a866c6b4404f9d42a3f67c5b9f3f15b4db3cccabe06b95c346 --hash=sha256:b1864818300c297265c83a4982fd3169f97122c299f56a56e2445c3698d34710
+protobuf==6.33.5 --hash=sha256:3093804752167bcab3998bec9f1048baae6e29505adaf1afd14a37bddede533c --hash=sha256:69915a973dd0f60f31a08b8318b73eab2bd6a392c79184b3612226b0a3f8ec02 --hash=sha256:cbf16ba3350fb7b889fca858fb215967792dc125b35c7976ca4818bee3521cf0
 absl-py==2.3.1 --hash=sha256:eeecf07f0c2a93ace0772c92e596ace6d3d3996c042b2128459aaae2a76de11d
 grpcio==1.75.1 --hash=sha256:0049a7bf547dafaeeb1db17079ce79596c298bfe308fc084d023c8907a845b9a --hash=sha256:61c692fb05956b17dd6d1ab480f7f10ad0536dba3bc8fd4e3c7263dc244ed772
 markdown==3.9 --hash=sha256:9f4d91ed810864ea88a6f32c07ba8bee1346c0cc1f6b1f9f6c822f2a9667d280
 numpy==2.3.3 --hash=sha256:bc92a5dedcc53857249ca51ef29f5e5f2f8c513e22cfb90faeb20343b8c6f7a6 --hash=sha256:ec9d249840f6a565f58d8f913bccac2444235025bbb13e9a4681783572ee3caa
 packaging==25.0 --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484
-pillow==11.3.0 --hash=sha256:106064daa23a745510dabce1d84f29137a37224831d88eb4ce94bb187b1d7e5f --hash=sha256:1a992e86b0dd7aeb1f053cd506508c0999d710a8f07b4c791c63843fc6a807ac --hash=sha256:91da1d88226663594e3f6b4b8c3c8d85bd504117d043740a8e0ec449087cc494
-setuptools==80.9.0 --hash=sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922
+pillow==13.0.0 --hash=sha256:a625df9a2a5597fa5e5266e01aefc82604bb85d291e3547981e863560d75da6c --hash=sha256:d7710eb676e9bb68965cb045be0d333b4c0d7f9dfbaa7fbf121385b1588683d3
+setuptools==83.0.0 --hash=sha256:29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3
 tensorboard-data-server==0.7.2 --hash=sha256:7e0610d205889588983836ec05dc098e80f97b7e7bbff7e994ebb78f578d0ddb --hash=sha256:ef687163c24185ae9754ed5650eb5bc4d84ff257aabdc33f0cc6f74d8ba54530
-werkzeug==3.1.3 --hash=sha256:54b78bf3716d19a65be4fceccc0d1d7b89e608834989dfae50ea87564639213e
+werkzeug==3.1.9 --hash=sha256:6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab
 markupsafe==3.0.2 --hash=sha256:70a87b411535ccad5ef2f1df5136506a10775d267e197e4cf531ced10537bd6b --hash=sha256:a123e330ef0853c6e822384873bef7507557d8e4a082961e1defa947aa59ba84
 typing-extensions==4.15.0 --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548
