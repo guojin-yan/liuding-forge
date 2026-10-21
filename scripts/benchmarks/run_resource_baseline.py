@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 import csv
 import hashlib
 import json
@@ -23,6 +24,8 @@ from typing import Any
 
 MODELS = ("resnet18", "resnet50", "mobilenet_v3_small", "mobilenet_v3_large", "transformer_encoder")
 PROFILES = ("storage", "checkpoint", "telemetry", *MODELS, "quantization", "serving")
+IO_PROFILES = frozenset(("storage", "checkpoint", "telemetry"))
+GPU_CONTROLS = ("power.limit", "persistence_mode")
 BUILD_FIELDS = ("jyppx_version", "git_commit", "compiler", "cxx_standard", "os_arch", "build_type",
                 "libtorch_version", "libtorch_build", "accelerator_runtime", "dependency_lock_digest")
 ENV_BUILD_FIELDS = tuple(key for key in BUILD_FIELDS if key not in ("git_commit", "jyppx_version"))
@@ -83,6 +86,23 @@ def positive(value: Any, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or value <= 0:
         raise ValueError(f"{label} must be finite and positive")
     return float(value)
+
+
+def hex_digest(value: Any, length: int, label: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{" + str(length) + "}", value):
+        raise ValueError(f"{label} must be a {length}-character lowercase hexadecimal digest")
+    return value
+
+
+def storage_identifier(profiles: Iterable[str], identifier: str | None) -> str | None:
+    if identifier is not None and (not isinstance(identifier, str) or
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/+\-]{0,255}", identifier)):
+        raise ValueError("storage environment ID must contain 1..256 letters, digits or _.:/+-")
+    if IO_PROFILES.intersection(profiles):
+        if identifier is None:
+            raise ValueError("I/O profiles require an explicit --storage-environment-id for the backing volume/mount and durability configuration")
+        return identifier
+    return None
 
 
 def workload(profile: str) -> tuple[dict[str, Any], int, tuple[int, int]]:
@@ -327,28 +347,120 @@ def cpu_identity() -> dict[str, Any]:
             "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None}
 
 
-def gpu_identity(uuid: str) -> dict[str, str]:
-    fields = ("uuid", "name", "driver_version", "memory.total", "pci.bus_id")
+def gpu_identity(uuid: str) -> dict[str, Any]:
+    fields = ("uuid", "name", "driver_version", "memory.total", "pci.bus_id", *GPU_CONTROLS)
     result = subprocess.run(["nvidia-smi", "--id=" + uuid, "--query-gpu=" + ",".join(fields),
                              "--format=csv,noheader,nounits"], check=True, capture_output=True,
                             encoding="utf-8", timeout=15)
     rows = list(csv.reader(result.stdout.splitlines(), skipinitialspace=True))
     if len(rows) != 1 or len(rows[0]) != len(fields) or rows[0][0].strip().lower() != uuid.lower():
         raise ValueError("nvidia-smi did not identify the actual visible CUDA UUID")
-    return {name: nonempty(value.strip(), "GPU " + name) for name, value in zip(fields, rows[0])}
+    identity: dict[str, Any] = {}
+    unsupported = {"n/a", "[n/a]", "not supported", "[not supported]"}
+    for name, raw in zip(fields, rows[0]):
+        value = nonempty(raw.strip(), "GPU " + name)
+        if name not in GPU_CONTROLS:
+            if value.lower() in unsupported:
+                raise ValueError("required GPU identity unavailable: " + name)
+            identity[name] = value
+        elif value.lower() in unsupported:
+            identity[name] = {"status": "unavailable", "reason": "nvidia-smi returned " + value}
+        elif name == "power.limit":
+            identity[name] = {"status": "available", "value": positive(float(value), "GPU power.limit"),
+                              "unit": "watts"}
+        elif value.lower() in ("enabled", "disabled"):
+            identity[name] = {"status": "available", "value": value.lower()}
+        else:
+            raise ValueError("unrecognized GPU persistence_mode: " + value)
+    return identity
 
 
 def environment_identity(host: dict[str, Any], cache: dict[str, str], samples: dict[str, dict[str, Any]],
-                         environment: dict[str, str], gpu: dict[str, str] | None) -> dict[str, Any]:
+                         environment: dict[str, str], gpu: dict[str, Any] | None,
+                         storage_environment_id: str | None = None) -> dict[str, Any]:
     """Commit/version/binary hashes belong to provenance, never the environment key."""
     return {"host": host, "cmake_configuration": cache, "runtime_environment": environment,
             "gpu_driver": gpu,
+            "storage_environment_id": storage_identifier(samples, storage_environment_id),
             "profiles": {name: {"workload": sample["workload"], "execution": sample["execution"],
                 "build_environment": {field: sample["build_fingerprint"][field] for field in ENV_BUILD_FIELDS},
                 "metric_contract": {key: {field: value.get(field) for field in
                     ("status", "unit", "direction", "gate", "scope", "reason")}
                     for key, value in sample["metrics"].items()}}
                 for name, sample in samples.items()}}
+
+
+def comparison_eligibility(environment: dict[str, Any]) -> dict[str, Any]:
+    profiles = object_value(environment.get("profiles"), "environment profiles")
+    storage_identifier(profiles, environment.get("storage_environment_id"))
+    blocked = []
+    gpu = environment.get("gpu_driver")
+    cuda = any(object_value(profile.get("execution"), "profile execution").get("device") == "cuda:0"
+               for profile in profiles.values())
+    if cuda or gpu is not None:
+        gpu = object_value(gpu, "GPU comparison identity")
+        for name in GPU_CONTROLS:
+            control = object_value(gpu.get(name), "GPU " + name)
+            if control.get("status") == "unavailable":
+                nonempty(control.get("reason"), "GPU " + name + " unavailable reason")
+                if "value" in control:
+                    raise ValueError("unavailable GPU control must not fabricate a value: " + name)
+                blocked.append("GPU " + name + " unavailable")
+            elif control.get("status") == "available":
+                if name == "power.limit":
+                    positive(control.get("value"), "GPU power.limit")
+                    if control.get("unit") != "watts":
+                        raise ValueError("GPU power.limit unit must be watts")
+                elif control.get("value") not in ("enabled", "disabled"):
+                    raise ValueError("invalid GPU persistence_mode")
+            else:
+                raise ValueError("GPU control requires explicit available/unavailable status: " + name)
+    return {"passed": not blocked, "blocked_reasons": blocked}
+
+
+def resource_completeness(environment: dict[str, Any], metrics: dict[str, Any]) -> dict[str, Any]:
+    host = object_value(environment.get("host"), "environment host")
+    host_os = nonempty(host.get("os"), "environment host OS")
+    required = []
+    for name, profile in object_value(environment.get("profiles"), "environment profiles").items():
+        if host_os in ("Windows", "Linux"):
+            required.append(name + ".peak_rss_bytes")
+        if object_value(profile.get("execution"), "profile execution").get("device") == "cuda:0":
+            required.extend(name + "." + metric for metric in
+                            ("peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes"))
+    missing = [name for name in required if metrics.get(name, {}).get("status") != "available"]
+    return {"passed": not missing, "required_metrics": sorted(required), "missing_metrics": sorted(missing)}
+
+
+def validate_provenance(raw: Any, environment: dict[str, Any]) -> dict[str, Any]:
+    provenance = object_value(raw, "source provenance")
+    commit = hex_digest(provenance.get("git_commit"), 40, "source provenance git_commit")
+    hex_digest(provenance.get("git_tree"), 40, "source provenance git_tree")
+    if provenance.get("clean") is not True:
+        raise ValueError("source provenance must preserve clean: true")
+    for field in ("runner_sha256", "cmake_cache_sha256"):
+        hex_digest(provenance.get(field), 64, "source provenance " + field)
+    profiles = object_value(environment.get("profiles"), "environment profiles")
+    if not profiles or not profiles.keys() <= set(PROFILES):
+        raise ValueError("source provenance requires known nonempty environment profiles")
+    binaries = object_value(provenance.get("binaries"), "source provenance binaries")
+    fingerprints = object_value(provenance.get("build_fingerprints"), "source provenance build fingerprints")
+    if binaries.keys() != profiles.keys() or fingerprints.keys() != profiles.keys():
+        raise ValueError("source provenance binary/fingerprint profile set differs from environment")
+    for name, profile in profiles.items():
+        binary = object_value(binaries[name], name + " binary provenance")
+        nonempty(binary.get("path"), name + " historical binary path")
+        hex_digest(binary.get("sha256"), 64, name + " historical binary sha256")
+        build = object_value(fingerprints[name], name + " build fingerprint")
+        for field in BUILD_FIELDS:
+            nonempty(build.get(field), name + " build." + field)
+        if build["git_commit"] != commit:
+            raise ValueError(name + ": historical build fingerprint/source commit mismatch")
+        if build["build_type"].lower() != "release":
+            raise ValueError(name + ": historical build fingerprint requires Release")
+        if {field: build[field] for field in ENV_BUILD_FIELDS} != profile.get("build_environment"):
+            raise ValueError(name + ": historical build fingerprint/environment mismatch")
+    return provenance
 
 
 def summarize(samples: dict[str, list[dict[str, Any]]], max_cv: float) -> dict[str, Any]:
@@ -378,8 +490,13 @@ def summarize(samples: dict[str, list[dict[str, Any]]], max_cv: float) -> dict[s
 
 
 def make_reference(report: dict[str, Any]) -> dict[str, Any]:
-    if not report["stability"]["passed"]:
+    if report["stability"]["passed"] is not True:
         raise ValueError("cannot publish a reference from unstable samples")
+    validate_provenance(report.get("source_provenance"), report["environment"])
+    if not resource_completeness(report["environment"], report["metrics"])["passed"]:
+        raise ValueError("cannot publish a reference with incomplete resource measurements")
+    if not comparison_eligibility(report["environment"])["passed"]:
+        raise ValueError("cannot publish a comparable reference with unavailable GPU controls")
     return {"schema_version": 1, "kind": "jyppx-resource-benchmark-reference",
             "environment_key": report["environment_key"], "environment": report["environment"],
             "source_provenance": report["source_provenance"],
@@ -395,9 +512,13 @@ def compare_reference(report: dict[str, Any], reference: dict[str, Any]) -> dict
         raise ValueError("reference environment/workload differs; no cross-environment regression claim")
     if reference.get("metrics", {}).keys() != report["metrics"].keys():
         raise ValueError("reference resource metric set differs")
-    provenance = object_value(reference.get("source_provenance"), "reference source provenance")
-    if not re.fullmatch(r"[0-9a-f]{40}", provenance.get("git_commit", "")):
-        raise ValueError("reference must preserve its actual source commit")
+    provenance = validate_provenance(reference.get("source_provenance"), reference["environment"])
+    validate_provenance(report.get("source_provenance"), report["environment"])
+    if not resource_completeness(report["environment"], report["metrics"])["passed"] or not resource_completeness(
+            reference["environment"], reference["metrics"])["passed"]:
+        raise ValueError("incomplete resource measurements cannot qualify a reference comparison")
+    if not comparison_eligibility(report["environment"])["passed"]:
+        raise ValueError("unavailable GPU controls cannot qualify a reference comparison")
     failures, comparisons = [], {}
     for name, current in report["metrics"].items():
         previous = reference["metrics"][name]
@@ -444,6 +565,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bin-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True, help="New evidence directory; never overwritten")
     parser.add_argument("--profiles", nargs="+", choices=PROFILES, default=list(PROFILES))
+    parser.add_argument("--storage-environment-id",
+                        help="Required for I/O profiles: stable backing volume/mount and durability configuration ID; change it when storage changes")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu",
                         help="Models/serving device; storage/checkpoint/telemetry/quantization remain CPU")
     parser.add_argument("--warmup", type=int, default=1)
@@ -460,6 +583,7 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("timeout/output bounds are outside allowed limits")
     if len(set(args.profiles)) != len(args.profiles):
         raise ValueError("duplicate resource profiles")
+    storage_id = storage_identifier(args.profiles, args.storage_environment_id)
     if args.write_reference and args.write_reference.exists():
         raise ValueError("existing references must not be overwritten")
     source, build, output = args.source_root.resolve(), args.build_dir.resolve(), args.output.resolve()
@@ -479,6 +603,7 @@ def main(argv: list[str] | None = None) -> int:
         "status": "running", "started_at_unix_ns": time.time_ns(),
         "source_provenance": provenance, "profiles": args.profiles,
         "requested_device": args.device, "warmup_processes": args.warmup,
+        "storage_environment_id": storage_id,
         "sample_processes": args.samples, "host": host, "runtime_environment": relevant_environment}
     write_json(output / "run.json", manifest)
     try:
@@ -508,7 +633,7 @@ def main(argv: list[str] | None = None) -> int:
                     if gpu is not None and gpu != actual_gpu:
                         raise ValueError("GPU/driver identity changed during sampling")
                     gpu = actual_gpu
-                current_identity = environment_identity(host, cache, {profile: sample}, relevant_environment, gpu)
+                current_identity = environment_identity(host, cache, {profile: sample}, relevant_environment, gpu, storage_id)
                 if first_identity is not None and current_identity != first_identity:
                     raise ValueError(profile + ": environment/workload/metric identity changed between processes")
                 if profile in identities and sample["build_fingerprint"] != identities[profile]["build_fingerprint"]:
@@ -525,21 +650,26 @@ def main(argv: list[str] | None = None) -> int:
         if sha256_file(build / "CMakeCache.txt") != cache_hash or any(
                 sha256_file(path) != binary_hashes[name] for name, path in binaries.items()):
             raise ValueError("build cache or benchmark binary changed during sampling")
-        env_identity = environment_identity(host, cache, identities, relevant_environment, gpu)
+        env_identity = environment_identity(host, cache, identities, relevant_environment, gpu, storage_id)
         provenance["build_fingerprints"] = {name: sample["build_fingerprint"] for name, sample in identities.items()}
         report = {"schema_version": 1, "kind": "jyppx-resource-benchmark-statistics",
             "environment_key": "sha256:" + hashlib.sha256(canonical(env_identity).encode()).hexdigest(),
             "environment": env_identity, "source_provenance": provenance,
             **summarize(measured, 10.0)}
+        report["resource_completeness"] = resource_completeness(env_identity, report["metrics"])
+        report["comparison_eligibility"] = comparison_eligibility(env_identity)
         write_json(output / "statistics.json", report)
         if args.reference:
             report["comparison"] = compare_reference(report, read_json(args.reference))
             write_json(output / "statistics.json", report)
-        passed = report["stability"]["passed"] and report.get("comparison", {}).get("passed", True)
+        passed = (report["stability"]["passed"] and report["resource_completeness"]["passed"] and
+                  report.get("comparison", {}).get("passed", True) and
+                  (not args.write_reference or report["comparison_eligibility"]["passed"]))
         if args.write_reference and passed:
+            reference = make_reference(report)
             args.write_reference.parent.mkdir(parents=True, exist_ok=True)
             with args.write_reference.open("x", encoding="utf-8") as stream:
-                json.dump(make_reference(report), stream, indent=2, sort_keys=True, allow_nan=False)
+                json.dump(reference, stream, indent=2, sort_keys=True, allow_nan=False)
                 stream.write("\n")
         manifest.update(status="passed" if passed else "failed", statistics="statistics.json",
                         environment_key=report["environment_key"])

@@ -69,17 +69,51 @@ void storage(const Arguments& args) {
   require(store->references(run.run_id).size() == count &&
               store->integrity_check().ok(),
           "SQLite/CAS integrity failed");
+  const auto persisted_run = store->find(run.run_id);
+  require(persisted_run.has_value(), "published run missing");
   store.reset();
   std::uint64_t read_bytes = 0;
   metrics["reopen_read_seconds"] = metric(
       seconds([&] {
         ex::SQLiteRunStore reopened(args.directory / "run-store");
-        require(reopened.find(run.run_id).has_value(), "durable run missing");
+        const auto restored_run = reopened.find(run.run_id);
+        require(restored_run.has_value(), "durable run missing");
+        require(
+            restored_run->run_id == persisted_run->run_id &&
+                restored_run->project_id == persisted_run->project_id &&
+                restored_run->experiment_id == persisted_run->experiment_id &&
+                restored_run->display_name == persisted_run->display_name &&
+                restored_run->status == persisted_run->status &&
+                restored_run->created_at_unix_ms ==
+                    persisted_run->created_at_unix_ms &&
+                restored_run->updated_at_unix_ms ==
+                    persisted_run->updated_at_unix_ms &&
+                restored_run->tags == persisted_run->tags,
+            "durable run metadata mismatch");
         const auto stored = reopened.references(run.run_id);
         require(stored.size() == count, "durable references missing");
         ex::FileArtifactStore cas(reopened.artifact_root());
         for (std::size_t index = 0; index < count; ++index) {
-          const auto& reference = references[index];
+          const auto& expected = references[index];
+          const auto found = std::find_if(
+              stored.begin(), stored.end(), [&](const auto& value) {
+                return value.reference_id == expected.reference_id;
+              });
+          require(found != stored.end(), "durable reference identity missing");
+          const auto& reference = *found;
+          require(reference.kind == expected.kind &&
+                      reference.role == expected.role &&
+                      reference.attached_at_unix_ms ==
+                          expected.attached_at_unix_ms &&
+                      reference.artifact.digest == expected.artifact.digest &&
+                      reference.artifact.size_bytes ==
+                          expected.artifact.size_bytes &&
+                      reference.artifact.logical_name ==
+                          expected.artifact.logical_name &&
+                      reference.artifact.media_type ==
+                          expected.artifact.media_type &&
+                      reference.artifact.producer == expected.artifact.producer,
+                  "durable artifact reference metadata mismatch");
           auto reader = cas.open(reference.artifact.digest);
           require(reader->size_bytes() == size, "artifact length mismatch");
           std::vector<std::byte> buffer(size);

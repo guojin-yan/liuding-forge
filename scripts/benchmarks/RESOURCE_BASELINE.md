@@ -20,19 +20,32 @@ No benchmark source/output is silently relabelled as a different commit.
 ```powershell
 # Windows: retain the established Release cache and its dependencies/options.
 cmake --build out/build/config-windows --config Release --parallel 2 --target jyppx_bench_resource_stable jyppx_bench_resource_models jyppx_bench_resource_quantization jyppx_bench_resource_serving
-python scripts/benchmarks/run_resource_baseline.py --build-dir out/build/config-windows --output out/baselines/resources/windows-current
+python scripts/benchmarks/run_resource_baseline.py --build-dir out/build/config-windows --storage-environment-id windows-workspace-volume-defaults --output out/baselines/resources/windows-current
 ```
 
 ```sh
 # Ubuntu: use the established CUDA Release cache, not a second benchmark cache.
 cmake --build out/build/cuda-release --config Release --parallel 2 --target jyppx_bench_resource_stable jyppx_bench_resource_models jyppx_bench_resource_quantization jyppx_bench_resource_serving
-python3 scripts/benchmarks/run_resource_baseline.py --build-dir out/build/cuda-release --device cuda:0 --output out/baselines/resources/cuda-current
+python3 scripts/benchmarks/run_resource_baseline.py --build-dir out/build/cuda-release --device cuda:0 --storage-environment-id ubuntu-workspace-mount-defaults --output out/baselines/resources/cuda-current
 ```
 
 The default selection requires all four executables. For a Core-only build,
 use `--profiles storage checkpoint telemetry`. `--bin-dir` selects a known
 custom executable directory. Output directories must be new and should be under
 an ignored evidence directory such as `out/` to preserve a clean checkout.
+
+Storage, checkpoint and telemetry profiles require an explicit
+`--storage-environment-id`. Choose a stable ID for the actual backing
+volume/mount, filesystem, relevant mount options and durability configuration
+of the output workload. The commands above show example IDs; record what the
+chosen ID means on each host. Keep it for fresh directories on that same
+storage configuration, and use a different ID when moving between volumes,
+local/network filesystems, tmpfs, or durability settings. IDs contain 1..256
+letters/digits or `_ . : / + -`, starting with a letter/digit and without spaces.
+The runner compares this operator declaration; it does not discover backing devices or verify mount
+options. Reusing an ID after storage changes violates the sampling protocol.
+The unique output directory itself is not part of the environment key.
+Model/quantization/serving-only runs do not require a storage ID.
 
 | Profile | Fixed work and resource evidence |
 | --- | --- |
@@ -59,7 +72,15 @@ compute capability, CUDA toolkit/runtime/driver versions, and allocator
 allocated/reserved peaks since before load. The runner verifies the UUID and
 driver with `nvidia-smi`; `CUDA_VISIBLE_DEVICES` mappings use the reported UUID,
 not an assumed physical GPU index. CPU-only binaries reject CUDA requests.
-Persistence, telemetry and quantization execute on CPU in either suite.
+The GPU environment also binds `nvidia-smi` power limit in watts and persistence
+mode. A change rejects historical comparison or invalidates an ongoing run.
+Explicit `N/A`/`Not Supported` readings are retained as unavailable with a reason,
+without a numeric substitute. Such a run can collect standalone stability
+evidence, but `comparison_eligibility.passed` is false: it cannot publish a
+comparable reference or pass `--reference`, even when both readings are unknown
+in both runs. A query error or malformed reading fails rather than being treated
+as unsupported. The runner does not modify GPU settings.
+Storage, checkpoint, telemetry and quantization execute on CPU in either suite.
 Quantization declares **storage-quantized / FP32 fallback**, with no compute
 quantization, QAT or speedup comparison.
 
@@ -67,8 +88,15 @@ RSS is the process lifetime peak working set on Windows or Linux `VmHWM`,
 including LibTorch/runtime overhead. CUDA peaks cover the LibTorch caching
 allocator, excluding driver/context allocations. Unavailable measurements carry
 an explicit status and reason with no numeric value. CPU CUDA metrics are
-unavailable; their absence never counts as a CUDA pass. JSONL promises stream
-flush rather than filesystem fsync; checkpoint and SQLite timings retain their
+unavailable; their absence never counts as a CUDA pass.
+
+RSS is required for every selected profile on Windows and Linux. A collection
+failure remains explicit in raw samples and statistics, but
+`resource_completeness.passed` is false; the run exits unsuccessfully and cannot
+publish a reference. Actual CUDA profiles additionally require both allocator
+peaks. Legitimate CPU CUDA inapplicability does not fail completeness.
+
+JSONL promises stream flush rather than filesystem fsync; checkpoint and SQLite timings retain their
 real synchronization semantics. Disk metrics describe the sample workload,
 not machine-wide I/O or filesystem cache eviction. Processes are independent;
 the OS file cache and GPU driver/context startup are not forcibly reset.
@@ -97,14 +125,24 @@ Comparison allows at most `max(10%, 3 * reference CV)` regression per gated
 metric, with the same metric contract and environment.
 
 Environment identity binds host/CPU, OS, CMake performance/configuration flags,
-compiler, LibTorch ABI/version, dependency lock, actual device/driver, runtime
-thread settings, relevant environment variables, fixed workload and metric
+compiler, LibTorch ABI/version, dependency lock, actual device/driver, GPU power
+limit/persistence mode, the declared I/O storage environment, runtime thread
+settings, relevant environment variables, fixed workload and metric
 availability. Source provenance separately retains the exact Git commit/tree,
 clean state, binary hashes, full build fingerprints, runner hash and cache hash.
+Reference publication and comparison validate all these provenance fields,
+require `clean:true`, require an exact binary/fingerprint profile set, and verify
+that every historical Release fingerprint agrees with its own source commit
+and environment. Historical binary paths are retained for audit and need not
+exist on the current host. This schema validation does not authenticate unsigned
+JSON against deliberate tampering.
 Changing only the source commit does not change the environment key. A legitimate
 new commit can compare against old evidence while retaining both original
 identities. A changed environment or workload rejects comparison; copying a
 new commit into historical provenance is never a substitute for new evidence.
+Older resource references missing the required provenance, GPU controls or
+storage declaration are rejected; collect fresh evidence instead of editing
+historical reports to add inferred values.
 
 Focused runner verification (no C++ compilation or hardware required):
 

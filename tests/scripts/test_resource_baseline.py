@@ -4,18 +4,24 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
+import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "benchmarks"))
 import run_resource_baseline as runner  # noqa: E402
 
 COMMIT = "a" * 40
+STORAGE_ID = "fixture-volume-ext4-sync"
+GPU_UUID = "GPU-01234567-89ab-cdef-0123-456789abcdef"
 
 
 def sample(profile: str = "storage") -> dict:
@@ -50,15 +56,40 @@ def sample(profile: str = "storage") -> dict:
     }
 
 
-def statistics_report(commit: str = COMMIT) -> dict:
-    row = sample()
+def cuda_sample() -> dict:
+    row = sample("resnet18")
+    row["build_fingerprint"].update(libtorch_build="cu124-abi1", accelerator_runtime="cuda:available:12.4")
+    row["execution"].update(device="cuda:0", timing="steady_clock plus CUDA synchronize",
+        cuda={"device_index": 0, "device_name": "fixture GPU", "device_uuid": GPU_UUID,
+              "compute_capability": "7.5", "compile_toolkit_version": 12040,
+              "runtime_version": 12040, "driver_api_version": 12040})
+    for name in ("peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes"):
+        row["metrics"][name] = {"status": "available", "value": 4096, "unit": "bytes",
+                                 "direction": "lower", "gate": True, "scope": "fixture"}
+    return row
+
+
+def gpu_fixture(power: str = "160.00", persistence: str = "Enabled") -> dict:
+    completed = subprocess.CompletedProcess([], 0,
+        f"{GPU_UUID}, fixture GPU, 550.54.14, 6144, 00000000:01:00.0, {power}, {persistence}\n", "")
+    with patch.object(runner.subprocess, "run", return_value=completed):
+        return runner.gpu_identity(GPU_UUID)
+
+
+def statistics_report(commit: str = COMMIT, *, row: dict | None = None, host_os: str = "Linux",
+                      gpu: dict | None = None, storage_id: str | None = STORAGE_ID) -> dict:
+    row = copy.deepcopy(row) if row is not None else sample()
     row["build_fingerprint"]["git_commit"] = commit
-    environment = runner.environment_identity({"processor": "fixture"}, {"CMAKE_CXX_FLAGS": "-O3"},
-                                              {"storage": row}, {}, None)
+    name = row["profile"]
+    environment = runner.environment_identity({"processor": "fixture", "os": host_os},
+        {"CMAKE_CXX_FLAGS": "-O3"}, {name: row}, {}, gpu, storage_id)
     return {"schema_version": 1, "kind": "jyppx-resource-benchmark-statistics",
-        "source_provenance": {"git_commit": commit, "clean": True}, "environment": environment,
+        "source_provenance": {"git_commit": commit, "git_tree": "c" * 40, "clean": True,
+            "binaries": {name: {"sha256": "d" * 64, "path": "historical/unavailable/binary"}},
+            "runner_sha256": "e" * 64, "cmake_cache_sha256": "f" * 64,
+            "build_fingerprints": {name: copy.deepcopy(row["build_fingerprint"])}}, "environment": environment,
         "environment_key": "sha256:" + hashlib.sha256(runner.canonical(environment).encode()).hexdigest(),
-        **runner.summarize({"storage": [copy.deepcopy(row) for _ in range(5)]}, 10)}
+        **runner.summarize({name: [copy.deepcopy(row) for _ in range(5)]}, 10)}
 
 
 class ResourceEvidenceTest(unittest.TestCase):
@@ -122,12 +153,110 @@ class ResourceEvidenceTest(unittest.TestCase):
         reference = runner.make_reference(statistics_report())
         preserved = copy.deepcopy(reference)
         current = statistics_report("b" * 40)
+        current["source_provenance"]["git_tree"] = "1" * 40
+        current["source_provenance"]["runner_sha256"] = "2" * 64
+        current["source_provenance"]["cmake_cache_sha256"] = "3" * 64
+        current["source_provenance"]["binaries"]["storage"]["sha256"] = "4" * 64
+        current["source_provenance"]["build_fingerprints"]["storage"]["jyppx_version"] = "0.4.0"
         comparison = runner.compare_reference(current, reference)
         self.assertTrue(comparison["passed"])
         self.assertTrue(comparison["reference_commit_differs"])
         self.assertEqual(reference, preserved)
         self.assertEqual(comparison["reference_source_provenance"]["git_commit"], COMMIT)
         self.assertEqual(current["source_provenance"]["git_commit"], "b" * 40)
+
+    def test_reference_requires_every_source_provenance_field(self) -> None:
+        complete = runner.make_reference(statistics_report())
+        for field in ("git_commit", "git_tree", "clean", "binaries", "build_fingerprints",
+                      "runner_sha256", "cmake_cache_sha256"):
+            reference = copy.deepcopy(complete)
+            del reference["source_provenance"][field]
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                runner.compare_reference(statistics_report("b" * 40), reference)
+        reference = copy.deepcopy(complete)
+        reference["source_provenance"] = {"git_commit": COMMIT}
+        with self.assertRaisesRegex(ValueError, "git_tree"):
+            runner.compare_reference(statistics_report(), reference)
+
+    def test_rejects_dirty_and_malformed_reference_provenance(self) -> None:
+        complete = runner.make_reference(statistics_report())
+        for field, value in (("clean", False), ("clean", 1), ("git_tree", "bad"),
+                ("git_commit", COMMIT + "+dirty"), ("git_tree", 123), ("runner_sha256", "f" * 63),
+                ("cmake_cache_sha256", "G" * 64)):
+            reference = copy.deepcopy(complete)
+            reference["source_provenance"][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                runner.compare_reference(statistics_report(), reference)
+
+    def test_historical_binary_and_fingerprint_must_be_complete_and_consistent(self) -> None:
+        complete = runner.make_reference(statistics_report())
+        mutations = (
+            ("binaries", {}),
+            ("binaries", {"storage": {"path": "old/binary", "sha256": "invalid"}}),
+            ("binaries", {"storage": {"sha256": "d" * 64}}),
+            ("build_fingerprints", {}),
+            ("build_fingerprints", {"storage": {**sample()["build_fingerprint"], "git_commit": "b" * 40}}),
+            ("build_fingerprints", {"storage": {**sample()["build_fingerprint"], "build_type": "Debug"}}),
+            ("build_fingerprints", {"storage": {**sample()["build_fingerprint"], "compiler": "other compiler"}}),
+        )
+        for field, value in mutations:
+            reference = copy.deepcopy(complete)
+            reference["source_provenance"][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                runner.compare_reference(statistics_report(), reference)
+        reference = copy.deepcopy(complete)
+        del reference["source_provenance"]["build_fingerprints"]["storage"]["dependency_lock_digest"]
+        with self.assertRaisesRegex(ValueError, "dependency_lock_digest"):
+            runner.compare_reference(statistics_report(), reference)
+
+    def test_reference_publication_checks_provenance_too(self) -> None:
+        report = statistics_report()
+        report["source_provenance"]["clean"] = False
+        with self.assertRaisesRegex(ValueError, "clean"):
+            runner.make_reference(report)
+
+    def test_unavailable_supported_platform_rss_is_partial_evidence(self) -> None:
+        for host_os in ("Windows", "Linux"):
+            row = sample()
+            row["metrics"]["peak_rss_bytes"] = {"status": "unavailable", "unit": "bytes",
+                "direction": "lower", "gate": False, "reason": "OS RSS measurement failed"}
+            runner.validate_sample(row, "storage", "cpu", COMMIT)
+            report = statistics_report(row=row, host_os=host_os)
+            completeness = runner.resource_completeness(report["environment"], report["metrics"])
+            self.assertTrue(report["stability"]["passed"])
+            self.assertFalse(completeness["passed"])
+            self.assertEqual(completeness["missing_metrics"], ["storage.peak_rss_bytes"])
+            with self.subTest(os=host_os), self.assertRaisesRegex(ValueError, "incomplete resource"):
+                runner.make_reference(report)
+            reference = runner.make_reference(statistics_report(host_os=host_os))
+            reference["environment"] = copy.deepcopy(report["environment"])
+            reference["environment_key"] = report["environment_key"]
+            reference["metrics"]["storage.peak_rss_bytes"] = copy.deepcopy(row["metrics"]["peak_rss_bytes"])
+            with self.subTest(comparison_os=host_os), self.assertRaisesRegex(ValueError, "incomplete resource"):
+                runner.compare_reference(report, reference)
+
+    def test_cpu_cuda_inapplicability_does_not_block_complete_rss_evidence(self) -> None:
+        report = statistics_report()
+        completeness = runner.resource_completeness(report["environment"], report["metrics"])
+        self.assertTrue(completeness["passed"])
+        self.assertEqual(completeness["required_metrics"], ["storage.peak_rss_bytes"])
+        self.assertTrue(runner.compare_reference(report, runner.make_reference(report))["passed"])
+
+    def test_io_profiles_require_explicit_stable_storage_identity(self) -> None:
+        for name in ("storage", "checkpoint", "telemetry"):
+            with self.subTest(profile=name), self.assertRaisesRegex(ValueError, "storage-environment-id"):
+                runner.environment_identity({"os": "Linux"}, {}, {name: sample(name)}, {}, None)
+        for value in ("", " ", "volume\nother", "x" * 257):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "storage environment ID"):
+                runner.storage_identifier(["storage"], value)
+        self.assertIsNone(runner.storage_identifier(["resnet18"], None))
+
+    def test_different_storage_environment_cannot_claim_no_regression(self) -> None:
+        reference = runner.make_reference(statistics_report(storage_id="local-ntfs-volume-F-sync"))
+        current = statistics_report("b" * 40, storage_id="other-ntfs-volume-G-sync")
+        self.assertNotEqual(reference["environment_key"], current["environment_key"])
+        with self.assertRaisesRegex(ValueError, "environment/workload differs"):
+            runner.compare_reference(current, reference)
 
     def test_environment_change_cannot_claim_no_regression(self) -> None:
         reference = runner.make_reference(statistics_report())
@@ -202,6 +331,125 @@ class ResourceProcessTest(unittest.TestCase):
                 runner.run_process([sys.executable, "-c", "print('{}')"], directory,
                                    timeout=5, max_output_bytes=4096)
             self.assertEqual((directory / "sample.json").read_bytes(), before)
+
+
+class ResourceGpuIdentityTest(unittest.TestCase):
+    def test_queries_actual_uuid_and_binds_power_and_persistence(self) -> None:
+        completed = subprocess.CompletedProcess([], 0,
+            f"{GPU_UUID}, fixture GPU, 550.54.14, 6144, 00000000:01:00.0, 160.00, Enabled\n", "")
+        with patch.object(runner.subprocess, "run", return_value=completed) as query:
+            gpu = runner.gpu_identity(GPU_UUID)
+        command = query.call_args.args[0]
+        self.assertIn("--id=" + GPU_UUID, command)
+        self.assertIn("power.limit,persistence_mode", next(arg for arg in command if arg.startswith("--query-gpu=")))
+        self.assertEqual(gpu["power.limit"], {"status": "available", "value": 160.0, "unit": "watts"})
+        self.assertEqual(gpu["persistence_mode"], {"status": "available", "value": "enabled"})
+        runner.validate_sample(cuda_sample(), "resnet18", "cuda:0", COMMIT)
+        reference = runner.make_reference(statistics_report(row=cuda_sample(), gpu=gpu))
+        for changed in (gpu_fixture("100.00"), gpu_fixture(persistence="Disabled")):
+            current = statistics_report("b" * 40, row=cuda_sample(), gpu=changed)
+            self.assertNotEqual(reference["environment_key"], current["environment_key"])
+            with self.subTest(gpu=changed), self.assertRaisesRegex(ValueError, "environment/workload differs"):
+                runner.compare_reference(current, reference)
+
+    def test_unsupported_gpu_controls_are_explicit_and_never_unknown_to_unknown_pass(self) -> None:
+        for power, persistence, name in (("[Not Supported]", "Enabled", "power.limit"),
+                                        ("160.00", "N/A", "persistence_mode")):
+            gpu = gpu_fixture(power, persistence)
+            self.assertEqual(gpu[name]["status"], "unavailable")
+            self.assertNotIn("value", gpu[name])
+            self.assertIn("nvidia-smi", gpu[name]["reason"])
+            report = statistics_report(row=cuda_sample(), gpu=gpu)
+            self.assertFalse(runner.comparison_eligibility(report["environment"])["passed"])
+            with self.subTest(control=name), self.assertRaisesRegex(ValueError, "unavailable GPU controls"):
+                runner.make_reference(report)
+            reference = runner.make_reference(statistics_report(row=cuda_sample(), gpu=gpu_fixture()))
+            reference["environment"] = copy.deepcopy(report["environment"])
+            reference["environment_key"] = report["environment_key"]
+            with self.subTest(comparison_control=name), self.assertRaisesRegex(ValueError, "unavailable GPU controls"):
+                runner.compare_reference(report, reference)
+
+    def test_bad_gpu_readings_and_query_errors_do_not_become_measurements(self) -> None:
+        for power in ("nan", "inf", "0", "-1", "unknown"):
+            with self.subTest(power=power), self.assertRaises(ValueError):
+                gpu_fixture(power)
+        with self.assertRaisesRegex(ValueError, "persistence_mode"):
+            gpu_fixture(persistence="unknown")
+        with patch.object(runner.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "nvidia-smi")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                runner.gpu_identity(GPU_UUID)
+
+
+class ResourceMainTest(unittest.TestCase):
+    def fixture_run(self, temporary: str, row: dict, *, gpu: dict | None = None,
+                    write_reference: bool = True) -> tuple[int, Path, Path]:
+        root = Path(temporary)
+        source, build, output = root / "source", root / "build", root / "run"
+        source.mkdir()
+        build.mkdir()
+        (build / "CMakeCache.txt").write_text(
+            f"CMAKE_HOME_DIRECTORY:INTERNAL={source.resolve()}\nJYPPX_BUILD_BENCHMARKS:BOOL=ON\n", encoding="utf-8")
+        binary = build / "fixture-binary"
+        binary.write_bytes(b"fixture, never executed")
+        reference = root / "reference.json"
+        args = ["--source-root", str(source), "--build-dir", str(build), "--output", str(output),
+                "--profiles", row["profile"], "--storage-environment-id", STORAGE_ID,
+                "--device", row["execution"]["device"]]
+        if write_reference:
+            args.extend(("--write-reference", str(reference)))
+        identity = {"git_commit": COMMIT, "git_tree": "c" * 40, "clean": True}
+        with patch.object(runner, "source_identity", side_effect=lambda root: identity.copy()), \
+                patch.object(runner, "cpu_identity", return_value={"os": "Windows", "processor": "fixture"}), \
+                patch.object(runner, "executable", return_value=binary), \
+                patch.object(runner, "gpu_identity", return_value=gpu), \
+                patch.object(runner, "run_process", side_effect=lambda *args, **kwargs: copy.deepcopy(row)) as run, \
+                contextlib.redirect_stdout(io.StringIO()):
+            status = runner.main(args)
+        self.assertEqual(run.call_count, 6)
+        return status, output, reference
+
+    def test_supported_platform_rss_failure_retains_report_and_never_publishes_reference(self) -> None:
+        row = sample()
+        row["metrics"]["peak_rss_bytes"] = {"status": "unavailable", "unit": "bytes",
+            "direction": "lower", "gate": False, "reason": "GetProcessMemoryInfo failed"}
+        for write_reference in (False, True):
+            with self.subTest(reference=write_reference), tempfile.TemporaryDirectory() as temporary:
+                status, output, reference = self.fixture_run(temporary, row, write_reference=write_reference)
+                self.assertEqual(status, 1)
+                self.assertEqual(json.loads((output / "run.json").read_text())["status"], "failed")
+                statistics = json.loads((output / "statistics.json").read_text())
+                self.assertTrue(statistics["stability"]["passed"])
+                self.assertFalse(statistics["resource_completeness"]["passed"])
+                self.assertEqual(statistics["metrics"]["storage.peak_rss_bytes"]["reason"], "GetProcessMemoryInfo failed")
+                self.assertFalse(reference.exists())
+
+    def test_valid_cpu_run_publishes_reference_with_full_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            status, output, reference = self.fixture_run(temporary, sample())
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads((output / "run.json").read_text())["status"], "passed")
+            statistics = json.loads((output / "statistics.json").read_text())
+            self.assertTrue(statistics["resource_completeness"]["passed"])
+            self.assertTrue(runner.compare_reference(statistics, json.loads(reference.read_text()))["passed"])
+
+    def test_unknown_gpu_configuration_retains_evidence_without_reference(self) -> None:
+        for write_reference in (False, True):
+            with self.subTest(reference=write_reference), tempfile.TemporaryDirectory() as temporary:
+                status, output, reference = self.fixture_run(temporary, cuda_sample(), gpu=gpu_fixture("N/A"),
+                                                            write_reference=write_reference)
+                self.assertEqual(status, 1 if write_reference else 0)
+                statistics = json.loads((output / "statistics.json").read_text())
+                self.assertTrue(statistics["stability"]["passed"])
+                self.assertTrue(statistics["resource_completeness"]["passed"])
+                self.assertFalse(statistics["comparison_eligibility"]["passed"])
+                self.assertFalse(reference.exists())
+
+    def test_missing_storage_id_fails_before_source_or_subprocess_work(self) -> None:
+        with patch.object(runner, "source_identity") as source, patch.object(runner, "run_process") as run:
+            with self.assertRaisesRegex(ValueError, "storage-environment-id"):
+                runner.main(["--build-dir", "unused", "--output", "unused", "--profiles", "storage"])
+        source.assert_not_called()
+        run.assert_not_called()
 
 
 if __name__ == "__main__":
