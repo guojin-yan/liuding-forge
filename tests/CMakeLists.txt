@@ -350,6 +350,7 @@ add_test(
 set_tests_properties(OptionalComponentMatrix PROPERTIES
     LABELS "core;data;experiment;foundation;interop;nn;optim;training;packaging"
     RESOURCE_LOCK jyppx_component_profile_matrix
+    TIMEOUT 3600
 )
 endif()
 
