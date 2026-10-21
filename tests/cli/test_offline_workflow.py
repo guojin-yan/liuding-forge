@@ -154,7 +154,10 @@ class OfflineWorkflowContract(unittest.TestCase):
                 for point in event["payload"]["metrics"]:
                     metrics.add(point["definition"]["metric_id"])
             self.assertEqual(len(streams), 1)
-            self.assertEqual(metrics, {"training.loss", "training.f1", "validation.loss", "validation.f1"})
+            self.assertEqual(metrics, {
+                "training.loss", "training.f1", "validation.loss", "validation.f1",
+                "optimizer.applied", "optimizer.count",
+            })
             self.assertEqual(stored[-1]["event"]["payload"]["name"], "training.run_finished")
             self.assertTrue(stored[-1]["event"]["payload"]["terminal"])
 
