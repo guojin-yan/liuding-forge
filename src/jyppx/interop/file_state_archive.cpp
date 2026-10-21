@@ -10,9 +10,12 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <fstream>
 #include <limits>
 #include <map>
+#include <optional>
+#include <thread>
 #include <utility>
 
 #if defined(_WIN32)
@@ -314,8 +317,8 @@ void create_durable_parent(const std::filesystem::path& parent,
   }
 }
 
-std::vector<std::byte> read_snapshot(const std::filesystem::path& path,
-                                     std::uint64_t max_bytes) {
+std::optional<std::vector<std::byte>> read_snapshot(
+    const std::filesystem::path& path, std::uint64_t max_bytes) {
 #if defined(_WIN32)
   struct SnapshotHandle {
     HANDLE value;
@@ -327,8 +330,11 @@ std::vector<std::byte> read_snapshot(const std::filesystem::path& path,
                   nullptr, OPEN_EXISTING,
                   FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
   if (value == INVALID_HANDLE_VALUE) {
+    const auto code = GetLastError();
+    if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
+      return std::nullopt;
     io_failure("read.open", path,
-               {static_cast<int>(GetLastError()), std::system_category()});
+               {static_cast<int>(code), std::system_category()});
   }
   const SnapshotHandle handle{value};
   LARGE_INTEGER length{};
@@ -340,10 +346,13 @@ std::vector<std::byte> read_snapshot(const std::filesystem::path& path,
 #else
   // Both size and content come from the same opened inode. Atomic path
   // replacement by another writer cannot mix two checkpoint generations.
+  errno = 0;
   std::ifstream input(path, std::ios::binary | std::ios::ate);
-  if (!input)
+  if (!input) {
+    if (errno == ENOENT) return std::nullopt;
     io_failure("read.open", path,
                {errno != 0 ? errno : EIO, std::generic_category()});
+  }
   const auto length = input.tellg();
   if (length < 0)
     io_failure("read.size", path, std::make_error_code(std::errc::io_error));
@@ -428,9 +437,20 @@ void publish(const std::filesystem::path& path,
 #if defined(_WIN32)
     const auto flags = MOVEFILE_REPLACE_EXISTING |
                        (options.synchronize ? MOVEFILE_WRITE_THROUGH : 0U);
-    if (!MoveFileExW(temporary.c_str(), path.c_str(), flags)) {
-      io_failure("publish", path,
-                 {static_cast<int>(GetLastError()), std::system_category()});
+    // Windows metadata probes and external readers may briefly open either
+    // path without delete sharing. Keep the old destination intact while
+    // retrying only transient sharing/access conflicts, within a fixed bound.
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    while (!MoveFileExW(temporary.c_str(), path.c_str(), flags)) {
+      const auto code = GetLastError();
+      if ((code != ERROR_SHARING_VIOLATION && code != ERROR_LOCK_VIOLATION &&
+           code != ERROR_ACCESS_DENIED) ||
+          std::chrono::steady_clock::now() >= deadline) {
+        io_failure("publish", path,
+                   {static_cast<int>(code), std::system_category()});
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 #else
     std::filesystem::rename(temporary, path, error);
@@ -473,9 +493,7 @@ class FileStateArchive::Impl {
         // Read-only callers can still open an intact published snapshot.
       }
     }
-    const auto exists = std::filesystem::exists(path_, error);
-    if (error) io_failure("exists", path_, error);
-    if (exists) load();
+    load();
   }
 
   void build_readers() {
@@ -486,7 +504,9 @@ class FileStateArchive::Impl {
   }
 
   void load() {
-    const auto bytes = read_snapshot(path_, options_.max_artifact_bytes);
+    const auto snapshot = read_snapshot(path_, options_.max_artifact_bytes);
+    if (!snapshot) return;
+    const auto& bytes = *snapshot;
     const auto payload =
         std::span<const std::byte>(bytes).first(bytes.size() - kDigestBytes);
     const auto expected = sha256(payload);

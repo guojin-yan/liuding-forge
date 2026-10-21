@@ -46,6 +46,11 @@ concurrent replacement. A reader cannot remove an active writer's temporary
 file. Stale temporary files can be discarded when their writer lock is free.
 The lock sidecar remains as a reusable synchronization object.
 
+On Windows, publication retries transient sharing, lock, and access conflicts
+for at most 500 milliseconds. A persistent conflict fails without deleting the
+prior destination. Readers open the snapshot directly and treat only a missing
+file/path as a new archive; other open failures remain errors.
+
 `synchronize=true` requests file and directory durability (Windows uses
 `FlushFileBuffers` and `MOVEFILE_WRITE_THROUGH`; POSIX uses `fsync` and
 `rename`). Newly created parent directory entries are synchronized as well.

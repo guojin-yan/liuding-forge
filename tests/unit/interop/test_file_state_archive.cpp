@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -19,7 +20,12 @@
 #include <thread>
 #include <vector>
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#else
 #include <csignal>
 #include <sys/resource.h>
 #include <sys/wait.h>
@@ -173,6 +179,45 @@ TEST_F(FileStateArchiveTest, ConcurrentReplacementReadsOneCompleteGeneration) {
   EXPECT_EQ(snapshot.reader_for("test.state").read_blob("payload", 1U)[0],
             original[0]);
 }
+
+#if defined(_WIN32)
+TEST_F(FileStateArchiveTest,
+       RetriesTransientWindowsPublicationSharingConflict) {
+  const std::array<std::byte, 1> original{std::byte{42}};
+  const std::array<std::byte, 1> replacement{std::byte{7}};
+  save(original);
+  const auto handle = CreateFileW(
+      path_.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  ASSERT_NE(handle, INVALID_HANDLE_VALUE);
+  std::jthread reader([handle] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    CloseHandle(handle);
+  });
+  EXPECT_NO_THROW(save(replacement));
+  reader.join();
+  FileStateArchive reopened(path_);
+  EXPECT_EQ(reopened.reader_for("test.state").read_blob("payload", 1U)[0],
+            replacement[0]);
+}
+
+TEST_F(FileStateArchiveTest,
+       PersistentWindowsSharingConflictPreservesSnapshot) {
+  const std::array<std::byte, 1> original{std::byte{42}};
+  const std::array<std::byte, 1> replacement{std::byte{7}};
+  save(original);
+  const auto handle = CreateFileW(
+      path_.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  ASSERT_NE(handle, INVALID_HANDLE_VALUE);
+  EXPECT_THROW(save(replacement), jyppx::IoError);
+  CloseHandle(handle);
+  FileStateArchive reopened(path_);
+  EXPECT_EQ(reopened.reader_for("test.state").read_blob("payload", 1U)[0],
+            original[0]);
+  EXPECT_FALSE(std::filesystem::exists(path_.string() + ".tmp"));
+}
+#endif
 
 #if GTEST_HAS_DEATH_TEST
 TEST_F(FileStateArchiveTest, ProcessExitDuringStagingRecoversPriorSnapshot) {
