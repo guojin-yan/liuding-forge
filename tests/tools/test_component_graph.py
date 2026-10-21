@@ -54,6 +54,15 @@ class ComponentGraphTest(unittest.TestCase):
                 edge = component_graph.Edge(consumer, provider)
                 if edge != missing_interface:
                     lines.append(f"{consumer}\tinterface\t{provider}")
+            for provider in policy.optional_dependencies:
+                edge = component_graph.Edge(consumer, provider)
+                if edge != missing_target:
+                    lines.append(f"{consumer}\ttarget\t{provider}")
+            for source_root in policy.source_roots:
+                root = REPOSITORY_ROOT / "src" / "jyppx" / source_root
+                for path in sorted(root.rglob("*.cpp")):
+                    relative = path.relative_to(REPOSITORY_ROOT).as_posix()
+                    lines.append(f"{consumer}\tsource\t{relative}")
         graph_path = self.temp_root / "component-target-graph.tsv"
         graph_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return graph_path
@@ -132,6 +141,39 @@ class ComponentGraphTest(unittest.TestCase):
             "allowed dependency graph contains a cycle",
         ):
             component_graph.load_manifest(changed_manifest)
+
+    def test_active_optional_source_requires_a_direct_link(self) -> None:
+        """An active file adapter may not consume a transitive interop link."""
+        missing = component_graph.Edge("training", "interop")
+        targets = component_graph.load_target_graph(
+            self.write_graph(missing_target=missing), self.manifest
+        )
+        includes = component_graph.scan_repository(self.manifest, REPOSITORY_ROOT)
+        with self.assertRaisesRegex(component_graph.ComponentGraphError,
+                                    "source include edge lacks a direct target link: training -> interop"):
+            component_graph.validate_graphs(self.manifest, includes, targets)
+
+    def test_inactive_optional_source_does_not_require_a_link(self) -> None:
+        """CMake source membership permits the interop-free training build."""
+        missing = component_graph.Edge("training", "interop")
+        path = self.write_graph(missing_target=missing)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = [line for line in lines if not line.startswith(
+            "training\tsource\tsrc/jyppx/training/file_checkpoint_store.cpp")]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        includes = component_graph.scan_repository(self.manifest, REPOSITORY_ROOT)
+        targets = component_graph.load_target_graph(path, self.manifest)
+        component_graph.validate_graphs(self.manifest, includes, targets)
+
+    def test_active_source_rows_reject_wrong_owner_and_parent_traversal(self) -> None:
+        """Source membership cannot move files across component ownership."""
+        for source in ("src/jyppx/interop/file_state_archive.cpp",
+                       "src/jyppx/training/../interop/file_state_archive.cpp"):
+            path = self.write_graph()
+            with path.open("a", encoding="utf-8") as output:
+                output.write(f"training\tsource\t{source}\n")
+            with self.assertRaises(component_graph.ComponentGraphError):
+                component_graph.load_target_graph(path, self.manifest)
 
 
 if __name__ == "__main__":

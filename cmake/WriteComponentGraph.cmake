@@ -26,6 +26,21 @@ function(jyppx_write_component_graph output_path)
             continue()
         endif()
 
+        get_target_property(component_sources "${target_name}" SOURCES)
+        foreach(component_source IN LISTS component_sources)
+            if(NOT component_source MATCHES "^\\$<")
+                get_filename_component(source_absolute "${component_source}"
+                    ABSOLUTE BASE_DIR "${PROJECT_SOURCE_DIR}")
+                file(RELATIVE_PATH source_relative "${PROJECT_SOURCE_DIR}"
+                    "${source_absolute}")
+                file(TO_CMAKE_PATH "${source_relative}" source_relative)
+                if(source_relative MATCHES "^src/jyppx/")
+                    file(APPEND "${output_path}"
+                        "${component}\tsource\t${source_relative}\n")
+                endif()
+            endif()
+        endforeach()
+
         foreach(graph_property IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
             if(graph_property STREQUAL "LINK_LIBRARIES")
                 set(graph_kind target)
