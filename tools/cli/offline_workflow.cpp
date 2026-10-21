@@ -165,6 +165,9 @@ std::string tensor_digest(const Tensor& tensor) {
       static_cast<const std::byte*>(cpu.const_data_ptr()), cpu.nbytes()));
 }
 
+// The fixture owns tensor/JSON construction that may report backend/resource
+// failures; callers handle those at the CLI command boundary.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 struct Fixture {
   Tensor training_features;
   Tensor validation_features;

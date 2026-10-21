@@ -34,6 +34,15 @@ if(Python3_Interpreter_FOUND)
     )
     set_tests_properties(DependencyManifest PROPERTIES LABELS "hygiene;dependency")
     add_test(
+        NAME DependencyManifestToolUnitTests
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_dependency_manifest.py
+    )
+    set_tests_properties(DependencyManifestToolUnitTests PROPERTIES
+        LABELS "hygiene;dependency"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    add_test(
         NAME ComponentDependencyGraph
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/scripts/validation/component_graph.py
