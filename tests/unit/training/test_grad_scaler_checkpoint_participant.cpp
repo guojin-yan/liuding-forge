@@ -112,7 +112,14 @@ void run_cycle(GradScaler& scaler,
 
 MemoryStateStore save_participant(
     const GradScalerCheckpointParticipant& participant) {
-  MemoryStateStore store(participant.describe_state());
+  auto manifest = participant.describe_state();
+  // Persistent interop manifests order fields by identity rather than by the
+  // participant's original declaration order.
+  std::sort(manifest.fields.begin(), manifest.fields.end(),
+            [](const auto& left, const auto& right) {
+              return left.name < right.name;
+            });
+  MemoryStateStore store(std::move(manifest));
   participant.save_state(store);
   return store;
 }

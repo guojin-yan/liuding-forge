@@ -254,12 +254,15 @@ void validate_manifest(const StateManifest& stored,
                        stored.participant_id,
                        "Restore only current state for the same strategy.");
   }
-  for (std::size_t index = 0; index < expected.fields.size(); ++index) {
-    const auto& left = stored.fields[index];
-    const auto& right = expected.fields[index];
-    if (left.name != right.name || left.media_type != right.media_type ||
-        left.required != right.required || left.max_bytes > right.max_bytes) {
-      throw_incompatible("manifest.fields", right.name, left.name,
+  for (const auto& right : expected.fields) {
+    const auto left = std::find_if(stored.fields.begin(), stored.fields.end(),
+                                   [&](const StateFieldDescriptor& candidate) {
+                                     return candidate.name == right.name;
+                                   });
+    if (left == stored.fields.end() || left->media_type != right.media_type ||
+        left->required != right.required || left->max_bytes > right.max_bytes) {
+      throw_incompatible("manifest.fields", right.name,
+                         left == stored.fields.end() ? "missing" : left->name,
                          "Reject a changed strategy field contract.");
     }
   }

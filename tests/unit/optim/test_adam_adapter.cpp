@@ -302,7 +302,12 @@ TEST(AdamOptimizerAdapterTest, CheckpointResumesExactlyWithMissingGradients) {
     first->step();
     second->step();
   }
-  MemoryStateStore store(first_state.describe_state());
+  auto manifest = first_state.describe_state();
+  std::sort(manifest.fields.begin(), manifest.fields.end(),
+            [](const auto& left, const auto& right) {
+              return left.name < right.name;
+            });
+  MemoryStateStore store(std::move(manifest));
   first_state.save_state(store);
   second->set_learning_rates({0.5});
   for (std::int64_t step = 0; step < 3; ++step) {

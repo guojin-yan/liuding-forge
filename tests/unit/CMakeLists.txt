@@ -6,6 +6,7 @@ jyppx_add_gtest(jyppx_test_foundation
     foundation/test_checkpoint.cpp
     foundation/test_foundation.cpp
     foundation/test_rng_checkpoint_participant.cpp
+    foundation/test_sha256.cpp
 )
 endif()
 
@@ -21,12 +22,27 @@ jyppx_add_gtest(jyppx_test_interop_checkpoint_manifest
     LINK_TARGET jyppx::interop
     interop/test_checkpoint_manifest.cpp
 )
+jyppx_add_gtest(jyppx_test_interop_file_state_archive
+    LINK_TARGET jyppx::interop
+    interop/test_file_state_archive.cpp
+)
 endif()
 
 if(TARGET jyppx::experiment)
 jyppx_add_gtest(jyppx_test_experiment_config
     LINK_TARGET jyppx::experiment
     experiment/test_config.cpp
+)
+jyppx_add_gtest(jyppx_test_experiment_artifact_store
+    LINK_TARGET jyppx::experiment
+    experiment/test_artifact_store.cpp
+)
+jyppx_add_gtest(jyppx_test_experiment_run_store
+    LINK_TARGET jyppx::experiment
+    experiment/test_run_store.cpp
+)
+target_include_directories(jyppx_test_experiment_run_store SYSTEM PRIVATE
+    "${jyppx_sqlite_SOURCE_DIR}"
 )
 endif()
 
@@ -159,6 +175,14 @@ jyppx_add_gtest(jyppx_test_training_checkpoint
     LINK_TARGET jyppx::training
     training/test_checkpoint_coordinator.cpp
 )
+if(TARGET jyppx::interop)
+jyppx_add_gtest(jyppx_test_training_durable_checkpoint
+    LINK_TARGET jyppx::training
+    training/test_file_checkpoint_store.cpp
+    training/test_file_checkpoint_n1.cpp
+    training/test_durable_training_recovery.cpp
+)
+endif()
 
 jyppx_add_gtest(jyppx_test_training_scheduler_adapter
     LINK_TARGET jyppx::training

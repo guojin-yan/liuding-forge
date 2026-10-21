@@ -310,7 +310,12 @@ TEST(RankingMetricTest, RestoresExactTypedStateAtomically) {
   using namespace jyppx::training::metrics;
   BinaryAveragePrecision source({.metric_id = "ranking.checkpoint"}, limits(8));
   source.update(scores(), labels());
-  MemoryStateStore store(source.describe_state());
+  auto manifest = source.describe_state();
+  std::sort(manifest.fields.begin(), manifest.fields.end(),
+            [](const auto& left, const auto& right) {
+              return left.name < right.name;
+            });
+  MemoryStateStore store(std::move(manifest));
   source.save_state(store);
 
   BinaryAveragePrecision restored({.metric_id = "ranking.checkpoint"},

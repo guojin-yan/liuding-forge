@@ -50,8 +50,7 @@ jyppx::interop::CheckpointParticipantEntry MakeParticipant(
       .blobs = {{.field_name = std::move(field_name),
                  .relative_path = std::move(path),
                  .size_bytes = size,
-                 .digest = {.algorithm =
-                                jyppx::interop::DigestAlgorithm::sha256,
+                 .digest = {.algorithm = jyppx::ArtifactDigestAlgorithm::sha256,
                             .hex = std::move(digest)}}},
   };
 }
@@ -248,7 +247,7 @@ TEST(CheckpointManifestTest, RejectsInvalidDigestsAndDuplicateParticipants) {
 
   manifest = MakeManifest();
   manifest.participants.front().blobs.front().digest.algorithm =
-      static_cast<jyppx::interop::DigestAlgorithm>(99U);
+      static_cast<jyppx::ArtifactDigestAlgorithm>(99U);
   EXPECT_THROW(jyppx::interop::validate_checkpoint_artifact_manifest(manifest),
                jyppx::InvalidArgument);
 

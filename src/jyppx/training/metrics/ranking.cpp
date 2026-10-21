@@ -300,15 +300,19 @@ void validate_manifest_shape(const StateManifest& stored,
                        stored.participant_id,
                        "Restore current exact state for the same metric ID.");
   }
-  for (std::size_t index = 0; index < expected.fields.size(); ++index) {
-    const auto& actual_field = stored.fields[index];
-    const auto& expected_field = expected.fields[index];
-    if (actual_field.name != expected_field.name ||
-        actual_field.media_type != expected_field.media_type ||
-        actual_field.required != expected_field.required) {
-      throw_incompatible("restore.fields", expected_field.name,
-                         actual_field.name,
-                         "Restore the current ranking field schema.");
+  for (const auto& expected_field : expected.fields) {
+    const auto actual_field =
+        std::find_if(stored.fields.begin(), stored.fields.end(),
+                     [&](const StateFieldDescriptor& candidate) {
+                       return candidate.name == expected_field.name;
+                     });
+    if (actual_field == stored.fields.end() ||
+        actual_field->media_type != expected_field.media_type ||
+        actual_field->required != expected_field.required) {
+      throw_incompatible(
+          "restore.fields", expected_field.name,
+          actual_field == stored.fields.end() ? "missing" : actual_field->name,
+          "Restore the current ranking field schema.");
     }
   }
 }

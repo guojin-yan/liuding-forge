@@ -17,6 +17,19 @@ JYPPX package.
   it must also redistribute the exact license and notice files supplied with
   that LibTorch build. This summary does not replace those files.
 
+### SQLite
+
+- Project: https://sqlite.org/
+- Role: embedded local run metadata, transactions, and CAS coordination inside
+  `jyppx::experiment`
+- Version selected by the current build: 3.54.1
+- Source: https://sqlite.org/2026/sqlite-amalgamation-3540100.zip
+- Upstream status: public domain (https://sqlite.org/copyright.html)
+- Distribution rule: the amalgamation is compiled into the experiment static
+  library; public JYPPX headers do not expose SQLite types. The upstream source
+  disclaims copyright and provides a blessing rather than a license requirement.
+  Preserve this provenance and the pinned digest in source distributions.
+
 ## Test Dependency
 
 ### GoogleTest

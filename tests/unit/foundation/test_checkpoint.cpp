@@ -6,6 +6,7 @@
 #include <jyppx/foundation/checkpoint.hpp>
 #include <jyppx/foundation/error.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -203,6 +204,50 @@ TEST(CheckpointContractTest, ValidatesManifestIdentityFieldsAndDegradation) {
   invalid = exact.describe_state();
   invalid.restore_level = jyppx::RestoreLevel::bounded;
   EXPECT_THROW(jyppx::validate_state_manifest(invalid), jyppx::InvalidArgument);
+}
+
+TEST(CheckpointContractTest,
+     MatchesFieldContractsByIdentityWithoutLosingBounds) {
+  const std::vector<jyppx::StateFieldDescriptor> fields{
+      {.name = "topology", .max_bytes = 128},
+      {.name = "state", .max_bytes = 8},
+      {.name = "optional", .max_bytes = 16, .required = false}};
+  auto reordered = fields;
+  std::sort(reordered.begin(), reordered.end(),
+            [](const auto& left, const auto& right) {
+              return left.name < right.name;
+            });
+  do {
+    EXPECT_TRUE(jyppx::state_fields_equal(fields, reordered));
+    EXPECT_TRUE(jyppx::state_fields_equal(reordered, fields));
+  } while (std::next_permutation(reordered.begin(), reordered.end(),
+                                 [](const auto& left, const auto& right) {
+                                   return left.name < right.name;
+                                 }));
+
+  auto changed = fields;
+  changed.pop_back();
+  EXPECT_FALSE(jyppx::state_fields_equal(fields, changed));
+  changed = fields;
+  changed.push_back({.name = "unknown", .max_bytes = 1});
+  EXPECT_FALSE(jyppx::state_fields_equal(fields, changed));
+  changed = fields;
+  changed.back().name = "unknown";
+  EXPECT_FALSE(jyppx::state_fields_equal(fields, changed));
+  changed = fields;
+  changed.back() = changed.front();
+  EXPECT_FALSE(jyppx::state_fields_equal(fields, changed));
+  EXPECT_FALSE(jyppx::state_fields_equal(changed, fields));
+  EXPECT_FALSE(jyppx::state_fields_equal(changed, changed));
+  changed = fields;
+  changed.front().media_type = "application/x-other";
+  EXPECT_FALSE(jyppx::state_fields_equal(fields, changed));
+  changed = fields;
+  --changed.front().max_bytes;
+  EXPECT_FALSE(jyppx::state_fields_equal(fields, changed));
+  changed = fields;
+  changed.back().required = true;
+  EXPECT_FALSE(jyppx::state_fields_equal(fields, changed));
 }
 
 TEST(CheckpointContractTest, ParticipantRoundTripsThroughStorageNeutralBlobs) {

@@ -335,21 +335,12 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
   if (left.participant_id != right.participant_id ||
       left.schema_version != right.schema_version ||
       left.restore_level != right.restore_level ||
-      left.degradation_reasons != right.degradation_reasons ||
-      left.fields.size() != right.fields.size()) {
+      !std::is_permutation(
+          left.degradation_reasons.begin(), left.degradation_reasons.end(),
+          right.degradation_reasons.begin(), right.degradation_reasons.end())) {
     return false;
   }
-  for (std::size_t index = 0; index < left.fields.size(); ++index) {
-    const auto& left_field = left.fields[index];
-    const auto& right_field = right.fields[index];
-    if (left_field.name != right_field.name ||
-        left_field.media_type != right_field.media_type ||
-        left_field.max_bytes != right_field.max_bytes ||
-        left_field.required != right_field.required) {
-      return false;
-    }
-  }
-  return true;
+  return state_fields_equal(left.fields, right.fields);
 }
 
 StateManifest make_schema_v2_manifest(const StateManifest& current) {

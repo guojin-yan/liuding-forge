@@ -67,6 +67,27 @@
       "support_status": "required"
     },
     {
+      "id": "sqlite",
+      "scope": "experiment-local-store",
+      "version": "3.54.1",
+      "source": {
+        "type": "official-amalgamation-archive",
+        "url": "https://sqlite.org/2026/sqlite-amalgamation-3540100.zip",
+        "cache_file": "third_party/downloads/sqlite-amalgamation-3540100.zip"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9"
+      },
+      "license": {
+        "spdx": ["blessing"],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": ["windows", "linux", "macos"],
+      "linkage": "static-private-implementation",
+      "support_status": "required"
+    },
+    {
       "id": "libtorch-candidate-cpu",
       "scope": "ci-candidate",
       "version": "2.5.1",

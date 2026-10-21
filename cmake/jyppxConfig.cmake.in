@@ -2,6 +2,9 @@
 
 include(CMakeFindDependencyMacro)
 find_dependency(Torch REQUIRED)
+if(@JYPPX_BUILD_EXPERIMENT@)
+    find_dependency(Threads REQUIRED)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/jyppxTargets.cmake")
 

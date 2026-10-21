@@ -128,6 +128,37 @@ if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT)
     FetchContent_MakeAvailable(jyppx_nlohmann_json)
 endif()
 
+# SQLite stays an implementation dependency of experiment. Compile its pinned
+# amalgamation separately so project warning/tidy gates do not scan upstream C,
+# and embed the object in the installed experiment archive.
+if(JYPPX_BUILD_EXPERIMENT)
+    enable_language(C)
+    find_package(Threads REQUIRED)
+    set(JYPPX_SQLITE_ARCHIVE
+        "${PROJECT_SOURCE_DIR}/third_party/downloads/sqlite-amalgamation-3540100.zip")
+    if(EXISTS "${JYPPX_SQLITE_ARCHIVE}")
+        set(JYPPX_SQLITE_URL "${JYPPX_SQLITE_ARCHIVE}")
+    else()
+        set(JYPPX_SQLITE_URL "https://sqlite.org/2026/sqlite-amalgamation-3540100.zip")
+    endif()
+    FetchContent_Declare(jyppx_sqlite
+        URL "${JYPPX_SQLITE_URL}"
+        URL_HASH SHA256=0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9
+    )
+    FetchContent_MakeAvailable(jyppx_sqlite)
+    add_library(sqlite3_amalgamation OBJECT "${jyppx_sqlite_SOURCE_DIR}/sqlite3.c")
+    set_target_properties(sqlite3_amalgamation PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+    )
+    target_compile_definitions(sqlite3_amalgamation PRIVATE
+        SQLITE_THREADSAFE=1
+        SQLITE_DQS=0
+        SQLITE_OMIT_LOAD_EXTENSION
+    )
+endif()
+
 # ============================================
 # Generated Foundation Build Metadata
 # ============================================
@@ -234,6 +265,7 @@ add_library(jyppx_foundation STATIC
     src/jyppx/foundation/error.cpp
     src/jyppx/foundation/random.cpp
     src/jyppx/foundation/random_checkpoint_participant.cpp
+    src/jyppx/foundation/sha256.cpp
     src/jyppx/foundation/version.cpp
 )
 add_library(jyppx::foundation ALIAS jyppx_foundation)
@@ -301,6 +333,7 @@ endif()
 if(JYPPX_BUILD_INTEROP)
     add_library(jyppx_interop STATIC
         src/jyppx/interop/checkpoint_manifest.cpp
+        src/jyppx/interop/file_state_archive.cpp
     )
     add_library(jyppx::interop ALIAS jyppx_interop)
     set_target_properties(jyppx_interop PROPERTIES
@@ -411,6 +444,12 @@ target_include_directories(jyppx_training
         $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(jyppx_training PUBLIC jyppx_foundation)
+if(JYPPX_BUILD_INTEROP)
+    target_sources(jyppx_training PRIVATE
+        src/jyppx/training/file_checkpoint_store.cpp
+    )
+    target_link_libraries(jyppx_training PRIVATE jyppx_interop)
+endif()
 list(APPEND JYPPX_ENABLED_TARGETS jyppx_training)
 list(APPEND JYPPX_ENABLED_COMPONENTS training)
 list(APPEND JYPPX_ENABLED_HEADER_DIRS training)
@@ -454,7 +493,11 @@ endif()
 
 if(JYPPX_BUILD_EXPERIMENT)
     add_library(jyppx_experiment STATIC
+        src/jyppx/experiment/artifact_store.cpp
         src/jyppx/experiment/config.cpp
+        src/jyppx/experiment/run.cpp
+        src/jyppx/experiment/run_store.cpp
+        $<TARGET_OBJECTS:sqlite3_amalgamation>
     )
     add_library(jyppx::experiment ALIAS jyppx_experiment)
     set_target_properties(jyppx_experiment PROPERTIES
@@ -468,10 +511,15 @@ if(JYPPX_BUILD_EXPERIMENT)
         PRIVATE
             ${jyppx_nlohmann_json_SOURCE_DIR}/single_include
     )
+    target_include_directories(jyppx_experiment SYSTEM PRIVATE
+        "${jyppx_sqlite_SOURCE_DIR}"
+    )
     target_link_libraries(jyppx_experiment
         PUBLIC
             jyppx_foundation
             jyppx_core
+        PRIVATE
+            Threads::Threads
     )
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_experiment)
     list(APPEND JYPPX_ENABLED_COMPONENTS experiment)
@@ -622,6 +670,13 @@ install(TARGETS ${JYPPX_ENABLED_TARGETS}
 )
 
 foreach(JYPPX_HEADER_DIR IN LISTS JYPPX_ENABLED_HEADER_DIRS)
+    if(JYPPX_HEADER_DIR STREQUAL "training" AND NOT JYPPX_BUILD_INTEROP)
+        install(DIRECTORY "include/jyppx/training"
+            DESTINATION include/jyppx
+            PATTERN "file_checkpoint_store.hpp" EXCLUDE
+        )
+        continue()
+    endif()
     install(DIRECTORY "include/jyppx/${JYPPX_HEADER_DIR}"
         DESTINATION include/jyppx
     )

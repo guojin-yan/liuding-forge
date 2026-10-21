@@ -19,6 +19,13 @@
 
 // Interoperability
 #include <jyppx/interop/checkpoint_manifest.hpp>
+#include <jyppx/interop/file_state_archive.hpp>
+
+// Local experiments
+#include <jyppx/experiment/artifact_store.hpp>
+#include <jyppx/experiment/config.hpp>
+#include <jyppx/experiment/run.hpp>
+#include <jyppx/experiment/run_store.hpp>
 
 // Optimizers
 #include <jyppx/optim/adadelta_adapter.hpp>
@@ -67,6 +74,7 @@
 #include <jyppx/training/callbacks/early_stopping_callback.hpp>
 #include <jyppx/training/checkpoint_coordinator.hpp>
 #include <jyppx/training/event_sink.hpp>
+#include <jyppx/training/file_checkpoint_store.hpp>
 #include <jyppx/training/scheduler_adapter.hpp>
 #include <jyppx/training/single_device_strategy.hpp>
 #include <jyppx/training/strategy.hpp>

@@ -383,15 +383,19 @@ void validate_manifest_shape(const StateManifest& stored,
                        stored.participant_id,
                        "Restore current exact state for this dispatcher.");
   }
-  for (std::size_t index = 0; index < expected.fields.size(); ++index) {
-    const auto& stored_field = stored.fields[index];
-    const auto& expected_field = expected.fields[index];
-    if (stored_field.name != expected_field.name ||
-        stored_field.media_type != expected_field.media_type ||
-        stored_field.required != expected_field.required) {
-      throw_incompatible("restore.fields", expected_field.name,
-                         stored_field.name,
-                         "Restore the current dispatcher field schema.");
+  for (const auto& expected_field : expected.fields) {
+    const auto stored_field =
+        std::find_if(stored.fields.begin(), stored.fields.end(),
+                     [&](const StateFieldDescriptor& candidate) {
+                       return candidate.name == expected_field.name;
+                     });
+    if (stored_field == stored.fields.end() ||
+        stored_field->media_type != expected_field.media_type ||
+        stored_field->required != expected_field.required) {
+      throw_incompatible(
+          "restore.fields", expected_field.name,
+          stored_field == stored.fields.end() ? "missing" : stored_field->name,
+          "Restore the current dispatcher field schema.");
     }
   }
 }

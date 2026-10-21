@@ -39,6 +39,10 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Checkpoint Coordinator](api/checkpoint_coordinator.md) — deterministic
   participant registration, transactional capture, restore preflight, and
   cross-participant rollback
+- [Durable Checkpoint Files](api/durable_checkpoint.md) — atomic publication,
+  integrity checks, writer coordination, resource limits, and crash recovery
+- [Local Run Storage](api/local_run_storage.md) — immutable CAS artifacts,
+  SQLite run lineage, lifecycle transactions, integrity, and retention
 - [Training Scheduler Adapter](api/scheduler_adapter.md) — ordered lifecycle
   events with exact descriptor-first scheduler checkpoint delegation
 - [Classification Metrics](api/classification_metrics.md) — fixed-topology,

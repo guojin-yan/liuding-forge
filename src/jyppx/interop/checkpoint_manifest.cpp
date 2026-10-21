@@ -378,7 +378,7 @@ ArtifactDigest ParseDigest(const Json& value) {
                        "Use an explicitly supported digest algorithm.");
   }
   return {
-      .algorithm = DigestAlgorithm::sha256,
+      .algorithm = ArtifactDigestAlgorithm::sha256,
       .hex = ReadString(value.at("hex"), "participants.blobs[].digest.hex")};
 }
 
@@ -437,12 +437,13 @@ Json StateJson(const StateManifest& state) {
 }
 
 Json BlobJson(const CheckpointBlobEntry& blob) {
-  return Json{{"digest", Json{{"algorithm", std::string(digest_algorithm_name(
-                                                blob.digest.algorithm))},
-                              {"hex", blob.digest.hex}}},
-              {"field_name", blob.field_name},
-              {"relative_path", blob.relative_path},
-              {"size_bytes", blob.size_bytes}};
+  return Json{
+      {"digest", Json{{"algorithm", std::string(artifact_digest_algorithm_name(
+                                        blob.digest.algorithm))},
+                      {"hex", blob.digest.hex}}},
+      {"field_name", blob.field_name},
+      {"relative_path", blob.relative_path},
+      {"size_bytes", blob.size_bytes}};
 }
 
 CheckpointArtifactManifest Canonicalized(CheckpointArtifactManifest manifest) {
@@ -466,14 +467,6 @@ CheckpointArtifactManifest Canonicalized(CheckpointArtifactManifest manifest) {
 }
 
 }  // namespace
-
-std::string_view digest_algorithm_name(DigestAlgorithm algorithm) noexcept {
-  switch (algorithm) {
-    case DigestAlgorithm::sha256:
-      return "sha256";
-  }
-  return "unknown";
-}
 
 void validate_checkpoint_artifact_manifest(
     const CheckpointArtifactManifest& manifest,
@@ -617,7 +610,8 @@ void validate_checkpoint_artifact_manifest(
                        "a unique path for every blob", blob.relative_path,
                        "Assign each blob a distinct artifact path.");
         }
-        if (digest_algorithm_name(blob.digest.algorithm) == "unknown") {
+        if (artifact_digest_algorithm_name(blob.digest.algorithm) ==
+            "unknown") {
           ThrowInvalid(
               "participants.blobs.digest.algorithm", "sha256",
               std::to_string(static_cast<std::uint8_t>(blob.digest.algorithm)),

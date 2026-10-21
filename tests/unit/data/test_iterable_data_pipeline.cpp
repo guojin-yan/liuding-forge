@@ -730,7 +730,12 @@ TEST(IterableDataPipelineTest, RestoresExactStateAtLastCommittedBatch) {
   ASSERT_TRUE(wait_for_pulls(stats, 6, std::chrono::seconds(1)));
   EXPECT_EQ(original.outstanding_batches(), 3U);
   ASSERT_TRUE(original.next().has_value());
-  const auto checkpoint = save_state(original);
+  auto checkpoint = save_state(original);
+  std::sort(checkpoint.mutable_manifest().fields.begin(),
+            checkpoint.mutable_manifest().fields.end(),
+            [](const auto& left, const auto& right) {
+              return left.name < right.name;
+            });
   EXPECT_EQ(original.state().source_state, "2");
 
   IterableDataPipeline restored(source, config, sum_factory());
@@ -907,12 +912,15 @@ TEST(IterableDataPipelineTest, BoundedAndBestEffortPoliciesAreExplicit) {
   bounded_descriptor.restore_level = jyppx::RestoreLevel::bounded;
   bounded_descriptor.max_replayed_samples = 5;
   bounded_descriptor.max_omitted_samples = 1;
-  bounded_descriptor.degradation_reasons = {"remote shard rebalance"};
+  bounded_descriptor.degradation_reasons = {"remote shard rebalance",
+                                            "bounded source watermark"};
   auto bounded_source = make_source({1, 2, 3}, bounded_descriptor);
   IterableDataPipeline bounded(bounded_source, options("data.iterable.bounded"),
                                sum_factory());
   EXPECT_EQ(bounded.capability().max_replayed_batches, 2U);
-  const auto bounded_state = save_state(bounded);
+  auto bounded_state = save_state(bounded);
+  auto& reasons = bounded_state.mutable_manifest().degradation_reasons;
+  std::reverse(reasons.begin(), reasons.end());
   EXPECT_THROW(
       bounded.load_state(bounded_state, jyppx::RestorePolicy::exact_only),
       jyppx::CompatibilityError);

@@ -58,6 +58,10 @@ class MemoryStateStore final : public jyppx::StateWriter,
     return manifest_;
   }
 
+  /** @brief Changes metadata independently to exercise strict restore checks.
+   */
+  jyppx::StateManifest& mutable_manifest() noexcept { return manifest_; }
+
   /** @brief Reports whether a named field has been written. */
   bool contains(std::string_view name) const override {
     return blobs_.contains(std::string(name));
@@ -460,7 +464,8 @@ TEST(CallbackDispatcherTest, ReportsIncompleteRollbackWithOriginalCause) {
   EXPECT_EQ(dispatcher.last_event_index(), 1U);
 }
 
-TEST(CallbackDispatcherTest, RestoresDispatcherAndStatefulCallbackExactly) {
+TEST(CallbackDispatcherTest,
+     RestoresDispatcherAndStatefulCallbackWithReorderedFields) {
   using jyppx::training::callbacks::EarlyStoppingCallback;
   const auto options = jyppx::training::callbacks::EarlyStoppingOptions{
       .callback_id = "callback.resume",
@@ -474,9 +479,15 @@ TEST(CallbackDispatcherTest, RestoresDispatcherAndStatefulCallbackExactly) {
   source.dispatch(epoch_finished(2, 1, {{"score", 0.8}}));
   source.dispatch(epoch_finished(3, 2, {{"score", 0.7}}));
 
-  MemoryStateStore dispatcher_store(source.describe_state());
+  auto dispatcher_manifest = source.describe_state();
+  std::reverse(dispatcher_manifest.fields.begin(),
+               dispatcher_manifest.fields.end());
+  MemoryStateStore dispatcher_store(std::move(dispatcher_manifest));
   source.save_state(dispatcher_store);
-  MemoryStateStore callback_store(source_callback->describe_state());
+  auto callback_manifest = source_callback->describe_state();
+  std::reverse(callback_manifest.fields.begin(),
+               callback_manifest.fields.end());
+  MemoryStateStore callback_store(std::move(callback_manifest));
   source_callback->save_state(callback_store);
 
   auto restored_callback = std::make_shared<EarlyStoppingCallback>(options);
@@ -494,6 +505,49 @@ TEST(CallbackDispatcherTest, RestoresDispatcherAndStatefulCallbackExactly) {
   ASSERT_TRUE(result.effective_command.has_value());
   EXPECT_EQ(result.effective_command->kind,
             jyppx::training::CallbackCommandKind::stop);
+}
+
+TEST(EarlyStoppingCallbackTest, ReorderedFieldsStillRejectChangedContracts) {
+  using jyppx::training::callbacks::EarlyStoppingCallback;
+  EarlyStoppingCallback source;
+  source.handle(epoch_finished(2, 1, {{"validation.loss", 1.0}}));
+  MemoryStateStore store(source.describe_state());
+  source.save_state(store);
+  std::reverse(store.mutable_manifest().fields.begin(),
+               store.mutable_manifest().fields.end());
+  const auto valid = store.manifest();
+
+  EarlyStoppingCallback restored;
+  restored.handle(epoch_finished(2, 1, {{"validation.loss", 2.0}}));
+  auto& fields = store.mutable_manifest().fields;
+  fields.pop_back();
+  EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  store.mutable_manifest() = valid;
+  fields.push_back({.name = "unknown", .max_bytes = 1});
+  EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  store.mutable_manifest() = valid;
+  fields.front().name = "unknown";
+  EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  store.mutable_manifest() = valid;
+  fields.front() = fields.back();
+  EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::InvalidArgument);
+  store.mutable_manifest() = valid;
+  fields.front().media_type = "application/x-other";
+  EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  store.mutable_manifest() = valid;
+  fields.front().required = false;
+  EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
+               jyppx::CompatibilityError);
+  EXPECT_DOUBLE_EQ(restored.best_value(), 2.0);
+
+  store.mutable_manifest() = valid;
+  restored.load_state(store, jyppx::RestorePolicy::exact_only);
+  EXPECT_DOUBLE_EQ(restored.best_value(), 1.0);
 }
 
 TEST(EarlyStoppingCallbackTest, RejectsCorruptStateTransactionally) {

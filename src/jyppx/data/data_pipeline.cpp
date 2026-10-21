@@ -299,20 +299,15 @@ DataPipelineState decode_state(std::span<const std::byte> topology,
   return state;
 }
 
-bool state_field_equal(const StateFieldDescriptor& left,
-                       const StateFieldDescriptor& right) {
-  return left.name == right.name && left.media_type == right.media_type &&
-         left.max_bytes == right.max_bytes && left.required == right.required;
-}
-
 bool manifest_equal(const StateManifest& left, const StateManifest& right) {
   return left.participant_id == right.participant_id &&
          left.schema_version == right.schema_version &&
          left.restore_level == right.restore_level &&
-         left.degradation_reasons == right.degradation_reasons &&
-         left.fields.size() == right.fields.size() &&
-         std::equal(left.fields.begin(), left.fields.end(),
-                    right.fields.begin(), state_field_equal);
+         std::is_permutation(left.degradation_reasons.begin(),
+                             left.degradation_reasons.end(),
+                             right.degradation_reasons.begin(),
+                             right.degradation_reasons.end()) &&
+         state_fields_equal(left.fields, right.fields);
 }
 
 StateManifest make_schema_v3_manifest(const StateManifest& current) {

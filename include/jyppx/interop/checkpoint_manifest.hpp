@@ -11,6 +11,7 @@
  * @brief Defines the bounded checkpoint artifact manifest codec.
  */
 
+#include "jyppx/foundation/artifact.hpp"
 #include "jyppx/foundation/capability.hpp"
 #include "jyppx/foundation/checkpoint.hpp"
 #include "jyppx/foundation/version.hpp"
@@ -22,29 +23,6 @@
 #include <vector>
 
 namespace jyppx::interop {
-
-/**
- * @brief Identifies the digest algorithm used by one artifact blob.
- *
- * Numeric values are persisted in checkpoint manifests and must remain stable.
- */
-enum class DigestAlgorithm : std::uint8_t {
-  sha256 = 1,  ///< SHA-256 encoded as 64 lowercase hexadecimal characters.
-};
-
-/**
- * @brief Returns the stable lowercase name of a digest algorithm.
- * @param algorithm Algorithm to render.
- * @return A process-lifetime name, or `"unknown"` for an invalid value.
- */
-std::string_view digest_algorithm_name(DigestAlgorithm algorithm) noexcept;
-
-/** @brief Identifies one content digest without owning the referenced bytes. */
-struct ArtifactDigest {
-  DigestAlgorithm algorithm =
-      DigestAlgorithm::sha256;  ///< Algorithm used to compute the digest.
-  std::string hex;  ///< Lowercase hexadecimal digest with algorithm-fixed size.
-};
 
 /** @brief Describes one participant state blob in a checkpoint artifact. */
 struct CheckpointBlobEntry {

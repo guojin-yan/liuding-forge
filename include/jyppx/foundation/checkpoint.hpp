@@ -79,6 +79,16 @@ struct StateFieldDescriptor {
 };
 
 /**
+ * @brief Compares complete field contracts by unique logical field identity.
+ * @param left First field set, in any order.
+ * @param right Second field set, in any order.
+ * @return Whether names, media types, byte limits, and required flags match.
+ * Duplicate names in either set are rejected by returning false.
+ */
+bool state_fields_equal(std::span<const StateFieldDescriptor> left,
+                        std::span<const StateFieldDescriptor> right);
+
+/**
  * @brief Describes the state contract published by one checkpoint participant.
  *
  * This descriptor does not contain actual blob lengths or digests. Those are
@@ -92,7 +102,7 @@ struct StateManifest {
   RestoreLevel restore_level =
       RestoreLevel::exact;  ///< Strongest guarantee supported by this state.
   std::vector<StateFieldDescriptor>
-      fields;  ///< Complete set of blobs understood by this schema version.
+      fields;  ///< Complete field set; physical order has no semantic meaning.
   std::vector<std::string>
       degradation_reasons;  ///< Non-empty reasons for a non-exact guarantee.
 };

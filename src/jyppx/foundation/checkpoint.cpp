@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -97,6 +98,27 @@ bool restore_policy_accepts(RestorePolicy policy, RestoreLevel level) noexcept {
     return false;
   }
   return level_value <= policy_value;
+}
+
+bool state_fields_equal(std::span<const StateFieldDescriptor> left,
+                        std::span<const StateFieldDescriptor> right) {
+  if (left.size() != right.size()) return false;
+  std::unordered_map<std::string_view, const StateFieldDescriptor*> fields;
+  fields.reserve(left.size());
+  for (const auto& field : left) {
+    if (!fields.emplace(field.name, &field).second) return false;
+  }
+  for (const auto& field : right) {
+    const auto found = fields.find(field.name);
+    if (found == fields.end() ||
+        found->second->media_type != field.media_type ||
+        found->second->max_bytes != field.max_bytes ||
+        found->second->required != field.required) {
+      return false;
+    }
+    fields.erase(found);
+  }
+  return true;
 }
 
 void validate_state_manifest(const StateManifest& manifest) {

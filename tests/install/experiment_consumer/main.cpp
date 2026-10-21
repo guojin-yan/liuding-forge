@@ -1,7 +1,56 @@
 #include <jyppx/experiment/config.hpp>
+#include <jyppx/experiment/run_store.hpp>
+#include <jyppx/foundation/sha256.hpp>
 
+#include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <span>
 #include <string>
+
+namespace {
+struct TempRoot {
+  std::filesystem::path path =
+      std::filesystem::temp_directory_path() /
+      ("jyppx-experiment-consumer-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  ~TempRoot() {
+    std::error_code error;
+    std::filesystem::remove_all(path, error);
+  }
+};
+
+bool storage_consumer() {
+  const TempRoot root;
+  const std::string payload = "installed-checkpoint";
+  const auto bytes = std::as_bytes(std::span(payload.data(), payload.size()));
+  {
+    jyppx::experiment::SQLiteRunStore store(root.path);
+    store.start({.run_id = "consumer.run",
+                 .project_id = "consumer.project",
+                 .experiment_id = "consumer.experiment",
+                 .display_name = "Installed storage",
+                 .status = jyppx::experiment::RunStatus::running,
+                 .created_at_unix_ms = 1U,
+                 .updated_at_unix_ms = 1U,
+                 .lineage = {},
+                 .tags = {}});
+    const auto reference = store.put_artifact(
+        "consumer.run", "checkpoint.1",
+        jyppx::experiment::RunArtifactKind::checkpoint, "last", bytes,
+        {.logical_name = "last.bin",
+         .producer = "install-consumer",
+         .expected_size_bytes = bytes.size()},
+        2U);
+    if (reference.artifact.digest.hex != jyppx::sha256_hex(bytes)) return false;
+  }
+  jyppx::experiment::SQLiteRunStore reopened(root.path);
+  return reopened.find("consumer.run").has_value() &&
+         reopened.references("consumer.run").size() == 1U &&
+         reopened.integrity_check().ok();
+}
+}  // namespace
 
 int main() {
   c10::impl::GenericDict defaults(c10::StringType::get(), c10::AnyType::get());
@@ -26,7 +75,8 @@ int main() {
                  resolved.explain("/token").redacted &&
                  capability.scope_id == "consumer.config" &&
                  resolved.canonical_json().find("secret://") ==
-                     std::string::npos
+                     std::string::npos &&
+                 storage_consumer()
              ? 0
              : 1;
 }
