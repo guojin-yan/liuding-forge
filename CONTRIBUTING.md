@@ -14,6 +14,7 @@ Thank you for your interest in contributing! This document provides guidelines f
 
 - C++20 compatible compiler
 - CMake 3.18+
+- Python 3 (required by configure-time repository gates)
 - An exact LibTorch combination listed in [`compatibility.json`](compatibility.json)
 
 ### Building

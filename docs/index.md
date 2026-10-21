@@ -92,6 +92,9 @@ metrics, callbacks, checkpointing and mixed precision.
 
 ## Project status
 
+The [component dependency contract](development/component_dependencies.md)
+documents the machine-enforced target, link-interface, and include graph.
+
 See [CHANGELOG](../CHANGELOG.md) for the running list of changes. The current
 framework scope includes loss, optimizer, scheduler, hooks, augmentation,
 analysis, metric, checkpoint and AMP extensions. TensorBoard will return only

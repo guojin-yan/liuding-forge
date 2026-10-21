@@ -14,6 +14,7 @@ A C++ deep learning training framework built on LibTorch, providing PyTorch-styl
 
 - **C++20** or later (required by the bundled LibTorch 2.14.x)
 - **CMake 3.18+**
+- **Python 3** for configure-time architecture and dependency validation
 - An exact LibTorch combination listed in [`compatibility.json`](compatibility.json)
   (the current development baseline is 2.14.1 CUDA; 2.5.1 CPU remains a
   compatibility candidate until its CI evidence is green)

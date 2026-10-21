@@ -34,6 +34,27 @@ if(Python3_Interpreter_FOUND)
     )
     set_tests_properties(DependencyManifest PROPERTIES LABELS "hygiene;dependency")
     add_test(
+        NAME ComponentDependencyGraph
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/component_graph.py
+                --manifest ${CMAKE_SOURCE_DIR}/component-dependencies.json
+                --source-root ${CMAKE_SOURCE_DIR}
+                --target-graph ${JYPPX_COMPONENT_TARGET_GRAPH}
+                --output ${CMAKE_CURRENT_BINARY_DIR}/component-dependency-report.json
+    )
+    set_tests_properties(ComponentDependencyGraph PROPERTIES
+        LABELS "hygiene;dependency;architecture"
+    )
+    add_test(
+        NAME ComponentDependencyGraphToolUnitTests
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+                ${CMAKE_SOURCE_DIR}/tests/tools/test_component_graph.py
+    )
+    set_tests_properties(ComponentDependencyGraphToolUnitTests PROPERTIES
+        LABELS "hygiene;dependency;architecture"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    add_test(
         NAME CheckpointFixtureIntegrity
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tools/verify_checkpoint_fixtures.py

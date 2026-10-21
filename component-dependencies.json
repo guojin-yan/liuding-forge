@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "aggregate_headers": [
+    "jyppx.hpp"
+  ],
+  "components": {
+    "core": {
+      "header_roots": [
+        "core",
+        "utils"
+      ],
+      "source_roots": [
+        "core"
+      ],
+      "required_dependencies": [
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "foundation"
+      ],
+      "optional_dependencies": []
+    },
+    "data": {
+      "header_roots": [
+        "data"
+      ],
+      "source_roots": [
+        "data"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "optional_dependencies": []
+    },
+    "experiment": {
+      "header_roots": [
+        "experiment"
+      ],
+      "source_roots": [
+        "experiment"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "optional_dependencies": [
+        "interop"
+      ]
+    },
+    "foundation": {
+      "header_roots": [
+        "foundation"
+      ],
+      "source_roots": [
+        "foundation"
+      ],
+      "required_dependencies": [],
+      "required_public_dependencies": [],
+      "optional_dependencies": []
+    },
+    "interop": {
+      "header_roots": [
+        "interop"
+      ],
+      "source_roots": [
+        "interop"
+      ],
+      "required_dependencies": [
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "foundation"
+      ],
+      "optional_dependencies": [
+        "nn"
+      ]
+    },
+    "nn": {
+      "header_roots": [
+        "nn"
+      ],
+      "source_roots": [
+        "nn"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "optional_dependencies": []
+    },
+    "optim": {
+      "header_roots": [
+        "optim"
+      ],
+      "source_roots": [
+        "optim"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "core",
+        "foundation"
+      ],
+      "optional_dependencies": []
+    },
+    "training": {
+      "header_roots": [
+        "training"
+      ],
+      "source_roots": [
+        "training"
+      ],
+      "required_dependencies": [
+        "core",
+        "data",
+        "foundation",
+        "nn",
+        "optim"
+      ],
+      "required_public_dependencies": [
+        "core",
+        "data",
+        "foundation",
+        "nn",
+        "optim"
+      ],
+      "optional_dependencies": [
+        "experiment",
+        "interop"
+      ]
+    }
+  },
+  "ownership_assertions": {
+    "include/jyppx/core/value_schema.hpp": "core",
+    "include/jyppx/utils": "core"
+  }
+}

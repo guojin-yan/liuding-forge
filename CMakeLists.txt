@@ -479,7 +479,12 @@ if(JYPPX_BUILD_EXPERIMENT)
 endif()
 
 if(JYPPX_BUILD_TRAINING)
-    target_link_libraries(jyppx_training PUBLIC jyppx_data jyppx_optim jyppx_nn)
+    target_link_libraries(jyppx_training PUBLIC
+        jyppx_core
+        jyppx_data
+        jyppx_optim
+        jyppx_nn
+    )
 endif()
 
 add_library(jyppx_all INTERFACE)
@@ -519,6 +524,55 @@ if(JYPPX_BUILD_CORE AND JYPPX_BUILD_INTEROP AND JYPPX_BUILD_DATA AND
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_sdk)
     list(APPEND JYPPX_ENABLED_COMPONENTS sdk)
 endif()
+
+# ============================================
+# Component Dependency Graph Gate
+# ============================================
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(JYPPX_COMPONENT_DEPENDENCY_MANIFEST
+    "${CMAKE_CURRENT_SOURCE_DIR}/component-dependencies.json")
+set(JYPPX_COMPONENT_TARGET_GRAPH
+    "${CMAKE_CURRENT_BINARY_DIR}/component-target-graph.tsv")
+set(JYPPX_COMPONENT_GRAPH_REPORT
+    "${CMAKE_CURRENT_BINARY_DIR}/component-dependency-report.json")
+include(cmake/WriteComponentGraph.cmake)
+jyppx_write_component_graph("${JYPPX_COMPONENT_TARGET_GRAPH}")
+
+file(GLOB_RECURSE JYPPX_COMPONENT_GRAPH_SCAN_INPUTS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/jyppx/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/jyppx/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/jyppx/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/jyppx/*.cc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/jyppx/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/jyppx/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/jyppx/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/jyppx/*.inc"
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${JYPPX_COMPONENT_DEPENDENCY_MANIFEST}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteComponentGraph.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/component_graph.py"
+    ${JYPPX_COMPONENT_GRAPH_SCAN_INPUTS}
+)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/component_graph.py"
+            --manifest "${JYPPX_COMPONENT_DEPENDENCY_MANIFEST}"
+            --source-root "${CMAKE_CURRENT_SOURCE_DIR}"
+            --target-graph "${JYPPX_COMPONENT_TARGET_GRAPH}"
+            --output "${JYPPX_COMPONENT_GRAPH_REPORT}"
+    RESULT_VARIABLE JYPPX_COMPONENT_GRAPH_RESULT
+    OUTPUT_VARIABLE JYPPX_COMPONENT_GRAPH_OUTPUT
+    ERROR_VARIABLE JYPPX_COMPONENT_GRAPH_ERROR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE
+)
+if(NOT JYPPX_COMPONENT_GRAPH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+        "Component dependency graph gate failed:\n"
+        "${JYPPX_COMPONENT_GRAPH_OUTPUT}\n${JYPPX_COMPONENT_GRAPH_ERROR}")
+endif()
+message(STATUS "${JYPPX_COMPONENT_GRAPH_OUTPUT}")
 
 # Compiler options must be applied after the target has been created.
 include(cmake/CompilerOptions.cmake)
