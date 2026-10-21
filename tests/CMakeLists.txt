@@ -101,6 +101,16 @@ if(Python3_Interpreter_FOUND)
         LABELS "hygiene;coverage"
         PASS_REGULAR_EXPRESSION "training: line=18/20 [(]90[.]00%[)]"
     )
+    if(UNIX)
+        add_test(
+            NAME CoverageLaneProtocolUnitTests
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/scripts/test_coverage_lane.py
+        )
+        set_tests_properties(CoverageLaneProtocolUnitTests PROPERTIES
+            LABELS "hygiene;coverage"
+        )
+    endif()
     add_test(
         NAME CoverageTargetGateRejectsRegression
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/coverage_gate.py
