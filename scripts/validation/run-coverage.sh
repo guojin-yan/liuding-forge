@@ -15,67 +15,38 @@ case "$output_root" in
   *) echo "coverage report path escaped the repository output root" >&2; exit 2 ;;
 esac
 
-command -v cmake >/dev/null
-command -v ctest >/dev/null
-command -v python3 >/dev/null
-command -v gcovr >/dev/null || {
-  echo "gcovr is required for the coverage lane" >&2
-  exit 2
-}
-
-# Resolve one explicit LibTorch prefix for both CMake lookup mechanisms. An old
-# Torch_DIR in this persistent cache must not select a different dependency.
-torch_prefix="${CMAKE_PREFIX_PATH:?CMAKE_PREFIX_PATH must point to one LibTorch installation}"
-test -f "$torch_prefix/share/cmake/Torch/TorchConfig.cmake" || {
-  echo "CMAKE_PREFIX_PATH must point to one LibTorch installation" >&2
-  exit 2
-}
-torch_prefix=$(cd "$torch_prefix" && pwd)
-
-build_parallelism="${JYPPX_BUILD_PARALLEL_LEVEL:-2}"
-case "$build_parallelism" in
-  ''|*[!0-9]*)
-    echo "JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
-    exit 2
-    ;;
-esac
-if [ "$build_parallelism" -lt 1 ]; then
-  echo "JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
-  exit 2
-fi
-
 mkdir -p "$build_root" "$output_root"
-
-source_commit=$(git -C "$source_root" rev-parse HEAD)
-source_tree=$(git -C "$source_root" rev-parse 'HEAD^{tree}')
-source_dirty=$(test -n "$(git -C "$source_root" status --porcelain)" && echo true || echo false)
+source_commit=not_run
+source_tree=not_run
+source_dirty=not_run
 started_utc=$(date -u +%FT%TZ)
 ctest_status=not_run
 policy_status=not_run
-stage=configure
+stage=preflight
+torch_prefix="${CMAKE_PREFIX_PATH:-not_set}"
+build_parallelism="${JYPPX_BUILD_PARALLEL_LEVEL:-2}"
 packaging_excluded="${JYPPX_COVERAGE_EXCLUDE_PACKAGING:-0}"
-case "$packaging_excluded" in
-  0|1) ;;
-  *) echo "JYPPX_COVERAGE_EXCLUDE_PACKAGING must be 0 or 1" >&2; exit 2 ;;
-esac
+coverage_tool=not_run
+policy_sha256=not_run
 
 write_metadata() {
   local lane_status=$?
   trap - EXIT
+  set +e
   cat > "$output_root/coverage-metadata.txt" <<EOF
 commit=$source_commit
 tree=$source_tree
 dirty=$source_dirty
-final_commit=$(git -C "$source_root" rev-parse HEAD)
+final_commit=$(git -C "$source_root" rev-parse HEAD 2>/dev/null || echo unavailable)
 final_dirty=$(test -n "$(git -C "$source_root" status --porcelain)" && echo true || echo false)
 started_utc=$started_utc
 finished_utc=$(date -u +%FT%TZ)
 build_type=Debug
 build_parallelism=$build_parallelism
 libtorch_prefix=$torch_prefix
-coverage_tool=$(gcovr --version | head -n 1)
+coverage_tool=$coverage_tool
 coverage_policy=coverage-policy.json
-coverage_policy_sha256=$(sha256sum "$source_root/coverage-policy.json" | awk '{print $1}')
+coverage_policy_sha256=$policy_sha256
 gcov_search_root=$build_root
 previews=models,quantization,serving
 ctest_excluded_label=$(test "$packaging_excluded" = 1 && echo packaging || echo none)
@@ -87,11 +58,48 @@ EOF
   exit "$lane_status"
 }
 trap write_metadata EXIT
+# Invalidate prior successful fixed-name metadata before any preflight check.
+printf 'last_stage=preflight\nlane_exit=running\n' > "$output_root/coverage-metadata.txt"
+rm -f "$output_root/ctest.exit" "$output_root/policy.exit"
+command -v cmake >/dev/null
+command -v ctest >/dev/null
+command -v python3 >/dev/null
+command -v git >/dev/null
+command -v gcovr >/dev/null || {
+  echo "gcovr is required for the coverage lane" >&2
+  exit 2
+}
+coverage_tool=$(gcovr --version | head -n 1)
+policy_sha256=$(sha256sum "$source_root/coverage-policy.json" | awk '{print $1}')
+source_commit=$(git -C "$source_root" rev-parse HEAD)
+source_tree=$(git -C "$source_root" rev-parse 'HEAD^{tree}')
+source_dirty=$(test -n "$(git -C "$source_root" status --porcelain)" && echo true || echo false)
+
+# An old Torch_DIR must not select a different dependency in this cache.
+test -f "$torch_prefix/share/cmake/Torch/TorchConfig.cmake" || {
+  echo "CMAKE_PREFIX_PATH must point to one LibTorch installation" >&2
+  exit 2
+}
+torch_prefix=$(cd "$torch_prefix" && pwd)
+case "$build_parallelism" in
+  ''|*[!0-9]*)
+    echo "JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+if [ "$build_parallelism" -lt 1 ]; then
+  echo "JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
+  exit 2
+fi
+case "$packaging_excluded" in
+  0|1) ;;
+  *) echo "JYPPX_COVERAGE_EXCLUDE_PACKAGING must be 0 or 1" >&2; exit 2 ;;
+esac
 if [ "$source_dirty" = true ]; then
   echo "Coverage evidence requires a clean committed source tree" >&2
   exit 2
 fi
-rm -f "$output_root/ctest.exit" "$output_root/policy.exit"
+stage=configure
 
 run_logged() {
   local log_name=$1

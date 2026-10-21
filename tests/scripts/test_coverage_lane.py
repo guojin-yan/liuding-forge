@@ -160,6 +160,23 @@ else:
         self.assertEqual(self.metadata()["ctest_exit"], "not_run")
         self.assertFalse(any(row[0] in ("cmake", "ctest") for row in self.commands()))
 
+    def test_preflight_failure_replaces_prior_success_metadata(self) -> None:
+        for arguments in ({"JYPPX_BUILD_PARALLEL_LEVEL": "bad"},
+                          {"JYPPX_COVERAGE_EXCLUDE_PACKAGING": "2"},
+                          {"CMAKE_PREFIX_PATH": str(self.root / "missing torch")}):
+            with self.subTest(arguments=arguments):
+                first = self.run_lane()
+                self.assertEqual(first.returncode, 0, first.stderr)
+                self.assertEqual(self.metadata()["lane_exit"], "0")
+                second = self.run_lane(**arguments)
+                self.assertEqual(second.returncode, 2, second.stderr)
+                self.assertEqual(self.metadata()["lane_exit"], "2")
+                self.assertEqual(self.metadata()["last_stage"], "preflight")
+                self.assertEqual(self.metadata()["ctest_exit"], "not_run")
+                self.assertEqual(self.metadata()["policy_exit"], "not_run")
+                self.assertFalse((self.output / "ctest.exit").exists())
+                self.assertFalse((self.output / "policy.exit").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
