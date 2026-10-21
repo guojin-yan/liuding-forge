@@ -6,8 +6,8 @@ secret-reference validation as `config lint`. It does not infer historical
 formats or change an application's configuration in place.
 
 ```text
-jyppx config migrate --input config.json --plan migration.json --to-version 3 --format json
-jyppx config migrate --mode apply --input config.json --plan migration.json --to-version 3 --output migrated-config --format json
+jyppx config migrate --input config.json --plan migration.json --to-version 2 --format json
+jyppx config migrate --mode apply --input config.json --plan migration.json --to-version 2 --output migrated-config --format json
 jyppx config migrate --mode rollback --receipt migrated-config --plan migration.json --output restored-config --format json
 ```
 

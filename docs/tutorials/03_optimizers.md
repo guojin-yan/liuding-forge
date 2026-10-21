@@ -12,13 +12,13 @@ and the same Trainer-facing adapter contract; no legacy optimizer API is kept.
 | Optimizer | Use when | Key options |
 |-----------|----------|-------------|
 | `SGD` | large-scale vision, well-tuned lr schedules | `momentum`, `nesterov`, `weight_decay` |
-| `Adam` | default first choice for most tasks | `beta1`, `beta2`, `eps`, `amsgrad` |
+| `Adam` | default first choice for most tasks | `beta1`, `beta2`, `epsilon`, `amsgrad` |
 | `AdamW` | transformer/decoder training with weight decay | decoupled `weight_decay` |
 | `RMSprop` | RNNs, non-stationary objectives | `alpha`, `centered`, `momentum` |
-| `Adagrad` | adaptive decay for dense feature updates | `lr_decay`, `initial_accumulator_value` |
+| `Adagrad` | adaptive decay for dense feature updates | `learning_rate_decay`, `initial_accumulator_value` |
 | `NAdam` | Adam-style adaptation with Nesterov momentum | `momentum_decay`, coupled or decoupled `weight_decay`, `maximize` |
 | `Adadelta` | adaptive updates without a manually scaled gradient history | `rho`, `epsilon`, coupled `weight_decay`, `maximize` |
-| `LAMB` | large-batch training with layer-wise trust ratios | `beta1`, `beta2`, `eps`, `weight_decay`, `trust_clip` |
+| `LAMB` | large-batch training with layer-wise trust ratios | `beta1`, `beta2`, `epsilon`, `weight_decay`; fixed parameter-norm cap of 10 |
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(

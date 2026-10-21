@@ -77,9 +77,8 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Data](api/data.md) — datasets, subset/concat/split, map/iterable pipelines,
   samplers, structured batches, workers, and capability descriptors
 - [Optimizers and Schedulers](api/optim.md) — SGD, Adam, AdamW, RMSprop,
-  Adagrad, NAdam, Adadelta, Lamb, RAdam, Adamax, ASGD, Rprop, SparseAdam,
-  LBFGS, LARS and Lookahead; the complete scheduler family including warmup
-  and composite schedulers
+  Adagrad, NAdam, Adadelta and LAMB; descriptor-first schedulers including
+  warmup and composite schedulers
 - [Delegated SGD Adapter](api/sgd_adapter.md) — LibTorch-backed SGD with
   stable group and parameter identities plus exact bounded checkpoint state
 - [Delegated Adam Adapter](api/adam_adapter.md) — LibTorch-backed Adam with

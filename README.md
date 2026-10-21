@@ -116,7 +116,9 @@ Repository directories have distinct owners:
 
 ## Known Limitations
 
-- AMP currently requires CUDA; CPU training uses full precision.
+- Precision modes include full precision, CPU bfloat16, CUDA float16 and CUDA
+  bfloat16. CUDA float16 requires GradScaler; bfloat16 modes use no loss
+  scaling. Hardware and dependency qualification follows `compatibility.json`.
 - DataPipeline workers use threads in one process. Dataset access and captured
   batch-factory state must be thread-safe; cross-process distributed Gloo
   support is deferred until a LibTorch package with the required development
@@ -240,7 +242,7 @@ an explicit policy update in the same review.
 
 ```bash
 cmake -S . -B out/build/release -DJYPPX_BUILD_DOCS=ON
-cmake --build out/build/release --config Release --target docs --parallel 2
+cmake --build out/build/release --config Release --target jyppx_api_docs --parallel 2
 ```
 
 ## License
