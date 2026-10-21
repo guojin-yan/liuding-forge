@@ -36,6 +36,7 @@
 #include <sstream>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -120,6 +121,58 @@ struct RecoveryDomain {
   std::shared_ptr<jyppx::training::EventOutbox> outbox;
   std::shared_ptr<std::vector<std::uint64_t>> observed_training_samples;
   std::unique_ptr<jyppx::training::Trainer> trainer;
+};
+
+/** @brief Captures real outbox blobs without normalizing producer identity. */
+class RecoveryOutboxState final : public jyppx::StateWriter,
+                                  public jyppx::StateReader {
+ public:
+  explicit RecoveryOutboxState(const jyppx::training::EventOutbox& outbox)
+      : manifest_(outbox.describe_state()) {
+    outbox.save_state(*this);
+  }
+
+  void write_blob(std::string_view name,
+                  std::span<const std::byte> data) override {
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const auto& candidate) { return candidate.name == name; });
+    if (field == manifest_.fields.end() ||
+        fields_.contains(std::string(name))) {
+      throw jyppx::SerializationError(
+          "Unknown or duplicate recovery state field");
+    }
+    if (data.size() > field->max_bytes) {
+      throw jyppx::ResourceExhausted(
+          "Recovery state exceeds its declared bound");
+    }
+    fields_.emplace(std::string(name),
+                    std::vector<std::byte>(data.begin(), data.end()));
+  }
+
+  const jyppx::StateManifest& manifest() const noexcept override {
+    return manifest_;
+  }
+
+  bool contains(std::string_view name) const override {
+    return fields_.contains(std::string(name));
+  }
+
+  std::span<const std::byte> read_blob(std::string_view name,
+                                       std::uint64_t max_bytes) const override {
+    const auto field = fields_.find(std::string(name));
+    if (field == fields_.end()) {
+      throw jyppx::SerializationError("Missing recovery state field");
+    }
+    if (field->second.size() > max_bytes) {
+      throw jyppx::ResourceExhausted("Recovery state exceeds its read bound");
+    }
+    return field->second;
+  }
+
+ private:
+  jyppx::StateManifest manifest_;
+  std::map<std::string, std::vector<std::byte>> fields_;
 };
 
 std::shared_ptr<jyppx::nn::ModelAdapter> make_recovery_model() {
@@ -407,6 +460,8 @@ TEST_P(DurableTrainingRecoveryTest,
   jyppx::training::FitResult expected_result;
   std::vector<std::uint64_t> expected_samples;
   jyppx::Tensor expected_next_random;
+  std::unique_ptr<RecoveryOutboxState> initial_outbox_state;
+  std::string expected_stream_id;
   const auto baseline_final = directory_ / "baseline-final.bin";
   const auto resumed_final = directory_ / "resumed-final.bin";
   const auto recovery_path = directory_ / "recovery.bin";
@@ -414,6 +469,11 @@ TEST_P(DurableTrainingRecoveryTest,
   {
     auto baseline = make_recovery_domain(
         scenario, directory_ / "baseline-boundary.bin", false);
+    ASSERT_EQ(baseline.outbox->pending_events(), 0U);
+    initial_outbox_state =
+        std::make_unique<RecoveryOutboxState>(*baseline.outbox);
+    expected_stream_id = baseline.outbox->telemetry_stream_id();
+    ASSERT_FALSE(expected_stream_id.empty());
     expected_result = baseline.trainer->fit();
     ASSERT_EQ(expected_result.status, jyppx::training::FitStatus::completed);
     EXPECT_EQ(expected_result.global_step, 12U);
@@ -431,6 +491,13 @@ TEST_P(DurableTrainingRecoveryTest,
   std::weak_ptr<jyppx::optim::SgdOptimizerAdapter> destroyed_optimizer;
   {
     auto interrupted = make_recovery_domain(scenario, recovery_path, true);
+    // Both executions must start from the same persisted producer identity.
+    // A new v2 outbox generates an independent stream even when the RNG seed
+    // matches; comparing independently generated streams is not replay.
+    EXPECT_NE(interrupted.outbox->telemetry_stream_id(), expected_stream_id);
+    interrupted.outbox->load_state(*initial_outbox_state,
+                                   jyppx::RestorePolicy::exact_only);
+    EXPECT_EQ(interrupted.outbox->telemetry_stream_id(), expected_stream_id);
     destroyed_student = interrupted.student;
     destroyed_optimizer = interrupted.optimizer;
     EXPECT_THROW(interrupted.trainer->fit(), SimulatedProcessExit);
@@ -455,9 +522,26 @@ TEST_P(DurableTrainingRecoveryTest,
   // different student/teacher weights before the durable snapshot is loaded.
   jyppx::core::manual_seed(99194853094755497ULL, scenario.cuda);
   auto resumed = make_recovery_domain(scenario, recovery_path, false);
+  EXPECT_NE(resumed.outbox->telemetry_stream_id(), expected_stream_id);
   jyppx::training::FileCheckpointStore reopened(recovery_path);
   const auto restored = resumed.trainer->restore_checkpoint(reopened);
   EXPECT_EQ(restored.restore_level, jyppx::RestoreLevel::exact);
+  EXPECT_EQ(resumed.outbox->telemetry_stream_id(), expected_stream_id);
+  // Exact restore must retain every saved outbox field, including any pending
+  // canonical envelope's captured times and per-sink delivery cursor.
+  const RecoveryOutboxState restored_outbox(*resumed.outbox);
+  const auto& saved_outbox =
+      reopened.reader_for(resumed.outbox->participant_id());
+  for (const auto& field : restored_outbox.manifest().fields) {
+    SCOPED_TRACE(field.name);
+    const auto saved_bytes =
+        saved_outbox.read_blob(field.name, field.max_bytes);
+    const auto restored_bytes =
+        restored_outbox.read_blob(field.name, field.max_bytes);
+    EXPECT_EQ(
+        std::vector<std::byte>(restored_bytes.begin(), restored_bytes.end()),
+        std::vector<std::byte>(saved_bytes.begin(), saved_bytes.end()));
+  }
   EXPECT_EQ(resumed.trainer->global_step(), kInterruptStep);
   EXPECT_EQ(resumed.optimizer->completed_steps(), kInterruptStep);
   EXPECT_EQ(resumed.scheduler->completed_steps(), 1U);
