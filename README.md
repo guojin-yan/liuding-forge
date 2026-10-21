@@ -35,17 +35,15 @@ python scripts/validation/compatibility.py --file compatibility.json --validate
 git clone https://github.com/guojin-yan/jyppx-training-framework.git
 cd jyppx-training-framework
 
-# Create build directory
-mkdir build && cd build
+# Configure a persistent build directory (specify LibTorch path)
+cmake -S . -B out/build/release -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH=/path/to/libtorch
 
-# Configure (specify LibTorch path)
-cmake .. -DCMAKE_PREFIX_PATH=/path/to/libtorch
+# Reuse this directory for incremental builds
+cmake --build out/build/release --config Release --parallel 2
 
-# Build
-cmake --build . --parallel
-
-# Install (optional)
-sudo cmake --install .
+# Install to a local prefix (optional)
+cmake --install out/build/release --config Release --prefix out/install/release
 ```
 
 On Windows, the example targets copy the LibTorch runtime DLLs next to the
@@ -109,9 +107,12 @@ Repository directories have distinct owners:
 
 ### User guides
 
+- [Beta scope and migration limits](docs/user-guide/beta_limits.md)
 - [Troubleshooting](docs/user-guide/troubleshooting.md)
 - [Performance tuning](docs/user-guide/performance_tuning.md)
 - [Deployment](docs/user-guide/deployment.md)
+- Optional Preview: [models](docs/api/models.md),
+  [storage quantization](docs/api/quantization.md), [serving](docs/api/serving.md)
 
 ## Known Limitations
 
@@ -140,12 +141,6 @@ jyppx-training-framework/
 └── docs/                 # Documentation
 ```
 
-## Documentation
-
-- [Installation Guide](docs/tutorials/installation.md)
-- [Quick Start Tutorial](docs/tutorials/quickstart.md)
-- [API Documentation](docs/api/)
-
 ## Examples
 
 See the [examples/](examples/) directory for complete examples:
@@ -159,15 +154,14 @@ See the [examples/](examples/) directory for complete examples:
 ## Building Tests
 
 ```bash
-cmake .. -DJYPPX_BUILD_TESTS=ON
-cmake --build .
-ctest --output-on-failure
+cmake -S . -B out/build/release -DJYPPX_BUILD_TESTS=ON
+cmake --build out/build/release --config Release --parallel 2
+ctest --test-dir out/build/release -C Release --output-on-failure
 ```
 
-On multi-config generators (Visual Studio), pass the configuration to both
-steps: `cmake --build . --config Release` and `ctest -C Release`. GoogleTest
-1.14.0 is fetched from `third_party/downloads/` when present (offline builds
-work), otherwise from GitHub.
+The configuration arguments also support multi-config generators such as
+Visual Studio. GoogleTest 1.14.0 is fetched from `third_party/downloads/` when
+present (offline builds work), otherwise from GitHub.
 
 ## Local Release Baseline
 
@@ -245,8 +239,8 @@ an explicit policy update in the same review.
 ## Building Documentation
 
 ```bash
-cmake .. -DJYPPX_BUILD_DOCS=ON
-cmake --build . --target docs
+cmake -S . -B out/build/release -DJYPPX_BUILD_DOCS=ON
+cmake --build out/build/release --config Release --target docs --parallel 2
 ```
 
 ## License

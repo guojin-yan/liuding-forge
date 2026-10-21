@@ -1,7 +1,7 @@
 # Bounded parser fuzzing
 
 The original `device_parse`, `data_pipeline_state` and
-`iterable_pipeline_state` targets remain available. Six additional targets
+`iterable_pipeline_state` targets remain available. Seven additional targets
 exercise production parsers without filesystem/network activity:
 
 | Target suffix | Production boundary | Successful-input invariants |
@@ -12,6 +12,7 @@ exercise production parsers without filesystem/network activity:
 | `safetensors` | Complete header/shape/extent parser | Metadata, tensor association and opaque payload preservation; canonical stability and exact file budgets |
 | `evaluation_json` | Suite, measured-input and quality-report parsers | Canonical JSON, exact byte budgets, report self-comparison and escaped HTML |
 | `backend_protocol` | `OfficialTelemetrySink` reply parser | Actual emit/flush/close receipt validation, immutable replay, exact reply budgets, counter monotonicity and rejection atomicity |
+| `quantization` (optional Preview) | Canonical Linear artifact decoder and `MinMaxObserver::load_state` | Canonical artifact roundtrip and exact byte budgets; bounded checkpoint reads, observer roundtrip and rejected-restore atomicity |
 
 Every new harness accepts raw libFuzzer bytes up to 64 KiB with explicit small
 parser collection/string/shape limits. Each also creates and validates real
@@ -19,20 +20,36 @@ production encodings once, then applies up to eight edits to a selected valid
 seed on every input. Binary edits can preserve the domain/framing prefix to
 reach nested fields while the raw-input path mutates all bytes. Corpus files
 include valid payloads of each supported kind and short malformed boundary
-inputs. `generate_corpus.py` regenerates those data-only fixtures; actual codec
-generated seeds are validated by the C++ executables themselves.
+inputs. `generate_corpus.py` regenerates the six baseline families' data-only
+fixtures. `generate_quantization_corpus.py` updates only the quantization
+fixtures, including biased/unbiased artifacts, empty/finite/nonfinite/zero
+observer states, oversized counts, nonfinite bias, invalid flags/padding and
+trailing bytes. Actual codec-generated seeds are validated by the C++
+executables themselves.
 
 Only documented input-rejection `jyppx::Error` codes are caught. Internal
 errors, unexpected framework categories, standard exceptions, invariant
 failures and sanitizer errors remain visible. Backend-reported errors are
 accepted only by the protocol harness. Once an input parses, later
 serialization/reparse failures cannot be reclassified as malformed input.
+The quantization decoder also reports nonfinite artifact bias with the public
+`NumericalError` category; only its initial decode accepts that category as an
+input rejection. Observer rejection checks retain an existing finite state and
+assert that every rejected restore leaves its identity, counters and extrema
+unchanged. The harness also mutates bounded checkpoint manifests and restore
+policies independently of the state bytes.
 
 Canonical output has a separate bounded budget because compact source JSON,
 number spelling, escaping and safetensors layout can change its byte length.
 The exact-size success and one-byte-too-small rejection checks use that output
 size. HTML has its own escaped output budget. Tensor values remain opaque bits,
-including signed zero and nonfinite floating-point encodings.
+including signed zero and nonfinite floating-point encodings in safetensors.
+Quantization artifacts require canonical input; accepted observer signed zero
+is normalized by its encoder, then must stay stable on reparse. Quantization
+uses at most 64 features per dimension, 32 sample IDs, 64 bytes per ID and 256
+bytes per lineage string. The observer has a fixed production checkpoint byte
+contract, capped at 128 bytes by the harness, and the reader checks the exact
+limit requested by the production restore path.
 
 `JYPPX_BUILD_FUZZERS=ON` requires Clang and the complete SDK. Only that opt-in
 build instruments framework implementation archives with `fuzzer-no-link`,
@@ -51,6 +68,42 @@ per-input timeout and process RSS bound. `JYPPX_BUILD_PARALLEL_LEVEL`,
 bounded run. Configure/build logs, per-target dictionaries/corpus counts/fuzzer
 logs/artifacts and overall success/failure metadata are retained. A failed
 target stops the gate and retains its reproducer; no failure is skipped.
+
+The optional `jyppx_fuzz_quantization` target exists only when
+`jyppx::quantization` is present and links that Preview explicitly. The
+nine-target baseline runner remains unchanged. After its persistent cache has
+been configured with Clang, libFuzzer, ASan and UBSan, add and run just this new
+target without rebuilding/rerunning the nine completed target gates:
+
+```sh
+set -euo pipefail
+cmake -S . -B out/build/fuzz-linux -DJYPPX_BUILD_QUANTIZATION=ON
+cmake --build out/build/fuzz-linux --target jyppx_fuzz_quantization \
+  --parallel "${JYPPX_BUILD_PARALLEL_LEVEL:-2}"
+target_output="$PWD/out/fuzz/linux/quantization"
+mkdir -p "$target_output/corpus" "$target_output/artifacts"
+cp -R tests/fixtures/fuzz/quantization/corpus/. "$target_output/corpus/"
+address_layout_runner=()
+if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; then
+  address_layout_runner=(setarch "$(uname -m)" -R)
+fi
+ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1:strict_string_checks=1}" \
+UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+  "${address_layout_runner[@]}" \
+  out/build/fuzz-linux/tests/fuzz/jyppx_fuzz_quantization \
+  "$target_output/corpus" \
+  -dict=tests/fixtures/fuzz/quantization/quantization.dict \
+  -artifact_prefix="$target_output/artifacts/" \
+  -max_len=65536 -timeout=10 \
+  -rss_limit_mb="${JYPPX_FUZZ_RSS_LIMIT_MB:-4096}" \
+  -seed="${JYPPX_FUZZ_SEED:-20261021}" \
+  -runs="${JYPPX_FUZZ_RUNS:-10000}" \
+  2>&1 | tee "$target_output/03-fuzz.log"
+```
+
+Keep the final source commit, cache/compiler/sanitizer configuration, selected
+address-layout mode, dictionary hash, initial/final corpus counts and process
+exit status alongside the target log when recording this additional gate.
 
 These tests cover the C++ official-backend reply boundary. They do not invoke
 official Python libraries or replace the separate sidecar request/protocol

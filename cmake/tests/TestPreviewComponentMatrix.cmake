@@ -1,7 +1,7 @@
 # Copyright 2026 JYPPX Training Framework Contributors
 # Licensed under the Apache License, Version 2.0.
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.18)
 foreach(required IN ITEMS JYPPX_SOURCE_DIR JYPPX_TEST_ROOT
         JYPPX_CONSUMER_SOURCE_DIR JYPPX_TORCH_DIR JYPPX_CMAKE_GENERATOR)
     if(NOT DEFINED ${required})

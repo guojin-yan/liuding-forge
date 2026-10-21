@@ -12,11 +12,15 @@ If CMake reports `Could NOT find Torch`, point `CMAKE_PREFIX_PATH` at the
 `libtorch` directory containing `share/cmake/Torch/TorchConfig.cmake`:
 
 ```bash
-cmake -S . -B build -DCMAKE_PREFIX_PATH=/opt/libtorch
+cmake -S . -B out/build/release -DCMAKE_PREFIX_PATH=/opt/libtorch \
+  -DTorch_DIR=/opt/libtorch/share/cmake/Torch
 ```
 
-Remove the old CMake cache after changing LibTorch. The bundled layout is
-detected automatically when it is installed in `third_party/install/libtorch`.
+Reuse the existing build directory and reconfigure with explicit
+`CMAKE_PREFIX_PATH` and `Torch_DIR` when changing LibTorch, then rebuild the
+affected targets. A compiler or generator change requires a separate build
+directory. The bundled layout is detected automatically when installed in
+`third_party/install/libtorch`.
 
 ### MSVC crashes in a Torch DLL
 
@@ -53,9 +57,11 @@ and captured factory state must be thread-safe when workers are enabled.
 Prepare a fresh domain with identical Trainer options and participant IDs,
 topology, model shapes, optimizer groups, scheduler tree, callbacks, data and
 RNG scope. Then pass a complete `CheckpointStateSource` to
-`restore_checkpoint()`. Current schemas intentionally reject old archives and
-partial participant sets; use an explicit offline migration or start a new
-checkpoint lineage.
+`restore_checkpoint()`. Each participant accepts only its declared current
+schema and any explicitly supported N-1 reader. Unknown versions, incompatible
+topology and partial participant sets are rejected. Keep the original domain
+and checkpoint available for rollback; use an explicit offline migration or
+start a new checkpoint lineage when no supported reader exists.
 
 ## Performance diagnosis
 

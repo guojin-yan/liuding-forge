@@ -49,3 +49,8 @@ if(TARGET jyppx::experiment)
     target_link_libraries(jyppx_fuzz_backend_protocol
         PRIVATE nlohmann_json::nlohmann_json)
 endif()
+
+if(TARGET jyppx::quantization)
+    jyppx_add_fuzz_target(jyppx_fuzz_quantization quantization_fuzz.cpp)
+    target_link_libraries(jyppx_fuzz_quantization PRIVATE jyppx::quantization)
+endif()

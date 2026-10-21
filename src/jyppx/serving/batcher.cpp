@@ -244,8 +244,22 @@ class DynamicBatcher::Impl {
             end = std::min(end, *queue.front()->request.deadline);
           std::size_t count = 1;
           std::uint64_t charged = queue.front()->bytes;
-          const auto input_bound = predictor->request_limits().max_tensor_bytes;
-          while (count < queue.size() && count < options.max_batch_size &&
+          const auto limits = predictor->request_limits();
+          const auto input_bound = limits.max_tensor_bytes;
+          std::uint64_t capacity = std::min<std::uint64_t>(
+              options.max_batch_size, limits.max_dimension);
+          // Each queued row already passed resource validation. Bound every
+          // merged shape prefix, including prefixes before a zero dimension.
+          std::uint64_t prefix = 1;
+          for (const auto extent :
+               RequestTensor(queue.front()->request).sizes()) {
+            if (extent == 0) break;
+            prefix *= static_cast<std::uint64_t>(extent);
+            capacity = std::min(capacity, limits.max_elements / prefix);
+          }
+          if (charged != 0)
+            capacity = std::min(capacity, input_bound / charged);
+          while (count < queue.size() && count < capacity &&
                  Compatible(queue.front()->request, queue[count]->request) &&
                  queue[count]->bytes <= input_bound - charged) {
             charged += queue[count]->bytes;
@@ -254,8 +268,7 @@ class DynamicBatcher::Impl {
             ++count;
           }
           if (!Failure(queue.front()->stop, queue.front()->request.deadline) &&
-              count < options.max_batch_size && count == queue.size() &&
-              Clock::now() < end) {
+              count < capacity && count == queue.size() && Clock::now() < end) {
             // Short bounded waits notice externally owned stop_tokens without
             // callbacks that could outlive the scheduler.
             cv.wait_until(

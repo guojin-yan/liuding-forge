@@ -62,6 +62,12 @@ metrics, callbacks, checkpointing and mixed precision.
   safe publication and explicit signature trust
 - [TorchScript compatibility](api/torchscript_compatibility.md) — explicitly
   trusted existing artifacts, actual JIT execution and bounded value contracts
+- [Models Preview](api/models.md) — gated reference architectures, explicit
+  weight provenance and independent reference comparisons
+- [Quantization Preview](api/quantization.md) — portable int8 storage,
+  calibration, bounded artifacts and explicit FP32 runtime fallback
+- [Serving Preview](api/serving.md) — verified bundle loading, bounded requests,
+  dynamic batching, cancellation and typed runtime failures
 - [Training Scheduler Adapter](api/scheduler_adapter.md) — ordered lifecycle
   events with exact descriptor-first scheduler checkpoint delegation
 - [Classification Metrics](api/classification_metrics.md) — fixed-topology,
@@ -120,9 +126,10 @@ documents the machine-enforced target, link-interface, and include graph.
 
 See [CHANGELOG](../CHANGELOG.md) for the running list of changes. The current
 framework scope includes loss, optimizer, scheduler, hooks, augmentation,
-analysis, metric, checkpoint and AMP extensions. TensorBoard will return only
-as an independently gated experiment adapter backed by generated upstream
-schemas. Quantization is planned as a separately gated optional component and
-is not part of the current default SDK surface.
+analysis, metric, checkpoint and AMP extensions. Optional telemetry adapters
+use the official TensorBoard event writer and OpenTelemetry libraries through
+the supervised sidecar. Models, storage quantization and serving are separate
+Preview components, each disabled by default; see their capability and
+qualification limits above.
 Planning records are maintained outside the source repository and are not
 part of the installed documentation.

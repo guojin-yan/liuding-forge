@@ -41,6 +41,26 @@ void Limits(const RequestLimits& l) {
 struct Budget {
   std::uint64_t bytes = 0, tensors = 0, nodes = 0, strings = 0;
 };
+int CompareIntegerToDouble(std::int64_t value, double bound) {
+  constexpr double kSignedBoundary = 0x1p63;
+  if (bound >= kSignedBoundary) return -1;
+  if (bound < -kSignedBoundary) return 1;
+  // The finite bound is now inside the int64 conversion range. Compare its
+  // truncated integer part first so a value above 2^53 never loses low bits.
+  const auto integral = static_cast<std::int64_t>(bound);
+  if (value < integral) return -1;
+  if (value > integral) return 1;
+  // Truncating a double yields an exactly representable integer: below 2^53
+  // every integer is exact, and larger doubles already have no fraction.
+  const auto exact = static_cast<double>(integral);
+  if (exact < bound) return -1;
+  return exact > bound ? 1 : 0;
+}
+bool IntegerOutsideRange(std::int64_t value, const RequestLimits& limits) {
+  return (limits.minimum &&
+          CompareIntegerToDouble(value, *limits.minimum) < 0) ||
+         (limits.maximum && CompareIntegerToDouble(value, *limits.maximum) > 0);
+}
 void Value(const c10::IValue& v, const RequestLimits& l,
            const RuntimeDescriptor& runtime, Budget& budget,
            std::size_t depth = 0) {
@@ -76,8 +96,17 @@ void Value(const c10::IValue& v, const RequestLimits& l,
         throw NumericalError(
             "Inference tensor contains nonfinite values",
             detail::Details("input.range", "finite tensor values"));
-      if ((l.minimum && t.min().item<double>() < *l.minimum) ||
-          (l.maximum && t.max().item<double>() > *l.maximum))
+      const bool outside =
+          t.is_floating_point()
+              ? ((l.minimum && t.min().item<double>() < *l.minimum) ||
+                 (l.maximum && t.max().item<double>() > *l.maximum))
+              : ((l.minimum &&
+                  CompareIntegerToDouble(t.min().item<std::int64_t>(),
+                                         *l.minimum) < 0) ||
+                 (l.maximum &&
+                  CompareIntegerToDouble(t.max().item<std::int64_t>(),
+                                         *l.maximum) > 0));
+      if (outside)
         detail::Invalid("input.range",
                         "values inside the declared numeric range");
     }
@@ -103,8 +132,7 @@ void Value(const c10::IValue& v, const RequestLimits& l,
         (l.minimum && x < *l.minimum) || (l.maximum && x > *l.maximum))
       detail::Invalid("scalar.range", "finite scalar in declared range");
   } else if (v.isInt()) {
-    const auto x = static_cast<double>(v.toInt());
-    if ((l.minimum && x < *l.minimum) || (l.maximum && x > *l.maximum))
+    if (IntegerOutsideRange(v.toInt(), l))
       detail::Invalid("scalar.range", "integer inside declared numeric range");
   } else if (!v.isBool() && !v.isNone())
     detail::Invalid("value",

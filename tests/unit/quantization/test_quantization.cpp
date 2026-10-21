@@ -25,6 +25,11 @@ namespace {
 
 namespace q = jyppx::quantization;
 
+struct RestoreRounding {
+  int mode;
+  ~RestoreRounding() { static_cast<void>(std::fesetround(mode)); }
+};
+
 class MemoryState final : public jyppx::StateWriter, public jyppx::StateReader {
  public:
   explicit MemoryState(jyppx::StateManifest manifest)
@@ -141,6 +146,89 @@ TEST(QuantizationReference, RoundToNearestEvenAndSaturate) {
   }
 }
 
+TEST(QuantizationReference,
+     ExactHalfStepComparisonsIgnoreAmbientRoundingAndSaturateTinyScales) {
+  const int original = std::fegetround();
+  ASSERT_NE(original, -1);
+  {
+    RestoreRounding restore{original};
+    q::QuantizationParams adjacent;
+    adjacent.scale = std::nextafter(0.4, 0.0);
+    const std::array<float, 4U> adjacent_values{-1.0F, 1.0F, 0.0F, -0.0F};
+    // The exact ratio 1/nextafter(0.4,0) is greater than 2.5, although a
+    // nearest-rounded double division loses that distinction and produces 2.5.
+    const std::vector<std::int8_t> adjacent_expected{-3, 3, 0, 0};
+    q::QuantizationParams halves;
+    halves.scale = 0.5;
+    const std::array<float, 8U> half_values{-1.75F, -1.25F, -0.75F, -0.25F,
+                                            0.25F,  0.75F,  1.25F,  1.75F};
+    const std::vector<std::int8_t> half_expected{-4, -2, -2, 0, 0, 2, 2, 4};
+    q::QuantizationParams tiny;
+    tiny.scale = std::numeric_limits<double>::denorm_min();
+    const std::array<float, 6U> tiny_values{
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::denorm_min(),
+        -0.0F,
+        0.0F,
+        std::numeric_limits<float>::denorm_min(),
+        std::numeric_limits<float>::max()};
+    const std::vector<std::int8_t> tiny_expected{-127, -127, 0, 0, 127, 127};
+    for (const int mode :
+         {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+      SCOPED_TRACE(mode);
+      ASSERT_EQ(std::fesetround(mode), 0);
+      EXPECT_EQ(q::quantize_symmetric(adjacent_values, adjacent),
+                adjacent_expected);
+      EXPECT_EQ(q::quantize_symmetric(half_values, halves), half_expected);
+      EXPECT_EQ(q::quantize_symmetric(tiny_values, tiny), tiny_expected);
+      EXPECT_EQ(std::fegetround(), mode);
+    }
+  }
+  EXPECT_EQ(std::fegetround(), original);
+}
+
+TEST(QuantizationReference,
+     ParameterScalesHaveFixedNearestEvenBitsInEveryRoundingMode) {
+  const int original = std::fegetround();
+  ASSERT_NE(original, -1);
+  {
+    RestoreRounding restore{original};
+    const std::array<std::pair<std::uint32_t, std::uint64_t>, 10U> cases{{
+        {0x00000000U, 0x3ff0000000000000ULL},
+        {0x00000001U, 0x3630204081020408ULL},
+        {0x007fffffU, 0x37a0204060c18306ULL},
+        {0x00800000U, 0x37a0204081020408ULL},
+        {0x3eaaaaabU, 0x3f6580560c183061ULL},
+        {0x3f7fffffU, 0x3f80204070e1c387ULL},
+        {0x3f800000U, 0x3f80204081020408ULL},
+        {0x40800000U, 0x3fa0204081020408ULL},
+        {0x42fe0000U, 0x3ff0000000000000ULL},
+        {0x7f7fffffU, 0x4780204070e1c387ULL},
+    }};
+    for (const int mode :
+         {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+      SCOPED_TRACE(mode);
+      ASSERT_EQ(std::fesetround(mode), 0);
+      for (const auto& [magnitude, expected] : cases) {
+        SCOPED_TRACE(magnitude);
+        const std::array<float, 2U> values{
+            std::bit_cast<float>(magnitude),
+            std::bit_cast<float>(magnitude | 0x80000000U)};
+        EXPECT_EQ(std::bit_cast<std::uint64_t>(
+                      q::derive_symmetric_params(values).scale),
+                  expected);
+      }
+      q::QuantizationParams largest;
+      largest.scale = std::bit_cast<double>(0x4780204070e1c387ULL);
+      EXPECT_NO_THROW(q::quantize_symmetric({}, largest));
+      largest.scale = std::bit_cast<double>(0x4780204070e1c388ULL);
+      EXPECT_THROW(q::quantize_symmetric({}, largest), jyppx::InvalidArgument);
+      EXPECT_EQ(std::fegetround(), mode);
+    }
+  }
+  EXPECT_EQ(std::fegetround(), original);
+}
+
 TEST(QuantizationReference, NonfiniteInputsAndMalformedQparamsAreExplicit) {
   const std::array<float, 2U> values{std::numeric_limits<float>::quiet_NaN(),
                                      std::numeric_limits<float>::infinity()};
@@ -172,6 +260,32 @@ TEST(QuantizationReference, ErrorReportGolden) {
   EXPECT_THROW(q::compare_reference(original, {}), jyppx::InvalidArgument);
   const std::array<float, 1U> nan{std::numeric_limits<float>::quiet_NaN()};
   EXPECT_EQ(q::compare_reference(nan, nan).nonfinite_inputs, 1U);
+}
+
+TEST(QuantizationReference, ErrorReportCountsFinitePairsAndZeroSignalNoise) {
+  const std::array<float, 4U> original{
+      0.0F, std::numeric_limits<float>::quiet_NaN(), 1.0F,
+      std::numeric_limits<float>::infinity()};
+  const std::array<float, 4U> reconstructed{
+      1.0F, std::numeric_limits<float>::quiet_NaN(), 1.0F, 0.0F};
+  const auto mixed = q::compare_reference(original, reconstructed);
+  EXPECT_EQ(mixed.count, 2U);
+  EXPECT_EQ(mixed.nonfinite_inputs, 2U);
+  EXPECT_DOUBLE_EQ(mixed.mae, 0.5);
+  EXPECT_DOUBLE_EQ(mixed.rmse, std::sqrt(0.5));
+  const std::array<float, 1U> zero{0.0F}, one{1.0F};
+  const auto noisy_zero = q::compare_reference(zero, one);
+  EXPECT_EQ(noisy_zero.count, 1U);
+  EXPECT_EQ(noisy_zero.sqnr_db, -std::numeric_limits<double>::infinity());
+  EXPECT_DOUBLE_EQ(q::compare_reference(zero, zero).sqnr_db, 0.0);
+  EXPECT_EQ(q::compare_reference(one, one).sqnr_db,
+            std::numeric_limits<double>::infinity());
+  q::QuantizationReport report;
+  report.format_id = q::QuantizationFormatDescriptor{}.format_id;
+  report.weight_error = noisy_zero;
+  report.calibration = lineage();
+  EXPECT_NE(q::quantization_report_json(report).find("\"sqnr_db\":null"),
+            std::string::npos);
 }
 
 TEST(QuantizationObserver,
@@ -302,6 +416,80 @@ TEST(QuantizationArtifact, CanonicalBinaryRoundTripAndExactBudget) {
                jyppx::ResourceExhausted);
   EXPECT_THROW(q::deserialize_linear_artifact(bytes, exact),
                jyppx::ResourceExhausted);
+}
+
+TEST(QuantizationArtifact, CanonicalBytesDecodeAcrossAllAmbientRoundingModes) {
+  const int original = std::fegetround();
+  ASSERT_NE(original, -1);
+  {
+    RestoreRounding restore{original};
+    std::array<std::vector<std::byte>, 2U> canonical;
+    for (const int write_mode :
+         {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+      SCOPED_TRACE(write_mode);
+      ASSERT_EQ(std::fesetround(write_mode), 0);
+      const std::array<float, 2U> extreme_values{
+          -std::numeric_limits<float>::max(),
+          std::numeric_limits<float>::max()};
+      q::CalibrationSession extreme_session(lineage());
+      extreme_session.observe("extreme-sample", extreme_values);
+      const auto extreme = q::quantize_linear({.in_features = 2U,
+                                               .out_features = 1U,
+                                               .weights = extreme_values,
+                                               .bias = {}},
+                                              extreme_session.finalize());
+      const std::array<std::vector<std::byte>, 2U> encoded{
+          q::serialize_linear_artifact(artifact()),
+          q::serialize_linear_artifact(extreme)};
+      EXPECT_EQ(std::fegetround(), write_mode);
+      for (std::size_t i = 0U; i < encoded.size(); ++i) {
+        if (canonical[i].empty()) canonical[i] = encoded[i];
+        EXPECT_EQ(encoded[i], canonical[i]);
+      }
+      for (const int read_mode :
+           {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+        SCOPED_TRACE(read_mode);
+        ASSERT_EQ(std::fesetround(read_mode), 0);
+        for (const auto& bytes : encoded) {
+          q::QuantizedLinearArtifact decoded;
+          ASSERT_NO_THROW(decoded = q::deserialize_linear_artifact(bytes));
+          EXPECT_EQ(q::serialize_linear_artifact(decoded), bytes);
+        }
+        EXPECT_EQ(std::fegetround(), read_mode);
+      }
+    }
+  }
+  EXPECT_EQ(std::fegetround(), original);
+}
+
+TEST(QuantizationArtifact, SourceMetadataAndBudgetFailBeforeWeightConversion) {
+  const auto source = artifact();
+  const auto bytes = q::serialize_linear_artifact(source);
+  const std::array<float, 6U> weights{
+      std::numeric_limits<float>::quiet_NaN(), -2.0F, 0.0F, 0.25F, 0.5F, -1.0F};
+  const q::FloatLinearModel model{.in_features = source.in_features,
+                                  .out_features = source.out_features,
+                                  .weights = weights,
+                                  .bias = source.bias};
+  q::QuantizationLimits limits;
+  limits.max_artifact_bytes = bytes.size() - 1U;
+  // Invalid numerical weights must not bypass a prior complete byte-budget
+  // rejection or cause borrowed bias/calibration metadata to be copied first.
+  EXPECT_THROW(q::quantize_linear(model, source.calibration, limits),
+               jyppx::ResourceExhausted);
+  limits = {};
+  limits.max_samples = source.calibration.sample_ids.size() - 1U;
+  EXPECT_THROW(q::quantize_linear(model, source.calibration, limits),
+               jyppx::ResourceExhausted);
+  limits = {};
+  limits.max_lineage_text_bytes = source.format.format_id.size() - 1U;
+  EXPECT_THROW(q::quantize_linear(model, source.calibration, limits),
+               jyppx::ResourceExhausted);
+  const std::array<float, 3U> wrong_bias{0.0F, 0.0F, 0.0F};
+  auto wrong_shape = model;
+  wrong_shape.bias = wrong_bias;
+  EXPECT_THROW(q::quantize_linear(wrong_shape, source.calibration),
+               jyppx::InvalidArgument);
 }
 
 TEST(QuantizationArtifact,

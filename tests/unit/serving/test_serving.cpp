@@ -9,10 +9,12 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstring>
 #include <future>
 #include <gtest/gtest.h>
+#include <initializer_list>
 #include <limits>
 #include <mutex>
 #include <stop_token>
@@ -140,6 +142,75 @@ TEST_F(ServingTest, ResourceTraversalAndExactDeviceLimits) {
   runtime.dtypes = {torch::kInt64};
   EXPECT_THROW(validate_request_resources(Request().input, {}, runtime),
                InvalidArgument);
+}
+TEST_F(ServingTest,
+       IntegerRangesKeepScalarAndTensorPrecisionAtDoubleBoundaries) {
+  auto runtime = fixture.descriptor;
+  runtime.dtypes = {torch::kInt64};
+  const auto check = [&](const char* name, std::optional<double> minimum,
+                         std::optional<double> maximum,
+                         std::initializer_list<std::int64_t> accepted,
+                         std::initializer_list<std::int64_t> rejected) {
+    SCOPED_TRACE(name);
+    RequestLimits limits;
+    limits.minimum = minimum;
+    limits.maximum = maximum;
+    const auto value = [&](std::int64_t number, bool allowed) {
+      SCOPED_TRACE(number);
+      for (const bool as_tensor : {false, true}) {
+        SCOPED_TRACE(as_tensor ? "int64 tensor" : "int64 scalar");
+        nn::Invocation input;
+        if (as_tensor)
+          input.positional.emplace_back(torch::tensor({number}, torch::kInt64));
+        else
+          input.positional.emplace_back(number);
+        if (allowed) {
+          EXPECT_NO_THROW(validate_request_resources(input, limits, runtime));
+        } else {
+          EXPECT_THROW(validate_request_resources(input, limits, runtime),
+                       InvalidArgument);
+        }
+      }
+    };
+    for (const auto number : accepted) value(number, true);
+    for (const auto number : rejected) value(number, false);
+  };
+  constexpr std::int64_t two53_integer = std::int64_t{1} << 53;
+  const double two53 = std::ldexp(1.0, 53);
+  const double two63 = std::ldexp(1.0, 63);
+  const auto lowest = std::numeric_limits<std::int64_t>::min();
+  const auto highest = std::numeric_limits<std::int64_t>::max();
+  check(
+      "exact 2^53 limits", -two53, two53,
+      {-two53_integer, -two53_integer + 1, 0, two53_integer - 1, two53_integer},
+      {-two53_integer - 1, two53_integer + 1});
+  check("upper 2^63 accepts every int64", {}, two63,
+        {lowest, lowest + 1, 0, highest - 1, highest}, {});
+  check("lower 2^63 accepts no int64", two63, {}, {}, {lowest, 0, highest});
+  check("lower -2^63 accepts every int64", -two63, {},
+        {lowest, lowest + 1, 0, highest - 1, highest}, {});
+  check("upper -2^63 accepts only INT64_MIN", {}, -two63, {lowest},
+        {lowest + 1, 0, highest});
+  const double below_lowest =
+      std::nextafter(-two63, -std::numeric_limits<double>::infinity());
+  check("lower below INT64_MIN", below_lowest, {}, {lowest, 0, highest}, {});
+  check("upper below INT64_MIN", {}, below_lowest, {}, {lowest, 0, highest});
+  const double below_two63 = std::nextafter(two63, 0.0);
+  const auto highest_boundary = static_cast<std::int64_t>(below_two63);
+  check("upper last double below 2^63", {}, below_two63,
+        {lowest, 0, highest_boundary}, {highest_boundary + 1, highest});
+  const double above_lowest = std::nextafter(-two63, 0.0);
+  const auto lowest_boundary = static_cast<std::int64_t>(above_lowest);
+  check("lower next double above -2^63", above_lowest, {},
+        {lowest_boundary, 0, highest}, {lowest, lowest_boundary - 1});
+  check("fractional positive lower bound", 0.5, {}, {1, highest},
+        {lowest, -1, 0});
+  check("fractional positive upper bound", {}, 0.5, {lowest, -1, 0},
+        {1, highest});
+  check("fractional negative lower bound", -0.5, {}, {0, 1, highest},
+        {lowest, -1});
+  check("fractional negative upper bound", {}, -0.5, {lowest, -1},
+        {0, 1, highest});
 }
 TEST_F(ServingTest, ActualBundleHashTrustAndExactRuntimeAreEnforced) {
   NativeStateBackend backend(fixture.descriptor, example::Factory());
@@ -351,6 +422,63 @@ TEST_F(ServingTest, InBatchCancellationDoesNotCancelPeers) {
                            torch::tensor({{4.0F, -6.0F}})));
   EXPECT_EQ(predictor->info().health, HealthStatus::ready);
   EXPECT_TRUE(batcher.close());
+}
+TEST_F(ServingTest,
+       BatchingHonorsMergedElementDimensionAndByteLimitsWithoutRejectingRows) {
+  const auto check = [&](const char* name, const RequestLimits& limits,
+                         const std::vector<std::int64_t>& expected_batches) {
+    SCOPED_TRACE(name);
+    auto gate = std::make_shared<Gate>();
+    auto enabled = std::make_shared<std::atomic<bool>>(false);
+    auto batches = std::make_shared<std::vector<std::int64_t>>();
+    LoadOptions load_options;
+    load_options.request_limits = limits;
+    auto predictor = Load(
+        [gate, enabled, batches](const Tensor& x) {
+          batches->push_back(x.size(0));
+          if (enabled->load()) gate->Wait(x);
+        },
+        load_options);
+    batches->clear();
+    enabled->store(true);
+    BatchOptions options;
+    options.max_batch_size = 4;
+    options.max_wait = 0ms;
+    DynamicBatcher batcher(predictor, options);
+    auto active = batcher.submit(Request("active"));
+    EXPECT_TRUE(gate->Entered());
+    // Queue all three peers behind active compute so coalescing is
+    // deterministic.
+    std::array<std::future<PredictResponse>, 3> queued;
+    for (std::size_t i = 0; i < queued.size(); ++i)
+      queued[i] = batcher.submit(
+          Request("queued-" + std::to_string(i), static_cast<float>(i + 2)));
+    gate->Release();
+    EXPECT_NO_THROW(active.get());
+    for (std::size_t i = 0; i < queued.size(); ++i) {
+      EXPECT_NO_THROW({
+        const auto response = queued[i].get();
+        const auto value = static_cast<float>(i + 2);
+        EXPECT_TRUE(torch::equal(response.output.value.toTensor(),
+                                 torch::tensor({{2 * value, -3 * value}})));
+      });
+    }
+    EXPECT_TRUE(batcher.close());
+    EXPECT_EQ(*batches, expected_batches);
+    EXPECT_EQ(batcher.statistics().completed, 4U);
+    EXPECT_EQ(batcher.statistics().failed, 0U);
+    EXPECT_EQ(batcher.statistics().resident_tensor_bytes, 0U);
+    EXPECT_EQ(predictor->info().health, HealthStatus::ready);
+  };
+  RequestLimits elements;
+  elements.max_elements = 2;
+  check("elements", elements, {1, 1, 1, 1});
+  RequestLimits dimensions;
+  dimensions.max_dimension = 2;
+  check("dimensions", dimensions, {1, 2, 1});
+  RequestLimits bytes;
+  bytes.max_tensor_bytes = 16;
+  check("bytes", bytes, {1, 2, 1});
 }
 TEST_F(ServingTest, QueueByteCountDeadlineAndShutdownBounds) {
   auto gate = std::make_shared<Gate>();

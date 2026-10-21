@@ -27,6 +27,8 @@ constexpr std::string_view kMagic{"JYPPXQ1\0", 8U};
 constexpr std::uint32_t kSchemaVersion = 1U;
 constexpr std::size_t kObserverStateBytes = 40U;
 constexpr std::size_t kMaxJsonNumberBytes = 128U;
+constexpr double kMaximumScale =
+    static_cast<double>(std::numeric_limits<float>::max()) / 127.0;
 
 [[noreturn]] void invalid(std::string operation, std::string expected,
                           std::string actual, std::string hint) {
@@ -130,10 +132,8 @@ bool valid_utf8(std::string_view text) {
 
 void validate_qparams(const QuantizationParams& params) {
   if (!std::isfinite(params.scale) || params.scale <= 0.0 ||
-      params.scale >
-          static_cast<double>(std::numeric_limits<float>::max()) / 127.0 ||
-      params.zero_point != 0 || params.quantized_min != -127 ||
-      params.quantized_max != 127 ||
+      params.scale > kMaximumScale || params.zero_point != 0 ||
+      params.quantized_min != -127 || params.quantized_max != 127 ||
       params.quantized_min >= params.quantized_max) {
     invalid("qparams", "finite positive scale, zero point 0, range [-127,127]",
             "invalid qparams", "Use derive_symmetric_params for v1 data.");
@@ -239,6 +239,107 @@ void add_to_artifact_budget(std::size_t& total, std::size_t bytes,
         limit == std::numeric_limits<std::size_t>::max() ? limit : limit + 1U,
         "Reduce tensor dimensions or calibration metadata.");
   total += bytes;
+}
+
+void validate_linear_payload_budget(std::size_t weight_count,
+                                    std::size_t bias_count,
+                                    const CalibrationResult& calibration,
+                                    const QuantizationLimits& limits) {
+  validate_size_limit(kFormatId.size(), limits.max_lineage_text_bytes,
+                      "format_id");
+  if (calibration.sample_ids.size() > limits.max_samples)
+    resource("calibration.sample_ids", limits.max_samples,
+             calibration.sample_ids.size(), "Reduce calibration samples.");
+  // Include fixed fields and prefixes before copying any borrowed payload.
+  std::size_t encoded_size = 233U;
+  add_to_artifact_budget(encoded_size, kFormatId.size(),
+                         limits.max_artifact_bytes);
+  add_to_artifact_budget(encoded_size, weight_count, limits.max_artifact_bytes);
+  std::size_t bias_bytes = 0U;
+  if (!checked_mul(bias_count, sizeof(float), &bias_bytes))
+    throw ResourceExhausted("Linear bias byte count overflow");
+  add_to_artifact_budget(encoded_size, bias_bytes, limits.max_artifact_bytes);
+  add_to_artifact_budget(encoded_size,
+                         calibration.lineage.dataset_version.size(),
+                         limits.max_artifact_bytes);
+  add_to_artifact_budget(encoded_size,
+                         calibration.lineage.preprocessing_fingerprint.size(),
+                         limits.max_artifact_bytes);
+  for (const auto& sample_id : calibration.sample_ids) {
+    add_to_artifact_budget(encoded_size, 4U, limits.max_artifact_bytes);
+    add_to_artifact_budget(encoded_size, sample_id.size(),
+                           limits.max_artifact_bytes);
+  }
+}
+
+int compare_binary_magnitudes(std::uint64_t lhs, int lhs_exponent,
+                              std::uint64_t rhs, int rhs_exponent) {
+  if (lhs == 0U) return rhs == 0U ? 0 : -1;
+  if (rhs == 0U) return 1;
+  const auto lhs_width = std::bit_width(lhs);
+  const auto rhs_width = std::bit_width(rhs);
+  const int lhs_top = lhs_exponent + static_cast<int>(lhs_width);
+  const int rhs_top = rhs_exponent + static_cast<int>(rhs_width);
+  if (lhs_top != rhs_top) return lhs_top < rhs_top ? -1 : 1;
+  lhs <<= 64U - lhs_width;
+  rhs <<= 64U - rhs_width;
+  return lhs == rhs ? 0 : (lhs < rhs ? -1 : 1);
+}
+
+double derive_scale(std::uint32_t magnitude_bits) {
+  if (magnitude_bits == 0U) return 1.0;
+  const auto exponent_bits = magnitude_bits >> 23U;
+  std::uint64_t significand = magnitude_bits & 0x7fffffU;
+  int exponent = -149;
+  if (exponent_bits != 0U) {
+    significand |= 1U << 23U;
+    exponent = static_cast<int>(exponent_bits) - 150;
+  }
+  int quotient_exponent = static_cast<int>(std::bit_width(significand)) - 7;
+  if (compare_binary_magnitudes(significand, 0, 127U, quotient_exponent) < 0)
+    --quotient_exponent;
+  // Normalize the exact FP32 significand / 127 to a 53-bit double. The
+  // numerator fits in 60 bits, and an odd denominator precludes half ties.
+  // Even the smallest FP32 subnormal yields a normal double scale.
+  const auto numerator = significand << (52 - quotient_exponent);
+  auto rounded = numerator / 127U;
+  if (2U * (numerator % 127U) > 127U) ++rounded;
+  if (rounded == (1ULL << 53U)) {
+    rounded >>= 1U;
+    ++quotient_exponent;
+  }
+  const auto encoded_exponent =
+      static_cast<std::uint64_t>(exponent + quotient_exponent + 1023);
+  return std::bit_cast<double>((encoded_exponent << 52U) |
+                               (rounded & 0xfffffffffffffULL));
+}
+
+std::int8_t quantize_value(float value, std::uint64_t scale_significand,
+                           int scale_exponent) {
+  const auto bits = std::bit_cast<std::uint32_t>(value);
+  const auto exponent_bits = (bits >> 23U) & 0xffU;
+  std::uint64_t significand = bits & 0x7fffffU;
+  int exponent = -149;
+  if (exponent_bits != 0U) {
+    significand |= 1U << 23U;
+    exponent = static_cast<int>(exponent_bits) - 150;
+  }
+  // Compare 2*abs(value) with (2*q+1)*scale exactly. The latter has at most
+  // 61 significant bits, so no floating operation or rounding-mode change is
+  // needed, including for subnormal scales and saturating input ranges.
+  unsigned first = 0U, last = 127U;
+  while (first < last) {
+    const unsigned middle = first + (last - first) / 2U;
+    const int order = compare_binary_magnitudes(
+        significand * 2U, exponent, scale_significand * (2U * middle + 1U),
+        scale_exponent);
+    if (order > 0 || (order == 0 && (middle & 1U) != 0U))
+      first = middle + 1U;
+    else
+      last = middle;
+  }
+  const int result = static_cast<int>(first);
+  return static_cast<std::int8_t>((bits >> 31U) != 0U ? -result : result);
 }
 
 class Encoder {
@@ -629,12 +730,13 @@ void validate_limits(const QuantizationLimits& limits) {
 }
 
 QuantizationParams derive_symmetric_params(std::span<const float> values) {
-  double maximum = 0.0;
+  std::uint32_t maximum_bits = 0U;
   bool has_finite = false;
   for (const float value : values) {
     if (!std::isfinite(value)) continue;
     has_finite = true;
-    maximum = std::max(maximum, std::abs(static_cast<double>(value)));
+    maximum_bits = std::max(maximum_bits,
+                            std::bit_cast<std::uint32_t>(value) & 0x7fffffffU);
   }
   if (!has_finite) {
     throw NotReady(
@@ -645,7 +747,7 @@ QuantizationParams derive_symmetric_params(std::span<const float> values) {
                      .actual = "empty or all-nonfinite input",
                      .hint = "Collect a finite calibration sample first."});
   }
-  const double scale = maximum == 0.0 ? 1.0 : maximum / 127.0;
+  const double scale = derive_scale(maximum_bits);
   if (!std::isfinite(scale) || scale <= 0.0)
     numerical("derive_symmetric_params", "finite positive scale",
               std::to_string(scale), "Use values within FP32 range.");
@@ -658,6 +760,14 @@ QuantizationParams derive_symmetric_params(std::span<const float> values) {
 std::vector<std::int8_t> quantize_symmetric(std::span<const float> values,
                                             QuantizationParams params) {
   validate_qparams(params);
+  const auto scale_bits = std::bit_cast<std::uint64_t>(params.scale);
+  const auto exponent_bits = (scale_bits >> 52U) & 0x7ffU;
+  std::uint64_t scale_significand = scale_bits & 0xfffffffffffffULL;
+  int scale_exponent = -1074;
+  if (exponent_bits != 0U) {
+    scale_significand |= 1ULL << 52U;
+    scale_exponent = static_cast<int>(exponent_bits) - 1075;
+  }
   std::vector<std::int8_t> result;
   result.reserve(values.size());
   for (const float value : values) {
@@ -665,22 +775,7 @@ std::vector<std::int8_t> quantize_symmetric(std::span<const float> values,
       numerical("quantize_symmetric", "finite input values", "NaN or infinity",
                 "Filter non-finite values before quantization.");
     }
-    const double scaled = static_cast<double>(value) / params.scale;
-    if (!std::isfinite(scaled))
-      numerical("quantize_symmetric", "finite scaled value", "overflow",
-                "Use a positive scale covering the input range.");
-    const double lower = std::floor(scaled);
-    const double fraction = scaled - lower;
-    const double rounded =
-        fraction < 0.5
-            ? lower
-            : (fraction > 0.5
-                   ? lower + 1.0
-                   : (std::fmod(lower, 2.0) == 0.0 ? lower : lower + 1.0));
-    const double clamped =
-        std::clamp(rounded, static_cast<double>(params.quantized_min),
-                   static_cast<double>(params.quantized_max));
-    result.push_back(static_cast<std::int8_t>(clamped));
+    result.push_back(quantize_value(value, scale_significand, scale_exponent));
   }
   return result;
 }
@@ -717,7 +812,6 @@ QuantizationErrorReport compare_reference(
             "Compare tensors with the same shape.");
   }
   QuantizationErrorReport report;
-  report.count = static_cast<std::uint64_t>(original.size());
   double squared_error = 0.0;
   double absolute_error = 0.0;
   double signal = 0.0;
@@ -732,6 +826,7 @@ QuantizationErrorReport compare_reference(
       ++report.nonfinite_inputs;
       continue;
     }
+    ++report.count;
     const double difference = rhs - lhs;
     squared_error += difference * difference;
     absolute_error += std::abs(difference);
@@ -745,7 +840,7 @@ QuantizationErrorReport compare_reference(
         report.max_relative_error,
         std::abs(difference) / std::max(std::abs(lhs), kRelativeEpsilon));
   }
-  const auto finite_count = report.count - report.nonfinite_inputs;
+  const auto finite_count = report.count;
   if (finite_count != 0U) {
     report.rmse = std::sqrt(squared_error / static_cast<double>(finite_count));
     report.mae = absolute_error / static_cast<double>(finite_count);
@@ -753,7 +848,9 @@ QuantizationErrorReport compare_reference(
   if (squared_error == 0.0) {
     report.sqnr_db =
         signal == 0.0 ? 0.0 : std::numeric_limits<double>::infinity();
-  } else if (signal != 0.0) {
+  } else if (signal == 0.0) {
+    report.sqnr_db = -std::numeric_limits<double>::infinity();
+  } else {
     report.sqnr_db = 10.0 * std::log10(signal / squared_error);
   }
   const double norm_product = std::sqrt(original_norm * reconstructed_norm);
@@ -940,6 +1037,9 @@ void validate_linear_artifact(const QuantizedLinearArtifact& artifact,
   validate_limits(limits);
   validate_format_descriptor(artifact.format);
   validate_qparams(artifact.weight_params);
+  validate_linear_payload_budget(artifact.quantized_weights.size(),
+                                 artifact.bias.size(), artifact.calibration,
+                                 limits);
   validate_calibration(artifact.calibration, limits);
   if (artifact.artifact_version != kSchemaVersion)
     compatibility("artifact_version", "1",
@@ -983,28 +1083,6 @@ void validate_linear_artifact(const QuantizedLinearArtifact& artifact,
       numerical("linear.bias", "finite values", "NaN or infinity",
                 "Use finite FP32 bias values.");
   }
-  // Fixed-width fields and length prefixes excluding per-sample ID prefixes.
-  std::size_t encoded_size = 233U;
-  add_to_artifact_budget(encoded_size, artifact.format.format_id.size(),
-                         limits.max_artifact_bytes);
-  add_to_artifact_budget(encoded_size, artifact.quantized_weights.size(),
-                         limits.max_artifact_bytes);
-  std::size_t bias_bytes = 0U;
-  if (!checked_mul(artifact.bias.size(), sizeof(float), &bias_bytes))
-    throw ResourceExhausted("Linear bias byte count overflow");
-  add_to_artifact_budget(encoded_size, bias_bytes, limits.max_artifact_bytes);
-  add_to_artifact_budget(encoded_size,
-                         artifact.calibration.lineage.dataset_version.size(),
-                         limits.max_artifact_bytes);
-  add_to_artifact_budget(
-      encoded_size,
-      artifact.calibration.lineage.preprocessing_fingerprint.size(),
-      limits.max_artifact_bytes);
-  for (const auto& sample_id : artifact.calibration.sample_ids) {
-    add_to_artifact_budget(encoded_size, 4U, limits.max_artifact_bytes);
-    add_to_artifact_budget(encoded_size, sample_id.size(),
-                           limits.max_artifact_bytes);
-  }
 }
 
 QuantizedLinearArtifact quantize_linear(const FloatLinearModel& model,
@@ -1027,6 +1105,23 @@ QuantizedLinearArtifact quantize_linear(const FloatLinearModel& model,
     invalid("linear.weights", std::to_string(weight_count) + " coefficients",
             std::to_string(model.weights.size()),
             "Use row-major [out,in] weights.");
+  if (!model.bias.empty() && model.bias.size() != model.out_features)
+    invalid("linear.bias", "empty or out_features elements",
+            std::to_string(model.bias.size()),
+            "Provide one FP32 bias per output feature.");
+  validate_linear_payload_budget(weight_count, model.bias.size(), calibration,
+                                 limits);
+  validate_calibration(calibration, limits);
+  if (calibration.sample_ids.empty() ||
+      !calibration.activation_state.has_finite_value)
+    invalid("linear.calibration", "completed finite calibration session",
+            "empty or non-finite calibration",
+            "Finalize calibration before conversion.");
+  for (const float value : model.bias) {
+    if (!std::isfinite(value))
+      numerical("linear.bias", "finite values", "NaN or infinity",
+                "Use finite FP32 bias values.");
+  }
   const auto params = derive_symmetric_params(model.weights);
   QuantizedLinearArtifact artifact{
       .artifact_version = kSchemaVersion,
