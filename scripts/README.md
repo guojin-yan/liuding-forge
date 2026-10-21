@@ -13,6 +13,7 @@ working directory.
 | `validation/` | Compatibility and dependency manifests, component/include/link graphs, header guards, checkpoint fixtures, coverage gates, and the Linux coverage/TSan/fuzz lanes. |
 | `benchmarks/` | Windows baseline orchestration, CUDA benchmark orchestration, and statistical comparison of measured baseline samples. |
 | `interop/` | Official safetensors interoperability qualification and ONNX environment probes, with the qualification dependency lock and provenance. |
+| `release/` | Offline candidate preparation, installed-file inventory, evidence and dependency bindings, and independent release verification. |
 
 Examples:
 

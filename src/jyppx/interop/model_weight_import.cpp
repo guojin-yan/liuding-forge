@@ -194,6 +194,8 @@ void synchronize(const std::vector<Entry>& entries) {
           "Model import device synchronization failed",
           ErrorDetails{.component = "interop.model_weight_import",
                        .operation = "synchronize",
+                       .expected = "completed device synchronization",
+                       .actual = "backend synchronization failure",
                        .hint = "Inspect the nested backend error and CUDA "
                                "device state before retrying."}));
     }
@@ -367,6 +369,8 @@ ModelWeightImportResult import_model_weights(
       "Model import exhausted backend memory",
       ErrorDetails{.component = "interop.model_weight_import",
                    .operation = "import_model_weights",
+                   .expected = "available backend staging memory",
+                   .actual = "backend memory exhausted",
                    .hint = "Reduce the model or staging requirements and "
                            "inspect the nested backend error."}));
 } catch (const c10::Error&) {
@@ -375,6 +379,8 @@ ModelWeightImportResult import_model_weights(
       ErrorDetails{
           .component = "interop.model_weight_import",
           .operation = "import_model_weights",
+          .expected = "successful backend weight import",
+          .actual = "backend operation failed",
           .hint =
               "Inspect the nested backend error before retrying the import."}));
 } catch (const std::bad_alloc&) {
@@ -382,6 +388,8 @@ ModelWeightImportResult import_model_weights(
       "Model import exhausted host memory",
       ErrorDetails{.component = "interop.model_weight_import",
                    .operation = "import_model_weights",
+                   .expected = "available host staging memory",
+                   .actual = "host allocation failed",
                    .hint = "Reduce the artifact, model or staging requirements "
                            "before retrying."}));
 }

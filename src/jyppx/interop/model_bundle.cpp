@@ -1356,13 +1356,15 @@ std::vector<EncodedBundleShard> shard_safetensors_for_bundle(
       Add(encoded_total, bytes.size(), limits.max_total_bytes, "shards.bytes");
       const auto id =
           std::string(name_prefix) + "." + std::to_string(result.size());
+      const auto digest = Digest(bytes);
+      const auto byte_count = bytes.size();
       EncodedBundleShard shard{
           .file = {.id = id,
                    .relative_path =
                        std::string(name_prefix) + "/" + id + ".safetensors",
                    .role = BundleFileRole::weights,
-                   .artifact = {.digest = Digest(bytes),
-                                .size_bytes = bytes.size(),
+                   .artifact = {.digest = digest,
+                                .size_bytes = byte_count,
                                 .logical_name = id,
                                 .media_type = "application/safetensors",
                                 .producer =

@@ -525,6 +525,8 @@ endif()
 if(JYPPX_BUILD_EXPERIMENT)
     add_library(jyppx_experiment STATIC
         src/jyppx/experiment/artifact_store.cpp
+        src/jyppx/experiment/detail/artifact_publish.cpp
+        src/jyppx/experiment/detail/native_artifact_publish.cpp
         src/jyppx/experiment/config.cpp
         src/jyppx/experiment/run.cpp
         src/jyppx/experiment/run_store.cpp
@@ -533,6 +535,12 @@ if(JYPPX_BUILD_EXPERIMENT)
         src/jyppx/experiment/evaluation.cpp
         $<TARGET_OBJECTS:sqlite3_amalgamation>
     )
+    # Keep the native publication forwarding seam in its own archive member
+    # for real process-boundary integration supervision.
+    set_source_files_properties(
+        src/jyppx/experiment/detail/artifact_publish.cpp
+        src/jyppx/experiment/detail/native_artifact_publish.cpp
+        PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     add_library(jyppx::experiment ALIAS jyppx_experiment)
     set_target_properties(jyppx_experiment PROPERTIES
         OUTPUT_NAME jyppx_experiment
@@ -570,7 +578,9 @@ if(JYPPX_BUILD_TRAINING)
 endif()
 
 if(JYPPX_BUILD_INTEROP AND JYPPX_BUILD_NN)
-    target_sources(jyppx_interop PRIVATE src/jyppx/interop/model_weight_import.cpp)
+    target_sources(jyppx_interop PRIVATE
+        src/jyppx/interop/model_weight_import.cpp
+        src/jyppx/interop/torchscript_compatibility.cpp)
     target_link_libraries(jyppx_interop PUBLIC jyppx_nn)
 endif()
 
@@ -721,6 +731,7 @@ foreach(JYPPX_HEADER_DIR IN LISTS JYPPX_ENABLED_HEADER_DIRS)
         install(DIRECTORY "include/jyppx/interop"
             DESTINATION include/jyppx
             PATTERN "model_weight_import.hpp" EXCLUDE
+            PATTERN "torchscript_compatibility.hpp" EXCLUDE
         )
         continue()
     endif()

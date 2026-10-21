@@ -127,10 +127,13 @@ foreach(profile IN LISTS profiles)
             endif()
         endif()
     endforeach()
-    if(interop IN_LIST profile_components AND NOT nn IN_LIST profile_components
-       AND EXISTS "${install_dir}/include/jyppx/interop/model_weight_import.hpp")
-        message(FATAL_ERROR
-            "NN adapter header remains installed with nn disabled in ${profile} profile")
+    if(interop IN_LIST profile_components AND NOT nn IN_LIST profile_components)
+        foreach(adapter IN ITEMS model_weight_import torchscript_compatibility)
+            if(EXISTS "${install_dir}/include/jyppx/interop/${adapter}.hpp")
+                message(FATAL_ERROR
+                    "NN adapter header remains installed with nn disabled in ${profile} profile")
+            endif()
+        endforeach()
     endif()
     if(NOT core IN_LIST profile_components AND
        EXISTS "${install_dir}/include/jyppx/utils")

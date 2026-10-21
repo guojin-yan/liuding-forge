@@ -169,6 +169,11 @@ if(Python3_Interpreter_FOUND)
                 --root ${CMAKE_SOURCE_DIR}/include/jyppx
     )
     set_tests_properties(PublicHeaderGuards PROPERTIES LABELS "hygiene;headers")
+    add_test(NAME ReleaseToolUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_release.py")
+    set_tests_properties(ReleaseToolUnitTests PROPERTIES
+        LABELS "hygiene;release;packaging" TIMEOUT 180)
 endif()
 
 add_test(
@@ -357,7 +362,7 @@ function(jyppx_add_gtest test_name)
 
     jyppx_add_torch_runtime_dependency(${test_name})
 
-    gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST)
+    gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30)
 endfunction()
 
 add_subdirectory(unit)

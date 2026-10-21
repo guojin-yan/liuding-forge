@@ -20,4 +20,39 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(ExperimentProcessRecovery PROPERTIES
         LABELS "training;experiment;checkpoint;integration;process"
         TIMEOUT 300)
+
+    add_executable(jyppx_storage_crash_child experiment/storage_crash_child.cpp)
+    target_link_libraries(jyppx_storage_crash_child PRIVATE
+        jyppx::experiment nlohmann_json::nlohmann_json)
+    # experiment embeds the pinned amalgamation. Only add its private header;
+    # linking a second SQLite runtime would invalidate connection hooks.
+    target_include_directories(jyppx_storage_crash_child SYSTEM PRIVATE
+        "${jyppx_sqlite_SOURCE_DIR}")
+    jyppx_apply_instrumentation(jyppx_storage_crash_child)
+    jyppx_add_torch_runtime_dependency(jyppx_storage_crash_child)
+    add_test(NAME ExperimentStorageCrashBoundaries
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_storage_crash_boundaries.py"
+            --child $<TARGET_FILE:jyppx_storage_crash_child>
+            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/storage-crash/$<CONFIG>")
+    set_tests_properties(ExperimentStorageCrashBoundaries PROPERTIES
+        LABELS "experiment;checkpoint;integration;process" TIMEOUT 600)
+
+    get_target_property(experiment_library_type jyppx_experiment TYPE)
+    if(NOT experiment_library_type STREQUAL "STATIC_LIBRARY")
+        message(FATAL_ERROR "CAS crash supervision requires the static experiment archive")
+    endif()
+    add_executable(jyppx_cas_crash_child experiment/cas_crash_child.cpp)
+    target_link_libraries(jyppx_cas_crash_child PRIVATE
+        jyppx::experiment nlohmann_json::nlohmann_json)
+    target_include_directories(jyppx_cas_crash_child PRIVATE "${PROJECT_SOURCE_DIR}/src")
+    jyppx_apply_instrumentation(jyppx_cas_crash_child)
+    jyppx_add_torch_runtime_dependency(jyppx_cas_crash_child)
+    add_test(NAME ExperimentCasCrashBoundaries
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_cas_crash_boundaries.py"
+            --child $<TARGET_FILE:jyppx_cas_crash_child>
+            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/cas-crash/$<CONFIG>")
+    set_tests_properties(ExperimentCasCrashBoundaries PROPERTIES
+        LABELS "experiment;checkpoint;integration;process" TIMEOUT 300)
 endif()

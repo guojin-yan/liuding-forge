@@ -5,6 +5,7 @@
 
 #include "jyppx/experiment/artifact_store.hpp"
 
+#include "detail/artifact_publish.hpp"
 #include "jyppx/foundation/error.hpp"
 #include "jyppx/foundation/sha256.hpp"
 
@@ -825,17 +826,9 @@ ArtifactRef FileArtifactStore::commit(
       file_session->abort();
     } else {
       check_telemetry_operation(stop, deadline);
-#ifdef _WIN32
-      if (!MoveFileExW(file_session->temporary_.c_str(), destination.c_str(),
-                       MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING)) {
-        const auto move_error = std::error_code(
-            static_cast<int>(GetLastError()), std::system_category());
-        throw_io("atomic_publish", destination, move_error);
-      }
-#else
-      std::filesystem::rename(file_session->temporary_, destination, error);
-      if (error) throw_io("atomic_publish", destination, error);
-#endif
+      const auto publish_error =
+          detail::publish_artifact_file(file_session->temporary_, destination);
+      if (publish_error) throw_io("atomic_publish", destination, publish_error);
       sync_directory(destination.parent_path());
       file_session->mark_committed();
     }

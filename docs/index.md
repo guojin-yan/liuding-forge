@@ -56,6 +56,8 @@ metrics, callbacks, checkpointing and mixed precision.
   and explicit compatibility/ONNX capability boundaries
 - [Model bundles](api/model_bundle.md) — immutable inventory, sharding,
   safe publication and explicit signature trust
+- [TorchScript compatibility](api/torchscript_compatibility.md) — explicitly
+  trusted existing artifacts, actual JIT execution and bounded value contracts
 - [Training Scheduler Adapter](api/scheduler_adapter.md) — ordered lifecycle
   events with exact descriptor-first scheduler checkpoint delegation
 - [Classification Metrics](api/classification_metrics.md) — fixed-topology,

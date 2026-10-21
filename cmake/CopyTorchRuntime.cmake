@@ -25,11 +25,13 @@ function(jyppx_add_torch_runtime_dependency target_name)
             OUTPUT "${jyppx_runtime_stamp}"
             COMMAND ${CMAKE_COMMAND} -E make_directory
                 "${jyppx_runtime_output_dir}"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${jyppx_torch_runtime_dlls}
-                "${jyppx_runtime_output_dir}"
+            COMMAND ${CMAKE_COMMAND}
+                "-DJYPPX_RUNTIME_SOURCE_DIR=${jyppx_torch_runtime_dir}"
+                "-DJYPPX_RUNTIME_OUTPUT_DIR=${jyppx_runtime_output_dir}"
+                -P "${PROJECT_SOURCE_DIR}/cmake/StageTorchRuntime.cmake"
             COMMAND ${CMAKE_COMMAND} -E touch "${jyppx_runtime_stamp}"
             DEPENDS ${jyppx_torch_runtime_dlls}
+                "${PROJECT_SOURCE_DIR}/cmake/StageTorchRuntime.cmake"
             COMMENT "Copying LibTorch runtime DLLs for ${CMAKE_CURRENT_BINARY_DIR}"
             VERBATIM
         )

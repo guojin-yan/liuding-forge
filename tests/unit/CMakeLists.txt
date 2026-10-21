@@ -35,10 +35,14 @@ jyppx_add_gtest(jyppx_test_interop_formats
     interop/test_model_bundle.cpp
 )
 if(TARGET jyppx::nn)
+    jyppx_add_gtest(jyppx_test_torchscript_compatibility
+        LINK_TARGET jyppx::interop
+        interop/test_torchscript_compatibility.cpp)
     jyppx_add_gtest(jyppx_test_model_weight_import
         LINK_TARGET jyppx::interop
         interop/test_model_weight_import.cpp)
     if(JYPPX_TEST_CLI_CUDA)
+        target_compile_definitions(jyppx_test_torchscript_compatibility PRIVATE JYPPX_TEST_TORCHSCRIPT_CUDA=1)
         target_compile_definitions(jyppx_test_model_weight_import PRIVATE JYPPX_TEST_MODEL_IMPORT_CUDA=1)
     endif()
 endif()
