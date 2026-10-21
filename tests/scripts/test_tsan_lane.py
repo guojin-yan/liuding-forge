@@ -52,7 +52,9 @@ class TSanPolicyTest(unittest.TestCase):
 
     def test_options_reject_zero_exit_or_suppressed_reports(self):
         for options in ("exitcode=0", "halt_on_error=0", "report_bugs=0", "suppressions=local.txt",
-                        "report_atomic_races=0", "ignore_noninstrumented_modules=1", "history_size=2:history_size=4"):
+                        "report_atomic_races=0", "report_atomic_races=no", "report_atomic_races=FALSE",
+                        "report_thread_leaks=off", "report_signal_unsafe=unexpected",
+                        "ignore_noninstrumented_modules=1", "history_size=2:history_size=4"):
             with self.subTest(options=options), self.assertRaises(LANE.LaneError):
                 LANE.tsan_options(options)
         options = LANE.tsan_options("history_size=4")

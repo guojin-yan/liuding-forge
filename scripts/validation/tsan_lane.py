@@ -165,7 +165,7 @@ def tsan_options(value: str) -> str:
             raise LaneError("TSAN_OPTIONS must contain unique key=value options")
         if key in required and setting != required[key]:
             raise LaneError(f"TSAN_OPTIONS cannot weaken {key}")
-        if key == "suppressions" or key.startswith("ignore_") or (key.startswith("report_") and setting in ("0", "false")):
+        if key == "suppressions" or key.startswith("ignore_") or (key.startswith("report_") and setting.lower() not in ("1", "true", "yes")):
             raise LaneError(f"TSAN_OPTIONS cannot suppress reports with {key}")
         options[key] = setting
     options = {"second_deadlock_stack": "1", **options, **required}
