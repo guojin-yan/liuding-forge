@@ -182,6 +182,11 @@ if(Python3_Interpreter_FOUND)
         LABELS "hygiene;performance;cuda"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
+    add_test(NAME ResourceBaselineRunnerUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_resource_baseline.py")
+    set_tests_properties(ResourceBaselineRunnerUnitTests PROPERTIES
+        LABELS "hygiene;performance" TIMEOUT 60)
     add_test(
         NAME PublicHeaderGuards
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/header_guards.py

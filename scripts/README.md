@@ -15,6 +15,10 @@ working directory.
 | `interop/` | Official safetensors interoperability qualification and ONNX environment probes, with the qualification dependency lock and provenance. |
 | `release/` | Offline candidate preparation, installed-file inventory, evidence and dependency bindings, and independent release verification. |
 
+[Resource baseline sampling](benchmarks/RESOURCE_BASELINE.md) covers stable
+storage/checkpoint/telemetry and the three optional Previews in independent
+processes, using existing Release binaries after chapter-level validation.
+
 Examples:
 
 ```sh
