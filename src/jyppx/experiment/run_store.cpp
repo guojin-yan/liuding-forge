@@ -473,7 +473,7 @@ constexpr const char* kSelectReferences =
 class SQLiteRunStore::Impl final {
  public:
   Impl(std::filesystem::path root, SQLiteRunStoreOptions options)
-      : options_(std::move(options)),
+      : options_(options),
         root_(canonical_root(std::move(root), options_)),
         database_path_(root_ / "runs.sqlite3"),
         artifacts_(root_ / "artifacts", options_.artifact_limits) {
@@ -831,7 +831,7 @@ class SQLiteRunStore::Impl final {
 
 SQLiteRunStore::SQLiteRunStore(std::filesystem::path root,
                                SQLiteRunStoreOptions options)
-    : impl_(std::make_unique<Impl>(std::move(root), std::move(options))) {}
+    : impl_(std::make_unique<Impl>(std::move(root), options)) {}
 
 SQLiteRunStore::~SQLiteRunStore() = default;
 
