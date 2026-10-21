@@ -138,8 +138,37 @@ ArtifactDigest read_digest(const Json &value) {
   return digest;
 }
 
+void consume_json_node(std::size_t &nodes, const EvaluationLimits &limits) {
+  if (nodes == limits.max_json_nodes) {
+    reject("json.nodes", "configured node limit exceeded",
+           ErrorCode::resource_exhausted);
+  }
+  ++nodes;
+}
+
+void validate_json_budget(const Json &value, const EvaluationLimits &limits,
+                          std::size_t depth, std::size_t &nodes) {
+  consume_json_node(nodes, limits);
+  if (value.is_string()) {
+    bound(value.get_ref<const std::string &>().size(), limits.max_text_bytes,
+          "json.string");
+  }
+  if (value.is_object() || value.is_array()) {
+    bound(depth + 1U, limits.max_json_depth, "json.depth");
+    for (auto it = value.begin(); it != value.end(); ++it) {
+      if (value.is_object()) {
+        consume_json_node(nodes, limits);
+        bound(it.key().size(), limits.max_text_bytes, "json.string");
+      }
+      validate_json_budget(it.value(), limits, depth + 1U, nodes);
+    }
+  }
+}
+
 std::string finish_json(const Json &value, const EvaluationLimits &limits) {
   try {
+    std::size_t nodes = 0U;
+    validate_json_budget(value, limits, 0U, nodes);
     auto result = value.dump();
     bound(result.size(), limits.max_json_bytes, "json.bytes");
     return result;
@@ -173,11 +202,7 @@ Json parse_json(std::string_view value, const EvaluationLimits &limits) {
         event == Json::parse_event_t::array_start ||
         event == Json::parse_event_t::key ||
         event == Json::parse_event_t::value) {
-      if (nodes == limits.max_json_nodes) {
-        reject("json.nodes", "configured node limit exceeded",
-               ErrorCode::resource_exhausted);
-      }
-      ++nodes;
+      consume_json_node(nodes, limits);
       if (parsed.is_string()) {
         bound(parsed.get_ref<const std::string &>().size(),
               limits.max_text_bytes, "json.string");

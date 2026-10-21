@@ -66,6 +66,44 @@ QualityReport report(double value = 0.9) {
   return evaluate_observations(suite(), identity(), std::array{point(value)});
 }
 
+template <typename Encode, typename Decode>
+void expect_codec_budget_boundary(std::size_t nodes, std::size_t depth,
+                                  const Encode &encode, const Decode &decode) {
+  const auto wire = encode(EvaluationLimits{});
+  EvaluationLimits limits;
+  limits.max_json_nodes = nodes;
+  limits.max_json_depth = depth;
+  limits.max_text_bytes = 64U;
+  limits.max_json_bytes = wire.size();
+  EXPECT_EQ(encode(limits), wire);
+  EXPECT_NO_THROW(decode(wire, limits));
+
+  auto restricted = limits;
+  --restricted.max_json_nodes;
+  EXPECT_THROW(encode(restricted), ResourceExhausted);
+  EXPECT_THROW(decode(wire, restricted), ResourceExhausted);
+  restricted = limits;
+  --restricted.max_json_depth;
+  EXPECT_THROW(encode(restricted), ResourceExhausted);
+  EXPECT_THROW(decode(wire, restricted), ResourceExhausted);
+  restricted = limits;
+  --restricted.max_json_bytes;
+  EXPECT_THROW(encode(restricted), ResourceExhausted);
+  EXPECT_THROW(decode(wire, restricted), ResourceExhausted);
+  restricted = limits;
+  --restricted.max_text_bytes;
+  EXPECT_THROW(encode(restricted), ResourceExhausted);
+  EXPECT_THROW(decode(wire, restricted), ResourceExhausted);
+  restricted = limits;
+  restricted.max_json_nodes = 1U;
+  EXPECT_THROW(encode(restricted), ResourceExhausted);
+  EXPECT_THROW(decode(wire, restricted), ResourceExhausted);
+  restricted = limits;
+  restricted.max_json_depth = 1U;
+  EXPECT_THROW(encode(restricted), ResourceExhausted);
+  EXPECT_THROW(decode(wire, restricted), ResourceExhausted);
+}
+
 TEST(EvaluationInputTest, RoundTripRetainsProvenanceAndNonfiniteStatus) {
   EvaluationInput input{
       .schema_version = 1U,
@@ -314,6 +352,111 @@ TEST(DataQualityTest,
   EXPECT_EQ(evidence.conflicting_labels, 1U);
   EXPECT_EQ(inspect_data_quality(schema, {}).verdict,
             QualityVerdict::incomplete);
+}
+
+TEST(EvaluationLimitsTest,
+     SuiteEncoderAndDecoderShareExactWireBudgetBoundaries) {
+  const auto original = suite();
+  expect_codec_budget_boundary(
+      59U, 5U,
+      [&](const EvaluationLimits &limits) {
+        return evaluation_suite_json(original, limits);
+      },
+      [](std::string_view wire, const EvaluationLimits &limits) {
+        return parse_evaluation_suite_json(wire, limits);
+      });
+}
+
+TEST(EvaluationLimitsTest,
+     InputEncoderAndDecoderShareExactWireBudgetBoundaries) {
+  const EvaluationInput original{
+      .schema_version = 1U, .identity = identity(), .observations = {point()}};
+  expect_codec_budget_boundary(
+      71U, 5U,
+      [&](const EvaluationLimits &limits) {
+        return evaluation_input_json(original, limits);
+      },
+      [](std::string_view wire, const EvaluationLimits &limits) {
+        return parse_evaluation_input_json(wire, limits);
+      });
+}
+
+TEST(EvaluationLimitsTest,
+     ReportEncoderAndDecoderShareExactWireBudgetBoundaries) {
+  const auto original = report();
+  expect_codec_budget_boundary(
+      141U, 6U,
+      [&](const EvaluationLimits &limits) {
+        return quality_report_json(original, limits);
+      },
+      [](std::string_view wire, const EvaluationLimits &limits) {
+        return parse_quality_report_json(wire, limits);
+      });
+}
+
+TEST(EvaluationLimitsTest,
+     AppliesTextBudgetToTelemetryKeysAndValuesInAllWireArtifacts) {
+  for (const auto oversized_key : {false, true}) {
+    SCOPED_TRACE(oversized_key ? "parameter key" : "parameter value");
+    auto original_suite = suite();
+    original_suite.rules.front().definition.parameters = {
+        {oversized_key ? std::string(65U, 'k') : "key",
+         oversized_key ? "value" : std::string(65U, 'v')}};
+    auto measured = point();
+    measured.definition = original_suite.rules.front().definition;
+    const EvaluationInput original_input{.schema_version = 1U,
+                                         .identity = identity(),
+                                         .observations = {measured}};
+    const auto original_report =
+        evaluate_observations(original_suite, identity(), std::array{measured});
+    const auto suite_wire = evaluation_suite_json(original_suite);
+    const auto input_wire = evaluation_input_json(original_input);
+    const auto report_wire = quality_report_json(original_report);
+    EvaluationLimits limits;
+    limits.max_text_bytes = 64U;
+    EXPECT_THROW(evaluation_suite_json(original_suite, limits),
+                 ResourceExhausted);
+    EXPECT_THROW(parse_evaluation_suite_json(suite_wire, limits),
+                 ResourceExhausted);
+    EXPECT_THROW(evaluation_input_json(original_input, limits),
+                 ResourceExhausted);
+    EXPECT_THROW(parse_evaluation_input_json(input_wire, limits),
+                 ResourceExhausted);
+    EXPECT_THROW(quality_report_json(original_report, limits),
+                 ResourceExhausted);
+    EXPECT_THROW(parse_quality_report_json(report_wire, limits),
+                 ResourceExhausted);
+    EXPECT_THROW(
+        evaluate_observations(original_suite, identity(), std::array{measured},
+                              {}, std::nullopt, limits),
+        ResourceExhausted);
+    limits.max_text_bytes = 65U;
+    EXPECT_EQ(evaluation_suite_json(original_suite, limits), suite_wire);
+    EXPECT_EQ(evaluation_input_json(original_input, limits), input_wire);
+    EXPECT_EQ(quality_report_json(original_report, limits), report_wire);
+  }
+}
+
+TEST(EvaluationLimitsTest,
+     AppliesAggregateNodeBudgetToReportAndEvaluationResult) {
+  EvaluationLimits limits;
+  limits.max_json_nodes = 140U;
+  EXPECT_NO_THROW(parse_evaluation_suite_json(
+      evaluation_suite_json(suite(), limits), limits));
+  const EvaluationInput input{
+      .schema_version = 1U, .identity = identity(), .observations = {point()}};
+  EXPECT_NO_THROW(parse_evaluation_input_json(
+      evaluation_input_json(input, limits), limits));
+  const auto original = report();
+  EXPECT_THROW(quality_report_json(original, limits), ResourceExhausted);
+  EXPECT_THROW(parse_quality_report_json(quality_report_json(original), limits),
+               ResourceExhausted);
+  EXPECT_THROW(evaluate_observations(suite(), identity(), std::array{point()},
+                                     {}, std::nullopt, limits),
+               ResourceExhausted);
+  limits.max_json_nodes = 141U;
+  EXPECT_NO_THROW(evaluate_observations(
+      suite(), identity(), std::array{point()}, {}, std::nullopt, limits));
 }
 
 TEST(EvaluationLimitsTest,

@@ -27,6 +27,14 @@ unsupported schemas, negative unsigned values and configured resource limits.
 There is at most one final observation per metric-definition/context key.
 Unknown observations cannot be silently dropped from an evaluation.
 
+Encoders and decoders apply the same byte, node, container-depth and UTF-8
+string-byte budgets. A node is a container, an object key or a scalar value;
+the root container has depth one. String budgets include JSON field names and
+telemetry parameter/context keys and values. Successfully encoded evidence can
+be decoded with the same limits. A report counts its complete embedded suite
+and all retained observations together, including repeated metric definitions;
+`evaluate_observations` rejects a report that exceeds this aggregate budget.
+
 ## Reports and comparisons
 
 `QualityReport` retains the full suite, producer provenance and one result per
