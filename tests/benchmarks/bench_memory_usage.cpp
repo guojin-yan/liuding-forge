@@ -14,8 +14,10 @@
 #include <vector>
 
 #if defined(_WIN32)
-#include <psapi.h>
 #include <windows.h>
+
+// Psapi declarations depend on Windows SDK types declared by windows.h.
+#include <psapi.h>
 #elif defined(__linux__)
 #include <fstream>
 #endif
