@@ -3,11 +3,12 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "fuzz_support.hpp"
+
 #include <jyppx/core/device.hpp>
 
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <string>
 
 namespace {
@@ -36,10 +37,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
   }
 
   const std::string input(reinterpret_cast<const char*>(data), size);
-  try {
-    static_cast<void>(jyppx::parse_device(input));
-  } catch (const std::exception&) {
-    // Rejected strings are expected; sanitizer failures are not caught.
-  }
+  static_cast<void>(
+      jyppx::fuzz::parse_input([&] { return jyppx::parse_device(input); }));
   return 0;
 }

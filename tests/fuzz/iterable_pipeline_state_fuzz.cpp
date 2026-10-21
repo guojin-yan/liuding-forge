@@ -3,6 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "fuzz_support.hpp"
+
 #include <jyppx/data/iterable_data_pipeline.hpp>
 #include <jyppx/foundation/error.hpp>
 
@@ -298,8 +300,16 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
            std::uint64_t,
            std::stop_token) { return c10::IValue(std::int64_t{2}); });
     pipeline.load_state(store, jyppx::RestorePolicy::exact_only);
-  } catch (const std::exception&) {
-    // Malformed state is expected; sanitizer failures must remain visible.
+  } catch (const jyppx::Error& error) {
+    switch (error.code()) {
+      case jyppx::ErrorCode::invalid_argument:
+      case jyppx::ErrorCode::serialization:
+      case jyppx::ErrorCode::compatibility:
+      case jyppx::ErrorCode::resource_exhausted:
+        break;
+      default:
+        throw;
+    }
   }
   return 0;
 }
