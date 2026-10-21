@@ -495,7 +495,7 @@ class FileArtifactStore::FileArtifactReader final : public ArtifactReader {
  public:
   FileArtifactReader(std::filesystem::path path, ArtifactDigest digest,
                      std::uint64_t size)
-      : input_(std::move(path), std::ios::binary),
+      : input_(path, std::ios::binary),
         digest_(std::move(digest)),
         size_(size) {
     if (!input_) {
@@ -538,14 +538,14 @@ class FileArtifactStore::FileArtifactReader final : public ArtifactReader {
 
 FileArtifactStore::FileArtifactStore(std::filesystem::path root,
                                      ArtifactStoreLimits limits)
-    : limits_(std::move(limits)) {
+    : limits_(limits) {
   validate_limits(limits_);
   if (root.empty()) {
     throw_invalid("root", "a nonempty directory path", "empty",
                   "Choose a dedicated local artifact directory.");
   }
   std::error_code error;
-  root_ = std::filesystem::absolute(std::move(root), error);
+  root_ = std::filesystem::absolute(root, error);
   if (error) throw_io("absolute", root_, error);
   root_ = std::filesystem::weakly_canonical(root_, error);
   if (error) throw_io("canonicalize", root_, error);
