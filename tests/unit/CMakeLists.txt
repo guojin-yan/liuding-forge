@@ -138,6 +138,11 @@ jyppx_add_gtest(jyppx_test_nn_focal
     nn/loss/test_focal_loss.cpp
 )
 
+jyppx_add_gtest(jyppx_test_nn_loss_reference_matrix
+    LINK_TARGET jyppx::nn
+    nn/loss/test_loss_reference_matrix.cpp
+)
+
 jyppx_add_gtest(jyppx_test_nn_model_adapter
     LINK_TARGET jyppx::nn
     nn/test_model_adapter.cpp

@@ -3,6 +3,10 @@
 jyppx_add_bench(jyppx_bench_data_pipeline bench_data_pipeline.cpp)
 jyppx_add_bench(jyppx_bench_trainer_throughput bench_trainer_throughput.cpp)
 jyppx_add_bench(jyppx_bench_optimizer_convergence bench_optimizer_convergence.cpp)
+jyppx_add_bench(jyppx_bench_loss_vertical_slice
+    LINK_TARGET jyppx::nn
+    bench_loss_vertical_slice.cpp
+)
 jyppx_add_bench(jyppx_bench_adadelta_native_throughput bench_adadelta_native_throughput.cpp)
 jyppx_add_bench(jyppx_bench_lamb_native_throughput bench_lamb_native_throughput.cpp)
 jyppx_add_bench(jyppx_bench_adagrad_adapter_overhead bench_adagrad_adapter_overhead.cpp)

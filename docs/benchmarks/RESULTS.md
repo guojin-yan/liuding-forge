@@ -6,6 +6,7 @@ The benchmark programs emit CSV and need no database service:
 tests/benchmarks/bench_data_pipeline
 tests/benchmarks/bench_trainer_throughput
 tests/benchmarks/bench_optimizer_convergence
+tests/benchmarks/bench_loss_vertical_slice
 tests/benchmarks/bench_sgd_adapter_overhead
 tests/benchmarks/bench_adam_adapter_overhead
 tests/benchmarks/bench_adamw_adapter_overhead
@@ -27,6 +28,13 @@ allowance.
 DataPipeline latency and peak memory are lower-is-better; Trainer throughput is
 higher-is-better. Optimizer convergence remains deterministic correctness
 evidence and is not treated as a timing metric.
+
+`bench_loss_vertical_slice` uses one CPU thread, fixed seeds and frozen tensor
+shapes to report five post-warmup forward/backward samples for label smoothing,
+binary focal, multilabel Dice and contrastive loss. It links only `jyppx::nn`
+so the same target can also measure component-level clean build time. Compare
+results only on the same host, toolchain, LibTorch build and workload revision;
+the executable records observations and does not define a portable threshold.
 
 `bench_sgd_adapter_overhead` alternates five direct LibTorch SGD and delegated
 adapter samples after two warmups. It reports nanoseconds per step and the
