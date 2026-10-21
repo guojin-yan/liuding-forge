@@ -11,6 +11,7 @@ metrics, callbacks, checkpointing and mixed precision.
 ## Getting started
 
 - Installation and build instructions: the [README](../README.md)
+- [Beta scope and migration limits](user-guide/beta_limits.md)
 - [Tutorial 1: Basic Training](tutorials/01_basic_training.md) — the
   smallest complete training program
 
@@ -48,6 +49,9 @@ metrics, callbacks, checkpointing and mixed precision.
 - [Evaluation evidence](api/evaluation.md) — versioned suites, provenance,
   local JSON/HTML reports, baseline comparisons and basic data checks
 - [Library CLI](user-guide/cli.md) — text/JSON commands and installation
+- [Configuration migration](api/config_migration.md) — explicit schema chains,
+  preview, new-file apply and verified rollback
+- [API migration diagnostics](api/api_migration.md) — bounded source scanning
 - [Sidecar process transport](api/telemetry_sidecar_process.md) — bounded
   supervised optional telemetry processes
 - [Model weight import](api/model_weight_import.md) — verified safetensors,

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -412,7 +413,7 @@ int main_entry(std::span<const std::string_view> values) {
 }  // namespace jyppx::cli
 
 #ifdef _WIN32
-int wmain(int argc, wchar_t* argv[]) {
+int wmain(int argc, wchar_t* argv[]) try {
   std::vector<std::string> storage;
   if (argc > 1) storage.reserve(static_cast<std::size_t>(argc - 1));
   for (int i = 1; i < argc; ++i) {
@@ -431,12 +432,20 @@ int wmain(int argc, wchar_t* argv[]) {
   arguments.reserve(storage.size());
   for (const auto& value : storage) arguments.emplace_back(value);
   return jyppx::cli::main_entry(arguments);
+} catch (...) {
+  // Argument allocation and even error rendering can fail before main_entry
+  // reaches its normal structured-error boundary. No exception escapes main.
+  std::fputs("Command failed before a response could be rendered.\n", stderr);
+  return 3;
 }
 #else
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) try {
   std::vector<std::string_view> arguments;
   if (argc > 1) arguments.reserve(static_cast<std::size_t>(argc - 1));
   for (int i = 1; i < argc; ++i) arguments.emplace_back(argv[i]);
   return jyppx::cli::main_entry(arguments);
+} catch (...) {
+  std::fputs("Command failed before a response could be rendered.\n", stderr);
+  return 3;
 }
 #endif

@@ -31,6 +31,8 @@ jyppx doctor --device cuda --expected-libtorch 2.5.1 --format json
 jyppx config lint --schema config-schema.json --file training.json --format text
 jyppx config render --schema config-schema.json --set /training/rate=0.01 --format json
 jyppx config explain --schema config-schema.json --path /training/rate --format text
+jyppx config migrate --input old.json --plan migration-plan.json --to-version 3 --format json
+jyppx api scan --root application-src --format json
 jyppx run list --root local-runs --format text
 jyppx model verify --path weights.safetensors --format json
 jyppx model bundle verify --path immutable-model-bundle --format json
