@@ -6,7 +6,7 @@ target_compile_definitions(jyppx_test_sidecar_transport PRIVATE
     JYPPX_SIDECAR_TEST_PYTHON="${Python3_EXECUTABLE}"
     JYPPX_SIDECAR_TEST_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/sidecar_fixture.py")
 
-foreach(contract IN ITEMS model_checkpoint model_bundle evaluation_data offline_workflow run_telemetry)
+foreach(contract IN ITEMS model_checkpoint model_bundle evaluation_data offline_workflow run_telemetry migration)
     add_test(NAME Cli_${contract}
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_${contract}.py"
             --cli $<TARGET_FILE:jyppx_cli>)

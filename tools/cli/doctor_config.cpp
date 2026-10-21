@@ -3,6 +3,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "cli.hpp"
+#include "config_migration.hpp"
 
 #include <jyppx/core/value_schema.hpp>
 #include <jyppx/experiment/config.hpp>
@@ -144,6 +145,58 @@ c10::IValue config_value(const Json& value, const ValueSchema& schema,
 }
 }  // namespace
 
+experiment::config::ConfigSchema decode_config_schema(const Json& encoded) {
+  using namespace experiment::config;
+  fields(encoded, {"schema_version", "schema_id", "version", "root"},
+         {"defaults", "environment_bindings", "secret_paths"});
+  if (unsigned_number(encoded.at("schema_version"), 1U) != 1U)
+    throw CompatibilityError("Unsupported CLI config schema");
+  ConfigSchema schema;
+  schema.schema_id = encoded.at("schema_id").get<std::string>();
+  schema.version = static_cast<std::uint32_t>(unsigned_number(
+      encoded.at("version"), std::numeric_limits<std::uint32_t>::max()));
+  schema.root = schema_node(encoded.at("root"));
+  if (encoded.contains("defaults"))
+    schema.defaults = config_value(encoded.at("defaults"), schema.root);
+  if (encoded.contains("environment_bindings"))
+    schema.environment_bindings =
+        encoded.at("environment_bindings")
+            .get<std::map<std::string, std::string>>();
+  if (encoded.contains("secret_paths"))
+    schema.secret_paths =
+        encoded.at("secret_paths").get<std::vector<std::string>>();
+  validate_config_schema(schema);
+  return schema;
+}
+
+void validate_migration_values(const Json& values,
+                               const experiment::config::ConfigSchema& schema) {
+  using namespace experiment::config;
+  if (!values.is_object())
+    throw SerializationError("Migration config must be a dictionary");
+  auto exact_schema = schema;
+  exact_schema.defaults = {};
+  exact_schema.environment_bindings.clear();
+  validate_config_schema(exact_schema);
+  const auto typed = config_value(values, exact_schema.root);
+  validate_value(typed, exact_schema.root);
+  ConfigResolver resolver(std::move(exact_schema));
+  resolver.add_environment({});
+  for (const auto& item : values.items()) {
+    std::string escaped;
+    for (const auto character : item.key()) {
+      if (character == '~')
+        escaped += "~0";
+      else if (character == '/')
+        escaped += "~1";
+      else
+        escaped += character;
+    }
+    resolver.add_cli_override("/" + escaped, item.value().dump());
+  }
+  static_cast<void>(resolver.resolve());
+}
+
 Result doctor(const Arguments& arguments) {
   arguments.allow({"device", "expected-libtorch"});
   const auto device_name = arguments.optional("device").value_or("cpu");
@@ -212,6 +265,8 @@ Result doctor(const Arguments& arguments) {
 
 Result config_command(const Arguments& arguments) {
   using namespace experiment::config;
+  if (arguments.words()[1] == "migrate")
+    return config_migration_command(arguments);
   arguments.allow({"schema", "file", "set", "path"});
   const auto action = arguments.words()[1];
   if (action != "lint" && action != "render" && action != "explain")
@@ -220,25 +275,7 @@ Result config_command(const Arguments& arguments) {
     usage("config", "Only explain accepts --path.");
   const auto encoded =
       parse_json(read_text(arguments.require("schema"), 1024U * 1024U));
-  fields(encoded, {"schema_version", "schema_id", "version", "root"},
-         {"defaults", "environment_bindings", "secret_paths"});
-  if (unsigned_number(encoded.at("schema_version"), 1U) != 1U)
-    throw CompatibilityError("Unsupported CLI config schema");
-  ConfigSchema schema;
-  schema.schema_id = encoded.at("schema_id").get<std::string>();
-  schema.version = static_cast<std::uint32_t>(unsigned_number(
-      encoded.at("version"), std::numeric_limits<std::uint32_t>::max()));
-  schema.root = schema_node(encoded.at("root"));
-  if (encoded.contains("defaults"))
-    schema.defaults = config_value(encoded.at("defaults"), schema.root);
-  if (encoded.contains("environment_bindings"))
-    schema.environment_bindings =
-        encoded.at("environment_bindings")
-            .get<std::map<std::string, std::string>>();
-  if (encoded.contains("secret_paths"))
-    schema.secret_paths =
-        encoded.at("secret_paths").get<std::vector<std::string>>();
-  ConfigResolver resolver(std::move(schema));
+  ConfigResolver resolver(decode_config_schema(encoded));
   for (const auto& path : arguments.repeated("file"))
     resolver.add_json_file(std::filesystem::u8path(path));
   resolver.add_process_environment();

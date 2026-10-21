@@ -7,6 +7,8 @@ target_link_libraries(jyppx_cli_transport PRIVATE nlohmann_json::nlohmann_json)
 
 add_executable(jyppx_cli
     cli_main.cpp
+    api_migration.cpp
+    config_migration.cpp
     doctor_config.cpp
     evaluation_data.cpp
     model_checkpoint.cpp

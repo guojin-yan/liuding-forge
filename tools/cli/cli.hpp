@@ -56,6 +56,7 @@ void fields(const Json& value, std::initializer_list<std::string_view> required,
 std::uint64_t unsigned_number(const Json& value, std::uint64_t maximum);
 Result doctor(const Arguments& arguments);
 Result config_command(const Arguments& arguments);
+Result api_command(const Arguments& arguments);
 Result run_command(const Arguments& arguments);
 Result evaluation_command(const Arguments& arguments);
 Result data_command(const Arguments& arguments);

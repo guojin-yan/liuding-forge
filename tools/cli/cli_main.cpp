@@ -232,6 +232,12 @@ Result execute(const Arguments& arguments) {
                   {"doctor [--device cpu|cuda] [--expected-libtorch VERSION]",
                    "config lint|render|explain --schema PATH [--file PATH] "
                    "[--set /path=JSON] [--path POINTER]",
+                   "config migrate --input PATH --plan PATH --to-version N "
+                   "[--mode preview|apply] [--output NEW_DIRECTORY]",
+                   "config migrate --mode rollback --receipt DIRECTORY "
+                   "--plan PATH --output NEW_DIRECTORY",
+                   "api scan --root SOURCE_DIRECTORY [--max-files N] "
+                   "[--max-bytes N] [--max-findings N]",
                    "run start --root PATH --metadata PATH",
                    "run list --root PATH [--after ID] [--limit N]",
                    "run show --root PATH --id ID",
@@ -260,6 +266,7 @@ Result execute(const Arguments& arguments) {
   if (words.size() != 2U)
     usage("command", "Use a documented command and subcommand.");
   if (words.front() == "config") return config_command(arguments);
+  if (words.front() == "api") return api_command(arguments);
   if (words.front() == "run") return run_command(arguments);
   if (words.front() == "evaluation") return evaluation_command(arguments);
   if (words.front() == "data") return data_command(arguments);

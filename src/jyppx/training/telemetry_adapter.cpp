@@ -136,7 +136,9 @@ TelemetryEnvelope convert(const EventEnvelope& source,
   result.correlation = {.project_id = options.project_id,
                         .run_id = source.event.run_id,
                         .attempt_id = options.attempt_id,
-                        .trace_id = source.event.trace_id};
+                        .trace_id = source.event.trace_id,
+                        .span_id = {},
+                        .parent_span_id = {}};
   result.reliability = TelemetryReliability::required;
   result.attributes = {
       {"training.phase", std::string(callback_phase_name(source.event.phase))},
