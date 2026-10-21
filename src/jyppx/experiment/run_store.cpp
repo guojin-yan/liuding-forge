@@ -1871,7 +1871,7 @@ void verify_event_integrity(sqlite3* database,
           consume_quota(bytes, canonical.size(),
                         limits.telemetry.max_batch_bytes,
                         "integrity.batch_items");
-          encoded.push_back({.canonical = std::move(canonical)});
+          encoded.push_back({.canonical = std::move(canonical), .digest = {}});
         }
         if (encoded.size() != count ||
             batch_digest(encoded) != batches.text(2, 64U))
@@ -2874,8 +2874,11 @@ BackupManifest decode_backup_manifest(const std::filesystem::path& root,
                 "oversized object");
     consume_quota(total, record.size, options.artifact_limits.max_total_bytes,
                   "backup.artifact_bytes");
-    manifest.artifacts.push_back(
-        {.digest = {.hex = record.digest}, .size_bytes = record.size});
+    manifest.artifacts.push_back({.digest = {.hex = record.digest},
+                                  .size_bytes = record.size,
+                                  .logical_name = {},
+                                  .media_type = "application/octet-stream",
+                                  .producer = {}});
     previous = record.digest;
   }
   if (offset != body.size()) corrupt("backup.manifest", "trailing records");

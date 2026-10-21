@@ -68,6 +68,7 @@ jobs:
             )
           fi
           cmake -S . -B out/build/ci \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DJYPPX_BUILD_TESTS=ON \
             -DJYPPX_BUILD_EXAMPLES=ON \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/libtorch-install/libtorch" \

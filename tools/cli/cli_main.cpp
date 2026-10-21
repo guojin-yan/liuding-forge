@@ -286,20 +286,40 @@ int main_entry(std::span<const std::string_view> values) {
     else if (values[i] == "--format" && i + 1U < values.size())
       requested_json = values[++i] == "json";
   }
-  const auto render_text = [](const auto& self, const Json& value,
-                              std::size_t indent) -> void {
+  const auto visible = [](std::string_view value) {
+    constexpr std::string_view hex = "0123456789abcdef";
+    std::string result;
+    result.reserve(value.size());
+    for (std::size_t index = 0U; index < value.size(); ++index) {
+      auto byte = static_cast<unsigned char>(value[index]);
+      const bool c1 = byte == 0xc2U && index + 1U < value.size() &&
+                      static_cast<unsigned char>(value[index + 1U]) >= 0x80U &&
+                      static_cast<unsigned char>(value[index + 1U]) <= 0x9fU;
+      if (c1) byte = static_cast<unsigned char>(value[++index]);
+      if (byte < 0x20U || byte == 0x7fU || c1) {
+        result += "\\u00";
+        result.push_back(hex[byte >> 4U]);
+        result.push_back(hex[byte & 0x0fU]);
+      } else
+        result.push_back(static_cast<char>(byte));
+    }
+    return result;
+  };
+  const auto render_text = [&](const auto& self, const Json& value,
+                               std::size_t indent) -> void {
     const std::string padding(indent, ' ');
     if (value.is_object()) {
       if (value.empty()) std::cout << padding << "(empty)\n";
       for (const auto& [name, field] : value.items()) {
-        std::cout << padding << name << ':';
+        std::cout << padding << visible(name) << ':';
         if (field.is_structured()) {
           std::cout << '\n';
           self(self, field, indent + 2U);
         } else
           std::cout << ' '
-                    << (field.is_string() ? field.get<std::string>()
-                                          : field.dump())
+                    << (field.is_string()
+                            ? visible(field.get_ref<const std::string&>())
+                            : field.dump())
                     << '\n';
       }
     } else if (value.is_array()) {
@@ -311,13 +331,16 @@ int main_entry(std::span<const std::string_view> values) {
           self(self, field, indent + 2U);
         } else
           std::cout << ' '
-                    << (field.is_string() ? field.get<std::string>()
-                                          : field.dump())
+                    << (field.is_string()
+                            ? visible(field.get_ref<const std::string&>())
+                            : field.dump())
                     << '\n';
       }
     } else
       std::cout << padding
-                << (value.is_string() ? value.get<std::string>() : value.dump())
+                << (value.is_string()
+                        ? visible(value.get_ref<const std::string&>())
+                        : value.dump())
                 << '\n';
   };
   const auto render_error = [&](const Json& envelope) {
@@ -325,11 +348,13 @@ int main_entry(std::span<const std::string_view> values) {
       std::cout << envelope.dump() << '\n';
     else {
       const auto& error = envelope.at("error");
-      std::cout << "error (" << error.at("name").get<std::string>()
-                << "): " << error.at("message").get<std::string>() << '\n';
+      std::cout << "error (" << visible(error.at("name").get<std::string>())
+                << "): " << visible(error.at("message").get<std::string>())
+                << '\n';
       if (error.contains("hint") &&
           !error.at("hint").get<std::string>().empty()) {
-        std::cout << "hint: " << error.at("hint").get<std::string>() << '\n';
+        std::cout << "hint: " << visible(error.at("hint").get<std::string>())
+                  << '\n';
       }
     }
   };

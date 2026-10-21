@@ -469,6 +469,7 @@ class NativeProcess {
         command += quote_argument(wide(argument));
         if (command.size() > 32766U) capacity_failure("launch.command_line");
       }
+      if (command.size() > 32766U) capacity_failure("launch.command_line");
       if (command.size() * sizeof(wchar_t) > options.max_launch_bytes)
         capacity_failure("launch.command_line");
       auto environment = child_environment(options);
@@ -577,7 +578,6 @@ class NativeProcess {
           io_failure("pipe.write.complete");
         }
       }
-      if (command.size() > 32766U) capacity_failure("launch.command_line");
       const auto process_state = WaitForSingleObject(process_.get(), 0U);
       if (process_state == WAIT_FAILED) io_failure("process.poll");
       result.process_exited = process_state == WAIT_OBJECT_0;

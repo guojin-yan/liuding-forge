@@ -39,8 +39,8 @@ std::vector<std::byte> source(bool include_count = true,
   const std::array<float, 2> floats{1.25F, -2.5F};
   const std::int64_t count = 99;
   const auto bytes = dtype == SafeTensorDtype::f32
-                         ? std::as_bytes(std::span(floats))
-                         : std::as_bytes(std::span(doubles));
+                         ? std::as_bytes(std::span<const float>(floats))
+                         : std::as_bytes(std::span<const double>(doubles));
   std::vector<SafeTensorSource> tensors{
       {.name = "weight",
        .dtype = dtype,
@@ -236,7 +236,7 @@ TEST(ModelWeightImportTest,
   module->weight.mutable_grad() = torch::ones_like(module->weight);
   EXPECT_THROW(import_model_weights(view, bytes, hash(bytes)),
                CompatibilityError);
-  module->weight.mutable_grad() = {};
+  module->weight.mutable_grad() = torch::Tensor{};
   module->register_buffer("alias", module->weight.detach().view({2}));
   EXPECT_THROW(import_model_weights(view, bytes, hash(bytes)),
                CompatibilityError);

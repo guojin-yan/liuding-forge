@@ -402,6 +402,25 @@ class RunTelemetryContract(unittest.TestCase):
                               "--step-kind", "epoch")["data"]["points"]
         self.assertEqual([record["cursor"] for record in filtered], [{"run_sequence": 3, "point_index": 0}])
 
+    def test_text_escapes_terminal_controls_and_json_preserves_evidence(self) -> None:
+        body = "日志\x1b]52;c;dW50cnVzdGVk\x07\r\n\x1b[2J\x7f\u009b31m"
+        value = envelope(5, {"kind": 3, "severity": 2, "body": body})
+        value["attributes"] = {"dynamic\x1bkey": "控制\u0085text"}
+        seed_database(self.store, [value])
+        records = self.query("events")["data"]["events"]
+        self.assertEqual(records[-1]["event"]["payload"]["body"], body)
+        self.assertEqual(records[-1]["event"]["attributes"], value["attributes"])
+        result = subprocess.run(
+            [str(self.cli), "run", "events", "--root", str(self.store), "--id", RUN_ID,
+             "--format", "text"], capture_output=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        output = result.stdout.decode("utf-8")
+        self.assertIn("日志\\u001b]52", output)
+        self.assertIn("dynamic\\u001bkey", output)
+        self.assertIn("控制\\u0085text", output)
+        for control in ("\x1b", "\x07", "\x7f", "\u0085", "\u009b"):
+            self.assertNotIn(control, output)
+
     def test_metric_pages_exclude_concurrent_append(self) -> None:
         first = self.query("metrics", "--metric", "validation.accuracy", "--limit", 1)["data"]
         late = envelope(5, {"kind": 2, "points": [metric_point(0.5, step=0)]})

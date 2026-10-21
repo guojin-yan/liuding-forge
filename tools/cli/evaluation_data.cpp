@@ -184,7 +184,7 @@ Result evaluation_command(const Arguments& arguments) {
         evaluate_observations(suite, input.identity, input.observations);
     const auto canonical = quality_report_json(report);
     Json result{{"verdict", quality_verdict_name(report.verdict)},
-                {"report", parse_json(canonical)}};
+                {"report", Json::parse(canonical)}};
     retain_report(arguments, report, canonical, result);
     return {result, verdict_exit(report.verdict)};
   }
@@ -196,7 +196,10 @@ Result evaluation_command(const Arguments& arguments) {
     if (const auto html = arguments.optional("html"))
       write_output(path(*html), quality_report_html(report));
     return {Json{{"verdict", quality_verdict_name(report.verdict)},
-                 {"report", parse_json(canonical)}},
+                 // The domain codec just validated its own byte/node limits.
+                 // Do not impose the generic CLI input parser's different
+                 // counting convention on this trusted encoded report.
+                 {"report", Json::parse(canonical)}},
             verdict_exit(report.verdict)};
   }
   if (action == "compare") {

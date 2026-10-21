@@ -381,6 +381,12 @@ auto Sorted(const Values& values, Key key) {
   return sorted;
 }
 
+struct SafeTensorName {
+  const std::string& operator()(const SafeTensorSource& tensor) const {
+    return tensor.name;
+  }
+};
+
 Json SortedStrings(std::vector<std::string> values) {
   std::sort(values.begin(), values.end());
   return Json(values);
@@ -1375,8 +1381,8 @@ std::vector<EncodedBundleShard> shard_safetensors_for_bundle(
       payload = 0U;
       header = 2U;
     };
-    for (const auto* tensor :
-         Sorted(tensors, [](const auto& t) { return t.name; })) {
+    const auto sorted_tensors = Sorted(tensors, SafeTensorName{});
+    for (const auto* tensor : sorted_tensors) {
       // Offsets cannot exceed max_shard_bytes. Rendering those maximum offsets
       // bounds every real header entry without repeatedly encoding payloads.
       const Json one{{tensor->name,
