@@ -1,1 +1,6 @@
-* -text
+# Upstream evidence is retained byte-for-byte, including original whitespace.
+* -text -whitespace
+# Repository-authored metadata follows the normal text policy.
+.gitattributes text eol=lf !whitespace
+README.md text eol=lf !whitespace
+manifest.json text eol=lf !whitespace
