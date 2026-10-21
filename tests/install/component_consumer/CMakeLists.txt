@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(JYPPX_SUPPORTED_COMPONENTS
-    foundation core interop data nn optim training experiment all sdk
+    foundation core interop data nn optim training experiment models quantization serving all sdk
 )
 if(NOT JYPPX_CONSUMER_COMPONENT IN_LIST JYPPX_SUPPORTED_COMPONENTS)
     message(FATAL_ERROR
@@ -53,7 +53,7 @@ target_compile_definitions(jyppx_component_consumer
     PRIVATE JYPPX_CONSUMER_${JYPPX_COMPONENT_MACRO}=1
 )
 foreach(JYPPX_ENTITY_COMPONENT IN ITEMS
-        foundation core interop data nn optim training experiment)
+        foundation core interop data nn optim training experiment models quantization serving)
     string(TOUPPER "${JYPPX_ENTITY_COMPONENT}" JYPPX_ENTITY_COMPONENT_UPPER)
     if(TARGET jyppx::${JYPPX_ENTITY_COMPONENT})
         target_compile_definitions(jyppx_component_consumer PRIVATE
@@ -72,15 +72,19 @@ if(WIN32)
         message(FATAL_ERROR
             "Windows consumer smoke requires JYPPX_TORCH_RUNTIME_DIR")
     endif()
-    file(GLOB JYPPX_CONSUMER_RUNTIME_DLLS
-        "${JYPPX_TORCH_RUNTIME_DIR}/*.dll"
-    )
-    add_custom_command(TARGET jyppx_component_consumer POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${JYPPX_CONSUMER_RUNTIME_DLLS}
-            "$<TARGET_FILE_DIR:jyppx_component_consumer>"
-        VERBATIM
-    )
+    if(JYPPX_RUNTIME_STAGER AND EXISTS "${JYPPX_RUNTIME_STAGER}")
+        add_custom_command(TARGET jyppx_component_consumer POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+                "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_component_consumer>"
+                -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
+    else()
+        file(GLOB JYPPX_CONSUMER_RUNTIME_DLLS "${JYPPX_TORCH_RUNTIME_DIR}/*.dll")
+        add_custom_command(TARGET jyppx_component_consumer POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${JYPPX_CONSUMER_RUNTIME_DLLS}
+                "$<TARGET_FILE_DIR:jyppx_component_consumer>" VERBATIM)
+    endif()
 endif()
 
 enable_testing()

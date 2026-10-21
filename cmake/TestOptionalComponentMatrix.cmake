@@ -44,7 +44,7 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
     set(ENV{PATH} "${JYPPX_TORCH_RUNTIME_DIR};$ENV{PATH}")
 endif()
 
-set(optional_components core interop data nn optim training experiment)
+set(optional_components core interop data nn optim training experiment models quantization serving)
 set(profiles foundation core interop data nn optim training experiment)
 
 foreach(profile IN LISTS profiles)
@@ -91,6 +91,8 @@ foreach(profile IN LISTS profiles)
                 -DJYPPX_BUILD_BENCHMARKS=OFF
                 -DJYPPX_BUILD_FUZZERS=OFF
                 -DJYPPX_BUILD_DOCS=OFF
+                -DJYPPX_BUILD_TOOLS=OFF
+                -DJYPPX_MODELS_REFERENCE_DIR=
                 -DJYPPX_ENABLE_CLANG_TIDY=OFF
                 -DJYPPX_ENABLE_FORMAT_CHECK=OFF
                 -DJYPPX_ENABLE_WARNINGS_AS_ERRORS=OFF
@@ -154,6 +156,7 @@ foreach(profile IN LISTS profiles)
                 "-DCMAKE_PREFIX_PATH=${install_dir}"
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
                 "-DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+                "-DJYPPX_RUNTIME_STAGER=${source_dir}/cmake/StageTorchRuntime.cmake"
                 "-DJYPPX_CONSUMER_COMPONENT=${profile}"
                 "-DJYPPX_EXPECTED_COMPONENTS=${expected_components_arg}"
                 "-DJYPPX_ABSENT_COMPONENTS=${absent_components_arg}"
@@ -198,6 +201,10 @@ foreach(invalid_case IN LISTS invalid_cases)
         -DJYPPX_BUILD_OPTIM=OFF
         -DJYPPX_BUILD_TRAINING=OFF
         -DJYPPX_BUILD_EXPERIMENT=OFF
+        -DJYPPX_BUILD_MODELS=OFF
+        -DJYPPX_BUILD_QUANTIZATION=OFF
+        -DJYPPX_BUILD_SERVING=OFF
+        -DJYPPX_MODELS_REFERENCE_DIR=
     )
     if(invalid_case MATCHES "^core_off_([a-z]+)_on$")
         string(TOUPPER "${CMAKE_MATCH_1}" dependent_component)

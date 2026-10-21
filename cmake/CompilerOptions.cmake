@@ -15,6 +15,9 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_training
     jyppx_optim
     jyppx_experiment
+    jyppx_models
+    jyppx_quantization
+    jyppx_serving
     jyppx_cli_transport
     jyppx_cli
 )

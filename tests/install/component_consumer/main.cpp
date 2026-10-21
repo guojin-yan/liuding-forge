@@ -19,6 +19,12 @@
 #include <jyppx/training/trainer.hpp>
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)
 #include <jyppx/experiment/config.hpp>
+#elif defined(JYPPX_CONSUMER_MODELS)
+#include <jyppx/models/registry.hpp>
+#elif defined(JYPPX_CONSUMER_QUANTIZATION)
+#include <jyppx/quantization/quantization.hpp>
+#elif defined(JYPPX_CONSUMER_SERVING)
+#include <jyppx/serving/serving.hpp>
 #elif defined(JYPPX_CONSUMER_ALL)
 #include <jyppx/foundation/version.hpp>
 #elif defined(JYPPX_CONSUMER_SDK)
@@ -71,14 +77,17 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
 #endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
-  constexpr std::array<std::pair<std::string_view, bool>, 8U> kExpected{{
+  constexpr std::array<std::pair<std::string_view, bool>, 11U> kExpected{{
       {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
       {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
       {"experiment", JYPPX_EXPECT_COMPONENT_EXPERIMENT != 0},
       {"foundation", JYPPX_EXPECT_COMPONENT_FOUNDATION != 0},
       {"interop", JYPPX_EXPECT_COMPONENT_INTEROP != 0},
+      {"models", JYPPX_EXPECT_COMPONENT_MODELS != 0},
       {"nn", JYPPX_EXPECT_COMPONENT_NN != 0},
       {"optim", JYPPX_EXPECT_COMPONENT_OPTIM != 0},
+      {"quantization", JYPPX_EXPECT_COMPONENT_QUANTIZATION != 0},
+      {"serving", JYPPX_EXPECT_COMPONENT_SERVING != 0},
       {"training", JYPPX_EXPECT_COMPONENT_TRAINING != 0},
   }};
   const auto manifest = jyppx::current_capability_manifest();
@@ -86,8 +95,14 @@ bool BuildCapabilityInventoryMatchesPackage() {
   for (std::size_t index = 0; index < kExpected.size(); ++index) {
     const auto& [component, enabled] = kExpected[index];
     const auto& feature = manifest.features[index];
+    const bool preview = component == "models" || component == "quantization" ||
+                         component == "serving";
+    const auto expected_status =
+        enabled ? (preview ? jyppx::CapabilityStatus::experimental
+                           : jyppx::CapabilityStatus::available)
+                : jyppx::CapabilityStatus::unsupported;
     if (feature.feature_id != "jyppx.component." + std::string(component) ||
-        (feature.status == jyppx::CapabilityStatus::available) != enabled ||
+        feature.status != expected_status ||
         (feature.implementation == jyppx::CapabilityImplementation::native) !=
             enabled) {
       return false;
@@ -147,6 +162,13 @@ int main() {
              "secret://env/consumer/token")
              ? 0
              : 1;
+#elif defined(JYPPX_CONSUMER_MODELS)
+  return jyppx::models::list_models().empty() ? 1 : 0;
+#elif defined(JYPPX_CONSUMER_QUANTIZATION)
+  jyppx::quantization::validate_format_descriptor({});
+  return 0;
+#elif defined(JYPPX_CONSUMER_SERVING)
+  return jyppx::serving::serving_preview_manifest_json().empty() ? 1 : 0;
 #elif defined(JYPPX_CONSUMER_ALL)
   return std::string(jyppx::version()).empty() ? 1 : 0;
 #elif defined(JYPPX_CONSUMER_SDK)

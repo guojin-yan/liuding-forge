@@ -84,6 +84,25 @@
         "nn"
       ]
     },
+    "models": {
+      "header_roots": [
+        "models"
+      ],
+      "source_roots": [
+        "models"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation",
+        "interop",
+        "nn"
+      ],
+      "required_public_dependencies": [
+        "interop",
+        "nn"
+      ],
+      "optional_dependencies": []
+    },
     "nn": {
       "header_roots": [
         "nn"
@@ -115,6 +134,41 @@
       "required_public_dependencies": [
         "core",
         "foundation"
+      ],
+      "optional_dependencies": []
+    },
+    "quantization": {
+      "header_roots": [
+        "quantization"
+      ],
+      "source_roots": [
+        "quantization"
+      ],
+      "required_dependencies": [
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "foundation"
+      ],
+      "optional_dependencies": []
+    },
+    "serving": {
+      "header_roots": [
+        "serving"
+      ],
+      "source_roots": [
+        "serving"
+      ],
+      "required_dependencies": [
+        "core",
+        "foundation",
+        "interop",
+        "nn"
+      ],
+      "required_public_dependencies": [
+        "foundation",
+        "interop",
+        "nn"
       ],
       "optional_dependencies": []
     },

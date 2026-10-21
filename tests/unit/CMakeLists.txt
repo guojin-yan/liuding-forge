@@ -292,3 +292,51 @@ jyppx_add_gtest(jyppx_test_training
     training/test_metrics.cpp
 )
 endif()
+
+
+if(TARGET jyppx::models)
+    set(models_test_environment)
+    if(JYPPX_MODELS_REFERENCE_DIR)
+        if(JYPPX_MODELS_REFERENCE_DIR MATCHES ";")
+            message(FATAL_ERROR "JYPPX_MODELS_REFERENCE_DIR must be one directory")
+        endif()
+        foreach(reference_architecture IN ITEMS resnet18 resnet50
+                mobilenet_v3_small mobilenet_v3_large transformer_encoder)
+            foreach(reference_role IN ITEMS state input output)
+                set(reference_file "${reference_architecture}-${reference_role}.safetensors")
+                if(NOT EXISTS "${JYPPX_MODELS_REFERENCE_DIR}/${reference_file}")
+                    message(FATAL_ERROR "Missing official models fixture: ${reference_file}")
+                endif()
+            endforeach()
+        endforeach()
+        list(APPEND models_test_environment
+             "JYPPX_MODELS_REFERENCE_DIR=${JYPPX_MODELS_REFERENCE_DIR}")
+    endif()
+    jyppx_add_gtest(jyppx_test_models
+        LINK_TARGET jyppx::models
+        models/test_models.cpp
+        ENVIRONMENT ${models_test_environment}
+    )
+    if(JYPPX_MODELS_REFERENCE_DIR)
+        target_compile_definitions(jyppx_test_models PRIVATE
+            JYPPX_MODELS_PYTHON_INTEROP=1)
+    endif()
+endif()
+
+if(TARGET jyppx::quantization)
+    jyppx_add_gtest(jyppx_test_quantization
+        LINK_TARGET jyppx::quantization
+        quantization/test_quantization.cpp
+    )
+endif()
+
+if(TARGET jyppx::serving)
+    jyppx_add_gtest(jyppx_test_serving
+        LINK_TARGET jyppx::serving
+        serving/test_serving.cpp
+    )
+    jyppx_add_gtest(jyppx_test_serving_torchscript
+        LINK_TARGET jyppx::serving
+        serving/test_serving_torchscript.cpp
+    )
+endif()

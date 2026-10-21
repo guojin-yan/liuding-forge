@@ -1,3 +1,4 @@
+if(TARGET jyppx::sdk)
 add_executable(jyppx_basic_data_pipeline basic_data_pipeline.cpp)
 target_link_libraries(jyppx_basic_data_pipeline PRIVATE jyppx::sdk)
 
@@ -18,3 +19,14 @@ foreach(example_target IN ITEMS
         jyppx_mnist jyppx_distillation)
     jyppx_add_torch_runtime_dependency(${example_target})
 endforeach()
+
+
+endif()
+
+if(TARGET jyppx::serving)
+    add_executable(jyppx_serving_jsonl serving/jsonl_host.cpp)
+    target_link_libraries(jyppx_serving_jsonl PRIVATE
+        jyppx::serving nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_serving_jsonl)
+    jyppx_add_torch_runtime_dependency(jyppx_serving_jsonl)
+endif()

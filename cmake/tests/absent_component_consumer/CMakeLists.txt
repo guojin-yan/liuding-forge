@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
+project(jyppx_absent_component_consumer LANGUAGES CXX)
+if(NOT JYPPX_ABSENT_COMPONENT)
+    message(FATAL_ERROR "An absent component must be specified")
+endif()
+find_package(jyppx CONFIG REQUIRED COMPONENTS ${JYPPX_ABSENT_COMPONENT})
+message(FATAL_ERROR "Disabled component unexpectedly satisfied find_package")

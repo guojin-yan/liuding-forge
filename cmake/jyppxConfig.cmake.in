@@ -2,7 +2,7 @@
 
 include(CMakeFindDependencyMacro)
 find_dependency(Torch REQUIRED)
-if(@JYPPX_BUILD_EXPERIMENT@)
+if(@JYPPX_BUILD_EXPERIMENT@ OR @JYPPX_BUILD_SERVING@)
     find_dependency(Threads REQUIRED)
 endif()
 
@@ -17,6 +17,9 @@ set(_jyppx_known_components
     training
     optim
     experiment
+    models
+    quantization
+    serving
     all
     sdk
 )
@@ -35,12 +38,16 @@ foreach(_jyppx_component IN LISTS jyppx_FIND_COMPONENTS)
         set(jyppx_${_jyppx_component}_FOUND FALSE)
         set(jyppx_NOT_FOUND_MESSAGE
             "Unsupported jyppx component: ${_jyppx_component}")
+    elseif(NOT jyppx_${_jyppx_component}_FOUND)
+        set(jyppx_NOT_FOUND_MESSAGE
+            "Requested jyppx component was disabled at configure time: ${_jyppx_component}")
     endif()
 endforeach()
 
 foreach(_jyppx_exported_target IN ITEMS
         jyppx::foundation jyppx::core jyppx::interop jyppx::data jyppx::nn
-        jyppx::training jyppx::optim jyppx::experiment jyppx::all jyppx::sdk)
+        jyppx::training jyppx::optim jyppx::experiment
+        jyppx::models jyppx::quantization jyppx::serving jyppx::all jyppx::sdk)
     if(TARGET ${_jyppx_exported_target})
         set_property(TARGET ${_jyppx_exported_target} APPEND
             PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")

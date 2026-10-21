@@ -19,11 +19,13 @@ set(consumer_build_dir "${test_root}/b")
 file(REMOVE_RECURSE "${install_dir}")
 file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_dir}")
 set(config_args)
-set(build_args)
+set(build_args --parallel 2)
+set(install_args)
 set(test_args)
 if(JYPPX_TEST_CONFIG)
     list(APPEND config_args "-DCMAKE_BUILD_TYPE=${JYPPX_TEST_CONFIG}")
     list(APPEND build_args --config "${JYPPX_TEST_CONFIG}")
+    list(APPEND install_args --config "${JYPPX_TEST_CONFIG}")
     list(APPEND test_args -C "${JYPPX_TEST_CONFIG}")
 endif()
 if(JYPPX_CUDA_STANDARD)
@@ -40,7 +42,7 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --install "${build_dir}"
-            --prefix "${install_dir}" ${build_args}
+            --prefix "${install_dir}" ${install_args}
     RESULT_VARIABLE install_result
 )
 if(NOT install_result EQUAL 0)
@@ -60,6 +62,7 @@ execute_process(
             "-DCMAKE_PREFIX_PATH=${install_dir}"
             "-DTorch_DIR=${JYPPX_TORCH_DIR}"
             "-DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+            "-DJYPPX_RUNTIME_STAGER=${CMAKE_CURRENT_LIST_DIR}/StageTorchRuntime.cmake"
             ${config_args}
     RESULT_VARIABLE configure_result
 )

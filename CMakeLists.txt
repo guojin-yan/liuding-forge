@@ -21,6 +21,11 @@ option(JYPPX_BUILD_NN "Build neural-network adapters and losses" ON)
 option(JYPPX_BUILD_OPTIM "Build optimizer and scheduler adapters" ON)
 option(JYPPX_BUILD_TRAINING "Build the training engine" ON)
 option(JYPPX_BUILD_EXPERIMENT "Build local experiment configuration" ON)
+option(JYPPX_BUILD_MODELS "Build the independent models Preview" OFF)
+option(JYPPX_BUILD_QUANTIZATION "Build the independent storage quantization Preview" OFF)
+option(JYPPX_BUILD_SERVING "Build the independent in-process serving Preview" OFF)
+set(JYPPX_MODELS_REFERENCE_DIR "" CACHE PATH
+    "Pre-generated official models reference fixtures; enables the optional differential test")
 set(JYPPX_TOOLS_DEFAULT OFF)
 if(JYPPX_BUILD_CORE AND JYPPX_BUILD_INTEROP AND JYPPX_BUILD_DATA AND
    JYPPX_BUILD_NN AND JYPPX_BUILD_OPTIM AND JYPPX_BUILD_TRAINING AND
@@ -57,6 +62,23 @@ if(JYPPX_BUILD_TRAINING AND
    (NOT JYPPX_BUILD_DATA OR NOT JYPPX_BUILD_NN OR NOT JYPPX_BUILD_OPTIM))
     message(FATAL_ERROR
         "JYPPX_BUILD_TRAINING=ON requires DATA, NN, and OPTIM components")
+endif()
+
+# Preview model/serving adapters require the explicit lower component closure.
+# Quantization is tensor-neutral and deliberately needs foundation only.
+foreach(JYPPX_PREVIEW_COMPONENT IN ITEMS MODELS SERVING)
+    foreach(JYPPX_PREVIEW_DEPENDENCY IN ITEMS CORE INTEROP NN)
+        if(JYPPX_BUILD_${JYPPX_PREVIEW_COMPONENT} AND
+           NOT JYPPX_BUILD_${JYPPX_PREVIEW_DEPENDENCY})
+            message(FATAL_ERROR
+                "JYPPX_BUILD_${JYPPX_PREVIEW_COMPONENT}=ON requires JYPPX_BUILD_${JYPPX_PREVIEW_DEPENDENCY}=ON")
+        endif()
+    endforeach()
+endforeach()
+if(JYPPX_MODELS_REFERENCE_DIR AND
+   (NOT JYPPX_BUILD_MODELS OR NOT JYPPX_BUILD_TESTS))
+    message(FATAL_ERROR
+        "JYPPX_MODELS_REFERENCE_DIR requires MODELS and TESTS components")
 endif()
 
 # ============================================
@@ -144,6 +166,10 @@ if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT)
         URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
     )
     FetchContent_MakeAvailable(jyppx_nlohmann_json)
+endif()
+
+if(JYPPX_BUILD_SERVING)
+    find_package(Threads REQUIRED)
 endif()
 
 # SQLite stays an implementation dependency of experiment. Compile its pinned
@@ -266,6 +292,9 @@ set(JYPPX_COMPONENT_NN_ENABLED ${JYPPX_BUILD_NN})
 set(JYPPX_COMPONENT_OPTIM_ENABLED ${JYPPX_BUILD_OPTIM})
 set(JYPPX_COMPONENT_TRAINING_ENABLED ${JYPPX_BUILD_TRAINING})
 set(JYPPX_COMPONENT_EXPERIMENT_ENABLED ${JYPPX_BUILD_EXPERIMENT})
+set(JYPPX_COMPONENT_MODELS_ENABLED ${JYPPX_BUILD_MODELS})
+set(JYPPX_COMPONENT_QUANTIZATION_ENABLED ${JYPPX_BUILD_QUANTIZATION})
+set(JYPPX_COMPONENT_SERVING_ENABLED ${JYPPX_BUILD_SERVING})
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppx_build_config.hpp.in"
     "${JYPPX_GENERATED_INCLUDE_DIR}/jyppx/foundation/build_config.hpp"
@@ -589,6 +618,61 @@ if(JYPPX_BUILD_INTEROP AND JYPPX_BUILD_NN)
     target_link_libraries(jyppx_interop PUBLIC jyppx_nn)
 endif()
 
+# Independent, default-OFF Preview components do not add reverse edges to core.
+if(JYPPX_BUILD_MODELS)
+    add_library(jyppx_models STATIC
+        src/jyppx/models/registry.cpp
+        src/jyppx/models/transformer.cpp
+        src/jyppx/models/vision.cpp
+        src/jyppx/models/weights.cpp)
+    add_library(jyppx::models ALIAS jyppx_models)
+    set_target_properties(jyppx_models PROPERTIES
+        OUTPUT_NAME jyppx_models EXPORT_NAME models)
+    target_include_directories(jyppx_models PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(jyppx_models
+        PUBLIC jyppx_interop jyppx_nn
+        PRIVATE jyppx_core jyppx_foundation)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_models)
+    list(APPEND JYPPX_ENABLED_COMPONENTS models)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS models)
+endif()
+
+if(JYPPX_BUILD_QUANTIZATION)
+    add_library(jyppx_quantization STATIC
+        src/jyppx/quantization/quantization.cpp)
+    add_library(jyppx::quantization ALIAS jyppx_quantization)
+    set_target_properties(jyppx_quantization PROPERTIES
+        OUTPUT_NAME jyppx_quantization EXPORT_NAME quantization)
+    target_include_directories(jyppx_quantization PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(jyppx_quantization PUBLIC jyppx_foundation)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_quantization)
+    list(APPEND JYPPX_ENABLED_COMPONENTS quantization)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS quantization)
+endif()
+
+if(JYPPX_BUILD_SERVING)
+    add_library(jyppx_serving STATIC
+        src/jyppx/serving/runtime.cpp
+        src/jyppx/serving/batcher.cpp
+        src/jyppx/serving/service.cpp)
+    add_library(jyppx::serving ALIAS jyppx_serving)
+    set_target_properties(jyppx_serving PROPERTIES
+        OUTPUT_NAME jyppx_serving EXPORT_NAME serving)
+    target_include_directories(jyppx_serving PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(jyppx_serving
+        PUBLIC jyppx_foundation jyppx_interop jyppx_nn
+        PRIVATE jyppx_core Threads::Threads)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_serving)
+    list(APPEND JYPPX_ENABLED_COMPONENTS serving)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS serving)
+endif()
+
 add_library(jyppx_all INTERFACE)
 add_library(jyppx::all ALIAS jyppx_all)
 set_target_properties(jyppx_all PROPERTIES EXPORT_NAME all)
@@ -703,9 +787,7 @@ endif()
 # Examples
 # ============================================
 if(JYPPX_BUILD_EXAMPLES)
-    if(NOT TARGET jyppx::sdk)
-        message(STATUS "Skipping examples: the complete jyppx::sdk is disabled")
-    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
         add_subdirectory(examples)
     else()
         message(STATUS "Skipping examples: examples/CMakeLists.txt is not present yet")

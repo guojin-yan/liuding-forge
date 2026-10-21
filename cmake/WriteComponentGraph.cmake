@@ -30,8 +30,11 @@ function(jyppx_write_component_graph output_path)
         experiment
         foundation
         interop
+        models
         nn
         optim
+        quantization
+        serving
         training
     )
     set(aggregate_targets all sdk)

@@ -247,13 +247,15 @@ CapabilityManifest canonicalized(CapabilityManifest manifest) {
   return manifest;
 }
 
-CapabilityDescriptor component_descriptor(std::string component, bool enabled) {
+CapabilityDescriptor component_descriptor(std::string component, bool enabled,
+                                          bool preview = false) {
   return CapabilityDescriptor{
       .feature_id = "jyppx.component." + std::move(component),
       .scope_id = {},
       .feature_version = 1U,
-      .status =
-          enabled ? CapabilityStatus::available : CapabilityStatus::unsupported,
+      .status = enabled ? (preview ? CapabilityStatus::experimental
+                                   : CapabilityStatus::available)
+                        : CapabilityStatus::unsupported,
       .implementation = enabled ? CapabilityImplementation::native
                                 : CapabilityImplementation::unsupported,
       .source = CapabilitySource::build,
@@ -264,9 +266,14 @@ CapabilityDescriptor component_descriptor(std::string component, bool enabled) {
       .operations = {},
       .limits = {},
       .limitations =
-          enabled ? std::vector<std::string>{}
-                  : std::vector<
-                        std::string>{"component disabled at configure time"},
+          enabled
+              ? (preview
+                     ? std::vector<
+                           std::string>{"Preview component; capability and "
+                                        "compatibility limits remain explicit"}
+                     : std::vector<std::string>{})
+              : std::vector<
+                    std::string>{"component disabled at configure time"},
   };
 }
 
@@ -458,7 +465,7 @@ CapabilityManifest make_current_capability_manifest(
 }
 
 CapabilityManifest current_capability_manifest() {
-  const std::array<std::pair<const char*, bool>, 8U> components{{
+  const std::array<std::pair<const char*, bool>, 11U> components{{
       {"foundation", true},
       {"core", JYPPX_COMPONENT_CORE_ENABLED != 0},
       {"interop", JYPPX_COMPONENT_INTEROP_ENABLED != 0},
@@ -467,11 +474,17 @@ CapabilityManifest current_capability_manifest() {
       {"optim", JYPPX_COMPONENT_OPTIM_ENABLED != 0},
       {"training", JYPPX_COMPONENT_TRAINING_ENABLED != 0},
       {"experiment", JYPPX_COMPONENT_EXPERIMENT_ENABLED != 0},
+      {"models", JYPPX_COMPONENT_MODELS_ENABLED != 0},
+      {"quantization", JYPPX_COMPONENT_QUANTIZATION_ENABLED != 0},
+      {"serving", JYPPX_COMPONENT_SERVING_ENABLED != 0},
   }};
   std::vector<CapabilityDescriptor> features;
   features.reserve(components.size());
   for (const auto& [component, enabled] : components) {
-    features.push_back(component_descriptor(component, enabled));
+    const auto name = std::string_view(component);
+    const bool preview =
+        name == "models" || name == "quantization" || name == "serving";
+    features.push_back(component_descriptor(component, enabled, preview));
   }
   return make_current_capability_manifest(std::move(features));
 }
