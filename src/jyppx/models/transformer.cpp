@@ -8,6 +8,7 @@
 #include <torch/nn/modules/transformerlayer.h>
 
 #include <cmath>
+#include <limits>
 #include <utility>
 namespace jyppx::models {
 namespace {
@@ -57,10 +58,19 @@ Tensor TransformerEncoderImpl::forward(const Tensor& input,
       detail::Invalid("transformer.features", "configured model_dimension");
     Mask(attention_mask, input, input.size(1), input.size(1), "attention_mask");
     Mask(padding_mask, input, input.size(0), input.size(1), "padding_mask");
+    // The C++ attention frontend adds this mask directly to its logits. Make
+    // the public bool contract explicit: blocked positions contribute -inf,
+    // while padding remains bool for its separate masked_fill path.
+    Tensor additive_attention;
+    if (attention_mask.defined())
+      additive_attention =
+          torch::zeros(attention_mask.sizes(), input.options())
+              .masked_fill(attention_mask,
+                           -std::numeric_limits<double>::infinity());
     // The LibTorch C++ stack is sequence-first. This explicit transpose keeps
     // public batch/sequence semantics independent of C++ frontend defaults.
     return encoder_
-        ->forward(input.transpose(0, 1), attention_mask, padding_mask)
+        ->forward(input.transpose(0, 1), additive_attention, padding_mask)
         .transpose(0, 1);
   });
 }

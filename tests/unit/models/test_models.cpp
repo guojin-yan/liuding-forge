@@ -121,6 +121,34 @@ TEST(Models, TransformerHonorsBatchFirstMasksAndSchema) {
       InvalidArgument);
 }
 
+TEST(Models, TransformerMasksExcludeFutureAndPaddedKeys) {
+  auto model = transformer_encoder({.model_dimension = 16,
+                                    .attention_heads = 4,
+                                    .feedforward_dimension = 32,
+                                    .layers = 2,
+                                    .dropout = 0.0});
+  model->eval();
+  torch::NoGradGuard no_grad;
+  const auto input = torch::randn({2, 4, 16});
+  const auto causal = torch::ones({4, 4}, torch::kBool).triu(1);
+  const auto baseline = model->forward(input, causal);
+  auto future_changed = input.clone();
+  future_changed.select(1, 3).copy_(torch::randn({2, 16}) * 8);
+  const auto changed = model->forward(future_changed, causal);
+  // Each earlier query must be independent of every later key at every layer.
+  EXPECT_TRUE(torch::allclose(baseline.narrow(1, 0, 3), changed.narrow(1, 0, 3),
+                              1e-5, 1e-6));
+  EXPECT_FALSE(torch::allclose(baseline.select(1, 3), changed.select(1, 3)));
+  const auto padding = torch::zeros({2, 4}, torch::kBool);
+  padding.select(1, 3).fill_(true);
+  const auto padded = model->forward(input, {}, padding);
+  const auto changed_padded = model->forward(future_changed, {}, padding);
+  EXPECT_TRUE(torch::allclose(padded.narrow(1, 0, 3),
+                              changed_padded.narrow(1, 0, 3), 1e-5, 1e-6));
+  EXPECT_TRUE(torch::equal(causal, torch::ones({4, 4}, torch::kBool).triu(1)));
+  EXPECT_TRUE(padding.select(1, 3).all().item<bool>());
+}
+
 TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   const auto records = available_weights("resnet18");
   ASSERT_EQ(records.size(), 1U);
