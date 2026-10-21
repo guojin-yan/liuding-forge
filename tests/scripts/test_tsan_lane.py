@@ -4,8 +4,13 @@ import copy
 import io
 import importlib.util
 import json
+import os
 from pathlib import Path
+import signal
+import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 import xml.etree.ElementTree as ET
@@ -248,6 +253,16 @@ class DependencyTest(unittest.TestCase):
 
 
 class EvidenceTest(unittest.TestCase):
+    def test_sigterm_handler_records_a_lane_termination_without_global_kill(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lane = LANE.Lane(Path(directory))
+            with mock.patch.object(lane, "_signal_active_group") as signal_group:
+                with self.assertRaises(LANE.LaneTermination) as raised:
+                    lane._signal_handler(signal.SIGTERM, None)
+            signal_group.assert_called_once_with(signal.SIGTERM)
+            self.assertEqual(raised.exception.signum, signal.SIGTERM)
+            self.assertEqual(lane._signal_requested, signal.SIGTERM)
+
     def test_early_failure_retains_metadata_without_fabricated_ctest_exit(self):
         with tempfile.TemporaryDirectory() as directory:
             lane = LANE.Lane(Path(directory))
@@ -297,6 +312,49 @@ class EvidenceTest(unittest.TestCase):
             record = json.loads((lane.run_dir / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(record["status"], "failed")
             self.assertTrue(record["source_changed"])
+
+    @unittest.skipUnless(os.name == "posix", "process-group assertions require POSIX")
+    def test_real_helper_descendant_is_killed_without_late_marker(self):
+        """A cancelled lane command must stop a child that outlives its parent."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / "late-marker"
+            helper = root / "parent.py"
+            child_code = (
+                "import time; from pathlib import Path; time.sleep(0.8); "
+                f"Path({str(marker)!r}).write_text('late', encoding='utf-8')"
+            )
+            helper.write_text(
+                "import subprocess, sys, time\n"
+                f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+                "time.sleep(30)\n",
+                encoding="utf-8",
+            )
+            lane = LANE.Lane(root)
+            lane.run_dir.mkdir(parents=True)
+            outcome = {}
+
+            def invoke():
+                try:
+                    outcome["result"] = lane.command("fixture-process-group", [sys.executable, str(helper)], check=False)
+                except BaseException as error:  # pragma: no cover - only reports a fixture failure
+                    outcome["error"] = error
+
+            worker = threading.Thread(target=invoke)
+            worker.start()
+            deadline = time.monotonic() + 5
+            while lane._active_pgid is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertIsNotNone(lane._active_pgid)
+            lane._signal_active_group(signal.SIGTERM)
+            worker.join(8)
+            self.assertFalse(worker.is_alive())
+            self.assertNotIn("error", outcome)
+            self.assertLess(outcome["result"][0], 0)
+            time.sleep(1.0)
+            self.assertFalse(marker.exists(), "descendant continued after process-group cancellation")
+            record = json.loads((lane.run_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertTrue(record["commands"][0]["cleanup"]["confirmed"])
 
 
 if __name__ == "__main__":

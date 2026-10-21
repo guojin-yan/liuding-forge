@@ -72,6 +72,14 @@ means test execution never completed. Source/cache changes invalidate acceptance
 Historical run directories are preserved. A process lock prevents concurrent
 lane invocations from sharing the incremental cache.
 
+Each configure, build, discovery and test command starts in its own POSIX
+process session. SIGINT/SIGTERM first records an interrupted lane request and
+terminates that command's process group, escalates only that group if needed,
+and waits until the group is confirmed gone before the cache lock is released.
+This also covers CTest's JSON discovery subprocess path and prevents orphaned
+grandchildren from continuing after a cancelled run. Windows keeps a direct
+process fallback and is rejected during the real Linux preflight.
+
 The portable maintenance checks do not build or execute instrumented binaries:
 
 ```text

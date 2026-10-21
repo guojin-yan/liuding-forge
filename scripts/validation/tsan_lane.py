@@ -10,9 +10,11 @@ import os
 import platform
 from pathlib import Path
 import re
+import signal
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
@@ -20,6 +22,14 @@ import xml.etree.ElementTree as ET
 
 class LaneError(RuntimeError):
     pass
+
+
+class LaneTermination(Exception):
+    """A SIGINT/SIGTERM request that must still produce lane evidence."""
+
+    def __init__(self, signum: int):
+        super().__init__(f"received signal {signum}")
+        self.signum = signum
 
 
 # Deliberately exclude CUDA, death/crash subprocess tests, and unrelated suites.
@@ -240,6 +250,11 @@ class Lane:
         identifier = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{time.time_ns()}"
         self.run_dir = self.output / "runs" / identifier
         self.environment = dict(os.environ)
+        self._active_process = None
+        self._active_pgid = None
+        self._signal_requested = None
+        self._old_signal_handlers = {}
+        self._deferred_lock = None
         self.metadata = {"schema_version": 1, "started_utc": now(), "status": "running",
                          "source_root": str(self.source), "build_root": str(self.build), "run_dir": str(self.run_dir),
                          "platform": platform.platform(), "python": sys.version, "targets": TARGETS,
@@ -250,23 +265,110 @@ class Lane:
         write_json(self.run_dir / "metadata.json", self.metadata)
         write_json(self.output / "metadata.json", self.metadata)
 
+    @staticmethod
+    def _is_posix_process(process: object) -> bool:
+        return os.name == "posix" and isinstance(getattr(process, "pid", None), int)
+
+    def _spawn(self, argv: list[str], **kwargs):
+        if os.name == "posix":
+            kwargs["start_new_session"] = True
+        elif os.name == "nt":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        return subprocess.Popen(argv, **kwargs)
+
+    @staticmethod
+    def _group_exists(pgid: int) -> bool:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _signal_active_group(self, signum: int = signal.SIGTERM) -> None:
+        if os.name != "posix" or self._active_pgid is None:
+            return
+        try:
+            os.killpg(self._active_pgid, signum)
+        except ProcessLookupError:
+            pass
+
+    def _cleanup_process_group(self, process: object, pgid: int | None = None) -> dict[str, object]:
+        """Terminate only this command's process group and confirm it is gone."""
+        result: dict[str, object] = {"method": "none", "confirmed": True}
+        if self._is_posix_process(process):
+            group = pgid
+            if group is None:
+                try:
+                    group = os.getpgid(process.pid)
+                except ProcessLookupError:
+                    group = process.pid
+            result["method"] = "posix-process-group"
+            result["pgid"] = group
+            deadline = time.monotonic() + 2.0
+            if process.poll() is None or self._group_exists(group):
+                try:
+                    os.killpg(group, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            while time.monotonic() < deadline and (process.poll() is None or self._group_exists(group)):
+                time.sleep(0.02)
+            if process.poll() is None or self._group_exists(group):
+                result["forced"] = True
+                try:
+                    os.killpg(group, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                result["confirmed"] = False
+            deadline = time.monotonic() + 5.0
+            while result["confirmed"] and time.monotonic() < deadline and self._group_exists(group):
+                time.sleep(0.02)
+            result["confirmed"] = bool(result["confirmed"] and not self._group_exists(group))
+            if process.returncode is None:
+                process.poll()
+            return result
+
+        # Windows has no portable process-group signal API in the stdlib. The
+        # lane is Linux-only; this fallback still avoids affecting unrelated
+        # processes when the helper is unit-tested on Windows.
+        result["method"] = "direct-process"
+        if hasattr(process, "poll") and process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=5)
+        except (subprocess.TimeoutExpired, AttributeError):
+            result["confirmed"] = False
+        return result
+
     def command(self, stage: str, argv: list[str], check: bool = True, json_output: bool = False) -> tuple[int, str]:
         log = self.run_dir / f"{stage}.log"
         record = {"stage": stage, "argv": argv, "started_utc": now(), "log": str(log), "exit_code": None}
         self.metadata["commands"].append(record)
         self.save()
         process = None
+        text = ""
+        pending = None
+        cleanup = {"method": "none", "confirmed": True}
         try:
             if json_output:
                 # Keep stderr out of CTest's machine-readable stdout.
                 with (self.run_dir / f"{stage}.json").open("w", encoding="utf-8") as output, log.open("w", encoding="utf-8") as errors:
-                    process = subprocess.run(argv, cwd=self.source, env=self.environment, stdin=subprocess.DEVNULL,
-                                             stdout=output, stderr=errors, text=True, encoding="utf-8")
+                    process = self._spawn(argv, cwd=self.source, env=self.environment, stdin=subprocess.DEVNULL,
+                                          stdout=output, stderr=errors, text=True, encoding="utf-8")
+                    self._active_process = process
+                    self._active_pgid = os.getpgid(process.pid) if self._is_posix_process(process) else None
+                    process.wait()
                 text = (self.run_dir / f"{stage}.json").read_text(encoding="utf-8")
             else:
                 with log.open("w", encoding="utf-8") as output:
-                    process = subprocess.Popen(argv, cwd=self.source, env=self.environment, stdin=subprocess.DEVNULL,
-                                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+                    process = self._spawn(argv, cwd=self.source, env=self.environment, stdin=subprocess.DEVNULL,
+                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+                    self._active_process = process
+                    self._active_pgid = os.getpgid(process.pid) if self._is_posix_process(process) else None
                     for line in process.stdout:
                         output.write(line)
                         print(line, end="", flush=True)
@@ -275,21 +377,49 @@ class Lane:
             record["exit_code"] = process.returncode
             if stage == "03-ctest":
                 self.metadata["ctest_exit_code"] = process.returncode
+        except BaseException as error:
+            pending = error
         finally:
-            if process is not None and hasattr(process, "poll") and process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
             if process is not None:
+                try:
+                    cleanup = self._cleanup_process_group(process, self._active_pgid)
+                except BaseException as error:
+                    cleanup = {"method": "cleanup-error", "confirmed": False, "error": str(error)}
+                    if pending is None:
+                        pending = error
                 record["exit_code"] = process.returncode
+                record["process_group"] = self._active_pgid
+                record["cleanup"] = cleanup
+                self._active_process = None
+                self._active_pgid = None
             record["finished_utc"] = now()
             self.save()
+        if pending is not None:
+            raise pending
+        if not cleanup.get("confirmed", False):
+            raise LaneError(f"{stage} process-group cleanup was not confirmed; see {log}")
         if check and process.returncode:
             raise LaneError(f"{stage} exited {process.returncode}; see {log}")
         return process.returncode, text
+
+    def _signal_handler(self, signum: int, _frame) -> None:
+        self._signal_requested = signum
+        self._signal_active_group(signal.SIGTERM)
+        raise LaneTermination(signum)
+
+    def _install_signal_handlers(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            self._old_signal_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, self._signal_handler)
+
+    def _restore_signal_handlers(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for signum, handler in self._old_signal_handlers.items():
+            signal.signal(signum, handler)
+        self._old_signal_handlers.clear()
 
     def preflight(self) -> tuple[str, str, str, int]:
         if platform.system() != "Linux":
@@ -409,6 +539,7 @@ class Lane:
         exit_code = 2
         lock = None
         try:
+            self._install_signal_handlers()
             self.save()
             # Only one process may use the fixed incremental cache at a time.
             if platform.system() == "Linux":
@@ -418,6 +549,11 @@ class Lane:
             self.run_lane()
             self.metadata["status"] = "passed"
             exit_code = 0
+        except LaneTermination as error:
+            self.metadata["status"] = "interrupted"
+            self.metadata["error"] = str(error)
+            self.metadata["signal"] = error.signum
+            exit_code = 128 + error.signum
         except Exception as error:
             self.metadata["status"] = "failed"
             self.metadata["error"] = f"{type(error).__name__}: {error}"
@@ -427,6 +563,7 @@ class Lane:
             self.metadata["error"] = "interrupted by user"
             exit_code = 130
         finally:
+            self._restore_signal_handlers()
             if "source_before" in self.metadata:
                 try:
                     self.metadata["source_after"] = source_snapshot(self.source)
@@ -455,7 +592,21 @@ class Lane:
             self.metadata["exit_code"] = exit_code
             self.save()
             if lock:
-                lock.close()
+                confirmed = all(
+                    command.get("cleanup", {}).get("confirmed", True)
+                    for command in self.metadata["commands"]
+                )
+                if confirmed:
+                    lock.close()
+                else:
+                    # Keep the descriptor alive until this process exits; an
+                    # unconfirmed child group must never race a later lane for
+                    # the fixed incremental cache.
+                    self._deferred_lock = lock
+                    self.metadata["cache_lock_release_deferred"] = True
+                    self.metadata["status"] = "failed"
+                    self.metadata.setdefault("error", "cache lock retained because process-group cleanup was not confirmed")
+                    self.save()
             print(f"TSan report: {self.run_dir}")
         return exit_code
 
