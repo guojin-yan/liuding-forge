@@ -578,7 +578,7 @@ TEST_F(ServingTest,
       torch::equal(tuple[0].toTensor(), torch::tensor({{4.0F, -6.0F}})));
   const auto field = tuple[1].toGenericDict().at("prediction").toTensor();
   EXPECT_NE(field.data_ptr(), tuple[0].toTensor().data_ptr());
-  EXPECT_THROW(DynamicBatcher(predictor), InvalidArgument);
+  EXPECT_THROW(static_cast<void>(DynamicBatcher{predictor}), InvalidArgument);
   EXPECT_TRUE(predictor->close());
   EXPECT_TRUE(torch::equal(field, torch::tensor({{4.0F, -6.0F}})));
 }
