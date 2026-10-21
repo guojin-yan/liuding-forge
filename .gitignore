@@ -45,6 +45,7 @@ Makefile
 *.cmake
 !CMakeLists.txt
 !cmake/*.cmake
+!cmake/tests/*.cmake
 
 # ============================================
 # Testing
