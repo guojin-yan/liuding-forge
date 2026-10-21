@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(jyppx VERSION 0.3.0 LANGUAGES CXX)
 
+# Several MSBuild targets can independently request regeneration after a source
+# scanned by the component gate changes. Serialize the configure processes so
+# their generated graph, reports and generation stamps cannot interleave.
+file(LOCK "${CMAKE_BINARY_DIR}/jyppx-configure.lock" GUARD PROCESS TIMEOUT 120)
+
 # ============================================
 # Project Options
 # ============================================

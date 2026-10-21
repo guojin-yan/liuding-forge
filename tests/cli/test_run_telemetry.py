@@ -499,6 +499,17 @@ class RunTelemetryContract(unittest.TestCase):
     def test_unsupported_and_sampling_have_explicit_counts_and_verdict(self) -> None:
         for mode in ("unsupported", "sampled"):
             with self.subTest(mode=mode):
+                if mode == "sampled":
+                    # Sampling is permitted only for observer observations.
+                    # Seed a separate complete canonical database so the
+                    # durable source is never rewritten to permit sampling.
+                    self.store = self.root / "observer store"
+                    self.events = copy.deepcopy(self.events)
+                    for value in self.events:
+                        value["reliability"] = 2
+                    self.invoke("run", "start", "--root", self.store,
+                                "--metadata", self.root / "运行 metadata.json")
+                    seed_database(self.store, self.events)
                 config, _, _ = self.sidecar_config("tensorboard", mode)
                 result = self.query("export", "--backend", "tensorboard", "--sidecar-config", config, expected=1)
                 data = result["data"]
@@ -507,6 +518,15 @@ class RunTelemetryContract(unittest.TestCase):
                 self.assertEqual(data["accepted_events"], 0)
                 self.assertEqual(data["unsupported_events" if mode == "unsupported" else "sampled_out_events"], 4)
                 self.assertEqual(self.query("events")["data"]["events"][0]["event"], projection(self.events[0]))
+
+    def test_sidecar_cannot_sample_required_durable_evidence(self) -> None:
+        original = self.query("events")["data"]
+        config, _, _ = self.sidecar_config("tensorboard", "sampled")
+        result = self.query("export", "--backend", "tensorboard",
+                            "--sidecar-config", config, expected=2)
+        self.assertEqual(result["error"]["name"], "compatibility")
+        self.assertEqual(result["error"]["operation"], "sink.receipt")
+        self.assertEqual(self.query("events")["data"], original)
 
     def test_process_export_excludes_an_append_after_initial_snapshot(self) -> None:
         config, capture, _ = self.sidecar_config("tensorboard", append_source=True)
