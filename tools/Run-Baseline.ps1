@@ -16,7 +16,7 @@ param(
     [ValidateRange(0.01, 100.0)]
     [double]$MinRegressionPercent = 10.0,
     [string]$ReferenceFile = "",
-    [switch]$ReuseBuild
+    [switch]$FreshBuild
 )
 
 Set-StrictMode -Version Latest
@@ -72,7 +72,7 @@ function Assert-ContainedPath {
 Assert-ContainedPath $BuildDir $buildContainer "BuildDir"
 Assert-ContainedPath $OutputDir $outputContainer "OutputDir"
 
-if (-not $ReuseBuild -and (Test-Path $BuildDir)) {
+if ($FreshBuild -and (Test-Path $BuildDir)) {
     [IO.Directory]::Delete([IO.Path]::GetFullPath($BuildDir), $true)
 }
 if (Test-Path $OutputDir) {
@@ -136,6 +136,7 @@ $dirty = @(& git -C $sourceRoot status --porcelain).Count -ne 0
 $cmakeVersion = (& cmake --version | Select-Object -First 1).Trim()
 $steps = [Collections.Generic.List[object]]::new()
 $benchmarkRuns = [Collections.Generic.List[object]]::new()
+$dataPipelineObservations = [Collections.Generic.List[object]]::new()
 
 $steps.Add((Invoke-Captured cmake @(
         "-S", $sourceRoot,
@@ -215,9 +216,11 @@ foreach ($executable in @(
 # enter the statistics. This avoids silently mixing cold-start and steady-state
 # samples while still making warmup behavior auditable.
 for ($index = 1; $index -le $Warmup; ++$index) {
-    $benchmarkRuns.Add((Invoke-Captured -Name $dataPipelineExecutable `
-            -Arguments @("--repeats", "1") `
-            -LogName "warmup-data-pipeline-$index.csv"))
+    foreach ($workers in @(0, 1, 2, 4, 8)) {
+        $benchmarkRuns.Add((Invoke-Captured -Name $dataPipelineExecutable `
+                -Arguments @("--repeats", "1", "--workers", "$workers") `
+                -LogName "warmup-data-pipeline-$workers-$index.csv"))
+    }
     $benchmarkRuns.Add((Invoke-Captured -Name $trainerExecutable `
             -Arguments @() -LogName "warmup-trainer-$index.csv"))
     foreach ($workers in @(0, 1, 4, 8)) {
@@ -228,15 +231,36 @@ for ($index = 1; $index -le $Warmup; ++$index) {
 }
 
 for ($sample = 1; $sample -le $Samples; ++$sample) {
-    $dataLog = "sample-data-pipeline-$sample.csv"
-    $benchmarkRuns.Add((Invoke-Captured $dataPipelineExecutable @("--repeats", "1") $dataLog))
-    $dataRows = @(Import-Csv (Join-Path $outputRoot $dataLog))
-    if ($dataRows.Count -ne 5) {
-        throw "DataPipeline sample $sample must contain exactly five worker rows"
-    }
-    foreach ($row in $dataRows) {
+    foreach ($workers in @(0, 1, 2, 4, 8)) {
+        $dataLog = "sample-data-pipeline-$workers-$sample.csv"
+        $benchmarkRuns.Add((Invoke-Captured -Name $dataPipelineExecutable `
+                -Arguments @("--repeats", "1", "--workers", "$workers") `
+                -LogName $dataLog))
+        $dataRows = @(Import-Csv (Join-Path $outputRoot $dataLog))
+        if ($dataRows.Count -ne 1) {
+            throw "DataPipeline sample $sample for $workers workers must contain one row"
+        }
+        $row = $dataRows[0]
         Add-MetricSample "data_pipeline.elapsed_ms.workers_$($row.workers)" "lower" `
             "milliseconds" ([double]$row.elapsed_ms)
+        Add-MetricSample "data_pipeline.samples_per_second.workers_$($row.workers)" `
+            "higher" "samples_per_second" ([double]$row.samples_per_second)
+        Add-MetricSample "data_pipeline.p95_batch_latency_ms.workers_$($row.workers)" `
+            "lower" "milliseconds" ([double]$row.p95_batch_latency_ms)
+        Add-MetricSample "data_pipeline.peak_resident_bytes.workers_$($row.workers)" `
+            "lower" "bytes" ([double]$row.peak_resident_bytes)
+        if ($workers -gt 0) {
+            Add-MetricSample "data_pipeline.worker_utilization.workers_$($row.workers)" `
+                "higher" "ratio" ([double]$row.worker_utilization)
+        }
+        $dataPipelineObservations.Add([ordered]@{
+                sample = $sample
+                workers = $workers
+                mean_outstanding_batches = [double]$row.mean_outstanding_batches
+                peak_outstanding_batches = [int]$row.peak_outstanding_batches
+                peak_active_workers = [int]$row.peak_active_workers
+                resident_delta_bytes = [double]$row.resident_delta_bytes
+            })
     }
 
     $trainerLog = "sample-trainer-$sample.csv"
@@ -309,6 +333,7 @@ $rawSampleReport = [ordered]@{
         warmup_processes = $Warmup
         sample_processes = $Samples
     }
+    data_pipeline_observations = $dataPipelineObservations
     metrics = $metricRows
 }
 $rawSamplePath = Join-Path $outputRoot "samples.json"
@@ -411,6 +436,7 @@ $report = [ordered]@{
     source_dir = $sourceRoot
     steps = $steps
     benchmark_runs = $benchmarkRuns
+    data_pipeline_observations = $dataPipelineObservations
     artifacts = $artifacts
     statistics = $statistics
 }

@@ -17,6 +17,7 @@ jyppx_add_bench(jyppx_bench_nadam_native_throughput bench_nadam_native_throughpu
 jyppx_add_bench(jyppx_bench_rmsprop_adapter_overhead bench_rmsprop_adapter_overhead.cpp)
 jyppx_add_bench(jyppx_bench_memory_usage bench_memory_usage.cpp)
 if(WIN32)
+    target_link_libraries(jyppx_bench_data_pipeline PRIVATE Psapi)
     target_link_libraries(jyppx_bench_memory_usage PRIVATE Psapi)
 endif()
 

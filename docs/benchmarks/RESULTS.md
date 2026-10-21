@@ -25,9 +25,22 @@ performs one warmup process and five independent sample processes by default,
 then records the environment identity, raw samples, median, nearest-rank p95,
 sample standard deviation, coefficient of variation (CV), and regression
 allowance.
+The persistent build directory is reused by default so unchanged targets remain
+cached; pass `-FreshBuild` only when an intentionally isolated clean-build
+measurement is required. Output reports remain replaceable run artifacts, but
+the configured build tree is not deleted after a run.
 DataPipeline latency and peak memory are lower-is-better; Trainer throughput is
 higher-is-better. Optimizer convergence remains deterministic correctness
 evidence and is not treated as a timing metric.
+
+`bench_data_pipeline` emits throughput, p50/p95 successful batch latency,
+sampled mean/peak scheduled-but-uncommitted queue depth, aggregate factory busy
+time divided by available execution-lane time, peak active workers, and sampled
+resident memory. Use `--workers` to isolate each worker count in its own process;
+the baseline runner does this automatically so peak memory from earlier
+configurations cannot contaminate later rows. Queue depth and peak active worker
+counts are recorded as diagnostic observations rather than monotonic regression
+metrics.
 
 `bench_loss_vertical_slice` uses one CPU thread, fixed seeds and frozen tensor
 shapes to report five post-warmup forward/backward samples for label smoothing,

@@ -167,11 +167,12 @@ Run the reproducible local baseline from the repository root:
 pwsh -NoProfile -File tools/Run-Baseline.ps1
 ```
 
-The command uses a clean `out/build/baseline-release` directory, runs the full
-Release test suite and benchmarks, and writes machine-readable timing, artifact
-size, throughput, and isolated peak-memory evidence under
-`out/baseline/release`. Use `-ReuseBuild` only for diagnosing the baseline
-tool itself; reused build time is not comparable to a clean compile baseline.
+The command reuses the persistent `out/build/baseline-release` directory, runs
+the full Release test suite and benchmarks, and writes machine-readable timing,
+artifact size, throughput, and isolated peak-memory evidence under
+`out/baseline/release`. Pass `-FreshBuild` only when an intentionally isolated
+clean-build measurement is required; clean and incremental build timings are
+not directly comparable.
 
 CUDA Trainer baselines require a Release build linked to CUDA LibTorch and a
 visible NVIDIA GPU. After building with `JYPPX_BUILD_BENCHMARKS=ON`, run:

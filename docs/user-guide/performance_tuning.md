@@ -52,9 +52,15 @@ Profile a complete epoch, separating pipeline wait from forward/backward time.
 The DataPipeline benchmark simulates preprocessing:
 
 ```text
-build-framework/tests/benchmarks/Release/jyppx_bench_data_pipeline.exe \
-  --work-ms 2 --batches 64 --batch-size 32
+out/build/baseline-release/tests/benchmarks/Release/jyppx_bench_data_pipeline.exe \
+  --work-ms 2 --batches 64 --batch-size 32 --workers 4
 ```
+
+Run each worker count in a separate process when comparing peak memory. The CSV
+also reports p50/p95 batch latency, sampled outstanding queue depth, aggregate
+factory worker utilization, peak active workers, and resident-memory delta.
+Queue depth is diagnostic: lower is not automatically better because an empty
+queue may indicate consumer starvation.
 
 `bench_trainer_throughput` reports samples per second for batch sizes 16, 32,
 64, and 128. `bench_optimizer_convergence` emits 100 loss values for SGD,

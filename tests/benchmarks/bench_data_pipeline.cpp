@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-// Reproducible DataPipeline throughput benchmark with structured CSV output.
+// Reproducible DataPipeline resource benchmark with structured CSV output.
 //
 // An in-memory TensorDataset loads in microseconds, which would hide worker
 // scaling. SlowDataset therefore applies a calibrated per-sample CPU delay.
@@ -12,21 +12,115 @@
 
 #include <jyppx/jyppx.hpp>
 
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+// Psapi declarations depend on Windows SDK types declared by windows.h.
+#include <psapi.h>
+#endif
 
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+/// Returns the current process resident set in bytes when supported.
+std::uint64_t resident_bytes() {
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS counters{};
+  counters.cb = sizeof(counters);
+  if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)) ==
+      0) {
+    return 0;
+  }
+  return static_cast<std::uint64_t>(counters.WorkingSetSize);
+#elif defined(__linux__)
+  std::ifstream status("/proc/self/status");
+  std::string key;
+  std::uint64_t kb = 0;
+  while (status >> key) {
+    if (key == "VmRSS:") {
+      status >> kb;
+      break;
+    }
+    status.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+  }
+  return kb * 1024;
+#else
+  return 0;
+#endif
+}
+
+/// Accumulates factory concurrency and aggregate busy time.
+class WorkerMetrics final {
+ public:
+  /// Records one active factory invocation for this scope's lifetime.
+  class Scope final {
+   public:
+    /// Starts one timed factory interval.
+    explicit Scope(WorkerMetrics& metrics)
+        : metrics_(metrics), start_(Clock::now()) {
+      const auto active = metrics_.active_.fetch_add(1) + 1;
+      auto peak = metrics_.peak_active_.load();
+      while (active > peak &&
+             !metrics_.peak_active_.compare_exchange_weak(peak, active)) {
+      }
+    }
+
+    /// Finishes the interval and contributes its duration.
+    ~Scope() {
+      const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               Clock::now() - start_)
+                               .count();
+      metrics_.busy_ns_.fetch_add(static_cast<std::uint64_t>(elapsed));
+      metrics_.active_.fetch_sub(1);
+    }
+
+    Scope(const Scope&) = delete;
+    Scope& operator=(const Scope&) = delete;
+
+   private:
+    WorkerMetrics& metrics_;   ///< Aggregate receiving this interval.
+    Clock::time_point start_;  ///< Factory invocation start time.
+  };
+
+  /// Returns aggregate factory busy time across execution lanes.
+  std::uint64_t busy_ns() const noexcept { return busy_ns_.load(); }
+
+  /// Returns the maximum simultaneous factory invocation count.
+  std::size_t peak_active() const noexcept { return peak_active_.load(); }
+
+ private:
+  friend class Scope;
+
+  std::atomic<std::size_t> active_{0};  ///< Currently active invocations.
+  std::atomic<std::size_t> peak_active_{
+      0};                                  ///< Maximum concurrent invocations.
+  std::atomic<std::uint64_t> busy_ns_{0};  ///< Sum of invocation durations.
+};
 
 /// Dataset that simulates a bounded preprocessing cost for every sample.
 class SlowDataset final : public jyppx::data::Dataset<jyppx::data::Example> {
@@ -119,12 +213,80 @@ struct BenchResult {
 
   /// Wall-clock duration of the epoch in milliseconds.
   double elapsed_ms;
+
+  /// Median successful `next()` latency in milliseconds.
+  double p50_batch_latency_ms;
+
+  /// Nearest-rank p95 successful `next()` latency in milliseconds.
+  double p95_batch_latency_ms;
+
+  /// Mean scheduled-but-uncommitted batch count sampled after commits.
+  double mean_outstanding_batches;
+
+  /// Maximum scheduled-but-uncommitted batch count sampled after commits.
+  std::size_t peak_outstanding_batches;
+
+  /// Aggregate factory busy time divided by elapsed execution-lane capacity.
+  double worker_utilization;
+
+  /// Maximum simultaneous factory invocation count.
+  std::size_t peak_active_workers;
+
+  /// Resident bytes immediately before the measured epoch.
+  std::uint64_t resident_before_bytes;
+
+  /// Maximum resident bytes observed at batch boundaries.
+  std::uint64_t peak_resident_bytes;
 };
 
 /// Returns milliseconds elapsed since `start`.
 double milliseconds_since(Clock::time_point start) {
   return std::chrono::duration<double, std::milli>(Clock::now() - start)
       .count();
+}
+
+/// Returns the nearest-rank percentile from millisecond samples.
+double percentile(std::vector<double> values, double probability) {
+  std::sort(values.begin(), values.end());
+  const auto rank = static_cast<std::size_t>(
+      std::ceil(probability * static_cast<double>(values.size())));
+  return values[std::max<std::size_t>(1, rank) - 1];
+}
+
+/// Parses a finite positive floating-point command-line value.
+std::optional<double> parse_positive_double(std::string_view text) {
+  std::string owned(text);
+  char* end = nullptr;
+  errno = 0;
+  const double value = std::strtod(owned.c_str(), &end);
+  if (errno == ERANGE || end != owned.c_str() + owned.size() ||
+      !std::isfinite(value) || value <= 0.0) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+/// Parses a strictly positive decimal integer command-line value.
+std::optional<int> parse_positive_int(std::string_view text) {
+  int value = 0;
+  const auto [end, error] =
+      std::from_chars(text.data(), text.data() + text.size(), value);
+  if (error != std::errc{} || end != text.data() + text.size() || value <= 0) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+/// Parses a bounded non-negative worker count command-line value.
+std::optional<std::size_t> parse_worker_count(std::string_view text) {
+  std::size_t value = 0;
+  const auto [end, error] =
+      std::from_chars(text.data(), text.data() + text.size(), value);
+  if (error != std::errc{} || end != text.data() + text.size() ||
+      value > 1024) {
+    return std::nullopt;
+  }
+  return value;
 }
 
 /// Measures one or more epochs for a fixed DataPipeline worker count.
@@ -137,6 +299,7 @@ std::vector<BenchResult> bench_workers(
   const auto expected =
       static_cast<std::size_t>(batches) * static_cast<std::size_t>(batch_size);
   for (int repeat = 0; repeat < repeats; ++repeat) {
+    auto worker_metrics = std::make_shared<WorkerMetrics>();
     auto sampler = std::make_shared<jyppx::data::samplers::SequentialSampler>(
         dataset->size());
     jyppx::data::DataPipeline pipeline(
@@ -150,8 +313,10 @@ std::vector<BenchResult> bench_workers(
             .batch_size = static_cast<std::size_t>(batch_size),
             .num_workers = workers,
             .prefetch_batches = prefetch_batches},
-        [dataset](std::span<const std::size_t> indices,
-                  const jyppx::data::DataWorkerContext&, std::stop_token) {
+        [dataset, worker_metrics](std::span<const std::size_t> indices,
+                                  const jyppx::data::DataWorkerContext&,
+                                  std::stop_token) {
+          WorkerMetrics::Scope measurement(*worker_metrics);
           std::vector<jyppx::Tensor> data;
           std::vector<jyppx::Tensor> targets;
           data.reserve(indices.size());
@@ -164,20 +329,61 @@ std::vector<BenchResult> bench_workers(
           return c10::ivalue::Tuple::create(
               {torch::stack(data), torch::stack(targets)});
         });
-    pipeline.set_epoch(0);
+    const auto resident_before = resident_bytes();
+    auto peak_resident = resident_before;
     const auto start = Clock::now();
+    pipeline.set_epoch(0);
     std::size_t seen = 0;
-    while (const auto batch = pipeline.next()) {
+    std::vector<double> batch_latencies_ms;
+    batch_latencies_ms.reserve(static_cast<std::size_t>(batches));
+    std::uint64_t outstanding_sum = 0;
+    std::size_t outstanding_samples = 0;
+    std::size_t peak_outstanding = 0;
+    while (true) {
+      const auto batch_start = Clock::now();
+      const auto batch = pipeline.next();
+      if (!batch) {
+        break;
+      }
+      batch_latencies_ms.push_back(milliseconds_since(batch_start));
       seen += batch->sample_ids.size();
+      const auto outstanding = pipeline.outstanding_batches();
+      outstanding_sum += outstanding;
+      ++outstanding_samples;
+      peak_outstanding = std::max(peak_outstanding, outstanding);
+      peak_resident = std::max(peak_resident, resident_bytes());
     }
     pipeline.close();
     const double elapsed = milliseconds_since(start);
+    peak_resident = std::max(peak_resident, resident_bytes());
     if (seen != expected) {
       std::cerr << "configuration with " << workers << " workers produced "
                 << seen << " samples, expected " << expected << '\n';
       return {};
     }
-    results.push_back({workers, repeat, seen, elapsed});
+    if (batch_latencies_ms.empty() || outstanding_samples == 0) {
+      std::cerr << "configuration with " << workers
+                << " workers produced no measurable batches\n";
+      return {};
+    }
+    const auto execution_lanes = std::max<std::size_t>(1, workers);
+    const auto elapsed_ns = elapsed * 1'000'000.0;
+    results.push_back(
+        {.workers = workers,
+         .repeat = repeat,
+         .samples = seen,
+         .elapsed_ms = elapsed,
+         .p50_batch_latency_ms = percentile(batch_latencies_ms, 0.50),
+         .p95_batch_latency_ms = percentile(batch_latencies_ms, 0.95),
+         .mean_outstanding_batches = static_cast<double>(outstanding_sum) /
+                                     static_cast<double>(outstanding_samples),
+         .peak_outstanding_batches = peak_outstanding,
+         .worker_utilization =
+             static_cast<double>(worker_metrics->busy_ns()) /
+             (elapsed_ns * static_cast<double>(execution_lanes)),
+         .peak_active_workers = worker_metrics->peak_active(),
+         .resident_before_bytes = resident_before,
+         .peak_resident_bytes = peak_resident});
   }
   return results;
 }
@@ -185,7 +391,7 @@ std::vector<BenchResult> bench_workers(
 /// Prints accepted command-line options.
 void print_help() {
   std::cerr << "usage: jyppx_bench_data_pipeline [--work-ms ms] [--batches n] "
-               "[--batch-size n] [--repeats n]\n";
+               "[--batch-size n] [--repeats n] [--workers n]\n";
 }
 
 }  // namespace
@@ -195,43 +401,84 @@ int main(int argc, char** argv) {
   int batches = 64;
   int batch_size = 16;
   int repeats = 3;
+  std::optional<std::size_t> selected_workers;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
-    const auto value_of = [&]() -> double {
+    const auto value_of = [&]() -> std::optional<std::string_view> {
       if (i + 1 >= argc) {
-        print_help();
-        std::exit(2);
+        return std::nullopt;
       }
-      return std::atof(argv[++i]);
+      return argv[++i];
     };
     if (arg == "--work-ms") {
-      work_ms = value_of();
+      const auto text = value_of();
+      const auto value = text ? parse_positive_double(*text) : std::nullopt;
+      if (!value) {
+        print_help();
+        return 2;
+      }
+      work_ms = *value;
     } else if (arg == "--batches") {
-      batches = static_cast<int>(value_of());
+      const auto text = value_of();
+      const auto value = text ? parse_positive_int(*text) : std::nullopt;
+      if (!value) {
+        print_help();
+        return 2;
+      }
+      batches = *value;
     } else if (arg == "--batch-size") {
-      batch_size = static_cast<int>(value_of());
+      const auto text = value_of();
+      const auto value = text ? parse_positive_int(*text) : std::nullopt;
+      if (!value) {
+        print_help();
+        return 2;
+      }
+      batch_size = *value;
     } else if (arg == "--repeats") {
-      repeats = static_cast<int>(value_of());
+      const auto text = value_of();
+      const auto value = text ? parse_positive_int(*text) : std::nullopt;
+      if (!value) {
+        print_help();
+        return 2;
+      }
+      repeats = *value;
+    } else if (arg == "--workers") {
+      const auto text = value_of();
+      const auto workers = text ? parse_worker_count(*text) : std::nullopt;
+      if (!workers) {
+        print_help();
+        return 2;
+      }
+      selected_workers = *workers;
     } else {
       print_help();
       return 2;
     }
   }
-  if (batches <= 0 || batch_size <= 0 || repeats <= 0 || work_ms <= 0.0) {
+  if (static_cast<std::uint64_t>(batches) *
+          static_cast<std::uint64_t>(batch_size) >
+      static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
     print_help();
     return 2;
   }
 
   const int samples = batches * batch_size;
+  torch::set_num_threads(1);
+  torch::set_num_interop_threads(1);
   const auto dataset =
       std::make_shared<SlowDataset>(samples, /*features=*/16, work_ms);
   std::cout << "workers,repeat,samples,batch_size,features,work_ms,"
-               "elapsed_ms,samples_per_second\n";
+               "elapsed_ms,samples_per_second,p50_batch_latency_ms,"
+               "p95_batch_latency_ms,mean_outstanding_batches,"
+               "peak_outstanding_batches,worker_utilization,"
+               "peak_active_workers,resident_before_bytes,"
+               "peak_resident_bytes,resident_delta_bytes\n";
   std::cout << std::fixed << std::setprecision(3);
-  for (const std::size_t workers :
-       {std::size_t{0}, std::size_t{1}, std::size_t{2}, std::size_t{4},
-        std::size_t{8}}) {
+  const std::vector<std::size_t> worker_counts =
+      selected_workers ? std::vector{*selected_workers}
+                       : std::vector<std::size_t>{0, 1, 2, 4, 8};
+  for (const std::size_t workers : worker_counts) {
     const auto results =
         bench_workers(dataset, batches, batch_size, workers, repeats, 2);
     if (results.size() != static_cast<std::size_t>(repeats)) {
@@ -243,7 +490,20 @@ int main(int argc, char** argv) {
       std::cout << result.workers << ',' << result.repeat << ','
                 << result.samples << ',' << batch_size << ','
                 << dataset->features() << ',' << work_ms << ','
-                << result.elapsed_ms << ',' << throughput << '\n';
+                << result.elapsed_ms << ',' << throughput << ','
+                << result.p50_batch_latency_ms << ','
+                << result.p95_batch_latency_ms << ','
+                << result.mean_outstanding_batches << ','
+                << result.peak_outstanding_batches << ','
+                << result.worker_utilization << ','
+                << result.peak_active_workers << ','
+                << result.resident_before_bytes << ','
+                << result.peak_resident_bytes << ','
+                << (result.peak_resident_bytes >= result.resident_before_bytes
+                        ? result.peak_resident_bytes -
+                              result.resident_before_bytes
+                        : 0)
+                << '\n';
     }
   }
   return 0;
