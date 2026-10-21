@@ -422,8 +422,27 @@ TEST(ProfilerTest, AggregatesScopedTimings) {
 
   const auto sorted = report.sorted();
   ASSERT_EQ(sorted.size(), 2);
-  EXPECT_EQ(sorted[0].first, "scope_a");  // 2 calls sort first by total
-  EXPECT_EQ(sorted[0].second.count, 2);
+  for (const auto& [name, entry] : sorted) {
+    EXPECT_EQ(entry.count, name == "scope_a" ? 2 : 1);
+    EXPECT_GE(entry.total_ms, 0.0);
+    EXPECT_GE(entry.total_ms, entry.max_ms);
+  }
+
+  // Empty timed scopes have no deterministic relative duration. Explicit
+  // observations verify sorting independently of clock resolution/scheduling.
+  report.clear();
+  report.record("scope_a", 1.0);
+  report.record("scope_a", 2.0);
+  report.record("scope_b", 4.0);
+  const auto ordered = report.sorted();
+  ASSERT_EQ(ordered.size(), 2);
+  EXPECT_EQ(ordered[0].first, "scope_b");
+  EXPECT_DOUBLE_EQ(ordered[0].second.total_ms, 4.0);
+  EXPECT_EQ(ordered[0].second.count, 1);
+  EXPECT_EQ(ordered[1].first, "scope_a");
+  EXPECT_DOUBLE_EQ(ordered[1].second.total_ms, 3.0);
+  EXPECT_DOUBLE_EQ(ordered[1].second.max_ms, 2.0);
+  EXPECT_EQ(ordered[1].second.count, 2);
 }
 
 TEST(ProfilerTest, ClearRemovesAllAggregates) {
