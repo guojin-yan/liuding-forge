@@ -112,6 +112,14 @@ if(Python3_Interpreter_FOUND)
         )
     endif()
     add_test(
+        NAME TSanLaneProtocolUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_tsan_lane.py
+    )
+    set_tests_properties(TSanLaneProtocolUnitTests PROPERTIES
+        LABELS "hygiene;sanitizer"
+    )
+    add_test(
         NAME CoverageTargetGateRejectsRegression
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/coverage_gate.py
                 ${CMAKE_SOURCE_DIR}/tests/fixtures/coverage/target-summary-regressed.json
