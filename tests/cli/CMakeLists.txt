@@ -27,6 +27,7 @@ add_test(NAME CliInstalledConsumer
     COMMAND ${Python3_EXECUTABLE} "${PROJECT_SOURCE_DIR}/tests/install/cli/run_acceptance.py"
         --cmake "${CMAKE_COMMAND}" --build-dir "${CMAKE_BINARY_DIR}" --config "$<CONFIG>"
         --prefix "${CMAKE_BINARY_DIR}/_cli_install_consumer/$<CONFIG>"
-        --torch-runtime "${JYPPX_CLI_TORCH_RUNTIME}")
+        --torch-runtime "${JYPPX_CLI_TORCH_RUNTIME}"
+        --runtime-stager "${PROJECT_SOURCE_DIR}/cmake/StageTorchRuntime.cmake")
 set_tests_properties(CliInstalledConsumer PROPERTIES LABELS "cli;packaging"
     RESOURCE_LOCK jyppx_install_consumer TIMEOUT 180)

@@ -97,6 +97,9 @@ class StorageCrashBoundaryTests(unittest.TestCase):
                     self.fail("Production operation did not reach its SQLite hook")
                 if isinstance(line, Exception):
                     raise line
+                self.assertTrue(line, f"Storage child exited before its {boundary} hook; "
+                                f"exit={child.poll()}, diagnostics="
+                                f"{(self.root / 'crash-stderr.log').read_text(encoding='utf-8', errors='replace')}")
                 ready = self.decode(line)
                 self.assertEqual(ready["phase"], "ready-for-forced-kill")
                 self.assertEqual(ready["boundary"], boundary)

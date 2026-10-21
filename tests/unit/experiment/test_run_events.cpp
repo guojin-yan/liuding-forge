@@ -661,7 +661,8 @@ TEST(SQLiteRunEventTest,
       .artifact = {.digest = {.hex = std::string(64U, 'a')},
                    .size_bytes = 5U,
                    .logical_name = "missing.bin",
-                   .media_type = "application/octet-stream"}};
+                   .media_type = "application/octet-stream",
+                   .producer = "event-test"}};
   const std::array batch{metric_event(), event};
   EXPECT_THROW(store.append("run-1", "missing", batch), jyppx::IoError);
   EXPECT_TRUE(store.events("run-1").events.empty());

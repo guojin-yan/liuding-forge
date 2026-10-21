@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--prefix", required=True, type=Path)
     parser.add_argument("--torch-runtime", required=True, type=Path)
+    parser.add_argument("--runtime-stager", required=True, type=Path)
     args = parser.parse_args()
     subprocess.run([args.cmake, "--install", str(args.build_dir), "--config", args.config,
                     "--prefix", str(args.prefix)], check=True, timeout=120)
@@ -25,6 +26,15 @@ def main() -> None:
         assert not (args.prefix / forbidden).exists(), f"Developer-only {forbidden} was installed"
     assert not list((args.prefix / "include").rglob("build_metadata.hpp")), "Private build metadata header leaked"
     assert not list((args.prefix / "include").rglob("metadata_validation.hpp")), "Private interop header leaked"
+    if os.name == "nt":
+        # The SDK install does not redistribute LibTorch. Like the installed
+        # C++ consumers, this fixture deploys its explicitly supplied external
+        # runtime beside the executable, including dynamically loaded CUDA DLLs.
+        subprocess.run([args.cmake,
+                        f"-DJYPPX_RUNTIME_SOURCE_DIR={args.torch_runtime.resolve(strict=True)}",
+                        f"-DJYPPX_RUNTIME_OUTPUT_DIR={(args.prefix / 'bin').resolve(strict=True)}",
+                        "-P", str(args.runtime_stager.resolve(strict=True))],
+                       check=True, timeout=120)
     environment = os.environ.copy()
     variable = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
     environment[variable] = str(args.torch_runtime) + os.pathsep + environment.get(variable, "")

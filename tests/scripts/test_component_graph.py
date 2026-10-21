@@ -58,6 +58,13 @@ class ComponentGraphTest(unittest.TestCase):
                 edge = component_graph.Edge(consumer, provider)
                 if edge != missing_target:
                     lines.append(f"{consumer}\ttarget\t{provider}")
+                if edge != missing_interface:
+                    lines.append(f"{consumer}\tinterface\t{provider}")
+            for header_root in policy.header_roots:
+                root = REPOSITORY_ROOT / "include" / "jyppx" / header_root
+                for path in sorted(root.rglob("*.hpp")):
+                    relative = path.relative_to(REPOSITORY_ROOT).as_posix()
+                    lines.append(f"{consumer}\theader\t{relative}")
             for source_root in policy.source_roots:
                 root = REPOSITORY_ROOT / "src" / "jyppx" / source_root
                 for path in sorted(root.rglob("*.cpp")):
@@ -172,6 +179,38 @@ class ComponentGraphTest(unittest.TestCase):
             path = self.write_graph()
             with path.open("a", encoding="utf-8") as output:
                 output.write(f"training\tsource\t{source}\n")
+            with self.assertRaises(component_graph.ComponentGraphError):
+                component_graph.load_target_graph(path, self.manifest)
+
+    def test_active_optional_public_header_requires_direct_interface(self) -> None:
+        """Installed nn adapters must expose their optional public dependency."""
+        path = self.write_graph(missing_interface=component_graph.Edge("interop", "nn"))
+        targets = component_graph.load_target_graph(path, self.manifest)
+        includes = component_graph.scan_repository(self.manifest, REPOSITORY_ROOT)
+        with self.assertRaisesRegex(component_graph.ComponentGraphError,
+                                    "public include edge lacks a direct link interface: interop -> nn"):
+            component_graph.validate_graphs(self.manifest, includes, targets)
+
+    def test_uninstalled_optional_public_headers_do_not_require_interface(self) -> None:
+        """An interop-only package omits both nn-dependent public adapters."""
+        path = self.write_graph(missing_interface=component_graph.Edge("interop", "nn"))
+        excluded = {"include/jyppx/interop/model_weight_import.hpp",
+                    "include/jyppx/interop/torchscript_compatibility.hpp"}
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines()
+                 if line.split("\t")[-1] not in excluded]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        targets = component_graph.load_target_graph(path, self.manifest)
+        includes = component_graph.scan_repository(self.manifest, REPOSITORY_ROOT)
+        component_graph.validate_graphs(self.manifest, includes, targets)
+
+    def test_active_header_rows_reject_wrong_owner_traversal_and_duplicates(self) -> None:
+        """CMake header membership obeys the same ownership and path contract."""
+        for header in ("include/jyppx/nn/model_adapter.hpp",
+                       "include/jyppx/interop/../nn/model_adapter.hpp",
+                       "include/jyppx/interop/torchscript_compatibility.hpp"):
+            path = self.write_graph()
+            with path.open("a", encoding="utf-8") as output:
+                output.write(f"interop\theader\t{header}\n")
             with self.assertRaises(component_graph.ComponentGraphError):
                 component_graph.load_target_graph(path, self.manifest)
 

@@ -89,6 +89,7 @@ struct HookState {
   std::string boundary;
   bool armed = false;
   bool verified_wal_full = false;
+  bool wal_hook_installed = false;
   sqlite3* connection = nullptr;
   std::vector<std::string> statements;
 };
@@ -152,6 +153,13 @@ int after_wal_commit(void*, sqlite3* database, const char* name,
 int trace_statement(unsigned kind, void*, void* statement, void*) noexcept {
   if (active_hooks != nullptr && kind == SQLITE_TRACE_STMT) {
     try {
+      if (!active_hooks->wal_hook_installed) {
+        // sqlite3_open installs its default WAL autocheckpoint after automatic
+        // extensions run. The first real SQL statement is after open returns
+        // and before the constructor's migration transaction can commit.
+        sqlite3_wal_hook(active_hooks->connection, &after_wal_commit, nullptr);
+        active_hooks->wal_hook_installed = true;
+      }
       if (active_hooks->statements.size() >= 128U) return 0;
       const auto* sql = sqlite3_sql(static_cast<sqlite3_stmt*>(statement));
       if (sql != nullptr) {
@@ -170,7 +178,6 @@ int install_hooks(sqlite3* database, char**,
   if (active_hooks == nullptr) return SQLITE_ERROR;
   active_hooks->connection = database;
   sqlite3_commit_hook(database, &before_commit, nullptr);
-  sqlite3_wal_hook(database, &after_wal_commit, nullptr);
   return sqlite3_trace_v2(database, SQLITE_TRACE_STMT, &trace_statement,
                           nullptr);
 }

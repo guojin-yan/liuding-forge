@@ -301,6 +301,15 @@ tr::TrainingTelemetryAdapterOptions telemetry_options() {
                               .context = {{"split", phase}}};
     }
   }
+  for (const auto* name : {"optimizer.applied", "optimizer.count"}) {
+    TelemetryMetricDefinition definition;
+    definition.metric_id = name;
+    definition.unit = TelemetryMetricUnit::dimensionless;
+    definition.aggregation = TelemetryAggregation::last;
+    definition.parameters = {{"source", "trainer.optimizer_step_finished"}};
+    options.metrics[name] = {.definition = std::move(definition),
+                             .context = {}};
+  }
   return options;
 }
 
@@ -357,15 +366,20 @@ Domain make_domain(const Fixture& fixture, const Device& device,
             .num_workers = 2,
             .prefetch_batches = 2,
             .persistent_workers = true,
-            .worker_seed = 1949},
+            .worker_seed = 1949,
+            .memory = {}},
         factory);
   };
   domain.training_f1 = std::make_shared<tr::metrics::F1Score>(
       tr::metrics::ClassificationMetricOptions{
-          .metric_id = "metric.training.f1", .num_classes = 3});
+          .metric_id = "metric.training.f1",
+          .num_classes = 3,
+          .ignore_index = {}});
   domain.validation_f1 = std::make_shared<tr::metrics::F1Score>(
       tr::metrics::ClassificationMetricOptions{
-          .metric_id = "metric.validation.f1", .num_classes = 3});
+          .metric_id = "metric.validation.f1",
+          .num_classes = 3,
+          .ignore_index = {}});
   auto callbacks = std::make_shared<tr::CallbackDispatcher>(
       std::vector<std::shared_ptr<tr::CallbackHandler>>{
           std::make_shared<BoundaryCallback>(),
@@ -380,13 +394,15 @@ Domain make_domain(const Fixture& fixture, const Device& device,
           std::make_shared<JsonlTelemetrySink>(
               JsonlTelemetryOptions{.path = jsonl,
                                     .sink_id = "sink.jsonl",
-                                    .destination_id = "offline.jsonl"})},
+                                    .destination_id = "offline.jsonl",
+                                    .limits = {}})},
       telemetry_options());
   domain.samples = std::make_shared<std::vector<std::uint64_t>>();
   const auto mapper = [device](const data::BatchEnvelope& batch) {
     return nn::Invocation{
-        .positional = {
-            batch.value.toTuple()->elements().at(0).toTensor().to(device)}};
+        .positional = {batch.value.toTuple()->elements().at(0).toTensor().to(
+            device)},
+        .keyword = {}};
   };
   const auto target =
       [device](const data::BatchEnvelope& batch) -> std::optional<c10::IValue> {
@@ -405,6 +421,7 @@ Domain make_domain(const Fixture& fixture, const Device& device,
                       input.batch.sample_ids.end());
     return tr::StepOutput{
         .loss = torch::nn::functional::cross_entropy(logits, labels),
+        .prediction = {},
         .metrics = {{training ? "training.f1" : "validation.f1",
                      metric->compute()}},
         .sample_count = input.batch.sample_ids.size()};
@@ -414,6 +431,7 @@ Domain make_domain(const Fixture& fixture, const Device& device,
                          .run_id = run_id,
                          .trace_id = "trace." + run_id,
                          .max_epochs = kEpochs,
+                         .gradient_clip_norm = {},
                          .restore_policy = RestorePolicy::exact_only});
   domain.trainer->prepare(
       {.model = domain.model,
@@ -434,6 +452,8 @@ Domain make_domain(const Fixture& fixture, const Device& device,
        .validation_step = step,
        .strategy = std::make_shared<tr::SingleDeviceStrategy>(
            tr::SingleDeviceStrategyOptions{.device = device}),
+       .gradient_scaler = {},
+       .gradient_scaler_checkpoint = {},
        .callbacks = std::move(callbacks),
        .event_outbox = domain.outbox,
        .model_checkpoint =
@@ -472,7 +492,8 @@ EvaluationSuite make_suite(const ArtifactDigest& dataset,
                         .task = "classification",
                         .dataset_digest = dataset,
                         .environment_id = environment,
-                        .seed = seed};
+                        .seed = seed,
+                        .rules = {}};
   for (const auto* metric : {"accuracy", "cross_entropy"}) {
     TelemetryMetricDefinition definition;
     definition.metric_id = std::string("classification.") + metric;
@@ -492,7 +513,8 @@ EvaluationSuite make_suite(const ArtifactDigest& dataset,
          .minimum_samples = kSamples,
          .minimum = 0.0,
          .maximum = accuracy ? std::optional(1.0) : std::nullopt,
-         .max_absolute_regression = 0.0});
+         .max_absolute_regression = 0.0,
+         .max_relative_regression = {}});
   }
   return suite;
 }
@@ -510,7 +532,8 @@ QualityReport evaluate_model(nn::ModelAdapter& model, const Fixture& fixture,
         const auto logits =
             model
                 .invoke(nn::Invocation{
-                    .positional = {fixture.validation_features.to(device)}})
+                    .positional = {fixture.validation_features.to(device)},
+                    .keyword = {}})
                 .value.toTensor();
         const auto labels = fixture.labels.to(device);
         const double accuracy = logits.argmax(1)
@@ -641,9 +664,12 @@ Json execute_workflow(const std::filesystem::path& root, const Device& device,
                          .experiment_id = "classification.recovery",
                          .display_name = std::string(run_id),
                          .status = RunStatus::running,
-                         .created_at_unix_ms = timestamp()};
+                         .created_at_unix_ms = timestamp(),
+                         .lineage = {},
+                         .tags = {}};
     metadata.updated_at_unix_ms = metadata.created_at_unix_ms;
-    metadata.lineage = {.source_digest = build.git_commit,
+    metadata.lineage = {.parent_run_id = {},
+                        .source_digest = build.git_commit,
                         .build_fingerprint = fingerprint,
                         .config_digest = config_digest.hex,
                         .data_manifest_digest = data_digest.hex};

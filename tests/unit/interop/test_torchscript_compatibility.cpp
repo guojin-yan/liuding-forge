@@ -589,8 +589,7 @@ TEST(TorchScriptCompatibility,
      BackendFailureClosesAndPreservesPrivateNestedCause) {
   const auto artifact = Compile(R"JIT(
 def forward(self, x: Tensor) -> Tensor:
-    raise RuntimeError("private-jit-source-path")
-    return x
+    return x.reshape([2, 2])
 )JIT");
   auto runtime = Runtime::load(artifact.bytes, artifact.digest, OneTensor(),
                                ValueSchema::tensor(), Trusted());
@@ -599,13 +598,13 @@ def forward(self, x: Tensor) -> Tensor:
         runtime.invoke({.positional = {torch::ones({1})}, .keyword = {}}));
     FAIL() << "The real JIT method must raise";
   } catch (const BackendError& error) {
-    EXPECT_EQ(std::string(error.what()).find("private-jit-source-path"),
-              std::string::npos);
+    EXPECT_EQ(std::string(error.what()).find("reshape"), std::string::npos);
     bool nested = false;
     try {
       std::rethrow_if_nested(error);
-    } catch (const std::exception&) {
+    } catch (const std::exception& cause) {
       nested = true;
+      EXPECT_NE(std::string(cause.what()).find("shape"), std::string::npos);
     }
     EXPECT_TRUE(nested);
   }

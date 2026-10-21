@@ -72,6 +72,7 @@ class TargetGraphs:
     target: frozenset[Edge]
     interface: frozenset[Edge]
     sources: frozenset[str] | None = None
+    headers: frozenset[str] | None = None
 
 
 def _read_bounded(path: pathlib.Path, limit: int) -> str:
@@ -425,7 +426,8 @@ def load_target_graph(path: pathlib.Path, manifest: Manifest) -> TargetGraphs:
     target_edges: set[Edge] = set()
     interface_edges: set[Edge] = set()
     sources: set[str] = set()
-    source_owners = _ownership_maps(manifest)[1]
+    headers: set[str] = set()
+    header_owners, source_owners = _ownership_maps(manifest)
     for line_number, line in enumerate(lines[1:], start=2):
         fields = line.split("\t")
         if len(fields) != 3:
@@ -437,22 +439,26 @@ def load_target_graph(path: pathlib.Path, manifest: Manifest) -> TargetGraphs:
             raise ComponentGraphError(
                 f"target graph contains unknown entity target: {component!r}"
             )
-        if kind == "source":
-            source_path = pathlib.PurePosixPath(dependency)
-            parts = source_path.parts
+        if kind in {"source", "header"}:
+            member_path = pathlib.PurePosixPath(dependency)
+            parts = member_path.parts
+            owners = source_owners if kind == "source" else header_owners
+            root = "src" if kind == "source" else "include"
             if (
-                source_path.is_absolute()
+                member_path.is_absolute()
                 or ".." in parts
                 or "\\" in dependency
+                or member_path.as_posix() != dependency
                 or len(parts) < 4
-                or parts[:2] != ("src", "jyppx")
-                or source_owners.get(parts[2]) != component
-                or source_path.suffix.lower() not in CODE_SUFFIXES
+                or parts[:2] != (root, "jyppx")
+                or owners.get(parts[2]) != component
+                or member_path.suffix.lower() not in CODE_SUFFIXES
             ):
-                raise ComponentGraphError("invalid active source ownership/path")
-            if dependency in sources:
-                raise ComponentGraphError(f"target graph repeats source: {dependency}")
-            sources.add(dependency)
+                raise ComponentGraphError(f"invalid active {kind} ownership/path")
+            members = sources if kind == "source" else headers
+            if dependency in members:
+                raise ComponentGraphError(f"target graph repeats {kind}: {dependency}")
+            members.add(dependency)
             continue
         if kind in {"present", "absent"}:
             if dependency:
@@ -492,6 +498,10 @@ def load_target_graph(path: pathlib.Path, manifest: Manifest) -> TargetGraphs:
         owner = source_owners[pathlib.PurePosixPath(source).parts[2]]
         if owner not in enabled:
             raise ComponentGraphError(f"disabled component has an active source: {owner}")
+    for header in headers:
+        owner = header_owners[pathlib.PurePosixPath(header).parts[2]]
+        if owner not in enabled:
+            raise ComponentGraphError(f"disabled component has an active header: {owner}")
     for edge in target_edges | interface_edges:
         if edge.consumer not in enabled or edge.provider not in enabled:
             raise ComponentGraphError(
@@ -509,7 +519,7 @@ def load_target_graph(path: pathlib.Path, manifest: Manifest) -> TargetGraphs:
                 f"CMake {graph_name} graph contains a cycle: " + " -> ".join(cycle)
             )
     return TargetGraphs(enabled, frozenset(target_edges), frozenset(interface_edges),
-                        frozenset(sources))
+                        frozenset(sources), frozenset(headers))
 
 
 def _allowed_edges(manifest: Manifest) -> set[Edge]:
@@ -561,10 +571,15 @@ def validate_graphs(
                 )
 
     for edge, locations in sorted(includes.public.items()):
-        if edge.consumer in targets.enabled_components and edge not in targets.interface:
+        active_locations = locations if targets.headers is None else {
+            location for location in locations
+            if location.rsplit(":", 1)[0] in targets.headers
+        }
+        if (active_locations and edge.consumer in targets.enabled_components
+                and edge not in targets.interface):
             raise ComponentGraphError(
                 f"public include edge lacks a direct link interface: "
-                f"{edge.consumer} -> {edge.provider} at {sorted(locations)[0]}"
+                f"{edge.consumer} -> {edge.provider} at {sorted(active_locations)[0]}"
             )
     for edge, locations in sorted(includes.source.items()):
         active_locations = locations if targets.sources is None else {
@@ -640,6 +655,7 @@ def build_report(
             "sdk_aggregate_include": _include_edge_list(includes.aggregate),
             "source_include": _include_edge_list(includes.source),
             "active_sources": sorted(targets.sources) if targets.sources is not None else None,
+            "active_public_headers": sorted(targets.headers) if targets.headers is not None else None,
         },
     }
 

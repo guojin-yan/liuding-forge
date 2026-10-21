@@ -3,6 +3,26 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 
+# Installation and dependency validation must use the same public surface.
+function(jyppx_public_headers header_root output_variable)
+    file(GLOB_RECURSE public_headers CONFIGURE_DEPENDS
+        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.h"
+        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.hh"
+        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.hpp"
+        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.hxx"
+        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.inc")
+    if(header_root STREQUAL "interop" AND NOT JYPPX_BUILD_NN)
+        list(REMOVE_ITEM public_headers
+            "${PROJECT_SOURCE_DIR}/include/jyppx/interop/model_weight_import.hpp"
+            "${PROJECT_SOURCE_DIR}/include/jyppx/interop/torchscript_compatibility.hpp")
+    endif()
+    if(header_root STREQUAL "training" AND NOT JYPPX_BUILD_INTEROP)
+        list(REMOVE_ITEM public_headers
+            "${PROJECT_SOURCE_DIR}/include/jyppx/training/file_checkpoint_store.hpp")
+    endif()
+    set(${output_variable} "${public_headers}" PARENT_SCOPE)
+endfunction()
+
 function(jyppx_write_component_graph output_path)
     set(components
         core
@@ -25,6 +45,21 @@ function(jyppx_write_component_graph output_path)
             file(APPEND "${output_path}" "${component}\tabsent\t\n")
             continue()
         endif()
+
+        set(header_roots "${component}")
+        if(component STREQUAL "core")
+            list(APPEND header_roots utils)
+        endif()
+        foreach(header_root IN LISTS header_roots)
+            jyppx_public_headers("${header_root}" component_headers)
+            foreach(component_header IN LISTS component_headers)
+                file(RELATIVE_PATH header_relative "${PROJECT_SOURCE_DIR}"
+                    "${component_header}")
+                file(TO_CMAKE_PATH "${header_relative}" header_relative)
+                file(APPEND "${output_path}"
+                    "${component}\theader\t${header_relative}\n")
+            endforeach()
+        endforeach()
 
         get_target_property(component_sources "${target_name}" SOURCES)
         foreach(component_source IN LISTS component_sources)

@@ -732,24 +732,14 @@ install(TARGETS ${JYPPX_ENABLED_TARGETS}
 )
 
 foreach(JYPPX_HEADER_DIR IN LISTS JYPPX_ENABLED_HEADER_DIRS)
-    if(JYPPX_HEADER_DIR STREQUAL "interop" AND NOT JYPPX_BUILD_NN)
-        install(DIRECTORY "include/jyppx/interop"
-            DESTINATION include/jyppx
-            PATTERN "model_weight_import.hpp" EXCLUDE
-            PATTERN "torchscript_compatibility.hpp" EXCLUDE
-        )
-        continue()
-    endif()
-    if(JYPPX_HEADER_DIR STREQUAL "training" AND NOT JYPPX_BUILD_INTEROP)
-        install(DIRECTORY "include/jyppx/training"
-            DESTINATION include/jyppx
-            PATTERN "file_checkpoint_store.hpp" EXCLUDE
-        )
-        continue()
-    endif()
-    install(DIRECTORY "include/jyppx/${JYPPX_HEADER_DIR}"
-        DESTINATION include/jyppx
-    )
+    jyppx_public_headers("${JYPPX_HEADER_DIR}" JYPPX_INSTALL_HEADERS)
+    foreach(JYPPX_INSTALL_HEADER IN LISTS JYPPX_INSTALL_HEADERS)
+        file(RELATIVE_PATH JYPPX_HEADER_RELATIVE "${PROJECT_SOURCE_DIR}/include"
+            "${JYPPX_INSTALL_HEADER}")
+        get_filename_component(JYPPX_HEADER_PARENT "${JYPPX_HEADER_RELATIVE}" DIRECTORY)
+        install(FILES "${JYPPX_INSTALL_HEADER}"
+            DESTINATION "include/${JYPPX_HEADER_PARENT}")
+    endforeach()
 endforeach()
 
 if(TARGET jyppx::sdk)
