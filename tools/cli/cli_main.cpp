@@ -326,7 +326,8 @@ int main_entry(std::span<const std::string_view> values) {
         } else
           std::cout << ' '
                     << (field.is_string()
-                            ? visible(field.get_ref<const std::string&>())
+                            ? visible(
+                                  field.template get_ref<const std::string&>())
                             : field.dump())
                     << '\n';
       }
@@ -340,7 +341,8 @@ int main_entry(std::span<const std::string_view> values) {
         } else
           std::cout << ' '
                     << (field.is_string()
-                            ? visible(field.get_ref<const std::string&>())
+                            ? visible(
+                                  field.template get_ref<const std::string&>())
                             : field.dump())
                     << '\n';
       }
