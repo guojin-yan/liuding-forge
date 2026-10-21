@@ -20,6 +20,12 @@ consumer builds cannot contribute counters. All enabled library paths remain
 in the report. The checked-in owner policy rejects unowned files, reduced
 denominators, covered-count regressions and percentage regressions.
 
+The fixed artifact/reference workloads hash more than a GiB. Their 22,615,392
+SHA-256 blocks invoke 576 rotations each, producing exactly 13,026,465,792
+positive hits. The gcovr suspicious-hit ceiling is a finite 20 billion to retain
+these verified hot-loop counts; errors above it still fail. No source path or
+counter is discarded for exceeding gcovr's default heuristic.
+
 CTest failure does not prevent collection of the coverage report and policy
 result. The overall exit remains nonzero if either CTest or the policy failed.
 Configure/build/gcovr failures stop collection. `coverage-metadata.txt` is

@@ -143,6 +143,10 @@ coverage_args=(
   # inline template code. Keep the report usable while retaining a warning in
   # the lane log; the coverage summary still validates all three metrics.
   --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
+  # The fixed artifact/reference tests hash over a GiB: 22,615,392 SHA-256
+  # blocks * 576 rotations = 13,026,465,792 legitimate positive hits. Retain
+  # these counters and a finite sanity bound rather than suppressing errors.
+  --gcov-suspicious-hits-threshold=20000000000
   -j "$build_parallelism"
 )
 stage=gcov_xml
