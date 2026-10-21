@@ -27,6 +27,12 @@ DTYPES = (
     ("U32", 4), ("I32", 4), ("U64", 8), ("I64", 8), ("F16", 2),
     ("BF16", 2), ("F32", 4), ("F64", 8),
 )
+SERIALIZER_DTYPES = {
+    "BOOL": "bool", "U8": "uint8", "I8": "int8",
+    "U16": "uint16", "I16": "int16", "U32": "uint32", "I32": "int32",
+    "U64": "uint64", "I64": "int64", "F16": "float16",
+    "BF16": "bfloat16", "F32": "float32", "F64": "float64",
+}
 
 
 def matrix() -> dict[str, dict[str, Any]]:
@@ -86,7 +92,13 @@ def main() -> int:
     directory.mkdir(parents=True, exist_ok=True)
     expected = matrix()
     expected_metadata = {"producer": "official-python", "description": "中文"}
-    python_bytes = safetensors.serialize(expected, metadata=expected_metadata)
+    # The official raw serializer accepts framework-style dtype names while
+    # its deserializer returns the wire-format tokens used in this matrix.
+    serializer_input = {
+        name: {**value, "dtype": SERIALIZER_DTYPES[value["dtype"]]}
+        for name, value in expected.items()
+    }
+    python_bytes = safetensors.serialize(serializer_input, metadata=expected_metadata)
     check_official_decode(safetensors, python_bytes, expected)
     (directory / "python.safetensors").write_bytes(python_bytes)
 

@@ -157,11 +157,10 @@ def main() -> int:
                 except OSError:
                     reply({"blocked": True})
                 else:
-                    # Avoid leaking a process even if the Job configuration is
-                    # broken. Report the escape so the native test fails.
-                    child.terminate()
-                    child.wait(timeout=5)
-                    reply({"blocked": False})
+                    # Nested jobs can allow the launch while retaining the
+                    # descendant in the restrictive inner job. The supervisor
+                    # must verify actual termination when the transport closes.
+                    reply({"blocked": False, "child_pid": child.pid})
         else:
             return 2
     return 0

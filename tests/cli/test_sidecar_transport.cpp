@@ -464,10 +464,30 @@ TEST(SidecarProcessTest, ArbitraryParentHandlesAreNotInherited) {
 }
 
 #ifdef _WIN32
-TEST(SidecarProcessTest, JobObjectDisallowsExplicitBreakaway) {
+TEST(SidecarProcessTest, JobObjectContainsExplicitBreakawayDescendants) {
   ProcessDirectory directory;
-  cli::SidecarProcessTransport transport(directory.options("breakaway"));
-  EXPECT_TRUE(Json::parse(transport.transact("{}")).at("blocked").get<bool>());
+  std::optional<unsigned long> child;
+  {
+    cli::SidecarProcessTransport transport(directory.options("breakaway"));
+    const auto reply = Json::parse(transport.transact("{}"));
+    if (!reply.at("blocked").get<bool>()) {
+      child = reply.at("child_pid").get<unsigned long>();
+      ASSERT_NE(*child, 0U);
+      EXPECT_TRUE(alive(*child));
+    }
+  }
+  if (child) {
+    const bool terminated = await([&] { return !alive(*child); });
+    // Clean up even when containment fails so a failed gate cannot leak work.
+    if (!terminated) {
+      HANDLE escaped = OpenProcess(PROCESS_TERMINATE, FALSE, *child);
+      if (escaped) {
+        TerminateProcess(escaped, 1U);
+        CloseHandle(escaped);
+      }
+    }
+    EXPECT_TRUE(terminated);
+  }
 }
 #endif
 

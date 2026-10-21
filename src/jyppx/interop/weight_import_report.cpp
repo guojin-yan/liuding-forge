@@ -265,9 +265,9 @@ WeightImportPlan plan_weight_import(
       const auto from = sources.find(name);
       if (to.count > 1U) report.duplicate_target.emplace_back(name);
       if (from == sources.end()) report.missing.emplace_back(name);
-      const auto retain = [&](WeightSkipReason reason) {
+      const auto retain = [&, target_name = name](WeightSkipReason reason) {
         report.retained_targets.push_back(
-            {.key = std::string(name), .reason = reason});
+            {.key = std::string(target_name), .reason = reason});
       };
       if (to.count > 1U) {
         retain(WeightSkipReason::duplicate_target);

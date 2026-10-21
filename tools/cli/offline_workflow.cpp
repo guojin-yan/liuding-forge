@@ -255,7 +255,7 @@ class BoundaryCallback final : public tr::CallbackHandler {
 
  private:
   tr::CallbackDescriptor descriptor_{
-      .type_id = "jyppx.offline.checkpoint/v1",
+      .type_id = "jyppx.offline.checkpoint.v1",
       .callback_id = "callback.offline.checkpoint",
       .subscriptions = {tr::CallbackEventKind::batch_finished},
       .allowed_commands = {tr::CallbackCommandKind::request_checkpoint}};

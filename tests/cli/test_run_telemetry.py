@@ -14,6 +14,7 @@ No tests are skipped when this entry point is run.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import copy
 import hashlib
 import json
@@ -166,7 +167,7 @@ def projection(value: dict) -> dict:
 
 def seed_database(root: Path, events: list[dict]) -> None:
     """Insert independent canonical fixtures; product APIs create the schema."""
-    with sqlite3.connect(root / "runs.sqlite3") as database:
+    with closing(sqlite3.connect(root / "runs.sqlite3")) as database, database:
         database.execute("PRAGMA foreign_keys=ON")
         for value in events:
             identity = value["identity"]
@@ -249,8 +250,8 @@ def fixture_sidecar() -> int:
             time.sleep(60)
             continue
         if args.mode == "bad-frame":
-            sys.stdout.write("{}\n{}\n")
-            sys.stdout.flush()
+            sys.stdout.buffer.write(b"{}\n{}\n")
+            sys.stdout.buffer.flush()
             continue
         response = {"protocol_version": 1, "request_id": request["request_id"]}
         if request["operation"] == "emit":
@@ -270,8 +271,8 @@ def fixture_sidecar() -> int:
         response["counters"] = counters.copy()
         if args.mode == "bad-counter" and request["operation"] == "close":
             response["counters"]["exported_events"] += 1
-        sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
-        sys.stdout.flush()
+        sys.stdout.buffer.write((json.dumps(response, separators=(",", ":")) + "\n").encode("utf-8"))
+        sys.stdout.buffer.flush()
     return 0
 
 
@@ -405,7 +406,7 @@ class RunTelemetryContract(unittest.TestCase):
     def test_text_escapes_terminal_controls_and_json_preserves_evidence(self) -> None:
         body = "日志\x1b]52;c;dW50cnVzdGVk\x07\r\n\x1b[2J\x7f\u009b31m"
         value = envelope(5, {"kind": 3, "severity": 2, "body": body})
-        value["attributes"] = {"dynamic\x1bkey": "控制\u0085text"}
+        value["attributes"] = {"dynamic\u009bkey": "控制\u0085text"}
         seed_database(self.store, [value])
         records = self.query("events")["data"]["events"]
         self.assertEqual(records[-1]["event"]["payload"]["body"], body)
@@ -416,7 +417,7 @@ class RunTelemetryContract(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         output = result.stdout.decode("utf-8")
         self.assertIn("日志\\u001b]52", output)
-        self.assertIn("dynamic\\u001bkey", output)
+        self.assertIn("dynamic\\u009bkey", output)
         self.assertIn("控制\\u0085text", output)
         for control in ("\x1b", "\x07", "\x7f", "\u0085", "\u009b"):
             self.assertNotIn(control, output)
@@ -520,7 +521,7 @@ class RunTelemetryContract(unittest.TestCase):
         self.assertEqual(self.query("events")["data"]["snapshot_through"], 5)
 
     def test_corrupt_canonical_source_is_rejected_without_creating_output(self) -> None:
-        with sqlite3.connect(self.store / "runs.sqlite3") as database:
+        with closing(sqlite3.connect(self.store / "runs.sqlite3")) as database, database:
             database.execute("UPDATE jyppx_events SET content_digest=? WHERE run_sequence=2", ("0" * 64,))
         self.query("events", expected=2)
         self.query("metrics", "--metric", "validation.accuracy", expected=2)

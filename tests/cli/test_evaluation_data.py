@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import copy
 import hashlib
 import json
@@ -154,7 +155,7 @@ class EvaluationDataCliTest(unittest.TestCase):
         self.assertEqual(len(references), 1)
         self.assertEqual(references[0]["artifact"]["sha256"], first["report_digest"]["hex"])
         self.assertTrue(self.invoke("run", "verify", "--root", storage)["data"]["valid"])
-        with sqlite3.connect(storage / "runs.sqlite3") as db:
+        with closing(sqlite3.connect(storage / "runs.sqlite3")) as db, db:
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 2)
 
     def test_data_checks_leakage_conflicting_label_without_sample_disclosure(self) -> None:
@@ -177,7 +178,7 @@ class EvaluationDataCliTest(unittest.TestCase):
     def test_config_precedence_and_secret_redaction(self) -> None:
         schema = self.write("config-schema.json", {"schema_version": 1, "schema_id": "cli.test", "version": 1,
             "root": {"kind": "dictionary", "fields": {"rate": {"kind": "floating"}, "token": {"kind": "string"}}},
-            "defaults": {"rate": 1, "token": "private-token-123"}, "secret_paths": ["/token"]})
+            "defaults": {"rate": 1, "token": "secret://local/testing/private-token-123"}, "secret_paths": ["/token"]})
         result = self.invoke("config", "render", "--schema", schema, "--set", "/rate=0.25")["data"]
         self.assertEqual(result["config"]["rate"], 0.25)
         self.assertNotIn("private-token-123", json.dumps(result))

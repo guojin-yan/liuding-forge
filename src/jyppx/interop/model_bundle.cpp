@@ -1037,8 +1037,8 @@ void Walk(const Directory& directory, std::string_view relative,
           std::set<std::string>& seen_files,
           std::set<std::string>& seen_directories,
           const ModelBundleLimits& limits, bool synchronize = false) {
-  for (const auto& entry :
-       directory.entries(expected_files.size() + expected_directories.size())) {
+  for (const auto& entry : directory.entries(
+           expected_files.size() + expected_directories.size() + 1U)) {
     const auto path = relative.empty()
                           ? entry.name
                           : std::string(relative) + "/" + entry.name;
