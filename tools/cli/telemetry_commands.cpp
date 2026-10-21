@@ -303,7 +303,7 @@ SidecarProcessOptions sidecar_options(const Arguments& arguments,
           "startup_timeout_ms", "cleanup_timeout_ms", "max_request_bytes",
           "max_reply_bytes", "max_stderr_bytes"});
   if (unsigned_number(config.at("schema_version"), 1U) != 1U ||
-      config.at("backend") != backend) {
+      config.at("backend").get<std::string>() != backend) {
     throw CompatibilityError(
         "Sidecar configuration schema or backend does not match the export");
   }

@@ -35,6 +35,8 @@ using Json = nlohmann::json;
       "Telemetry observer I/O failed",
       ErrorDetails{.component = "experiment.telemetry_exporters",
                    .operation = std::move(operation),
+                   .expected = "complete observer I/O",
+                   .actual = "observer unavailable; destination omitted",
                    .hint = "Reopen and recover the observer before retrying; "
                            "the durable RunSink remains the source of truth."});
 }
