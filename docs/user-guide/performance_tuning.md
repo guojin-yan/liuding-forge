@@ -52,7 +52,7 @@ Profile a complete epoch, separating pipeline wait from forward/backward time.
 The DataPipeline benchmark simulates preprocessing:
 
 ```text
-out/build/baseline-release/tests/benchmarks/Release/jyppx_bench_data_pipeline.exe \
+out/build/baseline-release/tests/benchmarks/Release/liuding-forge-bench-data-pipeline.exe \
   --work-ms 2 --batches 64 --batch-size 32 --workers 4
 ```
 
@@ -80,7 +80,8 @@ absolute median time per step instead of invalid adapter/native ratios.
 Compare PyTorch with the same seed, model, tensors, dtype, and steps. These are
 engineering measurements, not universal limits.
 
-For a real-GPU end-to-end baseline, build `jyppx_bench_cuda_training` against
+For a real-GPU end-to-end baseline, build `jyppx_bench_cuda_training` (which
+outputs `liuding-forge-bench-cuda-training`) against
 CUDA LibTorch and invoke it through `scripts/benchmarks/run_cuda_baseline.py`. The frozen
 workload covers FP32 with one SGD optimizer and FP16 autocast with two disjoint
 SGD optimizers plus one Trainer-owned GradScaler cycle. Each process verifies
@@ -90,7 +91,8 @@ CUDA synchronization. The runner keeps raw process output, samples transient
 GPU state, requires at least five stable samples per mode, and binds references
 to the complete build/workload/GPU environment.
 
-For optimizer-only diagnosis, build `jyppx_bench_cuda_optimizer` and pass
+For optimizer-only diagnosis, build `jyppx_bench_cuda_optimizer` (which
+outputs `liuding-forge-bench-cuda-optimizer`) and pass
 `--suite optimizer` to the same runner. This removes data loading, model
 forward/backward, and Trainer orchestration from the timed region while keeping
 real CUDA synchronization and allocator peaks. It runs all eight optimizers by

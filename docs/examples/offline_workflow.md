@@ -1,15 +1,15 @@
 # 离线训练、恢复与交付证据参考流程
 
-`jyppx offline run` 在一个新目录内完成真实训练、持久化 checkpoint、销毁重建、恢复续训、模型导出、评测、运行存储审计及备份恢复。整个命令使用库的当前 Trainer、DataPipeline、优化器、调度器、CallbackDispatcher、EventOutbox 与 SQLiteRunStore，不依赖 Python Torch、网络或外部服务。
+`liuding-forge offline run` 在一个新目录内完成真实训练、持久化 checkpoint、销毁重建、恢复续训、模型导出、评测、运行存储审计及备份恢复。整个命令使用库的当前 Trainer、DataPipeline、优化器、调度器、CallbackDispatcher、EventOutbox 与 SQLiteRunStore，不依赖 Python Torch、网络或外部服务。
 
 ```text
-jyppx offline run --root ./offline-evidence --device cpu --seed 20261021 --format json
+liuding-forge offline run --root ./offline-evidence --device cpu --seed 20261021 --format json
 ```
 
 CUDA 环境使用同一入口：
 
 ```text
-jyppx offline run --root ./offline-cuda-evidence --device cuda --seed 20261021 --format json
+liuding-forge offline run --root ./offline-cuda-evidence --device cuda --seed 20261021 --format json
 ```
 
 `--root` 必填，父目录须已存在且可写，目标目录必须不存在。命令拒绝覆盖已有目录、文件或符号链接。`--device` 默认为 `cpu`，`cuda` 使用设备 0；`--seed` 默认为 `20261021`，接受 `0` 至 `9223372036854775807` 的十进制整数。省略 `--format json` 可查看文本输出。非法参数在创建输出目录前拒绝，CUDA 不可用也会在创建目录前失败。
@@ -60,15 +60,15 @@ suite 检查 accuracy 的合法比例范围、cross entropy 非负，以及相�
 
 SQLite evidence sink 是事件的持久化事实来源。JSONL observer 保存 canonical envelope bytes、SHA-256 和 JSON projection，并在重开时验证完整记录及去重；JSONL 的 flush 不等同于 fsync 持久性。备份前执行 SQLite、外键、事件及关联 CAS 完整性审计，恢复后再次审计，并比较每个 run 的全部元数据、产物引用与完整事件内容。
 
-发生错误时目录保留，可能存在 `failure.json`，且不会生成成功的 `summary.json`。可通过 `jyppx doctor --device cpu|cuda` 检查环境，并对保留的文件使用 `checkpoint verify`、`model verify`、`run verify`。重新执行应选择另一个新目录。
+发生错误时目录保留，可能存在 `failure.json`，且不会生成成功的 `summary.json`。可通过 `liuding-forge doctor --device cpu|cuda` 检查环境，并对保留的文件使用 `checkpoint verify`、`model verify`、`run verify`。重新执行应选择另一个新目录。
 
 ## 章节统一验证
 
 构建完成后可运行真正调用 CLI 的契约测试：
 
 ```text
-python tests/cli/test_offline_workflow.py --cli /absolute/path/to/jyppx --device cpu
-python tests/cli/test_offline_workflow.py --cli /absolute/path/to/jyppx --device cuda
+python tests/cli/test_offline_workflow.py --cli /absolute/path/to/liuding-forge --device cpu
+python tests/cli/test_offline_workflow.py --cli /absolute/path/to/liuding-forge --device cuda
 ```
 
 Windows CPU 与远端 Ubuntu/CUDA 使用同一测试脚本和该环境已有的增量构建目录。脚本会生成临时的新输出目录，核对真实模型/checkpoint 读者、CAS 字节摘要、SQLite/JSONL 事件、一致性评测、备份恢复以及拒绝覆盖已有路径的行为。测试不重建程序，也不会为缺失的 CUDA 自动跳过验证。

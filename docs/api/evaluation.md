@@ -62,10 +62,10 @@ statistical significance or confidence interval claim.
 ## CLI and persistence
 
 ```sh
-jyppx evaluation run --suite suite.json --input measured.json \
+liuding-forge evaluation run --suite suite.json --input measured.json \
   --output quality.json --html quality.html --format json
-jyppx evaluation show --report quality.json --format text
-jyppx evaluation compare --baseline baseline.json --candidate quality.json --format json
+liuding-forge evaluation show --report quality.json --format text
+liuding-forge evaluation compare --baseline baseline.json --candidate quality.json --format json
 ```
 
 To retain a report in an existing local run, add `--root RUNS --reference-id ID
@@ -91,7 +91,7 @@ duplicate IDs/content, exact cross-split content leakage and conflicting labels.
 An empty dataset is incomplete. Reports contain aggregate counts; no sample
 IDs, labels, scalar values or raw payloads are copied into them.
 
-`jyppx data inspect|verify --input projection.json --format text|json` uses
+`liuding-forge data inspect|verify --input projection.json --format text|json` uses
 schema 1: `schema_version`, `schema`, `rows`. A schema field contains exactly
 `required`, `minimum`, `maximum` (nullable bounds). Each row contains exactly
 `sample_id`, `split`, `content_digest` (`algorithm`, `hex`), `fields`, and

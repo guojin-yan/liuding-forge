@@ -30,11 +30,13 @@ if(Python3_Interpreter_FOUND)
         "${jyppx_sqlite_SOURCE_DIR}")
     jyppx_apply_instrumentation(jyppx_storage_crash_child)
     jyppx_add_torch_runtime_dependency(jyppx_storage_crash_child)
+    # The scenarios add Unicode directories and SHA-256 object names. Keep
+    # staging shallow so a fresh validation tree fits Windows MAX_PATH.
     add_test(NAME ExperimentStorageCrashBoundaries
         COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_storage_crash_boundaries.py"
             --child $<TARGET_FILE:jyppx_storage_crash_child>
-            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/storage-crash/$<CONFIG>")
+            --work-dir "${CMAKE_BINARY_DIR}/_storage_crash/$<CONFIG>")
     set_tests_properties(ExperimentStorageCrashBoundaries PROPERTIES
         LABELS "experiment;checkpoint;integration;process" TIMEOUT 600)
 
@@ -52,7 +54,7 @@ if(Python3_Interpreter_FOUND)
         COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_cas_crash_boundaries.py"
             --child $<TARGET_FILE:jyppx_cas_crash_child>
-            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/cas-crash/$<CONFIG>")
+            --work-dir "${CMAKE_BINARY_DIR}/_cas_crash/$<CONFIG>")
     set_tests_properties(ExperimentCasCrashBoundaries PROPERTIES
         LABELS "experiment;checkpoint;integration;process" TIMEOUT 300)
 endif()

@@ -131,6 +131,12 @@ class ReleaseTest(unittest.TestCase):
 
     def test_candidate_round_trip_unpacks_and_keeps_signature_pending(self) -> None:
         self.assertEqual(self.candidate()["ga_blockers"], ["signature.pending"])
+        self.assertEqual(self.load_manifest()["archive"]["path"],
+                         "liuding-forge-1.0.0-linux-x86_64-cpu.zip")
+        sbom = json.loads((self.output / "sbom.cdx.json").read_bytes())
+        self.assertEqual(sbom["metadata"]["component"]["name"], "jyppx")
+        self.assertIn({"name": "liuding-forge:display-name-en", "value": "Liuding Forge"},
+                      sbom["metadata"]["properties"])
         result = self.inspect()
         self.assertTrue(result["candidate_verified"])
         self.assertFalse(result["ga_ready"])

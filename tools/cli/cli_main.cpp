@@ -220,14 +220,20 @@ Result execute(const Arguments& arguments) {
   if (arguments.optional("version")) {
     arguments.allow({"version"});
     if (!words.empty()) usage("version", "Use --version without a command.");
-    return {Json{{"version", version()},
+    return {Json{{"display_name", "六丁炼算"},
+                 {"display_name_en", "Liuding Forge"},
+                 {"brand", "Liuding Forge"},
+                 {"artifact_prefix", "liuding-forge"},
+                 {"legacy_name", "JYPPX Training Framework"},
+                 {"version", version()},
                  {"build", parse_json(build_fingerprint_json())}},
             0};
   }
   if (arguments.optional("help") || words.empty()) {
     arguments.allow({"help"});
     return {
-        Json{{"usage", "jyppx <command> [options] --format text|json"},
+        Json{{"brand", "六丁炼算 (Liuding Forge)"},
+             {"usage", "liuding-forge <command> [options] --format text|json"},
              {"commands",
               Json::array(
                   {"doctor [--device cpu|cuda] [--expected-libtorch VERSION]",

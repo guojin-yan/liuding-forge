@@ -23,6 +23,16 @@ file(REMOVE_RECURSE "${install_dir}")
 file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_root}")
 
 set(config_args)
+set(generator_args)
+if(JYPPX_CMAKE_GENERATOR)
+    list(APPEND generator_args -G "${JYPPX_CMAKE_GENERATOR}")
+endif()
+if(JYPPX_CMAKE_GENERATOR_PLATFORM)
+    list(APPEND generator_args -A "${JYPPX_CMAKE_GENERATOR_PLATFORM}")
+endif()
+if(JYPPX_CMAKE_GENERATOR_TOOLSET)
+    list(APPEND generator_args -T "${JYPPX_CMAKE_GENERATOR_TOOLSET}")
+endif()
 set(build_args)
 set(test_args)
 if(JYPPX_TEST_CONFIG)
@@ -120,6 +130,7 @@ foreach(component IN LISTS components)
                 "${CMAKE_COMMAND}"
                 -S "${consumer_source_dir}"
                 -B "${consumer_build_dir}"
+                ${generator_args}
                 "-UTorch_*"
                 "-UTORCH_*"
                 "-UCaffe2_*"

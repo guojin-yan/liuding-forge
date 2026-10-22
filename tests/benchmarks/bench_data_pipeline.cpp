@@ -390,7 +390,8 @@ std::vector<BenchResult> bench_workers(
 
 /// Prints accepted command-line options.
 void print_help() {
-  std::cerr << "usage: jyppx_bench_data_pipeline [--work-ms ms] [--batches n] "
+  std::cerr << "usage: liuding-forge-bench-data-pipeline [--work-ms ms] "
+               "[--batches n] "
                "[--batch-size n] [--repeats n] [--workers n]\n";
 }
 

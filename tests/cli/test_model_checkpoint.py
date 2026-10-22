@@ -92,7 +92,10 @@ class ModelCheckpointContract(unittest.TestCase):
         )
         if process.returncode != 0:
             raise RuntimeError(f"CLI --version failed: {process.stderr} {process.stdout}")
-        cls.build = json.loads(process.stdout)["data"]["build"]
+        version = json.loads(process.stdout)["data"]
+        if version["display_name"] != "六丁炼算" or version["display_name_en"] != "Liuding Forge":
+            raise RuntimeError(f"CLI brand metadata failed: {version}")
+        cls.build = version["build"]
 
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory(prefix="jyppx-cli-contract-")

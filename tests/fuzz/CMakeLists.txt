@@ -19,6 +19,12 @@ endforeach()
 
 function(jyppx_add_fuzz_target target source)
     add_executable(${target} ${source})
+    string(REGEX REPLACE "^jyppx_fuzz_" "liuding-forge-fuzz-"
+           JYPPX_FUZZ_OUTPUT_NAME "${target}")
+    string(REPLACE "_" "-" JYPPX_FUZZ_OUTPUT_NAME
+           "${JYPPX_FUZZ_OUTPUT_NAME}")
+    set_target_properties(${target} PROPERTIES
+        OUTPUT_NAME "${JYPPX_FUZZ_OUTPUT_NAME}")
     set_property(TARGET ${target} PROPERTY JYPPX_LIBFUZZER_MAIN TRUE)
     target_link_libraries(${target} PRIVATE jyppx::sdk)
     target_compile_options(${target} PRIVATE -fsanitize=fuzzer)

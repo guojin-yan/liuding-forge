@@ -20,8 +20,11 @@ def main() -> None:
     args = parser.parse_args()
     subprocess.run([args.cmake, "--install", str(args.build_dir), "--config", args.config,
                     "--prefix", str(args.prefix)], check=True, timeout=120)
-    cli = args.prefix / "bin" / ("jyppx.exe" if os.name == "nt" else "jyppx")
-    assert cli.is_file(), "Installed product CLI is missing"
+    suffix = ".exe" if os.name == "nt" else ""
+    cli = args.prefix / "bin" / ("liuding-forge" + suffix)
+    legacy_cli = args.prefix / "bin" / ("jyppx" + suffix)
+    assert cli.is_file(), "Installed Liuding Forge CLI is missing"
+    assert legacy_cli.is_file(), "Installed jyppx compatibility CLI is missing"
     for forbidden in ("scripts", "tests", "tools", "generated-private"):
         assert not (args.prefix / forbidden).exists(), f"Developer-only {forbidden} was installed"
     assert not list((args.prefix / "include").rglob("build_metadata.hpp")), "Private build metadata header leaked"
@@ -39,8 +42,8 @@ def main() -> None:
     variable = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
     environment[variable] = str(args.torch_runtime) + os.pathsep + environment.get(variable, "")
     with tempfile.TemporaryDirectory(prefix="jyppx-installed-cli-") as cwd:
-        def invoke(*arguments: str) -> dict:
-            process = subprocess.run([str(cli.resolve()), *arguments, "--format", "json"],
+        def invoke(*arguments: str, executable: Path = cli) -> dict:
+            process = subprocess.run([str(executable.resolve()), *arguments, "--format", "json"],
                 cwd=cwd, env=environment, text=True, encoding="utf-8", capture_output=True, timeout=30)
             assert process.returncode == 0, process.stdout + process.stderr
             result = json.loads(process.stdout)
@@ -48,9 +51,21 @@ def main() -> None:
             return result["data"]
         version = invoke("--version")
         assert version["version"], version
+        assert version["display_name"] == "六丁炼算", version
+        assert version["display_name_en"] == "Liuding Forge", version
+        assert version["artifact_prefix"] == "liuding-forge", version
+        assert version["legacy_name"] == "JYPPX Training Framework", version
+        assert version["build"]["jyppx_version"] == version["version"], version
+        assert invoke("--version", executable=legacy_cli) == version
+        help_data = invoke("--help")
+        assert help_data["usage"].startswith("liuding-forge "), help_data
+        assert invoke("--help", executable=legacy_cli) == help_data
         doctor = invoke("doctor", "--device", "cpu")
         assert doctor["checks"] and all(check["status"] == "pass" for check in doctor["checks"]), doctor
-        print(json.dumps({"status": "passed", "installed_cli": str(cli), "version": version["version"]}))
+        legacy_doctor = invoke("doctor", "--device", "cpu", executable=legacy_cli)
+        assert legacy_doctor["checks"] and all(check["status"] == "pass" for check in legacy_doctor["checks"]), legacy_doctor
+        print(json.dumps({"status": "passed", "installed_cli": str(cli),
+                          "compatibility_cli": str(legacy_cli), "version": version["version"]}))
 
 
 if __name__ == "__main__":

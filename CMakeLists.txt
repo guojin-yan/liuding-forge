@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(jyppx VERSION 0.3.0 LANGUAGES CXX)
 
+# Public brand metadata is deliberately separate from the stable jyppx
+# namespace, package configuration, target names, and protocol identifiers.
+set(LIUDING_FORGE_DISPLAY_NAME_ZH "六丁炼算")
+set(LIUDING_FORGE_DISPLAY_NAME_EN "Liuding Forge")
+set(LIUDING_FORGE_ARTIFACT_PREFIX "liuding-forge")
+set(LIUDING_FORGE_LEGACY_PROJECT_NAME "JYPPX Training Framework")
+
 # Several MSBuild targets can independently request regeneration after a source
 # scanned by the component gate changes. Serialize the configure processes so
 # their generated graph, reports and generation stamps cannot interleave.
@@ -33,7 +40,7 @@ if(JYPPX_BUILD_CORE AND JYPPX_BUILD_INTEROP AND JYPPX_BUILD_DATA AND
    JYPPX_BUILD_EXPERIMENT)
     set(JYPPX_TOOLS_DEFAULT ON)
 endif()
-option(JYPPX_BUILD_TOOLS "Build the user-facing jyppx command-line tool" ${JYPPX_TOOLS_DEFAULT})
+option(JYPPX_BUILD_TOOLS "Build the user-facing Liuding Forge command-line tool" ${JYPPX_TOOLS_DEFAULT})
 option(JYPPX_INSTALL_TELEMETRY_SIDECAR "Install the optional Python telemetry runtime and dependency lock" OFF)
 option(JYPPX_TEST_OFFICIAL_TELEMETRY "Run mandatory official SDK and real collector acceptance" OFF)
 option(JYPPX_TEST_CLI_CUDA "Run product CLI workflows on a real CUDA device" OFF)
@@ -334,7 +341,7 @@ add_library(jyppx_foundation STATIC
 )
 add_library(jyppx::foundation ALIAS jyppx_foundation)
 set_target_properties(jyppx_foundation PROPERTIES
-    OUTPUT_NAME jyppx_foundation
+    OUTPUT_NAME liuding-forge-foundation
     EXPORT_NAME foundation
 )
 target_include_directories(jyppx_foundation
@@ -369,7 +376,7 @@ if(JYPPX_BUILD_CORE)
     )
     add_library(jyppx::core ALIAS jyppx_core)
     set_target_properties(jyppx_core PROPERTIES
-        OUTPUT_NAME jyppx_core
+        OUTPUT_NAME liuding-forge-core
         EXPORT_NAME core
     )
     target_include_directories(jyppx_core
@@ -405,7 +412,7 @@ if(JYPPX_BUILD_INTEROP)
     )
     add_library(jyppx::interop ALIAS jyppx_interop)
     set_target_properties(jyppx_interop PROPERTIES
-        OUTPUT_NAME jyppx_interop
+        OUTPUT_NAME liuding-forge-interop
         EXPORT_NAME interop
     )
     target_include_directories(jyppx_interop
@@ -435,7 +442,7 @@ add_library(jyppx_data STATIC
 )
 add_library(jyppx::data ALIAS jyppx_data)
 set_target_properties(jyppx_data PROPERTIES
-    OUTPUT_NAME jyppx_data
+    OUTPUT_NAME liuding-forge-data
     EXPORT_NAME data
 )
 target_include_directories(jyppx_data
@@ -470,7 +477,7 @@ if(JYPPX_BUILD_DATA_IMAGE)
         $<TARGET_OBJECTS:data_image_yaml_backend>)
     add_library(jyppx::data_image ALIAS jyppx_data_image)
     set_target_properties(jyppx_data_image PROPERTIES
-        OUTPUT_NAME jyppx_data_image EXPORT_NAME data_image)
+        OUTPUT_NAME liuding-forge-data-image EXPORT_NAME data_image)
     target_include_directories(jyppx_data_image PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
@@ -499,7 +506,7 @@ add_library(jyppx_nn STATIC
 )
 add_library(jyppx::nn ALIAS jyppx_nn)
 set_target_properties(jyppx_nn PROPERTIES
-    OUTPUT_NAME jyppx_nn
+    OUTPUT_NAME liuding-forge-nn
     EXPORT_NAME nn
 )
 target_include_directories(jyppx_nn
@@ -538,7 +545,7 @@ add_library(jyppx_training STATIC
 )
 add_library(jyppx::training ALIAS jyppx_training)
 set_target_properties(jyppx_training PROPERTIES
-    OUTPUT_NAME jyppx_training
+    OUTPUT_NAME liuding-forge-training
     EXPORT_NAME training
 )
 target_include_directories(jyppx_training
@@ -576,7 +583,7 @@ add_library(jyppx_optim STATIC
 )
 add_library(jyppx::optim ALIAS jyppx_optim)
 set_target_properties(jyppx_optim PROPERTIES
-    OUTPUT_NAME jyppx_optim
+    OUTPUT_NAME liuding-forge-optim
     EXPORT_NAME optim
 )
 target_include_directories(jyppx_optim
@@ -615,7 +622,7 @@ if(JYPPX_BUILD_EXPERIMENT)
         PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     add_library(jyppx::experiment ALIAS jyppx_experiment)
     set_target_properties(jyppx_experiment PROPERTIES
-        OUTPUT_NAME jyppx_experiment
+        OUTPUT_NAME liuding-forge-experiment
         EXPORT_NAME experiment
     )
     target_include_directories(jyppx_experiment
@@ -665,7 +672,7 @@ if(JYPPX_BUILD_MODELS)
         src/jyppx/models/weights.cpp)
     add_library(jyppx::models ALIAS jyppx_models)
     set_target_properties(jyppx_models PROPERTIES
-        OUTPUT_NAME jyppx_models EXPORT_NAME models)
+        OUTPUT_NAME liuding-forge-models EXPORT_NAME models)
     target_include_directories(jyppx_models PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
@@ -682,7 +689,7 @@ if(JYPPX_BUILD_QUANTIZATION)
         src/jyppx/quantization/quantization.cpp)
     add_library(jyppx::quantization ALIAS jyppx_quantization)
     set_target_properties(jyppx_quantization PROPERTIES
-        OUTPUT_NAME jyppx_quantization EXPORT_NAME quantization)
+        OUTPUT_NAME liuding-forge-quantization EXPORT_NAME quantization)
     target_include_directories(jyppx_quantization PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
@@ -699,7 +706,7 @@ if(JYPPX_BUILD_SERVING)
         src/jyppx/serving/service.cpp)
     add_library(jyppx::serving ALIAS jyppx_serving)
     set_target_properties(jyppx_serving PROPERTIES
-        OUTPUT_NAME jyppx_serving EXPORT_NAME serving)
+        OUTPUT_NAME liuding-forge-serving EXPORT_NAME serving)
     target_include_directories(jyppx_serving PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
@@ -931,7 +938,9 @@ endif()
 # Summary
 # ============================================
 message(STATUS "")
-message(STATUS "JYPPX Training Framework Configuration:")
+message(STATUS "${LIUDING_FORGE_DISPLAY_NAME_ZH} (${LIUDING_FORGE_DISPLAY_NAME_EN}) Configuration:")
+message(STATUS "  Compatibility project: ${LIUDING_FORGE_LEGACY_PROJECT_NAME}")
+message(STATUS "  Artifact prefix: ${LIUDING_FORGE_ARTIFACT_PREFIX}")
 message(STATUS "  Version: ${PROJECT_VERSION}")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Build tests: ${JYPPX_BUILD_TESTS}")
@@ -944,3 +953,16 @@ message(STATUS "  Clang-tidy: ${JYPPX_ENABLE_CLANG_TIDY}")
 message(STATUS "  Format check: ${JYPPX_ENABLE_FORMAT_CHECK}")
 message(STATUS "  Warnings as errors: ${JYPPX_ENABLE_WARNINGS_AS_ERRORS}")
 message(STATUS "")
+
+# CPack uses the public artifact identity while the installed CMake package
+# remains jyppx for source and binary compatibility.
+set(CPACK_PACKAGE_NAME "liuding-forge")
+set(CPACK_PACKAGE_DISPLAY_NAME "六丁炼算 (Liuding Forge)")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "六丁炼算 (Liuding Forge) - C++20/LibTorch training framework")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "Liuding Forge")
+set(CPACK_NSIS_DISPLAY_NAME "六丁炼算 (Liuding Forge)")
+set(CPACK_PACKAGE_VENDOR "Liuding Forge")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+include(CPack)

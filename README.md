@@ -1,6 +1,13 @@
-# JYPPX Training Framework
+# 六丁炼算（Liuding Forge）
 
-A C++ deep learning training framework built on LibTorch, providing PyTorch-style APIs for training neural networks in C++.
+Liuding Forge is a C++20 deep learning training framework built on LibTorch,
+providing PyTorch-style APIs for training neural networks in C++. The
+historical and technical name is **JYPPX Training Framework**; the stable
+`jyppx` namespace, public include root, CMake package, targets, and protocol
+fields remain unchanged for existing consumers.
+
+See the [brand migration report](docs/development/liuding-forge-brand-migration.md)
+for artifact naming, compatibility boundaries, and validation results.
 
 ## Features
 
@@ -32,8 +39,8 @@ python scripts/validation/compatibility.py --file compatibility.json --validate
 ### Installation
 
 ```bash
-git clone https://github.com/guojin-yan/jyppx-training-framework.git
-cd jyppx-training-framework
+git clone https://github.com/guojin-yan/liuding-forge.git
+cd liuding-forge
 
 # Configure a persistent build directory (specify LibTorch path)
 cmake -S . -B out/build/release -DCMAKE_BUILD_TYPE=Release \
@@ -55,8 +62,8 @@ therefore builds every configuration against the release CRT
 not override these, or Debug builds will crash inside the torch DLLs. Use the
 Debug configuration for source-level debugging of framework code only.
 
-After installation, consumers can load the package and link the exported
-target:
+After installation, consumers can load the compatible `jyppx` package and
+link the exported target:
 
 ```cmake
 find_package(jyppx CONFIG REQUIRED COMPONENTS sdk)
@@ -66,8 +73,13 @@ target_link_libraries(my_app PRIVATE jyppx::sdk)
 Use `jyppx::foundation` when a tool only needs the capability, error, RNG, and
 build-fingerprint contracts. Use `jyppx::interop` for the bounded checkpoint
 artifact manifest codec without linking training orchestration. Public C++
-headers, namespaces, and exported CMake targets all use the `jyppx` name;
-legacy target aliases are intentionally not provided.
+headers, namespaces, and exported CMake targets all use the `jyppx` name.
+Generated libraries use the recommended `liuding-forge-*` prefix, while
+`find_package(jyppx)` and `jyppx::...` remain the supported consumption API.
+
+The recommended executable is `liuding-forge`; an installed `jyppx` copy is
+kept as a compatibility command. `--version` reports the public brand and the
+legacy name together.
 
 ### Basic Usage
 
@@ -129,7 +141,7 @@ Repository directories have distinct owners:
 ## Project Structure
 
 ```
-jyppx-training-framework/
+liuding-forge/           # repository checkout; technical compatibility paths remain jyppx/
 ├── include/jyppx/        # Public headers
 │   ├── core/             # Core utilities
 │   ├── optim/            # Optimizers
@@ -186,7 +198,7 @@ visible NVIDIA GPU. After building with `JYPPX_BUILD_BENCHMARKS=ON`, run:
 ```bash
 LD_LIBRARY_PATH=/path/to/libtorch/lib \
 python3 scripts/benchmarks/run_cuda_baseline.py \
-  --benchmark out/build/cuda/tests/benchmarks/jyppx_bench_cuda_training \
+  --benchmark out/build/cuda/tests/benchmarks/liuding-forge-bench-cuda-training \
   --output-dir out/baseline/cuda \
   --write-reference out/baseline/cuda/reference.json
 ```
@@ -206,7 +218,7 @@ environment-bound reference; the results are not a cross-algorithm ranking:
 LD_LIBRARY_PATH=/path/to/libtorch/lib \
 python3 scripts/benchmarks/run_cuda_baseline.py \
   --suite optimizer \
-  --benchmark out/build/cuda/tests/benchmarks/jyppx_bench_cuda_optimizer \
+  --benchmark out/build/cuda/tests/benchmarks/liuding-forge-bench-cuda-optimizer \
   --output-dir out/baseline/cuda-optimizer \
   --write-reference out/baseline/cuda-optimizer/reference.json
 ```
@@ -261,6 +273,6 @@ Built with [LibTorch](https://pytorch.org/cppdocs/) - the C++ frontend for PyTor
 
 ## Links
 
-- GitHub: https://github.com/guojin-yan/jyppx-training-framework
+- GitHub: https://github.com/guojin-yan/liuding-forge
 - Documentation: [docs/](docs/)
-- Issue Tracker: https://github.com/guojin-yan/jyppx-training-framework/issues
+- Issue Tracker: https://github.com/guojin-yan/liuding-forge/issues

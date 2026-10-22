@@ -549,7 +549,7 @@ def compare_reference(report: dict[str, Any], reference: dict[str, Any]) -> dict
 
 def executable(build: Path, bin_dir: Path | None, profile: str) -> Path:
     owner = "models" if profile in MODELS else profile if profile in ("quantization", "serving") else "stable"
-    filename = "jyppx_bench_resource_" + owner + (".exe" if sys.platform == "win32" else "")
+    filename = "liuding-forge-bench-resource-" + owner + (".exe" if sys.platform == "win32" else "")
     candidates = [bin_dir / filename] if bin_dir else [build / "tests" / "benchmarks" / filename,
         build / "tests" / "benchmarks" / "Release" / filename]
     matches = [path.resolve() for path in candidates if path.is_file()]

@@ -1,6 +1,7 @@
 # Deployment Guide
 
-JYPPX is distributed as a CMake package backed by LibTorch:
+六丁炼算（Liuding Forge）is distributed as a CMake package backed by LibTorch.
+The installed package keeps the historical `jyppx` name for compatibility:
 
 ```cmake
 find_package(jyppx CONFIG REQUIRED COMPONENTS training)

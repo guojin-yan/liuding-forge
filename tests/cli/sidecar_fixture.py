@@ -57,14 +57,16 @@ def inherited_handle(number: int, object_name: str, file_identity: str) -> bool:
         # inheritance test merely by having the same numeric value.
         kernel.OpenEventW.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR)
         kernel.OpenEventW.restype = wintypes.HANDLE
-        kernel.CompareObjectHandles.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
-        kernel.CompareObjectHandles.restype = wintypes.BOOL
+        # CompareObjectHandles is exported by KernelBase, not Kernel32.
+        compare = ctypes.WinDLL("kernelbase", use_last_error=True).CompareObjectHandles
+        compare.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+        compare.restype = wintypes.BOOL
         kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
         reference = kernel.OpenEventW(0x00100000, False, object_name)
         if not reference:
             raise RuntimeError("fixture object identity unavailable")
         try:
-            return bool(kernel.CompareObjectHandles(wintypes.HANDLE(number), reference))
+            return bool(compare(wintypes.HANDLE(number), reference))
         finally:
             kernel.CloseHandle(reference)
     try:

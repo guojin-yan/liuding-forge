@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Public branding is now 六丁炼算 (Liuding Forge), with `liuding-forge-*`
+  library, example, benchmark, fuzzer, archive and CLI output names. The
+  historical JYPPX Training Framework name and all `jyppx` C++/CMake/package
+  compatibility surfaces remain available.
+
 ### Added
 - An independently exported `jyppx::interop` target with a schema-v1
   checkpoint artifact manifest codec, deterministic JSON, strict field and

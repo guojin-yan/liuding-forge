@@ -127,7 +127,8 @@ int main(int argc, char** argv) {
           throw InvalidArgument("Expected explicit CUDA device index");
         device = Device(c10::kCUDA, static_cast<c10::DeviceIndex>(index));
       } else {
-        std::cerr << "Usage: jyppx_serving_jsonl (--demo | --bundle PATH) "
+        std::cerr << "Usage: liuding-forge-example-serving-jsonl (--demo | "
+                     "--bundle PATH) "
                      "[--cuda N] [--health | --manifest]\n";
         return 2;
       }

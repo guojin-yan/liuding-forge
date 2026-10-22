@@ -139,11 +139,13 @@ run_logged "$output_root/02-build.log" cmake --build "$build_root" \
 
 for index in "${!targets[@]}"; do
   target=${targets[$index]}
+  target_name="liuding-forge-fuzz-${target//_/-}"
   fixture=${fixtures[$index]}
   active_target=$target
   target_output="$output_root/${output_names[$index]}"
   cat > "$target_output/metadata.txt" <<EOF
 target=jyppx_fuzz_$target
+executable=$target_name
 fixture=$fixture
 max_input_bytes=${maximum_lengths[$index]}
 runs=$fuzz_runs
@@ -153,7 +155,7 @@ initial_corpus_files=$(find "$target_output/corpus" -type f | wc -l)
 dictionary_sha256=$(sha256sum "$fixture_root/$fixture/$fixture.dict" | cut -d ' ' -f 1)
 EOF
   run_logged "$target_output/03-fuzz.log" "${address_layout_runner[@]}" \
-    "$build_root/tests/fuzz/jyppx_fuzz_$target" \
+    "$build_root/tests/fuzz/$target_name" \
     "$target_output/corpus" \
     -dict="$fixture_root/$fixture/$fixture.dict" \
     -artifact_prefix="$target_output/artifacts/" \

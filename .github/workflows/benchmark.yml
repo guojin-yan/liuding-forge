@@ -40,11 +40,11 @@ jobs:
           LD_LIBRARY_PATH: ${{ github.workspace }}/libtorch-install/libtorch/lib
         run: |
           mkdir -p out/benchmarks/results
-          out/build/benchmark/tests/benchmarks/jyppx_bench_trainer_throughput > out/benchmarks/results/trainer_throughput.csv
-          out/build/benchmark/tests/benchmarks/jyppx_bench_optimizer_convergence > out/benchmarks/results/optimizer_convergence.csv
-          out/build/benchmark/tests/benchmarks/jyppx_bench_adadelta_native_throughput > out/benchmarks/results/adadelta_native_throughput.csv
-          out/build/benchmark/tests/benchmarks/jyppx_bench_nadam_native_throughput > out/benchmarks/results/nadam_native_throughput.csv
-          out/build/benchmark/tests/benchmarks/jyppx_bench_memory_usage > out/benchmarks/results/memory_usage.csv
+          out/build/benchmark/tests/benchmarks/liuding-forge-bench-trainer-throughput > out/benchmarks/results/trainer_throughput.csv
+          out/build/benchmark/tests/benchmarks/liuding-forge-bench-optimizer-convergence > out/benchmarks/results/optimizer_convergence.csv
+          out/build/benchmark/tests/benchmarks/liuding-forge-bench-adadelta-native-throughput > out/benchmarks/results/adadelta_native_throughput.csv
+          out/build/benchmark/tests/benchmarks/liuding-forge-bench-nadam-native-throughput > out/benchmarks/results/nadam_native_throughput.csv
+          out/build/benchmark/tests/benchmarks/liuding-forge-bench-memory-usage > out/benchmarks/results/memory_usage.csv
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:

@@ -1,5 +1,5 @@
 # Every installed public header participates in the strict documentation gate.
-set(DOXYGEN_PROJECT_NAME "JYPPX Training Framework")
+set(DOXYGEN_PROJECT_NAME "六丁炼算 (Liuding Forge) - JYPPX Training Framework")
 set(DOXYGEN_PROJECT_NUMBER "${PROJECT_VERSION}")
 set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(DOXYGEN_EXTRACT_ALL NO)

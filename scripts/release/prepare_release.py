@@ -104,8 +104,8 @@ def prepare_release(*, prefix: Path, out: Path, release: dict[str, Any],
         b"Apache License", b"Version 2.0", b"TERMS AND CONDITIONS", b"END OF TERMS AND CONDITIONS"
     )):
         fail("supplied project license is not the Apache 2.0 license text")
-    archive_name = relative_name(f"jyppx-{release['version']}-{release['platform']}.zip")
-    with tempfile.TemporaryDirectory(prefix=".jyppx-release-", dir=out.parent) as temporary:
+    archive_name = relative_name(f"liuding-forge-{release['version']}-{release['platform']}.zip")
+    with tempfile.TemporaryDirectory(prefix=".liuding-forge-release-", dir=out.parent) as temporary:
         stage = Path(temporary)
         write_document(stage / "inventory.json", inventory, limits)
         for name, data in (("dependency-manifest.json", lock_data),

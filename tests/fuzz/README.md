@@ -90,7 +90,7 @@ fi
 ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1:strict_string_checks=1}" \
 UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
   "${address_layout_runner[@]}" \
-  out/build/fuzz-linux/tests/fuzz/jyppx_fuzz_quantization \
+  out/build/fuzz-linux/tests/fuzz/liuding-forge-fuzz-quantization \
   "$target_output/corpus" \
   -dict=tests/fixtures/fuzz/quantization/quantization.dict \
   -artifact_prefix="$target_output/artifacts/" \

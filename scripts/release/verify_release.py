@@ -113,7 +113,7 @@ def verify_archive(path: Path, inventory: dict[str, Any], release: dict[str, Any
                 fail("ZIP file count differs from inventory")
             cursor = 0
             total = 0
-            with tempfile.TemporaryDirectory(prefix="jyppx-verify-") as temporary:
+            with tempfile.TemporaryDirectory(prefix="liuding-forge-verify-") as temporary:
                 extraction = Path(temporary)
                 for info, expected in zip(entries, inventory["files"]):
                     name = relative_name(info.filename)
@@ -233,7 +233,7 @@ def verify_release(directory: Path, *, expected_version: str,
             or release["source"]["dirty"] is not expected_source_dirty):
         fail("release identity differs from explicit caller expectation")
     archive = validate_descriptor(manifest["archive"], limits)
-    if archive["path"] != f"jyppx-{release['version']}-{release['platform']}.zip":
+    if archive["path"] != f"liuding-forge-{release['version']}-{release['platform']}.zip":
         fail("archive name differs from release identity")
     documents = exact(manifest["documents"], set(DOCUMENTS), "release documents")
     for identity, name in DOCUMENTS.items():

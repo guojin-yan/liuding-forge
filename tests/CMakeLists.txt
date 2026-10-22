@@ -264,15 +264,22 @@ set(JYPPX_CONSUMER_CUDA_STANDARD "${CMAKE_CUDA_STANDARD}")
 if(CMAKE_CUDA_COMPILER)
     set(JYPPX_CONSUMER_CUDA_STANDARD 17)
 endif()
+set(JYPPX_CONSUMER_GENERATOR_ARGS
+    "-DJYPPX_CMAKE_GENERATOR=${CMAKE_GENERATOR}"
+    "-DJYPPX_CMAKE_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+    "-DJYPPX_CMAKE_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}")
 
+# Shallow staging leaves room for MSBuild's nested try_compile paths. The
+# scripts still enforce that staging remains inside this validation build.
 if(TARGET jyppx::sdk)
 add_test(
     NAME MigratedInstallConsumer
     COMMAND ${CMAKE_COMMAND}
         -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/migrated_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_install_consumer/$<CONFIG>
+        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/sdk/$<CONFIG>
         -DJYPPX_TEST_CONFIG=$<CONFIG>
+        ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
         -DJYPPX_CUDA_STANDARD=${JYPPX_CONSUMER_CUDA_STANDARD}
@@ -292,8 +299,9 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
         -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/interop_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_interop_install_consumer/$<CONFIG>
+        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/interop/$<CONFIG>
         -DJYPPX_TEST_CONFIG=$<CONFIG>
+        ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
         -DJYPPX_CUDA_STANDARD=${JYPPX_CONSUMER_CUDA_STANDARD}
@@ -313,8 +321,9 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
         -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/experiment_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_experiment_install_consumer/$<CONFIG>
+        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/experiment/$<CONFIG>
         -DJYPPX_TEST_CONFIG=$<CONFIG>
+        ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
         -DJYPPX_CUDA_STANDARD=${JYPPX_CONSUMER_CUDA_STANDARD}
@@ -334,8 +343,9 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
         -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/package_component_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_package_component_consumer/$<CONFIG>
+        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/package/$<CONFIG>
         -DJYPPX_TEST_CONFIG=$<CONFIG>
+        ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
         -DJYPPX_CUDA_STANDARD=${JYPPX_CONSUMER_CUDA_STANDARD}
@@ -356,8 +366,9 @@ add_test(
         -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_component_install_consumer/$<CONFIG>
+        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/matrix/$<CONFIG>
         -DJYPPX_TEST_CONFIG=$<CONFIG>
+        ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
         -DJYPPX_CUDA_STANDARD=${JYPPX_CONSUMER_CUDA_STANDARD}
@@ -414,8 +425,9 @@ foreach(preview_component IN ITEMS models quantization serving)
             COMMAND ${CMAKE_COMMAND}
                 -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
                 -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/${preview_component}_consumer
-                -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_${preview_component}_install_consumer/$<CONFIG>
+                -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/${preview_component}/$<CONFIG>
                 -DJYPPX_TEST_CONFIG=$<CONFIG>
+                ${JYPPX_CONSUMER_GENERATOR_ARGS}
                 -DJYPPX_TORCH_DIR=${Torch_DIR}
                 -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
                 -DJYPPX_CUDA_STANDARD=${JYPPX_CONSUMER_CUDA_STANDARD}
@@ -528,6 +540,12 @@ if(JYPPX_BUILD_BENCHMARKS)
             set(JYPPX_BENCH_LINK_TARGET jyppx::sdk)
         endif()
         add_executable(${bench_name} ${JYPPX_BENCH_UNPARSED_ARGUMENTS})
+        string(REGEX REPLACE "^jyppx_bench_" "liuding-forge-bench-"
+               JYPPX_BENCH_OUTPUT_NAME "${bench_name}")
+        string(REPLACE "_" "-" JYPPX_BENCH_OUTPUT_NAME
+               "${JYPPX_BENCH_OUTPUT_NAME}")
+        set_target_properties(${bench_name} PROPERTIES
+            OUTPUT_NAME "${JYPPX_BENCH_OUTPUT_NAME}")
         target_link_libraries(${bench_name} PRIVATE ${JYPPX_BENCH_LINK_TARGET})
         jyppx_apply_instrumentation(${bench_name})
         jyppx_add_torch_runtime_dependency(${bench_name})

@@ -1,12 +1,12 @@
 # Local serving Preview host
 
-The opt-in `jyppx_serving_jsonl` example uses the official nlohmann JSON parser,
+The opt-in `liuding-forge-example-serving-jsonl` example uses the official nlohmann JSON parser,
 a fixed application-owned two-feature native model, a fully verified safetensors
 bundle, a known-vector warmup, the bounded scheduler and the unary service adapter.
 It reads stdin and writes stdout. It opens no network listener.
 
 ```text
-jyppx_serving_jsonl --demo
+liuding-forge-example-serving-jsonl --demo
 {"request_id":"example-1","input":[1,2]}
 {"request_id":"example-2","input":[3,4],"deadline_ms":5000}
 ```

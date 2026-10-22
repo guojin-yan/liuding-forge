@@ -194,12 +194,12 @@ $benchmarkDir = if ($runningOnWindows) {
     Join-Path $BuildDir "tests/benchmarks"
 }
 $executableSuffix = if ($runningOnWindows) { ".exe" } else { "" }
-$dataPipelineExecutable = Join-Path $benchmarkDir "jyppx_bench_data_pipeline$executableSuffix"
-$trainerExecutable = Join-Path $benchmarkDir "jyppx_bench_trainer_throughput$executableSuffix"
-$optimizerExecutable = Join-Path $benchmarkDir "jyppx_bench_optimizer_convergence$executableSuffix"
-$adadeltaExecutable = Join-Path $benchmarkDir "jyppx_bench_adadelta_native_throughput$executableSuffix"
-$nadamExecutable = Join-Path $benchmarkDir "jyppx_bench_nadam_native_throughput$executableSuffix"
-$memoryExecutable = Join-Path $benchmarkDir "jyppx_bench_memory_usage$executableSuffix"
+$dataPipelineExecutable = Join-Path $benchmarkDir "liuding-forge-bench-data-pipeline$executableSuffix"
+$trainerExecutable = Join-Path $benchmarkDir "liuding-forge-bench-trainer-throughput$executableSuffix"
+$optimizerExecutable = Join-Path $benchmarkDir "liuding-forge-bench-optimizer-convergence$executableSuffix"
+$adadeltaExecutable = Join-Path $benchmarkDir "liuding-forge-bench-adadelta-native-throughput$executableSuffix"
+$nadamExecutable = Join-Path $benchmarkDir "liuding-forge-bench-nadam-native-throughput$executableSuffix"
+$memoryExecutable = Join-Path $benchmarkDir "liuding-forge-bench-memory-usage$executableSuffix"
 foreach ($executable in @(
         $dataPipelineExecutable,
         $trainerExecutable,
@@ -362,25 +362,25 @@ $libraryDir = if ($runningOnWindows) {
 }
 $libraryNames = if ($runningOnWindows) {
     @(
-        "jyppx_foundation.lib",
-        "jyppx_core.lib",
-        "jyppx_interop.lib",
-        "jyppx_data.lib",
-        "jyppx_nn.lib",
-        "jyppx_optim.lib",
-        "jyppx_training.lib",
-        "jyppx_experiment.lib"
+        "liuding-forge-foundation.lib",
+        "liuding-forge-core.lib",
+        "liuding-forge-interop.lib",
+        "liuding-forge-data.lib",
+        "liuding-forge-nn.lib",
+        "liuding-forge-optim.lib",
+        "liuding-forge-training.lib",
+        "liuding-forge-experiment.lib"
     )
 } else {
     @(
-        "libjyppx_foundation.a",
-        "libjyppx_core.a",
-        "libjyppx_interop.a",
-        "libjyppx_data.a",
-        "libjyppx_nn.a",
-        "libjyppx_optim.a",
-        "libjyppx_training.a",
-        "libjyppx_experiment.a"
+        "libliuding-forge-foundation.a",
+        "libliuding-forge-core.a",
+        "libliuding-forge-interop.a",
+        "libliuding-forge-data.a",
+        "libliuding-forge-nn.a",
+        "libliuding-forge-optim.a",
+        "libliuding-forge-training.a",
+        "libliuding-forge-experiment.a"
     )
 }
 $artifactPaths = @(

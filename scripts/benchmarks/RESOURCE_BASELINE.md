@@ -34,6 +34,11 @@ use `--profiles storage checkpoint telemetry`. `--bin-dir` selects a known
 custom executable directory. Output directories must be new and should be under
 an ignored evidence directory such as `out/` to preserve a clean checkout.
 
+Logical CMake targets retain their `jyppx_bench_resource_*` names. Their files
+are `liuding-forge-bench-resource-{stable,models,quantization,serving}` (plus
+`.exe` on Windows); installed library files use `liuding-forge-*` while C++
+namespaces and JSON benchmark identities continue to use `jyppx`.
+
 Storage, checkpoint and telemetry profiles require an explicit
 `--storage-environment-id`. Choose a stable ID for the actual backing
 volume/mount, filesystem, relevant mount options and durability configuration

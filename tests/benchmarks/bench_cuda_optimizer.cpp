@@ -86,7 +86,7 @@ std::string_view mode_name(BenchmarkMode mode) {
 BenchmarkMode parse_arguments(int argc, char** argv) {
   if (argc != 3 || std::string_view(argv[1]) != "--mode") {
     throw std::invalid_argument(
-        "usage: jyppx_bench_cuda_optimizer --mode "
+        "usage: liuding-forge-bench-cuda-optimizer --mode "
         "<cuda-fp32-optimizer-{sgd|adam|adamw|rmsprop|adagrad|nadam|"
         "adadelta|lamb}>");
   }

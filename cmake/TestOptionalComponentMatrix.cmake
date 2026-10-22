@@ -160,8 +160,10 @@ foreach(profile IN LISTS profiles)
                 message(FATAL_ERROR
                     "Disabled ${component} headers remain in ${profile} profile")
             endif()
+            string(REPLACE "_" "-" artifact_component "${component}")
             file(GLOB disabled_libraries
-                 "${install_dir}/lib/*jyppx_${component}*")
+                 "${install_dir}/lib/*jyppx_${component}*"
+                 "${install_dir}/lib/*liuding-forge-${artifact_component}*")
             if(disabled_libraries)
                 message(FATAL_ERROR
                     "Disabled ${component} library remains in ${profile} profile")

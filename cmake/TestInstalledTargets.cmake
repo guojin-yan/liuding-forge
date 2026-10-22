@@ -19,6 +19,16 @@ set(consumer_build_dir "${test_root}/b")
 file(REMOVE_RECURSE "${install_dir}")
 file(MAKE_DIRECTORY "${install_dir}" "${consumer_build_dir}")
 set(config_args)
+set(generator_args)
+if(JYPPX_CMAKE_GENERATOR)
+    list(APPEND generator_args -G "${JYPPX_CMAKE_GENERATOR}")
+endif()
+if(JYPPX_CMAKE_GENERATOR_PLATFORM)
+    list(APPEND generator_args -A "${JYPPX_CMAKE_GENERATOR_PLATFORM}")
+endif()
+if(JYPPX_CMAKE_GENERATOR_TOOLSET)
+    list(APPEND generator_args -T "${JYPPX_CMAKE_GENERATOR_TOOLSET}")
+endif()
 set(build_args --parallel 2)
 set(install_args)
 set(test_args)
@@ -71,6 +81,7 @@ execute_process(
             "${CMAKE_COMMAND}"
             -S "${consumer_source_dir}"
             -B "${consumer_build_dir}"
+            ${generator_args}
             "-UTorch_*"
             "-UTORCH_*"
             "-UCaffe2_*"

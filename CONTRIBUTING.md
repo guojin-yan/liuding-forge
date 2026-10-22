@@ -1,11 +1,15 @@
-# Contributing to JYPPX Training Framework
+# Contributing to 六丁炼算（Liuding Forge）
+
+The repository's historical and technical name is JYPPX Training Framework.
+Keep the `jyppx` namespace, include paths, CMake options and package names
+stable when making brand-facing changes.
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/jyppx-training-framework.git`
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/liuding-forge.git`
 3. Create a feature branch: `git checkout -b feature/your-feature-name`
 
 ## Development Setup

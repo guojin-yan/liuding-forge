@@ -1,11 +1,11 @@
 # Read-only API migration scan
 
-`jyppx api scan` reports known retired public includes, namespaces, and the old
+`liuding-forge api scan` reports known retired public includes, namespaces, and the old
 CMake package name in an application's source tree:
 
 ```text
-jyppx api scan --root application --format json
-jyppx api scan --root application --max-files 2000 --max-bytes 8388608 --max-findings 512 --format json
+liuding-forge api scan --root application --format json
+liuding-forge api scan --root application --max-files 2000 --max-bytes 8388608 --max-findings 512 --format json
 ```
 
 The scan reads files only. It proposes review directions and never rewrites

@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
     }
     worker_counts = {static_cast<std::size_t>(workers)};
   } else if (argc != 1) {
-    std::cerr << "usage: jyppx_bench_memory_usage [--workers count]\n";
+    std::cerr << "usage: liuding-forge-bench-memory-usage [--workers count]\n";
     return 2;
   }
 

@@ -1,4 +1,9 @@
-# Preparing and verifying SDK releases
+# Preparing and verifying Liuding Forge SDK releases
+
+The public brand is 六丁炼算（Liuding Forge）. Release candidates use
+`liuding-forge-<version>-<platform>.zip`; CPack packages also use the
+`liuding-forge` prefix. Installed headers, `find_package(jyppx)`, exported
+`jyppx::` targets, and existing release/SBOM protocol identities remain stable.
 
 `scripts/release/prepare_release.py` prepares a reviewable candidate from an
 explicit installation prefix. `verify_release.py` independently checks its
@@ -139,7 +144,7 @@ verified and must not be treated as a completed release.
 
 The output contains:
 
-- `jyppx-VERSION-PLATFORM.zip`: deterministic, sorted, uncompressed ZIP/ZIP64
+- `liuding-forge-VERSION-PLATFORM.zip`: deterministic, sorted, uncompressed ZIP/ZIP64
   entries under `payload/`, without links, comments, timestamps from wall
   time, executable installer code or implicit dependency downloads.
 - `inventory.json`, `dependency-manifest.json`, `LICENSE` and

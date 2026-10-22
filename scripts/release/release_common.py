@@ -647,6 +647,8 @@ def sbom(release: dict[str, Any], dependencies: dict[str, Any], archive_sha: str
         components.append(component)
     return {
         "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
+        # Keep the jyppx SBOM identity stable for consumers; branding is
+        # represented by additive metadata below.
         "serialNumber": f"urn:uuid:{uuid.uuid5(uuid.NAMESPACE_URL, 'urn:jyppx:' + archive_sha)}",
         "metadata": {
             "timestamp": timestamp(release["source_date_epoch"]),
@@ -655,7 +657,10 @@ def sbom(release: dict[str, Any], dependencies: dict[str, Any], archive_sha: str
                           "hashes": [{"alg": "SHA-256", "content": archive_sha}],
                           "licenses": [{"license": {"id": "Apache-2.0"}}]},
             "properties": [{"name": "jyppx:inventory-kind",
-                            "value": "declared lock; resolved/transitive graph requires dependency audit evidence"}],
+                            "value": "declared lock; resolved/transitive graph requires dependency audit evidence"},
+                           {"name": "liuding-forge:display-name", "value": "六丁炼算"},
+                           {"name": "liuding-forge:display-name-en", "value": "Liuding Forge"},
+                           {"name": "liuding-forge:artifact-prefix", "value": "liuding-forge"}],
         },
         "components": components,
     }

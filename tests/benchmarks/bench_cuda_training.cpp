@@ -101,7 +101,7 @@ std::string_view mode_name(BenchmarkMode mode) {
 BenchmarkMode parse_arguments(int argc, char** argv) {
   if (argc != 3 || std::string_view(argv[1]) != "--mode") {
     throw std::invalid_argument(
-        "usage: jyppx_bench_cuda_training --mode "
+        "usage: liuding-forge-bench-cuda-training --mode "
         "<cuda-fp32-single-sgd|cuda-fp16-multi-sgd-amp>");
   }
   const std::string_view value(argv[2]);

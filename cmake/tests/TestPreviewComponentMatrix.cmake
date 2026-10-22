@@ -99,7 +99,9 @@ endif()
 
 function(check_preview_symbols profile)
     file(GLOB installed_archives "${install_dir}/lib/*jyppx_*.a"
-         "${install_dir}/lib/*jyppx_*.lib")
+         "${install_dir}/lib/*jyppx_*.lib"
+         "${install_dir}/lib/*liuding-forge-*.a"
+         "${install_dir}/lib/*liuding-forge-*.lib")
     if(NOT installed_archives)
         message(FATAL_ERROR "No installed archives for symbol check: ${profile}")
     endif()
@@ -189,8 +191,10 @@ foreach(profile IN ITEMS core_before quantization models serving all_previews co
         message(FATAL_ERROR "Installing Preview profile failed: ${profile}")
     endif()
     foreach(component IN LISTS optional_components)
+        string(REPLACE "_" "-" artifact_component "${component}")
         file(GLOB component_libraries
-            "${install_dir}/lib/*jyppx_${component}*")
+            "${install_dir}/lib/*jyppx_${component}*"
+            "${install_dir}/lib/*liuding-forge-${artifact_component}*")
         if(component IN_LIST profile_components)
             if(NOT EXISTS "${install_dir}/include/jyppx/${component}" OR
                NOT component_libraries)

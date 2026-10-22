@@ -1,8 +1,10 @@
 # Library command-line tools
 
-The product CLI is `jyppx` (`jyppx.exe` on Windows). It composes installed
-library components to inspect the environment, resolve configuration, manage
-local runs, evaluate measured evidence and inspect models/checkpoints.
+The product CLI is `liuding-forge` (`liuding-forge.exe` on Windows), branded
+六丁炼算（Liuding Forge）. It composes installed library components to inspect
+the environment, resolve configuration, manage local runs, evaluate measured
+evidence and inspect models/checkpoints. An installed `jyppx` executable is
+kept as a compatibility copy for existing scripts.
 
 Configure with `JYPPX_BUILD_TOOLS=ON` to build and install it. The default is ON
 when all SDK components are enabled, and OFF for partial component profiles.
@@ -10,7 +12,7 @@ Explicit ON requires the complete SDK closure; it never silently enables a
 disabled library component. `JYPPX_BUILD_TOOLS=OFF` leaves the library usable.
 The executable is installed in `bin/`, without development scripts or tests.
 
-Use `jyppx --help --format text` for commands and `jyppx --version --format json`
+Use `liuding-forge --help --format text` for commands and `liuding-forge --version --format json`
 for the configured build identity. Commands accept `--format text|json`; text
 uses readable field/value lines, JSON uses a single schema-1 envelope:
 
@@ -26,17 +28,17 @@ completed failed/incomplete verdict, 2 for invalid/unsupported input, 3 for
 operational failure, 124 for deadline and 130 for cancellation.
 
 ```sh
-jyppx doctor --device cpu --format text
-jyppx doctor --device cuda --expected-libtorch 2.5.1 --format json
-jyppx config lint --schema config-schema.json --file training.json --format text
-jyppx config render --schema config-schema.json --set /training/rate=0.01 --format json
-jyppx config explain --schema config-schema.json --path /training/rate --format text
-jyppx config migrate --input old.json --plan migration-plan.json --to-version 3 --format json
-jyppx api scan --root application-src --format json
-jyppx run list --root local-runs --format text
-jyppx model verify --path weights.safetensors --format json
-jyppx model bundle verify --path immutable-model-bundle --format json
-jyppx checkpoint verify --path checkpoint.jyck --format json
+liuding-forge doctor --device cpu --format text
+liuding-forge doctor --device cuda --expected-libtorch 2.5.1 --format json
+liuding-forge config lint --schema config-schema.json --file training.json --format text
+liuding-forge config render --schema config-schema.json --set /training/rate=0.01 --format json
+liuding-forge config explain --schema config-schema.json --path /training/rate --format text
+liuding-forge config migrate --input old.json --plan migration-plan.json --to-version 3 --format json
+liuding-forge api scan --root application-src --format json
+liuding-forge run list --root local-runs --format text
+liuding-forge model verify --path weights.safetensors --format json
+liuding-forge model bundle verify --path immutable-model-bundle --format json
+liuding-forge checkpoint verify --path checkpoint.jyck --format json
 ```
 
 `doctor` exercises a real tensor/autograd/serialization operation on the

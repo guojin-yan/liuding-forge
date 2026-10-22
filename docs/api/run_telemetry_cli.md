@@ -17,11 +17,11 @@ cannot promise interruption of an indefinitely stalled filesystem call.
 ## Fixed snapshot queries
 
 ```text
-jyppx run events --root local-runs --id run-001 --limit 128 --format json
-jyppx run events --root local-runs --id run-001 --after 128 --snapshot 600 --limit 128 --format json
+liuding-forge run events --root local-runs --id run-001 --limit 128 --format json
+liuding-forge run events --root local-runs --id run-001 --after 128 --snapshot 600 --limit 128 --format json
 
-jyppx run metrics --root local-runs --id run-001 --metric validation.accuracy --limit 128 --format json
-jyppx run metrics --root local-runs --id run-001 --metric validation.accuracy --after-sequence 80 --after-index 2 --snapshot 600 --limit 128 --format json
+liuding-forge run metrics --root local-runs --id run-001 --metric validation.accuracy --limit 128 --format json
+liuding-forge run metrics --root local-runs --id run-001 --metric validation.accuracy --after-sequence 80 --after-index 2 --snapshot 600 --limit 128 --format json
 ```
 
 The first query without a nonzero cursor captures and returns
@@ -81,10 +81,10 @@ incompatible series.
 ## Export from authoritative evidence
 
 ```text
-jyppx run export --root local-runs --id run-001 --backend jsonl --output exported.jsonl --format json
-jyppx run export --root local-runs --id run-001 --backend jsonl --output exported.jsonl --resume true --snapshot 600 --format json
-jyppx run export --root local-runs --id run-001 --backend tensorboard --sidecar-config tensorboard.json --format json
-jyppx run export --root local-runs --id run-001 --backend opentelemetry --sidecar-config otel.json --format json
+liuding-forge run export --root local-runs --id run-001 --backend jsonl --output exported.jsonl --format json
+liuding-forge run export --root local-runs --id run-001 --backend jsonl --output exported.jsonl --resume true --snapshot 600 --format json
+liuding-forge run export --root local-runs --id run-001 --backend tensorboard --sidecar-config tensorboard.json --format json
+liuding-forge run export --root local-runs --id run-001 --backend opentelemetry --sidecar-config otel.json --format json
 ```
 
 Export captures a boundary once and reads only original canonical SQLite

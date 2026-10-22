@@ -8,7 +8,8 @@ evidence index. The candidate is not a signed v1.0 GA distribution.
 ## Supported contracts
 
 The SDK uses separate foundation, core, interop, data, nn, optim, training and
-experiment targets. Product tools are the `jyppx` CLI and the optional official
+experiment targets. Product tools are the `liuding-forge` CLI (with the installed
+`jyppx` compatibility command) and the optional official
 TensorBoard/OpenTelemetry Python sidecar. Repository development commands live
 under `scripts/`; their tests and backend acceptance live under `tests/`.
 
@@ -54,7 +55,7 @@ checkpoint participant, explicit data epoch/cursor, model invocation and optimiz
 topology contracts require application review. No forwarding header or blanket
 namespace rewrite makes these changes behaviorally equivalent.
 
-Use `jyppx api scan --root SOURCE_DIRECTORY --format json` for bounded lexical
+Use `liuding-forge api scan --root SOURCE_DIRECTORY --format json` for bounded lexical
 diagnostics. It includes comments and inactive code and is not an AST migration
 or proof of API/ABI compatibility. Review every suggested change.
 

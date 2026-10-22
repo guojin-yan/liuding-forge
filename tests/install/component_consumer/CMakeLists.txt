@@ -58,6 +58,25 @@ foreach(JYPPX_ENTITY_COMPONENT IN ITEMS
     if(TARGET jyppx::${JYPPX_ENTITY_COMPONENT})
         target_compile_definitions(jyppx_component_consumer PRIVATE
             JYPPX_EXPECT_COMPONENT_${JYPPX_ENTITY_COMPONENT_UPPER}=1)
+        # Imported targets keep the stable API but must locate branded files
+        # in every installed configuration, including Unix's lib prefix.
+        string(REPLACE "_" "-" JYPPX_LIBRARY_COMPONENT
+               "${JYPPX_ENTITY_COMPONENT}")
+        get_target_property(JYPPX_IMPORTED_CONFIGURATIONS
+            jyppx::${JYPPX_ENTITY_COMPONENT} IMPORTED_CONFIGURATIONS)
+        foreach(JYPPX_IMPORTED_CONFIG IN LISTS JYPPX_IMPORTED_CONFIGURATIONS)
+            get_target_property(JYPPX_IMPORTED_LOCATION
+                jyppx::${JYPPX_ENTITY_COMPONENT}
+                IMPORTED_LOCATION_${JYPPX_IMPORTED_CONFIG})
+            get_filename_component(JYPPX_IMPORTED_FILENAME
+                "${JYPPX_IMPORTED_LOCATION}" NAME)
+            if(NOT EXISTS "${JYPPX_IMPORTED_LOCATION}" OR
+               NOT JYPPX_IMPORTED_FILENAME MATCHES
+                   "^(lib)?liuding-forge-${JYPPX_LIBRARY_COMPONENT}")
+                message(FATAL_ERROR
+                    "Installed target has an invalid branded artifact: ${JYPPX_IMPORTED_LOCATION}")
+            endif()
+        endforeach()
     else()
         target_compile_definitions(jyppx_component_consumer PRIVATE
             JYPPX_EXPECT_COMPONENT_${JYPPX_ENTITY_COMPONENT_UPPER}=0)
