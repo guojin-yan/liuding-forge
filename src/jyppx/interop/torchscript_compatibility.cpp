@@ -125,8 +125,9 @@ void ValidateDevice(const Device& device) {
   }
   if (!device.is_cuda() || !device.has_index())
     Unsupported("device", "cpu without an index, or explicit cuda:N");
-  if (device.index() < 0 || !torch::cuda::is_available() ||
-      static_cast<std::size_t>(device.index()) >= torch::cuda::device_count())
+  const auto index = device.index();
+  if (index < 0 || !torch::cuda::is_available() ||
+      index >= torch::cuda::device_count())
     throw DeviceError("Requested TorchScript CUDA device is unavailable",
                       Details("device", "an actually available cuda:N device"));
 }

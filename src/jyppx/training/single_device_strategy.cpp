@@ -478,7 +478,7 @@ void SingleDeviceStrategy::prepare(
   if (impl_->options.device.is_cuda()) {
     const auto index = impl_->options.device.index();
     if (!torch::cuda::is_available() || index < 0 ||
-        static_cast<std::size_t>(index) >= torch::cuda::device_count()) {
+        index >= torch::cuda::device_count()) {
       throw DeviceError(
           "Configured CUDA device is unavailable",
           ErrorDetails{.component = kComponent,

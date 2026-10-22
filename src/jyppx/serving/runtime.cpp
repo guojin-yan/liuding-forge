@@ -166,13 +166,18 @@ void Descriptor(const RuntimeDescriptor& d) {
   if (d.device.is_cpu()) {
     if (d.device.has_index())
       detail::Invalid("runtime.device", "unindexed cpu");
-  } else if (!d.device.is_cuda() || !d.device.has_index() ||
-             d.device.index() < 0 || !torch::cuda::is_available() ||
-             static_cast<std::size_t>(d.device.index()) >=
-                 torch::cuda::device_count())
+  } else if (!d.device.is_cuda() || !d.device.has_index())
     throw DeviceError(
         "Serving runtime device unavailable",
         detail::Details("runtime.device", "cpu or available indexed cuda:N"));
+  } else {
+    const auto index = d.device.index();
+    if (index < 0 || !torch::cuda::is_available() ||
+        index >= torch::cuda::device_count())
+      throw DeviceError(
+          "Serving runtime device unavailable",
+          detail::Details("runtime.device", "cpu or available indexed cuda:N"));
+  }
 }
 void Sync(const Device& device) {
   if (device.is_cuda()) torch::cuda::synchronize(device.index());
