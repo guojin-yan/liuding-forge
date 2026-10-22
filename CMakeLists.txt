@@ -17,6 +17,7 @@ option(JYPPX_BUILD_DOCS "Build documentation" OFF)
 option(JYPPX_BUILD_CORE "Build the LibTorch value and tensor core" ON)
 option(JYPPX_BUILD_INTEROP "Build interoperability formats and manifests" ON)
 option(JYPPX_BUILD_DATA "Build data pipelines, datasets, and samplers" ON)
+option(JYPPX_BUILD_DATA_IMAGE "Build the optional built-in image/annotation adapters" OFF)
 option(JYPPX_BUILD_NN "Build neural-network adapters and losses" ON)
 option(JYPPX_BUILD_OPTIM "Build optimizer and scheduler adapters" ON)
 option(JYPPX_BUILD_TRAINING "Build the training engine" ON)
@@ -62,6 +63,9 @@ if(JYPPX_BUILD_TRAINING AND
    (NOT JYPPX_BUILD_DATA OR NOT JYPPX_BUILD_NN OR NOT JYPPX_BUILD_OPTIM))
     message(FATAL_ERROR
         "JYPPX_BUILD_TRAINING=ON requires DATA, NN, and OPTIM components")
+endif()
+if(JYPPX_BUILD_DATA_IMAGE AND NOT JYPPX_BUILD_DATA)
+    message(FATAL_ERROR "JYPPX_BUILD_DATA_IMAGE=ON requires JYPPX_BUILD_DATA=ON")
 endif()
 
 # Preview model/serving adapters require the explicit lower component closure.
@@ -145,7 +149,7 @@ include(cmake/CopyTorchRuntime.cmake)
 # ============================================
 # Bounded JSON Parser Implementation Dependency
 # ============================================
-if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT)
+if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT OR JYPPX_BUILD_DATA_IMAGE)
     include(FetchContent)
     if(POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
@@ -166,6 +170,12 @@ if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT)
         URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
     )
     FetchContent_MakeAvailable(jyppx_nlohmann_json)
+endif()
+
+if(JYPPX_BUILD_DATA_IMAGE)
+    # New adapter dependencies must be staged explicitly in the verified local
+    # cache. Configuring an optional reader never silently downloads a parser.
+    include(cmake/DataImageDependencies.cmake)
 endif()
 
 if(JYPPX_BUILD_SERVING)
@@ -281,6 +291,7 @@ set(JYPPX_GENERATED_PRIVATE_INCLUDE_DIR
 set(JYPPX_COMPONENT_CORE_ENABLED ${JYPPX_BUILD_CORE})
 set(JYPPX_COMPONENT_INTEROP_ENABLED ${JYPPX_BUILD_INTEROP})
 set(JYPPX_COMPONENT_DATA_ENABLED ${JYPPX_BUILD_DATA})
+set(JYPPX_COMPONENT_DATA_IMAGE_ENABLED ${JYPPX_BUILD_DATA_IMAGE})
 set(JYPPX_COMPONENT_NN_ENABLED ${JYPPX_BUILD_NN})
 set(JYPPX_COMPONENT_OPTIM_ENABLED ${JYPPX_BUILD_OPTIM})
 set(JYPPX_COMPONENT_TRAINING_ENABLED ${JYPPX_BUILD_TRAINING})
@@ -440,6 +451,40 @@ target_link_libraries(jyppx_data
 list(APPEND JYPPX_ENABLED_TARGETS jyppx_data)
 list(APPEND JYPPX_ENABLED_COMPONENTS data)
 list(APPEND JYPPX_ENABLED_HEADER_DIRS data)
+endif()
+
+if(JYPPX_BUILD_DATA_IMAGE)
+    add_library(jyppx_data_image STATIC
+        src/jyppx/data_image/annotations.cpp
+        src/jyppx/data_image/annotation_geometry.cpp
+        src/jyppx/data_image/annotation_files.cpp
+        src/jyppx/data_image/coco_annotations.cpp
+        src/jyppx/data_image/text_annotations.cpp
+        src/jyppx/data_image/extended_annotations.cpp
+        src/jyppx/data_image/manifests.cpp
+        src/jyppx/data_image/yolo_dataset_yaml.cpp
+        src/jyppx/data_image/image_decoder.cpp
+        src/jyppx/data_image/image_dataset.cpp
+        src/jyppx/data_image/stb_image_impl.cpp
+        $<TARGET_OBJECTS:data_image_xml_backend>
+        $<TARGET_OBJECTS:data_image_yaml_backend>)
+    add_library(jyppx::data_image ALIAS jyppx_data_image)
+    set_target_properties(jyppx_data_image PROPERTIES
+        OUTPUT_NAME jyppx_data_image EXPORT_NAME data_image)
+    target_include_directories(jyppx_data_image PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_include_directories(jyppx_data_image SYSTEM PRIVATE
+        ${jyppx_nlohmann_json_SOURCE_DIR}/single_include
+        ${jyppx_image_tinyxml2_SOURCE_DIR}
+        ${jyppx_image_yaml_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/third_party/stb)
+    target_compile_definitions(jyppx_data_image PRIVATE YAML_CPP_STATIC_DEFINE)
+    target_link_libraries(jyppx_data_image
+        PUBLIC jyppx_foundation jyppx_core jyppx_data)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_data_image)
+    list(APPEND JYPPX_ENABLED_COMPONENTS data_image)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS data_image)
 endif()
 
 if(JYPPX_BUILD_NN)
@@ -862,10 +907,17 @@ install(FILES
     DESTINATION share/doc/jyppx
     COMPONENT licenses
 )
-if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT)
+if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT OR JYPPX_BUILD_DATA_IMAGE)
     # nlohmann/json is compiled into these archives. Its original MIT notice
     # must accompany the binary SDK as well as the repository summary.
     install(FILES third_party/licenses/nlohmann-json-3.12.0-LICENSE.MIT
+        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+endif()
+if(JYPPX_BUILD_DATA_IMAGE)
+    install(FILES
+        third_party/licenses/tinyxml2-11.0.0-LICENSE.txt
+        third_party/licenses/yaml-cpp-0.9.0-LICENSE.txt
+        third_party/licenses/stb_image-2.30-LICENSE.txt
         DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
 endif()
 if(JYPPX_BUILD_EXPERIMENT)

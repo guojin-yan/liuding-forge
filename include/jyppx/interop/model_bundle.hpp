@@ -217,6 +217,8 @@ struct EncodedBundleShard {
 };
 
 /** @brief Validates strict v1 metadata and all cross references, without I/O.
+ * @param manifest Metadata and tensor/shard references to validate.
+ * @param limits Resource limits applied before expansion.
  * @throws InvalidArgument For invalid metadata; CompatibilityError for
  * versions.
  * @throws ResourceExhausted When any configured resource limit is exceeded.
@@ -224,17 +226,27 @@ struct EncodedBundleShard {
 void validate_model_bundle_manifest(const ModelBundleManifest& manifest,
                                     ModelBundleLimits limits = {});
 
-/** @brief Returns deterministic UTF-8 JSON, sorted by stable identities. */
+/** @brief Returns deterministic UTF-8 JSON, sorted by stable identities.
+ * @param manifest Validated model bundle metadata.
+ * @param limits Serialization resource limits.
+ * @return Canonical UTF-8 manifest JSON.
+ */
 std::string serialize_model_bundle_manifest(const ModelBundleManifest& manifest,
                                             ModelBundleLimits limits = {});
 
 /** @brief Rejects duplicate/unknown fields, malformed UTF-8 and unsupported v1.
+ * @param json Canonical model bundle manifest JSON.
+ * @param limits Parsing resource limits.
+ * @return Parsed and validated manifest.
  * @throws SerializationError For malformed encoded data or cross references.
  */
 ModelBundleManifest deserialize_model_bundle_manifest(
     std::string_view json, ModelBundleLimits limits = {});
 
 /** @brief Returns domain prefix + canonical JSON with signatures omitted.
+ * @param manifest Manifest to encode.
+ * @param limits Serialization resource limits.
+ * @return Signature payload bytes represented as UTF-8 text.
  *
  * Prefix is exactly "JYPPX-MODEL-BUNDLE-SIGNATURE-V1\n". The complete payload,
  * not just a user-declared digest, is passed to every signature trust callback.
@@ -244,6 +256,9 @@ std::string model_bundle_signing_payload(const ModelBundleManifest& manifest,
 
 /** @brief Checks exhaustive local files, hashes, sizes and every tensor
  * mapping.
+ * @param directory Bundle directory to verify.
+ * @param options Verification limits and policy.
+ * @return Verified snapshot and file/tensor evidence.
  *
  * Rejects undeclared files/directories, symlinks/reparse points, hard-linked
  * files and unsafe/aliased paths. Native handles pin traversal and file reads.
@@ -255,6 +270,11 @@ ModelBundleVerification verify_model_bundle_directory(
 
 /** @brief Stages, hashes, validates, flushes and atomically publishes a new
  * dir.
+ * @param destination New bundle destination.
+ * @param manifest Manifest describing the published files.
+ * @param sources Source files associated with manifest identities.
+ * @param options Verification and publication limits.
+ * @return Published bundle verification snapshot.
  *
  * Windows and Linux support atomic no-replace publication. The destination's
  * parent must already exist. Existing/racing destinations are never replaced.
@@ -270,6 +290,12 @@ ModelBundleVerification publish_model_bundle(
 
 /** @brief Deterministically packs whole tensors into bounded safetensors
  * shards.
+ * @param tensors Tensor byte sources in stable order.
+ * @param max_shard_bytes Maximum encoded shard size.
+ * @param name_prefix Prefix for generated shard names.
+ * @param device_intent Declared device intent in each tensor descriptor.
+ * @param limits Header and metadata resource limits.
+ * @return Encoded shards with complete manifest associations.
  *
  * No tensor is split. A conservative exact-JSON-header upper bound selects
  * groups; every encoded shard must fit max_shard_bytes, including its header.

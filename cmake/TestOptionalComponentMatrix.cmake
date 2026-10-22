@@ -59,8 +59,16 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
     set(ENV{PATH} "${JYPPX_TORCH_RUNTIME_DIR};$ENV{PATH}")
 endif()
 
-set(optional_components core interop data nn optim training experiment models quantization serving)
-set(profiles foundation core interop data nn optim training experiment)
+set(optional_components core interop data data_image nn optim training experiment models quantization serving)
+set(profiles foundation core interop data data_image nn optim training experiment)
+if(JYPPX_MATRIX_PROFILES)
+    foreach(profile IN LISTS JYPPX_MATRIX_PROFILES)
+        if(NOT profile IN_LIST profiles)
+            message(FATAL_ERROR "Unknown requested component profile: ${profile}")
+        endif()
+    endforeach()
+    set(profiles ${JYPPX_MATRIX_PROFILES})
+endif()
 
 foreach(profile IN LISTS profiles)
     set(profile_components)
@@ -70,6 +78,8 @@ foreach(profile IN LISTS profiles)
         set(profile_components interop)
     elseif(profile STREQUAL "data")
         set(profile_components core data)
+    elseif(profile STREQUAL "data_image")
+        set(profile_components core data data_image)
     elseif(profile STREQUAL "nn")
         set(profile_components core nn)
     elseif(profile STREQUAL "optim")
@@ -129,6 +139,20 @@ foreach(profile IN LISTS profiles)
 
     set(expected_components foundation all ${profile_components})
     set(absent_components sdk)
+    if(data_image IN_LIST profile_components)
+        foreach(notice IN ITEMS tinyxml2-11.0.0-LICENSE.txt yaml-cpp-0.9.0-LICENSE.txt
+                stb_image-2.30-LICENSE.txt)
+            set(installed_notice "${install_dir}/share/doc/jyppx/licenses/${notice}")
+            if(NOT EXISTS "${installed_notice}")
+                message(FATAL_ERROR "Image profile notice is missing: ${notice}")
+            endif()
+            file(SHA256 "${source_dir}/third_party/licenses/${notice}" expected_hash)
+            file(SHA256 "${installed_notice}" actual_hash)
+            if(NOT actual_hash STREQUAL expected_hash)
+                message(FATAL_ERROR "Image profile notice was altered: ${notice}")
+            endif()
+        endforeach()
+    endif()
     foreach(component IN LISTS optional_components)
         if(NOT component IN_LIST profile_components)
             list(APPEND absent_components "${component}")
@@ -199,6 +223,7 @@ foreach(profile IN LISTS profiles)
 endforeach()
 
 set(invalid_cases
+    data_image_without_data
     core_off_data_on
     core_off_nn_on
     core_off_optim_on
@@ -212,6 +237,7 @@ foreach(invalid_case IN LISTS invalid_cases)
         -DJYPPX_BUILD_CORE=ON
         -DJYPPX_BUILD_INTEROP=OFF
         -DJYPPX_BUILD_DATA=OFF
+        -DJYPPX_BUILD_DATA_IMAGE=OFF
         -DJYPPX_BUILD_NN=OFF
         -DJYPPX_BUILD_OPTIM=OFF
         -DJYPPX_BUILD_TRAINING=OFF
@@ -221,7 +247,9 @@ foreach(invalid_case IN LISTS invalid_cases)
         -DJYPPX_BUILD_SERVING=OFF
         -DJYPPX_MODELS_REFERENCE_DIR=
     )
-    if(invalid_case MATCHES "^core_off_([a-z]+)_on$")
+    if(invalid_case STREQUAL "data_image_without_data")
+        list(APPEND invalid_options -DJYPPX_BUILD_DATA_IMAGE=ON)
+    elseif(invalid_case MATCHES "^core_off_([a-z]+)_on$")
         string(TOUPPER "${CMAKE_MATCH_1}" dependent_component)
         list(APPEND invalid_options
              -DJYPPX_BUILD_CORE=OFF

@@ -505,7 +505,8 @@
           {
             "path": "out/build/config-windows/m6-remedial-ctest.log",
             "size_bytes": 248833,
-            "sha256": "c1b6fa94c8679e8a1b42a876c5a03940654094810c3a9be8735d0c46df8e1b17"
+            "sha256": "c1b6fa94c8679e8a1b42a876c5a03940654094810c3a9be8735d0c46df8e1b17",
+            "retained": false
           }
         ]
       }
@@ -579,7 +580,8 @@
           {
             "path": "out/build/config-windows/m6-ubuntu-full-ctest.log",
             "size_bytes": 258854,
-            "sha256": "afa510d830d543aee08991597e5c1be56771a75233ecf693a9bfcbb35f4f2ee7"
+            "sha256": "afa510d830d543aee08991597e5c1be56771a75233ecf693a9bfcbb35f4f2ee7",
+            "retained": false
           }
         ]
       }

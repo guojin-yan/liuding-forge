@@ -17,10 +17,14 @@
         "sha256": "7e65f208302ebd8501fe6beba69ce2a8b582a3d1caf17b3f00fc0b7ecd20d6e8"
       },
       "license": {
-        "spdx": ["BSD-3-Clause"],
+        "spdx": [
+          "BSD-3-Clause"
+        ],
         "third_party_notice_audit": "pending"
       },
-      "platforms": ["windows-x86_64"],
+      "platforms": [
+        "windows-x86_64"
+      ],
       "linkage": "dynamic",
       "support_status": "development-baseline"
     },
@@ -38,16 +42,22 @@
         "sha256": "1f357c27ca988c3f7c6b4bf68a9395005ac6761f034046e9dde0896e3aba00e4"
       },
       "license": {
-        "spdx": ["BSD-3-Clause"],
+        "spdx": [
+          "BSD-3-Clause"
+        ],
         "third_party_notice_audit": "recorded"
       },
-      "platforms": ["windows", "linux", "macos"],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
       "linkage": "static",
       "support_status": "test-only"
     },
     {
       "id": "nlohmann-json",
-      "scope": "experiment-config-build",
+      "scope": "interop-experiment-data-image-private-parser",
       "version": "3.12.0",
       "source": {
         "type": "official-release-archive",
@@ -59,10 +69,16 @@
         "sha256": "42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa"
       },
       "license": {
-        "spdx": ["MIT"],
+        "spdx": [
+          "MIT"
+        ],
         "third_party_notice_audit": "recorded"
       },
-      "platforms": ["windows", "linux", "macos"],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
       "linkage": "header-only-private-implementation",
       "support_status": "required"
     },
@@ -80,10 +96,16 @@
         "sha256": "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9"
       },
       "license": {
-        "spdx": ["blessing"],
+        "spdx": [
+          "blessing"
+        ],
         "third_party_notice_audit": "recorded"
       },
-      "platforms": ["windows", "linux", "macos"],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
       "linkage": "static-private-implementation",
       "support_status": "required"
     },
@@ -101,10 +123,16 @@
         "sha256": null
       },
       "license": {
-        "spdx": ["BSD-3-Clause"],
+        "spdx": [
+          "BSD-3-Clause"
+        ],
         "third_party_notice_audit": "pending"
       },
-      "platforms": ["windows-x86_64", "linux-x86_64", "macos-arm64"],
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64",
+        "macos-arm64"
+      ],
       "linkage": "dynamic",
       "support_status": "candidate"
     },
@@ -122,12 +150,98 @@
         "sha256": "08552b1d13de1389d01c64aaa5e2c6c5092f922618b0d32ccff8ed9099d75735"
       },
       "license": {
-        "spdx": ["BSD-3-Clause"],
+        "spdx": [
+          "BSD-3-Clause"
+        ],
         "third_party_notice_audit": "pending"
       },
-      "platforms": ["linux-x86_64"],
+      "platforms": [
+        "linux-x86_64"
+      ],
       "linkage": "dynamic",
       "support_status": "candidate"
+    },
+    {
+      "id": "tinyxml2",
+      "scope": "data-image-parser",
+      "version": "11.0.0",
+      "source": {
+        "type": "official-tag-source-archive",
+        "url": "https://github.com/leethomason/tinyxml2/archive/refs/tags/11.0.0.tar.gz",
+        "cache_file": "third_party/downloads/tinyxml2-11.0.0.tar.gz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "5556deb5081fb246ee92afae73efd943c889cef0cafea92b0b82422d6a18f289"
+      },
+      "license": {
+        "spdx": [
+          "Zlib"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64"
+      ],
+      "linkage": "static-private-implementation",
+      "support_status": "development-candidate"
+    },
+    {
+      "id": "yaml-cpp",
+      "scope": "data-image-parser",
+      "version": "0.9.0",
+      "source": {
+        "type": "official-tag-source-archive",
+        "url": "https://github.com/jbeder/yaml-cpp/archive/refs/tags/yaml-cpp-0.9.0.tar.gz",
+        "cache_file": "third_party/downloads/yaml-cpp-0.9.0.tar.gz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "25cb043240f828a8c51beb830569634bc7ac603978e0f69d6b63558dadefd49a"
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64"
+      ],
+      "linkage": "static-private-implementation",
+      "support_status": "development-candidate"
+    },
+    {
+      "id": "stb_image",
+      "scope": "data-image-decoder",
+      "version": "2.30",
+      "source": {
+        "type": "vendored-upstream-header",
+        "url": "https://github.com/nothings/stb/blob/master/stb_image.h",
+        "revision": "2.30 (2024-05-31)",
+        "path": "third_party/stb/stb_image.h"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3",
+        "size_bytes": 283010
+      },
+      "license": {
+        "spdx": [
+          "MIT",
+          "Unlicense"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64",
+        "macos-arm64"
+      ],
+      "linkage": "static-private-implementation",
+      "support_status": "development-candidate"
     }
   ]
 }

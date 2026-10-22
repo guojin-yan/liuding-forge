@@ -61,7 +61,7 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
 endif()
 
 set(optional_components core interop data nn optim training experiment
-    models quantization serving)
+    models quantization serving data_image)
 set(preview_components models quantization serving)
 set(common_options
     -DJYPPX_BUILD_TESTS=OFF -DJYPPX_BUILD_EXAMPLES=OFF

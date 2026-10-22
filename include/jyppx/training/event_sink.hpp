@@ -261,7 +261,9 @@ class EventOutbox final : public CheckpointParticipant {
   void close(std::stop_token stop = {},
              TelemetryDeadline deadline = std::nullopt);
 
-  /** @brief Returns the producer stream reused by retries and restore. */
+  /** @brief Returns the producer stream reused by retries and restore.
+   * @return Immutable producer stream identity for this outbox.
+   */
   std::string_view telemetry_stream_id() const noexcept;
 
   /**

@@ -13,6 +13,7 @@ set(_jyppx_known_components
     core
     interop
     data
+    data_image
     nn
     training
     optim
@@ -45,7 +46,7 @@ foreach(_jyppx_component IN LISTS jyppx_FIND_COMPONENTS)
 endforeach()
 
 foreach(_jyppx_exported_target IN ITEMS
-        jyppx::foundation jyppx::core jyppx::interop jyppx::data jyppx::nn
+        jyppx::foundation jyppx::core jyppx::interop jyppx::data jyppx::data_image jyppx::nn
         jyppx::training jyppx::optim jyppx::experiment
         jyppx::models jyppx::quantization jyppx::serving jyppx::all jyppx::sdk)
     if(TARGET ${_jyppx_exported_target})

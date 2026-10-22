@@ -11,6 +11,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_core
     jyppx_interop
     jyppx_data
+    jyppx_data_image
     jyppx_nn
     jyppx_training
     jyppx_optim

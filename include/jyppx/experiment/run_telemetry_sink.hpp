@@ -44,17 +44,32 @@ class SQLiteRunTelemetrySink final : public TelemetrySink {
   SQLiteRunTelemetrySink(const SQLiteRunTelemetrySink&) = delete;
   /** @brief Avoids assigning sink state across logical destinations. */
   SQLiteRunTelemetrySink& operator=(const SQLiteRunTelemetrySink&) = delete;
-  /** @brief Returns the stable evidence destination. */
+  /** @brief Returns the stable evidence destination.
+   * @return Immutable sink identity and destination metadata.
+   */
   const TelemetrySinkDescriptor& descriptor() const noexcept override;
-  /** @brief Durably commits a whole batch or exactly replays its retry. */
+  /** @brief Durably commits a whole batch or exactly replays its retry.
+   * @param envelopes Ordered telemetry envelopes to commit.
+   * @param stop Cooperative cancellation request.
+   * @param deadline Optional absolute operation deadline.
+   * @return Durable receipt and accepted-envelope counters.
+   */
   TelemetryEmitResult emit(std::span<const TelemetryEnvelope> envelopes,
                            std::stop_token stop = {},
                            TelemetryDeadline deadline = std::nullopt) override;
-  /** @brief Returns counters; successful emit has no deferred work to drain. */
+  /** @brief Returns counters; successful emit has no deferred work to drain.
+   * @param stop Cooperative cancellation request.
+   * @param deadline Optional absolute operation deadline.
+   * @return Flush status and counters.
+   */
   TelemetryFlushResult flush(
       std::stop_token stop = {},
       TelemetryDeadline deadline = std::nullopt) override;
-  /** @brief Idempotently records closure and returns final counters. */
+  /** @brief Idempotently records closure and returns final counters.
+   * @param stop Cooperative cancellation request.
+   * @param deadline Optional absolute operation deadline.
+   * @return Final flush status and counters.
+   */
   TelemetryFlushResult close(
       std::stop_token stop = {},
       TelemetryDeadline deadline = std::nullopt) override;

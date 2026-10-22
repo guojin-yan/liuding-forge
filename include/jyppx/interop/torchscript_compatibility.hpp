@@ -117,7 +117,9 @@ class TorchScriptCompatibilityRuntime final {
   ~TorchScriptCompatibilityRuntime();
   /** @brief Transfers ownership; exclude concurrent access during the move. */
   TorchScriptCompatibilityRuntime(TorchScriptCompatibilityRuntime&&) noexcept;
-  /** @brief Transfers ownership; exclude concurrent access during the move. */
+  /** @brief Transfers ownership; exclude concurrent access during the move.
+   * @return This runtime after replacement.
+   */
   TorchScriptCompatibilityRuntime& operator=(
       TorchScriptCompatibilityRuntime&&) noexcept;
   /** @brief Runtime state cannot be copied. */

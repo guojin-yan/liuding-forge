@@ -27,6 +27,7 @@ function(jyppx_write_component_graph output_path)
     set(components
         core
         data
+        data_image
         experiment
         foundation
         interop
@@ -94,9 +95,8 @@ function(jyppx_write_component_graph output_path)
                     set(has_provider FALSE)
                     foreach(provider_spelling IN ITEMS
                             "jyppx_${provider}" "jyppx::${provider}")
-                        string(FIND "${graph_entry}" "${provider_spelling}"
-                               provider_position)
-                        if(NOT provider_position EQUAL -1)
+                        # Match complete tokens: data_image is not a data edge.
+                        if(graph_entry MATCHES "(^|[^A-Za-z0-9_])${provider_spelling}([^A-Za-z0-9_]|$)")
                             set(has_provider TRUE)
                         endif()
                     endforeach()

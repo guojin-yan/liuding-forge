@@ -478,21 +478,41 @@ def validate_dependencies(value: Any) -> list[str]:
         if not string_list(entry["platforms"], "dependency.platforms"):
             fail("dependency platforms cannot be empty")
         source = entry["source"]
-        if not isinstance(source, dict) or set(source) not in (
-            {"type", "url", "cache_file"}, {"type", "url_template", "cache_file"}
-        ):
+        if not isinstance(source, dict):
             fail("dependency.source: missing or unknown fields")
-        text(source["type"], "dependency.source.type")
-        url = text(source.get("url", source.get("url_template")), "dependency.source.url")
-        if not url.startswith("https://"):
-            fail("dependency source must use HTTPS")
-        if source["cache_file"] is not None:
-            relative_name(source["cache_file"])
-        integrity = exact(entry["integrity"], {"status", "sha256"}, "dependency.integrity")
+        source_fields = set(source)
+        if source_fields in ({"type", "url", "cache_file"},
+                             {"type", "url_template", "cache_file"}):
+            text(source["type"], "dependency.source.type")
+            url = text(source.get("url", source.get("url_template")),
+                       "dependency.source.url")
+            if not url.startswith("https://"):
+                fail("dependency source must use HTTPS")
+            if source["cache_file"] is not None:
+                relative_name(source["cache_file"])
+        elif source_fields == {"type", "url", "revision", "path"}:
+            text(source["type"], "dependency.source.type")
+            url = text(source["url"], "dependency.source.url")
+            if not url.startswith("https://"):
+                fail("dependency source must use HTTPS")
+            text(source["revision"], "dependency.source.revision")
+            relative_name(source["path"])
+        else:
+            fail("dependency.source: missing or unknown fields")
+        integrity_fields = set(entry["integrity"])
+        if integrity_fields not in ({"status", "sha256"},
+                                    {"status", "sha256", "size_bytes"}):
+            fail("dependency.integrity: missing or unknown fields")
+        integrity = entry["integrity"]
         if integrity["status"] == "verified":
             digest(integrity["sha256"], "dependency.integrity.sha256")
         elif integrity["status"] != "pending" or integrity["sha256"] is not None:
             fail("dependency integrity must be verified or explicitly pending")
+        if "size_bytes" in integrity:
+            size_bytes = integrity["size_bytes"]
+            if (integrity["status"] != "verified" or type(size_bytes) is not int or
+                    not 0 < size_bytes <= 2 * 1024 * 1024 * 1024):
+                fail("dependency.integrity.size_bytes must be a bounded verified size")
         license_info = exact(entry["license"], {"spdx", "third_party_notice_audit"},
                              "dependency.license")
         if not string_list(license_info["spdx"], "dependency.license.spdx"):

@@ -11,6 +11,10 @@
 #include <jyppx/interop/checkpoint_manifest.hpp>
 #elif defined(JYPPX_CONSUMER_DATA)
 #include <jyppx/data/samplers/sequential_sampler.hpp>
+#elif defined(JYPPX_CONSUMER_DATA_IMAGE)
+#include <jyppx/data_image/annotation_files.hpp>
+#include <jyppx/data_image/image_decoder.hpp>
+#include <jyppx/data_image/manifests.hpp>
 #elif defined(JYPPX_CONSUMER_NN)
 #include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
 #elif defined(JYPPX_CONSUMER_OPTIM)
@@ -47,6 +51,8 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -77,9 +83,10 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
 #endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
-  constexpr std::array<std::pair<std::string_view, bool>, 11U> kExpected{{
+  constexpr std::array<std::pair<std::string_view, bool>, 12U> kExpected{{
       {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
       {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
+      {"data_image", JYPPX_EXPECT_COMPONENT_DATA_IMAGE != 0},
       {"experiment", JYPPX_EXPECT_COMPONENT_EXPERIMENT != 0},
       {"foundation", JYPPX_EXPECT_COMPONENT_FOUNDATION != 0},
       {"interop", JYPPX_EXPECT_COMPONENT_INTEROP != 0},
@@ -96,7 +103,7 @@ bool BuildCapabilityInventoryMatchesPackage() {
     const auto& [component, enabled] = kExpected[index];
     const auto& feature = manifest.features[index];
     const bool preview = component == "models" || component == "quantization" ||
-                         component == "serving";
+                         component == "serving" || component == "data_image";
     const auto expected_status =
         enabled ? (preview ? jyppx::CapabilityStatus::experimental
                            : jyppx::CapabilityStatus::available)
@@ -134,6 +141,32 @@ int main() {
 #elif defined(JYPPX_CONSUMER_DATA)
   const auto indices = jyppx::data::samplers::SequentialSampler(3).indices();
   return indices == std::vector<std::size_t>({0, 1, 2}) ? 0 : 1;
+#elif defined(JYPPX_CONSUMER_DATA_IMAGE)
+  const auto metadata =
+      jyppx::data::image::parse_yolo_dataset_yaml("names: [cat]");
+  jyppx::data::image::AnnotationReadOptions options;
+  options.categories = metadata.categories;
+  options.image_path = "a.jpg";
+  options.width = 20;
+  options.height = 10;
+  const auto index = jyppx::data::image::parse_annotations(
+      "0 .5 .5 1 1", jyppx::data::image::AnnotationFormat::yolo_detection,
+      options);
+  jyppx::data::image::ManifestReadOptions manifest_options;
+  manifest_options.categories = metadata.categories;
+  const auto manifest = jyppx::data::image::parse_manifest(
+      "path,labels\na.jpg,cat\n", jyppx::data::image::ManifestFormat::csv,
+      jyppx::data::image::ManifestTask::classification, manifest_options);
+  constexpr std::array<unsigned char, 12> pgm{'P',  '5', '\n', '1', ' ',  '1',
+                                              '\n', '2', '5',  '5', '\n', 127};
+  const auto image =
+      jyppx::data::image::decode_image(std::as_bytes(std::span(pgm)));
+  return index.images.size() == 1U && index.images[0].objects.size() == 1U &&
+                 index.images[0].objects[0].box->x_max == 20 &&
+                 manifest.records().size() == 1U && image.width == 1U &&
+                 image.height == 1U && image.tensor.item<std::uint8_t>() == 127
+             ? 0
+             : 1;
 #elif defined(JYPPX_CONSUMER_NN)
   const auto loss = jyppx::nn::functional::label_smoothing_cross_entropy(
       torch::tensor({{2.0, -1.0}}, torch::kFloat64),

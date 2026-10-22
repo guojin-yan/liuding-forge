@@ -81,8 +81,9 @@ ResNet resnet50(ResNetOptions options = {});
 nn::ModelAdapter adapt(ResNet model);
 /** @brief Supported mobile inverted-residual schedules. */
 enum class MobileNetV3Variant : std::uint8_t {
-  small = 1,  ///< Eleven inverted residual blocks and a 1024-wide head.
-  large = 2,  ///< Fifteen inverted residual blocks and a 1280-wide head.
+  small_variant = 1,  ///< Eleven inverted residual blocks and a 1024-wide head.
+  large_variant =
+      2,  ///< Fifteen inverted residual blocks and a 1280-wide head.
 };
 /** @brief MobileNetV3 classification and width settings. */
 struct MobileNetV3Options {

@@ -59,12 +59,13 @@ std::string_view error_code_name(ErrorCode code) noexcept;
  * caller synchronization.
  */
 struct ErrorDetails {
-  std::string component;  ///< Framework component that detected the failure.
+  std::string component{};  ///< Framework component that detected the failure.
   std::string
-      operation;         ///< Operation, field, or state transition that failed.
-  std::string expected;  ///< Required value, shape, state, or capability.
-  std::string actual;  ///< Observed value, shape, state, or backend diagnostic.
-  std::string hint;    ///< Actionable remediation guidance for the caller.
+      operation{};  ///< Operation, field, or state transition that failed.
+  std::string expected{};  ///< Required value, shape, state, or capability.
+  std::string
+      actual{};        ///< Observed value, shape, state, or backend diagnostic.
+  std::string hint{};  ///< Actionable remediation guidance for the caller.
 };
 
 /**
@@ -411,15 +412,15 @@ enum class BackendFailureKind {
  * exception.
  */
 struct BackendErrorContext {
-  std::string component;  ///< Framework component invoking the backend.
+  std::string component{};  ///< Framework component invoking the backend.
   std::string
-      operation;  ///< Backend operation or framework transition that failed.
+      operation{};  ///< Backend operation or framework transition that failed.
   BackendFailureKind failure_kind =
       BackendFailureKind::unknown;  ///< Explicit target category for
                                     ///< translation.
   std::string
-      expected;      ///< Backend state or capability required by the operation.
-  std::string hint;  ///< Actionable remediation guidance for the caller.
+      expected{};  ///< Backend state or capability required by the operation.
+  std::string hint{};  ///< Actionable remediation guidance for the caller.
 };
 
 /**

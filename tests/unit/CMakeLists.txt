@@ -111,6 +111,16 @@ jyppx_add_gtest(jyppx_test_data
 )
 endif()
 
+if(TARGET jyppx::data_image)
+    jyppx_add_gtest(jyppx_test_data_image_annotations
+        LINK_TARGET jyppx::data_image
+        data_image/test_annotations.cpp
+        data_image/test_extended_annotations.cpp
+        data_image/test_manifests.cpp
+        data_image/test_decoder.cpp
+        data_image/test_image_dataset.cpp)
+endif()
+
 if(TARGET jyppx::sdk)
 jyppx_add_gtest(jyppx_test_optim
     optim/test_extreme_params.cpp

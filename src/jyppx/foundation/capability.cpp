@@ -465,11 +465,12 @@ CapabilityManifest make_current_capability_manifest(
 }
 
 CapabilityManifest current_capability_manifest() {
-  const std::array<std::pair<const char*, bool>, 11U> components{{
+  const std::array<std::pair<const char*, bool>, 12U> components{{
       {"foundation", true},
       {"core", JYPPX_COMPONENT_CORE_ENABLED != 0},
       {"interop", JYPPX_COMPONENT_INTEROP_ENABLED != 0},
       {"data", JYPPX_COMPONENT_DATA_ENABLED != 0},
+      {"data_image", JYPPX_COMPONENT_DATA_IMAGE_ENABLED != 0},
       {"nn", JYPPX_COMPONENT_NN_ENABLED != 0},
       {"optim", JYPPX_COMPONENT_OPTIM_ENABLED != 0},
       {"training", JYPPX_COMPONENT_TRAINING_ENABLED != 0},
@@ -482,8 +483,8 @@ CapabilityManifest current_capability_manifest() {
   features.reserve(components.size());
   for (const auto& [component, enabled] : components) {
     const auto name = std::string_view(component);
-    const bool preview =
-        name == "models" || name == "quantization" || name == "serving";
+    const bool preview = name == "models" || name == "quantization" ||
+                         name == "serving" || name == "data_image";
     features.push_back(component_descriptor(component, enabled, preview));
   }
   return make_current_capability_manifest(std::move(features));

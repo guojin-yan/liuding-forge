@@ -229,21 +229,39 @@ class Predictor final {
   /** @brief Replacing a serialized inference owner by copy is forbidden. */
   Predictor& operator=(const Predictor&) = delete;
   /** @brief Validates, snapshots, executes and snapshots one independent
-   * result. */
+   * result.
+   * @param request Caller-owned invocation and request context.
+   * @param stop Cooperative cancellation request.
+   * @return Independent validated prediction and timing metadata.
+   */
   PredictResponse predict(const PredictRequest& request,
                           std::stop_token stop = {});
-  /** @brief Owning lifecycle/capability/counter snapshot. */
+  /** @brief Owning lifecycle/capability/counter snapshot.
+   * @return Current runtime identity, state and counters.
+   */
   ModelRuntimeInfo info() const;
-  /** @brief Input boundary before preprocessing. */
+  /** @brief Input boundary before preprocessing.
+   * @return Invocation schema accepted by this predictor.
+   */
   nn::InvocationSchema input_schema() const;
-  /** @brief Validated response boundary after postprocessing. */
+  /** @brief Validated response boundary after postprocessing.
+   * @return Schema of the published prediction values.
+   */
   ValueSchema output_schema() const;
-  /** @brief Immutable logical input budget used by schedulers. */
+  /** @brief Immutable logical input budget used by schedulers.
+   * @return Frozen logical tensor and byte limits.
+   */
   RequestLimits request_limits() const;
   /** @brief Stops admission and waits for existing leases; false on
-   * timeout/cancel. */
+   * timeout/cancel.
+   * @param deadline Optional cooperative absolute close deadline.
+   * @param stop Cooperative cancellation while waiting.
+   * @return True after all leases drain; false while work remains.
+   */
   bool close(Deadline deadline = {}, std::stop_token stop = {});
   /** @brief Validates/clones a queued request before the caller can mutate it.
+   * @param request Invocation and context to validate and copy.
+   * @return Independent request value without caller-owned tensor aliases.
    */
   PredictRequest snapshot_request(const PredictRequest& request) const;
 
@@ -252,25 +270,36 @@ class Predictor final {
   class Impl;
   std::shared_ptr<Impl>
       impl_;  ///< Shared state retained by outstanding leases.
-  /** @brief Adopts a fully initialized private session. */
+  /** @brief Adopts a fully initialized private session.
+   * @param impl Shared validated lifecycle and execution owner.
+   */
   explicit Predictor(std::shared_ptr<Impl> impl);
   /** @brief Native backend may publish a verified session. */
   friend class NativeStateBackend;
   /** @brief Trusted JIT adapter may publish a validated session. */
   friend std::shared_ptr<Predictor> load_torchscript_predictor(
-      std::span<const std::byte>, const ArtifactDigest&,
-      const nn::InvocationSchema&, const ValueSchema&,
-      const interop::TorchScriptLoadOptions&, RuntimeDescriptor, std::string,
-      std::span<const WarmupCase>, const LoadOptions&);
+      std::span<const std::byte> archive, const ArtifactDigest& expected,
+      const nn::InvocationSchema& input_schema,
+      const ValueSchema& output_schema,
+      const interop::TorchScriptLoadOptions& runtime_options,
+      RuntimeDescriptor descriptor, std::string model_version,
+      std::span<const WarmupCase> warmup, const LoadOptions& options);
 };
 /** @brief Explicit backend selection; no dtype/device/provider fallback. */
 class RuntimeBackend {
  public:
   /** @brief Destroys the backend descriptor/factory owner. */
   virtual ~RuntimeBackend() = default;
-  /** @brief Returns the exact backend, device and capability declaration. */
+  /** @brief Returns the exact backend, device and capability declaration.
+   * @return Frozen backend execution contract.
+   */
   virtual RuntimeDescriptor descriptor() const = 0;
   /** @brief Verifies, loads and warms a session before returning it as ready.
+   * @param directory Data-only bundle directory.
+   * @param verify Integrity and resource verification policy.
+   * @param warmup Known input/output cases to execute before publication.
+   * @param options Session resource and lifetime policy.
+   * @return Ready serialized predictor after every check succeeds.
    */
   virtual std::shared_ptr<Predictor> load(
       const std::filesystem::path& directory,
@@ -283,12 +312,24 @@ class RuntimeBackend {
 class NativeStateBackend final : public RuntimeBackend {
  public:
   /** @brief Binds an explicit native factory and selected bundle model
-   * identity. */
+   * identity.
+   * @param descriptor Exact native execution declaration.
+   * @param factory Trusted module and pipeline factory.
+   * @param model_id Exact bundle model entry to import.
+   */
   NativeStateBackend(RuntimeDescriptor descriptor, NativeModelFactory factory,
                      std::string model_id = "primary");
-  /** @brief Returns the immutable native execution declaration. */
+  /** @brief Returns the immutable native execution declaration.
+   * @return Frozen native backend execution contract.
+   */
   RuntimeDescriptor descriptor() const override;
-  /** @brief Verifies snapshots, imports state and checks every known vector. */
+  /** @brief Verifies snapshots, imports state and checks every known vector.
+   * @param directory Data-only bundle directory.
+   * @param verify Bundle integrity and resource verification policy.
+   * @param warmup Known input/output validation cases.
+   * @param options Session resource and lifetime policy.
+   * @return Ready predictor with verified imported model state.
+   */
   std::shared_ptr<Predictor> load(
       const std::filesystem::path& directory,
       const interop::ModelBundleVerifyOptions& verify,
@@ -304,6 +345,16 @@ class NativeStateBackend final : public RuntimeBackend {
 };
 /** @brief Really loads an explicitly trusted existing JIT archive outside
  * bundles.
+ * @param archive Explicitly trusted executable JIT archive bytes.
+ * @param expected Expected digest of the supplied archive bytes.
+ * @param input_schema Invocation contract before preprocessing.
+ * @param output_schema Published prediction contract.
+ * @param runtime_options Explicit trust, device and JIT load policy.
+ * @param descriptor Locked runtime and environment declaration.
+ * @param model_version Stable model version reported by the predictor.
+ * @param warmup Known input/output cases checked before publication.
+ * @param options Session resource and lifetime policy.
+ * @return Ready compatibility predictor after load and warmup.
  * @note Data-only bundles never carry executable TorchScript. This
  * compatibility adapter inherits exact JIT trust/schema/device/failure
  * semantics and no OOM retry. The descriptor pins a separately supplied
@@ -316,14 +367,22 @@ std::shared_ptr<Predictor> load_torchscript_predictor(
     const interop::TorchScriptLoadOptions& runtime_options,
     RuntimeDescriptor descriptor, std::string model_version,
     std::span<const WarmupCase> warmup, const LoadOptions& options = {});
-/** @brief Validates resource/shape/numeric bounds without copying tensors. */
+/** @brief Validates resource/shape/numeric bounds without copying tensors.
+ * @param input Invocation to inspect without mutation.
+ * @param limits Logical tensor, element and byte limits.
+ * @param runtime Required device and numeric execution contract.
+ * @return Total logical tensor bytes in the validated invocation.
+ */
 std::uint64_t validate_request_resources(const nn::Invocation& input,
                                          const RequestLimits& limits,
                                          const RuntimeDescriptor& runtime);
 /** @brief Lowercase configure-time OS/architecture token used in bundle matrix.
+ * @return Stable platform token from the build configuration.
  */
 std::string serving_platform_id();
-/** @brief Truthful versioned preview capability manifest. */
+/** @brief Truthful versioned preview capability manifest.
+ * @return UTF-8 JSON with explicit implemented and unavailable capabilities.
+ */
 std::string serving_preview_manifest_json();
 }  // namespace jyppx::serving
 #endif

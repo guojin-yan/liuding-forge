@@ -29,9 +29,10 @@ sorted without modifying the caller's object. Limits remain JSON numbers.
 
 `current_capability_manifest()` queries the exact package build without asking
 upper-layer targets to register into foundation. It reports one build-source
-entry for each of the eight entity components. Components disabled at CMake
+entry for each of the twelve entity components. Components disabled at CMake
 configure time remain visible as `unsupported`, while enabled components are
-`available`. `current_capability_manifest_json()` exposes the same inventory as
+`available` except for the experimental data_image, models, quantization and
+serving profiles. `current_capability_manifest_json()` exposes the same inventory as
 deterministic JSON. Aggregate targets are package conveniences and are not
 reported as entity capabilities.
 

@@ -37,6 +37,25 @@
       ],
       "optional_dependencies": []
     },
+    "data_image": {
+      "header_roots": [
+        "data_image"
+      ],
+      "source_roots": [
+        "data_image"
+      ],
+      "required_dependencies": [
+        "core",
+        "data",
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "core",
+        "data",
+        "foundation"
+      ],
+      "optional_dependencies": []
+    },
     "experiment": {
       "header_roots": [
         "experiment"

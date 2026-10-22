@@ -50,7 +50,10 @@ struct BatchStatistics {
  */
 class DynamicBatcher final {
  public:
-  /** @brief Validates batching declarations and starts one owned worker. */
+  /** @brief Validates batching declarations and starts one owned worker.
+   * @param predictor Serialized inference owner used by the worker.
+   * @param options Queue, batch and residency limits.
+   */
   explicit DynamicBatcher(std::shared_ptr<Predictor> predictor,
                           BatchOptions options = {});
   /** @brief Cancels pending work and joins the active worker safely. */
@@ -61,16 +64,26 @@ class DynamicBatcher final {
   DynamicBatcher& operator=(const DynamicBatcher&) = delete;
   /** @brief Reserves capacity before copying; rejection is a typed exception.
    * The future resolves exactly once, independently of its peers.
+   * @param request One validated single-row inference request.
+   * @param stop Cooperative cancellation while waiting for admission.
+   * @return Future for the independent prediction response.
    */
   std::future<PredictResponse> submit(const PredictRequest& request,
                                       std::stop_token stop = {});
-  /** @brief Returns an owning synchronized counter and residency snapshot. */
+  /** @brief Returns an owning synchronized counter and residency snapshot.
+   * @return Current queue, active, completion and residency counters.
+   */
   BatchStatistics statistics() const;
-  /** @brief Immutable owner identity for a protocol adapter. */
+  /** @brief Immutable owner identity for a protocol adapter.
+   * @return The predictor retained by this scheduler.
+   */
   std::shared_ptr<Predictor> predictor() const;
   /** @brief Refuses new work, cancels queued work and waits for active compute.
    * False leaves the worker draining with ownership retained. The predictor
    * remains caller-owned; close it after successful scheduler shutdown.
+   * @param deadline Cooperative absolute close deadline.
+   * @param stop Cooperative cancellation request.
+   * @return True after the worker has stopped; false while it is draining.
    */
   bool close(Deadline deadline = {}, std::stop_token stop = {});
 

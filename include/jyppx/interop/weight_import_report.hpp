@@ -187,9 +187,10 @@ class WeightImportPlan final {
 
   /** @brief Grants the complete-mapping factory construction access. */
   friend WeightImportPlan plan_weight_import(
-      const ArtifactDigest&, std::span<const WeightTensorDescriptor>,
-      std::span<const WeightTensorDescriptor>, const WeightImportOptions&,
-      WeightImportLimits);
+      const ArtifactDigest& source_digest,
+      std::span<const WeightTensorDescriptor> source,
+      std::span<const WeightTensorDescriptor> target,
+      const WeightImportOptions& options, WeightImportLimits limits);
 
   WeightImportReport report_;  ///< Owned immutable complete report.
   std::vector<WeightAssignment> assignments_;  ///< Accepted candidates only.

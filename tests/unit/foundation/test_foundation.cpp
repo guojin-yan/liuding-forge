@@ -242,13 +242,14 @@ TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
 
 TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
   const auto manifest = jyppx::current_capability_manifest();
-  ASSERT_EQ(manifest.features.size(), 11U);
+  ASSERT_EQ(manifest.features.size(), 12U);
   EXPECT_EQ(manifest.build.jyppx_version, jyppx::version());
   EXPECT_EQ(manifest.features.front().feature_id, "jyppx.component.core");
 
-  const std::array<std::pair<std::string_view, bool>, 11U> expected_components{{
+  const std::array<std::pair<std::string_view, bool>, 12U> expected_components{{
       {"core", JYPPX_COMPONENT_CORE_ENABLED != 0},
       {"data", JYPPX_COMPONENT_DATA_ENABLED != 0},
+      {"data_image", JYPPX_COMPONENT_DATA_IMAGE_ENABLED != 0},
       {"experiment", JYPPX_COMPONENT_EXPERIMENT_ENABLED != 0},
       {"foundation", true},
       {"interop", JYPPX_COMPONENT_INTEROP_ENABLED != 0},
@@ -264,7 +265,7 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
     const auto& feature = manifest.features[index];
     EXPECT_EQ(feature.feature_id, "jyppx.component." + std::string(component));
     const bool preview = component == "models" || component == "quantization" ||
-                         component == "serving";
+                         component == "serving" || component == "data_image";
     EXPECT_EQ(feature.status,
               enabled ? (preview ? jyppx::CapabilityStatus::experimental
                                  : jyppx::CapabilityStatus::available)

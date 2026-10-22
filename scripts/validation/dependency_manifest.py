@@ -109,22 +109,41 @@ def validate(document: dict[str, Any]) -> None:
         require_string(dependency, "scope", location)
         require_string(dependency, "version", location)
         source = require_mapping(dependency, "source", location)
-        if set(source) != {"type", "url", "cache_file"} and set(source) != {
-            "type", "url_template", "cache_file"
-        }:
+        source_fields = set(source)
+        if source_fields in ({"type", "url", "cache_file"},
+                             {"type", "url_template", "cache_file"}):
+            require_string(source, "type", f"{location}.source")
+            source_url = https_url(
+                source.get("url", source.get("url_template")),
+                f"{location}.source",
+            )
+            if source.get("url_template") is not None and "{" not in source_url:
+                raise DependencyManifestError(
+                    f"{location}.source.url_template must be templated"
+                )
+            cache_file = source.get("cache_file")
+            if cache_file is not None and (not isinstance(cache_file, str) or not cache_file):
+                raise DependencyManifestError(
+                    f"{location}.source.cache_file must be null or text"
+                )
+            if cache_file is not None:
+                relative_path(cache_file)
+        elif source_fields == {"type", "url", "revision", "path"}:
+            # A vendored source is tracked by its immutable checked-in path and
+            # upstream revision rather than a downloaded archive cache entry.
+            # Keep this shape explicit so arbitrary provenance fields cannot be
+            # smuggled into the manifest.
+            require_string(source, "type", f"{location}.source")
+            https_url(source["url"], f"{location}.source.url")
+            require_string(source, "revision", f"{location}.source")
+            relative_path(source["path"])
+        else:
             raise DependencyManifestError(f"{location}.source has unknown or missing fields")
-        require_string(source, "type", f"{location}.source")
-        source_url = https_url(source.get("url", source.get("url_template")), f"{location}.source")
-        if source.get("url_template") is not None and "{" not in source_url:
-            raise DependencyManifestError(f"{location}.source.url_template must be templated")
-        cache_file = source.get("cache_file")
-        if cache_file is not None and (not isinstance(cache_file, str) or not cache_file):
-            raise DependencyManifestError(f"{location}.source.cache_file must be null or text")
-        if cache_file is not None:
-            relative_path(cache_file)
 
         integrity = require_mapping(dependency, "integrity", location)
-        if set(integrity) != {"status", "sha256"}:
+        integrity_fields = set(integrity)
+        if integrity_fields not in ({"status", "sha256"},
+                                    {"status", "sha256", "size_bytes"}):
             raise DependencyManifestError(f"{location}.integrity has unknown or missing fields")
         integrity_status = require_string(integrity, "status", f"{location}.integrity")
         digest = integrity.get("sha256")
@@ -142,6 +161,14 @@ def validate(document: dict[str, Any]) -> None:
             raise DependencyManifestError(
                 f"{location}.integrity.status must be verified or pending"
             )
+        if "size_bytes" in integrity:
+            size_bytes = integrity["size_bytes"]
+            if integrity_status != "verified" or type(size_bytes) is not int or not (
+                0 < size_bytes <= 2 * 1024 * 1024 * 1024
+            ):
+                raise DependencyManifestError(
+                    f"{location}.integrity.size_bytes must be a bounded verified size"
+                )
 
         license_info = require_mapping(dependency, "license", location)
         if set(license_info) != {"spdx", "third_party_notice_audit"}:
@@ -237,7 +264,7 @@ def validate_license_index(path: pathlib.Path, dependencies: dict[str, Any]) -> 
         common_fields = {"kind", "url", "artifact_sha256"}
         if origin.get("kind") == "upstream-document":
             required = common_fields
-        elif origin.get("kind") in {"archive-entry", "wheel-entry"}:
+        elif origin.get("kind") in {"archive-entry", "wheel-entry", "vendored-header"}:
             required = common_fields | {"entry"}
         elif origin.get("kind") == "archive-excerpt":
             required = common_fields | {"entry", "byte_offset", "byte_length"}

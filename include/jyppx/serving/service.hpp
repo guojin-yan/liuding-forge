@@ -28,6 +28,8 @@ enum class ServiceStatus : std::uint8_t {
   internal = 8      ///< An unexpected error occurred; details remain private.
 };
 /** @brief Returns fixed public status text without backend exception details.
+ * @param status Stable public unary outcome.
+ * @return Fixed status name with no private diagnostic content.
  */
 std::string_view service_status_name(ServiceStatus status) noexcept;
 /** @brief Host-authenticated security scope; never decoded from model input. */
@@ -85,18 +87,31 @@ struct ServiceHealth {
 class InferenceServiceAdapter final {
  public:
   /** @brief Binds trusted codecs and an optional scheduler for the same owner.
+   * @param predictor Retained serialized model owner.
+   * @param protocol Trusted host codecs and authorization hook.
+   * @param options Encoded request and response limits.
+   * @param batcher Optional scheduler bound to the same predictor.
    */
   InferenceServiceAdapter(std::shared_ptr<Predictor> predictor,
                           ProtocolAdapter protocol, ServiceOptions options = {},
                           std::shared_ptr<DynamicBatcher> batcher = {});
   /** @brief Authenticates/authorizes, decodes, predicts and encodes one call.
+   * @param body Encoded request checked before decoding.
+   * @param context Host-verified caller and deadline metadata.
+   * @param stop Cooperative cancellation request.
+   * @return Bounded encoded response or fixed public failure status.
    */
   ServiceReply handle(std::span<const std::byte> body,
                       const TransportContext& context,
                       std::stop_token stop = {}) const;
-  /** @brief Returns synchronized runtime and scheduler readiness. */
+  /** @brief Returns synchronized runtime and scheduler readiness.
+   * @return Owning liveness, readiness and model snapshot.
+   */
   ServiceHealth health() const;
   /** @brief Drains scheduler before closing predictor; false retains ownership.
+   * @param deadline Optional cooperative absolute close deadline.
+   * @param stop Cooperative cancellation while draining.
+   * @return True after scheduler and predictor close successfully.
    */
   bool close(Deadline deadline = {}, std::stop_token stop = {});
 

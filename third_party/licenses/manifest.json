@@ -1,12 +1,15 @@
 {
-  "audit_date": "2026-10-21",
+  "audit_date": "2026-10-22",
   "dependency_notice_states": {
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
     "libtorch-candidate-cuda-cu124": "pending",
     "libtorch-primary-windows-cu126": "pending",
     "nlohmann-json": "recorded",
-    "sqlite": "recorded"
+    "sqlite": "recorded",
+    "tinyxml2": "recorded",
+    "yaml-cpp": "recorded",
+    "stb_image": "recorded"
   },
   "files": [
     {
@@ -367,6 +370,42 @@
       "path": "sqlite-copyright-page.txt",
       "sha256": "44ca9f793055c8e32fc65f65a4f5bcf813a33f5bdaaa084067dd617a4ed3cc70",
       "size_bytes": 8351
+    },
+    {
+      "dependency_id": "tinyxml2",
+      "origin": {
+        "artifact_sha256": "5556deb5081fb246ee92afae73efd943c889cef0cafea92b0b82422d6a18f289",
+        "entry": "tinyxml2-11.0.0/LICENSE.txt",
+        "kind": "archive-entry",
+        "url": "https://github.com/leethomason/tinyxml2/archive/refs/tags/11.0.0.tar.gz"
+      },
+      "path": "tinyxml2-11.0.0-LICENSE.txt",
+      "sha256": "9332252e9b9e46db8285d4a3f0bf25f139bf1dca6781b956d57f2302efca6432",
+      "size_bytes": 808
+    },
+    {
+      "dependency_id": "yaml-cpp",
+      "origin": {
+        "artifact_sha256": "25cb043240f828a8c51beb830569634bc7ac603978e0f69d6b63558dadefd49a",
+        "entry": "yaml-cpp-yaml-cpp-0.9.0/LICENSE",
+        "kind": "archive-entry",
+        "url": "https://github.com/jbeder/yaml-cpp/archive/refs/tags/yaml-cpp-0.9.0.tar.gz"
+      },
+      "path": "yaml-cpp-0.9.0-LICENSE.txt",
+      "sha256": "aa6fcc27be034e41e21dd832f9175bfe694a48491d9e14ff0fa278e19ad14f1b",
+      "size_bytes": 1061
+    },
+    {
+      "dependency_id": "stb_image",
+      "origin": {
+        "artifact_sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3",
+        "entry": "stb_image.h license block",
+        "kind": "vendored-header",
+        "url": "https://github.com/nothings/stb/blob/master/stb_image.h"
+      },
+      "path": "stb_image-2.30-LICENSE.txt",
+      "sha256": "eb5436c0b87a6e8b2b64c8bb8f75be118873b713dcae053634f0bea8b5621bf2",
+      "size_bytes": 1743
     }
   ],
   "hash_algorithm": "sha256",

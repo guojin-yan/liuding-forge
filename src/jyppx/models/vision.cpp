@@ -210,14 +210,14 @@ class InvertedResidual final : public torch::nn::Module {
   bool residual_;
 };
 std::vector<MobileBlockConfig> Config(MobileNetV3Variant variant) {
-  if (variant == MobileNetV3Variant::small)
+  if (variant == MobileNetV3Variant::small_variant)
     return {{16, 3, 16, 16, true, false, 2},  {16, 3, 72, 24, false, false, 2},
             {24, 3, 88, 24, false, false, 1}, {24, 5, 96, 40, true, true, 2},
             {40, 5, 240, 40, true, true, 1},  {40, 5, 240, 40, true, true, 1},
             {40, 5, 120, 48, true, true, 1},  {48, 5, 144, 48, true, true, 1},
             {48, 5, 288, 96, true, true, 2},  {96, 5, 576, 96, true, true, 1},
             {96, 5, 576, 96, true, true, 1}};
-  if (variant == MobileNetV3Variant::large)
+  if (variant == MobileNetV3Variant::large_variant)
     return {
         {16, 3, 16, 16, false, false, 1},  {16, 3, 64, 24, false, false, 2},
         {24, 3, 72, 24, false, false, 1},  {24, 5, 72, 40, true, false, 2},
@@ -336,9 +336,9 @@ MobileNetV3Impl::MobileNetV3Impl(MobileNetV3Variant variant,
     const auto last_conv = config.back().output * 6;
     features_->push_back(MobileConv(config.back().output, last_conv, 1, 1, 1,
                                     Activation::hard_swish));
-    const auto last_channel =
-        Divisible((variant == MobileNetV3Variant::small ? 1024.0 : 1280.0) *
-                  options.width_multiplier);
+    const auto last_channel = Divisible(
+        (variant == MobileNetV3Variant::small_variant ? 1024.0 : 1280.0) *
+        options.width_multiplier);
     classifier_ = register_module("classifier", torch::nn::Sequential());
     classifier_->push_back(torch::nn::Linear(last_conv, last_channel));
     classifier_->push_back(std::make_shared<HardSwish>());
@@ -368,10 +368,10 @@ const MobileNetV3Options& MobileNetV3Impl::options() const noexcept {
   return options_;
 }
 MobileNetV3 mobilenet_v3_small(MobileNetV3Options options) {
-  return MobileNetV3(MobileNetV3Variant::small, options);
+  return MobileNetV3(MobileNetV3Variant::small_variant, options);
 }
 MobileNetV3 mobilenet_v3_large(MobileNetV3Options options) {
-  return MobileNetV3(MobileNetV3Variant::large, options);
+  return MobileNetV3(MobileNetV3Variant::large_variant, options);
 }
 nn::ModelAdapter adapt(MobileNetV3 model) {
   if (!model) detail::Invalid("mobilenet.adapt", "a nonempty model");
