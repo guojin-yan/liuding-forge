@@ -50,6 +50,11 @@ if(JYPPX_CUDA_TOOLKIT_ROOT)
          "-DCUDAToolkit_ROOT=${JYPPX_CUDA_TOOLKIT_ROOT}")
     list(APPEND config_args
          "-DCUDA_TOOLKIT_ROOT_DIR=${JYPPX_CUDA_TOOLKIT_ROOT}")
+    if(NOT JYPPX_CUDA_STANDARD)
+        # CMake 3.22 cannot generate CUDA20 try-run projects used by
+        # LibTorch's legacy FindCUDA architecture probe.
+        list(APPEND config_args "-DCMAKE_CUDA_STANDARD=17")
+    endif()
 endif()
 
 execute_process(
