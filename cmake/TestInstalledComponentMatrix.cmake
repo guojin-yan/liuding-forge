@@ -44,10 +44,14 @@ endif()
 if(JYPPX_CUDA_COMPILER)
     list(APPEND config_args
          "-DCMAKE_CUDA_COMPILER=${JYPPX_CUDA_COMPILER}")
+    list(APPEND config_args
+         "-DCUDA_NVCC_EXECUTABLE=${JYPPX_CUDA_COMPILER}")
 endif()
 if(JYPPX_CUDA_TOOLKIT_ROOT)
     list(APPEND config_args
          "-DCUDAToolkit_ROOT=${JYPPX_CUDA_TOOLKIT_ROOT}")
+    list(APPEND config_args
+         "-DCUDA_TOOLKIT_ROOT_DIR=${JYPPX_CUDA_TOOLKIT_ROOT}")
 endif()
 
 execute_process(
