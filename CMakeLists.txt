@@ -238,15 +238,8 @@ else()
     set(JYPPX_ACCELERATOR_BUILD "cpu")
 endif()
 
-if(MSVC)
-    set(JYPPX_LIBTORCH_ABI "msvc-md-iterator0")
-elseif(APPLE)
-    set(JYPPX_LIBTORCH_ABI "libcxx")
-elseif(TORCH_CXX_FLAGS MATCHES "_GLIBCXX_USE_CXX11_ABI=([01])")
-    set(JYPPX_LIBTORCH_ABI "cxx11-abi${CMAKE_MATCH_1}")
-else()
-    set(JYPPX_LIBTORCH_ABI "unknown-abi")
-endif()
+include(cmake/DetectLibTorchAbi.cmake)
+jyppx_detect_libtorch_abi(JYPPX_LIBTORCH_ABI)
 set(JYPPX_LIBTORCH_PACKAGE_TAG "")
 if(DEFINED TORCH_INSTALL_PREFIX
    AND EXISTS "${TORCH_INSTALL_PREFIX}/build-version")
@@ -869,6 +862,18 @@ install(FILES
     DESTINATION share/doc/jyppx
     COMPONENT licenses
 )
+if(JYPPX_BUILD_INTEROP OR JYPPX_BUILD_EXPERIMENT)
+    # nlohmann/json is compiled into these archives. Its original MIT notice
+    # must accompany the binary SDK as well as the repository summary.
+    install(FILES third_party/licenses/nlohmann-json-3.12.0-LICENSE.MIT
+        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+endif()
+if(JYPPX_BUILD_EXPERIMENT)
+    install(FILES
+        third_party/licenses/sqlite-3.54.1-copyright-blessing.txt
+        third_party/licenses/sqlite-copyright-page.txt
+        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+endif()
 
 # ============================================
 # Summary

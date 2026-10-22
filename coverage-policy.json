@@ -3,7 +3,8 @@
   "kind": "jyppx-target-coverage-policy",
   "baseline": {
     "commit": "f0418d3ce10a23b5d871a075abfa2de5430d57c5",
-    "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug"
+    "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug",
+    "scope": "Retained stable-target ratchets; preview metrics use observations.m8_preview_400f9e9."
   },
   "targets": {
     "core": {
@@ -15,7 +16,7 @@
         "line": {
           "baseline_covered": 465,
           "baseline_total": 470,
-          "minimum_percent": 98.936170
+          "minimum_percent": 98.93617
         },
         "function": {
           "baseline_covered": 45,
@@ -209,9 +210,95 @@
         "branch": {
           "baseline_covered": 131,
           "baseline_total": 228,
-          "minimum_percent": 57.456140
+          "minimum_percent": 57.45614
         }
       }
+    },
+    "models": {
+      "path_prefixes": [
+        "include/jyppx/models/",
+        "src/jyppx/models/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 550,
+          "baseline_total": 775,
+          "minimum_percent": 70.967742
+        },
+        "function": {
+          "baseline_covered": 93,
+          "baseline_total": 100,
+          "minimum_percent": 93.0
+        },
+        "branch": {
+          "baseline_covered": 747,
+          "baseline_total": 2077,
+          "minimum_percent": 35.965335
+        }
+      },
+      "baseline_observation": "m8_preview_400f9e9"
+    },
+    "quantization": {
+      "path_prefixes": [
+        "include/jyppx/quantization/",
+        "src/jyppx/quantization/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 807,
+          "baseline_total": 948,
+          "minimum_percent": 85.126582
+        },
+        "function": {
+          "baseline_covered": 83,
+          "baseline_total": 86,
+          "minimum_percent": 96.511628
+        },
+        "branch": {
+          "baseline_covered": 783,
+          "baseline_total": 1694,
+          "minimum_percent": 46.22196
+        }
+      },
+      "baseline_observation": "m8_preview_400f9e9"
+    },
+    "serving": {
+      "path_prefixes": [
+        "include/jyppx/serving/",
+        "src/jyppx/serving/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 969,
+          "baseline_total": 1203,
+          "minimum_percent": 80.548628
+        },
+        "function": {
+          "baseline_covered": 84,
+          "baseline_total": 87,
+          "minimum_percent": 96.551724
+        },
+        "branch": {
+          "baseline_covered": 1144,
+          "baseline_total": 2513,
+          "minimum_percent": 45.523279
+        }
+      },
+      "baseline_observation": "m8_preview_400f9e9"
+    }
+  },
+  "observations": {
+    "m8_preview_400f9e9": {
+      "commit": "400f9e9e2ac2c2cc82a2739c38e1d2f8753de8f6",
+      "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug",
+      "report": "out/evidence/m8-ubuntu-400f9e9/coverage-summary.json",
+      "report_sha256": "b1e0b5059dcbc620a2c23f52b8c65e6862fab2573023d17d07ab2965888c9ccd",
+      "targets": [
+        "models",
+        "quantization",
+        "serving"
+      ],
+      "status": "measured_preview_baseline; existing_stable_ratchets_pending"
     }
   }
 }

@@ -153,6 +153,11 @@ class MemoryStateStore final : public jyppx::StateWriter,
     return blobs_;
   }
 
+  /** @brief Replaces one stored field with intentionally malformed bytes. */
+  void replace_blob(std::string_view name, std::vector<std::byte> bytes) {
+    blobs_.at(std::string(name)) = std::move(bytes);
+  }
+
  private:
   jyppx::StateManifest manifest_;  ///< Manifest enforced by this store.
   std::map<std::string, std::vector<std::byte>>
@@ -419,6 +424,8 @@ TEST(DataPipelineTest, RequiresExplicitEpochAndDoesNotImplicitlyAdvance) {
        .batch_size = 2},
       make_factory(dataset));
 
+  EXPECT_EQ(pipeline.options().pipeline_id, "data.pipeline.test");
+  EXPECT_EQ(pipeline.options().batch_size, 2U);
   EXPECT_THROW(pipeline.next(), jyppx::InvalidArgument);
   pipeline.set_epoch(3);
   ASSERT_TRUE(pipeline.next().has_value());
@@ -1078,6 +1085,66 @@ TEST(DataPipelineCheckpointTest, RejectsCorruptCursorWithoutMutation) {
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().epoch_indices, before.epoch_indices);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
+}
+
+TEST(DataPipelineCheckpointTest,
+     RejectsMalformedCursorEncodingsWithoutMutation) {
+  auto dataset = make_dataset();
+  auto make_pipeline = [&dataset] {
+    return jyppx::data::DataPipeline(
+        std::make_shared<jyppx::data::samplers::RandomSampler>(6, 8),
+        {.pipeline_id = "data.pipeline.cursor-encoding",
+         .dataset_version = "dataset/v1",
+         .dataset_size = 6,
+         .schema = jyppx::data::BatchSchema::any("tensor.rows", 1),
+         .batch_factory_id = "factory.tensor-rows/v1",
+         .batch_size = 2},
+        make_factory(dataset));
+  };
+  auto source = make_pipeline();
+  source.set_epoch(2);
+  ASSERT_TRUE(source.next().has_value());
+  const auto saved = save_state(source);
+  const auto& valid_cursor = saved.blobs().at("cursor");
+
+  auto target = make_pipeline();
+  target.set_epoch(5);
+  ASSERT_TRUE(target.next().has_value());
+  const auto before = save_state(target).blobs();
+
+  std::map<std::string, std::vector<std::byte>> malformed;
+  // The v4 cursor ends with a one-byte prepared flag and three uint64 values.
+  const auto prepared_offset =
+      valid_cursor.size() - 3U * sizeof(std::uint64_t) - 1U;
+  malformed["invalid prepared boolean"] = valid_cursor;
+  malformed.at("invalid prepared boolean")[prepared_offset] = std::byte{2};
+  malformed["missing prepared boolean"] = valid_cursor;
+  malformed.at("missing prepared boolean").resize(prepared_offset);
+  malformed["truncated integer"] = valid_cursor;
+  malformed.at("truncated integer").pop_back();
+  malformed["unknown encoding"] = valid_cursor;
+  malformed.at("unknown encoding")[sizeof(std::uint64_t)] ^= std::byte{1};
+  malformed["truncated string length"] = valid_cursor;
+  malformed.at("truncated string length").resize(sizeof(std::uint64_t) - 1U);
+  malformed["truncated string data"] = valid_cursor;
+  malformed.at("truncated string data").resize(sizeof(std::uint64_t) + 1U);
+
+  for (const auto& [label, bytes] : malformed) {
+    SCOPED_TRACE(label);
+    auto corrupted = saved;
+    corrupted.replace_blob("cursor", bytes);
+    EXPECT_THROW(target.load_state(corrupted, jyppx::RestorePolicy::exact_only),
+                 jyppx::SerializationError);
+    EXPECT_EQ(save_state(target).blobs(), before);
+  }
+
+  auto oversized = saved;
+  auto oversized_cursor = valid_cursor;
+  std::fill_n(oversized_cursor.begin(), sizeof(std::uint64_t), std::byte{0xff});
+  oversized.replace_blob("cursor", std::move(oversized_cursor));
+  EXPECT_THROW(target.load_state(oversized, jyppx::RestorePolicy::exact_only),
+               jyppx::ResourceExhausted);
+  EXPECT_EQ(save_state(target).blobs(), before);
 }
 
 TEST(DataPipelineCheckpointTest, RejectsCursorInsideUncommittedBatch) {

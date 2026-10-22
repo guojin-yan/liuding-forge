@@ -66,6 +66,21 @@ if(NOT install_result EQUAL 0)
     message(FATAL_ERROR "Installing JYPPX for the component matrix failed")
 endif()
 
+# The complete SDK embeds JSON and SQLite implementation code. Check the
+# original legal text in the staged binary package, not only in the source tree.
+foreach(notice IN ITEMS nlohmann-json-3.12.0-LICENSE.MIT
+        sqlite-3.54.1-copyright-blessing.txt sqlite-copyright-page.txt)
+    set(installed_notice "${install_dir}/share/doc/jyppx/licenses/${notice}")
+    if(NOT EXISTS "${installed_notice}")
+        message(FATAL_ERROR "Installed SDK is missing its dependency notice: ${notice}")
+    endif()
+    file(SHA256 "${source_dir}/third_party/licenses/${notice}" expected_notice_hash)
+    file(SHA256 "${installed_notice}" installed_notice_hash)
+    if(NOT installed_notice_hash STREQUAL expected_notice_hash)
+        message(FATAL_ERROR "Installed SDK dependency notice was altered: ${notice}")
+    endif()
+endforeach()
+
 execute_process(
     COMMAND "${CMAKE_COMMAND}"
             "-DJYPPX_SOURCE_DIR=${source_dir}"

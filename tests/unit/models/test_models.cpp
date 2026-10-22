@@ -196,6 +196,15 @@ TEST(Models, PinnedSafetensorsWeightsVerifyImportAndCacheByDigest) {
   EXPECT_TRUE(imported.applied);
   EXPECT_TRUE(torch::equal(module->weight, torch::tensor({1.0F, 2.0F, 3.0F})));
 
+  // Exercise the public adapter boundary after the imported state is applied.
+  // This keeps the verified artifact path tied to an actual model invocation,
+  // rather than only checking the module parameter tensor directly.
+  const auto prediction = adapter.invoke(
+      {.positional = {torch::zeros({3}, torch::kFloat32)}, .keyword = {}});
+  ASSERT_TRUE(prediction.value.isTensor());
+  EXPECT_TRUE(torch::equal(prediction.value.toTensor(),
+                           torch::tensor({1.0F, 2.0F, 3.0F})));
+
   const auto cache =
       std::filesystem::temp_directory_path() /
       ("jyppx-model-cache-" +

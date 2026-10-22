@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <gtest/gtest.h>
+#include <limits>
 #include <map>
 #include <memory>
 #include <span>
@@ -212,6 +213,43 @@ TEST(LinearFamilySchedulerTest, InvalidOptionsDoNotMutateOptimizer) {
   EXPECT_EQ(optimizer->learning_rates(), before);
 }
 
+TEST(LinearFamilySchedulerTest,
+     RejectsNonFiniteFactorsAndUnrepresentableIntervalsWithoutMutation) {
+  auto optimizer = make_optimizer();
+  const auto before = optimizer->learning_rates();
+  for (const double factor : {std::numeric_limits<double>::infinity(),
+                              std::numeric_limits<double>::quiet_NaN()}) {
+    EXPECT_THROW(jyppx::optim::LinearLrScheduler(
+                     optimizer, {.start_factor = factor, .end_factor = 1.0}),
+                 jyppx::InvalidArgument);
+    EXPECT_THROW(jyppx::optim::PolynomialLrScheduler(
+                     optimizer, {.total_iters = 4, .power = factor}),
+                 jyppx::InvalidArgument);
+    EXPECT_EQ(optimizer->learning_rates(), before);
+  }
+  EXPECT_THROW(jyppx::optim::PolynomialLrScheduler(
+                   optimizer, {.total_iters = 4, .power = -1.0}),
+               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::optim::LinearLrScheduler(
+                   optimizer,
+                   {.total_iters = std::numeric_limits<std::uint64_t>::max()}),
+               jyppx::InvalidArgument);
+  EXPECT_EQ(optimizer->learning_rates(), before);
+}
+
+TEST(LinearFamilySchedulerTest, OverflowingTransitionDoesNotCommitRatesOrStep) {
+  auto optimizer = make_optimizer();
+  jyppx::optim::LinearLrScheduler scheduler(
+      optimizer, {.start_factor = std::numeric_limits<double>::min(),
+                  .end_factor = std::numeric_limits<double>::max() / 2.0,
+                  .total_iters = 1});
+  const auto before = optimizer->learning_rates();
+  EXPECT_THROW(scheduler.step(), jyppx::NumericalError);
+  EXPECT_EQ(scheduler.completed_steps(), 0U);
+  EXPECT_EQ(optimizer->learning_rates(), before);
+  EXPECT_EQ(scheduler.learning_rates(), before);
+}
+
 TEST(LinearFamilySchedulerCheckpointTest, RestoresExactContinuation) {
   auto source_optimizer = make_optimizer("optimizer.source");
   auto source = std::make_shared<jyppx::optim::LinearLrScheduler>(
@@ -266,6 +304,89 @@ TEST(LinearFamilySchedulerCheckpointTest, DescriptorMismatchDoesNotMutate) {
       jyppx::CompatibilityError);
   EXPECT_EQ(save_state(target_participant).blobs(), before);
   EXPECT_EQ(target->completed_steps(), 0U);
+}
+
+TEST(LinearFamilySchedulerCheckpointTest,
+     RestoresWarmupAndConstantExactContinuation) {
+  auto warm_source_optimizer = make_optimizer("optimizer.warmup.restore");
+  auto warm_source = std::make_shared<jyppx::optim::WarmupLrScheduler>(
+      warm_source_optimizer, jyppx::optim::WarmupLrSchedulerOptions{
+                                 .scheduler_id = "scheduler.warmup.restore",
+                                 .warmup_iters = 4,
+                                 .start_factor = 0.2});
+  warm_source->step();
+  warm_source->step();
+  jyppx::optim::LrSchedulerCheckpointParticipant warm_source_participant(
+      warm_source);
+  const auto warm_store = save_state(warm_source_participant);
+
+  auto warm_target_optimizer = make_optimizer("optimizer.warmup.restore");
+  auto warm_target = std::make_shared<jyppx::optim::WarmupLrScheduler>(
+      warm_target_optimizer, jyppx::optim::WarmupLrSchedulerOptions{
+                                 .scheduler_id = "scheduler.warmup.restore",
+                                 .warmup_iters = 4,
+                                 .start_factor = 0.2});
+  warm_target_optimizer->set_learning_rates({0.91, 0.82});
+  jyppx::optim::LrSchedulerCheckpointParticipant warm_target_participant(
+      warm_target);
+  warm_target_participant.load_state(warm_store,
+                                     jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(warm_target->completed_steps(), warm_source->completed_steps());
+  EXPECT_EQ(warm_target->learning_rates(), warm_source->learning_rates());
+  EXPECT_EQ(save_state(warm_target_participant).blobs(), warm_store.blobs());
+  for (const double expected_rate : {0.16, 0.2, 0.2}) {
+    warm_source->step();
+    warm_target->step();
+    EXPECT_EQ(warm_target->completed_steps(), warm_source->completed_steps());
+    EXPECT_EQ(warm_target->learning_rates(), warm_source->learning_rates());
+    EXPECT_NEAR(warm_target->learning_rates().front(), expected_rate, 1e-14);
+    EXPECT_NEAR(warm_target->learning_rates().back(), expected_rate / 4.0,
+                1e-14);
+  }
+
+  auto constant_source_optimizer = make_optimizer("optimizer.constant.restore");
+  auto constant_source = std::make_shared<jyppx::optim::ConstantLrScheduler>(
+      constant_source_optimizer,
+      jyppx::optim::ConstantLrSchedulerOptions{
+          .scheduler_id = "scheduler.constant.restore",
+          .factor = 0.2,
+          .total_iters = 4});
+  constant_source->step();
+  constant_source->step();
+  jyppx::optim::LrSchedulerCheckpointParticipant constant_source_participant(
+      constant_source);
+  const auto constant_store = save_state(constant_source_participant);
+
+  auto constant_target_optimizer = make_optimizer("optimizer.constant.restore");
+  auto constant_target = std::make_shared<jyppx::optim::ConstantLrScheduler>(
+      constant_target_optimizer,
+      jyppx::optim::ConstantLrSchedulerOptions{
+          .scheduler_id = "scheduler.constant.restore",
+          .factor = 0.2,
+          .total_iters = 4});
+  constant_target_optimizer->set_learning_rates({0.91, 0.82});
+  jyppx::optim::LrSchedulerCheckpointParticipant constant_target_participant(
+      constant_target);
+  constant_target_participant.load_state(constant_store,
+                                         jyppx::RestorePolicy::exact_only);
+  EXPECT_EQ(constant_target->completed_steps(),
+            constant_source->completed_steps());
+  EXPECT_EQ(constant_target->learning_rates(),
+            constant_source->learning_rates());
+  EXPECT_EQ(save_state(constant_target_participant).blobs(),
+            constant_store.blobs());
+  for (const double expected_rate : {0.04, 0.04, 0.2}) {
+    constant_source->step();
+    constant_target->step();
+    EXPECT_EQ(constant_target->completed_steps(),
+              constant_source->completed_steps());
+    EXPECT_EQ(constant_target->learning_rates(),
+              constant_source->learning_rates());
+    EXPECT_NEAR(constant_target->learning_rates().front(), expected_rate,
+                1e-14);
+    EXPECT_NEAR(constant_target->learning_rates().back(), expected_rate / 4.0,
+                1e-14);
+  }
 }
 
 }  // namespace

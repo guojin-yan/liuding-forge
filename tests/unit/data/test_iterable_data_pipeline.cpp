@@ -554,6 +554,9 @@ TEST(IterableDataPipelineTest, CommitsBatchesAndPreservesWatermarks) {
   auto source = make_source({1, 2, 3, 4, 5});
   IterableDataPipeline pipeline(source, options("data.iterable.exact"),
                                 sum_factory());
+  EXPECT_EQ(pipeline.options().pipeline_id, "data.iterable.exact");
+  EXPECT_EQ(pipeline.options().batch_size, 2U);
+  EXPECT_FALSE(pipeline.closed());
   pipeline.set_epoch(3);
 
   const auto first = pipeline.next();
@@ -575,6 +578,8 @@ TEST(IterableDataPipelineTest, CommitsBatchesAndPreservesWatermarks) {
   EXPECT_FALSE(pipeline.next().has_value());
   EXPECT_TRUE(pipeline.state().exhausted);
   EXPECT_EQ(pipeline.state().committed_samples, 5U);
+  pipeline.close();
+  EXPECT_TRUE(pipeline.closed());
 }
 
 TEST(IterableDataPipelineTest, HandlesEmptyAndSingleItemEpochs) {

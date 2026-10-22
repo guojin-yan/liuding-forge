@@ -65,6 +65,10 @@ JYPPX package.
 - Distribution rule: the header is compiled into the experiment config static
   library and is not exposed by JYPPX public headers. Source or binary
   redistribution must retain the upstream copyright notice and MIT license.
+  SDK installations with interop or experiment include the original notice at
+  `share/doc/jyppx/licenses/nlohmann-json-3.12.0-LICENSE.MIT`. Experiment SDK
+  installations also retain the original SQLite copyright/blessing provenance
+  in that directory.
 
 ## Optional Python Sidecar
 

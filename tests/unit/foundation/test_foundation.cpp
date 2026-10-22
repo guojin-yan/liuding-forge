@@ -181,6 +181,10 @@ TEST(FoundationVersionTest, ExposesStructuredAndJsonFingerprint) {
   EXPECT_FALSE(fingerprint.libtorch_version.empty());
   EXPECT_FALSE(fingerprint.libtorch_build.empty());
   EXPECT_EQ(fingerprint.libtorch_build.find_first_of("/\\"), std::string::npos);
+#if defined(_GLIBCXX_USE_CXX11_ABI)
+  EXPECT_TRUE(fingerprint.libtorch_build.ends_with(
+      "cxx11-abi" + std::to_string(_GLIBCXX_USE_CXX11_ABI)));
+#endif
   if (fingerprint.accelerator_runtime.starts_with("cuda:")) {
     EXPECT_TRUE(fingerprint.libtorch_build.starts_with("cuda-"));
   } else {
