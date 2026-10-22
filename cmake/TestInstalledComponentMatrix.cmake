@@ -41,6 +41,14 @@ if(JYPPX_TORCH_CUDA_ARCH_LIST)
     list(APPEND config_args
          "-DTORCH_CUDA_ARCH_LIST=${JYPPX_TORCH_CUDA_ARCH_LIST}")
 endif()
+if(JYPPX_CUDA_COMPILER)
+    list(APPEND config_args
+         "-DCMAKE_CUDA_COMPILER=${JYPPX_CUDA_COMPILER}")
+endif()
+if(JYPPX_CUDA_TOOLKIT_ROOT)
+    list(APPEND config_args
+         "-DCUDAToolkit_ROOT=${JYPPX_CUDA_TOOLKIT_ROOT}")
+endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --install "${build_dir}"
