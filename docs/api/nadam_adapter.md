@@ -3,16 +3,9 @@
 `#include <jyppx/liuding/optim/nadam_adapter.hpp>`
 
 `NAdamOptimizerAdapter` provides current-only NAdam and NAdamW updates through
-a JYPPX-owned tensor kernel. LibTorch does not publish NAdam in its C++
-optimizer API, so this adapter follows the documented `torch.optim.NAdam`
-single-tensor algorithm instead of exposing or forwarding the removed legacy
-implementation.
+a JYPPX-owned tensor kernel. LibTorch does not publish NAdam in its C++ optimizer API, so this adapter follows the documented `torch.optim.NAdam` single-tensor algorithm instead of exposing or forwarding the removed legacy implementation.
 
-Construction requires a stable optimizer ID, ordered group IDs, globally
-unique parameter IDs, and typed `NAdamAdapterOptions`. Betas, epsilon, weight
-decay, momentum decay, decoupled-decay mode, and maximize mode are immutable
-topology. Only the complete vector of learning rates may change after
-construction.
+Construction requires a stable optimizer ID, ordered group IDs, globally unique parameter IDs, and typed `NAdamAdapterOptions`. Betas, epsilon, weight decay, momentum decay, decoupled-decay mode, and maximize mode are immutable topology. Only the complete vector of learning rates may change after construction.
 
 ```cpp
 auto optimizer = std::make_shared<jyppx::liuding::optim::NAdamOptimizerAdapter>(
@@ -38,19 +31,10 @@ negates gradients before regularization and moment updates.
 
 `NAdamOptimizerCheckpointParticipant` stores current-only schema version 1:
 
-- stable group and parameter topology, all immutable NAdam options, tensor
-  descriptors, and the exact LibTorch version;
-- successful adapter steps, current rates, per-parameter state presence,
-  update steps, and cumulative momentum products;
+- stable group and parameter topology, all immutable NAdam options, tensor descriptors, and the exact LibTorch version;
+- successful adapter steps, current rates, per-parameter state presence, update steps, and cumulative momentum products;
 - raw first- and second-moment tensors in stable parameter order.
 
-Restore validates all metadata and materializes every candidate tensor before
-replacing state, so malformed input leaves the optimizer unchanged. No legacy
-map checkpoint, forwarding header, native archive, or pointer key is accepted.
+Restore validates all metadata and materializes every candidate tensor before replacing state, so malformed input leaves the optimizer unchanged. No legacy map checkpoint, forwarding header, native archive, or pointer key is accepted.
 
-Numerical coverage includes an independent scalar reference over long
-multi-group trajectories, NAdamW and maximize modes, missing-gradient resume,
-CPU bfloat16, and real CUDA float32/float16 when CUDA is available. Because
-LibTorch has no C++ NAdam baseline, `bench_nadam_native_throughput` records
-absolute median time per step rather than presenting a misleading
-adapter-to-LibTorch ratio.
+Numerical coverage includes an independent scalar reference over long multi-group trajectories, NAdamW and maximize modes, missing-gradient resume, CPU bfloat16, and real CUDA float32/float16 when CUDA is available. Because LibTorch has no C++ NAdam baseline, `bench_nadam_native_throughput` records absolute median time per step rather than presenting a misleading adapter-to-LibTorch ratio.

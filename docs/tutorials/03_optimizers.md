@@ -1,11 +1,6 @@
 # Tutorial 3: Optimizers and Schedulers
 
-JYPPX provides a current-only descriptor-first optimizer family. SGD, Adam,
-AdamW, RMSprop, and Adagrad delegate their update kernels to LibTorch. NAdam,
-Adadelta, and LAMB use audited native kernels because the supported LibTorch
-C++ surface does not provide equivalent public implementations. Every current
-algorithm has stable identities, typed options, bounded exact checkpoint state,
-and the same Trainer-facing adapter contract; no legacy optimizer API is kept.
+JYPPX provides a current-only descriptor-first optimizer family. SGD, Adam, AdamW, RMSprop, and Adagrad delegate their update kernels to LibTorch. NAdam, Adadelta, and LAMB use audited native kernels because the supported LibTorch C++ surface does not provide equivalent public implementations. Every current algorithm has stable identities, typed options, bounded exact checkpoint state, and the same Trainer-facing adapter contract; no legacy optimizer API is kept.
 
 ## Choosing an optimizer
 
@@ -32,10 +27,7 @@ auto optimizer = std::make_shared<jyppx::liuding::optim::AdamWOptimizerAdapter>(
          .options = {.learning_rate = 3e-4, .weight_decay = 0.0}}});
 ```
 
-Current descriptors validate all options at construction. Invalid rates,
-betas, epsilon, decay values, identities, or parameter topology raise typed
-JYPPX errors before a native optimizer is created. The common adapter contract
-provides `step()`, `zero_grad()`, `learning_rates()`,
+Current descriptors validate all options at construction. Invalid rates, betas, epsilon, decay values, identities, or parameter topology raise typed JYPPX errors before a native optimizer is created. The common adapter contract provides `step()`, `zero_grad()`, `learning_rates()`,
 `set_learning_rates()`, `completed_steps()`, and stable parameter bindings.
 Checkpoint state is deliberately exposed only through the matching typed
 participant; no native optimizer or legacy map state is public.
@@ -126,12 +118,9 @@ The related construction-time schedulers are available from
 | `ConstantLrScheduler` | starts at `factor`, keeps it for `total_iters` events, then reaches base rates |
 | `PolynomialLrScheduler` | keeps base rates initially and decays with `power` toward a terminal factor |
 
-Warmup is standalone by design. Use `SequentialLrScheduler` to append another
-descriptor-first scheduler so that the complete tree remains transactional.
+Warmup is standalone by design. Use `SequentialLrScheduler` to append another descriptor-first scheduler so that the complete tree remains transactional.
 
-Read all current group rates with `scheduler->learning_rates()` and the
-committed epoch counter with `completed_steps()`. Options, base rates, stable
-optimizer/group identities and step mode are part of the typed descriptor.
+Read all current group rates with `scheduler->learning_rates()` and the committed epoch counter with `completed_steps()`. Options, base rates, stable optimizer/group identities and step mode are part of the typed descriptor.
 
 ### Checkpointing a scheduler
 
@@ -144,11 +133,7 @@ auto participant =
 checkpoint_registry.register_participant(participant);
 ```
 
-Restore requires the same scheduler type, typed options, base rates, stable
-optimizer ID and ordered group IDs. Wrap the scheduler in `SchedulerAdapter`
-and place it in the same `OptimizerExecutionBinding` as its optimizer. Trainer
-then owns an independent ordered batch, epoch or metric event cursor for every
-scheduler and checkpoints each adapter.
+Restore requires the same scheduler type, typed options, base rates, stable optimizer ID and ordered group IDs. Wrap the scheduler in `SchedulerAdapter` and place it in the same `OptimizerExecutionBinding` as its optimizer. Trainer then owns an independent ordered batch, epoch or metric event cursor for every scheduler and checkpoints each adapter.
 
 ## Metric-driven scheduling
 
@@ -166,11 +151,9 @@ auto plateau = std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauSchedule
         .patience = 3,
         .min_learning_rates = {1e-6}});
 
-// Direct use in a manual loop:
-plateau->step(validation_loss);
+// Direct use in a manual loop: plateau->step(validation_loss);
 
-// Or bind SchedulerAdapter to Trainer and return the configured validation
-// metric from the validation StepOutput.
+// Or bind SchedulerAdapter to Trainer and return the configured validation // metric from the validation StepOutput.
 ```
 
 Metric-driven schedulers use `step(metric)`; all other descriptor-first

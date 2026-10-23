@@ -37,9 +37,7 @@ dice = (2 * sum(probability * target) + smooth)
 loss = 1 - dice
 ```
 
-Macro and micro aggregation use the boundaries in the semantic matrix. The
-input is always interpreted as logits; callers must not pre-apply sigmoid or
-softmax.
+Macro and micro aggregation use the boundaries in the semantic matrix. The input is always interpreted as logits; callers must not pre-apply sigmoid or softmax.
 
 ## API forms
 
@@ -58,11 +56,4 @@ auto module_loss = criterion.forward(logits, target);
 
 ## Verification
 
-The focused target covers hand-computed binary, multiclass, and multilabel
-references; macro/micro behavior; background and empty-class selection;
-ignore masking and zero ignored gradients; all-ignored samples; every batch
-reduction; non-contiguous spatial logits; backward finiteness; structured
-configuration and tensor-contract failures; module parity; and installed
-package consumption through `jyppx::liuding::nn`. A CUDA lane additionally compares
-float16 multiclass output with a CPU float32 reference and verifies finite
-backward gradients plus zero gradients at ignored locations.
+The focused target covers hand-computed binary, multiclass, and multilabel references; macro/micro behavior; background and empty-class selection; ignore masking and zero ignored gradients; all-ignored samples; every batch reduction; non-contiguous spatial logits; backward finiteness; structured configuration and tensor-contract failures; module parity; and installed package consumption through `jyppx::liuding::nn`. A CUDA lane additionally compares float16 multiclass output with a CPU float32 reference and verifies finite backward gradients plus zero gradients at ignored locations.

@@ -14,8 +14,7 @@ calls the metric-less `step()`.
 
 The adapter is also a `CheckpointParticipant`. Registration with
 `CheckpointParticipantRegistry` delegates the exact scheduler descriptor,
-typed state tree, and current rates without introducing another checkpoint
-schema or compatibility reader.
+typed state tree, and current rates without introducing another checkpoint schema or compatibility reader.
 
 ```cpp
 auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
@@ -29,7 +28,4 @@ scheduler_adapter->step({.trigger = jyppx::liuding::optim::SchedulerStepMode::ep
 checkpoint_registry.register_participant(scheduler_adapter);
 ```
 
-Event delivery and checkpoint I/O must be serialized by the training loop.
-The legacy `Trainer` is not adapted through this API; a new training loop can
-consume the boundary directly without forwarding to legacy optimizer or
-scheduler types.
+Event delivery and checkpoint I/O must be serialized by the training loop. The legacy `Trainer` is not adapted through this API; a new training loop can consume the boundary directly without forwarding to legacy optimizer or scheduler types.

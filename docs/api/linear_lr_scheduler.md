@@ -4,20 +4,15 @@
 
 The linear family contains `LinearLrScheduler`, `WarmupLrScheduler`,
 `ConstantLrScheduler`, and `PolynomialLrScheduler`. They all use the
-descriptor-first `LrScheduler` contract, atomic all-group LR transitions, and
-the exact `LrSchedulerCheckpointParticipant`.
+descriptor-first `LrScheduler` contract, atomic all-group LR transitions, and the exact `LrSchedulerCheckpointParticipant`.
 
 ## Construction semantics
 
 - `LinearLrScheduler` applies `start_factor` immediately, interpolates toward
   `end_factor` for `total_iters` events, and holds the end factor afterward.
   `total_iters = 0` reaches the end factor on the first event.
-- `WarmupLrScheduler` applies `start_factor` immediately, reaches the captured
-  base rates at `warmup_iters`, and holds them afterward. Compose a later
-  scheduler with `SequentialLrScheduler`; the warmup object does not own a
-  mutable child.
-- `ConstantLrScheduler` applies `factor` immediately, retains it through the
-  first `total_iters` events, and reaches base rates on the next event.
+- `WarmupLrScheduler` applies `start_factor` immediately, reaches the captured base rates at `warmup_iters`, and holds them afterward. Compose a later scheduler with `SequentialLrScheduler`; the warmup object does not own a mutable child.
+- `ConstantLrScheduler` applies `factor` immediately, retains it through the first `total_iters` events, and reaches base rates on the next event.
 - `PolynomialLrScheduler` keeps base rates at construction and applies
   `pow(max(0, 1 - step / total_iters), power)` after each event. It clamps at
   its terminal factor and accepts `power = 0` as a constant schedule.

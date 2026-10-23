@@ -1,13 +1,10 @@
 # Tutorial 1: Basic Training
 
-JYPPX separates task semantics from loop mechanics. A complete run explicitly
-binds model invocation, data, target extraction, loss, strategy and recovery
-state.
+JYPPX separates task semantics from loop mechanics. A complete run explicitly binds model invocation, data, target extraction, loss, strategy and recovery state.
 
 ## 1. Adapt the model
 
-Ordinary LibTorch modules are wrapped in `ModelAdapter` so input and output
-schemas are checked at the framework boundary:
+Ordinary LibTorch modules are wrapped in `ModelAdapter` so input and output schemas are checked at the framework boundary:
 
 ```cpp
 auto holder = torch::nn::Linear(torch::nn::LinearOptions(2, 1));
@@ -15,8 +12,7 @@ auto model = std::make_shared<jyppx::liuding::nn::ModelAdapter>(
     jyppx::liuding::nn::adapt_tensor_holder(holder));
 ```
 
-Use explicit `TensorSchema` values in production when rank, dtype or fixed
-dimensions must be enforced.
+Use explicit `TensorSchema` values in production when rank, dtype or fixed dimensions must be enforced.
 
 ## 2. Create a committed batch pipeline
 
@@ -37,24 +33,15 @@ auto pipeline = std::make_shared<jyppx::liuding::data::DataPipeline>(
     batch_factory);
 ```
 
-Create a separate pipeline instance for validation. Sharing the training cursor
-is rejected because the two participant states cannot resume independently.
+Create a separate pipeline instance for validation. Sharing the training cursor is rejected because the two participant states cannot resume independently.
 
 ## 3. Bind optimizer, strategy and checkpoint state
 
-Build `OptimizerParameterBinding` entries from the adapter's named parameters,
-then create a descriptor-first optimizer. A `SingleDeviceStrategy` owns device
-placement, backward and optimizer updates. The FitRequest also requires model,
-optimizer and RNG checkpoint participants so exact recovery cannot omit primary
-state. The optimizer is created from model-owned handles before `prepare()`;
-the strategy moves those handles in place and synchronizes their fresh
-placement before the first update. Do not move the model again after training
-has begun.
+Build `OptimizerParameterBinding` entries from the adapter's named parameters, then create a descriptor-first optimizer. A `SingleDeviceStrategy` owns device placement, backward and optimizer updates. The FitRequest also requires model, optimizer and RNG checkpoint participants so exact recovery cannot omit primary state. The optimizer is created from model-owned handles before `prepare()`; the strategy moves those handles in place and synchronizes their fresh placement before the first update. Do not move the model again after training has begun.
 
 ## 4. Define task semantics
 
-The batch mapper produces an `Invocation`; the optional target mapper extracts
-the target; the step function performs forward and returns loss/metrics:
+The batch mapper produces an `Invocation`; the optional target mapper extracts the target; the step function performs forward and returns loss/metrics:
 
 ```cpp
 auto step = [](const jyppx::liuding::training::StepInput& input) {
@@ -67,8 +54,7 @@ auto step = [](const jyppx::liuding::training::StepInput& input) {
 };
 ```
 
-Training loss must be a finite differentiable scalar. `sample_count` must match
-the committed sample IDs exactly.
+Training loss must be a finite differentiable scalar. `sample_count` must match the committed sample IDs exactly.
 
 ## 5. Prepare, fit and close
 

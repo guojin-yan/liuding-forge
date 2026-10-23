@@ -1,9 +1,6 @@
 # Verified model weight import
 
-Header: `jyppx/interop/model_weight_import.hpp`; target: `jyppx::liuding::interop` with
-the optional `nn` adapter enabled. The header is not installed when `nn` is OFF.
-The storage-neutral safetensors codec and weight mapping planner remain usable
-without nn.
+Header: `jyppx/interop/model_weight_import.hpp`; target: `jyppx::liuding::interop` with the optional `nn` adapter enabled. The header is not installed when `nn` is OFF. The storage-neutral safetensors codec and weight mapping planner remain usable without nn.
 
 `import_model_weights` checks a trusted whole-artifact SHA-256, parses the
 complete bounded safetensors file, inventories named parameters and buffers,
@@ -64,8 +61,6 @@ LibTorch failures are translated to framework errors with the original exception
 retained as a nested cause. Typed backend out-of-memory and host `bad_alloc`
 failures become `ResourceExhausted`; CUDA synchronization failures become
 `DeviceError`; other LibTorch failures become `BackendError`. Classification
-never depends on backend error text. Top-level messages and details do not copy
-raw backend diagnostics; inspect the nested cause only in an appropriate
-diagnostic context.
+never depends on backend error text. Top-level messages and details do not copy raw backend diagnostics; inspect the nested cause only in an appropriate diagnostic context.
 
 This chapter is awaiting consolidated Windows and Ubuntu/CUDA qualification.

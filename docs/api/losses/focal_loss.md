@@ -32,13 +32,8 @@ jyppx::liuding::nn::FocalLoss criterion(0.25, 2.0);
 auto module_loss = criterion.forward(logits, target);
 ```
 
-The implementation is native because LibTorch has no equivalent general focal
-loss. Use direct LibTorch cross-entropy or binary BCE when focal weighting is
-not part of the training objective.
+The implementation is native because LibTorch has no equivalent general focal loss. Use direct LibTorch cross-entropy or binary BCE when focal weighting is not part of the training objective.
 
 ## Verification
 
-The focused target verifies the gamma-zero cross-entropy identity, hand-computed
-binary weighting, all reductions, backward finiteness, invalid alpha/gamma,
-shape/device/dtype/class-index contracts, module parity, and installed-package
-consumer compilation through the exported `jyppx::liuding::nn` target.
+The focused target verifies the gamma-zero cross-entropy identity, hand-computed binary weighting, all reductions, backward finiteness, invalid alpha/gamma, shape/device/dtype/class-index contracts, module parity, and installed-package consumer compilation through the exported `jyppx::liuding::nn` target.

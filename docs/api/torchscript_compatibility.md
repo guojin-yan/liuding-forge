@@ -2,14 +2,9 @@
 
 `jyppx/interop/torchscript_compatibility.hpp` provides real official
 `torch::jit::load` and `forward` execution for **explicitly trusted existing
-TorchScript archives**. It is deprecated compatibility support and requires the
-optional `interop -> nn` closure. It does not implement trace/export, discover
-plugins, resolve a model factory, or add executable formats to the data-only
-model bundle.
+TorchScript archives**. It is deprecated compatibility support and requires the optional `interop -> nn` closure. It does not implement trace/export, discover plugins, resolve a model factory, or add executable formats to the data-only model bundle.
 
-This chapter's source and tests require integration and unified platform
-validation before any supported release claim. Presence of a backend descriptor
-or this source file is not execution evidence.
+This chapter's source and tests require integration and unified platform validation before any supported release claim. Presence of a backend descriptor or this source file is not execution evidence.
 
 ```cpp
 using namespace jyppx::liuding;
@@ -29,13 +24,7 @@ auto result = runtime.invoke({.positional = {x, y}, .keyword = {}});
 runtime.close();
 ```
 
-The complete bytes are privately snapshotted and the **same snapshot** is hashed
-and passed to LibTorch's stream loader. A matching digest establishes byte
-identity, not trust in the producer. `trust_source` defaults to false and is
-required even for inspection, because loading an executable archive is not a
-data-only operation. Callers must exclude mutation while the source snapshot is
-made. No path is reopened after verification. Host-registered operators are
-resolved by official LibTorch; this adapter never loads a plugin from a bundle.
+The complete bytes are privately snapshotted and the **same snapshot** is hashed and passed to LibTorch's stream loader. A matching digest establishes byte identity, not trust in the producer. `trust_source` defaults to false and is required even for inspection, because loading an executable archive is not a data-only operation. Callers must exclude mutation while the source snapshot is made. No path is reopened after verification. Host-registered operators are resolved by official LibTorch; this adapter never loads a plugin from a bundle.
 
 | Boundary | Exact supported contract |
 |---|---|
@@ -49,14 +38,7 @@ resolved by official LibTorch; this adapter never loads a plugin from a bundle.
 | Optional | `Optional[T]` uses `nullable=true` and the matching non-null category; optionality is not inferred from a missing argument |
 | Excluded | `Any`, object/custom classes, named tuples, device IValues, futures, variadic methods, keyword-only JIT arguments and open/extra-key schemas |
 
-These are boundary encodings. They do not claim every graph/operator supports
-every dtype/device. Unsupported kernels raise a backend error, with no implicit
-cast, transfer, backend switch, precision change or floating fallback. Ambient
-autocast must be disabled on the runtime device; an active context is rejected
-without changing caller state. The
-official JIT artifact itself must be compatible with the linked LibTorch lane;
-the adapter does not assert cross-version/ABI compatibility without fixture
-evidence.
+These are boundary encodings. They do not claim every graph/operator supports every dtype/device. Unsupported kernels raise a backend error, with no implicit cast, transfer, backend switch, precision change or floating fallback. Ambient autocast must be disabled on the runtime device; an active context is rejected without changing caller state. The official JIT artifact itself must be compatible with the linked LibTorch lane; the adapter does not assert cross-version/ABI compatibility without fixture evidence.
 
 `InvocationSchema::positional` is an exact required prefix of the actual forward
 arguments. Every remaining argument must appear in `keyword` under its **real
@@ -104,10 +86,7 @@ prebounded process memory. Unknown dynamic attributes are not counted as named
 parameters/buffers. Inspect reports that narrow accounting explicitly.
 
 `tests/unit/interop/test_torchscript_compatibility.cpp` uses official C++ JIT
-definition/save/load fixtures, without Python, to exercise numerical execution,
-default/keyword binding, all ten dtype identity paths, typed containers,
-Optional/None, corruption/trust, state accounting, resources, failure closure,
-storage ownership, cancellation and concurrent private state. Define
+definition/save/load fixtures, without Python, to exercise numerical execution, default/keyword binding, all ten dtype identity paths, typed containers, Optional/None, corruption/trust, state accounting, resources, failure closure, storage ownership, cancellation and concurrent private state. Define
 `JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA=1` only for a real CUDA lane; those tests require
 availability and never silently skip.
 
@@ -118,6 +97,4 @@ an official scripted artifact, verifies Python eager/scripted results, runs the
 real C++ fixture test and records artifact/executable digests and exact versions.
 Pass exact `--expected-python-version`, `--expected-torch-version`, the actual
 `--jyppx-commit`, `--cpp-test-executable`, and `--work-dir`; `--cuda` additionally
-requires both real CUDA and `JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA=1`. Missing or skipped
-tests fail. No Python interoperability evidence is claimed until this opt-in
-workflow actually passes. Do not install Torch into the telemetry sidecar env.
+requires both real CUDA and `JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA=1`. Missing or skipped tests fail. No Python interoperability evidence is claimed until this opt-in workflow actually passes. Do not install Torch into the telemetry sidecar env.

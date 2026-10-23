@@ -27,32 +27,14 @@ proves that the production migration ran and set FULL synchronous before its
 commit; the seed database is verified to use WAL.
 
 `test_storage_crash_boundaries.py` verifies eight scenarios with independent
-read-only SQLite queries and CAS hashes. A killed uncommitted operation must
-preserve the entire previous logical schema and rows. Committed event batches
-must be complete; committed terminal status, artifact relationships and migrated
-schema must survive. Repeated real retries preserve all logical facts. For an
-artifact published before an uncommitted DB relation, production GC removes only
-the legitimate orphan and preserves all referenced confirmed bytes; retry then
-republishes and attaches it. CAS temp files must already be absent at these
-database commit fences. A separate CAS publication test is needed to cover the
-rename itself.
+read-only SQLite queries and CAS hashes. A killed uncommitted operation must preserve the entire previous logical schema and rows. Committed event batches must be complete; committed terminal status, artifact relationships and migrated schema must survive. Repeated real retries preserve all logical facts. For an artifact published before an uncommitted DB relation, production GC removes only the legitimate orphan and preserves all referenced confirmed bytes; retry then republishes and attaches it. CAS temp files must already be absent at these database commit fences. A separate CAS publication test is needed to cover the rename itself.
 
-Link the test executable to `jyppx::liuding::experiment`, `nlohmann_json::nlohmann_json`
-and the project's existing SQLite header target (`SQLite::SQLite3`). The
-experiment archive already contains the same official SQLite amalgamation;
-keep one SQLite implementation and do not substitute a different library.
-Apply the normal test instrumentation and LibTorch runtime-copy dependencies.
-No GTest main or optional Python package is needed.
+Link the test executable to `jyppx::liuding::experiment`, `nlohmann_json::nlohmann_json` and the project's existing SQLite header target (`SQLite::SQLite3`). The experiment archive already contains the same official SQLite amalgamation; keep one SQLite implementation and do not substitute a different library. Apply the normal test instrumentation and LibTorch runtime-copy dependencies. No GTest main or optional Python package is needed.
 
 ```text
 python tests/integration/experiment/test_storage_crash_boundaries.py --child <storage-crash-child> --work-dir out/acceptance/storage-crash
 ```
 
-The driver runs four named tests with before/after subcases, rejects skipped or
-missing cases, and retains each scenario's `evidence.json`, executed SQL trace,
-database, CAS, and child stderr when `--work-dir` is supplied. `--timeout` bounds
-each child operation (default 30 seconds). Build and run it in the next chapter
-gate using the existing Windows and Ubuntu incremental build directories.
+The driver runs four named tests with before/after subcases, rejects skipped or missing cases, and retains each scenario's `evidence.json`, executed SQL trace, database, CAS, and child stderr when `--work-dir` is supplied. `--timeout` bounds each child operation (default 30 seconds). Build and run it in the next chapter gate using the existing Windows and Ubuntu incremental build directories.
 
-This is process termination evidence. It makes no OS reboot, power-loss,
-network-filesystem or hardware storage-cache guarantee.
+This is process termination evidence. It makes no OS reboot, power-loss, network-filesystem or hardware storage-cache guarantee.

@@ -40,8 +40,7 @@ namespace F = jyppx::liuding::nn::functional;
 
 auto loss = F::contrastive_loss(x1, x2, pair_labels, 1.0, "mean");
 
-jyppx::liuding::nn::ContrastiveLoss criterion(1.0, "mean");
-auto module_loss = criterion.forward(x1, x2, pair_labels);
+jyppx::liuding::nn::ContrastiveLoss criterion(1.0, "mean"); auto module_loss = criterion.forward(x1, x2, pair_labels);
 ```
 
 Use LibTorch directly when a different distance function, per-pair margin,

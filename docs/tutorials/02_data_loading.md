@@ -1,9 +1,6 @@
 # Tutorial 2: Data Loading
 
-JYPPX uses an explicit-epoch `DataPipeline`. A sampler selects sample IDs,
-a `DataBatchFactory` fetches and collates those samples, and every committed
-batch carries schema, lineage, epoch, and sequence metadata. The pipeline
-never advances to another epoch implicitly.
+JYPPX uses an explicit-epoch `DataPipeline`. A sampler selects sample IDs, a `DataBatchFactory` fetches and collates those samples, and every committed batch carries schema, lineage, epoch, and sequence metadata. The pipeline never advances to another epoch implicitly.
 
 ## Tensor datasets
 
@@ -12,9 +9,7 @@ The following factory turns its samples into the tuple consumed by a typical
 training step:
 
 ```cpp
-auto inputs = torch::rand({100, 3});
-auto targets = torch::randint(0, 2, {100});
-auto dataset =
+auto inputs = torch::rand({100, 3}); auto targets = torch::randint(0, 2, {100}); auto dataset =
     std::make_shared<jyppx::liuding::data::TensorDataset>(inputs, targets);
 auto sampler =
     std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(dataset->size(), 7);
@@ -43,11 +38,7 @@ jyppx::liuding::data::DataPipeline pipeline(
           {torch::stack(data), torch::stack(targets)});
     });
 
-pipeline.set_epoch(0);
-while (const auto batch = pipeline.next()) {
-  const auto& values = batch->value.toTuple()->elements();
-  train_step(values.at(0).toTensor(), values.at(1).toTensor());
-}
+pipeline.set_epoch(0); while (const auto batch = pipeline.next()) { const auto& values = batch->value.toTuple()->elements(); train_step(values.at(0).toTensor(), values.at(1).toTensor()); }
 ```
 
 The final batch is smaller unless `.drop_last = true`. `set_epoch(epoch)`
@@ -59,20 +50,15 @@ returns an empty optional at exhaustion and does not start another epoch.
 Derive from `jyppx::liuding::data::Dataset<T>` and implement `get()` and `size()`:
 
 ```cpp
-class MyDataset final : public jyppx::liuding::data::Dataset<jyppx::liuding::data::Example> {
- public:
-  jyppx::liuding::data::Example get(std::size_t index) const override {
+class MyDataset final : public jyppx::liuding::data::Dataset<jyppx::liuding::data::Example> { public: jyppx::liuding::data::Example get(std::size_t index) const override {
     return {features_[index], labels_[index]};
-  }
+}
 
-  std::size_t size() const override {
+std::size_t size() const override {
     return static_cast<std::size_t>(features_.size(0));
-  }
+}
 
- private:
-  torch::Tensor features_ = torch::randn({500, 8});
-  torch::Tensor labels_ = torch::randint(0, 3, {500});
-};
+private: torch::Tensor features_ = torch::randn({500, 8}); torch::Tensor labels_ = torch::randint(0, 3, {500}); };
 ```
 
 The batch factory owns collation policy. It may return any `c10::IValue` that
@@ -89,17 +75,9 @@ const auto subsets = jyppx::liuding::data::random_split(
     dataset, std::vector<std::size_t>{80, 20}, /*seed=*/42);
 ```
 
-Create an independent sampler and pipeline for each subset. Give each pipeline
-a unique `pipeline_id` and a dataset version that identifies the underlying
-data lineage. Training and validation cursors can then participate in the same
-checkpoint without identity collisions.
+Create an independent sampler and pipeline for each subset. Give each pipeline a unique `pipeline_id` and a dataset version that identifies the underlying data lineage. Training and validation cursors can then participate in the same checkpoint without identity collisions.
 
-For sequential or remote sources, use `IterableDataPipeline` and declare the
-source's actual restore guarantee. Exact sources must expose deterministic
-cursor state with zero replay and omission. Bounded sources publish finite
-bounds and a degradation reason. Best-effort sources may reopen the saved
-epoch without cursor continuity. Checkpoint migration preserves this declared
-level; it never upgrades a bounded or best-effort source to exact.
+For sequential or remote sources, use `IterableDataPipeline` and declare the source's actual restore guarantee. Exact sources must expose deterministic cursor state with zero replay and omission. Bounded sources publish finite bounds and a degradation reason. Best-effort sources may reopen the saved epoch without cursor continuity. Checkpoint migration preserves this declared level; it never upgrades a bounded or best-effort source to exact.
 
 ## Worker prefetch
 
@@ -152,8 +130,4 @@ sharding. Sampler configuration and state are part of restore compatibility.
 
 ## Transforms
 
-Apply transforms inside `Dataset::get()` or the batch factory. Tensor
-transforms include normalization, resize, crop, flip, padding, rotation,
-affine, grayscale, and color jitter. When workers are enabled, the transform
-and all captured state must satisfy the same concurrency and deterministic
-replay rules as the rest of the factory.
+Apply transforms inside `Dataset::get()` or the batch factory. Tensor transforms include normalization, resize, crop, flip, padding, rotation, affine, grayscale, and color jitter. When workers are enabled, the transform and all captured state must satisfy the same concurrency and deterministic replay rules as the rest of the factory.

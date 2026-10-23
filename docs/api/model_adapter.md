@@ -2,21 +2,16 @@
 
 Header: `#include <jyppx/liuding/nn/model_adapter.hpp>`
 
-LibTorch modules do not share a virtual `forward()` signature. JYPPX therefore
-keeps model state and model invocation as separate contracts:
+LibTorch modules do not share a virtual `forward()` signature. JYPPX therefore keeps model state and model invocation as separate contracts:
 
-- `ModelStateView` retains shared ownership of a `torch::nn::Module` and
-  exposes parameters, buffers, mode, device, and dtype operations.
+- `ModelStateView` retains shared ownership of a `torch::nn::Module` and exposes parameters, buffers, mode, device, and dtype operations.
 - `Invocation` carries positional and keyword `c10::IValue` arguments.
-- `ValueSchema` and `InvocationSchema` validate tensor, tuple, list,
-  dictionary, and scalar boundaries before and after execution.
-- `ModelAdapter` couples a state view with an explicit `ModelInvoker`; it does
-  not guess a forward signature from module inheritance.
+- `ValueSchema` and `InvocationSchema` validate tensor, tuple, list, dictionary, and scalar boundaries before and after execution.
+- `ModelAdapter` couples a state view with an explicit `ModelInvoker`; it does not guess a forward signature from module inheritance.
 
 ## Tensor models
 
-The narrow helper for the common `Tensor -> Tensor` shape accepts either a
-concrete implementation pointer or a LibTorch holder:
+The narrow helper for the common `Tensor -> Tensor` shape accepts either a concrete implementation pointer or a LibTorch holder:
 
 ```cpp
 torch::nn::Linear linear(8, 3);
@@ -36,8 +31,7 @@ auto result = adapter.invoke({.positional = {torch::ones({4, 8})}});
 torch::Tensor predictions = result.value.toTensor();
 ```
 
-The adapter retains the module implementation even if the original holder or
-shared pointer is released.
+The adapter retains the module implementation even if the original holder or shared pointer is released.
 
 ## Multi-input and structured output
 
@@ -46,8 +40,7 @@ Use the typed `adapt_module` overload when the forward contract is not
 validated invocation:
 
 ```cpp
-jyppx::liuding::nn::InvocationSchema inputs;
-inputs.positional = {
+jyppx::liuding::nn::InvocationSchema inputs; inputs.positional = {
     jyppx::liuding::ValueSchema::tensor({}, "left"),
     jyppx::liuding::ValueSchema::tensor({}, "right"),
 };
@@ -73,10 +66,7 @@ protocols require separately versioned schemas and codecs.
 
 ## Validation and errors
 
-Malformed schemas, missing keywords, unexpected dictionary fields, and
-dtype/device/rank/shape mismatches raise `jyppx::liuding::InvalidArgument`. Inputs are
-validated before user code runs. Results are validated before they leave the
-adapter. A `c10::Error` raised during forward execution is translated to
+Malformed schemas, missing keywords, unexpected dictionary fields, and dtype/device/rank/shape mismatches raise `jyppx::liuding::InvalidArgument`. Inputs are validated before user code runs. Results are validated before they leave the adapter. A `c10::Error` raised during forward execution is translated to
 `jyppx::liuding::BackendError` with the original exception retained as a nested cause.
 
 The adapter does not add synchronization. Concurrent calls or state mutation

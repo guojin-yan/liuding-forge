@@ -1,10 +1,6 @@
 # 六丁炼算（Liuding Forge）Documentation
 
-Liuding Forge (historical name: JYPPX Training Framework) is a C++20
-deep-learning training framework on top of LibTorch. It
-fills the gap between LibTorch's tensor primitives and the training
-experience PyTorch users know: data loaders, optimizers, schedulers,
-metrics, callbacks, checkpointing and mixed precision.
+Liuding Forge (historical name: JYPPX Training Framework) is a C++20 deep-learning training framework on top of LibTorch. It fills the gap between LibTorch's tensor primitives and the training experience PyTorch users know: data loaders, optimizers, schedulers, metrics, callbacks, checkpointing and mixed precision.
 
 The `jyppx` namespace, `include/jyppx` headers, `jyppx::liuding::` CMake targets,
 `find_package(jyppx)`, and protocol fields such as `jyppx_version` and

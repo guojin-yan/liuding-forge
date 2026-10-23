@@ -1,12 +1,8 @@
 # Repository development scripts
 
-These commands maintain and validate the JYPPX repository. They are developer
-infrastructure, separate from the user-facing library tools in
-[tools](../tools/README.md), and are not installed as product commands.
+These commands maintain and validate the JYPPX repository. They are developer infrastructure, separate from the user-facing library tools in [tools](../tools/README.md), and are not installed as product commands.
 
-Run the commands below from the repository root. Python script defaults also
-locate their repository inputs relative to the script rather than the caller's
-working directory.
+Run the commands below from the repository root. Python script defaults also locate their repository inputs relative to the script rather than the caller's working directory.
 
 | Directory | Commands and purpose |
 | --- | --- |
@@ -15,9 +11,7 @@ working directory.
 | `interop/` | Official safetensors interoperability qualification and ONNX environment probes, with the qualification dependency lock and provenance. |
 | `release/` | Offline candidate preparation, installed-file inventory, evidence and dependency bindings, and independent release verification. |
 
-[Resource baseline sampling](benchmarks/RESOURCE_BASELINE.md) covers stable
-storage/checkpoint/telemetry and the three optional Previews in independent
-processes, using existing Release binaries after chapter-level validation.
+[Resource baseline sampling](benchmarks/RESOURCE_BASELINE.md) covers stable storage/checkpoint/telemetry and the three optional Previews in independent processes, using existing Release binaries after chapter-level validation.
 
 Examples:
 
@@ -33,8 +27,7 @@ bash scripts/validation/run-coverage.sh
 pwsh -NoProfile -File scripts/benchmarks/Run-Baseline.ps1
 ```
 
-Script unit tests live in `tests/scripts/`. Telemetry backend acceptance lives
-in `tests/integration/telemetry_sidecar/`; the runtime adapter remains in
+Script unit tests live in `tests/scripts/`. Telemetry backend acceptance lives in `tests/integration/telemetry_sidecar/`; the runtime adapter remains in
 `tools/telemetry_sidecar/`. Use `out/` for all generated reports, logs, downloaded
 dependencies and qualification environments. Existing persistent build
 directories are reused unless a particular clean-install gate requires its own

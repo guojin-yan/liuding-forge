@@ -1,7 +1,6 @@
 # API: Delegated SGD Adapter
 
-The migrated SGD path lives in the `jyppx::liuding::optim` namespace and is exported by
-the focused `jyppx::liuding::optim` CMake target.
+The migrated SGD path lives in the `jyppx::liuding::optim` namespace and is exported by the focused `jyppx::liuding::optim` CMake target.
 
 ```cpp
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
@@ -13,8 +12,7 @@ the focused `jyppx::liuding::optim` CMake target.
 `torch::optim::SGD`. JYPPX owns the stable descriptor around that backend:
 
 - every group has a caller-selected `group_id`;
-- the optimizer has a caller-selected stable `optimizer_id` shared by its
-  checkpoint participant and associated schedulers;
+- the optimizer has a caller-selected stable `optimizer_id` shared by its checkpoint participant and associated schedulers;
 - every parameter has a globally unique `parameter_id`;
 - tensor pointers and container positions are never persisted as identities;
 - immutable SGD options are validated before native construction;
@@ -36,25 +34,14 @@ loss.backward();
 optimizer->step();
 ```
 
-The adapter accepts dense, non-overlapping CPU or CUDA parameters with
-float16, bfloat16, float32, or float64 dtype. Parameters must require
-gradients. Group IDs, parameter IDs, tensor identities, and options must be
-unique and valid when construction completes.
+The adapter accepts dense, non-overlapping CPU or CUDA parameters with float16, bfloat16, float32, or float64 dtype. Parameters must require gradients. Group IDs, parameter IDs, tensor identities, and options must be unique and valid when construction completes.
 
 `SingleDeviceStrategy::prepare()` may move those same model-owned tensor
 identities before the first update. It then calls the narrow
 `synchronize_parameter_placement()` lifecycle operation, which atomically
-refreshes only dtype, device, and derived byte metadata. Shape, stride,
-identity, group order, and options must remain unchanged. Synchronization is
-rejected after any successful step or native optimizer state exists; from that
-point the checkpoint topology is frozen.
+refreshes only dtype, device, and derived byte metadata. Shape, stride, identity, group order, and options must remain unchanged. Synchronization is rejected after any successful step or native optimizer state exists; from that point the checkpoint topology is frozen.
 
-Before every update, the adapter checks all defined gradients as one preflight.
-Each gradient must be dense and match its parameter dtype, device, and shape.
-Sparse gradients are rejected before any parameter is modified; use a
-sparse-aware optimizer instead. Undefined gradients retain LibTorch's skip
-semantics. Non-finite gradient detection belongs to the Trainer precision
-boundary so direct adapter use does not add an implicit device synchronization.
+Before every update, the adapter checks all defined gradients as one preflight. Each gradient must be dense and match its parameter dtype, device, and shape. Sparse gradients are rejected before any parameter is modified; use a sparse-aware optimizer instead. Undefined gradients retain LibTorch's skip semantics. Non-finite gradient detection belongs to the Trainer precision boundary so direct adapter use does not add an implicit device synchronization.
 
 ## Checkpoint participant
 

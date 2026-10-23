@@ -1,8 +1,6 @@
 # Contributing to 六丁炼算（Liuding Forge）
 
-The repository's historical and technical name is JYPPX Training Framework.
-Keep the `jyppx` namespace, include paths, CMake options and package names
-stable when making brand-facing changes.
+The repository's historical and technical name is JYPPX Training Framework. Keep the `jyppx` namespace, include paths, CMake options and package names stable when making brand-facing changes.
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
 
@@ -49,19 +47,15 @@ ctest --output-on-failure
 
 ### Documentation
 
-- Add complete Doxygen comments to every declaration in a header, including
-  private members, constructors, methods, structs and their fields, enums and
-  every enum value
-- Document ownership, lifetime, thread-safety, error behavior, state mutation,
-  units, valid ranges, and determinism whenever those constraints apply
+- Add complete Doxygen comments to every declaration in a header, including private members, constructors, methods, structs and their fields, enums and every enum value
+- Document ownership, lifetime, thread-safety, error behavior, state mutation, units, valid ranges, and determinism whenever those constraints apply
 - Treat undocumented declarations and malformed Doxygen as build failures
 - Include usage examples for complex features
 - Update relevant tutorials in `docs/tutorials/`
 
 ### Local Quality Gates
 
-The strict gates currently cover the migrated foundation and core targets and
-expand with each migrated component:
+The strict gates currently cover the migrated foundation and core targets and expand with each migrated component:
 
 ```bash
 cmake -S . -B build-quality \
@@ -82,8 +76,7 @@ corresponding `JYPPX_*_EXECUTABLE` cache entries are supplied explicitly.
 Before configuring a build, validate the repository compatibility source:
 
 ```bash
-python scripts/validation/compatibility.py --file compatibility.json --validate
-python scripts/validation/dependency_manifest.py --file dependency-manifest.json
+python scripts/validation/compatibility.py --file compatibility.json --validate python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 ```
 
 Do not infer support from a version range. Add a verified lane with reproducible
@@ -104,10 +97,7 @@ limits, LibTorch builds, host CUDA toolkits, workloads, or compiler builds.
 The Linux coverage lane is `bash scripts/validation/run-coverage.sh`; it requires `gcovr 5.0`
 or newer and
 `CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. Coverage and
-sanitizer options are rejected on unsupported compilers, and sanitizer flags are
-applied to test executables as well as framework libraries. The coverage runner
-uses two build jobs by default; set `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` explicitly when
-running on a host with a different memory budget.
+sanitizer options are rejected on unsupported compilers, and sanitizer flags are applied to test executables as well as framework libraries. The coverage runner uses two build jobs by default; set `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` explicitly when running on a host with a different memory budget.
 
 ### Testing
 
@@ -191,8 +181,4 @@ Closes #123
 
 ## License
 
-Unless you explicitly state otherwise, any contribution intentionally
-submitted for inclusion in this project is licensed exclusively under the
-[Apache License 2.0](LICENSE), without additional terms or conditions. Submit
-only work that you own or are authorized to contribute, and preserve all
-applicable third-party copyright, patent and attribution notices.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project is licensed exclusively under the [Apache License 2.0](LICENSE), without additional terms or conditions. Submit only work that you own or are authorized to contribute, and preserve all applicable third-party copyright, patent and attribution notices.

@@ -5,12 +5,7 @@
 `#include <jyppx/liuding/core/device.hpp>`
 
 ```cpp
-namespace jyppx::liuding {
-Device get_default_device();                 // cuda:0 when available, else cpu
-bool cuda_is_available();
-int cuda_device_count();
-Device parse_device(const std::string& s);   // "cpu", "cuda", "cuda:1"
-}
+namespace jyppx::liuding { Device get_default_device();                 // cuda:0 when available, else cpu bool cuda_is_available(); int cuda_device_count(); Device parse_device(const std::string& s);   // "cpu", "cuda", "cuda:1" }
 ```
 
 ## Tensor utilities

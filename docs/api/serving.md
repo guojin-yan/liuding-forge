@@ -15,10 +15,7 @@ separate explicit JIT source-trust decision.
 ## Loading and immutable ownership
 
 `NativeStateBackend::load` verifies the complete model bundle inventory, paths,
-sizes, hashes, safetensors mappings and configured signature policy. It compares
-the exact backend ID/version, environment-lock digest, dependency list,
-CPU/CUDA family, dtypes, dynamic-shape requirement and current platform token.
-The LibTorch dependency must match the linked build version.
+sizes, hashes, safetensors mappings and configured signature policy. It compares the exact backend ID/version, environment-lock digest, dependency list, CPU/CUDA family, dtypes, dynamic-shape requirement and current platform token. The LibTorch dependency must match the linked build version.
 `serving_platform_id()` supplies the lowercased configure-time OS/architecture
 token expected in the bundle matrix. The caller attests the environment-lock
 identity; this code does not run a package manager or reconstruct an environment.
@@ -62,25 +59,11 @@ are refused for this compatibility adapter.
 ## Requests, budgets and results
 
 `PredictRequest` contains the existing `nn::Invocation`, a model-version-bound
-request context and an absolute steady-clock deadline. It introduces no second
-tensor container. Supported values are dense CPU/CUDA tensors, exact scalars,
-None, unnamed tuples, homogeneous lists and string-keyed dictionaries. The
-request/output budgets independently bound logical tensor bytes, tensor count,
-rank, dimension, shape product, traversal nodes/depth and total strings. Finite
-and optional numerical range checks occur before tensor cloning. Input schema,
-dtype and device checks are exact; no automatic cast, transfer or fallback occurs.
+request context and an absolute steady-clock deadline. It introduces no second tensor container. Supported values are dense CPU/CUDA tensors, exact scalars, None, unnamed tuples, homogeneous lists and string-keyed dictionaries. The request/output budgets independently bound logical tensor bytes, tensor count, rank, dimension, shape product, traversal nodes/depth and total strings. Finite and optional numerical range checks occur before tensor cloning. Input schema, dtype and device checks are exact; no automatic cast, transfer or fallback occurs.
 
-Admission has a hard `max_active_requests` limit including serialization waiters.
-Inputs must remain quiescent during snapshotting. Outputs and queued inputs own
-independent contiguous tensor snapshots; storage aliases between values are not
-preserved. A result can outlive close. CUDA success includes device
-synchronization, which can also wait for unrelated work on the device.
+Admission has a hard `max_active_requests` limit including serialization waiters. Inputs must remain quiescent during snapshotting. Outputs and queued inputs own independent contiguous tensor snapshots; storage aliases between values are not preserved. A result can outlive close. CUDA success includes device synchronization, which can also wait for unrelated work on the device.
 
-These bounds constrain declared boundary/state/staging bytes, not total process
-RSS, backend workspaces, native callback allocations or a kernel's duration.
-Codec expansion is owned by the trusted codec. Hard CPU/GPU memory or execution
-time limits require an external host/process supervisor. No such isolation is
-implied by this in-process Preview.
+These bounds constrain declared boundary/state/staging bytes, not total process RSS, backend workspaces, native callback allocations or a kernel's duration. Codec expansion is owned by the trusted codec. Hard CPU/GPU memory or execution time limits require an external host/process supervisor. No such isolation is implied by this in-process Preview.
 
 ## Dynamic batching
 
@@ -100,23 +83,13 @@ reservations; the tensor-byte budget includes queued and active work until
 completion. Merged inputs also respect the predictor input-byte budget.
 
 `max_batch_size` and coalescing `max_wait` are bounded. The wait limit applies
-after the oldest compatible request is queued; it cannot bound time behind an
-active compute call. Expired/cancelled members are removed before a new batch.
-A merged compute does not inherit one member's stop token or deadline. Each
-member is checked again before independent result delivery, so cancelling one
-member never aborts peers. Kernels remain cooperative and cannot be preempted.
+after the oldest compatible request is queued; it cannot bound time behind an active compute call. Expired/cancelled members are removed before a new batch. A merged compute does not inherit one member's stop token or deadline. Each member is checked again before independent result delivery, so cancelling one member never aborts peers. Kernels remain cooperative and cannot be preempted.
 
-Only a confirmed allocation failure from an explicitly retry-safe native
-forward raises `RetryableOutOfMemory`. Ordinary resource-budget violations,
-pre/post stage errors, output errors and non-allocation backend failures do not
-trigger retries. Splitting is iterative with one finite retry budget for the
-whole original batch and at most eight retries. A singleton is never retried.
-JIT models refuse this policy because trusted code can mutate private state.
+Only a confirmed allocation failure from an explicitly retry-safe native forward raises `RetryableOutOfMemory`. Ordinary resource-budget violations, pre/post stage errors, output errors and non-allocation backend failures do not trigger retries. Splitting is iterative with one finite retry budget for the whole original batch and at most eight retries. A singleton is never retried. JIT models refuse this policy because trusted code can mutate private state.
 
 ## Leases, close and health
 
-A predictor serializes execution and retains a shared active lease through
-input ownership, execution, synchronization and result snapshotting.
+A predictor serializes execution and retains a shared active lease through input ownership, execution, synchronization and result snapshotting.
 `close` first refuses new work, then waits for active leases before unloading.
 A timed/cancelled close returns false and leaves ownership retained in draining
 state; it never unloads a running session. Destruction waits safely, and can block
@@ -134,19 +107,9 @@ adapter process is responsive. Streaming is explicitly false.
 ## Transport and observation
 
 `InferenceServiceAdapter` accepts a versioned trusted protocol decoder/encoder
-and authorizer. A mature host owns TLS/authentication and derives the principal,
-project, model version, deployment, request/trace IDs and deadline. Missing
-authentication or missing principal/project is rejected; authorization runs
-before decoding. Request bytes are bounded before decode and response bytes
-after encode. Protocol callbacks must enforce allocation/expansion bounds.
-A supplied batcher must own the same predictor object.
+and authorizer. A mature host owns TLS/authentication and derives the principal, project, model version, deployment, request/trace IDs and deadline. Missing authentication or missing principal/project is rejected; authorization runs before decoding. Request bytes are bounded before decode and response bytes after encode. Protocol callbacks must enforce allocation/expansion bounds. A supplied batcher must own the same predictor object.
 
-The adapter maps typed framework failures to stable public statuses:
-invalid_argument, unauthenticated, permission_denied, resource_exhausted,
-cancelled, deadline_exceeded, unavailable and internal. Public replies contain
-fixed status text, never private backend exceptions, input values or bearer
-tokens. Direct C++ exceptions can retain nested backend causes for authorized
-local diagnostics; do not dump them into public responses or production logs.
+The adapter maps typed framework failures to stable public statuses: invalid_argument, unauthenticated, permission_denied, resource_exhausted, cancelled, deadline_exceeded, unavailable and internal. Public replies contain fixed status text, never private backend exceptions, input values or bearer tokens. Direct C++ exceptions can retain nested backend causes for authorized local diagnostics; do not dump them into public responses or production logs.
 
 `ObservationHook` receives redacted foundation log/correlation/attribute records
 with request, trace, project, deployment, model, backend and device identities.

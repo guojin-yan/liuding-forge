@@ -34,22 +34,9 @@ accepted only by the protocol harness. Once an input parses, later
 serialization/reparse failures cannot be reclassified as malformed input.
 The quantization decoder also reports nonfinite artifact bias with the public
 `NumericalError` category; only its initial decode accepts that category as an
-input rejection. Observer rejection checks retain an existing finite state and
-assert that every rejected restore leaves its identity, counters and extrema
-unchanged. The harness also mutates bounded checkpoint manifests and restore
-policies independently of the state bytes.
+input rejection. Observer rejection checks retain an existing finite state and assert that every rejected restore leaves its identity, counters and extrema unchanged. The harness also mutates bounded checkpoint manifests and restore policies independently of the state bytes.
 
-Canonical output has a separate bounded budget because compact source JSON,
-number spelling, escaping and safetensors layout can change its byte length.
-The exact-size success and one-byte-too-small rejection checks use that output
-size. HTML has its own escaped output budget. Tensor values remain opaque bits,
-including signed zero and nonfinite floating-point encodings in safetensors.
-Quantization artifacts require canonical input; accepted observer signed zero
-is normalized by its encoder, then must stay stable on reparse. Quantization
-uses at most 64 features per dimension, 32 sample IDs, 64 bytes per ID and 256
-bytes per lineage string. The observer has a fixed production checkpoint byte
-contract, capped at 128 bytes by the harness, and the reader checks the exact
-limit requested by the production restore path.
+Canonical output has a separate bounded budget because compact source JSON, number spelling, escaping and safetensors layout can change its byte length. The exact-size success and one-byte-too-small rejection checks use that output size. HTML has its own escaped output budget. Tensor values remain opaque bits, including signed zero and nonfinite floating-point encodings in safetensors. Quantization artifacts require canonical input; accepted observer signed zero is normalized by its encoder, then must stay stable on reparse. Quantization uses at most 64 features per dimension, 32 sample IDs, 64 bytes per ID and 256 bytes per lineage string. The observer has a fixed production checkpoint byte contract, capped at 128 bytes by the harness, and the reader checks the exact limit requested by the production restore path.
 
 `JYPPX_LIUDING_BUILD_FUZZERS=ON` requires Clang and the complete SDK. Only that opt-in
 build instruments framework implementation archives with `fuzzer-no-link`,
@@ -57,17 +44,14 @@ in addition to the harness coverage and libFuzzer entry point. Third-party
 libraries are not rebuilt with libFuzzer coverage.
 
 ```sh
-CMAKE_PREFIX_PATH=/path/to/libtorch JYPPX_FUZZ_RUNS=10000 \
-  bash scripts/validation/run-fuzz.sh
+CMAKE_PREFIX_PATH=/path/to/libtorch JYPPX_FUZZ_RUNS=10000 \ bash scripts/validation/run-fuzz.sh
 ```
 
 The runner always reuses `out/build/fuzz-linux` and preserves discovered corpora
 under `out/fuzz/linux`. It runs all nine targets with ASan/UBSan, a fixed seed,
 per-input timeout and process RSS bound. `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL`,
 `JYPPX_FUZZ_RUNS`, `JYPPX_FUZZ_SEED` and `JYPPX_FUZZ_RSS_LIMIT_MB` customize the
-bounded run. Configure/build logs, per-target dictionaries/corpus counts/fuzzer
-logs/artifacts and overall success/failure metadata are retained. A failed
-target stops the gate and retains its reproducer; no failure is skipped.
+bounded run. Configure/build logs, per-target dictionaries/corpus counts/fuzzer logs/artifacts and overall success/failure metadata are retained. A failed target stops the gate and retains its reproducer; no failure is skipped.
 
 The optional `jyppx_fuzz_quantization` target exists only when
 `jyppx::liuding::quantization` is present and links that Preview explicitly. The
@@ -76,29 +60,7 @@ been configured with Clang, libFuzzer, ASan and UBSan, add and run just this new
 target without rebuilding/rerunning the nine completed target gates:
 
 ```sh
-set -euo pipefail
-cmake -S . -B out/build/fuzz-linux -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON
-cmake --build out/build/fuzz-linux --target jyppx_fuzz_quantization \
-  --parallel "${JYPPX_LIUDING_BUILD_PARALLEL_LEVEL:-2}"
-target_output="$PWD/out/fuzz/linux/quantization"
-mkdir -p "$target_output/corpus" "$target_output/artifacts"
-cp -R tests/fixtures/fuzz/quantization/corpus/. "$target_output/corpus/"
-address_layout_runner=()
-if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; then
-  address_layout_runner=(setarch "$(uname -m)" -R)
-fi
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1:strict_string_checks=1}" \
-UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "${address_layout_runner[@]}" \
-  out/build/fuzz-linux/tests/fuzz/liuding-forge-fuzz-quantization \
-  "$target_output/corpus" \
-  -dict=tests/fixtures/fuzz/quantization/quantization.dict \
-  -artifact_prefix="$target_output/artifacts/" \
-  -max_len=65536 -timeout=10 \
-  -rss_limit_mb="${JYPPX_FUZZ_RSS_LIMIT_MB:-4096}" \
-  -seed="${JYPPX_FUZZ_SEED:-20261021}" \
-  -runs="${JYPPX_FUZZ_RUNS:-10000}" \
-  2>&1 | tee "$target_output/03-fuzz.log"
+set -euo pipefail cmake -S . -B out/build/fuzz-linux -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON cmake --build out/build/fuzz-linux --target jyppx_fuzz_quantization \ --parallel "${JYPPX_LIUDING_BUILD_PARALLEL_LEVEL:-2}" target_output="$PWD/out/fuzz/linux/quantization" mkdir -p "$target_output/corpus" "$target_output/artifacts" cp -R tests/fixtures/fuzz/quantization/corpus/. "$target_output/corpus/" address_layout_runner=() if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; then address_layout_runner=(setarch "$(uname -m)" -R) fi ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1:strict_string_checks=1}" \ UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \ "${address_layout_runner[@]}" \ out/build/fuzz-linux/tests/fuzz/liuding-forge-fuzz-quantization \ "$target_output/corpus" \ -dict=tests/fixtures/fuzz/quantization/quantization.dict \ -artifact_prefix="$target_output/artifacts/" \ -max_len=65536 -timeout=10 \ -rss_limit_mb="${JYPPX_FUZZ_RSS_LIMIT_MB:-4096}" \ -seed="${JYPPX_FUZZ_SEED:-20261021}" \ -runs="${JYPPX_FUZZ_RUNS:-10000}" \ 2>&1 | tee "$target_output/03-fuzz.log"
 ```
 
 Keep the final source commit, cache/compiler/sanitizer configuration, selected

@@ -4,9 +4,7 @@ Header: `#include <jyppx/liuding/training/checkpoint_coordinator.hpp>`
 
 Link target: `jyppx::liuding::training`
 
-The training checkpoint coordinator combines the storage-neutral participant
-contracts from `jyppx::liuding::foundation`. It does not define a file format, hash,
-codec, path layout, or artifact publication mechanism.
+The training checkpoint coordinator combines the storage-neutral participant contracts from `jyppx::liuding::foundation`. It does not define a file format, hash, codec, path layout, or artifact publication mechanism.
 
 ## Participant registry
 
@@ -17,11 +15,7 @@ restore order.
 
 Registration validates that `participant_id()` matches
 `describe_state().participant_id`. Null, duplicate, or invalid participants are
-rejected before they can enter the registry. Registry mutation and coordinator
-operations are not thread-safe and must be externally serialized. The caller
-must also quiesce training mutations while save or restore runs; the sink
-transaction makes publication atomic but cannot freeze model or optimizer
-updates by itself.
+rejected before they can enter the registry. Registry mutation and coordinator operations are not thread-safe and must be externally serialized. The caller must also quiesce training mutations while save or restore runs; the sink transaction makes publication atomic but cannot freeze model or optimizer updates by itself.
 
 ## Coordinated descriptor
 
@@ -31,8 +25,7 @@ lengths and digests. An interop container may embed this descriptor beside its
 own version, length, digest, codec, and publication metadata.
 
 `validate_checkpoint_descriptor()` rejects empty, unsorted, duplicated, or
-invalid participant sets and rejects an aggregate restore level that is
-stronger or weaker than the participant manifests actually permit.
+invalid participant sets and rejects an aggregate restore level that is stronger or weaker than the participant manifests actually permit.
 
 ## Save transaction
 
@@ -47,9 +40,7 @@ this sequence:
 5. Call non-throwing `rollback()` after any failure from `begin()` through
    `commit()`.
 
-The sink must copy the descriptor, reject undeclared or duplicate writes, check
-required fields, and publish atomically. Filesystem and hash policy remain an
-interop responsibility.
+The sink must copy the descriptor, reject undeclared or duplicate writes, check required fields, and publish atomically. Filesystem and hash policy remain an interop responsibility.
 
 ## Restore transaction
 

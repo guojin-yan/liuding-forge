@@ -1,22 +1,12 @@
 # Linux CPU ThreadSanitizer lane
 
-Run `bash scripts/validation/run-tsan.sh` from a clean, committed Linux checkout.
-The lane requires Python 3.10+, Clang, CMake/CTest with JSON discovery and JUnit
-support, Git, `ldd`, and an official shared CPU LibTorch distribution. Set
+Run `bash scripts/validation/run-tsan.sh` from a clean, committed Linux checkout. The lane requires Python 3.10+, Clang, CMake/CTest with JSON discovery and JUnit support, Git, `ldd`, and an official shared CPU LibTorch distribution. Set
 `CMAKE_PREFIX_PATH` to its installation prefix for the first invocation, or use
 `JYPPX_TSAN_TORCH_DIR=<prefix>/share/cmake/Torch` explicitly.
 
-The incremental build directory is always `out/build/tsan-linux`. Build and test
-parallelism default to **2**; `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` overrides both. Serving
-and all Core components are enabled explicitly. Models, quantization, tools,
-examples, benchmarks and fuzzers are disabled. Coverage, ASan and UBSan are
-incompatible with this lane. An existing cache with a different source,
-compiler, CPU Torch package or instrumentation is rejected for review instead
-of silently replacing that configuration. `JYPPX_TSAN_CXX` can select a Clang
-executable on the first invocation; later invocations retain the cached compiler.
+The incremental build directory is always `out/build/tsan-linux`. Build and test parallelism default to **2**; `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` overrides both. Serving and all Core components are enabled explicitly. Models, quantization, tools, examples, benchmarks and fuzzers are disabled. Coverage, ASan and UBSan are incompatible with this lane. An existing cache with a different source, compiler, CPU Torch package or instrumentation is rejected for review instead of silently replacing that configuration. `JYPPX_TSAN_CXX` can select a Clang executable on the first invocation; later invocations retain the cached compiler.
 
-Cached CPU `Torch_DIR` takes precedence over ambient `CMAKE_PREFIX_PATH`, so a
-CUDA lane's environment cannot redirect the fixed cache. `Torch_DIR`,
+Cached CPU `Torch_DIR` takes precedence over ambient `CMAKE_PREFIX_PATH`, so a CUDA lane's environment cannot redirect the fixed cache. `Torch_DIR`,
 `Caffe2_DIR`, `TORCH_LIBRARY`, package version, CPU library hashes and executable
 runtime linkage are checked. A package with CUDA libraries or a non-CPU version
 is rejected. The selected CPU library directory is first in `LD_LIBRARY_PATH`.
@@ -63,22 +53,9 @@ CPU concurrency validation, not full project coverage or CUDA qualification.
 
 Every invocation retains its logs and metadata in a unique directory beneath
 `out/sanitizer/linux/tsan/runs/`. The top-level `metadata.json` points to the most
-recently updated run by its `run_dir`. Metadata records source commit/tree and
-clean status before/after, dependency manifest and actual dependency hashes,
-compiler/tool versions, fixed cache identity, options, command argv/exit codes,
-selected tests, binary hashes, actual CTest exit and JUnit results. Preflight,
-build, discovery and execution failures retain metadata; `ctest_exit_code: null`
-means test execution never completed. Source/cache changes invalidate acceptance.
-Historical run directories are preserved. A process lock prevents concurrent
-lane invocations from sharing the incremental cache.
+recently updated run by its `run_dir`. Metadata records source commit/tree and clean status before/after, dependency manifest and actual dependency hashes, compiler/tool versions, fixed cache identity, options, command argv/exit codes, selected tests, binary hashes, actual CTest exit and JUnit results. Preflight, build, discovery and execution failures retain metadata; `ctest_exit_code: null` means test execution never completed. Source/cache changes invalidate acceptance. Historical run directories are preserved. A process lock prevents concurrent lane invocations from sharing the incremental cache.
 
-Each configure, build, discovery and test command starts in its own POSIX
-process session. SIGINT/SIGTERM first records an interrupted lane request and
-terminates that command's process group, escalates only that group if needed,
-and waits until the group is confirmed gone before the cache lock is released.
-This also covers CTest's JSON discovery subprocess path and prevents orphaned
-grandchildren from continuing after a cancelled run. Windows keeps a direct
-process fallback and is rejected during the real Linux preflight.
+Each configure, build, discovery and test command starts in its own POSIX process session. SIGINT/SIGTERM first records an interrupted lane request and terminates that command's process group, escalates only that group if needed, and waits until the group is confirmed gone before the cache lock is released. This also covers CTest's JSON discovery subprocess path and prevents orphaned grandchildren from continuing after a cancelled run. Windows keeps a direct process fallback and is rejected during the real Linux preflight.
 
 The portable maintenance checks do not build or execute instrumented binaries:
 

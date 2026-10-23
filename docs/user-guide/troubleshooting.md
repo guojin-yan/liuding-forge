@@ -1,8 +1,6 @@
 # Troubleshooting Guide
 
-This guide covers common configuration, training, and deployment failures.
-When reporting a problem, include the CMake command, LibTorch version, device,
-and first exception message.
+This guide covers common configuration, training, and deployment failures. When reporting a problem, include the CMake command, LibTorch version, device, and first exception message.
 
 ## Build issues
 
@@ -12,22 +10,19 @@ If CMake reports `Could NOT find Torch`, point `CMAKE_PREFIX_PATH` at the
 `libtorch` directory containing `share/cmake/Torch/TorchConfig.cmake`:
 
 ```bash
-cmake -S . -B out/build/release -DCMAKE_PREFIX_PATH=/opt/libtorch \
-  -DTorch_DIR=/opt/libtorch/share/cmake/Torch
+cmake -S . -B out/build/release -DCMAKE_PREFIX_PATH=/opt/libtorch \ -DTorch_DIR=/opt/libtorch/share/cmake/Torch
 ```
 
 Reuse the existing build directory and reconfigure with explicit
 `CMAKE_PREFIX_PATH` and `Torch_DIR` when changing LibTorch, then rebuild the
-affected targets. A compiler or generator change requires a separate build
-directory. The bundled layout is detected automatically when installed in
+affected targets. A compiler or generator change requires a separate build directory. The bundled layout is detected automatically when installed in
 `third_party/install/libtorch`.
 
 ### MSVC crashes in a Torch DLL
 
 Official Windows LibTorch packages use the release dynamic CRT. JYPPX selects
 `/MD` and `_ITERATOR_DEBUG_LEVEL=0` for every configuration. Do not override
-those settings or mix Debug and Release LibTorch binaries. Reconfigure from a
-clean build directory after changing the toolchain.
+those settings or mix Debug and Release LibTorch binaries. Reconfigure from a clean build directory after changing the toolchain.
 
 ## Runtime issues
 
@@ -45,18 +40,11 @@ inspect normalization divisors. With AMP, use `GradScaler`; an overflow sets
 
 ### DataPipeline order or worker failures
 
-DataPipeline output order follows the sampler even when workers finish out of
-order. Use `SequentialSampler` to isolate ordering bugs, or use a fixed sampler
-seed and explicit `set_epoch()` calls for repeatable shuffled runs. A worker's
-non-JYPPX exception is reported as `jyppx::liuding::BackendError` by `next()`, so catch
-it at the job boundary and reproduce with `num_workers = 0`. Dataset access
-and captured factory state must be thread-safe when workers are enabled.
+DataPipeline output order follows the sampler even when workers finish out of order. Use `SequentialSampler` to isolate ordering bugs, or use a fixed sampler seed and explicit `set_epoch()` calls for repeatable shuffled runs. A worker's non-JYPPX exception is reported as `jyppx::liuding::BackendError` by `next()`, so catch it at the job boundary and reproduce with `num_workers = 0`. Dataset access and captured factory state must be thread-safe when workers are enabled.
 
 ### Checkpoint does not load
 
-Prepare a fresh domain with identical Trainer options and participant IDs,
-topology, model shapes, optimizer groups, scheduler tree, callbacks, data and
-RNG scope. Then pass a complete `CheckpointStateSource` to
+Prepare a fresh domain with identical Trainer options and participant IDs, topology, model shapes, optimizer groups, scheduler tree, callbacks, data and RNG scope. Then pass a complete `CheckpointStateSource` to
 `restore_checkpoint()`. Each participant accepts only its declared current
 schema and any explicitly supported N-1 reader. Unknown versions, incompatible
 topology and partial participant sets are rejected. Keep the original domain

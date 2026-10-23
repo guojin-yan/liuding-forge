@@ -13,8 +13,7 @@ stable JYPPX entry point while delegating all tensor mathematics to
 `torch::nn::functional::cross_entropy`. JYPPX does not maintain a duplicate
 kernel or a separately evolving formula.
 
-For `C` classes and smoothing value `epsilon`, the class-index target is mixed
-with the uniform class distribution using LibTorch's `label_smoothing` option.
+For `C` classes and smoothing value `epsilon`, the class-index target is mixed with the uniform class distribution using LibTorch's `label_smoothing` option.
 `epsilon = 0` is ordinary cross entropy; `epsilon = 1` uses only the uniform
 distribution.
 
@@ -44,8 +43,7 @@ namespace F = jyppx::liuding::nn::functional;
 
 auto loss = F::label_smoothing_cross_entropy(logits, target, 0.1, "mean");
 
-jyppx::liuding::nn::LabelSmoothingCrossEntropy criterion(0.1, "mean");
-auto module_loss = criterion.forward(logits, target);
+jyppx::liuding::nn::LabelSmoothingCrossEntropy criterion(0.1, "mean"); auto module_loss = criterion.forward(logits, target);
 ```
 
 Use LibTorch's cross-entropy API directly when class weights, a custom ignore

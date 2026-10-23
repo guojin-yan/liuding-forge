@@ -2,11 +2,7 @@
 
 Target: `jyppx::liuding::experiment`; header: `jyppx/experiment/evaluation.hpp`.
 
-An `EvaluationSuite` freezes its task, dataset digest, environment, seed and
-ordered rules. A rule selects an exact neutral metric definition and context,
-including unit, reduction, direction, parameters and required sample count.
-Changing these fields changes the canonical suite digest. The producer must
-assign a new suite version when changing its contract.
+An `EvaluationSuite` freezes its task, dataset digest, environment, seed and ordered rules. A rule selects an exact neutral metric definition and context, including unit, reduction, direction, parameters and required sample count. Changing these fields changes the canonical suite digest. The producer must assign a new suite version when changing its contract.
 
 `evaluate_observations` validates caller measurements. `run_evaluation` first
 validates the suite and identity, invokes one trusted C++ adapter, and checks
@@ -53,11 +49,7 @@ producer or imply model inference took place inside the report codec.
 | `invalid` | Reserved incompatible evidence; malformed contracts throw typed errors. |
 
 `compare_quality_reports` requires equal suite digests and adapter contracts,
-and equal step meanings for paired observations. Different model/config/build
-identities remain visible. It checks both candidate thresholds and declared
-absolute/relative directional regression tolerances. Relative loss from a zero
-baseline is incomplete when it cannot be defined. These comparisons make no
-statistical significance or confidence interval claim.
+and equal step meanings for paired observations. Different model/config/build identities remain visible. It checks both candidate thresholds and declared absolute/relative directional regression tolerances. Relative loss from a zero baseline is incomplete when it cannot be defined. These comparisons make no statistical significance or confidence interval claim.
 
 ## CLI and persistence
 
@@ -68,19 +60,9 @@ liuding-forge evaluation show --report quality.json --format text
 liuding-forge evaluation compare --baseline baseline.json --candidate quality.json --format json
 ```
 
-To retain a report in an existing local run, add `--root RUNS --reference-id ID
---attached-ms UNIX_MS`. The input identity supplies the run ID. The command
-publishes canonical report bytes to CAS and an `evaluation.report` relationship.
-Reuse the same reference ID, timestamp and content for retries; different
-content under that relationship is rejected. The returned digest identifies
-the exact canonical report. Output files require an existing parent directory;
-identical output permits replay and a different existing output is rejected.
-Each invocation exclusively owns its output paths. Local presentation files
-are separate effects from the durable CAS relationship.
+To retain a report in an existing local run, add `--root RUNS --reference-id ID --attached-ms UNIX_MS`. The input identity supplies the run ID. The command publishes canonical report bytes to CAS and an `evaluation.report` relationship. Reuse the same reference ID, timestamp and content for retries; different content under that relationship is rejected. The returned digest identifies the exact canonical report. Output files require an existing parent directory; identical output permits replay and a different existing output is rejected. Each invocation exclusively owns its output paths. Local presentation files are separate effects from the durable CAS relationship.
 
-Successful commands use exit 0; completed failing/incomplete evidence uses 1;
-invalid input uses 2; operational failure uses 3. Cancellation/deadline use
-130/124. Both text and schema-1 JSON output expose the same verdict.
+Successful commands use exit 0; completed failing/incomplete evidence uses 1; invalid input uses 2; operational failure uses 3. Cancellation/deadline use 130/124. Both text and schema-1 JSON output expose the same verdict.
 
 ## Basic projected data quality
 
@@ -95,9 +77,6 @@ IDs, labels, scalar values or raw payloads are copied into them.
 schema 1: `schema_version`, `schema`, `rows`. A schema field contains exactly
 `required`, `minimum`, `maximum` (nullable bounds). Each row contains exactly
 `sample_id`, `split`, `content_digest` (`algorithm`, `hex`), `fields`, and
-nullable `label`. Scalar values are finite JSON numbers or null. The C++ API
-also accepts explicit IEEE nonfinite scalar inputs. Tensor dtype/rank checks
-belong to data/model schemas; near duplicates, fairness, robustness and
-statistical inference are outside this basic data projection checker.
+nullable `label`. Scalar values are finite JSON numbers or null. The C++ API also accepts explicit IEEE nonfinite scalar inputs. Tensor dtype/rank checks belong to data/model schemas; near duplicates, fairness, robustness and statistical inference are outside this basic data projection checker.
 
 This chapter is awaiting consolidated Windows and Ubuntu/CUDA qualification.

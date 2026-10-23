@@ -1,17 +1,12 @@
 # Checkpoint Participant Contract
 
-Header: `jyppx/foundation/checkpoint.hpp`  
-Target: `jyppx::liuding::foundation`
+Header: `jyppx/foundation/checkpoint.hpp` Target: `jyppx::liuding::foundation`
 
-The checkpoint participant API is the storage-neutral boundary shared by model,
-data, optimizer, scheduler, scaler, RNG, callback, metric, and strategy state.
-It deliberately does not define a checkpoint file, directory layout, hash
-algorithm, compression method, or publication mechanism.
+The checkpoint participant API is the storage-neutral boundary shared by model, data, optimizer, scheduler, scaler, RNG, callback, metric, and strategy state. It deliberately does not define a checkpoint file, directory layout, hash algorithm, compression method, or publication mechanism.
 
 ## Ownership
 
-- `jyppx::liuding::foundation` owns restore levels and policies, participant state
-  descriptors, bounded blob reader/writer interfaces, and
+- `jyppx::liuding::foundation` owns restore levels and policies, participant state descriptors, bounded blob reader/writer interfaces, and
   `CheckpointParticipant`.
 - `jyppx::liuding::training` owns participant registration, consistency boundaries,
   snapshot ordering, and cross-participant rollback.
@@ -47,15 +42,6 @@ manifest created by a checkpoint coordinator.
 ## Atomicity And Limits
 
 `StateReader` exposes the validated manifest stored with the artifact and must
-enforce the supplied maximum before returning bytes. Participants use the
-stored manifest, rather than their current capabilities, when checking schema
-compatibility and restore policy. `StateWriter` must reject undeclared,
-duplicate, and oversized fields. A participant must parse and validate all of
-its state before mutation so a failed `load_state()` leaves that participant
-unchanged. The training coordinator remains responsible for rollback across
-multiple participants.
+enforce the supplied maximum before returning bytes. Participants use the stored manifest, rather than their current capabilities, when checking schema compatibility and restore policy. `StateWriter` must reject undeclared, duplicate, and oversized fields. A participant must parse and validate all of its state before mutation so a failed `load_state()` leaves that participant unchanged. The training coordinator remains responsible for rollback across multiple participants.
 
-This first slice does not change the legacy Trainer checkpoint container. It
-establishes the common protocol that later model, data, optimizer, callback,
-metric, scaler, and RNG adapters will implement before the coordinator is
-switched over.
+This first slice does not change the legacy Trainer checkpoint container. It establishes the common protocol that later model, data, optimizer, callback, metric, scaler, and RNG adapters will implement before the coordinator is switched over.

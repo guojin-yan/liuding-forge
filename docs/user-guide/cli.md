@@ -1,31 +1,16 @@
 # Library command-line tools
 
-The product CLI is `liuding-forge` (`liuding-forge.exe` on Windows), branded
-六丁炼算（Liuding Forge）. It composes installed library components to inspect
-the environment, resolve configuration, manage local runs, evaluate measured
-evidence and inspect models/checkpoints. The old `jyppx` executable name is not
-installed.
+The product CLI is `liuding-forge` (`liuding-forge.exe` on Windows), branded 六丁炼算（Liuding Forge）. It composes installed library components to inspect the environment, resolve configuration, manage local runs, evaluate measured evidence and inspect models/checkpoints. The old `jyppx` executable name is not installed.
 
-Configure with `JYPPX_LIUDING_BUILD_TOOLS=ON` to build and install it. The default is ON
-when all SDK components are enabled, and OFF for partial component profiles.
-Explicit ON requires the complete SDK closure; it never silently enables a
-disabled library component. `JYPPX_LIUDING_BUILD_TOOLS=OFF` leaves the library usable.
-The executable is installed in `bin/`, without development scripts or tests.
+Configure with `JYPPX_LIUDING_BUILD_TOOLS=ON` to build and install it. The default is ON when all SDK components are enabled, and OFF for partial component profiles. Explicit ON requires the complete SDK closure; it never silently enables a disabled library component. `JYPPX_LIUDING_BUILD_TOOLS=OFF` leaves the library usable. The executable is installed in `bin/`, without development scripts or tests.
 
-Use `liuding-forge --help --format text` for commands and `liuding-forge --version --format json`
-for the configured build identity. Commands accept `--format text|json`; text
-uses readable field/value lines, JSON uses a single schema-1 envelope:
+Use `liuding-forge --help --format text` for commands and `liuding-forge --version --format json` for the configured build identity. Commands accept `--format text|json`; text uses readable field/value lines, JSON uses a single schema-1 envelope:
 
 ```json
 {"schema_version":1,"status":"ok","data":{}}
 ```
 
-An error uses `status: "error"` and an `error` object with stable numeric code,
-name, redacted message, component, operation and hint. Input content and generic
-library exception dumps are not echoed. Explicit producer annotations still
-must be redacted before ingestion. Exit codes are 0 for success, 1 for a
-completed failed/incomplete verdict, 2 for invalid/unsupported input, 3 for
-operational failure, 124 for deadline and 130 for cancellation.
+An error uses `status: "error"` and an `error` object with stable numeric code, name, redacted message, component, operation and hint. Input content and generic library exception dumps are not echoed. Explicit producer annotations still must be redacted before ingestion. Exit codes are 0 for success, 1 for a completed failed/incomplete verdict, 2 for invalid/unsupported input, 3 for operational failure, 124 for deadline and 130 for cancellation.
 
 ```sh
 liuding-forge doctor --device cpu --format text
@@ -68,13 +53,6 @@ Neither Python nor its optional SDK packages are a core library runtime
 dependency. See [process transport](../api/telemetry_sidecar_process.md).
 
 `model bundle inspect|verify` performs the same complete bounded directory,
-hash, size and safetensors mapping verification before returning metadata.
-The result separates integrity from signature authentication and runtime
-compatibility. The CLI has no configured cryptographic trust provider, so an
-unsigned bundle reports `unsigned`, a signature reports `present_unverified`,
-and `--require-trusted true` fails. Applications can supply the library's
-explicit trusted signature-verifier callback. Declarative schema payloads and
-ONNX execution remain the responsibility of their named owners.
+hash, size and safetensors mapping verification before returning metadata. The result separates integrity from signature authentication and runtime compatibility. The CLI has no configured cryptographic trust provider, so an unsigned bundle reports `unsigned`, a signature reports `present_unverified`, and `--require-trusted true` fails. Applications can supply the library's explicit trusted signature-verifier callback. Declarative schema payloads and ONNX execution remain the responsibility of their named owners.
 
-Repository maintenance commands belong in `scripts/` and acceptance fixtures
-in `tests/`. They are not subcommands of the installed product tool.
+Repository maintenance commands belong in `scripts/` and acceptance fixtures in `tests/`. They are not subcommands of the installed product tool.

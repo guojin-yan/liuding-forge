@@ -9,13 +9,9 @@ Keep build parallelism at `2` and retain those directories for incremental build
 Enable `JYPPX_LIUDING_BUILD_BENCHMARKS=ON` in the existing configuration. Models,
 quantization and serving targets additionally require their corresponding
 `JYPPX_LIUDING_BUILD_MODELS`, `JYPPX_LIUDING_BUILD_QUANTIZATION` and `JYPPX_LIUDING_BUILD_SERVING` options.
-Preview benchmarks link their explicit owner libraries; enabling a benchmark
-does not enable a Preview or change the SDK's capability claims.
+Preview benchmarks link their explicit owner libraries; enabling a benchmark does not enable a Preview or change the SDK's capability claims.
 
-After committing, reconfigure that same directory with its existing options so
-the generated build fingerprint records the exact clean commit, then build the
-resource targets together. A stale fingerprint or `+dirty` binary is rejected.
-No benchmark source/output is silently relabelled as a different commit.
+After committing, reconfigure that same directory with its existing options so the generated build fingerprint records the exact clean commit, then build the resource targets together. A stale fingerprint or `+dirty` binary is rejected. No benchmark source/output is silently relabelled as a different commit.
 
 ```powershell
 # Windows: retain the established Release cache and its dependencies/options.
@@ -29,28 +25,15 @@ cmake --build out/build/cuda-release --config Release --parallel 2 --target jypp
 python3 scripts/benchmarks/run_resource_baseline.py --build-dir out/build/cuda-release --device cuda:0 --storage-environment-id ubuntu-workspace-mount-defaults --output out/baselines/resources/cuda-current
 ```
 
-The default selection requires all four executables. For a Core-only build,
-use `--profiles storage checkpoint telemetry`. `--bin-dir` selects a known
-custom executable directory. Output directories must be new and should be under
-an ignored evidence directory such as `out/` to preserve a clean checkout.
+The default selection requires all four executables. For a Core-only build, use `--profiles storage checkpoint telemetry`. `--bin-dir` selects a known custom executable directory. Output directories must be new and should be under an ignored evidence directory such as `out/` to preserve a clean checkout.
 
-Logical CMake targets retain their `jyppx_bench_resource_*` names. Their files
-are `liuding-forge-bench-resource-{stable,models,quantization,serving}` (plus
+Logical CMake targets retain their `jyppx_bench_resource_*` names. Their files are `liuding-forge-bench-resource-{stable,models,quantization,serving}` (plus
 `.exe` on Windows); installed library files use `liuding-forge-*` while C++
 namespaces and JSON benchmark identities continue to use `jyppx`.
 
 Storage, checkpoint and telemetry profiles require an explicit
 `--storage-environment-id`. Choose a stable ID for the actual backing
-volume/mount, filesystem, relevant mount options and durability configuration
-of the output workload. The commands above show example IDs; record what the
-chosen ID means on each host. Keep it for fresh directories on that same
-storage configuration, and use a different ID when moving between volumes,
-local/network filesystems, tmpfs, or durability settings. IDs contain 1..256
-letters/digits or `_ . : / + -`, starting with a letter/digit and without spaces.
-The runner compares this operator declaration; it does not discover backing devices or verify mount
-options. Reusing an ID after storage changes violates the sampling protocol.
-The unique output directory itself is not part of the environment key.
-Model/quantization/serving-only runs do not require a storage ID.
+volume/mount, filesystem, relevant mount options and durability configuration of the output workload. The commands above show example IDs; record what the chosen ID means on each host. Keep it for fresh directories on that same storage configuration, and use a different ID when moving between volumes, local/network filesystems, tmpfs, or durability settings. IDs contain 1..256 letters/digits or `_ . : / + -`, starting with a letter/digit and without spaces. The runner compares this operator declaration; it does not discover backing devices or verify mount options. Reusing an ID after storage changes violates the sampling protocol. The unique output directory itself is not part of the environment key. Model/quantization/serving-only runs do not require a storage ID.
 
 | Profile | Fixed work and resource evidence |
 | --- | --- |
@@ -62,14 +45,7 @@ Model/quantization/serving-only runs do not require a storage ID.
 | quantization | Calibrated 64-to-32 Linear storage artifact, canonical serialization/decode, FP32 reconstruction and 512 batches of 16 verified against an exact arithmetic vector |
 | serving | Existing generated linear bundle fixture, verified NativeStateBackend load/warmup, 128 Predictor calls, 32 rounds of eight DynamicBatcher requests, exact output and actual batch/row counters |
 
-All workloads are synthetic and bounded. Model `load_seconds` means architecture
-construction, random initialization and device transfer; it does not mean
-pretrained weight loading. Model inputs and initialization seed are fixed, and
-all retained results are verified for shape, dtype, device, finite values and
-eval repeatability. Model output tensors remain alive through the measured
-forward loop; memory includes those outputs. Serving measures the public
-in-process boundary and batch scheduler, including validation and snapshots.
-It reports real coalescing counters; no HTTP transport is involved.
+All workloads are synthetic and bounded. Model `load_seconds` means architecture construction, random initialization and device transfer; it does not mean pretrained weight loading. Model inputs and initialization seed are fixed, and all retained results are verified for shape, dtype, device, finite values and eval repeatability. Model output tensors remain alive through the measured forward loop; memory includes those outputs. Serving measures the public in-process boundary and batch scheduler, including validation and snapshots. It reports real coalescing counters; no HTTP transport is involved.
 
 `--device cuda:0` runs models and serving on the actual visible device zero,
 synchronizing before and after each stage. Reports include its UUID, name,
@@ -98,16 +74,11 @@ unavailable; their absence never counts as a CUDA pass.
 RSS is required for every selected profile on Windows and Linux. A collection
 failure remains explicit in raw samples and statistics, but
 `resource_completeness.passed` is false; the run exits unsuccessfully and cannot
-publish a reference. Actual CUDA profiles additionally require both allocator
-peaks. Legitimate CPU CUDA inapplicability does not fail completeness.
+publish a reference. Actual CUDA profiles additionally require both allocator peaks. Legitimate CPU CUDA inapplicability does not fail completeness.
 
-JSONL promises stream flush rather than filesystem fsync; checkpoint and SQLite timings retain their
-real synchronization semantics. Disk metrics describe the sample workload,
-not machine-wide I/O or filesystem cache eviction. Processes are independent;
-the OS file cache and GPU driver/context startup are not forcibly reset.
+JSONL promises stream flush rather than filesystem fsync; checkpoint and SQLite timings retain their real synchronization semantics. Disk metrics describe the sample workload, not machine-wide I/O or filesystem cache eviction. Processes are independent; the OS file cache and GPU driver/context startup are not forcibly reset.
 
-Each process has a 120-second timeout and a 1 MiB bound on each output stream
-by default. Every process retains `stdout.log`, `stderr.log`, `process.json`,
+Each process has a 120-second timeout and a 1 MiB bound on each output stream by default. Every process retains `stdout.log`, `stderr.log`, `process.json`,
 `sample.json`, `validation.json` and its dedicated workload directory. Failed
 processes retain available logs and failure metadata. The serving example owns
 and removes its own temporary generated bundle. Runs preserve `run.json` and
@@ -118,9 +89,7 @@ The runner never recursively deletes evidence.
 CV. Required repeated resource metrics use a **10% CV gate**. Single short
 startup/warmup/conversion measurements remain explicit diagnostics, with
 `gate:false`; the runner still validates their positive finite values.
-There are no silent retries or discarded measured outliers. An unstable run
-fails and cannot create a reference. Stabilize the host and retain the failed
-evidence before collecting a new run.
+There are no silent retries or discarded measured outliers. An unstable run fails and cannot create a reference. Stabilize the host and retain the failed evidence before collecting a new run.
 
 For a first stable reference, add
 `--write-reference out/baselines/resources/windows-reference.json` (or a distinct

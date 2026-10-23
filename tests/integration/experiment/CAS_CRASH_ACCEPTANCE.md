@@ -34,11 +34,7 @@ independent Python SHA-256, and checks no extra objects or temporary files.
 
 Add `src/jyppx/liuding/experiment/detail/artifact_publish.cpp` and
 `src/jyppx/liuding/experiment/detail/native_artifact_publish.cpp` as separate sources of
-the **static** experiment target. Keep them in separate archive members: unity
-builds or whole-archive linking must not merge/force-load the default forwarder.
-The native implementation retains the original `MoveFileExW` flags on Windows
-and `std::filesystem::rename` on POSIX. Original directory sync, error mapping
-and session-commit ordering remain in `artifact_store.cpp`.
+the **static** experiment target. Keep them in separate archive members: unity builds or whole-archive linking must not merge/force-load the default forwarder. The native implementation retains the original `MoveFileExW` flags on Windows and `std::filesystem::rename` on POSIX. Original directory sync, error mapping and session-commit ordering remain in `artifact_store.cpp`.
 
 Link this helper to `jyppx::liuding::experiment` and `nlohmann_json::nlohmann_json`, with
 `${PROJECT_SOURCE_DIR}/src` as a private include directory for the internal

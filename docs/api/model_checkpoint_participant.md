@@ -6,14 +6,11 @@ Link target: `jyppx::liuding::nn`
 
 `ModelCheckpointParticipant` exposes the parameters and buffers owned by a
 `ModelStateView` as exact checkpoint state. It implements the storage-neutral
-foundation participant contract and can be registered directly with the
-training checkpoint coordinator.
+foundation participant contract and can be registered directly with the training checkpoint coordinator.
 
 ## State contract
 
-Schema version 1 writes one `topology` field followed by deterministic numeric
-tensor fields. The topology records each stable state key, parameter or buffer
-role, scalar type, shape, stride, storage alias group, storage offset, and
+Schema version 1 writes one `topology` field followed by deterministic numeric tensor fields. The topology records each stable state key, parameter or buffer role, scalar type, shape, stride, storage alias group, storage offset, and
 `requires_grad` flag. A restore requires this complete topology to match the
 currently constructed model.
 
@@ -39,19 +36,10 @@ indeterminate.
 ## Resource limits
 
 `ModelCheckpointParticipantOptions` defines the participant ID and positive
-limits for tensor count, state-key length, topology bytes, per-tensor bytes,
-and total declared bytes. Limits are enforced during describe, save, metadata
-parse, and load allocation. The coordinator has an additional aggregate
-rollback budget which may need to be raised for large models.
+limits for tensor count, state-key length, topology bytes, per-tensor bytes, and total declared bytes. Limits are enforced during describe, save, metadata parse, and load allocation. The coordinator has an additional aggregate rollback budget which may need to be raised for large models.
 
 ## Current boundary
 
-The participant preserves tensor values and the model's existing topology. It
-does not restore train/eval mode, optimizer state, gradients, hooks, arbitrary
-module attributes, device strategy, or invocation schemas. Those states belong
-to their respective participants or Trainer control state. Schema migration,
-state-key remapping, permissive partial load, interop hashes, compression, and
-artifact publication are not supported by this schema version.
+The participant preserves tensor values and the model's existing topology. It does not restore train/eval mode, optimizer state, gradients, hooks, arbitrary module attributes, device strategy, or invocation schemas. Those states belong to their respective participants or Trainer control state. Schema migration, state-key remapping, permissive partial load, interop hashes, compression, and artifact publication are not supported by this schema version.
 
-Callers must quiesce model mutation during describe, save, and load. The class
-retains shared ownership of the model but does not provide internal locking.
+Callers must quiesce model mutation during describe, save, and load. The class retains shared ownership of the model but does not provide internal locking.

@@ -2,31 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ### Changed
 
-- Public branding is now 六丁炼算 (Liuding Forge), with `liuding-forge-*`
-  library, example, benchmark, fuzzer, archive and CLI output names. The
-  historical JYPPX Training Framework name and all `jyppx` C++/CMake/package
-  compatibility surfaces remain available.
+- Public branding is now 六丁炼算 (Liuding Forge), with `liuding-forge-*` library, example, benchmark, fuzzer, archive and CLI output names. The historical JYPPX Training Framework name and all `jyppx` C++/CMake/package compatibility surfaces remain available.
 
 ### Added
-- An independently exported `jyppx::liuding::interop` target with a schema-v1
-  checkpoint artifact manifest codec, deterministic JSON, strict field and
-  digest validation, portable path checks, resource limits, capability
-  metadata, and an installed-package consumer.
-- An installed-package component matrix that configures, builds, links, and
-  runs a consumer against each exported target independently.
-- A legacy-surface gate that rejects retired headers, sources, package names,
-  and build target names in both the source tree and staged installation.
-- A persistent optional-component matrix that configures, builds, installs,
-  and consumes each current component with unrelated components disabled.
-- Build-level capability queries that report enabled and disabled entity
-  components and bind the result to the current build fingerprint.
+- An independently exported `jyppx::liuding::interop` target with a schema-v1 checkpoint artifact manifest codec, deterministic JSON, strict field and digest validation, portable path checks, resource limits, capability metadata, and an installed-package consumer.
+- An installed-package component matrix that configures, builds, links, and runs a consumer against each exported target independently.
+- A legacy-surface gate that rejects retired headers, sources, package names, and build target names in both the source tree and staged installation.
+- A persistent optional-component matrix that configures, builds, installs, and consumes each current component with unrelated components disabled.
+- Build-level capability queries that report enabled and disabled entity components and bind the result to the current build fingerprint.
 
 ### Changed
 - The remaining in-tree SDK target and project identifiers now use canonical
@@ -183,16 +172,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Training examples, tutorials, the throughput benchmark, and the installed
   consumer now use explicit `ModelAdapter`, task step, participant, and
   `prepare()`/`fit()` contracts. Precision remains explicit task/strategy work;
-  the current Trainer does not retain the legacy implicit `use_amp` switch.
-- Removed the replaced legacy composite scheduler implementation and its two
-  forwarding headers; composite scheduling now has one direct public API.
-- Windows tests, benchmarks, and examples now copy LibTorch runtime DLLs once
-  per output directory, preventing parallel MSBuild copy races.
-- Coverage and sanitizer options now fail clearly on unsupported compilers and
-  reject incompatible instrumentation combinations.
-- Linux coverage and sanitizer builds now bound parallelism to avoid exhausting
-  memory on constrained runners; coverage exposes `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL`
-  for hosts that need a different budget.
+the current Trainer does not retain the legacy implicit `use_amp` switch.
+- Removed the replaced legacy composite scheduler implementation and its two forwarding headers; composite scheduling now has one direct public API.
+- Windows tests, benchmarks, and examples now copy LibTorch runtime DLLs once per output directory, preventing parallel MSBuild copy races.
+- Coverage and sanitizer options now fail clearly on unsupported compilers and reject incompatible instrumentation combinations.
+- Linux coverage and sanitizer builds now bound parallelism to avoid exhausting memory on constrained runners; coverage exposes `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` for hosts that need a different budget.
 
 ### Removed
 - The legacy iterator-style `DataLoader` and its private-purpose
@@ -303,37 +287,24 @@ pass in Release and Debug configurations.
   (auto-download), CNN training through the Trainer with a 2-worker loader
   and TensorBoard logging (reaches 98.6% test accuracy in 3 epochs), and
   `examples/complete_training.cpp` — the full-featured flow (random split,
-  AdamW + cosine schedule, all callbacks, metrics, checkpoint best-model
-  restore; 99.5% validation accuracy).
+AdamW + cosine schedule, all callbacks, metrics, checkpoint best-model restore; 99.5% validation accuracy).
 
 ## [0.2.0] - 2026-10-11
 
-First feature-complete release of the training framework: data loading
-(single- and multi-threaded), optimizers and schedulers, the Trainer with
-callbacks and checkpointing, mixed precision, transforms, losses,
-initialization, documentation and benchmarks. 195 unit/integration tests
-pass in Release and Debug configurations.
+First feature-complete release of the training framework: data loading (single- and multi-threaded), optimizers and schedulers, the Trainer with callbacks and checkpointing, mixed precision, transforms, losses, initialization, documentation and benchmarks. 195 unit/integration tests pass in Release and Debug configurations.
 
 ### Added
-- **Loss functions** (`include/jyppx/liuding/nn/losses.hpp`): functional
-  implementations in `jyppx::liuding::nn::functional` — `focal_loss` (multiclass
-  cross-entropy path and binary sigmoid path, alpha weighting, gamma
-  focusing), `dice_loss` (soft Dice with one-hot multiclass and binary
-  paths, fully differentiable tensor ops), `label_smoothing_cross_entropy`
-  (verified equal to torch's `label_smoothing` option), `contrastive_loss`
-  (Euclidean pairs with margin hinge) and `triplet_margin_loss` (delegates
-  to ATen for exact parity). Criterion modules `nn::FocalLoss`, `nn::DiceLoss`,
+- **Loss functions** (`include/jyppx/liuding/nn/losses.hpp`): functional implementations in `jyppx::liuding::nn::functional` — `focal_loss` (multiclass cross-entropy path and binary sigmoid path, alpha weighting, gamma focusing), `dice_loss` (soft Dice with one-hot multiclass and binary paths, fully differentiable tensor ops), `label_smoothing_cross_entropy` (verified equal to torch's `label_smoothing` option), `contrastive_loss` (Euclidean pairs with margin hinge) and `triplet_margin_loss` (delegates to ATen for exact parity). Criterion modules `nn::FocalLoss`, `nn::DiceLoss`,
   `nn::LabelSmoothingCrossEntropy`, `nn::ContrastiveLoss`, `nn::TripletLoss`
   wrap the functions for forward-style use. 20 tests cover hand-computed
   values (1e-12), torch parity anchors, gradient flow, reduction semantics
   and argument validation.
 - **Data transforms** (`jyppx::liuding::data::transforms`, header-only):
   `Transform<I, O>` base + `TensorTransform` alias, `Compose` (ordered
-  chaining with descriptive `name()`), `RandomChoice`, and six vision
-  transforms — `Normalize` (per-channel, promotes integral inputs),
+chaining with descriptive `name()`), `RandomChoice`, and six vision transforms — `Normalize` (per-channel, promotes integral inputs),
   `Resize` (bilinear/nearest, square or `{h, w}`), `CenterCrop`,
   `RandomCrop`, `RandomHorizontalFlip`, `RandomVerticalFlip`. Random
-  transforms draw from the global torch RNG (reproducible via
+transforms draw from the global torch RNG (reproducible via
   `torch::manual_seed`, safe under the multi-worker DataLoader). 15 tests
   cover ordering, exact values, fan-free crop geometry, seeded
   determinism, probability bounds and DataLoader integration.
@@ -356,16 +327,11 @@ pass in Release and Debug configurations.
   used an invalid `make_shared<torch::nn::Linear>` construction, the
   ReduceLROnPlateau snippet relied on braced-init-list forwarding that
   `make_shared` does not support, and a TrainerOptions snippet used
-  out-of-order designated initializers (rejected by MSVC).
-- **`nn::init` parameter initialization** (all 9 functions declared in the
-  header are now implemented, delegating to `torch::nn::init` for exact
-  PyTorch semantics): `uniform_`, `normal_`, `constant_`, `zeros_`, `ones_`,
+out-of-order designated initializers (rejected by MSVC).
+- **`nn::init` parameter initialization** (all 9 functions declared in the header are now implemented, delegating to `torch::nn::init` for exact PyTorch semantics): `uniform_`, `normal_`, `constant_`, `zeros_`, `ones_`,
   `xavier_uniform_`, `xavier_normal_`, `kaiming_uniform_`,
   `kaiming_normal_` (string-based `mode` = "fan_in"/"fan_out"; leaky_relu
-  gain). 13 tests cover seeded RNG parity with `torch::nn::init`, fan-based
-  bounds/statistics for 2D and 4D weights, gain handling and argument
-  validation. Platform notes: torch 2.14 C++ requires dim >= 2 for
-  fan-based init (1D tensors are rejected, unlike Python) and the
+gain). 13 tests cover seeded RNG parity with `torch::nn::init`, fan-based bounds/statistics for 2D and 4D weights, gain handling and argument validation. Platform notes: torch 2.14 C++ requires dim >= 2 for fan-based init (1D tensors are rejected, unlike Python) and the
   `NonlinearityType`/`FanModeType` parameters are `std::variant` enums.
 - **Dataset utilities**:
   - `data::Subset<T>`: index-restricted view over an existing dataset.
@@ -449,8 +415,7 @@ pass in Release and Debug configurations.
 - Adam / AdamW now match PyTorch's update exactly: eps is added to the
   bias-corrected denominator (`sqrt(v) / sqrt(bias_correction2) + eps` with
   `step_size = lr / bias_correction1`). The previous paper-style formula
-  (`sqrt(v) + eps` before bias correction) diverged from `torch::optim` by
-  ~1e-7 per step.
+(`sqrt(v) + eps` before bias correction) diverged from `torch::optim` by ~1e-7 per step.
 - `Optimizer::state_dict()` serializes parameter-group options as float64.
   `torch::tensor(double)` defaults to float32, which corrupted lr/momentum
   values in checkpoint round trips.
@@ -463,21 +428,14 @@ pass in Release and Debug configurations.
 - MSVC Debug builds: use the release CRT (`/MD` via
   `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL`) and
   `_ITERATOR_DEBUG_LEVEL=0` in every configuration. LibTorch's official
-  Windows binaries are Release-built with `/MD`; mixing them with a Debug
-  runtime corrupted the heap across the DLL boundary (access violations,
+Windows binaries are Release-built with `/MD`; mixing them with a Debug runtime corrupted the heap across the DLL boundary (access violations,
   `STATUS_HEAP_CORRUPTION`) and mismatched STL layouts (segfaults inside
   `register_module`).
-- Fixed MSVC Debug/Release flag handling for multi-config generators: per-config
-  compiler flags in `cmake/CompilerOptions.cmake` now use generator expressions
-  instead of `CMAKE_BUILD_TYPE` checks (previously building the Debug config
-  failed with D8016 `/O2` vs `/RTC1`).
-- Examples: the LibTorch POST_BUILD copy now copies only `*.dll`
-  (`copy_if_different`) instead of the whole `lib` directory, which also
-  contained large import libraries.
+- Fixed MSVC Debug/Release flag handling for multi-config generators: per-config compiler flags in `cmake/CompilerOptions.cmake` now use generator expressions instead of `CMAKE_BUILD_TYPE` checks (previously building the Debug config failed with D8016 `/O2` vs `/RTC1`).
+- Examples: the LibTorch POST_BUILD copy now copies only `*.dll` (`copy_if_different`) instead of the whole `lib` directory, which also contained large import libraries.
 
 ### Verified
-- `ctest -C Release` and `ctest -C Debug`: 240/240 tests pass in both
-  configurations. The CUDA AMP integration test skips gracefully when
+- `ctest -C Release` and `ctest -C Debug`: 240/240 tests pass in both configurations. The CUDA AMP integration test skips gracefully when
   `torch::cuda::is_available()` is false; on this workstation the installed
   driver (576.02, up to CUDA 12.9) cannot run the cu132 LibTorch binaries, so
   the GPU path is compile-checked and unit-covered but not yet exercised
@@ -486,7 +444,7 @@ pass in Release and Debug configurations.
   `examples/complete_training` (99.5% val accuracy),
   `examples/mnist` (98.6% test accuracy on the real dataset) and
   `examples/distillation` (teacher transfer into the label-scarce student)
-  run cleanly in both Release and Debug configurations.
+run cleanly in both Release and Debug configurations.
 - The installed CMake package was exercised by an out-of-tree consumer via
   `find_package(jyppx_liuding_training_framework CONFIG REQUIRED)` (build, link, run).
 - DataLoader multi-worker scaling measured with the bundled benchmark:

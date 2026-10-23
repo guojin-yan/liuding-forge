@@ -2,9 +2,7 @@
 
 `jyppx::liuding::training::FileCheckpointStore` adapts the training coordinator to
 `jyppx::liuding::interop::FileStateArchive`. Link `jyppx::liuding::training` with interop enabled;
-the file adapter is absent from the installed training headers when interop is
-disabled. Custom loops can use `FileStateArchive` directly with foundation
-participant manifests and readers/writers.
+the file adapter is absent from the installed training headers when interop is disabled. Custom loops can use `FileStateArchive` directly with foundation participant manifests and readers/writers.
 
 ```cpp
 #include <jyppx/liuding/training/file_checkpoint_store.hpp>
@@ -17,18 +15,9 @@ jyppx::liuding::training::FileCheckpointStore source("checkpoints/last.bin");
 new_coordinator.restore(source, jyppx::liuding::RestorePolicy::exact_only);
 ```
 
-Register every state owner before capture and reconstruction: model,
-optimizers, schedulers, precision scaler, RNG, data pipelines, metrics,
-callbacks, dispatcher, event outbox, strategy, and trainer. The coordinator
-validates the complete domain before mutation and rolls back participant
-changes on a failed restore. The file store does not discover missing state
-owners. Batch midpoint and uncommitted gradient recovery remain unsupported.
+Register every state owner before capture and reconstruction: model, optimizers, schedulers, precision scaler, RNG, data pipelines, metrics, callbacks, dispatcher, event outbox, strategy, and trainer. The coordinator validates the complete domain before mutation and rolls back participant changes on a failed restore. The file store does not discover missing state owners. Batch midpoint and uncommitted gradient recovery remain unsupported.
 
-The format-v1 file contains an eight-byte magic, a little-endian version and
-manifest length, the canonical checkpoint manifest JSON, the declared blobs,
-and a SHA-256 trailer over the preceding bytes. The manifest includes a build
-fingerprint, participant schema and restore levels, and each blob's exact size
-and SHA-256. Digest identities belong to foundation (`ArtifactDigest` and
+The format-v1 file contains an eight-byte magic, a little-endian version and manifest length, the canonical checkpoint manifest JSON, the declared blobs, and a SHA-256 trailer over the preceding bytes. The manifest includes a build fingerprint, participant schema and restore levels, and each blob's exact size and SHA-256. Digest identities belong to foundation (`ArtifactDigest` and
 `ArtifactDigestAlgorithm`), shared with the local CAS. Field order is not
 identity: the canonical codec sorts fields by name, and participants must
 validate fields by their names and schema properties.
@@ -59,11 +48,7 @@ file/path as a new archive; other open failures remain errors.
 `synchronize=true` requests file and directory durability (Windows uses
 `FlushFileBuffers` and `MOVEFILE_WRITE_THROUGH`; POSIX uses `fsync` and
 `rename`). Newly created parent directory entries are synchronized as well.
-A failure before replacement preserves the prior file. If directory sync
-fails after replacement, either complete generation may survive a power loss:
-the call fails, the current handle keeps its prior descriptor and readers
-together, and reopening inspects the complete generation at the final path.
-Atomicity and durability depend on the local filesystem's guarantees.
+A failure before replacement preserves the prior file. If directory sync fails after replacement, either complete generation may survive a power loss: the call fails, the current handle keeps its prior descriptor and readers together, and reopening inspects the complete generation at the final path. Atomicity and durability depend on the local filesystem's guarantees.
 
 All blobs and the encoded file are held in memory. Set `max_field_bytes`,
 `max_artifact_bytes`, manifest parser limits, and a free-storage reserve for

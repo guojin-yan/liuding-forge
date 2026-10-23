@@ -6,15 +6,12 @@ secret-reference validation as `config lint`. It does not infer historical
 formats or change an application's configuration in place.
 
 ```text
-liuding-forge config migrate --input config.json --plan migration.json --to-version 2 --format json
-liuding-forge config migrate --mode apply --input config.json --plan migration.json --to-version 2 --output migrated-config --format json
-liuding-forge config migrate --mode rollback --receipt migrated-config --plan migration.json --output restored-config --format json
+liuding-forge config migrate --input config.json --plan migration.json --to-version 2 --format json liuding-forge config migrate --mode apply --input config.json --plan migration.json --to-version 2 --output migrated-config --format json liuding-forge config migrate --mode rollback --receipt migrated-config --plan migration.json --output restored-config --format json
 ```
 
 The default mode is `preview`, which accepts no `--output`. `apply` and
 `rollback` require a new output directory whose parent already exists. All
-commands accept the common `--format json|text` option. The installed C++ CLI
-implements these commands; Python is only used by the repository's tests.
+commands accept the common `--format json|text` option. The installed C++ CLI implements these commands; Python is only used by the repository's tests.
 
 ## Document and plan contracts
 
@@ -37,12 +34,7 @@ The following complete plan changes the timeout unit and supplies a new value
 only when it is absent. The reverse step is independently declared:
 
 ```json
-{
-  "schema_version": 1,
-  "plan_id": "example-timeout-v1-v2",
-  "feature_id": "CONFIG-MIGRATION",
-  "schema_id": "example.training",
-  "schemas": [
+{ "schema_version": 1, "plan_id": "example-timeout-v1-v2", "feature_id": "CONFIG-MIGRATION", "schema_id": "example.training", "schemas": [
     {
       "schema_version": 1,
       "schema_id": "example.training",
@@ -68,8 +60,7 @@ only when it is absent. The reverse step is independently declared:
         }
       }
     }
-  ],
-  "steps": [
+], "steps": [
     {
       "from_version": 1,
       "to_version": 2,
@@ -90,8 +81,7 @@ only when it is absent. The reverse step is independently declared:
         {"kind": "remove-checked", "path": "/enabled", "expected": true}
       ]
     }
-  ]
-}
+] }
 ```
 
 All plan fields shown are required, and unknown fields are rejected. Identities
@@ -105,23 +95,13 @@ Value schemas use `dictionary`, `list`, `tuple`, `integer`, `floating`,
 `boolean`, and `string` nodes. A dictionary requires `fields`, a list requires
 `element`, and a tuple requires ordered `elements`. Optional node metadata is
 `name`, `semantic_tag`, `required` (default true), and `nullable` (default
-false). Scalar nodes cannot declare children. Migration schemas must have a
-dictionary root, no configured defaults, and no environment bindings; any
-default change must appear as an operation. Optional `secret_paths` retain the
-SDK's JSON Pointer and secret-reference rules.
+false). Scalar nodes cannot declare children. Migration schemas must have a dictionary root, no configured defaults, and no environment bindings; any default change must appear as an operation. Optional `secret_paths` retain the SDK's JSON Pointer and secret-reference rules.
 
-The complete starting value and the complete value after every step are
-validated against their declared schema, including required fields, unknown
-fields, types, and secret references. Defaults and process environment values
-are never injected into a migration. An application may use a sequence of
-operations to reshape a value before the next complete schema check.
+The complete starting value and the complete value after every step are validated against their declared schema, including required fields, unknown fields, types, and secret references. Defaults and process environment values are never injected into a migration. An application may use a sequence of operations to reshape a value before the next complete schema check.
 
 ## Operations
 
-Paths are non-root RFC 6901 JSON Pointers, with `~0` and `~1` escapes. Empty
-tokens, controls, missing dictionary parents, and array-element editing are
-rejected. Create a required dictionary explicitly with `set-default` before
-moving fields into it.
+Paths are non-root RFC 6901 JSON Pointers, with `~0` and `~1` escapes. Empty tokens, controls, missing dictionary parents, and array-element editing are rejected. Create a required dictionary explicitly with `set-default` before moving fields into it.
 
 | `kind` | Exact fields in addition to `kind` | Behavior |
 |---|---|---|
@@ -140,8 +120,7 @@ moved during a reverse migration. A reverse operation may intentionally reject
 values that cannot be represented in the older schema.
 
 `tests/cli/test_migration.py` supplies a user-owned v1 → v2 → v3 fixture, explicit
-v3 → v2 → v1 steps, integer boundary cases, and secret-path relocation. These
-are application fixtures rather than historical framework format claims.
+v3 → v2 → v1 steps, integer boundary cases, and secret-path relocation. These are application fixtures rather than historical framework format claims.
 
 ## Apply receipts and rollback
 
@@ -165,9 +144,7 @@ the command inherits filesystem permissions and does not create an ACL or
 resolve secret material.
 
 `rollback` requires the original plan's exact bytes and a receipt directory
-containing only those three regular files. It verifies their hashes and
-identities, replays the recorded migration, and compares the resulting bytes
-and change list. It then writes the original bytes as `restored.json`, plus a
+containing only those three regular files. It verifies their hashes and identities, replays the recorded migration, and compares the resulting bytes and change list. It then writes the original bytes as `restored.json`, plus a
 `rollback.json` result, into a new directory outside the receipt directory.
 Rollback preserves the original source and receipt. This receipt is a local
 integrity record, not a signature or an authentication boundary.

@@ -1,8 +1,6 @@
 # Tutorial 5: Mixed Precision Primitives
 
-JYPPX provides explicit autocast and gradient-scaling primitives plus a
-current-only Trainer precision contract. There is no implicit `use_amp`
-compatibility switch: select `TrainerOptions::precision`, and bind an enabled
+JYPPX provides explicit autocast and gradient-scaling primitives plus a current-only Trainer precision contract. There is no implicit `use_amp` compatibility switch: select `TrainerOptions::precision`, and bind an enabled
 `GradScaler` with its checkpoint participant for CUDA float16.
 
 ## Autocast
@@ -17,26 +15,14 @@ auto prediction = model.forward(input);
 auto loss = torch::mse_loss(prediction, target);
 ```
 
-Use CUDA Half/BFloat16 only on supported hardware. Validate device and dtype
-before entering the region.
+Use CUDA Half/BFloat16 only on supported hardware. Validate device and dtype before entering the region.
 
 ## GradScaler
 
 `GradScaler` owns the scale, overflow history and growth/backoff policy:
 
 ```cpp
-jyppx::liuding::training::amp::GradScaler scaler;
-optimizer.zero_grad();
-auto scaled = scaler.scale(loss);
-scaled.backward();
-scaler.unscale(optimizer);
-// Inspect or clip true gradients here.
-const bool applied = scaler.step_allowed(optimizer);
-if (applied) {
-  optimizer->step();
-}
-scaler.mark_step(optimizer, applied);
-scaler.update();
+jyppx::liuding::training::amp::GradScaler scaler; optimizer.zero_grad(); auto scaled = scaler.scale(loss); scaled.backward(); scaler.unscale(optimizer); // Inspect or clip true gradients here. const bool applied = scaler.step_allowed(optimizer); if (applied) { optimizer->step(); } scaler.mark_step(optimizer, applied); scaler.update();
 ```
 
 For a manual multi-optimizer cycle, unscale every optimizer before asking for
@@ -44,16 +30,7 @@ the aggregate decision. Report the same group result for every participant and
 update the scaler exactly once:
 
 ```cpp
-scaler.unscale(encoder_optimizer);
-scaler.unscale(head_optimizer);
-const bool apply_group = scaler.cycle_allowed();
-if (apply_group) {
-  encoder_optimizer->step();
-  head_optimizer->step();
-}
-scaler.mark_step(encoder_optimizer, apply_group);
-scaler.mark_step(head_optimizer, apply_group);
-scaler.update();
+scaler.unscale(encoder_optimizer); scaler.unscale(head_optimizer); const bool apply_group = scaler.cycle_allowed(); if (apply_group) { encoder_optimizer->step(); head_optimizer->step(); } scaler.mark_step(encoder_optimizer, apply_group); scaler.mark_step(head_optimizer, apply_group); scaler.update();
 ```
 
 Overflow skips every optimizer in the logical update; batch schedulers and the

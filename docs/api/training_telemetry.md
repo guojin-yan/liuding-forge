@@ -2,13 +2,11 @@
 
 `training::EventOutbox` stages training observations for foundation
 `TelemetrySink` destinations. It remains the only training event queue. Training
-depends on foundation; composing an experiment store or an exporter is the
-application's responsibility.
+depends on foundation; composing an experiment store or an exporter is the application's responsibility.
 
 ## Connect a durable sink
 
-Construct a neutral sink, register the exact semantics and context of every
-metric key the Trainer can emit, and supply the outbox in `FitRequest`:
+Construct a neutral sink, register the exact semantics and context of every metric key the Trainer can emit, and supply the outbox in `FitRequest`:
 
 ```cpp
 #include <jyppx/liuding/training/telemetry_adapter.hpp>
@@ -86,14 +84,9 @@ time and clock ID, while subsequent events use the new clock domain. Monotonic
 samples from different clock IDs must never be compared.
 
 `load_state` also recognizes real schema-1 topology/control blobs. It validates
-the old manifest and bounds, decodes every callback snapshot, verifies the
-delivered prefix and gap-free pending suffix, and converts the complete
-candidate before atomically installing any live state. Unsupported/future
-schemas, malformed bytes, changed destinations, inconsistent counters, and
-insufficient new capacity fail without replacing the live queue.
+the old manifest and bounds, decodes every callback snapshot, verifies the delivered prefix and gap-free pending suffix, and converts the complete candidate before atomically installing any live state. Unsupported/future schemas, malformed bytes, changed destinations, inconsistent counters, and insufficient new capacity fail without replacing the live queue.
 
-N-1 migration preserves sorted sink IDs, destination IDs, and every next-sink
-cursor. An implementation type can change only through an explicit pair in
+N-1 migration preserves sorted sink IDs, destination IDs, and every next-sink cursor. An implementation type can change only through an explicit pair in
 `EventOutboxOptions::v1_sink_type_migrations`; a mapping never authorizes a new
 logical destination or a reset of delivered history. All new decode bounds must
 retain or exceed the corresponding old bounds. The neutral representation can
@@ -128,7 +121,4 @@ active token and a new operation deadline. Final terminal evidence needs such
 an explicit completion policy after training cancellation.
 
 `close` drains and flushes before closing sinks, and retries skip sinks already
-closed successfully. Checkpointing during or after close is rejected. Destruction
-does not perform fallible I/O. Failures after callback commit do not roll back
-the accepted training snapshot; the caller handles delivery failure at that
-lifecycle boundary.
+closed successfully. Checkpointing during or after close is rejected. Destruction does not perform fallible I/O. Failures after callback commit do not roll back the accepted training snapshot; the caller handles delivery failure at that lifecycle boundary.

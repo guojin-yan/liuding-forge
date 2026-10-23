@@ -1,14 +1,10 @@
 # SDK Beta scope and migration limits
 
-This document describes the current integration candidate. A source file or an
-enabled CMake option does not establish a qualified release. Exact platform,
-dependency and test evidence belongs to `compatibility.json` and the release
-evidence index. The candidate is not a signed v1.0 GA distribution.
+This document describes the current integration candidate. A source file or an enabled CMake option does not establish a qualified release. Exact platform, dependency and test evidence belongs to `compatibility.json` and the release evidence index. The candidate is not a signed v1.0 GA distribution.
 
 ## Supported contracts
 
-The SDK uses separate foundation, core, interop, data, nn, optim, training and
-experiment targets. Product tools are the `liuding-forge` CLI (with the installed
+The SDK uses separate foundation, core, interop, data, nn, optim, training and experiment targets. Product tools are the `liuding-forge` CLI (with the installed
 `jyppx` compatibility command) and the optional official
 TensorBoard/OpenTelemetry Python sidecar. Repository development commands live
 under `scripts/`; their tests and backend acceptance live under `tests/`.

@@ -4,8 +4,7 @@
 CMake package name in an application's source tree:
 
 ```text
-liuding-forge api scan --root application --format json
-liuding-forge api scan --root application --max-files 2000 --max-bytes 8388608 --max-findings 512 --format json
+liuding-forge api scan --root application --format json liuding-forge api scan --root application --max-files 2000 --max-bytes 8388608 --max-findings 512 --format json
 ```
 
 The scan reads files only. It proposes review directions and never rewrites

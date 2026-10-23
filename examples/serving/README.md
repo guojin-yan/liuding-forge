@@ -1,9 +1,6 @@
 # Local serving Preview host
 
-The opt-in `liuding-forge-example-serving-jsonl` example uses the official nlohmann JSON parser,
-a fixed application-owned two-feature native model, a fully verified safetensors
-bundle, a known-vector warmup, the bounded scheduler and the unary service adapter.
-It reads stdin and writes stdout. It opens no network listener.
+The opt-in `liuding-forge-example-serving-jsonl` example uses the official nlohmann JSON parser, a fixed application-owned two-feature native model, a fully verified safetensors bundle, a known-vector warmup, the bounded scheduler and the unary service adapter. It reads stdin and writes stdout. It opens no network listener.
 
 ```text
 liuding-forge-example-serving-jsonl --demo
@@ -17,10 +14,4 @@ manifest without loading a model. `--cuda 0` selects that exact available device
 `--bundle PATH` accepts an already published compatible local example bundle.
 Bundle paths are process configuration, never request fields.
 
-Lines are capped at 4 KiB before parsing; depth is capped at eight; duplicate and
-unknown members fail. Input is exactly two finite numbers in [-1e6,1e6]. Deadlines
-are cooperative 0..60000 ms. Authentication is the local operating-system
-operator and fixed local project; remote authentication/TLS is outside this
-example. The host processes JSONL lines sequentially, so dynamic batching is
-exercised by the concurrent unit/installation consumers, not claimed by this
-sequential host. No pretrained weights or external model downloads are used.
+Lines are capped at 4 KiB before parsing; depth is capped at eight; duplicate and unknown members fail. Input is exactly two finite numbers in [-1e6,1e6]. Deadlines are cooperative 0..60000 ms. Authentication is the local operating-system operator and fixed local project; remote authentication/TLS is outside this example. The host processes JSONL lines sequentially, so dynamic batching is exercised by the concurrent unit/installation consumers, not claimed by this sequential host. No pretrained weights or external model downloads are used.
