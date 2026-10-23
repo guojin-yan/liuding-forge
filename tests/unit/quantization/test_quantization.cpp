@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/quantization/quantization.hpp>
+#include <jyppx/liuding/quantization/quantization.hpp>
 
 #include <algorithm>
 #include <array>
@@ -23,16 +23,16 @@
 
 namespace {
 
-namespace q = jyppx::quantization;
+namespace q = jyppx::liuding::quantization;
 
 struct RestoreRounding {
   int mode;
   ~RestoreRounding() { static_cast<void>(std::fesetround(mode)); }
 };
 
-class MemoryState final : public jyppx::StateWriter, public jyppx::StateReader {
+class MemoryState final : public jyppx::liuding::StateWriter, public jyppx::liuding::StateReader {
  public:
-  explicit MemoryState(jyppx::StateManifest manifest)
+  explicit MemoryState(jyppx::liuding::StateManifest manifest)
       : manifest_(std::move(manifest)) {}
 
   void write_blob(std::string_view name,
@@ -41,15 +41,15 @@ class MemoryState final : public jyppx::StateWriter, public jyppx::StateReader {
         std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
                      [name](const auto& value) { return value.name == name; });
     if (field == manifest_.fields.end() || fields.contains(std::string(name)))
-      throw jyppx::SerializationError("Unknown or duplicate test state field");
+      throw jyppx::liuding::SerializationError("Unknown or duplicate test state field");
     if (data.size() > field->max_bytes)
-      throw jyppx::ResourceExhausted(
+      throw jyppx::liuding::ResourceExhausted(
           "Test state field exceeds declared budget");
     fields.emplace(std::string(name),
                    std::vector<std::byte>(data.begin(), data.end()));
   }
 
-  const jyppx::StateManifest& manifest() const noexcept override {
+  const jyppx::liuding::StateManifest& manifest() const noexcept override {
     return manifest_;
   }
 
@@ -61,13 +61,13 @@ class MemoryState final : public jyppx::StateWriter, public jyppx::StateReader {
                                        std::uint64_t max_bytes) const override {
     const auto found = fields.find(std::string(name));
     if (found == fields.end())
-      throw jyppx::SerializationError("Missing test state field");
+      throw jyppx::liuding::SerializationError("Missing test state field");
     if (found->second.size() > max_bytes)
-      throw jyppx::ResourceExhausted("Test state exceeds read budget");
+      throw jyppx::liuding::ResourceExhausted("Test state exceeds read budget");
     return found->second;
   }
 
-  jyppx::StateManifest manifest_;
+  jyppx::liuding::StateManifest manifest_;
   std::map<std::string, std::vector<std::byte>> fields;
 };
 
@@ -113,11 +113,11 @@ TEST(QuantizationFormat, ClaimsOnlyStorageQuantization) {
             q::QuantizationExecutionPlane::storage_only);
   descriptor.compute_quantized = true;
   EXPECT_THROW(q::validate_format_descriptor(descriptor),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   descriptor.compute_quantized = false;
   descriptor.qat_supported = true;
   EXPECT_THROW(q::validate_format_descriptor(descriptor),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(QuantizationReference, SymmetricGoldenAndZeroPolicy) {
@@ -131,7 +131,7 @@ TEST(QuantizationReference, SymmetricGoldenAndZeroPolicy) {
             (std::vector<float>(values.begin(), values.end())));
   const std::array<float, 2U> zeros{0.0F, -0.0F};
   EXPECT_DOUBLE_EQ(q::derive_symmetric_params(zeros).scale, 1.0);
-  EXPECT_THROW(q::derive_symmetric_params({}), jyppx::NotReady);
+  EXPECT_THROW(q::derive_symmetric_params({}), jyppx::liuding::NotReady);
 }
 
 TEST(QuantizationReference, RoundToNearestEvenAndSaturate) {
@@ -222,7 +222,7 @@ TEST(QuantizationReference,
       largest.scale = std::bit_cast<double>(0x4780204070e1c387ULL);
       EXPECT_NO_THROW(q::quantize_symmetric({}, largest));
       largest.scale = std::bit_cast<double>(0x4780204070e1c388ULL);
-      EXPECT_THROW(q::quantize_symmetric({}, largest), jyppx::InvalidArgument);
+      EXPECT_THROW(q::quantize_symmetric({}, largest), jyppx::liuding::InvalidArgument);
       EXPECT_EQ(std::fegetround(), mode);
     }
   }
@@ -232,17 +232,17 @@ TEST(QuantizationReference,
 TEST(QuantizationReference, NonfiniteInputsAndMalformedQparamsAreExplicit) {
   const std::array<float, 2U> values{std::numeric_limits<float>::quiet_NaN(),
                                      std::numeric_limits<float>::infinity()};
-  EXPECT_THROW(q::derive_symmetric_params(values), jyppx::NotReady);
-  EXPECT_THROW(q::quantize_symmetric(values, {}), jyppx::NumericalError);
+  EXPECT_THROW(q::derive_symmetric_params(values), jyppx::liuding::NotReady);
+  EXPECT_THROW(q::quantize_symmetric(values, {}), jyppx::liuding::NumericalError);
   q::QuantizationParams params;
   params.scale = 0.0;
-  EXPECT_THROW(q::quantize_symmetric({}, params), jyppx::InvalidArgument);
+  EXPECT_THROW(q::quantize_symmetric({}, params), jyppx::liuding::InvalidArgument);
   params.scale = 1.0;
   params.zero_point = 1;
-  EXPECT_THROW(q::dequantize_symmetric({}, params), jyppx::InvalidArgument);
+  EXPECT_THROW(q::dequantize_symmetric({}, params), jyppx::liuding::InvalidArgument);
   const std::array<std::int8_t, 1U> noncanonical{-128};
   EXPECT_THROW(q::dequantize_symmetric(noncanonical, {}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(QuantizationReference, ErrorReportGolden) {
@@ -257,7 +257,7 @@ TEST(QuantizationReference, ErrorReportGolden) {
   EXPECT_DOUBLE_EQ(result.max_relative_error, 0.5);
   EXPECT_NEAR(result.sqnr_db, 6.020599913279624, 1.0e-12);
   EXPECT_NEAR(result.cosine_similarity, 1.0, 1.0e-12);
-  EXPECT_THROW(q::compare_reference(original, {}), jyppx::InvalidArgument);
+  EXPECT_THROW(q::compare_reference(original, {}), jyppx::liuding::InvalidArgument);
   const std::array<float, 1U> nan{std::numeric_limits<float>::quiet_NaN()};
   EXPECT_EQ(q::compare_reference(nan, nan).nonfinite_inputs, 1U);
 }
@@ -291,7 +291,7 @@ TEST(QuantizationReference, ErrorReportCountsFinitePairsAndZeroSignalNoise) {
 TEST(QuantizationObserver,
      CountsNonfiniteAndEmptySamplesButObservesFiniteRange) {
   q::MinMaxObserver observer;
-  EXPECT_THROW(observer.finalize(), jyppx::NotReady);
+  EXPECT_THROW(observer.finalize(), jyppx::liuding::NotReady);
   observer.observe({});
   const std::array<float, 4U> values{std::numeric_limits<float>::quiet_NaN(),
                                      -2.0F, 4.0F,
@@ -316,7 +316,7 @@ TEST(QuantizationObserver, MergeAndCheckpointContinueExactly) {
   MemoryState store(left.describe_state());
   left.save_state(store);
   q::MinMaxObserver restored;
-  restored.load_state(store, jyppx::RestorePolicy::exact_only);
+  restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   expect_same_state(restored.state(), left.state());
   left.merge(right);
   restored.observe(second);
@@ -338,20 +338,20 @@ TEST(QuantizationObserver,
   for (std::size_t size = 0U; size < good.fields.at("state").size(); ++size) {
     auto malformed = good;
     malformed.fields.at("state").resize(size);
-    EXPECT_THROW(target.load_state(malformed, jyppx::RestorePolicy::exact_only),
-                 jyppx::SerializationError);
+    EXPECT_THROW(target.load_state(malformed, jyppx::liuding::RestorePolicy::exact_only),
+                 jyppx::liuding::SerializationError);
     expect_same_state(target.state(), before);
   }
   auto wrong_id = good;
   wrong_id.manifest_.participant_id = "different.observer";
-  EXPECT_THROW(target.load_state(wrong_id, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(target.load_state(wrong_id, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   expect_same_state(target.state(), before);
   auto invalid_bool = good;
   invalid_bool.fields.at("state")[24U] = std::byte{2U};
   EXPECT_THROW(
-      target.load_state(invalid_bool, jyppx::RestorePolicy::exact_only),
-      jyppx::SerializationError);
+      target.load_state(invalid_bool, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   expect_same_state(target.state(), before);
   auto nan_minimum = good;
   const auto nan_bits =
@@ -359,8 +359,8 @@ TEST(QuantizationObserver,
   for (std::size_t i = 0U; i < sizeof(float); ++i)
     nan_minimum.fields.at("state")[32U + i] =
         static_cast<std::byte>((nan_bits >> (8U * i)) & 0xffU);
-  EXPECT_THROW(target.load_state(nan_minimum, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(target.load_state(nan_minimum, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   expect_same_state(target.state(), before);
 }
 
@@ -384,11 +384,11 @@ TEST(QuantizationCalibration, DuplicateAndBudgetRejectionDoNotMutateSession) {
   q::CalibrationSession session(lineage(), limits);
   const std::array<float, 1U> value{2.0F};
   session.observe("sample-a", value);
-  EXPECT_THROW(session.observe("sample-b", value), jyppx::ResourceExhausted);
+  EXPECT_THROW(session.observe("sample-b", value), jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(session.finalize().sample_ids.size(), 1U);
   q::CalibrationSession duplicate(lineage());
   duplicate.observe("sample-a", value);
-  EXPECT_THROW(duplicate.observe("sample-a", value), jyppx::InvalidArgument);
+  EXPECT_THROW(duplicate.observe("sample-a", value), jyppx::liuding::InvalidArgument);
   EXPECT_EQ(duplicate.finalize().activation_state.sample_count, 1U);
 }
 
@@ -413,9 +413,9 @@ TEST(QuantizationArtifact, CanonicalBinaryRoundTripAndExactBudget) {
   EXPECT_NO_THROW(q::deserialize_linear_artifact(bytes, exact));
   --exact.max_artifact_bytes;
   EXPECT_THROW(q::serialize_linear_artifact(source, exact),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   EXPECT_THROW(q::deserialize_linear_artifact(bytes, exact),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(QuantizationArtifact, CanonicalBytesDecodeAcrossAllAmbientRoundingModes) {
@@ -476,20 +476,20 @@ TEST(QuantizationArtifact, SourceMetadataAndBudgetFailBeforeWeightConversion) {
   // Invalid numerical weights must not bypass a prior complete byte-budget
   // rejection or cause borrowed bias/calibration metadata to be copied first.
   EXPECT_THROW(q::quantize_linear(model, source.calibration, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_samples = source.calibration.sample_ids.size() - 1U;
   EXPECT_THROW(q::quantize_linear(model, source.calibration, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_lineage_text_bytes = source.format.format_id.size() - 1U;
   EXPECT_THROW(q::quantize_linear(model, source.calibration, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   const std::array<float, 3U> wrong_bias{0.0F, 0.0F, 0.0F};
   auto wrong_shape = model;
   wrong_shape.bias = wrong_bias;
   EXPECT_THROW(q::quantize_linear(wrong_shape, source.calibration),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(QuantizationArtifact,
@@ -497,32 +497,32 @@ TEST(QuantizationArtifact,
   const auto bytes = q::serialize_linear_artifact(artifact());
   for (std::size_t size = 0U; size < bytes.size(); ++size) {
     EXPECT_THROW(q::deserialize_linear_artifact(std::span(bytes).first(size)),
-                 jyppx::Error);
+                 jyppx::liuding::Error);
   }
   auto wrong_magic = bytes;
   wrong_magic[0U] = std::byte{'X'};
   EXPECT_THROW(q::deserialize_linear_artifact(wrong_magic),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   auto wrong_version = bytes;
   wrong_version[8U] = std::byte{2U};
   EXPECT_THROW(q::deserialize_linear_artifact(wrong_version),
-               jyppx::CompatibilityError);
+               jyppx::liuding::CompatibilityError);
   auto trailing = bytes;
   trailing.push_back(std::byte{0U});
   EXPECT_THROW(q::deserialize_linear_artifact(trailing),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(QuantizationArtifact, RejectsShapePayloadMismatchesAndFalseClaims) {
   auto bad = artifact();
   bad.quantized_weights.pop_back();
-  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::InvalidArgument);
+  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::liuding::InvalidArgument);
   bad = artifact();
   bad.format.compute_quantized = true;
-  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::InvalidArgument);
+  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::liuding::InvalidArgument);
   bad = artifact();
   bad.calibration.activation_params.scale *= 2.0;
-  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::InvalidArgument);
+  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::liuding::InvalidArgument);
 }
 
 TEST(QuantizationArtifact, RejectsEncodedDimensionAndCountBeforeAllocation) {
@@ -536,13 +536,13 @@ TEST(QuantizationArtifact, RejectsEncodedDimensionAndCountBeforeAllocation) {
   for (std::size_t i = 0U; i < 8U; ++i)
     huge_dimensions[dimensions_offset + i] = std::byte{0xffU};
   EXPECT_THROW(q::deserialize_linear_artifact(huge_dimensions),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   const auto count_offset = dimensions_offset + 16U + 16U;
   auto huge_count = bytes;
   for (std::size_t i = 0U; i < 8U; ++i)
     huge_count[count_offset + i] = std::byte{0xffU};
   EXPECT_THROW(q::deserialize_linear_artifact(huge_count),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(QuantizationArtifact, RejectsNoncanonicalSignedZero) {
@@ -556,7 +556,7 @@ TEST(QuantizationArtifact, RejectsNoncanonicalSignedZero) {
   EXPECT_EQ(bytes[bias_offset + 3U], std::byte{0U});
   bytes[bias_offset + 3U] = std::byte{0x80U};
   EXPECT_THROW(q::deserialize_linear_artifact(bytes),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(QuantizationRuntime, DequantizesAndExecutesFp32LinearWithExplicitReport) {
@@ -588,7 +588,7 @@ TEST(QuantizationRuntime, DequantizesAndExecutesFp32LinearWithExplicitReport) {
   EXPECT_NE(json.find("\"rmse\":"), std::string::npos);
   EXPECT_NE(json.find("\"seed\":731"), std::string::npos);
   EXPECT_EQ(q::quantization_report_json(report), json);
-  EXPECT_THROW(runtime.forward({}), jyppx::InvalidArgument);
+  EXPECT_THROW(runtime.forward({}), jyppx::liuding::InvalidArgument);
 }
 
 }  // namespace

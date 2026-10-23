@@ -5,9 +5,9 @@
 
 #include "test_utils/jyppx_test_helpers.hpp"
 
-#include <jyppx/optim/sgd_adapter.hpp>
-#include <jyppx/training/amp/autocast.hpp>
-#include <jyppx/training/amp/grad_scaler.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/training/amp/autocast.hpp>
+#include <jyppx/liuding/training/amp/grad_scaler.hpp>
 
 #include <cmath>
 #include <cstddef>
@@ -20,11 +20,11 @@
 
 namespace {
 
-using namespace jyppx;
-using namespace jyppx_test;
-using jyppx::training::amp::AutocastGuard;
-using jyppx::training::amp::GradScaler;
-using jyppx::training::amp::GradScalerOptions;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::test;
+using jyppx::liuding::training::amp::AutocastGuard;
+using jyppx::liuding::training::amp::GradScaler;
+using jyppx::liuding::training::amp::GradScalerOptions;
 
 std::shared_ptr<optim::SgdOptimizerAdapter> make_optimizer(
     const std::vector<Tensor>& parameters, double learning_rate = 0.1,

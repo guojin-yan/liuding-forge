@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <chrono>
 #include <iomanip>
@@ -27,7 +27,7 @@ class ThroughputModel final : public torch::nn::Module {
                            torch::nn::ReLU(), torch::nn::Linear(256, 10)))) {}
 
   /** @brief Produces logits for one image batch. */
-  jyppx::Tensor forward(const jyppx::Tensor& input) {
+  jyppx::liuding::Tensor forward(const jyppx::liuding::Tensor& input) {
     return network_->forward(input.view({input.size(0), -1}));
   }
 
@@ -41,16 +41,16 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
   const auto data =
       torch::randn({static_cast<std::int64_t>(samples), 3, 32, 32});
   const auto targets = torch::randn({static_cast<std::int64_t>(samples), 10});
-  auto pipeline = std::make_shared<jyppx::data::DataPipeline>(
-      std::make_shared<jyppx::data::samplers::SequentialSampler>(samples),
-      jyppx::data::DataPipelineOptions{
+  auto pipeline = std::make_shared<jyppx::liuding::data::DataPipeline>(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(samples),
+      jyppx::liuding::data::DataPipelineOptions{
           .pipeline_id = "data.benchmark",
           .dataset_version = "benchmark.random/v1",
           .dataset_size = samples,
           .batch_factory_id = "benchmark.tensor-slice/v1",
           .batch_size = batch_size},
       [data, targets](std::span<const std::size_t> indices,
-                      const jyppx::data::DataWorkerContext&, std::stop_token) {
+                      const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
         std::vector<std::int64_t> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {
@@ -62,33 +62,33 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
              targets.index_select(0, row_tensor)});
       });
   auto holder = std::make_shared<ThroughputModel>();
-  auto model = std::make_shared<jyppx::nn::ModelAdapter>(
-      jyppx::nn::adapt_tensor_module(holder));
-  std::vector<jyppx::optim::OptimizerParameterBinding> bindings;
+  auto model = std::make_shared<jyppx::liuding::nn::ModelAdapter>(
+      jyppx::liuding::nn::adapt_tensor_module(holder));
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> bindings;
   for (const auto& item : model->state().named_parameters()) {
     bindings.push_back({.parameter_id = item.key(), .parameter = item.value()});
   }
-  auto optimizer = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
-      "optimizer.benchmark", std::vector<jyppx::optim::SgdParameterGroup>{
+  auto optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+      "optimizer.benchmark", std::vector<jyppx::liuding::optim::SgdParameterGroup>{
                                  {.group_id = "main",
                                   .parameters = std::move(bindings),
                                   .options = {.learning_rate = 1e-3}}});
-  const auto mapper = [](const jyppx::data::BatchEnvelope& batch) {
-    return jyppx::nn::Invocation{
+  const auto mapper = [](const jyppx::liuding::data::BatchEnvelope& batch) {
+    return jyppx::liuding::nn::Invocation{
         .positional = {batch.value.toTuple()->elements().at(0)}};
   };
-  const auto target = [](const jyppx::data::BatchEnvelope& batch)
+  const auto target = [](const jyppx::liuding::data::BatchEnvelope& batch)
       -> std::optional<c10::IValue> {
     return batch.value.toTuple()->elements().at(1);
   };
-  const auto step = [](const jyppx::training::StepInput& input) {
+  const auto step = [](const jyppx::liuding::training::StepInput& input) {
     const auto prediction =
         input.model.invoke(input.invocation).value.toTensor();
-    return jyppx::training::StepOutput{
+    return jyppx::liuding::training::StepOutput{
         .loss = (prediction - input.target->toTensor()).pow(2).mean(),
         .sample_count = input.batch.sample_ids.size()};
   };
-  jyppx::training::Trainer trainer({.trainer_id = "trainer.benchmark",
+  jyppx::liuding::training::Trainer trainer({.trainer_id = "trainer.benchmark",
                                     .run_id = "run.benchmark",
                                     .trace_id = "trace.benchmark",
                                     .max_epochs = epochs});
@@ -96,18 +96,18 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
       {.model = model,
        .optimizers = {{.optimizer = optimizer,
                        .checkpoint = std::make_shared<
-                           jyppx::optim::SgdOptimizerCheckpointParticipant>(
+                           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
                            optimizer)}},
        .training_data = pipeline,
        .training_batch_mapper = mapper,
        .training_target_mapper = target,
        .training_step = step,
-       .strategy = std::make_shared<jyppx::training::SingleDeviceStrategy>(),
+       .strategy = std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>(),
        .model_checkpoint =
-           std::make_shared<jyppx::nn::ModelCheckpointParticipant>(*model),
+           std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(*model),
        .rng_checkpoint =
-           std::make_shared<jyppx::core::RngCheckpointParticipant>(
-               jyppx::core::RngCheckpointParticipantOptions{.include_cuda =
+           std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
+               jyppx::liuding::core::RngCheckpointParticipantOptions{.include_cuda =
                                                                 false})});
   const auto start = std::chrono::steady_clock::now();
   static_cast<void>(trainer.fit());

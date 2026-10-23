@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/interop/weight_import_report.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/interop/weight_import_report.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -16,16 +16,16 @@
 
 namespace {
 
-using jyppx::interop::plan_weight_import;
-using jyppx::interop::SafeTensorDtype;
-using jyppx::interop::WeightImportLimits;
-using jyppx::interop::WeightImportMode;
-using jyppx::interop::WeightImportOptions;
-using jyppx::interop::WeightSkipReason;
-using jyppx::interop::WeightTensorDescriptor;
+using jyppx::liuding::interop::plan_weight_import;
+using jyppx::liuding::interop::SafeTensorDtype;
+using jyppx::liuding::interop::WeightImportLimits;
+using jyppx::liuding::interop::WeightImportMode;
+using jyppx::liuding::interop::WeightImportOptions;
+using jyppx::liuding::interop::WeightSkipReason;
+using jyppx::liuding::interop::WeightTensorDescriptor;
 
-jyppx::ArtifactDigest SourceDigest() {
-  return {.algorithm = jyppx::ArtifactDigestAlgorithm::sha256,
+jyppx::liuding::ArtifactDigest SourceDigest() {
+  return {.algorithm = jyppx::liuding::ArtifactDigestAlgorithm::sha256,
           .hex = std::string(64U, 'a')};
 }
 
@@ -99,7 +99,7 @@ TEST(WeightImportReportTest,
   EXPECT_EQ(report.dtype_mismatches[0].key, "dtype");
   EXPECT_TRUE(report.dtype_mismatches[0].conversion_rule.empty());
   EXPECT_DOUBLE_EQ(report.tensor_coverage, 0.25);
-  EXPECT_THROW(plan.assignments(), jyppx::CompatibilityError);
+  EXPECT_THROW(plan.assignments(), jyppx::liuding::CompatibilityError);
   // Metadata and caller topology are read-only even when some earlier key
   // matched. No early per-key assignment can escape the rejected complete plan.
   EXPECT_EQ(source[1].shape, (std::vector<std::uint64_t>{3U}));
@@ -162,7 +162,7 @@ TEST(WeightImportReportTest, PartialDoesNotImplicitlyCastOrReshape) {
       plan_weight_import(SourceDigest(), source, target, options);
   EXPECT_FALSE(rejected.report().coverage_satisfied);
   EXPECT_FALSE(rejected.report().ready);
-  EXPECT_THROW(rejected.assignments(), jyppx::CompatibilityError);
+  EXPECT_THROW(rejected.assignments(), jyppx::liuding::CompatibilityError);
 }
 
 TEST(WeightImportReportTest, DuplicateKeysAlwaysRejectEvenExplicitPartial) {
@@ -186,7 +186,7 @@ TEST(WeightImportReportTest, DuplicateKeysAlwaysRejectEvenExplicitPartial) {
             WeightSkipReason::duplicate_source);
   EXPECT_EQ(report.retained_targets[1].reason,
             WeightSkipReason::duplicate_target);
-  EXPECT_THROW(plan.assignments(), jyppx::CompatibilityError);
+  EXPECT_THROW(plan.assignments(), jyppx::liuding::CompatibilityError);
 }
 
 TEST(WeightImportReportTest,
@@ -199,7 +199,7 @@ TEST(WeightImportReportTest,
                           .target_dtype = SafeTensorDtype::f32,
                           .rule_id = "cast.v1"}};
   EXPECT_THROW(plan_weight_import(SourceDigest(), source, target, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   options.mode = WeightImportMode::partial;
   EXPECT_TRUE(plan_weight_import(SourceDigest(), source, target, options)
                   .report()
@@ -207,23 +207,23 @@ TEST(WeightImportReportTest,
   auto invalid = options;
   invalid.conversions[0].key = "stale";
   EXPECT_THROW(plan_weight_import(SourceDigest(), source, target, invalid),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   invalid = options;
   invalid.conversions[0].source_dtype = SafeTensorDtype::bf16;
   EXPECT_THROW(plan_weight_import(SourceDigest(), source, target, invalid),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   invalid = options;
   invalid.conversions.push_back(invalid.conversions[0]);
   EXPECT_THROW(plan_weight_import(SourceDigest(), source, target, invalid),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   invalid = options;
   invalid.conversions[0].rule_id = "arbitrary code()";
   EXPECT_THROW(plan_weight_import(SourceDigest(), source, target, invalid),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   auto wrong_shape = target;
   wrong_shape[0].shape = {1U, 2U};
   EXPECT_THROW(plan_weight_import(SourceDigest(), source, wrong_shape, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(WeightImportReportTest,
@@ -247,30 +247,30 @@ TEST(WeightImportReportTest, RejectsInvalidMetadataPoliciesAndDigest) {
   WeightImportOptions options;
   options.mode = static_cast<WeightImportMode>(99);
   EXPECT_THROW(plan_weight_import(SourceDigest(), valid, valid, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   options.mode = WeightImportMode::partial;
   for (const auto value :
        {-0.1, 1.1, (std::numeric_limits<double>::quiet_NaN)(),
         (std::numeric_limits<double>::infinity)()}) {
     options.minimum_tensor_coverage = value;
     EXPECT_THROW(plan_weight_import(SourceDigest(), valid, valid, options),
-                 jyppx::InvalidArgument);
+                 jyppx::liuding::InvalidArgument);
   }
   auto invalid = valid;
   invalid[0].name = std::string("\xc0\xaf");
   EXPECT_THROW(plan_weight_import(SourceDigest(), invalid, valid),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   invalid[0].name = "";
   EXPECT_THROW(plan_weight_import(SourceDigest(), invalid, valid),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   invalid[0] = valid[0];
   invalid[0].dtype = static_cast<SafeTensorDtype>(255);
   EXPECT_THROW(plan_weight_import(SourceDigest(), invalid, valid),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   auto digest = SourceDigest();
   digest.hex[0] = 'A';
   EXPECT_THROW(plan_weight_import(digest, valid, valid),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(WeightImportReportTest, BoundsEveryInventoryAndSerializedReport) {
@@ -279,7 +279,7 @@ TEST(WeightImportReportTest, BoundsEveryInventoryAndSerializedReport) {
   const auto constrained = [&](WeightImportLimits limits) {
     EXPECT_THROW(
         plan_weight_import(SourceDigest(), inventory, inventory, {}, limits),
-        jyppx::ResourceExhausted);
+        jyppx::liuding::ResourceExhausted);
   };
   WeightImportLimits limits;
   limits.max_tensors = 1U;
@@ -306,12 +306,12 @@ TEST(WeightImportReportTest, BoundsEveryInventoryAndSerializedReport) {
   limits.max_report_bytes = 16U;
   const auto plan =
       plan_weight_import(SourceDigest(), inventory, inventory, {}, limits);
-  EXPECT_THROW(plan.report_json(), jyppx::ResourceExhausted);
+  EXPECT_THROW(plan.report_json(), jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_rank = 0U;
   EXPECT_THROW(
       plan_weight_import(SourceDigest(), inventory, inventory, {}, limits),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(WeightImportReportTest, ChecksShapeAndDtypeByteProductsBeforePlanning) {
@@ -322,13 +322,13 @@ TEST(WeightImportReportTest, ChecksShapeAndDtypeByteProductsBeforePlanning) {
   const std::vector overflow{
       Tensor("x", {(std::numeric_limits<std::uint64_t>::max)(), 2U})};
   EXPECT_THROW(plan_weight_import(SourceDigest(), overflow, {}, {}, limits),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   const std::vector byte_overflow{
       Tensor("x", {(std::numeric_limits<std::uint64_t>::max)()},
              SafeTensorDtype::f64)};
   EXPECT_THROW(
       plan_weight_import(SourceDigest(), byte_overflow, {}, {}, limits),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 }
 
 }  // namespace

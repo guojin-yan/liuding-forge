@@ -1,13 +1,13 @@
-// Unit tests for jyppx::data: TensorDataset.
+// Unit tests for jyppx::liuding::data: TensorDataset.
 
-#include <jyppx/data/tensor_dataset.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/data/tensor_dataset.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <gtest/gtest.h>
 
 namespace {
 
-using namespace jyppx;
+using namespace jyppx::liuding;
 
 class TensorDatasetTest : public ::testing::Test {
  protected:
@@ -51,15 +51,15 @@ TEST_F(TensorDatasetTest, UnderlyingTensorsAreExposed) {
 TEST_F(TensorDatasetTest, MismatchedSizesThrow) {
   const auto too_few_targets = torch::zeros({3});
   EXPECT_THROW(data::TensorDataset(inputs_, too_few_targets),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(TensorDatasetTest, OutOfRangeGetThrows) {
   try {
     (void)dataset_->get(6);
     FAIL() << "out-of-range access must throw";
-  } catch (const jyppx::InvalidArgument& error) {
-    EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+  } catch (const jyppx::liuding::InvalidArgument& error) {
+    EXPECT_EQ(error.code(), jyppx::liuding::ErrorCode::invalid_argument);
     EXPECT_EQ(error.details().component, "data.tensor_dataset");
     EXPECT_EQ(error.details().operation, "get");
   }

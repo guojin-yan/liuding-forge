@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include "resource_support.hpp"
 
-#include <jyppx/quantization/quantization.hpp>
+#include <jyppx/liuding/quantization/quantization.hpp>
 
 #include <memory>
 #include <numeric>
@@ -10,8 +10,8 @@
 
 int main(int argc, char** argv) {
   try {
-    using namespace jyppx::benchmarks;
-    namespace q = jyppx::quantization;
+    using namespace jyppx::liuding::benchmarks;
+    namespace q = jyppx::liuding::quantization;
     const auto args = arguments(argc, argv);
     require(args.profile == "quantization" && args.device == "cpu",
             "quantization profile supports CPU FP32 fallback only");
@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
                  const auto data_bytes = std::as_bytes(std::span(data));
                  q::CalibrationSession calibration(
                      {.dataset_version = "resource-linear/v1",
-                      .dataset_digest = {.hex = jyppx::sha256_hex(data_bytes)},
+                      .dataset_digest = {.hex = jyppx::liuding::sha256_hex(data_bytes)},
                       .preprocessing_fingerprint = "fixed-fp32-divide8/v1",
                       .seed = 20261021});
                  calibration.observe("sample-1",
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
     sample["execution"]["qat"] = false;
     sample["execution"]["fallback_modules"] = claims.fallback_modules;
     sample["validation"]["artifact_digest"] =
-        "sha256:" + jyppx::sha256_hex(encoded);
+        "sha256:" + jyppx::liuding::sha256_hex(encoded);
     sample["validation"]["output_sum"] =
         std::accumulate(result.begin(), result.end(), 0.0);
     sample["validation"]["output_kind"] = "finite exact FP32 known vector";

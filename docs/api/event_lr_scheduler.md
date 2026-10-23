@@ -1,6 +1,6 @@
 # Descriptor-first event schedulers
 
-`#include <jyppx/optim/event_lr_scheduler.hpp>`
+`#include <jyppx/liuding/optim/event_lr_scheduler.hpp>`
 
 This family covers schedules whose event semantics are not a plain periodic
 epoch decay:

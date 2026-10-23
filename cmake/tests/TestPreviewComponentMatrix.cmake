@@ -2,7 +2,7 @@
 # Licensed under the Apache License, Version 2.0.
 
 cmake_minimum_required(VERSION 3.18)
-foreach(required IN ITEMS JYPPX_SOURCE_DIR JYPPX_TEST_ROOT
+foreach(required IN ITEMS JYPPX_SOURCE_DIR JYPPX_LIUDING_TEST_ROOT
         JYPPX_CONSUMER_SOURCE_DIR JYPPX_TORCH_DIR JYPPX_CMAKE_GENERATOR)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "Preview component matrix requires ${required}")
@@ -10,7 +10,7 @@ foreach(required IN ITEMS JYPPX_SOURCE_DIR JYPPX_TEST_ROOT
 endforeach()
 
 get_filename_component(source_dir "${JYPPX_SOURCE_DIR}" REALPATH)
-get_filename_component(test_root "${JYPPX_TEST_ROOT}" ABSOLUTE)
+get_filename_component(test_root "${JYPPX_LIUDING_TEST_ROOT}" ABSOLUTE)
 get_filename_component(consumer_source_dir "${JYPPX_CONSUMER_SOURCE_DIR}" REALPATH)
 file(RELATIVE_PATH matrix_relative "${source_dir}/out" "${test_root}")
 if(matrix_relative MATCHES "^\\.\\." OR IS_ABSOLUTE "${matrix_relative}")
@@ -31,11 +31,11 @@ set(config_args)
 set(build_args --parallel 2)
 set(install_args)
 set(test_args)
-if(JYPPX_TEST_CONFIG)
-    list(APPEND config_args "-DCMAKE_BUILD_TYPE=${JYPPX_TEST_CONFIG}")
-    list(APPEND build_args --config "${JYPPX_TEST_CONFIG}")
-    list(APPEND install_args --config "${JYPPX_TEST_CONFIG}")
-    list(APPEND test_args -C "${JYPPX_TEST_CONFIG}")
+if(JYPPX_LIUDING_TEST_CONFIG)
+    list(APPEND config_args "-DCMAKE_BUILD_TYPE=${JYPPX_LIUDING_TEST_CONFIG}")
+    list(APPEND build_args --config "${JYPPX_LIUDING_TEST_CONFIG}")
+    list(APPEND install_args --config "${JYPPX_LIUDING_TEST_CONFIG}")
+    list(APPEND test_args -C "${JYPPX_LIUDING_TEST_CONFIG}")
 endif()
 foreach(setting IN ITEMS CUDA_STANDARD CUDA_ARCHITECTURES)
     if(JYPPX_${setting})
@@ -64,12 +64,12 @@ set(optional_components core interop data nn optim training experiment
     models quantization serving data_image)
 set(preview_components models quantization serving)
 set(common_options
-    -DJYPPX_BUILD_TESTS=OFF -DJYPPX_BUILD_EXAMPLES=OFF
-    -DJYPPX_BUILD_TOOLS=OFF -DJYPPX_BUILD_BENCHMARKS=OFF
-    -DJYPPX_BUILD_FUZZERS=OFF -DJYPPX_BUILD_DOCS=OFF
-    -DJYPPX_ENABLE_CLANG_TIDY=OFF -DJYPPX_ENABLE_FORMAT_CHECK=OFF
-    -DJYPPX_ENABLE_WARNINGS_AS_ERRORS=OFF
-    -DJYPPX_MODELS_REFERENCE_DIR=
+    -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF
+    -DJYPPX_LIUDING_BUILD_TOOLS=OFF -DJYPPX_LIUDING_BUILD_BENCHMARKS=OFF
+    -DJYPPX_LIUDING_BUILD_FUZZERS=OFF -DJYPPX_LIUDING_BUILD_DOCS=OFF
+    -DJYPPX_LIUDING_ENABLE_CLANG_TIDY=OFF -DJYPPX_LIUDING_ENABLE_FORMAT_CHECK=OFF
+    -DJYPPX_LIUDING_ENABLE_WARNINGS_AS_ERRORS=OFF
+    -DJYPPX_LIUDING_MODELS_REFERENCE_DIR=
 )
 
 # Defined global symbols prove disabled archives do not hide Preview code.
@@ -122,7 +122,7 @@ function(check_preview_symbols profile)
             list(JOIN defined_symbols "\n" symbols)
         endif()
         foreach(component IN LISTS preview_components)
-            if(symbols MATCHES "jyppx::${component}::|@${component}@jyppx@")
+            if(symbols MATCHES "jyppx::liuding::${component}::|@${component}@jyppx@")
                 if(NOT component IN_LIST profile_components)
                     message(FATAL_ERROR
                         "Disabled ${component} symbols in ${profile}: ${archive}")
@@ -161,9 +161,9 @@ foreach(profile IN ITEMS core_before quantization models serving all_previews co
     foreach(component IN LISTS optional_components)
         string(TOUPPER "${component}" component_upper)
         if(component IN_LIST profile_components)
-            list(APPEND component_options "-DJYPPX_BUILD_${component_upper}=ON")
+            list(APPEND component_options "-DJYPPX_LIUDING_BUILD_${component_upper}=ON")
         else()
-            list(APPEND component_options "-DJYPPX_BUILD_${component_upper}=OFF")
+            list(APPEND component_options "-DJYPPX_LIUDING_BUILD_${component_upper}=OFF")
             list(APPEND absent_components "${component}")
         endif()
     endforeach()
@@ -193,25 +193,25 @@ foreach(profile IN ITEMS core_before quantization models serving all_previews co
     foreach(component IN LISTS optional_components)
         string(REPLACE "_" "-" artifact_component "${component}")
         file(GLOB component_libraries
-            "${install_dir}/lib/*jyppx_${component}*"
+            "${install_dir}/lib/*jyppx_liuding_${component}*"
             "${install_dir}/lib/*liuding-forge-${artifact_component}*")
         if(component IN_LIST profile_components)
-            if(NOT EXISTS "${install_dir}/include/jyppx/${component}" OR
+            if(NOT EXISTS "${install_dir}/include/jyppx/liuding/${component}" OR
                NOT component_libraries)
                 message(FATAL_ERROR "Enabled ${component} install is incomplete")
             endif()
         else()
-            if(EXISTS "${install_dir}/include/jyppx/${component}" OR
+            if(EXISTS "${install_dir}/include/jyppx/liuding/${component}" OR
                component_libraries)
                 message(FATAL_ERROR "Disabled ${component} surface remains installed")
             endif()
         endif()
     endforeach()
-    if(EXISTS "${install_dir}/include/jyppx/jyppx.hpp")
+    if(EXISTS "${install_dir}/include/jyppx/liuding/liuding.hpp")
         message(FATAL_ERROR "Stable SDK umbrella leaked into partial Preview profile")
     endif()
     if(NOT core IN_LIST profile_components AND
-       EXISTS "${install_dir}/include/jyppx/utils")
+       EXISTS "${install_dir}/include/jyppx/liuding/utils")
         message(FATAL_ERROR "Core utils remain with tensor core disabled")
     endif()
     check_preview_symbols("${profile}")
@@ -285,16 +285,16 @@ foreach(component IN ITEMS MODELS SERVING)
             string(TOUPPER "${optional}" optional_upper)
             if(optional_upper STREQUAL "CORE" OR optional_upper STREQUAL "INTEROP" OR
                optional_upper STREQUAL "NN" OR optional_upper STREQUAL component)
-                list(APPEND invalid_options "-DJYPPX_BUILD_${optional_upper}=ON")
+                list(APPEND invalid_options "-DJYPPX_LIUDING_BUILD_${optional_upper}=ON")
             else()
-                list(APPEND invalid_options "-DJYPPX_BUILD_${optional_upper}=OFF")
+                list(APPEND invalid_options "-DJYPPX_LIUDING_BUILD_${optional_upper}=OFF")
             endif()
         endforeach()
-        list(APPEND invalid_options "-DJYPPX_BUILD_${missing}=OFF")
+        list(APPEND invalid_options "-DJYPPX_LIUDING_BUILD_${missing}=OFF")
         # NN has its own CORE edge. Disable it for CORE rejection so the
         # diagnostic belongs to the Preview adapter being exercised.
         if(missing STREQUAL "CORE")
-            list(APPEND invalid_options -DJYPPX_BUILD_NN=OFF)
+            list(APPEND invalid_options -DJYPPX_LIUDING_BUILD_NN=OFF)
         endif()
         execute_process(
             COMMAND "${CMAKE_COMMAND}" -S "${source_dir}"
@@ -304,7 +304,7 @@ foreach(component IN ITEMS MODELS SERVING)
             ERROR_VARIABLE invalid_error)
         string(CONCAT invalid_log "${invalid_output}" "${invalid_error}")
         string(REGEX REPLACE "[ \t\r\n]+" " " invalid_log "${invalid_log}")
-        set(expected_error "JYPPX_BUILD_${component}=ON requires JYPPX_BUILD_${missing}=ON")
+        set(expected_error "JYPPX_LIUDING_BUILD_${component}=ON requires JYPPX_LIUDING_BUILD_${missing}=ON")
         string(FIND "${invalid_log}" "${expected_error}" expected_position)
         if(invalid_result EQUAL 0 OR expected_position EQUAL -1)
             message(FATAL_ERROR

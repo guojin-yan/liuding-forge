@@ -3,9 +3,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/optim/adagrad_adapter.hpp>
-#include <jyppx/optim/adamw_adapter.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/optim/adagrad_adapter.hpp>
+#include <jyppx/liuding/optim/adamw_adapter.hpp>
 
 #include <torch/optim/adagrad.h>
 #include <torch/version.h>
@@ -29,17 +29,17 @@
 
 namespace {
 
-using jyppx::StateManifest;
-using jyppx::Tensor;
-using jyppx::optim::AdagradAdapterOptions;
-using jyppx::optim::AdagradOptimizerAdapter;
-using jyppx::optim::AdagradOptimizerCheckpointOptions;
-using jyppx::optim::AdagradOptimizerCheckpointParticipant;
-using jyppx::optim::AdagradParameterGroup;
+using jyppx::liuding::StateManifest;
+using jyppx::liuding::Tensor;
+using jyppx::liuding::optim::AdagradAdapterOptions;
+using jyppx::liuding::optim::AdagradOptimizerAdapter;
+using jyppx::liuding::optim::AdagradOptimizerCheckpointOptions;
+using jyppx::liuding::optim::AdagradOptimizerCheckpointParticipant;
+using jyppx::liuding::optim::AdagradParameterGroup;
 
 /** @brief In-memory participant store used to exercise storage-neutral I/O. */
-class MemoryStateStore final : public jyppx::StateWriter,
-                               public jyppx::StateReader {
+class MemoryStateStore final : public jyppx::liuding::StateWriter,
+                               public jyppx::liuding::StateReader {
  public:
   /** @brief Creates an empty store for the supplied state contract. */
   explicit MemoryStateStore(StateManifest manifest)
@@ -124,7 +124,7 @@ StateManifest make_schema_v1_manifest(const StateManifest& current) {
   legacy.schema_version = 1;
   const auto producer =
       std::find_if(legacy.fields.begin(), legacy.fields.end(),
-                   [](const jyppx::StateFieldDescriptor& field) {
+                   [](const jyppx::liuding::StateFieldDescriptor& field) {
                      return field.name == "producer";
                    });
   EXPECT_NE(producer, legacy.fields.end());
@@ -192,7 +192,7 @@ MemoryStateStore load_canonical_schema_v1_fixture(
     const AdagradOptimizerCheckpointParticipant& participant) {
   MemoryStateStore fixture(
       make_schema_v1_manifest(participant.describe_state()));
-  const auto fixture_dir = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
+  const auto fixture_dir = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
                            "checkpoint" / "adagrad_schema_v1_libtorch_2.5.1";
   for (const auto& field : fixture.manifest().fields) {
     fixture.replace(field.name, read_base64_fixture(fixture_dir /
@@ -286,7 +286,7 @@ TEST(AdagradOptimizerAdapterTest, RejectsSparseGradientBeforeAnyMutation) {
       torch::sparse_coo_tensor(torch::tensor({{0, 2}}, torch::kInt64),
                                torch::tensor({1.0, 1.0}, torch::kFloat64), {4});
 
-  EXPECT_THROW(optimizer.step(), jyppx::NotImplemented);
+  EXPECT_THROW(optimizer.step(), jyppx::liuding::NotImplemented);
   EXPECT_TRUE(torch::equal(first, before_first));
   EXPECT_TRUE(torch::equal(second, before_second));
   EXPECT_EQ(optimizer.completed_steps(), 0U);
@@ -304,7 +304,7 @@ TEST(AdagradOptimizerAdapterTest, ClosureGradientFailureIsAtomic) {
                                  torch::tensor({2.0}, torch::kFloat64), {4});
     return torch::tensor(1.0);
   }),
-               jyppx::NotImplemented);
+               jyppx::liuding::NotImplemented);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer.completed_steps(), 0U);
 }
@@ -368,7 +368,7 @@ TEST(AdagradOptimizerAdapterTest,
     second_weight.copy_(first_weight);
     second_bias.copy_(first_bias);
   }
-  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  second_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
 
   for (std::int64_t step = 37; step < 91; ++step) {
     assign_gradient(first_weight, step);
@@ -413,7 +413,7 @@ TEST(AdagradOptimizerAdapterTest, FreshCheckpointReplacesStaleEagerState) {
     torch::NoGradGuard no_grad;
     resumed_parameter.copy_(fresh_parameter);
   }
-  resumed_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  resumed_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(resumed->completed_steps(), 0U);
 
   fresh_parameter.mutable_grad() = torch::full_like(fresh_parameter, 0.25);
@@ -445,8 +445,8 @@ TEST(AdagradOptimizerAdapterTest, MalformedCheckpointLeavesStateUnchanged) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   store.replace("sum.0000000000", {std::byte{0x01}});
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(parameter, before_parameter));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -487,7 +487,7 @@ TEST(AdagradOptimizerAdapterTest,
   store.set_manifest(make_schema_v1_manifest(current_manifest));
 
   copy_parameter(uninterrupted, resumed);
-  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  second_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(second->completed_steps(), first->completed_steps());
   EXPECT_EQ(second->learning_rates(), first->learning_rates());
 
@@ -539,7 +539,7 @@ TEST(AdagradOptimizerAdapterTest,
                       .epsilon = 1e-7})});
   AdagradOptimizerCheckpointParticipant resumed_participant(resumed);
   const auto fixture = load_canonical_schema_v1_fixture(resumed_participant);
-  resumed_participant.load_state(fixture, jyppx::RestorePolicy::exact_only);
+  resumed_participant.load_state(fixture, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(resumed->completed_steps(), 2U);
   EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.004}));
 
@@ -571,8 +571,8 @@ TEST(AdagradOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
   auto future = store.manifest();
   future.schema_version = 3;
   store.set_manifest(future);
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -580,8 +580,8 @@ TEST(AdagradOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
   auto relabelled = participant.describe_state();
   relabelled.schema_version = 1;
   store.set_manifest(relabelled);
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -604,8 +604,8 @@ TEST(AdagradOptimizerAdapterTest,
   participant.save_state(store);
   store.replace("producer", {std::byte{0x01}});
 
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -619,7 +619,7 @@ TEST(AdagradOptimizerAdapterTest, EnforcesProducerResourceLimit) {
   AdagradOptimizerCheckpointOptions options;
   options.max_producer_bytes = 1;
   EXPECT_THROW(AdagradOptimizerCheckpointParticipant(optimizer, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(AdagradOptimizerAdapterTest,
@@ -636,7 +636,7 @@ TEST(AdagradOptimizerAdapterTest,
   parameter.mutable_grad() = torch::ones_like(parameter);
   optimizer->step();
 
-  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::NotReady);
+  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::liuding::NotReady);
   EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
 }
 
@@ -706,7 +706,7 @@ TEST(AdagradOptimizerAdapterCudaTest,
   store.erase("producer");
   store.set_manifest(make_schema_v1_manifest(current_manifest));
   copy_parameter(uninterrupted, resumed);
-  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  second_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
 
   for (std::int64_t step = 13; step < 29; ++step) {
     assign_gradient(uninterrupted, step);
@@ -739,8 +739,8 @@ TEST(AdagradOptimizerAdapterTest,
   MemoryStateStore store(source_state.describe_state());
   source_state.save_state(store);
 
-  EXPECT_THROW(target_state.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(target_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_THROW(
       AdagradOptimizerCheckpointParticipant(source, {.max_groups = 1,
                                                      .max_parameters = 1,
@@ -749,23 +749,23 @@ TEST(AdagradOptimizerAdapterTest,
                                                      .max_control_bytes = 1024,
                                                      .max_tensor_bytes = 1,
                                                      .max_total_bytes = 4096}),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
 }
 
 TEST(AdagradOptimizerAdapterTest, RejectsAdamWCheckpointWithMatchingIdentity) {
   auto adamw_parameter = make_parameter({5});
   auto adagrad_parameter =
       adamw_parameter.detach().clone().set_requires_grad(true);
-  auto adamw = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
+  auto adamw = std::make_shared<jyppx::liuding::optim::AdamWOptimizerAdapter>(
       "optimizer.shared",
-      std::vector<jyppx::optim::AdamWParameterGroup>{
+      std::vector<jyppx::liuding::optim::AdamWParameterGroup>{
           {.group_id = "main",
            .parameters = {
                {.parameter_id = "weight", .parameter = adamw_parameter}}}});
   auto adagrad = std::make_shared<AdagradOptimizerAdapter>(
       "optimizer.shared", std::vector<AdagradParameterGroup>{
                               make_group("main", "weight", adagrad_parameter)});
-  jyppx::optim::AdamWOptimizerCheckpointParticipant adamw_state(adamw);
+  jyppx::liuding::optim::AdamWOptimizerCheckpointParticipant adamw_state(adamw);
   AdagradOptimizerCheckpointParticipant adagrad_state(adagrad);
 
   assign_gradient(adamw_parameter, 1);
@@ -777,8 +777,8 @@ TEST(AdagradOptimizerAdapterTest, RejectsAdamWCheckpointWithMatchingIdentity) {
   const auto before_rates = adagrad->learning_rates();
 
   EXPECT_THROW(
-      adagrad_state.load_state(store, jyppx::RestorePolicy::exact_only),
-      jyppx::CompatibilityError);
+      adagrad_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(adagrad_parameter, before_parameter));
   EXPECT_EQ(adagrad->completed_steps(), before_steps);
   EXPECT_EQ(adagrad->learning_rates(), before_rates);
@@ -790,26 +790,26 @@ TEST(AdagradOptimizerAdapterTest, ValidatesOptionsAndLearningRatesAtomically) {
       AdagradOptimizerAdapter("optimizer.adagrad",
                               {make_group("main", "weight", parameter,
                                           {.learning_rate_decay = -0.1})}),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(AdagradOptimizerAdapter(
                    "optimizer.adagrad",
                    {make_group("main", "weight", parameter,
                                {.initial_accumulator_value = -0.1})}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(AdagradOptimizerAdapter(
                    "optimizer.adagrad",
                    {make_group("main", "weight", parameter, {.epsilon = 0.0})}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(AdagradOptimizerAdapter(
                    "optimizer.adagrad",
                    {make_group("main", "weight", parameter,
                                {.weight_decay =
                                     std::numeric_limits<double>::infinity()})}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   AdagradOptimizerAdapter optimizer("optimizer.adagrad",
                                     {make_group("main", "weight", parameter)});
   const auto before = optimizer.learning_rates();
-  EXPECT_THROW(optimizer.set_learning_rates({-1.0}), jyppx::InvalidArgument);
+  EXPECT_THROW(optimizer.set_learning_rates({-1.0}), jyppx::liuding::InvalidArgument);
   EXPECT_EQ(optimizer.learning_rates(), before);
 }
 

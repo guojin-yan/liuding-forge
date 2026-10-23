@@ -2,9 +2,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/torchscript_compatibility.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/torchscript_compatibility.hpp>
 
 #include <torch/script.h>
 #include <torch/torch.h>
@@ -30,8 +30,8 @@
 #include <vector>
 
 namespace {
-using namespace jyppx;
-using namespace jyppx::interop;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::interop;
 using Runtime = TorchScriptCompatibilityRuntime;
 
 constexpr char kIdentity[] = R"JIT(
@@ -721,7 +721,7 @@ TEST(TorchScriptCompatibility,
                CompatibilityError);
 }
 
-#ifdef JYPPX_TEST_TORCHSCRIPT_CUDA
+#ifdef JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA
 TEST(TorchScriptCompatibilityCuda,
      ActualLoadRelocatesStateAndExecutesTupleAndDefaults) {
   ASSERT_TRUE(torch::cuda::is_available());
@@ -791,7 +791,7 @@ TEST(TorchScriptCompatibilityOfficial, PythonScriptArchiveReallyLoadsAndRuns) {
   EXPECT_EQ(runtime.inspect().libtorch_version, version);
   CheckArithmetic(runtime, Device(c10::kCPU));
   if (std::getenv("JYPPX_TORCHSCRIPT_EXPECT_CUDA") != nullptr) {
-#ifdef JYPPX_TEST_TORCHSCRIPT_CUDA
+#ifdef JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA
     ASSERT_TRUE(torch::cuda::is_available());
     const Device device(c10::kCUDA, 0);
     auto cuda_runtime =
@@ -799,7 +799,7 @@ TEST(TorchScriptCompatibilityOfficial, PythonScriptArchiveReallyLoadsAndRuns) {
                       ArithmeticOutput(), Trusted(device));
     CheckArithmetic(cuda_runtime, device);
 #else
-    FAIL() << "CUDA evidence requires JYPPX_TEST_TORCHSCRIPT_CUDA";
+    FAIL() << "CUDA evidence requires JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA";
 #endif
   }
 }

@@ -21,9 +21,9 @@ and the same Trainer-facing adapter contract; no legacy optimizer API is kept.
 | `LAMB` | large-batch training with layer-wise trust ratios | `beta1`, `beta2`, `epsilon`, `weight_decay`; fixed parameter-norm cap of 10 |
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::AdamWOptimizerAdapter>(
     "optimizer.adamw",
-    std::vector<jyppx::optim::AdamWParameterGroup>{
+    std::vector<jyppx::liuding::optim::AdamWParameterGroup>{
         {.group_id = "decay",
          .parameters = decay_parameter_bindings,
          .options = {.learning_rate = 3e-4, .weight_decay = 0.01}},
@@ -48,7 +48,7 @@ and optional scheduler:
 
 ```cpp
 auto optimizer_state =
-    std::make_shared<jyppx::optim::AdamWOptimizerCheckpointParticipant>(
+    std::make_shared<jyppx::liuding::optim::AdamWOptimizerCheckpointParticipant>(
         optimizer);
 
 request.optimizers.push_back({.optimizer = optimizer,
@@ -99,11 +99,11 @@ then replace all group rates atomically. Call `step()` once after each
 successfully completed epoch:
 
 ```cpp
-#include <jyppx/optim/epoch_lr_scheduler.hpp>
+#include <jyppx/liuding/optim/epoch_lr_scheduler.hpp>
 
-auto scheduler = std::make_shared<jyppx::optim::MultiStepLrScheduler>(
+auto scheduler = std::make_shared<jyppx::liuding::optim::MultiStepLrScheduler>(
     delegated_sgd,
-    jyppx::optim::MultiStepLrSchedulerOptions{
+    jyppx::liuding::optim::MultiStepLrSchedulerOptions{
         .scheduler_id = "scheduler.epochs",
         .milestones = {30, 60, 90},
         .gamma = 0.1});
@@ -117,7 +117,7 @@ auto scheduler = std::make_shared<jyppx::optim::MultiStepLrScheduler>(
 | `CosineAnnealingLrScheduler` | recursive cosine trajectory with `t_max` and `eta_min` |
 
 The related construction-time schedulers are available from
-`<jyppx/optim/linear_lr_scheduler.hpp>`:
+`<jyppx/liuding/optim/linear_lr_scheduler.hpp>`:
 
 | Scheduler | Construction and boundary |
 |-----------|---------------------------|
@@ -139,7 +139,7 @@ Every migrated scheduler uses the same exact participant:
 
 ```cpp
 auto participant =
-    std::make_shared<jyppx::optim::LrSchedulerCheckpointParticipant>(
+    std::make_shared<jyppx::liuding::optim::LrSchedulerCheckpointParticipant>(
         scheduler);
 checkpoint_registry.register_participant(participant);
 ```
@@ -157,11 +157,11 @@ epoch count. It publishes metric step mode and stores best-value, patience,
 cooldown, per-group minima, and current rates in the exact participant:
 
 ```cpp
-#include <jyppx/optim/event_lr_scheduler.hpp>
+#include <jyppx/liuding/optim/event_lr_scheduler.hpp>
 
-auto plateau = std::make_shared<jyppx::optim::ReduceLrOnPlateauScheduler>(
+auto plateau = std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
     delegated_sgd,
-    jyppx::optim::ReduceLrOnPlateauSchedulerOptions{
+    jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
         .factor = 0.5,
         .patience = 3,
         .min_learning_rates = {1e-6}});

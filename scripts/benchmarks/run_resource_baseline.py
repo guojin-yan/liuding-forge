@@ -323,10 +323,10 @@ def cache_identity(build: Path, source: Path) -> dict[str, str]:
     if Path(entries.get("CMAKE_HOME_DIRECTORY", "")).resolve() != source.resolve():
         raise ValueError("build cache belongs to a different source directory")
     selected = {key: value for key, value in entries.items()
-                if (key.startswith(("JYPPX_BUILD_", "JYPPX_ENABLE_")) or
+                if (key.startswith(("JYPPX_LIUDING_BUILD_", "JYPPX_LIUDING_ENABLE_")) or
                     re.fullmatch(r"CMAKE_(?:CXX_FLAGS.*|EXE_LINKER_FLAGS.*|INTERPROCEDURAL_OPTIMIZATION.*|MSVC_RUNTIME_LIBRARY|GENERATOR|GENERATOR_PLATFORM|GENERATOR_TOOLSET)", key))}
-    if selected.get("JYPPX_BUILD_BENCHMARKS") != "ON":
-        raise ValueError("cache must enable JYPPX_BUILD_BENCHMARKS")
+    if selected.get("JYPPX_LIUDING_BUILD_BENCHMARKS") != "ON":
+        raise ValueError("cache must enable JYPPX_LIUDING_BUILD_BENCHMARKS")
     return selected
 
 

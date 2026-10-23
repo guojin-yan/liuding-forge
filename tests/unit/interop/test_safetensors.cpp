@@ -3,9 +3,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/safetensors.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/safetensors.hpp>
 
 #include <algorithm>
 #include <array>
@@ -28,12 +28,12 @@
 
 namespace {
 
-using jyppx::interop::SafeTensorByteOrder;
-using jyppx::interop::SafeTensorDtype;
-using jyppx::interop::SafeTensorsLimits;
-using jyppx::interop::SafeTensorSource;
-using jyppx::interop::SafeTensorsView;
-using jyppx::interop::serialize_safetensors;
+using jyppx::liuding::interop::SafeTensorByteOrder;
+using jyppx::liuding::interop::SafeTensorDtype;
+using jyppx::liuding::interop::SafeTensorsLimits;
+using jyppx::liuding::interop::SafeTensorSource;
+using jyppx::liuding::interop::SafeTensorsView;
+using jyppx::liuding::interop::serialize_safetensors;
 
 constexpr std::array<SafeTensorDtype, 13> kDtypes{
     SafeTensorDtype::boolean, SafeTensorDtype::u8,   SafeTensorDtype::i8,
@@ -76,7 +76,7 @@ struct Matrix {
     for (std::size_t index = 0; index < kDtypes.size(); ++index) {
       const auto dtype = kDtypes[index];
       auto& payload = payloads.emplace_back(
-          4U * jyppx::interop::safetensors_dtype_size(dtype));
+          4U * jyppx::liuding::interop::safetensors_dtype_size(dtype));
       for (std::size_t byte = 0; byte < payload.size(); ++byte) {
         payload[byte] =
             static_cast<std::byte>(dtype == SafeTensorDtype::boolean
@@ -85,7 +85,7 @@ struct Matrix {
       }
       tensors.push_back(
           {.name = "tensor." +
-                   std::string(jyppx::interop::safetensors_dtype_name(dtype)),
+                   std::string(jyppx::liuding::interop::safetensors_dtype_name(dtype)),
            .dtype = dtype,
            .shape = {2U, 2U},
            .data = payload,
@@ -129,29 +129,29 @@ TEST(SafeTensorsTest, RoundTripsEverySupportedDtypeScalarEmptyAndUtf8Metadata) {
     EXPECT_EQ(actual.data(), encoded.data() + view.directory().payload_offset +
                                  found->data_begin);
   }
-  EXPECT_EQ(view.digest().hex, jyppx::sha256_hex(encoded));
-  EXPECT_THROW(view.tensor_bytes("unknown"), jyppx::InvalidArgument);
+  EXPECT_EQ(view.digest().hex, jyppx::liuding::sha256_hex(encoded));
+  EXPECT_THROW(view.tensor_bytes("unknown"), jyppx::liuding::InvalidArgument);
   std::reverse(matrix.tensors.begin(), matrix.tensors.end());
   EXPECT_EQ(serialize_safetensors(matrix.tensors, metadata), encoded);
 }
 
 TEST(SafeTensorsTest, DtypeTokensAreExplicitAndUnknownFutureTypesAreRejected) {
   for (const auto dtype : kDtypes) {
-    const auto name = jyppx::interop::safetensors_dtype_name(dtype);
-    EXPECT_EQ(jyppx::interop::safetensors_dtype_from_name(name), dtype);
-    EXPECT_GT(jyppx::interop::safetensors_dtype_size(dtype), 0U);
+    const auto name = jyppx::liuding::interop::safetensors_dtype_name(dtype);
+    EXPECT_EQ(jyppx::liuding::interop::safetensors_dtype_from_name(name), dtype);
+    EXPECT_GT(jyppx::liuding::interop::safetensors_dtype_size(dtype), 0U);
   }
   const auto unknown = static_cast<SafeTensorDtype>(255);
-  EXPECT_EQ(jyppx::interop::safetensors_dtype_size(unknown), 0U);
-  EXPECT_EQ(jyppx::interop::safetensors_dtype_name(unknown), "unknown");
+  EXPECT_EQ(jyppx::liuding::interop::safetensors_dtype_size(unknown), 0U);
+  EXPECT_EQ(jyppx::liuding::interop::safetensors_dtype_name(unknown), "unknown");
   for (const auto name :
        {"F8_E4M3", "F8_E5M2", "F4", "C64", "F128", "f32", ""}) {
-    EXPECT_THROW(jyppx::interop::safetensors_dtype_from_name(name),
-                 jyppx::CompatibilityError);
+    EXPECT_THROW(jyppx::liuding::interop::safetensors_dtype_from_name(name),
+                 jyppx::liuding::CompatibilityError);
     const auto bytes = Wire("{\"x\":{\"dtype\":\"" + std::string(name) +
                             "\",\"shape\":[],\"data_offsets\":[0,0]}}");
     EXPECT_THROW({ SafeTensorsView invalid(bytes); },
-                 jyppx::CompatibilityError);
+                 jyppx::liuding::CompatibilityError);
   }
 }
 
@@ -171,7 +171,7 @@ TEST(SafeTensorsTest,
   const auto metadata_only = Wire(R"({"__metadata__":{"k":"v"}})");
   EXPECT_NO_THROW({ SafeTensorsView empty(metadata_only); });
   EXPECT_THROW({ SafeTensorsView invalid(Wire("{}", 1U)); },
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_NO_THROW(serialize_safetensors({}));
 }
 
@@ -186,7 +186,7 @@ TEST(SafeTensorsTest,
        R"({"__metadata__":{},"__metadata__":{}})"}) {
     const auto bytes = Wire(header);
     EXPECT_THROW({ SafeTensorsView invalid(bytes); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
 }
 
@@ -210,7 +210,7 @@ TEST(SafeTensorsTest,
        R"({"x":{"dtype":"U8","shape":[0],"data_offsets":[0,0]}} garbage)"}) {
     const auto bytes = Wire(header);
     EXPECT_THROW({ SafeTensorsView invalid(bytes); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
 }
 
@@ -228,18 +228,18 @@ TEST(SafeTensorsTest,
        R"({"a":{"dtype":"U8","shape":[3],"data_offsets":[0,3]},"e":{"dtype":"U8","shape":[0],"data_offsets":[1,1]}})"}) {
     const auto bytes = Wire(header, 3U);
     EXPECT_THROW({ SafeTensorsView invalid(bytes); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
   for (std::size_t size = 0; size < 8U; ++size) {
     const std::vector<std::byte> short_prefix(size);
     EXPECT_THROW({ SafeTensorsView invalid(short_prefix); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
   auto bytes = Wire("{}");
   HeaderLength(bytes, 4U);
-  EXPECT_THROW({ SafeTensorsView invalid(bytes); }, jyppx::SerializationError);
+  EXPECT_THROW({ SafeTensorsView invalid(bytes); }, jyppx::liuding::SerializationError);
   HeaderLength(bytes, (std::numeric_limits<std::uint64_t>::max)());
-  EXPECT_THROW({ SafeTensorsView invalid(bytes); }, jyppx::ResourceExhausted);
+  EXPECT_THROW({ SafeTensorsView invalid(bytes); }, jyppx::liuding::ResourceExhausted);
 }
 
 TEST(SafeTensorsTest, RejectsBadUtf8InvalidEscapesAndNonSpaceHeaderPadding) {
@@ -248,13 +248,13 @@ TEST(SafeTensorsTest, RejectsBadUtf8InvalidEscapesAndNonSpaceHeaderPadding) {
         std::string("\xf4\x90\x80\x80"), std::string("\x80")}) {
     const auto bytes = Wire("{\"__metadata__\":{\"x\":\"" + suffix + "\"}}");
     EXPECT_THROW({ SafeTensorsView invalid(bytes); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
   for (const auto header : {" {}", "\xef\xbb\xbf{}", "{}\n", "{}\t",
                             R"({"__metadata__":{"x":"\uD800"}})"}) {
     const auto bytes = Wire(header);
     EXPECT_THROW({ SafeTensorsView invalid(bytes); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
   const auto space_padded = Wire("{}   ");
   EXPECT_NO_THROW({ SafeTensorsView valid(space_padded); });
@@ -266,7 +266,7 @@ TEST(SafeTensorsTest, BoundsHeaderNodesDepthStringsTensorCountRankAndBytes) {
       2U);
   const auto constrained = [&](const SafeTensorsLimits& limits) {
     EXPECT_THROW({ SafeTensorsView invalid(valid, limits); },
-                 jyppx::ResourceExhausted);
+                 jyppx::liuding::ResourceExhausted);
   };
   SafeTensorsLimits limits;
   limits.max_file_bytes = valid.size() - 1U;
@@ -306,17 +306,17 @@ TEST(SafeTensorsTest, BoundsHeaderNodesDepthStringsTensorCountRankAndBytes) {
   const auto two = Wire(
       R"({"a":{"dtype":"U8","shape":[0],"data_offsets":[0,0]},"b":{"dtype":"U8","shape":[0],"data_offsets":[0,0]}})");
   EXPECT_THROW({ SafeTensorsView invalid(two, limits); },
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_rank = 1U;
   const auto rank =
       Wire(R"({"a":{"dtype":"U8","shape":[0,0],"data_offsets":[0,0]}})");
   EXPECT_THROW({ SafeTensorsView invalid(rank, limits); },
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   const auto nested = Wire(R"({"__metadata__":{"x":[[[[]]]]}})");
   limits.max_json_depth = 3U;
   EXPECT_THROW({ SafeTensorsView invalid(nested, limits); },
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(SafeTensorsTest, DetectsShapeAndDtypeByteMultiplicationOverflow) {
@@ -330,7 +330,7 @@ TEST(SafeTensorsTest, DetectsShapeAndDtypeByteMultiplicationOverflow) {
        R"({"x":{"dtype":"F64","shape":[18446744073709551615],"data_offsets":[0,0]}})"}) {
     const auto bytes = Wire(header);
     EXPECT_THROW({ SafeTensorsView invalid(bytes, limits); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
 }
 
@@ -343,45 +343,45 @@ TEST(SafeTensorsTest,
                           .data = payload,
                           .byte_order = SafeTensorByteOrder::little};
   std::array<SafeTensorSource, 2> duplicate{tensor, tensor};
-  EXPECT_THROW(serialize_safetensors(duplicate), jyppx::InvalidArgument);
+  EXPECT_THROW(serialize_safetensors(duplicate), jyppx::liuding::InvalidArgument);
   auto source = std::array{tensor};
   source[0].name = "__metadata__";
-  EXPECT_THROW(serialize_safetensors(source), jyppx::InvalidArgument);
+  EXPECT_THROW(serialize_safetensors(source), jyppx::liuding::InvalidArgument);
   source[0] = tensor;
   source[0].shape = {2U};
-  EXPECT_THROW(serialize_safetensors(source), jyppx::InvalidArgument);
+  EXPECT_THROW(serialize_safetensors(source), jyppx::liuding::InvalidArgument);
   source[0] = tensor;
   source[0].byte_order = SafeTensorByteOrder::big;
-  EXPECT_THROW(serialize_safetensors(source), jyppx::CompatibilityError);
+  EXPECT_THROW(serialize_safetensors(source), jyppx::liuding::CompatibilityError);
   source[0] = tensor;
   source[0].dtype = static_cast<SafeTensorDtype>(255);
-  EXPECT_THROW(serialize_safetensors(source), jyppx::CompatibilityError);
+  EXPECT_THROW(serialize_safetensors(source), jyppx::liuding::CompatibilityError);
   source[0] = tensor;
   source[0].name = std::string("\xc0\xaf");
-  EXPECT_THROW(serialize_safetensors(source), jyppx::InvalidArgument);
+  EXPECT_THROW(serialize_safetensors(source), jyppx::liuding::InvalidArgument);
   source[0] = tensor;
   SafeTensorsLimits limits;
   limits.max_file_bytes = 12U;
   EXPECT_THROW(serialize_safetensors(source, {}, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_header_bytes = 2U;
   EXPECT_THROW(serialize_safetensors(source, {}, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_json_nodes = 1U;
   EXPECT_THROW(serialize_safetensors(source, {}, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_rank = 0U;
   EXPECT_THROW(serialize_safetensors(source, {}, limits),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW({ SafeTensorsView invalid(Wire("{}"), limits); },
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   limits = {};
   limits.max_header_bytes = 100000001U;
   EXPECT_THROW(serialize_safetensors(source, {}, limits),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 #if defined(JYPPX_SAFETENSORS_PYTHON_INTEROP)

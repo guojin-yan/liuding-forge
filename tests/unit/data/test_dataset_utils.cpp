@@ -8,12 +8,12 @@
  * @brief Tests dataset views, splitting, and current pipeline integration.
  */
 
-#include <jyppx/data/concat_dataset.hpp>
-#include <jyppx/data/data_pipeline.hpp>
-#include <jyppx/data/samplers/sequential_sampler.hpp>
-#include <jyppx/data/subset.hpp>
-#include <jyppx/data/tensor_dataset.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/data/concat_dataset.hpp>
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/data/subset.hpp>
+#include <jyppx/liuding/data/tensor_dataset.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -29,7 +29,7 @@
 
 namespace {
 
-using namespace jyppx;
+using namespace jyppx::liuding;
 
 /** @brief Minimal dataset that exercises the base get_batch implementation. */
 class IntegerDataset final : public data::Dataset<int> {
@@ -37,7 +37,7 @@ class IntegerDataset final : public data::Dataset<int> {
   /** @brief Returns the requested index as a signed value. */
   int get(std::size_t index) const override {
     if (index >= size()) {
-      throw jyppx::InvalidArgument("integer dataset index is out of range");
+      throw jyppx::liuding::InvalidArgument("integer dataset index is out of range");
     }
     return static_cast<int>(index);
   }
@@ -122,16 +122,16 @@ TEST(DatasetBaseTest, DefaultBatchLookupUsesVirtualGetInCallerOrder) {
   EXPECT_EQ(dataset[3], 3);
   EXPECT_EQ(dataset.get_batch({2, 0, 2}), (std::vector<int>{2, 0, 2}));
   EXPECT_TRUE(dataset.get_batch({}).empty());
-  EXPECT_THROW(dataset.get_batch({4}), jyppx::InvalidArgument);
+  EXPECT_THROW(dataset.get_batch({4}), jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(DatasetUtilsTest, SubsetValidatesArguments) {
   EXPECT_THROW(data::Subset<data::Example>(nullptr, {0}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(data::Subset<data::Example>(dataset_, {10}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   const data::Subset<data::Example> subset(dataset_, {0});
-  EXPECT_THROW(subset.get(1), jyppx::InvalidArgument);
+  EXPECT_THROW(subset.get(1), jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(DatasetUtilsTest, SubsetFeedsDataPipeline) {
@@ -170,16 +170,16 @@ TEST_F(DatasetUtilsTest, ConcatDatasetSpansDatasets) {
 }
 
 TEST_F(DatasetUtilsTest, ConcatDatasetValidatesArguments) {
-  EXPECT_THROW(data::ConcatDataset<data::Example>({}), jyppx::InvalidArgument);
+  EXPECT_THROW(data::ConcatDataset<data::Example>({}), jyppx::liuding::InvalidArgument);
 
   std::shared_ptr<data::Dataset<data::Example>> null_dataset;
   auto valid = std::make_shared<data::Subset<data::Example>>(
       dataset_, std::vector<size_t>{0});
   EXPECT_THROW(data::ConcatDataset<data::Example>({valid, null_dataset}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 
   const data::ConcatDataset<data::Example> concatenated({valid});
-  EXPECT_THROW(concatenated.get(1), jyppx::InvalidArgument);
+  EXPECT_THROW(concatenated.get(1), jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(DatasetUtilsTest, RandomSplitPartitionsEverySample) {
@@ -216,11 +216,11 @@ TEST_F(DatasetUtilsTest, RandomSplitIsDeterministicWithSeed) {
 
 TEST_F(DatasetUtilsTest, RandomSplitValidatesLengths) {
   EXPECT_THROW(data::random_split(dataset_, std::vector<size_t>{5, 6}, 1),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       data::random_split(std::shared_ptr<data::Dataset<data::Example>>(),
                          std::vector<size_t>{10}, 1),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(DatasetUtilsTest, RandomSplitTrainValPipelinesWork) {

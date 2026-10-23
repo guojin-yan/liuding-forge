@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <torch/cuda.h>
 
@@ -161,9 +161,9 @@ std::string json_escape(std::string_view value) {
 }
 
 /** @brief Builds the common stable parameter bindings for one sample. */
-std::vector<jyppx::optim::OptimizerParameterBinding> make_bindings(
-    const std::vector<jyppx::Tensor>& parameters) {
-  std::vector<jyppx::optim::OptimizerParameterBinding> bindings;
+std::vector<jyppx::liuding::optim::OptimizerParameterBinding> make_bindings(
+    const std::vector<jyppx::liuding::Tensor>& parameters) {
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> bindings;
   bindings.reserve(parameters.size());
   for (std::size_t index = 0; index < parameters.size(); ++index) {
     bindings.push_back({.parameter_id = "parameter." + std::to_string(index),
@@ -173,40 +173,40 @@ std::vector<jyppx::optim::OptimizerParameterBinding> make_bindings(
 }
 
 /** @brief Creates the selected adapter with a stateful option profile. */
-std::unique_ptr<jyppx::optim::OptimizerAdapter> make_optimizer(
+std::unique_ptr<jyppx::liuding::optim::OptimizerAdapter> make_optimizer(
     BenchmarkMode mode,
-    const std::vector<jyppx::optim::OptimizerParameterBinding>& bindings) {
+    const std::vector<jyppx::liuding::optim::OptimizerParameterBinding>& bindings) {
   switch (mode) {
     case BenchmarkMode::sgd:
-      return std::make_unique<jyppx::optim::SgdOptimizerAdapter>(
+      return std::make_unique<jyppx::liuding::optim::SgdOptimizerAdapter>(
           "optimizer.benchmark.cuda.sgd",
-          std::vector<jyppx::optim::SgdParameterGroup>{
+          std::vector<jyppx::liuding::optim::SgdParameterGroup>{
               {.group_id = "group.dense",
                .parameters = bindings,
                .options = {
                    .learning_rate = 1e-3, .momentum = 0.9, .nesterov = true}}});
     case BenchmarkMode::adam:
-      return std::make_unique<jyppx::optim::AdamOptimizerAdapter>(
+      return std::make_unique<jyppx::liuding::optim::AdamOptimizerAdapter>(
           "optimizer.benchmark.cuda.adam",
-          std::vector<jyppx::optim::AdamParameterGroup>{
+          std::vector<jyppx::liuding::optim::AdamParameterGroup>{
               {.group_id = "group.dense",
                .parameters = bindings,
                .options = {.learning_rate = 1e-3,
                            .weight_decay = 0.01,
                            .amsgrad = true}}});
     case BenchmarkMode::adamw:
-      return std::make_unique<jyppx::optim::AdamWOptimizerAdapter>(
+      return std::make_unique<jyppx::liuding::optim::AdamWOptimizerAdapter>(
           "optimizer.benchmark.cuda.adamw",
-          std::vector<jyppx::optim::AdamWParameterGroup>{
+          std::vector<jyppx::liuding::optim::AdamWParameterGroup>{
               {.group_id = "group.dense",
                .parameters = bindings,
                .options = {.learning_rate = 1e-3,
                            .weight_decay = 0.01,
                            .amsgrad = true}}});
     case BenchmarkMode::rmsprop:
-      return std::make_unique<jyppx::optim::RmspropOptimizerAdapter>(
+      return std::make_unique<jyppx::liuding::optim::RmspropOptimizerAdapter>(
           "optimizer.benchmark.cuda.rmsprop",
-          std::vector<jyppx::optim::RmspropParameterGroup>{
+          std::vector<jyppx::liuding::optim::RmspropParameterGroup>{
               {.group_id = "group.dense",
                .parameters = bindings,
                .options = {.learning_rate = 1e-3,
@@ -214,9 +214,9 @@ std::unique_ptr<jyppx::optim::OptimizerAdapter> make_optimizer(
                            .momentum = 0.9,
                            .centered = true}}});
     case BenchmarkMode::adagrad:
-      return std::make_unique<jyppx::optim::AdagradOptimizerAdapter>(
+      return std::make_unique<jyppx::liuding::optim::AdagradOptimizerAdapter>(
           "optimizer.benchmark.cuda.adagrad",
-          std::vector<jyppx::optim::AdagradParameterGroup>{
+          std::vector<jyppx::liuding::optim::AdagradParameterGroup>{
               {.group_id = "group.dense",
                .parameters = bindings,
                .options = {.learning_rate = 1e-2,
@@ -224,25 +224,25 @@ std::unique_ptr<jyppx::optim::OptimizerAdapter> make_optimizer(
                            .weight_decay = 0.01,
                            .initial_accumulator_value = 0.1}}});
     case BenchmarkMode::nadam:
-      return std::make_unique<jyppx::optim::NAdamOptimizerAdapter>(
+      return std::make_unique<jyppx::liuding::optim::NAdamOptimizerAdapter>(
           "optimizer.benchmark.cuda.nadam",
-          std::vector<jyppx::optim::NAdamParameterGroup>{
+          std::vector<jyppx::liuding::optim::NAdamParameterGroup>{
               {.group_id = "group.dense",
                .parameters = bindings,
                .options = {.learning_rate = 2e-3,
                            .weight_decay = 0.01,
                            .decoupled_weight_decay = true}}});
     case BenchmarkMode::adadelta:
-      return std::make_unique<jyppx::optim::AdadeltaOptimizerAdapter>(
+      return std::make_unique<jyppx::liuding::optim::AdadeltaOptimizerAdapter>(
           "optimizer.benchmark.cuda.adadelta",
-          std::vector<jyppx::optim::AdadeltaParameterGroup>{
+          std::vector<jyppx::liuding::optim::AdadeltaParameterGroup>{
               {.group_id = "group.dense",
                .parameters = bindings,
                .options = {.learning_rate = 1.0, .weight_decay = 0.01}}});
     case BenchmarkMode::lamb:
-      return std::make_unique<jyppx::optim::LambOptimizerAdapter>(
+      return std::make_unique<jyppx::liuding::optim::LambOptimizerAdapter>(
           "optimizer.benchmark.cuda.lamb",
-          std::vector<jyppx::optim::LambParameterGroup>{
+          std::vector<jyppx::liuding::optim::LambParameterGroup>{
               {.group_id = "group.dense",
                .parameters = bindings,
                .options = {.learning_rate = 1e-3, .weight_decay = 0.01}}});
@@ -257,8 +257,8 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
   const auto tensor_options = torch::TensorOptions()
                                   .dtype(torch::kFloat32)
                                   .device(torch::Device(torch::kCUDA, 0));
-  std::vector<jyppx::Tensor> parameters;
-  std::vector<jyppx::Tensor> originals;
+  std::vector<jyppx::liuding::Tensor> parameters;
+  std::vector<jyppx::liuding::Tensor> originals;
   parameters.reserve(kParameterCount);
   originals.reserve(kParameterCount);
   for (std::size_t index = 0; index < kParameterCount; ++index) {
@@ -337,7 +337,7 @@ void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
             << "\"dtype\":\"float32\","
             << "\"gradient_policy\":\"" << kGradientPolicy << "\","
             << "\"option_profile\":\"" << kOptionProfile << "\"},"
-            << "\"build_fingerprint\":" << jyppx::build_fingerprint_json()
+            << "\"build_fingerprint\":" << jyppx::liuding::build_fingerprint_json()
             << ',' << "\"cuda\":{"
             << "\"device_index\":0,"
             << "\"device_name\":\"" << json_escape(properties->name) << "\","
@@ -365,7 +365,7 @@ void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
 
 int main(int argc, char** argv) {
   try {
-    if (!jyppx::cuda_is_available()) {
+    if (!jyppx::liuding::cuda_is_available()) {
       throw std::runtime_error(
           "CUDA optimizer benchmark requires CUDA LibTorch and a visible GPU");
     }

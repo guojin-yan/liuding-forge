@@ -5,10 +5,10 @@
 // SQLite's official hooks observe actual production operations. This fixture
 // never substitutes SQL for the event/artifact/finalize/migration under test.
 
-#include <jyppx/experiment/run_store.hpp>
-#include <jyppx/experiment/telemetry_exporters.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/telemetry.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/experiment/telemetry_exporters.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/telemetry.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -34,7 +34,7 @@
 #endif
 
 namespace {
-namespace ex = jyppx::experiment;
+namespace ex = jyppx::liuding::experiment;
 using Json = nlohmann::json;
 constexpr auto kRun = "run.storage-crash";
 constexpr auto kMetric = "storage.validation.loss";
@@ -259,20 +259,20 @@ ex::RunArtifactReference artifact(ex::SQLiteRunStore& store, bool confirmed) {
        .producer = "storage-crash-fixture",
        .expected_size_bytes = content.size()},
       confirmed ? 110U : 200U,
-      jyppx::ArtifactDigest{.hex = jyppx::sha256_hex(bytes(content))});
+      jyppx::liuding::ArtifactDigest{.hex = jyppx::liuding::sha256_hex(bytes(content))});
 }
 
-jyppx::TelemetryEnvelope event(std::uint64_t sequence) {
-  jyppx::TelemetryMetricPoint point;
+jyppx::liuding::TelemetryEnvelope event(std::uint64_t sequence) {
+  jyppx::liuding::TelemetryMetricPoint point;
   point.definition = {.metric_id = kMetric,
-                      .unit = jyppx::TelemetryMetricUnit::dimensionless,
-                      .aggregation = jyppx::TelemetryAggregation::mean,
-                      .direction = jyppx::TelemetryMetricDirection::minimize};
+                      .unit = jyppx::liuding::TelemetryMetricUnit::dimensionless,
+                      .aggregation = jyppx::liuding::TelemetryAggregation::mean,
+                      .direction = jyppx::liuding::TelemetryMetricDirection::minimize};
   point.step.value = sequence;
   point.observation =
-      jyppx::make_telemetry_metric_value(1.0 / static_cast<double>(sequence));
+      jyppx::liuding::make_telemetry_metric_value(1.0 / static_cast<double>(sequence));
   point.sample_count = 8U;
-  jyppx::TelemetryEnvelope envelope;
+  jyppx::liuding::TelemetryEnvelope envelope;
   envelope.identity = {
       .stream_id = "stream.storage-crash",
       .event_id = "event/" + std::to_string(sequence),
@@ -285,7 +285,7 @@ jyppx::TelemetryEnvelope event(std::uint64_t sequence) {
   envelope.correlation = {.project_id = "project.storage-crash",
                           .run_id = kRun};
   envelope.attributes = {{"source", "confirmed-original-observation"}};
-  envelope.payload = jyppx::TelemetryMetricBatch{.points = {point}};
+  envelope.payload = jyppx::liuding::TelemetryMetricBatch{.points = {point}};
   return envelope;
 }
 
@@ -315,7 +315,7 @@ Json inspect(ex::SQLiteRunStore& store) {
   for (const auto& item : page.events)
     events.push_back(
         {{"run_sequence", item.run_sequence},
-         {"digest", jyppx::telemetry_content_digest(item.envelope).hex},
+         {"digest", jyppx::liuding::telemetry_content_digest(item.envelope).hex},
          {"envelope",
           Json::parse(ex::telemetry_projection_json(item.envelope))}});
   const auto integrity = store.integrity_check();
@@ -336,7 +336,7 @@ void seed(const std::filesystem::path& root, std::string_view operation) {
     store.start(metadata());
     artifact(store, true);
     if (operation != "migration") {
-      const std::vector<jyppx::TelemetryEnvelope> confirmed{event(1U)};
+      const std::vector<jyppx::liuding::TelemetryEnvelope> confirmed{event(1U)};
       store.append(kRun, "batch.confirmed", confirmed);
     }
     const auto state = inspect(store);
@@ -362,7 +362,7 @@ void seed(const std::filesystem::path& root, std::string_view operation) {
 
 Json perform(ex::SQLiteRunStore& store, std::string_view operation) {
   if (operation == "event") {
-    const std::vector<jyppx::TelemetryEnvelope> target{event(2U), event(3U)};
+    const std::vector<jyppx::liuding::TelemetryEnvelope> target{event(2U), event(3U)};
     return receipt(store.append(kRun, "batch.target", target));
   }
   if (operation == "artifact") {

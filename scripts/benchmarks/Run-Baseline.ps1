@@ -141,10 +141,10 @@ $dataPipelineObservations = [Collections.Generic.List[object]]::new()
 $steps.Add((Invoke-Captured cmake @(
         "-S", $sourceRoot,
         "-B", $BuildDir,
-        "-DJYPPX_BUILD_TESTS=ON",
-        "-DJYPPX_BUILD_BENCHMARKS=ON",
-        "-DJYPPX_BUILD_EXAMPLES=OFF",
-        "-DJYPPX_BUILD_DOCS=OFF",
+        "-DJYPPX_LIUDING_BUILD_TESTS=ON",
+        "-DJYPPX_LIUDING_BUILD_BENCHMARKS=ON",
+        "-DJYPPX_LIUDING_BUILD_EXAMPLES=OFF",
+        "-DJYPPX_LIUDING_BUILD_DOCS=OFF",
         "-DCMAKE_PREFIX_PATH=$libTorchRoot"
     ) "01-configure.log"))
 $pythonCacheEntry = Get-Content (Join-Path $BuildDir "CMakeCache.txt") |

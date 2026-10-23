@@ -7,13 +7,13 @@
 #include <stdexcept>
 int main() {
   try {
-    namespace example = jyppx::examples::serving;
-    using namespace jyppx::serving;
+    namespace example = jyppx::liuding::examples::serving;
+    using namespace jyppx::liuding::serving;
     example::BundleFixture fixture;
     fixture.Publish();
     auto predictor = fixture.Load();
     const auto result =
-        predictor->predict(example::Request(jyppx::Device(c10::kCPU)));
+        predictor->predict(example::Request(jyppx::liuding::Device(c10::kCPU)));
     if (!torch::equal(result.output.value.toTensor(),
                       torch::tensor({{2.0F, -3.0F}})))
       throw std::runtime_error("Installed native serving result mismatch");
@@ -21,9 +21,9 @@ int main() {
     options.max_batch_size = 2;
     DynamicBatcher batcher(predictor, options);
     auto first =
-        batcher.submit(example::Request(jyppx::Device(c10::kCPU), "first"));
+        batcher.submit(example::Request(jyppx::liuding::Device(c10::kCPU), "first"));
     auto second =
-        batcher.submit(example::Request(jyppx::Device(c10::kCPU), "second", 2));
+        batcher.submit(example::Request(jyppx::liuding::Device(c10::kCPU), "second", 2));
     if (first.get().context.request_id != "first" ||
         !torch::equal(second.get().output.value.toTensor(),
                       torch::tensor({{4.0F, -6.0F}})) ||
@@ -32,7 +32,7 @@ int main() {
     if (serving_preview_manifest_json().find("\"default_enabled\":false") ==
         std::string::npos)
       throw std::runtime_error("Missing serving preview manifest");
-    std::cout << "Verified installed jyppx::serving native bundle, forward, "
+    std::cout << "Verified installed jyppx::liuding::serving native bundle, forward, "
                  "batch and drain\n";
     return 0;
   } catch (const std::exception& error) {

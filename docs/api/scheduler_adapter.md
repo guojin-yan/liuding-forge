@@ -1,6 +1,6 @@
 # Training scheduler adapter
 
-`#include <jyppx/training/scheduler_adapter.hpp>`
+`#include <jyppx/liuding/training/scheduler_adapter.hpp>`
 
 `SchedulerAdapter` is the event boundary between a training loop and a
 descriptor-first `LrScheduler`. It exposes the scheduler's declared `batch`,
@@ -18,13 +18,13 @@ typed state tree, and current rates without introducing another checkpoint
 schema or compatibility reader.
 
 ```cpp
-auto scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
+auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
     optimizer,
-    jyppx::optim::StepLrSchedulerOptions{.step_size = 10, .gamma = 0.1});
+    jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 10, .gamma = 0.1});
 auto scheduler_adapter =
-    std::make_shared<jyppx::training::SchedulerAdapter>(scheduler);
+    std::make_shared<jyppx::liuding::training::SchedulerAdapter>(scheduler);
 
-scheduler_adapter->step({.trigger = jyppx::optim::SchedulerStepMode::epoch,
+scheduler_adapter->step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
                          .event_index = 1});
 checkpoint_registry.register_participant(scheduler_adapter);
 ```

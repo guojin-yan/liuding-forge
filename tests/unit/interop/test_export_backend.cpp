@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/interop/export_backend.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/interop/export_backend.hpp>
 
 #include <algorithm>
 #include <array>
@@ -18,14 +18,14 @@
 
 namespace {
 
-namespace interop = jyppx::interop;
+namespace interop = jyppx::liuding::interop;
 
-jyppx::ArtifactDigest Digest(char identity = 'a') {
-  return {.algorithm = jyppx::ArtifactDigestAlgorithm::sha256,
+jyppx::liuding::ArtifactDigest Digest(char identity = 'a') {
+  return {.algorithm = jyppx::liuding::ArtifactDigestAlgorithm::sha256,
           .hex = std::string(64U, identity)};
 }
 
-jyppx::ArtifactRef Artifact(
+jyppx::liuding::ArtifactRef Artifact(
     char identity, std::string logical_name,
     std::string media_type = "application/octet-stream") {
   return {.digest = Digest(identity),
@@ -240,8 +240,8 @@ TEST(ExportBackendTest, TorchscriptRegistryIsCompatibilityRuntimeOnly) {
   EXPECT_NE(exporters.find("onnx.sidecar"), nullptr);
   EXPECT_EQ(exporters.find("torchscript.compatibility"), nullptr);
   EXPECT_NE(runtimes.find("torchscript.compatibility"), nullptr);
-  EXPECT_THROW(exporters.add(descriptor), jyppx::InvalidArgument);
-  EXPECT_THROW(exporters.add(Descriptor()), jyppx::InvalidArgument);
+  EXPECT_THROW(exporters.add(descriptor), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(exporters.add(Descriptor()), jyppx::liuding::InvalidArgument);
   auto request = Request();
   request.backend_id = descriptor.backend_id;
   request.source_kind = interop::ExportSourceKind::torchscript;
@@ -324,80 +324,80 @@ TEST(ExportBackendTest,
       json.substr(0U, json.size() - 1U),
       std::string("\xef\xbb\xbf") + json};
   for (const auto& malformed : invalid)
-    EXPECT_THROW(interop::deserialize_sidecar_request(malformed), jyppx::Error);
+    EXPECT_THROW(interop::deserialize_sidecar_request(malformed), jyppx::liuding::Error);
   EXPECT_THROW(interop::deserialize_sidecar_request(std::string("{\xc0\xaf}")),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(interop::deserialize_sidecar_request(
                    "{\"x\":[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]}"),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ExportBackendTest, ProtocolBoundsBytesNodesStringsAndHostIntegerWidths) {
   const auto json = interop::serialize_sidecar_request(Request());
   EXPECT_THROW(interop::deserialize_sidecar_request(json, 16U),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   EXPECT_THROW(interop::deserialize_sidecar_request(json, 0U),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   const auto oversized =
       Replace(json, "\"request-001\"", "\"" + std::string(4097U, 'a') + "\"");
   EXPECT_THROW(interop::deserialize_sidecar_request(oversized),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   const auto overflow =
       Replace(json, "\"cpu_threads\":1", "\"cpu_threads\":4294967296");
   EXPECT_THROW(interop::deserialize_sidecar_request(overflow),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   const auto fraction =
       Replace(json, "\"cpu_threads\":1", "\"cpu_threads\":1.0");
   EXPECT_THROW(interop::deserialize_sidecar_request(fraction),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   std::string nodes = "{\"x\":[";
   for (std::size_t index = 0U; index < 65536U; ++index) nodes += "0,";
   nodes += "0]}";
   EXPECT_THROW(interop::deserialize_sidecar_request(nodes),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   auto request = Request();
   request.resources.max_control_bytes = 64U;
   EXPECT_THROW(interop::serialize_sidecar_request(request),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   EXPECT_THROW(interop::serialize_sidecar_probe(Probe(Request()), 8U),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   EXPECT_THROW(interop::serialize_sidecar_candidate(Candidate(Request()), 8U),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ExportBackendTest, DescriptorPinsAndRequestImportIdentifiersAreStrict) {
   auto descriptor = Descriptor();
   descriptor.dependencies[0].version = "latest";
   EXPECT_THROW(interop::validate_backend_descriptor(descriptor),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   descriptor = Descriptor();
   descriptor.dependencies[0].version = ">=3.12";
   EXPECT_THROW(interop::validate_backend_descriptor(descriptor),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   descriptor = Descriptor();
   descriptor.dependencies.push_back(descriptor.dependencies[0]);
   EXPECT_THROW(interop::validate_backend_descriptor(descriptor),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   auto dependencies = Dependencies();
   EXPECT_THROW(interop::make_onnx_sidecar_descriptor(
                    "1.0.0", Digest(), std::span(dependencies).first(5U)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   for (const auto entry :
        {"C:/model.py:factory", "model.py:factory()", "a..b:factory",
         "a:factory;command", "a:factory:", "a:.factory"}) {
     auto request = Request();
     request.factory_entry_point = entry;
     EXPECT_THROW(interop::serialize_sidecar_request(request),
-                 jyppx::InvalidArgument);
+                 jyppx::liuding::InvalidArgument);
   }
   auto request = Request();
   request.absolute_tolerance = (std::numeric_limits<double>::quiet_NaN)();
   EXPECT_THROW(interop::serialize_sidecar_request(request),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   request = Request();
   request.resources.cpu_threads = 0U;
   EXPECT_THROW(interop::serialize_sidecar_request(request),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(ExportBackendTest, CandidateRequiresEveryActualOfficialVerificationStage) {
@@ -408,7 +408,7 @@ TEST(ExportBackendTest, CandidateRequiresEveryActualOfficialVerificationStage) {
   const auto rejected = [&](const interop::ExportCandidate& candidate) {
     EXPECT_THROW(interop::validate_export_candidate_metadata(
                      descriptor, request, probe, candidate),
-                 jyppx::CompatibilityError);
+                 jyppx::liuding::CompatibilityError);
   };
   auto invalid = good;
   invalid.verification.schema_passed = false;
@@ -464,11 +464,11 @@ TEST(ExportBackendTest, DynamicCandidateRequiresBothFixedAndDynamicCases) {
   candidate.verification.dynamic_cases_passed = 0U;
   EXPECT_THROW(interop::validate_export_candidate_metadata(
                    Descriptor(), request, probe, candidate),
-               jyppx::CompatibilityError);
+               jyppx::liuding::CompatibilityError);
   candidate.verification.dynamic_cases_passed = 2U;
   EXPECT_THROW(interop::validate_export_candidate_metadata(
                    Descriptor(), request, probe, candidate),
-               jyppx::CompatibilityError);
+               jyppx::liuding::CompatibilityError);
 }
 
 }  // namespace

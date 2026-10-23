@@ -1,12 +1,12 @@
 // Unit tests for the extended metrics: TopKAccuracy, MSE, MAE, R2Score,
 // AverageMeter and MetricCollection.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/training/metrics/accuracy.hpp>
-#include <jyppx/training/metrics/average_meter.hpp>
-#include <jyppx/training/metrics/metric_collection.hpp>
-#include <jyppx/training/metrics/regression.hpp>
-#include <jyppx/training/metrics/topk_accuracy.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/training/metrics/accuracy.hpp>
+#include <jyppx/liuding/training/metrics/average_meter.hpp>
+#include <jyppx/liuding/training/metrics/metric_collection.hpp>
+#include <jyppx/liuding/training/metrics/regression.hpp>
+#include <jyppx/liuding/training/metrics/topk_accuracy.hpp>
 
 #include <cmath>
 #include <gtest/gtest.h>
@@ -14,13 +14,13 @@
 
 namespace {
 
-using jyppx::Tensor;
-using namespace jyppx::training::metrics;
+using jyppx::liuding::Tensor;
+using namespace jyppx::liuding::training::metrics;
 
 /**
  * @brief Minimal metric used to verify that empty stable names are rejected.
  */
-class EmptyNameMetric final : public jyppx::training::Metric {
+class EmptyNameMetric final : public jyppx::liuding::training::Metric {
  public:
   EmptyNameMetric() : Metric("") {}
 
@@ -68,8 +68,8 @@ TEST(TopKAccuracyTest, KBeyondClassCountUsesAllClasses) {
 TEST(TopKAccuracyTest, RejectsOneDimensionalPredictions) {
   TopKAccuracy top3(3);
   EXPECT_THROW(top3.update(torch::tensor({0.1f, 0.9f}), torch::tensor({0.0f})),
-               jyppx::InvalidArgument);
-  EXPECT_THROW(TopKAccuracy invalid(0), jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(TopKAccuracy invalid(0), jyppx::liuding::InvalidArgument);
 }
 
 TEST(TopKAccuracyTest, RejectsAmbiguousOrInvalidInputsWithoutChangingState) {
@@ -77,19 +77,19 @@ TEST(TopKAccuracyTest, RejectsAmbiguousOrInvalidInputsWithoutChangingState) {
   top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({0}));
 
   EXPECT_THROW(top2.update(torch::ones({1, 2, 1}), torch::tensor({0})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({0.5f})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({2})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(top2.update(torch::empty({0, 2}), torch::tensor({0})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       top2.update(
           torch::tensor({{std::numeric_limits<float>::quiet_NaN(), 0.1f}}),
           torch::tensor({0})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_DOUBLE_EQ(top2.compute(), 1.0);
 }
 
@@ -98,27 +98,27 @@ TEST(TopKAccuracyTest, RejectsUndefinedComplexAndNegativeInputs) {
   top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({0}));
 
   EXPECT_THROW(top2.update(Tensor{}, torch::tensor({0})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}}), Tensor{}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(top2.update(torch::ones({1, 2}, torch::kComplexFloat),
                            torch::tensor({0})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}}),
                            torch::ones({1}, torch::kComplexFloat)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({-1.0f})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}}), torch::tensor({-1})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(top2.update(torch::tensor({{0.9f, 0.1f}, {0.1f, 0.9f}}),
                            torch::tensor({0})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       top2.update(torch::tensor({{0.9f, 0.1f}}),
                   torch::tensor({std::numeric_limits<float>::quiet_NaN()})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_DOUBLE_EQ(top2.compute(), 1.0);
 }
 
@@ -186,14 +186,14 @@ TEST(RegressionMetricTest, RejectsInvalidInputWithoutChangingState) {
   MSE mse;
   mse.update(torch::tensor({1.0}), torch::tensor({0.0}));
   EXPECT_THROW(mse.update(torch::tensor({1.0}), torch::empty({0})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       mse.update(torch::tensor({std::numeric_limits<double>::infinity()}),
                  torch::tensor({0.0})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(mse.update(torch::tensor({1.0e308}, torch::kFloat64),
                           torch::tensor({-1.0e308}, torch::kFloat64)),
-               jyppx::NumericalError);
+               jyppx::liuding::NumericalError);
   EXPECT_DOUBLE_EQ(mse.compute(), 1.0);
 }
 
@@ -214,21 +214,21 @@ TEST(RegressionMetricTest, EmptyPairsAreNoOps) {
 TEST(RegressionMetricTest, RejectsUndefinedComplexAndMismatchedInputs) {
   MSE mse;
   EXPECT_THROW(mse.update(Tensor{}, torch::tensor({0.0f})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(mse.update(torch::tensor({0.0f}), Tensor{}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       mse.update(torch::ones({1}, torch::kComplexFloat), torch::tensor({0.0f})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       mse.update(torch::tensor({0.0f}), torch::ones({1}, torch::kComplexFloat)),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(mse.update(torch::tensor({0.0f, 1.0f}), torch::tensor({0.0f})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       mse.update(torch::tensor({0.0f}),
                  torch::tensor({std::numeric_limits<float>::infinity()})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_DOUBLE_EQ(mse.compute(), 0.0);
 }
 
@@ -236,7 +236,7 @@ TEST(MAETest, RejectsNonFiniteBatchAccumulatorAndResets) {
   MAE mae;
   EXPECT_THROW(mae.update(torch::tensor({1.0e308}, torch::kFloat64),
                           torch::tensor({-1.0e308}, torch::kFloat64)),
-               jyppx::NumericalError);
+               jyppx::liuding::NumericalError);
   EXPECT_DOUBLE_EQ(mae.compute(), 0.0);
   mae.update(torch::tensor({2.0}), torch::tensor({1.0}));
   mae.reset();
@@ -276,18 +276,18 @@ TEST(AverageMeterTest, AcceptsTensorMeans) {
 
 TEST(AverageMeterTest, RejectsInvalidCounts) {
   AverageMeter meter;
-  EXPECT_THROW(meter.update(1.0, 0), jyppx::InvalidArgument);
+  EXPECT_THROW(meter.update(1.0, 0), jyppx::liuding::InvalidArgument);
 }
 
 TEST(AverageMeterTest, RejectsNonFiniteValuesWithoutChangingState) {
   AverageMeter meter;
   meter.update(2.0, 2);
   EXPECT_THROW(meter.update(std::numeric_limits<double>::infinity()),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       meter.update(torch::tensor({std::numeric_limits<double>::quiet_NaN()},
                                  torch::kFloat64)),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_DOUBLE_EQ(meter.average(), 2.0);
   EXPECT_EQ(meter.count(), 2);
   EXPECT_DOUBLE_EQ(meter.last_value(), 2.0);
@@ -296,23 +296,23 @@ TEST(AverageMeterTest, RejectsNonFiniteValuesWithoutChangingState) {
 TEST(AverageMeterTest, RejectsCountAndWeightedSumOverflow) {
   AverageMeter count_meter;
   count_meter.update(0.0, std::numeric_limits<std::int64_t>::max());
-  EXPECT_THROW(count_meter.update(0.0, 1), jyppx::ResourceExhausted);
+  EXPECT_THROW(count_meter.update(0.0, 1), jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(count_meter.count(), std::numeric_limits<std::int64_t>::max());
   EXPECT_DOUBLE_EQ(count_meter.average(), 0.0);
 
   AverageMeter sum_meter;
   EXPECT_THROW(sum_meter.update(std::numeric_limits<double>::max(), 2),
-               jyppx::NumericalError);
+               jyppx::liuding::NumericalError);
   EXPECT_EQ(sum_meter.count(), 0);
   EXPECT_DOUBLE_EQ(sum_meter.average(), 0.0);
 }
 
 TEST(AverageMeterTest, RejectsUndefinedEmptyAndComplexTensors) {
   AverageMeter meter;
-  EXPECT_THROW(meter.update(Tensor{}), jyppx::InvalidArgument);
-  EXPECT_THROW(meter.update(torch::empty({0})), jyppx::InvalidArgument);
+  EXPECT_THROW(meter.update(Tensor{}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(meter.update(torch::empty({0})), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(meter.update(torch::ones({1}, torch::kComplexFloat)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_EQ(meter.count(), 0);
 }
 
@@ -321,9 +321,9 @@ TEST(MetricErrorTest, PreservesStableCodeAndStructuredContext) {
   bool caught = false;
   try {
     meter.update(1.0, 0);
-  } catch (const jyppx::InvalidArgument& error) {
+  } catch (const jyppx::liuding::InvalidArgument& error) {
     caught = true;
-    EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+    EXPECT_EQ(error.code(), jyppx::liuding::ErrorCode::invalid_argument);
     EXPECT_EQ(error.details().component, "training.metrics.average_meter");
     EXPECT_EQ(error.details().operation, "update.count");
     EXPECT_EQ(error.details().expected, "a positive observation count");
@@ -352,11 +352,11 @@ TEST(MetricCollectionTest, UpdatesAndComputesAllMetrics) {
 TEST(MetricCollectionTest, RejectsDuplicateAndUnknownNames) {
   MetricCollection collection;
   collection.add(std::make_shared<MSE>());
-  EXPECT_THROW(collection.add(std::make_shared<MSE>()), jyppx::InvalidArgument);
-  EXPECT_THROW(collection.add(nullptr), jyppx::InvalidArgument);
+  EXPECT_THROW(collection.add(std::make_shared<MSE>()), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(collection.add(nullptr), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(collection.add(std::make_shared<EmptyNameMetric>()),
-               jyppx::InvalidArgument);
-  EXPECT_THROW(collection.at("missing"), jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(collection.at("missing"), jyppx::liuding::InvalidArgument);
   EXPECT_EQ(collection.size(), 1);
 }
 

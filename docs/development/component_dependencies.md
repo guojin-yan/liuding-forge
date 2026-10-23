@@ -20,4 +20,4 @@ registered as the `ComponentDependencyGraph` CTest for continuous integration.
 
 Any new entity component or dependency edge must update the architecture
 decision and the JSON policy in the same change. Do not route a dependency
-through `jyppx::all`, `jyppx::sdk`, or another entity target.
+through `jyppx::liuding::all`, `jyppx::liuding::sdk`, or another entity target.

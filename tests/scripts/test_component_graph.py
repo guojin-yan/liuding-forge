@@ -61,12 +61,12 @@ class ComponentGraphTest(unittest.TestCase):
                 if edge != missing_interface:
                     lines.append(f"{consumer}\tinterface\t{provider}")
             for header_root in policy.header_roots:
-                root = REPOSITORY_ROOT / "include" / "jyppx" / header_root
+                root = REPOSITORY_ROOT / "include" / "jyppx" / "liuding" / header_root
                 for path in sorted(root.rglob("*.hpp")):
                     relative = path.relative_to(REPOSITORY_ROOT).as_posix()
                     lines.append(f"{consumer}\theader\t{relative}")
             for source_root in policy.source_roots:
-                root = REPOSITORY_ROOT / "src" / "jyppx" / source_root
+                root = REPOSITORY_ROOT / "src" / "jyppx" / "liuding" / source_root
                 for path in sorted(root.rglob("*.cpp")):
                     relative = path.relative_to(REPOSITORY_ROOT).as_posix()
                     lines.append(f"{consumer}\tsource\t{relative}")
@@ -113,7 +113,7 @@ class ComponentGraphTest(unittest.TestCase):
         """Reject an include edge absent from the allowed matrix."""
         forbidden = component_graph.Edge("foundation", "training")
         includes = component_graph.IncludeGraphs(
-            public={forbidden: {"include/jyppx/foundation/example.hpp:1"}},
+            public={forbidden: {"include/jyppx/liuding/foundation/example.hpp:1"}},
             source={},
             aggregate={},
         )
@@ -166,7 +166,7 @@ class ComponentGraphTest(unittest.TestCase):
         path = self.write_graph(missing_target=missing)
         lines = path.read_text(encoding="utf-8").splitlines()
         lines = [line for line in lines if not line.startswith(
-            "training\tsource\tsrc/jyppx/training/file_checkpoint_store.cpp")]
+            "training\tsource\tsrc/jyppx/liuding/training/file_checkpoint_store.cpp")]
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         includes = component_graph.scan_repository(self.manifest, REPOSITORY_ROOT)
         targets = component_graph.load_target_graph(path, self.manifest)
@@ -174,8 +174,8 @@ class ComponentGraphTest(unittest.TestCase):
 
     def test_active_source_rows_reject_wrong_owner_and_parent_traversal(self) -> None:
         """Source membership cannot move files across component ownership."""
-        for source in ("src/jyppx/interop/file_state_archive.cpp",
-                       "src/jyppx/training/../interop/file_state_archive.cpp"):
+        for source in ("src/jyppx/liuding/interop/file_state_archive.cpp",
+                       "src/jyppx/liuding/training/../interop/file_state_archive.cpp"):
             path = self.write_graph()
             with path.open("a", encoding="utf-8") as output:
                 output.write(f"training\tsource\t{source}\n")
@@ -194,8 +194,8 @@ class ComponentGraphTest(unittest.TestCase):
     def test_uninstalled_optional_public_headers_do_not_require_interface(self) -> None:
         """An interop-only package omits both nn-dependent public adapters."""
         path = self.write_graph(missing_interface=component_graph.Edge("interop", "nn"))
-        excluded = {"include/jyppx/interop/model_weight_import.hpp",
-                    "include/jyppx/interop/torchscript_compatibility.hpp"}
+        excluded = {"include/jyppx/liuding/interop/model_weight_import.hpp",
+                    "include/jyppx/liuding/interop/torchscript_compatibility.hpp"}
         lines = [line for line in path.read_text(encoding="utf-8").splitlines()
                  if line.split("\t")[-1] not in excluded]
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -205,9 +205,9 @@ class ComponentGraphTest(unittest.TestCase):
 
     def test_active_header_rows_reject_wrong_owner_traversal_and_duplicates(self) -> None:
         """CMake header membership obeys the same ownership and path contract."""
-        for header in ("include/jyppx/nn/model_adapter.hpp",
-                       "include/jyppx/interop/../nn/model_adapter.hpp",
-                       "include/jyppx/interop/torchscript_compatibility.hpp"):
+        for header in ("include/jyppx/liuding/nn/model_adapter.hpp",
+                       "include/jyppx/liuding/interop/../nn/model_adapter.hpp",
+                       "include/jyppx/liuding/interop/torchscript_compatibility.hpp"):
             path = self.write_graph()
             with path.open("a", encoding="utf-8") as output:
                 output.write(f"interop\theader\t{header}\n")

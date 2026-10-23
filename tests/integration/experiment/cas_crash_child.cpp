@@ -4,10 +4,10 @@
 
 // Link against the static experiment archive. This executable supplies only
 // its private forwarding symbol; the native publication remains product code.
-#include "jyppx/experiment/detail/artifact_publish.hpp"
+#include "jyppx/liuding/experiment/detail/artifact_publish.hpp"
 
-#include <jyppx/experiment/artifact_store.hpp>
-#include <jyppx/foundation/sha256.hpp>
+#include <jyppx/liuding/experiment/artifact_store.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <algorithm>
 #include <array>
@@ -33,7 +33,7 @@
 #endif
 
 namespace {
-namespace ex = jyppx::experiment;
+namespace ex = jyppx::liuding::experiment;
 using Json = nlohmann::json;
 constexpr auto kConfirmed =
     "Confirmed CAS object predating the interrupted upload";
@@ -59,17 +59,17 @@ std::vector<std::byte> target_content() {
   return content;
 }
 
-jyppx::ArtifactDigest confirmed_digest() {
-  return {.hex = jyppx::sha256_hex(bytes(kConfirmed))};
+jyppx::liuding::ArtifactDigest confirmed_digest() {
+  return {.hex = jyppx::liuding::sha256_hex(bytes(kConfirmed))};
 }
 
-jyppx::ArtifactDigest target_digest() {
+jyppx::liuding::ArtifactDigest target_digest() {
   const auto content = target_content();
-  return {.hex = jyppx::sha256_hex(content)};
+  return {.hex = jyppx::liuding::sha256_hex(content)};
 }
 
 std::filesystem::path object_path(const std::filesystem::path& root,
-                                  const jyppx::ArtifactDigest& digest) {
+                                  const jyppx::liuding::ArtifactDigest& digest) {
   return root / "cas" / "objects" / digest.hex.substr(0U, 2U) /
          digest.hex.substr(2U);
 }
@@ -96,7 +96,7 @@ Json file_evidence(const std::filesystem::path& path) {
   require(size <= 4U * 1024U * 1024U, "fixture file exceeded its bound");
   std::ifstream input(path, std::ios::binary);
   require(static_cast<bool>(input), "could not read CAS fixture file");
-  jyppx::Sha256 hash;
+  jyppx::liuding::Sha256 hash;
   std::array<std::byte, 8192U> buffer{};
   std::uint64_t read = 0U;
   while (input) {
@@ -111,7 +111,7 @@ Json file_evidence(const std::filesystem::path& path) {
   }
   require(input.eof() && read == size, "CAS fixture changed while reading");
   result["bytes"] = size;
-  result["sha256"] = jyppx::sha256_digest_hex(hash.finish());
+  result["sha256"] = jyppx::liuding::sha256_digest_hex(hash.finish());
   return result;
 }
 
@@ -185,7 +185,7 @@ ex::ArtifactDescriptor descriptor(std::size_t size, bool confirmed = false) {
 }
 
 void check_reader(ex::FileArtifactStore& store,
-                  const jyppx::ArtifactDigest& digest,
+                  const jyppx::liuding::ArtifactDigest& digest,
                   std::span<const std::byte> expected) {
   auto reader = store.open(digest);
   require(reader->size_bytes() == expected.size(), "CAS reader size changed");
@@ -276,7 +276,7 @@ int execute(std::string_view mode, const std::filesystem::path& root,
                           {"removed_bytes", recovered.removed_bytes}};
   }
   if (mode == "gc-confirmed" || mode == "gc-both") {
-    std::vector<jyppx::ArtifactDigest> live{confirmed_digest()};
+    std::vector<jyppx::liuding::ArtifactDigest> live{confirmed_digest()};
     if (mode == "gc-both") live.push_back(target_digest());
     const auto gc = store.collect_garbage(live, std::chrono::seconds::zero());
     result["gc"] = {{"removed_files", gc.removed_files},
@@ -310,7 +310,7 @@ int guarded_execute(std::string_view mode, const std::filesystem::path& root,
 }
 }  // namespace
 
-namespace jyppx::experiment::detail {
+namespace jyppx::liuding::experiment::detail {
 // Resolves the production caller's private forwarding symbol from this object.
 // The default forwarding object must stay a separate static archive member.
 std::error_code publish_artifact_file(
@@ -318,7 +318,7 @@ std::error_code publish_artifact_file(
     const std::filesystem::path& destination) {
   return ::supervised_publish(source, destination);
 }
-}  // namespace jyppx::experiment::detail
+}  // namespace jyppx::liuding::experiment::detail
 
 #ifdef _WIN32
 int wmain(int argc, wchar_t** argv) {

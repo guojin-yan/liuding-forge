@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/optim/adadelta_adapter.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/optim/adadelta_adapter.hpp>
 
 #include <torch/version.h>
 
@@ -27,17 +27,17 @@
 
 namespace {
 
-using jyppx::StateManifest;
-using jyppx::Tensor;
-using jyppx::optim::AdadeltaAdapterOptions;
-using jyppx::optim::AdadeltaOptimizerAdapter;
-using jyppx::optim::AdadeltaOptimizerCheckpointOptions;
-using jyppx::optim::AdadeltaOptimizerCheckpointParticipant;
-using jyppx::optim::AdadeltaParameterGroup;
+using jyppx::liuding::StateManifest;
+using jyppx::liuding::Tensor;
+using jyppx::liuding::optim::AdadeltaAdapterOptions;
+using jyppx::liuding::optim::AdadeltaOptimizerAdapter;
+using jyppx::liuding::optim::AdadeltaOptimizerCheckpointOptions;
+using jyppx::liuding::optim::AdadeltaOptimizerCheckpointParticipant;
+using jyppx::liuding::optim::AdadeltaParameterGroup;
 
 /** @brief In-memory participant store used for storage-neutral state tests. */
-class MemoryStateStore final : public jyppx::StateWriter,
-                               public jyppx::StateReader {
+class MemoryStateStore final : public jyppx::liuding::StateWriter,
+                               public jyppx::liuding::StateReader {
  public:
   /** @brief Creates an empty store for the supplied state contract. */
   explicit MemoryStateStore(StateManifest manifest)
@@ -123,7 +123,7 @@ StateManifest make_schema_v1_manifest(const StateManifest& current) {
   legacy.schema_version = 1;
   const auto producer =
       std::find_if(legacy.fields.begin(), legacy.fields.end(),
-                   [](const jyppx::StateFieldDescriptor& field) {
+                   [](const jyppx::liuding::StateFieldDescriptor& field) {
                      return field.name == "producer";
                    });
   EXPECT_NE(producer, legacy.fields.end());
@@ -224,7 +224,7 @@ MemoryStateStore load_canonical_schema_v1_fixture(
     const AdadeltaOptimizerCheckpointParticipant& participant) {
   MemoryStateStore fixture(
       make_schema_v1_manifest(participant.describe_state()));
-  const auto fixture_dir = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
+  const auto fixture_dir = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
                            "checkpoint" / "adadelta_schema_v1_libtorch_2.5.1";
   for (const auto& field : fixture.manifest().fields) {
     fixture.replace(field.name, read_base64_fixture(fixture_dir /
@@ -349,7 +349,7 @@ TEST(AdadeltaOptimizerAdapterTest, RejectsSparseGradientsBeforeAnyMutation) {
       torch::sparse_coo_tensor(torch::tensor({{0, 2}}, torch::kInt64),
                                torch::tensor({1.0, 1.0}, torch::kFloat64), {4});
 
-  EXPECT_THROW(optimizer.step(), jyppx::NotImplemented);
+  EXPECT_THROW(optimizer.step(), jyppx::liuding::NotImplemented);
   EXPECT_TRUE(torch::equal(first, before_first));
   EXPECT_TRUE(torch::equal(second, before_second));
   EXPECT_EQ(optimizer.completed_steps(), 0U);
@@ -367,7 +367,7 @@ TEST(AdadeltaOptimizerAdapterTest, ClosureGradientFailureIsAtomic) {
                                  torch::tensor({2.0}, torch::kFloat64), {4});
     return torch::tensor(1.0);
   }),
-               jyppx::NotImplemented);
+               jyppx::liuding::NotImplemented);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer.completed_steps(), 0U);
 }
@@ -432,7 +432,7 @@ TEST(AdadeltaOptimizerAdapterTest, CheckpointResumesBothAccumulatorsExactly) {
     resumed_first.copy_(first);
     resumed_second.copy_(second);
   }
-  resumed_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  resumed_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
 
   for (std::int64_t step = 37; step < 91; ++step) {
     assign_pair(first, second, step);
@@ -470,8 +470,8 @@ TEST(AdadeltaOptimizerAdapterTest, MalformedCheckpointLeavesStateUnchanged) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   store.replace("acc_delta.0000000000", {std::byte{0x01}});
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(parameter, before_parameter));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -512,7 +512,7 @@ TEST(AdadeltaOptimizerAdapterTest,
   store.set_manifest(make_schema_v1_manifest(current_manifest));
 
   copy_parameter(uninterrupted, resumed);
-  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  second_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(second->completed_steps(), first->completed_steps());
   EXPECT_EQ(second->learning_rates(), first->learning_rates());
 
@@ -556,7 +556,7 @@ TEST(AdadeltaOptimizerAdapterTest,
       make_fixture_groups(resumed_regularized, resumed_maximizing, 0.9, 0.8));
   AdadeltaOptimizerCheckpointParticipant resumed_participant(resumed);
   const auto fixture = load_canonical_schema_v1_fixture(resumed_participant);
-  resumed_participant.load_state(fixture, jyppx::RestorePolicy::exact_only);
+  resumed_participant.load_state(fixture, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(resumed->completed_steps(), 3U);
   EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.5, 0.4}));
 
@@ -586,8 +586,8 @@ TEST(AdadeltaOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
   auto future = store.manifest();
   future.schema_version = 3;
   store.set_manifest(future);
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -595,8 +595,8 @@ TEST(AdadeltaOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
   auto relabelled = participant.describe_state();
   relabelled.schema_version = 1;
   store.set_manifest(relabelled);
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -618,8 +618,8 @@ TEST(AdadeltaOptimizerAdapterTest,
   participant.save_state(store);
   store.replace("producer", {std::byte{0x01}});
 
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -633,7 +633,7 @@ TEST(AdadeltaOptimizerAdapterTest, EnforcesProducerResourceLimit) {
   AdadeltaOptimizerCheckpointOptions options;
   options.max_producer_bytes = 1;
   EXPECT_THROW(AdadeltaOptimizerCheckpointParticipant(optimizer, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(AdadeltaOptimizerAdapterTest, FreshCheckpointUsesLazyEmptyState) {
@@ -666,7 +666,7 @@ TEST(AdadeltaOptimizerAdapterTest,
   parameter.mutable_grad() = torch::ones_like(parameter);
   optimizer->step();
 
-  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::NotReady);
+  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::liuding::NotReady);
   EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
 }
 
@@ -702,7 +702,7 @@ TEST(AdadeltaOptimizerAdapterCudaTest,
   store.erase("producer");
   store.set_manifest(make_schema_v1_manifest(current_manifest));
   copy_parameter(uninterrupted, resumed);
-  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  second_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
 
   for (std::int64_t step = 13; step < 37; ++step) {
     assign_gradient(uninterrupted, step, 0.25);
@@ -746,17 +746,17 @@ TEST(AdadeltaOptimizerAdapterTest, ValidatesOptionsIdentityAndRatesAtomically) {
   EXPECT_THROW(AdadeltaOptimizerAdapter(
                    "optimizer.adadelta",
                    {make_group("main", "weight", parameter, {.rho = 1.1})}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(AdadeltaOptimizerAdapter(
                    "optimizer.adadelta",
                    {make_group("main", "weight", parameter, {.epsilon = 0.0})}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(AdadeltaOptimizerAdapter(
                    "optimizer.adadelta",
                    {make_group("main", "weight", parameter,
                                {.weight_decay =
                                     std::numeric_limits<double>::infinity()})}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(AdadeltaOptimizerAdapter(
                    "optimizer.adadelta",
                    {{.group_id = "main",
@@ -764,14 +764,14 @@ TEST(AdadeltaOptimizerAdapterTest, ValidatesOptionsIdentityAndRatesAtomically) {
                                      .parameter = parameter},
                                     {.parameter_id = "duplicate",
                                      .parameter = make_parameter({2})}}}}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 
   AdadeltaOptimizerAdapter optimizer("optimizer.adadelta",
                                      {make_group("main", "weight", parameter)});
   const auto before = optimizer.learning_rates();
-  EXPECT_THROW(optimizer.set_learning_rates({-1.0}), jyppx::InvalidArgument);
+  EXPECT_THROW(optimizer.set_learning_rates({-1.0}), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(optimizer.set_learning_rates({0.1, 0.2}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_EQ(optimizer.learning_rates(), before);
 }
 

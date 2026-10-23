@@ -44,7 +44,7 @@ metrics.
 
 `bench_loss_vertical_slice` uses one CPU thread, fixed seeds and frozen tensor
 shapes to report five post-warmup forward/backward samples for label smoothing,
-binary focal, multilabel Dice and contrastive loss. It links only `jyppx::nn`
+binary focal, multilabel Dice and contrastive loss. It links only `jyppx::liuding::nn`
 so the same target can also measure component-level clean build time. Compare
 results only on the same host, toolchain, LibTorch build and workload revision;
 the executable records observations and does not define a portable threshold.

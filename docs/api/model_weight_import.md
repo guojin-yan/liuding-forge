@@ -1,6 +1,6 @@
 # Verified model weight import
 
-Header: `jyppx/interop/model_weight_import.hpp`; target: `jyppx::interop` with
+Header: `jyppx/interop/model_weight_import.hpp`; target: `jyppx::liuding::interop` with
 the optional `nn` adapter enabled. The header is not installed when `nn` is OFF.
 The storage-neutral safetensors codec and weight mapping planner remain usable
 without nn.

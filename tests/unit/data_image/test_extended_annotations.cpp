@@ -3,14 +3,14 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/data_image/extended_annotations.hpp>
+#include <jyppx/liuding/data_image/extended_annotations.hpp>
 
 #include <gtest/gtest.h>
 #include <stop_token>
 #include <string>
 
 namespace {
-using namespace jyppx::data::image;
+using namespace jyppx::liuding::data::image;
 
 TextAnnotationReadOptions DotaOptions() {
   TextAnnotationReadOptions options;
@@ -44,16 +44,16 @@ TEST(ExtendedImageAnnotationTest,
   const auto options = DotaOptions();
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 10 10 0 10 plane\n", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 0 10 10 10 plane 0\n", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 10 10 0 10 unknown 0\n", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 10 10 0 10 plane -1\n", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TextAnnotationReadOptions KittiOptions() {
@@ -104,15 +104,15 @@ TEST(ExtendedImageAnnotationTest,
   EXPECT_THROW(
       parse_kitti_object_annotations("Car 0 0 0 1 2 3 4\n",
                                      KittiObjectDialect::ground_truth, options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_kitti_object_annotations("Car 2 0 0 1 2 3 4 1 1 1 0 0 0 0\n",
                                      KittiObjectDialect::ground_truth, options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_kitti_object_annotations("Car 0 0 0 1 2 3 4 1 1 1 -1000 0 0 0\n",
                                      KittiObjectDialect::ground_truth, options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 MotChallengeReadOptions MotOptions(MotChallengeDialect dialect) {
@@ -166,13 +166,13 @@ TEST(ExtendedImageAnnotationTest,
   auto options = MotOptions(MotChallengeDialect::ground_truth_9);
   EXPECT_THROW(parse_mot_challenge_annotations(
                    "1,7,1,1,10,10,1,1,1\n1,7,2,2,10,10,1,1,1\n", options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_mot_challenge_annotations("1,7,1,1,10,10,1,77,1\n", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_mot_challenge_annotations("1,7,1,1,10,10,1,1,2\n", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TEST(ExtendedImageAnnotationTest,
@@ -182,16 +182,16 @@ TEST(ExtendedImageAnnotationTest,
   stop.request_stop();
   EXPECT_THROW(parse_dota_1x_annotations("0 0 10 0 10 10 0 10 plane 0\n",
                                          options, stop.get_token()),
-               jyppx::Cancelled);
+               jyppx::liuding::Cancelled);
   options.max_line_bytes = 4;
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 10 10 0 10 plane 0\n", options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
   options = DotaOptions();
   options.limits.max_objects = 0;
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 10 10 0 10 plane 0\n", options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ExtendedImageAnnotationTest, DotaRetainsNullGsdAndEitherPolygonWinding) {
@@ -203,10 +203,10 @@ TEST(ExtendedImageAnnotationTest, DotaRetainsNullGsdAndEitherPolygonWinding) {
   ASSERT_TRUE(result.objects[0].target.oriented_box);
   EXPECT_DOUBLE_EQ((*result.objects[0].target.oriented_box)[1].y, 30);
   EXPECT_THROW(parse_dota_1x_annotations("gsd: 1\ngsd: null\n", DotaOptions()),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_dota_1x_annotations(
                    "10 10 10 30 40 30 40 10 plane 0\ngsd: 1\n", DotaOptions()),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ExtendedImageAnnotationTest,
@@ -214,7 +214,7 @@ TEST(ExtendedImageAnnotationTest,
   auto options = DotaOptions();
   const std::string row = "-5 10 10 10 10 20 -5 20 plane 0\n";
   EXPECT_THROW(parse_dota_1x_annotations(row, options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   options.bounds = AnnotationBounds::preserve_outside;
   const auto result = parse_dota_1x_annotations(row, options);
   ASSERT_TRUE(result.objects[0].target.oriented_box);
@@ -232,7 +232,7 @@ TEST(ExtendedImageAnnotationTest,
   auto options = MotOptions(MotChallengeDialect::detection_10);
   options.unclassified_category.reset();
   EXPECT_THROW(parse_mot_challenge_annotations("", options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   options.unclassified_category = 2;
   options.coordinates = MotCoordinates::zero_based;
   const auto result =
@@ -243,7 +243,7 @@ TEST(ExtendedImageAnnotationTest,
   options.coordinates = MotCoordinates::one_based;
   EXPECT_THROW(
       parse_mot_challenge_annotations("1,-1,0,0,10,10,.5,-1,-1,-1", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TEST(ExtendedImageAnnotationTest,
@@ -261,34 +261,34 @@ TEST(ExtendedImageAnnotationTest,
   options.dialect = MotChallengeDialect::tracking_result_10;
   EXPECT_THROW(
       parse_mot_challenge_annotations("1,-1,1,1,10,10,.5,-1,-1,-1", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   options.dialect = MotChallengeDialect::detection_10;
   options.frame_count = 3;
   EXPECT_THROW(
       parse_mot_challenge_annotations("4,-1,1,1,10,10,.5,-1,-1,-1", options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TEST(ExtendedImageAnnotationTest,
      ExtendedReadersRejectNonFiniteMalformedUtf8AndPrivateDiagnostics) {
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 nan 0 10 10 0 10 plane 0", DotaOptions()),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_kitti_object_annotations(
                    "Car 0 0 0 0 0 10 10 1 1 1 0 inf 0 0",
                    KittiObjectDialect::ground_truth, KittiOptions()),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   auto mot = MotOptions(MotChallengeDialect::ground_truth_9);
   EXPECT_THROW(parse_mot_challenge_annotations("1,7,1,1,10,10,1,1,nan", mot),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_dota_1x_annotations(std::string("\xc0\xaf", 2), DotaOptions()),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   try {
     parse_dota_1x_annotations("0 0 10 0 10 10 0 10 private_name 0",
                               DotaOptions());
     FAIL();
-  } catch (const jyppx::SerializationError& error) {
+  } catch (const jyppx::liuding::SerializationError& error) {
     EXPECT_EQ(std::string(error.what()).find("private_name"),
               std::string::npos);
     EXPECT_EQ(error.details().component, "data.image.annotations");
@@ -301,26 +301,26 @@ TEST(ExtendedImageAnnotationTest,
   options.limits.max_nodes = 9;
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 10 10 0 10 plane 0", options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
   options = DotaOptions();
   options.limits.max_points = 3;
   EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 10 10 0 10 plane 0", options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
   options = DotaOptions();
   options.max_lines = 1;
   EXPECT_THROW(parse_dota_1x_annotations("\n\n", options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   options = DotaOptions();
   options.limits.max_input_bytes = 1;
   EXPECT_THROW(parse_dota_1x_annotations("gsd: null", options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   auto mot = MotOptions(MotChallengeDialect::detection_10);
   mot.text.limits.max_images = 1;
   EXPECT_THROW(
       parse_mot_challenge_annotations(
           "1,-1,1,1,10,10,.5,-1,-1,-1\n2,-1,1,1,10,10,.5,-1,-1,-1", mot),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ExtendedImageAnnotationTest, EmptyDocumentsRetainContextAndStableDigest) {
@@ -375,20 +375,20 @@ TEST(ExtendedImageAnnotationTest,
                    R"({"imgWidth":100,"imgHeight":80,"objects":[
                      {"label":"truck","polygon":[[1,1],[2,1],[2,2]]}]})",
                    options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_cityscapes_polygon_annotations(
                    R"({"imgWidth":101,"imgHeight":80,"objects":[]})", options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_cityscapes_polygon_annotations(
                    R"({"imgWidth":100,"imgHeight":80,"objects":[
                      {"label":"car","polygon":[[1,1],[2,2]]}]})",
                    options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_cityscapes_polygon_annotations(
                    R"({"imgWidth":100,"imgHeight":80,"objects":[
                      {"label":"car","polygon":[[1,1],[2,2],[1,1]]}]})",
                    options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ExtendedImageAnnotationTest,
@@ -407,7 +407,7 @@ TEST(ExtendedImageAnnotationTest,
                    R"({"imgWidth":100,"imgHeight":80,"objects":[
                      {"label":"car","polygon":[],"deleted":true}]})",
                    options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ExtendedImageAnnotationTest,
@@ -418,15 +418,15 @@ TEST(ExtendedImageAnnotationTest,
       parse_cityscapes_polygon_annotations(
           R"({"imgWidth":100,"imgWidth":100,"imgHeight":80,"objects":[]})",
           options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_cityscapes_polygon_annotations(
                    R"({"imgWidth":100,"imgHeight":80,"objects":[
                      {"label":"car","id":1,"deleted":true,"polygon":[]},
                      {"label":"car","id":1,"deleted":true,"polygon":[]}]})",
                    options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_cityscapes_polygon_annotations("{bad json", options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 }  // namespace

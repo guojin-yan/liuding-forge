@@ -5,7 +5,7 @@
 #ifndef JYPPX_TOOLS_CLI_HPP
 #define JYPPX_TOOLS_CLI_HPP
 
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -19,7 +19,7 @@
 #include <string_view>
 #include <vector>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 using Json = nlohmann::json;
 
 struct Result {
@@ -65,6 +65,6 @@ Result model_command(const Arguments& arguments);
 Result benchmark_command(const Arguments& arguments);
 Result offline_command(const Arguments& arguments);
 
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli
 
 #endif  // JYPPX_TOOLS_CLI_HPP

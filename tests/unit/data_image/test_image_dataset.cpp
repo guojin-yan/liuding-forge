@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/data_image/image_dataset.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/data_image/image_dataset.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -19,7 +19,7 @@
 #include <vector>
 
 namespace {
-using namespace jyppx::data::image;
+using namespace jyppx::liuding::data::image;
 namespace fs = std::filesystem;
 
 class TempDirectory final {
@@ -60,7 +60,7 @@ class TempDirectory final {
 };
 
 std::vector<char> FixtureBytes(std::string_view name) {
-  const auto path = fs::path(JYPPX_TEST_FIXTURE_ROOT) / "data_image" / name;
+  const auto path = fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / name;
   std::ifstream stream(path, std::ios::binary);
   EXPECT_TRUE(stream.good()) << path.string();
   return {std::istreambuf_iterator<char>(stream),
@@ -179,15 +179,15 @@ TEST(ImageDatasetTest, RejectsAnnotationSizeMismatchWhenSampleIsRead) {
   annotations.images.push_back(record);
   const ImageDataset dataset(directory.path(), manifest, annotations);
 
-  EXPECT_THROW(static_cast<void>(dataset.get(0U)), jyppx::SerializationError);
+  EXPECT_THROW(static_cast<void>(dataset.get(0U)), jyppx::liuding::SerializationError);
 }
 
 TEST(ImageDatasetTest, RejectsMissingLinksAndOutOfRangeSamples) {
   TempDirectory directory;
   const auto index = ClassificationIndex("path,labels\nmissing.png,cat\n");
   const ImageDataset dataset(directory.path(), index);
-  EXPECT_THROW(static_cast<void>(dataset.get(0U)), jyppx::IoError);
-  EXPECT_THROW(static_cast<void>(dataset.get(1U)), jyppx::InvalidArgument);
+  EXPECT_THROW(static_cast<void>(dataset.get(0U)), jyppx::liuding::IoError);
+  EXPECT_THROW(static_cast<void>(dataset.get(1U)), jyppx::liuding::InvalidArgument);
 }
 
 TEST(ImageDatasetTest, ObservesCancellationBeforeFilesystemAccess) {
@@ -197,7 +197,7 @@ TEST(ImageDatasetTest, ObservesCancellationBeforeFilesystemAccess) {
   std::stop_source cancellation;
   cancellation.request_stop();
   EXPECT_THROW(static_cast<void>(dataset.get(0U, cancellation.get_token())),
-               jyppx::Cancelled);
+               jyppx::liuding::Cancelled);
 }
 
 TEST(ImageDatasetTest, RejectsSelectedRootThatDoesNotExist) {
@@ -205,7 +205,7 @@ TEST(ImageDatasetTest, RejectsSelectedRootThatDoesNotExist) {
   const auto index = ClassificationIndex("path,labels\nimage.png,cat\n");
   EXPECT_THROW(
       static_cast<void>(ImageDataset(directory.path() / "absent", index)),
-      jyppx::IoError);
+      jyppx::liuding::IoError);
 }
 
 TEST(ImageDatasetTest, RejectsAnnotationsOutsideTheSelectedManifest) {
@@ -220,7 +220,7 @@ TEST(ImageDatasetTest, RejectsAnnotationsOutsideTheSelectedManifest) {
 
   EXPECT_THROW(
       static_cast<void>(ImageDataset(directory.path(), manifest, annotations)),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TEST(ImageDatasetTest, RejectsSymbolicLinkInSamplePathWhenAvailable) {
@@ -237,7 +237,7 @@ TEST(ImageDatasetTest, RejectsSymbolicLinkInSamplePathWhenAvailable) {
   }
   const ImageDataset dataset(
       directory.path(), ClassificationIndex("path,labels\nlinked.png,cat\n"));
-  EXPECT_THROW(static_cast<void>(dataset.get(0U)), jyppx::IoError);
+  EXPECT_THROW(static_cast<void>(dataset.get(0U)), jyppx::liuding::IoError);
   fs::remove(external, error);
 }
 

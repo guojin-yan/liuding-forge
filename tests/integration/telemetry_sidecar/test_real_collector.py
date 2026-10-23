@@ -1,6 +1,6 @@
 """Draft real collector-to-file consumer gate; never silently substitute a mock.
 
-JYPPX_TEST_OTELCOL must name the unpacked official otelcol-contrib 0.135.0
+JYPPX_LIUDING_TEST_OTELCOL must name the unpacked official otelcol-contrib 0.135.0
 executable obtained from a verified collector-artifacts.json archive. This gate
 starts that executable with argv/no shell in a unique temporary directory and
 checks its exported OTLP JSON using official generated-message consumers.
@@ -43,7 +43,7 @@ def protobuf_json_ids(value):
 
 class RealCollectorTest(unittest.TestCase):
     def test_official_collector_file_consumer_preserves_scalars_logs_and_span(self):
-        configured = os.environ.get("JYPPX_TEST_OTELCOL")
+        configured = os.environ.get("JYPPX_LIUDING_TEST_OTELCOL")
         if not configured:
             self.skipTest("required real collector executable has not been configured")
         executable = Path(configured).resolve(strict=True)

@@ -1,6 +1,6 @@
 # API: Delegated RMSprop Adapter
 
-`#include <jyppx/optim/rmsprop_adapter.hpp>`
+`#include <jyppx/liuding/optim/rmsprop_adapter.hpp>`
 
 `RmspropOptimizerAdapter` owns `torch::optim::RMSprop` and delegates every
 numerical update to the supported LibTorch implementation. Construction
@@ -17,9 +17,9 @@ options remain fixed. Any later synchronization attempt is rejected once a
 step or native RMSprop state exists.
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::RmspropOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::RmspropOptimizerAdapter>(
     "optimizer.rmsprop",
-    std::vector<jyppx::optim::RmspropParameterGroup>{
+    std::vector<jyppx::liuding::optim::RmspropParameterGroup>{
         {.group_id = "recurrent",
          .parameters = recurrent_parameter_bindings,
          .options = {.learning_rate = 1e-3,

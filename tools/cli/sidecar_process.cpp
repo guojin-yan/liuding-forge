@@ -27,7 +27,7 @@ extern char** environ;
 
 #include "sidecar_process.hpp"
 
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <algorithm>
 #include <array>
@@ -42,7 +42,7 @@ extern char** environ;
 #include <random>
 #include <utility>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -1123,4 +1123,4 @@ SidecarProcessStats SidecarProcessTransport::stats() const noexcept {
   return impl_->counters;
 }
 
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli

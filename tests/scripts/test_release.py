@@ -41,7 +41,7 @@ class ReleaseTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="jyppx-release-test-")
         self.root = Path(self.temporary.name)
         self.prefix = self.root / "install"
-        self.header = self.prefix / "include/jyppx/foundation/build_config.hpp"
+        self.header = self.prefix / "include/jyppx/liuding/foundation/build_config.hpp"
         self.header.parent.mkdir(parents=True)
         self.header.write_text(
             '#define JYPPX_VERSION_MAJOR 1\n#define JYPPX_VERSION_MINOR 0\n'

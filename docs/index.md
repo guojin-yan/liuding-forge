@@ -6,7 +6,7 @@ fills the gap between LibTorch's tensor primitives and the training
 experience PyTorch users know: data loaders, optimizers, schedulers,
 metrics, callbacks, checkpointing and mixed precision.
 
-The `jyppx` namespace, `include/jyppx` headers, `jyppx::` CMake targets,
+The `jyppx` namespace, `include/jyppx` headers, `jyppx::liuding::` CMake targets,
 `find_package(jyppx)`, and protocol fields such as `jyppx_version` and
 `jyppx.model_bundle` are compatibility contracts. They remain unchanged while
 the public brand and generated artifact prefix use `Liuding Forge` and
@@ -117,7 +117,7 @@ the public brand and generated artifact prefix use `Liuding Forge` and
 - [Model Adapter](api/model_adapter.md) — shared model state, typed adapter
   helpers, structured invocation schemas, and multi-input/output boundaries
 - [Label-smoothed cross entropy](api/losses/label_smoothing_cross_entropy.md)
-  — the first independently packaged `jyppx::nn` loss adapter
+  — the first independently packaged `jyppx::liuding::nn` loss adapter
 - [Contrastive loss](api/losses/contrastive_loss.md) — a native pairwise
   metric-learning loss with explicit tensor and label contracts
 - [Focal loss](api/losses/focal_loss.md) — binary and class-index focal loss

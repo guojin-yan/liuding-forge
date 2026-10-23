@@ -80,7 +80,7 @@ else:
                             "JYPPX_FIXTURE_COMMAND_LOG": str(self.root / "out/commands.jsonl"),
                             "JYPPX_FIXTURE_SUMMARY": str(self.root / "sample.json")}
         for key in tuple(self.environment):
-            if key.startswith("JYPPX_COVERAGE_") or key == "JYPPX_BUILD_PARALLEL_LEVEL":
+            if key.startswith("JYPPX_COVERAGE_") or key == "JYPPX_LIUDING_BUILD_PARALLEL_LEVEL":
                 del self.environment[key]
 
     def run_lane(self, **environment: str) -> subprocess.CompletedProcess[str]:
@@ -110,7 +110,7 @@ else:
         configure = next(row for row in commands if row[0] == "cmake" and "-S" in row)
         self.assertIn("-DTorch_DIR=" + self.environment["CMAKE_PREFIX_PATH"] + "/share/cmake/Torch", configure)
         for owner in ("MODELS", "QUANTIZATION", "SERVING"):
-            self.assertIn("-DJYPPX_BUILD_" + owner + "=ON", configure)
+            self.assertIn("-DJYPPX_LIUDING_BUILD_" + owner + "=ON", configure)
         for row in commands:
             if row[0] == "gcovr" and "--version" not in row:
                 self.assertEqual(row[-1], str(self.build))
@@ -161,7 +161,7 @@ else:
         self.assertFalse(any(row[0] in ("cmake", "ctest") for row in self.commands()))
 
     def test_preflight_failure_replaces_prior_success_metadata(self) -> None:
-        for arguments in ({"JYPPX_BUILD_PARALLEL_LEVEL": "bad"},
+        for arguments in ({"JYPPX_LIUDING_BUILD_PARALLEL_LEVEL": "bad"},
                           {"JYPPX_COVERAGE_EXCLUDE_PACKAGING": "2"},
                           {"CMAKE_PREFIX_PATH": str(self.root / "missing torch")}):
             with self.subTest(arguments=arguments):

@@ -1,11 +1,11 @@
 # Checkpoint Coordinator
 
-Header: `#include <jyppx/training/checkpoint_coordinator.hpp>`
+Header: `#include <jyppx/liuding/training/checkpoint_coordinator.hpp>`
 
-Link target: `jyppx::training`
+Link target: `jyppx::liuding::training`
 
 The training checkpoint coordinator combines the storage-neutral participant
-contracts from `jyppx::foundation`. It does not define a file format, hash,
+contracts from `jyppx::liuding::foundation`. It does not define a file format, hash,
 codec, path layout, or artifact publication mechanism.
 
 ## Participant registry

@@ -1,14 +1,14 @@
 # Label-smoothed cross entropy
 
-Status: `delegated adapter` in the default `jyppx::nn` component.
+Status: `delegated adapter` in the default `jyppx::liuding::nn` component.
 
-Header: `#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>`
+Header: `#include <jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>`
 
-Link target: `jyppx::nn`
+Link target: `jyppx::liuding::nn`
 
 ## Purpose
 
-`jyppx::nn::functional::label_smoothing_cross_entropy` gives training code a
+`jyppx::liuding::nn::functional::label_smoothing_cross_entropy` gives training code a
 stable JYPPX entry point while delegating all tensor mathematics to
 `torch::nn::functional::cross_entropy`. JYPPX does not maintain a duplicate
 kernel or a separately evolving formula.
@@ -40,11 +40,11 @@ distribution.
 ## API forms
 
 ```cpp
-namespace F = jyppx::nn::functional;
+namespace F = jyppx::liuding::nn::functional;
 
 auto loss = F::label_smoothing_cross_entropy(logits, target, 0.1, "mean");
 
-jyppx::nn::LabelSmoothingCrossEntropy criterion(0.1, "mean");
+jyppx::liuding::nn::LabelSmoothingCrossEntropy criterion(0.1, "mean");
 auto module_loss = criterion.forward(logits, target);
 ```
 

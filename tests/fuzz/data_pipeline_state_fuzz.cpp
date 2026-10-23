@@ -5,9 +5,9 @@
 
 #include "fuzz_support.hpp"
 
-#include <jyppx/data/data_pipeline.hpp>
-#include <jyppx/data/samplers/sequential_sampler.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -24,11 +24,11 @@ namespace {
 constexpr std::size_t kMaxFuzzInputLength = 4096;
 
 /** @brief In-memory checkpoint store used by the fuzz harness. */
-class FuzzStateStore final : public jyppx::StateWriter,
-                             public jyppx::StateReader {
+class FuzzStateStore final : public jyppx::liuding::StateWriter,
+                             public jyppx::liuding::StateReader {
  public:
   /** @brief Creates an empty store governed by @p manifest. */
-  explicit FuzzStateStore(jyppx::StateManifest manifest)
+  explicit FuzzStateStore(jyppx::liuding::StateManifest manifest)
       : manifest_(std::move(manifest)) {}
 
   /** @brief Replaces one state field with bytes emitted by the participant. */
@@ -39,7 +39,7 @@ class FuzzStateStore final : public jyppx::StateWriter,
   }
 
   /** @brief Returns the immutable source manifest. */
-  const jyppx::StateManifest& manifest() const noexcept override {
+  const jyppx::liuding::StateManifest& manifest() const noexcept override {
     return manifest_;
   }
 
@@ -53,7 +53,7 @@ class FuzzStateStore final : public jyppx::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto found = blobs_.find(std::string(name));
     if (found == blobs_.end() || found->second.size() > max_bytes) {
-      throw jyppx::SerializationError("Fuzz state field is unavailable");
+      throw jyppx::liuding::SerializationError("Fuzz state field is unavailable");
     }
     return found->second;
   }
@@ -64,23 +64,23 @@ class FuzzStateStore final : public jyppx::StateWriter,
   }
 
  private:
-  jyppx::StateManifest manifest_;  ///< Manifest presented to the participant.
+  jyppx::liuding::StateManifest manifest_;  ///< Manifest presented to the participant.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Mutable topology and cursor fields.
 };
 
 /** @brief Builds one valid mid-epoch state used as the mutation seed. */
 FuzzStateStore make_baseline() {
-  jyppx::data::DataPipeline pipeline(
-      std::make_shared<jyppx::data::samplers::SequentialSampler>(4),
+  jyppx::liuding::data::DataPipeline pipeline(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(4),
       {.pipeline_id = "data.pipeline.fuzz",
        .dataset_version = "dataset.fuzz/v1",
        .dataset_size = 4,
-       .schema = jyppx::data::BatchSchema::any("batch.fuzz", 1),
+       .schema = jyppx::liuding::data::BatchSchema::any("batch.fuzz", 1),
        .batch_factory_id = "factory.fuzz/v1",
        .batch_size = 2},
       [](std::span<const std::size_t> indices,
-         const jyppx::data::DataWorkerContext&, std::stop_token) {
+         const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
         return c10::IValue(static_cast<std::int64_t>(indices.size()));
       });
   pipeline.set_epoch(2);
@@ -164,25 +164,25 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
   auto store = baseline();
   mutate(store, data, size);
   try {
-    jyppx::data::DataPipeline pipeline(
-        std::make_shared<jyppx::data::samplers::SequentialSampler>(4),
+    jyppx::liuding::data::DataPipeline pipeline(
+        std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(4),
         {.pipeline_id = "data.pipeline.fuzz",
          .dataset_version = "dataset.fuzz/v1",
          .dataset_size = 4,
-         .schema = jyppx::data::BatchSchema::any("batch.fuzz", 1),
+         .schema = jyppx::liuding::data::BatchSchema::any("batch.fuzz", 1),
          .batch_factory_id = "factory.fuzz/v1",
          .batch_size = 2},
         [](std::span<const std::size_t> indices,
-           const jyppx::data::DataWorkerContext&, std::stop_token) {
+           const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
           return c10::IValue(static_cast<std::int64_t>(indices.size()));
         });
-    pipeline.load_state(store, jyppx::RestorePolicy::exact_only);
-  } catch (const jyppx::Error& error) {
+    pipeline.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  } catch (const jyppx::liuding::Error& error) {
     switch (error.code()) {
-      case jyppx::ErrorCode::invalid_argument:
-      case jyppx::ErrorCode::serialization:
-      case jyppx::ErrorCode::compatibility:
-      case jyppx::ErrorCode::resource_exhausted:
+      case jyppx::liuding::ErrorCode::invalid_argument:
+      case jyppx::liuding::ErrorCode::serialization:
+      case jyppx::liuding::ErrorCode::compatibility:
+      case jyppx::liuding::ErrorCode::resource_exhausted:
         break;
       default:
         throw;

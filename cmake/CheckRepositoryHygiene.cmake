@@ -69,9 +69,9 @@ string(REPLACE "\r\n" "\n" tracked_output "${tracked_output}")
 string(REPLACE "\n" ";" tracked_files "${tracked_output}")
 set(retired_placeholder_paths
     docs/api/distributed.md
-    include/jyppx/distributed/ddp.hpp
-    include/jyppx/distributed/distributed.hpp
-    src/jyppx/distributed/distributed.cpp
+    include/jyppx/liuding/distributed/ddp.hpp
+    include/jyppx/liuding/distributed/distributed.hpp
+    src/jyppx/liuding/distributed/distributed.cpp
 )
 foreach(path IN LISTS tracked_files)
     list(FIND retired_placeholder_paths "${path}" retired_placeholder_index)

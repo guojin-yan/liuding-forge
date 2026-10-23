@@ -4,9 +4,9 @@
 
 #include "cli.hpp"
 
-#include <jyppx/experiment/evaluation.hpp>
-#include <jyppx/experiment/run_store.hpp>
-#include <jyppx/foundation/sha256.hpp>
+#include <jyppx/liuding/experiment/evaluation.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -14,7 +14,7 @@
 #include <fstream>
 #include <limits>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 namespace {
 using namespace experiment;
 
@@ -280,4 +280,4 @@ Result data_command(const Arguments& arguments) {
     write_output(path(*output), result.dump());
   return {result, verdict_exit(report.verdict)};
 }
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli

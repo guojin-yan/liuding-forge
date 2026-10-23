@@ -4,7 +4,7 @@
 
 #include "fuzz_support.hpp"
 
-#include <jyppx/interop/checkpoint_manifest.hpp>
+#include <jyppx/liuding/interop/checkpoint_manifest.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -13,8 +13,8 @@
 #include <vector>
 
 namespace {
-namespace interop = jyppx::interop;
-namespace fuzz = jyppx::fuzz;
+namespace interop = jyppx::liuding::interop;
+namespace fuzz = jyppx::liuding::fuzz;
 
 interop::CheckpointManifestLimits limits() {
   return {.max_manifest_bytes = fuzz::kMaxInputBytes,
@@ -43,7 +43,7 @@ const std::vector<std::vector<std::byte>>& seeds() {
         .participants = {
             {.state = {.participant_id = "fuzz.participant",
                        .schema_version = 1U,
-                       .restore_level = jyppx::RestoreLevel::exact,
+                       .restore_level = jyppx::liuding::RestoreLevel::exact,
                        .fields = {{.name = "state",
                                    .media_type = "application/octet-stream",
                                    .max_bytes = 64U},
@@ -56,11 +56,11 @@ const std::vector<std::vector<std::byte>>& seeds() {
                         .size_bytes = 8U,
                         .digest = {.hex = std::string(64U, 'a')}}}}}};
     std::vector<std::vector<std::byte>> result;
-    for (auto level : {jyppx::RestoreLevel::exact, jyppx::RestoreLevel::bounded,
-                       jyppx::RestoreLevel::best_effort}) {
+    for (auto level : {jyppx::liuding::RestoreLevel::exact, jyppx::liuding::RestoreLevel::bounded,
+                       jyppx::liuding::RestoreLevel::best_effort}) {
       auto& state = manifest.participants.front().state;
       state.restore_level = level;
-      if (level != jyppx::RestoreLevel::exact)
+      if (level != jyppx::liuding::RestoreLevel::exact)
         state.degradation_reasons = {"topology may differ"};
       result.push_back(fuzz::copy_bytes(
           interop::checkpoint_artifact_manifest_json(manifest, limits())));

@@ -1,8 +1,8 @@
 # Model Checkpoint Participant
 
-Header: `#include <jyppx/nn/model_checkpoint_participant.hpp>`
+Header: `#include <jyppx/liuding/nn/model_checkpoint_participant.hpp>`
 
-Link target: `jyppx::nn`
+Link target: `jyppx::liuding::nn`
 
 `ModelCheckpointParticipant` exposes the parameters and buffers owned by a
 `ModelStateView` as exact checkpoint state. It implements the storage-neutral

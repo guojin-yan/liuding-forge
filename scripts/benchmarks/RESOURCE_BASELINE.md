@@ -6,9 +6,9 @@ builds, runs CTest, or contacts a remote host. Run it after a complete developme
 chapter, using the existing Windows and Ubuntu/CUDA Release build directories.
 Keep build parallelism at `2` and retain those directories for incremental builds.
 
-Enable `JYPPX_BUILD_BENCHMARKS=ON` in the existing configuration. Models,
+Enable `JYPPX_LIUDING_BUILD_BENCHMARKS=ON` in the existing configuration. Models,
 quantization and serving targets additionally require their corresponding
-`JYPPX_BUILD_MODELS`, `JYPPX_BUILD_QUANTIZATION` and `JYPPX_BUILD_SERVING` options.
+`JYPPX_LIUDING_BUILD_MODELS`, `JYPPX_LIUDING_BUILD_QUANTIZATION` and `JYPPX_LIUDING_BUILD_SERVING` options.
 Preview benchmarks link their explicit owner libraries; enabling a benchmark
 does not enable a Preview or change the SDK's capability claims.
 

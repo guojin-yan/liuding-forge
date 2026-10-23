@@ -1,7 +1,7 @@
 # Optional model preview
 
 The `models` component is independently optional and defaults to OFF. Its public
-target is `jyppx::models`, with direct `nn` and `interop` dependencies. It has no
+target is `jyppx::liuding::models`, with direct `nn` and `interop` dependencies. It has no
 data loader, training loop, serving endpoint or implicit network access.
 
 | Name | Actual architecture | Default parameters |
@@ -19,10 +19,10 @@ lane. Forward/backward follows normal LibTorch autograd and train/eval behavior;
 inference callers select eval and an appropriate no-grad guard themselves.
 
 ```cpp
-#include <jyppx/models/models.hpp>
+#include <jyppx/liuding/models/models.hpp>
 
-auto model = jyppx::models::resnet18({.num_classes = 10});
-auto adapter = jyppx::models::adapt(model);
+auto model = jyppx::liuding::models::resnet18({.num_classes = 10});
+auto adapter = jyppx::liuding::models::adapt(model);
 adapter.state().eval();
 torch::NoGradGuard no_grad;
 auto result = adapter.invoke({.positional = {images}, .keyword = {}});
@@ -113,7 +113,7 @@ logits are compared after normalizing by the nonzero maximum absolute reference
 output, with rtol 1e-4 and atol 1e-5, so an all-zero output cannot pass merely
 because its absolute scale is small. Only actual execution of all five exact named tests, with no skipped or failed
 XML entries, produces a passed report. An ordinary CTest run without
-`JYPPX_MODELS_REFERENCE_DIR` may skip these optional reference cases; that skip
+`JYPPX_LIUDING_MODELS_REFERENCE_DIR` may skip these optional reference cases; that skip
 does not satisfy the independent official reference gate.
 Hashes, cases, tolerances, source identities and package/device versions remain
 with generated evidence. Randomly initialized architecture differentials are

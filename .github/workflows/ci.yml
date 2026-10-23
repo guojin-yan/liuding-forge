@@ -61,16 +61,16 @@ jobs:
           quality_flags=()
           if [ "$RUNNER_OS" == "Linux" ] && [ "${{ matrix.build_type }}" == "Release" ]; then
             quality_flags+=(
-              -DJYPPX_BUILD_DOCS=ON
-              -DJYPPX_ENABLE_CLANG_TIDY=ON
-              -DJYPPX_ENABLE_FORMAT_CHECK=ON
-              -DJYPPX_ENABLE_WARNINGS_AS_ERRORS=ON
+              -DJYPPX_LIUDING_BUILD_DOCS=ON
+              -DJYPPX_LIUDING_ENABLE_CLANG_TIDY=ON
+              -DJYPPX_LIUDING_ENABLE_FORMAT_CHECK=ON
+              -DJYPPX_LIUDING_ENABLE_WARNINGS_AS_ERRORS=ON
             )
           fi
           cmake -S . -B out/build/ci \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DJYPPX_BUILD_TESTS=ON \
-            -DJYPPX_BUILD_EXAMPLES=ON \
+            -DJYPPX_LIUDING_BUILD_TESTS=ON \
+            -DJYPPX_LIUDING_BUILD_EXAMPLES=ON \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/libtorch-install/libtorch" \
             "${quality_flags[@]}"
 
@@ -175,11 +175,11 @@ jobs:
         run: |
           cmake -S . -B out/sanitizer/linux/build \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DJYPPX_BUILD_TESTS=ON \
-            -DJYPPX_BUILD_EXAMPLES=OFF \
-            -DJYPPX_BUILD_BENCHMARKS=OFF \
-            -DJYPPX_ENABLE_ASAN=ON \
-            -DJYPPX_ENABLE_UBSAN=ON \
+            -DJYPPX_LIUDING_BUILD_TESTS=ON \
+            -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF \
+            -DJYPPX_LIUDING_BUILD_BENCHMARKS=OFF \
+            -DJYPPX_LIUDING_ENABLE_ASAN=ON \
+            -DJYPPX_LIUDING_ENABLE_UBSAN=ON \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/libtorch-install/libtorch"
 
       - name: Build and test

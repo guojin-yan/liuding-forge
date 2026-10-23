@@ -15,20 +15,20 @@ training step:
 auto inputs = torch::rand({100, 3});
 auto targets = torch::randint(0, 2, {100});
 auto dataset =
-    std::make_shared<jyppx::data::TensorDataset>(inputs, targets);
+    std::make_shared<jyppx::liuding::data::TensorDataset>(inputs, targets);
 auto sampler =
-    std::make_shared<jyppx::data::samplers::RandomSampler>(dataset->size(), 7);
+    std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(dataset->size(), 7);
 
-jyppx::data::DataPipeline pipeline(
+jyppx::liuding::data::DataPipeline pipeline(
     std::move(sampler),
     {.pipeline_id = "data.train",
      .dataset_version = "example.train/v1",
      .dataset_size = dataset->size(),
-     .schema = jyppx::data::BatchSchema::any("example.train.batch", 1),
+     .schema = jyppx::liuding::data::BatchSchema::any("example.train.batch", 1),
      .batch_factory_id = "example.tensor-pair/v1",
      .batch_size = 16},
     [dataset](std::span<const std::size_t> indices,
-              const jyppx::data::DataWorkerContext&,
+              const jyppx::liuding::data::DataWorkerContext&,
               std::stop_token) {
       std::vector<torch::Tensor> data;
       std::vector<torch::Tensor> targets;
@@ -56,12 +56,12 @@ returns an empty optional at exhaustion and does not start another epoch.
 
 ## Custom datasets
 
-Derive from `jyppx::data::Dataset<T>` and implement `get()` and `size()`:
+Derive from `jyppx::liuding::data::Dataset<T>` and implement `get()` and `size()`:
 
 ```cpp
-class MyDataset final : public jyppx::data::Dataset<jyppx::data::Example> {
+class MyDataset final : public jyppx::liuding::data::Dataset<jyppx::liuding::data::Example> {
  public:
-  jyppx::data::Example get(std::size_t index) const override {
+  jyppx::liuding::data::Example get(std::size_t index) const override {
     return {features_[index], labels_[index]};
   }
 
@@ -85,7 +85,7 @@ replay compatibility changes.
 `random_split` produces deterministic subset views when given a seed:
 
 ```cpp
-const auto subsets = jyppx::data::random_split(
+const auto subsets = jyppx::liuding::data::random_split(
     dataset, std::vector<std::size_t>{80, 20}, /*seed=*/42);
 ```
 
@@ -107,11 +107,11 @@ Set `.num_workers` to use the in-process worker pool and set
 `.prefetch_batches` to the total number of scheduled but uncommitted batches:
 
 ```cpp
-jyppx::data::DataPipelineOptions options{
+jyppx::liuding::data::DataPipelineOptions options{
     .pipeline_id = "data.train",
     .dataset_version = "example.train/v1",
     .dataset_size = dataset->size(),
-    .schema = jyppx::data::BatchSchema::any("example.train.batch", 1),
+    .schema = jyppx::liuding::data::BatchSchema::any("example.train.batch", 1),
     .batch_factory_id = "example.tensor-pair/v1",
     .batch_size = 32,
     .num_workers = 4,
@@ -126,7 +126,7 @@ concurrent calls. Long-running factories must honor the supplied stop token so
 epoch replacement and `close()` remain bounded.
 
 A non-JYPPX exception from a worker is reported as a structured
-`jyppx::BackendError` on the consuming thread. The failed batch is not
+`jyppx::liuding::BackendError` on the consuming thread. The failed batch is not
 committed. Use `.num_workers = 0` to reproduce factory failures inline.
 
 ## Determinism and checkpointing

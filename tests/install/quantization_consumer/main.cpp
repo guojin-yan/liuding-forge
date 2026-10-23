@@ -1,7 +1,7 @@
 // Copyright 2026 JYPPX Training Framework Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 
-#include <jyppx/quantization/quantization.hpp>
+#include <jyppx/liuding/quantization/quantization.hpp>
 
 #include <array>
 #include <cmath>
@@ -18,7 +18,7 @@ void Require(bool condition, const char* operation) {
 
 int main() {
   try {
-    namespace q = jyppx::quantization;
+    namespace q = jyppx::liuding::quantization;
     q::CalibrationSession session(
         {.dataset_version = "installed-consumer/v1",
          .dataset_digest = {.hex = std::string(64U, 'a')},

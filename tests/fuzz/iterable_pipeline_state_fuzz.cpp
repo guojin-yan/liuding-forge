@@ -5,8 +5,8 @@
 
 #include "fuzz_support.hpp"
 
-#include <jyppx/data/iterable_data_pipeline.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/data/iterable_data_pipeline.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -23,16 +23,16 @@ namespace {
 constexpr std::size_t kMaxFuzzInputLength = 4096;
 
 /** @brief Small exact cursor used only to create a valid mutation seed. */
-class FuzzCursor final : public jyppx::data::IterableSourceCursor {
+class FuzzCursor final : public jyppx::liuding::data::IterableSourceCursor {
  public:
   /** @brief Returns the next integer and its decimal position watermark. */
-  std::optional<jyppx::data::IterableSample> next(
+  std::optional<jyppx::liuding::data::IterableSample> next(
       std::stop_token stop) override {
     if (stop.stop_requested() || position_ == 8U) {
       return std::nullopt;
     }
     const auto position = position_++;
-    return jyppx::data::IterableSample{
+    return jyppx::liuding::data::IterableSample{
         .value = c10::IValue(static_cast<std::int64_t>(position)),
         .sample_id = position,
         .watermark = std::to_string(position + 1U)};
@@ -45,7 +45,7 @@ class FuzzCursor final : public jyppx::data::IterableSourceCursor {
   void load_state(std::string_view state) override {
     const auto value = std::stoull(std::string(state));
     if (value > 8U) {
-      throw jyppx::CompatibilityError("fuzz cursor position out of range");
+      throw jyppx::liuding::CompatibilityError("fuzz cursor position out of range");
     }
     position_ = static_cast<std::size_t>(value);
   }
@@ -58,32 +58,32 @@ class FuzzCursor final : public jyppx::data::IterableSourceCursor {
 };
 
 /** @brief Immutable source factory for the fuzzing pipeline. */
-class FuzzSource final : public jyppx::data::IterableSource {
+class FuzzSource final : public jyppx::liuding::data::IterableSource {
  public:
   /** @brief Returns the exact source contract used by the seed state. */
-  jyppx::data::IterableSourceDescriptor descriptor() const override {
+  jyppx::liuding::data::IterableSourceDescriptor descriptor() const override {
     return {.source_id = "fuzz.iterable/v1",
             .finite_epoch = true,
             .deterministic_epoch = true,
             .checkpointable = true,
-            .restore_level = jyppx::RestoreLevel::exact,
+            .restore_level = jyppx::liuding::RestoreLevel::exact,
             .max_replayed_samples = 0,
             .max_omitted_samples = 0};
   }
 
   /** @brief Opens a fresh eight-item cursor for any logical epoch. */
-  std::unique_ptr<jyppx::data::IterableSourceCursor> open_epoch(
+  std::unique_ptr<jyppx::liuding::data::IterableSourceCursor> open_epoch(
       std::uint64_t) const override {
     return std::make_unique<FuzzCursor>();
   }
 };
 
 /** @brief In-memory reader/writer for fuzz-mutated participant fields. */
-class FuzzStateStore final : public jyppx::StateWriter,
-                             public jyppx::StateReader {
+class FuzzStateStore final : public jyppx::liuding::StateWriter,
+                             public jyppx::liuding::StateReader {
  public:
   /** @brief Creates a field store from a validated participant manifest. */
-  explicit FuzzStateStore(jyppx::StateManifest manifest)
+  explicit FuzzStateStore(jyppx::liuding::StateManifest manifest)
       : manifest_(std::move(manifest)) {}
 
   /** @brief Copies one participant field into mutable storage. */
@@ -94,7 +94,7 @@ class FuzzStateStore final : public jyppx::StateWriter,
   }
 
   /** @brief Returns the participant manifest. */
-  const jyppx::StateManifest& manifest() const noexcept override {
+  const jyppx::liuding::StateManifest& manifest() const noexcept override {
     return manifest_;
   }
 
@@ -108,7 +108,7 @@ class FuzzStateStore final : public jyppx::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto found = blobs_.find(std::string(name));
     if (found == blobs_.end() || found->second.size() > max_bytes) {
-      throw jyppx::SerializationError("fuzz field is unavailable");
+      throw jyppx::liuding::SerializationError("fuzz field is unavailable");
     }
     return found->second;
   }
@@ -119,24 +119,24 @@ class FuzzStateStore final : public jyppx::StateWriter,
   }
 
   /** @brief Returns the mutable manifest used to select the N-1 decoder. */
-  jyppx::StateManifest& mutable_manifest() noexcept { return manifest_; }
+  jyppx::liuding::StateManifest& mutable_manifest() noexcept { return manifest_; }
 
  private:
-  jyppx::StateManifest manifest_;  ///< Participant descriptor under test.
+  jyppx::liuding::StateManifest manifest_;  ///< Participant descriptor under test.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Mutable encoded fields.
 };
 
 FuzzStateStore make_current_baseline() {
-  jyppx::data::IterableDataPipeline pipeline(
+  jyppx::liuding::data::IterableDataPipeline pipeline(
       std::make_shared<FuzzSource>(),
       {.pipeline_id = "data.iterable.fuzz",
        .dataset_version = "dataset.fuzz/v1",
-       .schema = jyppx::data::BatchSchema::any("batch.fuzz", 1),
+       .schema = jyppx::liuding::data::BatchSchema::any("batch.fuzz", 1),
        .batch_factory_id = "factory.fuzz/v1",
        .batch_size = 2,
        .prefetch_batches = 2},
-      [](std::span<const jyppx::data::IterableSample>, std::uint64_t,
+      [](std::span<const jyppx::liuding::data::IterableSample>, std::uint64_t,
          std::uint64_t,
          std::stop_token) { return c10::IValue(std::int64_t{2}); });
   pipeline.set_epoch(2);
@@ -176,7 +176,7 @@ void replace_seed_string(std::vector<std::byte>& value, std::size_t index,
     const auto length = read_seed_u64(value, length_offset);
     offset += sizeof(std::uint64_t);
     if (length > value.size() - offset) {
-      throw jyppx::InternalError("valid iterable fuzz seed is malformed");
+      throw jyppx::liuding::InternalError("valid iterable fuzz seed is malformed");
     }
     if (current == index) {
       const auto begin = value.begin() + static_cast<std::ptrdiff_t>(offset);
@@ -288,24 +288,24 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
     mutate(store, data + 1U, size - 1U);
   }
   try {
-    jyppx::data::IterableDataPipeline pipeline(
+    jyppx::liuding::data::IterableDataPipeline pipeline(
         std::make_shared<FuzzSource>(),
         {.pipeline_id = "data.iterable.fuzz",
          .dataset_version = "dataset.fuzz/v1",
-         .schema = jyppx::data::BatchSchema::any("batch.fuzz", 1),
+         .schema = jyppx::liuding::data::BatchSchema::any("batch.fuzz", 1),
          .batch_factory_id = "factory.fuzz/v1",
          .batch_size = 2,
          .prefetch_batches = 2},
-        [](std::span<const jyppx::data::IterableSample>, std::uint64_t,
+        [](std::span<const jyppx::liuding::data::IterableSample>, std::uint64_t,
            std::uint64_t,
            std::stop_token) { return c10::IValue(std::int64_t{2}); });
-    pipeline.load_state(store, jyppx::RestorePolicy::exact_only);
-  } catch (const jyppx::Error& error) {
+    pipeline.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  } catch (const jyppx::liuding::Error& error) {
     switch (error.code()) {
-      case jyppx::ErrorCode::invalid_argument:
-      case jyppx::ErrorCode::serialization:
-      case jyppx::ErrorCode::compatibility:
-      case jyppx::ErrorCode::resource_exhausted:
+      case jyppx::liuding::ErrorCode::invalid_argument:
+      case jyppx::liuding::ErrorCode::serialization:
+      case jyppx::liuding::ErrorCode::compatibility:
+      case jyppx::liuding::ErrorCode::resource_exhausted:
         break;
       default:
         throw;

@@ -1,10 +1,10 @@
 # API: Descriptor-First StepLR Scheduler
 
-The migrated scheduler path lives directly in `jyppx::optim` and is exported
-by the focused `jyppx::optim` CMake target.
+The migrated scheduler path lives directly in `jyppx::liuding::optim` and is exported
+by the focused `jyppx::liuding::optim` CMake target.
 
 ```cpp
-#include <jyppx/optim/step_lr_scheduler.hpp>
+#include <jyppx/liuding/optim/step_lr_scheduler.hpp>
 ```
 
 ## Stable scheduler descriptor
@@ -16,9 +16,9 @@ identity, ordered group IDs, group signature, optional callable identity,
 ordered child descriptors, and a diagnostic fingerprint.
 
 ```cpp
-auto scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
+auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
     optimizer,
-    jyppx::optim::StepLrSchedulerOptions{
+    jyppx::liuding::optim::StepLrSchedulerOptions{
         .scheduler_id = "scheduler.epochs",
         .step_size = 10,
         .gamma = 0.1});
@@ -37,7 +37,7 @@ fingerprint is diagnostic metadata and is never the sole compatibility check.
 
 ```cpp
 auto participant = std::make_shared<
-    jyppx::optim::LrSchedulerCheckpointParticipant>(scheduler);
+    jyppx::liuding::optim::LrSchedulerCheckpointParticipant>(scheduler);
 registry.register_participant(participant);
 ```
 

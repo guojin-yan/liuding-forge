@@ -1,7 +1,7 @@
 # Checkpoint Artifact Manifest
 
 Header: `jyppx/interop/checkpoint_manifest.hpp`<br>
-Target: `jyppx::interop`
+Target: `jyppx::liuding::interop`
 
 `CheckpointArtifactManifest` is the format-level bridge between storage-neutral
 `CheckpointParticipant` state and a future checkpoint container. It records the
@@ -26,10 +26,10 @@ checkpoint migration, model bundles, and safetensors are separate interop
 capabilities and must not be inferred from successful manifest parsing.
 
 ```cpp
-jyppx::interop::CheckpointArtifactManifest manifest{/* bounded fields */};
-auto json = jyppx::interop::checkpoint_artifact_manifest_json(manifest);
+jyppx::liuding::interop::CheckpointArtifactManifest manifest{/* bounded fields */};
+auto json = jyppx::liuding::interop::checkpoint_artifact_manifest_json(manifest);
 auto decoded =
-    jyppx::interop::parse_checkpoint_artifact_manifest_json(json);
+    jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(json);
 ```
 
 Callers should parse and validate the manifest before opening any referenced

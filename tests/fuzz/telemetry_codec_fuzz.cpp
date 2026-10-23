@@ -5,8 +5,8 @@
 #include "fuzz_support.hpp"
 #include "telemetry_seed.hpp"
 
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/telemetry.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/telemetry.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -14,7 +14,7 @@
 #include <vector>
 
 namespace {
-namespace jy = jyppx;
+namespace jy = jyppx::liuding;
 namespace fuzz = jy::fuzz;
 
 void exercise(std::span<const std::byte> input) {

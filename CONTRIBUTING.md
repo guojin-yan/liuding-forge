@@ -65,11 +65,11 @@ expand with each migrated component:
 
 ```bash
 cmake -S . -B build-quality \
-  -DJYPPX_BUILD_TESTS=ON \
-  -DJYPPX_BUILD_DOCS=ON \
-  -DJYPPX_ENABLE_CLANG_TIDY=ON \
-  -DJYPPX_ENABLE_FORMAT_CHECK=ON \
-  -DJYPPX_ENABLE_WARNINGS_AS_ERRORS=ON \
+  -DJYPPX_LIUDING_BUILD_TESTS=ON \
+  -DJYPPX_LIUDING_BUILD_DOCS=ON \
+  -DJYPPX_LIUDING_ENABLE_CLANG_TIDY=ON \
+  -DJYPPX_LIUDING_ENABLE_FORMAT_CHECK=ON \
+  -DJYPPX_LIUDING_ENABLE_WARNINGS_AS_ERRORS=ON \
   -DCMAKE_PREFIX_PATH=/path/to/libtorch
 cmake --build build-quality --target jyppx_migrated_api_docs --parallel
 ctest --test-dir build-quality --output-on-failure
@@ -106,7 +106,7 @@ or newer and
 `CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. Coverage and
 sanitizer options are rejected on unsupported compilers, and sanitizer flags are
 applied to test executables as well as framework libraries. The coverage runner
-uses two build jobs by default; set `JYPPX_BUILD_PARALLEL_LEVEL` explicitly when
+uses two build jobs by default; set `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` explicitly when
 running on a host with a different memory budget.
 
 ### Testing

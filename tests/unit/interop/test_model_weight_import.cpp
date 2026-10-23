@@ -2,10 +2,10 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/model_weight_import.hpp>
-#include <jyppx/nn/model_adapter.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/model_weight_import.hpp>
+#include <jyppx/liuding/nn/model_adapter.hpp>
 
 #include <torch/torch.h>
 
@@ -22,8 +22,8 @@
 #include <string>
 
 namespace {
-using namespace jyppx;
-using namespace jyppx::interop;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::interop;
 
 struct Model : torch::nn::Module {
   torch::Tensor weight =
@@ -417,7 +417,7 @@ TEST(ModelWeightImportTest,
   }
 }
 
-#ifdef JYPPX_TEST_MODEL_IMPORT_CUDA
+#ifdef JYPPX_LIUDING_TEST_MODEL_IMPORT_CUDA
 TEST(ModelWeightImportTest, SeparateOverlappingCudaStorageWrappersAreRejected) {
   ASSERT_TRUE(torch::cuda::is_available());
   const auto backing = torch::zeros(

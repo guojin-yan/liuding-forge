@@ -2,31 +2,31 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#ifndef JYPPX_INSTALL_INTEROP_CONSUMER_CHECKS_HPP
-#define JYPPX_INSTALL_INTEROP_CONSUMER_CHECKS_HPP
+#ifndef JYPPX_LIUDING_INSTALL_INTEROP_CONSUMER_CHECKS_HPP
+#define JYPPX_LIUDING_INSTALL_INTEROP_CONSUMER_CHECKS_HPP
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/version.hpp>
-#include <jyppx/interop/checkpoint_manifest.hpp>
-#include <jyppx/interop/export_backend.hpp>
-#include <jyppx/interop/file_state_archive.hpp>
-#include <jyppx/interop/model_bundle.hpp>
-#include <jyppx/interop/safetensors.hpp>
-#include <jyppx/interop/weight_import_report.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
+#include <jyppx/liuding/interop/checkpoint_manifest.hpp>
+#include <jyppx/liuding/interop/export_backend.hpp>
+#include <jyppx/liuding/interop/file_state_archive.hpp>
+#include <jyppx/liuding/interop/model_bundle.hpp>
+#include <jyppx/liuding/interop/safetensors.hpp>
+#include <jyppx/liuding/interop/weight_import_report.hpp>
 
-#if JYPPX_COMPONENT_NN_ENABLED
-#include <jyppx/interop/model_weight_import.hpp>
-#include <jyppx/interop/torchscript_compatibility.hpp>
-#include <jyppx/nn/model_adapter.hpp>
+#if JYPPX_LIUDING_COMPONENT_NN_ENABLED
+#include <jyppx/liuding/interop/model_weight_import.hpp>
+#include <jyppx/liuding/interop/torchscript_compatibility.hpp>
+#include <jyppx/liuding/nn/model_adapter.hpp>
 
 #include <torch/script.h>
 #include <torch/torch.h>
 #else
-#if __has_include(<jyppx/interop/model_weight_import.hpp>)
+#if __has_include(<jyppx/liuding/interop/model_weight_import.hpp>)
 #error "NN OFF package must not install model_weight_import.hpp"
 #endif
-#if __has_include(<jyppx/interop/torchscript_compatibility.hpp>)
+#if __has_include(<jyppx/liuding/interop/torchscript_compatibility.hpp>)
 #error "NN OFF package must not install torchscript_compatibility.hpp"
 #endif
 #endif
@@ -46,8 +46,8 @@
 #include <vector>
 
 namespace consumer {
-using namespace jyppx;
-namespace interop = jyppx::interop;
+using namespace jyppx::liuding;
+namespace interop = jyppx::liuding::interop;
 
 inline void Require(bool condition, const char* operation) {
   if (!condition)
@@ -415,7 +415,7 @@ inline void BackendProtocol() {
   Require(rejected, "unexecuted-onnx-candidate-cannot-publish");
 }
 
-#if JYPPX_COMPONENT_NN_ENABLED
+#if JYPPX_LIUDING_COMPONENT_NN_ENABLED
 inline void OptionalNN(std::span<const std::byte> weights) {
   struct Model final : torch::nn::Module {
     torch::Tensor weight = register_parameter("weight", torch::zeros({3}));
@@ -482,10 +482,10 @@ inline void Run() {
   Archive(root.path);
   Bundle(root.path, fixture, report);
   BackendProtocol();
-#if JYPPX_COMPONENT_NN_ENABLED
+#if JYPPX_LIUDING_COMPONENT_NN_ENABLED
   OptionalNN(weights);
 #endif
 }
 
 }  // namespace consumer
-#endif  // JYPPX_INSTALL_INTEROP_CONSUMER_CHECKS_HPP
+#endif  // JYPPX_LIUDING_INSTALL_INTEROP_CONSUMER_CHECKS_HPP

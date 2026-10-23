@@ -1,6 +1,6 @@
 # API: Local Run Storage
 
-Target: `jyppx::experiment`  
+Target: `jyppx::liuding::experiment`
 Headers: `jyppx/experiment/artifact_store.hpp`, `jyppx/experiment/run.hpp`,
 `jyppx/experiment/run_store.hpp`, `jyppx/experiment/run_events.hpp`,
 `jyppx/experiment/run_telemetry_sink.hpp`
@@ -35,7 +35,7 @@ and tags. Project and experiment IDs are metadata fields; there are no
 separate Project/Experiment CRUD APIs in this slice. Timestamps and display
 names do not replace run identity.
 
-`jyppx::ArtifactDigest` and `jyppx::ArtifactRef` are shared foundation types.
+`jyppx::liuding::ArtifactDigest` and `jyppx::liuding::ArtifactRef` are shared foundation types.
 The digest algorithm is currently SHA-256 with exactly 64 lowercase hex
 digits. An artifact reference contains the digest, byte count, logical name,
 media type, and producer. `RunArtifactReference` adds a reference ID unique
@@ -46,14 +46,14 @@ serializes checkpoint participants nor performs training restore.
 ## Creating a run and publishing content
 
 ```cpp
-#include <jyppx/experiment/run_store.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
 
 #include <filesystem>
 #include <span>
 #include <string>
 
 int main() {
-  using namespace jyppx::experiment;
+  using namespace jyppx::liuding::experiment;
 
   SQLiteRunStoreOptions options;
   SQLiteRunStore runs(std::filesystem::path("local-runs"), options);
@@ -370,7 +370,7 @@ presence is not a passing result. Fill these entries after that gate completes:
 |---|---|
 | Windows chapter build and CAS/run-store tests | Pending unified validation |
 | Ubuntu + CUDA chapter build and runtime tests | Pending remote unified validation |
-| Installed `jyppx::experiment` consumer | Pending unified package validation |
+| Installed `jyppx::liuding::experiment` consumer | Pending unified package validation |
 
 Relevant tests are `tests/unit/experiment/test_artifact_store.cpp` and
 `tests/unit/experiment/test_run_store.cpp`. Their cases cover content hashing,

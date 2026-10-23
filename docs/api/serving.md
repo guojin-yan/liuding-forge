@@ -1,6 +1,6 @@
 # Serving Preview
 
-`jyppx::serving` is an opt-in Preview component. It depends on foundation,
+`jyppx::liuding::serving` is an opt-in Preview component. It depends on foundation,
 core, interop and nn. It has no dependency on data, training or the models
 catalog. The component is absent from the default build and default umbrella.
 Its versioned capability manifest explicitly excludes HTTP/gRPC listeners, TLS,

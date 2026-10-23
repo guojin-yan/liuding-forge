@@ -1,20 +1,20 @@
 # Durable checkpoint files
 
-`jyppx::training::FileCheckpointStore` adapts the training coordinator to
-`jyppx::interop::FileStateArchive`. Link `jyppx::training` with interop enabled;
+`jyppx::liuding::training::FileCheckpointStore` adapts the training coordinator to
+`jyppx::liuding::interop::FileStateArchive`. Link `jyppx::liuding::training` with interop enabled;
 the file adapter is absent from the installed training headers when interop is
 disabled. Custom loops can use `FileStateArchive` directly with foundation
 participant manifests and readers/writers.
 
 ```cpp
-#include <jyppx/training/file_checkpoint_store.hpp>
+#include <jyppx/liuding/training/file_checkpoint_store.hpp>
 
-jyppx::training::FileCheckpointStore destination("checkpoints/last.bin");
+jyppx::liuding::training::FileCheckpointStore destination("checkpoints/last.bin");
 coordinator.save(destination);  // Capture at a supported committed boundary.
 
 // Rebuild the complete training domain before restoring it.
-jyppx::training::FileCheckpointStore source("checkpoints/last.bin");
-new_coordinator.restore(source, jyppx::RestorePolicy::exact_only);
+jyppx::liuding::training::FileCheckpointStore source("checkpoints/last.bin");
+new_coordinator.restore(source, jyppx::liuding::RestorePolicy::exact_only);
 ```
 
 Register every state owner before capture and reconstruction: model,

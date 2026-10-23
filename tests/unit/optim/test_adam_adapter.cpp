@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/optim/adam_adapter.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/optim/adam_adapter.hpp>
 
 #include <torch/optim/adam.h>
 #include <torch/version.h>
@@ -25,17 +25,17 @@
 
 namespace {
 
-using jyppx::StateManifest;
-using jyppx::Tensor;
-using jyppx::optim::AdamAdapterOptions;
-using jyppx::optim::AdamOptimizerAdapter;
-using jyppx::optim::AdamOptimizerCheckpointOptions;
-using jyppx::optim::AdamOptimizerCheckpointParticipant;
-using jyppx::optim::AdamParameterGroup;
+using jyppx::liuding::StateManifest;
+using jyppx::liuding::Tensor;
+using jyppx::liuding::optim::AdamAdapterOptions;
+using jyppx::liuding::optim::AdamOptimizerAdapter;
+using jyppx::liuding::optim::AdamOptimizerCheckpointOptions;
+using jyppx::liuding::optim::AdamOptimizerCheckpointParticipant;
+using jyppx::liuding::optim::AdamParameterGroup;
 
 /** @brief In-memory participant store used to exercise storage-neutral I/O. */
-class MemoryStateStore final : public jyppx::StateWriter,
-                               public jyppx::StateReader {
+class MemoryStateStore final : public jyppx::liuding::StateWriter,
+                               public jyppx::liuding::StateReader {
  public:
   /** @brief Creates an empty store for the supplied state contract. */
   explicit MemoryStateStore(StateManifest manifest)
@@ -111,7 +111,7 @@ StateManifest make_schema_v1_manifest(const StateManifest& current) {
   legacy.schema_version = 1;
   const auto producer =
       std::find_if(legacy.fields.begin(), legacy.fields.end(),
-                   [](const jyppx::StateFieldDescriptor& field) {
+                   [](const jyppx::liuding::StateFieldDescriptor& field) {
                      return field.name == "producer";
                    });
   EXPECT_NE(producer, legacy.fields.end());
@@ -179,7 +179,7 @@ MemoryStateStore load_canonical_schema_v1_fixture(
     const AdamOptimizerCheckpointParticipant& participant) {
   MemoryStateStore fixture(
       make_schema_v1_manifest(participant.describe_state()));
-  const auto fixture_dir = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
+  const auto fixture_dir = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
                            "checkpoint" / "adam_schema_v1_libtorch_2.5.1";
   for (const auto& field : fixture.manifest().fields) {
     fixture.replace(field.name, read_base64_fixture(fixture_dir /
@@ -253,7 +253,7 @@ TEST(AdamOptimizerAdapterTest, RejectsSparseGradientBeforeAnyMutation) {
       torch::sparse_coo_tensor(torch::tensor({{0, 2}}, torch::kInt64),
                                torch::tensor({1.0, 1.0}, torch::kFloat64), {4});
 
-  EXPECT_THROW(optimizer.step(), jyppx::NotImplemented);
+  EXPECT_THROW(optimizer.step(), jyppx::liuding::NotImplemented);
   EXPECT_TRUE(torch::equal(first, before_first));
   EXPECT_TRUE(torch::equal(second, before_second));
   EXPECT_EQ(optimizer.completed_steps(), 0U);
@@ -271,7 +271,7 @@ TEST(AdamOptimizerAdapterTest, ClosureGradientFailureIsAtomic) {
                                  torch::tensor({2.0}, torch::kFloat64), {4});
     return torch::tensor(1.0);
   }),
-               jyppx::NotImplemented);
+               jyppx::liuding::NotImplemented);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer.completed_steps(), 0U);
 }
@@ -318,7 +318,7 @@ TEST(AdamOptimizerAdapterTest, CheckpointResumesExactlyWithMissingGradients) {
     torch::NoGradGuard no_grad;
     resumed.copy_(uninterrupted);
   }
-  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  second_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
 
   for (std::int64_t step = 37; step < 91; ++step) {
     assign_gradient(uninterrupted, step);
@@ -351,8 +351,8 @@ TEST(AdamOptimizerAdapterTest, MalformedCheckpointLeavesStateUnchanged) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   store.replace("exp_avg_sq.0000000000", {std::byte{0x01}});
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(parameter, before_parameter));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
   EXPECT_EQ(optimizer->learning_rates(), before_rates);
@@ -400,7 +400,7 @@ TEST(AdamOptimizerAdapterTest,
   store.set_manifest(make_schema_v1_manifest(current_manifest));
 
   copy_parameter(uninterrupted, resumed);
-  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  second_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(second->completed_steps(), first->completed_steps());
   EXPECT_EQ(second->learning_rates(), first->learning_rates());
 
@@ -453,7 +453,7 @@ TEST(AdamOptimizerAdapterTest,
                                      .amsgrad = true})});
   AdamOptimizerCheckpointParticipant resumed_participant(resumed);
   const auto fixture = load_canonical_schema_v1_fixture(resumed_participant);
-  resumed_participant.load_state(fixture, jyppx::RestorePolicy::exact_only);
+  resumed_participant.load_state(fixture, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(resumed->completed_steps(), 2U);
   EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.006}));
 
@@ -482,16 +482,16 @@ TEST(AdamOptimizerAdapterTest, RejectsFutureSchemaAndRelabelledV1) {
   auto future = store.manifest();
   future.schema_version = 3;
   store.set_manifest(future);
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
 
   auto relabelled = participant.describe_state();
   relabelled.schema_version = 1;
   store.set_manifest(relabelled);
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
 }
@@ -511,8 +511,8 @@ TEST(AdamOptimizerAdapterTest,
   participant.save_state(store);
   store.replace("producer", {std::byte{0x01}});
 
-  EXPECT_THROW(participant.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(parameter, before));
   EXPECT_EQ(optimizer->completed_steps(), before_steps);
 }
@@ -525,7 +525,7 @@ TEST(AdamOptimizerAdapterTest, EnforcesProducerResourceLimit) {
   AdamOptimizerCheckpointOptions options;
   options.max_producer_bytes = 1;
   EXPECT_THROW(AdamOptimizerCheckpointParticipant(optimizer, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(AdamOptimizerAdapterTest,
@@ -542,7 +542,7 @@ TEST(AdamOptimizerAdapterTest,
   parameter.mutable_grad() = torch::ones_like(parameter);
   optimizer->step();
 
-  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::NotReady);
+  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::liuding::NotReady);
   EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
 }
 
@@ -607,7 +607,7 @@ TEST(AdamOptimizerAdapterCudaTest,
   store.erase("producer");
   store.set_manifest(make_schema_v1_manifest(current_manifest));
   copy_parameter(uninterrupted, resumed);
-  second_state.load_state(store, jyppx::RestorePolicy::exact_only);
+  second_state.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
 
   for (std::int64_t step = 13; step < 29; ++step) {
     assign_gradient(uninterrupted, step);
@@ -625,15 +625,15 @@ TEST(AdamOptimizerAdapterTest, ValidatesOptionsAndLearningRatesAtomically) {
   EXPECT_THROW(AdamOptimizerAdapter(
                    "optimizer.adam",
                    {make_group("main", "weight", parameter, {.beta1 = 1.0})}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(AdamOptimizerAdapter(
                    "optimizer.adam",
                    {make_group("main", "weight", parameter, {.epsilon = 0.0})}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   AdamOptimizerAdapter optimizer("optimizer.adam",
                                  {make_group("main", "weight", parameter)});
   const auto before = optimizer.learning_rates();
-  EXPECT_THROW(optimizer.set_learning_rates({-1.0}), jyppx::InvalidArgument);
+  EXPECT_THROW(optimizer.set_learning_rates({-1.0}), jyppx::liuding::InvalidArgument);
   EXPECT_EQ(optimizer.learning_rates(), before);
 }
 

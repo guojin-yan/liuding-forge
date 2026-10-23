@@ -1,11 +1,11 @@
 # API: Data
 
-All data types live in the `jyppx::data` namespace. Include everything with
-`#include <jyppx/jyppx.hpp>` or the individual headers shown below.
+All data types live in the `jyppx::liuding::data` namespace. Include everything with
+`#include <jyppx/liuding/liuding.hpp>` or the individual headers shown below.
 
 ## Dataset
 
-`#include <jyppx/data/dataset.hpp>`
+`#include <jyppx/liuding/data/dataset.hpp>`
 
 ```cpp
 template <typename T = Tensor>
@@ -27,7 +27,7 @@ must be thread-safe.
 
 ### TensorDataset
 
-`#include <jyppx/data/tensor_dataset.hpp>`
+`#include <jyppx/liuding/data/tensor_dataset.hpp>`
 
 ```cpp
 struct Example {
@@ -49,7 +49,7 @@ public:
 
 ### Subset
 
-`#include <jyppx/data/subset.hpp>`
+`#include <jyppx/liuding/data/subset.hpp>`
 
 ```cpp
 template <typename T = Tensor>
@@ -65,7 +65,7 @@ public:
 
 ### ConcatDataset
 
-`#include <jyppx/data/concat_dataset.hpp>`
+`#include <jyppx/liuding/data/concat_dataset.hpp>`
 
 ```cpp
 template <typename T = Tensor>
@@ -94,14 +94,14 @@ seed is given) and assigned to consecutive subsets. `lengths` must sum to the
 dataset size.
 
 ```cpp
-auto subsets = jyppx::data::random_split(
+auto subsets = jyppx::liuding::data::random_split(
     dataset, std::vector<size_t>{80, 20}, /*seed=*/42);
 // Capture subsets[0] and subsets[1] in independent DataPipeline factories.
 ```
 
 ## DataPipeline
 
-`#include <jyppx/data/data_pipeline.hpp>`
+`#include <jyppx/liuding/data/data_pipeline.hpp>`
 
 `DataPipeline` is the explicit-epoch, cursor-aware contract used by the
 checkpoint coordinator. `set_epoch(epoch)` is the only operation that creates
@@ -111,19 +111,19 @@ validated value, complete versioned `BatchSchema`, sample IDs, dataset version,
 epoch, and batch sequence.
 
 ```cpp
-auto sampler = std::make_shared<jyppx::data::samplers::RandomSampler>(100, 7);
-jyppx::data::DataPipeline pipeline(
+auto sampler = std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(100, 7);
+jyppx::liuding::data::DataPipeline pipeline(
     sampler,
     {.pipeline_id = "data.train",
      .dataset_version = "train-set/v1",
      .dataset_size = 100,
-     .schema = jyppx::data::BatchSchema::tensor(
+     .schema = jyppx::liuding::data::BatchSchema::tensor(
          "train-batch", {.dtype = torch::kFloat32, .rank = 2}, 1,
          "features"),
      .batch_factory_id = "stack/v1",
      .batch_size = 16},
     [dataset](std::span<const std::size_t> indices,
-              const jyppx::data::DataWorkerContext& context,
+              const jyppx::liuding::data::DataWorkerContext& context,
               std::stop_token stop) {
         static_cast<void>(context);
         static_cast<void>(stop);
@@ -161,7 +161,7 @@ Set `num_workers > 0` to load batches on a worker pool with prefetching:
   `worker_id = s % num_workers` and `shard_sequence = s / num_workers`.
   These identities do not depend on which physical thread executes the task.
 - Exceptions thrown inside `Dataset::get` or the batch factory become a
-  structured `jyppx::BackendError` on the consuming thread.
+  structured `jyppx::liuding::BackendError` on the consuming thread.
 - At most `prefetch_batches` batches are scheduled but uncommitted.
 - `persistent_workers` controls whether worker threads survive explicit epoch
   replacement; `set_epoch` cancels any uncommitted work before replacement.
@@ -184,7 +184,7 @@ behavior, pinned source memory.
 ### Exception Handling
 
 `DataPipeline` captures exceptions raised by a batch factory and reports a
-stable `jyppx::BackendError` with component, operation, expected/actual values,
+stable `jyppx::liuding::BackendError` with component, operation, expected/actual values,
 hint, and nested cause. Results remain ordered even when another worker
 finishes first:
 
@@ -193,7 +193,7 @@ try {
     while (const auto batch = pipeline.next()) {
         train_step(*batch);
     }
-} catch (const jyppx::BackendError& error) {
+} catch (const jyppx::liuding::BackendError& error) {
     std::cerr << "data loading failed: " << error.what() << '\\n';
 }
 ```
@@ -241,7 +241,7 @@ context, and cooperative stop token. Capture a dataset to define collation:
 
 ```cpp
 [](std::span<const std::size_t> indices,
-   const jyppx::data::DataWorkerContext& context,
+   const jyppx::liuding::data::DataWorkerContext& context,
    std::stop_token stop) -> c10::IValue {
     // Fetch, collate, and return one IValue matching the declared BatchSchema.
 }
@@ -249,7 +249,7 @@ context, and cooperative stop token. Capture a dataset to define collation:
 
 ## Transforms
 
-`#include <jyppx/data/transforms/transform.hpp>` (base), `.../compose.hpp`,
+`#include <jyppx/liuding/data/transforms/transform.hpp>` (base), `.../compose.hpp`,
 `.../vision.hpp`
 
 All transforms derive from `Transform<Input, Output>`; tensor transforms use
@@ -257,7 +257,7 @@ the `TensorTransform` alias and implement `Tensor operator()(const Tensor&)`
 plus `name()`.
 
 ```cpp
-using namespace jyppx::data::transforms;
+using namespace jyppx::liuding::data::transforms;
 
 Compose pipeline({
     std::make_shared<Resize>(std::vector<int64_t>{256, 256}),
@@ -293,7 +293,7 @@ inputs and throw `std::invalid_argument` on shape mismatches.
 
 ## Samplers
 
-`#include <jyppx/data/samplers/...>`
+`#include <jyppx/liuding/data/samplers/...>`
 
 ```cpp
 class Sampler {

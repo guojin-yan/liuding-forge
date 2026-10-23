@@ -584,10 +584,10 @@
             "configure": "passed with CUDA architecture 75, CUDA standard 17 and all quality options enabled",
             "build": "all framework, test and example targets passed; foundation/core/data/nn/training/optim compiled with warnings as errors and clang-tidy; sdk exported as a source-free aggregate",
             "format": "all 203 C/C++ source, header and template files under include/src/tests/examples passed clang-format 14",
-            "documentation": "all installed public headers under include/jyppx passed Doxygen warning-as-error validation",
+            "documentation": "all installed public headers under include/jyppx/liuding passed Doxygen warning-as-error validation",
             "ctest": "591/591 passed; zero skipped",
             "cuda_scope": "full CTest plus 12/12 explicit *CudaTest.* checks across eight optimizers, Trainer float16 multi-optimizer scaling and GradScaler multi-optimizer overflow on RTX 2060",
-            "install_consumer": "passed while linking only jyppx::sdk, proving the installed INTERFACE aggregate",
+            "install_consumer": "passed while linking only jyppx::liuding::sdk, proving the installed INTERFACE aggregate",
             "repository_hygiene": "passed from a clean exact checkout with the build under out/build/cuda",
             "removed_surface": "legacy global Logger and hand-encoded TensorBoard writer removed without forwarding APIs",
             "source": "clean branch checkout at 46c9479c714769df46eb0a6d9d1b6437baca439a"

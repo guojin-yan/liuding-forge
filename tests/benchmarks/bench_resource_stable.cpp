@@ -2,20 +2,20 @@
 // Licensed under the Apache License, Version 2.0.
 #include "resource_support.hpp"
 
-#include <jyppx/experiment/artifact_store.hpp>
-#include <jyppx/experiment/run_store.hpp>
-#include <jyppx/experiment/telemetry_exporters.hpp>
-#include <jyppx/training/checkpoint_coordinator.hpp>
-#include <jyppx/training/file_checkpoint_store.hpp>
+#include <jyppx/liuding/experiment/artifact_store.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/experiment/telemetry_exporters.hpp>
+#include <jyppx/liuding/training/checkpoint_coordinator.hpp>
+#include <jyppx/liuding/training/file_checkpoint_store.hpp>
 
 #include <algorithm>
 #include <memory>
 #include <vector>
 
 namespace {
-using namespace jyppx::benchmarks;
-namespace ex = jyppx::experiment;
-namespace tr = jyppx::training;
+using namespace jyppx::liuding::benchmarks;
+namespace ex = jyppx::liuding::experiment;
+namespace tr = jyppx::liuding::training;
 
 std::vector<std::byte> payload(std::size_t size, unsigned salt) {
   std::vector<std::byte> result(size);
@@ -137,26 +137,26 @@ void storage(const Arguments& args) {
   finish(sample, references.size());
 }
 
-class BlobParticipant final : public jyppx::CheckpointParticipant {
+class BlobParticipant final : public jyppx::liuding::CheckpointParticipant {
  public:
   std::vector<std::byte> bytes;
   explicit BlobParticipant(std::vector<std::byte> data)
       : bytes(std::move(data)) {}
   std::string participant_id() const override { return "resource-blob"; }
-  jyppx::StateManifest describe_state() const override {
+  jyppx::liuding::StateManifest describe_state() const override {
     return {.participant_id = participant_id(),
             .schema_version = 1,
-            .restore_level = jyppx::RestoreLevel::exact,
+            .restore_level = jyppx::liuding::RestoreLevel::exact,
             .fields = {
                 {.name = "payload", .max_bytes = 1U << 20U, .required = true}}};
   }
-  void save_state(jyppx::StateWriter& writer) const override {
+  void save_state(jyppx::liuding::StateWriter& writer) const override {
     writer.write_blob("payload", bytes);
   }
-  void load_state(const jyppx::StateReader& reader,
-                  jyppx::RestorePolicy policy) override {
+  void load_state(const jyppx::liuding::StateReader& reader,
+                  jyppx::liuding::RestorePolicy policy) override {
     require(
-        jyppx::restore_policy_accepts(policy, reader.manifest().restore_level),
+        jyppx::liuding::restore_policy_accepts(policy, reader.manifest().restore_level),
         "restore policy mismatch");
     const auto saved = reader.read_blob("payload", 1U << 20U);
     require(saved.size() == (1U << 20U), "checkpoint payload truncated");
@@ -186,7 +186,7 @@ void checkpoint(const Arguments& args) {
     save_time += seconds([&] {
       tr::FileCheckpointStore store(path, {.synchronize = true});
       const auto descriptor = coordinator.save(store);
-      require(descriptor.restore_level == jyppx::RestoreLevel::exact,
+      require(descriptor.restore_level == jyppx::liuding::RestoreLevel::exact,
               "non-exact checkpoint");
     });
     participant->bytes.assign(size, std::byte{0});
@@ -219,7 +219,7 @@ void telemetry(const Arguments& args) {
                         {"message", "fixed finite local resource event"},
                         {"sink", "JSONL observer; stream flush, no fsync"}},
                        count);
-  std::vector<jyppx::TelemetryEnvelope> events;
+  std::vector<jyppx::liuding::TelemetryEnvelope> events;
   for (std::size_t index = 1; index <= count; ++index) {
     events.push_back(
         {.identity = {.stream_id = "resource/attempt.1",
@@ -229,8 +229,8 @@ void telemetry(const Arguments& args) {
          .time = {.wall_time_unix_ns = 1700000000123456789LL},
          .correlation = {.project_id = "resource-project",
                          .run_id = "resource-run"},
-         .reliability = jyppx::TelemetryReliability::required,
-         .payload = jyppx::TelemetryLog{jyppx::TelemetryLogSeverity::info,
+         .reliability = jyppx::liuding::TelemetryReliability::required,
+         .payload = jyppx::liuding::TelemetryLog{jyppx::liuding::TelemetryLogSeverity::info,
                                         "fixed finite local resource event"}});
   }
   auto& metrics = sample["metrics"];
@@ -239,7 +239,7 @@ void telemetry(const Arguments& args) {
       seconds([&] {
         for (std::size_t round = 0; round < encode_rounds; ++round)
           for (const auto& event : events)
-            encoded_bytes += jyppx::encode_telemetry_envelope(event).size();
+            encoded_bytes += jyppx::liuding::encode_telemetry_envelope(event).size();
       }),
       "seconds");
   const ex::JsonlTelemetryOptions options{.path =
@@ -256,7 +256,7 @@ void telemetry(const Arguments& args) {
                 std::all_of(
                     receipts.dispositions.begin(), receipts.dispositions.end(),
                     [](auto value) {
-                      return value == jyppx::TelemetryDisposition::accepted;
+                      return value == jyppx::liuding::TelemetryDisposition::accepted;
                     }),
             "JSONL export did not accept all events");
     require(sink->close().exported_events == count,
@@ -278,7 +278,7 @@ void telemetry(const Arguments& args) {
                                 receipts.dispositions.end(),
                                 [](auto value) {
                                   return value ==
-                                         jyppx::TelemetryDisposition::duplicate;
+                                         jyppx::liuding::TelemetryDisposition::duplicate;
                                 }),
                 "JSONL replay was not deduplicated");
         require(reopened.close().exported_events == count,

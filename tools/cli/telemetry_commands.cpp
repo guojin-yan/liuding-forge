@@ -5,9 +5,9 @@
 #include "cli.hpp"
 #include "sidecar_process.hpp"
 
-#include <jyppx/experiment/run_store.hpp>
-#include <jyppx/experiment/telemetry_exporters.hpp>
-#include <jyppx/foundation/sha256.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/experiment/telemetry_exporters.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 namespace {
 using namespace experiment;
 
@@ -633,4 +633,4 @@ Result run_telemetry_command(const Arguments& arguments) {
     return metrics_command(arguments, store, run_id, deadline);
   return export_command(arguments, store, run_id, deadline);
 }
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli

@@ -1,10 +1,10 @@
 # API: Transactional Composite LR Schedulers
 
-The descriptor-first composite API lives in `jyppx::optim` and is exported by
-the focused `jyppx::optim` CMake target.
+The descriptor-first composite API lives in `jyppx::liuding::optim` and is exported by
+the focused `jyppx::liuding::optim` CMake target.
 
 ```cpp
-#include <jyppx/optim/composite_lr_scheduler.hpp>
+#include <jyppx/liuding/optim/composite_lr_scheduler.hpp>
 ```
 
 ## Sequential scheduling
@@ -15,21 +15,21 @@ milestone `2`, child zero handles events one and two, then child one starts at
 event three.
 
 ```cpp
-std::vector<std::unique_ptr<jyppx::optim::LrScheduler>> children;
-children.push_back(std::make_unique<jyppx::optim::StepLrScheduler>(
-    optimizer, jyppx::optim::StepLrSchedulerOptions{
+std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>> children;
+children.push_back(std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
+    optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
                    .scheduler_id = "scheduler.warm",
                    .step_size = 1,
                    .gamma = 0.9}));
-children.push_back(std::make_unique<jyppx::optim::StepLrScheduler>(
-    optimizer, jyppx::optim::StepLrSchedulerOptions{
+children.push_back(std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
+    optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
                    .scheduler_id = "scheduler.decay",
                    .step_size = 10,
                    .gamma = 0.1}));
 
-auto scheduler = std::make_shared<jyppx::optim::SequentialLrScheduler>(
+auto scheduler = std::make_shared<jyppx::liuding::optim::SequentialLrScheduler>(
     optimizer, std::move(children),
-    jyppx::optim::SequentialLrSchedulerOptions{
+    jyppx::liuding::optim::SequentialLrSchedulerOptions{
         .scheduler_id = "scheduler.epochs", .milestones = {5}});
 ```
 

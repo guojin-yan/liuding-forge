@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/optim/lamb_adapter.hpp>
+#include <jyppx/liuding/optim/lamb_adapter.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -27,7 +27,7 @@ std::int64_t measure_native_adapter() {
       {kParameterCount},
       torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   const auto gradient = torch::full_like(parameter, 0.001);
-  jyppx::optim::LambOptimizerAdapter optimizer(
+  jyppx::liuding::optim::LambOptimizerAdapter optimizer(
       "optimizer.benchmark",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "weight", .parameter = parameter}},

@@ -6,8 +6,8 @@ downloaded datasets must not be written to the repository root.
 
 ## Layout
 
-- Public APIs: `include/jyppx/<component>/`
-- Implementations: `src/jyppx/<component>/`
+- Public APIs: `include/jyppx/liuding/<component>/`
+- Implementations: `src/jyppx/liuding/<component>/`
 - Tests: `tests/<level>/<component>/`
 - Build helpers: `cmake/` and `scripts/`
 - Product tools: `tools/cli/` and optional runtime adapters in `tools/`

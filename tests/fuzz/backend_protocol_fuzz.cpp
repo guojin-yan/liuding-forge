@@ -5,8 +5,8 @@
 #include "fuzz_support.hpp"
 #include "telemetry_seed.hpp"
 
-#include <jyppx/experiment/telemetry_exporters.hpp>
-#include <jyppx/foundation/sha256.hpp>
+#include <jyppx/liuding/experiment/telemetry_exporters.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <array>
 #include <cstddef>
@@ -20,8 +20,8 @@
 #include <vector>
 
 namespace {
-namespace ex = jyppx::experiment;
-namespace fuzz = jyppx::fuzz;
+namespace ex = jyppx::liuding::experiment;
+namespace fuzz = jyppx::liuding::fuzz;
 using Json = nlohmann::json;
 
 enum class Operation { emit, flush, close };
@@ -32,8 +32,8 @@ class ReplyTransport final : public ex::TelemetrySidecarTransport {
       : responses_(std::move(responses)) {}
 
   std::string transact(std::string_view request, std::stop_token stop,
-                       jyppx::TelemetryDeadline deadline) override {
-    jyppx::check_telemetry_operation(stop, deadline);
+                       jyppx::liuding::TelemetryDeadline deadline) override {
+    jyppx::liuding::check_telemetry_operation(stop, deadline);
     fuzz::require(request.size() <= 256U * 1024U,
                   "sidecar request exceeded configured budget");
     const auto parsed = Json::parse(request);
@@ -69,7 +69,7 @@ std::vector<std::uint64_t> call(ex::OfficialTelemetrySink& sink,
   if (operation == Operation::emit) {
     const auto batch = std::array{fuzz::seed_envelope()};
     const auto result = sink.emit(batch);
-    jyppx::validate_telemetry_emit_result(sink.descriptor(), batch, result,
+    jyppx::liuding::validate_telemetry_emit_result(sink.descriptor(), batch, result,
                                           fuzz::telemetry_limits());
     std::vector<std::uint64_t> encoded;
     for (auto disposition : result.dispositions)
@@ -168,11 +168,11 @@ std::string response(std::string request_id, std::uint64_t exported = 1U) {
 
 const std::vector<std::vector<std::byte>>& seeds() {
   static const auto value = [] {
-    const auto content = jyppx::telemetry_content_digest(
+    const auto content = jyppx::liuding::telemetry_content_digest(
         fuzz::seed_envelope(), fuzz::telemetry_limits());
     const auto identity = "jyppx.telemetry.sidecar-batch/v1" + content.hex;
     auto receipt =
-        Json::parse(response(jyppx::sha256_hex(fuzz::bytes(identity))));
+        Json::parse(response(jyppx::liuding::sha256_hex(fuzz::bytes(identity))));
     receipt["receipts"] = Json::array({1U});
     std::vector<std::vector<std::byte>> result{
         fuzz::copy_bytes(response("flush")),

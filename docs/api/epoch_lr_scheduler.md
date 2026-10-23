@@ -1,6 +1,6 @@
 # Descriptor-first epoch schedulers
 
-`#include <jyppx/optim/epoch_lr_scheduler.hpp>`
+`#include <jyppx/liuding/optim/epoch_lr_scheduler.hpp>`
 
 The epoch scheduler family contains `ExponentialLrScheduler`,
 `MultiStepLrScheduler`, `CosineAnnealingLrScheduler`, and

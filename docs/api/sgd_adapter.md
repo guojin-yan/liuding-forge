@@ -1,10 +1,10 @@
 # API: Delegated SGD Adapter
 
-The migrated SGD path lives in the `jyppx::optim` namespace and is exported by
-the focused `jyppx::optim` CMake target.
+The migrated SGD path lives in the `jyppx::liuding::optim` namespace and is exported by
+the focused `jyppx::liuding::optim` CMake target.
 
 ```cpp
-#include <jyppx/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
 ```
 
 ## Stable optimizer descriptor
@@ -21,9 +21,9 @@ the focused `jyppx::optim` CMake target.
 - learning rates are the only mutable group option exposed by the adapter.
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
     "optimizer.main",
-    std::vector<jyppx::optim::SgdParameterGroup>{
+    std::vector<jyppx::liuding::optim::SgdParameterGroup>{
         {.group_id = "backbone",
          .parameters = {{.parameter_id = "encoder.weight",
                          .parameter = encoder_weight}},
@@ -62,7 +62,7 @@ boundary so direct adapter use does not add an implicit device synchronization.
 
 ```cpp
 auto participant =
-    std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+    std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
         optimizer);
 registry.register_participant(participant);
 ```

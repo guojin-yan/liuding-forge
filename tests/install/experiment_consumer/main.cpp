@@ -1,6 +1,6 @@
-#include <jyppx/experiment/config.hpp>
-#include <jyppx/experiment/run_store.hpp>
-#include <jyppx/foundation/sha256.hpp>
+#include <jyppx/liuding/experiment/config.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -26,26 +26,26 @@ bool storage_consumer() {
   const std::string payload = "installed-checkpoint";
   const auto bytes = std::as_bytes(std::span(payload.data(), payload.size()));
   {
-    jyppx::experiment::SQLiteRunStore store(root.path);
+    jyppx::liuding::experiment::SQLiteRunStore store(root.path);
     store.start({.run_id = "consumer.run",
                  .project_id = "consumer.project",
                  .experiment_id = "consumer.experiment",
                  .display_name = "Installed storage",
-                 .status = jyppx::experiment::RunStatus::running,
+                 .status = jyppx::liuding::experiment::RunStatus::running,
                  .created_at_unix_ms = 1U,
                  .updated_at_unix_ms = 1U,
                  .lineage = {},
                  .tags = {}});
     const auto reference = store.put_artifact(
         "consumer.run", "checkpoint.1",
-        jyppx::experiment::RunArtifactKind::checkpoint, "last", bytes,
+        jyppx::liuding::experiment::RunArtifactKind::checkpoint, "last", bytes,
         {.logical_name = "last.bin",
          .producer = "install-consumer",
          .expected_size_bytes = bytes.size()},
         2U);
-    if (reference.artifact.digest.hex != jyppx::sha256_hex(bytes)) return false;
+    if (reference.artifact.digest.hex != jyppx::liuding::sha256_hex(bytes)) return false;
   }
-  jyppx::experiment::SQLiteRunStore reopened(root.path);
+  jyppx::liuding::experiment::SQLiteRunStore reopened(root.path);
   return reopened.find("consumer.run").has_value() &&
          reopened.references("consumer.run").size() == 1U &&
          reopened.integrity_check().ok();
@@ -56,21 +56,21 @@ int main() {
   c10::impl::GenericDict defaults(c10::StringType::get(), c10::AnyType::get());
   defaults.insert("epochs", std::int64_t{2});
   defaults.insert("token", "secret://env/consumer/token");
-  jyppx::experiment::config::ConfigSchema schema{
+  jyppx::liuding::experiment::config::ConfigSchema schema{
       .schema_id = "consumer.config",
       .version = 1,
-      .root = jyppx::ValueSchema::dictionary(
-          {{"epochs", jyppx::ValueSchema{.kind = jyppx::ValueKind::integer}},
-           {"token", jyppx::ValueSchema{.kind = jyppx::ValueKind::string}}}),
+      .root = jyppx::liuding::ValueSchema::dictionary(
+          {{"epochs", jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer}},
+           {"token", jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::string}}}),
       .defaults = c10::IValue(defaults),
       .environment_bindings = {},
       .secret_paths = {"/token"},
   };
-  jyppx::experiment::config::ConfigResolver resolver(schema);
+  jyppx::liuding::experiment::config::ConfigResolver resolver(schema);
   resolver.add_cli_override("/epochs", "3");
   const auto resolved = resolver.resolve();
   const auto capability =
-      jyppx::experiment::config::make_config_capability(schema);
+      jyppx::liuding::experiment::config::make_config_capability(schema);
   return resolved.integer("/epochs") == 3 &&
                  resolved.explain("/token").redacted &&
                  capability.scope_id == "consumer.config" &&

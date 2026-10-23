@@ -31,7 +31,7 @@ jobs:
           unzip -q libtorch.zip -d "$GITHUB_WORKSPACE/libtorch-install"
       - name: Configure
         # Benchmark targets currently live under tests/CMakeLists.txt.
-        run: cmake -S . -B out/build/benchmark -DJYPPX_BUILD_TESTS=ON -DJYPPX_BUILD_EXAMPLES=OFF -DJYPPX_BUILD_BENCHMARKS=ON -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/libtorch-install/libtorch"
+        run: cmake -S . -B out/build/benchmark -DJYPPX_LIUDING_BUILD_TESTS=ON -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF -DJYPPX_LIUDING_BUILD_BENCHMARKS=ON -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/libtorch-install/libtorch"
       - name: Build benchmarks
         run: cmake --build out/build/benchmark --config Release --parallel 2
       - name: Run benchmarks

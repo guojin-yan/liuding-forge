@@ -10,9 +10,9 @@
 
 int main(int argc, char** argv) {
   try {
-    using namespace jyppx::benchmarks;
-    namespace fixture = jyppx::examples::serving;
-    namespace serving = jyppx::serving;
+    using namespace jyppx::liuding::benchmarks;
+    namespace fixture = jyppx::liuding::examples::serving;
+    namespace serving = jyppx::liuding::serving;
     const auto args = arguments(argc, argv);
     require(args.profile == "serving", "unknown serving profile");
     constexpr std::size_t direct_count = 128, rounds = 32, width = 8;
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
     metrics["output_bytes"] =
         metric(directory_bytes(bundle.directory), "bytes");
     std::atomic<std::uint64_t> calls{0}, rows{0}, largest{0};
-    const auto hook = [&](const jyppx::Tensor& input) {
+    const auto hook = [&](const jyppx::liuding::Tensor& input) {
       const auto count = static_cast<std::uint64_t>(input.size(0));
       calls.fetch_add(1);
       rows.fetch_add(count);

@@ -6,7 +6,7 @@ or release-acceptance scripts.
 
 | Directory | Purpose |
 | --- | --- |
-| `cli/` | C++ source for the `liuding-forge` command-line tool (with the installed `jyppx` compatibility copy): configuration, local runs, evaluation, data, model and checkpoint operations. |
+| `cli/` | C++ source for the `liuding-forge` command-line tool: configuration, local runs, evaluation, data, model and checkpoint operations. |
 | `telemetry_sidecar/` | Optional runtime adapter using the official TensorBoard and OpenTelemetry libraries, including its runtime dependency lock. |
 
 These tools are under active integration. Their presence in the source tree

@@ -125,9 +125,9 @@ class DiscoveryTest(unittest.TestCase):
             source = Path(directory)
             lane = LANE.Lane(source)
             compiler = str(source / "clang++")
-            cache = {"CMAKE_BUILD_TYPE": "Debug", "JYPPX_ENABLE_TSAN": "ON",
+            cache = {"CMAKE_BUILD_TYPE": "Debug", "JYPPX_LIUDING_ENABLE_TSAN": "ON",
                      "CMAKE_HOME_DIRECTORY": str(source), "CMAKE_CXX_COMPILER": compiler}
-            cache.update({f"JYPPX_BUILD_{component}": "ON" for component in LANE.ENABLED})
+            cache.update({f"JYPPX_LIUDING_BUILD_{component}": "ON" for component in LANE.ENABLED})
             calls = []
 
             def command(stage, argv, **kwargs):
@@ -241,15 +241,15 @@ class DependencyTest(unittest.TestCase):
         cuda, _ = self.package("cuda", "2.5.1+cu124")
         with self.assertRaisesRegex(LANE.LaneError, "exactly one"):
             LANE.select_torch({}, {"CMAKE_PREFIX_PATH": f"{cpu};{cuda}"})
-        for cache, environment in (({"JYPPX_ENABLE_COVERAGE": "ON"}, {}),
-                                   ({"JYPPX_ENABLE_ASAN": "ON"}, {}),
-                                   ({"JYPPX_ENABLE_UBSAN": "ON"}, {}),
+        for cache, environment in (({"JYPPX_LIUDING_ENABLE_COVERAGE": "ON"}, {}),
+                                   ({"JYPPX_LIUDING_ENABLE_ASAN": "ON"}, {}),
+                                   ({"JYPPX_LIUDING_ENABLE_UBSAN": "ON"}, {}),
                                    ({"CMAKE_CXX_FLAGS": "--coverage"}, {}),
                                    ({}, {"CXXFLAGS": "-fsanitize=address,thread"}),
                                    ({}, {"LDFLAGS": "-fno-sanitize=thread"})):
             with self.subTest(cache=cache, environment=environment), self.assertRaises(LANE.LaneError):
                 LANE.validate_instrumentation(cache, environment)
-        LANE.validate_instrumentation({"JYPPX_ENABLE_TSAN": "ON", "CMAKE_CXX_FLAGS": "-fsanitize=thread"}, {})
+        LANE.validate_instrumentation({"JYPPX_LIUDING_ENABLE_TSAN": "ON", "CMAKE_CXX_FLAGS": "-fsanitize=thread"}, {})
 
 
 class EvidenceTest(unittest.TestCase):

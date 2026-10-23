@@ -1,15 +1,17 @@
 # Deployment Guide
 
 六丁炼算（Liuding Forge）is distributed as a CMake package backed by LibTorch.
-The installed package keeps the historical `jyppx` name for compatibility:
+The package identity remains `jyppx` for CMake discovery, while its public C++
+API uses the `jyppx::liuding` product namespace:
 
 ```cmake
 find_package(jyppx CONFIG REQUIRED COMPONENTS training)
 add_executable(train train.cpp)
-target_link_libraries(train PRIVATE jyppx::training)
+target_link_libraries(train PRIVATE jyppx::liuding::training)
 ```
 
-Public headers remain under `include/jyppx` and the namespace is `jyppx`. On
+Public headers are installed under `include/jyppx/liuding` and the namespace is
+`jyppx::liuding`. On
 Windows, ship the matching LibTorch DLLs and MSVC runtime. On Linux, put the
 LibTorch `lib` directory in the loader path with an rpath or
 `LD_LIBRARY_PATH`. Qualified combinations are listed in

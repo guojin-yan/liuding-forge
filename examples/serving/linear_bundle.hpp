@@ -4,9 +4,9 @@
 #define JYPPX_EXAMPLE_SERVING_LINEAR_BUNDLE_HPP
 // Fixed, generated data-only example: y[n,c] = x[n,c] * [2,-3][c].
 // This is local application code; a bundle never selects or loads a C++ class.
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/version.hpp>
-#include <jyppx/serving/serving.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
+#include <jyppx/liuding/serving/serving.hpp>
 
 #include <torch/torch.h>
 
@@ -23,8 +23,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
-namespace jyppx::examples::serving {
-using namespace jyppx::serving;
+namespace jyppx::liuding::examples::serving {
+using namespace jyppx::liuding::serving;
 inline std::span<const std::byte> Bytes(std::string_view text) {
   return std::as_bytes(std::span(text.data(), text.size()));
 }
@@ -263,5 +263,5 @@ class BundleFixture final {
     return backend.load(directory, {}, cases, options);
   }
 };
-}  // namespace jyppx::examples::serving
+}  // namespace jyppx::liuding::examples::serving
 #endif

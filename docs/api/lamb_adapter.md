@@ -1,6 +1,6 @@
 # API: Native LAMB Adapter
 
-`#include <jyppx/optim/lamb_adapter.hpp>`
+`#include <jyppx/liuding/optim/lamb_adapter.hpp>`
 
 `LambOptimizerAdapter` provides a current-only Layer-wise Adaptive Moments
 optimizer through a JYPPX-owned tensor kernel. The kernel uses bias-corrected
@@ -14,9 +14,9 @@ non-negative. `maximize` negates the objective gradient before moments are
 updated.
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::LambOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::LambOptimizerAdapter>(
     "optimizer.lamb",
-    std::vector<jyppx::optim::LambParameterGroup>{
+    std::vector<jyppx::liuding::optim::LambParameterGroup>{
         {.group_id = "decay",
          .parameters = parameter_bindings,
          .options = {.learning_rate = 1e-3,

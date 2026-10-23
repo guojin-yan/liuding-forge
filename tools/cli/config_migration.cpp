@@ -14,7 +14,7 @@
 #include <set>
 #include <utility>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 namespace {
 namespace fs = std::filesystem;
 using experiment::config::ConfigSchema;
@@ -442,4 +442,4 @@ Result config_migration_command(const Arguments& arguments) {
     throw IoError("Config migration filesystem operation failed");
   }
 }
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli

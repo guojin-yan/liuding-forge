@@ -1,6 +1,6 @@
 # API: Training
 
-Training types live in `jyppx::training`. The current API is contract-first:
+Training types live in `jyppx::liuding::training`. The current API is contract-first:
 the loop does not infer model calls, targets, objectives, checkpoint contents,
 or scheduler timing.
 
@@ -10,7 +10,7 @@ Include `jyppx/training/trainer.hpp` and construct an unprepared Trainer from
 stable run options:
 
 ```cpp
-jyppx::training::Trainer trainer({
+jyppx::liuding::training::Trainer trainer({
     .trainer_id = "trainer.main",
     .run_id = "run.2026-10-17",
     .trace_id = "trace.001",
@@ -18,7 +18,7 @@ jyppx::training::Trainer trainer({
     .max_steps = 0,
     .accumulate_steps = 4,
     .accumulation_tail =
-        jyppx::training::AccumulationTailPolicy::flush,
+        jyppx::liuding::training::AccumulationTailPolicy::flush,
     .gradient_clip_norm = 1.0,
 });
 ```
@@ -71,10 +71,10 @@ of committed sample IDs. Validation may omit loss, but a metric scheduler then
 requires the configured `scheduler_metric` to be present in validation output.
 
 ```cpp
-auto step = [](const jyppx::training::StepInput& input) {
+auto step = [](const jyppx::liuding::training::StepInput& input) {
     auto prediction = input.model.invoke(input.invocation).value.toTensor();
     auto target = input.target->toTensor();
-    return jyppx::training::StepOutput{
+    return jyppx::liuding::training::StepOutput{
         .loss = torch::mse_loss(prediction, target),
         .metrics = {{"task.mae", (prediction - target).abs().mean().item<double>()}},
         .sample_count = input.batch.sample_ids.size(),

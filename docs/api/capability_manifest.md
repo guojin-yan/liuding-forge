@@ -1,7 +1,7 @@
 # Capability Manifest
 
 Header: `jyppx/foundation/capability.hpp`<br>
-Target: `jyppx::foundation`
+Target: `jyppx::liuding::foundation`
 
 `CapabilityManifest` is the machine-readable schema-v1 contract for reporting
 what an exact JYPPX build and configured runtime object can do. It complements

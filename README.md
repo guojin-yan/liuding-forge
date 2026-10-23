@@ -1,10 +1,10 @@
 # 六丁炼算（Liuding Forge）
 
 Liuding Forge is a C++20 deep learning training framework built on LibTorch,
-providing PyTorch-style APIs for training neural networks in C++. The
-historical and technical name is **JYPPX Training Framework**; the stable
-`jyppx` namespace, public include root, CMake package, targets, and protocol
-fields remain unchanged for existing consumers.
+providing PyTorch-style APIs for training neural networks in C++. **JYPPX** is
+the product-group brand and **JYPPX Training Framework** is the internal alias.
+The public C++ root is `jyppx::liuding`, public headers use
+`<jyppx/liuding/...>`, and exported targets use `jyppx::liuding::<component>`.
 
 See the [brand migration report](docs/development/liuding-forge-brand-migration.md)
 for artifact naming, compatibility boundaries, and validation results.
@@ -67,19 +67,19 @@ link the exported target:
 
 ```cmake
 find_package(jyppx CONFIG REQUIRED COMPONENTS sdk)
-target_link_libraries(my_app PRIVATE jyppx::sdk)
+target_link_libraries(my_app PRIVATE jyppx::liuding::sdk)
 ```
 
-Use `jyppx::foundation` when a tool only needs the capability, error, RNG, and
-build-fingerprint contracts. Use `jyppx::interop` for the bounded checkpoint
+Use `jyppx::liuding::foundation` when a tool only needs the capability, error, RNG, and
+build-fingerprint contracts. Use `jyppx::liuding::interop` for the bounded checkpoint
 artifact manifest codec without linking training orchestration. Public C++
-headers, namespaces, and exported CMake targets all use the `jyppx` name.
+headers, namespaces, and exported CMake targets use the `jyppx/liuding`
+technical identity.
 Generated libraries use the recommended `liuding-forge-*` prefix, while
-`find_package(jyppx)` and `jyppx::...` remain the supported consumption API.
+`find_package(jyppx)` and `jyppx::liuding::...` remain the supported consumption API.
 
-The recommended executable is `liuding-forge`; an installed `jyppx` copy is
-kept as a compatibility command. `--version` reports the public brand and the
-legacy name together.
+The installed executable is `liuding-forge`. The old `jyppx` CLI name is not
+installed; `--version` reports the public brand and the internal project alias.
 
 ### Basic Usage
 
@@ -142,7 +142,7 @@ Repository directories have distinct owners:
 
 ```
 liuding-forge/           # repository checkout; technical compatibility paths remain jyppx/
-├── include/jyppx/        # Public headers
+├── include/jyppx/liuding/        # Public headers
 │   ├── core/             # Core utilities
 │   ├── optim/            # Optimizers
 │   ├── data/             # Data loading
@@ -168,7 +168,7 @@ See the [examples/](examples/) directory for complete examples:
 ## Building Tests
 
 ```bash
-cmake -S . -B out/build/release -DJYPPX_BUILD_TESTS=ON
+cmake -S . -B out/build/release -DJYPPX_LIUDING_BUILD_TESTS=ON
 cmake --build out/build/release --config Release --parallel 2
 ctest --test-dir out/build/release -C Release --output-on-failure
 ```
@@ -193,7 +193,7 @@ clean-build measurement is required; clean and incremental build timings are
 not directly comparable.
 
 CUDA Trainer baselines require a Release build linked to CUDA LibTorch and a
-visible NVIDIA GPU. After building with `JYPPX_BUILD_BENCHMARKS=ON`, run:
+visible NVIDIA GPU. After building with `JYPPX_LIUDING_BUILD_BENCHMARKS=ON`, run:
 
 ```bash
 LD_LIBRARY_PATH=/path/to/libtorch/lib \
@@ -237,12 +237,12 @@ Coverage and sanitizer options require GCC or Clang and fail at configure time
 on unsupported compilers instead of silently producing an uninstrumented build.
 The Linux coverage lane is `bash scripts/validation/run-coverage.sh`; it requires `gcovr 5.0`
 or newer and
-`CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. `JYPPX_ENABLE_ASAN`,
-`JYPPX_ENABLE_UBSAN`, and `JYPPX_ENABLE_TSAN` instrument both framework
+`CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. `JYPPX_LIUDING_ENABLE_ASAN`,
+`JYPPX_LIUDING_ENABLE_UBSAN`, and `JYPPX_LIUDING_ENABLE_TSAN` instrument both framework
 libraries and test/benchmark executables. AddressSanitizer and ThreadSanitizer
 cannot be combined; coverage and ThreadSanitizer are also rejected. The
 coverage runner limits compilation to two jobs by default; set
-`JYPPX_BUILD_PARALLEL_LEVEL` to a positive integer when the host has more
+`JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` to a positive integer when the host has more
 memory or needs an even smaller resource footprint. The runner also applies
 the checked-in `coverage-policy.json`: every instrumented project file must
 belong to exactly one module, and line/function/branch covered counts,
@@ -253,7 +253,7 @@ an explicit policy update in the same review.
 ## Building Documentation
 
 ```bash
-cmake -S . -B out/build/release -DJYPPX_BUILD_DOCS=ON
+cmake -S . -B out/build/release -DJYPPX_LIUDING_BUILD_DOCS=ON
 cmake --build out/build/release --config Release --target jyppx_api_docs --parallel 2
 ```
 

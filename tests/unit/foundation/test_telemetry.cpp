@@ -6,9 +6,9 @@
 // Draft tests: deliberately not registered or executed while the production
 // M4/M5 storage chapter is under its unified validation freeze.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/telemetry.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/telemetry.hpp>
 
 #include <algorithm>
 #include <array>
@@ -23,7 +23,7 @@
 #include <vector>
 
 namespace {
-namespace jy = jyppx;
+namespace jy = jyppx::liuding;
 
 jy::TelemetryMetricDefinition loss_definition() {
   return {.schema_version = 1U,

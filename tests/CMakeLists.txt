@@ -48,7 +48,7 @@ if(Python3_Interpreter_FOUND)
                 ${CMAKE_SOURCE_DIR}/scripts/validation/component_graph.py
                 --manifest ${CMAKE_SOURCE_DIR}/component-dependencies.json
                 --source-root ${CMAKE_SOURCE_DIR}
-                --target-graph ${JYPPX_COMPONENT_TARGET_GRAPH}
+                --target-graph ${JYPPX_LIUDING_COMPONENT_TARGET_GRAPH}
                 --output ${CMAKE_CURRENT_BINARY_DIR}/component-dependency-report.json
     )
     set_tests_properties(ComponentDependencyGraph PROPERTIES
@@ -271,14 +271,14 @@ set(JYPPX_CONSUMER_GENERATOR_ARGS
 
 # Shallow staging leaves room for MSBuild's nested try_compile paths. The
 # scripts still enforce that staging remains inside this validation build.
-if(TARGET jyppx::sdk)
+if(TARGET jyppx::liuding::sdk)
 add_test(
     NAME MigratedInstallConsumer
     COMMAND ${CMAKE_COMMAND}
-        -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
+        -DJYPPX_LIUDING_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/migrated_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/sdk/$<CONFIG>
-        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/sdk/$<CONFIG>
+        -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -297,10 +297,10 @@ set_tests_properties(MigratedInstallConsumer PROPERTIES
 add_test(
     NAME InteropInstallConsumer
     COMMAND ${CMAKE_COMMAND}
-        -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
+        -DJYPPX_LIUDING_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/interop_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/interop/$<CONFIG>
-        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/interop/$<CONFIG>
+        -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -319,10 +319,10 @@ set_tests_properties(InteropInstallConsumer PROPERTIES
 add_test(
     NAME ExperimentInstallConsumer
     COMMAND ${CMAKE_COMMAND}
-        -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
+        -DJYPPX_LIUDING_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/experiment_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/experiment/$<CONFIG>
-        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/experiment/$<CONFIG>
+        -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -341,10 +341,10 @@ set_tests_properties(ExperimentInstallConsumer PROPERTIES
 add_test(
     NAME PackageComponentConsumer
     COMMAND ${CMAKE_COMMAND}
-        -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
+        -DJYPPX_LIUDING_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/package_component_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/package/$<CONFIG>
-        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/package/$<CONFIG>
+        -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -364,10 +364,10 @@ add_test(
     NAME ComponentInstallMatrixConsumer
     COMMAND ${CMAKE_COMMAND}
         -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
-        -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
+        -DJYPPX_LIUDING_BUILD_DIR=${CMAKE_BINARY_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/matrix/$<CONFIG>
-        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/matrix/$<CONFIG>
+        -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -388,8 +388,8 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
         -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
-        -DJYPPX_TEST_ROOT=${CMAKE_SOURCE_DIR}/out/component-matrix/$<CONFIG>
-        -DJYPPX_TEST_CONFIG=$<CONFIG>
+        -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_SOURCE_DIR}/out/component-matrix/$<CONFIG>
+        -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
         -DJYPPX_CMAKE_GENERATOR=${CMAKE_GENERATOR}
@@ -412,7 +412,7 @@ endif()
 
 # Preview consumers are independent of the stable SDK aggregate.
 foreach(preview_component IN ITEMS models quantization serving)
-    if(TARGET jyppx::${preview_component})
+    if(TARGET jyppx::liuding::${preview_component})
         if(preview_component STREQUAL "models")
             set(preview_test_name ModelsInstallConsumer)
         elseif(preview_component STREQUAL "quantization")
@@ -423,10 +423,10 @@ foreach(preview_component IN ITEMS models quantization serving)
         add_test(
             NAME ${preview_test_name}
             COMMAND ${CMAKE_COMMAND}
-                -DJYPPX_BUILD_DIR=${CMAKE_BINARY_DIR}
+                -DJYPPX_LIUDING_BUILD_DIR=${CMAKE_BINARY_DIR}
                 -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/${preview_component}_consumer
-                -DJYPPX_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/${preview_component}/$<CONFIG>
-                -DJYPPX_TEST_CONFIG=$<CONFIG>
+                -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/${preview_component}/$<CONFIG>
+                -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
                 ${JYPPX_CONSUMER_GENERATOR_ARGS}
                 -DJYPPX_TORCH_DIR=${Torch_DIR}
                 -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -445,14 +445,14 @@ foreach(preview_component IN ITEMS models quantization serving)
     endif()
 endforeach()
 
-if(JYPPX_BUILD_MODELS OR JYPPX_BUILD_QUANTIZATION OR JYPPX_BUILD_SERVING)
+if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_QUANTIZATION OR JYPPX_LIUDING_BUILD_SERVING)
     add_test(
         NAME PreviewComponentMatrix
         COMMAND ${CMAKE_COMMAND}
             -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
             -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
-            -DJYPPX_TEST_ROOT=${CMAKE_SOURCE_DIR}/out/preview-component-matrix/$<CONFIG>
-            -DJYPPX_TEST_CONFIG=$<CONFIG>
+            -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_SOURCE_DIR}/out/preview-component-matrix/$<CONFIG>
+            -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
             -DJYPPX_TORCH_DIR=${Torch_DIR}
             -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
             -DJYPPX_CMAKE_GENERATOR=${CMAKE_GENERATOR}
@@ -477,25 +477,25 @@ endif()
 # Adds a GoogleTest executable linked against the framework and registered
 # with CTest. Sources are passed as extra arguments.
 function(jyppx_add_gtest test_name)
-    cmake_parse_arguments(JYPPX_TEST "" "LINK_TARGET" "ENVIRONMENT" ${ARGN})
-    if(NOT JYPPX_TEST_LINK_TARGET)
-        set(JYPPX_TEST_LINK_TARGET jyppx::sdk)
+    cmake_parse_arguments(JYPPX_LIUDING_TEST "" "LINK_TARGET" "ENVIRONMENT" ${ARGN})
+    if(NOT JYPPX_LIUDING_TEST_LINK_TARGET)
+        set(JYPPX_LIUDING_TEST_LINK_TARGET jyppx::liuding::sdk)
     endif()
-    add_executable(${test_name} ${JYPPX_TEST_UNPARSED_ARGUMENTS})
-    target_link_libraries(${test_name} PRIVATE ${JYPPX_TEST_LINK_TARGET} GTest::gtest_main)
+    add_executable(${test_name} ${JYPPX_LIUDING_TEST_UNPARSED_ARGUMENTS})
+    target_link_libraries(${test_name} PRIVATE ${JYPPX_LIUDING_TEST_LINK_TARGET} GTest::gtest_main)
     jyppx_apply_instrumentation(${test_name})
     # Expose tests/test_utils/ to test sources via "test_utils/..." includes.
     target_include_directories(${test_name} PRIVATE "${JYPPX_TESTS_SOURCE_DIR}")
     target_compile_definitions(${test_name} PRIVATE
-        JYPPX_TEST_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures"
+        JYPPX_LIUDING_TEST_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures"
     )
 
     jyppx_add_torch_runtime_dependency(${test_name})
 
     set(discovery_properties)
-    if(JYPPX_TEST_ENVIRONMENT)
+    if(JYPPX_LIUDING_TEST_ENVIRONMENT)
         list(APPEND discovery_properties PROPERTIES
-             ENVIRONMENT "${JYPPX_TEST_ENVIRONMENT}")
+             ENVIRONMENT "${JYPPX_LIUDING_TEST_ENVIRONMENT}")
     endif()
     gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
         ${discovery_properties})
@@ -505,39 +505,39 @@ add_subdirectory(unit)
 if(TARGET jyppx_cli)
     add_subdirectory(cli)
 endif()
-if(JYPPX_TEST_OFFICIAL_TELEMETRY)
+if(JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
     if(NOT TARGET jyppx_cli OR NOT EXISTS "${JYPPX_TELEMETRY_PYTHON}" OR
        NOT EXISTS "${JYPPX_OTELCOL_EXECUTABLE}")
         message(FATAL_ERROR "Official telemetry acceptance requires product CLI and locked Python/collector executable paths")
     endif()
     add_test(NAME OfficialTelemetryAcceptance
-        COMMAND ${CMAKE_COMMAND} -E env "JYPPX_TEST_OTELCOL=${JYPPX_OTELCOL_EXECUTABLE}"
-            "JYPPX_TEST_CLI=$<TARGET_FILE:jyppx_cli>"
+        COMMAND ${CMAKE_COMMAND} -E env "JYPPX_LIUDING_TEST_OTELCOL=${JYPPX_OTELCOL_EXECUTABLE}"
+            "JYPPX_LIUDING_TEST_CLI=$<TARGET_FILE:jyppx_cli>"
             "${JYPPX_TELEMETRY_PYTHON}"
             "${CMAKE_CURRENT_SOURCE_DIR}/integration/telemetry_sidecar/run_acceptance.py")
     set_tests_properties(OfficialTelemetryAcceptance PROPERTIES LABELS "experiment;official;integration" TIMEOUT 300)
 endif()
-if(TARGET jyppx::sdk)
+if(TARGET jyppx::liuding::sdk)
     add_subdirectory(integration)
 endif()
 
-if(JYPPX_BUILD_FUZZERS)
-    if(NOT TARGET jyppx::sdk)
-        message(FATAL_ERROR "JYPPX_BUILD_FUZZERS=ON requires all Core components")
+if(JYPPX_LIUDING_BUILD_FUZZERS)
+    if(NOT TARGET jyppx::liuding::sdk)
+        message(FATAL_ERROR "JYPPX_LIUDING_BUILD_FUZZERS=ON requires all Core components")
     endif()
     add_subdirectory(fuzz)
 endif()
 
-if(JYPPX_BUILD_BENCHMARKS)
-    if(NOT TARGET jyppx::sdk)
-        message(FATAL_ERROR "JYPPX_BUILD_BENCHMARKS=ON requires all Core components")
+if(JYPPX_LIUDING_BUILD_BENCHMARKS)
+    if(NOT TARGET jyppx::liuding::sdk)
+        message(FATAL_ERROR "JYPPX_LIUDING_BUILD_BENCHMARKS=ON requires all Core components")
     endif()
     # Benchmarks are executables linked like tests but not registered with
     # CTest; they are run manually.
     function(jyppx_add_bench bench_name)
         cmake_parse_arguments(JYPPX_BENCH "" "LINK_TARGET" "" ${ARGN})
         if(NOT JYPPX_BENCH_LINK_TARGET)
-            set(JYPPX_BENCH_LINK_TARGET jyppx::sdk)
+            set(JYPPX_BENCH_LINK_TARGET jyppx::liuding::sdk)
         endif()
         add_executable(${bench_name} ${JYPPX_BENCH_UNPARSED_ARGUMENTS})
         string(REGEX REPLACE "^jyppx_bench_" "liuding-forge-bench-"

@@ -1,6 +1,6 @@
 # Local evaluation evidence
 
-Target: `jyppx::experiment`; header: `jyppx/experiment/evaluation.hpp`.
+Target: `jyppx::liuding::experiment`; header: `jyppx/experiment/evaluation.hpp`.
 
 An `EvaluationSuite` freezes its task, dataset digest, environment, seed and
 ordered rules. A rule selects an exact neutral metric definition and context,

@@ -1,6 +1,6 @@
 # API: Delegated Adagrad Adapter
 
-`#include <jyppx/optim/adagrad_adapter.hpp>`
+`#include <jyppx/liuding/optim/adagrad_adapter.hpp>`
 
 `AdagradOptimizerAdapter` owns `torch::optim::Adagrad` and delegates every
 numerical update to the supported LibTorch implementation. Construction
@@ -19,9 +19,9 @@ accumulators on the new dtype/device. Any later synchronization attempt is
 rejected after a successful step.
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::AdagradOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::AdagradOptimizerAdapter>(
     "optimizer.adagrad",
-    std::vector<jyppx::optim::AdagradParameterGroup>{
+    std::vector<jyppx::liuding::optim::AdagradParameterGroup>{
         {.group_id = "embeddings",
          .parameters = embedding_parameter_bindings,
          .options = {.learning_rate = 1e-2,

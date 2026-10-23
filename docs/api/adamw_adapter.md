@@ -1,6 +1,6 @@
 # API: Delegated AdamW Adapter
 
-`#include <jyppx/optim/adamw_adapter.hpp>`
+`#include <jyppx/liuding/optim/adamw_adapter.hpp>`
 
 `AdamWOptimizerAdapter` owns `torch::optim::AdamW` and delegates every
 numerical update to the supported LibTorch implementation. Construction
@@ -16,9 +16,9 @@ options remain fixed. Any later synchronization attempt is rejected once a
 step or native AdamW state exists.
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::AdamWOptimizerAdapter>(
     "optimizer.adamw",
-    std::vector<jyppx::optim::AdamWParameterGroup>{
+    std::vector<jyppx::liuding::optim::AdamWParameterGroup>{
         {.group_id = "decay",
          .parameters = decay_parameter_bindings,
          .options = {.learning_rate = 3e-4, .weight_decay = 0.01}},

@@ -1,6 +1,6 @@
 # Telemetry sidecar process transport
 
-`jyppx::cli::SidecarProcessTransport` is the product CLI's implementation of
+`jyppx::liuding::cli::SidecarProcessTransport` is the product CLI's implementation of
 `experiment::TelemetrySidecarTransport`. It launches a fixed executable and
 exchanges bounded UTF-8 JSON lines with that process. It is private tool code;
 it does not add subprocess management to the installed foundation API.
@@ -15,7 +15,7 @@ never interpreted by a shell. Child environment overrides do not modify the
 parent's environment or current directory.
 
 ```cpp
-jyppx::cli::SidecarProcessOptions process;
+jyppx::liuding::cli::SidecarProcessOptions process;
 process.executable = locked_python_executable;       // absolute native path
 process.working_directory = exclusive_sidecar_cwd;   // existing private directory
 process.arguments = {
@@ -23,8 +23,8 @@ process.arguments = {
     "--backend", "tensorboard",
     "--tensorboard-output", new_output_directory_utf8};
 process.environment = locked_child_environment;
-auto channel = std::make_shared<jyppx::cli::SidecarProcessTransport>(process);
-jyppx::experiment::OfficialTelemetrySink observer(channel);
+auto channel = std::make_shared<jyppx::liuding::cli::SidecarProcessTransport>(process);
+jyppx::liuding::experiment::OfficialTelemetrySink observer(channel);
 // Use observer.emit/flush/close with the operation's absolute deadline.
 ```
 

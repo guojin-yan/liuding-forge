@@ -20,9 +20,9 @@
 #include <stop_token>
 #include <thread>
 namespace {
-using namespace jyppx;
-using namespace jyppx::serving;
-namespace example = jyppx::examples::serving;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::serving;
+namespace example = jyppx::liuding::examples::serving;
 using namespace std::chrono_literals;
 constexpr auto Cpu = c10::kCPU;
 class ServingTest : public ::testing::Test {

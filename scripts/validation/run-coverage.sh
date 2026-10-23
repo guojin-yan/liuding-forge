@@ -24,7 +24,7 @@ ctest_status=not_run
 policy_status=not_run
 stage=preflight
 torch_prefix="${CMAKE_PREFIX_PATH:-not_set}"
-build_parallelism="${JYPPX_BUILD_PARALLEL_LEVEL:-2}"
+build_parallelism="${JYPPX_LIUDING_BUILD_PARALLEL_LEVEL:-2}"
 packaging_excluded="${JYPPX_COVERAGE_EXCLUDE_PACKAGING:-0}"
 coverage_tool=not_run
 policy_sha256=not_run
@@ -83,12 +83,12 @@ test -f "$torch_prefix/share/cmake/Torch/TorchConfig.cmake" || {
 torch_prefix=$(cd "$torch_prefix" && pwd)
 case "$build_parallelism" in
   ''|*[!0-9]*)
-    echo "JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
+    echo "JYPPX_LIUDING_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
     exit 2
     ;;
 esac
 if [ "$build_parallelism" -lt 1 ]; then
-  echo "JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
+  echo "JYPPX_LIUDING_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
   exit 2
 fi
 case "$packaging_excluded" in
@@ -111,12 +111,12 @@ run_logged 01-configure.log cmake \
   -S "$source_root" \
   -B "$build_root" \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DJYPPX_BUILD_TESTS=ON \
-  -DJYPPX_BUILD_EXAMPLES=OFF \
-  -DJYPPX_BUILD_BENCHMARKS=OFF \
-  -DJYPPX_ENABLE_COVERAGE=ON \
-  -DJYPPX_ENABLE_ASAN=OFF -DJYPPX_ENABLE_UBSAN=OFF -DJYPPX_ENABLE_TSAN=OFF \
-  -DJYPPX_BUILD_MODELS=ON -DJYPPX_BUILD_QUANTIZATION=ON -DJYPPX_BUILD_SERVING=ON \
+  -DJYPPX_LIUDING_BUILD_TESTS=ON \
+  -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF \
+  -DJYPPX_LIUDING_BUILD_BENCHMARKS=OFF \
+  -DJYPPX_LIUDING_ENABLE_COVERAGE=ON \
+  -DJYPPX_LIUDING_ENABLE_ASAN=OFF -DJYPPX_LIUDING_ENABLE_UBSAN=OFF -DJYPPX_LIUDING_ENABLE_TSAN=OFF \
+  -DJYPPX_LIUDING_BUILD_MODELS=ON -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON -DJYPPX_LIUDING_BUILD_SERVING=ON \
   -DCMAKE_PREFIX_PATH="$torch_prefix" \
   -DTorch_DIR="$torch_prefix/share/cmake/Torch"
 

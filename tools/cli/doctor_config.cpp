@@ -5,11 +5,11 @@
 #include "cli.hpp"
 #include "config_migration.hpp"
 
-#include <jyppx/core/value_schema.hpp>
-#include <jyppx/experiment/config.hpp>
-#include <jyppx/foundation/capability.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/version.hpp>
+#include <jyppx/liuding/core/value_schema.hpp>
+#include <jyppx/liuding/experiment/config.hpp>
+#include <jyppx/liuding/foundation/capability.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 
 #include <torch/serialize.h>
 #include <torch/torch.h>
@@ -19,7 +19,7 @@
 #include <limits>
 #include <sstream>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 namespace {
 
 ValueSchema schema_node(const Json& value, std::size_t depth = 0U) {
@@ -301,4 +301,4 @@ Result config_command(const Arguments& arguments) {
     data["valid"] = true;
   return {data, 0};
 }
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli

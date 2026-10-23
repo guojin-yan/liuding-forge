@@ -3,7 +3,7 @@
 The public brand is 六丁炼算（Liuding Forge）. Release candidates use
 `liuding-forge-<version>-<platform>.zip`; CPack packages also use the
 `liuding-forge` prefix. Installed headers, `find_package(jyppx)`, exported
-`jyppx::` targets, and existing release/SBOM protocol identities remain stable.
+`jyppx::liuding::` targets, and existing release/SBOM protocol identities remain stable.
 
 `scripts/release/prepare_release.py` prepares a reviewable candidate from an
 explicit installation prefix. `verify_release.py` independently checks its
@@ -27,7 +27,7 @@ operation. Provide the exact version, portable platform/build label, **full**
 40/64-character lowercase source commit, explicit clean/dirty state and a fixed
 `SOURCE_DATE_EPOCH`. These are publisher declarations; the scripts do not
 derive build identity by inspecting an unrelated current checkout. The
-installed `include/jyppx/foundation/build_config.hpp` must agree with the base
+installed `include/jyppx/liuding/foundation/build_config.hpp` must agree with the base
 semantic version, preventing relabeling a 0.3.0 SDK as 1.0.0. An `-rc.1` label
 may describe a candidate compiled with that base version; it blocks GA.
 

@@ -3,9 +3,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/model_bundle.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/model_bundle.hpp>
 
 #include <algorithm>
 #include <array>
@@ -28,15 +28,15 @@
 
 namespace {
 
-namespace interop = jyppx::interop;
+namespace interop = jyppx::liuding::interop;
 
 std::span<const std::byte> Bytes(std::string_view text) {
   return {reinterpret_cast<const std::byte*>(text.data()), text.size()};
 }
 
-jyppx::ArtifactDigest Digest(std::span<const std::byte> bytes) {
-  return {.algorithm = jyppx::ArtifactDigestAlgorithm::sha256,
-          .hex = jyppx::sha256_hex(bytes)};
+jyppx::liuding::ArtifactDigest Digest(std::span<const std::byte> bytes) {
+  return {.algorithm = jyppx::liuding::ArtifactDigestAlgorithm::sha256,
+          .hex = jyppx::liuding::sha256_hex(bytes)};
 }
 
 void Write(const std::filesystem::path& path,
@@ -260,22 +260,22 @@ TEST_F(ModelBundleTest,
   const auto encoded = interop::serialize_model_bundle_manifest(manifest_);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    "{\"bundle_\\u0069d\":\"duplicate\"," + encoded.substr(1U)),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    "{\"critical_future_field\":true," + encoded.substr(1U)),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    Replace(encoded, "\"schema_version\":1,\"signatures\"",
                            "\"schema_version\":2,\"signatures\"")),
-               jyppx::CompatibilityError);
+               jyppx::liuding::CompatibilityError);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    Replace(encoded, "\"schema_version\":1,\"signatures\"",
                            "\"schema_version\":0,\"signatures\"")),
-               jyppx::CompatibilityError);
+               jyppx::liuding::CompatibilityError);
   EXPECT_THROW(
       interop::deserialize_model_bundle_manifest(Replace(
           encoded, "\"compression\":\"none\"", "\"compression\":\"gzip\"")),
-      jyppx::CompatibilityError);
+      jyppx::liuding::CompatibilityError);
 }
 
 TEST_F(ModelBundleTest, RejectsMalformedIntegersUtf8DepthAndDigestSyntax) {
@@ -283,21 +283,21 @@ TEST_F(ModelBundleTest, RejectsMalformedIntegersUtf8DepthAndDigestSyntax) {
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    Replace(encoded, "\"schema_version\":1,\"signatures\"",
                            "\"schema_version\":1.0,\"signatures\"")),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    Replace(encoded, "\"schema_version\":1,\"signatures\"",
                            "\"schema_version\":-1,\"signatures\"")),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    std::string("{\"x\":\"") + char(0xc0) + char(0x80) + "\"}"),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    "{\"x\":" + std::string(17U, '[') + "0" +
                    std::string(17U, ']') + "}"),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   manifest_.files[0U].artifact.digest.hex[0U] = 'G';
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(ModelBundleTest,
@@ -306,35 +306,35 @@ TEST_F(ModelBundleTest,
   interop::ModelBundleLimits limits;
   limits.max_manifest_bytes = encoded.size() - 1U;
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(encoded, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_files = manifest_.files.size() - 1U;
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_tensors = 2U;
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_dimension = 31U;
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_file_bytes = 1U;
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_total_bytes = 1U;
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_rank = 0U;
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_, limits),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   limits = {};
   limits.max_string_bytes = 4U;
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_, limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST_F(ModelBundleTest, RejectsTraversalDeviceNamesCaseAliasesAndFilePrefixes) {
@@ -345,16 +345,16 @@ TEST_F(ModelBundleTest, RejectsTraversalDeviceNamesCaseAliasesAndFilePrefixes) {
         "a/file.", "manifest.json", "manifest.json/child"}) {
     File("input").relative_path = path;
     EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
-                 jyppx::InvalidArgument)
+                 jyppx::liuding::InvalidArgument)
         << path;
   }
   File("input").relative_path = original;
   File("output").relative_path = original;
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   File("output").relative_path = original + "/child";
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(ModelBundleTest, RejectsScriptLibraryPickleAndUnknownRoles) {
@@ -363,43 +363,43 @@ TEST_F(ModelBundleTest, RejectsScriptLibraryPickleAndUnknownRoles) {
         "metadata/a.pkl", "metadata/a.pt"}) {
     File("input").relative_path = path;
     EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
-                 jyppx::CompatibilityError)
+                 jyppx::liuding::CompatibilityError)
         << path;
   }
   File("input").relative_path = "metadata/input.json";
   File("input").role = static_cast<interop::BundleFileRole>(255U);
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
-               jyppx::CompatibilityError);
+               jyppx::liuding::CompatibilityError);
 }
 
 TEST_F(ModelBundleTest, RequiresCompleteUniqueFileOwnershipAndTensorMappings) {
   auto changed = manifest_;
   changed.input_schema.file_id = "absent";
   EXPECT_THROW(interop::validate_model_bundle_manifest(changed),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   changed = manifest_;
   changed.output_schema.file_id = changed.input_schema.file_id;
   EXPECT_THROW(interop::validate_model_bundle_manifest(changed),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   changed = manifest_;
   changed.files.push_back({.id = "unreferenced",
                            .relative_path = "metadata/orphan.json",
                            .role = interop::BundleFileRole::schema,
                            .artifact = changed.files.back().artifact});
   EXPECT_THROW(interop::validate_model_bundle_manifest(changed),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   changed = manifest_;
   changed.models[0U].tensors[0U].shard_file_id = "absent";
   EXPECT_THROW(interop::validate_model_bundle_manifest(changed),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   changed = manifest_;
   changed.models[0U].tensors[1U].name = changed.models[0U].tensors[0U].name;
   EXPECT_THROW(interop::validate_model_bundle_manifest(changed),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   changed = manifest_;
   changed.runtime.dependencies[0U].version = ">=0.6";
   EXPECT_THROW(interop::validate_model_bundle_manifest(changed),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(ModelBundleTest, PublishesVerifiesAndHashesEveryRealFileAndTensor) {
@@ -429,7 +429,7 @@ TEST_F(ModelBundleTest, RejectsCorruptedFileEvenWhenSizeIsUnchanged) {
   content[0U] = '[';
   Write(path, Bytes(content));
   EXPECT_THROW(interop::verify_model_bundle_directory(target_),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST_F(ModelBundleTest, RejectsMissingExtraFilesAndUndeclaredEmptyDirectories) {
@@ -438,15 +438,15 @@ TEST_F(ModelBundleTest, RejectsMissingExtraFilesAndUndeclaredEmptyDirectories) {
   const auto content = Read(file);
   std::filesystem::remove(file);
   EXPECT_THROW(interop::verify_model_bundle_directory(target_),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   Write(file, Bytes(content));
   Write(target_ / "unlisted.json", Bytes("{}"));
   EXPECT_THROW(interop::verify_model_bundle_directory(target_),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   std::filesystem::remove(target_ / "unlisted.json");
   std::filesystem::create_directory(target_ / "unlisted");
   EXPECT_THROW(interop::verify_model_bundle_directory(target_),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST_F(ModelBundleTest, RejectsDeclaredSizeMismatchBeforeReadingPayload) {
@@ -454,7 +454,7 @@ TEST_F(ModelBundleTest, RejectsDeclaredSizeMismatchBeforeReadingPayload) {
   ++File("input").artifact.size_bytes;
   SavePublishedManifest();
   EXPECT_THROW(interop::verify_model_bundle_directory(target_),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST_F(ModelBundleTest, RejectsOmittedOrWrongActualTensorMetadata) {
@@ -463,13 +463,13 @@ TEST_F(ModelBundleTest, RejectsOmittedOrWrongActualTensorMetadata) {
   manifest_.models[0U].tensors.pop_back();
   SavePublishedManifest();
   EXPECT_THROW(interop::verify_model_bundle_directory(target_),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   manifest_ = complete;
   const auto original = manifest_.models[0U].tensors[0U].shape;
   manifest_.models[0U].tensors[0U].shape = {16U, 2U};
   SavePublishedManifest();
   EXPECT_THROW(interop::verify_model_bundle_directory(target_),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   manifest_.models[0U].tensors[0U].shape = original;
 }
 
@@ -480,7 +480,7 @@ TEST_F(ModelBundleTest, RejectsTensorAssignedToTheWrongDeclaredShard) {
   std::swap(tensors[0U].shard_file_id, tensors[1U].shard_file_id);
   SavePublishedManifest();
   EXPECT_THROW(interop::verify_model_bundle_directory(target_),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST_F(ModelBundleTest,
@@ -489,7 +489,7 @@ TEST_F(ModelBundleTest,
   const auto previous_json =
       Read(target_ / std::string(interop::kModelBundleManifest));
   manifest_.bundle_id = "new-generation";
-  EXPECT_THROW(Publish(), jyppx::IoError);
+  EXPECT_THROW(Publish(), jyppx::liuding::IoError);
   EXPECT_EQ(Read(target_ / std::string(interop::kModelBundleManifest)),
             previous_json);
   EXPECT_EQ(interop::verify_model_bundle_directory(target_).manifest_digest,
@@ -498,13 +498,13 @@ TEST_F(ModelBundleTest,
   target_ = base_ / "failed-new-generation";
   const auto source_content = Read(Source("input"));
   Write(Source("input"), Bytes("broken-source"));
-  EXPECT_THROW(Publish(), jyppx::SerializationError);
+  EXPECT_THROW(Publish(), jyppx::liuding::SerializationError);
   EXPECT_FALSE(std::filesystem::exists(target_));
   EXPECT_EQ(Stages(), 0U);
   auto same_size_corruption = source_content;
   same_size_corruption[0U] = '[';
   Write(Source("input"), Bytes(same_size_corruption));
-  EXPECT_THROW(Publish(), jyppx::SerializationError);
+  EXPECT_THROW(Publish(), jyppx::liuding::SerializationError);
   EXPECT_FALSE(std::filesystem::exists(target_));
   EXPECT_EQ(Stages(), 0U);
 }
@@ -515,18 +515,18 @@ TEST_F(ModelBundleTest, RejectsMalformedShardEvenWithMatchingSizeAndDigest) {
   ASSERT_GT(content.size(), 8U);
   content[8U] = '[';
   SourceContent(id, content);
-  EXPECT_THROW(Publish(), jyppx::SerializationError);
+  EXPECT_THROW(Publish(), jyppx::liuding::SerializationError);
   EXPECT_FALSE(std::filesystem::exists(target_));
   EXPECT_EQ(Stages(), 0U);
 }
 
 TEST_F(ModelBundleTest, RejectsExecutableMagicDespiteCorrectDeclaredDigest) {
   SourceContent("input", "#!/bin/sh\necho must-never-execute\n");
-  EXPECT_THROW(Publish(), jyppx::CompatibilityError);
+  EXPECT_THROW(Publish(), jyppx::liuding::CompatibilityError);
   EXPECT_FALSE(std::filesystem::exists(target_));
   EXPECT_EQ(Stages(), 0U);
   SourceContent("input", std::string("\x7f") + "ELFbinary");
-  EXPECT_THROW(Publish(), jyppx::CompatibilityError);
+  EXPECT_THROW(Publish(), jyppx::liuding::CompatibilityError);
   EXPECT_EQ(Stages(), 0U);
 }
 
@@ -535,14 +535,14 @@ TEST_F(ModelBundleTest,
   auto sources = sources_;
   sources.back() = sources.front();
   EXPECT_THROW(interop::publish_model_bundle(target_, manifest_, sources),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   sources = sources_;
   sources.back().file_id = "undeclared";
   EXPECT_THROW(interop::publish_model_bundle(target_, manifest_, sources),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   sources.pop_back();
   EXPECT_THROW(interop::publish_model_bundle(target_, manifest_, sources),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_FALSE(std::filesystem::exists(target_));
   EXPECT_EQ(Stages(), 0U);
 }
@@ -555,7 +555,7 @@ TEST_F(ModelBundleTest, RejectsFileSymlinksWithoutFollowingThem) {
   std::filesystem::create_symlink(Source("input"), leaf, error);
   if (error)
     GTEST_SKIP() << "File symlink creation is unavailable on this host";
-  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::IoError);
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::liuding::IoError);
 }
 
 TEST_F(ModelBundleTest, RejectsDirectorySymlinksInBundleOrSourceAncestry) {
@@ -568,7 +568,7 @@ TEST_F(ModelBundleTest, RejectsDirectorySymlinksInBundleOrSourceAncestry) {
                                             target_ / "metadata", error);
   if (error)
     GTEST_SKIP() << "Directory symlink creation is unavailable on this host";
-  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::IoError);
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::liuding::IoError);
   const auto source_alias = base_ / "source-alias";
   std::filesystem::create_directory_symlink(base_ / "sources", source_alias,
                                             error);
@@ -577,7 +577,7 @@ TEST_F(ModelBundleTest, RejectsDirectorySymlinksInBundleOrSourceAncestry) {
   sources[0U].source_path = source_alias / sources[0U].source_path.filename();
   EXPECT_THROW(
       interop::publish_model_bundle(base_ / "via-alias", manifest_, sources),
-      jyppx::IoError);
+      jyppx::liuding::IoError);
   EXPECT_FALSE(std::filesystem::exists(base_ / "via-alias"));
   EXPECT_EQ(Stages(), 0U);
 }
@@ -589,17 +589,17 @@ TEST_F(ModelBundleTest, RejectsHardLinkAliasesOfDeclaredFiles) {
   std::error_code error;
   std::filesystem::create_hard_link(Source("input"), leaf, error);
   if (error) GTEST_SKIP() << "Hard links are unavailable on this filesystem";
-  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::IoError);
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::liuding::IoError);
 }
 
 TEST_F(ModelBundleTest, UnsignedAndUnverifiedSignaturesNeverBecomeTrusted) {
   interop::ModelBundleVerifyOptions required;
   required.require_trusted_signature = true;
-  EXPECT_THROW(Publish(required), jyppx::CompatibilityError);
+  EXPECT_THROW(Publish(required), jyppx::liuding::CompatibilityError);
   manifest_.signatures.push_back({.algorithm = "fixture-test-only",
                                   .key_id = "untrusted-key",
                                   .signature_hex = "01020304"});
-  EXPECT_THROW(Publish(required), jyppx::CompatibilityError);
+  EXPECT_THROW(Publish(required), jyppx::liuding::CompatibilityError);
   const auto published = Publish();
   EXPECT_EQ(published.signature_status,
             interop::BundleSignatureStatus::present_unverified);
@@ -634,7 +634,7 @@ TEST_F(ModelBundleTest,
   manifest_.bundle_id = "tampered-metadata";
   SavePublishedManifest();
   EXPECT_THROW(interop::verify_model_bundle_directory(target_, options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST_F(ModelBundleTest, CallbackFailureIsRedactedAndCannotPublish) {
@@ -648,7 +648,7 @@ TEST_F(ModelBundleTest, CallbackFailureIsRedactedAndCannotPublish) {
   try {
     Publish(options);
     FAIL() << "Expected callback failure";
-  } catch (const jyppx::BackendError& error) {
+  } catch (const jyppx::liuding::BackendError& error) {
     EXPECT_EQ(std::string(error.what()).find("private-key-service-secret"),
               std::string::npos);
   }
@@ -667,7 +667,7 @@ TEST_F(ModelBundleTest, EveryDeclaredSignatureMustPassTrustPolicy) {
   options.signature_verifier = [](const auto& signature, auto) {
     return signature.key_id == "accepted";
   };
-  EXPECT_THROW(Publish(options), jyppx::SerializationError);
+  EXPECT_THROW(Publish(options), jyppx::liuding::SerializationError);
   EXPECT_FALSE(std::filesystem::exists(target_));
 }
 
@@ -703,7 +703,7 @@ TEST_F(ModelBundleTest, OnnxReferencesHaveExplicitIntegrityOnlyScope) {
             interop::BundleModelFormat::onnx);
   manifest_.models[0U].file_ids.push_back("external-data");
   EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
-               jyppx::CompatibilityError);
+               jyppx::liuding::CompatibilityError);
 }
 
 TEST(ModelBundleSharding, IsDeterministicBoundedAndCoversAllTensors) {
@@ -744,23 +744,23 @@ TEST(ModelBundleSharding,
      RejectsIndivisibleDuplicateWrongByteOrderAndOversizeInputs) {
   TensorFixture tensors;
   EXPECT_THROW(interop::shard_safetensors_for_bundle(tensors.tensors, 16U),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   tensors.tensors[1U].name = tensors.tensors[0U].name;
   EXPECT_THROW(interop::shard_safetensors_for_bundle(tensors.tensors, 384U),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   tensors.tensors[1U].name = "layer.1";
   tensors.tensors[0U].byte_order = interop::SafeTensorByteOrder::big;
   EXPECT_THROW(interop::shard_safetensors_for_bundle(tensors.tensors, 384U),
-               jyppx::CompatibilityError);
+               jyppx::liuding::CompatibilityError);
   tensors.tensors[0U].byte_order = interop::SafeTensorByteOrder::little;
   tensors.tensors[0U].shape = {33U};
   EXPECT_THROW(interop::shard_safetensors_for_bundle(tensors.tensors, 384U),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   interop::ModelBundleLimits limits;
   limits.max_file_bytes = 256U;
   EXPECT_THROW(interop::shard_safetensors_for_bundle(tensors.tensors, 384U,
                                                      "weights", "cpu", limits),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(ModelBundleSharding, HandlesEmptyTensorSetZeroDimensionsAndScalars) {

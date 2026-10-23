@@ -2,7 +2,7 @@
 
 include(CMakeFindDependencyMacro)
 find_dependency(Torch REQUIRED)
-if(@JYPPX_BUILD_EXPERIMENT@ OR @JYPPX_BUILD_SERVING@)
+if(@JYPPX_LIUDING_BUILD_EXPERIMENT@ OR @JYPPX_LIUDING_BUILD_SERVING@)
     find_dependency(Threads REQUIRED)
 endif()
 
@@ -27,7 +27,7 @@ set(_jyppx_known_components
 set(jyppx_AVAILABLE_COMPONENTS "@JYPPX_ENABLED_COMPONENTS@")
 
 foreach(_jyppx_component IN LISTS _jyppx_known_components)
-    if(TARGET jyppx::${_jyppx_component})
+    if(TARGET jyppx::liuding::${_jyppx_component})
         set(jyppx_${_jyppx_component}_FOUND TRUE)
     else()
         set(jyppx_${_jyppx_component}_FOUND FALSE)
@@ -46,9 +46,9 @@ foreach(_jyppx_component IN LISTS jyppx_FIND_COMPONENTS)
 endforeach()
 
 foreach(_jyppx_exported_target IN ITEMS
-        jyppx::foundation jyppx::core jyppx::interop jyppx::data jyppx::data_image jyppx::nn
-        jyppx::training jyppx::optim jyppx::experiment
-        jyppx::models jyppx::quantization jyppx::serving jyppx::all jyppx::sdk)
+        jyppx::liuding::foundation jyppx::liuding::core jyppx::liuding::interop jyppx::liuding::data jyppx::liuding::data_image jyppx::liuding::nn
+        jyppx::liuding::training jyppx::liuding::optim jyppx::liuding::experiment
+        jyppx::liuding::models jyppx::liuding::quantization jyppx::liuding::serving jyppx::liuding::all jyppx::liuding::sdk)
     if(TARGET ${_jyppx_exported_target})
         set_property(TARGET ${_jyppx_exported_target} APPEND
             PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")

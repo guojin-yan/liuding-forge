@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <torch/cuda.h>
 
@@ -64,7 +64,7 @@ class CudaBenchmarkModel final : public torch::nn::Module {
                 torch::nn::Linear(kHiddenFeatures, kOutputFeatures)))) {}
 
   /** @brief Produces one regression output tensor. */
-  jyppx::Tensor forward(const jyppx::Tensor& input) {
+  jyppx::liuding::Tensor forward(const jyppx::liuding::Tensor& input) {
     return network_->forward(input);
   }
 
@@ -173,7 +173,7 @@ std::string json_escape(std::string_view value) {
 }
 
 /** @brief Creates deterministic CPU tensors for the frozen workload. */
-std::pair<jyppx::Tensor, jyppx::Tensor> make_dataset() {
+std::pair<jyppx::liuding::Tensor, jyppx::liuding::Tensor> make_dataset() {
   const auto sample_count = static_cast<std::int64_t>(kBatchSize * kSteps);
   const auto options = torch::TensorOptions().dtype(torch::kFloat32);
   auto inputs = torch::randn(
@@ -187,16 +187,16 @@ std::pair<jyppx::Tensor, jyppx::Tensor> make_dataset() {
 }
 
 /** @brief Creates the CPU-to-CUDA map pipeline used by both modes. */
-std::shared_ptr<jyppx::data::DataPipeline> make_pipeline(
-    const jyppx::Tensor& inputs, const jyppx::Tensor& targets) {
+std::shared_ptr<jyppx::liuding::data::DataPipeline> make_pipeline(
+    const jyppx::liuding::Tensor& inputs, const jyppx::liuding::Tensor& targets) {
   constexpr std::size_t kSampleCount = kBatchSize * kSteps;
-  return std::make_shared<jyppx::data::DataPipeline>(
-      std::make_shared<jyppx::data::samplers::SequentialSampler>(kSampleCount),
-      jyppx::data::DataPipelineOptions{
+  return std::make_shared<jyppx::liuding::data::DataPipeline>(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(kSampleCount),
+      jyppx::liuding::data::DataPipelineOptions{
           .pipeline_id = "data.benchmark.cuda",
           .dataset_version = "benchmark.cuda.synthetic/v1",
           .dataset_size = kSampleCount,
-          .schema = jyppx::data::BatchSchema::any(
+          .schema = jyppx::liuding::data::BatchSchema::any(
               "benchmark.cuda.regression.batch", 1),
           .batch_factory_id = "benchmark.cuda.tensor-slice/v1",
           .batch_size = kBatchSize,
@@ -207,14 +207,14 @@ std::shared_ptr<jyppx::data::DataPipeline> make_pipeline(
           .deterministic_batch_factory = true,
           .worker_seed = kSeed,
           .memory = {.pin_memory = true,
-                     .target_device = jyppx::Device(torch::kCUDA, 0),
+                     .target_device = jyppx::liuding::Device(torch::kCUDA, 0),
                      .non_blocking = true,
                      .stage_capacity = kPrefetchBatches,
                      .max_tensors = 2,
                      .max_value_nodes = 3,
                      .max_bytes = 8ULL * 1024ULL * 1024ULL}},
       [inputs, targets](std::span<const std::size_t> indices,
-                        const jyppx::data::DataWorkerContext&,
+                        const jyppx::liuding::data::DataWorkerContext&,
                         std::stop_token) {
         std::vector<std::int64_t> rows;
         rows.reserve(indices.size());
@@ -229,11 +229,11 @@ std::shared_ptr<jyppx::data::DataPipeline> make_pipeline(
 }
 
 /** @brief Creates one SGD adapter over the supplied stable bindings. */
-std::shared_ptr<jyppx::optim::SgdOptimizerAdapter> make_optimizer(
+std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
     std::string optimizer_id, std::string group_id,
-    std::vector<jyppx::optim::OptimizerParameterBinding> bindings) {
-  return std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
-      std::move(optimizer_id), std::vector<jyppx::optim::SgdParameterGroup>{
+    std::vector<jyppx::liuding::optim::OptimizerParameterBinding> bindings) {
+  return std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+      std::move(optimizer_id), std::vector<jyppx::liuding::optim::SgdParameterGroup>{
                                    {.group_id = std::move(group_id),
                                     .parameters = std::move(bindings),
                                     .options = {.learning_rate = 1e-4}}});
@@ -246,14 +246,14 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
   auto [inputs, targets] = make_dataset();
   auto pipeline = make_pipeline(inputs, targets);
   auto holder = std::make_shared<CudaBenchmarkModel>();
-  auto model = std::make_shared<jyppx::nn::ModelAdapter>(
-      jyppx::nn::adapt_tensor_module(holder));
+  auto model = std::make_shared<jyppx::liuding::nn::ModelAdapter>(
+      jyppx::liuding::nn::adapt_tensor_module(holder));
 
-  std::vector<jyppx::optim::OptimizerParameterBinding> all_bindings;
-  std::vector<jyppx::optim::OptimizerParameterBinding> weight_bindings;
-  std::vector<jyppx::optim::OptimizerParameterBinding> bias_bindings;
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> all_bindings;
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> weight_bindings;
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> bias_bindings;
   for (const auto& item : model->state().named_parameters()) {
-    jyppx::optim::OptimizerParameterBinding binding{.parameter_id = item.key(),
+    jyppx::liuding::optim::OptimizerParameterBinding binding{.parameter_id = item.key(),
                                                     .parameter = item.value()};
     all_bindings.push_back(binding);
     if (item.key().ends_with(".bias")) {
@@ -263,7 +263,7 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
     }
   }
 
-  std::vector<std::shared_ptr<jyppx::optim::SgdOptimizerAdapter>> optimizers;
+  std::vector<std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter>> optimizers;
   if (mode == BenchmarkMode::fp32_single_sgd) {
     optimizers.push_back(make_optimizer("optimizer.benchmark.cuda.all", "all",
                                         std::move(all_bindings)));
@@ -274,19 +274,19 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
                                         "biases", std::move(bias_bindings)));
   }
 
-  std::vector<jyppx::training::OptimizerExecutionBinding> executions;
+  std::vector<jyppx::liuding::training::OptimizerExecutionBinding> executions;
   executions.reserve(optimizers.size());
   for (const auto& optimizer : optimizers) {
     executions.push_back(
         {.optimizer = optimizer,
          .checkpoint =
-             std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+             std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
                  optimizer)});
   }
 
   auto scaler = mode == BenchmarkMode::fp16_multi_sgd_amp
-                    ? std::make_shared<jyppx::training::amp::GradScaler>(
-                          jyppx::training::amp::GradScalerOptions{
+                    ? std::make_shared<jyppx::liuding::training::amp::GradScaler>(
+                          jyppx::liuding::training::amp::GradScalerOptions{
                               .init_scale = kInitialScale,
                               .growth_factor = 2.0,
                               .backoff_factor = 0.5,
@@ -297,33 +297,33 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
   auto scaler_checkpoint =
       scaler
           ? std::make_shared<
-                jyppx::training::amp::GradScalerCheckpointParticipant>(scaler)
+                jyppx::liuding::training::amp::GradScalerCheckpointParticipant>(scaler)
           : nullptr;
 
-  const auto mapper = [](const jyppx::data::BatchEnvelope& batch) {
-    return jyppx::nn::Invocation{
+  const auto mapper = [](const jyppx::liuding::data::BatchEnvelope& batch) {
+    return jyppx::liuding::nn::Invocation{
         .positional = {batch.value.toTuple()->elements().at(0)}};
   };
-  const auto target = [](const jyppx::data::BatchEnvelope& batch)
+  const auto target = [](const jyppx::liuding::data::BatchEnvelope& batch)
       -> std::optional<c10::IValue> {
     return batch.value.toTuple()->elements().at(1);
   };
-  const auto step = [](const jyppx::training::StepInput& input) {
+  const auto step = [](const jyppx::liuding::training::StepInput& input) {
     const auto prediction =
         input.model.invoke(input.invocation).value.toTensor();
-    return jyppx::training::StepOutput{
+    return jyppx::liuding::training::StepOutput{
         .loss = (prediction - input.target->toTensor()).pow(2).mean(),
         .sample_count = input.batch.sample_ids.size()};
   };
 
-  jyppx::training::Trainer trainer(
+  jyppx::liuding::training::Trainer trainer(
       {.trainer_id = "trainer.benchmark.cuda",
        .run_id = "run.benchmark.cuda",
        .trace_id = "trace.benchmark.cuda",
        .max_epochs = 1,
        .precision = mode == BenchmarkMode::fp16_multi_sgd_amp
-                        ? jyppx::training::PrecisionMode::cuda_float16
-                        : jyppx::training::PrecisionMode::full});
+                        ? jyppx::liuding::training::PrecisionMode::cuda_float16
+                        : jyppx::liuding::training::PrecisionMode::full});
   trainer.prepare(
       {.model = model,
        .optimizers = std::move(executions),
@@ -331,18 +331,18 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
        .training_batch_mapper = mapper,
        .training_target_mapper = target,
        .training_step = step,
-       .strategy = std::make_shared<jyppx::training::SingleDeviceStrategy>(
-           jyppx::training::SingleDeviceStrategyOptions{
+       .strategy = std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>(
+           jyppx::liuding::training::SingleDeviceStrategyOptions{
                .strategy_id = "strategy.benchmark.cuda",
-               .device = jyppx::Device(torch::kCUDA, 0),
+               .device = jyppx::liuding::Device(torch::kCUDA, 0),
                .non_blocking_transfer = true}),
        .gradient_scaler = scaler,
        .gradient_scaler_checkpoint = scaler_checkpoint,
        .model_checkpoint =
-           std::make_shared<jyppx::nn::ModelCheckpointParticipant>(*model),
+           std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(*model),
        .rng_checkpoint =
-           std::make_shared<jyppx::core::RngCheckpointParticipant>(
-               jyppx::core::RngCheckpointParticipantOptions{.include_cuda =
+           std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
+               jyppx::liuding::core::RngCheckpointParticipantOptions{.include_cuda =
                                                                 true})});
 
   constexpr c10::DeviceIndex kDeviceIndex = 0;
@@ -377,7 +377,7 @@ BenchmarkResult run_benchmark(BenchmarkMode mode) {
   }
   trainer.close();
 
-  if (fit_result.status != jyppx::training::FitStatus::completed ||
+  if (fit_result.status != jyppx::liuding::training::FitStatus::completed ||
       result.global_step != kSteps) {
     throw std::runtime_error("Trainer did not commit the frozen step count");
   }
@@ -416,7 +416,7 @@ void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
             << "\"output_features\":" << kOutputFeatures << ','
             << "\"worker_count\":" << kWorkerCount << ','
             << "\"prefetch_batches\":" << kPrefetchBatches << "},"
-            << "\"build_fingerprint\":" << jyppx::build_fingerprint_json()
+            << "\"build_fingerprint\":" << jyppx::liuding::build_fingerprint_json()
             << ',' << "\"cuda\":{"
             << "\"device_index\":0,"
             << "\"device_name\":\"" << json_escape(properties->name) << "\","
@@ -455,7 +455,7 @@ void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
 
 int main(int argc, char** argv) {
   try {
-    if (!jyppx::cuda_is_available()) {
+    if (!jyppx::liuding::cuda_is_available()) {
       throw std::runtime_error(
           "CUDA benchmark requires CUDA LibTorch and a visible NVIDIA GPU");
     }

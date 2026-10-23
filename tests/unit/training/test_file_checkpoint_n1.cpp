@@ -3,10 +3,10 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/optim/sgd_adapter.hpp>
-#include <jyppx/training/checkpoint_coordinator.hpp>
-#include <jyppx/training/file_checkpoint_store.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/training/checkpoint_coordinator.hpp>
+#include <jyppx/liuding/training/file_checkpoint_store.hpp>
 
 #include <array>
 #include <cstddef>
@@ -29,7 +29,7 @@ std::vector<std::byte> read_historical_fixture(
   std::string trailing;
   if (!(input >> encoded) || (input >> trailing) || encoded.empty() ||
       encoded.size() % 4U != 0U) {
-    throw jyppx::SerializationError(
+    throw jyppx::liuding::SerializationError(
         "Invalid historical SGD checkpoint fixture");
   }
   constexpr std::string_view alphabet =
@@ -37,7 +37,7 @@ std::vector<std::byte> read_historical_fixture(
   const auto decode = [&](char character) -> std::uint32_t {
     const auto position = alphabet.find(character);
     if (position == std::string_view::npos) {
-      throw jyppx::SerializationError("Invalid base64 fixture character");
+      throw jyppx::liuding::SerializationError("Invalid base64 fixture character");
     }
     return static_cast<std::uint32_t>(position);
   };
@@ -50,7 +50,7 @@ std::vector<std::byte> read_historical_fixture(
     if (encoded[offset] == '=' || encoded[offset + 1U] == '=' ||
         (!final && (third_padding || fourth_padding)) ||
         (third_padding && !fourth_padding)) {
-      throw jyppx::SerializationError("Invalid base64 fixture padding");
+      throw jyppx::liuding::SerializationError("Invalid base64 fixture padding");
     }
     const auto packed =
         (decode(encoded[offset]) << 18U) |
@@ -68,11 +68,11 @@ std::vector<std::byte> read_historical_fixture(
   return result;
 }
 
-jyppx::StateManifest historical_sgd_manifest() {
-  return jyppx::StateManifest{
+jyppx::liuding::StateManifest historical_sgd_manifest() {
+  return jyppx::liuding::StateManifest{
       .participant_id = "optimizer.main",
       .schema_version = 1,
-      .restore_level = jyppx::RestoreLevel::exact,
+      .restore_level = jyppx::liuding::RestoreLevel::exact,
       .fields = {{.name = "topology",
                   .media_type = "application/vnd.jyppx.sgd-topology-v1",
                   .max_bytes = 128,
@@ -90,14 +90,14 @@ jyppx::StateManifest historical_sgd_manifest() {
 }
 
 void write_historical_sgd_checkpoint(
-    jyppx::training::FileCheckpointStore& store) {
+    jyppx::liuding::training::FileCheckpointStore& store) {
   // These bytes came from the schema-v1 writer at commit 4b325732, rather
   // than being regenerated or relabeled by the current schema-v2 writer.
   const auto manifest = historical_sgd_manifest();
-  store.begin({.restore_level = jyppx::RestoreLevel::exact,
+  store.begin({.restore_level = jyppx::liuding::RestoreLevel::exact,
                .participants = {manifest}});
   const auto fixture_directory =
-      std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) / "checkpoint" /
+      std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "checkpoint" /
       "sgd_schema_v1_libtorch_2.5.1";
   for (const auto& field : manifest.fields) {
     const auto bytes =
@@ -107,10 +107,10 @@ void write_historical_sgd_checkpoint(
   store.commit();
 }
 
-std::shared_ptr<jyppx::optim::SgdOptimizerAdapter> make_sgd(
+std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_sgd(
     const torch::Tensor& parameter, double learning_rate) {
-  return std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
-      "optimizer.main", std::vector<jyppx::optim::SgdParameterGroup>{
+  return std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+      "optimizer.main", std::vector<jyppx::liuding::optim::SgdParameterGroup>{
                             {.group_id = "main",
                              .parameters = {{.parameter_id = "layer.weight",
                                              .parameter = parameter}},
@@ -147,10 +147,10 @@ TEST_F(FileCheckpointN1Test,
   }
 
   {
-    jyppx::training::FileCheckpointStore store(path_);
+    jyppx::liuding::training::FileCheckpointStore store(path_);
     write_historical_sgd_checkpoint(store);
   }
-  jyppx::training::FileCheckpointStore reopened(path_);
+  jyppx::liuding::training::FileCheckpointStore reopened(path_);
   ASSERT_EQ(reopened.descriptor().participants.size(), 1U);
   EXPECT_EQ(reopened.descriptor().participants.front().schema_version, 1U);
   EXPECT_FALSE(reopened.reader_for("optimizer.main").contains("producer"));
@@ -169,12 +169,12 @@ TEST_F(FileCheckpointN1Test,
   auto resumed_parameter =
       reference_parameter.detach().clone().set_requires_grad(true);
   auto resumed = make_sgd(resumed_parameter, 0.9);
-  jyppx::training::CheckpointParticipantRegistry registry;
+  jyppx::liuding::training::CheckpointParticipantRegistry registry;
   const auto participant =
-      std::make_shared<jyppx::optim::SgdOptimizerCheckpointParticipant>(
+      std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
           resumed);
   registry.register_participant(participant);
-  jyppx::training::CheckpointCoordinator coordinator(registry);
+  jyppx::liuding::training::CheckpointCoordinator coordinator(registry);
   coordinator.restore(reopened);
   EXPECT_EQ(resumed->completed_steps(), 2U);
   EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.015}));
@@ -188,7 +188,7 @@ TEST_F(FileCheckpointN1Test,
       torch::allclose(reference_parameter, resumed_parameter, 1e-12, 1e-12));
 
   coordinator.save(reopened);
-  jyppx::training::FileCheckpointStore migrated(path_);
+  jyppx::liuding::training::FileCheckpointStore migrated(path_);
   ASSERT_EQ(migrated.descriptor().participants.size(), 1U);
   EXPECT_EQ(migrated.descriptor().participants.front().schema_version, 2U);
   EXPECT_TRUE(migrated.reader_for("optimizer.main").contains("producer"));
@@ -196,11 +196,11 @@ TEST_F(FileCheckpointN1Test,
 
 TEST_F(FileCheckpointN1Test,
        PersistsExactHistoricalFixtureBytesBeforeMigration) {
-  jyppx::training::FileCheckpointStore store(path_);
+  jyppx::liuding::training::FileCheckpointStore store(path_);
   write_historical_sgd_checkpoint(store);
-  jyppx::training::FileCheckpointStore reopened(path_);
+  jyppx::liuding::training::FileCheckpointStore reopened(path_);
   const auto& reader = reopened.reader_for("optimizer.main");
-  const auto directory = std::filesystem::path(JYPPX_TEST_FIXTURE_ROOT) /
+  const auto directory = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
                          "checkpoint" / "sgd_schema_v1_libtorch_2.5.1";
   for (const auto& field : historical_sgd_manifest().fields) {
     const auto expected =

@@ -106,7 +106,7 @@ def is_on(value: str) -> bool:
 
 
 def validate_instrumentation(cache: dict[str, str], environment: dict[str, str]) -> None:
-    for key in ("JYPPX_ENABLE_COVERAGE", "JYPPX_ENABLE_ASAN", "JYPPX_ENABLE_UBSAN"):
+    for key in ("JYPPX_LIUDING_ENABLE_COVERAGE", "JYPPX_LIUDING_ENABLE_ASAN", "JYPPX_LIUDING_ENABLE_UBSAN"):
         if is_on(cache.get(key, "OFF")):
             raise LaneError(f"fixed TSan cache has conflicting {key}; preserve/review it before reuse")
     flags = [(key, value) for key, value in cache.items() if "FLAGS" in key]
@@ -458,9 +458,9 @@ class Lane:
         if any(key.startswith("GTEST_") for key in self.environment):
             raise LaneError("unset GTEST_* environment overrides for the TSan lane")
         self.metadata["tsan_options"] = self.environment["TSAN_OPTIONS"]
-        raw_parallelism = self.environment.get("JYPPX_BUILD_PARALLEL_LEVEL", "2")
+        raw_parallelism = self.environment.get("JYPPX_LIUDING_BUILD_PARALLEL_LEVEL", "2")
         if not raw_parallelism.isdecimal() or int(raw_parallelism) < 1:
-            raise LaneError("JYPPX_BUILD_PARALLEL_LEVEL must be a positive integer")
+            raise LaneError("JYPPX_LIUDING_BUILD_PARALLEL_LEVEL must be a positive integer")
         parallelism = int(raw_parallelism)
         self.metadata["build_parallelism"] = parallelism
         self.metadata["ctest_parallelism"] = parallelism
@@ -476,20 +476,20 @@ class Lane:
         configure = ["cmake", "-S", str(self.source), "-B", str(self.build), "-DCMAKE_BUILD_TYPE=Debug",
                      f"-DCMAKE_CXX_COMPILER={compiler}", f"-DTorch_DIR={torch_dir}",
                      f"-DCaffe2_DIR={prefix}/share/cmake/Caffe2", f"-DCMAKE_PREFIX_PATH={prefix}",
-                     "-DJYPPX_ENABLE_TSAN=ON", "-DJYPPX_ENABLE_COVERAGE=OFF", "-DJYPPX_ENABLE_ASAN=OFF",
-                     "-DJYPPX_ENABLE_UBSAN=OFF", "-DJYPPX_MODELS_REFERENCE_DIR=", "-DJYPPX_TEST_OFFICIAL_TELEMETRY=OFF",
-                     "-DJYPPX_TEST_CLI_CUDA=OFF"]
-        configure += [f"-DJYPPX_BUILD_{component}=ON" for component in ENABLED]
-        configure += [f"-DJYPPX_BUILD_{component}=OFF" for component in DISABLED]
+                     "-DJYPPX_LIUDING_ENABLE_TSAN=ON", "-DJYPPX_LIUDING_ENABLE_COVERAGE=OFF", "-DJYPPX_LIUDING_ENABLE_ASAN=OFF",
+                     "-DJYPPX_LIUDING_ENABLE_UBSAN=OFF", "-DJYPPX_LIUDING_MODELS_REFERENCE_DIR=", "-DJYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY=OFF",
+                     "-DJYPPX_LIUDING_TEST_CLI_CUDA=OFF"]
+        configure += [f"-DJYPPX_LIUDING_BUILD_{component}=ON" for component in ENABLED]
+        configure += [f"-DJYPPX_LIUDING_BUILD_{component}=OFF" for component in DISABLED]
         self.command("01-configure", configure)
         cache_file = self.build / "CMakeCache.txt"
         cache = read_cache(cache_file)
         validate_instrumentation(cache, self.environment)
-        if not is_on(cache.get("JYPPX_ENABLE_TSAN", "OFF")) or cache.get("CMAKE_BUILD_TYPE") != "Debug":
+        if not is_on(cache.get("JYPPX_LIUDING_ENABLE_TSAN", "OFF")) or cache.get("CMAKE_BUILD_TYPE") != "Debug":
             raise LaneError("configured cache is not a Debug TSan build")
         if Path(cache.get("CMAKE_HOME_DIRECTORY", "")).resolve() != self.source or Path(cache.get("CMAKE_CXX_COMPILER", "")).resolve() != Path(compiler).resolve():
             raise LaneError("configured source/compiler differs from preflight")
-        if any(not is_on(cache.get(f"JYPPX_BUILD_{component}", "OFF")) for component in ENABLED):
+        if any(not is_on(cache.get(f"JYPPX_LIUDING_BUILD_{component}", "OFF")) for component in ENABLED):
             raise LaneError("configured cache is missing a required component")
         self.metadata["libtorch_after_configure"] = validate_torch(Path(torch_dir), cache)
         self.metadata["cache_configured_sha256"] = digest(cache_file)

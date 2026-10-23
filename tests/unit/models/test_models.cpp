@@ -1,9 +1,9 @@
 // Copyright 2026 JYPPX Training Framework Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/safetensors.hpp>
-#include <jyppx/models/models.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/safetensors.hpp>
+#include <jyppx/liuding/models/models.hpp>
 
 #include <torch/torch.h>
 
@@ -24,8 +24,8 @@
 #include <vector>
 
 namespace {
-using namespace jyppx;
-using namespace jyppx::models;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::models;
 
 Tensor Images(std::int64_t channels = 3) {
   return torch::zeros({2, channels, 64, 64}, torch::kFloat32);
@@ -228,7 +228,7 @@ TEST(Models, PinnedSafetensorsWeightsVerifyImportAndCacheByDigest) {
   std::filesystem::remove_all(cache, ignored);
 }
 
-#ifdef JYPPX_MODELS_PYTHON_INTEROP
+#ifdef JYPPX_LIUDING_MODELS_PYTHON_INTEROP
 struct ReferenceFileIdentity {
   std::string_view filename;
   std::string_view sha256;
@@ -330,9 +330,9 @@ torch::Tensor ReferenceTensor(const std::vector<std::byte>& encoded,
 }
 
 void CheckArchitectureReference(const char* architecture) {
-  const auto* directory = std::getenv("JYPPX_MODELS_REFERENCE_DIR");
+  const auto* directory = std::getenv("JYPPX_LIUDING_MODELS_REFERENCE_DIR");
   if (directory == nullptr || *directory == '\0') {
-    GTEST_SKIP() << "Set JYPPX_MODELS_REFERENCE_DIR for the independent "
+    GTEST_SKIP() << "Set JYPPX_LIUDING_MODELS_REFERENCE_DIR for the independent "
                     "official reference gate";
   }
   const auto root = std::filesystem::path(directory);

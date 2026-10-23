@@ -1,6 +1,6 @@
 # State formats and explicit backend boundaries
 
-Target: `jyppx::interop`. The foundation artifact types identify exact bytes;
+Target: `jyppx::liuding::interop`. The foundation artifact types identify exact bytes;
 format adapters define their own bounded versioned contracts.
 
 | Surface | Current operation |
@@ -75,7 +75,7 @@ consolidated Windows and Ubuntu/CUDA qualification. Optional Python test locks
 live in `scripts/interop/`; they do not add a core runtime dependency.
 
 The install-only `tests/install/interop_consumer` uses installed public headers
-and `jyppx::interop` to read/write safetensors, plan strict mappings, shard whole
+and `jyppx::liuding::interop` to read/write safetensors, plan strict mappings, shard whole
 tensors, serialize every required/optional descriptor association, publish a
 complete data-only bundle and reverify its exhaustive file/tensor inventory.
 It checks domain-separated signing bytes and rejects an unsigned bundle when

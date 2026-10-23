@@ -3,13 +3,13 @@
 The product CLI is `liuding-forge` (`liuding-forge.exe` on Windows), branded
 六丁炼算（Liuding Forge）. It composes installed library components to inspect
 the environment, resolve configuration, manage local runs, evaluate measured
-evidence and inspect models/checkpoints. An installed `jyppx` executable is
-kept as a compatibility copy for existing scripts.
+evidence and inspect models/checkpoints. The old `jyppx` executable name is not
+installed.
 
-Configure with `JYPPX_BUILD_TOOLS=ON` to build and install it. The default is ON
+Configure with `JYPPX_LIUDING_BUILD_TOOLS=ON` to build and install it. The default is ON
 when all SDK components are enabled, and OFF for partial component profiles.
 Explicit ON requires the complete SDK closure; it never silently enables a
-disabled library component. `JYPPX_BUILD_TOOLS=OFF` leaves the library usable.
+disabled library component. `JYPPX_LIUDING_BUILD_TOOLS=OFF` leaves the library usable.
 The executable is installed in `bin/`, without development scripts or tests.
 
 Use `liuding-forge --help --format text` for commands and `liuding-forge --version --format json`
@@ -61,7 +61,7 @@ schemas, immutable reports and data quality. The [offline workflow](../examples/
 exercises training and recovery together.
 
 The optional telemetry runtime may be installed separately with
-`JYPPX_INSTALL_TELEMETRY_SIDECAR=ON`. Its source and locked requirements land in
+`JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR=ON`. Its source and locked requirements land in
 `share/jyppx/telemetry_sidecar/`; no Python packages are installed by CMake.
 The caller explicitly supplies a locked interpreter and backend configuration.
 Neither Python nor its optional SDK packages are a core library runtime

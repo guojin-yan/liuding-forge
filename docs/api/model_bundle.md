@@ -1,10 +1,10 @@
 # Immutable model bundles
 
-`jyppx::interop::ModelBundleManifest` describes a local, immutable directory of
+`jyppx::liuding::interop::ModelBundleManifest` describes a local, immutable directory of
 model data. `verify_model_bundle_directory` verifies actual file bytes and every
 safetensors tensor association. `publish_model_bundle` copies declared sources to
 private staging, verifies them, flushes them, and atomically publishes a **new**
-directory. These APIs belong to `jyppx::interop` and require foundation; they do
+directory. These APIs belong to `jyppx::liuding::interop` and require foundation; they do
 not depend on core, nn, training, experiment, Python, or a model runtime.
 
 The public header is `jyppx/interop/model_bundle.hpp`. The reserved manifest file
@@ -85,9 +85,9 @@ result must not be presented as official model/runtime validation.
 ## Verify and publish
 
 ```cpp
-#include <jyppx/interop/model_bundle.hpp>
+#include <jyppx/liuding/interop/model_bundle.hpp>
 
-namespace io = jyppx::interop;
+namespace io = jyppx::liuding::interop;
 
 auto verified = io::verify_model_bundle_directory("artifacts/model-v1");
 // verified.manifest is a validated snapshot; verified.manifest_digest is the

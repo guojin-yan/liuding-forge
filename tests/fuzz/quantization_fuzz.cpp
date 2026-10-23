@@ -4,7 +4,7 @@
 
 #include "fuzz_support.hpp"
 
-#include <jyppx/quantization/quantization.hpp>
+#include <jyppx/liuding/quantization/quantization.hpp>
 
 #include <algorithm>
 #include <array>
@@ -20,8 +20,8 @@
 #include <vector>
 
 namespace {
-namespace q = jyppx::quantization;
-namespace fuzz = jyppx::fuzz;
+namespace q = jyppx::liuding::quantization;
+namespace fuzz = jyppx::liuding::fuzz;
 
 constexpr std::size_t kMaxObserverBytes = 128U;
 
@@ -33,7 +33,7 @@ q::QuantizationLimits limits() {
           .max_lineage_text_bytes = 256U};
 }
 
-std::uint64_t observer_budget(const jyppx::StateManifest& manifest) {
+std::uint64_t observer_budget(const jyppx::liuding::StateManifest& manifest) {
   fuzz::require(manifest.fields.size() == 1U &&
                     manifest.fields.front().name == "state" &&
                     manifest.fields.front().max_bytes > 1U &&
@@ -42,7 +42,7 @@ std::uint64_t observer_budget(const jyppx::StateManifest& manifest) {
   return manifest.fields.front().max_bytes;
 }
 
-class ObserverWriter final : public jyppx::StateWriter {
+class ObserverWriter final : public jyppx::liuding::StateWriter {
  public:
   explicit ObserverWriter(std::uint64_t limit) : limit_(limit) {}
 
@@ -66,9 +66,9 @@ class ObserverWriter final : public jyppx::StateWriter {
   std::vector<std::byte> bytes_;
 };
 
-class ObserverReader final : public jyppx::StateReader {
+class ObserverReader final : public jyppx::liuding::StateReader {
  public:
-  ObserverReader(jyppx::StateManifest manifest,
+  ObserverReader(jyppx::liuding::StateManifest manifest,
                  std::span<const std::byte> bytes, std::uint64_t limit,
                  bool present = true)
       : manifest_(std::move(manifest)),
@@ -76,7 +76,7 @@ class ObserverReader final : public jyppx::StateReader {
         limit_(limit),
         present_(present) {}
 
-  const jyppx::StateManifest& manifest() const noexcept override {
+  const jyppx::liuding::StateManifest& manifest() const noexcept override {
     return manifest_;
   }
 
@@ -90,14 +90,14 @@ class ObserverReader final : public jyppx::StateReader {
                   "observer requested an undeclared or unbounded state read");
     requested_limit_ = max_bytes;
     if (bytes_.size() > max_bytes)
-      throw jyppx::ResourceExhausted("Fuzz reader rejected oversized state");
+      throw jyppx::liuding::ResourceExhausted("Fuzz reader rejected oversized state");
     return bytes_;
   }
 
   std::uint64_t requested_limit() const noexcept { return requested_limit_; }
 
  private:
-  jyppx::StateManifest manifest_;
+  jyppx::liuding::StateManifest manifest_;
   std::span<const std::byte> bytes_;
   std::uint64_t limit_;
   bool present_;
@@ -123,7 +123,7 @@ void exercise_artifact(std::span<const std::byte> input) {
   try {
     parsed = fuzz::parse_input(
         [&] { return q::deserialize_linear_artifact(input, limits()); });
-  } catch (const jyppx::NumericalError& error) {
+  } catch (const jyppx::liuding::NumericalError& error) {
     // The v1 decoder reports nonfinite FP32 bias as a NumericalError. This
     // exception applies only to the initial untrusted input, never a roundtrip.
     if (error.details().component == "quantization" &&
@@ -162,8 +162,8 @@ void exercise_artifact(std::span<const std::byte> input) {
 }
 
 void exercise_restore(std::span<const std::byte> input,
-                      jyppx::StateManifest manifest,
-                      jyppx::RestorePolicy policy, bool present) {
+                      jyppx::liuding::StateManifest manifest,
+                      jyppx::liuding::RestorePolicy policy, bool present) {
   q::MinMaxObserver observer;
   const std::array<float, 2U> sentinel{-3.0F, 4.0F};
   observer.observe(sentinel);
@@ -199,7 +199,7 @@ void exercise_restore(std::span<const std::byte> input,
                                         budget);
   // Signed zero in accepted state is normalized by the production encoder.
   // Any subsequent restore/encode failure must escape to libFuzzer.
-  restored.load_state(canonical_reader, jyppx::RestorePolicy::exact_only);
+  restored.load_state(canonical_reader, jyppx::liuding::RestorePolicy::exact_only);
   fuzz::require(states_equal(restored.state(), observer.state()) &&
                     observer_bytes(restored) == canonical,
                 "observer canonical state roundtrip was not stable");
@@ -208,7 +208,7 @@ void exercise_restore(std::span<const std::byte> input,
 void exercise_observer(std::span<const std::byte> input) {
   const q::MinMaxObserver observer;
   auto manifest = observer.describe_state();
-  exercise_restore(input, manifest, jyppx::RestorePolicy::exact_only, true);
+  exercise_restore(input, manifest, jyppx::liuding::RestorePolicy::exact_only, true);
   if (input.empty()) return;
 
   bool present = true;
@@ -223,7 +223,7 @@ void exercise_observer(std::span<const std::byte> input) {
       manifest.schema_version = 2U;
       break;
     case 3U:
-      manifest.restore_level = jyppx::RestoreLevel::bounded;
+      manifest.restore_level = jyppx::liuding::RestoreLevel::bounded;
       manifest.degradation_reasons = {"fuzz bounded restore"};
       break;
     case 4U:
@@ -261,15 +261,15 @@ void exercise_observer(std::span<const std::byte> input) {
       manifest.fields.front().name = "other";
       break;
     case 14U:
-      manifest.restore_level = static_cast<jyppx::RestoreLevel>(255U);
+      manifest.restore_level = static_cast<jyppx::liuding::RestoreLevel>(255U);
       break;
     default:
       ++manifest.fields.front().max_bytes;
       break;
   }
   const auto policy = input.size() < 2U
-                          ? jyppx::RestorePolicy::exact_only
-                          : static_cast<jyppx::RestorePolicy>(
+                          ? jyppx::liuding::RestorePolicy::exact_only
+                          : static_cast<jyppx::liuding::RestorePolicy>(
                                 std::to_integer<unsigned>(input[1U]) % 5U);
   exercise_restore(input, std::move(manifest), policy, present);
 }

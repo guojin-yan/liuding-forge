@@ -8,8 +8,8 @@
   "targets": {
     "core": {
       "path_prefixes": [
-        "include/jyppx/core/",
-        "src/jyppx/core/"
+        "include/jyppx/liuding/core/",
+        "src/jyppx/liuding/core/"
       ],
       "metrics": {
         "line": {
@@ -31,8 +31,8 @@
     },
     "training": {
       "path_prefixes": [
-        "include/jyppx/training/",
-        "src/jyppx/training/"
+        "include/jyppx/liuding/training/",
+        "src/jyppx/liuding/training/"
       ],
       "metrics": {
         "line": {

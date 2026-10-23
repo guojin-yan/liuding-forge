@@ -1,23 +1,23 @@
-if(TARGET jyppx::sdk)
+if(TARGET jyppx::liuding::sdk)
 add_executable(jyppx_basic_data_pipeline basic_data_pipeline.cpp)
 set_target_properties(jyppx_basic_data_pipeline PROPERTIES
     OUTPUT_NAME liuding-forge-example-basic-data-pipeline)
-target_link_libraries(jyppx_basic_data_pipeline PRIVATE jyppx::sdk)
+target_link_libraries(jyppx_basic_data_pipeline PRIVATE jyppx::liuding::sdk)
 
 add_executable(jyppx_basic_trainer basic_trainer.cpp)
 set_target_properties(jyppx_basic_trainer PROPERTIES
     OUTPUT_NAME liuding-forge-example-basic-trainer)
-target_link_libraries(jyppx_basic_trainer PRIVATE jyppx::sdk)
+target_link_libraries(jyppx_basic_trainer PRIVATE jyppx::liuding::sdk)
 
 add_executable(jyppx_mnist mnist/mnist.cpp)
 set_target_properties(jyppx_mnist PROPERTIES
     OUTPUT_NAME liuding-forge-example-mnist)
-target_link_libraries(jyppx_mnist PRIVATE jyppx::sdk)
+target_link_libraries(jyppx_mnist PRIVATE jyppx::liuding::sdk)
 
 add_executable(jyppx_distillation distillation.cpp)
 set_target_properties(jyppx_distillation PROPERTIES
     OUTPUT_NAME liuding-forge-example-distillation)
-target_link_libraries(jyppx_distillation PRIVATE jyppx::sdk)
+target_link_libraries(jyppx_distillation PRIVATE jyppx::liuding::sdk)
 
 # LibTorch's Windows distribution keeps runtime DLLs beside its import
 # libraries. Copy the DLLs (not the whole directory, which also holds large
@@ -31,12 +31,12 @@ endforeach()
 
 endif()
 
-if(TARGET jyppx::serving)
-    add_executable(jyppx_serving_jsonl serving/jsonl_host.cpp)
-    set_target_properties(jyppx_serving_jsonl PROPERTIES
+if(TARGET jyppx::liuding::serving)
+    add_executable(jyppx_liuding_serving_jsonl serving/jsonl_host.cpp)
+    set_target_properties(jyppx_liuding_serving_jsonl PROPERTIES
         OUTPUT_NAME liuding-forge-example-serving-jsonl)
-    target_link_libraries(jyppx_serving_jsonl PRIVATE
-        jyppx::serving nlohmann_json::nlohmann_json)
-    jyppx_apply_instrumentation(jyppx_serving_jsonl)
-    jyppx_add_torch_runtime_dependency(jyppx_serving_jsonl)
+    target_link_libraries(jyppx_liuding_serving_jsonl PRIVATE
+        jyppx::liuding::serving nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_liuding_serving_jsonl)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_serving_jsonl)
 endif()

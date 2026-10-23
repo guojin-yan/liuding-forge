@@ -1,6 +1,6 @@
 # Quantization: storage-only int8 reference path
 
-The `jyppx::quantization` component exposes the versioned
+The `jyppx::liuding::quantization` component exposes the versioned
 `jyppx.qint8.symmetric.per_tensor/v1` format. It stores one Linear weight matrix
 as symmetric per-tensor int8 values, preserves finite FP32 bias, and records
 calibration lineage. The runtime dequantizes the matrix once, then computes
@@ -33,10 +33,10 @@ lengths, booleans, counters and extrema before committing state.
 ## Calibration and conversion
 
 ```cpp
-#include <jyppx/quantization/quantization.hpp>
+#include <jyppx/liuding/quantization/quantization.hpp>
 #include <array>
 
-namespace q = jyppx::quantization;
+namespace q = jyppx::liuding::quantization;
 q::CalibrationSession calibration({
     .dataset_version = "dataset/v1",
     .dataset_digest = {.hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
@@ -105,7 +105,7 @@ round-to-nearest-even, nonfinite/zero handling, error metrics, observer merge an
 atomic restore, calibration lineage and duplicate/budget rejection, canonical
 artifact roundtrip, exact and one-byte-short budgets, truncated prefixes,
 malformed headers, explicit capability claims and FP32 Linear reference output.
-The install consumer links only the exported `jyppx::quantization` target and
+The install consumer links only the exported `jyppx::liuding::quantization` target and
 exercises conversion, serialization, inference and machine-readable reporting.
 Both suites must pass in the chapter's Windows CPU and Ubuntu+CUDA release
 validation before this component can be considered delivered. This document

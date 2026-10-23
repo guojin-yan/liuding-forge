@@ -1,7 +1,7 @@
 # Security fuzz targets are deliberately opt-in because libFuzzer is only
 # available with Clang. Each target owns an explicit corpus and bounded runner.
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    message(FATAL_ERROR "JYPPX_BUILD_FUZZERS=ON requires Clang with libFuzzer")
+    message(FATAL_ERROR "JYPPX_LIUDING_BUILD_FUZZERS=ON requires Clang with libFuzzer")
 endif()
 
 # Instrument the implementation archives, not just LLVMFuzzerTestOneInput.
@@ -26,7 +26,7 @@ function(jyppx_add_fuzz_target target source)
     set_target_properties(${target} PROPERTIES
         OUTPUT_NAME "${JYPPX_FUZZ_OUTPUT_NAME}")
     set_property(TARGET ${target} PROPERTY JYPPX_LIBFUZZER_MAIN TRUE)
-    target_link_libraries(${target} PRIVATE jyppx::sdk)
+    target_link_libraries(${target} PRIVATE jyppx::liuding::sdk)
     target_compile_options(${target} PRIVATE -fsanitize=fuzzer)
     target_link_options(${target} PRIVATE -fsanitize=fuzzer)
     jyppx_apply_instrumentation(${target})
@@ -41,7 +41,7 @@ jyppx_add_fuzz_target(jyppx_fuzz_iterable_pipeline_state
 
 jyppx_add_fuzz_target(jyppx_fuzz_telemetry_codec telemetry_codec_fuzz.cpp)
 
-if(TARGET jyppx::interop)
+if(TARGET jyppx::liuding::interop)
     jyppx_add_fuzz_target(jyppx_fuzz_checkpoint_manifest
                           checkpoint_manifest_fuzz.cpp)
     jyppx_add_fuzz_target(jyppx_fuzz_model_bundle_manifest
@@ -49,14 +49,14 @@ if(TARGET jyppx::interop)
     jyppx_add_fuzz_target(jyppx_fuzz_safetensors safetensors_fuzz.cpp)
 endif()
 
-if(TARGET jyppx::experiment)
+if(TARGET jyppx::liuding::experiment)
     jyppx_add_fuzz_target(jyppx_fuzz_evaluation_json evaluation_json_fuzz.cpp)
     jyppx_add_fuzz_target(jyppx_fuzz_backend_protocol backend_protocol_fuzz.cpp)
     target_link_libraries(jyppx_fuzz_backend_protocol
         PRIVATE nlohmann_json::nlohmann_json)
 endif()
 
-if(TARGET jyppx::quantization)
+if(TARGET jyppx::liuding::quantization)
     jyppx_add_fuzz_target(jyppx_fuzz_quantization quantization_fuzz.cpp)
-    target_link_libraries(jyppx_fuzz_quantization PRIVATE jyppx::quantization)
+    target_link_libraries(jyppx_fuzz_quantization PRIVATE jyppx::liuding::quantization)
 endif()

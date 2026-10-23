@@ -3,9 +3,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/file_state_archive.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/file_state_archive.hpp>
 
 #include <algorithm>
 #include <array>
@@ -34,13 +34,13 @@
 
 namespace {
 
-using jyppx::interop::FileStateArchive;
+using jyppx::liuding::interop::FileStateArchive;
 
-jyppx::StateManifest state() {
+jyppx::liuding::StateManifest state() {
   return {
       .participant_id = "test.state",
       .schema_version = 7U,
-      .restore_level = jyppx::RestoreLevel::bounded,
+      .restore_level = jyppx::liuding::RestoreLevel::bounded,
       .fields = {{.name = "payload", .max_bytes = 32768U},
                  {.name = "optional", .max_bytes = 4U, .required = false}},
       .degradation_reasons = {"numeric tolerance fixed by the participant"}};
@@ -49,7 +49,7 @@ jyppx::StateManifest state() {
 std::vector<std::byte> read_file(const std::filesystem::path& path) {
   std::ifstream input(path, std::ios::binary | std::ios::ate);
   const auto size = input.tellg();
-  if (size < 0) throw jyppx::IoError("Cannot read test artifact");
+  if (size < 0) throw jyppx::liuding::IoError("Cannot read test artifact");
   std::vector<std::byte> bytes(static_cast<std::size_t>(size));
   input.seekg(0);
   input.read(reinterpret_cast<char*>(bytes.data()), size);
@@ -95,7 +95,7 @@ TEST_F(FileStateArchiveTest, ReopensEmbeddedManifestAndValidatesAllDigests) {
   ASSERT_EQ(archive.manifest().participants.size(), 1U);
   const auto& entry = archive.manifest().participants.front();
   EXPECT_EQ(entry.state.schema_version, 7U);
-  EXPECT_EQ(entry.state.restore_level, jyppx::RestoreLevel::bounded);
+  EXPECT_EQ(entry.state.restore_level, jyppx::liuding::RestoreLevel::bounded);
   EXPECT_EQ(entry.state.degradation_reasons, state().degradation_reasons);
   ASSERT_EQ(entry.blobs.size(), 1U);
   EXPECT_EQ(entry.blobs[0].digest.hex,
@@ -103,9 +103,9 @@ TEST_F(FileStateArchiveTest, ReopensEmbeddedManifestAndValidatesAllDigests) {
   EXPECT_EQ(entry.blobs[0].size_bytes, content.size());
   EXPECT_FALSE(archive.reader_for("test.state").contains("optional"));
   EXPECT_THROW(archive.reader_for("test.state").read_blob("payload", 2U),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   const auto encoded = read_file(path_);
-  const auto digest = jyppx::sha256(
+  const auto digest = jyppx::liuding::sha256(
       std::span<const std::byte>(encoded).first(encoded.size() - 32U));
   EXPECT_TRUE(std::equal(digest.begin(), digest.end(), encoded.end() - 32U));
 }
@@ -121,7 +121,7 @@ TEST_F(FileStateArchiveTest, ReaderCannotCleanAnActiveWritersTemporaryFile) {
   EXPECT_EQ(reader.reader_for("test.state").read_blob("payload", 1U)[0],
             content[0]);
   FileStateArchive competitor(path_);
-  EXPECT_THROW(competitor.begin({state()}), jyppx::NotReady);
+  EXPECT_THROW(competitor.begin({state()}), jyppx::liuding::NotReady);
   writer.rollback();
   FileStateArchive recovered(path_);
   EXPECT_FALSE(std::filesystem::exists(path_.string() + ".tmp"));
@@ -146,21 +146,21 @@ TEST_F(FileStateArchiveTest,
   const auto lock = std::filesystem::path(path_.string() + ".lock");
   std::filesystem::remove(lock);
   write_file(temporary, content);
-  jyppx::interop::FileStateArchiveOptions options;
+  jyppx::liuding::interop::FileStateArchiveOptions options;
   options.read_only = true;
   FileStateArchive reader(path_, options);
   EXPECT_EQ(reader.reader_for("test.state").read_blob("payload", 1U)[0],
             content[0]);
-  EXPECT_THROW(reader.begin({state()}), jyppx::InvalidArgument);
+  EXPECT_THROW(reader.begin({state()}), jyppx::liuding::InvalidArgument);
   EXPECT_EQ(read_file(temporary), std::vector(content.begin(), content.end()));
   EXPECT_FALSE(std::filesystem::exists(lock));
 }
 
 TEST_F(FileStateArchiveTest, ReadOnlyMissingArchiveDoesNotCreateItsParent) {
   const auto missing = directory_ / "missing" / "state.bin";
-  jyppx::interop::FileStateArchiveOptions options;
+  jyppx::liuding::interop::FileStateArchiveOptions options;
   options.read_only = true;
-  EXPECT_THROW(FileStateArchive(missing, options), jyppx::IoError);
+  EXPECT_THROW(FileStateArchive(missing, options), jyppx::liuding::IoError);
   EXPECT_FALSE(std::filesystem::exists(missing.parent_path()));
 }
 
@@ -236,7 +236,7 @@ TEST_F(FileStateArchiveTest,
       path_.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   ASSERT_NE(handle, INVALID_HANDLE_VALUE);
-  EXPECT_THROW(save(replacement), jyppx::IoError);
+  EXPECT_THROW(save(replacement), jyppx::liuding::IoError);
   CloseHandle(handle);
   FileStateArchive reopened(path_);
   EXPECT_EQ(reopened.reader_for("test.state").read_blob("payload", 1U)[0],
@@ -293,12 +293,12 @@ TEST_F(FileStateArchiveTest,
   const std::array<std::byte, 1> content{std::byte{42}};
   save(content);
   const auto previous = read_file(path_);
-  jyppx::interop::FileStateArchiveOptions options;
+  jyppx::liuding::interop::FileStateArchiveOptions options;
   options.min_free_storage_bytes = (std::numeric_limits<std::uint64_t>::max)();
   FileStateArchive writer(path_, options);
   writer.begin({state()});
   writer.writer_for("test.state").write_blob("payload", content);
-  EXPECT_THROW(writer.commit(), jyppx::ResourceExhausted);
+  EXPECT_THROW(writer.commit(), jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(read_file(path_), previous);
   EXPECT_FALSE(std::filesystem::exists(path_.string() + ".tmp"));
   EXPECT_NO_THROW(writer.begin({state()}));
@@ -313,7 +313,7 @@ TEST_F(FileStateArchiveTest, TruncationCorruptionAndForgedFramingAreRejected) {
   for (const auto size : {0U, 8U, 20U, 31U, 32U, 100U}) {
     write_file(path_, std::span<const std::byte>(original).first(size));
     EXPECT_THROW({ FileStateArchive invalid(path_); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
   for (const auto offset :
        {0U, 8U, 12U, 20U, static_cast<unsigned>(original.size() - 33U)}) {
@@ -321,36 +321,36 @@ TEST_F(FileStateArchiveTest, TruncationCorruptionAndForgedFramingAreRejected) {
     corrupt[offset] ^= std::byte{1};
     write_file(path_, corrupt);
     EXPECT_THROW({ FileStateArchive invalid(path_); },
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
   }
   auto forged = original;
   std::fill(forged.begin() + 12U, forged.begin() + 20U, std::byte{0xff});
-  const auto digest = jyppx::sha256(
+  const auto digest = jyppx::liuding::sha256(
       std::span<const std::byte>(forged).first(forged.size() - 32U));
   std::copy(digest.begin(), digest.end(), forged.end() - 32U);
   write_file(path_, forged);
-  EXPECT_THROW({ FileStateArchive invalid(path_); }, jyppx::ResourceExhausted);
+  EXPECT_THROW({ FileStateArchive invalid(path_); }, jyppx::liuding::ResourceExhausted);
 }
 
 TEST_F(FileStateArchiveTest, ValidatesLimitsFieldsAndTransactionLifecycle) {
-  jyppx::interop::FileStateArchiveOptions invalid_options;
+  jyppx::liuding::interop::FileStateArchiveOptions invalid_options;
   invalid_options.max_field_bytes = 0;
   EXPECT_THROW({ FileStateArchive invalid(path_, invalid_options); },
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   FileStateArchive archive(path_);
-  EXPECT_THROW(archive.commit(), jyppx::NotReady);
-  EXPECT_THROW(archive.begin({}), jyppx::InvalidArgument);
+  EXPECT_THROW(archive.commit(), jyppx::liuding::NotReady);
+  EXPECT_THROW(archive.begin({}), jyppx::liuding::InvalidArgument);
   archive.begin({state()});
-  EXPECT_THROW(archive.begin({state()}), jyppx::NotReady);
-  EXPECT_THROW(archive.writer_for("absent"), jyppx::InvalidArgument);
+  EXPECT_THROW(archive.begin({state()}), jyppx::liuding::NotReady);
+  EXPECT_THROW(archive.writer_for("absent"), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(archive.writer_for("test.state").write_blob("undeclared", {}),
-               jyppx::SerializationError);
-  EXPECT_THROW(archive.commit(), jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
+  EXPECT_THROW(archive.commit(), jyppx::liuding::SerializationError);
   EXPECT_FALSE(std::filesystem::exists(path_));
   archive.begin({state()});
   archive.writer_for("test.state").write_blob("payload", {});
   EXPECT_THROW(archive.writer_for("test.state").write_blob("payload", {}),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   archive.commit();
   FileStateArchive reopened(path_);
   EXPECT_TRUE(
@@ -378,7 +378,7 @@ TEST_F(FileStateArchiveTest,
       archive.writer_for("test.state").write_blob("payload", payload);
       archive.commit();
       ::_exit(3);
-    } catch (const jyppx::ResourceExhausted&) {
+    } catch (const jyppx::liuding::ResourceExhausted&) {
       ::_exit(0);
     } catch (...) {
       ::_exit(4);

@@ -9,9 +9,9 @@
 #include <gtest/gtest.h>
 #include <sstream>
 namespace {
-using namespace jyppx;
-using namespace jyppx::serving;
-namespace example = jyppx::examples::serving;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::serving;
+namespace example = jyppx::liuding::examples::serving;
 struct Archive {
   std::vector<std::byte> bytes;
   ArtifactDigest digest;

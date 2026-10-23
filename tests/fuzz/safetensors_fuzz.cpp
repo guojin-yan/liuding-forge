@@ -4,8 +4,8 @@
 
 #include "fuzz_support.hpp"
 
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/safetensors.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/safetensors.hpp>
 
 #include <array>
 #include <cstddef>
@@ -14,8 +14,8 @@
 #include <vector>
 
 namespace {
-namespace interop = jyppx::interop;
-namespace fuzz = jyppx::fuzz;
+namespace interop = jyppx::liuding::interop;
+namespace fuzz = jyppx::liuding::fuzz;
 
 interop::SafeTensorsLimits limits() {
   return {.max_file_bytes = fuzz::kMaxInputBytes,
@@ -49,7 +49,7 @@ void exercise(std::span<const std::byte> input) {
       [&] { return interop::SafeTensorsView(input, limits()); });
   if (!parsed) return;
   const auto& original = *parsed;
-  fuzz::require(original.digest().hex == jyppx::sha256_hex(input),
+  fuzz::require(original.digest().hex == jyppx::liuding::sha256_hex(input),
                 "safetensors reader changed original artifact digest");
   const auto tensors = sources(original);
   auto canonical_limits = limits();

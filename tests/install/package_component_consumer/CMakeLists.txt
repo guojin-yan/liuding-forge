@@ -13,7 +13,7 @@ if(NOT jyppx_NOT_FOUND_MESSAGE STREQUAL
 endif()
 
 get_filename_component(_jyppx_cmake_root "${jyppx_DIR}" DIRECTORY)
-if(EXISTS "${_jyppx_cmake_root}/jyppx_training_framework")
+if(EXISTS "${_jyppx_cmake_root}/jyppx_liuding_training_framework")
     message(FATAL_ERROR "Installed package retained the legacy package entry")
 endif()
 

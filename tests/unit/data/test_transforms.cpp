@@ -8,14 +8,14 @@
  * @brief Tests tensor transforms and their current pipeline integration.
  */
 
-#include <jyppx/data/data_pipeline.hpp>
-#include <jyppx/data/dataset.hpp>
-#include <jyppx/data/samplers/sequential_sampler.hpp>
-#include <jyppx/data/tensor_dataset.hpp>
-#include <jyppx/data/transforms/compose.hpp>
-#include <jyppx/data/transforms/transform.hpp>
-#include <jyppx/data/transforms/vision.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/dataset.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/data/tensor_dataset.hpp>
+#include <jyppx/liuding/data/transforms/compose.hpp>
+#include <jyppx/liuding/data/transforms/transform.hpp>
+#include <jyppx/liuding/data/transforms/vision.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <cmath>
 #include <gtest/gtest.h>
@@ -27,8 +27,8 @@
 
 namespace {
 
-using namespace jyppx;
-using namespace jyppx::data::transforms;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::data::transforms;
 
 // Records the order it is applied in; used to verify Compose chaining.
 class AppendTransform : public TensorTransform {
@@ -77,12 +77,12 @@ TEST_F(TransformsTest, ComposeRejectsNullTransforms) {
   try {
     (void)Compose({nullptr});
     FAIL() << "a null transform must be rejected";
-  } catch (const jyppx::InvalidArgument& error) {
-    EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+  } catch (const jyppx::liuding::InvalidArgument& error) {
+    EXPECT_EQ(error.code(), jyppx::liuding::ErrorCode::invalid_argument);
     EXPECT_EQ(error.details().component, "data.transforms.compose");
     EXPECT_EQ(error.details().operation, "constructor.transforms");
   }
-  EXPECT_THROW(RandomChoice({}), jyppx::InvalidArgument);
+  EXPECT_THROW(RandomChoice({}), jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(TransformsTest, NormalizeSubtractsMeanAndDividesStd) {
@@ -103,11 +103,11 @@ TEST_F(TransformsTest, NormalizePromotesIntegralInputs) {
 }
 
 TEST_F(TransformsTest, NormalizeValidatesArguments) {
-  EXPECT_THROW(Normalize({}, {1.0}), jyppx::InvalidArgument);
-  EXPECT_THROW(Normalize({1.0}, {1.0, 2.0}), jyppx::InvalidArgument);
-  EXPECT_THROW(Normalize({1.0}, {0.0}), jyppx::InvalidArgument);
+  EXPECT_THROW(Normalize({}, {1.0}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(Normalize({1.0}, {1.0, 2.0}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(Normalize({1.0}, {0.0}), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(Normalize({1.0, 2.0}, {1.0, 2.0})(torch::ones({1, 2, 2})),
-               jyppx::InvalidArgument);  // channel mismatch
+               jyppx::liuding::InvalidArgument);  // channel mismatch
 }
 
 TEST_F(TransformsTest, ResizeProducesRequestedShape) {
@@ -154,9 +154,9 @@ TEST_F(TransformsTest, RandomCropIsDeterministicUnderSeed) {
 
 TEST_F(TransformsTest, RandomCropRejectsOversizedCrops) {
   const RandomCrop crop({4, 4});
-  EXPECT_THROW(crop(image_), jyppx::InvalidArgument);
+  EXPECT_THROW(crop(image_), jyppx::liuding::InvalidArgument);
   const CenterCrop center({4, 4});
-  EXPECT_THROW(center(image_), jyppx::InvalidArgument);
+  EXPECT_THROW(center(image_), jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(TransformsTest, FlipsWithProbabilityOneAndZero) {
@@ -169,8 +169,8 @@ TEST_F(TransformsTest, FlipsWithProbabilityOneAndZero) {
   const RandomVerticalFlip always_v(1.0);
   EXPECT_TRUE(torch::equal(always_v(image_), torch::flip(image_, {1})));
 
-  EXPECT_THROW(RandomHorizontalFlip(1.5), jyppx::InvalidArgument);
-  EXPECT_THROW(RandomVerticalFlip(-0.1), jyppx::InvalidArgument);
+  EXPECT_THROW(RandomHorizontalFlip(1.5), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(RandomVerticalFlip(-0.1), jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(TransformsTest, RejectsNonFiniteRangesAndMalformedImageShapes) {
@@ -180,22 +180,22 @@ TEST_F(TransformsTest, RejectsNonFiniteRangesAndMalformedImageShapes) {
   try {
     (void)Pad({1, 2, 3});
     FAIL() << "three-value padding must be rejected";
-  } catch (const jyppx::InvalidArgument& error) {
-    EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+  } catch (const jyppx::liuding::InvalidArgument& error) {
+    EXPECT_EQ(error.code(), jyppx::liuding::ErrorCode::invalid_argument);
     EXPECT_EQ(error.details().component, "data.transforms.vision");
     EXPECT_EQ(error.details().operation, "pad.padding");
   }
-  EXPECT_THROW((void)RandomHorizontalFlip{nan}, jyppx::InvalidArgument);
-  EXPECT_THROW((void)RandomRotation{nan}, jyppx::InvalidArgument);
-  EXPECT_THROW((void)RandomAffine{nan}, jyppx::InvalidArgument);
-  EXPECT_THROW((void)ColorJitter{nan}, jyppx::InvalidArgument);
-  EXPECT_THROW(Normalize({nan}, {1.0}), jyppx::InvalidArgument);
-  EXPECT_THROW(Normalize({0.0}, {infinity}), jyppx::InvalidArgument);
+  EXPECT_THROW((void)RandomHorizontalFlip{nan}, jyppx::liuding::InvalidArgument);
+  EXPECT_THROW((void)RandomRotation{nan}, jyppx::liuding::InvalidArgument);
+  EXPECT_THROW((void)RandomAffine{nan}, jyppx::liuding::InvalidArgument);
+  EXPECT_THROW((void)ColorJitter{nan}, jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(Normalize({nan}, {1.0}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(Normalize({0.0}, {infinity}), jyppx::liuding::InvalidArgument);
 
   const auto matrix = torch::ones({2, 2});
-  EXPECT_THROW(RandomRotation(10.0)(matrix), jyppx::InvalidArgument);
-  EXPECT_THROW(RandomAffine(10.0)(matrix), jyppx::InvalidArgument);
-  EXPECT_THROW(Resize({4})(Tensor{}), jyppx::InvalidArgument);
+  EXPECT_THROW(RandomRotation(10.0)(matrix), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(RandomAffine(10.0)(matrix), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(Resize({4})(Tensor{}), jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(TransformsTest, ExecutesTensorNativePipelineOnCudaWhenAvailable) {
@@ -304,14 +304,14 @@ TEST_F(TransformsTest, TransformPipelineWithCompose) {
 
 TEST_F(TransformsTest, TransformsWorkInsideDataPipeline) {
   // A dataset whose get() applies the transform: the standard integration.
-  class TransformedDataset : public jyppx::data::Dataset<jyppx::data::Example> {
+  class TransformedDataset : public jyppx::liuding::data::Dataset<jyppx::liuding::data::Example> {
    public:
     TransformedDataset(Tensor data, Tensor targets, Normalize normalize)
         : data_(std::move(data)),
           targets_(std::move(targets)),
           normalize_(std::move(normalize)) {}
 
-    jyppx::data::Example get(size_t index) const override {
+    jyppx::liuding::data::Example get(size_t index) const override {
       return {normalize_(data_[index].view({1, 2, 3})).view({6}),
               targets_[index]};
     }
@@ -325,17 +325,17 @@ TEST_F(TransformsTest, TransformsWorkInsideDataPipeline) {
 
   auto dataset = std::make_shared<TransformedDataset>(image_, torch::zeros({2}),
                                                       Normalize({0.0}, {1.0}));
-  jyppx::data::DataPipeline pipeline(
-      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+  jyppx::liuding::data::DataPipeline pipeline(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
           dataset->size()),
       {.pipeline_id = "data.transforms.pipeline",
        .dataset_version = "test.transforms.dataset/v1",
        .dataset_size = dataset->size(),
-       .schema = jyppx::data::BatchSchema::any("test.transforms.batch", 1),
+       .schema = jyppx::liuding::data::BatchSchema::any("test.transforms.batch", 1),
        .batch_factory_id = "test.transforms.collate/v1",
        .batch_size = 2},
       [dataset](std::span<const std::size_t> indices,
-                const jyppx::data::DataWorkerContext&, std::stop_token) {
+                const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
         std::vector<Tensor> inputs;
         std::vector<Tensor> targets;
         inputs.reserve(indices.size());

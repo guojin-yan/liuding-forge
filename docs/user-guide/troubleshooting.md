@@ -39,7 +39,7 @@ queued batches. Release references to old batches before the next iteration.
 
 ### Loss becomes NaN or Inf
 
-Check inputs and targets with `jyppx::is_finite`, lower the learning rate, and
+Check inputs and targets with `jyppx::liuding::is_finite`, lower the learning rate, and
 inspect normalization divisors. With AMP, use `GradScaler`; an overflow sets
 `found_inf()` and skips the optimizer step while backing off the scale.
 
@@ -48,7 +48,7 @@ inspect normalization divisors. With AMP, use `GradScaler`; an overflow sets
 DataPipeline output order follows the sampler even when workers finish out of
 order. Use `SequentialSampler` to isolate ordering bugs, or use a fixed sampler
 seed and explicit `set_epoch()` calls for repeatable shuffled runs. A worker's
-non-JYPPX exception is reported as `jyppx::BackendError` by `next()`, so catch
+non-JYPPX exception is reported as `jyppx::liuding::BackendError` by `next()`, so catch
 it at the job boundary and reproduce with `num_workers = 0`. Dataset access
 and captured factory state must be thread-safe when workers are enabled.
 

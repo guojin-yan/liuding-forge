@@ -71,7 +71,7 @@ official otelcol-contrib 0.135.0
 Windows/Linux archives, official checksum manifests, actual archive sizes,
 verified SHA-256 and executable hashes. Both executables returned
 "otelcol-contrib version 0.135.0". Signature/cosign verification was not performed.
-Set JYPPX_TEST_OTELCOL to the corresponding prepared executable:
+Set JYPPX_LIUDING_TEST_OTELCOL to the corresponding prepared executable:
   Windows: out/deps/otelcol-contrib-0.135.0/windows/otelcol-contrib.exe
   Ubuntu:  out/deps/otelcol-contrib-0.135.0/linux/otelcol-contrib
 

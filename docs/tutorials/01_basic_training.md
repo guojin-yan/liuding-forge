@@ -11,8 +11,8 @@ schemas are checked at the framework boundary:
 
 ```cpp
 auto holder = torch::nn::Linear(torch::nn::LinearOptions(2, 1));
-auto model = std::make_shared<jyppx::nn::ModelAdapter>(
-    jyppx::nn::adapt_tensor_holder(holder));
+auto model = std::make_shared<jyppx::liuding::nn::ModelAdapter>(
+    jyppx::liuding::nn::adapt_tensor_holder(holder));
 ```
 
 Use explicit `TensorSchema` values in production when rank, dtype or fixed
@@ -25,9 +25,9 @@ factory. The factory returns an opaque `IValue`; Trainer consumes the common
 `BatchPipeline` interface shared with `IterableDataPipeline`.
 
 ```cpp
-auto pipeline = std::make_shared<jyppx::data::DataPipeline>(
-    std::make_shared<jyppx::data::samplers::SequentialSampler>(sample_count),
-    jyppx::data::DataPipelineOptions{
+auto pipeline = std::make_shared<jyppx::liuding::data::DataPipeline>(
+    std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(sample_count),
+    jyppx::liuding::data::DataPipelineOptions{
         .pipeline_id = "data.train",
         .dataset_version = "linear/v1",
         .dataset_size = sample_count,
@@ -57,10 +57,10 @@ The batch mapper produces an `Invocation`; the optional target mapper extracts
 the target; the step function performs forward and returns loss/metrics:
 
 ```cpp
-auto step = [](const jyppx::training::StepInput& input) {
+auto step = [](const jyppx::liuding::training::StepInput& input) {
     auto prediction = input.model.invoke(input.invocation).value.toTensor();
     auto target = input.target->toTensor();
-    return jyppx::training::StepOutput{
+    return jyppx::liuding::training::StepOutput{
         .loss = (prediction - target).pow(2).mean(),
         .sample_count = input.batch.sample_ids.size(),
     };
@@ -73,7 +73,7 @@ the committed sample IDs exactly.
 ## 5. Prepare, fit and close
 
 ```cpp
-jyppx::training::Trainer trainer({
+jyppx::liuding::training::Trainer trainer({
     .trainer_id = "trainer.linear",
     .run_id = "run.linear",
     .trace_id = "trace.linear",

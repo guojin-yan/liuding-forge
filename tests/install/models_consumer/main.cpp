@@ -1,7 +1,7 @@
 // Copyright 2026 JYPPX Training Framework Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 
-#include <jyppx/models/models.hpp>
+#include <jyppx/liuding/models/models.hpp>
 
 #include <exception>
 #include <iostream>
@@ -15,13 +15,13 @@ void Require(bool condition, const char* operation) {
 
 int main() {
   try {
-    const auto entries = jyppx::models::list_models();
+    const auto entries = jyppx::liuding::models::list_models();
     Require(entries.size() == 5U, "installed-model-catalog");
     auto resnet =
-        jyppx::models::create_model("resnet18", {.resnet = {.num_classes = 4}});
-    auto mobile = jyppx::models::create_model("mobilenet_v3_small",
+        jyppx::liuding::models::create_model("resnet18", {.resnet = {.num_classes = 4}});
+    auto mobile = jyppx::liuding::models::create_model("mobilenet_v3_small",
                                               {.mobile = {.num_classes = 4}});
-    auto encoder = jyppx::models::create_model(
+    auto encoder = jyppx::liuding::models::create_model(
         "transformer_encoder", {.transformer = {.model_dimension = 16,
                                                 .attention_heads = 4,
                                                 .feedforward_dimension = 32,
@@ -43,10 +43,10 @@ int main() {
         {.positional = {torch::zeros({1, 3, 16})}, .keyword = {}});
     Require(encoded.value.toTensor().sizes() == torch::IntArrayRef({1, 3, 16}),
             "installed-transformer-adapter");
-    const auto weights = jyppx::models::available_weights("resnet18");
+    const auto weights = jyppx::liuding::models::available_weights("resnet18");
     Require(weights.size() == 1U &&
                 weights.front().availability ==
-                    jyppx::models::WeightAvailability::not_provisioned &&
+                    jyppx::liuding::models::WeightAvailability::not_provisioned &&
                 !weights.front().artifact.has_value(),
             "installed-weight-provenance-status");
     return 0;

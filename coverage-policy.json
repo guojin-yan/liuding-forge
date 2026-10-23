@@ -9,8 +9,8 @@
   "targets": {
     "core": {
       "path_prefixes": [
-        "include/jyppx/core/",
-        "src/jyppx/core/"
+        "include/jyppx/liuding/core/",
+        "src/jyppx/liuding/core/"
       ],
       "metrics": {
         "line": {
@@ -32,8 +32,8 @@
     },
     "data": {
       "path_prefixes": [
-        "include/jyppx/data/",
-        "src/jyppx/data/"
+        "include/jyppx/liuding/data/",
+        "src/jyppx/liuding/data/"
       ],
       "metrics": {
         "line": {
@@ -55,8 +55,8 @@
     },
     "experiment": {
       "path_prefixes": [
-        "include/jyppx/experiment/",
-        "src/jyppx/experiment/"
+        "include/jyppx/liuding/experiment/",
+        "src/jyppx/liuding/experiment/"
       ],
       "metrics": {
         "line": {
@@ -78,8 +78,8 @@
     },
     "foundation": {
       "path_prefixes": [
-        "include/jyppx/foundation/",
-        "src/jyppx/foundation/"
+        "include/jyppx/liuding/foundation/",
+        "src/jyppx/liuding/foundation/"
       ],
       "metrics": {
         "line": {
@@ -101,8 +101,8 @@
     },
     "interop": {
       "path_prefixes": [
-        "include/jyppx/interop/",
-        "src/jyppx/interop/"
+        "include/jyppx/liuding/interop/",
+        "src/jyppx/liuding/interop/"
       ],
       "metrics": {
         "line": {
@@ -124,8 +124,8 @@
     },
     "nn": {
       "path_prefixes": [
-        "include/jyppx/nn/",
-        "src/jyppx/nn/"
+        "include/jyppx/liuding/nn/",
+        "src/jyppx/liuding/nn/"
       ],
       "metrics": {
         "line": {
@@ -147,8 +147,8 @@
     },
     "optim": {
       "path_prefixes": [
-        "include/jyppx/optim/",
-        "src/jyppx/optim/"
+        "include/jyppx/liuding/optim/",
+        "src/jyppx/liuding/optim/"
       ],
       "metrics": {
         "line": {
@@ -170,8 +170,8 @@
     },
     "training": {
       "path_prefixes": [
-        "include/jyppx/training/",
-        "src/jyppx/training/"
+        "include/jyppx/liuding/training/",
+        "src/jyppx/liuding/training/"
       ],
       "metrics": {
         "line": {
@@ -193,8 +193,8 @@
     },
     "utils": {
       "path_prefixes": [
-        "include/jyppx/utils/",
-        "src/jyppx/utils/"
+        "include/jyppx/liuding/utils/",
+        "src/jyppx/liuding/utils/"
       ],
       "metrics": {
         "line": {
@@ -216,8 +216,8 @@
     },
     "models": {
       "path_prefixes": [
-        "include/jyppx/models/",
-        "src/jyppx/models/"
+        "include/jyppx/liuding/models/",
+        "src/jyppx/liuding/models/"
       ],
       "metrics": {
         "line": {
@@ -240,8 +240,8 @@
     },
     "quantization": {
       "path_prefixes": [
-        "include/jyppx/quantization/",
-        "src/jyppx/quantization/"
+        "include/jyppx/liuding/quantization/",
+        "src/jyppx/liuding/quantization/"
       ],
       "metrics": {
         "line": {
@@ -264,8 +264,8 @@
     },
     "serving": {
       "path_prefixes": [
-        "include/jyppx/serving/",
-        "src/jyppx/serving/"
+        "include/jyppx/liuding/serving/",
+        "src/jyppx/liuding/serving/"
       ],
       "metrics": {
         "line": {

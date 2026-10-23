@@ -85,7 +85,7 @@ def run_cpp_gate(executable: Path, output: Path) -> dict:
     subprocess.run([str(executable), "--gtest_list_tests"], check=True,
                    capture_output=True, text=True, timeout=30)
     environment = dict(os.environ)
-    environment["JYPPX_MODELS_REFERENCE_DIR"] = str(output)
+    environment["JYPPX_LIUDING_MODELS_REFERENCE_DIR"] = str(output)
     xml, log = output / "cpp-test.xml", output / "cpp-test.log"
     xml.unlink(missing_ok=True)
     log.unlink(missing_ok=True)

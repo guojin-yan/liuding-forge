@@ -10,7 +10,7 @@
 // Every timed repetition is emitted as an independent CSV row; aggregation,
 // stability checks, and regression decisions belong to baseline_stats.py.
 
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -123,7 +123,7 @@ class WorkerMetrics final {
 };
 
 /// Dataset that simulates a bounded preprocessing cost for every sample.
-class SlowDataset final : public jyppx::data::Dataset<jyppx::data::Example> {
+class SlowDataset final : public jyppx::liuding::data::Dataset<jyppx::liuding::data::Example> {
  public:
   /// Constructs a deterministic payload and calibrates the requested delay.
   ///
@@ -156,7 +156,7 @@ class SlowDataset final : public jyppx::data::Dataset<jyppx::data::Example> {
   }
 
   /// Returns one independently owned example after the calibrated work.
-  jyppx::data::Example get(std::size_t index) const override {
+  jyppx::liuding::data::Example get(std::size_t index) const override {
     const auto start = Clock::now();
     double sink = 0.0;
     for (int i = 0; i < sink_iterations_; ++i) {
@@ -291,7 +291,7 @@ std::optional<std::size_t> parse_worker_count(std::string_view text) {
 
 /// Measures one or more epochs for a fixed DataPipeline worker count.
 std::vector<BenchResult> bench_workers(
-    const std::shared_ptr<jyppx::data::Dataset<jyppx::data::Example>>& dataset,
+    const std::shared_ptr<jyppx::liuding::data::Dataset<jyppx::liuding::data::Example>>& dataset,
     int batches, int batch_size, std::size_t workers, int repeats,
     std::size_t prefetch_batches) {
   std::vector<BenchResult> results;
@@ -300,25 +300,25 @@ std::vector<BenchResult> bench_workers(
       static_cast<std::size_t>(batches) * static_cast<std::size_t>(batch_size);
   for (int repeat = 0; repeat < repeats; ++repeat) {
     auto worker_metrics = std::make_shared<WorkerMetrics>();
-    auto sampler = std::make_shared<jyppx::data::samplers::SequentialSampler>(
+    auto sampler = std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
         dataset->size());
-    jyppx::data::DataPipeline pipeline(
+    jyppx::liuding::data::DataPipeline pipeline(
         std::move(sampler),
-        jyppx::data::DataPipelineOptions{
+        jyppx::liuding::data::DataPipelineOptions{
             .pipeline_id = "benchmark.data_pipeline",
             .dataset_version = "benchmark.slow_dataset/v1",
             .dataset_size = dataset->size(),
-            .schema = jyppx::data::BatchSchema::any("benchmark.batch", 1),
+            .schema = jyppx::liuding::data::BatchSchema::any("benchmark.batch", 1),
             .batch_factory_id = "benchmark.slow_dataset.collate/v1",
             .batch_size = static_cast<std::size_t>(batch_size),
             .num_workers = workers,
             .prefetch_batches = prefetch_batches},
         [dataset, worker_metrics](std::span<const std::size_t> indices,
-                                  const jyppx::data::DataWorkerContext&,
+                                  const jyppx::liuding::data::DataWorkerContext&,
                                   std::stop_token) {
           WorkerMetrics::Scope measurement(*worker_metrics);
-          std::vector<jyppx::Tensor> data;
-          std::vector<jyppx::Tensor> targets;
+          std::vector<jyppx::liuding::Tensor> data;
+          std::vector<jyppx::liuding::Tensor> targets;
           data.reserve(indices.size());
           targets.reserve(indices.size());
           for (const auto index : indices) {

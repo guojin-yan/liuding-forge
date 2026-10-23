@@ -5,7 +5,7 @@
 
 #include "mnist_data.hpp"
 
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <torch/nn/init.h>
 
@@ -20,7 +20,7 @@
 
 namespace {
 
-using jyppx::Tensor;
+using jyppx::liuding::Tensor;
 
 /** @brief Small convolutional classifier used by the MNIST example. */
 class MnistCnn final : public torch::nn::Module {
@@ -71,30 +71,30 @@ void download_if_missing(const std::string& path, const std::string& url) {
 }
 
 /** @brief Creates one checkpointable tensor-backed MNIST pipeline. */
-std::shared_ptr<jyppx::data::DataPipeline> make_pipeline(
+std::shared_ptr<jyppx::liuding::data::DataPipeline> make_pipeline(
     const Tensor& images, const Tensor& labels, std::size_t batch_size,
     std::string pipeline_id, bool shuffle) {
   const auto size = static_cast<std::size_t>(images.size(0));
-  std::shared_ptr<jyppx::data::samplers::Sampler> sampler;
+  std::shared_ptr<jyppx::liuding::data::samplers::Sampler> sampler;
   if (shuffle) {
     sampler =
-        std::make_shared<jyppx::data::samplers::RandomSampler>(size, 2026);
+        std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(size, 2026);
   } else {
-    sampler = std::make_shared<jyppx::data::samplers::SequentialSampler>(size);
+    sampler = std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(size);
   }
-  return std::make_shared<jyppx::data::DataPipeline>(
+  return std::make_shared<jyppx::liuding::data::DataPipeline>(
       std::move(sampler),
-      jyppx::data::DataPipelineOptions{
+      jyppx::liuding::data::DataPipelineOptions{
           .pipeline_id = std::move(pipeline_id),
           .dataset_version = "mnist.idx/v1",
           .dataset_size = size,
-          .schema = jyppx::data::BatchSchema::any("mnist.batch", 1),
+          .schema = jyppx::liuding::data::BatchSchema::any("mnist.batch", 1),
           .batch_factory_id = "mnist.tensor-slice/v1",
           .batch_size = batch_size,
           .num_workers = shuffle ? 2U : 0U,
           .worker_seed = 2026},
       [images, labels](std::span<const std::size_t> indices,
-                       const jyppx::data::DataWorkerContext&, std::stop_token) {
+                       const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
         std::vector<std::int64_t> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {
@@ -131,20 +131,20 @@ int main(int argc, char** argv) {
     const auto test_raw =
         mnist_data::load_mnist_idx(data_dir + "/t10k-images-idx3-ubyte.gz",
                                    data_dir + "/t10k-labels-idx1-ubyte.gz");
-    const auto device = jyppx::get_default_device();
+    const auto device = jyppx::liuding::get_default_device();
     std::cout << "training on: " << device << '\n';
 
     auto holder = std::make_shared<MnistCnn>();
-    auto model = std::make_shared<jyppx::nn::ModelAdapter>(
-        jyppx::nn::adapt_tensor_module(holder));
-    std::vector<jyppx::optim::OptimizerParameterBinding> bindings;
+    auto model = std::make_shared<jyppx::liuding::nn::ModelAdapter>(
+        jyppx::liuding::nn::adapt_tensor_module(holder));
+    std::vector<jyppx::liuding::optim::OptimizerParameterBinding> bindings;
     for (const auto& item : model->state().named_parameters()) {
       bindings.push_back(
           {.parameter_id = item.key(), .parameter = item.value()});
     }
-    auto optimizer = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+    auto optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
         "optimizer.mnist",
-        std::vector<jyppx::optim::SgdParameterGroup>{
+        std::vector<jyppx::liuding::optim::SgdParameterGroup>{
             {.group_id = "main",
              .parameters = std::move(bindings),
              .options = {.learning_rate = 0.01, .momentum = 0.9}}});
@@ -152,16 +152,16 @@ int main(int argc, char** argv) {
                                "data.mnist.train", true);
     auto validation = make_pipeline(test_raw.images, test_raw.labels, 256,
                                     "data.mnist.validation", false);
-    const auto mapper = [device](const jyppx::data::BatchEnvelope& batch) {
-      return jyppx::nn::Invocation{
+    const auto mapper = [device](const jyppx::liuding::data::BatchEnvelope& batch) {
+      return jyppx::liuding::nn::Invocation{
           .positional = {
               batch.value.toTuple()->elements().at(0).toTensor().to(device)}};
     };
-    const auto target = [device](const jyppx::data::BatchEnvelope& batch)
+    const auto target = [device](const jyppx::liuding::data::BatchEnvelope& batch)
         -> std::optional<c10::IValue> {
       return batch.value.toTuple()->elements().at(1).toTensor().to(device);
     };
-    const auto step = [](const jyppx::training::StepInput& input) {
+    const auto step = [](const jyppx::liuding::training::StepInput& input) {
       const auto prediction =
           input.model.invoke(input.invocation).value.toTensor();
       const auto expected =
@@ -171,17 +171,17 @@ int main(int argc, char** argv) {
                                 .to(torch::kFloat32)
                                 .mean()
                                 .item<double>();
-      return jyppx::training::StepOutput{
+      return jyppx::liuding::training::StepOutput{
           .loss = torch::nn::functional::cross_entropy(prediction, expected),
           .metrics = {{input.context.phase ==
-                               jyppx::training::StepPhase::training
+                               jyppx::liuding::training::StepPhase::training
                            ? "training.accuracy"
                            : "validation.accuracy",
                        accuracy}},
           .sample_count = input.batch.sample_ids.size()};
     };
 
-    jyppx::training::Trainer trainer({.trainer_id = "trainer.mnist",
+    jyppx::liuding::training::Trainer trainer({.trainer_id = "trainer.mnist",
                                       .run_id = "run.mnist",
                                       .trace_id = "trace.mnist",
                                       .max_epochs = epochs});
@@ -189,7 +189,7 @@ int main(int argc, char** argv) {
         {.model = model,
          .optimizers = {{.optimizer = optimizer,
                          .checkpoint = std::make_shared<
-                             jyppx::optim::SgdOptimizerCheckpointParticipant>(
+                             jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
                              optimizer)}},
          .training_data = train,
          .training_batch_mapper = mapper,
@@ -199,13 +199,13 @@ int main(int argc, char** argv) {
          .validation_batch_mapper = mapper,
          .validation_target_mapper = target,
          .validation_step = step,
-         .strategy = std::make_shared<jyppx::training::SingleDeviceStrategy>(
-             jyppx::training::SingleDeviceStrategyOptions{
+         .strategy = std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>(
+             jyppx::liuding::training::SingleDeviceStrategyOptions{
                  .strategy_id = "strategy.mnist", .device = device}),
          .model_checkpoint =
-             std::make_shared<jyppx::nn::ModelCheckpointParticipant>(*model),
+             std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(*model),
          .rng_checkpoint =
-             std::make_shared<jyppx::core::RngCheckpointParticipant>()});
+             std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>()});
     const auto result = trainer.fit();
     std::cout << "training loss: "
               << result.training_metrics.at("training.loss") << '\n';

@@ -7,10 +7,10 @@
  * @brief Exercises current map pipeline geometry with a logical 10 GiB source.
  */
 
-#include <jyppx/core/tensor_utils.hpp>
-#include <jyppx/data/data_pipeline.hpp>
-#include <jyppx/data/dataset.hpp>
-#include <jyppx/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/core/tensor_utils.hpp>
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/dataset.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -26,10 +26,10 @@
 
 namespace {
 
-using jyppx::Tensor;
+using jyppx::liuding::Tensor;
 
 /** @brief Represents more than 10 GiB without allocating backing storage. */
-class VirtualLargeDataset final : public jyppx::data::Dataset<Tensor> {
+class VirtualLargeDataset final : public jyppx::liuding::data::Dataset<Tensor> {
  public:
   static constexpr std::size_t kRows = 2'000'000;  ///< Logical row count.
   static constexpr std::size_t kElementsPerRow =
@@ -61,25 +61,25 @@ class VirtualLargeDataset final : public jyppx::data::Dataset<Tensor> {
 };
 
 /** @brief Creates a current map pipeline over the logical dataset. */
-std::unique_ptr<jyppx::data::DataPipeline> make_pipeline(
+std::unique_ptr<jyppx::liuding::data::DataPipeline> make_pipeline(
     const std::shared_ptr<VirtualLargeDataset>& dataset, std::size_t workers,
     std::size_t prefetch_batches) {
-  return std::make_unique<jyppx::data::DataPipeline>(
-      std::make_shared<jyppx::data::samplers::SequentialSampler>(
+  return std::make_unique<jyppx::liuding::data::DataPipeline>(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
           dataset->size()),
-      jyppx::data::DataPipelineOptions{
+      jyppx::liuding::data::DataPipelineOptions{
           .pipeline_id = "data.integration.large",
           .dataset_version = "test.virtual_10gib/v1",
           .dataset_size = dataset->size(),
           .schema =
-              jyppx::data::BatchSchema::any("test.large_dataset.batch", 1),
+              jyppx::liuding::data::BatchSchema::any("test.large_dataset.batch", 1),
           .batch_factory_id = "test.large_dataset.stack/v1",
           .batch_size = workers == 0 ? 1024U : 256U,
           .num_workers = workers,
           .prefetch_batches = prefetch_batches,
           .persistent_workers = workers > 0},
       [dataset](std::span<const std::size_t> indices,
-                const jyppx::data::DataWorkerContext&, std::stop_token) {
+                const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
         std::vector<Tensor> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {
@@ -110,7 +110,7 @@ TEST(LargeDatasetTest, LogicalTenGiBDatasetHasStableBatchGeometry) {
   const auto second = pipeline->next();
   ASSERT_TRUE(second.has_value());
   EXPECT_EQ(second->value.toTensor()[0][0].item<int>(), 1024);
-  EXPECT_TRUE(jyppx::is_finite(second->value.toTensor()));
+  EXPECT_TRUE(jyppx::liuding::is_finite(second->value.toTensor()));
   EXPECT_EQ(dataset->calls(), 2048U);
 }
 
@@ -124,7 +124,7 @@ TEST(LargeDatasetTest, RepeatedPartialEpochsDoNotRetainBatches) {
       const auto value = pipeline->next();
       ASSERT_TRUE(value.has_value());
       ASSERT_EQ(value->value.toTensor().size(0), 256);
-      ASSERT_TRUE(jyppx::is_finite(value->value.toTensor()));
+      ASSERT_TRUE(jyppx::liuding::is_finite(value->value.toTensor()));
     }
   }
   pipeline->close();

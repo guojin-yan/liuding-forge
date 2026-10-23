@@ -7,7 +7,7 @@
 
 #include "cli.hpp"
 
-#include <jyppx/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -27,7 +27,7 @@
 #include <unistd.h>
 #endif
 
-namespace jyppx::cli::migration_files {
+namespace jyppx::liuding::cli::migration_files {
 inline constexpr std::size_t kInputBytes = 1024U * 1024U;
 
 inline std::filesystem::path path(std::string_view value) {
@@ -231,6 +231,6 @@ inline void publish(
   }
 }
 
-}  // namespace jyppx::cli::migration_files
+}  // namespace jyppx::liuding::cli::migration_files
 
 #endif  // JYPPX_TOOLS_MIGRATION_FILES_HPP

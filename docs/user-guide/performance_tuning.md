@@ -16,7 +16,7 @@ starvation; larger values consume memory and enlarge bounded replay work.
 If the desired effective batch does not fit device memory, use accumulation:
 
 ```cpp
-jyppx::training::TrainerOptions options;
+jyppx::liuding::training::TrainerOptions options;
 options.accumulate_steps = 4;
 options.gradient_clip_norm = 1.0;
 ```

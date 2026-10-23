@@ -1,6 +1,6 @@
 # API: Optimizers and Schedulers
 
-All types live in the `jyppx::optim` namespace.
+All types live in the `jyppx::liuding::optim` namespace.
 
 The migrated optimizer boundary includes independently exported
 [`SgdOptimizerAdapter`](sgd_adapter.md) and
@@ -27,11 +27,11 @@ have been removed. There is no legacy forwarding header or state conversion;
 all supported optimizers use the typed current contract below.
 
 ```cpp
-#include <jyppx/optim/adamw_adapter.hpp>
+#include <jyppx/liuding/optim/adamw_adapter.hpp>
 
-auto optimizer = std::make_shared<jyppx::optim::AdamWOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::AdamWOptimizerAdapter>(
     "optimizer.adamw",
-    std::vector<jyppx::optim::AdamWParameterGroup>{
+    std::vector<jyppx::liuding::optim::AdamWParameterGroup>{
         {.group_id = "decay",
          .parameters = decay_parameter_bindings,
          .options = {.learning_rate = 1e-3, .weight_decay = 1e-2}},
@@ -65,18 +65,18 @@ Notes:
 
 ## Learning-rate schedulers
 
-The migrated `jyppx::optim::LrScheduler` hierarchy depends only on
+The migrated `jyppx::liuding::optim::LrScheduler` hierarchy depends only on
 `OptimizerRateControl`. Its `step()` path previews and validates a complete
 state/rate transition before one atomic optimizer update. The generic
 `LrSchedulerCheckpointParticipant` persists a typed descriptor tree, complete
 counter tree and all current group rates.
 
 ```cpp
-#include <jyppx/optim/epoch_lr_scheduler.hpp>
+#include <jyppx/liuding/optim/epoch_lr_scheduler.hpp>
 
-auto scheduler = std::make_shared<jyppx::optim::ExponentialLrScheduler>(
+auto scheduler = std::make_shared<jyppx::liuding::optim::ExponentialLrScheduler>(
     delegated_sgd,
-    jyppx::optim::ExponentialLrSchedulerOptions{
+    jyppx::liuding::optim::ExponentialLrSchedulerOptions{
         .scheduler_id = "scheduler.epochs", .gamma = 0.95});
 scheduler->step();  // after one completed epoch
 ```
@@ -105,11 +105,11 @@ Momentum cycling is explicitly rejected until optimizer hyperparameters have
 an atomic control and participant contract.
 
 ```cpp
-#include <jyppx/optim/event_lr_scheduler.hpp>
+#include <jyppx/liuding/optim/event_lr_scheduler.hpp>
 
-auto plateau = std::make_shared<jyppx::optim::ReduceLrOnPlateauScheduler>(
+auto plateau = std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
     delegated_sgd,
-    jyppx::optim::ReduceLrOnPlateauSchedulerOptions{
+    jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
         .factor = 0.5,
         .patience = 2,
         .min_learning_rates = {1e-6}});

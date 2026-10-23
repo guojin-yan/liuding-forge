@@ -7,7 +7,7 @@
  * @brief Demonstrates the current explicit-epoch map-style data pipeline.
  */
 
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <cstdint>
 #include <iostream>
@@ -24,18 +24,18 @@ int main() {
   const auto targets =
       torch::arange(0, 10, torch::TensorOptions().dtype(torch::kFloat32));
   auto sampler =
-      std::make_shared<jyppx::data::samplers::RandomSampler>(10, /*seed=*/7);
-  jyppx::data::DataPipeline pipeline(
+      std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(10, /*seed=*/7);
+  jyppx::liuding::data::DataPipeline pipeline(
       std::move(sampler),
-      jyppx::data::DataPipelineOptions{
+      jyppx::liuding::data::DataPipelineOptions{
           .pipeline_id = "example.basic_data_pipeline",
           .dataset_version = "example.basic_data/v1",
           .dataset_size = 10,
-          .schema = jyppx::data::BatchSchema::any("example.basic.batch", 1),
+          .schema = jyppx::liuding::data::BatchSchema::any("example.basic.batch", 1),
           .batch_factory_id = "example.basic.tensor-pair/v1",
           .batch_size = 4},
       [data, targets](std::span<const std::size_t> indices,
-                      const jyppx::data::DataWorkerContext&, std::stop_token) {
+                      const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
         std::vector<std::int64_t> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {

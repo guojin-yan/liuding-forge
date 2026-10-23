@@ -1,6 +1,6 @@
 # API: Native Adadelta Adapter
 
-`#include <jyppx/optim/adadelta_adapter.hpp>`
+`#include <jyppx/liuding/optim/adadelta_adapter.hpp>`
 
 `AdadeltaOptimizerAdapter` provides current-only Adadelta updates through a
 JYPPX-owned tensor kernel. The supported LibTorch C++ candidates do not publish
@@ -15,9 +15,9 @@ non-negative. Coupled weight decay enters the gradient before the two running
 averages; `maximize` negates the objective gradient first.
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::AdadeltaOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::AdadeltaOptimizerAdapter>(
     "optimizer.adadelta",
-    std::vector<jyppx::optim::AdadeltaParameterGroup>{
+    std::vector<jyppx::liuding::optim::AdadeltaParameterGroup>{
         {.group_id = "main",
          .parameters = parameter_bindings,
          .options = {.learning_rate = 1.0,

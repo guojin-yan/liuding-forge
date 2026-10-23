@@ -5,15 +5,15 @@
 // This test-only executable exposes a supervisor fence around the real SQLite
 // sink. The Python driver kills it while emit() is still on the stack.
 
-#include <jyppx/experiment/run_store.hpp>
-#include <jyppx/experiment/run_telemetry_sink.hpp>
-#include <jyppx/experiment/telemetry_exporters.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/telemetry.hpp>
-#include <jyppx/training/checkpoint_coordinator.hpp>
-#include <jyppx/training/event_sink.hpp>
-#include <jyppx/training/file_checkpoint_store.hpp>
-#include <jyppx/training/telemetry_adapter.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/experiment/run_telemetry_sink.hpp>
+#include <jyppx/liuding/experiment/telemetry_exporters.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/telemetry.hpp>
+#include <jyppx/liuding/training/checkpoint_coordinator.hpp>
+#include <jyppx/liuding/training/event_sink.hpp>
+#include <jyppx/liuding/training/file_checkpoint_store.hpp>
+#include <jyppx/liuding/training/telemetry_adapter.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -38,8 +38,8 @@
 #endif
 
 namespace {
-namespace experiment = jyppx::experiment;
-namespace training = jyppx::training;
+namespace experiment = jyppx::liuding::experiment;
+namespace training = jyppx::liuding::training;
 using Json = nlohmann::json;
 
 constexpr auto kRunId = "run.process-recovery";
@@ -82,12 +82,12 @@ std::string hex(std::span<const std::byte> bytes) {
   return result;
 }
 
-Json observation(const jyppx::TelemetryEnvelope& envelope) {
-  const auto canonical = jyppx::encode_telemetry_envelope(envelope);
+Json observation(const jyppx::liuding::TelemetryEnvelope& envelope) {
+  const auto canonical = jyppx::liuding::encode_telemetry_envelope(envelope);
   return {{"canonical_hex", hex(canonical)},
           {"canonical_bytes", canonical.size()},
-          {"canonical_sha256", jyppx::sha256_hex(canonical)},
-          {"content_digest", jyppx::telemetry_content_digest(envelope).hex},
+          {"canonical_sha256", jyppx::liuding::sha256_hex(canonical)},
+          {"content_digest", jyppx::liuding::telemetry_content_digest(envelope).hex},
           {"envelope",
            Json::parse(experiment::telemetry_projection_json(envelope))}};
 }
@@ -104,7 +104,7 @@ Json checkpoint_evidence(const std::filesystem::path& path) {
   require(static_cast<bool>(input), "could not read complete saved checkpoint");
   return {{"path", utf8_path(path)},
           {"bytes", size},
-          {"sha256", jyppx::sha256_hex(bytes)}};
+          {"sha256", jyppx::liuding::sha256_hex(bytes)}};
 }
 
 Json outbox_state(const training::EventOutbox& outbox) {
@@ -129,12 +129,12 @@ Json store_state(const experiment::SQLiteRunStore& store) {
   auto stored_metrics = Json::array();
   for (const auto& metric : metrics.points) {
     // Reuse the production JSON projection for all indexed semantic fields.
-    jyppx::TelemetryEnvelope projected;
+    jyppx::liuding::TelemetryEnvelope projected;
     projected.identity = metric.event_identity;
     projected.time = metric.time;
     projected.correlation = metric.correlation;
     projected.attributes = metric.attributes;
-    projected.payload = jyppx::TelemetryMetricBatch{.points = {metric.point}};
+    projected.payload = jyppx::liuding::TelemetryMetricBatch{.points = {metric.point}};
     const auto json =
         Json::parse(experiment::telemetry_projection_json(projected));
     stored_metrics.push_back(
@@ -161,7 +161,7 @@ Json store_state(const experiment::SQLiteRunStore& store) {
           {"integrity_issues", integrity.issues}};
 }
 
-Json dispositions(const jyppx::TelemetryEmitResult& result) {
+Json dispositions(const jyppx::liuding::TelemetryEmitResult& result) {
   auto values = Json::array();
   for (const auto disposition : result.dispositions)
     values.push_back(static_cast<unsigned>(disposition));
@@ -170,19 +170,19 @@ Json dispositions(const jyppx::TelemetryEmitResult& result) {
 
 enum class Fence { none, before_acceptance, after_commit_before_ack };
 
-class ObservedSink final : public jyppx::TelemetrySink {
+class ObservedSink final : public jyppx::liuding::TelemetrySink {
  public:
   ObservedSink(std::shared_ptr<experiment::SQLiteRunTelemetrySink> sink,
                Fence fence)
       : sink_(std::move(sink)), fence_(fence) {}
 
-  const jyppx::TelemetrySinkDescriptor& descriptor() const noexcept override {
+  const jyppx::liuding::TelemetrySinkDescriptor& descriptor() const noexcept override {
     return sink_->descriptor();
   }
 
-  jyppx::TelemetryEmitResult emit(
-      std::span<const jyppx::TelemetryEnvelope> envelopes, std::stop_token stop,
-      jyppx::TelemetryDeadline deadline) override {
+  jyppx::liuding::TelemetryEmitResult emit(
+      std::span<const jyppx::liuding::TelemetryEnvelope> envelopes, std::stop_token stop,
+      jyppx::liuding::TelemetryDeadline deadline) override {
     require(envelopes.size() == 1U, "expected exactly one outbox observation");
     const auto captured = observation(envelopes.front());
     if (fence_ == Fence::before_acceptance) fence_callback(captured, {});
@@ -192,24 +192,24 @@ class ObservedSink final : public jyppx::TelemetrySink {
     if (fence_ == Fence::after_commit_before_ack) {
       require(result.dispositions.size() == 1U &&
                   result.dispositions.front() ==
-                      jyppx::TelemetryDisposition::accepted,
+                      jyppx::liuding::TelemetryDisposition::accepted,
               "ACK-loss fence requires a real newly committed acceptance");
       fence_callback(captured, result);
     }
     return result;
   }
 
-  jyppx::TelemetryFlushResult flush(
-      std::stop_token stop, jyppx::TelemetryDeadline deadline) override {
+  jyppx::liuding::TelemetryFlushResult flush(
+      std::stop_token stop, jyppx::liuding::TelemetryDeadline deadline) override {
     return sink_->flush(stop, deadline);
   }
 
-  jyppx::TelemetryFlushResult close(
-      std::stop_token stop, jyppx::TelemetryDeadline deadline) override {
+  jyppx::liuding::TelemetryFlushResult close(
+      std::stop_token stop, jyppx::liuding::TelemetryDeadline deadline) override {
     return sink_->close(stop, deadline);
   }
 
-  std::function<void(const Json&, const jyppx::TelemetryEmitResult&)>
+  std::function<void(const Json&, const jyppx::liuding::TelemetryEmitResult&)>
       fence_callback;
   Json emissions = Json::array();
 
@@ -239,9 +239,9 @@ training::TrainingTelemetryAdapterOptions adapter_options() {
   options.attempt_id = "attempt.original";
   options.metrics["validation.loss"] = {
       .definition = {.metric_id = kMetricId,
-                     .unit = jyppx::TelemetryMetricUnit::dimensionless,
-                     .aggregation = jyppx::TelemetryAggregation::mean,
-                     .direction = jyppx::TelemetryMetricDirection::minimize,
+                     .unit = jyppx::liuding::TelemetryMetricUnit::dimensionless,
+                     .aggregation = jyppx::liuding::TelemetryAggregation::mean,
+                     .direction = jyppx::liuding::TelemetryMetricDirection::minimize,
                      .context_keys = {"split"}},
       .context = {{"split", "validation"}}};
   return options;
@@ -319,7 +319,7 @@ int execute(std::string_view mode, const std::filesystem::path& root) {
                          : Fence::none;
   auto observed_sink = std::make_shared<ObservedSink>(real_sink, fence);
   auto outbox = std::make_shared<training::EventOutbox>(
-      std::vector<std::shared_ptr<jyppx::TelemetrySink>>{observed_sink},
+      std::vector<std::shared_ptr<jyppx::liuding::TelemetrySink>>{observed_sink},
       adapter_options());
   training::CheckpointParticipantRegistry registry;
   registry.register_participant(outbox);
@@ -329,7 +329,7 @@ int execute(std::string_view mode, const std::filesystem::path& root) {
     training::FileCheckpointStore checkpoint(pending_path);
     coordinator.save(checkpoint);
     observed_sink->fence_callback =
-        [&](const Json& captured, const jyppx::TelemetryEmitResult& receipt) {
+        [&](const Json& captured, const jyppx::liuding::TelemetryEmitResult& receipt) {
           result["phase"] = "ready-for-forced-kill";
           result["checkpoint"] = checkpoint_evidence(pending_path);
           result["outbox"] = outbox_state(*outbox);
@@ -355,7 +355,7 @@ int execute(std::string_view mode, const std::filesystem::path& root) {
                                                : root / "advanced.jyck";
   result["source_checkpoint"] = checkpoint_evidence(source_path);
   training::FileCheckpointStore source(source_path);
-  coordinator.restore(source, jyppx::RestorePolicy::exact_only);
+  coordinator.restore(source, jyppx::liuding::RestorePolicy::exact_only);
   result["restored"] = outbox_state(*outbox);
   if (mode == "recover") {
     require(outbox->pending_events() == 1U &&

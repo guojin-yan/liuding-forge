@@ -34,8 +34,8 @@ read-only Python SQLite connection checks canonical BLOBs, stream/cursor state,
 batch receipts/items, definitions, counts, integrity, and foreign keys. The
 original checkpoint hash must remain unchanged throughout.
 
-Build the executable with C++20 and link `jyppx::training`, `jyppx::experiment`,
-`jyppx::interop`, and `nlohmann_json::nlohmann_json` (or use `jyppx::sdk` plus the
+Build the executable with C++20 and link `jyppx::liuding::training`, `jyppx::liuding::experiment`,
+`jyppx::liuding::interop`, and `nlohmann_json::nlohmann_json` (or use `jyppx::liuding::sdk` plus the
 JSON target). Interop must be enabled for `FileCheckpointStore`. Apply the same
 instrumentation and LibTorch runtime dependencies as the other integration
 executables. Register the stdlib Python driver as a CTest entry using

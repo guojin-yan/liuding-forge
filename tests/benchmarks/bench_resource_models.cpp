@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 #include "resource_torch_support.hpp"
 
-#include <jyppx/models/registry.hpp>
+#include <jyppx/liuding/models/registry.hpp>
 
 #include <algorithm>
 #include <array>
@@ -11,7 +11,7 @@
 
 int main(int argc, char** argv) {
   try {
-    using namespace jyppx::benchmarks;
+    using namespace jyppx::liuding::benchmarks;
     const auto args = arguments(argc, argv);
     constexpr std::array<std::string_view, 5> names{
         "resnet18", "resnet50", "mobilenet_v3_small", "mobilenet_v3_large",
@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
                          steps);
     const auto device = configure_device(args, sample);
     torch::NoGradGuard guard;
-    jyppx::models::ModelOptions options;
+    jyppx::liuding::models::ModelOptions options;
     options.resnet.num_classes = 7;
     options.mobile.num_classes = 7;
     options.mobile.dropout = 0;
@@ -53,12 +53,12 @@ int main(int argc, char** argv) {
                            .dropout = 0,
                            .gelu = true,
                            .final_norm = true};
-    std::optional<jyppx::nn::ModelAdapter> model;
+    std::optional<jyppx::liuding::nn::ModelAdapter> model;
     auto& metrics = sample["metrics"];
     metrics["load_seconds"] =
         metric(device_seconds(device,
                               [&] {
-                                model.emplace(jyppx::models::create_model(
+                                model.emplace(jyppx::liuding::models::create_model(
                                     args.profile, options));
                                 model->state().eval();
                                 model->state().to(device);
@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
     metrics["throughput_items_per_second"] =
         metric(2 * steps / forward_time, "items/second", "higher");
     metrics["parameter_elements"] = metric(
-        jyppx::models::parameter_count(model->state().module()), "elements");
+        jyppx::liuding::models::parameter_count(model->state().module()), "elements");
     metrics["output_bytes"] = metric(output_elements * sizeof(float), "bytes");
     sample["execution"]["path"] =
         "ModelAdapter eval FP32; randomly initialized, no pretrained quality "

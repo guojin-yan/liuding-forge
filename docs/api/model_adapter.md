@@ -1,6 +1,6 @@
 # API: Model Adapter
 
-Header: `#include <jyppx/nn/model_adapter.hpp>`
+Header: `#include <jyppx/liuding/nn/model_adapter.hpp>`
 
 LibTorch modules do not share a virtual `forward()` signature. JYPPX therefore
 keeps model state and model invocation as separate contracts:
@@ -21,17 +21,17 @@ concrete implementation pointer or a LibTorch holder:
 ```cpp
 torch::nn::Linear linear(8, 3);
 
-jyppx::TensorSchema input;
+jyppx::liuding::TensorSchema input;
 input.dtype = torch::kFloat32;
 input.rank = 2;
 input.shape = std::vector<std::optional<std::int64_t>>{std::nullopt, 8};
 
-jyppx::TensorSchema output;
+jyppx::liuding::TensorSchema output;
 output.dtype = torch::kFloat32;
 output.rank = 2;
 output.shape = std::vector<std::optional<std::int64_t>>{std::nullopt, 3};
 
-auto adapter = jyppx::nn::adapt_tensor_holder(linear, input, output);
+auto adapter = jyppx::liuding::nn::adapt_tensor_holder(linear, input, output);
 auto result = adapter.invoke({.positional = {torch::ones({4, 8})}});
 torch::Tensor predictions = result.value.toTensor();
 ```
@@ -46,20 +46,20 @@ Use the typed `adapt_module` overload when the forward contract is not
 validated invocation:
 
 ```cpp
-jyppx::nn::InvocationSchema inputs;
+jyppx::liuding::nn::InvocationSchema inputs;
 inputs.positional = {
-    jyppx::ValueSchema::tensor({}, "left"),
-    jyppx::ValueSchema::tensor({}, "right"),
+    jyppx::liuding::ValueSchema::tensor({}, "left"),
+    jyppx::liuding::ValueSchema::tensor({}, "right"),
 };
 
-auto outputs = jyppx::ValueSchema::tuple({
-    jyppx::ValueSchema::tensor({}, "sum"),
-    jyppx::ValueSchema::tensor({}, "difference"),
+auto outputs = jyppx::liuding::ValueSchema::tuple({
+    jyppx::liuding::ValueSchema::tensor({}, "sum"),
+    jyppx::liuding::ValueSchema::tensor({}, "difference"),
 });
 
-auto adapter = jyppx::nn::adapt_module(
+auto adapter = jyppx::liuding::nn::adapt_module(
     model,
-    [](MyModule& module, const jyppx::nn::Invocation& call) {
+    [](MyModule& module, const jyppx::liuding::nn::Invocation& call) {
       auto left = call.positional[0].toTensor();
       auto right = call.positional[1].toTensor();
       return c10::IValue(c10::ivalue::Tuple::create(
@@ -74,10 +74,10 @@ protocols require separately versioned schemas and codecs.
 ## Validation and errors
 
 Malformed schemas, missing keywords, unexpected dictionary fields, and
-dtype/device/rank/shape mismatches raise `jyppx::InvalidArgument`. Inputs are
+dtype/device/rank/shape mismatches raise `jyppx::liuding::InvalidArgument`. Inputs are
 validated before user code runs. Results are validated before they leave the
 adapter. A `c10::Error` raised during forward execution is translated to
-`jyppx::BackendError` with the original exception retained as a nested cause.
+`jyppx::liuding::BackendError` with the original exception retained as a nested cause.
 
 The adapter does not add synchronization. Concurrent calls or state mutation
 are valid only when the concrete module and invoker explicitly support them.

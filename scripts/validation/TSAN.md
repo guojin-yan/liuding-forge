@@ -7,7 +7,7 @@ support, Git, `ldd`, and an official shared CPU LibTorch distribution. Set
 `JYPPX_TSAN_TORCH_DIR=<prefix>/share/cmake/Torch` explicitly.
 
 The incremental build directory is always `out/build/tsan-linux`. Build and test
-parallelism default to **2**; `JYPPX_BUILD_PARALLEL_LEVEL` overrides both. Serving
+parallelism default to **2**; `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` overrides both. Serving
 and all Core components are enabled explicitly. Models, quantization, tools,
 examples, benchmarks and fuzzers are disabled. Coverage, ASan and UBSan are
 incompatible with this lane. An existing cache with a different source,

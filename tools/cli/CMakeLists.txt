@@ -4,7 +4,7 @@ add_library(jyppx_cli_transport STATIC sidecar_process.cpp)
 set_target_properties(jyppx_cli_transport PROPERTIES
     OUTPUT_NAME liuding-forge-cli-transport)
 target_include_directories(jyppx_cli_transport PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(jyppx_cli_transport PUBLIC jyppx::experiment Threads::Threads)
+target_link_libraries(jyppx_cli_transport PUBLIC jyppx::liuding::experiment Threads::Threads)
 target_link_libraries(jyppx_cli_transport PRIVATE nlohmann_json::nlohmann_json)
 
 add_executable(jyppx_cli
@@ -20,17 +20,11 @@ add_executable(jyppx_cli
 )
 set_target_properties(jyppx_cli PROPERTIES OUTPUT_NAME liuding-forge)
 target_link_libraries(jyppx_cli PRIVATE
-    jyppx::sdk jyppx_cli_transport nlohmann_json::nlohmann_json Threads::Threads)
+    jyppx::liuding::sdk jyppx_cli_transport nlohmann_json::nlohmann_json Threads::Threads)
 jyppx_add_torch_runtime_dependency(jyppx_cli)
 install(TARGETS jyppx_cli RUNTIME DESTINATION bin)
 
-# Keep the historical command as an installed compatibility copy. It is the
-# same binary and therefore receives exactly the same runtime dependencies.
-install(PROGRAMS "$<TARGET_FILE:jyppx_cli>"
-        DESTINATION bin
-        RENAME "jyppx${CMAKE_EXECUTABLE_SUFFIX}")
-
-if(JYPPX_INSTALL_TELEMETRY_SIDECAR)
+if(JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR)
     install(FILES
         "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py"
         "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/requirements.lock"

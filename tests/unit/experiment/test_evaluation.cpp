@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/experiment/evaluation.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/experiment/evaluation.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <array>
 #include <chrono>
@@ -13,8 +13,8 @@
 #include <stop_token>
 
 namespace {
-using namespace jyppx;
-using namespace jyppx::experiment;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::experiment;
 
 ArtifactDigest digest(char value) { return {.hex = std::string(64U, value)}; }
 

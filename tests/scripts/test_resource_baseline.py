@@ -388,7 +388,7 @@ class ResourceMainTest(unittest.TestCase):
         source.mkdir()
         build.mkdir()
         (build / "CMakeCache.txt").write_text(
-            f"CMAKE_HOME_DIRECTORY:INTERNAL={source.resolve()}\nJYPPX_BUILD_BENCHMARKS:BOOL=ON\n", encoding="utf-8")
+            f"CMAKE_HOME_DIRECTORY:INTERNAL={source.resolve()}\nJYPPX_LIUDING_BUILD_BENCHMARKS:BOOL=ON\n", encoding="utf-8")
         binary = build / "fixture-binary"
         binary.write_bytes(b"fixture, never executed")
         reference = root / "reference.json"

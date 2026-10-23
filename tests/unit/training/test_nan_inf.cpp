@@ -3,9 +3,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/core/tensor_utils.hpp>
-#include <jyppx/optim/sgd_adapter.hpp>
-#include <jyppx/training/amp/grad_scaler.hpp>
+#include <jyppx/liuding/core/tensor_utils.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/training/amp/grad_scaler.hpp>
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -13,16 +13,16 @@
 
 namespace {
 
-using jyppx::Tensor;
-using jyppx::optim::SgdOptimizerAdapter;
-using jyppx::training::amp::GradScaler;
-using jyppx::training::amp::GradScalerOptions;
+using jyppx::liuding::Tensor;
+using jyppx::liuding::optim::SgdOptimizerAdapter;
+using jyppx::liuding::training::amp::GradScaler;
+using jyppx::liuding::training::amp::GradScalerOptions;
 
 std::shared_ptr<SgdOptimizerAdapter> make_optimizer(
     const Tensor& parameter, double learning_rate = 0.01) {
   return std::make_shared<SgdOptimizerAdapter>(
       "optimizer.nan_inf",
-      std::vector<jyppx::optim::SgdParameterGroup>{
+      std::vector<jyppx::liuding::optim::SgdParameterGroup>{
           {.group_id = "group.main",
            .parameters = {{.parameter_id = "parameter.main",
                            .parameter = parameter}},
@@ -31,7 +31,7 @@ std::shared_ptr<SgdOptimizerAdapter> make_optimizer(
 
 bool apply_scaler_step(
     GradScaler& scaler,
-    const std::shared_ptr<jyppx::optim::OptimizerAdapter>& optimizer) {
+    const std::shared_ptr<jyppx::liuding::optim::OptimizerAdapter>& optimizer) {
   scaler.unscale(optimizer);
   const bool applied = scaler.step_allowed(optimizer);
   if (applied) {
@@ -57,7 +57,7 @@ TEST(NaNInfTest, NaNGradientIsDetectedAndOptimizerStepIsSkipped) {
   scaler.update();
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
   EXPECT_TRUE(torch::equal(parameter, before));
-  EXPECT_FALSE(jyppx::is_finite(parameter.grad()));
+  EXPECT_FALSE(jyppx::liuding::is_finite(parameter.grad()));
 }
 
 TEST(NaNInfTest, InfGradientIsDetectedAndScaleBacksOff) {
@@ -88,7 +88,7 @@ TEST(NaNInfTest, FiniteGradientUpdatesParameterAndGrowsAfterInterval) {
   scaler.update();
   EXPECT_FALSE(scaler.found_inf());
   EXPECT_DOUBLE_EQ(scaler.get_scale(), 4.0);
-  EXPECT_TRUE(jyppx::is_finite(parameter));
+  EXPECT_TRUE(jyppx::liuding::is_finite(parameter));
   EXPECT_TRUE(
       torch::allclose(parameter, torch::full({2}, 0.5, parameter.options())));
 }

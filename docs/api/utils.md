@@ -2,10 +2,10 @@
 
 ## Device helpers
 
-`#include <jyppx/core/device.hpp>`
+`#include <jyppx/liuding/core/device.hpp>`
 
 ```cpp
-namespace jyppx {
+namespace jyppx::liuding {
 Device get_default_device();                 // cuda:0 when available, else cpu
 bool cuda_is_available();
 int cuda_device_count();
@@ -15,10 +15,10 @@ Device parse_device(const std::string& s);   // "cpu", "cuda", "cuda:1"
 
 ## Tensor utilities
 
-`#include <jyppx/core/tensor_utils.hpp>`
+`#include <jyppx/liuding/core/tensor_utils.hpp>`
 
 ```cpp
-namespace jyppx {
+namespace jyppx::liuding {
 bool has_nan(const Tensor& tensor);
 bool has_inf(const Tensor& tensor);
 bool is_finite(const Tensor& tensor);        // no NaN and no Inf
@@ -32,10 +32,10 @@ affect the originals).
 
 ## Core types
 
-`#include <jyppx/core/types.hpp>`
+`#include <jyppx/liuding/core/types.hpp>`
 
 ```cpp
-namespace jyppx {
+namespace jyppx::liuding {
 using Tensor = torch::Tensor;
 using TensorList = std::vector<Tensor>;
 using Device = torch::Device;
@@ -62,9 +62,9 @@ framework contract.
 
 ## Version
 
-`#include <jyppx/foundation/version.hpp>`
+`#include <jyppx/liuding/foundation/version.hpp>`
 
 ```cpp
-jyppx::version();          // "0.3.0"
-jyppx::version_major();    // 0 (plus version_minor(), version_patch())
+jyppx::liuding::version();          // "0.3.0"
+jyppx::liuding::version_major();    // 0 (plus version_minor(), version_patch())
 ```

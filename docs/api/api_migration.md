@@ -40,7 +40,7 @@ Files are visited in sorted path order, then fixed rule order and text order.
 Repeated matches for the same needle on the same line produce one finding.
 Findings do not contain source snippets or configuration values.
 
-The 28 rules cover the old `jyppx_training_framework` package, version/utilities,
+The 28 rules cover the old `jyppx_liuding_training_framework` package, version/utilities,
 data loader and queue, loss/init/quantization headers, distributed namespace
 and headers, optimizer headers/base/schedulers, and old training callback
 headers. Suggestions identify the owning public contract. Reserved
@@ -51,7 +51,7 @@ not an exhaustive symbol database.
 
 For example, an old `jyppx/optim/sgd.hpp` include points to the owning
 `jyppx/optim/sgd_adapter.hpp` contract and requires explicit optimizer-state
-review. The old general `jyppx::utils` namespace requires selecting the actual
+review. The old general `jyppx::liuding::utils` namespace requires selecting the actual
 foundation/data/training owner rather than a blanket namespace substitution.
 
 ## Scope and limits

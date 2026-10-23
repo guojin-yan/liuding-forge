@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/experiment/config.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/experiment/config.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <atomic>
 #include <cstdint>
@@ -20,9 +20,9 @@
 
 namespace {
 
-using jyppx::experiment::config::ConfigResolver;
-using jyppx::experiment::config::ConfigSchema;
-using jyppx::experiment::config::ConfigSourceKind;
+using jyppx::liuding::experiment::config::ConfigResolver;
+using jyppx::liuding::experiment::config::ConfigSchema;
+using jyppx::liuding::experiment::config::ConfigSourceKind;
 
 class TempJsonFile {
  public:
@@ -50,9 +50,9 @@ class TempJsonFile {
   std::filesystem::path path_;
 };
 
-jyppx::ValueSchema Scalar(jyppx::ValueKind kind, bool required = true,
+jyppx::liuding::ValueSchema Scalar(jyppx::liuding::ValueKind kind, bool required = true,
                           bool nullable = false) {
-  return jyppx::ValueSchema{
+  return jyppx::liuding::ValueSchema{
       .kind = kind, .required = required, .nullable = nullable};
 }
 
@@ -61,17 +61,17 @@ c10::impl::GenericDict Dictionary() {
 }
 
 ConfigSchema MakeSchema() {
-  auto trainer = jyppx::ValueSchema::dictionary(
-      {{"enabled", Scalar(jyppx::ValueKind::boolean)},
-       {"epochs", Scalar(jyppx::ValueKind::integer)},
-       {"learning_rate", Scalar(jyppx::ValueKind::floating)},
-       {"tags", jyppx::ValueSchema::list(Scalar(jyppx::ValueKind::string))}});
-  auto root = jyppx::ValueSchema::dictionary(
-      {{"credentials", jyppx::ValueSchema::dictionary(
-                           {{"token", Scalar(jyppx::ValueKind::string)}})},
-       {"model", jyppx::ValueSchema::dictionary(
-                     {{"name", Scalar(jyppx::ValueKind::string)}})},
-       {"note", Scalar(jyppx::ValueKind::string, false, true)},
+  auto trainer = jyppx::liuding::ValueSchema::dictionary(
+      {{"enabled", Scalar(jyppx::liuding::ValueKind::boolean)},
+       {"epochs", Scalar(jyppx::liuding::ValueKind::integer)},
+       {"learning_rate", Scalar(jyppx::liuding::ValueKind::floating)},
+       {"tags", jyppx::liuding::ValueSchema::list(Scalar(jyppx::liuding::ValueKind::string))}});
+  auto root = jyppx::liuding::ValueSchema::dictionary(
+      {{"credentials", jyppx::liuding::ValueSchema::dictionary(
+                           {{"token", Scalar(jyppx::liuding::ValueKind::string)}})},
+       {"model", jyppx::liuding::ValueSchema::dictionary(
+                     {{"name", Scalar(jyppx::liuding::ValueKind::string)}})},
+       {"note", Scalar(jyppx::liuding::ValueKind::string, false, true)},
        {"trainer", std::move(trainer)}});
 
   auto trainer_defaults = Dictionary();
@@ -164,15 +164,15 @@ TEST(ConfigTest, RejectsUnknownAndDuplicateJsonFields) {
   try {
     (void)unknown_resolver.resolve();
     FAIL() << "unknown field was accepted";
-  } catch (const jyppx::InvalidArgument& error) {
-    EXPECT_EQ(error.code(), jyppx::ErrorCode::invalid_argument);
+  } catch (const jyppx::liuding::InvalidArgument& error) {
+    EXPECT_EQ(error.code(), jyppx::liuding::ErrorCode::invalid_argument);
     EXPECT_NE(error.details().operation.find("epochz"), std::string::npos);
   }
 
   TempJsonFile duplicate(R"({"trainer":{"epochs":2,"epochs":3}})");
   ConfigResolver duplicate_resolver(MakeSchema());
   duplicate_resolver.add_json_file(duplicate.path());
-  EXPECT_THROW((void)duplicate_resolver.resolve(), jyppx::SerializationError);
+  EXPECT_THROW((void)duplicate_resolver.resolve(), jyppx::liuding::SerializationError);
 }
 
 TEST(ConfigTest, RejectsMissingRequiredFieldsAfterAllSources) {
@@ -181,13 +181,13 @@ TEST(ConfigTest, RejectsMissingRequiredFieldsAfterAllSources) {
   (void)defaults.erase("model");
   schema.defaults = defaults;
   ConfigResolver resolver(std::move(schema));
-  EXPECT_THROW((void)resolver.resolve(), jyppx::InvalidArgument);
+  EXPECT_THROW((void)resolver.resolve(), jyppx::liuding::InvalidArgument);
 }
 
 TEST(ConfigTest, RejectsSchemaDefaultsAndOpenObjectsOutsideContract) {
   auto open_schema = MakeSchema();
   open_schema.root.allow_extra_fields = true;
-  EXPECT_THROW(ConfigResolver(std::move(open_schema)), jyppx::InvalidArgument);
+  EXPECT_THROW(ConfigResolver(std::move(open_schema)), jyppx::liuding::InvalidArgument);
 
   auto wrong_default = MakeSchema();
   auto defaults = wrong_default.defaults.toGenericDict();
@@ -196,7 +196,7 @@ TEST(ConfigTest, RejectsSchemaDefaultsAndOpenObjectsOutsideContract) {
   defaults.insert_or_assign("trainer", trainer);
   wrong_default.defaults = defaults;
   EXPECT_THROW(ConfigResolver(std::move(wrong_default)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 
   auto secret_default = MakeSchema();
   auto secret_defaults = secret_default.defaults.toGenericDict();
@@ -205,7 +205,7 @@ TEST(ConfigTest, RejectsSchemaDefaultsAndOpenObjectsOutsideContract) {
   secret_defaults.insert_or_assign("credentials", credentials);
   secret_default.defaults = secret_defaults;
   EXPECT_THROW(ConfigResolver(std::move(secret_default)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(ConfigTest, ValidatesSecretReferencesAndRedactsEveryDisplaySurface) {
@@ -238,14 +238,14 @@ TEST(ConfigTest, ValidatesSecretReferencesAndRedactsEveryDisplaySurface) {
   try {
     (void)invalid.resolve();
     FAIL() << "plain-text secret was accepted";
-  } catch (const jyppx::InvalidArgument& error) {
+  } catch (const jyppx::liuding::InvalidArgument& error) {
     EXPECT_EQ(std::string(error.what()).find("plain-text-secret-must-not-leak"),
               std::string::npos);
     EXPECT_EQ(error.details().actual, "non-reference secret text");
   }
-  EXPECT_TRUE(jyppx::experiment::config::is_secret_reference(
+  EXPECT_TRUE(jyppx::liuding::experiment::config::is_secret_reference(
       "secret://env/training/token"));
-  EXPECT_FALSE(jyppx::experiment::config::is_secret_reference(
+  EXPECT_FALSE(jyppx::liuding::experiment::config::is_secret_reference(
       "secret://missing-segments"));
 }
 
@@ -298,58 +298,58 @@ TEST(ConfigTest, RejectsInvalidUtf8AndBoundedSources) {
                             static_cast<char>(0xC3) + "(\"}");
   ConfigResolver invalid_resolver(MakeSchema());
   invalid_resolver.add_json_file(invalid_utf8.path());
-  EXPECT_THROW((void)invalid_resolver.resolve(), jyppx::InvalidArgument);
+  EXPECT_THROW((void)invalid_resolver.resolve(), jyppx::liuding::InvalidArgument);
 
   TempJsonFile oversized(R"({"trainer":{"epochs":2}})");
-  auto limits = jyppx::experiment::config::ConfigLimits{};
+  auto limits = jyppx::liuding::experiment::config::ConfigLimits{};
   limits.max_file_bytes = 8;
   ConfigResolver size_resolver(MakeSchema(), limits);
   size_resolver.add_json_file(oversized.path());
-  EXPECT_THROW((void)size_resolver.resolve(), jyppx::ResourceExhausted);
+  EXPECT_THROW((void)size_resolver.resolve(), jyppx::liuding::ResourceExhausted);
 
   limits = {};
   limits.max_nodes = 2;
-  EXPECT_THROW(ConfigResolver(MakeSchema(), limits), jyppx::ResourceExhausted);
+  EXPECT_THROW(ConfigResolver(MakeSchema(), limits), jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ConfigTest, RejectsMalformedCliAndDuplicateEnvironmentSnapshots) {
   ConfigResolver resolver(MakeSchema());
   EXPECT_THROW(resolver.add_cli_override("/trainer/unknown", "1"),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   const std::vector<std::string_view> malformed{"--other", "x"};
-  EXPECT_THROW(resolver.add_cli(malformed), jyppx::InvalidArgument);
+  EXPECT_THROW(resolver.add_cli(malformed), jyppx::liuding::InvalidArgument);
   resolver.add_environment({});
-  EXPECT_THROW(resolver.add_environment({}), jyppx::InvalidArgument);
+  EXPECT_THROW(resolver.add_environment({}), jyppx::liuding::InvalidArgument);
 }
 
 TEST(ConfigTest, ExposesStructuredConfigCapabilityWithoutNewManifestTypes) {
   const auto descriptor =
-      jyppx::experiment::config::make_config_capability(MakeSchema());
+      jyppx::liuding::experiment::config::make_config_capability(MakeSchema());
   EXPECT_EQ(descriptor.feature_id, "experiment.config");
   EXPECT_EQ(descriptor.scope_id, "experiment.training");
-  EXPECT_EQ(descriptor.source, jyppx::CapabilitySource::configured_instance);
-  EXPECT_EQ(descriptor.status, jyppx::CapabilityStatus::experimental);
+  EXPECT_EQ(descriptor.source, jyppx::liuding::CapabilitySource::configured_instance);
+  EXPECT_EQ(descriptor.status, jyppx::liuding::CapabilityStatus::experimental);
   EXPECT_EQ(descriptor.backend, "nlohmann-json");
   EXPECT_NE(std::find(descriptor.operations.begin(),
                       descriptor.operations.end(), "explain"),
             descriptor.operations.end());
-  EXPECT_NO_THROW(jyppx::validate_capability_descriptor(descriptor));
+  EXPECT_NO_THROW(jyppx::liuding::validate_capability_descriptor(descriptor));
 }
 
 TEST(ConfigTest, CoversStableSourceKindNames) {
-  EXPECT_EQ(jyppx::experiment::config::config_source_kind_name(
+  EXPECT_EQ(jyppx::liuding::experiment::config::config_source_kind_name(
                 ConfigSourceKind::schema_default),
             "schema_default");
-  EXPECT_EQ(jyppx::experiment::config::config_source_kind_name(
+  EXPECT_EQ(jyppx::liuding::experiment::config::config_source_kind_name(
                 ConfigSourceKind::json_file),
             "json_file");
-  EXPECT_EQ(jyppx::experiment::config::config_source_kind_name(
+  EXPECT_EQ(jyppx::liuding::experiment::config::config_source_kind_name(
                 ConfigSourceKind::environment),
             "environment");
-  EXPECT_EQ(jyppx::experiment::config::config_source_kind_name(
+  EXPECT_EQ(jyppx::liuding::experiment::config::config_source_kind_name(
                 ConfigSourceKind::command_line),
             "command_line");
-  EXPECT_EQ(jyppx::experiment::config::config_source_kind_name(
+  EXPECT_EQ(jyppx::liuding::experiment::config::config_source_kind_name(
                 static_cast<ConfigSourceKind>(255)),
             "unknown");
 }

@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/nn/loss/dice_loss.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/nn/loss/dice_loss.hpp>
 
 #include <torch/cuda.h>
 
@@ -14,10 +14,10 @@
 
 namespace {
 
-namespace functional = jyppx::nn::functional;
-using jyppx::nn::DiceAverage;
-using jyppx::nn::DiceLossOptions;
-using jyppx::nn::DiceMode;
+namespace functional = jyppx::liuding::nn::functional;
+using jyppx::liuding::nn::DiceAverage;
+using jyppx::liuding::nn::DiceLossOptions;
+using jyppx::liuding::nn::DiceMode;
 
 TEST(DiceLossTest, BinaryModeComputesPerSampleStatisticsAndReductions) {
   const auto logits = torch::zeros({2, 2}, torch::kFloat64);
@@ -160,7 +160,7 @@ TEST(DiceLossTest, ModuleOwnsValidatedOptionsAndMatchesFunctionalForm) {
   options.include_background = false;
   options.include_empty_classes = false;
   options.reduction = "sum";
-  const jyppx::nn::DiceLoss criterion(options);
+  const jyppx::liuding::nn::DiceLoss criterion(options);
   const auto logits = torch::randn({2, 3, 4}, torch::kFloat64);
   const auto target = torch::randint(0, 2, {2, 3, 4}, torch::kLong);
 
@@ -184,73 +184,73 @@ TEST(DiceLossTest, RejectsInvalidConfiguration) {
 
   options.smooth = std::numeric_limits<double>::quiet_NaN();
   EXPECT_THROW(functional::dice_loss(logits, target, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   options.smooth = 1.0;
   options.epsilon = 0.0;
-  EXPECT_THROW(static_cast<void>(jyppx::nn::DiceLoss(options)),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(static_cast<void>(jyppx::liuding::nn::DiceLoss(options)),
+               jyppx::liuding::InvalidArgument);
   options.epsilon = 1e-7;
   options.reduction = "average";
   EXPECT_THROW(functional::dice_loss(logits, target, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   options.reduction = "mean";
   options.ignore_index = -1;
   EXPECT_THROW(functional::dice_loss(logits, target, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   options.ignore_index.reset();
   options.include_background = false;
   EXPECT_THROW(functional::dice_loss(logits, target, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   options.include_background = true;
   options.mode = static_cast<DiceMode>(99);
   EXPECT_THROW(functional::dice_loss(logits, target, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   options.mode = DiceMode::binary;
   options.average = static_cast<DiceAverage>(99);
   EXPECT_THROW(functional::dice_loss(logits, target, options),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(DiceLossTest, RejectsInvalidTensorContracts) {
   DiceLossOptions binary;
   binary.mode = DiceMode::binary;
-  EXPECT_THROW(functional::dice_loss(jyppx::Tensor(), jyppx::Tensor(), binary),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(functional::dice_loss(jyppx::liuding::Tensor(), jyppx::liuding::Tensor(), binary),
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::dice_loss(torch::zeros({2, 2}, torch::kLong),
                                      torch::zeros({2, 2}), binary),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::dice_loss(torch::zeros({2, 2}),
                                      torch::full({2, 2}, 2), binary),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       functional::dice_loss(torch::zeros({0, 2}), torch::zeros({0, 2}), binary),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 
   DiceLossOptions multiclass;
   multiclass.mode = DiceMode::multiclass;
   EXPECT_THROW(
       functional::dice_loss(torch::zeros({2, 3, 4}),
                             torch::zeros({2, 4}, torch::kFloat32), multiclass),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       functional::dice_loss(torch::zeros({2, 3, 4}),
                             torch::full({2, 4}, 3, torch::kLong), multiclass),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       functional::dice_loss(torch::zeros({2, 3, 4}),
                             torch::zeros({2, 5}, torch::kLong), multiclass),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   multiclass.include_background = false;
   EXPECT_THROW(
       functional::dice_loss(torch::zeros({2, 1, 4}),
                             torch::zeros({2, 4}, torch::kLong), multiclass),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 
   DiceLossOptions multilabel;
   multilabel.mode = DiceMode::multilabel;
   EXPECT_THROW(functional::dice_loss(torch::zeros({2, 3, 4}),
                                      torch::zeros({2, 3, 1}), multilabel),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(DiceLossCudaTest, MulticlassHalfMatchesCpuAndBackpropagates) {

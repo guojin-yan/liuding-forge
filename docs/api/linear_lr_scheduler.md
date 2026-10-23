@@ -1,6 +1,6 @@
 # Descriptor-first Linear-family Schedulers
 
-`#include <jyppx/optim/linear_lr_scheduler.hpp>`
+`#include <jyppx/liuding/optim/linear_lr_scheduler.hpp>`
 
 The linear family contains `LinearLrScheduler`, `WarmupLrScheduler`,
 `ConstantLrScheduler`, and `PolynomialLrScheduler`. They all use the

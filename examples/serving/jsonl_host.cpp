@@ -9,9 +9,9 @@
 #include <set>
 namespace {
 using Json = nlohmann::json;
-using namespace jyppx;
-using namespace jyppx::serving;
-namespace example = jyppx::examples::serving;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::serving;
+namespace example = jyppx::liuding::examples::serving;
 constexpr std::size_t kMaxLine = 4096;
 Json Parse(std::string_view text) {
   std::vector<std::set<std::string>> objects;

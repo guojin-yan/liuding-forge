@@ -4,30 +4,30 @@
 
 #include "cli.hpp"
 
-#include <jyppx/core/device.hpp>
-#include <jyppx/data/data_pipeline.hpp>
-#include <jyppx/data/samplers/random_sampler.hpp>
-#include <jyppx/experiment/evaluation.hpp>
-#include <jyppx/experiment/run_store.hpp>
-#include <jyppx/experiment/run_telemetry_sink.hpp>
-#include <jyppx/experiment/telemetry_exporters.hpp>
-#include <jyppx/foundation/random_checkpoint_participant.hpp>
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/version.hpp>
-#include <jyppx/interop/safetensors.hpp>
-#include <jyppx/nn/model_adapter.hpp>
-#include <jyppx/nn/model_checkpoint_participant.hpp>
-#include <jyppx/optim/sgd_adapter.hpp>
-#include <jyppx/optim/step_lr_scheduler.hpp>
-#include <jyppx/training/callback_dispatcher.hpp>
-#include <jyppx/training/callbacks/early_stopping_callback.hpp>
-#include <jyppx/training/event_sink.hpp>
-#include <jyppx/training/file_checkpoint_store.hpp>
-#include <jyppx/training/metrics/classification.hpp>
-#include <jyppx/training/scheduler_adapter.hpp>
-#include <jyppx/training/single_device_strategy.hpp>
-#include <jyppx/training/telemetry_adapter.hpp>
-#include <jyppx/training/trainer.hpp>
+#include <jyppx/liuding/core/device.hpp>
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/samplers/random_sampler.hpp>
+#include <jyppx/liuding/experiment/evaluation.hpp>
+#include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/experiment/run_telemetry_sink.hpp>
+#include <jyppx/liuding/experiment/telemetry_exporters.hpp>
+#include <jyppx/liuding/foundation/random_checkpoint_participant.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
+#include <jyppx/liuding/interop/safetensors.hpp>
+#include <jyppx/liuding/nn/model_adapter.hpp>
+#include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/optim/step_lr_scheduler.hpp>
+#include <jyppx/liuding/training/callback_dispatcher.hpp>
+#include <jyppx/liuding/training/callbacks/early_stopping_callback.hpp>
+#include <jyppx/liuding/training/event_sink.hpp>
+#include <jyppx/liuding/training/file_checkpoint_store.hpp>
+#include <jyppx/liuding/training/metrics/classification.hpp>
+#include <jyppx/liuding/training/scheduler_adapter.hpp>
+#include <jyppx/liuding/training/single_device_strategy.hpp>
+#include <jyppx/liuding/training/telemetry_adapter.hpp>
+#include <jyppx/liuding/training/trainer.hpp>
 
 #include <torch/cuda.h>
 #include <torch/nn/functional/loss.h>
@@ -51,7 +51,7 @@
 #include <utility>
 #include <vector>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 namespace {
 using namespace experiment;
 namespace tr = training;
@@ -997,4 +997,4 @@ Result offline_command(const Arguments& arguments) {
   }
 }
 
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli

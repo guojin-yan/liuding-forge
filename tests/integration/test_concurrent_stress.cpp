@@ -7,10 +7,10 @@
  * @brief Stress-tests current DataPipeline worker and epoch isolation.
  */
 
-#include <jyppx/data/data_pipeline.hpp>
-#include <jyppx/data/dataset.hpp>
-#include <jyppx/data/samplers/random_sampler.hpp>
-#include <jyppx/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/dataset.hpp>
+#include <jyppx/liuding/data/samplers/random_sampler.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -27,10 +27,10 @@
 
 namespace {
 
-using jyppx::Tensor;
+using jyppx::liuding::Tensor;
 
 /** @brief Deterministic row source that records every materialization. */
-class CountingDataset final : public jyppx::data::Dataset<Tensor> {
+class CountingDataset final : public jyppx::liuding::data::Dataset<Tensor> {
  public:
   /** @brief Creates a source exposing indices in `[0, count)`. */
   explicit CountingDataset(std::size_t count) : count_(count) {}
@@ -53,24 +53,24 @@ class CountingDataset final : public jyppx::data::Dataset<Tensor> {
 };
 
 /** @brief Creates a worker-backed map pipeline over a counting dataset. */
-std::unique_ptr<jyppx::data::DataPipeline> make_pipeline(
+std::unique_ptr<jyppx::liuding::data::DataPipeline> make_pipeline(
     const std::shared_ptr<CountingDataset>& dataset, std::string pipeline_id,
     std::size_t batch_size, std::size_t workers, bool shuffle = false) {
-  std::shared_ptr<jyppx::data::samplers::Sampler> sampler;
+  std::shared_ptr<jyppx::liuding::data::samplers::Sampler> sampler;
   if (shuffle) {
-    sampler = std::make_shared<jyppx::data::samplers::RandomSampler>(
+    sampler = std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(
         dataset->size(), /*seed=*/17);
   } else {
-    sampler = std::make_shared<jyppx::data::samplers::SequentialSampler>(
+    sampler = std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
         dataset->size());
   }
-  return std::make_unique<jyppx::data::DataPipeline>(
+  return std::make_unique<jyppx::liuding::data::DataPipeline>(
       std::move(sampler),
-      jyppx::data::DataPipelineOptions{
+      jyppx::liuding::data::DataPipelineOptions{
           .pipeline_id = std::move(pipeline_id),
           .dataset_version = "test.counting_dataset/v1",
           .dataset_size = dataset->size(),
-          .schema = jyppx::data::BatchSchema::any("test.concurrent.batch", 1),
+          .schema = jyppx::liuding::data::BatchSchema::any("test.concurrent.batch", 1),
           .batch_factory_id = "test.counting_dataset.stack/v1",
           .batch_size = batch_size,
           .num_workers = workers,
@@ -78,7 +78,7 @@ std::unique_ptr<jyppx::data::DataPipeline> make_pipeline(
           .persistent_workers = workers > 0,
           .worker_seed = 17},
       [dataset](std::span<const std::size_t> indices,
-                const jyppx::data::DataWorkerContext&, std::stop_token) {
+                const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
         std::vector<Tensor> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {

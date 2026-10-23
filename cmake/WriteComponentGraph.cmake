@@ -6,19 +6,19 @@
 # Installation and dependency validation must use the same public surface.
 function(jyppx_public_headers header_root output_variable)
     file(GLOB_RECURSE public_headers CONFIGURE_DEPENDS
-        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.h"
-        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.hh"
-        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.hpp"
-        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.hxx"
-        "${PROJECT_SOURCE_DIR}/include/jyppx/${header_root}/*.inc")
-    if(header_root STREQUAL "interop" AND NOT JYPPX_BUILD_NN)
+        "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/${header_root}/*.h"
+        "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/${header_root}/*.hh"
+        "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/${header_root}/*.hpp"
+        "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/${header_root}/*.hxx"
+        "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/${header_root}/*.inc")
+    if(header_root STREQUAL "interop" AND NOT JYPPX_LIUDING_BUILD_NN)
         list(REMOVE_ITEM public_headers
-            "${PROJECT_SOURCE_DIR}/include/jyppx/interop/model_weight_import.hpp"
-            "${PROJECT_SOURCE_DIR}/include/jyppx/interop/torchscript_compatibility.hpp")
+            "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/interop/model_weight_import.hpp"
+            "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/interop/torchscript_compatibility.hpp")
     endif()
-    if(header_root STREQUAL "training" AND NOT JYPPX_BUILD_INTEROP)
+    if(header_root STREQUAL "training" AND NOT JYPPX_LIUDING_BUILD_INTEROP)
         list(REMOVE_ITEM public_headers
-            "${PROJECT_SOURCE_DIR}/include/jyppx/training/file_checkpoint_store.hpp")
+            "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/training/file_checkpoint_store.hpp")
     endif()
     set(${output_variable} "${public_headers}" PARENT_SCOPE)
 endfunction()
@@ -42,7 +42,7 @@ function(jyppx_write_component_graph output_path)
 
     file(WRITE "${output_path}" "component\tkind\tdependency\n")
     foreach(component IN LISTS components)
-        set(target_name "jyppx_${component}")
+        set(target_name "jyppx_liuding_${component}")
         if(TARGET "${target_name}")
             file(APPEND "${output_path}" "${component}\tpresent\t\n")
         else()
@@ -73,7 +73,7 @@ function(jyppx_write_component_graph output_path)
                 file(RELATIVE_PATH source_relative "${PROJECT_SOURCE_DIR}"
                     "${source_absolute}")
                 file(TO_CMAKE_PATH "${source_relative}" source_relative)
-                if(source_relative MATCHES "^src/jyppx/")
+                if(source_relative MATCHES "^src/jyppx/liuding/")
                     file(APPEND "${output_path}"
                         "${component}\tsource\t${source_relative}\n")
                 endif()
@@ -94,7 +94,7 @@ function(jyppx_write_component_graph output_path)
                 foreach(provider IN LISTS components aggregate_targets)
                     set(has_provider FALSE)
                     foreach(provider_spelling IN ITEMS
-                            "jyppx_${provider}" "jyppx::${provider}")
+                            "jyppx_liuding_${provider}" "jyppx::liuding::${provider}")
                         # Match complete tokens: data_image is not a data edge.
                         if(graph_entry MATCHES "(^|[^A-Za-z0-9_])${provider_spelling}([^A-Za-z0-9_]|$)")
                             set(has_provider TRUE)
@@ -111,7 +111,7 @@ function(jyppx_write_component_graph output_path)
 
     get_property(directory_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
     foreach(directory_target IN LISTS directory_targets)
-        if(directory_target MATCHES "^jyppx_(.+)$")
+        if(directory_target MATCHES "^jyppx_liuding_(.+)$")
             set(component_name "${CMAKE_MATCH_1}")
             if(NOT component_name IN_LIST components AND
                NOT component_name IN_LIST aggregate_targets)

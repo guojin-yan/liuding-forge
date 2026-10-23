@@ -5,7 +5,7 @@
 #include "fuzz_support.hpp"
 #include "telemetry_seed.hpp"
 
-#include <jyppx/experiment/evaluation.hpp>
+#include <jyppx/liuding/experiment/evaluation.hpp>
 
 #include <array>
 #include <cstddef>
@@ -15,8 +15,8 @@
 #include <vector>
 
 namespace {
-namespace ex = jyppx::experiment;
-namespace fuzz = jyppx::fuzz;
+namespace ex = jyppx::liuding::experiment;
+namespace fuzz = jyppx::liuding::fuzz;
 
 ex::EvaluationLimits limits() {
   return {.max_rules = 32U,

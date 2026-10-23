@@ -20,10 +20,10 @@ def main() -> int:
     try:
         sidecar.check_dependencies("tensorboard")
         sidecar.check_dependencies("opentelemetry")
-        collector = Path(os.environ["JYPPX_TEST_OTELCOL"]).resolve(strict=True)
+        collector = Path(os.environ["JYPPX_LIUDING_TEST_OTELCOL"]).resolve(strict=True)
         if not collector.is_file():
             raise ValueError("collector configuration")
-        cli = Path(os.environ["JYPPX_TEST_CLI"]).resolve(strict=True)
+        cli = Path(os.environ["JYPPX_LIUDING_TEST_CLI"]).resolve(strict=True)
         if not cli.is_file():
             raise ValueError("product CLI configuration")
         metadata = sidecar.strict_json((SIDECAR_ROOT / "dependency-metadata.json").read_bytes(),

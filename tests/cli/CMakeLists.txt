@@ -13,7 +13,7 @@ foreach(contract IN ITEMS model_checkpoint model_bundle evaluation_data offline_
     set_tests_properties(Cli_${contract} PROPERTIES LABELS "cli;integration" TIMEOUT 180)
 endforeach()
 
-if(JYPPX_TEST_CLI_CUDA)
+if(JYPPX_LIUDING_TEST_CLI_CUDA)
     foreach(contract IN ITEMS model_checkpoint offline_workflow)
         add_test(NAME Cli_${contract}_CUDA
             COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_${contract}.py"

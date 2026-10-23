@@ -370,7 +370,7 @@ class TensorBoardBackend:
                                    "series": series, "step_domain": "telemetry.sequence",
                                    "encoding": "complete-envelope-json",
                                    "missing_metric_projection": "text-only; no scalar value exists"})
-            summary = self._text_summary(f"jyppx/lifecycle/{suffix}", compact(value),
+            summary = self._text_summary(f"jyppx/liuding/lifecycle/{suffix}", compact(value),
                                          description=description)
             result.append(self._event.Event(wall_time=wall / 1_000_000_000,
                                             step=value["identity"]["sequence"], summary=summary))
@@ -388,7 +388,7 @@ class TensorBoardBackend:
                       "step_kind": point["step"]["kind"],
                       "resource_id": payload.get("resource_id", "")}
             suffix = hashlib.sha256(compact(series).encode("utf-8")).hexdigest()
-            tag = f"jyppx/scalar/{suffix}"
+            tag = f"jyppx/liuding/scalar/{suffix}"
             description = compact({"series": series,
                                    "wall_time_unix_ns": wall,
                                    "original_metric_id": definition["metric_id"]})
@@ -481,7 +481,7 @@ class OtlpHttpBackend:
                 "jyppx.wall_time_unix_ns": str(value["time"]["wall_time_unix_ns"])}
 
     def _resource(self, resource: Any, value: dict[str, Any], correlation: bool = True) -> None:
-        attributes = {"service.name": "jyppx-training-framework",
+        attributes = {"service.name": "liuding-forge",
                       "service.instance.id": self._resource_instance_id}
         if correlation:
             attributes.update({"jyppx.project_id": value["correlation"]["project_id"],

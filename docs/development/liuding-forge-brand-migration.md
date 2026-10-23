@@ -4,9 +4,10 @@
 
 ## 1. 执行摘要
 
-项目对外展示为 **六丁炼算（Liuding Forge）**，生成物和推荐 CLI 使用
-`liuding-forge`。历史名称 **JYPPX Training Framework** 继续用于兼容说明、
-技术身份和原有版权署名。C++ API、ABI、目录、CMake 消费方式及模型协议保持不变。
+项目对外展示为 **六丁炼算（Liuding Forge）**，生成物和 CLI 使用
+`liuding-forge`。**JYPPX** 是总品牌，**JYPPX Training Framework** 是内部项目别名。
+本次未发布前迁移同步更新 C++ 根命名空间、公共头目录和导出 target：公共 API 使用
+`jyppx::liuding`、`<jyppx/liuding/...>` 和 `jyppx::liuding::<component>`；旧表面不提供兼容转发。
 
 本次在已有品牌迁移改动上续作，补齐嵌套安装消费工程的生成器传递、Unix
 兼容 CLI 执行权限、跨平台库文件匹配、benchmark 库清单和安装命令回归验证。
@@ -16,7 +17,7 @@
 | 项目 | 接手时状态 |
 | --- | --- |
 | 实际仓库根目录 | `F:/GitSpace/jyppx-training-framework/jyppx-training-framework` |
-| 分支 | `improvement/DEV-001-extreme-condition-tests` |
+| 分支 | `main`（当前主线；接手历史中的主题分支仅作记录） |
 | HEAD | `de2f3160a5bc4bf5a234a78361b0ec3b01bc9383` |
 | 与上游关系 | 接手时已 ahead 51；本次不产生提交 |
 | 已修改文件 | 42 个；完整保留并在其当前内容上增量修改 |
@@ -37,14 +38,14 @@ stash，也未删除来源不明的文件。
 
 | 类别 | 代表位置与标识 | 处理 |
 | --- | --- | --- |
-| C++ 命名空间、目录 | `namespace jyppx`、`include/jyppx`、`src/jyppx`、`<jyppx/...>` | 保留 |
-| CMake project、option、macro、target | `project(jyppx VERSION 0.3.0)`、`JYPPX_*`、`jyppx_training`、`jyppx::training` | 保留技术标识，仅更新展示文案和 `OUTPUT_NAME` |
+| C++ 命名空间、目录 | `namespace jyppx::liuding`、`include/jyppx/liuding`、`src/jyppx/liuding`、`<jyppx/liuding/...>` | 当前公共表面 |
+| CMake project、option、macro、target | `project(jyppx VERSION 0.3.0)`、`JYPPX_*`、`jyppx_liuding_training`、`jyppx::liuding::training` | 保留技术标识，仅更新展示文案和 `OUTPUT_NAME` |
 | 安装及导出包 | `jyppxConfig.cmake`、`jyppxTargets.cmake`、`lib/cmake/jyppx`、`share/doc/jyppx` | 保留 |
 | 库和可执行文件 | 实体库、CLI、example、benchmark、fuzzer 的输出名 | 使用 `liuding-forge-*` |
-| CLI 命令 | 逻辑 target `jyppx_cli`，原命令 `jyppx` | 推荐 `liuding-forge`，安装时保留旧入口 |
+| CLI 命令 | 逻辑 target `jyppx_cli`，输出 `liuding-forge` | 只保留新命令；旧 `jyppx` CLI 不再安装 |
 | JSON、checkpoint、bundle、telemetry | `jyppx_version`、`jyppx.model_bundle`、`jyppx.*`、`application/vnd.jyppx.*` | 保留已有字段、取值和 schema |
 | README、docs、examples、CI | 首页标题、帮助示例、执行文件路径、发布说明 | 更新对外品牌及实际输出路径 |
-| 测试断言及 fixture | checkpoint 元数据、fuzz corpus、CLI 合同、安装消费工程 | 保留协议 fixture，增加品牌和旧入口回归断言 |
+| 测试断言及 fixture | checkpoint 元数据、fuzz corpus、CLI 合同、安装消费工程 | 保留协议 fixture，增加品牌和旧表面拒绝断言 |
 | 第三方许可及外部名称 | LibTorch、GoogleTest、nlohmann-json、SQLite、stb、tinyxml2、yaml-cpp | 不改名、不改许可正文 |
 
 扫描按目录分布：根目录 650、`.github` 19、`cmake` 508、`docs` 390、
@@ -108,7 +109,7 @@ docs/development/liuding-forge-brand-migration.md
 
 主要改动涉及根 CMake、CLI、安装消费脚本、example/benchmark/fuzzer 输出配置、
 发布工具、README、docs、benchmark CI 和对应验收测试。
-`include/jyppx`、`src/jyppx`、`compatibility.json`、`component-dependencies.json`、
+`include/jyppx/liuding`、`src/jyppx/liuding`、`compatibility.json`、`component-dependencies.json`、
 `dependency-manifest.json` 以及协议 fixture 均未因本次品牌调整改变。
 
 ## 5. 旧名称到新名称映射
@@ -118,11 +119,11 @@ docs/development/liuding-forge-brand-migration.md
 | JYPPX Training Framework 对外主标题 | 六丁炼算（Liuding Forge） |
 | `project(jyppx)` | 保持 |
 | 原 GitHub 仓库 `guojin-yan/jyppx-training-framework` | `guojin-yan/liuding-forge`；仅更新仓库展示与克隆入口 |
-| `namespace jyppx`、`include/jyppx`、`src/jyppx` | 保持 |
-| `jyppx_<component>`、`jyppx::<component>` | 保持 |
-| `libjyppx_training.a` | `libliuding-forge-training.a` |
-| `jyppx_training.lib` | `liuding-forge-training.lib` |
-| 原 CLI `jyppx` | 推荐 `liuding-forge`，安装时同时提供 `jyppx` |
+| `namespace jyppx::liuding`、`include/jyppx/liuding`、`src/jyppx/liuding` | 新公共表面 |
+| `jyppx_<component>`、`jyppx::liuding::<component>` | 保持 |
+| `libjyppx_liuding_training.a` | `libliuding-forge-training.a` |
+| `jyppx_liuding_training.lib` | `liuding-forge-training.lib` |
+| 原 CLI `jyppx` | 删除；唯一公开命令为 `liuding-forge` |
 | `jyppx_bench_*` 逻辑 target | 保持；文件输出为 `liuding-forge-bench-*` |
 | example 逻辑 target | 保持；文件输出为 `liuding-forge-example-*` |
 | `jyppx_fuzz_*` 逻辑 target | 保持；文件输出为 `liuding-forge-fuzz-*` |
@@ -134,29 +135,29 @@ docs/development/liuding-forge-brand-migration.md
 
 README 与 docs 首页使用中文完整品牌；CMake 配置摘要、Doxygen、CPack、CLI
 帮助/版本结果和发布文档使用中英文品牌。CLI 版本 JSON 增量提供
-`display_name`、`display_name_en`、`brand`、`artifact_prefix`、`legacy_name`；
+`display_name`、`display_name_en`、`brand`、`artifact_prefix`、`project_alias`；
 保留原有 `version` 和 `build`。SBOM 在已有 `jyppx` 技术身份之外添加品牌
 properties。未将其他神话品牌引入命名空间、包名、target、CLI 或协议。
 
 ## 7. 保留的技术兼容接口
 
-所有公共命名空间、头文件、源码根、include guard、宏、CMake 选项、逻辑 target、
-`EXPORT_NAME` 和 `jyppx::` 导出名保持不变。继续支持：
+公共包入口、`find_package(jyppx)`、`JYPPX_*` 品牌宏和协议字段继续保留；公共命名空间、
+头文件路径、源码根和导出 target 已切换到 ADR-027 的新表面：
 
 ```cmake
 find_package(jyppx CONFIG REQUIRED COMPONENTS training)
-target_link_libraries(app PRIVATE jyppx::training)
+target_link_libraries(app PRIVATE jyppx::liuding::training)
 ```
 
-不增加新的 `find_package(liuding-forge)` 或 `liuding-forge::` 命名空间。
+不增加新的 `find_package(liuding-forge)` 或 `liuding-forge::` 命名空间；产品名只用于展示和产物。
 新库文件名由现有导出 target 自动传递；手写原始库文件名或 `-ljyppx_*` 的脚本
 需要改用新文件名，或改为通过现有 CMake target 消费。
 
 ## 8. 历史名称保留位置
 
-README、docs 首页、CMake 配置摘要、CLI `legacy_name`、Doxygen 副标题和
+README、docs 首页、CMake 配置摘要、CLI `project_alias`、Doxygen 副标题和
 CHANGELOG 明确保留 JYPPX Training Framework。原有版权署名、NOTICE、历史
-发布记录、技术协议及兼容性说明中的历史名称继续保留。
+发布记录、技术协议及兼容性说明中的历史名称继续保留；它们不构成旧 API 入口。
 
 ## 9. 库文件名称
 
@@ -173,7 +174,7 @@ STATIC；不改变库类型、CRT、Debug/Release 后缀、前后缀或 LibTorch
 
 ## 10. 可执行文件名称
 
-推荐 CLI 为 `liuding-forge`；兼容命令为安装后的 `jyppx`。
+唯一公开 CLI 为 `liuding-forge`；不安装兼容命令 `jyppx`。
 示例为 `liuding-forge-example-{basic-data-pipeline,basic-trainer,mnist,distillation,serving-jsonl}`。
 所有 benchmark 与 fuzzer 的逻辑 target 保持不变，实际文件把旧前缀及下划线
 转换为 `liuding-forge-bench-*` / `liuding-forge-fuzz-*`。Windows 自动附加 `.exe`。
@@ -191,7 +192,7 @@ NSIS 展示名；默认二进制归档名为 `liuding-forge-0.3.0-win64`，源�
 原有 release、provenance、SBOM 字段和技术身份继续保留。
 
 本地 CPack ZIP `out/lf-pack/liuding-forge-0.3.0-win64.zip` 已生成并校验 CRC、
-12 个新名称组件库、115 个公共/生成头文件、14 个原有 `jyppx::` 导出目标、
+12 个新名称组件库、115 个公共/生成头文件、14 个原有 `jyppx::liuding::` 导出目标、
 旧包配置、法律声明及双 CLI。两个 CLI 文件内容相同。该 ZIP 的 SHA-256 为
 `5e1e531f6880cec1d8753ed6aa65457861652dd54bb4442ff0f4de8296bf2bcb`。
 
@@ -201,11 +202,9 @@ NSIS 展示名；默认二进制归档名为 `liuding-forge-0.3.0-win64`，源�
 
 ## 12. CLI 处理
 
-逻辑 target `jyppx_cli` 输出新品牌命令。旧命令从同一二进制以
-`install(PROGRAMS ... RENAME jyppx)` 安装，保证 Unix 执行权限；两个入口使用
-相同运行时依赖。安装验收实际执行两个入口的 `--version`、`--help` 和
-`doctor --device cpu`，并核对品牌字段、旧版本字段与 schema-1 envelope。
-旧命令承诺适用于安装目录，构建目录提供推荐的新命令。
+逻辑 target `jyppx_cli` 输出新品牌命令。旧命令不再安装，测试验证其缺失以
+安装验收执行唯一入口 `liuding-forge` 的 `--version`、`--help` 和
+`doctor --device cpu`，并核对品牌字段、内部别名和 schema-1 envelope。
 
 ## 13. 文档、示例和 CI
 
@@ -213,8 +212,8 @@ README、docs 首页、CLI/部署/迁移/离线工作流/性能文档、CONTRIBU
 tools 和 serving 示例说明、CHANGELOG、发布说明改用新品牌。
 GitHub clone URL 已同步为 `https://github.com/guojin-yan/liuding-forge`，新克隆目录
 推荐为 `liuding-forge`。本地当前 checkout 路径仍是用户指定的
-`F:/GitSpace/jyppx-training-framework/jyppx-training-framework`，不会改动
-`include/jyppx`、`src/jyppx` 或任何技术路径。README、贡献指南和 issue 链接
+`F:/GitSpace/jyppx-training-framework/jyppx-training-framework`，总品牌前缀仍为
+`include/jyppx`、`src/jyppx`，公共内容位于其 `liuding` 子目录。README、贡献指南和 issue 链接
 均指向新仓库。
 benchmark CI、PowerShell 基线脚本和 Python resource runner 使用实际新输出名；
 `--target jyppx_*` 命令继续引用原逻辑 target。
@@ -276,9 +275,9 @@ cmake -S . -B out/build/lf-rename-20261022 -G 'Visual Studio 18 2026' `
   '-DPython3_EXECUTABLE=F:/GitSpace/jyppx-training-framework/jyppx-training-framework/out/envs/telemetry-py311/Scripts/python.exe' `
   '-DCUDAToolkit_ROOT=C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9' `
   '-DCUDA_TOOLKIT_ROOT_DIR=C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9' `
-  -DCMAKE_CUDA_ARCHITECTURES=75 -DJYPPX_BUILD_BENCHMARKS=ON `
-  -DJYPPX_BUILD_DATA_IMAGE=ON -DJYPPX_BUILD_MODELS=ON `
-  -DJYPPX_BUILD_QUANTIZATION=ON -DJYPPX_BUILD_SERVING=ON
+  -DCMAKE_CUDA_ARCHITECTURES=75 -DJYPPX_LIUDING_BUILD_BENCHMARKS=ON `
+  -DJYPPX_LIUDING_BUILD_DATA_IMAGE=ON -DJYPPX_LIUDING_BUILD_MODELS=ON `
+  -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON -DJYPPX_LIUDING_BUILD_SERVING=ON
 cmake --build out/build/lf-rename-20261022 --config Release --parallel 2
 $env:JYPPX_RELEASE_TEST_OPENSSL = 'C:/Program Files/Git/usr/bin/openssl.exe'
 ctest --test-dir out/build/lf-rename-20261022 -C Release --output-on-failure `
@@ -327,7 +326,7 @@ Windows Release 完整 CTest 命令退出码为 **0**：发现 1,065 项，**1,0
 | `OptionalComponentMatrix` | 通过，444.67 秒；包含 data_image 配置及禁用组合 |
 | `ComponentInstallMatrixConsumer` | 11 个组件安装消费通过，768.15 秒 |
 | `PreviewComponentMatrix` | 单组件、三 Preview 同开、再次关闭、符号隔离及错误组合通过，1,847.23 秒 |
-| SDK、interop、experiment、package、models、quantization、serving 安装消费 | 全部通过；继续使用 `find_package(jyppx)` 与 `jyppx::` |
+| SDK、interop、experiment、package、models、quantization、serving 安装消费 | 全部通过；继续使用 `find_package(jyppx)` 与 `jyppx::liuding::` |
 | `CliInstalledConsumer` | 新旧 CLI 均执行 version/help/CPU doctor，通过，4.95 秒 |
 | 6 项 `Cli_*` 工作流 | checkpoint、bundle、evaluation/data、offline、telemetry、migration 全部通过 |
 | checkpoint、bundle、telemetry、manifest 和进程恢复测试 | 已执行项通过；精确 LibTorch 2.5.1 fixture 运行限制见下文 |
@@ -367,8 +366,8 @@ Git 随附 OpenSSL 路径，`ReleaseToolUnitTests` 也已通过，包括临时�
 
 | 剩余引用类别 | 代表内容与保留原因 |
 | --- | --- |
-| C++ / API 兼容标识 | `namespace jyppx`、公共 include、源码目录、include guard 与宏；保持已有调用方兼容 |
-| CMake / 安装兼容标识 | `project(jyppx)`、`JYPPX_*`、逻辑 target、`jyppx::`、`jyppxConfig.cmake`、`lib/cmake/jyppx`、`share/doc/jyppx` |
+| C++ / API 标识 | `namespace jyppx::liuding`、`<jyppx/liuding/...>`、`src/jyppx/liuding`、include guard 与宏；这是未发布项目的新唯一公共表面 |
+| CMake / 安装兼容标识 | `project(jyppx)`、`JYPPX_*`、逻辑 target、`jyppx::liuding::`、`jyppxConfig.cmake`、`lib/cmake/jyppx`、`share/doc/jyppx` |
 | 稳定协议字段 | `jyppx_version`、`jyppx.model_bundle`、`jyppx.*` telemetry、manifest、MIME 及 benchmark `kind`；不能按品牌替换 |
 | 六丁炼算品牌 | 首页、帮助和版本元数据、配置摘要、打包描述及报告中的中文展示 |
 | Liuding Forge 品牌 | 英文展示、文档、CPack、发布说明和 SBOM 增量 properties |
@@ -378,8 +377,7 @@ Git 随附 OpenSSL 路径，`ReleaseToolUnitTests` 也已通过，包括临时�
 | 第三方和外部项目 | 新 GitHub clone URL、当前本地 checkout 路径、LibTorch 等依赖名称与许可证原文；不虚构外部依赖改名 |
 | 可能遗漏的旧品牌 | 对文档标题、CLI 调用、库/可执行文件扩展名和旧归档名作补充扫描；未发现需要进一步替换的当前品牌入口 |
 
-源文件和内部 CMake 注释中的旧项目名作为技术/历史说明保留。手工链接旧库
-文件名的外部脚本仍需迁移；仓库内的安装导出、发布验证和推荐执行路径已更新。
+源文件和内部 CMake 注释中的 JYPPX 名称作为品牌/内部别名保留。旧 include、旧命名空间、旧 target、旧 CLI 和手工链接旧库文件名不属于当前仓库公共表面；外部脚本需迁移到新路径。
 
 ## 19. 限制与风险
 

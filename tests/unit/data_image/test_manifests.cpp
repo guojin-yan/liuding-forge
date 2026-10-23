@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/data_image/manifests.hpp>
+#include <jyppx/liuding/data_image/manifests.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -16,7 +16,7 @@
 #include <string>
 
 namespace {
-using namespace jyppx::data::image;
+using namespace jyppx::liuding::data::image;
 namespace fs = std::filesystem;
 
 ManifestReadOptions Classes() {
@@ -92,7 +92,7 @@ TEST(ImageManifestTest, TsvSupportsMultiLabelAndRejectsDuplicateClass) {
   EXPECT_THROW(
       parse_manifest("path\tlabels\nimage.png\tcat|cat\n", ManifestFormat::tsv,
                      ManifestTask::classification, options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TEST(ImageManifestTest, CsvDoubledQuotesAndJsonlPipeClassHaveDistinctRules) {
@@ -106,7 +106,7 @@ TEST(ImageManifestTest, CsvDoubledQuotesAndJsonlPipeClassHaveDistinctRules) {
   EXPECT_THROW(
       parse_manifest("path,labels\na.jpg,cat|dog\n", ManifestFormat::csv,
                      ManifestTask::classification, options),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   const auto jsonl = parse_manifest(
       "{\"path\":\"a.jpg\",\"labels\":[\"cat|dog\"]}", ManifestFormat::jsonl,
       ManifestTask::classification, options);
@@ -124,12 +124,12 @@ TEST(ImageManifestTest, JsonlRequiresExactPathLabelsOrInputTargetSchema) {
   EXPECT_THROW(parse_manifest("{\"path\":\"a.jpg\",\"labels\":[]}",
                               ManifestFormat::jsonl,
                               ManifestTask::classification, Classes()),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_manifest("{\"path\":\"a.jpg\",\"path\":\"b.jpg\","
                               "\"labels\":[\"cat\"]}",
                               ManifestFormat::jsonl,
                               ManifestTask::classification, Classes()),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ImageManifestTest, JsonlEscapedDuplicateKeysAndUnknownFieldsAreRejected) {
@@ -137,11 +137,11 @@ TEST(ImageManifestTest, JsonlEscapedDuplicateKeysAndUnknownFieldsAreRejected) {
       parse_manifest(R"({"path":"a.jpg","p\u0061th":"b.jpg","labels":["cat"]})",
                      ManifestFormat::jsonl, ManifestTask::classification,
                      Classes()),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_manifest(R"({"path":"a.jpg","labels":["cat"],"weight":1})",
                               ManifestFormat::jsonl,
                               ManifestTask::classification, Classes()),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ImageManifestTest, PairedManifestKeepsTargetPathWithoutOpeningIt) {
@@ -160,15 +160,15 @@ TEST(ImageManifestTest, RejectsTraversalUnknownClassAndStrictLineContract) {
   EXPECT_THROW(
       parse_manifest("path,labels\n../secret.jpg,cat\n", ManifestFormat::csv,
                      ManifestTask::classification, options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_manifest("path,labels\nimage.jpg,unknown\n", ManifestFormat::csv,
                      ManifestTask::classification, options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_manifest("path,labels\nimage.jpg,cat\n\n", ManifestFormat::csv,
                      ManifestTask::classification, options),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TEST(ImageManifestTest, DuplicateAndPortablePathCollisionsAreRejected) {
@@ -179,7 +179,7 @@ TEST(ImageManifestTest, DuplicateAndPortablePathCollisionsAreRejected) {
         "path,labels\nimages/a.jpg.,cat\n"})
     EXPECT_THROW(parse_manifest(text, ManifestFormat::csv,
                                 ManifestTask::classification, Classes()),
-                 jyppx::SerializationError);
+                 jyppx::liuding::SerializationError);
 }
 
 TEST(ImageManifestTest, LimitsBoundRecordsLabelsTokensAndOwnedIndex) {
@@ -188,30 +188,30 @@ TEST(ImageManifestTest, LimitsBoundRecordsLabelsTokensAndOwnedIndex) {
   EXPECT_THROW(
       parse_manifest("path,labels\na.jpg,cat\nb.jpg,dog\n", ManifestFormat::csv,
                      ManifestTask::classification, options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
   options = Classes();
   options.max_record_bytes = 8;
   EXPECT_THROW(parse_manifest("path,labels\na.jpg,cat\n", ManifestFormat::csv,
                               ManifestTask::classification, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   options = Classes();
   options.max_index_bytes = 1;
   EXPECT_THROW(parse_manifest("path,labels\na.jpg,cat\n", ManifestFormat::csv,
                               ManifestTask::classification, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   options = Classes();
   options.multi_label = true;
   options.max_labels_per_record = 1;
   EXPECT_THROW(
       parse_manifest("path,labels\na.jpg,cat|dog\n", ManifestFormat::csv,
                      ManifestTask::classification, options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
   options = Classes();
   options.limits.max_nodes = 2;
   EXPECT_THROW(parse_manifest("{\"path\":\"a.jpg\",\"labels\":[\"cat\"]}",
                               ManifestFormat::jsonl,
                               ManifestTask::classification, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ImageManifestTest, ActualFileReaderHashesDocumentAndOwnsClassMap) {
@@ -230,7 +230,7 @@ TEST(ImageManifestTest, ActualFileReaderHashesDocumentAndOwnsClassMap) {
   EXPECT_THROW(
       read_manifest_file(fixture.path() / "absent.csv", ManifestFormat::csv,
                          ManifestTask::classification, Classes()),
-      jyppx::IoError);
+      jyppx::liuding::IoError);
 }
 
 TEST(ImageManifestTest, ImageFolderSortsClassesAndFilesAndHashesInventory) {
@@ -275,7 +275,7 @@ TEST(ImageManifestTest,
   options.include_hidden = false;
   options.max_directory_depth = 1;
   EXPECT_THROW(index_image_folder(fixture.path(), options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ImageManifestTest, ImageFolderRejectsSymbolicLinksWhenAvailable) {
@@ -286,21 +286,21 @@ TEST(ImageManifestTest, ImageFolderRejectsSymbolicLinksWhenAvailable) {
                      fixture.path() / "cat" / "linked.jpg", error);
   if (error)
     GTEST_SKIP() << "Creating filesystem symbolic links is unavailable";
-  EXPECT_THROW(index_image_folder(fixture.path()), jyppx::IoError);
+  EXPECT_THROW(index_image_folder(fixture.path()), jyppx::liuding::IoError);
 }
 
 TEST(ImageManifestTest, ImageFolderRejectsRootImagesAndEmptyClasses) {
   TempDirectory fixture;
   Write(fixture.path() / "root.png", "image");
   fs::create_directory(fixture.path() / "cat");
-  EXPECT_THROW(index_image_folder(fixture.path()), jyppx::SerializationError);
+  EXPECT_THROW(index_image_folder(fixture.path()), jyppx::liuding::SerializationError);
   std::error_code error;
   fs::remove(fixture.path() / "root.png", error);
-  EXPECT_THROW(index_image_folder(fixture.path()), jyppx::SerializationError);
+  EXPECT_THROW(index_image_folder(fixture.path()), jyppx::liuding::SerializationError);
   ImageFolderOptions options;
   options.allow_empty_classes = true;
   EXPECT_THROW(index_image_folder(fixture.path(), options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ImageManifestTest, CancellationIsObservedBeforePublishing) {
@@ -309,11 +309,11 @@ TEST(ImageManifestTest, CancellationIsObservedBeforePublishing) {
   EXPECT_THROW(parse_manifest("path,labels\na.jpg,cat\n", ManifestFormat::csv,
                               ManifestTask::classification, Classes(),
                               source.get_token()),
-               jyppx::Cancelled);
+               jyppx::liuding::Cancelled);
   TempDirectory fixture;
   Write(fixture.path() / "cat" / "a.jpg", "image");
   EXPECT_THROW(index_image_folder(fixture.path(), {}, source.get_token()),
-               jyppx::Cancelled);
+               jyppx::liuding::Cancelled);
 }
 
 }  // namespace

@@ -1,6 +1,6 @@
 # Classification metrics
 
-`#include <jyppx/training/metrics/classification.hpp>`
+`#include <jyppx/liuding/training/metrics/classification.hpp>`
 
 `Precision`, `Recall`, and `F1Score` are fixed-topology classification
 metrics. Construction declares the stable metric identity, class count,
@@ -16,8 +16,8 @@ throws `NotReady`; `average=none` publishes values through
 `per_class_scores()` instead of inventing a scalar.
 
 ```cpp
-using jyppx::training::metrics::ClassificationAverage;
-using jyppx::training::metrics::F1Score;
+using jyppx::liuding::training::metrics::ClassificationAverage;
+using jyppx::liuding::training::metrics::F1Score;
 
 F1Score validation_f1({.metric_id = "metric.validation.f1",
                        .num_classes = 10,

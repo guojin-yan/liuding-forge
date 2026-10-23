@@ -4,12 +4,12 @@
 
 #include "cli.hpp"
 
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/version.hpp>
-#include <jyppx/interop/checkpoint_manifest.hpp>
-#include <jyppx/interop/file_state_archive.hpp>
-#include <jyppx/interop/model_bundle.hpp>
-#include <jyppx/interop/safetensors.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
+#include <jyppx/liuding/interop/checkpoint_manifest.hpp>
+#include <jyppx/liuding/interop/file_state_archive.hpp>
+#include <jyppx/liuding/interop/model_bundle.hpp>
+#include <jyppx/liuding/interop/safetensors.hpp>
 
 #include <torch/cuda.h>
 #include <torch/torch.h>
@@ -28,7 +28,7 @@
 #include <utility>
 #include <vector>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 namespace {
 
 constexpr std::uint64_t kArtifactBytes = 512ULL * 1024U * 1024U;
@@ -407,4 +407,4 @@ Result benchmark_command(const Arguments& arguments) {
   }
 }
 
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli

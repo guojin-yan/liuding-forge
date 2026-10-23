@@ -3,8 +3,8 @@
 #ifndef JYPPX_BENCHMARK_RESOURCE_SUPPORT_HPP
 #define JYPPX_BENCHMARK_RESOURCE_SUPPORT_HPP
 
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/foundation/version.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -30,7 +30,7 @@
 // clang-format on
 #endif
 
-namespace jyppx::benchmarks {
+namespace jyppx::liuding::benchmarks {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
@@ -181,5 +181,5 @@ inline std::uint64_t directory_bytes(const std::filesystem::path& root) {
     if (entry.is_regular_file()) size += entry.file_size();
   return size;
 }
-}  // namespace jyppx::benchmarks
+}  // namespace jyppx::liuding::benchmarks
 #endif

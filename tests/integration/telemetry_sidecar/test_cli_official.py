@@ -44,8 +44,8 @@ class CliOfficialBackendTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.cli = Path(os.environ["JYPPX_TEST_CLI"]).resolve(strict=True)
-        cls.collector = Path(os.environ["JYPPX_TEST_OTELCOL"]).resolve(strict=True)
+        cls.cli = Path(os.environ["JYPPX_LIUDING_TEST_CLI"]).resolve(strict=True)
+        cls.collector = Path(os.environ["JYPPX_LIUDING_TEST_OTELCOL"]).resolve(strict=True)
         cls.sidecar = (Path(__file__).resolve().parents[3] / "tools" /
                        "telemetry_sidecar" / "jyppx_telemetry_sidecar.py")
         cls.temporary = tempfile.TemporaryDirectory(prefix="jyppx-cli-official-")

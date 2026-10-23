@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/data_image/annotation_files.hpp>
-#include <jyppx/data_image/annotations.hpp>
+#include <jyppx/liuding/data_image/annotation_files.hpp>
+#include <jyppx/liuding/data_image/annotations.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -15,7 +15,7 @@
 #include <string>
 
 namespace {
-using namespace jyppx::data::image;
+using namespace jyppx::liuding::data::image;
 
 const char* kCoco = R"({
   "images":[{"id":17,"file_name":"train/猫.jpg","width":100,"height":50},
@@ -72,30 +72,30 @@ TEST(ImageAnnotationTest, CocoRejectsDuplicateAndDanglingIdentities) {
   EXPECT_THROW(parse_annotations(
                    Replace(kCoco, "\"category_id\":3", "\"category_id\":7"),
                    AnnotationFormat::coco_instances),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_annotations(Replace(kCoco, "\"image_id\":17", "\"image_id\":99"),
                         AnnotationFormat::coco_instances),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_annotations(Replace(kCoco, "\"id\":91", "\"id\":17"),
                                  AnnotationFormat::coco_instances),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_annotations(Replace(kCoco, "\"width\":100",
                                          "\"width\":100,\"width\":100"),
                                  AnnotationFormat::coco_instances),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ImageAnnotationTest, CocoRejectsTraversalAndInvalidGeometry) {
   EXPECT_THROW(parse_annotations(Replace(kCoco, "train/猫.jpg", "../a.jpg"),
                                  AnnotationFormat::coco_instances),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_annotations(Replace(kCoco, "[10,5,20,15]", "[10,5,-1,15]"),
                                  AnnotationFormat::coco_instances),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_annotations(Replace(kCoco, "[10,5,20,15]", "[90,5,20,15]"),
                                  AnnotationFormat::coco_instances),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ImageAnnotationTest,
@@ -117,10 +117,10 @@ TEST(ImageAnnotationTest,
             (std::vector<std::uint64_t>{0, 3, 1, 1, 1}));
   EXPECT_THROW(
       parse_annotations(prefix + "[0,7]}}]}", AnnotationFormat::coco_instances),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(
       parse_annotations(prefix + "\"o\"}}]}", AnnotationFormat::coco_instances),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TEST(ImageAnnotationTest, CocoKeypointVisibilityAndSkeletonAreNotDropped) {
@@ -169,9 +169,9 @@ TEST(ImageAnnotationTest, YoloRejectsWrongDialectNonFiniteAndBadClasses) {
                            "0.0 0.5 0.5 1 1", "0 0.5 0.5 1 1 0.2", "0 0 0 1 1"})
     EXPECT_THROW(
         parse_annotations(text, AnnotationFormat::yolo_detection, Yolo()),
-        jyppx::SerializationError);
+        jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_annotations("", AnnotationFormat::yolo_detection),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(ImageAnnotationTest, YoloSegmentationAndObbRetainDistinctGeometry) {
@@ -186,7 +186,7 @@ TEST(ImageAnnotationTest, YoloSegmentationAndObbRetainDistinctGeometry) {
   EXPECT_DOUBLE_EQ((*obb.images[0].objects[0].oriented_box)[2].x, 90);
   EXPECT_THROW(parse_annotations("0 .1 .2 .9 .8 .9 .2 .1 .8",
                                  AnnotationFormat::yolo_obb, Yolo()),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ImageAnnotationTest, YoloPoseShapeAndVisibilityAreExplicit) {
@@ -200,7 +200,7 @@ TEST(ImageAnnotationTest, YoloPoseShapeAndVisibilityAreExplicit) {
   EXPECT_EQ(index.images[0].objects[0].keypoints[1].visibility, 0U);
   EXPECT_THROW(parse_annotations("0 .5 .5 1 1 .2 .4 3 0 0 0",
                                  AnnotationFormat::yolo_pose, options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 const char* kVoc =
@@ -232,11 +232,11 @@ TEST(ImageAnnotationTest, VocRejectsExternalEntitiesAndDuplicateFields) {
           "<!DOCTYPE annotation [<!ENTITY e SYSTEM 'file:///etc/passwd'>]>" +
               std::string(kVoc),
           AnnotationFormat::voc),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
   EXPECT_THROW(parse_annotations(Replace(kVoc, "<width>20</width>",
                                          "<width>20</width><width>20</width>"),
                                  AnnotationFormat::voc),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ImageAnnotationTest, VocJoinsAllTextSegmentsAndRejectsExtraRootElements) {
@@ -249,7 +249,7 @@ TEST(ImageAnnotationTest, VocJoinsAllTextSegmentsAndRejectsExtraRootElements) {
   EXPECT_EQ(index.images[0].objects[0].box->x_max, 20);
   EXPECT_THROW(
       parse_annotations(std::string(kVoc) + "<other/>", AnnotationFormat::voc),
-      jyppx::SerializationError);
+      jyppx::liuding::SerializationError);
 }
 
 TEST(ImageAnnotationTest, PolygonRejectsDegenerateCrossingAndOverlappingEdges) {
@@ -257,7 +257,7 @@ TEST(ImageAnnotationTest, PolygonRejectsDegenerateCrossingAndOverlappingEdges) {
                           "0 0 0 1 0 .5 0 1 1 0 1", "0 0 0 1 0 1 0 0 1"})
     EXPECT_THROW(
         parse_annotations(row, AnnotationFormat::yolo_segmentation, Yolo()),
-        jyppx::SerializationError);
+        jyppx::liuding::SerializationError);
   const auto closed = parse_annotations(
       "0 0 0 1 0 1 1 0 1 0 0", AnnotationFormat::yolo_segmentation, Yolo());
   EXPECT_EQ(closed.images[0].objects[0].polygons[0].size(), 5U);
@@ -265,7 +265,7 @@ TEST(ImageAnnotationTest, PolygonRejectsDegenerateCrossingAndOverlappingEdges) {
   options.limits.max_geometry_checks = 0;
   EXPECT_THROW(parse_annotations("0 0 0 1 0 1 1 0 1",
                                  AnnotationFormat::yolo_segmentation, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ImageAnnotationTest, YoloNodeBudgetCountsAllRows) {
@@ -273,7 +273,7 @@ TEST(ImageAnnotationTest, YoloNodeBudgetCountsAllRows) {
   options.limits.max_nodes = 9;
   EXPECT_THROW(parse_annotations("0 .5 .5 1 1\n0 .5 .5 1 1",
                                  AnnotationFormat::yolo_detection, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ImageAnnotationTest, MetadataUsesSharedPointAndXmlNodeBudgets) {
@@ -282,19 +282,19 @@ TEST(ImageAnnotationTest, MetadataUsesSharedPointAndXmlNodeBudgets) {
   options.categories[1].keypoint_names = {"c", "d"};
   options.limits.max_points = 3;
   EXPECT_THROW(parse_annotations("", AnnotationFormat::yolo_detection, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   options = {};
   options.limits.max_string_bytes = 16;
   EXPECT_THROW(parse_annotations("<!--" + std::string(17, 'x') + "-->" + kVoc,
                                  AnnotationFormat::voc, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   options.limits.max_string_bytes = 16384;
   options.limits.max_nodes = 20;
   std::string comments;
   for (int i = 0; i < 21; ++i) comments += "<!--x-->";
   EXPECT_THROW(
       parse_annotations(comments + kVoc, AnnotationFormat::voc, options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
 }
 
 class AnnotationFileTest : public ::testing::Test {
@@ -347,16 +347,16 @@ TEST_F(AnnotationFileTest, EnforcesByteLimitsAndCancelsBeforeOpening) {
   options.limits.max_input_bytes = 8;
   EXPECT_THROW(
       read_annotation_file(path, AnnotationFormat::coco_instances, options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
   EXPECT_THROW(read_annotation_file(root_, AnnotationFormat::coco_instances),
-               jyppx::IoError);
+               jyppx::liuding::IoError);
   EXPECT_THROW(read_annotation_file(root_ / "missing", AnnotationFormat::voc),
-               jyppx::IoError);
+               jyppx::liuding::IoError);
   std::stop_source stop;
   stop.request_stop();
   EXPECT_THROW(read_annotation_file(root_ / "missing", AnnotationFormat::voc,
                                     {}, stop.get_token()),
-               jyppx::Cancelled);
+               jyppx::liuding::Cancelled);
 }
 
 TEST(ImageAnnotationTest, LabelMeHandlesRectanglePolygonPointAndGrouping) {
@@ -380,21 +380,21 @@ TEST(ImageAnnotationTest,
   options.limits.max_objects = 0;
   EXPECT_THROW(parse_annotations("0 .5 .5 1 1",
                                  AnnotationFormat::yolo_detection, options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   options.limits.max_input_bytes = 1;
   EXPECT_THROW(
       parse_annotations(kCoco, AnnotationFormat::coco_instances, options),
-      jyppx::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
   std::stop_source stop;
   stop.request_stop();
   EXPECT_THROW(parse_annotations(kCoco, AnnotationFormat::coco_instances, {},
                                  stop.get_token()),
-               jyppx::Cancelled);
+               jyppx::liuding::Cancelled);
   try {
     parse_annotations("{\"private_label\":1}",
                       AnnotationFormat::coco_instances);
     FAIL();
-  } catch (const jyppx::SerializationError& error) {
+  } catch (const jyppx::liuding::SerializationError& error) {
     EXPECT_EQ(error.details().component, "data.image.annotations");
     EXPECT_EQ(std::string(error.what()).find("private_label"),
               std::string::npos);
@@ -442,7 +442,7 @@ TEST(ImageAnnotationTest,
         "names: [cat]\nnames: [dog]", "names: {1: cat}",
         "names: [cat]\n---\nnames: [dog]", "names: [cat]\nnc: 2",
         "names: [cat]\nkpt_shape: [2,3]\nflip_idx: [0,0]"})
-    EXPECT_THROW(parse_yolo_dataset_yaml(text), jyppx::SerializationError);
+    EXPECT_THROW(parse_yolo_dataset_yaml(text), jyppx::liuding::SerializationError);
   EXPECT_EQ(parse_yolo_dataset_yaml("names: [cat, dog]").categories.size(), 2U);
 }
 

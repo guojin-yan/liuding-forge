@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>
 
 #include <torch/cuda.h>
 #include <torch/nn/functional/loss.h>
@@ -18,7 +18,7 @@
 
 namespace {
 
-namespace functional = jyppx::nn::functional;
+namespace functional = jyppx::liuding::nn::functional;
 
 using ReductionVariant =
     std::variant<torch::enumtype::kNone, torch::enumtype::kMean,
@@ -132,23 +132,23 @@ TEST(LabelSmoothingCrossEntropyTest, RejectsInvalidConfiguration) {
   const auto target = torch::tensor({0, 2}, torch::kLong);
 
   EXPECT_THROW(functional::label_smoothing_cross_entropy(logits, target, -0.01),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::label_smoothing_cross_entropy(logits, target, 1.01),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::label_smoothing_cross_entropy(
                    logits, target, std::numeric_limits<double>::quiet_NaN()),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       functional::label_smoothing_cross_entropy(logits, target, 0.1, "average"),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       functional::label_smoothing_cross_entropy(torch::Tensor{}, target),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       functional::label_smoothing_cross_entropy(logits, torch::Tensor{}),
-      jyppx::InvalidArgument);
-  EXPECT_THROW(jyppx::nn::LabelSmoothingCrossEntropy(0.1, "average"),
-               jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::nn::LabelSmoothingCrossEntropy(0.1, "average"),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(LabelSmoothingCrossEntropyTest, PreservesBackendFailureContextAndCause) {
@@ -159,8 +159,8 @@ TEST(LabelSmoothingCrossEntropyTest, PreservesBackendFailureContextAndCause) {
     static_cast<void>(
         functional::label_smoothing_cross_entropy(logits, invalid_target, 0.1));
     FAIL() << "Expected the backend to reject a rank-two class target";
-  } catch (const jyppx::BackendError& converted) {
-    EXPECT_EQ(converted.code(), jyppx::ErrorCode::backend);
+  } catch (const jyppx::liuding::BackendError& converted) {
+    EXPECT_EQ(converted.code(), jyppx::liuding::ErrorCode::backend);
     EXPECT_EQ(converted.details().component,
               "nn.loss.label_smoothing_cross_entropy");
     EXPECT_EQ(converted.details().operation,
@@ -173,7 +173,7 @@ TEST(LabelSmoothingCrossEntropyTest, PreservesBackendFailureContextAndCause) {
 TEST(LabelSmoothingCrossEntropyTest, ModuleRetainsValidatedConfiguration) {
   const auto logits = torch::randn({5, 3}, torch::kFloat64);
   const auto target = torch::randint(0, 3, {5}, torch::kLong);
-  const jyppx::nn::LabelSmoothingCrossEntropy criterion(0.35, "sum");
+  const jyppx::liuding::nn::LabelSmoothingCrossEntropy criterion(0.35, "sum");
 
   EXPECT_DOUBLE_EQ(criterion.smoothing(), 0.35);
   EXPECT_EQ(criterion.reduction(), "sum");

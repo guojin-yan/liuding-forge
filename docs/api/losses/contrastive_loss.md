@@ -1,14 +1,14 @@
 # Contrastive loss
 
-Status: `native target` in the default `jyppx::nn` component.
+Status: `native target` in the default `jyppx::liuding::nn` component.
 
-Header: `#include <jyppx/nn/loss/contrastive_loss.hpp>`
+Header: `#include <jyppx/liuding/nn/loss/contrastive_loss.hpp>`
 
-Link target: `jyppx::nn`
+Link target: `jyppx::liuding::nn`
 
 ## Purpose
 
-`jyppx::nn::functional::contrastive_loss` computes the standard pairwise
+`jyppx::liuding::nn::functional::contrastive_loss` computes the standard pairwise
 metric-learning objective. Matching pairs (`target = 1`) minimize squared
 Euclidean distance. Non-matching pairs (`target = 0`) minimize the squared
 hinge distance against a positive margin. The implementation is deliberately
@@ -31,16 +31,16 @@ backend kernels run.
 | Non-contiguous input | Supported when LibTorch accepts the logical rank-2 tensors |
 | Gradient | Gradients flow to both feature tensors through distance and hinge operations |
 | State | `ContrastiveLoss` stores only validated margin and reduction configuration |
-| Errors | Invalid contracts raise `jyppx::InvalidArgument`; backend failures retain a nested cause |
+| Errors | Invalid contracts raise `jyppx::liuding::InvalidArgument`; backend failures retain a nested cause |
 
 ## API forms
 
 ```cpp
-namespace F = jyppx::nn::functional;
+namespace F = jyppx::liuding::nn::functional;
 
 auto loss = F::contrastive_loss(x1, x2, pair_labels, 1.0, "mean");
 
-jyppx::nn::ContrastiveLoss criterion(1.0, "mean");
+jyppx::liuding::nn::ContrastiveLoss criterion(1.0, "mean");
 auto module_loss = criterion.forward(x1, x2, pair_labels);
 ```
 
@@ -54,4 +54,4 @@ The focused target verifies hand-computed matching and non-matching values, all
 reductions, autograd, module parity, invalid shape/device/dtype/configuration
 cases, binary-label rejection, and CUDA label validation when a CUDA runtime is
 available. The installed-package consumer also compiles and executes the
-functional API through the exported `jyppx::nn` target.
+functional API through the exported `jyppx::liuding::nn` target.

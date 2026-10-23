@@ -6,14 +6,14 @@
 // Optimizer convergence benchmark. Output is CSV for comparison with an
 // equivalent PyTorch script using the same seed and generated tensors.
 
-#include <jyppx/optim/adadelta_adapter.hpp>
-#include <jyppx/optim/adagrad_adapter.hpp>
-#include <jyppx/optim/adam_adapter.hpp>
-#include <jyppx/optim/adamw_adapter.hpp>
-#include <jyppx/optim/lamb_adapter.hpp>
-#include <jyppx/optim/nadam_adapter.hpp>
-#include <jyppx/optim/rmsprop_adapter.hpp>
-#include <jyppx/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/optim/adadelta_adapter.hpp>
+#include <jyppx/liuding/optim/adagrad_adapter.hpp>
+#include <jyppx/liuding/optim/adam_adapter.hpp>
+#include <jyppx/liuding/optim/adamw_adapter.hpp>
+#include <jyppx/liuding/optim/lamb_adapter.hpp>
+#include <jyppx/liuding/optim/nadam_adapter.hpp>
+#include <jyppx/liuding/optim/rmsprop_adapter.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
 
 #include <iomanip>
 #include <iostream>
@@ -30,7 +30,7 @@ void benchmark_adadelta() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::AdadeltaOptimizerAdapter optimizer(
+  jyppx::liuding::optim::AdadeltaOptimizerAdapter optimizer(
       "optimizer.adadelta",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "first", .parameter = first},
@@ -57,7 +57,7 @@ void benchmark_adagrad() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::AdagradOptimizerAdapter optimizer(
+  jyppx::liuding::optim::AdagradOptimizerAdapter optimizer(
       "optimizer.adagrad",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "first", .parameter = first},
@@ -84,7 +84,7 @@ void benchmark_adam() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::AdamOptimizerAdapter optimizer(
+  jyppx::liuding::optim::AdamOptimizerAdapter optimizer(
       "optimizer.adam",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "first", .parameter = first},
@@ -111,7 +111,7 @@ void benchmark_adamw() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::AdamWOptimizerAdapter optimizer(
+  jyppx::liuding::optim::AdamWOptimizerAdapter optimizer(
       "optimizer.adamw",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "first", .parameter = first},
@@ -138,7 +138,7 @@ void benchmark_rmsprop() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::RmspropOptimizerAdapter optimizer(
+  jyppx::liuding::optim::RmspropOptimizerAdapter optimizer(
       "optimizer.rmsprop",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "first", .parameter = first},
@@ -166,7 +166,7 @@ void benchmark_nadam() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::NAdamOptimizerAdapter optimizer(
+  jyppx::liuding::optim::NAdamOptimizerAdapter optimizer(
       "optimizer.nadam",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "first", .parameter = first},
@@ -193,7 +193,7 @@ void benchmark_lamb() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::LambOptimizerAdapter optimizer(
+  jyppx::liuding::optim::LambOptimizerAdapter optimizer(
       "optimizer.lamb",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "first", .parameter = first},
@@ -220,7 +220,7 @@ void benchmark_sgd() {
       torch::randn({16, 1}, torch::TensorOptions().requires_grad(true));
   const auto inputs = torch::randn({128, 32});
   const auto targets = torch::randn({128, 1});
-  jyppx::optim::SgdOptimizerAdapter optimizer(
+  jyppx::liuding::optim::SgdOptimizerAdapter optimizer(
       "optimizer.benchmark",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "first", .parameter = first},

@@ -380,7 +380,7 @@ def prefix_inventory(prefix: Path, limits: Limits) -> dict[str, Any]:
 
 def validate_installed_version(prefix: Path, release: dict[str, Any], limits: Limits) -> None:
     """Prevent relabeling an installed 0.x SDK as a 1.x release without executing it."""
-    data = read_file(prefix / "include/jyppx/foundation/build_config.hpp", limits.max_metadata_bytes)
+    data = read_file(prefix / "include/jyppx/liuding/foundation/build_config.hpp", limits.max_metadata_bytes)
     try:
         header = data.decode("utf-8")
     except UnicodeError as error:

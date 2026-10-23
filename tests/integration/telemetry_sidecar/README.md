@@ -8,8 +8,8 @@ with that adapter.
 Use a dedicated CPython 3.11 environment, install the runtime's exact
 `requirements.lock` with `pip --require-hashes --only-binary=:all:`, and supply
 the pinned official Collector Contrib 0.135.0 executable through
-`JYPPX_TEST_OTELCOL`. Verify its download against `collector-artifacts.json`.
-Supply the built product executable through `JYPPX_TEST_CLI`. The configured
+`JYPPX_LIUDING_TEST_OTELCOL`. Verify its download against `collector-artifacts.json`.
+Supply the built product executable through `JYPPX_LIUDING_TEST_CLI`. The configured
 CMake gate supplies both paths and fails when either prerequisite is absent.
 
 The 2026-10-21 dependency preparation installed the locked environment on both
@@ -24,7 +24,7 @@ Reuse `out/envs/telemetry-py311/Scripts/python.exe` on Windows or
 `out/envs/telemetry-py311/bin/python` on Ubuntu. The prepared Collector is at
 `out/deps/otelcol-contrib-0.135.0/windows/otelcol-contrib.exe` or
 `out/deps/otelcol-contrib-0.135.0/linux/otelcol-contrib`, respectively. Set
-`JYPPX_TEST_OTELCOL` to its absolute path.
+`JYPPX_LIUDING_TEST_OTELCOL` to its absolute path.
 
 From the repository root:
 

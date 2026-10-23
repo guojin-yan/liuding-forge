@@ -16,7 +16,7 @@
 
 #include "../../tools/cli/sidecar_process.hpp"
 
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <atomic>
 #include <cerrno>
@@ -45,8 +45,8 @@
 #endif
 
 namespace {
-namespace jy = jyppx;
-namespace cli = jyppx::cli;
+namespace jy = jyppx::liuding;
+namespace cli = jyppx::liuding::cli;
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 using namespace std::chrono_literals;

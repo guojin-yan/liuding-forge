@@ -16,8 +16,10 @@ from typing import Any
 MAX_DOCUMENT_BYTES = 1024 * 1024
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 COMPONENT_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+# The public include root carries the JYPPX brand and the Liuding Forge
+# product namespace.  Component ownership starts after that product segment.
 INCLUDE_PATTERN = re.compile(
-    r'^\s*#\s*include\s*[<"]jyppx/([^>"]+)[>"]', re.MULTILINE
+    r'^\s*#\s*include\s*[<"]jyppx/liuding/([^>"]+)[>"]', re.MULTILINE
 )
 CODE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inc"}
 
@@ -258,7 +260,7 @@ def load_manifest(path: pathlib.Path) -> Manifest:
     for asserted_path, owner in raw_assertions.items():
         if (
             not isinstance(asserted_path, str)
-            or not asserted_path.startswith(("include/jyppx/", "src/jyppx/"))
+            or not asserted_path.startswith(("include/jyppx/liuding/", "src/jyppx/liuding/"))
             or ".." in pathlib.PurePosixPath(asserted_path).parts
         ):
             raise ComponentGraphError(
@@ -332,11 +334,12 @@ def _owned_code_files(root: pathlib.Path) -> list[pathlib.Path]:
 def scan_repository(manifest: Manifest, repository_root: pathlib.Path) -> IncludeGraphs:
     """Scan public headers and production sources into include graphs."""
     repository_root = repository_root.resolve()
-    public_root = repository_root / "include" / "jyppx"
-    source_root = repository_root / "src" / "jyppx"
+    public_root = repository_root / "include" / "jyppx" / "liuding"
+    source_root = repository_root / "src" / "jyppx" / "liuding"
     if not public_root.is_dir() or not source_root.is_dir():
         raise ComponentGraphError(
-            f"source root must contain include/jyppx and src/jyppx: {repository_root}"
+            "source root must contain include/jyppx/liuding and "
+            f"src/jyppx/liuding: {repository_root}"
         )
     header_owners, source_owners = _ownership_maps(manifest)
 
@@ -379,10 +382,10 @@ def scan_repository(manifest: Manifest, repository_root: pathlib.Path) -> Includ
         if not full_path.exists():
             raise ComponentGraphError(f"asserted owned path does not exist: {asserted_path}")
         parts = pathlib.PurePosixPath(asserted_path).parts
-        if parts[:2] == ("include", "jyppx") and len(parts) >= 3:
-            actual_owner = header_owners.get(parts[2])
-        elif parts[:2] == ("src", "jyppx") and len(parts) >= 3:
-            actual_owner = source_owners.get(parts[2])
+        if parts[:3] == ("include", "jyppx", "liuding") and len(parts) >= 4:
+            actual_owner = header_owners.get(parts[3])
+        elif parts[:3] == ("src", "jyppx", "liuding") and len(parts) >= 4:
+            actual_owner = source_owners.get(parts[3])
         else:
             actual_owner = None
         if actual_owner != expected_owner:
@@ -449,9 +452,9 @@ def load_target_graph(path: pathlib.Path, manifest: Manifest) -> TargetGraphs:
                 or ".." in parts
                 or "\\" in dependency
                 or member_path.as_posix() != dependency
-                or len(parts) < 4
-                or parts[:2] != (root, "jyppx")
-                or owners.get(parts[2]) != component
+                or len(parts) < 5
+                or parts[:3] != (root, "jyppx", "liuding")
+                or owners.get(parts[3]) != component
                 or member_path.suffix.lower() not in CODE_SUFFIXES
             ):
                 raise ComponentGraphError(f"invalid active {kind} ownership/path")
@@ -495,11 +498,11 @@ def load_target_graph(path: pathlib.Path, manifest: Manifest) -> TargetGraphs:
         )
     enabled = frozenset(component for component, present in states.items() if present)
     for source in sources:
-        owner = source_owners[pathlib.PurePosixPath(source).parts[2]]
+        owner = source_owners[pathlib.PurePosixPath(source).parts[3]]
         if owner not in enabled:
             raise ComponentGraphError(f"disabled component has an active source: {owner}")
     for header in headers:
-        owner = header_owners[pathlib.PurePosixPath(header).parts[2]]
+        owner = header_owners[pathlib.PurePosixPath(header).parts[3]]
         if owner not in enabled:
             raise ComponentGraphError(f"disabled component has an active header: {owner}")
     for edge in target_edges | interface_edges:

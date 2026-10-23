@@ -11,7 +11,7 @@ compatibility switch: select `TrainerOptions::precision`, and bind an enabled
 flag and dtype on destruction, including nested use:
 
 ```cpp
-jyppx::training::amp::AutocastGuard autocast{
+jyppx::liuding::training::amp::AutocastGuard autocast{
     c10::DeviceType::CUDA, at::kHalf};
 auto prediction = model.forward(input);
 auto loss = torch::mse_loss(prediction, target);
@@ -25,7 +25,7 @@ before entering the region.
 `GradScaler` owns the scale, overflow history and growth/backoff policy:
 
 ```cpp
-jyppx::training::amp::GradScaler scaler;
+jyppx::liuding::training::amp::GradScaler scaler;
 optimizer.zero_grad();
 auto scaled = scaler.scale(loss);
 scaled.backward();

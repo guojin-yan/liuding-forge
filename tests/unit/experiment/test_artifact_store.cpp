@@ -3,10 +3,10 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/experiment/artifact_store.hpp>
-#include <jyppx/experiment/run.hpp>
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/sha256.hpp>
+#include <jyppx/liuding/experiment/artifact_store.hpp>
+#include <jyppx/liuding/experiment/run.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <algorithm>
 #include <array>
@@ -25,11 +25,11 @@
 
 namespace {
 
-using jyppx::ArtifactDigest;
-using jyppx::ArtifactDigestAlgorithm;
-using jyppx::experiment::ArtifactDescriptor;
-using jyppx::experiment::ArtifactStoreLimits;
-using jyppx::experiment::FileArtifactStore;
+using jyppx::liuding::ArtifactDigest;
+using jyppx::liuding::ArtifactDigestAlgorithm;
+using jyppx::liuding::experiment::ArtifactDescriptor;
+using jyppx::liuding::experiment::ArtifactStoreLimits;
+using jyppx::liuding::experiment::FileArtifactStore;
 
 std::span<const std::byte> bytes_of(std::string_view text) {
   return {reinterpret_cast<const std::byte*>(text.data()), text.size()};
@@ -77,12 +77,12 @@ ArtifactDescriptor descriptor(std::uint64_t expected_size = 0U) {
 }
 
 TEST(ArtifactStoreTest, ComputesKnownSha256AndRejectsNonCanonicalDigest) {
-  EXPECT_EQ(jyppx::sha256_hex(bytes_of("abc")),
+  EXPECT_EQ(jyppx::liuding::sha256_hex(bytes_of("abc")),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   ArtifactDigest uppercase{.algorithm = ArtifactDigestAlgorithm::sha256,
                            .hex = std::string(64U, 'A')};
-  EXPECT_THROW(jyppx::validate_artifact_digest(uppercase),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_artifact_digest(uppercase),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(ArtifactStoreTest, StreamsPublishesAndReopensImmutableBlob) {
@@ -124,7 +124,7 @@ TEST(ArtifactStoreTest, VerifiesMultipartBlobAcrossHashBufferBoundaries) {
   upload->write(bytes.subspan(701U + 1024U * 1024U));
   const auto reference = store.commit(*upload);
   EXPECT_EQ(reference.size_bytes, payload.size());
-  EXPECT_EQ(reference.digest.hex, jyppx::sha256_hex(bytes));
+  EXPECT_EQ(reference.digest.hex, jyppx::liuding::sha256_hex(bytes));
 
   auto reader = store.open(reference.digest);
   std::vector<std::byte> buffer(65537U);
@@ -146,9 +146,9 @@ TEST(ArtifactStoreTest, DuplicateUploadIsIdempotentAndExpectedHashIsChecked) {
   const auto second = store.put(bytes_of("same"), descriptor(4U), first.digest);
   EXPECT_EQ(first.digest, second.digest);
   EXPECT_THROW(store.put(bytes_of("other"), descriptor(5U), first.digest),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
   EXPECT_THROW(store.put(bytes_of("too long"), descriptor(2U)),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ArtifactStoreTest, BoundsArtifactStoreAndRootMetadata) {
@@ -160,15 +160,15 @@ TEST(ArtifactStoreTest, BoundsArtifactStoreAndRootMetadata) {
   FileArtifactStore store(root.path(), limits);
   const auto first = store.put(bytes_of("four"), descriptor(4U));
   EXPECT_THROW(store.put(bytes_of("more"), descriptor(4U)),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   EXPECT_TRUE(store.exists(first.digest));
 
   limits.max_root_path_bytes = 1U;
   EXPECT_THROW(FileArtifactStore(root.path(), limits),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   auto invalid = descriptor(1U);
   invalid.logical_name.clear();
-  EXPECT_THROW(store.begin(invalid), jyppx::InvalidArgument);
+  EXPECT_THROW(store.begin(invalid), jyppx::liuding::InvalidArgument);
 }
 
 TEST(ArtifactStoreTest, RejectsForeignSessionsAndCleansAbandonedUpload) {
@@ -179,7 +179,7 @@ TEST(ArtifactStoreTest, RejectsForeignSessionsAndCleansAbandonedUpload) {
   {
     auto upload = first.begin(descriptor(4U));
     upload->write(bytes_of("data"));
-    EXPECT_THROW(second.commit(*upload), jyppx::InvalidArgument);
+    EXPECT_THROW(second.commit(*upload), jyppx::liuding::InvalidArgument);
   }
   EXPECT_TRUE(std::filesystem::is_empty(first_root.path() / "tmp"));
 }
@@ -236,12 +236,12 @@ TEST(ArtifactStoreTest, VerifyDetectsMutationAndGcRespectsLiveDigestAndGrace) {
 }
 
 TEST(RunMetadataTest, ValidatesLifecycleAndLineageBounds) {
-  jyppx::experiment::RunMetadata metadata{
+  jyppx::liuding::experiment::RunMetadata metadata{
       .run_id = "run-1",
       .project_id = "project",
       .experiment_id = "experiment",
       .display_name = "smoke",
-      .status = jyppx::experiment::RunStatus::running,
+      .status = jyppx::liuding::experiment::RunStatus::running,
       .created_at_unix_ms = 10U,
       .updated_at_unix_ms = 11U,
       .lineage = {.parent_run_id = "parent",
@@ -250,16 +250,16 @@ TEST(RunMetadataTest, ValidatesLifecycleAndLineageBounds) {
                   .config_digest = "cfg",
                   .data_manifest_digest = std::nullopt},
       .tags = {{"model", "baseline"}}};
-  EXPECT_NO_THROW(jyppx::experiment::validate_run_metadata(metadata));
-  EXPECT_TRUE(jyppx::experiment::is_valid_run_transition(
-      jyppx::experiment::RunStatus::running,
-      jyppx::experiment::RunStatus::completed));
-  EXPECT_FALSE(jyppx::experiment::is_valid_run_transition(
-      jyppx::experiment::RunStatus::completed,
-      jyppx::experiment::RunStatus::running));
+  EXPECT_NO_THROW(jyppx::liuding::experiment::validate_run_metadata(metadata));
+  EXPECT_TRUE(jyppx::liuding::experiment::is_valid_run_transition(
+      jyppx::liuding::experiment::RunStatus::running,
+      jyppx::liuding::experiment::RunStatus::completed));
+  EXPECT_FALSE(jyppx::liuding::experiment::is_valid_run_transition(
+      jyppx::liuding::experiment::RunStatus::completed,
+      jyppx::liuding::experiment::RunStatus::running));
   metadata.updated_at_unix_ms = 1U;
-  EXPECT_THROW(jyppx::experiment::validate_run_metadata(metadata),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::experiment::validate_run_metadata(metadata),
+               jyppx::liuding::InvalidArgument);
 }
 
 }  // namespace

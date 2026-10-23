@@ -1,18 +1,18 @@
-#ifndef JYPPX_TEST_HELPERS_HPP
-#define JYPPX_TEST_HELPERS_HPP
+#ifndef JYPPX_LIUDING_TEST_HELPERS_HPP
+#define JYPPX_LIUDING_TEST_HELPERS_HPP
 
 // Shared helpers for the JYPPX unit tests.
 
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
 
-namespace jyppx_test {
+namespace jyppx::liuding::test {
 
-using jyppx::Tensor;
-using jyppx::TensorList;
+using jyppx::liuding::Tensor;
+using jyppx::liuding::TensorList;
 
 // A linear model y = Wx + b with a fixed, deterministic initialization so
 // tests that compare two independently constructed models get identical
@@ -115,17 +115,17 @@ inline TensorList make_params(const std::vector<std::vector<int64_t>>& shapes) {
 // torch::optim optimizer over value-identical parameter lists, then asserts
 // the parameters stayed equal. Both optimizers must expose zero_grad/step.
 template <typename JyppxOpt, typename TorchOpt>
-void expect_optimizer_parity(JyppxOpt& jyppx_optimizer,
+void expect_optimizer_parity(JyppxOpt& jyppx_liuding_optimizer,
                              const TensorList& jyppx_params,
                              TorchOpt& torch_optimizer,
                              const std::vector<torch::Tensor>& torch_params,
                              int steps, double tolerance = 1e-9) {
   for (int step = 0; step < steps; ++step) {
-    jyppx_optimizer.zero_grad();
+    jyppx_liuding_optimizer.zero_grad();
     torch_optimizer.zero_grad();
     quadratic_loss(jyppx_params).backward();
     quadratic_loss(torch_params).backward();
-    jyppx_optimizer.step();
+    jyppx_liuding_optimizer.step();
     torch_optimizer.step();
   }
   expect_tensor_lists_close(
@@ -133,6 +133,6 @@ void expect_optimizer_parity(JyppxOpt& jyppx_optimizer,
       tolerance);
 }
 
-}  // namespace jyppx_test
+}  // namespace jyppx::liuding::test
 
-#endif  // JYPPX_TEST_HELPERS_HPP
+#endif  // JYPPX_LIUDING_TEST_HELPERS_HPP

@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/data_image/image_decoder.hpp>
+#include <jyppx/liuding/data_image/image_decoder.hpp>
 
 #include <cstring>
 #include <filesystem>
@@ -14,11 +14,11 @@
 #include <vector>
 
 namespace {
-using namespace jyppx::data::image;
+using namespace jyppx::liuding::data::image;
 namespace fs = std::filesystem;
 
 std::vector<std::byte> ReadFixture(const char* name) {
-  const auto path = fs::path(JYPPX_TEST_FIXTURE_ROOT) / "data_image" / name;
+  const auto path = fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / name;
   std::ifstream stream(path, std::ios::binary);
   EXPECT_TRUE(stream.good()) << path.string();
   const std::vector<char> raw((std::istreambuf_iterator<char>(stream)), {});
@@ -91,7 +91,7 @@ TEST(ImageDecoderTest, PreservesSixteenBitPngAndCanNormalizeToFloat) {
 
 TEST(ImageDecoderTest, FileReaderUsesSameBoundedPathEntryPoint) {
   const auto path =
-      fs::path(JYPPX_TEST_FIXTURE_ROOT) / "data_image" / "rgb.png";
+      fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / "rgb.png";
   const auto result = read_image_file(path);
   EXPECT_EQ(result.width, 2U);
   EXPECT_EQ(result.height, 1U);
@@ -99,24 +99,24 @@ TEST(ImageDecoderTest, FileReaderUsesSameBoundedPathEntryPoint) {
 
 TEST(ImageDecoderTest, RejectsCorruptInputLimitsAndCancellation) {
   const std::vector<std::byte> corrupt{std::byte{0x01}, std::byte{0x02}};
-  EXPECT_THROW(decode_image(corrupt), jyppx::SerializationError);
+  EXPECT_THROW(decode_image(corrupt), jyppx::liuding::SerializationError);
 
   auto options = ImageDecodeOptions{};
   options.limits.max_input_bytes = 1;
   EXPECT_THROW(decode_image(ReadFixture("rgb.png"), options),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
 
   std::stop_source source;
   source.request_stop();
   EXPECT_THROW(decode_image(ReadFixture("rgb.png"), {}, source.get_token()),
-               jyppx::Cancelled);
+               jyppx::liuding::Cancelled);
 }
 
 TEST(ImageDecoderTest, ExplicitFormatMismatchIsRejected) {
   auto options = ImageDecodeOptions{};
   options.format = ImageFormat::jpeg;
   EXPECT_THROW(decode_image(ReadFixture("rgb.png"), options),
-               jyppx::SerializationError);
+               jyppx::liuding::SerializationError);
 }
 
 }  // namespace

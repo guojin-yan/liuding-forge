@@ -2,8 +2,8 @@
 // extended samplers/datasets, extended transforms, LAMB, and model
 // summary/profiler helpers.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <cmath>
 #include <cstdint>
@@ -14,14 +14,14 @@
 
 namespace {
 
-using namespace jyppx;
-using namespace jyppx::data;
-using namespace jyppx::data::samplers;
-using namespace jyppx::data::transforms;
-using namespace jyppx::training;
-using namespace jyppx::training::metrics;
-using namespace jyppx::training::callbacks;
-using namespace jyppx::utils;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::data;
+using namespace jyppx::liuding::data::samplers;
+using namespace jyppx::liuding::data::transforms;
+using namespace jyppx::liuding::training;
+using namespace jyppx::liuding::training::metrics;
+using namespace jyppx::liuding::training::callbacks;
+using namespace jyppx::liuding::utils;
 
 // ---- Classification metrics (Precision / Recall / F1) -----------------------
 
@@ -59,7 +59,7 @@ TEST(ClassificationMetricsTest, ConfusionMatrixExposedAndResets) {
 
   precision.reset();
   EXPECT_EQ(precision.classes(), 2);
-  EXPECT_THROW(precision.compute(), jyppx::NotReady);
+  EXPECT_THROW(precision.compute(), jyppx::liuding::NotReady);
 }
 
 TEST(ClassificationMetricsTest, PerfectPredictionsScoreOne) {
@@ -96,16 +96,16 @@ TEST(WeightedRandomSamplerTest, DeterministicWithSeed) {
 }
 
 TEST(WeightedRandomSamplerTest, ValidatesArguments) {
-  EXPECT_THROW(samplers::WeightedRandomSampler({}, 10), jyppx::InvalidArgument);
+  EXPECT_THROW(samplers::WeightedRandomSampler({}, 10), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(samplers::WeightedRandomSampler({1.0}, 0),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(samplers::WeightedRandomSampler({1.0, -1.0}, 10),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(samplers::WeightedRandomSampler({0.0, 0.0}, 10),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       samplers::WeightedRandomSampler({1.0, 2.0}, 5, /*replacement=*/false),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(WeightedRandomSamplerTest, WithoutReplacementYieldsDistinctIndices) {
@@ -165,8 +165,8 @@ TEST(DistributedSamplerTest, SingleProcessBehavesLikeIdentity) {
 }
 
 TEST(DistributedSamplerTest, ValidatesArguments) {
-  EXPECT_THROW(samplers::DistributedSampler(10, 1, 1), jyppx::InvalidArgument);
-  EXPECT_THROW(samplers::DistributedSampler(10, 0, 0), jyppx::InvalidArgument);
+  EXPECT_THROW(samplers::DistributedSampler(10, 1, 1), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(samplers::DistributedSampler(10, 0, 0), jyppx::liuding::InvalidArgument);
 }
 
 // ---- Chain / Stack datasets
@@ -220,7 +220,7 @@ TEST(StackDatasetTest, LengthIsTheSmallestDataset) {
   auto small = std::make_shared<TensorRows>(torch::randn({2, 1}));
   const data::StackDataset<Tensor, Tensor> stacked(big, small);
   EXPECT_EQ(stacked.size(), 2);
-  EXPECT_THROW(stacked.get(2), jyppx::InvalidArgument);
+  EXPECT_THROW(stacked.get(2), jyppx::liuding::InvalidArgument);
 }
 
 // ---- Extended transforms
@@ -271,9 +271,9 @@ TEST_F(TransformsExtraTest, AffineIdentityAndValidation) {
   const RandomAffine affine(0.0);  // no rotation/translate/scale variation
   EXPECT_TRUE(torch::allclose(affine(image_), image_, 1e-3, 1e-3));
 
-  EXPECT_THROW(RandomAffine(10.0, {1.5, 0.0}), jyppx::InvalidArgument);
+  EXPECT_THROW(RandomAffine(10.0, {1.5, 0.0}), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(RandomAffine(10.0, {0.0, 0.0}, {0.0, 1.0}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(TransformsExtraTest, AffineTranslateShiftsContent) {
@@ -308,8 +308,8 @@ TEST_F(TransformsExtraTest, GrayscaleLumaWeights) {
 }
 
 TEST_F(TransformsExtraTest, GrayscaleValidatesChannels) {
-  EXPECT_THROW(Grayscale(2), jyppx::InvalidArgument);
-  EXPECT_THROW(Grayscale(5), jyppx::InvalidArgument);
+  EXPECT_THROW(Grayscale(2), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(Grayscale(5), jyppx::liuding::InvalidArgument);
 }
 
 TEST_F(TransformsExtraTest, RandomGrayscaleKeepsThreeChannels) {
@@ -338,8 +338,8 @@ TEST_F(TransformsExtraTest, ColorJitterBrightnessScales) {
 }
 
 TEST_F(TransformsExtraTest, ColorJitterValidatesArguments) {
-  EXPECT_THROW(ColorJitter(-0.5), jyppx::InvalidArgument);
-  EXPECT_THROW(ColorJitter(0.0, 0.0, 0.0, 0.9), jyppx::InvalidArgument);
+  EXPECT_THROW(ColorJitter(-0.5), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(ColorJitter(0.0, 0.0, 0.0, 0.9), jyppx::liuding::InvalidArgument);
 }
 
 // ---- Model summary / profiler

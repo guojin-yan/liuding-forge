@@ -11,7 +11,7 @@
   "branch_percent": 70.0,
   "files": [
     {
-      "filename": "src/jyppx/core/device.cpp",
+      "filename": "src/jyppx/liuding/core/device.cpp",
       "line_covered": 9,
       "line_total": 9,
       "line_percent": 100.0,
@@ -23,7 +23,7 @@
       "branch_percent": 70.0
     },
     {
-      "filename": "src/jyppx/training/trainer.cpp",
+      "filename": "src/jyppx/liuding/training/trainer.cpp",
       "line_covered": 18,
       "line_total": 20,
       "line_percent": 90.0,

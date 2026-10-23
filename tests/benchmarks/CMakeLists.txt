@@ -1,10 +1,10 @@
-# Benchmarks. Built when JYPPX_BUILD_BENCHMARKS=ON (off by default).
+# Benchmarks. Built when JYPPX_LIUDING_BUILD_BENCHMARKS=ON (off by default).
 
 jyppx_add_bench(jyppx_bench_data_pipeline bench_data_pipeline.cpp)
 jyppx_add_bench(jyppx_bench_trainer_throughput bench_trainer_throughput.cpp)
 jyppx_add_bench(jyppx_bench_optimizer_convergence bench_optimizer_convergence.cpp)
 jyppx_add_bench(jyppx_bench_loss_vertical_slice
-    LINK_TARGET jyppx::nn
+    LINK_TARGET jyppx::liuding::nn
     bench_loss_vertical_slice.cpp
 )
 jyppx_add_bench(jyppx_bench_adadelta_native_throughput bench_adadelta_native_throughput.cpp)
@@ -28,28 +28,28 @@ if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
     jyppx_add_bench(jyppx_bench_cuda_optimizer bench_cuda_optimizer.cpp)
 endif()
 
-# Resource evidence is opt-in with JYPPX_BUILD_BENCHMARKS. Preview executables
+# Resource evidence is opt-in with JYPPX_LIUDING_BUILD_BENCHMARKS. Preview executables
 # are present only when their independently optional owner is really enabled.
 function(jyppx_add_resource_bench name owner source)
     jyppx_add_bench(${name} LINK_TARGET ${owner} ${source})
-    target_link_libraries(${name} PRIVATE jyppx::core nlohmann_json::nlohmann_json)
+    target_link_libraries(${name} PRIVATE jyppx::liuding::core nlohmann_json::nlohmann_json)
     if(WIN32)
         target_link_libraries(${name} PRIVATE Psapi)
     endif()
 endfunction()
 
-jyppx_add_resource_bench(jyppx_bench_resource_stable jyppx::sdk
+jyppx_add_resource_bench(jyppx_bench_resource_stable jyppx::liuding::sdk
     bench_resource_stable.cpp)
-if(TARGET jyppx::models)
-    jyppx_add_resource_bench(jyppx_bench_resource_models jyppx::models
+if(TARGET jyppx::liuding::models)
+    jyppx_add_resource_bench(jyppx_bench_resource_models jyppx::liuding::models
         bench_resource_models.cpp)
 endif()
-if(TARGET jyppx::quantization)
-    jyppx_add_resource_bench(jyppx_bench_resource_quantization jyppx::quantization
+if(TARGET jyppx::liuding::quantization)
+    jyppx_add_resource_bench(jyppx_bench_resource_quantization jyppx::liuding::quantization
         bench_resource_quantization.cpp)
 endif()
-if(TARGET jyppx::serving)
-    jyppx_add_resource_bench(jyppx_bench_resource_serving jyppx::serving
+if(TARGET jyppx::liuding::serving)
+    jyppx_add_resource_bench(jyppx_bench_resource_serving jyppx::liuding::serving
         bench_resource_serving.cpp)
 endif()
 if(TARGET torch_cuda OR TORCH_CUDA_VERSION)

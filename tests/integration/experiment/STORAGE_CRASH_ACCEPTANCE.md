@@ -37,7 +37,7 @@ republishes and attaches it. CAS temp files must already be absent at these
 database commit fences. A separate CAS publication test is needed to cover the
 rename itself.
 
-Link the test executable to `jyppx::experiment`, `nlohmann_json::nlohmann_json`
+Link the test executable to `jyppx::liuding::experiment`, `nlohmann_json::nlohmann_json`
 and the project's existing SQLite header target (`SQLite::SQLite3`). The
 experiment archive already contains the same official SQLite amalgamation;
 keep one SQLite implementation and do not substitute a different library.

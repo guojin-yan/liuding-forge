@@ -1,11 +1,11 @@
-// Unit tests for jyppx::data samplers: SequentialSampler, RandomSampler and
+// Unit tests for jyppx::liuding::data samplers: SequentialSampler, RandomSampler and
 // BatchSampler.
 
-#include <jyppx/data/samplers/batch_sampler.hpp>
-#include <jyppx/data/samplers/random_sampler.hpp>
-#include <jyppx/data/samplers/sequential_sampler.hpp>
-#include <jyppx/data/samplers/weighted_random_sampler.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/data/samplers/batch_sampler.hpp>
+#include <jyppx/liuding/data/samplers/random_sampler.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/data/samplers/weighted_random_sampler.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -17,7 +17,7 @@
 
 namespace {
 
-using namespace jyppx::data;
+using namespace jyppx::liuding::data;
 
 class SizeOnlySampler final : public samplers::Sampler {
  public:
@@ -91,9 +91,9 @@ TEST(BatchSamplerTest, ExactMultipleHasNoRemainder) {
 }
 
 TEST(BatchSamplerTest, RejectsNullSamplerAndZeroBatchSize) {
-  EXPECT_THROW(samplers::BatchSampler(nullptr, 1), jyppx::InvalidArgument);
+  EXPECT_THROW(samplers::BatchSampler(nullptr, 1), jyppx::liuding::InvalidArgument);
   auto base = std::make_shared<samplers::SequentialSampler>(8);
-  EXPECT_THROW(samplers::BatchSampler(base, 0), jyppx::InvalidArgument);
+  EXPECT_THROW(samplers::BatchSampler(base, 0), jyppx::liuding::InvalidArgument);
 }
 
 TEST(BatchSamplerTest, CountsMaximumPopulationWithoutOverflow) {
@@ -181,11 +181,11 @@ TEST(WeightedRandomSamplerTest, RejectsNonTerminatingInputs) {
   EXPECT_THROW(
       samplers::WeightedRandomSampler({1.0, 0.0}, /*num_samples=*/2,
                                       /*replacement=*/false, /*seed=*/7),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       samplers::WeightedRandomSampler(
           {1.0, std::numeric_limits<double>::infinity()}, /*num_samples=*/1),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(WeightedRandomSamplerTest, InvalidStateDoesNotAdvanceGenerator) {
@@ -196,8 +196,8 @@ TEST(WeightedRandomSamplerTest, InvalidStateDoesNotAdvanceGenerator) {
   try {
     sampler.load_state(invalid_state);
     FAIL() << "malformed sampler state must be rejected";
-  } catch (const jyppx::SerializationError& error) {
-    EXPECT_EQ(error.code(), jyppx::ErrorCode::serialization);
+  } catch (const jyppx::liuding::SerializationError& error) {
+    EXPECT_EQ(error.code(), jyppx::liuding::ErrorCode::serialization);
     EXPECT_EQ(error.details().component, "data.weighted_random_sampler");
     EXPECT_EQ(error.details().operation, "load_state");
   }
@@ -206,7 +206,7 @@ TEST(WeightedRandomSamplerTest, InvalidStateDoesNotAdvanceGenerator) {
 
 TEST(DistributedSamplerTest, RejectsEmptyPopulation) {
   EXPECT_THROW(samplers::DistributedSampler(0, /*rank=*/0, /*world_size=*/1),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(SubsetRandomSamplerTest, RestoresExactContinuation) {

@@ -5,7 +5,7 @@
 // and compares the student's accuracy before (plain hard-label baseline) and
 // after distillation.
 
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 
 #include <iostream>
 #include <memory>
@@ -13,7 +13,7 @@
 
 namespace {
 
-using namespace jyppx;
+using namespace jyppx::liuding;
 
 Tensor cluster_targets(const Tensor& x) {
   auto d0 = torch::norm(x - torch::tensor({0.0f, 0.0f}), 2, 1, true);
@@ -90,13 +90,13 @@ double train_student(const std::shared_ptr<Mlp>& teacher, bool distill,
 
   torch::manual_seed(2026);
   auto student = std::make_shared<Mlp>(1, 8);
-  std::vector<jyppx::optim::OptimizerParameterBinding> student_bindings;
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> student_bindings;
   for (const auto& item : student->named_parameters()) {
     student_bindings.push_back(
         {.parameter_id = item.key(), .parameter = item.value()});
   }
-  auto optimizer = std::make_shared<jyppx::optim::AdamOptimizerAdapter>(
-      "student.adam", std::vector<jyppx::optim::AdamParameterGroup>{
+  auto optimizer = std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
+      "student.adam", std::vector<jyppx::liuding::optim::AdamParameterGroup>{
                           {.group_id = "main",
                            .parameters = std::move(student_bindings),
                            .options = {.learning_rate = 3e-3}}});
@@ -148,14 +148,14 @@ int main() {
 
     // ---- Teacher: wide model, all 800 labeled samples -------------------
     auto teacher = std::make_shared<Mlp>(3, 96);
-    std::vector<jyppx::optim::OptimizerParameterBinding> teacher_bindings;
+    std::vector<jyppx::liuding::optim::OptimizerParameterBinding> teacher_bindings;
     for (const auto& item : teacher->named_parameters()) {
       teacher_bindings.push_back(
           {.parameter_id = item.key(), .parameter = item.value()});
     }
     auto teacher_optimizer =
-        std::make_shared<jyppx::optim::AdamOptimizerAdapter>(
-            "teacher.adam", std::vector<jyppx::optim::AdamParameterGroup>{
+        std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
+            "teacher.adam", std::vector<jyppx::liuding::optim::AdamParameterGroup>{
                                 {.group_id = "main",
                                  .parameters = std::move(teacher_bindings),
                                  .options = {.learning_rate = 3e-3}}});

@@ -4,45 +4,45 @@
 // you may not use this file except in compliance with the License.
 
 #if defined(JYPPX_CONSUMER_FOUNDATION)
-#include <jyppx/foundation/version.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 #elif defined(JYPPX_CONSUMER_CORE)
-#include <jyppx/core/device.hpp>
+#include <jyppx/liuding/core/device.hpp>
 #elif defined(JYPPX_CONSUMER_INTEROP)
-#include <jyppx/interop/checkpoint_manifest.hpp>
+#include <jyppx/liuding/interop/checkpoint_manifest.hpp>
 #elif defined(JYPPX_CONSUMER_DATA)
-#include <jyppx/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
-#include <jyppx/data_image/annotation_files.hpp>
-#include <jyppx/data_image/image_decoder.hpp>
-#include <jyppx/data_image/manifests.hpp>
+#include <jyppx/liuding/data_image/annotation_files.hpp>
+#include <jyppx/liuding/data_image/image_decoder.hpp>
+#include <jyppx/liuding/data_image/manifests.hpp>
 #elif defined(JYPPX_CONSUMER_NN)
-#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
+#include <jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>
 #elif defined(JYPPX_CONSUMER_OPTIM)
-#include <jyppx/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
 #elif defined(JYPPX_CONSUMER_TRAINING)
-#include <jyppx/training/trainer.hpp>
+#include <jyppx/liuding/training/trainer.hpp>
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)
-#include <jyppx/experiment/config.hpp>
+#include <jyppx/liuding/experiment/config.hpp>
 #elif defined(JYPPX_CONSUMER_MODELS)
-#include <jyppx/models/registry.hpp>
+#include <jyppx/liuding/models/registry.hpp>
 #elif defined(JYPPX_CONSUMER_QUANTIZATION)
-#include <jyppx/quantization/quantization.hpp>
+#include <jyppx/liuding/quantization/quantization.hpp>
 #elif defined(JYPPX_CONSUMER_SERVING)
-#include <jyppx/serving/serving.hpp>
+#include <jyppx/liuding/serving/serving.hpp>
 #elif defined(JYPPX_CONSUMER_ALL)
-#include <jyppx/foundation/version.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 #elif defined(JYPPX_CONSUMER_SDK)
-#include <jyppx/jyppx.hpp>
+#include <jyppx/liuding/liuding.hpp>
 #else
 #error "Exactly one installed component consumer must be selected"
 #endif
 
-#include <jyppx/foundation/capability.hpp>
+#include <jyppx/liuding/foundation/capability.hpp>
 
 #if defined(JYPPX_CONSUMER_INTEROP) && JYPPX_EXPECT_COMPONENT_NN
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/model_weight_import.hpp>
-#include <jyppx/nn/model_adapter.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/model_weight_import.hpp>
+#include <jyppx/liuding/nn/model_adapter.hpp>
 
 #include <memory>
 #include <span>
@@ -67,15 +67,15 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
       module->register_parameter("weight", torch::zeros({2}, torch::kFloat64));
   const auto* identity = weight.unsafeGetTensorImpl();
   const std::array<double, 2> values{1.25, -2.5};
-  const std::array<jyppx::interop::SafeTensorSource, 1> tensors{
+  const std::array<jyppx::liuding::interop::SafeTensorSource, 1> tensors{
       {{.name = "weight",
-        .dtype = jyppx::interop::SafeTensorDtype::f64,
+        .dtype = jyppx::liuding::interop::SafeTensorDtype::f64,
         .shape = {2U},
         .data = std::as_bytes(std::span(values))}}};
-  const auto bytes = jyppx::interop::serialize_safetensors(tensors);
-  jyppx::nn::ModelStateView view(module);
-  const auto result = jyppx::interop::import_model_weights(
-      view, bytes, {.hex = jyppx::sha256_hex(bytes)});
+  const auto bytes = jyppx::liuding::interop::serialize_safetensors(tensors);
+  jyppx::liuding::nn::ModelStateView view(module);
+  const auto result = jyppx::liuding::interop::import_model_weights(
+      view, bytes, {.hex = jyppx::liuding::sha256_hex(bytes)});
   return result.applied && result.applied_tensors == 1U &&
          weight.unsafeGetTensorImpl() == identity && weight.requires_grad() &&
          torch::equal(weight, torch::tensor({1.25, -2.5}, torch::kFloat64));
@@ -97,7 +97,7 @@ bool BuildCapabilityInventoryMatchesPackage() {
       {"serving", JYPPX_EXPECT_COMPONENT_SERVING != 0},
       {"training", JYPPX_EXPECT_COMPONENT_TRAINING != 0},
   }};
-  const auto manifest = jyppx::current_capability_manifest();
+  const auto manifest = jyppx::liuding::current_capability_manifest();
   if (manifest.features.size() != kExpected.size()) return false;
   for (std::size_t index = 0; index < kExpected.size(); ++index) {
     const auto& [component, enabled] = kExpected[index];
@@ -105,17 +105,17 @@ bool BuildCapabilityInventoryMatchesPackage() {
     const bool preview = component == "models" || component == "quantization" ||
                          component == "serving" || component == "data_image";
     const auto expected_status =
-        enabled ? (preview ? jyppx::CapabilityStatus::experimental
-                           : jyppx::CapabilityStatus::available)
-                : jyppx::CapabilityStatus::unsupported;
+        enabled ? (preview ? jyppx::liuding::CapabilityStatus::experimental
+                           : jyppx::liuding::CapabilityStatus::available)
+                : jyppx::liuding::CapabilityStatus::unsupported;
     if (feature.feature_id != "jyppx.component." + std::string(component) ||
         feature.status != expected_status ||
-        (feature.implementation == jyppx::CapabilityImplementation::native) !=
+        (feature.implementation == jyppx::liuding::CapabilityImplementation::native) !=
             enabled) {
       return false;
     }
   }
-  return !jyppx::current_capability_manifest_json().empty();
+  return !jyppx::liuding::current_capability_manifest_json().empty();
 }
 
 }  // namespace
@@ -123,15 +123,15 @@ bool BuildCapabilityInventoryMatchesPackage() {
 int main() {
   if (!BuildCapabilityInventoryMatchesPackage()) return 1;
 #if defined(JYPPX_CONSUMER_FOUNDATION)
-  const auto fingerprint = jyppx::current_build_fingerprint();
-  return !std::string(jyppx::version()).empty() &&
+  const auto fingerprint = jyppx::liuding::current_build_fingerprint();
+  return !std::string(jyppx::liuding::version()).empty() &&
                  !fingerprint.git_commit.empty()
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_CORE)
-  return jyppx::parse_device("cpu").is_cpu() ? 0 : 1;
+  return jyppx::liuding::parse_device("cpu").is_cpu() ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_INTEROP)
-  const auto capability = jyppx::interop::make_checkpoint_manifest_capability();
+  const auto capability = jyppx::liuding::interop::make_checkpoint_manifest_capability();
   if (capability.feature_id != "interop.checkpoint_manifest") return 1;
 #if JYPPX_EXPECT_COMPONENT_NN
   return InstalledModelWeightImportAppliesVerifiedState() ? 0 : 1;
@@ -139,28 +139,28 @@ int main() {
   return 0;
 #endif
 #elif defined(JYPPX_CONSUMER_DATA)
-  const auto indices = jyppx::data::samplers::SequentialSampler(3).indices();
+  const auto indices = jyppx::liuding::data::samplers::SequentialSampler(3).indices();
   return indices == std::vector<std::size_t>({0, 1, 2}) ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
   const auto metadata =
-      jyppx::data::image::parse_yolo_dataset_yaml("names: [cat]");
-  jyppx::data::image::AnnotationReadOptions options;
+      jyppx::liuding::data::image::parse_yolo_dataset_yaml("names: [cat]");
+  jyppx::liuding::data::image::AnnotationReadOptions options;
   options.categories = metadata.categories;
   options.image_path = "a.jpg";
   options.width = 20;
   options.height = 10;
-  const auto index = jyppx::data::image::parse_annotations(
-      "0 .5 .5 1 1", jyppx::data::image::AnnotationFormat::yolo_detection,
+  const auto index = jyppx::liuding::data::image::parse_annotations(
+      "0 .5 .5 1 1", jyppx::liuding::data::image::AnnotationFormat::yolo_detection,
       options);
-  jyppx::data::image::ManifestReadOptions manifest_options;
+  jyppx::liuding::data::image::ManifestReadOptions manifest_options;
   manifest_options.categories = metadata.categories;
-  const auto manifest = jyppx::data::image::parse_manifest(
-      "path,labels\na.jpg,cat\n", jyppx::data::image::ManifestFormat::csv,
-      jyppx::data::image::ManifestTask::classification, manifest_options);
+  const auto manifest = jyppx::liuding::data::image::parse_manifest(
+      "path,labels\na.jpg,cat\n", jyppx::liuding::data::image::ManifestFormat::csv,
+      jyppx::liuding::data::image::ManifestTask::classification, manifest_options);
   constexpr std::array<unsigned char, 12> pgm{'P',  '5', '\n', '1', ' ',  '1',
                                               '\n', '2', '5',  '5', '\n', 127};
   const auto image =
-      jyppx::data::image::decode_image(std::as_bytes(std::span(pgm)));
+      jyppx::liuding::data::image::decode_image(std::as_bytes(std::span(pgm)));
   return index.images.size() == 1U && index.images[0].objects.size() == 1U &&
                  index.images[0].objects[0].box->x_max == 20 &&
                  manifest.records().size() == 1U && image.width == 1U &&
@@ -168,14 +168,14 @@ int main() {
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_NN)
-  const auto loss = jyppx::nn::functional::label_smoothing_cross_entropy(
+  const auto loss = jyppx::liuding::nn::functional::label_smoothing_cross_entropy(
       torch::tensor({{2.0, -1.0}}, torch::kFloat64),
       torch::tensor({0}, torch::kLong), 0.1);
   return loss.numel() == 1 && std::isfinite(loss.item<double>()) ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_OPTIM)
   auto parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
-  jyppx::optim::SgdOptimizerAdapter optimizer(
+  jyppx::liuding::optim::SgdOptimizerAdapter optimizer(
       "optimizer.consumer",
       {{.group_id = "main",
         .parameters = {{.parameter_id = "weight", .parameter = parameter}},
@@ -185,28 +185,28 @@ int main() {
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_TRAINING)
-  jyppx::training::Trainer trainer({.trainer_id = "trainer.consumer"});
-  return trainer.phase() == jyppx::training::TrainerPhase::created &&
+  jyppx::liuding::training::Trainer trainer({.trainer_id = "trainer.consumer"});
+  return trainer.phase() == jyppx::liuding::training::TrainerPhase::created &&
                  trainer.options().trainer_id == "trainer.consumer"
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)
-  return jyppx::experiment::config::is_secret_reference(
+  return jyppx::liuding::experiment::config::is_secret_reference(
              "secret://env/consumer/token")
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_MODELS)
-  return jyppx::models::list_models().empty() ? 1 : 0;
+  return jyppx::liuding::models::list_models().empty() ? 1 : 0;
 #elif defined(JYPPX_CONSUMER_QUANTIZATION)
-  jyppx::quantization::validate_format_descriptor({});
+  jyppx::liuding::quantization::validate_format_descriptor({});
   return 0;
 #elif defined(JYPPX_CONSUMER_SERVING)
-  return jyppx::serving::serving_preview_manifest_json().empty() ? 1 : 0;
+  return jyppx::liuding::serving::serving_preview_manifest_json().empty() ? 1 : 0;
 #elif defined(JYPPX_CONSUMER_ALL)
-  return std::string(jyppx::version()).empty() ? 1 : 0;
+  return std::string(jyppx::liuding::version()).empty() ? 1 : 0;
 #elif defined(JYPPX_CONSUMER_SDK)
-  return !std::string(jyppx::version()).empty() &&
-                 jyppx::parse_device("cpu").is_cpu()
+  return !std::string(jyppx::liuding::version()).empty() &&
+                 jyppx::liuding::parse_device("cpu").is_cpu()
              ? 0
              : 1;
 #endif

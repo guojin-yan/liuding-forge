@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/nn/loss/contrastive_loss.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/nn/loss/contrastive_loss.hpp>
 
 #include <torch/cuda.h>
 
@@ -14,7 +14,7 @@
 
 namespace {
 
-namespace functional = jyppx::nn::functional;
+namespace functional = jyppx::liuding::nn::functional;
 
 TEST(ContrastiveLossTest, ComputesMatchingAndNonMatchingPairs) {
   const auto x1 = torch::tensor({{0.0, 0.0}, {0.0, 0.0}}, torch::kFloat64);
@@ -51,39 +51,39 @@ TEST(ContrastiveLossTest, RejectsInvalidConfigurationAndTensorContracts) {
   const auto target = torch::zeros({4}, torch::kLong);
 
   EXPECT_THROW(functional::contrastive_loss(x1, x2, target, 0.0),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::contrastive_loss(
                    x1, x2, target, std::numeric_limits<double>::quiet_NaN()),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::contrastive_loss(x1, x2, target, 1.0, "average"),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::contrastive_loss(torch::Tensor{}, x2, target),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::contrastive_loss(x1, torch::randn({4, 2}), target),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::contrastive_loss(x1, x2, torch::zeros({4, 1})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::contrastive_loss(x1, x2, torch::full({4}, 2)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       functional::contrastive_loss(torch::randn({2, 4, 3}),
                                    torch::randn({2, 4, 3}), torch::zeros({2})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(ContrastiveLossTest, ModuleValidatesAndMatchesFunctionalForm) {
   const auto x1 = torch::randn({5, 3}, torch::kFloat64);
   const auto x2 = torch::randn({5, 3}, torch::kFloat64);
   const auto target = torch::tensor({0, 1, 0, 1, 0}, torch::kLong);
-  const jyppx::nn::ContrastiveLoss criterion(0.75, "sum");
+  const jyppx::liuding::nn::ContrastiveLoss criterion(0.75, "sum");
 
   EXPECT_DOUBLE_EQ(criterion.margin(), 0.75);
   EXPECT_EQ(criterion.reduction(), "sum");
   EXPECT_TRUE(torch::allclose(
       criterion.forward(x1, x2, target),
       functional::contrastive_loss(x1, x2, target, 0.75, "sum"), 1e-12, 1e-12));
-  EXPECT_THROW(jyppx::nn::ContrastiveLoss(0.75, "average"),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::nn::ContrastiveLoss(0.75, "average"),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(ContrastiveLossCudaTest, ValidatesLabelsOnCuda) {

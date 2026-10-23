@@ -3,10 +3,10 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/nn/loss/contrastive_loss.hpp>
-#include <jyppx/nn/loss/dice_loss.hpp>
-#include <jyppx/nn/loss/focal_loss.hpp>
-#include <jyppx/nn/loss/label_smoothing_cross_entropy.hpp>
+#include <jyppx/liuding/nn/loss/contrastive_loss.hpp>
+#include <jyppx/liuding/nn/loss/dice_loss.hpp>
+#include <jyppx/liuding/nn/loss/focal_loss.hpp>
+#include <jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>
 
 #include <torch/cuda.h>
 #include <torch/nn/functional/loss.h>
@@ -17,7 +17,7 @@
 
 namespace {
 
-namespace functional = jyppx::nn::functional;
+namespace functional = jyppx::liuding::nn::functional;
 
 torch::Tensor binary_focal_reference(const torch::Tensor& logits,
                                      const torch::Tensor& target, double alpha,
@@ -185,8 +185,8 @@ TEST(LossReferenceMatrixTest, BinaryDiceMatchesTorchReferenceAndGradient) {
       actual_logits.detach().clone().set_requires_grad(true);
   const auto target = torch::tensor(
       {{0.0, 1.0, 1.0, 0.0}, {1.0, 0.0, 1.0, 1.0}}, torch::kFloat64);
-  jyppx::nn::DiceLossOptions options;
-  options.mode = jyppx::nn::DiceMode::binary;
+  jyppx::liuding::nn::DiceLossOptions options;
+  options.mode = jyppx::liuding::nn::DiceMode::binary;
   options.smooth = 0.75;
   options.epsilon = 1e-9;
 
@@ -274,8 +274,8 @@ TEST(LossReferenceMatrixCudaTest, HalfForwardBackwardMatchesReferences) {
     auto reference_logits =
         actual_logits.detach().clone().set_requires_grad(true);
     const auto target = torch::randint(0, 2, {4, 3, 8}, options);
-    jyppx::nn::DiceLossOptions dice_options;
-    dice_options.mode = jyppx::nn::DiceMode::binary;
+    jyppx::liuding::nn::DiceLossOptions dice_options;
+    dice_options.mode = jyppx::liuding::nn::DiceMode::binary;
     dice_options.smooth = 0.5;
     dice_options.epsilon = 1e-4;
     const auto actual =

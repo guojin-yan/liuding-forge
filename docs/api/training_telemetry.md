@@ -11,24 +11,24 @@ Construct a neutral sink, register the exact semantics and context of every
 metric key the Trainer can emit, and supply the outbox in `FitRequest`:
 
 ```cpp
-#include <jyppx/training/telemetry_adapter.hpp>
-#include <jyppx/training/trainer.hpp>
+#include <jyppx/liuding/training/telemetry_adapter.hpp>
+#include <jyppx/liuding/training/trainer.hpp>
 
-jyppx::training::TrainingTelemetryAdapterOptions telemetry;
+jyppx::liuding::training::TrainingTelemetryAdapterOptions telemetry;
 telemetry.project_id = "project.demo";
 telemetry.attempt_id = "attempt.1";
 telemetry.metrics["validation.loss"] = {
     .definition = {
         .metric_id = "training.validation.loss",
-        .unit = jyppx::TelemetryMetricUnit::dimensionless,
-        .aggregation = jyppx::TelemetryAggregation::mean,
-        .direction = jyppx::TelemetryMetricDirection::minimize,
+        .unit = jyppx::liuding::TelemetryMetricUnit::dimensionless,
+        .aggregation = jyppx::liuding::TelemetryAggregation::mean,
+        .direction = jyppx::liuding::TelemetryMetricDirection::minimize,
         .context_keys = {"split"}},
     .context = {{"split", "validation"}}};
 
-// durable_sink is a caller-created shared_ptr<jyppx::TelemetrySink>.
-request.event_outbox = std::make_shared<jyppx::training::EventOutbox>(
-    std::vector<std::shared_ptr<jyppx::TelemetrySink>>{durable_sink}, telemetry);
+// durable_sink is a caller-created shared_ptr<jyppx::liuding::TelemetrySink>.
+request.event_outbox = std::make_shared<jyppx::liuding::training::EventOutbox>(
+    std::vector<std::shared_ptr<jyppx::liuding::TelemetrySink>>{durable_sink}, telemetry);
 // Set the remaining FitRequest dependencies, then call trainer.prepare(request).
 ```
 

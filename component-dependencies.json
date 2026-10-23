@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "aggregate_headers": [
-    "jyppx.hpp"
+    "liuding.hpp"
   ],
   "components": {
     "core": {
@@ -219,7 +219,7 @@
     }
   },
   "ownership_assertions": {
-    "include/jyppx/core/value_schema.hpp": "core",
-    "include/jyppx/utils": "core"
+    "include/jyppx/liuding/core/value_schema.hpp": "core",
+    "include/jyppx/liuding/utils": "core"
   }
 }

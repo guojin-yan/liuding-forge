@@ -27,7 +27,7 @@ observer states, oversized counts, nonfinite bias, invalid flags/padding and
 trailing bytes. Actual codec-generated seeds are validated by the C++
 executables themselves.
 
-Only documented input-rejection `jyppx::Error` codes are caught. Internal
+Only documented input-rejection `jyppx::liuding::Error` codes are caught. Internal
 errors, unexpected framework categories, standard exceptions, invariant
 failures and sanitizer errors remain visible. Backend-reported errors are
 accepted only by the protocol harness. Once an input parses, later
@@ -51,7 +51,7 @@ bytes per lineage string. The observer has a fixed production checkpoint byte
 contract, capped at 128 bytes by the harness, and the reader checks the exact
 limit requested by the production restore path.
 
-`JYPPX_BUILD_FUZZERS=ON` requires Clang and the complete SDK. Only that opt-in
+`JYPPX_LIUDING_BUILD_FUZZERS=ON` requires Clang and the complete SDK. Only that opt-in
 build instruments framework implementation archives with `fuzzer-no-link`,
 in addition to the harness coverage and libFuzzer entry point. Third-party
 libraries are not rebuilt with libFuzzer coverage.
@@ -63,23 +63,23 @@ CMAKE_PREFIX_PATH=/path/to/libtorch JYPPX_FUZZ_RUNS=10000 \
 
 The runner always reuses `out/build/fuzz-linux` and preserves discovered corpora
 under `out/fuzz/linux`. It runs all nine targets with ASan/UBSan, a fixed seed,
-per-input timeout and process RSS bound. `JYPPX_BUILD_PARALLEL_LEVEL`,
+per-input timeout and process RSS bound. `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL`,
 `JYPPX_FUZZ_RUNS`, `JYPPX_FUZZ_SEED` and `JYPPX_FUZZ_RSS_LIMIT_MB` customize the
 bounded run. Configure/build logs, per-target dictionaries/corpus counts/fuzzer
 logs/artifacts and overall success/failure metadata are retained. A failed
 target stops the gate and retains its reproducer; no failure is skipped.
 
 The optional `jyppx_fuzz_quantization` target exists only when
-`jyppx::quantization` is present and links that Preview explicitly. The
+`jyppx::liuding::quantization` is present and links that Preview explicitly. The
 nine-target baseline runner remains unchanged. After its persistent cache has
 been configured with Clang, libFuzzer, ASan and UBSan, add and run just this new
 target without rebuilding/rerunning the nine completed target gates:
 
 ```sh
 set -euo pipefail
-cmake -S . -B out/build/fuzz-linux -DJYPPX_BUILD_QUANTIZATION=ON
+cmake -S . -B out/build/fuzz-linux -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON
 cmake --build out/build/fuzz-linux --target jyppx_fuzz_quantization \
-  --parallel "${JYPPX_BUILD_PARALLEL_LEVEL:-2}"
+  --parallel "${JYPPX_LIUDING_BUILD_PARALLEL_LEVEL:-2}"
 target_output="$PWD/out/fuzz/linux/quantization"
 mkdir -p "$target_output/corpus" "$target_output/artifacts"
 cp -R tests/fixtures/fuzz/quantization/corpus/. "$target_output/corpus/"

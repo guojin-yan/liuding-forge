@@ -4,8 +4,8 @@
 
 #include "cli.hpp"
 
-#include <jyppx/foundation/build_config.hpp>
-#include <jyppx/foundation/version.hpp>
+#include <jyppx/liuding/foundation/build_config.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 
 #include <algorithm>
 #include <charconv>
@@ -23,7 +23,7 @@
 #include <windows.h>
 #endif
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 
 [[noreturn]] void usage(std::string_view operation, std::string_view hint) {
   throw InvalidArgument(
@@ -224,7 +224,7 @@ Result execute(const Arguments& arguments) {
                  {"display_name_en", "Liuding Forge"},
                  {"brand", "Liuding Forge"},
                  {"artifact_prefix", "liuding-forge"},
-                 {"legacy_name", "JYPPX Training Framework"},
+                 {"project_alias", "JYPPX Training Framework"},
                  {"version", version()},
                  {"build", parse_json(build_fingerprint_json())}},
             0};
@@ -418,7 +418,7 @@ int main_entry(std::span<const std::string_view> values) {
     return 3;
   }
 }
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli
 
 #ifdef _WIN32
 int wmain(int argc, wchar_t* argv[]) try {
@@ -439,7 +439,7 @@ int wmain(int argc, wchar_t* argv[]) try {
   std::vector<std::string_view> arguments;
   arguments.reserve(storage.size());
   for (const auto& value : storage) arguments.emplace_back(value);
-  return jyppx::cli::main_entry(arguments);
+  return jyppx::liuding::cli::main_entry(arguments);
 } catch (...) {
   // Argument allocation and even error rendering can fail before main_entry
   // reaches its normal structured-error boundary. No exception escapes main.
@@ -451,7 +451,7 @@ int main(int argc, char* argv[]) try {
   std::vector<std::string_view> arguments;
   if (argc > 1) arguments.reserve(static_cast<std::size_t>(argc - 1));
   for (int i = 1; i < argc; ++i) arguments.emplace_back(argv[i]);
-  return jyppx::cli::main_entry(arguments);
+  return jyppx::liuding::cli::main_entry(arguments);
 } catch (...) {
   std::fputs("Command failed before a response could be rendered.\n", stderr);
   return 3;

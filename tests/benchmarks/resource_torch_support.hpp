@@ -13,7 +13,7 @@
 #include <c10/cuda/CUDACachingAllocator.h>
 #endif
 
-namespace jyppx::benchmarks {
+namespace jyppx::liuding::benchmarks {
 inline torch::Device configure_device(const Arguments& args, Json& sample) {
   torch::set_num_threads(1);
   torch::set_num_interop_threads(1);
@@ -103,5 +103,5 @@ inline void cuda_metrics(const torch::Device& device, Json& sample) {
   static_cast<void>(sample);
 #endif
 }
-}  // namespace jyppx::benchmarks
+}  // namespace jyppx::liuding::benchmarks
 #endif

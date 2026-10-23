@@ -10,7 +10,7 @@
  * @note This is a private CLI implementation, not an installed component API.
  */
 
-#include <jyppx/experiment/telemetry_exporters.hpp>
+#include <jyppx/liuding/experiment/telemetry_exporters.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -23,7 +23,7 @@
 #include <string_view>
 #include <vector>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 
 /** @brief Fixed launch configuration; no field is populated from an event. */
 struct SidecarProcessOptions {
@@ -132,6 +132,6 @@ class SidecarProcessTransport final
   std::unique_ptr<Impl> impl_;  ///< Exclusive subprocess/pipe ownership.
 };
 
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli
 
 #endif  // JYPPX_TOOLS_CLI_SIDECAR_PROCESS_HPP

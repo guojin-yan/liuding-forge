@@ -1,6 +1,6 @@
 # API: Delegated Adam Adapter
 
-`#include <jyppx/optim/adam_adapter.hpp>`
+`#include <jyppx/liuding/optim/adam_adapter.hpp>`
 
 `AdamOptimizerAdapter` owns `torch::optim::Adam` and delegates every numerical
 update to the supported LibTorch implementation. Construction requires a
@@ -15,9 +15,9 @@ options remain fixed. Any later synchronization attempt is rejected once a
 step or native Adam state exists.
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::AdamOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
     "optimizer.adam",
-    std::vector<jyppx::optim::AdamParameterGroup>{{
+    std::vector<jyppx::liuding::optim::AdamParameterGroup>{{
         .group_id = "main",
         .parameters = {{.parameter_id = "encoder.weight",
                         .parameter = encoder_weight}},

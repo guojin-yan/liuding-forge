@@ -5,12 +5,12 @@
 #ifndef JYPPX_TESTS_FUZZ_TELEMETRY_SEED_HPP
 #define JYPPX_TESTS_FUZZ_TELEMETRY_SEED_HPP
 
-#include <jyppx/foundation/telemetry.hpp>
+#include <jyppx/liuding/foundation/telemetry.hpp>
 
 #include <cstdint>
 #include <string>
 
-namespace jyppx::fuzz {
+namespace jyppx::liuding::fuzz {
 
 inline TelemetryLimits telemetry_limits() {
   return {.max_identifier_bytes = 256U,
@@ -96,6 +96,6 @@ inline TelemetryEnvelope seed_envelope(unsigned kind = 2U) {
   return result;
 }
 
-}  // namespace jyppx::fuzz
+}  // namespace jyppx::liuding::fuzz
 
 #endif  // JYPPX_TESTS_FUZZ_TELEMETRY_SEED_HPP

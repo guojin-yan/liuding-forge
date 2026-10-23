@@ -12,8 +12,8 @@ validation before any supported release claim. Presence of a backend descriptor
 or this source file is not execution evidence.
 
 ```cpp
-using namespace jyppx;
-using namespace jyppx::interop;
+using namespace jyppx::liuding;
+using namespace jyppx::liuding::interop;
 
 nn::InvocationSchema input{
     .positional = {ValueSchema::tensor(), ValueSchema::tensor()},
@@ -108,7 +108,7 @@ definition/save/load fixtures, without Python, to exercise numerical execution,
 default/keyword binding, all ten dtype identity paths, typed containers,
 Optional/None, corruption/trust, state accounting, resources, failure closure,
 storage ownership, cancellation and concurrent private state. Define
-`JYPPX_TEST_TORCHSCRIPT_CUDA=1` only for a real CUDA lane; those tests require
+`JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA=1` only for a real CUDA lane; those tests require
 availability and never silently skip.
 
 The optional `scripts/interop/verify_torchscript_compatibility.py` requires an
@@ -118,6 +118,6 @@ an official scripted artifact, verifies Python eager/scripted results, runs the
 real C++ fixture test and records artifact/executable digests and exact versions.
 Pass exact `--expected-python-version`, `--expected-torch-version`, the actual
 `--jyppx-commit`, `--cpp-test-executable`, and `--work-dir`; `--cuda` additionally
-requires both real CUDA and `JYPPX_TEST_TORCHSCRIPT_CUDA=1`. Missing or skipped
+requires both real CUDA and `JYPPX_LIUDING_TEST_TORCHSCRIPT_CUDA=1`. Missing or skipped
 tests fail. No Python interoperability evidence is claimed until this opt-in
 workflow actually passes. Do not install Torch into the telemetry sidecar env.

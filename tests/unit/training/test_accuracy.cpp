@@ -1,15 +1,15 @@
-// Unit tests for the jyppx::training::metrics::Accuracy metric.
+// Unit tests for the jyppx::liuding::training::metrics::Accuracy metric.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/training/metrics/accuracy.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/training/metrics/accuracy.hpp>
 
 #include <gtest/gtest.h>
 #include <limits>
 
 namespace {
 
-using jyppx::Tensor;
-using jyppx::training::metrics::Accuracy;
+using jyppx::liuding::Tensor;
+using jyppx::liuding::training::metrics::Accuracy;
 
 TEST(AccuracyTest, PerfectPredictionsScoreOne) {
   Accuracy accuracy;
@@ -65,18 +65,18 @@ TEST(AccuracyTest, RejectsAmbiguousOrInvalidLabelsWithoutChangingState) {
   accuracy.update(torch::tensor({1.0f}), torch::tensor({1}));
 
   EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::tensor({1.5f})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       accuracy.update(torch::tensor({{0.1f, 0.9f}}), torch::tensor({2})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::tensor({1.0e30f})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::empty({0})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       accuracy.update(torch::tensor({std::numeric_limits<float>::quiet_NaN()}),
                       torch::tensor({0})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_DOUBLE_EQ(accuracy.compute(), 1.0);
 }
 
@@ -91,24 +91,24 @@ TEST(AccuracyTest, RejectsUndefinedScalarComplexAndNegativeInputs) {
   accuracy.update(torch::tensor({1.0f}), torch::tensor({1}));
 
   EXPECT_THROW(accuracy.update(Tensor{}, torch::tensor({1})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), Tensor{}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::tensor(1.0f), torch::tensor({1})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::ones({1}, torch::kComplexFloat),
                                torch::tensor({1})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::tensor({1.0f}),
                                torch::ones({1}, torch::kComplexFloat)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::tensor({-1.0f})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::tensor({1.0f}), torch::tensor({-1})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(accuracy.update(torch::tensor({{0.1f, 0.9f}, {0.9f, 0.1f}}),
                                torch::tensor({1})),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_DOUBLE_EQ(accuracy.compute(), 1.0);
 }
 

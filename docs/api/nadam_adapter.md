@@ -1,6 +1,6 @@
 # API: Native NAdam Adapter
 
-`#include <jyppx/optim/nadam_adapter.hpp>`
+`#include <jyppx/liuding/optim/nadam_adapter.hpp>`
 
 `NAdamOptimizerAdapter` provides current-only NAdam and NAdamW updates through
 a JYPPX-owned tensor kernel. LibTorch does not publish NAdam in its C++
@@ -15,9 +15,9 @@ topology. Only the complete vector of learning rates may change after
 construction.
 
 ```cpp
-auto optimizer = std::make_shared<jyppx::optim::NAdamOptimizerAdapter>(
+auto optimizer = std::make_shared<jyppx::liuding::optim::NAdamOptimizerAdapter>(
     "optimizer.nadam",
-    std::vector<jyppx::optim::NAdamParameterGroup>{
+    std::vector<jyppx::liuding::optim::NAdamParameterGroup>{
         {.group_id = "decay",
          .parameters = decay_parameter_bindings,
          .options = {.learning_rate = 2e-3,

@@ -1,10 +1,10 @@
 # Focal loss
 
-Status: `native target` in the default `jyppx::nn` component.
+Status: `native target` in the default `jyppx::liuding::nn` component.
 
-Header: `#include <jyppx/nn/loss/focal_loss.hpp>`
+Header: `#include <jyppx/liuding/nn/loss/focal_loss.hpp>`
 
-Link target: `jyppx::nn`
+Link target: `jyppx::liuding::nn`
 
 ## Semantic matrix
 
@@ -19,16 +19,16 @@ Link target: `jyppx::nn`
 | Reduction | `none`, `mean`, or `sum` |
 | Device | Input and target use the same CPU or CUDA device |
 | Gradient | Autograd flows to floating logits through stable sigmoid/cross-entropy tensor ops |
-| Errors | Invalid contracts raise `jyppx::InvalidArgument`; backend failures retain a nested cause |
+| Errors | Invalid contracts raise `jyppx::liuding::InvalidArgument`; backend failures retain a nested cause |
 
 ## API forms
 
 ```cpp
-namespace F = jyppx::nn::functional;
+namespace F = jyppx::liuding::nn::functional;
 
 auto loss = F::focal_loss(logits, target, 0.25, 2.0, "mean");
 
-jyppx::nn::FocalLoss criterion(0.25, 2.0);
+jyppx::liuding::nn::FocalLoss criterion(0.25, 2.0);
 auto module_loss = criterion.forward(logits, target);
 ```
 
@@ -41,4 +41,4 @@ not part of the training objective.
 The focused target verifies the gamma-zero cross-entropy identity, hand-computed
 binary weighting, all reductions, backward finiteness, invalid alpha/gamma,
 shape/device/dtype/class-index contracts, module parity, and installed-package
-consumer compilation through the exported `jyppx::nn` target.
+consumer compilation through the exported `jyppx::liuding::nn` target.

@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/training/metrics/ranking.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/training/metrics/ranking.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -21,11 +21,11 @@
 
 namespace {
 
-class MemoryStateStore final : public jyppx::StateWriter,
-                               public jyppx::StateReader {
+class MemoryStateStore final : public jyppx::liuding::StateWriter,
+                               public jyppx::liuding::StateReader {
  public:
   /** @brief Creates an empty store governed by one participant manifest. */
-  explicit MemoryStateStore(jyppx::StateManifest manifest)
+  explicit MemoryStateStore(jyppx::liuding::StateManifest manifest)
       : manifest_(std::move(manifest)) {}
 
   /** @brief Copies one declared, bounded state blob into memory. */
@@ -33,7 +33,7 @@ class MemoryStateStore final : public jyppx::StateWriter,
                   std::span<const std::byte> data) override {
     const auto field =
         std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::StateFieldDescriptor& descriptor) {
+                     [name](const jyppx::liuding::StateFieldDescriptor& descriptor) {
                        return descriptor.name == name;
                      });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes ||
@@ -41,12 +41,12 @@ class MemoryStateStore final : public jyppx::StateWriter,
              .emplace(std::string(name),
                       std::vector<std::byte>(data.begin(), data.end()))
              .second) {
-      throw jyppx::SerializationError("invalid ranking metric test write");
+      throw jyppx::liuding::SerializationError("invalid ranking metric test write");
     }
   }
 
   /** @brief Returns the stored participant manifest. */
-  const jyppx::StateManifest& manifest() const noexcept override {
+  const jyppx::liuding::StateManifest& manifest() const noexcept override {
     return manifest_;
   }
 
@@ -60,7 +60,7 @@ class MemoryStateStore final : public jyppx::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end() || blob->second.size() > max_bytes) {
-      throw jyppx::SerializationError("invalid ranking metric test read");
+      throw jyppx::liuding::SerializationError("invalid ranking metric test read");
     }
     return blob->second;
   }
@@ -71,12 +71,12 @@ class MemoryStateStore final : public jyppx::StateWriter,
   }
 
  private:
-  jyppx::StateManifest manifest_;  ///< Exact manifest stored with the blobs.
+  jyppx::liuding::StateManifest manifest_;  ///< Exact manifest stored with the blobs.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Owned blobs indexed by stable field name.
 };
 
-jyppx::training::metrics::ExactRankingResourceOptions limits(
+jyppx::liuding::training::metrics::ExactRankingResourceOptions limits(
     std::size_t max_observations) {
   return {.max_classes = 32,
           .max_observations = max_observations,
@@ -120,7 +120,7 @@ double pairwise_auroc_reference(const std::vector<double>& input_scores,
 }
 
 TEST(RankingMetricTest, PublishesStableDescriptorAndGroupedThresholdCurve) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   BinaryAUROC metric({.metric_id = "ranking.validation"}, limits(8));
   metric.update(scores(), labels());
 
@@ -133,8 +133,8 @@ TEST(RankingMetricTest, PublishesStableDescriptorAndGroupedThresholdCurve) {
   EXPECT_EQ(metric.observations(), 4U);
   EXPECT_EQ(metric.positive_observations(), 2U);
   EXPECT_EQ(metric.negative_observations(), 2U);
-  EXPECT_EQ(metric.describe_state().restore_level, jyppx::RestoreLevel::exact);
-  EXPECT_NO_THROW(jyppx::validate_checkpoint_participant(metric));
+  EXPECT_EQ(metric.describe_state().restore_level, jyppx::liuding::RestoreLevel::exact);
+  EXPECT_NO_THROW(jyppx::liuding::validate_checkpoint_participant(metric));
 
   EXPECT_EQ(metric.threshold_curve(),
             (std::vector<BinaryRankingCurvePoint>{{.threshold = 0.9,
@@ -153,15 +153,15 @@ TEST(RankingMetricTest, PublishesStableDescriptorAndGroupedThresholdCurve) {
                                                    .true_negatives = 0,
                                                    .false_negatives = 0}}));
   EXPECT_THROW(BinaryAUROC({.metric_id = "invalid/id"}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(BinaryAUROC({}, {.max_observations = 2,
                                 .max_topology_bytes = 1024,
                                 .max_observation_bytes = 16}),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(RankingMetricTest, ComputesTieAwareAuRocAndAveragePrecision) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   BinaryAUROC auroc({.metric_id = "ranking.auroc"});
   BinaryAveragePrecision average_precision(
       {.metric_id = "ranking.average_precision"});
@@ -177,7 +177,7 @@ TEST(RankingMetricTest, ComputesTieAwareAuRocAndAveragePrecision) {
 }
 
 TEST(RankingMetricTest, MatchesIndependentPairwiseDatasetReference) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   const std::vector<double> input_scores{0.95, 0.8,  0.8, 0.72, 0.51, 0.51,
                                          0.4,  0.33, 0.2, 0.2,  0.05};
   const std::vector<std::int64_t> input_labels{1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0};
@@ -190,7 +190,7 @@ TEST(RankingMetricTest, MatchesIndependentPairwiseDatasetReference) {
 }
 
 TEST(RankingMetricTest, ComputesCanonicalOrderingBoundaries) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   const auto target = torch::tensor({1, 1, 0, 0}, torch::kInt64);
   BinaryAUROC perfect({.metric_id = "ranking.perfect"});
   BinaryAUROC inverse({.metric_id = "ranking.inverse"});
@@ -208,7 +208,7 @@ TEST(RankingMetricTest, ComputesCanonicalOrderingBoundaries) {
 }
 
 TEST(RankingMetricTest, IsInvariantToBatchPartitionAndMergeOrder) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   BinaryAveragePrecision single({.metric_id = "ranking.merge"});
   BinaryAveragePrecision first({.metric_id = "ranking.merge"});
   BinaryAveragePrecision second({.metric_id = "ranking.merge"});
@@ -230,27 +230,27 @@ TEST(RankingMetricTest, IsInvariantToBatchPartitionAndMergeOrder) {
 
   BinaryAveragePrecision incompatible({.metric_id = "ranking.other"});
   const auto before = forward.threshold_curve();
-  EXPECT_THROW(forward.merge(incompatible), jyppx::CompatibilityError);
+  EXPECT_THROW(forward.merge(incompatible), jyppx::liuding::CompatibilityError);
   EXPECT_EQ(forward.threshold_curve(), before);
 
   BinaryAveragePrecision bounded({.metric_id = "ranking.merge"}, limits(3));
   bounded.merge(first);
   const auto bounded_before = bounded.threshold_curve();
-  EXPECT_THROW(bounded.merge(second), jyppx::ResourceExhausted);
+  EXPECT_THROW(bounded.merge(second), jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(bounded.threshold_curve(), bounded_before);
 }
 
 TEST(RankingMetricTest, FreezesEmptyIgnoreAndUndefinedClassSemantics) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   BinaryAUROC empty({.metric_id = "ranking.empty"});
-  EXPECT_THROW(empty.compute(), jyppx::NotReady);
-  EXPECT_THROW(empty.threshold_curve(), jyppx::NotReady);
+  EXPECT_THROW(empty.compute(), jyppx::liuding::NotReady);
+  EXPECT_THROW(empty.threshold_curve(), jyppx::liuding::NotReady);
 
   BinaryAUROC ignored({.metric_id = "ranking.ignored", .ignore_index = -1});
   ignored.update(torch::tensor({0.1, 0.2}),
                  torch::tensor({-1, -1}, torch::kInt64));
   EXPECT_EQ(ignored.observations(), 0U);
-  EXPECT_THROW(ignored.compute(), jyppx::NotReady);
+  EXPECT_THROW(ignored.compute(), jyppx::liuding::NotReady);
 
   const auto positives = torch::tensor({1, 1}, torch::kInt64);
   BinaryAUROC undefined_error({.metric_id = "ranking.undefined.error"});
@@ -262,7 +262,7 @@ TEST(RankingMetricTest, FreezesEmptyIgnoreAndUndefinedClassSemantics) {
   for (auto* metric : {&undefined_error, &undefined_zero, &undefined_one}) {
     metric->update(torch::tensor({0.2, 0.8}), positives);
   }
-  EXPECT_THROW(undefined_error.compute(), jyppx::NumericalError);
+  EXPECT_THROW(undefined_error.compute(), jyppx::liuding::NumericalError);
   EXPECT_DOUBLE_EQ(undefined_zero.compute(), 0.0);
   EXPECT_DOUBLE_EQ(undefined_one.compute(), 1.0);
 
@@ -277,37 +277,37 @@ TEST(RankingMetricTest, FreezesEmptyIgnoreAndUndefinedClassSemantics) {
        .undefined_policy = UndefinedRankingPolicy::zero});
   no_positive.update(torch::tensor({0.2, 0.8}), negatives);
   no_positive_zero.update(torch::tensor({0.2, 0.8}), negatives);
-  EXPECT_THROW(no_positive.compute(), jyppx::NumericalError);
+  EXPECT_THROW(no_positive.compute(), jyppx::liuding::NumericalError);
   EXPECT_DOUBLE_EQ(no_positive_zero.compute(), 0.0);
 }
 
 TEST(RankingMetricTest, RejectsInvalidOrOversizedUpdateWithoutMutation) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   BinaryAUROC metric({.metric_id = "ranking.atomic"}, limits(3));
   metric.update(torch::tensor({0.9}), torch::tensor({1}, torch::kInt64));
   const auto before = metric.threshold_curve();
 
   EXPECT_THROW(
       metric.update(torch::tensor({0.8, 0.7}), torch::tensor({0.0, 1.0})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       metric.update(torch::ones({1, 2}), torch::tensor({0, 1}, torch::kInt64)),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(metric.update(torch::tensor({0.8, 0.7}),
                              torch::tensor({0, 2}, torch::kInt64)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       metric.update(torch::tensor({std::numeric_limits<double>::infinity()}),
                     torch::tensor({0}, torch::kInt64)),
-      jyppx::NumericalError);
+      jyppx::liuding::NumericalError);
   EXPECT_THROW(metric.update(torch::tensor({0.8, 0.7, 0.6}),
                              torch::tensor({0, 1, 0}, torch::kInt64)),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(metric.threshold_curve(), before);
 }
 
 TEST(RankingMetricTest, RestoresExactTypedStateAtomically) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   BinaryAveragePrecision source({.metric_id = "ranking.checkpoint"}, limits(8));
   source.update(scores(), labels());
   auto manifest = source.describe_state();
@@ -321,7 +321,7 @@ TEST(RankingMetricTest, RestoresExactTypedStateAtomically) {
   BinaryAveragePrecision restored({.metric_id = "ranking.checkpoint"},
                                   limits(8));
   restored.update(torch::tensor({0.5}), torch::tensor({1}, torch::kInt64));
-  restored.load_state(store, jyppx::RestorePolicy::exact_only);
+  restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(restored.threshold_curve(), source.threshold_curve());
   EXPECT_DOUBLE_EQ(restored.compute(), source.compute());
 
@@ -329,19 +329,19 @@ TEST(RankingMetricTest, RestoresExactTypedStateAtomically) {
       {.metric_id = "ranking.checkpoint",
        .undefined_policy = UndefinedRankingPolicy::zero},
       limits(8));
-  EXPECT_THROW(incompatible.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(incompatible.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(incompatible.observations(), 0U);
 
   const auto restored_before = restored.threshold_curve();
   store.corrupt_final_label();
-  EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   EXPECT_EQ(restored.threshold_curve(), restored_before);
 }
 
 TEST(RankingMetricTest, ComputesMulticlassAggregationsFromOneVsRestState) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   const auto predictions = torch::tensor({{0.9, 0.2, 0.1},
                                           {0.8, 0.7, 0.3},
                                           {0.4, 0.6, 0.8},
@@ -399,12 +399,12 @@ TEST(RankingMetricTest, ComputesMulticlassAggregationsFromOneVsRestState) {
   none_options.average = RankingAverage::none;
   MulticlassAUROC none(none_options);
   none.update(predictions, targets);
-  EXPECT_THROW(none.compute(), jyppx::InvalidArgument);
+  EXPECT_THROW(none.compute(), jyppx::liuding::InvalidArgument);
   EXPECT_EQ(none.per_class_scores(), expected);
 }
 
 TEST(RankingMetricTest, FreezesMultilabelIgnoreAndUndefinedClassSemantics) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   const auto predictions =
       torch::tensor({{0.9, 0.1}, {0.8, 0.7}, {0.2, 0.6}}, torch::kFloat64);
   const auto targets = torch::tensor({{1, 0}, {1, 1}, {0, -1}}, torch::kInt64);
@@ -434,8 +434,8 @@ TEST(RankingMetricTest, FreezesMultilabelIgnoreAndUndefinedClassSemantics) {
   zero_policy.update(predictions, sparse_targets);
   EXPECT_EQ(zero_policy.per_class_scores(), (std::vector<double>{0.5, 0.0}));
   EXPECT_DOUBLE_EQ(zero_policy.compute(), 0.25);
-  EXPECT_THROW(zero_policy.threshold_curve(1), jyppx::NotReady);
-  EXPECT_THROW(zero_policy.threshold_curve(2), jyppx::InvalidArgument);
+  EXPECT_THROW(zero_policy.threshold_curve(1), jyppx::liuding::NotReady);
+  EXPECT_THROW(zero_policy.threshold_curve(2), jyppx::liuding::InvalidArgument);
 
   MultilabelAUROC error_policy(
       {.metric_id = "ranking.multilabel.error",
@@ -444,7 +444,7 @@ TEST(RankingMetricTest, FreezesMultilabelIgnoreAndUndefinedClassSemantics) {
        .undefined_policy = UndefinedRankingPolicy::error,
        .ignore_index = -1});
   error_policy.update(predictions, sparse_targets);
-  EXPECT_THROW(error_policy.compute(), jyppx::NumericalError);
+  EXPECT_THROW(error_policy.compute(), jyppx::liuding::NumericalError);
 
   MultilabelAUROC empty({.metric_id = "ranking.multilabel.empty",
                          .num_classes = 2,
@@ -453,11 +453,11 @@ TEST(RankingMetricTest, FreezesMultilabelIgnoreAndUndefinedClassSemantics) {
                          .ignore_index = -1});
   empty.update(predictions, torch::full({3, 2}, -1, torch::kInt64));
   EXPECT_EQ(empty.observations(), 0U);
-  EXPECT_THROW(empty.compute(), jyppx::NotReady);
+  EXPECT_THROW(empty.compute(), jyppx::liuding::NotReady);
 }
 
 TEST(RankingMetricTest, MergesAndRestoresClasswiseExactStateAtomically) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   const auto predictions = torch::tensor(
       {{0.9, 0.2, 0.1}, {0.8, 0.7, 0.3}, {0.4, 0.6, 0.8}}, torch::kFloat64);
   const auto targets = torch::tensor({0, 1, 2}, torch::kInt64);
@@ -480,31 +480,31 @@ TEST(RankingMetricTest, MergesAndRestoresClasswiseExactStateAtomically) {
   full.save_state(store);
   MulticlassAveragePrecision restored(options, limits(12));
   restored.update(predictions.narrow(0, 0, 1), targets.narrow(0, 0, 1));
-  restored.load_state(store, jyppx::RestorePolicy::exact_only);
+  restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(restored.per_class_scores(), full.per_class_scores());
   EXPECT_DOUBLE_EQ(restored.compute(), full.compute());
 
   auto incompatible_options = options;
   incompatible_options.average = RankingAverage::macro;
   MulticlassAveragePrecision incompatible(incompatible_options, limits(12));
-  EXPECT_THROW(incompatible.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::CompatibilityError);
+  EXPECT_THROW(incompatible.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(incompatible.observations(), 0U);
 
   const auto before = restored.per_class_scores();
   store.corrupt_final_label();
-  EXPECT_THROW(restored.load_state(store, jyppx::RestorePolicy::exact_only),
-               jyppx::SerializationError);
+  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   EXPECT_EQ(restored.per_class_scores(), before);
 
   MulticlassAveragePrecision bounded(options, limits(8));
   bounded.update(predictions.narrow(0, 0, 1), targets.narrow(0, 0, 1));
-  EXPECT_THROW(bounded.merge(second), jyppx::ResourceExhausted);
+  EXPECT_THROW(bounded.merge(second), jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(bounded.observations(), 3U);
 }
 
 TEST(RankingMetricTest, RejectsInvalidClasswiseUpdatesWithoutMutation) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   MulticlassAUROC metric({.metric_id = "ranking.classwise.atomic",
                           .num_classes = 2,
                           .average = RankingAverage::macro},
@@ -515,42 +515,42 @@ TEST(RankingMetricTest, RejectsInvalidClasswiseUpdatesWithoutMutation) {
 
   EXPECT_THROW(metric.update(torch::tensor({{0.7, 0.3}}),
                              torch::tensor({2}, torch::kInt64)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(metric.update(torch::tensor({0.7, 0.3}),
                              torch::tensor({0}, torch::kInt64)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       metric.update(
           torch::tensor({{std::numeric_limits<double>::infinity(), 0.3}}),
           torch::tensor({0}, torch::kInt64)),
-      jyppx::NumericalError);
+      jyppx::liuding::NumericalError);
   EXPECT_THROW(metric.update(torch::tensor({{0.7, 0.3}}),
                              torch::tensor({0}, torch::kInt64)),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(metric.observations(), 4U);
   EXPECT_EQ(metric.per_class_scores(), before);
 
-  EXPECT_THROW(MulticlassAUROC({.num_classes = 1}), jyppx::InvalidArgument);
+  EXPECT_THROW(MulticlassAUROC({.num_classes = 1}), jyppx::liuding::InvalidArgument);
   MulticlassAUROC pair_limited({.num_classes = 3}, limits(2));
   EXPECT_THROW(pair_limited.update(torch::tensor({{0.7, 0.2, 0.1}}),
                                    torch::tensor({0}, torch::kInt64)),
-               jyppx::ResourceExhausted);
+               jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(pair_limited.observations(), 0U);
 }
 
 TEST(RankingMetricTest, ResetPreservesDescriptorAndClearsReadiness) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   BinaryAUROC metric({.metric_id = "ranking.reset"});
   metric.update(scores(), labels());
   metric.reset();
 
   EXPECT_EQ(metric.participant_id(), "ranking.reset");
   EXPECT_EQ(metric.observations(), 0U);
-  EXPECT_THROW(metric.compute(), jyppx::NotReady);
+  EXPECT_THROW(metric.compute(), jyppx::liuding::NotReady);
 }
 
 TEST(RankingMetricTest, AcceptsCudaScoresAndLabelsWhenAvailable) {
-  using namespace jyppx::training::metrics;
+  using namespace jyppx::liuding::training::metrics;
   if (!torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA not available";
   }

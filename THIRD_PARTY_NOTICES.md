@@ -27,7 +27,7 @@ JYPPX package.
 
 - Project: https://sqlite.org/
 - Role: embedded local run metadata, transactions, and CAS coordination inside
-  `jyppx::experiment`
+  `jyppx::liuding::experiment`
 - Version selected by the current build: 3.54.1
 - Source: https://sqlite.org/2026/sqlite-amalgamation-3540100.zip
 - Upstream status: public domain (https://sqlite.org/copyright.html)
@@ -60,7 +60,7 @@ JYPPX package.
 
 - Project: https://github.com/nlohmann/json
 - Role: strict JSON parsing and serialization inside interop, experiment and the
-  optional `jyppx::data_image` annotation readers
+  optional `jyppx::liuding::data_image` annotation readers
 - Version selected by the current build: 3.12.0
 - Upstream license: MIT
 - Distribution rule: the header is compiled into the experiment config static
@@ -75,7 +75,7 @@ JYPPX package.
 
 - Project: https://github.com/leethomason/tinyxml2
 - Version: 11.0.0; license: Zlib
-- Role: private Pascal VOC XML parsing in optional `jyppx::data_image`
+- Role: private Pascal VOC XML parsing in optional `jyppx::liuding::data_image`
 - The pinned source archive and the exact original `LICENSE.txt` are recorded in
   the dependency and retained-license manifests. The original is installed at
   `share/doc/jyppx/licenses/tinyxml2-11.0.0-LICENSE.txt` with this profile.
@@ -87,7 +87,7 @@ JYPPX package.
 
 - Project: https://github.com/jbeder/yaml-cpp
 - Version: 0.9.0; license: MIT
-- Role: private data-only YOLO dataset YAML parsing in optional `jyppx::data_image`
+- Role: private data-only YOLO dataset YAML parsing in optional `jyppx::liuding::data_image`
 - The pinned source archive and exact original `LICENSE` are recorded in the
   dependency and retained-license manifests. The original is installed at
   `share/doc/jyppx/licenses/yaml-cpp-0.9.0-LICENSE.txt` with this profile.
@@ -101,7 +101,7 @@ JYPPX package.
 - Project: https://github.com/nothings/stb
 - Version: 2.30 (2024-05-31); license: MIT or Unlicense (public domain dedication)
 - Role: private JPEG, PNG, BMP, GIF, TGA, PNM and related still-image decoding
-  inside optional `jyppx::data_image`
+  inside optional `jyppx::liuding::data_image`
 - The vendored header is pinned by SHA-256 in `dependency-manifest.json`; its
   upstream license block is retained in
   `third_party/licenses/stb_image-2.30-LICENSE.txt` and installed with the

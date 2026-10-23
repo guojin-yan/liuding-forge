@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatibility surfaces remain available.
 
 ### Added
-- An independently exported `jyppx::interop` target with a schema-v1
+- An independently exported `jyppx::liuding::interop` target with a schema-v1
   checkpoint artifact manifest codec, deterministic JSON, strict field and
   digest validation, portable path checks, resource limits, capability
   metadata, and an installed-package consumer.
@@ -80,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checkpoint recovery without legacy scheduler maps or native archives.
 - A narrow `OptimizerRateControl` contract implemented by the delegated SGD
   adapter so schedulers do not depend on algorithm-specific native objects.
-- An independently exported `jyppx::optim` target with a LibTorch-delegated
+- An independently exported `jyppx::liuding::optim` target with a LibTorch-delegated
   SGD adapter, stable group/parameter identities, fixed versioned raw state
   fields, bounded preflight, and atomic exact checkpoint restore.
 - A LibTorch-delegated Adam adapter with stable groups and parameter IDs,
@@ -101,14 +101,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A current-only native Adadelta adapter with typed rho/epsilon/coupled-decay
   semantics, two per-parameter accumulators, independent numerical coverage,
   and bounded atomic checkpoint restore.
-- An exact `jyppx::nn` model checkpoint participant with versioned topology,
+- An exact `jyppx::liuding::nn` model checkpoint participant with versioned topology,
   bounded non-pickle tensor blobs, strict state-key/type/shape/alias preflight,
   and rollback-protected parameter and buffer restore.
-- An independently exported `jyppx::training` checkpoint coordinator with a
+- An independently exported `jyppx::liuding::training` checkpoint coordinator with a
   deterministic participant registry, canonical aggregate descriptors,
   transactional sink/source boundaries, restore preflight, bounded rollback
   snapshots, and reverse-order recovery after participant failure.
-- A storage-neutral checkpoint participant contract in `jyppx::foundation`,
+- A storage-neutral checkpoint participant contract in `jyppx::liuding::foundation`,
   including stable restore guarantees, validated state manifests, bounded named
   blob I/O, and an atomic per-participant load requirement.
 - A schema-checked `ModelStateView`/`ModelAdapter` contract that separates
@@ -129,7 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A strict foundation quality gate covering Google-style formatting,
   clang-tidy diagnostics, complete Doxygen documentation (including private
   declarations and enum values), and an installed-package consumer test.
-- An independently exported `jyppx::nn` target, initially owning the audited
+- An independently exported `jyppx::liuding::nn` target, initially owning the audited
   label-smoothed cross-entropy adapter and its focused public header.
 - An independently exported contrastive-loss target with strict pair-shape,
   device, dtype, finite-margin and binary-label validation; the duplicate SDK
@@ -137,7 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An independently exported focal-loss target with explicit binary/multiclass
   shape semantics, finite alpha/gamma validation, class-index checks, and no
   duplicate SDK implementation.
-- Exported `jyppx::foundation` and `jyppx::sdk` CMake targets for focused and
+- Exported `jyppx::liuding::foundation` and `jyppx::liuding::sdk` CMake targets for focused and
   full-framework consumers.
 - Versioned DataLoader/sampler state for deterministic epoch-boundary resume.
 - Transactional Trainer checkpoint restore covering model, optimizer,
@@ -191,7 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage and sanitizer options now fail clearly on unsupported compilers and
   reject incompatible instrumentation combinations.
 - Linux coverage and sanitizer builds now bound parallelism to avoid exhausting
-  memory on constrained runners; coverage exposes `JYPPX_BUILD_PARALLEL_LEVEL`
+  memory on constrained runners; coverage exposes `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL`
   for hosts that need a different budget.
 
 ### Removed
@@ -247,10 +247,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   policy-heavy `distillation_loss` were removed. The distillation example now
   states its hard/soft composition, teacher-gradient, reduction and dtype
   policy directly as a local training recipe.
-- The duplicate `jyppx::nn::init` wrappers were removed; examples now use the
+- The duplicate `jyppx::liuding::nn::init` wrappers were removed; examples now use the
   complete typed LibTorch initialization API directly.
 - The legacy `nn/quantization.hpp` storage-only prototype was removed from the
-  default SDK. A future optional `jyppx::quantization` component must start
+  default SDK. A future optional `jyppx::liuding::quantization` component must start
   from versioned formats, safe resource limits and separately proven storage,
   training and compute capabilities.
 - `LRSchedulerCallback` follows the same metric-aware stepping rules as the
@@ -291,7 +291,7 @@ pass in Release and Debug configurations.
   - Model analysis: `utils::calculate_model_stats`/`model_summary`
     (Keras-style table) — plus a torch 2.14 API note: `named_children()`
     returns by value and must be kept alive while iterating `items()`.
-  - Phase 5 groundwork: `jyppx::distributed` single-process process group
+  - Phase 5 groundwork: `jyppx::liuding::distributed` single-process process group
     (init/rank/world_size/barrier + `average_gradients`), a hook-based
     `DistributedDataParallel<ModuleT>` wrapper (no-op with world_size 1;
     cross-process all-reduce requires a c10d backend build),
@@ -315,8 +315,8 @@ initialization, documentation and benchmarks. 195 unit/integration tests
 pass in Release and Debug configurations.
 
 ### Added
-- **Loss functions** (`include/jyppx/nn/losses.hpp`): functional
-  implementations in `jyppx::nn::functional` — `focal_loss` (multiclass
+- **Loss functions** (`include/jyppx/liuding/nn/losses.hpp`): functional
+  implementations in `jyppx::liuding::nn::functional` — `focal_loss` (multiclass
   cross-entropy path and binary sigmoid path, alpha weighting, gamma
   focusing), `dice_loss` (soft Dice with one-hot multiclass and binary
   paths, fully differentiable tensor ops), `label_smoothing_cross_entropy`
@@ -327,7 +327,7 @@ pass in Release and Debug configurations.
   wrap the functions for forward-style use. 20 tests cover hand-computed
   values (1e-12), torch parity anchors, gradient flow, reduction semantics
   and argument validation.
-- **Data transforms** (`jyppx::data::transforms`, header-only):
+- **Data transforms** (`jyppx::liuding::data::transforms`, header-only):
   `Transform<I, O>` base + `TensorTransform` alias, `Compose` (ordered
   chaining with descriptive `name()`), `RandomChoice`, and six vision
   transforms — `Normalize` (per-channel, promotes integral inputs),
@@ -338,7 +338,7 @@ pass in Release and Debug configurations.
   cover ordering, exact values, fan-free crop geometry, seeded
   determinism, probability bounds and DataLoader integration.
 - **DataLoader benchmark** (`tests/benchmarks/bench_dataloader.cpp`, built
-  with `JYPPX_BUILD_BENCHMARKS=ON`): a self-contained harness (no Google
+  with `JYPPX_LIUDING_BUILD_BENCHMARKS=ON`): a self-contained harness (no Google
   Benchmark dependency) measuring per-epoch loading time for 0/1/2/4/8
   workers over a synthetic dataset whose `get()` burns a configurable
   amount of CPU per sample (simulating decode/preprocessing cost), plus a
@@ -393,7 +393,7 @@ pass in Release and Debug configurations.
     `AverageMeter` (weighted running average), `MetricCollection`
     (named bundle with joint update/compute/reset).
 - **Multi-threaded DataLoader** (`num_workers > 0`):
-  - `jyppx::data::ThreadSafeQueue<T>`: bounded blocking queue for
+  - `jyppx::liuding::data::ThreadSafeQueue<T>`: bounded blocking queue for
     producer/consumer pipelines (blocking `put`/`get`, non-blocking
     `try_get`, close semantics that keep already-queued items retrievable).
   - Worker pool inside `DataLoader`: workers pull index batches, load and
@@ -413,11 +413,11 @@ pass in Release and Debug configurations.
     collate, exception propagation, early-break reuse, 20-epoch stress,
     and Trainer fit integration.
 - **AMP (mixed-precision training)**:
-  - `jyppx::training::amp::GradScaler` mirroring `torch.cuda.amp.GradScaler`
+  - `jyppx::liuding::training::amp::GradScaler` mirroring `torch.cuda.amp.GradScaler`
     semantics: loss scaling, gradient unscaling with inf/NaN detection, step
     skipping with scale backoff on overflow, scale growth after
     `growth_interval` clean steps, and a serializable state dict.
-  - `jyppx::training::amp::AutocastGuard`, an RAII wrapper around the ATen
+  - `jyppx::liuding::training::amp::AutocastGuard`, an RAII wrapper around the ATen
     autocast thread-local state (device-type/dtype scoped, restores prior
     state on destruction).
   - `Trainer` integration: `use_amp = true` (CUDA only, validated at
@@ -488,7 +488,7 @@ pass in Release and Debug configurations.
   `examples/distillation` (teacher transfer into the label-scarce student)
   run cleanly in both Release and Debug configurations.
 - The installed CMake package was exercised by an out-of-tree consumer via
-  `find_package(jyppx_training_framework CONFIG REQUIRED)` (build, link, run).
+  `find_package(jyppx_liuding_training_framework CONFIG REQUIRED)` (build, link, run).
 - DataLoader multi-worker scaling measured with the bundled benchmark:
   2 workers 2.0x, 4 workers 3.9x, 8 workers 7.1x over the single-threaded
   loader on the development machine.

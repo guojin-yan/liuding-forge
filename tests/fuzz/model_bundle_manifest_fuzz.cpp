@@ -4,8 +4,8 @@
 
 #include "fuzz_support.hpp"
 
-#include <jyppx/foundation/sha256.hpp>
-#include <jyppx/interop/model_bundle.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/model_bundle.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -16,8 +16,8 @@
 #include <vector>
 
 namespace {
-namespace interop = jyppx::interop;
-namespace fuzz = jyppx::fuzz;
+namespace interop = jyppx::liuding::interop;
+namespace fuzz = jyppx::liuding::fuzz;
 
 interop::ModelBundleLimits limits() {
   return {.max_manifest_bytes = fuzz::kMaxInputBytes,

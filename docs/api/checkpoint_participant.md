@@ -1,7 +1,7 @@
 # Checkpoint Participant Contract
 
 Header: `jyppx/foundation/checkpoint.hpp`  
-Target: `jyppx::foundation`
+Target: `jyppx::liuding::foundation`
 
 The checkpoint participant API is the storage-neutral boundary shared by model,
 data, optimizer, scheduler, scaler, RNG, callback, metric, and strategy state.
@@ -10,12 +10,12 @@ algorithm, compression method, or publication mechanism.
 
 ## Ownership
 
-- `jyppx::foundation` owns restore levels and policies, participant state
+- `jyppx::liuding::foundation` owns restore levels and policies, participant state
   descriptors, bounded blob reader/writer interfaces, and
   `CheckpointParticipant`.
-- `jyppx::training` owns participant registration, consistency boundaries,
+- `jyppx::liuding::training` owns participant registration, consistency boundaries,
   snapshot ordering, and cross-participant rollback.
-- `jyppx::interop` owns checkpoint container formats, actual blob lengths and
+- `jyppx::liuding::interop` owns checkpoint container formats, actual blob lengths and
   digests, codecs, and safe artifact loading.
 
 This split lets lower-level components implement one protocol without depending

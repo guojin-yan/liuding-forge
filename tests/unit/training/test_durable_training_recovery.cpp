@@ -3,23 +3,23 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/core/device.hpp>
-#include <jyppx/data/data_pipeline.hpp>
-#include <jyppx/data/samplers/random_sampler.hpp>
-#include <jyppx/foundation/random_checkpoint_participant.hpp>
-#include <jyppx/nn/model_adapter.hpp>
-#include <jyppx/nn/model_checkpoint_participant.hpp>
-#include <jyppx/optim/sgd_adapter.hpp>
-#include <jyppx/optim/step_lr_scheduler.hpp>
-#include <jyppx/training/callback_dispatcher.hpp>
-#include <jyppx/training/callbacks/early_stopping_callback.hpp>
-#include <jyppx/training/checkpoint_coordinator.hpp>
-#include <jyppx/training/event_sink.hpp>
-#include <jyppx/training/file_checkpoint_store.hpp>
-#include <jyppx/training/metrics/classification.hpp>
-#include <jyppx/training/scheduler_adapter.hpp>
-#include <jyppx/training/single_device_strategy.hpp>
-#include <jyppx/training/trainer.hpp>
+#include <jyppx/liuding/core/device.hpp>
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/samplers/random_sampler.hpp>
+#include <jyppx/liuding/foundation/random_checkpoint_participant.hpp>
+#include <jyppx/liuding/nn/model_adapter.hpp>
+#include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/optim/step_lr_scheduler.hpp>
+#include <jyppx/liuding/training/callback_dispatcher.hpp>
+#include <jyppx/liuding/training/callbacks/early_stopping_callback.hpp>
+#include <jyppx/liuding/training/checkpoint_coordinator.hpp>
+#include <jyppx/liuding/training/event_sink.hpp>
+#include <jyppx/liuding/training/file_checkpoint_store.hpp>
+#include <jyppx/liuding/training/metrics/classification.hpp>
+#include <jyppx/liuding/training/scheduler_adapter.hpp>
+#include <jyppx/liuding/training/single_device_strategy.hpp>
+#include <jyppx/liuding/training/trainer.hpp>
 
 #include <torch/nn/functional/loss.h>
 #include <torch/nn/modules/linear.h>
@@ -59,7 +59,7 @@ class RecoveryClassifier final : public torch::nn::Module {
     register_buffer("input_scale", torch::tensor({0.5, 0.75, 1.0, 1.25}));
   }
 
-  jyppx::Tensor forward(const jyppx::Tensor& input) {
+  jyppx::liuding::Tensor forward(const jyppx::liuding::Tensor& input) {
     const auto scaled = input * named_buffers()["input_scale"];
     const auto activation = torch::tanh(hidden_->forward(scaled));
     return output_->forward(torch::dropout(activation, 0.25, is_training()));
@@ -72,30 +72,30 @@ class RecoveryClassifier final : public torch::nn::Module {
 
 /** @brief Requests one checkpoint from immutable committed step metadata. */
 class RecoveryCheckpointCallback final
-    : public jyppx::training::CallbackHandler {
+    : public jyppx::liuding::training::CallbackHandler {
  public:
-  const jyppx::training::CallbackDescriptor& descriptor()
+  const jyppx::liuding::training::CallbackDescriptor& descriptor()
       const noexcept override {
     return descriptor_;
   }
 
-  jyppx::training::CallbackCommandRequest handle(
-      const jyppx::training::CallbackEvent& event) override {
-    if (event.phase == jyppx::training::CallbackPhase::training &&
+  jyppx::liuding::training::CallbackCommandRequest handle(
+      const jyppx::liuding::training::CallbackEvent& event) override {
+    if (event.phase == jyppx::liuding::training::CallbackPhase::training &&
         event.global_step == kInterruptStep) {
-      return {.kind = jyppx::training::CallbackCommandKind::request_checkpoint,
+      return {.kind = jyppx::liuding::training::CallbackCommandKind::request_checkpoint,
               .reason = "durable recovery boundary after one complete epoch"};
     }
     return {};
   }
 
  private:
-  jyppx::training::CallbackDescriptor descriptor_{
+  jyppx::liuding::training::CallbackDescriptor descriptor_{
       .type_id = "test.durable_checkpoint.v1",
       .callback_id = "callback.checkpoint",
-      .subscriptions = {jyppx::training::CallbackEventKind::batch_finished},
+      .subscriptions = {jyppx::liuding::training::CallbackEventKind::batch_finished},
       .allowed_commands = {
-          jyppx::training::CallbackCommandKind::request_checkpoint}};
+          jyppx::liuding::training::CallbackCommandKind::request_checkpoint}};
 };
 
 struct RecoveryCase {
@@ -105,29 +105,29 @@ struct RecoveryCase {
 
 /** @brief Owns every mutable object discarded by the interrupted process. */
 struct RecoveryDomain {
-  std::shared_ptr<jyppx::nn::ModelAdapter> student;
-  std::shared_ptr<jyppx::nn::ModelAdapter> teacher;
-  std::shared_ptr<jyppx::optim::SgdOptimizerAdapter> optimizer;
-  std::shared_ptr<jyppx::optim::StepLrScheduler> scheduler;
-  std::shared_ptr<jyppx::data::DataPipeline> training_data;
-  std::shared_ptr<jyppx::data::DataPipeline> validation_data;
-  std::shared_ptr<jyppx::training::metrics::F1Score> training_f1;
-  std::shared_ptr<jyppx::training::metrics::F1Score> validation_f1;
-  std::shared_ptr<jyppx::training::callbacks::EarlyStoppingCallback>
+  std::shared_ptr<jyppx::liuding::nn::ModelAdapter> student;
+  std::shared_ptr<jyppx::liuding::nn::ModelAdapter> teacher;
+  std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> optimizer;
+  std::shared_ptr<jyppx::liuding::optim::StepLrScheduler> scheduler;
+  std::shared_ptr<jyppx::liuding::data::DataPipeline> training_data;
+  std::shared_ptr<jyppx::liuding::data::DataPipeline> validation_data;
+  std::shared_ptr<jyppx::liuding::training::metrics::F1Score> training_f1;
+  std::shared_ptr<jyppx::liuding::training::metrics::F1Score> validation_f1;
+  std::shared_ptr<jyppx::liuding::training::callbacks::EarlyStoppingCallback>
       early_stopping;
-  std::shared_ptr<jyppx::training::CallbackDispatcher> callbacks;
-  std::shared_ptr<jyppx::training::SingleDeviceStrategy> strategy;
+  std::shared_ptr<jyppx::liuding::training::CallbackDispatcher> callbacks;
+  std::shared_ptr<jyppx::liuding::training::SingleDeviceStrategy> strategy;
   std::shared_ptr<std::ostringstream> event_stream;
-  std::shared_ptr<jyppx::training::EventOutbox> outbox;
+  std::shared_ptr<jyppx::liuding::training::EventOutbox> outbox;
   std::shared_ptr<std::vector<std::uint64_t>> observed_training_samples;
-  std::unique_ptr<jyppx::training::Trainer> trainer;
+  std::unique_ptr<jyppx::liuding::training::Trainer> trainer;
 };
 
 /** @brief Captures real outbox blobs without normalizing producer identity. */
-class RecoveryOutboxState final : public jyppx::StateWriter,
-                                  public jyppx::StateReader {
+class RecoveryOutboxState final : public jyppx::liuding::StateWriter,
+                                  public jyppx::liuding::StateReader {
  public:
-  explicit RecoveryOutboxState(const jyppx::training::EventOutbox& outbox)
+  explicit RecoveryOutboxState(const jyppx::liuding::training::EventOutbox& outbox)
       : manifest_(outbox.describe_state()) {
     outbox.save_state(*this);
   }
@@ -139,18 +139,18 @@ class RecoveryOutboxState final : public jyppx::StateWriter,
         [name](const auto& candidate) { return candidate.name == name; });
     if (field == manifest_.fields.end() ||
         fields_.contains(std::string(name))) {
-      throw jyppx::SerializationError(
+      throw jyppx::liuding::SerializationError(
           "Unknown or duplicate recovery state field");
     }
     if (data.size() > field->max_bytes) {
-      throw jyppx::ResourceExhausted(
+      throw jyppx::liuding::ResourceExhausted(
           "Recovery state exceeds its declared bound");
     }
     fields_.emplace(std::string(name),
                     std::vector<std::byte>(data.begin(), data.end()));
   }
 
-  const jyppx::StateManifest& manifest() const noexcept override {
+  const jyppx::liuding::StateManifest& manifest() const noexcept override {
     return manifest_;
   }
 
@@ -162,31 +162,31 @@ class RecoveryOutboxState final : public jyppx::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto field = fields_.find(std::string(name));
     if (field == fields_.end()) {
-      throw jyppx::SerializationError("Missing recovery state field");
+      throw jyppx::liuding::SerializationError("Missing recovery state field");
     }
     if (field->second.size() > max_bytes) {
-      throw jyppx::ResourceExhausted("Recovery state exceeds its read bound");
+      throw jyppx::liuding::ResourceExhausted("Recovery state exceeds its read bound");
     }
     return field->second;
   }
 
  private:
-  jyppx::StateManifest manifest_;
+  jyppx::liuding::StateManifest manifest_;
   std::map<std::string, std::vector<std::byte>> fields_;
 };
 
-std::shared_ptr<jyppx::nn::ModelAdapter> make_recovery_model() {
+std::shared_ptr<jyppx::liuding::nn::ModelAdapter> make_recovery_model() {
   auto module = std::make_shared<RecoveryClassifier>();
   module->to(torch::kFloat64);
-  return std::make_shared<jyppx::nn::ModelAdapter>(
-      jyppx::nn::adapt_tensor_module(module));
+  return std::make_shared<jyppx::liuding::nn::ModelAdapter>(
+      jyppx::liuding::nn::adapt_tensor_module(module));
 }
 
 RecoveryDomain make_recovery_domain(
     RecoveryCase scenario, const std::filesystem::path& checkpoint_path,
     bool interrupt_after_publication) {
-  const auto device = scenario.cuda ? jyppx::Device(torch::kCUDA, 0)
-                                    : jyppx::Device(torch::kCPU);
+  const auto device = scenario.cuda ? jyppx::liuding::Device(torch::kCUDA, 0)
+                                    : jyppx::liuding::Device(torch::kCPU);
   RecoveryDomain domain;
   domain.student = make_recovery_model();
   if (scenario.distillation) {
@@ -198,21 +198,21 @@ RecoveryDomain make_recovery_domain(
     }
   }
 
-  std::vector<jyppx::optim::OptimizerParameterBinding> parameters;
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> parameters;
   for (const auto& item : domain.student->state().named_parameters()) {
     parameters.push_back(
         {.parameter_id = item.key(), .parameter = item.value()});
   }
-  domain.optimizer = std::make_shared<jyppx::optim::SgdOptimizerAdapter>(
+  domain.optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
       "optimizer.student",
-      std::vector<jyppx::optim::SgdParameterGroup>{
+      std::vector<jyppx::liuding::optim::SgdParameterGroup>{
           {.group_id = "student",
            .parameters = std::move(parameters),
            .options = {
                .learning_rate = 0.05, .momentum = 0.8, .weight_decay = 0.01}}});
-  domain.scheduler = std::make_shared<jyppx::optim::StepLrScheduler>(
+  domain.scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
       domain.optimizer,
-      jyppx::optim::StepLrSchedulerOptions{
+      jyppx::liuding::optim::StepLrSchedulerOptions{
           .scheduler_id = "scheduler.student", .step_size = 1, .gamma = 0.75});
 
   const auto features =
@@ -224,7 +224,7 @@ RecoveryDomain make_recovery_domain(
   const auto targets = torch::tensor({0, 1, 2, 0, 1, 2, 0, 2}, torch::kLong);
   const auto factory = [features, targets](
                            std::span<const std::size_t> indices,
-                           const jyppx::data::DataWorkerContext&,
+                           const jyppx::liuding::data::DataWorkerContext&,
                            std::stop_token) {
     std::vector<std::int64_t> rows;
     for (const auto index : indices) {
@@ -235,14 +235,14 @@ RecoveryDomain make_recovery_domain(
                                        targets.index_select(0, selected)});
   };
   const auto make_pipeline = [&](std::string id, std::int64_t seed) {
-    return std::make_shared<jyppx::data::DataPipeline>(
-        std::make_shared<jyppx::data::samplers::RandomSampler>(kSamples, seed),
-        jyppx::data::DataPipelineOptions{
+    return std::make_shared<jyppx::liuding::data::DataPipeline>(
+        std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(kSamples, seed),
+        jyppx::liuding::data::DataPipelineOptions{
             .pipeline_id = std::move(id),
             .dataset_version = "test.durable-classification/v1",
             .dataset_size = kSamples,
             .schema =
-                jyppx::data::BatchSchema::any("test.durable-classification", 1),
+                jyppx::liuding::data::BatchSchema::any("test.durable-classification", 1),
             .batch_factory_id = "test.durable-classification.factory/v1",
             .batch_size = kBatchSize,
             .num_workers = 2,
@@ -253,45 +253,45 @@ RecoveryDomain make_recovery_domain(
   };
   domain.training_data = make_pipeline("data.training", 104729);
   domain.validation_data = make_pipeline("data.validation", 130363);
-  domain.training_f1 = std::make_shared<jyppx::training::metrics::F1Score>(
-      jyppx::training::metrics::ClassificationMetricOptions{
+  domain.training_f1 = std::make_shared<jyppx::liuding::training::metrics::F1Score>(
+      jyppx::liuding::training::metrics::ClassificationMetricOptions{
           .metric_id = "metric.training.f1", .num_classes = 3});
-  domain.validation_f1 = std::make_shared<jyppx::training::metrics::F1Score>(
-      jyppx::training::metrics::ClassificationMetricOptions{
+  domain.validation_f1 = std::make_shared<jyppx::liuding::training::metrics::F1Score>(
+      jyppx::liuding::training::metrics::ClassificationMetricOptions{
           .metric_id = "metric.validation.f1", .num_classes = 3});
   domain.early_stopping =
-      std::make_shared<jyppx::training::callbacks::EarlyStoppingCallback>(
-          jyppx::training::callbacks::EarlyStoppingOptions{
+      std::make_shared<jyppx::liuding::training::callbacks::EarlyStoppingCallback>(
+          jyppx::liuding::training::callbacks::EarlyStoppingOptions{
               .callback_id = "callback.early_stopping", .patience = 100});
-  domain.callbacks = std::make_shared<jyppx::training::CallbackDispatcher>(
-      std::vector<std::shared_ptr<jyppx::training::CallbackHandler>>{
+  domain.callbacks = std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
           std::make_shared<RecoveryCheckpointCallback>(),
           domain.early_stopping});
-  domain.strategy = std::make_shared<jyppx::training::SingleDeviceStrategy>(
-      jyppx::training::SingleDeviceStrategyOptions{.device = device});
+  domain.strategy = std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>(
+      jyppx::liuding::training::SingleDeviceStrategyOptions{.device = device});
   domain.event_stream = std::make_shared<std::ostringstream>();
-  domain.outbox = std::make_shared<jyppx::training::EventOutbox>(
-      std::vector<std::shared_ptr<jyppx::training::EventSink>>{
-          std::make_shared<jyppx::training::ConsoleEventSink>(
+  domain.outbox = std::make_shared<jyppx::liuding::training::EventOutbox>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::EventSink>>{
+          std::make_shared<jyppx::liuding::training::ConsoleEventSink>(
               *domain.event_stream)});
   domain.observed_training_samples =
       std::make_shared<std::vector<std::uint64_t>>();
 
-  const auto mapper = [device](const jyppx::data::BatchEnvelope& batch) {
-    return jyppx::nn::Invocation{
+  const auto mapper = [device](const jyppx::liuding::data::BatchEnvelope& batch) {
+    return jyppx::liuding::nn::Invocation{
         .positional = {
             batch.value.toTuple()->elements().at(0).toTensor().to(device)}};
   };
-  const auto target = [device](const jyppx::data::BatchEnvelope& batch)
+  const auto target = [device](const jyppx::liuding::data::BatchEnvelope& batch)
       -> std::optional<c10::IValue> {
     return batch.value.toTuple()->elements().at(1).toTensor().to(device);
   };
   const auto step = [teacher = domain.teacher, training_f1 = domain.training_f1,
                      validation_f1 = domain.validation_f1,
                      observed_samples = domain.observed_training_samples](
-                        const jyppx::training::StepInput& input) {
+                        const jyppx::liuding::training::StepInput& input) {
     const bool training =
-        input.context.phase == jyppx::training::StepPhase::training;
+        input.context.phase == jyppx::liuding::training::StepPhase::training;
     const auto logits = input.model.invoke(input.invocation).value.toTensor();
     const auto labels = input.target->toTensor();
     const auto supervised =
@@ -316,36 +316,36 @@ RecoveryDomain make_recovery_domain(
                                input.batch.sample_ids.begin(),
                                input.batch.sample_ids.end());
     }
-    return jyppx::training::StepOutput{
+    return jyppx::liuding::training::StepOutput{
         .loss = loss,
         .metrics = {{training ? "training.f1" : "validation.f1",
                      metric->compute()}},
         .sample_count = input.batch.sample_ids.size()};
   };
 
-  std::vector<std::shared_ptr<jyppx::CheckpointParticipant>> additional{
+  std::vector<std::shared_ptr<jyppx::liuding::CheckpointParticipant>> additional{
       domain.training_f1, domain.validation_f1};
   if (domain.teacher) {
     additional.push_back(
-        std::make_shared<jyppx::nn::ModelCheckpointParticipant>(
-            *domain.teacher, jyppx::nn::ModelCheckpointParticipantOptions{
+        std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(
+            *domain.teacher, jyppx::liuding::nn::ModelCheckpointParticipantOptions{
                                  .participant_id = "model.teacher"}));
   }
-  domain.trainer = std::make_unique<jyppx::training::Trainer>(
-      jyppx::training::TrainerOptions{
+  domain.trainer = std::make_unique<jyppx::liuding::training::Trainer>(
+      jyppx::liuding::training::TrainerOptions{
           .trainer_id = "trainer.durable",
           .run_id = "run.durable",
           .trace_id = "trace.durable",
           .max_epochs = kEpochs,
-          .restore_policy = jyppx::RestorePolicy::exact_only});
+          .restore_policy = jyppx::liuding::RestorePolicy::exact_only});
   domain.trainer->prepare(
       {.model = domain.student,
        .optimizers = {{.optimizer = domain.optimizer,
                        .checkpoint = std::make_shared<
-                           jyppx::optim::SgdOptimizerCheckpointParticipant>(
+                           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
                            domain.optimizer),
                        .scheduler =
-                           std::make_shared<jyppx::training::SchedulerAdapter>(
+                           std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
                                domain.scheduler)}},
        .training_data = domain.training_data,
        .training_batch_mapper = mapper,
@@ -359,17 +359,17 @@ RecoveryDomain make_recovery_domain(
        .callbacks = domain.callbacks,
        .event_outbox = domain.outbox,
        .model_checkpoint =
-           std::make_shared<jyppx::nn::ModelCheckpointParticipant>(
+           std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(
                *domain.student),
        .rng_checkpoint =
-           std::make_shared<jyppx::core::RngCheckpointParticipant>(
-               jyppx::core::RngCheckpointParticipantOptions{.include_cuda =
+           std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
+               jyppx::liuding::core::RngCheckpointParticipantOptions{.include_cuda =
                                                                 scenario.cuda}),
        .additional_participants = std::move(additional),
        .checkpoint_action =
            [checkpoint_path, interrupt_after_publication](
-               const jyppx::training::CheckpointCoordinator& coordinator) {
-             jyppx::training::FileCheckpointStore store(checkpoint_path);
+               const jyppx::liuding::training::CheckpointCoordinator& coordinator) {
+             jyppx::liuding::training::FileCheckpointStore store(checkpoint_path);
              coordinator.save(store);
              if (interrupt_after_publication) {
                throw SimulatedProcessExit{};
@@ -380,11 +380,11 @@ RecoveryDomain make_recovery_domain(
 
 /** @brief Compares every actual state field, including all hidden counters. */
 void expect_exact_checkpoint_equal(
-    const jyppx::training::FileCheckpointStore& expected,
-    const jyppx::training::FileCheckpointStore& actual) {
+    const jyppx::liuding::training::FileCheckpointStore& expected,
+    const jyppx::liuding::training::FileCheckpointStore& actual) {
   const auto& left = expected.descriptor();
   const auto& right = actual.descriptor();
-  EXPECT_EQ(left.restore_level, jyppx::RestoreLevel::exact);
+  EXPECT_EQ(left.restore_level, jyppx::liuding::RestoreLevel::exact);
   EXPECT_EQ(right.restore_level, left.restore_level);
   ASSERT_EQ(right.participants.size(), left.participants.size());
   for (std::size_t index = 0; index != left.participants.size(); ++index) {
@@ -451,15 +451,15 @@ class DurableTrainingRecoveryTest
 TEST_P(DurableTrainingRecoveryTest,
        RecreatedDomainMatchesUninterruptedAllParticipantState) {
   const auto scenario = GetParam();
-  if (scenario.cuda && !jyppx::cuda_is_available()) {
+  if (scenario.cuda && !jyppx::liuding::cuda_is_available()) {
     GTEST_SKIP() << "CUDA not available";
   }
-  jyppx::core::RngGuard guard(20261021, scenario.cuda);
-  const auto device = scenario.cuda ? jyppx::Device(torch::kCUDA, 0)
-                                    : jyppx::Device(torch::kCPU);
-  jyppx::training::FitResult expected_result;
+  jyppx::liuding::core::RngGuard guard(20261021, scenario.cuda);
+  const auto device = scenario.cuda ? jyppx::liuding::Device(torch::kCUDA, 0)
+                                    : jyppx::liuding::Device(torch::kCPU);
+  jyppx::liuding::training::FitResult expected_result;
   std::vector<std::uint64_t> expected_samples;
-  jyppx::Tensor expected_next_random;
+  jyppx::liuding::Tensor expected_next_random;
   std::unique_ptr<RecoveryOutboxState> initial_outbox_state;
   std::string expected_stream_id;
   const auto baseline_final = directory_ / "baseline-final.bin";
@@ -475,20 +475,20 @@ TEST_P(DurableTrainingRecoveryTest,
     expected_stream_id = baseline.outbox->telemetry_stream_id();
     ASSERT_FALSE(expected_stream_id.empty());
     expected_result = baseline.trainer->fit();
-    ASSERT_EQ(expected_result.status, jyppx::training::FitStatus::completed);
+    ASSERT_EQ(expected_result.status, jyppx::liuding::training::FitStatus::completed);
     EXPECT_EQ(expected_result.global_step, 12U);
     EXPECT_EQ(expected_result.completed_epochs, kEpochs);
     expected_samples = *baseline.observed_training_samples;
-    jyppx::training::FileCheckpointStore final_store(baseline_final);
+    jyppx::liuding::training::FileCheckpointStore final_store(baseline_final);
     baseline.trainer->save_checkpoint(final_store);
     expected_next_random = torch::rand(
         {16}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
   }
 
-  jyppx::core::manual_seed(20261021, scenario.cuda);
+  jyppx::liuding::core::manual_seed(20261021, scenario.cuda);
   std::vector<std::uint64_t> interrupted_samples;
-  std::weak_ptr<jyppx::nn::ModelAdapter> destroyed_student;
-  std::weak_ptr<jyppx::optim::SgdOptimizerAdapter> destroyed_optimizer;
+  std::weak_ptr<jyppx::liuding::nn::ModelAdapter> destroyed_student;
+  std::weak_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> destroyed_optimizer;
   {
     auto interrupted = make_recovery_domain(scenario, recovery_path, true);
     // Both executions must start from the same persisted producer identity.
@@ -496,7 +496,7 @@ TEST_P(DurableTrainingRecoveryTest,
     // matches; comparing independently generated streams is not replay.
     EXPECT_NE(interrupted.outbox->telemetry_stream_id(), expected_stream_id);
     interrupted.outbox->load_state(*initial_outbox_state,
-                                   jyppx::RestorePolicy::exact_only);
+                                   jyppx::liuding::RestorePolicy::exact_only);
     EXPECT_EQ(interrupted.outbox->telemetry_stream_id(), expected_stream_id);
     destroyed_student = interrupted.student;
     destroyed_optimizer = interrupted.optimizer;
@@ -520,12 +520,12 @@ TEST_P(DurableTrainingRecoveryTest,
 
   // Construction deliberately consumes a different RNG stream and creates
   // different student/teacher weights before the durable snapshot is loaded.
-  jyppx::core::manual_seed(99194853094755497ULL, scenario.cuda);
+  jyppx::liuding::core::manual_seed(99194853094755497ULL, scenario.cuda);
   auto resumed = make_recovery_domain(scenario, recovery_path, false);
   EXPECT_NE(resumed.outbox->telemetry_stream_id(), expected_stream_id);
-  jyppx::training::FileCheckpointStore reopened(recovery_path);
+  jyppx::liuding::training::FileCheckpointStore reopened(recovery_path);
   const auto restored = resumed.trainer->restore_checkpoint(reopened);
-  EXPECT_EQ(restored.restore_level, jyppx::RestoreLevel::exact);
+  EXPECT_EQ(restored.restore_level, jyppx::liuding::RestoreLevel::exact);
   EXPECT_EQ(resumed.outbox->telemetry_stream_id(), expected_stream_id);
   // Exact restore must retain every saved outbox field, including any pending
   // canonical envelope's captured times and per-sink delivery cursor.
@@ -571,9 +571,9 @@ TEST_P(DurableTrainingRecoveryTest,
                              resumed.observed_training_samples->end());
   EXPECT_EQ(interrupted_samples, expected_samples);
 
-  jyppx::training::FileCheckpointStore actual_store(resumed_final);
+  jyppx::liuding::training::FileCheckpointStore actual_store(resumed_final);
   resumed.trainer->save_checkpoint(actual_store);
-  jyppx::training::FileCheckpointStore expected_store(baseline_final);
+  jyppx::liuding::training::FileCheckpointStore expected_store(baseline_final);
   expect_exact_checkpoint_equal(expected_store, actual_store);
   const auto actual_next_random = torch::rand(
       {16}, torch::TensorOptions().dtype(torch::kFloat64).device(device));

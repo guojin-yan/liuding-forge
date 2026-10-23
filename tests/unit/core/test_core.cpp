@@ -1,8 +1,8 @@
-// Unit tests for jyppx::core: device helpers and tensor utilities.
+// Unit tests for jyppx::liuding::core: device helpers and tensor utilities.
 
-#include <jyppx/core/device.hpp>
-#include <jyppx/core/tensor_utils.hpp>
-#include <jyppx/core/types.hpp>
+#include <jyppx/liuding/core/device.hpp>
+#include <jyppx/liuding/core/tensor_utils.hpp>
+#include <jyppx/liuding/core/types.hpp>
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -11,7 +11,7 @@
 
 namespace {
 
-using namespace jyppx;
+using namespace jyppx::liuding;
 
 TEST(DeviceTest, ParseDeviceStrings) {
   const auto cpu = parse_device("cpu");

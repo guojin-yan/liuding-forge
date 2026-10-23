@@ -4,8 +4,8 @@
 
 // Draft only: not registered, compiled, or executed during chapter freeze.
 
-#include <jyppx/experiment/telemetry_exporters.hpp>
-#include <jyppx/foundation/error.hpp>
+#include <jyppx/liuding/experiment/telemetry_exporters.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 
 #include <array>
 #include <atomic>
@@ -24,8 +24,8 @@
 #include <vector>
 
 namespace {
-namespace jy = jyppx;
-namespace ex = jyppx::experiment;
+namespace jy = jyppx::liuding;
+namespace ex = jyppx::liuding::experiment;
 using Json = nlohmann::json;
 
 class DraftDirectory {

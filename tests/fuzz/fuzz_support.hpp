@@ -5,8 +5,8 @@
 #ifndef JYPPX_TESTS_FUZZ_SUPPORT_HPP
 #define JYPPX_TESTS_FUZZ_SUPPORT_HPP
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/foundation/version.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -22,7 +22,7 @@
 #include <utility>
 #include <vector>
 
-namespace jyppx::fuzz {
+namespace jyppx::liuding::fuzz {
 
 inline constexpr std::size_t kMaxInputBytes = 64U * 1024U;
 // Canonical JSON may escape/reformat accepted source bytes. Its byte budget
@@ -186,6 +186,6 @@ auto exercise_json_codec(std::string_view input, Limits limits,
   return parsed;
 }
 
-}  // namespace jyppx::fuzz
+}  // namespace jyppx::liuding::fuzz
 
 #endif  // JYPPX_TESTS_FUZZ_SUPPORT_HPP

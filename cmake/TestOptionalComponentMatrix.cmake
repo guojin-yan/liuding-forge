@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
-if(NOT DEFINED JYPPX_SOURCE_DIR OR NOT DEFINED JYPPX_TEST_ROOT OR
+if(NOT DEFINED JYPPX_SOURCE_DIR OR NOT DEFINED JYPPX_LIUDING_TEST_ROOT OR
    NOT DEFINED JYPPX_CONSUMER_SOURCE_DIR OR NOT DEFINED JYPPX_TORCH_DIR OR
    NOT DEFINED JYPPX_CMAKE_GENERATOR)
     message(FATAL_ERROR "Optional component matrix is missing required paths")
 endif()
 
 get_filename_component(source_dir "${JYPPX_SOURCE_DIR}" REALPATH)
-get_filename_component(test_root "${JYPPX_TEST_ROOT}" ABSOLUTE)
+get_filename_component(test_root "${JYPPX_LIUDING_TEST_ROOT}" ABSOLUTE)
 get_filename_component(consumer_source_dir
                        "${JYPPX_CONSUMER_SOURCE_DIR}" REALPATH)
 file(MAKE_DIRECTORY "${test_root}")
@@ -23,10 +23,10 @@ endif()
 set(config_args)
 set(build_args --parallel 2)
 set(test_args)
-if(JYPPX_TEST_CONFIG)
-    list(APPEND config_args "-DCMAKE_BUILD_TYPE=${JYPPX_TEST_CONFIG}")
-    list(APPEND build_args --config "${JYPPX_TEST_CONFIG}")
-    list(APPEND test_args -C "${JYPPX_TEST_CONFIG}")
+if(JYPPX_LIUDING_TEST_CONFIG)
+    list(APPEND config_args "-DCMAKE_BUILD_TYPE=${JYPPX_LIUDING_TEST_CONFIG}")
+    list(APPEND build_args --config "${JYPPX_LIUDING_TEST_CONFIG}")
+    list(APPEND test_args -C "${JYPPX_LIUDING_TEST_CONFIG}")
 endif()
 if(JYPPX_CUDA_STANDARD)
     list(APPEND config_args "-DCMAKE_CUDA_STANDARD=${JYPPX_CUDA_STANDARD}")
@@ -94,9 +94,9 @@ foreach(profile IN LISTS profiles)
     foreach(component IN LISTS optional_components)
         string(TOUPPER "${component}" component_upper)
         if(component IN_LIST profile_components)
-            list(APPEND component_options "-DJYPPX_BUILD_${component_upper}=ON")
+            list(APPEND component_options "-DJYPPX_LIUDING_BUILD_${component_upper}=ON")
         else()
-            list(APPEND component_options "-DJYPPX_BUILD_${component_upper}=OFF")
+            list(APPEND component_options "-DJYPPX_LIUDING_BUILD_${component_upper}=OFF")
         endif()
     endforeach()
 
@@ -111,16 +111,16 @@ foreach(profile IN LISTS profiles)
                 ${generator_args}
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
                 "-DCMAKE_INSTALL_PREFIX=${install_dir}"
-                -DJYPPX_BUILD_TESTS=OFF
-                -DJYPPX_BUILD_EXAMPLES=OFF
-                -DJYPPX_BUILD_BENCHMARKS=OFF
-                -DJYPPX_BUILD_FUZZERS=OFF
-                -DJYPPX_BUILD_DOCS=OFF
-                -DJYPPX_BUILD_TOOLS=OFF
-                -DJYPPX_MODELS_REFERENCE_DIR=
-                -DJYPPX_ENABLE_CLANG_TIDY=OFF
-                -DJYPPX_ENABLE_FORMAT_CHECK=OFF
-                -DJYPPX_ENABLE_WARNINGS_AS_ERRORS=OFF
+                -DJYPPX_LIUDING_BUILD_TESTS=OFF
+                -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF
+                -DJYPPX_LIUDING_BUILD_BENCHMARKS=OFF
+                -DJYPPX_LIUDING_BUILD_FUZZERS=OFF
+                -DJYPPX_LIUDING_BUILD_DOCS=OFF
+                -DJYPPX_LIUDING_BUILD_TOOLS=OFF
+                -DJYPPX_LIUDING_MODELS_REFERENCE_DIR=
+                -DJYPPX_LIUDING_ENABLE_CLANG_TIDY=OFF
+                -DJYPPX_LIUDING_ENABLE_FORMAT_CHECK=OFF
+                -DJYPPX_LIUDING_ENABLE_WARNINGS_AS_ERRORS=OFF
                 ${component_options} ${config_args}
         RESULT_VARIABLE configure_result
     )
@@ -156,13 +156,13 @@ foreach(profile IN LISTS profiles)
     foreach(component IN LISTS optional_components)
         if(NOT component IN_LIST profile_components)
             list(APPEND absent_components "${component}")
-            if(EXISTS "${install_dir}/include/jyppx/${component}")
+            if(EXISTS "${install_dir}/include/jyppx/liuding/${component}")
                 message(FATAL_ERROR
                     "Disabled ${component} headers remain in ${profile} profile")
             endif()
             string(REPLACE "_" "-" artifact_component "${component}")
             file(GLOB disabled_libraries
-                 "${install_dir}/lib/*jyppx_${component}*"
+                 "${install_dir}/lib/*jyppx_liuding_${component}*"
                  "${install_dir}/lib/*liuding-forge-${artifact_component}*")
             if(disabled_libraries)
                 message(FATAL_ERROR
@@ -172,17 +172,17 @@ foreach(profile IN LISTS profiles)
     endforeach()
     if(interop IN_LIST profile_components AND NOT nn IN_LIST profile_components)
         foreach(adapter IN ITEMS model_weight_import torchscript_compatibility)
-            if(EXISTS "${install_dir}/include/jyppx/interop/${adapter}.hpp")
+            if(EXISTS "${install_dir}/include/jyppx/liuding/interop/${adapter}.hpp")
                 message(FATAL_ERROR
                     "NN adapter header remains installed with nn disabled in ${profile} profile")
             endif()
         endforeach()
     endif()
     if(NOT core IN_LIST profile_components AND
-       EXISTS "${install_dir}/include/jyppx/utils")
+       EXISTS "${install_dir}/include/jyppx/liuding/utils")
         message(FATAL_ERROR "Core-owned utils headers remain with core disabled")
     endif()
-    if(EXISTS "${install_dir}/include/jyppx/jyppx.hpp")
+    if(EXISTS "${install_dir}/include/jyppx/liuding/liuding.hpp")
         message(FATAL_ERROR "SDK umbrella header remains in partial profile")
     endif()
 
@@ -236,34 +236,34 @@ set(invalid_cases
 )
 foreach(invalid_case IN LISTS invalid_cases)
     set(invalid_options
-        -DJYPPX_BUILD_CORE=ON
-        -DJYPPX_BUILD_INTEROP=OFF
-        -DJYPPX_BUILD_DATA=OFF
-        -DJYPPX_BUILD_DATA_IMAGE=OFF
-        -DJYPPX_BUILD_NN=OFF
-        -DJYPPX_BUILD_OPTIM=OFF
-        -DJYPPX_BUILD_TRAINING=OFF
-        -DJYPPX_BUILD_EXPERIMENT=OFF
-        -DJYPPX_BUILD_MODELS=OFF
-        -DJYPPX_BUILD_QUANTIZATION=OFF
-        -DJYPPX_BUILD_SERVING=OFF
-        -DJYPPX_MODELS_REFERENCE_DIR=
+        -DJYPPX_LIUDING_BUILD_CORE=ON
+        -DJYPPX_LIUDING_BUILD_INTEROP=OFF
+        -DJYPPX_LIUDING_BUILD_DATA=OFF
+        -DJYPPX_LIUDING_BUILD_DATA_IMAGE=OFF
+        -DJYPPX_LIUDING_BUILD_NN=OFF
+        -DJYPPX_LIUDING_BUILD_OPTIM=OFF
+        -DJYPPX_LIUDING_BUILD_TRAINING=OFF
+        -DJYPPX_LIUDING_BUILD_EXPERIMENT=OFF
+        -DJYPPX_LIUDING_BUILD_MODELS=OFF
+        -DJYPPX_LIUDING_BUILD_QUANTIZATION=OFF
+        -DJYPPX_LIUDING_BUILD_SERVING=OFF
+        -DJYPPX_LIUDING_MODELS_REFERENCE_DIR=
     )
     if(invalid_case STREQUAL "data_image_without_data")
-        list(APPEND invalid_options -DJYPPX_BUILD_DATA_IMAGE=ON)
+        list(APPEND invalid_options -DJYPPX_LIUDING_BUILD_DATA_IMAGE=ON)
     elseif(invalid_case MATCHES "^core_off_([a-z]+)_on$")
         string(TOUPPER "${CMAKE_MATCH_1}" dependent_component)
         list(APPEND invalid_options
-             -DJYPPX_BUILD_CORE=OFF
-             "-DJYPPX_BUILD_${dependent_component}=ON")
+             -DJYPPX_LIUDING_BUILD_CORE=OFF
+             "-DJYPPX_LIUDING_BUILD_${dependent_component}=ON")
     elseif(invalid_case MATCHES "^training_without_([a-z]+)$")
         string(TOUPPER "${CMAKE_MATCH_1}" missing_component)
         list(APPEND invalid_options
-             -DJYPPX_BUILD_DATA=ON
-             -DJYPPX_BUILD_NN=ON
-             -DJYPPX_BUILD_OPTIM=ON
-             -DJYPPX_BUILD_TRAINING=ON
-             "-DJYPPX_BUILD_${missing_component}=OFF")
+             -DJYPPX_LIUDING_BUILD_DATA=ON
+             -DJYPPX_LIUDING_BUILD_NN=ON
+             -DJYPPX_LIUDING_BUILD_OPTIM=ON
+             -DJYPPX_LIUDING_BUILD_TRAINING=ON
+             "-DJYPPX_LIUDING_BUILD_${missing_component}=OFF")
     else()
         message(FATAL_ERROR "Unknown invalid component case: ${invalid_case}")
     endif()
@@ -272,7 +272,7 @@ foreach(invalid_case IN LISTS invalid_cases)
                 -B "${test_root}/invalid/${invalid_case}"
                 ${generator_args}
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
-                -DJYPPX_BUILD_TESTS=OFF -DJYPPX_BUILD_EXAMPLES=OFF
+                -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF
                 ${invalid_options} ${config_args}
         RESULT_VARIABLE invalid_result
     )

@@ -1,10 +1,10 @@
 # Dice loss
 
-Status: `native target` in the default `jyppx::nn` component.
+Status: `native target` in the default `jyppx::liuding::nn` component.
 
-Header: `#include <jyppx/nn/loss/dice_loss.hpp>`
+Header: `#include <jyppx/liuding/nn/loss/dice_loss.hpp>`
 
-Link target: `jyppx::nn`
+Link target: `jyppx::liuding::nn`
 
 ## Semantic matrix
 
@@ -25,7 +25,7 @@ Link target: `jyppx::nn`
 | Reduction | `none` returns `(N)`; `mean` and `sum` reduce only across batch items |
 | Empty input | Any empty batch, class, or spatial dimension is rejected |
 | Device | Input and target must use the same CPU or CUDA device |
-| Errors | Invalid contracts raise `jyppx::InvalidArgument`; backend failures retain a nested cause |
+| Errors | Invalid contracts raise `jyppx::liuding::InvalidArgument`; backend failures retain a nested cause |
 
 ## Formula
 
@@ -44,15 +44,15 @@ softmax.
 ## API forms
 
 ```cpp
-jyppx::nn::DiceLossOptions options;
-options.mode = jyppx::nn::DiceMode::multiclass;
-options.average = jyppx::nn::DiceAverage::macro;
+jyppx::liuding::nn::DiceLossOptions options;
+options.mode = jyppx::liuding::nn::DiceMode::multiclass;
+options.average = jyppx::liuding::nn::DiceAverage::macro;
 options.ignore_index = -1;
 options.include_background = false;
 
-auto loss = jyppx::nn::functional::dice_loss(logits, target, options);
+auto loss = jyppx::liuding::nn::functional::dice_loss(logits, target, options);
 
-jyppx::nn::DiceLoss criterion(options);
+jyppx::liuding::nn::DiceLoss criterion(options);
 auto module_loss = criterion.forward(logits, target);
 ```
 
@@ -63,6 +63,6 @@ references; macro/micro behavior; background and empty-class selection;
 ignore masking and zero ignored gradients; all-ignored samples; every batch
 reduction; non-contiguous spatial logits; backward finiteness; structured
 configuration and tensor-contract failures; module parity; and installed
-package consumption through `jyppx::nn`. A CUDA lane additionally compares
+package consumption through `jyppx::liuding::nn`. A CUDA lane additionally compares
 float16 multiclass output with a CPU float32 reference and verifies finite
 backward gradients plus zero gradients at ignored locations.

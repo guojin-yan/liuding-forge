@@ -18,16 +18,16 @@ if(NOT jyppx_${JYPPX_CONSUMER_COMPONENT}_FOUND)
     message(FATAL_ERROR
         "Installed package did not satisfy component ${JYPPX_CONSUMER_COMPONENT}")
 endif()
-if(NOT TARGET jyppx::${JYPPX_CONSUMER_COMPONENT})
+if(NOT TARGET jyppx::liuding::${JYPPX_CONSUMER_COMPONENT})
     message(FATAL_ERROR
-        "Installed package does not export jyppx::${JYPPX_CONSUMER_COMPONENT}")
+        "Installed package does not export jyppx::liuding::${JYPPX_CONSUMER_COMPONENT}")
 endif()
 
 if(DEFINED JYPPX_EXPECTED_COMPONENTS)
     string(REPLACE "," ";" JYPPX_EXPECTED_COMPONENT_LIST
            "${JYPPX_EXPECTED_COMPONENTS}")
     foreach(JYPPX_EXPECTED_COMPONENT IN LISTS JYPPX_EXPECTED_COMPONENT_LIST)
-        if(NOT TARGET jyppx::${JYPPX_EXPECTED_COMPONENT} OR
+        if(NOT TARGET jyppx::liuding::${JYPPX_EXPECTED_COMPONENT} OR
            NOT jyppx_${JYPPX_EXPECTED_COMPONENT}_FOUND)
             message(FATAL_ERROR
                 "Expected installed component is absent: ${JYPPX_EXPECTED_COMPONENT}")
@@ -39,7 +39,7 @@ if(DEFINED JYPPX_ABSENT_COMPONENTS)
     string(REPLACE "," ";" JYPPX_ABSENT_COMPONENT_LIST
            "${JYPPX_ABSENT_COMPONENTS}")
     foreach(JYPPX_ABSENT_COMPONENT IN LISTS JYPPX_ABSENT_COMPONENT_LIST)
-        if(TARGET jyppx::${JYPPX_ABSENT_COMPONENT} OR
+        if(TARGET jyppx::liuding::${JYPPX_ABSENT_COMPONENT} OR
            jyppx_${JYPPX_ABSENT_COMPONENT}_FOUND)
             message(FATAL_ERROR
                 "Disabled installed component is still visible: ${JYPPX_ABSENT_COMPONENT}")
@@ -47,15 +47,15 @@ if(DEFINED JYPPX_ABSENT_COMPONENTS)
     endforeach()
 endif()
 
-string(TOUPPER "${JYPPX_CONSUMER_COMPONENT}" JYPPX_COMPONENT_MACRO)
+string(TOUPPER "${JYPPX_CONSUMER_COMPONENT}" JYPPX_LIUDING_COMPONENT_MACRO)
 add_executable(jyppx_component_consumer main.cpp)
 target_compile_definitions(jyppx_component_consumer
-    PRIVATE JYPPX_CONSUMER_${JYPPX_COMPONENT_MACRO}=1
+    PRIVATE JYPPX_CONSUMER_${JYPPX_LIUDING_COMPONENT_MACRO}=1
 )
 foreach(JYPPX_ENTITY_COMPONENT IN ITEMS
         foundation core interop data data_image nn optim training experiment models quantization serving)
     string(TOUPPER "${JYPPX_ENTITY_COMPONENT}" JYPPX_ENTITY_COMPONENT_UPPER)
-    if(TARGET jyppx::${JYPPX_ENTITY_COMPONENT})
+    if(TARGET jyppx::liuding::${JYPPX_ENTITY_COMPONENT})
         target_compile_definitions(jyppx_component_consumer PRIVATE
             JYPPX_EXPECT_COMPONENT_${JYPPX_ENTITY_COMPONENT_UPPER}=1)
         # Imported targets keep the stable API but must locate branded files
@@ -63,10 +63,10 @@ foreach(JYPPX_ENTITY_COMPONENT IN ITEMS
         string(REPLACE "_" "-" JYPPX_LIBRARY_COMPONENT
                "${JYPPX_ENTITY_COMPONENT}")
         get_target_property(JYPPX_IMPORTED_CONFIGURATIONS
-            jyppx::${JYPPX_ENTITY_COMPONENT} IMPORTED_CONFIGURATIONS)
+            jyppx::liuding::${JYPPX_ENTITY_COMPONENT} IMPORTED_CONFIGURATIONS)
         foreach(JYPPX_IMPORTED_CONFIG IN LISTS JYPPX_IMPORTED_CONFIGURATIONS)
             get_target_property(JYPPX_IMPORTED_LOCATION
-                jyppx::${JYPPX_ENTITY_COMPONENT}
+                jyppx::liuding::${JYPPX_ENTITY_COMPONENT}
                 IMPORTED_LOCATION_${JYPPX_IMPORTED_CONFIG})
             get_filename_component(JYPPX_IMPORTED_FILENAME
                 "${JYPPX_IMPORTED_LOCATION}" NAME)
@@ -83,7 +83,7 @@ foreach(JYPPX_ENTITY_COMPONENT IN ITEMS
     endif()
 endforeach()
 target_link_libraries(jyppx_component_consumer
-    PRIVATE jyppx::${JYPPX_CONSUMER_COMPONENT}
+    PRIVATE jyppx::liuding::${JYPPX_CONSUMER_COMPONENT}
 )
 
 if(WIN32)

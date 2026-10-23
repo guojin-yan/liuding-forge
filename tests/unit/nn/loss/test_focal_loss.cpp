@@ -3,8 +3,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/foundation/error.hpp>
-#include <jyppx/nn/loss/focal_loss.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/nn/loss/focal_loss.hpp>
 
 #include <cmath>
 #include <gtest/gtest.h>
@@ -12,7 +12,7 @@
 
 namespace {
 
-namespace functional = jyppx::nn::functional;
+namespace functional = jyppx::liuding::nn::functional;
 
 TEST(FocalLossTest, GammaZeroMatchesCrossEntropy) {
   const auto logits = torch::randn({6, 4}, torch::kFloat64);
@@ -49,36 +49,36 @@ TEST(FocalLossTest, RejectsInvalidConfigurationAndContracts) {
   const auto logits = torch::randn({4, 3}, torch::kFloat32);
   const auto target = torch::zeros({4}, torch::kLong);
   EXPECT_THROW(functional::focal_loss(logits, target, -0.1),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::focal_loss(logits, target,
                                       std::numeric_limits<double>::quiet_NaN()),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::focal_loss(logits, target, 1.0, -1.0),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::focal_loss(logits, target, 1.0, 2.0, "average"),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::focal_loss(logits, torch::full({4}, 4)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       functional::focal_loss(torch::randn({2, 3, 4}), torch::zeros({2, 3, 1})),
-      jyppx::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::focal_loss(torch::zeros({2, 3}, torch::kLong),
                                       torch::zeros({2, 3}, torch::kLong)),
-               jyppx::InvalidArgument);
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(FocalLossTest, ModuleValidatesAndMatchesFunctionalForm) {
   const auto logits = torch::randn({5, 3}, torch::kFloat64);
   const auto target = torch::tensor({0, 1, 2, 1, 0}, torch::kLong);
-  const jyppx::nn::FocalLoss criterion(0.25, 2.0, "sum");
+  const jyppx::liuding::nn::FocalLoss criterion(0.25, 2.0, "sum");
   EXPECT_DOUBLE_EQ(criterion.alpha(), 0.25);
   EXPECT_DOUBLE_EQ(criterion.gamma(), 2.0);
   EXPECT_EQ(criterion.reduction(), "sum");
   EXPECT_TRUE(torch::allclose(
       criterion.forward(logits, target),
       functional::focal_loss(logits, target, 0.25, 2.0, "sum"), 1e-12, 1e-12));
-  EXPECT_THROW(jyppx::nn::FocalLoss(0.25, 2.0, "average"),
-               jyppx::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::nn::FocalLoss(0.25, 2.0, "average"),
+               jyppx::liuding::InvalidArgument);
 }
 
 }  // namespace

@@ -11,33 +11,33 @@ stable ID, subscribed event kinds, execution priority, permitted commands and
 whether the callback owns checkpoint state.
 
 ```cpp
-class StopCallback final : public jyppx::training::CallbackHandler {
+class StopCallback final : public jyppx::liuding::training::CallbackHandler {
  public:
   StopCallback()
       : descriptor_{
             .type_id = "example.stop.v1",
             .callback_id = "callback.stop",
             .subscriptions = {
-                jyppx::training::CallbackEventKind::epoch_finished},
+                jyppx::liuding::training::CallbackEventKind::epoch_finished},
             .allowed_commands = {
-                jyppx::training::CallbackCommandKind::stop}} {}
+                jyppx::liuding::training::CallbackCommandKind::stop}} {}
 
-  const jyppx::training::CallbackDescriptor& descriptor()
+  const jyppx::liuding::training::CallbackDescriptor& descriptor()
       const noexcept override {
     return descriptor_;
   }
 
-  jyppx::training::CallbackCommandRequest handle(
-      const jyppx::training::CallbackEvent& event) override {
+  jyppx::liuding::training::CallbackCommandRequest handle(
+      const jyppx::liuding::training::CallbackEvent& event) override {
     if (event.epoch >= 9) {
-      return {.kind = jyppx::training::CallbackCommandKind::stop,
+      return {.kind = jyppx::liuding::training::CallbackCommandKind::stop,
               .reason = "ten epochs completed"};
     }
     return {};
   }
 
  private:
-  jyppx::training::CallbackDescriptor descriptor_;
+  jyppx::liuding::training::CallbackDescriptor descriptor_;
 };
 ```
 
@@ -53,14 +53,14 @@ epoch metric identity.
 
 ```cpp
 auto early = std::make_shared<
-    jyppx::training::callbacks::EarlyStoppingCallback>(
-        jyppx::training::callbacks::EarlyStoppingOptions{
+    jyppx::liuding::training::callbacks::EarlyStoppingCallback>(
+        jyppx::liuding::training::callbacks::EarlyStoppingOptions{
             .callback_id = "callback.early-stop",
             .monitor = "validation.loss",
             .patience = 5,
             .min_delta = 1e-4});
-auto callbacks = std::make_shared<jyppx::training::CallbackDispatcher>(
-    std::vector<std::shared_ptr<jyppx::training::CallbackHandler>>{early});
+auto callbacks = std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
+    std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{early});
 request.callbacks = callbacks;
 ```
 
@@ -75,7 +75,7 @@ waits for an accumulation-safe boundary and invokes the request's
 
 ```cpp
 request.checkpoint_action = [&artifact](
-    const jyppx::training::CheckpointCoordinator& coordinator) {
+    const jyppx::liuding::training::CheckpointCoordinator& coordinator) {
   coordinator.save(artifact);
 };
 ```

@@ -8,11 +8,11 @@ Previews, and disables incompatible sanitizer instrumentation. It reuses
 `out/coverage/linux/build`; the default build and gcovr parallelism is two.
 
 The existing cache retains other configured options, including
-`JYPPX_MODELS_REFERENCE_DIR`. Provision and configure the official model
+`JYPPX_LIUDING_MODELS_REFERENCE_DIR`. Provision and configure the official model
 reference fixtures before collecting that part of the evidence. CPU-only CUDA
 skips remain visible in `coverage-ctest.xml` and the CTest log; coverage is not
 evidence of actual CUDA execution. The source coverage filter covers library
-`src/jyppx` and `include/jyppx`, excluding CLI and the Python sidecar.
+`src/jyppx/liuding` and `include/jyppx/liuding`, excluding CLI and the Python sidecar.
 
 The script clears only this cache's `.gcda` counters after a successful build.
 Both gcovr commands search only this cache, so other Release, sanitizer, fuzz or

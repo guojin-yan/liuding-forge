@@ -7,18 +7,18 @@
 # Warning Flags
 # ============================================
 set(JYPPX_COMPILED_TARGETS
-    jyppx_foundation
-    jyppx_core
-    jyppx_interop
-    jyppx_data
-    jyppx_data_image
-    jyppx_nn
-    jyppx_training
-    jyppx_optim
-    jyppx_experiment
-    jyppx_models
-    jyppx_quantization
-    jyppx_serving
+    jyppx_liuding_foundation
+    jyppx_liuding_core
+    jyppx_liuding_interop
+    jyppx_liuding_data
+    jyppx_liuding_data_image
+    jyppx_liuding_nn
+    jyppx_liuding_training
+    jyppx_liuding_optim
+    jyppx_liuding_experiment
+    jyppx_liuding_models
+    jyppx_liuding_quantization
+    jyppx_liuding_serving
     jyppx_cli_transport
     jyppx_cli
 )
@@ -44,10 +44,10 @@ foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     endif()
 endforeach()
 
-if(JYPPX_ENABLE_WARNINGS_AS_ERRORS)
+if(JYPPX_LIUDING_ENABLE_WARNINGS_AS_ERRORS)
     if(MSVC)
         message(FATAL_ERROR
-            "JYPPX_ENABLE_WARNINGS_AS_ERRORS is not available with MSVC: "
+            "JYPPX_LIUDING_ENABLE_WARNINGS_AS_ERRORS is not available with MSVC: "
             "LibTorch template instantiations emit upstream C4267 warnings. "
             "The project does not globally suppress that diagnostic.")
     endif()
@@ -63,7 +63,7 @@ endif()
 
 # Every compiled framework target is held to the same static-analysis policy.
 # Third-party targets and test executables remain outside this target list.
-if(JYPPX_ENABLE_CLANG_TIDY)
+if(JYPPX_LIUDING_ENABLE_CLANG_TIDY)
     if(NOT JYPPX_CLANG_TIDY_EXECUTABLE)
         find_program(JYPPX_CLANG_TIDY_EXECUTABLE
             NAMES clang-tidy clang-tidy-20 clang-tidy-19 clang-tidy-18
@@ -71,7 +71,7 @@ if(JYPPX_ENABLE_CLANG_TIDY)
     endif()
     if(NOT JYPPX_CLANG_TIDY_EXECUTABLE)
         message(FATAL_ERROR
-            "JYPPX_ENABLE_CLANG_TIDY=ON requires a clang-tidy executable")
+            "JYPPX_LIUDING_ENABLE_CLANG_TIDY=ON requires a clang-tidy executable")
     endif()
     foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
         if(NOT TARGET ${JYPPX_TARGET})
@@ -84,7 +84,7 @@ if(JYPPX_ENABLE_CLANG_TIDY)
     endforeach()
 endif()
 
-if(JYPPX_ENABLE_FORMAT_CHECK)
+if(JYPPX_LIUDING_ENABLE_FORMAT_CHECK)
     if(NOT JYPPX_CLANG_FORMAT_EXECUTABLE)
         find_program(JYPPX_CLANG_FORMAT_EXECUTABLE
             NAMES clang-format clang-format-20 clang-format-19 clang-format-18
@@ -92,7 +92,7 @@ if(JYPPX_ENABLE_FORMAT_CHECK)
     endif()
     if(NOT JYPPX_CLANG_FORMAT_EXECUTABLE)
         message(FATAL_ERROR
-            "JYPPX_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
+            "JYPPX_LIUDING_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
     endif()
     set(JYPPX_FORMAT_FILES)
     foreach(JYPPX_FORMAT_ROOT IN ITEMS include src tests examples tools/cli)
@@ -139,8 +139,8 @@ endforeach()
 # Instrumentation (Optional)
 # ============================================
 set(JYPPX_INSTRUMENTATION_REQUESTED OFF)
-if(JYPPX_ENABLE_ASAN OR JYPPX_ENABLE_UBSAN OR JYPPX_ENABLE_TSAN
-   OR JYPPX_ENABLE_COVERAGE)
+if(JYPPX_LIUDING_ENABLE_ASAN OR JYPPX_LIUDING_ENABLE_UBSAN OR JYPPX_LIUDING_ENABLE_TSAN
+   OR JYPPX_LIUDING_ENABLE_COVERAGE)
     set(JYPPX_INSTRUMENTATION_REQUESTED ON)
 endif()
 
@@ -150,11 +150,11 @@ if(JYPPX_INSTRUMENTATION_REQUESTED
         "Coverage and sanitizer options require a GNU or Clang compiler")
 endif()
 
-if(JYPPX_ENABLE_ASAN AND JYPPX_ENABLE_TSAN)
+if(JYPPX_LIUDING_ENABLE_ASAN AND JYPPX_LIUDING_ENABLE_TSAN)
     message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer cannot be combined")
 endif()
 
-if(JYPPX_ENABLE_COVERAGE AND JYPPX_ENABLE_TSAN)
+if(JYPPX_LIUDING_ENABLE_COVERAGE AND JYPPX_LIUDING_ENABLE_TSAN)
     message(FATAL_ERROR "Coverage and ThreadSanitizer cannot be combined")
 endif()
 
@@ -169,19 +169,19 @@ function(jyppx_apply_instrumentation target_name)
         set(link_scope PRIVATE)
     endif()
 
-    if(JYPPX_ENABLE_ASAN)
+    if(JYPPX_LIUDING_ENABLE_ASAN)
         target_compile_options(${target_name} PRIVATE -fsanitize=address)
         target_link_options(${target_name} ${link_scope} -fsanitize=address)
     endif()
-    if(JYPPX_ENABLE_UBSAN)
+    if(JYPPX_LIUDING_ENABLE_UBSAN)
         target_compile_options(${target_name} PRIVATE -fsanitize=undefined)
         target_link_options(${target_name} ${link_scope} -fsanitize=undefined)
     endif()
-    if(JYPPX_ENABLE_TSAN)
+    if(JYPPX_LIUDING_ENABLE_TSAN)
         target_compile_options(${target_name} PRIVATE -fsanitize=thread)
         target_link_options(${target_name} ${link_scope} -fsanitize=thread)
     endif()
-    if(JYPPX_ENABLE_COVERAGE)
+    if(JYPPX_LIUDING_ENABLE_COVERAGE)
         set(coverage_compile_options --coverage)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             # Data pipelines exercise instrumented code from multiple worker

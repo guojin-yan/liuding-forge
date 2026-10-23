@@ -7,9 +7,9 @@
 
 #include "cli.hpp"
 
-#include <jyppx/experiment/config.hpp>
+#include <jyppx/liuding/experiment/config.hpp>
 
-namespace jyppx::cli {
+namespace jyppx::liuding::cli {
 
 // Shared CLI schema conversion; the SDK remains the sole type/validation owner.
 experiment::config::ConfigSchema decode_config_schema(const Json& encoded);
@@ -17,6 +17,6 @@ void validate_migration_values(const Json& values,
                                const experiment::config::ConfigSchema& schema);
 Result config_migration_command(const Arguments& arguments);
 
-}  // namespace jyppx::cli
+}  // namespace jyppx::liuding::cli
 
 #endif  // JYPPX_TOOLS_CONFIG_MIGRATION_HPP
