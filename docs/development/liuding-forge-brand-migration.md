@@ -406,11 +406,29 @@ DLL 解析后，相同既有测试二进制的该项测试通过。未改变侧�
 
 ## 20. Git 与外部状态
 
-本次提交并推送到 `git@github.com:guojin-yan/liuding-forge.git` 的
-`improvement/DEV-001-extreme-condition-tests` 分支；没有合并或重写历史，
-也没有发布安装包。推送前 HEAD 为 `de2f3160a5bc4bf5a234a78361b0ec3b01bc9383`，
-接手时的 42 个修改文件均保留，另加入品牌迁移报告和仓库链接更新。推送后的
-提交号、远端跟踪关系和工作区状态记录在 E 下的 `post-push-status.txt`、
-`post-push-remotes.txt` 和 `post-push-log.txt`。受保护的公共头文件、实现、
-协议 fixture、兼容清单、组件依赖清单和依赖 manifest 没有相对推送前 HEAD 的
-额外差异；构建、打包和验证产物仍只在本地忽略目录中。
+开发分支的全部提交已快进合入 `main`，后续不再保留
+`improvement/DEV-001-extreme-condition-tests`。品牌迁移提交
+`ef94c6e171c3a8f86816e510d69c43f3478d8640` 以及此前开发分支上的全部提交
+现已位于主分支历史中；没有重写历史，也没有发布安装包。推送后的提交号、
+远端跟踪关系和工作区状态记录在 E 下的 `post-push-status.txt`、
+`post-push-remotes.txt` 和 `post-push-log.txt`；主分支合入后的记录补充在
+`main-push-status.txt`、`main-push-remotes.txt` 和 `main-push-log.txt`。
+受保护的公共头文件、实现、协议 fixture、兼容清单、组件依赖清单和依赖
+manifest 没有相对合入前 HEAD 的额外差异；构建、打包和验证产物仍只在本地
+忽略目录中。
+
+## 21. 后续分支与推送方案
+
+仓库规范已切换为主分支唯一推送路径：
+
+```powershell
+git remote set-url origin git@github.com:guojin-yan/liuding-forge.git
+git checkout main
+git pull --ff-only origin main
+git push origin main
+```
+
+远端仓库展示地址为 `https://github.com/guojin-yan/liuding-forge`，SSH 地址只用于
+已认证的 Git 传输。`main` 是后续集成和推送分支；本次开发分支已经合入主分支
+并删除本地和远端引用，不再创建同名开发分支。新提交若涉及品牌层，继续遵守
+本报告第 7、14、18 节列出的 `jyppx` 技术兼容边界。
