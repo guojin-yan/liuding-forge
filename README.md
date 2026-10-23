@@ -2,17 +2,15 @@
 
 [English README](README.en.md)
 
-六丁炼算（Liuding Forge）是一个基于 LibTorch 的 C++20 深度学习训练框架，面向需要原生 C++ 训练、可恢复生命周期、本地实验和交付工具的工程团队。JYPPX 是产品群总品牌，JYPPX Training Framework 是本项目的内部别名；对外产品名称、内部别名和代码技术身份分别承担不同职责。
+六丁炼算（Liuding Forge）是一个基于 LibTorch 的 C++20 深度学习训练框架，面向需要原生 C++ 训练、可恢复生命周期、本地实验和交付工具的工程团队。
 
 > 当前状态：项目仍处于 v1.0 开发阶段。已有功能和验证结果只代表对应的代码范围与环境，不代表正式 GA 发布或与 PyTorch 全面等价。
 
 ## 项目定位
 
-项目对外名称为六丁炼算（Liuding Forge）。项目重点是可靠的训练生命周期、数据管线、优化器与调度器、评估、检查点、实验制品、诊断和交付工具，不负责实现 Web 页面、团队服务、RBAC、多租户或远程控制面。
+Liuding Forge 面向需要在原生 C++ 环境中构建、恢复、评估和交付训练任务的工程团队。项目重点是可靠的训练生命周期、数据管线、优化器与调度器、评估、检查点、实验制品、诊断和交付工具，不负责实现 Web 页面、团队服务、RBAC、多租户或远程控制面。
 
-公共 C++ 根命名空间为 `jyppx::liuding`，公共头文件使用 `<jyppx/liuding/...>`，安装包通过 `find_package(jyppx)` 发现，导出 target 使用 `jyppx::liuding::<component>`。逻辑 CMake target、`JYPPX_*` 配置变量和协议字段保持技术身份；生成库、CLI、示例和归档使用 `liuding-forge` 产品前缀。
-
-JYPPX Training Framework 作为内部项目别名保留，用于方案、工程协作和产品群内部识别；它不是对外产品名，也不是新的 C++ 命名空间。
+使用 C++ API 时，从 `<jyppx/liuding/...>` 引入公共头文件，并在 `jyppx::liuding` 命名空间下调用接口。使用 CMake 集成时，通过 `find_package(jyppx)` 查找安装包，再链接 `jyppx::liuding::<component>` 目标；构建选项继续使用 `JYPPX_*` 前缀。用户实际运行和分发的库、CLI、示例和归档文件统一使用 `liuding-forge` 产品前缀。
 
 ## 我们解决的问题
 
@@ -26,37 +24,37 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 - 用 BuildFingerprint、依赖锁、工作负载和设备身份绑定性能与发布证据，避免把不同环境的数字直接比较。
 - 将本地运行、制品、评估、遥测、bundle 和 serving 设计为可替换的边界，便于与外部平台集成。
 
-## 功能模块对比与开发进度
+## 功能模块开发进度
 
-下表按工程基础、基础计算、数据管线、模型系统、训练系统、实验与评估、交付工具、扩展能力和当前范围外能力划分。它同时展示 PyTorch 的对应能力和 Liuding Forge 当前的开发状态；状态只使用“已具备”“部分具备”“开发中”“暂不具备”。所有判断均限于当前 v1.0 代码范围和声明环境。
+下表按工程基础、基础计算、数据管线、模型系统、训练系统、实验与评估、交付工具、扩展能力和当前范围外能力划分。它只展示 Liuding Forge 自身的功能状态和开发进度，并在说明中标注对应的 PyTorch 模块或常用能力。所有判断均限于当前 v1.0 代码范围和声明环境。
 
-| 功能模块 | 详细说明 | 当前库是否具备 | PyTorch 是否具备 | 其他说明 |
+| 功能模块 | 详细说明 | 当前库是否具备 | 开发进度 | 其他说明 |
 | --- | --- | --- | --- | --- |
-| **工程基础：构建与安装** | 命名边界、依赖方向、CMake package、安装消费和仓库卫生 | 已具备 | 部分具备 | Liuding Forge 的公共 C++ 身份为 `jyppx::liuding`；逻辑 CMake target 和 `JYPPX_*` 变量保留技术身份。 |
-| **基础计算：Tensor 与自动微分** | 张量运算、神经网络模块和 autograd 基础 | 已具备（依赖 LibTorch） | 已具备 | Liuding Forge 直接使用 LibTorch，不重新实现 tensor/autograd；能力边界由匹配的 LibTorch 版本决定。 |
-| **基础计算：基础组件与损失函数** | foundation 合约、错误/RNG/build fingerprint 和常用 loss 垂直切片 | 已具备 | 已具备 | 属于 C++ 工程基础层；不宣称覆盖 PyTorch 全部损失函数和扩展生态。 |
-| **数据管线：数据集与数据加载** | map/iterable pipeline、worker、sampler、确定性 cursor 和数据生命周期 | 已具备 | 已具备 | 核心 C++ 管线已实现；多进程 distributed 数据加载不在当前范围。 |
-| **数据管线：结构化 Batch 与能力描述** | batch schema、字段访问、能力声明和受约束的 collate 行为 | 已具备 | 部分具备 | PyTorch 可通过 Dataset、collate 和第三方类型组合实现，但没有同等的本项目能力描述合约。 |
-| **模型系统：模型适配与模型生态** | ModelAdapter、模型 checkpoint participant、受控参考模型和模型预览 | 部分具备（持续开发） | 生态具备 | Liuding Forge 提供工程适配边界，不宣称与 PyTorch 官方及社区 model zoo 等价。 |
-| **训练系统：优化器** | SGD、Adam、AdamW、RMSprop、Adagrad、NAdam、Adadelta、LAMB adapter 及状态恢复 | 已具备 | 已具备 | 主要优化器已接入；跨版本迁移、稀疏参数和更大扩展生态仍有限。 |
-| **训练系统：学习率调度** | descriptor-first scheduler、组合调度、训练事件适配和精确恢复 | 已具备 | 已具备 | 调度器集合在显式合约下可恢复；迁移语义受版本和配置约束。 |
-| **训练系统：Trainer 与训练编排** | Trainer、callback、metric、strategy、AMP、多 optimizer 和 checkpoint domain | 已具备 | 生态具备 | 当前交付的是 C++ 训练闭环；PyTorch 核心提供训练原语，上层编排通常来自生态项目。 |
-| **训练系统：检查点与恢复** | storage-neutral participant、事务协调、文件存储、CAS/SQLite 元数据和有界恢复 | 已具备 | 已具备 | 不兼容任意 PyTorch pickle；恢复范围由显式 participant 和 artifact manifest 决定。 |
-| **训练系统：混合精度** | CPU bfloat16、CUDA float16/bfloat16、GradScaler 和 RNG participant | 部分具备 | 已具备 | 只覆盖声明组合；设备、编译器、CUDA 和 LibTorch 必须与兼容矩阵匹配。 |
-| **训练系统：指标、回调与事件** | 训练指标、生命周期回调、事件分发和调度器事件适配 | 已具备 | 生态具备 | 当前能力服务于本项目 Trainer；更广泛的实验跟踪和社区回调仍由外部生态提供。 |
-| **实验与评估：本地实验与制品** | run/artifact、SQLite/CAS、遥测、环境身份和离线工作流 | 已具备 | 生态具备 | 面向可审计本地运行；不替代远程 tracking、团队协作或多租户平台。 |
-| **实验与评估：评估与数据质量** | evaluation suite、数据质量检查、结果 manifest 和 CLI JSON 契约 | 已具备 | 生态具备 | 已有本地工程链路；具体任务指标和数据集适配仍按项目范围扩展。 |
-| **交付工具：模型 Bundle 与互操作** | 有界 model bundle、interop backend、权重导入和安装后消费 | 部分具备 | 生态具备 | 支持声明的 bundle/后端边界；不兼容任意 PyTorch 导出物或任意 pickle。 |
-| **交付工具：C++ CLI 与交付工具链** | liuding-forge CLI、迁移、评估、检查、打包和安装消费者工具 | 已具备 | 部分具备 | 这是面向原生 C++ 和离线交付的补充能力；PyTorch 主要以 Python 工具链为中心。 |
-| **交付工具：性能观测与资源基线** | BuildFingerprint、设备/工作负载身份、数据管线资源观测和基线协议 | 已具备 | 部分具备 | 性能结果必须绑定精确环境，不能把不同硬件、编译器或依赖组合的数字直接比较。 |
-| **交付工具：质量、恢复与发布门槛** | 当前训练生命周期的质量/恢复验证、coverage、sanitizer、fuzz、资源矩阵和发布回退 | 部分具备（持续完善） | 生态具备 | 基础质量与恢复能力已有验证；完整覆盖率、依赖安全、发布回退和签名交付仍在完善。 |
-| **扩展能力：图像输入与标注工作流** | data_image、mask 语义、联合几何、批量 transforms、renderer/output 和 benchmark | 部分具备（开发中） | 生态具备 | 首个 data_image 切片已完成；完整图像工作流仍在开发。 |
-| **扩展能力：量化** | storage quantization 与 FP32 fallback 的独立预览边界 | 开发中（预览） | 已具备 | 当前不是 compute quantization，也不承诺量化感知训练（QAT）。 |
-| **扩展能力：导出、Serving 与部署** | 有界 model bundle、互操作后端和本地 serving preview | 开发中（预览） | 生态具备 | 不宣称完整部署平台；TorchScript、torch.export、TorchServe 等能力不等价映射。 |
-| **当前范围外：分布式训练** | 多进程、多后端和跨节点训练控制面 | 暂不具备 | 已具备 | distributed 不属于当前 v1.0 代码仓库交付范围。 |
-| **当前范围外：远程平台与控制面** | Web、团队服务、RBAC、多租户和远程运行控制 | 暂不具备 | 不适用 | 这些属于产品平台层，不作为当前 Liuding Forge 训练库能力承诺。 |
+| **工程基础：构建与安装** | 命名边界、依赖方向、CMake package、安装消费和仓库卫生 | 已具备 | 已完成 | 对应 PyTorch 的 LibTorch C++ frontend、CMake package 和 C++ 扩展构建链路；公共 API 使用 `jyppx::liuding`。 |
+| **基础计算：Tensor 与自动微分** | 张量运算、神经网络模块和 autograd 基础 | 已具备 | 持续验证 | 对应 PyTorch 的 `torch.Tensor`、`torch.autograd`、`torch.nn` 及 LibTorch C++ frontend；Liuding Forge 不重新实现 tensor/autograd。 |
+| **基础计算：基础组件与损失函数** | foundation 合约、错误/RNG/build fingerprint 和常用 loss 垂直切片 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.nn` 损失函数、随机数和设备基础能力；覆盖范围按本项目 C++ 合约定义。 |
+| **数据管线：数据集与数据加载** | map/iterable pipeline、worker、sampler、确定性 cursor 和数据生命周期 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.utils.data.Dataset`、`DataLoader`、`Sampler` 和 worker 机制；多进程 distributed 数据加载不在当前范围。 |
+| **数据管线：结构化 Batch 与能力描述** | batch schema、字段访问、能力声明和受约束的 collate 行为 | 已具备 | 已完成 | 对应 PyTorch 的 `collate_fn`、batch 组合和数据字段处理；本项目增加显式能力描述合约。 |
+| **模型系统：模型适配与模型生态** | ModelAdapter、模型 checkpoint participant、受控参考模型和模型预览 | 部分具备 | 持续开发 | 对应 PyTorch 的 `torch.nn.Module` 以及 torchvision、TorchText、Transformers 等模型生态；不宣称 model zoo 等价。 |
+| **训练系统：优化器** | SGD、Adam、AdamW、RMSprop、Adagrad、NAdam、Adadelta、LAMB adapter 及状态恢复 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.optim` 及其 optimizer state；跨版本迁移、稀疏参数和更大扩展生态仍有限。 |
+| **训练系统：学习率调度** | descriptor-first scheduler、组合调度、训练事件适配和精确恢复 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.optim.lr_scheduler`；本项目增加显式描述、事件绑定和可恢复状态。 |
+| **训练系统：Trainer 与训练编排** | Trainer、callback、metric、strategy、AMP、多 optimizer 和 checkpoint domain | 已具备 | 已完成 | 对应 PyTorch 的训练循环、optimizer/model 组合和生态 Trainer；本项目提供 C++ 训练闭环。 |
+| **训练系统：检查点与恢复** | storage-neutral participant、事务协调、文件存储、CAS/SQLite 元数据和有界恢复 | 已具备 | 已完成 | 对应 PyTorch 的 `state_dict`、`torch.save` 和 `torch.load`；不兼容任意 PyTorch pickle，恢复由显式 participant 和 manifest 定义。 |
+| **训练系统：混合精度** | CPU bfloat16、CUDA float16/bfloat16、GradScaler 和 RNG participant | 部分具备 | 持续完善 | 对应 PyTorch 的 `torch.amp`、`torch.cuda.amp` 和 `GradScaler`；只覆盖声明组合，设备和 LibTorch 必须匹配兼容矩阵。 |
+| **训练系统：指标、回调与事件** | 训练指标、生命周期回调、事件分发和调度器事件适配 | 已具备 | 已完成 | 对应 PyTorch 训练循环 hooks 以及 torchmetrics、Lightning 等生态能力；当前接口服务于本项目 Trainer。 |
+| **实验与评估：本地实验与制品** | run/artifact、SQLite/CAS、遥测、环境身份和离线工作流 | 已具备 | 已完成 | 对应 PyTorch TensorBoard、`torch.profiler`、实验跟踪和制品管理生态；不替代远程 tracking 或多租户平台。 |
+| **实验与评估：评估与数据质量** | evaluation suite、数据质量检查、结果 manifest 和 CLI JSON 契约 | 已具备 | 已完成 | 对应 PyTorch evaluation loop、torchmetrics 和数据集工具生态；具体任务指标按项目范围扩展。 |
+| **交付工具：模型 Bundle 与互操作** | 有界 model bundle、interop backend、权重导入和安装后消费 | 部分具备 | 持续完善 | 对应 PyTorch 的 `state_dict`、TorchScript、`torch.export` 和权重导入能力；不接受任意导出物或 pickle。 |
+| **交付工具：C++ CLI 与交付工具链** | liuding-forge CLI、迁移、评估、检查、打包和安装消费者工具 | 已具备 | 已完成 | 对应 PyTorch 的 LibTorch C++ frontend、`torchrun` 周边和扩展构建工具；本项目侧重原生 C++ 和离线交付。 |
+| **交付工具：性能观测与资源基线** | BuildFingerprint、设备/工作负载身份、数据管线资源观测和基线协议 | 已具备 | 持续完善 | 对应 PyTorch Profiler、CUDA 观测和 benchmark 工具；性能结果必须绑定精确环境，不能跨环境直接比较。 |
+| **交付工具：质量、恢复与发布门槛** | 当前训练生命周期的质量/恢复验证、coverage、sanitizer、fuzz、资源矩阵和发布回退 | 部分具备 | 持续完善 | 对应 PyTorch testing、benchmark 和发布验证生态；完整覆盖率、依赖安全、发布回退和签名交付仍在完善。 |
+| **扩展能力：图像输入与标注工作流** | data_image、mask 语义、联合几何、批量 transforms、renderer/output 和 benchmark | 部分具备 | 开发中 | 对应 torchvision datasets、transforms、mask/annotation 和视觉数据管线；完整图像工作流仍在开发。 |
+| **扩展能力：量化** | storage quantization 与 FP32 fallback 的独立预览边界 | 部分具备 | 开发中（预览） | 对应 PyTorch `torch.ao.quantization`；当前不是 compute quantization，也不承诺量化感知训练（QAT）。 |
+| **扩展能力：导出、Serving 与部署** | 有界 model bundle、互操作后端和本地 serving preview | 部分具备 | 开发中（预览） | 对应 TorchScript、`torch.export`、TorchServe 和部署生态；不宣称完整部署平台或一一等价映射。 |
+| **当前范围外：分布式训练** | 多进程、多后端和跨节点训练控制面 | 暂不具备 | 当前范围外 | 对应 PyTorch `torch.distributed`、DDP 和多后端通信；不属于当前 v1.0 代码仓库交付范围。 |
+| **当前范围外：远程平台与控制面** | Web、团队服务、RBAC、多租户和远程运行控制 | 暂不具备 | 当前范围外 | PyTorch 本身不提供完整的远程控制面；相关能力属于平台和 MLOps 生态。 |
 
-核心训练、数据、检查点、实验制品和 C++ 工具链已经具备声明范围内的实现；模型生态、完整图像工作流、量化、Serving 以及发布质量能力仍在持续开发；分布式训练和远程平台不属于当前版本范围。Liuding Forge 补充的是 LibTorch 在工程化训练和交付方面的能力，不重新实现 PyTorch，也不与其 Python 研究生态或模型生态做等价承诺。
+核心训练、数据、检查点、实验制品和 C++ 工具链已经具备声明范围内的实现；模型生态、完整图像工作流、量化、Serving 以及发布质量能力仍在持续开发；分布式训练和远程平台不属于当前版本范围。Liuding Forge 补充的是 LibTorch 在工程化训练和交付方面的能力，不重新实现 PyTorch。
 
 当前代码主线为 main，远程仓库为 [github.com/guojin-yan/liuding-forge](https://github.com/guojin-yan/liuding-forge)。后续提交和推送统一进入 main。
 
