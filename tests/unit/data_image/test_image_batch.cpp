@@ -7,6 +7,7 @@
 
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/data_image/batch_identity.hpp>
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)
@@ -580,6 +581,68 @@ TEST(ImageBatchTest, IdentityBindsAllPoliciesAndSchemaBindsPixelMeaning) {
             canonical_batch_schema(image_batch_schema(b, torch::kCPU)));
 }
 
+TEST(ImageBatchContentIdentityTest, BindsTensorValuesAndBatchSemantics) {
+  const auto photo = Batch({Photo()});
+  const auto identity = image_batch_content_identity(photo);
+  EXPECT_EQ(identity,
+            "8f5a8e68d386f924bd2b5558f762fd814dd177b87773e8b90e6e63082427efa2");
+  EXPECT_EQ(identity, image_batch_content_identity(photo));
+
+  auto changed_photo = photo;
+  changed_photo.images = photo.images.clone();
+  changed_photo.images[0][0][0][0] = 99;
+  EXPECT_NE(image_batch_content_identity(changed_photo),
+            image_batch_content_identity(photo));
+
+  auto mask_sample = Photo();
+  Mask(mask_sample);
+  const auto with_mask = Batch({mask_sample});
+  auto changed_mask = with_mask;
+  changed_mask.masks = with_mask.masks->clone();
+  changed_mask.masks->index_put_({0, 0, 0}, 123);
+  EXPECT_NE(image_batch_content_identity(changed_mask),
+            image_batch_content_identity(with_mask));
+
+  auto metadata_sample = Photo();
+  auto categories = std::make_shared<const std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{.source_id = 1, .name = "object"}});
+  metadata_sample.categories = categories;
+  auto annotation = std::make_shared<VisionAnnotationRecord>();
+  annotation->image_path = metadata_sample.image_path;
+  annotation->width = metadata_sample.width;
+  annotation->height = metadata_sample.height;
+  annotation->objects.push_back(
+      {.source_id = 7, .category = 0, .box = ImageBox{0, 0, 2, 1}});
+  metadata_sample.annotation = annotation;
+  const auto annotated = Batch({metadata_sample});
+  auto changed_annotation = annotated;
+  auto changed_record = std::make_shared<VisionAnnotationRecord>(
+      *changed_annotation.items[0].annotation);
+  changed_record->objects[0].box->x_max = 1;
+  changed_annotation.items[0].annotation = changed_record;
+  EXPECT_NE(image_batch_content_identity(changed_annotation),
+            image_batch_content_identity(annotated));
+
+  ImageCollateOptions padded;
+  padded.layout = ImageBatchLayout::pad;
+  padded.padded_extent = ImageExtent{3, 2};
+  const auto padded_batch = Batch({Photo()}, padded);
+  EXPECT_NE(image_batch_content_identity(photo),
+            image_batch_content_identity(padded_batch));
+}
+
+TEST(ImageBatchContentIdentityTest, ValidatesLimitsAndCancellation) {
+  const auto batch = Batch({Photo()});
+  std::stop_source stop;
+  stop.request_stop();
+  EXPECT_THROW(image_batch_content_identity(batch, {}, stop.get_token()),
+               Cancelled);
+
+  ImageBatchLimits limits;
+  limits.max_output_bytes = 1;
+  EXPECT_THROW(image_batch_content_identity(batch, limits), ResourceExhausted);
+}
+
 TEST(ImageBatchCUDATest, FinalBatchPinTransferNumericAndRaggedMetadata) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
   for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
@@ -628,6 +691,17 @@ TEST(ImageBatchCUDATest, FinalBatchPinTransferNumericAndRaggedMetadata) {
     EXPECT_TRUE(torch::equal(mask.cpu(), original));
     EXPECT_EQ(round_trip.items[0].key.id, "sample-0");
   }
+}
+
+TEST(ImageBatchCUDATest, ContentIdentityRejectsDeviceBatchWithoutTransfer) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const auto batch = Batch({Photo()});
+  BatchMemoryOptions memory{.pin_memory = true,
+                            .target_device = Device(torch::kCUDA, 0),
+                            .non_blocking = true};
+  const auto device_batch =
+      transfer_image_batch(prepare_image_batch(batch, memory), memory);
+  EXPECT_THROW(image_batch_content_identity(device_batch), InvalidArgument);
 }
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)

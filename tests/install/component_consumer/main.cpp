@@ -18,6 +18,7 @@
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/data_image/annotation_files.hpp>
 #include <jyppx/liuding/data_image/batch_geometry.hpp>
+#include <jyppx/liuding/data_image/batch_identity.hpp>
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
@@ -225,6 +226,7 @@ int main() {
        .padded_extent = ImageExtent{4, 3},
        .mask_padding_id = -1});
   const auto numeric = transform_image_batch(batch);
+  const auto content_identity = image_batch_content_identity(batch);
   const std::array<std::vector<ImageGeometryStep>, 1> batch_steps{
       {{{.kind = ImageGeometryKind::horizontal_flip}}}};
   ImageBatchGeometryOptions batch_geometry_options;
@@ -282,6 +284,7 @@ int main() {
                  rich.annotation->objects[0].mask_pixel_area == 6 &&
                  rich.annotation->objects[0].rle->width == 3 &&
                  geometric.items[0].key.id == "installed-image" &&
+                 content_identity.size() == 64 &&
                  geometric.items[0].annotation->objects[0].rle->width == 4 &&
                  decoded.images.sizes() == torch::IntArrayRef({1, 1, 3, 4}) &&
                  decoded.items[0].key.occurrence == 7 &&
