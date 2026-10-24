@@ -225,13 +225,13 @@ int main() {
        .padded_extent = ImageExtent{4, 3},
        .mask_padding_id = -1});
   const auto numeric = transform_image_batch(batch);
-  const std::array<std::vector<ImageGeometryStep>, 1> batch_steps{{
-      {{.kind = ImageGeometryKind::horizontal_flip}}}};
+  const std::array<std::vector<ImageGeometryStep>, 1> batch_steps{
+      {{{.kind = ImageGeometryKind::horizontal_flip}}}};
   ImageBatchGeometryOptions batch_geometry_options;
   batch_geometry_options.joint.mask_padding_id = -1;
   batch_geometry_options.output_padded_extent = ImageExtent{4, 3};
-  const auto geometric = transform_image_batch_geometry(
-      batch, batch_steps, batch_geometry_options);
+  const auto geometric = transform_image_batch_geometry(batch, batch_steps,
+                                                        batch_geometry_options);
   jyppx::liuding::data::DataPipelineOptions pipeline_options;
   pipeline_options.pipeline_id = "installed-image-precommit";
   pipeline_options.dataset_version = "installed-image/v1";
@@ -281,8 +281,8 @@ int main() {
                  bound.objects[0].mask_pixel_area == 1 &&
                  rich.annotation->objects[0].mask_pixel_area == 6 &&
                  rich.annotation->objects[0].rle->width == 3 &&
-                  geometric.items[0].key.id == "installed-image" &&
-                  geometric.items[0].annotation->objects[0].rle->width == 4 &&
+                 geometric.items[0].key.id == "installed-image" &&
+                 geometric.items[0].annotation->objects[0].rle->width == 4 &&
                  decoded.images.sizes() == torch::IntArrayRef({1, 1, 3, 4}) &&
                  decoded.items[0].key.occurrence == 7 &&
                  decoded.items[0].annotation->objects[0].rle->width == 4 &&
