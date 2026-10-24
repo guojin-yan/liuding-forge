@@ -4,7 +4,7 @@
   "baseline": {
     "commit": "f0418d3ce10a23b5d871a075abfa2de5430d57c5",
     "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug",
-    "scope": "Retained stable-target ratchets; preview metrics use observations.m8_preview_400f9e9."
+    "scope": "Retained stable-target ratchets; preview metrics use observations.m8_preview_400f9e9 and data_image uses observations.v1_base_bb3c471."
   },
   "targets": {
     "core": {
@@ -214,6 +214,30 @@
         }
       }
     },
+    "data_image": {
+      "path_prefixes": [
+        "include/jyppx/liuding/data_image/",
+        "src/jyppx/liuding/data_image/"
+      ],
+      "metrics": {
+        "line": {
+          "baseline_covered": 2210,
+          "baseline_total": 2508,
+          "minimum_percent": 88.118022
+        },
+        "function": {
+          "baseline_covered": 200,
+          "baseline_total": 207,
+          "minimum_percent": 96.618357
+        },
+        "branch": {
+          "baseline_covered": 2511,
+          "baseline_total": 4334,
+          "minimum_percent": 57.93724
+        }
+      },
+      "baseline_observation": "v1_base_bb3c471"
+    },
     "models": {
       "path_prefixes": [
         "include/jyppx/liuding/models/",
@@ -288,6 +312,17 @@
     }
   },
   "observations": {
+    "v1_base_bb3c471": {
+      "commit": "bb3c471bb6a4e5035e8b01e0ab10615051817275",
+      "tree": "f38c3a5ea2bed66ab05cf7f6c2e0707556b2cc79",
+      "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug",
+      "report": "out/coverage/linux/report/coverage-summary.json",
+      "report_sha256": "bb2104cd61f66f128a94b4d0e12aed5e9caed72b7645ce5681e267d7b83aeeb5",
+      "targets": [
+        "data_image"
+      ],
+      "status": "measured_image_baseline; original_target_ratchets_retained"
+    },
     "m8_preview_400f9e9": {
       "commit": "400f9e9e2ac2c2cc82a2739c38e1d2f8753de8f6",
       "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug",
