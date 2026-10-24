@@ -48,7 +48,7 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **交付工具：C++ CLI 与交付工具链** | liuding-forge CLI、迁移、评估、检查、打包和安装消费者工具 | 已具备 | 已完成 | 对应 PyTorch 的 LibTorch C++ frontend、`torchrun` 周边和扩展构建工具；本项目侧重原生 C++ 和离线交付。 |
 | **交付工具：性能观测与资源基线** | BuildFingerprint、设备/工作负载身份、数据管线资源观测和基线协议 | 已具备 | 持续完善 | 对应 PyTorch Profiler、CUDA 观测和 benchmark 工具；性能结果必须绑定精确环境，不能跨环境直接比较。 |
 | **交付工具：质量、恢复与发布门槛** | 当前训练生命周期的质量/恢复验证、coverage、sanitizer、fuzz、资源矩阵和发布回退 | 部分具备 | 持续完善 | 对应 PyTorch testing、benchmark 和发布验证生态；完整覆盖率、依赖安全、发布回退和签名交付仍在完善。 |
-| **扩展能力：图像输入与标注工作流** | data_image、mask 语义、联合几何、批量 transforms、renderer/output 和 benchmark | 部分具备 | 开发中 | 对应 torchvision datasets、transforms、mask/annotation 和视觉数据管线；完整图像工作流仍在开发。 |
+| **扩展能力：图像输入与标注工作流** | 图像/标注读取、像素语义、坐标追踪、mask、联合变换、批处理和绘图输出 | 部分具备 | 读取、像素语义与轴对齐坐标追踪已实现；其余流程开发中 | 对应 torchvision datasets、transforms、mask/annotation 和视觉数据管线；当前用法见[图像数据 API](docs/api/data_image.md)。 |
 | **扩展能力：量化** | storage quantization 与 FP32 fallback 的独立预览边界 | 部分具备 | 开发中（预览） | 对应 PyTorch `torch.ao.quantization`；当前不是 compute quantization，也不承诺量化感知训练（QAT）。 |
 | **扩展能力：导出、Serving 与部署** | 有界 model bundle、互操作后端和本地 serving preview | 部分具备 | 开发中（预览） | 对应 TorchScript、`torch.export`、TorchServe 和部署生态；不宣称完整部署平台或一一等价映射。 |
 | **当前范围外：分布式训练** | 多进程、多后端和跨节点训练控制面 | 暂不具备 | 当前范围外 | 对应 PyTorch `torch.distributed`、DDP 和多后端通信；不属于当前 v1.0 代码仓库交付范围。 |
