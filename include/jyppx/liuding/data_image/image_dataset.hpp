@@ -18,6 +18,7 @@
 
 #include <jyppx/liuding/data/dataset.hpp>
 #include <jyppx/liuding/data_image/annotations.hpp>
+#include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
 
@@ -48,6 +49,12 @@ struct VisionSample {
   ///< Shared immutable object/mask/keypoint annotations for this image.
   std::uint32_t width = 0;   ///< Decoded input width in pixels.
   std::uint32_t height = 0;  ///< Decoded input height in pixels.
+  PixelSpec
+      pixels;  ///< Explicit image channel, dtype, layout and range semantics.
+  std::optional<PixelSpec>
+      paired_target_pixels;  ///< Separate paired-image semantics.
+  std::optional<GeometryTrace>
+      geometry;  ///< Decoder-to-current coordinates; identity on read.
 };
 
 /** @brief Decode policies and alignment requirements for a dataset source. */

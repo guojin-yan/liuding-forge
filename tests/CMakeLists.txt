@@ -411,11 +411,13 @@ endif()
 
 
 # Exercise the SDK and independent Preview consumers from installed artifacts.
-foreach(preview_component IN ITEMS sdk models quantization serving)
+foreach(preview_component IN ITEMS sdk data_image models quantization serving)
     if(TARGET jyppx::liuding::${preview_component})
         set(consumer_labels "${preview_component};packaging")
         if(preview_component STREQUAL "sdk")
             set(preview_test_name SdkInstallConsumer)
+        elseif(preview_component STREQUAL "data_image")
+            set(preview_test_name DataImageInstallConsumer)
         elseif(preview_component STREQUAL "models")
             set(preview_test_name ModelsInstallConsumer)
         elseif(preview_component STREQUAL "quantization")

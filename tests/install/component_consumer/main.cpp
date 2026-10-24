@@ -15,6 +15,7 @@
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
 #include <jyppx/liuding/data_image/annotation_files.hpp>
+#include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
 #elif defined(JYPPX_CONSUMER_NN)
@@ -167,10 +168,20 @@ int main() {
                                               '\n', '2', '5',  '5', '\n', 127};
   const auto image =
       jyppx::liuding::data::image::decode_image(std::as_bytes(std::span(pgm)));
+  jyppx::liuding::data::image::validate_pixels(image.tensor, image.pixels);
+  const auto trace = jyppx::liuding::data::image::GeometryTrace({20, 10})
+                         .resized({40, 20})
+                         .padded(0, 10, 0, 10);
+  const auto restored = trace.inverse_box({0, 10, 40, 30});
   return index.images.size() == 1U && index.images[0].objects.size() == 1U &&
                  index.images[0].objects[0].box->x_max == 20 &&
                  manifest.records().size() == 1U && image.width == 1U &&
-                 image.height == 1U && image.tensor.item<std::uint8_t>() == 127
+                 image.height == 1U &&
+                 image.tensor.item<std::uint8_t>() == 127 &&
+                 image.pixels.color ==
+                     jyppx::liuding::data::image::PixelColorModel::gray &&
+                 restored && restored->x_max == 20 && restored->y_max == 10 &&
+                 !trace.inverse_point({0, 0})
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_NN)

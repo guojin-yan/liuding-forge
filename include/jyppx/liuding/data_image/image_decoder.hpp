@@ -19,6 +19,7 @@
  */
 
 #include <jyppx/liuding/core/types.hpp>
+#include <jyppx/liuding/data_image/pixel_spec.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <cstddef>
@@ -42,12 +43,6 @@ enum class ImageFormat : std::uint8_t {
   hdr,
   pic,
   unknown,
-};
-
-/** @brief Tensor memory order published by the decoder. */
-enum class ImageLayout : std::uint8_t {
-  chw,  ///< Channels-first, contiguous tensor suitable for model input.
-  hwc,  ///< Channels-last, contiguous tensor suitable for image operations.
 };
 
 /** @brief Requested channel conversion policy. */
@@ -94,6 +89,8 @@ struct DecodedImage {
   std::uint32_t height = 0;                   ///< Encoded height in pixels.
   std::uint8_t channels = 0;                  ///< Published channel count.
   bool source_is_16bit = false;  ///< True for a 16-bit source image.
+  PixelSpec pixels;  ///< Published scalar/channel/range semantics; no ICC/EXIF
+                     ///< conversion.
 };
 
 /**

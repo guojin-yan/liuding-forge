@@ -295,6 +295,8 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
   sample.image_path = record.path;
   sample.width = decoded.width;
   sample.height = decoded.height;
+  sample.pixels = decoded.pixels;
+  sample.geometry.emplace(ImageExtent{decoded.width, decoded.height});
   sample.label_categories = label_categories_;
   sample.categories = categories_;
   if (index < sample_annotations_.size()) {
@@ -316,6 +318,7 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
       Malformed("target.dimensions", *record.target_path);
     }
     sample.paired_target = std::move(target.tensor);
+    sample.paired_target_pixels = target.pixels;
     sample.target_path = *record.target_path;
   }
   CheckStop(stop);

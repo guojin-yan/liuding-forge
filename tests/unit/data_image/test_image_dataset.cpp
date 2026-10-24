@@ -107,7 +107,18 @@ TEST(ImageDatasetTest, LazilyDecodesManifestRowsIntoVisionSamples) {
   EXPECT_EQ(first.width, 2U);
   EXPECT_EQ(first.height, 1U);
   EXPECT_EQ(first.image.scalar_type(), torch::kUInt8);
+  EXPECT_EQ(first.pixels.color, PixelColorModel::rgb);
+  EXPECT_NO_THROW(validate_pixels(first.image, first.pixels));
+  ASSERT_TRUE(first.geometry);
+  EXPECT_TRUE(first.geometry->retains_full_source());
+  EXPECT_EQ(first.geometry->source_extent().width, first.width);
+  EXPECT_EQ(first.geometry->source_extent().height, first.height);
+  const auto point = first.geometry->inverse_point({1, 0.5});
+  ASSERT_TRUE(point);
+  EXPECT_DOUBLE_EQ(point->x, 1);
+  EXPECT_DOUBLE_EQ(point->y, 0.5);
   EXPECT_FALSE(first.paired_target.has_value());
+  EXPECT_FALSE(first.paired_target_pixels.has_value());
   EXPECT_EQ(dataset.index().source_sha256(), index.source_sha256());
 
   const auto batch = dataset.get_batch({1U, 0U, 1U});
@@ -136,6 +147,13 @@ TEST(ImageDatasetTest, DecodesPairedTargetAndCanSelectIndependentPolicies) {
   EXPECT_EQ(sample.target_path, "masks/target.png");
   EXPECT_EQ(sample.paired_target->size(0), 1);
   EXPECT_EQ(sample.paired_target->scalar_type(), torch::kFloat32);
+  ASSERT_TRUE(sample.paired_target_pixels);
+  EXPECT_EQ(sample.paired_target_pixels->color, PixelColorModel::gray);
+  EXPECT_EQ(sample.paired_target_pixels->range, PixelValueRange::unit_interval);
+  EXPECT_NO_THROW(
+      validate_pixels(*sample.paired_target, *sample.paired_target_pixels));
+  EXPECT_EQ(sample.pixels.color, PixelColorModel::rgb);
+  EXPECT_EQ(sample.pixels.dtype, torch::kUInt8);
   EXPECT_EQ(sample.paired_target->size(1), sample.image.size(1));
   EXPECT_EQ(sample.paired_target->size(2), sample.image.size(2));
 }

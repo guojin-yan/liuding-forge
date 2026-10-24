@@ -263,6 +263,11 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
                           const ImageDecodeOptions& options,
                           std::stop_token stop) {
   CheckStop(stop);
+  if (options.layout != ImageLayout::chw && options.layout != ImageLayout::hwc)
+    Invalid("decode.layout", "CHW or HWC");
+  if (options.dtype != ImageDtype::preserve &&
+      options.dtype != ImageDtype::float32_normalized)
+    Invalid("decode.dtype", "preserve or float32_normalized");
   if (bytes.empty()) Malformed("decode.input", "empty input");
   if (bytes.size() > options.limits.max_input_bytes)
     Resource("decode.input", std::to_string(options.limits.max_input_bytes),
@@ -309,6 +314,17 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
   result.height = static_cast<std::uint32_t>(height);
   result.channels = output_channels;
   result.source_is_16bit = source_is_16bit;
+  result.pixels.layout = options.layout;
+  constexpr std::array kColors{PixelColorModel::gray,
+                               PixelColorModel::gray_alpha,
+                               PixelColorModel::rgb, PixelColorModel::rgba};
+  result.pixels.color = kColors[output_channels - 1U];
+  result.pixels.alpha = output_channels == 2 || output_channels == 4
+                            ? PixelAlphaMode::straight
+                            : PixelAlphaMode::none;
+  result.pixels.range = options.dtype == ImageDtype::float32_normalized
+                            ? PixelValueRange::unit_interval
+                            : PixelValueRange::unsigned_full_scale;
 
   try {
     if (source_is_16bit) {
@@ -326,6 +342,8 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
       result.tensor = MakeTensor(decoded.get(), width, height, output_channels,
                                  false, options);
     }
+    result.pixels.dtype = result.tensor.scalar_type();
+    validate_pixels(result.tensor, result.pixels);
   } catch (const c10::Error& error) {
     detail::rethrow_backend_error(
         error, detail::BackendErrorContext{

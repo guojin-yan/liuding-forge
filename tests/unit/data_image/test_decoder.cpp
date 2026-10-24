@@ -47,6 +47,12 @@ TEST(ImageDecoderTest, DetectsCommonMagicAndPublishesChwPng) {
   EXPECT_EQ(result.tensor.size(2), 2);
   EXPECT_EQ(result.tensor[0][0][0].item<int>(), 255);
   EXPECT_EQ(result.tensor[1][0][1].item<int>(), 255);
+  EXPECT_EQ(result.pixels.color, PixelColorModel::rgb);
+  EXPECT_EQ(result.pixels.layout, ImageLayout::chw);
+  EXPECT_EQ(result.pixels.dtype, torch::kUInt8);
+  EXPECT_EQ(result.pixels.range, PixelValueRange::unsigned_full_scale);
+  EXPECT_EQ(result.pixels.alpha, PixelAlphaMode::none);
+  EXPECT_NO_THROW(validate_pixels(result.tensor, result.pixels));
 }
 
 TEST(ImageDecoderTest, ConvertsJpegToRgbChannelsLast) {
@@ -62,6 +68,9 @@ TEST(ImageDecoderTest, ConvertsJpegToRgbChannelsLast) {
   ASSERT_EQ(result.tensor.sizes(), torch::IntArrayRef({1, 2, 3}));
   EXPECT_GT(result.tensor[0][0][0].item<int>(), 180);
   EXPECT_GT(result.tensor[0][1][1].item<int>(), 150);
+  EXPECT_EQ(result.pixels.layout, ImageLayout::hwc);
+  EXPECT_EQ(result.pixels.color, PixelColorModel::rgb);
+  EXPECT_NO_THROW(validate_pixels(result.tensor, result.pixels));
 }
 
 TEST(ImageDecoderTest, ConvertsBmpAndPgmToRequestedChannels) {
@@ -71,9 +80,13 @@ TEST(ImageDecoderTest, ConvertsBmpAndPgmToRequestedChannels) {
   EXPECT_EQ(bmp.format, ImageFormat::bmp);
   EXPECT_EQ(bmp.channels, 4U);
   EXPECT_EQ(bmp.tensor.size(0), 4);
+  EXPECT_EQ(bmp.pixels.color, PixelColorModel::rgba);
+  EXPECT_EQ(bmp.pixels.alpha, PixelAlphaMode::straight);
   const auto pgm = decode_image(ReadFixture("gray.pgm"));
   EXPECT_EQ(pgm.format, ImageFormat::pnm);
   EXPECT_EQ(pgm.channels, 1U);
+  EXPECT_EQ(pgm.pixels.color, PixelColorModel::gray);
+  EXPECT_EQ(pgm.pixels.alpha, PixelAlphaMode::none);
 }
 
 TEST(ImageDecoderTest, PreservesSixteenBitPngAndCanNormalizeToFloat) {
@@ -90,6 +103,20 @@ TEST(ImageDecoderTest, PreservesSixteenBitPngAndCanNormalizeToFloat) {
   const auto normalized = decode_image(bytes, options);
   EXPECT_EQ(normalized.tensor.scalar_type(), torch::kFloat32);
   EXPECT_FLOAT_EQ(normalized.tensor[0][0][1].item<float>(), 1.0F);
+  EXPECT_EQ(preserved.pixels.dtype, torch::kUInt16);
+  EXPECT_EQ(normalized.pixels.dtype, torch::kFloat32);
+  EXPECT_EQ(normalized.pixels.range, PixelValueRange::unit_interval);
+  EXPECT_NO_THROW(validate_pixels(normalized.tensor, normalized.pixels));
+}
+
+TEST(ImageDecoderTest, RejectsUnknownLayoutAndScalarPoliciesBeforeDecode) {
+  const auto bytes = ReadFixture("rgb.png");
+  ImageDecodeOptions options;
+  options.layout = static_cast<ImageLayout>(255);
+  EXPECT_THROW(decode_image(bytes, options), jyppx::liuding::InvalidArgument);
+  options = {};
+  options.dtype = static_cast<ImageDtype>(255);
+  EXPECT_THROW(decode_image(bytes, options), jyppx::liuding::InvalidArgument);
 }
 
 TEST(ImageDecoderTest, FileReaderUsesSameBoundedPathEntryPoint) {
