@@ -226,6 +226,14 @@ ImageDataset::ImageDataset(std::filesystem::path root, ManifestIndex index,
   ValidateIndex(index_);
   if (options_.mask_target && index_.task() != ManifestTask::paired)
     Invalid("mask.task", "a paired manifest when mask_target is configured");
+  if (options_.panoptic_target &&
+      (options_.mask_target || index_.task() != ManifestTask::classification ||
+       !annotations_ ||
+       annotations_->format != AnnotationFormat::coco_panoptic ||
+       options_.panoptic_target->encoding != MaskEncoding::panoptic_rgb ||
+       !options_.panoptic_target->void_id))
+    Invalid("panoptic.task",
+            "COCO panoptic annotations, panoptic_rgb and explicit void ID");
 
   label_categories_ =
       std::make_shared<const std::vector<VisionCategory>>(index_.categories());
@@ -262,6 +270,12 @@ ImageDataset::ImageDataset(std::filesystem::path root, ManifestIndex index,
       Malformed("annotations.path_unmatched", annotation.image_path);
     }
     static_cast<void>(ResolveDatasetFile(root_, annotation.image_path));
+    if (options_.panoptic_target) {
+      if (!annotation.panoptic_mask_path)
+        Malformed("panoptic.reference", annotation.image_path);
+      static_cast<void>(
+          ResolveDatasetFile(root_, *annotation.panoptic_mask_path));
+    }
     for (const auto& object : annotation.objects) {
       if (object.category >= annotations_->categories.size()) {
         Malformed("annotations.category", annotation.image_path);
@@ -271,6 +285,11 @@ ImageDataset::ImageDataset(std::filesystem::path root, ManifestIndex index,
         std::shared_ptr<const VisionAnnotationRecord>(annotations_,
                                                       &annotation);
   }
+  if (options_.panoptic_target &&
+      std::any_of(sample_annotations_.begin(), sample_annotations_.end(),
+                  [](const auto& record) { return !record; }))
+    Invalid("panoptic.missing_annotation",
+            "a panoptic record for every sample");
 }
 
 VisionSample ImageDataset::get(std::size_t index) const {
@@ -329,6 +348,19 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
       sample.paired_target_pixels = target.pixels;
     }
     sample.target_path = *record.target_path;
+  }
+  if (options_.panoptic_target) {
+    CheckStop(stop);
+    const auto reference = *sample.annotation->panoptic_mask_path;
+    auto mask = read_mask_file(ResolveDatasetFile(root_, reference),
+                               *options_.panoptic_target, stop);
+    auto bound =
+        bind_panoptic_mask(*sample.annotation, mask, sample.categories->size(),
+                           options_.panoptic_validation, stop);
+    sample.annotation =
+        std::make_shared<const VisionAnnotationRecord>(std::move(bound));
+    sample.mask_target = std::move(mask);
+    sample.target_path = reference;
   }
   CheckStop(stop);
   return sample;

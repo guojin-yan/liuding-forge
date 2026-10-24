@@ -50,6 +50,12 @@ enum class ImageInterpolation : std::uint8_t {
   bilinear,       ///< LibTorch align_corners=false, antialias=true.
 };
 
+/** @brief A partially cropped quadrilateral cannot remain a four-corner OBB. */
+enum class OrientedBoxCrop : std::uint8_t {
+  to_polygon,  ///< Preserve its clipped region and mark the conversion.
+  discard,     ///< Explicitly drop the partially cropped object.
+};
+
 /** @brief Per-call tensor payload and annotation limits, excluding input. */
 struct JointTransformLimits {
   std::uint32_t max_dimension =
@@ -60,8 +66,15 @@ struct JointTransformLimits {
   ///< Conservative live tensor payload estimate, including interpolation.
   ///< Excludes allocator overhead, caller inputs and LibTorch internal
   ///< workspace.
-  std::size_t max_objects = 1'000'000;     ///< Input annotation objects.
-  std::size_t max_keypoints = 10'000'000;  ///< Total input keypoints.
+  std::size_t max_objects = 1'000'000;          ///< Input annotation objects.
+  std::size_t max_keypoints = 10'000'000;       ///< Total input keypoints.
+  std::size_t max_polygon_points = 10'000'000;  ///< Input/output independently.
+  std::size_t max_polygon_fragments =
+      1'000'000;  ///< Input/output independently.
+  std::size_t max_geometry_checks = 20'000'000;  ///< Validation/triangulation.
+  std::size_t max_rle_runs = 10'000'000;  ///< Input/output independently.
+  std::uint64_t max_mask_work_pixels = 1'000'000'000;
+  ///< Total discrete-raster visits, including all instance RLE masks.
 };
 
 /** @brief Explicit aligned-target, interpolation, clipping and pose policies.
@@ -75,6 +88,10 @@ struct JointTransformOptions {
   ///< Required whenever a discrete mask is padded; never inferred as zero.
   double min_box_area = 0;  ///< Final clipped box area in output pixel units.
   double min_box_visibility = 0;  ///< Surviving source-box area fraction [0,1].
+  double min_region_area = 0;  ///< Output polygon area or actual mask pixels.
+  double min_region_visibility =
+      0;  ///< Surviving source region fraction [0,1].
+  OrientedBoxCrop oriented_box_crop = OrientedBoxCrop::to_polygon;
   bool drop_empty_pose =
       false;  ///< Drop pose objects with no remaining points.
   std::vector<std::vector<std::size_t>> horizontal_keypoint_permutations;
@@ -98,10 +115,13 @@ struct JointTransformOptions {
  * @throws DeviceError A LibTorch operation failed for a backend reason.
  * @throws Cancelled Cancellation was requested before publication.
  *
- * This slice supports classification, axis-aligned boxes, keypoints, aligned
- * paired photos and standalone discrete masks. Polygon, OBB, RLE and attached
- * panoptic segment tables are explicitly rejected before transformation; their
- * geometry is never silently left stale. Source IDs, categories and flags,
+ * Supports classification, boxes, keypoints, polygons, ordered convex OBBs,
+ * COCO RLE and explicitly bound panoptic masks. Clipped concave rings may be
+ * partitioned into nonoverlapping convex pieces; holes are not represented.
+ * Region filters apply independently to each source exterior ring. RLE and
+ * panoptic outputs have exact current pixel counts and tight boxes. Filtering
+ * a panoptic segment replaces all its pixels with the declared void ID.
+ * Source IDs, categories and flags,
  * including source-declared area, are retained. Box filtering is measured
  * against the original input box, then its clipped final output area. Missing
  * or cropped-away keypoints become (0,0,visibility=0). Paired images must have

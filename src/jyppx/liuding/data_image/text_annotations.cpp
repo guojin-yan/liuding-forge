@@ -70,19 +70,6 @@ ImageBox YoloBox(const std::vector<std::string_view>& fields,
   return box;
 }
 
-void ConvexQuad(const std::array<ImagePoint, 4>& quad) {
-  double sign = 0;
-  for (std::size_t i = 0; i < 4U; ++i) {
-    const auto& a = quad[i];
-    const auto& b = quad[(i + 1U) % 4U];
-    const auto& c = quad[(i + 2U) % 4U];
-    const double cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
-    if (!std::isfinite(cross) || cross == 0 || (sign != 0 && cross * sign <= 0))
-      Malformed("yolo.obb_convex_order");
-    sign = cross;
-  }
-}
-
 const tinyxml2::XMLElement* Element(const tinyxml2::XMLNode& node,
                                     const char* name, bool required = true) {
   const auto* element = node.FirstChildElement(name);
@@ -261,7 +248,7 @@ AnnotationIndex ReadYolo(std::string_view bytes, AnnotationFormat format,
       if (format == AnnotationFormat::yolo_obb) {
         object.oriented_box =
             std::array<ImagePoint, 4>{ring[0], ring[1], ring[2], ring[3]};
-        ConvexQuad(*object.oriented_box);
+        ValidateConvexQuad(*object.oriented_box);
       } else {
         ValidatePolygon(ring, state);
         object.polygons.push_back(std::move(ring));

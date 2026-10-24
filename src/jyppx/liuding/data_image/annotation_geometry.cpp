@@ -43,6 +43,17 @@ bool Intersects(const ImagePoint& a, const ImagePoint& b, const ImagePoint& c,
 
 }  // namespace
 
+void ValidateConvexQuad(const std::array<ImagePoint, 4>& quad) {
+  int sign = 0;
+  for (std::size_t i = 0; i < quad.size(); ++i) {
+    const auto cross = Cross(quad[i], quad[(i + 1) % 4], quad[(i + 2) % 4]);
+    const int next = cross > 0 ? 1 : -1;
+    if (!std::isfinite(cross) || cross == 0 || (sign && sign != next))
+      Malformed("obb.convex_order");
+    sign = next;
+  }
+}
+
 void ValidatePolygon(std::span<const ImagePoint> points, ParseState& state) {
   // Explicit closing points are legal and remain present in the owned value.
   if (points.size() > 1U && Equal(points.front(), points.back()))

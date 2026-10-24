@@ -297,7 +297,7 @@ TEST(JointTransformTest, IdentityOwnsStorageAndFurtherTransformsComposeTrace) {
   EXPECT_DOUBLE_EQ(result.geometry->inverse_point({1, 1})->y, 1);
 }
 
-TEST(JointTransformTest, MissingFlipPermutationAndStaleRichTargetsAreRejected) {
+TEST(JointTransformTest, MissingFlipPermutationAndMalformedTargetsAreRejected) {
   auto sample = Grid();
   AddPose(sample);
   const std::array flip{
@@ -308,7 +308,7 @@ TEST(JointTransformTest, MissingFlipPermutationAndStaleRichTargetsAreRejected) {
   EXPECT_THROW(transform_sample(sample, flip, options), InvalidArgument);
   auto record = std::make_shared<VisionAnnotationRecord>(*sample.annotation);
   sample.annotation = record;
-  record->objects[0].polygons = {{{0, 0}, {1, 0}, {0, 1}}};
+  record->objects[0].polygons = {{{0, 0}, {1, 0}, {0, 1}, {1, 1}}};
   EXPECT_THROW(transform_sample(sample, {}, PoseOptions()), InvalidArgument);
   record->objects[0].polygons.clear();
   record->objects[0].oriented_box.emplace();

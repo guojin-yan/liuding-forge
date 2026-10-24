@@ -20,6 +20,7 @@
 #include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
+#include <jyppx/liuding/data_image/panoptic.hpp>
 #elif defined(JYPPX_CONSUMER_NN)
 #include <jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>
 #elif defined(JYPPX_CONSUMER_OPTIM)
@@ -198,6 +199,22 @@ int main() {
        .transform_id = joint_transform_identity(geometry_options, {})});
   const auto transformed = transform_sample(
       sample, sample_geometry({1, 1}, geometry_options, random));
+  VisionAnnotationRecord segments;
+  segments.width = segments.height = 1;
+  segments.panoptic_mask_path = "source.png";
+  segments.objects.push_back({.source_id = 65535, .area = 1});
+  auto panoptic = mask;
+  panoptic.encoding = MaskEncoding::panoptic_rgb;
+  panoptic.void_id = 0;
+  const auto bound = bind_panoptic_mask(segments, panoptic, 1);
+  sample.categories = std::make_shared<const std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{1, "region"}});
+  auto regions = std::make_shared<VisionAnnotationRecord>();
+  regions->width = regions->height = 1;
+  regions->objects.push_back({.rle = ImageMaskRle{1, 1, {0, 1}}});
+  sample.annotation = regions;
+  const auto rich = transform_sample(
+      sample, sample_geometry({1, 1}, geometry_options, random));
   return index.images.size() == 1U && index.images[0].objects.size() == 1U &&
                  index.images[0].objects[0].box->x_max == 20 &&
                  manifest.records().size() == 1U && image.width == 1U &&
@@ -210,6 +227,10 @@ int main() {
                  mask.ids.scalar_type() == torch::kInt64 &&
                  mask.ids.dim() == 2 &&
                  mask.ids.item<std::int64_t>() == 65535 &&
+                 bound.panoptic_mask_materialized &&
+                 bound.objects[0].mask_pixel_area == 1 &&
+                 rich.annotation->objects[0].mask_pixel_area == 6 &&
+                 rich.annotation->objects[0].rle->width == 3 &&
                  transformed.width == 3 && transformed.height == 2 &&
                  transformed.image[0][1][2].item<int>() == 127 &&
                  transformed.mask_target->ids[1][2].item<std::int64_t>() ==

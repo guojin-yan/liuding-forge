@@ -325,4 +325,80 @@ TEST(ImageDatasetTest, RejectsSymbolicLinkInSamplePathWhenAvailable) {
   fs::remove(external, error);
 }
 
+AnnotationIndex PanopticIndex() {
+  AnnotationIndex index;
+  index.format = AnnotationFormat::coco_panoptic;
+  index.categories = {{17, "part"}};
+  VisionAnnotationRecord record;
+  record.image_path = "photo.png";
+  record.width = 2;
+  record.height = 1;
+  record.panoptic_mask_path = "labels.png";
+  record.objects.push_back(
+      {.source_id = 255, .box = ImageBox{0, 0, 1, 1}, .area = 1});
+  record.objects.push_back(
+      {.source_id = 65280, .box = ImageBox{1, 0, 2, 1}, .area = 1});
+  index.images.push_back(std::move(record));
+  return index;
+}
+
+ImageDatasetOptions PanopticOptions() {
+  ImageDatasetOptions options;
+  options.panoptic_target.emplace();
+  options.panoptic_target->encoding = MaskEncoding::panoptic_rgb;
+  options.panoptic_target->void_id = 0;
+  return options;
+}
+
+TEST(ImageDatasetTest, ExplicitPanopticReadBindsSourcePathAndSegmentTable) {
+  TempDirectory directory;
+  WriteFixture(directory.path() / "photo.png", "rgb.png");
+  WriteFixture(directory.path() / "labels.png", "rgb.png");
+  const auto manifest = ClassificationIndex("path,labels\nphoto.png,cat\n");
+  auto annotations = PanopticIndex();
+  ImageDataset dataset(directory.path(), manifest, annotations,
+                       PanopticOptions());
+  const auto sample = dataset.get(0);
+  ASSERT_TRUE(sample.mask_target);
+  EXPECT_FALSE(sample.paired_target);
+  EXPECT_EQ(sample.target_path, "labels.png");
+  EXPECT_TRUE(sample.annotation->panoptic_mask_materialized);
+  EXPECT_EQ(sample.mask_target->ids[0][0].item<int>(), 255);
+  EXPECT_EQ(sample.mask_target->ids[0][1].item<int>(), 65280);
+  EXPECT_EQ(sample.annotation->objects[0].mask_pixel_area, 1U);
+  EXPECT_FALSE(annotations.images[0].panoptic_mask_materialized);
+  ImageDataset metadata_only(directory.path(), manifest, annotations);
+  EXPECT_FALSE(metadata_only.get(0).mask_target);
+  annotations.images[0].objects[0].area = 2;
+  ImageDataset mismatch(directory.path(), manifest, annotations,
+                        PanopticOptions());
+  EXPECT_THROW(mismatch.get(0), jyppx::liuding::SerializationError);
+}
+
+TEST(ImageDatasetTest, PanopticReadRequiresCompleteExplicitAssociations) {
+  TempDirectory directory;
+  WriteFixture(directory.path() / "photo.png", "rgb.png");
+  WriteFixture(directory.path() / "labels.png", "rgb.png");
+  const auto manifest = ClassificationIndex("path,labels\nphoto.png,cat\n");
+  auto options = PanopticOptions();
+  EXPECT_THROW(ImageDataset(directory.path(), manifest, options),
+               jyppx::liuding::InvalidArgument);
+  auto index = PanopticIndex();
+  options.panoptic_target->void_id.reset();
+  EXPECT_THROW(ImageDataset(directory.path(), manifest, index, options),
+               jyppx::liuding::InvalidArgument);
+  options = PanopticOptions();
+  options.panoptic_target->encoding = MaskEncoding::rgb_mapping;
+  EXPECT_THROW(ImageDataset(directory.path(), manifest, index, options),
+               jyppx::liuding::InvalidArgument);
+  options = PanopticOptions();
+  index.images.clear();
+  EXPECT_THROW(ImageDataset(directory.path(), manifest, index, options),
+               jyppx::liuding::InvalidArgument);
+  index = PanopticIndex();
+  index.images[0].panoptic_mask_path = "../escape.png";
+  EXPECT_THROW(ImageDataset(directory.path(), manifest, index, options),
+               jyppx::liuding::SerializationError);
+}
+
 }  // namespace

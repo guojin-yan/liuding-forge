@@ -284,6 +284,7 @@ DotaAnnotationIndex parse_dota_1x_annotations(
         if (quad[i].x == quad[0].x && quad[i].y == quad[0].y)
           detail::Malformed("dota.repeated_vertex");
       detail::ValidatePolygon(quad, state.parse);
+      detail::ValidateConvexQuad(quad);
       object.target.oriented_box = quad;
       object.difficulty = Integral(fields[9]);
       if (object.difficulty < 0) detail::Malformed("dota.difficulty");

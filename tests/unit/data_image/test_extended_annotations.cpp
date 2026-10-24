@@ -51,6 +51,9 @@ TEST(ExtendedImageAnnotationTest,
       parse_dota_1x_annotations("0 0 10 0 0 10 10 10 plane 0\n", options),
       jyppx::liuding::SerializationError);
   EXPECT_THROW(
+      parse_dota_1x_annotations("0 0 10 0 1 1 0 10 plane 0\n", options),
+      jyppx::liuding::SerializationError);
+  EXPECT_THROW(
       parse_dota_1x_annotations("0 0 10 0 10 10 0 10 unknown 0\n", options),
       jyppx::liuding::SerializationError);
   EXPECT_THROW(

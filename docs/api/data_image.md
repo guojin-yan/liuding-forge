@@ -45,7 +45,7 @@ auto mask = image::read_mask_file("labels.png", mask_options);
 
 `ignore_id` 和 `void_id` 是调用者声明的标签语义，不会自动改写像素。调色板的透明项保留原始索引，透明度仅存入 `palette` 元数据；不会自动变成背景或 ignore。RGB 映射允许多个颜色对应同一个 ID，拒绝重复颜色键；负 ID 必须声明为 ignore 或 void。需要把未知颜色设为 ignore 时，必须同时设置 `unknown_color_is_ignore=true` 和 `ignore_id`。
 
-JPEG 等有损格式、带独立 alpha 通道的 PNG、灰度/RGB 的 tRNS、APNG 和 Apple CgBI PNG 当前会明确拒绝。读入全景 ID 图不等于已校验 segment 表与类别的关联，调用者仍需结合相应标注索引。该入口检查所有 PNG chunk 的 CRC、zlib Adler-32、完整输出尺寸、调色板索引范围及文件结构。
+JPEG 等有损格式、带独立 alpha 通道的 PNG、灰度/RGB 的 tRNS、APNG 和 Apple CgBI PNG 当前会明确拒绝。读入全景 ID 图后，可使用下面的 `bind_panoptic_mask` 校验 segment 表与类别的关联。该入口检查所有 PNG chunk 的 CRC、zlib Adler-32、完整输出尺寸、调色板索引范围及文件结构。
 
 `limits` 分别限制编码字节、尺寸、像素数和 int64 输出字节；`max_working_bytes` 限制压缩副本与滤波光栅的合计字节，不包含调用者输入、输出张量和映射表。chunk 数、RGB 映射条目数另有独立上限。取消在文件读取、chunk 校验和行处理边界检查，底层一次 DEFLATE 调用不支持中途取消。
 
@@ -67,6 +67,23 @@ auto sample = dataset.get(0);
 ```
 
 配置 `mask_target` 后，配对清单中的 target 走标签 reader，结果存入 `VisionSample::mask_target`；`paired_target` 和 `paired_target_pixels` 为空。mask 必须与输入图像尺寸完全相同，`require_matching_target_size=false` 仅适用于普通配对图像。未配置 `mask_target` 时继续读取普通配对图像。数据集读取不自动增强；需要联合变换时显式调用下面的 `transform_sample`。
+
+### 全景 ID 图与 segment 表绑定
+
+`bind_panoptic_mask(record, mask, category_count)` 校验 COCO 全景 segment 表和 CPU int64 ID 图。必须声明 `panoptic_rgb`、`void_id` 和冻结类别数量；segment ID 必须是互不重复的正 24 位整数，不得与 void/ignore 冲突。每个 segment 都必须有像素，每个非保留像素都必须出现在表中。默认还校验源声明的 `area` 与 tight bbox；可通过 `PanopticBindOptions` 显式关闭原始元数据校验，输出仍会计算准确的当前统计。
+
+绑定返回新的记录，设置 `mask_pixel_area`、当前 tight `box` 和 `panoptic_mask_materialized=true`，不修改源记录与 mask。源 `area`、ID、类别和标志保留，`panoptic_mask_path` 始终指向原始文件，不代表增强后的像素。对已经 materialized 的记录重新绑定时，当前像素计数和 bbox 必须匹配，不受关闭源元数据校验的选项影响。空 segment 表只允许包含 void/ignore 的图像。
+
+`ImageDatasetOptions::panoptic_target` 可显式启用全景引用解码，要求分类清单、`coco_panoptic` 标注索引、每个样本都有标注引用，以及 `panoptic_rgb` 和显式 `void_id`。引用按数据集根目录的安全路径规则读取，再使用 `panoptic_validation` 绑定表。结果放入 `sample.mask_target`，`target_path` 保存来源路径；该选项不能与配对清单的 `mask_target` 同时使用。未启用时只保留标注引用，不主动打开 ID 图。
+
+```cpp
+image::ImageDatasetOptions panoptic_options;
+panoptic_options.panoptic_target.emplace();
+panoptic_options.panoptic_target->encoding = image::MaskEncoding::panoptic_rgb;
+panoptic_options.panoptic_target->void_id = 0;
+image::ImageDataset dataset("dataset", manifest, panoptic_annotations, panoptic_options);
+auto panoptic_sample = dataset.get(0);
+```
 
 ## 几何坐标追踪
 
@@ -92,7 +109,7 @@ trace 最多组合 128 次操作，保存固定大小的映射状态。空尺寸
 
 ## CPU 联合几何变换
 
-`transform_sample` 将同一串 resize、crop、pad、水平/垂直 flip 同时应用到照片、对齐配对照片或离散 mask，以及水平框和关键点。输入是带 `PixelSpec` 的 CPU CHW/HWC Tensor，允许非连续步幅；返回拥有独立存储、连续且未固定内存的 CPU Tensor，并组合已有 `geometry`。输入 Tensor 和共享标注不被修改。该数据处理接口拒绝带 autograd 的照片。
+`transform_sample` 将同一串 resize、crop、pad、水平/垂直 flip 同时应用到照片、对齐配对照片或离散 mask，以及水平框、关键点、polygon、OBB、RLE 与全景 segment 表。输入是带 `PixelSpec` 的 CPU CHW/HWC Tensor，允许非连续步幅；返回拥有独立存储、连续且未固定内存的 CPU Tensor，并组合已有 `geometry`。输入 Tensor 和共享标注不被修改。该数据处理接口拒绝带 autograd 的照片。
 
 ```cpp
 #include <jyppx/liuding/data_image/joint_transform.hpp>
@@ -111,9 +128,17 @@ auto augmented = image::transform_sample(sample, steps, joint_options);
 
 水平框先裁到仍有效的源区域，再映射到最终输出；无正面积交集的对象删除。`min_box_visibility` 是相对本次调用原始框面积的保留比例，`min_box_area` 是最终裁后输出框面积。关键点的 visibility 保留 0/1/2 语义，原本缺失或被裁掉的点变为 `(0,0,0)`；每个实际 flip 轴都要求显式的逐类别 output-to-input permutation，允许显式恒等排列，且必须为对合排列。`drop_empty_pose` 控制是否删除已无有效关键点的姿态对象。source ID、category 映射、group、crowd/ignore/difficult/truncated 及源声明的 `area` 原样保留；`area` 仍表示来源声明，不会改写成输出框面积。
 
-当前拒绝含 polygon、OBB、RLE 或全景 segment 表引用的标注，避免只改照片而留下过时目标；这些目标仍可读取，联合适配继续开发。独立全景 ID 图可按离散 mask 变换，但不因此完成 segment 表的关联校验。配对照片要求与输入等尺寸、同坐标空间，不能据此推导超分辨率或多相机配准。batch、CUDA 联合变换与最终 batch pinning 尚未接入。
+polygon 使用连续像素边界坐标，每个元素是独立外环，不表示孔洞。未切割外环保留顶点顺序（去除冗余闭合点）；凸环直接裁剪，凹环部分裁剪时通过有界三角剖分保留多个无重叠内部的凸片，设置 `polygon_partitioned=true`，不会把断开的区域连接起来。`min_region_visibility` 按本次输入的每个外环计算保留几何面积比例，`min_region_area` 按该外环全部保留片的输出面积计算；多个外环分别筛选，不能将其重叠面积相加当作 union 面积。输出 bbox 来自保留区域，源 `area` 保持不变。
 
-`JointTransformLimits` 在分配前检查全部中间画布的边长、像素数、合计 Tensor 字节和保守工作 Tensor 估算，另有限制对象、关键点和变换步数。工作估算不包含调用者输入、分配器开销或 LibTorch 内部 workspace，不能当作操作系统 RSS 上限。取消在步骤、复制行和对象边界检查；单次 LibTorch 插值不能在调用内部中断，取消/失败不会发布半成品或修改输入。
+OBB 表示有序、严格凸的四角形；未裁掉内容时保留角点顺序，支持非等比 resize 与翻转。部分裁剪后默认 `OrientedBoxCrop::to_polygon`，清空四角字段并设置 `oriented_box_to_polygon=true`，保留真实裁后区域；也可显式选 `discard` 删除对象。不会把裁后多边形强制变成水平框或臆造角度约定。每个对象可带一种主要区域表示（polygon、OBB 或 RLE），混合主要区域表示会报错。
+
+COCO RLE 按列主序交替 background/foreground 解码，各步骤使用与离散 mask 相同的 nearest-exact/crop/pad/flip，补边始终为无实例的 0。连续多次 resize 必须逐步执行，不能只对最终组合矩阵取一次最近邻。输出重新编码为 RLE，重算准确的 `mask_pixel_area` 和 tight bbox，空实例删除。全景变换要求绑定 ID 图和 segment 表；补边 ID 必须等于已声明的 void。被裁光或被面积/可见度/框策略删除的 segment 会从表中删除，其剩余像素改为 void，ignore 像素继续保留；输出表可再次绑定验证或继续变换。
+
+对于 RLE 和全景 segment，`min_region_visibility` 是源 foreground 单元与有效源矩形交集的面积比例，允许分数边界；`min_region_area` 是重采样后的实际 foreground 像素数。输出像素可能因缩小而消失，即使连续几何可见度大于零也会删除。源声明的 `area` 与当前统计的 `mask_pixel_area` 是两个独立字段。
+
+配对照片要求与输入等尺寸、同坐标空间，不能据此推导超分辨率或多相机配准。batch、CUDA 联合变换与最终 batch pinning 尚未接入。
+
+`JointTransformLimits` 在分配像素前检查全部中间画布的边长、像素数、合计 Tensor 字节和保守工作 Tensor 估算，RLE 另预留单实例光栅工作空间。对象、关键点、输入/产生的 polygon 点与片段、输入/输出 RLE runs、验证/三角剖分候选比较另有独立预算；被筛除的候选几何也消耗已产生的预算。`max_mask_work_pixels` 汇总整个调用的离散光栅访问，包括所有实例的解码、复制、逐步重采样、统计、编码和全景关联扫描，避免仅限制单个实例却让总工作无界。表绑定也有独立 lookup 工作预算。Tensor 工作估算不包含标注容器、调用者输入、分配器开销或 LibTorch 内部 workspace，不能当作操作系统 RSS 上限。取消在步骤、复制行、几何比较和对象边界检查；单次 LibTorch 插值不能在调用内部中断，取消/失败不会发布半成品或修改输入。
 
 ## 逐样本随机性与恢复绑定
 
@@ -133,6 +158,6 @@ auto sampled = image::sample_geometry({sample.width, sample.height}, random_opti
 auto view = image::transform_sample(sample, sampled, joint_options);
 ```
 
-`sample_geometry` 当前提供固定 resize、均匀整数原点 crop 和独立的水平/垂直 flip；x/y/horizontal/vertical 分别使用固定 draw slot 0/1/2/3。`joint_transform_identity` 摘要包含采样、插值、padding、框筛选、pose 排列和资源策略。示例中的 `dataset-v3` 应替换为实际冻结的数据/标注/reader 身份；重复采样时必须显式提供稳定 occurrence，不能用 worker 执行次数代替。
+`sample_geometry` 当前提供固定 resize、均匀整数原点 crop 和独立的水平/垂直 flip；x/y/horizontal/vertical 分别使用固定 draw slot 0/1/2/3。`joint_transform_identity` 摘要使用 `liuding.joint-transform.cpu.v2` 域，包含采样、插值、padding、框/区域筛选、OBB 裁剪策略、pose 排列和全部资源上限。升级后的指纹与旧版本不同，调用方须更新绑定后重新建立兼容的 checkpoint。示例中的 `dataset-v3` 应替换为实际冻结的数据/标注/reader 身份；重复采样时必须显式提供稳定 occurrence，不能用 worker 执行次数代替。
 
 接入 `DataPipeline` 时，调用方须将来源身份绑定到 `dataset_version`，将上述配置摘要以及 RNG 版本、seed、view/occurrence 分配策略绑定到 `batch_factory_id`。直接提供手工 `ImageGeometryStep` 时，也要把完整 steps 纳入自己的 factory 身份；配置摘要不会自动读取任意 lambda 或推断其行为。当前已验证同一数据与配置在 0/1/3 workers 的像素结果一致、同拓扑 checkpoint 恢复重放，以及来源/变换身份变化被拒绝；pipeline 仍会拒绝不同 worker 拓扑的 exact restore。原 Core `data/transforms/vision.hpp` 的随机算子继续具有各自的旧 RNG 行为，不会自动变成此采样器。

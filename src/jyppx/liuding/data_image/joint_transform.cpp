@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "joint_annotation_detail.hpp"
+
 #include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
@@ -67,13 +69,21 @@ void CheckOptions(const JointTransformOptions& options) {
     Invalid("transform.interpolation", "nearest_exact or bilinear");
   if (!std::isfinite(options.image_padding) ||
       !std::isfinite(options.paired_padding) ||
-      !std::isfinite(options.min_box_area) || options.min_box_area < 0)
+      !std::isfinite(options.min_box_area) || options.min_box_area < 0 ||
+      !std::isfinite(options.min_region_area) || options.min_region_area < 0)
     Invalid("transform.options", "finite padding and nonnegative box area");
   Probability(options.min_box_visibility);
+  Probability(options.min_region_visibility);
+  if (options.oriented_box_crop != OrientedBoxCrop::to_polygon &&
+      options.oriented_box_crop != OrientedBoxCrop::discard)
+    Invalid("transform.obb_policy", "to_polygon or discard");
   const auto& limits = options.limits;
   if (limits.max_dimension == 0 || limits.max_pixels == 0 ||
       limits.max_output_bytes == 0 || limits.max_working_bytes == 0 ||
-      limits.max_objects == 0 || limits.max_keypoints == 0)
+      limits.max_objects == 0 || limits.max_keypoints == 0 ||
+      limits.max_polygon_points == 0 || limits.max_polygon_fragments == 0 ||
+      limits.max_geometry_checks == 0 || limits.max_rle_runs == 0 ||
+      limits.max_mask_work_pixels == 0)
     Invalid("transform.limits", "positive resource limits");
   for (const auto* table : {&options.horizontal_keypoint_permutations,
                             &options.vertical_keypoint_permutations}) {
@@ -150,130 +160,6 @@ void CheckPhoto(const Tensor& tensor, const PixelSpec& spec, ImageExtent extent,
     if (std::abs(padding) > maximum)
       Invalid("transform.padding", "finite padding representable in the dtype");
   }
-}
-
-void CheckAnnotations(const VisionSample& sample,
-                      std::span<const ImageGeometryStep> steps,
-                      const JointTransformOptions& options,
-                      const GeometryTrace& local, std::stop_token stop) {
-  if (!sample.annotation) return;
-  const auto& record = *sample.annotation;
-  if (!sample.categories || record.width != sample.width ||
-      record.height != sample.height)
-    Invalid("transform.annotations", "aligned annotations and a category map");
-  if (record.panoptic_mask_path)
-    Invalid("transform.panoptic",
-            "panoptic segment association is not yet supported");
-  if (record.objects.size() > options.limits.max_objects)
-    Limit("transform.objects");
-  std::size_t points = 0;
-  for (const auto& object : record.objects) {
-    CheckStop(stop);
-    if (object.category >= sample.categories->size())
-      Invalid("transform.category", "a category in the frozen map");
-    if (!object.polygons.empty() || object.oriented_box || object.rle)
-      Invalid("transform.annotations",
-              "polygon/OBB/RLE transforms are not yet supported");
-    if (object.box) {
-      const auto& b = *object.box;
-      const double area = (b.x_max - b.x_min) * (b.y_max - b.y_min);
-      if (!std::isfinite(area) || area <= 0)
-        Invalid("transform.box", "finite positive box area");
-      static_cast<void>(local.forward_box(b));
-    }
-    if (object.keypoints.size() > options.limits.max_keypoints - points)
-      Limit("transform.keypoints");
-    points += object.keypoints.size();
-    for (const auto& keypoint : object.keypoints)
-      if (keypoint.visibility > 2 ||
-          (keypoint.visibility && (!std::isfinite(keypoint.point.x) ||
-                                   !std::isfinite(keypoint.point.y))))
-        Invalid("transform.keypoint",
-                "finite labeled point with visibility 0/1/2");
-    if (object.keypoints.empty()) continue;
-    const auto& names = (*sample.categories)[object.category].keypoint_names;
-    if (!names.empty() && names.size() != object.keypoints.size())
-      Invalid("transform.pose_schema",
-              "keypoints matching category point names");
-    for (const auto& step : steps) {
-      const auto* table = step.kind == ImageGeometryKind::horizontal_flip
-                              ? &options.horizontal_keypoint_permutations
-                          : step.kind == ImageGeometryKind::vertical_flip
-                              ? &options.vertical_keypoint_permutations
-                              : nullptr;
-      if (table &&
-          (table->size() != sample.categories->size() ||
-           (*table)[object.category].size() != object.keypoints.size()))
-        Invalid("transform.pose_flip",
-                "explicit per-category flip permutation");
-    }
-  }
-}
-
-std::shared_ptr<const VisionAnnotationRecord> MapAnnotations(
-    const VisionSample& sample, std::span<const ImageGeometryStep> steps,
-    const JointTransformOptions& options, const GeometryTrace& local,
-    std::stop_token stop) {
-  if (!sample.annotation) return {};
-  auto record = std::make_shared<VisionAnnotationRecord>();
-  record->source_image_id = sample.annotation->source_image_id;
-  record->image_path = sample.annotation->image_path;
-  record->width = local.output_extent().width;
-  record->height = local.output_extent().height;
-  for (const auto& source : sample.annotation->objects) {
-    CheckStop(stop);
-    auto object = source;
-    if (source.box) {
-      object.box = local.forward_box(*source.box);
-      if (!object.box) continue;
-      const auto& b = *object.box;
-      const double area = (b.x_max - b.x_min) * (b.y_max - b.y_min);
-      const auto& old = *source.box;
-      const auto region = *local.source_region();
-      // Source-space fractions avoid a determinant underflow/overflow after
-      // a long valid sequence of resize/pad operations.
-      const double visible_width =
-          std::min(old.x_max, region.x_max) - std::max(old.x_min, region.x_min);
-      const double visible_height =
-          std::min(old.y_max, region.y_max) - std::max(old.y_min, region.y_min);
-      const double visibility =
-          std::clamp((visible_width / (old.x_max - old.x_min)) *
-                         (visible_height / (old.y_max - old.y_min)),
-                     0.0, 1.0);
-      if (area < options.min_box_area ||
-          visibility < options.min_box_visibility)
-        continue;
-    }
-    for (auto& keypoint : object.keypoints) {
-      const auto point = keypoint.visibility
-                             ? local.forward_point(keypoint.point)
-                             : std::nullopt;
-      if (point)
-        keypoint.point = *point;
-      else
-        keypoint = {};
-    }
-    if (!object.keypoints.empty()) {
-      for (const auto& step : steps) {
-        const auto* table = step.kind == ImageGeometryKind::horizontal_flip
-                                ? &options.horizontal_keypoint_permutations
-                            : step.kind == ImageGeometryKind::vertical_flip
-                                ? &options.vertical_keypoint_permutations
-                                : nullptr;
-        if (!table) continue;
-        const auto old = object.keypoints;
-        const auto& permutation = (*table)[object.category];
-        for (std::size_t i = 0; i < permutation.size(); ++i)
-          object.keypoints[i] = old[permutation[i]];
-      }
-      if (options.drop_empty_pose &&
-          std::none_of(object.keypoints.begin(), object.keypoints.end(),
-                       [](const auto& point) { return point.visibility != 0; }))
-        continue;
-    }
-    record->objects.push_back(std::move(object));
-  }
-  return record;
 }
 
 // Exact nearest-exact/crop/pad/flip uses byte copies, including uint16 and
@@ -389,6 +275,17 @@ Tensor OwnPixels(const Tensor& input) {
 }
 }  // namespace
 
+Tensor detail::TransformDiscrete(const Tensor& input,
+                                 std::span<const ImageGeometryStep> steps,
+                                 std::span<const ImageExtent> extents,
+                                 std::int64_t fill, std::stop_token stop) {
+  auto result = OwnPixels(input);
+  for (std::size_t i = 0; i < steps.size(); ++i)
+    result = CopyStep(result, ImageLayout::chw, true, extents[i],
+                      extents[i + 1], steps[i], c10::Scalar(fill), stop);
+  return result;
+}
+
 VisionSample transform_sample(const VisionSample& sample,
                               std::span<const ImageGeometryStep> steps,
                               const JointTransformOptions& options,
@@ -418,8 +315,9 @@ VisionSample transform_sample(const VisionSample& sample,
     if (!mask.ids.defined() || mask.ids.dim() != 2 ||
         mask.ids.scalar_type() != torch::kInt64 ||
         !mask.ids.device().is_cpu() || mask.ids.layout() != torch::kStrided ||
-        mask.ids.size(0) != input.height || mask.ids.size(1) != input.width ||
-        mask.width != input.width || mask.height != input.height)
+        mask.ids.is_neg() || mask.ids.size(0) != input.height ||
+        mask.ids.size(1) != input.width || mask.width != input.width ||
+        mask.height != input.height)
       Invalid("transform.mask", "aligned CPU int64 [H,W] labels");
   }
   auto local = GeometryTrace(input);
@@ -436,11 +334,15 @@ VisionSample transform_sample(const VisionSample& sample,
       (sample.mask_target ? 8 : 0);
   std::uint64_t maximum_pixels =
       static_cast<std::uint64_t>(input.width) * input.height;
+  std::array<ImageExtent, 129> extents{};
+  extents[0] = input;
+  std::size_t extent_count = 1;
   for (const auto& step : steps) {
     CheckStop(stop);
     local = Append(local, step);
     composed = Append(composed, step);
     const auto extent = local.output_extent();
+    extents[extent_count++] = extent;
     CheckExtent(extent, options.limits);
     maximum_pixels =
         std::max(maximum_pixels,
@@ -460,16 +362,23 @@ VisionSample transform_sample(const VisionSample& sample,
   const auto channels =
       sample.pixels.channels() +
       (sample.paired_target ? sample.paired_target_pixels->channels() : 0);
+  const bool has_rle =
+      sample.annotation &&
+      std::any_of(sample.annotation->objects.begin(),
+                  sample.annotation->objects.end(),
+                  [](const auto& object) { return object.rle.has_value(); });
   const auto working_per_pixel =
-      2 * bytes_per_pixel +
+      2 * bytes_per_pixel + (has_rle ? 4 : 0) +
       (options.interpolation == ImageInterpolation::bilinear ? 32ULL * channels
                                                              : 0);
   if (maximum_pixels > options.limits.max_working_bytes / working_per_pixel)
     Limit("transform.working_bytes");
-  CheckAnnotations(sample, steps, options, local, stop);
   try {
+    const auto canvases =
+        std::span<const ImageExtent>(extents.data(), extent_count);
+    auto annotation_budget = detail::CheckJointAnnotations(
+        sample, steps, canvases, options, local, stop);
     VisionSample result = sample;
-    result.annotation = MapAnnotations(sample, steps, options, local, stop);
     result.image = OwnPixels(sample.image);
     if (sample.paired_target)
       result.paired_target = OwnPixels(*sample.paired_target);
@@ -499,6 +408,8 @@ VisionSample transform_sample(const VisionSample& sample,
       result.mask_target->width = before.width;
       result.mask_target->height = before.height;
     }
+    detail::MapJointAnnotations(sample, result, steps, canvases, options, local,
+                                annotation_budget, stop);
     result.geometry = composed;
     CheckStop(stop);
     return result;
@@ -552,7 +463,7 @@ std::string joint_transform_identity(const RandomGeometryOptions& random,
   CheckRandomOptions(random);
   CheckOptions(joint);
   Sha256 hash;
-  constexpr std::string_view domain = "liuding.joint-transform.cpu.v1";
+  constexpr std::string_view domain = "liuding.joint-transform.cpu.v2";
   hash.update(std::as_bytes(std::span(domain.data(), domain.size())));
   for (const auto& extent : {random.resize, random.crop}) {
     HashInteger(hash, extent.has_value());
@@ -571,6 +482,9 @@ std::string joint_transform_identity(const RandomGeometryOptions& random,
     HashInteger(hash, static_cast<std::uint64_t>(*joint.mask_padding_id));
   HashDouble(hash, joint.min_box_area);
   HashDouble(hash, joint.min_box_visibility);
+  HashDouble(hash, joint.min_region_area);
+  HashDouble(hash, joint.min_region_visibility);
+  HashInteger(hash, static_cast<std::uint8_t>(joint.oriented_box_crop));
   HashInteger(hash, joint.drop_empty_pose);
   for (const auto* table : {&joint.horizontal_keypoint_permutations,
                             &joint.vertical_keypoint_permutations}) {
@@ -586,6 +500,11 @@ std::string joint_transform_identity(const RandomGeometryOptions& random,
   HashInteger(hash, joint.limits.max_working_bytes);
   HashInteger(hash, joint.limits.max_objects);
   HashInteger(hash, joint.limits.max_keypoints);
+  HashInteger(hash, joint.limits.max_polygon_points);
+  HashInteger(hash, joint.limits.max_polygon_fragments);
+  HashInteger(hash, joint.limits.max_geometry_checks);
+  HashInteger(hash, joint.limits.max_rle_runs);
+  HashInteger(hash, joint.limits.max_mask_work_pixels);
   return sha256_digest_hex(hash.finish());
 }
 

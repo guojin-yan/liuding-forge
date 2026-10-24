@@ -98,6 +98,12 @@ struct VisionObject {
   std::vector<ImageKeypoint> keypoints;  ///< Category-ordered keypoints.
   std::optional<double>
       area;  ///< Source-declared area, not an inferred bbox area.
+  std::optional<std::uint64_t> mask_pixel_area;
+  ///< Measured current foreground pixels for materialized RLE/panoptic targets.
+  bool oriented_box_to_polygon = false;
+  ///< An explicit crop policy converted the original four-corner target.
+  bool polygon_partitioned = false;
+  ///< Clipping decomposed a concave exterior into nonoverlapping convex pieces.
   std::optional<std::int64_t> group_id;  ///< LabelMe shape grouping.
   bool crowd = false;                    ///< COCO crowd region marker.
   bool ignore = false;                   ///< Explicit ignore region marker.
@@ -115,7 +121,9 @@ struct VisionAnnotationRecord {
   std::vector<VisionObject>
       objects;  ///< Ordered source objects, including crowd.
   std::optional<std::string>
-      panoptic_mask_path;  ///< External segment ID image.
+      panoptic_mask_path;  ///< Source external ID image; not an augmented file.
+  bool panoptic_mask_materialized = false;
+  ///< Current segment boxes/mask_pixel_area were checked against an owned mask.
 };
 
 /** @brief Independently bounded annotation parser resources. */

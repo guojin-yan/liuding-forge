@@ -22,6 +22,7 @@
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
+#include <jyppx/liuding/data_image/panoptic.hpp>
 
 #include <cstddef>
 #include <filesystem>
@@ -68,6 +69,10 @@ struct ImageDatasetOptions {
   std::optional<MaskDecodeOptions> mask_target;
   ///< When present, paired manifest targets use the lossless label reader
   ///< instead.
+  std::optional<MaskDecodeOptions> panoptic_target;
+  ///< Opt-in COCO panoptic references; requires panoptic_rgb and explicit void.
+  PanopticBindOptions panoptic_validation;
+  ///< Verify segment IDs, source area/box and resource budgets on every read.
   bool require_matching_target_size = true;
   ///< Reject mismatched paired images. Discrete masks always require an exact
   ///< size match.

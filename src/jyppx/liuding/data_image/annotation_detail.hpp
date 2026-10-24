@@ -195,6 +195,7 @@ struct ParseState {
 };
 
 void ValidatePolygon(std::span<const ImagePoint> points, ParseState& state);
+void ValidateConvexQuad(const std::array<ImagePoint, 4>& quad);
 std::string ReadAnnotationBytes(const std::filesystem::path& path,
                                 std::size_t maximum, std::stop_token stop);
 
