@@ -223,8 +223,8 @@ struct DataPipelineOptions {
   BatchMemoryOptions
       memory;  ///< Optional bounded host-pinning and device-transfer stage.
   std::optional<BatchConsumerTransform>
-      consumer_transform;  ///< Optional post-transfer, precommit consumer
-                           ///< stage.
+      consumer_transform = std::nullopt;  ///< Optional post-transfer, precommit
+                                          ///< consumer stage.
 };
 
 /**
