@@ -45,10 +45,8 @@ std::uint64_t Multiply(std::uint64_t a, std::uint64_t b,
   return a * b;
 }
 
-std::uint64_t Add(std::uint64_t a, std::uint64_t b,
-                  const char* operation) {
-  if (b > std::numeric_limits<std::uint64_t>::max() - a)
-    BatchLimit(operation);
+std::uint64_t Add(std::uint64_t a, std::uint64_t b, const char* operation) {
+  if (b > std::numeric_limits<std::uint64_t>::max() - a) BatchLimit(operation);
   return a + b;
 }
 
@@ -66,9 +64,8 @@ void CheckOutputPolicy(ImageBatchLayout layout,
   if (!options.output_size_divisor ||
       (layout != ImageBatchLayout::pad &&
        (options.output_padded_extent || options.output_size_divisor != 1)) ||
-      (options.output_padded_extent &&
-       (!options.output_padded_extent->width ||
-        !options.output_padded_extent->height)))
+      (options.output_padded_extent && (!options.output_padded_extent->width ||
+                                        !options.output_padded_extent->height)))
     InvalidBatch("batch_geometry.output_policy");
 }
 
@@ -80,8 +77,7 @@ GeometryTrace Append(GeometryTrace trace, const ImageGeometryStep& step) {
         InvalidBatch("batch_geometry.resize_fields");
       return trace.resized(step.extent);
     case ImageGeometryKind::crop:
-      if (step.right || step.bottom)
-        InvalidBatch("batch_geometry.crop_fields");
+      if (step.right || step.bottom) InvalidBatch("batch_geometry.crop_fields");
       return trace.cropped(step.left, step.top, step.extent);
     case ImageGeometryKind::pad:
       if (!zero_extent) InvalidBatch("batch_geometry.pad_fields");
@@ -105,7 +101,7 @@ ImageExtent Extent(const Tensor& image) {
 Tensor PhotoAt(const ImageBatch& batch, std::size_t index) {
   const auto i = static_cast<std::int64_t>(index);
   return batch.layout == ImageBatchLayout::ragged ? batch.image_list[index]
-                                                   : batch.images.select(0, i);
+                                                  : batch.images.select(0, i);
 }
 
 Tensor PairedAt(const ImageBatch& batch, std::size_t index) {
@@ -118,14 +114,13 @@ Tensor PairedAt(const ImageBatch& batch, std::size_t index) {
 Tensor MaskAt(const ImageBatch& batch, std::size_t index) {
   const auto i = static_cast<std::int64_t>(index);
   return batch.layout == ImageBatchLayout::ragged ? batch.mask_list[index]
-                                                   : batch.masks->select(0, i);
+                                                  : batch.masks->select(0, i);
 }
 
 Tensor ValidAt(const ImageBatch& batch, std::size_t index) {
   const auto i = static_cast<std::int64_t>(index);
-  return batch.layout == ImageBatchLayout::ragged
-             ? batch.valid_list[index]
-             : batch.valid.select(0, i);
+  return batch.layout == ImageBatchLayout::ragged ? batch.valid_list[index]
+                                                  : batch.valid.select(0, i);
 }
 
 void CheckValidRectangle(const Tensor& valid, ImageExtent canvas,
@@ -142,7 +137,7 @@ void CheckValidRectangle(const Tensor& valid, ImageExtent canvas,
 }
 
 VisionSample SampleAt(const ImageBatch& batch, std::size_t index,
-                     const Tensor& image, ImageExtent canvas) {
+                      const Tensor& image, ImageExtent canvas) {
   const auto& item = batch.items[index];
   VisionSample sample;
   sample.image = image;
@@ -209,33 +204,33 @@ void CheckCpu(const ImageBatch& batch) {
 void BoundPerSampleOptions(JointTransformOptions& joint,
                            const ImageBatchLimits& limits,
                            std::size_t samples) {
-  joint.limits.max_output_bytes = std::min<std::uint64_t>(
-      joint.limits.max_output_bytes,
-      QuotaBytes(limits.max_output_bytes, samples));
-  joint.limits.max_working_bytes = std::min<std::uint64_t>(
-      joint.limits.max_working_bytes,
-      QuotaBytes(limits.max_working_bytes, samples));
-  joint.limits.max_objects = std::min(
-      joint.limits.max_objects,
-      QuotaNodes(limits.max_metadata_nodes, samples, 20));
-  joint.limits.max_keypoints = std::min(
-      joint.limits.max_keypoints,
-      QuotaNodes(limits.max_metadata_nodes, samples, 4));
-  joint.limits.max_polygon_points = std::min(
-      joint.limits.max_polygon_points,
-      QuotaNodes(limits.max_metadata_nodes, samples, 3));
-  joint.limits.max_polygon_fragments = std::min(
-      joint.limits.max_polygon_fragments,
-      QuotaNodes(limits.max_metadata_nodes, samples, 16));
-  joint.limits.max_geometry_checks = std::min<std::size_t>(
-      joint.limits.max_geometry_checks,
-      QuotaNodes(limits.max_geometry_checks, samples));
-  joint.limits.max_rle_runs = std::min(
-      joint.limits.max_rle_runs,
-      QuotaNodes(limits.max_metadata_nodes, samples));
-  joint.limits.max_mask_work_pixels = std::min<std::uint64_t>(
-      joint.limits.max_mask_work_pixels,
-      QuotaBytes(limits.max_pixels, samples));
+  joint.limits.max_output_bytes =
+      std::min<std::uint64_t>(joint.limits.max_output_bytes,
+                              QuotaBytes(limits.max_output_bytes, samples));
+  joint.limits.max_working_bytes =
+      std::min<std::uint64_t>(joint.limits.max_working_bytes,
+                              QuotaBytes(limits.max_working_bytes, samples));
+  joint.limits.max_objects =
+      std::min(joint.limits.max_objects,
+               QuotaNodes(limits.max_metadata_nodes, samples, 20));
+  joint.limits.max_keypoints =
+      std::min(joint.limits.max_keypoints,
+               QuotaNodes(limits.max_metadata_nodes, samples, 4));
+  joint.limits.max_polygon_points =
+      std::min(joint.limits.max_polygon_points,
+               QuotaNodes(limits.max_metadata_nodes, samples, 3));
+  joint.limits.max_polygon_fragments =
+      std::min(joint.limits.max_polygon_fragments,
+               QuotaNodes(limits.max_metadata_nodes, samples, 16));
+  joint.limits.max_geometry_checks =
+      std::min<std::size_t>(joint.limits.max_geometry_checks,
+                            QuotaNodes(limits.max_geometry_checks, samples));
+  joint.limits.max_rle_runs =
+      std::min(joint.limits.max_rle_runs,
+               QuotaNodes(limits.max_metadata_nodes, samples));
+  joint.limits.max_mask_work_pixels =
+      std::min<std::uint64_t>(joint.limits.max_mask_work_pixels,
+                              QuotaBytes(limits.max_pixels, samples));
 }
 }  // namespace
 
@@ -243,18 +238,16 @@ std::string image_batch_geometry_identity(
     const RandomGeometryOptions& random,
     const ImageBatchGeometryOptions& options) {
   detail::CheckBatchLimits(options.limits);
-  const auto joint_identity =
-      joint_transform_identity(random, options.joint);
+  const auto joint_identity = joint_transform_identity(random, options.joint);
   if (!options.output_size_divisor ||
-      (options.output_padded_extent &&
-       (!options.output_padded_extent->width ||
-        !options.output_padded_extent->height)))
+      (options.output_padded_extent && (!options.output_padded_extent->width ||
+                                        !options.output_padded_extent->height)))
     InvalidBatch("batch_geometry.output_policy");
   Sha256 hash;
   constexpr std::string_view domain = "liuding.image-batch-geometry.v1";
   hash.update(std::as_bytes(std::span(domain.data(), domain.size())));
-  hash.update(std::as_bytes(std::span(joint_identity.data(),
-                                      joint_identity.size())));
+  hash.update(
+      std::as_bytes(std::span(joint_identity.data(), joint_identity.size())));
   const auto integer = [&](std::uint64_t value) { HashInteger(hash, value); };
   integer(options.limits.max_samples);
   integer(options.limits.max_dimension);
@@ -282,8 +275,8 @@ std::vector<std::vector<ImageGeometryStep>> sample_image_batch_geometry(
   detail::CheckBatchLimits(options.limits);
   if (batch.items.empty() || batch.items.size() > options.limits.max_samples ||
       (batch.layout != ImageBatchLayout::stack &&
-          batch.layout != ImageBatchLayout::pad &&
-          batch.layout != ImageBatchLayout::ragged))
+       batch.layout != ImageBatchLayout::pad &&
+       batch.layout != ImageBatchLayout::ragged))
     InvalidBatch("batch_geometry.sample_input");
   CheckOutputPolicy(batch.layout, options);
   detail::CheckImageBatch(batch, options.limits);
@@ -331,8 +324,7 @@ ImageBatch transform_image_batch_geometry(
       const auto canvas = Extent(image);
       const auto& item = batch.items[i];
       CheckValidRectangle(ValidAt(batch, i), canvas, item.valid_extent, stop);
-      const bool remove_collation_padding =
-          !Equal(item.valid_extent, canvas);
+      const bool remove_collation_padding = !Equal(item.valid_extent, canvas);
       if (sample_steps[i].size() + remove_collation_padding > 128)
         InvalidBatch("batch_geometry.steps");
       auto trace = GeometryTrace(canvas);
@@ -349,8 +341,8 @@ ImageBatch transform_image_batch_geometry(
             extent.width > options.limits.max_dimension ||
             extent.height > options.limits.max_dimension)
           BatchLimit("batch_geometry.dimension");
-        const auto pixels = Multiply(extent.width, extent.height,
-                                     "batch_geometry.pixels");
+        const auto pixels =
+            Multiply(extent.width, extent.height, "batch_geometry.pixels");
         if (pixels > joint.limits.max_pixels ||
             pixels > options.limits.max_pixels)
           BatchLimit("batch_geometry.sample_pixels");
@@ -364,10 +356,9 @@ ImageBatch transform_image_batch_geometry(
       output_extents.push_back(trace.output_extent());
       largest.width = std::max(largest.width, trace.output_extent().width);
       largest.height = std::max(largest.height, trace.output_extent().height);
-      const auto channels = batch.pixels.channels() +
-                            (batch.paired_pixels
-                                 ? batch.paired_pixels->channels()
-                                 : 0);
+      const auto channels =
+          batch.pixels.channels() +
+          (batch.paired_pixels ? batch.paired_pixels->channels() : 0);
       const auto bytes_per_pixel =
           static_cast<std::uint64_t>(batch.pixels.channels()) *
               c10::elementSize(batch.pixels.dtype) +
@@ -378,18 +369,15 @@ ImageBatch transform_image_batch_geometry(
           (batch.items[i].mask ? 8 : 0);
       const bool sample_has_rle =
           item.annotation &&
-          std::any_of(item.annotation->objects.begin(),
-                      item.annotation->objects.end(), [](const auto& object) {
-                        return object.rle.has_value();
-                      });
-      auto working_per_pixel =
-          2 * bytes_per_pixel + (sample_has_rle ? 4 : 0);
+          std::any_of(
+              item.annotation->objects.begin(), item.annotation->objects.end(),
+              [](const auto& object) { return object.rle.has_value(); });
+      auto working_per_pixel = 2 * bytes_per_pixel + (sample_has_rle ? 4 : 0);
       if (joint.interpolation == ImageInterpolation::bilinear)
         working_per_pixel += 32ULL * channels;
       max_intermediate_bytes = Add(
           max_intermediate_bytes,
-          Multiply(maximum, working_per_pixel,
-                   "batch_geometry.working_bytes"),
+          Multiply(maximum, working_per_pixel, "batch_geometry.working_bytes"),
           "batch_geometry.working_bytes");
     }
 
@@ -402,10 +390,10 @@ ImageBatch transform_image_batch_geometry(
         output_canvas = *options.output_padded_extent;
       }
       const auto round = [&](std::uint32_t side) {
-        const auto rounded =
-            (static_cast<std::uint64_t>(side) +
-             options.output_size_divisor - 1) /
-            options.output_size_divisor * options.output_size_divisor;
+        const auto rounded = (static_cast<std::uint64_t>(side) +
+                              options.output_size_divisor - 1) /
+                             options.output_size_divisor *
+                             options.output_size_divisor;
         if (rounded > options.limits.max_dimension ||
             rounded > joint.limits.max_dimension)
           BatchLimit("batch_geometry.output_dimension");
@@ -416,17 +404,16 @@ ImageBatch transform_image_batch_geometry(
     std::uint64_t output_pixels = 0;
     if (batch.layout == ImageBatchLayout::stack ||
         batch.layout == ImageBatchLayout::pad) {
-      output_pixels = Multiply(
-          Multiply(output_canvas.width, output_canvas.height,
-                   "batch_geometry.output_pixels"),
-          count, "batch_geometry.output_pixels");
+      output_pixels =
+          Multiply(Multiply(output_canvas.width, output_canvas.height,
+                            "batch_geometry.output_pixels"),
+                   count, "batch_geometry.output_pixels");
     } else {
       for (const auto extent : output_extents)
-        output_pixels = Add(
-            output_pixels,
-            Multiply(extent.width, extent.height,
-                     "batch_geometry.output_pixels"),
-            "batch_geometry.output_pixels");
+        output_pixels = Add(output_pixels,
+                            Multiply(extent.width, extent.height,
+                                     "batch_geometry.output_pixels"),
+                            "batch_geometry.output_pixels");
     }
     if (output_pixels > options.limits.max_pixels)
       BatchLimit("batch_geometry.output_pixels");
@@ -444,20 +431,20 @@ ImageBatch transform_image_batch_geometry(
                    c10::elementSize(batch.paired_pixels->dtype)
              : 0) +
         1 + (batch.items.front().mask ? 8 : 0);
-    const auto output_bytes = Add(
-        Multiply(output_pixels, pixel_bytes, "batch_geometry.output_bytes"),
-        Multiply(static_cast<std::uint64_t>(batch.labels.numel()), 8,
-                 "batch_geometry.output_bytes"),
-        "batch_geometry.output_bytes");
+    const auto output_bytes =
+        Add(Multiply(output_pixels, pixel_bytes, "batch_geometry.output_bytes"),
+            Multiply(static_cast<std::uint64_t>(batch.labels.numel()), 8,
+                     "batch_geometry.output_bytes"),
+            "batch_geometry.output_bytes");
     if (output_bytes > options.limits.max_output_bytes)
       BatchLimit("batch_geometry.output_bytes");
     const auto source_metadata = detail::CheckBatchMetadata(
         batch, input_canvases, options.limits, false, stop);
-    const auto working = Add(
-        Add(max_intermediate_bytes, output_bytes,
-            "batch_geometry.working_bytes"),
-        Multiply(source_metadata, 2, "batch_geometry.working_bytes"),
-        "batch_geometry.working_bytes");
+    const auto working =
+        Add(Add(max_intermediate_bytes, output_bytes,
+                "batch_geometry.working_bytes"),
+            Multiply(source_metadata, 2, "batch_geometry.working_bytes"),
+            "batch_geometry.working_bytes");
     if (working > options.limits.max_working_bytes)
       BatchLimit("batch_geometry.working_bytes");
 
@@ -475,8 +462,7 @@ ImageBatch transform_image_batch_geometry(
                              .extent = batch.items[i].valid_extent});
       effective.insert(effective.end(), sample_steps[i].begin(),
                        sample_steps[i].end());
-      transformed.push_back(
-          transform_sample(sample, effective, joint, stop));
+      transformed.push_back(transform_sample(sample, effective, joint, stop));
       keys.push_back(batch.items[i].key);
     }
     Stop(stop);
