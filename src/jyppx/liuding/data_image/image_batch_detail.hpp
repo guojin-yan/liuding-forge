@@ -1,0 +1,30 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+// Product: 六丁炼算 (Liuding Forge)
+// Project alias: JYPPX Training Framework
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
+#ifndef JYPPX_LIUDING_DATA_IMAGE_BATCH_DETAIL_HPP
+#define JYPPX_LIUDING_DATA_IMAGE_BATCH_DETAIL_HPP
+
+#include <jyppx/liuding/data_image/image_batch.hpp>
+
+namespace jyppx::liuding::data::image::detail {
+[[noreturn]] void InvalidBatch(const char* operation);
+[[noreturn]] void BatchLimit(const char* operation);
+void CheckBatchLimits(const ImageBatchLimits& limits);
+void CheckImageBatch(const ImageBatch& batch, const ImageBatchLimits& limits,
+                     std::stop_token stop = {});
+// Host-only preflight, also usable before allocating the pixel tensors.
+std::size_t CheckBatchMetadata(const ImageBatch& batch,
+                               std::span<const ImageExtent> canvases,
+                               const ImageBatchLimits& limits,
+                               bool source_panoptic = false,
+                               std::stop_token stop = {});
+std::uint64_t BatchTensorBytes(const ImageBatch& batch);
+bool SamePixels(const PixelSpec& a, const PixelSpec& b);
+void CheckImageFill(const PixelSpec& spec, double value);
+}  // namespace jyppx::liuding::data::image::detail
+
+#endif  // JYPPX_LIUDING_DATA_IMAGE_BATCH_DETAIL_HPP

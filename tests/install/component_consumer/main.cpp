@@ -15,6 +15,7 @@
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
 #include <jyppx/liuding/data_image/annotation_files.hpp>
+#include <jyppx/liuding/data_image/batch_transform.hpp>
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
@@ -215,6 +216,15 @@ int main() {
   sample.annotation = regions;
   const auto rich = transform_sample(
       sample, sample_geometry({1, 1}, geometry_options, random));
+  const auto batch = collate_images(
+      std::array{rich}, std::array{ImageBatchKey{"installed-image", 7, 1}},
+      {.layout = ImageBatchLayout::pad,
+       .padded_extent = ImageExtent{4, 3},
+       .mask_padding_id = -1});
+  const auto numeric = transform_image_batch(batch);
+  const auto decoded = image_batch_from_value(image_batch_value(numeric));
+  jyppx::liuding::data::validate_batch_value(
+      image_batch_value(decoded), image_batch_schema(decoded, torch::kCPU));
   return index.images.size() == 1U && index.images[0].objects.size() == 1U &&
                  index.images[0].objects[0].box->x_max == 20 &&
                  manifest.records().size() == 1U && image.width == 1U &&
@@ -231,6 +241,12 @@ int main() {
                  bound.objects[0].mask_pixel_area == 1 &&
                  rich.annotation->objects[0].mask_pixel_area == 6 &&
                  rich.annotation->objects[0].rle->width == 3 &&
+                 decoded.images.sizes() == torch::IntArrayRef({1, 1, 3, 4}) &&
+                 decoded.items[0].key.occurrence == 7 &&
+                 decoded.items[0].annotation->objects[0].rle->width == 4 &&
+                 decoded.items[0].annotation->objects[0].mask_pixel_area == 6 &&
+                 std::abs(decoded.images[0][0][0][0].item<float>() -
+                          127.0F / 255) < 1e-6F &&
                  transformed.width == 3 && transformed.height == 2 &&
                  transformed.image[0][1][2].item<int>() == 127 &&
                  transformed.mask_target->ids[1][2].item<std::int64_t>() ==

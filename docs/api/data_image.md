@@ -136,9 +136,71 @@ COCO RLE 按列主序交替 background/foreground 解码，各步骤使用与离
 
 对于 RLE 和全景 segment，`min_region_visibility` 是源 foreground 单元与有效源矩形交集的面积比例，允许分数边界；`min_region_area` 是重采样后的实际 foreground 像素数。输出像素可能因缩小而消失，即使连续几何可见度大于零也会删除。源声明的 `area` 与当前统计的 `mask_pixel_area` 是两个独立字段。
 
-配对照片要求与输入等尺寸、同坐标空间，不能据此推导超分辨率或多相机配准。batch、CUDA 联合变换与最终 batch pinning 尚未接入。
+配对照片要求与输入等尺寸、同坐标空间，不能据此推导超分辨率或多相机配准。组批与最终 batch pinning 见下文；几何操作当前仍使用上述 CPU 单样本接口，CUDA 联合几何尚未提供。
 
 `JointTransformLimits` 在分配像素前检查全部中间画布的边长、像素数、合计 Tensor 字节和保守工作 Tensor 估算，RLE 另预留单实例光栅工作空间。对象、关键点、输入/产生的 polygon 点与片段、输入/输出 RLE runs、验证/三角剖分候选比较另有独立预算；被筛除的候选几何也消耗已产生的预算。`max_mask_work_pixels` 汇总整个调用的离散光栅访问，包括所有实例的解码、复制、逐步重采样、统计、编码和全景关联扫描，避免仅限制单个实例却让总工作无界。表绑定也有独立 lookup 工作预算。Tensor 工作估算不包含标注容器、调用者输入、分配器开销或 LibTorch 内部 workspace，不能当作操作系统 RSS 上限。取消在步骤、复制行、几何比较和对象边界检查；单次 LibTorch 插值不能在调用内部中断，取消/失败不会发布半成品或修改输入。
+
+## 图像组批与传输
+
+`collate_images` 将非空的 CPU `VisionSample` 序列组成 `ImageBatch`。每个样本必须显式提供稳定 `ImageBatchKey`，包含字符串 ID、重复 occurrence 和 view；它们与照片、类别表、路径、标注和几何追踪保持原顺序。可混用非连续 CHW/HWC 照片，其他 PixelSpec 语义须一致；配对照片使用独立但全批一致的 PixelSpec。全批须统一为带配对照片、带离散 mask 或无配对目标，不能隐式丢弃部分样本的目标。
+
+| 模式 | 照片存储 | 形状规则 |
+| --- | --- | --- |
+| `stack` | 连续 NCHW `images` | 所有样本同尺寸，否则报错 |
+| `pad` | 连续 NCHW `images` | 右侧/底部补到最大尺寸或显式 `padded_extent`，可按 `size_divisor` 向上对齐 |
+| `ragged` | CHW `image_list` | 每张照片保留自己的尺寸；配对目标和 valid 同样用列表 |
+
+```cpp
+#include <jyppx/liuding/data_image/batch_transform.hpp>
+
+std::array samples{sample_a, sample_b};
+std::array keys{image::ImageBatchKey{"a", 0, 0}, image::ImageBatchKey{"b", 0, 0}};
+image::ImageCollateOptions collate;
+collate.layout = image::ImageBatchLayout::pad;
+collate.size_divisor = 32;
+collate.mask_padding_id = 255; // 有离散目标且确实补边时必须显式指定。
+auto batch = image::collate_images(samples, keys, collate);
+// batch.images: [N,C,H,W]；mask 为 int64 [N,H,W]，不经过浮点转换。
+```
+
+`valid`/`valid_list` 是 bool，标记组批新加的 padding；`items[i].valid_extent` 保存该样本组批前的尺寸。此前增强已经产生的 padding 仍属于该 valid extent，是否对应原图内容应查询 `items[i].geometry`。组批会组合原 trace；缺失 trace 时以当前样本画布建立 identity。`GeometryTrace::state/from_state` 可完整保存和恢复映射、保留内容域和已消耗的 128 次操作预算，不会恢复裁掉的内容或重置预算。
+
+分类标签打包为 int64 `labels`，由长度 N+1 的主机 `label_offsets` 定位每张图的区间；类别索引必须属于该样本的 `label_categories`。标注缺失与合法空对象列表保持区别，逐样本类别表不被重新映射。组批不调整框、polygon、OBB、关键点的位置，不改变源 ID、源 area、当前 mask 像素数或 flags；padding 会更新标注当前画布，并在 run 空间无损扩展 COCO RLE。全景表在 CPU 与 ID 图严格绑定后保留，新增 padding ID 必须等于该样本的 void，ignore 像素保持原值。
+
+`image_batch_value/from_value` 提供版本 1 的完整结构化 IValue，照片/mask/valid/labels 是 Tensor，路径、标注、类别表、几何、offsets 和身份字段留在主机标量/容器中。uint64 occurrence/view 保留全部 64 位。解码检查结构、尺寸、dtype/device 和主机几何，不扫描设备上的像素；像素内容必须由可信生产者提供。该转换共享 Tensor，不复制其存储，也不序列化运行时 memory-stage 统计。
+
+```cpp
+jyppx::liuding::data::BatchMemoryOptions memory;
+memory.pin_memory = true;
+memory.target_device = jyppx::liuding::Device(torch::kCUDA, 0);
+memory.non_blocking = true;
+auto prepared = image::prepare_image_batch(batch, memory); // 在最终 batch 上 pin，仍在 CPU。
+auto device_batch = image::transfer_image_batch(std::move(prepared), memory);
+// device_batch.memory 给出 pinned/transferred Tensor 数量和逻辑字节数。
+```
+
+传输复用 Core 两阶段内存接口，在调用方当前 CUDA stream 上执行；没有独立 copy stream、隐式跨 stream event 或传输重叠保证。准备与传输必须使用相同的内存策略。输入 batch 和源样本保持原样；组批输出具有独立照片/mask/valid/label 存储。独立 pin/传输 API 以及原 pipeline memory stage 的限制各自生效。
+
+## CPU/CUDA 批量数值变换
+
+`transform_image_batch` 对 packed NCHW 或 ragged CHW 照片执行浮点类型转换、显式强度缩放、RGB/BGR 交换与逐通道标准化，在原 CPU/CUDA 设备及调用方当前 stream 上运行。packed 路径以整批执行，不逐张读取 GPU 标量。运算使用 float32，float64 输出使用 float64 运算，再转换到指定 float16/bfloat16/float32/float64。mask、valid、labels、标注和几何原样共享，不进行重采样或归一化。
+
+```cpp
+image::ImageBatchTransformOptions numeric;
+numeric.image.dtype = torch::kFloat32;
+numeric.image.scale = image::BatchPixelScale::to_unit;
+numeric.image.mean = {0.485, 0.456, 0.406};
+numeric.image.std = {0.229, 0.224, 0.225};
+auto model_batch = image::transform_image_batch(device_batch, numeric);
+```
+
+默认 `to_unit` 将 uint8/uint16 分别除以 255/65535，已经声明为 unit interval 的浮点输入不会再次缩放；unbounded 输入会被拒绝，调用者应显式选择 `preserve`。`preserve` 保持数值，unsigned 编码转浮点后的范围标为 unbounded。mean/std 必须同时提供、长度等于通道数、数值有限且 std 为正，按交换后的通道顺序应用；归一化后范围标为 unbounded。alpha 的关联在缩放和通道交换中保持，带 alpha 的照片当前明确拒绝标准化，不会默默丢弃或反预乘 alpha。该接口信任 PixelSpec，不扫描像素来推断范围。
+
+可通过 `numeric.paired` 显式配置配对照片的独立变换；默认保留其数值和 dtype。返回的变换照片有独立存储，其余 Tensor 和不可变元数据保持共享；由于 dtype/字节数可能变化，返回值清空先前 memory-stage 统计。padding 像素与照片接受相同数值变换。该接口尚未包含批量几何，也尚未接入通用 pipeline 的提交前 consumer transform 钩子；在 `next()` 返回后执行它，错误不会回滚已经提交的 cursor。
+
+`ImageBatchLimits` 限制单次调用的样本数、总输出画布像素、边长、全部 Tensor 字节、元数据节点/逻辑字节/单字符串、polygon 比较和保守工作 payload。组批在分配照片输出前预检；RLE 新增 runs 有全调用上限。数值变换另为转换/通道交换保守预留完整 compute buffer，输出过大或预算不足时明确报错，没有 CPU fallback。预算排除调用者输入、allocator/容器开销及 LibTorch 内部 workspace，是逻辑限制，不是 RSS 或全局在途内存上限。取消在样本、对象、RLE 列、字段边界和发布前检查，单次 LibTorch/CUDA 操作不能在内部中断。
+
+接入 `DataPipeline` 时，可在 batch factory 返回 `image_batch_value(batch)`，并用 `image_batch_schema(exemplar, consumer_device)` 声明完整的 typed Tensor 与主机结构。schema descriptor 绑定布局、颜色/alpha/范围语义，N/H/W 为动态维度；具体 scalar 判别值和几何仍由 codec 校验。把 `image_batch_identity(collate, numeric)` 与逐样本几何/RNG 配置、身份分配规则共同绑定到 `batch_factory_id`，来源身份绑定到 `dataset_version`。摘要包含全部 collate/numeric 策略、可选字段和资源上限，不自动检查任意 lambda 的行为。CPU 数值变换可在 factory 内显式执行，此时 exemplar 应使用变换后的 PixelSpec；consumer CUDA 变换暂需调用方安排。已验证完整结构、尾 batch、worker 顺序、同拓扑恢复与 factory 失败不推进 cursor，跨 worker 拓扑 exact restore 仍会拒绝。
 
 ## 逐样本随机性与恢复绑定
 

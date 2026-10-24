@@ -326,6 +326,28 @@ TEST(BatchMemoryCudaTest, PinsCpuLeavesAndTransfersNestedBatchToCuda) {
   EXPECT_TRUE(source.device().is_cpu());
 }
 
+TEST(BatchMemoryCudaTest, EmptyTensorLeavesDoNotRequirePinnedStorage) {
+  if (!torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA runtime is unavailable";
+  const auto value = c10::IValue(c10::ivalue::Tuple::create(
+      {torch::empty({0}, torch::kInt64), torch::ones({2}, torch::kFloat32)}));
+  const jyppx::liuding::data::BatchMemoryOptions options{
+      .pin_memory = true,
+      .target_device = jyppx::liuding::Device(torch::kCUDA, 0),
+      .non_blocking = true};
+  auto prepared = jyppx::liuding::data::prepare_batch_memory(value, options);
+  EXPECT_EQ(prepared.metadata.tensor_count, 2U);
+  EXPECT_EQ(prepared.metadata.pinned_tensor_count, 1U);
+  EXPECT_EQ(prepared.metadata.tensor_bytes, 8U);
+  const auto result =
+      jyppx::liuding::data::transfer_batch_memory(std::move(prepared), options);
+  EXPECT_EQ(result.metadata.transferred_tensor_count, 2U);
+  const auto empty = result.value.toTupleRef().elements()[0].toTensor();
+  EXPECT_TRUE(empty.is_cuda());
+  EXPECT_EQ(empty.numel(), 0);
+  EXPECT_EQ(empty.scalar_type(), torch::kInt64);
+}
+
 TEST(BatchMemoryCudaTest, PipelineCheckpointContinuesExactlyOnCuda) {
   if (!torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA runtime is unavailable";

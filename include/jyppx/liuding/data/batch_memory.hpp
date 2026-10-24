@@ -73,7 +73,7 @@ struct BatchMemoryMetadata {
       0;  ///< Recursively visited values, including container roots.
   std::uint64_t tensor_bytes = 0;  ///< Total logical bytes across occurrences.
   std::size_t pinned_tensor_count =
-      0;  ///< CPU tensor occurrences pinned by or before this stage.
+      0;  ///< Nonempty CPU tensor occurrences pinned by or before this stage.
   std::size_t transferred_tensor_count =
       0;  ///< Tensor occurrences moved to a different device.
 };

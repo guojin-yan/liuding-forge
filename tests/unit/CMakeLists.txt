@@ -124,7 +124,12 @@ if(TARGET jyppx::liuding::data_image)
         data_image/test_sample_random.cpp
         data_image/test_joint_transform.cpp
         data_image/test_joint_regions.cpp
+        data_image/test_image_batch.cpp
         data_image/test_image_dataset.cpp)
+    if(TARGET torch_cuda)
+        target_compile_definitions(jyppx_test_data_image_annotations PRIVATE
+            JYPPX_LIUDING_IMAGE_TEST_CUDA=1)
+    endif()
 endif()
 
 if(TARGET jyppx::liuding::sdk)

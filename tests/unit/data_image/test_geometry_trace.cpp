@@ -185,4 +185,64 @@ TEST(GeometryTraceTest,
   }
 }
 
+TEST(GeometryTraceTest, StateRoundTripPreservesCropContentAndOperationBudget) {
+  auto trace = GeometryTrace({100, 80})
+                   .cropped(20, 10, {50, 40})
+                   .flipped_horizontal()
+                   .padded(3, 5, 7, 9);
+  const auto restored = GeometryTrace::from_state(trace.state());
+  EXPECT_EQ(restored.matrix(), trace.matrix());
+  ExpectBox(restored.source_region(), {20, 10, 70, 50});
+  ExpectBox(restored.output_region(), {3, 5, 53, 45});
+  EXPECT_FALSE(restored.inverse_point({1, 1}));
+  EXPECT_FALSE(restored.forward_point({19, 10}));
+  for (int i = 0; i < 124; ++i)
+    trace = GeometryTrace::from_state(trace.state()).flipped_vertical();
+  EXPECT_EQ(trace.state().operations, 127);
+  trace = GeometryTrace::from_state(trace.state()).flipped_horizontal();
+  EXPECT_THROW(GeometryTrace::from_state(trace.state()).flipped_horizontal(),
+               ResourceExhausted);
+}
+
+TEST(GeometryTraceTest, StateRoundTripPreservesCompletelyDiscardedContent) {
+  const auto empty =
+      GeometryTrace({2, 2}).padded(3, 0, 0, 0).cropped(0, 0, {2, 2});
+  ASSERT_FALSE(empty.source_region());
+  const auto restored = GeometryTrace::from_state(empty.state());
+  EXPECT_FALSE(restored.source_region());
+  EXPECT_FALSE(restored.inverse_point({0, 0}));
+  EXPECT_FALSE(restored.forward_box({0, 0, 2, 2}));
+  EXPECT_FALSE(restored.retains_full_source());
+}
+
+TEST(GeometryTraceTest,
+     StateRejectsNonfiniteNoninvertibleAndInconsistentSnapshots) {
+  const auto identity = GeometryTrace({4, 3}).state();
+  auto state = identity;
+  state.operations = 129;
+  EXPECT_THROW(GeometryTrace::from_state(state), ResourceExhausted);
+  state = identity;
+  state.source_region.reset();
+  EXPECT_THROW(GeometryTrace::from_state(state), InvalidArgument);
+  state = identity;
+  state.coefficients[2] = 1;
+  EXPECT_THROW(GeometryTrace::from_state(state), InvalidArgument);
+  state = identity;
+  state.coefficients[0] = 0;
+  EXPECT_THROW(GeometryTrace::from_state(state), InvalidArgument);
+  state = identity;
+  state.coefficients[1] = std::numeric_limits<double>::infinity();
+  EXPECT_THROW(GeometryTrace::from_state(state), InvalidArgument);
+  state = identity;
+  state.source_region->x_max = 5;
+  EXPECT_THROW(GeometryTrace::from_state(state), InvalidArgument);
+  state = identity;
+  state.output.width = 0;
+  EXPECT_THROW(GeometryTrace::from_state(state), InvalidArgument);
+  state = identity;
+  state.operations = 1;
+  state.output.width = 3;
+  EXPECT_THROW(GeometryTrace::from_state(state), InvalidArgument);
+}
+
 }  // namespace

@@ -51,8 +51,8 @@ struct VisionSample {
   ///< Immutable object-annotation class map when annotations are attached.
   std::shared_ptr<const VisionAnnotationRecord> annotation;
   ///< Shared immutable object/mask/keypoint annotations for this image.
-  std::uint32_t width = 0;   ///< Decoded input width in pixels.
-  std::uint32_t height = 0;  ///< Decoded input height in pixels.
+  std::uint32_t width = 0;   ///< Current sample canvas width in pixels.
+  std::uint32_t height = 0;  ///< Current sample canvas height in pixels.
   PixelSpec
       pixels;  ///< Explicit image channel, dtype, layout and range semantics.
   std::optional<PixelSpec>

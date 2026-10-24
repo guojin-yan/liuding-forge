@@ -230,4 +230,51 @@ std::array<double, 9> GeometryTrace::matrix() const noexcept {
   return {scale_x_, 0, offset_x_, 0, scale_y_, offset_y_, 0, 0, 1};
 }
 
+GeometryTraceState GeometryTrace::state() const noexcept {
+  return {source_,
+          output_,
+          source_region_,
+          {scale_x_, scale_y_, offset_x_, offset_y_},
+          operations_};
+}
+
+GeometryTrace GeometryTrace::from_state(const GeometryTraceState& state) {
+  GeometryTrace result(state.source);
+  CheckExtent(state.output);
+  if (state.operations > 128)
+    throw ResourceExhausted("Image geometry operation limit exceeded");
+  result.output_ = state.output;
+  result.source_region_ = state.source_region;
+  result.scale_x_ = state.coefficients[0];
+  result.scale_y_ = state.coefficients[1];
+  result.offset_x_ = state.coefficients[2];
+  result.offset_y_ = state.coefficients[3];
+  result.operations_ = state.operations;
+  if (state.source_region) {
+    CheckBox(*state.source_region);
+    const auto r = *state.source_region;
+    if (r.x_min < 0 || r.y_min < 0 || r.x_max > state.source.width ||
+        r.y_max > state.source.height)
+      Invalid("geometry.state_source", "a region within the source canvas");
+  }
+  result.validate_mapping();
+  if (const auto r = result.output_region()) {
+    // Existing compositions can accumulate a few ulps at canvas boundaries.
+    const double epsilon = 1024 * std::numeric_limits<double>::epsilon() *
+                           std::max(state.output.width, state.output.height);
+    if (r->x_min < -epsilon || r->y_min < -epsilon ||
+        r->x_max > state.output.width + epsilon ||
+        r->y_max > state.output.height + epsilon)
+      Invalid("geometry.state_output", "content within the output canvas");
+  }
+  if (state.operations == 0 &&
+      (state.output.width != state.source.width ||
+       state.output.height != state.source.height ||
+       state.coefficients != std::array<double, 4>{1, 1, 0, 0} ||
+       !result.retains_full_source()))
+    Invalid("geometry.state_identity",
+            "the original identity for zero operations");
+  return result;
+}
+
 }  // namespace jyppx::liuding::data::image

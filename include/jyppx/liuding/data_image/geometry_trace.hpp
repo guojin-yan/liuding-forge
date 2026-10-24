@@ -30,6 +30,15 @@ struct ImageExtent {
   std::uint32_t height = 0;
 };
 
+/** @brief Bounded, data-only snapshot of an axis-aligned geometry trace. */
+struct GeometryTraceState {
+  ImageExtent source;
+  ImageExtent output;
+  std::optional<ImageBox> source_region;
+  std::array<double, 4> coefficients = {1, 1, 0, 0};  ///< sx, sy, tx, ty.
+  std::uint16_t operations = 0;  ///< Consumed composition budget.
+};
+
 /**
  * @brief Immutable, bounded geometry trace for one image and its annotations.
  *
@@ -131,6 +140,17 @@ class GeometryTrace {
    * @return Mathematical mapping; use point/box APIs to enforce valid regions.
    */
   std::array<double, 9> matrix() const noexcept;
+
+  /** @brief Returns all state needed for a bounded batch/checkpoint value. */
+  GeometryTraceState state() const noexcept;
+
+  /** @brief Restores a snapshot after checking extents, bounds and mapping.
+   * @param state Data-only state; no history or external resource is opened.
+   * @return Validated trace with its original operation budget retained.
+   * @throws InvalidArgument Invalid extent, region, coefficients or identity.
+   * @throws ResourceExhausted More than 128 operations are declared.
+   */
+  static GeometryTrace from_state(const GeometryTraceState& state);
 
  private:
   GeometryTrace next() const;

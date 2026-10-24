@@ -24,6 +24,7 @@ constexpr std::size_t kMaxNestingDepth = 64;
 
 struct Inspection {
   std::size_t tensor_count = 0;
+  std::size_t nonempty_tensor_count = 0;
   std::size_t value_node_count = 0;
   std::uint64_t tensor_bytes = 0;
 };
@@ -112,6 +113,7 @@ void inspect_tensor(const Tensor& tensor, const BatchMemoryOptions& options,
   }
   ++inspection.tensor_count;
   const auto numel = tensor.numel();
+  if (numel > 0) ++inspection.nonempty_tensor_count;
   const auto element_size = tensor.element_size();
   if (numel < 0 || static_cast<std::uint64_t>(numel) >
                        std::numeric_limits<std::uint64_t>::max() /
@@ -225,13 +227,17 @@ Tensor transform_tensor(const Tensor& tensor, TransformContext& context,
                          .hint = "Disable pin_memory for device-resident "
                                  "producer values."});
       }
-      if (!staged.is_pinned()) {
-        staged = staged.pin_memory();
+      // Empty tensors have no bytes to pin; LibTorch may report false even
+      // after pin_memory(). Keep their shape/device contract without requiring
+      // a nonexistent storage allocation in the transfer phase.
+      if (staged.numel() != 0) {
+        if (!staged.is_pinned()) staged = staged.pin_memory();
+        ++context.metadata.pinned_tensor_count;
       }
-      ++context.metadata.pinned_tensor_count;
     }
     if (phase == TransformPhase::transfer && context.options.pin_memory &&
-        staged.device().is_cpu() && !staged.is_pinned()) {
+        staged.device().is_cpu() && staged.numel() != 0 &&
+        !staged.is_pinned()) {
       throw CompatibilityError(
           "Prepared batch tensor is not pinned",
           ErrorDetails{.component = kComponent,
@@ -336,7 +342,7 @@ void validate_prepared_metadata(const BatchMemoryStageResult& prepared,
       metadata.tensor_bytes != inspection.tensor_bytes ||
       metadata.transferred_tensor_count != 0U ||
       metadata.pinned_tensor_count !=
-          (options.pin_memory ? inspection.tensor_count : 0U)) {
+          (options.pin_memory ? inspection.nonempty_tensor_count : 0U)) {
     throw CompatibilityError(
         "Prepared batch metadata is incompatible with the transfer policy",
         ErrorDetails{.component = kComponent,

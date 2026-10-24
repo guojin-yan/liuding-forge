@@ -479,6 +479,9 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         src/jyppx/liuding/data_image/sample_random.cpp
         src/jyppx/liuding/data_image/joint_transform.cpp
         src/jyppx/liuding/data_image/joint_annotations.cpp
+        src/jyppx/liuding/data_image/image_batch.cpp
+        src/jyppx/liuding/data_image/image_batch_value.cpp
+        src/jyppx/liuding/data_image/batch_transform.cpp
         src/jyppx/liuding/data_image/stb_image_impl.cpp
         $<TARGET_OBJECTS:data_image_xml_backend>
         $<TARGET_OBJECTS:data_image_yaml_backend>)

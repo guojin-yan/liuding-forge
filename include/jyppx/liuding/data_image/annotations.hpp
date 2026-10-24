@@ -116,8 +116,8 @@ struct VisionAnnotationRecord {
   std::int64_t source_image_id =
       0;                     ///< Original image ID or deterministic row ID.
   std::string image_path;    ///< Validated dataset-relative UTF-8 path.
-  std::uint32_t width = 0;   ///< Width before augmentation/orientation.
-  std::uint32_t height = 0;  ///< Height before augmentation/orientation.
+  std::uint32_t width = 0;   ///< Width of this record's current canvas.
+  std::uint32_t height = 0;  ///< Height of this record's current canvas.
   std::vector<VisionObject>
       objects;  ///< Ordered source objects, including crowd.
   std::optional<std::string>
