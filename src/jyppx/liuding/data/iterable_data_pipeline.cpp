@@ -884,7 +884,7 @@ struct IterableDataPipeline::Impl {
   IterableDataPipelineState state;
   std::unique_ptr<IterableRuntime> runtime;
   bool closed = false;
-  std::exception_ptr delivery_failure;
+  std::exception_ptr delivery_failure = nullptr;
 
   void fail_delivery(std::exception_ptr error) noexcept {
     delivery_failure = std::move(error);

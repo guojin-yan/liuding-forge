@@ -814,7 +814,7 @@ struct DataPipeline::Impl {
   DataPipelineState state;
   std::unique_ptr<WorkerRuntime> runtime;
   bool closed = false;
-  std::exception_ptr delivery_failure;
+  std::exception_ptr delivery_failure = nullptr;
 
   void fail_delivery(std::exception_ptr error) noexcept {
     delivery_failure = std::move(error);
