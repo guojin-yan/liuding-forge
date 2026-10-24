@@ -55,6 +55,7 @@
 // Data
 #include <jyppx/liuding/data/batch_memory.hpp>
 #include <jyppx/liuding/data/batch_schema.hpp>
+#include <jyppx/liuding/data/batch_transform.hpp>
 #include <jyppx/liuding/data/chain_dataset.hpp>
 #include <jyppx/liuding/data/concat_dataset.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>

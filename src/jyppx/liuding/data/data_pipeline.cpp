@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "batch_transform_detail.hpp"
+
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
@@ -23,10 +25,12 @@ namespace jyppx::liuding::data {
 namespace {
 
 constexpr char kComponent[] = "data.pipeline";
-constexpr char kCurrentTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v4";
-constexpr char kCurrentCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v4";
-constexpr char kPreviousTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v3";
-constexpr char kPreviousCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v3";
+constexpr char kCurrentTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v5";
+constexpr char kCurrentCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v5";
+constexpr char kPreviousTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v4";
+constexpr char kLegacyTopologyMagic[] = "JYPPX-DATA-PIPELINE-TOPOLOGY/v3";
+constexpr char kPreviousCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v4";
+constexpr char kLegacyCursorMagic[] = "JYPPX-DATA-PIPELINE-CURSOR/v3";
 constexpr std::uint32_t kPreviousSchemaVersion =
     DataPipelineState::format_version - 1U;
 constexpr std::uint64_t kMaxTopologyBytes = 32U * 1024U * 1024U;
@@ -177,6 +181,9 @@ std::string encode_topology(const DataPipelineState& state) {
   for (const auto index : state.epoch_indices) {
     append_u64(output, static_cast<std::uint64_t>(index));
   }
+  append_string(output, state.consumer_transform_id);
+  append_string(output, state.consumer_input_schema_descriptor);
+  append_byte(output, state.deterministic_consumer_transform ? 1U : 0U);
   return output;
 }
 
@@ -229,12 +236,15 @@ DataPipelineState decode_state(std::span<const std::byte> topology,
   DataPipelineState state;
   std::size_t topology_offset = 0;
   require_magic(read_string(topology, topology_offset, 128),
-                current ? kCurrentTopologyMagic : kPreviousTopologyMagic);
+                current ? kCurrentTopologyMagic
+                        : (schema_version == kPreviousSchemaVersion
+                               ? kPreviousTopologyMagic
+                               : kLegacyTopologyMagic));
   state.pipeline_id = read_string(topology, topology_offset, kMaxMetadataBytes);
   state.dataset_version =
       read_string(topology, topology_offset, kMaxMetadataBytes);
   state.dataset_size = read_size(topology, topology_offset, "dataset_size");
-  if (current) {
+  if (schema_version >= kPreviousSchemaVersion) {
     state.schema_descriptor =
         read_string(topology, topology_offset, kMaxSchemaDescriptorBytes);
   } else {
@@ -287,11 +297,22 @@ DataPipelineState decode_state(std::span<const std::byte> topology,
     state.epoch_indices.push_back(
         read_size(topology, topology_offset, "sample_index"));
   }
+  if (current) {
+    state.consumer_transform_id =
+        read_string(topology, topology_offset, kMaxMetadataBytes);
+    state.consumer_input_schema_descriptor =
+        read_string(topology, topology_offset, kMaxSchemaDescriptorBytes);
+    state.deterministic_consumer_transform = read_bool(
+        topology, topology_offset, "deterministic_consumer_transform");
+  }
   require_end(topology, topology_offset);
 
   std::size_t cursor_offset = 0;
   require_magic(read_string(cursor, cursor_offset, 128),
-                current ? kCurrentCursorMagic : kPreviousCursorMagic);
+                current ? kCurrentCursorMagic
+                        : (schema_version == kPreviousSchemaVersion
+                               ? kPreviousCursorMagic
+                               : kLegacyCursorMagic));
   state.prepared = read_bool(cursor, cursor_offset, "prepared");
   state.epoch = read_u64(cursor, cursor_offset);
   state.next_cursor = read_u64(cursor, cursor_offset);
@@ -312,9 +333,10 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
          state_fields_equal(left.fields, right.fields);
 }
 
-StateManifest make_schema_v3_manifest(const StateManifest& current) {
+StateManifest make_older_manifest(const StateManifest& current,
+                                  std::uint32_t version) {
   StateManifest previous = current;
-  previous.schema_version = kPreviousSchemaVersion;
+  previous.schema_version = version;
   validate_state_manifest(previous);
   return previous;
 }
@@ -701,6 +723,7 @@ class WorkerRuntime final {
 void validate_options(const DataPipelineOptions& options) {
   validate_batch_memory_options(options.memory);
   validate_batch_schema(options.schema);
+  detail::validate_consumer_transform(options.consumer_transform);
   if (options.pipeline_id.empty() || options.dataset_version.empty() ||
       options.batch_factory_id.empty()) {
     throw InvalidArgument(
@@ -749,6 +772,13 @@ DataPipelineState make_initial_state(const DataPipelineOptions& options,
   state.dataset_size = options.dataset_size;
   state.schema_descriptor = canonical_batch_schema(options.schema);
   state.batch_factory_id = options.batch_factory_id;
+  if (options.consumer_transform) {
+    state.consumer_transform_id = options.consumer_transform->id;
+    state.consumer_input_schema_descriptor =
+        canonical_batch_schema(options.consumer_transform->input_schema);
+    state.deterministic_consumer_transform =
+        options.consumer_transform->deterministic;
+  }
   state.batch_size = options.batch_size;
   state.drop_last = options.drop_last;
   state.num_workers = options.num_workers;
@@ -784,6 +814,15 @@ struct DataPipeline::Impl {
   DataPipelineState state;
   std::unique_ptr<WorkerRuntime> runtime;
   bool closed = false;
+  std::exception_ptr delivery_failure;
+
+  void fail_delivery(std::exception_ptr error) noexcept {
+    delivery_failure = std::move(error);
+    if (runtime) {
+      runtime->close();
+      runtime.reset();
+    }
+  }
 
   DataCapability capability() const {
     DataCapability result;
@@ -824,7 +863,13 @@ struct DataPipeline::Impl {
 
     const auto has_state = sampler->supports_state();
     const auto has_identity = !sampler->configuration_identity().empty();
-    const auto replayable = options.deterministic_batch_factory;
+    result.consumer_transform_id = state.consumer_transform_id;
+    result.deterministic_consumer_transform =
+        state.deterministic_consumer_transform;
+    if (options.consumer_transform)
+      result.consumer_input_schema = options.consumer_transform->input_schema;
+    const auto replayable = options.deterministic_batch_factory &&
+                            result.deterministic_consumer_transform;
     result.restore_level = has_state && has_identity && replayable
                                ? RestoreLevel::exact
                                : RestoreLevel::bounded;
@@ -836,9 +881,13 @@ struct DataPipeline::Impl {
       result.degradation_reasons.emplace_back(
           "sampler does not expose a stable configuration identity");
     }
-    if (!replayable) {
+    if (!options.deterministic_batch_factory) {
       result.degradation_reasons.emplace_back(
           "batch factory does not guarantee deterministic replay");
+    }
+    if (!result.deterministic_consumer_transform) {
+      result.degradation_reasons.emplace_back(
+          "consumer transform does not guarantee deterministic replay");
     }
     return result;
   }
@@ -850,6 +899,17 @@ struct DataPipeline::Impl {
         candidate.dataset_size != options.dataset_size ||
         candidate.schema_descriptor != canonical_batch_schema(options.schema) ||
         candidate.batch_factory_id != options.batch_factory_id ||
+        candidate.consumer_transform_id != (options.consumer_transform
+                                                ? options.consumer_transform->id
+                                                : std::string{}) ||
+        candidate.consumer_input_schema_descriptor !=
+            (options.consumer_transform
+                 ? canonical_batch_schema(
+                       options.consumer_transform->input_schema)
+                 : std::string{}) ||
+        candidate.deterministic_consumer_transform !=
+            (!options.consumer_transform ||
+             options.consumer_transform->deterministic) ||
         candidate.sampler_identity != sampler->configuration_identity() ||
         candidate.batch_size != options.batch_size ||
         candidate.drop_last != options.drop_last ||
@@ -925,6 +985,7 @@ struct DataPipeline::Impl {
                      std::unique_ptr<WorkerRuntime> replacement,
                      std::shared_ptr<EpochWork> epoch) noexcept {
     state = std::move(candidate);
+    delivery_failure = nullptr;
     if (replacement) {
       runtime = std::move(replacement);
     }
@@ -1054,94 +1115,105 @@ void DataPipeline::set_epoch(std::uint64_t epoch) {
 }
 
 std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
-  if (impl_->closed) {
-    throw NotReady("DataPipeline is closed");
+  if (impl_->closed) throw NotReady("DataPipeline is closed");
+  if (impl_->delivery_failure) std::rethrow_exception(impl_->delivery_failure);
+  if (!impl_->state.prepared) {
+    throw InvalidArgument("DataPipeline requires set_epoch before next");
   }
   if (stop_token.stop_requested()) {
+    impl_->fail_delivery(std::make_exception_ptr(
+        Cancelled("DataPipeline epoch cancelled before commit")));
+    return std::nullopt;
+  }
+  if (impl_->state.next_cursor >= impl_->state.epoch_indices.size())
+    return std::nullopt;
+
+  try {
+    const auto start = static_cast<std::size_t>(impl_->state.next_cursor);
+    const auto end = std::min(start + impl_->options.batch_size,
+                              impl_->state.epoch_indices.size());
+    const auto sequence = impl_->state.next_sequence;
+    if (sequence == std::numeric_limits<std::uint64_t>::max()) {
+      throw ResourceExhausted("DataPipeline batch sequence exhausted");
+    }
+    BatchEnvelope envelope;
+    envelope.schema = impl_->options.schema;
+    envelope.dataset_version = impl_->options.dataset_version;
+    envelope.epoch = impl_->state.epoch;
+    envelope.sequence = sequence;
+    envelope.sample_ids.reserve(end - start);
+    for (auto cursor = start; cursor < end; ++cursor) {
+      envelope.sample_ids.push_back(
+          static_cast<std::uint64_t>(impl_->state.epoch_indices[cursor]));
+    }
+    if (impl_->options.num_workers == 0) {
+      const std::span<const std::size_t> indices(
+          impl_->state.epoch_indices.data() + start, end - start);
+      const auto context =
+          make_worker_context(impl_->options, impl_->state.epoch, sequence);
+      envelope.value =
+          invoke_factory(impl_->batch_factory, indices, context, stop_token);
+      if (!stop_token.stop_requested() &&
+          batch_memory_stage_enabled(impl_->options.memory)) {
+        auto staged = stage_batch_memory(envelope.value, impl_->options.memory);
+        envelope.value = std::move(staged.value);
+        envelope.memory = staged.metadata;
+      }
+    } else {
+      const auto result = impl_->runtime->wait_for(sequence, stop_token);
+      if (!result) {
+        impl_->fail_delivery(std::make_exception_ptr(
+            Cancelled("DataPipeline epoch cancelled before commit")));
+        return std::nullopt;
+      }
+      if (result->sequence != sequence || result->end_cursor != end) {
+        throw InternalError(
+            "DataPipeline worker result topology is inconsistent");
+      }
+      envelope.value = result->value;
+      envelope.memory = result->memory;
+      if (!stop_token.stop_requested() &&
+          batch_memory_stage_enabled(impl_->options.memory)) {
+        auto staged = transfer_batch_memory(
+            {.value = std::move(envelope.value), .metadata = envelope.memory},
+            impl_->options.memory);
+        envelope.value = std::move(staged.value);
+        envelope.memory = staged.metadata;
+      }
+    }
+    if (stop_token.stop_requested())
+      throw Cancelled("DataPipeline epoch cancelled before commit");
+    if (impl_->options.consumer_transform) {
+      envelope.consumer_transform_id = impl_->options.consumer_transform->id;
+      envelope.transformed_memory = detail::run_consumer_transform(
+          envelope.value, *impl_->options.consumer_transform,
+          {.dataset_version = envelope.dataset_version,
+           .epoch = envelope.epoch,
+           .sequence = sequence,
+           .sample_ids = envelope.sample_ids},
+          impl_->options.memory, stop_token);
+    }
+    validate_batch_value(envelope.value, impl_->options.schema);
+    if (stop_token.stop_requested())
+      throw Cancelled("DataPipeline epoch cancelled before commit");
+
+    impl_->state.next_cursor = end;
+    ++impl_->state.next_sequence;
     if (impl_->runtime) {
-      impl_->runtime->cancel_active();
+      impl_->runtime->commit(sequence);
+      if (end == impl_->state.epoch_indices.size() &&
+          !impl_->options.persistent_workers) {
+        impl_->runtime->close();
+        impl_->runtime.reset();
+      }
     }
-    return std::nullopt;
+    return envelope;
+  } catch (...) {
+    const auto error = std::current_exception();
+    impl_->fail_delivery(error);
+    if (stop_token.stop_requested()) return std::nullopt;
+    std::rethrow_exception(error);
   }
-  if (!impl_->state.prepared) {
-    throw InvalidArgument(
-        "DataPipeline requires set_epoch before next",
-        ErrorDetails{.component = kComponent,
-                     .operation = "next",
-                     .expected = "a prepared epoch",
-                     .actual = "no epoch",
-                     .hint = "Call set_epoch exactly once per epoch."});
-  }
-  if (impl_->state.next_cursor >= impl_->state.epoch_indices.size()) {
-    return std::nullopt;
-  }
-
-  const auto start = static_cast<std::size_t>(impl_->state.next_cursor);
-  const auto end = std::min(start + impl_->options.batch_size,
-                            impl_->state.epoch_indices.size());
-  const auto sequence = impl_->state.next_sequence;
-  c10::IValue value;
-  BatchMemoryMetadata memory;
-  if (impl_->options.num_workers == 0) {
-    const std::span<const std::size_t> indices(
-        impl_->state.epoch_indices.data() + start, end - start);
-    const auto context =
-        make_worker_context(impl_->options, impl_->state.epoch, sequence);
-    value = invoke_factory(impl_->batch_factory, indices, context, stop_token);
-    if (stop_token.stop_requested()) {
-      return std::nullopt;
-    }
-    if (batch_memory_stage_enabled(impl_->options.memory)) {
-      auto staged = stage_batch_memory(value, impl_->options.memory);
-      value = std::move(staged.value);
-      memory = staged.metadata;
-    }
-    validate_batch_value(value, impl_->options.schema);
-  } else {
-    const auto result = impl_->runtime->wait_for(sequence, stop_token);
-    if (!result) {
-      return std::nullopt;
-    }
-    if (result->sequence != sequence || result->end_cursor != end) {
-      throw InternalError(
-          "DataPipeline worker result topology is inconsistent");
-    }
-    value = result->value;
-    memory = result->memory;
-    if (batch_memory_stage_enabled(impl_->options.memory)) {
-      auto staged =
-          transfer_batch_memory({.value = std::move(value), .metadata = memory},
-                                impl_->options.memory);
-      value = std::move(staged.value);
-      memory = staged.metadata;
-    }
-    validate_batch_value(value, impl_->options.schema);
-  }
-
-  BatchEnvelope envelope;
-  envelope.value = std::move(value);
-  envelope.schema = impl_->options.schema;
-  envelope.dataset_version = impl_->options.dataset_version;
-  envelope.epoch = impl_->state.epoch;
-  envelope.sequence = sequence;
-  envelope.memory = memory;
-  envelope.sample_ids.reserve(end - start);
-  for (auto cursor = start; cursor < end; ++cursor) {
-    envelope.sample_ids.push_back(
-        static_cast<std::uint64_t>(impl_->state.epoch_indices[cursor]));
-  }
-
-  impl_->state.next_cursor = end;
-  ++impl_->state.next_sequence;
-  if (impl_->runtime) {
-    impl_->runtime->commit(sequence);
-    if (end == impl_->state.epoch_indices.size() &&
-        !impl_->options.persistent_workers) {
-      impl_->runtime->close();
-      impl_->runtime.reset();
-    }
-  }
-  return envelope;
 }
 
 void DataPipeline::close() noexcept {
@@ -1215,18 +1287,25 @@ void DataPipeline::load_state(const StateReader& reader, RestorePolicy policy) {
   StateManifest expected_manifest;
   if (manifest.schema_version == DataPipelineState::format_version) {
     expected_manifest = current_manifest;
-  } else if (manifest.schema_version == kPreviousSchemaVersion) {
-    expected_manifest = make_schema_v3_manifest(current_manifest);
+  } else if (manifest.schema_version == kPreviousSchemaVersion ||
+             manifest.schema_version == kPreviousSchemaVersion - 1U) {
+    if (impl_->options.consumer_transform)
+      throw CompatibilityError(
+          "Older DataPipeline state has no consumer transform identity");
+    expected_manifest =
+        make_older_manifest(current_manifest, manifest.schema_version);
   } else {
     throw CompatibilityError(
         "DataPipeline checkpoint schema is unsupported",
         ErrorDetails{
             .component = kComponent,
             .operation = "restore.schema_version",
-            .expected = std::to_string(kPreviousSchemaVersion) + " or " +
+            .expected = std::to_string(kPreviousSchemaVersion - 1U) + ", " +
+                        std::to_string(kPreviousSchemaVersion - 1U) + ", " +
+                        std::to_string(kPreviousSchemaVersion) + " or " +
                         std::to_string(DataPipelineState::format_version),
             .actual = std::to_string(manifest.schema_version),
-            .hint = "Migrate checkpoints through the explicit N-1 schema "
+            .hint = "Use a supported checkpoint and its explicit migration "
                     "chain."});
   }
   if (!manifest_equal(manifest, expected_manifest)) {
@@ -1290,6 +1369,7 @@ void DataPipeline::load_state(const StateReader& reader, RestorePolicy policy) {
   }
 
   impl_->state = std::move(decoded);
+  impl_->delivery_failure = nullptr;
   if (replacement) {
     impl_->runtime = std::move(replacement);
   }

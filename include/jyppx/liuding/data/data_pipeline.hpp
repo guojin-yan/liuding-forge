@@ -14,6 +14,7 @@
 
 #include <jyppx/liuding/data/batch_memory.hpp>
 #include <jyppx/liuding/data/batch_schema.hpp>
+#include <jyppx/liuding/data/batch_transform.hpp>
 #include <jyppx/liuding/data/samplers/sampler.hpp>
 #include <jyppx/liuding/foundation/capability.hpp>
 #include <jyppx/liuding/foundation/checkpoint.hpp>
@@ -48,8 +49,12 @@ struct BatchEnvelope {
   std::uint64_t epoch = 0;       ///< Logical epoch that produced this batch.
   std::uint64_t sequence = 0;    ///< Zero-based committed batch sequence.
   std::string source_watermark;  ///< Opaque iterable position; empty for maps.
-  BatchMemoryMetadata
-      memory;  ///< Pinning, transfer, tensor-count, and byte metadata.
+  BatchMemoryMetadata memory;  ///< Work/usage of the memory stage input, before
+                               ///< consumer transform.
+  std::string consumer_transform_id;  ///< Applied consumer stage, empty if off.
+  std::optional<BatchMemoryUsage>
+      transformed_memory;  ///< Final output usage; present only after
+                           ///< transform.
 };
 
 /**
@@ -112,6 +117,10 @@ struct DataCapability {
       0;  ///< Maximum recursive IValue nodes accepted by memory staging.
   std::uint64_t max_batch_bytes =
       0;  ///< Maximum logical tensor bytes accepted by memory staging.
+  std::string consumer_transform_id;  ///< Empty when consumer transform is off.
+  std::optional<BatchSchema>
+      consumer_input_schema;  ///< Post-transfer input schema when enabled.
+  bool deterministic_consumer_transform = true;  ///< Exact value replay policy.
   bool schema_validation = true;  ///< Every consumer-visible batch is checked.
   BatchSchema batch_schema;  ///< Complete versioned producer value contract.
   std::string batch_schema_fingerprint;  ///< Compact diagnostic schema digest.
@@ -213,6 +222,9 @@ struct DataPipelineOptions {
       0};  ///< Positive worker wait deadline; zero disables timeout.
   BatchMemoryOptions
       memory;  ///< Optional bounded host-pinning and device-transfer stage.
+  std::optional<BatchConsumerTransform>
+      consumer_transform;  ///< Optional post-transfer, precommit consumer
+                           ///< stage.
 };
 
 /**
@@ -220,7 +232,7 @@ struct DataPipelineOptions {
  */
 struct DataPipelineState {
   static constexpr std::uint32_t format_version =
-      4;  ///< Current writer schema; the reader also accepts explicit N-1 v3.
+      5;  ///< Writer schema; readers retain v4 and constrained label-only v3.
 
   std::uint32_t version = format_version;  ///< Serialized state version.
   std::string pipeline_id;       ///< Participant identity at snapshot time.
@@ -228,9 +240,14 @@ struct DataPipelineState {
   std::size_t dataset_size = 0;  ///< Exclusive upper bound for sample indices.
   std::string schema_descriptor;  ///< Complete canonical batch schema bytes.
   std::string batch_factory_id;   ///< Collator identity at snapshot time.
-  std::size_t batch_size = 0;     ///< Batch size at snapshot time.
-  bool drop_last = false;         ///< Tail policy at snapshot time.
-  std::size_t num_workers = 0;    ///< Worker topology at snapshot time.
+  std::string consumer_transform_id;  ///< Empty when consumer transform is off.
+  std::string
+      consumer_input_schema_descriptor;  ///< Full post-transfer contract.
+  bool deterministic_consumer_transform =
+      true;                     ///< Consumer replay declaration.
+  std::size_t batch_size = 0;   ///< Batch size at snapshot time.
+  bool drop_last = false;       ///< Tail policy at snapshot time.
+  std::size_t num_workers = 0;  ///< Worker topology at snapshot time.
   std::size_t prefetch_batches =
       0;  ///< Maximum uncommitted work at snapshot time.
   bool persistent_workers =

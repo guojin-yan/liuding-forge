@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "batch_transform_detail.hpp"
+
 #include <jyppx/liuding/data/iterable_data_pipeline.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
@@ -22,13 +24,16 @@ namespace jyppx::liuding::data {
 namespace {
 
 constexpr char kComponent[] = "data.iterable_pipeline";
-constexpr char kCurrentTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v3";
-constexpr char kCurrentCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v3";
-constexpr char kPreviousTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v2";
-constexpr char kPreviousCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v2";
+constexpr char kCurrentTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v4";
+constexpr char kCurrentCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v4";
+constexpr char kPreviousTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v3";
+constexpr char kLegacyTopologyMagic[] = "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v2";
+constexpr char kPreviousCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v3";
+constexpr char kLegacyCursorMagic[] = "JYPPX-ITERABLE-PIPELINE-CURSOR/v2";
 constexpr std::uint32_t kPreviousSchemaVersion =
     IterableDataPipelineState::format_version - 1U;
-constexpr std::uint64_t kMaxTopologyBytes = 2U * 1024U * 1024U;
+constexpr std::uint64_t kMaxTopologyBytes = 4U * 1024U * 1024U;
+constexpr std::uint64_t kStructuredTopologyBytes = 2U * 1024U * 1024U;
 constexpr std::uint64_t kPreviousMaxTopologyBytes = 64U * 1024U;
 constexpr std::uint64_t kMaxCursorBytes = 8U * 1024U * 1024U;
 constexpr std::uint64_t kMaxMetadataBytes = 4096U;
@@ -195,6 +200,10 @@ std::string encode_topology(const IterableDataPipelineState& state) {
   append_u64(output, state.max_batch_tensors);
   append_u64(output, state.max_batch_value_nodes);
   append_u64(output, state.max_batch_bytes);
+  append_byte(output, state.deterministic_batch_factory ? 1U : 0U);
+  append_string(output, state.consumer_transform_id);
+  append_string(output, state.consumer_input_schema_descriptor);
+  append_byte(output, state.deterministic_consumer_transform ? 1U : 0U);
   return output;
 }
 
@@ -252,11 +261,14 @@ IterableDataPipelineState decode_state(std::span<const std::byte> topology,
   IterableDataPipelineState state;
   std::size_t topology_offset = 0;
   require_magic(read_string(topology, topology_offset, 128),
-                current ? kCurrentTopologyMagic : kPreviousTopologyMagic);
+                current ? kCurrentTopologyMagic
+                        : (schema_version == kPreviousSchemaVersion
+                               ? kPreviousTopologyMagic
+                               : kLegacyTopologyMagic));
   state.pipeline_id = read_string(topology, topology_offset, kMaxMetadataBytes);
   state.dataset_version =
       read_string(topology, topology_offset, kMaxMetadataBytes);
-  if (current) {
+  if (schema_version >= kPreviousSchemaVersion) {
     state.schema_descriptor =
         read_string(topology, topology_offset, kMaxSchemaDescriptorBytes);
   } else {
@@ -294,11 +306,24 @@ IterableDataPipelineState decode_state(std::span<const std::byte> topology,
   state.max_batch_value_nodes =
       read_size(topology, topology_offset, "max_batch_value_nodes");
   state.max_batch_bytes = read_u64(topology, topology_offset);
+  if (current) {
+    state.deterministic_batch_factory =
+        read_bool(topology, topology_offset, "deterministic_batch_factory");
+    state.consumer_transform_id =
+        read_string(topology, topology_offset, kMaxMetadataBytes);
+    state.consumer_input_schema_descriptor =
+        read_string(topology, topology_offset, kMaxSchemaDescriptorBytes);
+    state.deterministic_consumer_transform = read_bool(
+        topology, topology_offset, "deterministic_consumer_transform");
+  }
   require_end(topology, topology_offset);
 
   std::size_t cursor_offset = 0;
   require_magic(read_string(cursor, cursor_offset, 128),
-                current ? kCurrentCursorMagic : kPreviousCursorMagic);
+                current ? kCurrentCursorMagic
+                        : (schema_version == kPreviousSchemaVersion
+                               ? kPreviousCursorMagic
+                               : kLegacyCursorMagic));
   state.prepared = read_bool(cursor, cursor_offset, "prepared");
   state.exhausted = read_bool(cursor, cursor_offset, "exhausted");
   state.epoch = read_u64(cursor, cursor_offset);
@@ -345,9 +370,10 @@ bool manifest_equal(const StateManifest& left, const StateManifest& right) {
   return state_fields_equal(left.fields, right.fields);
 }
 
-StateManifest make_schema_v2_manifest(const StateManifest& current) {
+StateManifest make_older_manifest(const StateManifest& current,
+                                  std::uint32_t version) {
   StateManifest previous = current;
-  previous.schema_version = kPreviousSchemaVersion;
+  previous.schema_version = version;
   const auto topology =
       std::find_if(previous.fields.begin(), previous.fields.end(),
                    [](const StateFieldDescriptor& field) {
@@ -357,7 +383,9 @@ StateManifest make_schema_v2_manifest(const StateManifest& current) {
     throw InternalError(
         "IterableDataPipeline current manifest lacks topology state");
   }
-  topology->max_bytes = kPreviousMaxTopologyBytes;
+  topology->max_bytes = version == kPreviousSchemaVersion
+                            ? kStructuredTopologyBytes
+                            : kPreviousMaxTopologyBytes;
   validate_state_manifest(previous);
   return previous;
 }
@@ -365,6 +393,7 @@ StateManifest make_schema_v2_manifest(const StateManifest& current) {
 void validate_options(const IterableDataPipelineOptions& options) {
   validate_batch_memory_options(options.memory);
   validate_batch_schema(options.schema);
+  detail::validate_consumer_transform(options.consumer_transform);
   if (options.pipeline_id.empty() || options.dataset_version.empty() ||
       options.batch_factory_id.empty()) {
     throw InvalidArgument(
@@ -764,6 +793,13 @@ IterableDataPipelineState make_initial_state(
   state.dataset_version = options.dataset_version;
   state.schema_descriptor = canonical_batch_schema(options.schema);
   state.batch_factory_id = options.batch_factory_id;
+  if (options.consumer_transform) {
+    state.consumer_transform_id = options.consumer_transform->id;
+    state.consumer_input_schema_descriptor =
+        canonical_batch_schema(options.consumer_transform->input_schema);
+    state.deterministic_consumer_transform =
+        options.consumer_transform->deterministic;
+  }
   state.source_id = descriptor.source_id;
   state.finite_epoch = descriptor.finite_epoch;
   state.deterministic_epoch = descriptor.deterministic_epoch;
@@ -771,6 +807,7 @@ IterableDataPipelineState make_initial_state(
   state.source_restore_level = descriptor.restore_level;
   state.max_replayed_samples = descriptor.max_replayed_samples;
   state.max_omitted_samples = descriptor.max_omitted_samples;
+  state.deterministic_batch_factory = options.deterministic_batch_factory;
   state.batch_size = options.batch_size;
   state.drop_last = options.drop_last;
   state.prefetch_batches = options.prefetch_batches;
@@ -847,6 +884,15 @@ struct IterableDataPipeline::Impl {
   IterableDataPipelineState state;
   std::unique_ptr<IterableRuntime> runtime;
   bool closed = false;
+  std::exception_ptr delivery_failure;
+
+  void fail_delivery(std::exception_ptr error) noexcept {
+    delivery_failure = std::move(error);
+    if (runtime) {
+      runtime->close();
+      runtime.reset();
+    }
+  }
 
   void validate_source_contract() const {
     const auto current = source->descriptor();
@@ -862,7 +908,20 @@ struct IterableDataPipeline::Impl {
         candidate.pipeline_id != options.pipeline_id ||
         candidate.dataset_version != options.dataset_version ||
         candidate.schema_descriptor != canonical_batch_schema(options.schema) ||
+        candidate.deterministic_batch_factory !=
+            options.deterministic_batch_factory ||
         candidate.batch_factory_id != options.batch_factory_id ||
+        candidate.consumer_transform_id != (options.consumer_transform
+                                                ? options.consumer_transform->id
+                                                : std::string{}) ||
+        candidate.consumer_input_schema_descriptor !=
+            (options.consumer_transform
+                 ? canonical_batch_schema(
+                       options.consumer_transform->input_schema)
+                 : std::string{}) ||
+        candidate.deterministic_consumer_transform !=
+            (!options.consumer_transform ||
+             options.consumer_transform->deterministic) ||
         candidate.source_id != descriptor.source_id ||
         candidate.finite_epoch != descriptor.finite_epoch ||
         candidate.deterministic_epoch != descriptor.deterministic_epoch ||
@@ -979,73 +1038,94 @@ void IterableDataPipeline::set_epoch(std::uint64_t epoch) {
     impl_->runtime->close();
   }
   impl_->state = std::move(candidate);
+  impl_->delivery_failure = nullptr;
   impl_->runtime = std::move(replacement);
 }
 
 std::optional<BatchEnvelope> IterableDataPipeline::next(
     std::stop_token stop_token) {
-  if (impl_->closed) {
-    throw NotReady("IterableDataPipeline is closed");
-  }
-  if (!impl_->state.prepared) {
+  if (impl_->closed) throw NotReady("IterableDataPipeline is closed");
+  if (impl_->delivery_failure) std::rethrow_exception(impl_->delivery_failure);
+  if (!impl_->state.prepared)
     throw InvalidArgument(
         "IterableDataPipeline requires set_epoch before next");
-  }
-  if (impl_->state.exhausted) {
-    return std::nullopt;
-  }
+  if (impl_->state.exhausted) return std::nullopt;
   if (stop_token.stop_requested()) {
-    impl_->runtime->cancel();
+    impl_->fail_delivery(std::make_exception_ptr(
+        Cancelled("IterableDataPipeline epoch cancelled before commit")));
     return std::nullopt;
   }
-  const auto result = impl_->runtime->wait_next(stop_token);
-  if (!result) {
-    return std::nullopt;
-  }
-  if (result->sequence != impl_->state.next_sequence) {
-    throw InternalError(
-        "IterableDataPipeline producer sequence is inconsistent");
-  }
-
-  auto candidate = impl_->state;
-  candidate.source_state = result->source_state;
-  candidate.source_watermark = result->source_watermark;
-  candidate.exhausted = result->source_exhausted;
-  if (!result->envelope) {
+  try {
+    const auto result = impl_->runtime->wait_next(stop_token);
+    if (!result) {
+      impl_->fail_delivery(std::make_exception_ptr(
+          Cancelled("IterableDataPipeline epoch cancelled before commit")));
+      return std::nullopt;
+    }
+    if (result->sequence != impl_->state.next_sequence)
+      throw InternalError(
+          "IterableDataPipeline producer sequence is inconsistent");
+    auto candidate = impl_->state;
+    candidate.source_state = result->source_state;
+    candidate.source_watermark = result->source_watermark;
+    candidate.exhausted = result->source_exhausted;
+    if (!result->envelope) {
+      if (stop_token.stop_requested())
+        throw Cancelled("IterableDataPipeline epoch cancelled before commit");
+      impl_->state = std::move(candidate);
+      impl_->runtime->commit(result->sequence);
+      impl_->runtime->close();
+      impl_->runtime.reset();
+      return std::nullopt;
+    }
+    auto envelope = *result->envelope;
+    if (batch_memory_stage_enabled(impl_->options.memory)) {
+      auto staged = transfer_batch_memory(
+          {.value = std::move(envelope.value), .metadata = envelope.memory},
+          impl_->options.memory);
+      envelope.value = std::move(staged.value);
+      envelope.memory = staged.metadata;
+    }
+    if (stop_token.stop_requested())
+      throw Cancelled("IterableDataPipeline epoch cancelled before commit");
+    if (impl_->options.consumer_transform) {
+      envelope.consumer_transform_id = impl_->options.consumer_transform->id;
+      envelope.transformed_memory = detail::run_consumer_transform(
+          envelope.value, *impl_->options.consumer_transform,
+          {.dataset_version = envelope.dataset_version,
+           .epoch = envelope.epoch,
+           .sequence = envelope.sequence,
+           .sample_ids = envelope.sample_ids,
+           .source_watermark = envelope.source_watermark},
+          impl_->options.memory, stop_token);
+    }
+    validate_batch_value(envelope.value, impl_->options.schema);
+    if (envelope.sample_ids.size() > std::numeric_limits<std::uint64_t>::max() -
+                                         candidate.committed_samples) {
+      throw ResourceExhausted(
+          "IterableDataPipeline committed sample counter exhausted");
+    }
+    if (candidate.next_sequence == std::numeric_limits<std::uint64_t>::max()) {
+      throw ResourceExhausted(
+          "IterableDataPipeline committed sequence counter exhausted");
+    }
+    if (stop_token.stop_requested())
+      throw Cancelled("IterableDataPipeline epoch cancelled before commit");
+    candidate.committed_samples += envelope.sample_ids.size();
+    ++candidate.next_sequence;
     impl_->state = std::move(candidate);
     impl_->runtime->commit(result->sequence);
-    impl_->runtime->close();
-    impl_->runtime.reset();
-    return std::nullopt;
+    if (result->source_exhausted) {
+      impl_->runtime->close();
+      impl_->runtime.reset();
+    }
+    return envelope;
+  } catch (...) {
+    const auto error = std::current_exception();
+    impl_->fail_delivery(error);
+    if (stop_token.stop_requested()) return std::nullopt;
+    std::rethrow_exception(error);
   }
-
-  auto envelope = *result->envelope;
-  if (batch_memory_stage_enabled(impl_->options.memory)) {
-    auto staged = transfer_batch_memory(
-        {.value = std::move(envelope.value), .metadata = envelope.memory},
-        impl_->options.memory);
-    envelope.value = std::move(staged.value);
-    envelope.memory = staged.metadata;
-  }
-  validate_batch_value(envelope.value, impl_->options.schema);
-  if (envelope.sample_ids.size() >
-      std::numeric_limits<std::uint64_t>::max() - candidate.committed_samples) {
-    throw ResourceExhausted(
-        "IterableDataPipeline committed sample counter exhausted");
-  }
-  if (candidate.next_sequence == std::numeric_limits<std::uint64_t>::max()) {
-    throw ResourceExhausted(
-        "IterableDataPipeline committed sequence counter exhausted");
-  }
-  candidate.committed_samples += envelope.sample_ids.size();
-  ++candidate.next_sequence;
-  impl_->state = std::move(candidate);
-  impl_->runtime->commit(result->sequence);
-  if (result->source_exhausted) {
-    impl_->runtime->close();
-    impl_->runtime.reset();
-  }
-  return envelope;
 }
 
 void IterableDataPipeline::close() noexcept {
@@ -1105,6 +1185,23 @@ DataCapability IterableDataPipeline::capability() const {
                                      impl_->options.memory.stage_capacity)
                           : impl_->options.prefetch_batches;
   result.degradation_reasons = impl_->descriptor.degradation_reasons;
+  result.consumer_transform_id = impl_->state.consumer_transform_id;
+  result.deterministic_consumer_transform =
+      impl_->state.deterministic_consumer_transform;
+  if (impl_->options.consumer_transform)
+    result.consumer_input_schema =
+        impl_->options.consumer_transform->input_schema;
+  if (!impl_->options.deterministic_batch_factory ||
+      !result.deterministic_consumer_transform) {
+    if (result.restore_level == RestoreLevel::exact)
+      result.restore_level = RestoreLevel::bounded;
+    if (!impl_->options.deterministic_batch_factory)
+      result.degradation_reasons.emplace_back(
+          "batch factory does not guarantee deterministic replay");
+    if (!result.deterministic_consumer_transform)
+      result.degradation_reasons.emplace_back(
+          "consumer transform does not guarantee deterministic replay");
+  }
   return result;
 }
 
@@ -1117,14 +1214,15 @@ std::string IterableDataPipeline::participant_id() const {
 }
 
 StateManifest IterableDataPipeline::describe_state() const {
+  const auto current = capability();
   return {
       .participant_id = participant_id(),
       .schema_version = IterableDataPipelineState::format_version,
-      .restore_level = impl_->descriptor.restore_level,
+      .restore_level = current.restore_level,
       .fields = {{"topology", "application/octet-stream", kMaxTopologyBytes,
                   true},
                  {"cursor", "application/octet-stream", kMaxCursorBytes, true}},
-      .degradation_reasons = impl_->descriptor.degradation_reasons};
+      .degradation_reasons = current.degradation_reasons};
 }
 
 void IterableDataPipeline::save_state(StateWriter& writer) const {
@@ -1155,9 +1253,19 @@ void IterableDataPipeline::load_state(const StateReader& reader,
   if (manifest.schema_version == IterableDataPipelineState::format_version) {
     expected_manifest = current_manifest;
     topology_limit = kMaxTopologyBytes;
-  } else if (manifest.schema_version == kPreviousSchemaVersion) {
-    expected_manifest = make_schema_v2_manifest(current_manifest);
-    topology_limit = kPreviousMaxTopologyBytes;
+  } else if (manifest.schema_version == kPreviousSchemaVersion ||
+             manifest.schema_version == kPreviousSchemaVersion - 1U) {
+    if (impl_->options.consumer_transform ||
+        !impl_->options.deterministic_batch_factory) {
+      throw CompatibilityError(
+          "Older IterableDataPipeline state has no consumer transform or "
+          "nondeterministic collator contract");
+    }
+    expected_manifest =
+        make_older_manifest(current_manifest, manifest.schema_version);
+    topology_limit = manifest.schema_version == kPreviousSchemaVersion
+                         ? kStructuredTopologyBytes
+                         : kPreviousMaxTopologyBytes;
   } else {
     throw CompatibilityError(
         "IterableDataPipeline checkpoint schema is unsupported",
@@ -1165,10 +1273,11 @@ void IterableDataPipeline::load_state(const StateReader& reader,
             .component = kComponent,
             .operation = "restore.schema_version",
             .expected =
+                std::to_string(kPreviousSchemaVersion - 1U) + ", " +
                 std::to_string(kPreviousSchemaVersion) + " or " +
                 std::to_string(IterableDataPipelineState::format_version),
             .actual = std::to_string(manifest.schema_version),
-            .hint = "Migrate checkpoints through the explicit N-1 schema "
+            .hint = "Use a supported checkpoint and its explicit migration "
                     "chain."});
   }
   if (!manifest_equal(manifest, expected_manifest)) {
@@ -1208,6 +1317,7 @@ void IterableDataPipeline::load_state(const StateReader& reader,
     impl_->runtime->close();
   }
   impl_->state = std::move(decoded);
+  impl_->delivery_failure = nullptr;
   impl_->runtime = std::move(replacement);
 }
 

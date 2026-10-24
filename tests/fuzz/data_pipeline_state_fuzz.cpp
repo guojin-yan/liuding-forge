@@ -82,7 +82,15 @@ FuzzStateStore make_baseline() {
        .dataset_size = 4,
        .schema = jyppx::liuding::data::BatchSchema::any("batch.fuzz", 1),
        .batch_factory_id = "factory.fuzz/v1",
-       .batch_size = 2},
+       .batch_size = 2,
+       .consumer_transform =
+           jyppx::liuding::data::BatchConsumerTransform{
+               .id = "fuzz.identity/v1",
+               .input_schema =
+                   jyppx::liuding::data::BatchSchema::any("fuzz.input"),
+               .apply = [](const c10::IValue& v,
+                           const jyppx::liuding::data::BatchConsumerContext&,
+                           std::stop_token) { return v; }}},
       [](std::span<const std::size_t> indices,
          const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
         return c10::IValue(static_cast<std::int64_t>(indices.size()));
@@ -175,7 +183,15 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
          .dataset_size = 4,
          .schema = jyppx::liuding::data::BatchSchema::any("batch.fuzz", 1),
          .batch_factory_id = "factory.fuzz/v1",
-         .batch_size = 2},
+         .batch_size = 2,
+         .consumer_transform =
+             jyppx::liuding::data::BatchConsumerTransform{
+                 .id = "fuzz.identity/v1",
+                 .input_schema =
+                     jyppx::liuding::data::BatchSchema::any("fuzz.input"),
+                 .apply = [](const c10::IValue& v,
+                             const jyppx::liuding::data::BatchConsumerContext&,
+                             std::stop_token) { return v; }}},
         [](std::span<const std::size_t> indices,
            const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
           return c10::IValue(static_cast<std::int64_t>(indices.size()));

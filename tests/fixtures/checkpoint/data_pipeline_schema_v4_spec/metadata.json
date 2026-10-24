@@ -1,0 +1,66 @@
+{
+  "fixture_schema": 1,
+  "participant_schema": 4,
+  "participant_id": "data.pipeline.fixture",
+  "restore_level": "exact",
+  "scenario": {
+    "dataset_version": "dataset.worker/v1",
+    "dataset_size": 6,
+    "schema_id": "worker.batch/v1",
+    "batch_factory_id": "factory.worker/v1",
+    "batch_size": 2,
+    "num_workers": 3,
+    "prefetch_batches": 3,
+    "persistent_workers": true,
+    "deterministic_batch_factory": true,
+    "worker_seed": 1977,
+    "epoch": 8,
+    "committed_batches": 1,
+    "next_cursor": 2,
+    "next_sequence": 1
+  },
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "22e88a8a095a87e0d19d4964c58d64042f6bcf98",
+    "libtorch_version": "2.14.1+cu126",
+    "writer": "DataPipeline schema-v4 writer; independently reconstructed byte-for-byte"
+  },
+  "provenance": "Independent binary-format fixture; byte-identical historical C++ writer cross-check",
+  "historical_writer_crosscheck": {
+    "git_commit": "22e88a8a095a87e0d19d4964c58d64042f6bcf98",
+    "libtorch_version": "2.14.1+cu126",
+    "platform": "Ubuntu",
+    "all_blobs_byte_identical": true
+  },
+  "format_reference_commit": "22e88a8a095a87e0d19d4964c58d64042f6bcf98",
+  "derived_source_fixture": "data_pipeline_schema_v3_libtorch_2.5.1",
+  "schema": {
+    "id": "worker.batch",
+    "version": 1,
+    "kind": "integer",
+    "name": "batch",
+    "semantic_tag": "sequence_or_sum"
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/octet-stream",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 33554432,
+      "decoded_size": 473,
+      "sha256": "2dc2cb05f9648e6c09f30578b2d34d6bc0cb0f26175fa12c402b27613f184be5"
+    },
+    {
+      "name": "cursor",
+      "media_type": "application/octet-stream",
+      "required": true,
+      "file": "cursor.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 128,
+      "decoded_size": 62,
+      "sha256": "a17cd72ededb028acb167e4ab1d6bc555df3a03c155b0e215743c1d44c99f109"
+    }
+  ]
+}

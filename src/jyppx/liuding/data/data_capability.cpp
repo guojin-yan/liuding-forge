@@ -104,6 +104,27 @@ void validate_data_capability(const DataCapability& capability) {
     throw_invalid("source_style", "exactly one of map or iterable", "invalid");
   }
   validate_batch_schema(capability.batch_schema, capability.schema_limits);
+  if (capability.consumer_transform_id.empty() !=
+      !capability.consumer_input_schema.has_value()) {
+    throw_invalid("consumer_transform", "identity and input schema together",
+                  "inconsistent");
+  }
+  if (capability.consumer_transform_id.size() > 4096U) {
+    throw_resource("consumer_transform_id", "at most 4096 bytes", "too long",
+                   "Use a compact configuration identity.");
+  }
+  if (capability.consumer_input_schema) {
+    validate_batch_schema(*capability.consumer_input_schema,
+                          capability.schema_limits);
+  } else if (!capability.deterministic_consumer_transform) {
+    throw_invalid("consumer_transform", "deterministic when disabled",
+                  "nondeterministic");
+  }
+  if (!capability.deterministic_consumer_transform &&
+      capability.restore_level == RestoreLevel::exact) {
+    throw_invalid("restore_level", "degraded for a nondeterministic transform",
+                  "exact");
+  }
   const auto expected_fingerprint = batch_schema_fingerprint(
       capability.batch_schema, capability.schema_limits);
   if (capability.batch_schema_fingerprint != expected_fingerprint) {
@@ -210,7 +231,7 @@ CapabilityDescriptor describe_data_capability(
     std::set<std::string> dtypes;
     std::set<std::string> devices;
     collect_tensor_constraints(capability.batch_schema.value, dtypes, devices);
-    if (capability.target_device) {
+    if (capability.target_device && !capability.consumer_input_schema) {
       devices.clear();
       devices.emplace(capability.target_device->str());
     } else if (devices.empty()) {
@@ -231,6 +252,22 @@ CapabilityDescriptor describe_data_capability(
         shard_operation(capability.worker_shard_policy),
         restore_operation(capability.restore_level),
     };
+    if (capability.consumer_input_schema) {
+      descriptor.operations.emplace_back("batch.transform.consumer-precommit");
+      descriptor.operations.emplace_back("batch.transform.caller-current");
+      descriptor.schemas.emplace_back(
+          "consumer-input/fnv1a64/" +
+          batch_schema_fingerprint(*capability.consumer_input_schema,
+                                   capability.schema_limits));
+      descriptor.limitations.emplace_back("consumer transform identity: " +
+                                          capability.consumer_transform_id);
+      descriptor.limitations.emplace_back(
+          "memory-stage counts describe pre-transform payload; "
+          "transformed_memory describes output");
+      descriptor.limitations.emplace_back(
+          "payload checks exclude callback scratch, global allocations, and "
+          "asynchronous post-commit errors");
+    }
     if (capability.finite_epoch) {
       descriptor.operations.emplace_back("epoch.finite");
     }

@@ -101,6 +101,7 @@ if(TARGET jyppx::liuding::data)
 jyppx_add_gtest(jyppx_test_data
     LINK_TARGET jyppx::liuding::data
     data/test_batch_memory.cpp
+    data/test_batch_consumer_transform.cpp
     data/test_value_schema.cpp
     data/test_data_pipeline.cpp
     data/test_iterable_data_pipeline.cpp

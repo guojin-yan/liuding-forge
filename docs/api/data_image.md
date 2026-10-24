@@ -196,7 +196,7 @@ auto model_batch = image::transform_image_batch(device_batch, numeric);
 
 默认 `to_unit` 将 uint8/uint16 分别除以 255/65535，已经声明为 unit interval 的浮点输入不会再次缩放；unbounded 输入会被拒绝，调用者应显式选择 `preserve`。`preserve` 保持数值，unsigned 编码转浮点后的范围标为 unbounded。mean/std 必须同时提供、长度等于通道数、数值有限且 std 为正，按交换后的通道顺序应用；归一化后范围标为 unbounded。alpha 的关联在缩放和通道交换中保持，带 alpha 的照片当前明确拒绝标准化，不会默默丢弃或反预乘 alpha。该接口信任 PixelSpec，不扫描像素来推断范围。
 
-可通过 `numeric.paired` 显式配置配对照片的独立变换；默认保留其数值和 dtype。返回的变换照片有独立存储，其余 Tensor 和不可变元数据保持共享；由于 dtype/字节数可能变化，返回值清空先前 memory-stage 统计。padding 像素与照片接受相同数值变换。该接口尚未包含批量几何，也尚未接入通用 pipeline 的提交前 consumer transform 钩子；在 `next()` 返回后执行它，错误不会回滚已经提交的 cursor。
+可通过 `numeric.paired` 显式配置配对照片的独立变换；默认保留其数值和 dtype。返回的变换照片有独立存储，其余 Tensor 和不可变元数据保持共享；由于 dtype/字节数可能变化，返回值清空先前 memory-stage 统计。padding 像素与照片接受相同数值变换。该接口尚未包含批量几何。可通过 map/iterable 的 `consumer_transform` 在 `next()` 提交前执行，分别声明传输后的输入与变换后的输出 schema；失败/取消不会提交 cursor，配置与恢复示例见[提交前批次变换](batch_consumer_transform.md)。在 `next()` 返回后单独调用时，错误不会回滚已经提交的 cursor。
 
 `ImageBatchLimits` 限制单次调用的样本数、总输出画布像素、边长、全部 Tensor 字节、元数据节点/逻辑字节/单字符串、polygon 比较和保守工作 payload。组批在分配照片输出前预检；RLE 新增 runs 有全调用上限。数值变换另为转换/通道交换保守预留完整 compute buffer，输出过大或预算不足时明确报错，没有 CPU fallback。预算排除调用者输入、allocator/容器开销及 LibTorch 内部 workspace，是逻辑限制，不是 RSS 或全局在途内存上限。取消在样本、对象、RLE 列、字段边界和发布前检查，单次 LibTorch/CUDA 操作不能在内部中断。
 

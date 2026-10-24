@@ -538,7 +538,7 @@ TEST(DataPipelineCheckpointTest,
   const auto& topology = rewritten.blobs().at("topology");
   const std::string topology_text(
       reinterpret_cast<const char*>(topology.data()), topology.size());
-  EXPECT_NE(topology_text.find("JYPPX-DATA-PIPELINE-TOPOLOGY/v4"),
+  EXPECT_NE(topology_text.find("JYPPX-DATA-PIPELINE-TOPOLOGY/v5"),
             std::string::npos);
   EXPECT_EQ(topology_text.find("JYPPX-DATA-PIPELINE-TOPOLOGY/v3"),
             std::string::npos);
@@ -650,6 +650,9 @@ TEST(DataPipelineTest, FactoryFailureDoesNotAdvanceCursor) {
   pipeline.set_epoch(0);
   EXPECT_THROW(pipeline.next(), std::runtime_error);
   EXPECT_EQ(pipeline.state().next_cursor, 0U);
+  const auto checkpoint = save_state(pipeline);
+  EXPECT_THROW(pipeline.next(), jyppx::liuding::BackendError);
+  pipeline.load_state(checkpoint, jyppx::liuding::RestorePolicy::exact_only);
   ASSERT_TRUE(pipeline.next().has_value());
   EXPECT_EQ(pipeline.state().next_cursor, 2U);
 }
@@ -673,6 +676,8 @@ TEST(DataPipelineTest, CancellationAndDropLastDoNotOverCommit) {
   EXPECT_FALSE(pipeline.next(cancelled.get_token()).has_value());
   EXPECT_EQ(pipeline.state().next_cursor, 0U);
 
+  EXPECT_THROW(pipeline.next(), jyppx::liuding::Cancelled);
+  pipeline.set_epoch(0);
   const auto batch = pipeline.next();
   ASSERT_TRUE(batch.has_value());
   EXPECT_EQ(batch->sample_ids, std::vector<std::uint64_t>({0U, 1U, 2U, 3U}));
@@ -1223,7 +1228,7 @@ TEST(DataPipelineCheckpointTest, RejectsOutOfRangeRestoredSampleId) {
       factory);
   source.set_epoch(0);
   auto store = save_state(source);
-  store.overwrite_u64_from_end("topology", 0, 6U);
+  store.overwrite_u64_from_end("topology", 17U, 6U);
 
   auto target = jyppx::liuding::data::DataPipeline(
       std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
@@ -1595,4 +1600,84 @@ TEST(DataPipelineWorkerTest, RejectsInvalidWorkerOptionsBeforeStarting) {
       jyppx::liuding::InvalidArgument);
 }
 
+}  // namespace
+
+namespace {
+MemoryStateStore load_canonical_schema_v4_fixture() {
+  auto manifest = load_canonical_schema_v3_fixture().manifest();
+  manifest.schema_version = 4;
+  MemoryStateStore fixture(manifest);
+  const auto dir = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
+                   "checkpoint" / "data_pipeline_schema_v4_spec";
+  for (const auto& field : manifest.fields) {
+    fixture.write_blob(field.name,
+                       read_base64_fixture(dir / (field.name + ".bin.b64")));
+  }
+  return fixture;
+}
+jyppx::liuding::data::BatchSchema pipeline_integer_schema(std::string id) {
+  return {.id = std::move(id),
+          .value = {.name = "batch",
+                    .semantic_tag = "sequence_or_sum",
+                    .kind = jyppx::liuding::ValueKind::integer}};
+}
+TEST(DataPipelineCheckpointTest,
+     MigratesSchemaV4FullContractAndRejectsAddedTransform) {
+  auto config = make_worker_options("data.pipeline.fixture", 3, 3, true);
+  config.schema = pipeline_integer_schema("worker.batch");
+  auto factory = [](std::span<const std::size_t>,
+                    const jyppx::liuding::data::DataWorkerContext& c,
+                    std::stop_token) {
+    return c10::IValue(
+        static_cast<std::int64_t>(c.sequence * 10U + c.worker_id));
+  };
+  const auto fixture = load_canonical_schema_v4_fixture();
+  jyppx::liuding::data::DataPipeline pipeline(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      config, factory);
+  pipeline.load_state(fixture, jyppx::liuding::RestorePolicy::exact_only);
+  ASSERT_EQ(pipeline.state().next_cursor, 2U);
+  const auto next = pipeline.next();
+  ASSERT_TRUE(next);
+  EXPECT_EQ(next->value.toInt(), 11);
+  EXPECT_EQ(save_state(pipeline).manifest().schema_version, 5U);
+  config.consumer_transform = jyppx::liuding::data::BatchConsumerTransform{
+      .id = "new-stage/v1",
+      .input_schema = config.schema,
+      .apply = [](const c10::IValue& v,
+                  const jyppx::liuding::data::BatchConsumerContext&,
+                  std::stop_token) { return v; }};
+  jyppx::liuding::data::DataPipeline changed(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      config, factory);
+  changed.set_epoch(10);
+  EXPECT_THROW(
+      changed.load_state(fixture, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
+  EXPECT_EQ(changed.state().epoch, 10U);
+}
+TEST(DataPipelineCheckpointTest,
+     RejectsMalformedOrChangedSchemaV4WithoutMutation) {
+  auto config = make_worker_options("data.pipeline.fixture", 3, 3, true);
+  config.schema = pipeline_integer_schema("worker.batch");
+  jyppx::liuding::data::DataPipeline pipeline(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      config,
+      [](std::span<const std::size_t>,
+         const jyppx::liuding::data::DataWorkerContext&,
+         std::stop_token) { return c10::IValue(std::int64_t{1}); });
+  pipeline.set_epoch(3);
+  for (int corruption = 0; corruption < 3; ++corruption) {
+    auto bad = load_canonical_schema_v4_fixture();
+    if (corruption == 0)
+      bad.replace_ascii("topology", "sequence_or_sum", "sequence_or_bad");
+    if (corruption == 1) bad.append_byte("topology");
+    if (corruption == 2) bad.mutable_manifest().schema_version = 5;
+    EXPECT_THROW(
+        pipeline.load_state(bad, jyppx::liuding::RestorePolicy::exact_only),
+        jyppx::liuding::Error);
+    EXPECT_EQ(pipeline.state().epoch, 3U);
+    EXPECT_EQ(pipeline.state().next_cursor, 0U);
+  }
+}
 }  // namespace

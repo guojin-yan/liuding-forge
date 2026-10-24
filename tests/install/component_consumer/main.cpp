@@ -14,6 +14,8 @@
 #elif defined(JYPPX_CONSUMER_DATA)
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
+#include <jyppx/liuding/data/data_pipeline.hpp>
+#include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/data_image/annotation_files.hpp>
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
@@ -222,7 +224,37 @@ int main() {
        .padded_extent = ImageExtent{4, 3},
        .mask_padding_id = -1});
   const auto numeric = transform_image_batch(batch);
-  const auto decoded = image_batch_from_value(image_batch_value(numeric));
+  jyppx::liuding::data::DataPipelineOptions pipeline_options;
+  pipeline_options.pipeline_id = "installed-image-precommit";
+  pipeline_options.dataset_version = "installed-image/v1";
+  pipeline_options.dataset_size = 1;
+  pipeline_options.batch_factory_id = "installed-collate/v1";
+  pipeline_options.schema = image_batch_schema(numeric, torch::kCPU);
+  pipeline_options.consumer_transform =
+      jyppx::liuding::data::BatchConsumerTransform{
+          .id = "image-numeric/" +
+                image_batch_identity({}, ImageBatchTransformOptions{}),
+          .input_schema = image_batch_schema(batch, torch::kCPU),
+          .apply = [](const c10::IValue& value,
+                      const jyppx::liuding::data::BatchConsumerContext&,
+                      std::stop_token stop) {
+            return image_batch_value(
+                transform_image_batch(image_batch_from_value(value), {}, stop));
+          }};
+  jyppx::liuding::data::DataPipeline pipeline(
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(1),
+      pipeline_options,
+      [batch](std::span<const std::size_t>,
+              const jyppx::liuding::data::DataWorkerContext&,
+              std::stop_token) { return image_batch_value(batch); });
+  pipeline.set_epoch(0);
+  const auto envelope = pipeline.next();
+  if (!envelope || !envelope->transformed_memory ||
+      pipeline.state().next_cursor != 1 ||
+      !torch::equal(image_batch_from_value(envelope->value).images,
+                    numeric.images))
+    return 1;
+  const auto decoded = image_batch_from_value(envelope->value);
   jyppx::liuding::data::validate_batch_value(
       image_batch_value(decoded), image_batch_schema(decoded, torch::kCPU));
   return index.images.size() == 1U && index.images[0].objects.size() == 1U &&

@@ -44,6 +44,11 @@ struct IterableDataPipelineOptions {
       0};  ///< Consumer wait deadline; zero waits without a deadline.
   BatchMemoryOptions
       memory;  ///< Optional bounded host-pinning and device-transfer stage.
+  bool deterministic_batch_factory =
+      true;  ///< Whether collator replay is stable.
+  std::optional<BatchConsumerTransform>
+      consumer_transform;  ///< Optional post-transfer, precommit consumer
+                           ///< stage.
 };
 
 /**
@@ -51,13 +56,19 @@ struct IterableDataPipelineOptions {
  */
 struct IterableDataPipelineState {
   static constexpr std::uint32_t format_version =
-      3;  ///< Current writer schema; the reader accepts explicit N-1 state.
+      4;  ///< Writer schema; readers retain v3 and constrained label-only v2.
 
   std::uint32_t version = format_version;  ///< Serialized schema version.
-  std::string pipeline_id;           ///< Participant identity at snapshot time.
-  std::string dataset_version;       ///< Dataset identity at snapshot time.
-  std::string schema_descriptor;     ///< Complete canonical batch schema bytes.
-  std::string batch_factory_id;      ///< Collator identity at snapshot time.
+  std::string pipeline_id;        ///< Participant identity at snapshot time.
+  std::string dataset_version;    ///< Dataset identity at snapshot time.
+  std::string schema_descriptor;  ///< Complete canonical batch schema bytes.
+  std::string batch_factory_id;   ///< Collator identity at snapshot time.
+  bool deterministic_batch_factory = true;  ///< Producer replay declaration.
+  std::string consumer_transform_id;  ///< Empty when consumer transform is off.
+  std::string
+      consumer_input_schema_descriptor;  ///< Full post-transfer contract.
+  bool deterministic_consumer_transform =
+      true;                          ///< Consumer replay declaration.
   std::string source_id;             ///< Source topology identity at snapshot.
   bool finite_epoch = true;          ///< Source finiteness at snapshot time.
   bool deterministic_epoch = false;  ///< Source determinism at snapshot time.

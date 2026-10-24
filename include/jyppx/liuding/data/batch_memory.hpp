@@ -87,6 +87,33 @@ struct BatchMemoryStageResult {
 };
 
 /**
+ * @brief Logical tensor/container usage of one value, without pinning or
+ * copies.
+ *
+ * Aliased tensor occurrences count separately. This is not allocated storage,
+ * allocator residency, host metadata bytes, scratch space, or global/RSS usage.
+ */
+struct BatchMemoryUsage {
+  std::size_t tensor_count = 0;  ///< Tensor occurrences in this value.
+  std::size_t value_node_count =
+      0;  ///< Recursive nodes including dictionary keys.
+  std::uint64_t tensor_bytes = 0;  ///< Sum of numel times element size.
+};
+
+/**
+ * @brief Checks logical payload bounds without moving or reading tensor
+ * contents.
+ * @param value Supported strided tensors, containers, and scalar leaves.
+ * @param limits Uses max_tensors/max_value_nodes/max_bytes even if staging is
+ * off.
+ * @return Current value usage, independent of any earlier transfer metadata.
+ * @throws InvalidArgument For unsupported values or invalid options.
+ * @throws ResourceExhausted If a logical payload or depth limit is exceeded.
+ */
+BatchMemoryUsage inspect_batch_memory(const c10::IValue& value,
+                                      const BatchMemoryOptions& limits = {});
+
+/**
  * @brief Reports whether host pinning or device movement is configured.
  * @param options Memory-stage configuration to inspect.
  * @return `true` when the pipeline must invoke the memory stage.

@@ -784,7 +784,7 @@ TEST(IterableDataPipelineCheckpointTest,
   const auto& topology = rewritten.blobs().at("topology");
   const std::string topology_text(
       reinterpret_cast<const char*>(topology.data()), topology.size());
-  EXPECT_NE(topology_text.find("JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v3"),
+  EXPECT_NE(topology_text.find("JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v4"),
             std::string::npos);
   EXPECT_EQ(topology_text.find("JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v2"),
             std::string::npos);
@@ -1128,4 +1128,78 @@ TEST(IterableBatchMemoryCudaTest, PinsTransfersAndRestoresExactCursor) {
   EXPECT_EQ(actual->memory.transferred_tensor_count, 1U);
 }
 
+}  // namespace
+
+namespace {
+MemoryStateStore load_canonical_schema_v3_fixture(std::string_view mode) {
+  auto manifest = load_canonical_schema_v2_fixture(mode).manifest();
+  manifest.schema_version = 3;
+  manifest.fields[0].max_bytes = 2U * 1024U * 1024U;
+  MemoryStateStore fixture(manifest);
+  const auto mode_dir =
+      mode == "best-effort" ? "best_effort" : std::string(mode);
+  const auto dir = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
+                   "checkpoint" /
+                   ("iterable_pipeline_schema_v3_" + mode_dir + "_spec");
+  for (const auto& field : manifest.fields) {
+    fixture.write_blob(field.name,
+                       read_base64_fixture(dir / (field.name + ".bin.b64")));
+  }
+  return fixture;
+}
+TEST(IterableDataPipelineCheckpointTest,
+     MigratesSchemaV3FullContractAcrossSourceGuarantees) {
+  for (const auto mode : {"exact", "bounded", "best-effort"}) {
+    SCOPED_TRACE(mode);
+    auto config = fixture_options(mode);
+    config.schema.value = {.name = "batch",
+                           .semantic_tag = "sequence_or_sum",
+                           .kind = jyppx::liuding::ValueKind::integer};
+    IterableDataPipeline pipeline(make_fixture_source(mode), config,
+                                  sum_factory());
+    const auto fixture = load_canonical_schema_v3_fixture(mode);
+    const auto policy =
+        std::string_view(mode) == "exact"
+            ? jyppx::liuding::RestorePolicy::exact_only
+            : (std::string_view(mode) == "bounded"
+                   ? jyppx::liuding::RestorePolicy::allow_bounded
+                   : jyppx::liuding::RestorePolicy::allow_best_effort);
+    pipeline.load_state(fixture, policy);
+    EXPECT_EQ(pipeline.state().epoch, 7U);
+    const auto next = pipeline.next();
+    ASSERT_TRUE(next);
+    EXPECT_EQ(next->value.toInt(),
+              std::string_view(mode) == "best-effort" ? 30 : 70);
+    EXPECT_EQ(save_state(pipeline).manifest().schema_version, 4U);
+    EXPECT_EQ(pipeline.capability().restore_level,
+              fixture.manifest().restore_level);
+  }
+}
+TEST(IterableDataPipelineCheckpointTest,
+     RejectsSchemaV3ChangedStageOrSchemaWithoutMutation) {
+  for (int change = 0; change < 3; ++change) {
+    auto config = fixture_options("exact");
+    config.schema.value = {.name = "batch",
+                           .semantic_tag = "sequence_or_sum",
+                           .kind = jyppx::liuding::ValueKind::integer};
+    if (change == 0) config.schema.value.semantic_tag = "changed";
+    if (change == 1)
+      config.consumer_transform = jyppx::liuding::data::BatchConsumerTransform{
+          .id = "new/v1",
+          .input_schema = config.schema,
+          .apply = [](const c10::IValue& v,
+                      const jyppx::liuding::data::BatchConsumerContext&,
+                      std::stop_token) { return v; }};
+    if (change == 2) config.deterministic_batch_factory = false;
+    IterableDataPipeline pipeline(make_fixture_source("exact"), config,
+                                  sum_factory());
+    pipeline.set_epoch(3);
+    const auto fixture = load_canonical_schema_v3_fixture("exact");
+    EXPECT_THROW(pipeline.load_state(
+                     fixture, jyppx::liuding::RestorePolicy::allow_bounded),
+                 jyppx::liuding::CompatibilityError);
+    EXPECT_EQ(pipeline.state().epoch, 3U);
+    EXPECT_EQ(pipeline.state().committed_samples, 0U);
+  }
+}
 }  // namespace

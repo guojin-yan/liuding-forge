@@ -743,4 +743,114 @@ TEST(ImageBatchPipelineTest,
     EXPECT_EQ(image_batch_from_value(next->value).items[0].key.id, "2");
   }
 }
+
+std::unique_ptr<DataPipeline> NumericPipeline(std::size_t workers,
+                                              Device device,
+                                              std::shared_ptr<bool> fail) {
+  DataPipelineOptions config;
+  config.pipeline_id = "image.numeric.precommit";
+  config.dataset_version = "image-batch-fixture/v1";
+  config.dataset_size = 4;
+  config.batch_factory_id = "image-batch-fixture/with-mask/v1";
+  config.batch_size = 2;
+  config.num_workers = workers;
+  auto photo = Photo();
+  Mask(photo);
+  const auto input = Batch({photo, photo});
+  ImageBatchTransformOptions numeric;
+  numeric.image.mean = {0.5, 0.5, 0.5};
+  numeric.image.std = {0.25, 0.25, 0.25};
+  config.schema =
+      image_batch_schema(transform_image_batch(input, numeric), device);
+  if (device.is_cuda()) {
+    config.memory = {
+        .pin_memory = true, .target_device = device, .non_blocking = true};
+  }
+  config.consumer_transform = BatchConsumerTransform{
+      .id = "image-numeric/" + image_batch_identity({}, numeric),
+      .input_schema = image_batch_schema(input, device),
+      .apply = [numeric, fail](const c10::IValue& v,
+                               const BatchConsumerContext& c,
+                               std::stop_token stop) {
+        if (*fail && c.sequence == 1)
+          throw InvalidArgument("injected numeric precommit failure");
+        return image_batch_value(
+            transform_image_batch(image_batch_from_value(v), numeric, stop));
+      }};
+  return std::make_unique<DataPipeline>(
+      std::make_shared<samplers::SequentialSampler>(4), config,
+      [](std::span<const std::size_t> ids, const DataWorkerContext& c,
+         std::stop_token stop) {
+        std::vector<VisionSample> samples;
+        std::vector<ImageBatchKey> keys;
+        for (auto id : ids) {
+          auto sample = Photo();
+          sample.image.fill_(255);
+          Mask(sample);
+          samples.push_back(std::move(sample));
+          keys.push_back({std::to_string(id), c.epoch, 0});
+        }
+        return image_batch_value(collate_images(samples, keys, {}, stop));
+      });
+}
+
+TEST(ImageBatchPipelineTest,
+     NumericPrecommitFailureRestoresWithoutLosingMaskIds) {
+  for (const auto workers : {0U, 2U}) {
+    auto fail = std::make_shared<bool>(true);
+    auto p = NumericPipeline(workers, torch::kCPU, fail);
+    p->set_epoch(7);
+    const auto first = p->next();
+    ASSERT_TRUE(first);
+    EXPECT_TRUE(torch::equal(image_batch_from_value(first->value).images,
+                             torch::full({2, 3, 2, 3}, 2.0F)));
+    EXPECT_THROW(p->next(), InvalidArgument);
+    EXPECT_EQ(p->state().next_cursor, 2U);
+    EXPECT_EQ(p->outstanding_batches(), 0U);
+    SavedState saved(p->describe_state());
+    p->save_state(saved);
+    *fail = false;
+    p->load_state(saved, RestorePolicy::exact_only);
+    const auto next = p->next();
+    ASSERT_TRUE(next);
+    const auto decoded = image_batch_from_value(next->value);
+    EXPECT_EQ(next->sequence, 1U);
+    EXPECT_EQ(decoded.items[0].key.id, "2");
+    EXPECT_EQ(decoded.items[0].key.occurrence, 7U);
+    EXPECT_EQ((*decoded.masks)[0][0][0].item<std::int64_t>(),
+              9007199254740993LL);
+    ASSERT_TRUE(next->transformed_memory);
+    EXPECT_EQ(next->transformed_memory->tensor_bytes,
+              2U * 3U * 2U * 3U * 4U + 2U * 2U * 3U * 8U + 2U * 2U * 3U);
+  }
+}
+
+#if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)
+TEST(ImageBatchCUDATest,
+     PipelinePrecommitRunsAfterH2dOnNondefaultCallerStream) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  for (const auto workers : {0U, 2U}) {
+    auto p = NumericPipeline(workers, Device(torch::kCUDA, 0),
+                             std::make_shared<bool>(false));
+    p->set_epoch(7);
+    const auto stream = c10::cuda::getStreamFromPool(false, 0);
+    c10::cuda::CUDAStreamGuard guard(stream);
+    const auto e = p->next();
+    ASSERT_TRUE(e);
+    const auto decoded = image_batch_from_value(e->value);
+    EXPECT_EQ(c10::cuda::getCurrentCUDAStream(0), stream);
+    EXPECT_TRUE(decoded.images.device().is_cuda());
+    EXPECT_EQ(decoded.images.sum().item<float>(), 72.0F);
+    EXPECT_EQ((*decoded.masks)[0][0][0].item<std::int64_t>(),
+              9007199254740993LL);
+    EXPECT_TRUE(e->memory.staged);
+    EXPECT_EQ(e->memory.transferred_tensor_count, 4U);  // includes empty labels
+    EXPECT_EQ(e->memory.pinned_tensor_count, 3U);
+    EXPECT_EQ(e->memory.tensor_bytes, 36U + 96U + 12U);
+    ASSERT_TRUE(e->transformed_memory);
+    EXPECT_EQ(e->transformed_memory->tensor_bytes, 144U + 96U + 12U);
+    EXPECT_EQ(e->transformed_memory->tensor_count, 4U);
+  }
+}
+#endif
 }  // namespace

@@ -430,4 +430,14 @@ BatchMemoryStageResult stage_batch_memory(const c10::IValue& value,
   return transfer_batch_memory(prepare_batch_memory(value, options), options);
 }
 
+BatchMemoryUsage inspect_batch_memory(const c10::IValue& value,
+                                      const BatchMemoryOptions& limits) {
+  validate_batch_memory_options(limits);
+  Inspection inspection;
+  inspect_value(value, limits, inspection, 0, "batch");
+  return {.tensor_count = inspection.tensor_count,
+          .value_node_count = inspection.value_node_count,
+          .tensor_bytes = inspection.tensor_bytes};
+}
+
 }  // namespace jyppx::liuding::data

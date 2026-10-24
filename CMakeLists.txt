@@ -432,6 +432,7 @@ if(JYPPX_LIUDING_BUILD_DATA)
 add_library(jyppx_liuding_data STATIC
     src/jyppx/liuding/data/batch_memory.cpp
     src/jyppx/liuding/data/batch_schema.cpp
+    src/jyppx/liuding/data/batch_transform.cpp
     src/jyppx/liuding/data/data_capability.cpp
     src/jyppx/liuding/data/data_pipeline.cpp
     src/jyppx/liuding/data/iterable_data_pipeline.cpp

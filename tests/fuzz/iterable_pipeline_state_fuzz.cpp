@@ -200,17 +200,19 @@ void replace_seed_string(std::vector<std::byte>& value, std::size_t index,
   }
 }
 
-/** @brief Derives a valid N-1 seed matching the historical schema-v2 codec. */
+/** @brief Derives a valid N-1 seed matching the no-transform schema-v3 codec.
+ */
 FuzzStateStore make_previous_baseline() {
   auto store = make_current_baseline();
   auto& manifest = store.mutable_manifest();
-  manifest.schema_version = 2U;
-  manifest.fields.front().max_bytes = 64U * 1024U;
+  manifest.schema_version = 3U;
+  manifest.fields.front().max_bytes = 2U * 1024U * 1024U;
   auto& topology = store.mutable_blob("topology");
   auto& cursor = store.mutable_blob("cursor");
-  replace_seed_string(topology, 0U, "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v2");
-  replace_seed_string(topology, 3U, "batch.fuzz/v1");
-  replace_seed_string(cursor, 0U, "JYPPX-ITERABLE-PIPELINE-CURSOR/v2");
+  // v4 appends factory determinism, two empty strings and stage determinism.
+  topology.resize(topology.size() - 18U);
+  replace_seed_string(topology, 0U, "JYPPX-ITERABLE-PIPELINE-TOPOLOGY/v3");
+  replace_seed_string(cursor, 0U, "JYPPX-ITERABLE-PIPELINE-CURSOR/v3");
   return store;
 }
 

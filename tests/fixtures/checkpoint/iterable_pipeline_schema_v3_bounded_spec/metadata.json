@@ -1,0 +1,66 @@
+{
+  "fixture_schema": 1,
+  "participant_schema": 3,
+  "participant_id": "data.iterable.fixture.bounded",
+  "restore_level": "degraded",
+  "scenario": {
+    "source_id": "fixture.vector/bounded/v1",
+    "restore_level": "bounded",
+    "max_replayed_samples": 5,
+    "max_omitted_samples": 1,
+    "degradation_reasons": [
+      "fixture bounded source"
+    ],
+    "dataset_version": "dataset.iterable/v1",
+    "schema_id": "batch.iterable/v1",
+    "batch_size": 2,
+    "epoch": 7,
+    "committed_samples": 2,
+    "source_watermark": "2",
+    "source_state": "2"
+  },
+  "producer": {
+    "jyppx_version": "0.3.0",
+    "git_commit": "22e88a8a095a87e0d19d4964c58d64042f6bcf98",
+    "libtorch_version": "2.14.1+cu126",
+    "writer": "IterableDataPipeline schema-v3 writer; independently reconstructed byte-for-byte"
+  },
+  "provenance": "Independent binary-format fixture; byte-identical historical C++ writer cross-check",
+  "historical_writer_crosscheck": {
+    "git_commit": "22e88a8a095a87e0d19d4964c58d64042f6bcf98",
+    "libtorch_version": "2.14.1+cu126",
+    "platform": "Ubuntu",
+    "all_blobs_byte_identical": true
+  },
+  "format_reference_commit": "22e88a8a095a87e0d19d4964c58d64042f6bcf98",
+  "derived_source_fixture": "iterable_pipeline_schema_v2_bounded_libtorch_2.5.1",
+  "schema": {
+    "id": "batch.iterable",
+    "version": 1,
+    "kind": "integer",
+    "name": "batch",
+    "semantic_tag": "sequence_or_sum"
+  },
+  "fields": [
+    {
+      "name": "topology",
+      "media_type": "application/octet-stream",
+      "required": true,
+      "file": "topology.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 2097152,
+      "decoded_size": 408,
+      "sha256": "9871b2f42fb13fc6e7b1a13e62d92c492bf6b938114809f976b462fb53ff927a"
+    },
+    {
+      "name": "cursor",
+      "media_type": "application/octet-stream",
+      "required": true,
+      "file": "cursor.bin.b64",
+      "encoding": "base64",
+      "max_bytes": 8388608,
+      "decoded_size": 85,
+      "sha256": "0ae477bd9922ad126c59a7bdf227cf220062215925da5abd6226e1fc663ab263"
+    }
+  ]
+}

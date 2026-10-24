@@ -4,9 +4,7 @@ JYPPX uses an explicit-epoch `DataPipeline`. A sampler selects sample IDs, a `Da
 
 ## Tensor datasets
 
-`TensorDataset` exposes paired input and target tensors as `Example` values.
-The following factory turns its samples into the tuple consumed by a typical
-training step:
+`TensorDataset` exposes paired input and target tensors as `Example` values. The following factory turns its samples into the tuple consumed by a typical training step:
 
 ```cpp
 auto inputs = torch::rand({100, 3}); auto targets = torch::randint(0, 2, {100}); auto dataset =
@@ -41,9 +39,7 @@ jyppx::liuding::data::DataPipeline pipeline(
 pipeline.set_epoch(0); while (const auto batch = pipeline.next()) { const auto& values = batch->value.toTuple()->elements(); train_step(values.at(0).toTensor(), values.at(1).toTensor()); }
 ```
 
-The final batch is smaller unless `.drop_last = true`. `set_epoch(epoch)`
-selects exactly one sampler order and resets the committed cursor. `next()`
-returns an empty optional at exhaustion and does not start another epoch.
+The final batch is smaller unless `.drop_last = true`. `set_epoch(epoch)` selects exactly one sampler order and resets the committed cursor. `next()` returns an empty optional at exhaustion and does not start another epoch.
 
 ## Custom datasets
 
@@ -61,10 +57,7 @@ std::size_t size() const override {
 private: torch::Tensor features_ = torch::randn({500, 8}); torch::Tensor labels_ = torch::randint(0, 3, {500}); };
 ```
 
-The batch factory owns collation policy. It may return any `c10::IValue` that
-matches the declared `BatchSchema`, including a tensor, tuple, list, or
-dictionary. Its `batch_factory_id` must change whenever behavior that affects
-replay compatibility changes.
+The batch factory owns collation policy. It may return any `c10::IValue` that matches the declared `BatchSchema`, including a tensor, tuple, list, or dictionary. Its `batch_factory_id` must change whenever behavior that affects replay compatibility changes.
 
 ## Train and validation splits
 
@@ -81,8 +74,7 @@ For sequential or remote sources, use `IterableDataPipeline` and declare the sou
 
 ## Worker prefetch
 
-Set `.num_workers` to use the in-process worker pool and set
-`.prefetch_batches` to the total number of scheduled but uncommitted batches:
+Set `.num_workers` to use the in-process worker pool and set `.prefetch_batches` to the total number of scheduled but uncommitted batches:
 
 ```cpp
 jyppx::liuding::data::DataPipelineOptions options{
@@ -98,35 +90,17 @@ jyppx::liuding::data::DataPipelineOptions options{
     .worker_seed = 7};
 ```
 
-Worker completion may be out of order, but consumer-visible batches remain in
-sampler order. Dataset access and captured factory state must be safe for
-concurrent calls. Long-running factories must honor the supplied stop token so
-epoch replacement and `close()` remain bounded.
+Worker completion may be out of order, but consumer-visible batches remain in sampler order. Dataset access and captured factory state must be safe for concurrent calls. Long-running factories must honor the supplied stop token so epoch replacement and `close()` remain bounded.
 
-A non-JYPPX exception from a worker is reported as a structured
-`jyppx::liuding::BackendError` on the consuming thread. The failed batch is not
-committed. Use `.num_workers = 0` to reproduce factory failures inline.
+A non-JYPPX exception from a worker is reported as a structured `jyppx::liuding::BackendError` on the consuming thread. The failed batch is not committed. Use `.num_workers = 0` to reproduce factory failures inline.
 
 ## Determinism and checkpointing
 
-`DataWorkerContext` provides stable `epoch`, `sequence`, `worker_id`,
-`shard_sequence`, and `worker_seed` values. With `n` workers, batch sequence
-`s` belongs to logical shard `s % n` and has shard-local sequence `s / n`.
-These identities are independent of physical thread scheduling. A factory
-declared deterministic must derive random work from that context rather than
-mutable process-global state. The pipeline saves only committed state;
-prefetched batches are rebuilt after restore.
+`DataWorkerContext` provides stable `epoch`, `sequence`, `worker_id`, `shard_sequence`, and `worker_seed` values. With `n` workers, batch sequence `s` belongs to logical shard `s % n` and has shard-local sequence `s / n`. These identities are independent of physical thread scheduling. A factory declared deterministic must derive random work from that context rather than mutable process-global state. The pipeline saves only committed state; prefetched batches are rebuilt after restore.
 
-Map pipeline checkpoints use the current v4 writer with an explicit adjacent
-v3 reader. Iterable pipeline checkpoints use the current v3 writer with an
-explicit adjacent v2 reader. Both N-1 readers accept historical schema labels
-only for an equivalent unconstrained `BatchSchema::any(id, version)`; a
-structured schema needs an explicit migration rather than an inferred upgrade.
+map 当前写 v5、iterable 当前写 v4，保存完整输入/输出 schema 与 consumer 配置。无 consumer 的相邻 v4/v3 仍支持完整结构恢复；历史 v3/v2 label 只迁移可证明等价的 `BatchSchema::any`。变换在 transfer 后、commit 前执行，失败须显式恢复或重新选定 epoch，详见[提交前批次变换](../api/batch_consumer_transform.md)。
 
-Use `SequentialSampler` for fixed order, `RandomSampler` for seeded epoch
-permutations, `WeightedRandomSampler` for weighted draws,
-`SubsetRandomSampler` for a subset, and `DistributedSampler` for rank-local
-sharding. Sampler configuration and state are part of restore compatibility.
+Use `SequentialSampler` for fixed order, `RandomSampler` for seeded epoch permutations, `WeightedRandomSampler` for weighted draws, `SubsetRandomSampler` for a subset, and `DistributedSampler` for rank-local sharding. Sampler configuration and state are part of restore compatibility.
 
 ## Transforms
 

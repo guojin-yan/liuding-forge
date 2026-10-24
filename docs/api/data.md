@@ -1,7 +1,6 @@
 # API: Data
 
-All data types live in the `jyppx::liuding::data` namespace. Include everything with
-`#include <jyppx/liuding/liuding.hpp>` or the individual headers shown below.
+All data types live in the `jyppx::liuding::data` namespace. Include everything with `#include <jyppx/liuding/liuding.hpp>` or the individual headers shown below.
 
 ## Dataset
 
@@ -20,10 +19,7 @@ public:
 };
 ```
 
-`Dataset` is the map-style base class. `get_batch` can be overridden for
-faster batched access; the default loops over `get`. A `DataPipeline` batch
-factory may call `get` from multiple worker threads, so such implementations
-must be thread-safe.
+`Dataset` is the map-style base class. `get_batch` can be overridden for faster batched access; the default loops over `get`. A `DataPipeline` batch factory may call `get` from multiple worker threads, so such implementations must be thread-safe.
 
 ### TensorDataset
 
@@ -99,11 +95,7 @@ auto subsets = jyppx::liuding::data::random_split(
 
 `#include <jyppx/liuding/data/data_pipeline.hpp>`
 
-`DataPipeline` is the explicit-epoch, cursor-aware contract used by the
-checkpoint coordinator. `set_epoch(epoch)` is the only operation that creates an epoch order; `next()` never advances an epoch implicitly. Each successful
-`next()` commits one batch and returns a `BatchEnvelope` containing the
-validated value, complete versioned `BatchSchema`, sample IDs, dataset version,
-epoch, and batch sequence.
+`DataPipeline` is the explicit-epoch, cursor-aware contract used by the checkpoint coordinator. `set_epoch(epoch)` is the only operation that creates an epoch order; `next()` never advances an epoch implicitly. Each successful `next()` commits one batch and returns a `BatchEnvelope` containing the validated value, complete versioned `BatchSchema`, sample IDs, dataset version, epoch, and batch sequence.
 
 ```cpp
 auto sampler = std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(100, 7); jyppx::liuding::data::DataPipeline pipeline(
@@ -133,17 +125,7 @@ pipeline.set_epoch(0); while (const auto batch = pipeline.next()) {
 }
 ```
 
-The map-style pipeline supports inline execution or an ordered worker pool. It
-provides exact in-epoch restore when the sampler has checkpoint state and a
-stable configuration identity, and when the batch factory declares
-deterministic replay. The participant stores dataset identity, the complete
-canonical batch schema, worker and memory-stage topology, sampler identity,
-materialized epoch order, sampler state, next sample cursor, and next batch
-sequence. Generated and restored sample IDs are checked against the declared
-dataset size. Batch values are memory-staged and schema-validated before the
-cursor is committed. A factory, staging, validation, or epoch-preparation
-failure leaves committed pipeline state unchanged. The capability report
-explicitly exposes worker model, schema, resource limits, and restore bounds.
+The map-style pipeline supports inline execution or an ordered worker pool. It provides exact in-epoch restore when the sampler has checkpoint state and a stable configuration identity, and when the batch factory declares deterministic replay. The participant stores dataset identity, the complete canonical batch schema, worker and memory-stage topology, sampler identity, materialized epoch order, sampler state, next sample cursor, and next batch sequence. Generated and restored sample IDs are checked against the declared dataset size. Batch values are memory-staged and schema-validated before the cursor is committed. A factory, staging, validation, or epoch-preparation failure leaves committed pipeline state unchanged. The capability report explicitly exposes worker model, schema, resource limits, and restore bounds.
 
 ### Multi-worker loading
 
@@ -151,8 +133,7 @@ Set `num_workers > 0` to load batches on a worker pool with prefetching:
 
 - Output order is identical to single-threaded loading (results are sequenced).
 - Logical shard assignment is stable: batch sequence `s` uses
-  `worker_id = s % num_workers` and `shard_sequence = s / num_workers`.
-These identities do not depend on which physical thread executes the task.
+`worker_id = s % num_workers` and `shard_sequence = s / num_workers`. These identities do not depend on which physical thread executes the task.
 - Exceptions thrown inside `Dataset::get` or the batch factory become a structured `jyppx::liuding::BackendError` on the consuming thread.
 - At most `prefetch_batches` batches are scheduled but uncommitted.
 - `persistent_workers` controls whether worker threads survive explicit epoch replacement; `set_epoch` cancels any uncommitted work before replacement.
@@ -160,16 +141,13 @@ These identities do not depend on which physical thread executes the task.
 
 ### Memory staging and CUDA streams
 
-When `BatchMemoryOptions` configures pinning or a target device, background workers validate resource bounds and may pin CPU tensor leaves. They do not perform device transfer. The `next()` consumer transfers the prepared batch and validates its final schema before committing the cursor.
+When `BatchMemoryOptions` configures pinning or a target device, background workers validate resource bounds and may pin CPU tensor leaves. They do not perform device transfer. The `next()` consumer transfers the prepared batch, runs the optional consumer transform, and validates its final schema before committing the cursor.
 
 A configured target requires the batch factory to return CPU tensors. CUDA transfer uses the backend current stream of the thread calling `next()`; the pipeline creates no hidden stream or cross-stream event. Set the desired CUDA stream around `next()` when using a custom training stream. Non-blocking transfer requires both a target device and, for asynchronous host-to-device behavior, pinned source memory.
 
 ### Exception Handling
 
-`DataPipeline` captures exceptions raised by a batch factory and reports a
-stable `jyppx::liuding::BackendError` with component, operation, expected/actual values,
-hint, and nested cause. Results remain ordered even when another worker
-finishes first:
+`DataPipeline` captures exceptions raised by a batch factory and reports a stable `jyppx::liuding::BackendError` with component, operation, expected/actual values, hint, and nested cause. Results remain ordered even when another worker finishes first:
 
 ```cpp
 try {
@@ -181,39 +159,23 @@ try {
 }
 ```
 
-Set `num_workers = 0` to debug a failing factory on the calling thread. A
-worker exception stops the current epoch without committing the failed batch;
-select a fresh epoch or restore committed state after handling it. Dataset
-access and custom factories must be safe for concurrent calls when workers are
-enabled and must honor the supplied stop token.
+Set `num_workers = 0` to debug a failing factory on the calling thread. A worker exception stops the current epoch without committing the failed batch; select a fresh epoch or restore committed state after handling it. Dataset access and custom factories must be safe for concurrent calls when workers are enabled and must honor the supplied stop token.
 
 ### Iterable sources
 
-`IterableDataPipeline` owns one isolated sequential source cursor per explicit
-epoch. Its source descriptor declares finiteness, determinism, checkpoint support, exact/bounded/best-effort restore level, and any replay or omission bounds. The participant persists only the committed cursor boundary; prefetched items are rebuilt after restore.
+`IterableDataPipeline` owns one isolated sequential source cursor per explicit epoch. Its source descriptor declares finiteness, determinism, checkpoint support, exact/bounded/best-effort restore level, and any replay or omission bounds. The participant persists only the committed cursor boundary; prefetched items are rebuilt after restore.
 
-The current schema-v3 writer stores the complete canonical `BatchSchema`. The reader also accepts the explicit adjacent schema-v2 format when its source descriptor and complete topology match. Because v2 stored only a schema label, migration is limited to the provably equivalent unconstrained
-`BatchSchema::any(id, version)` contract. Structured schemas require an
-explicit external migration. A migrated checkpoint is always rewritten as v3.
+当前 map 写 v5、iterable 写 v4，保存 consumer transform 身份、完整输入/输出 schema 和确定性声明；map v4 / iterable v3 的无 consumer 完整结构格式继续可读。更早的 map v3 / iterable v2 仅按已有约束迁移同身份的 `BatchSchema::any`。新启用的 transform 不会被静默加到旧 checkpoint。接口、失败终止、显式恢复和内存统计见[提交前批次变换](batch_consumer_transform.md)。
 
 ### Capability manifest integration
 
-`describe_data_capability()` converts the configured pipeline's existing
-`DataCapability` into the foundation schema-v1 `CapabilityDescriptor`. The
-entry reports source style, worker/shard/stream policy, device and constrained
-dtypes, batch schema identity and fingerprint, restore operation, and numeric
-worker/prefetch/memory/schema/replay limits. It does not infer process workers
-or backend features that the pipeline did not declare.
+`describe_data_capability()` converts the configured pipeline's existing `DataCapability` into the foundation schema-v1 `CapabilityDescriptor`. The entry reports source style, worker/shard/stream policy, device and constrained dtypes, batch schema identity and fingerprint, restore operation, and numeric worker/prefetch/memory/schema/replay limits. It does not infer process workers or backend features that the pipeline did not declare.
 
-Use `make_current_capability_manifest()` to aggregate this entry with other
-domain descriptors under one exact `BuildFingerprint`, then serialize it with
-`capability_manifest_json()`. Output order is deterministic and numeric limits
-remain JSON numbers. The data conversion does not create another checkpoint format or a second source of pipeline capability state.
+Use `make_current_capability_manifest()` to aggregate this entry with other domain descriptors under one exact `BuildFingerprint`, then serialize it with `capability_manifest_json()`. Output order is deterministic and numeric limits remain JSON numbers. The data conversion does not create another checkpoint format or a second source of pipeline capability state.
 
 ## Collate functions
 
-`DataBatchFactory` receives the ordered sample-index span, stable worker
-context, and cooperative stop token. Capture a dataset to define collation:
+`DataBatchFactory` receives the ordered sample-index span, stable worker context, and cooperative stop token. Capture a dataset to define collation:
 
 ```cpp
 [](std::span<const std::size_t> indices, const jyppx::liuding::data::DataWorkerContext& context, std::stop_token stop) -> c10::IValue {
@@ -223,12 +185,9 @@ context, and cooperative stop token. Capture a dataset to define collation:
 
 ## Transforms
 
-`#include <jyppx/liuding/data/transforms/transform.hpp>` (base), `.../compose.hpp`,
-`.../vision.hpp`
+`#include <jyppx/liuding/data/transforms/transform.hpp>` (base), `.../compose.hpp`, `.../vision.hpp`
 
-All transforms derive from `Transform<Input, Output>`; tensor transforms use
-the `TensorTransform` alias and implement `Tensor operator()(const Tensor&)`
-plus `name()`.
+All transforms derive from `Transform<Input, Output>`; tensor transforms use the `TensorTransform` alias and implement `Tensor operator()(const Tensor&)` plus `name()`.
 
 ```cpp
 using namespace jyppx::liuding::data::transforms;
@@ -258,8 +217,7 @@ Compose pipeline({
 | `Compose(transforms)` | apply in order; `name()` lists the chain |
 | `RandomChoice(transforms)` | one transform per call, drawn from the global RNG |
 
-`size` accepts `{n}` (square) or `{h, w}`. Random transforms draw from the
-global torch RNG. Seed with `torch::manual_seed` for reproducible inline runs. A deterministic multi-worker factory should instead isolate random state through the supplied worker context. Crops and resizes require `{C, H, W}` inputs and throw `std::invalid_argument` on shape mismatches.
+`size` accepts `{n}` (square) or `{h, w}`. Random transforms draw from the global torch RNG. Seed with `torch::manual_seed` for reproducible inline runs. A deterministic multi-worker factory should instead isolate random state through the supplied worker context. Crops and resizes require `{C, H, W}` inputs and throw `std::invalid_argument` on shape mismatches.
 
 ## Samplers
 
@@ -274,15 +232,8 @@ class Sampler { public:
 class SequentialSampler : public Sampler;                       // 0..n-1 class RandomSampler : public Sampler;                           // seeded permutation class BatchSampler : public Sampler;                            // flattens + counts batches class WeightedRandomSampler : public Sampler;                   // weights, replacement opt. class SubsetRandomSampler : public Sampler;                     // permuted index subset class DistributedSampler : public Sampler;                      // rank/world_size sharding
 ```
 
-`RandomSampler(size, seed)` produces a fresh permutation each call
-(deterministic across loaders when a seed is given). `BatchSampler(base, batch_size, drop_last)` reports the number of batches via `size()`.
+`RandomSampler(size, seed)` produces a fresh permutation each call (deterministic across loaders when a seed is given). `BatchSampler(base, batch_size, drop_last)` reports the number of batches via `size()`.
 
-`WeightedRandomSampler(weights, num_samples, replacement, seed)` draws
-indices with probability proportional to `weights`. `DistributedSampler(size,
-rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks
-(padding to even counts unless `drop_last`); call `set_epoch()` once per
-epoch to reshuffle. Pass `rank` and `world_size` explicitly from the external
-launcher or job configuration. v1.0 does not publish a process-group API.
+`WeightedRandomSampler(weights, num_samples, replacement, seed)` draws indices with probability proportional to `weights`. `DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks (padding to even counts unless `drop_last`); call `set_epoch()` once per epoch to reshuffle. Pass `rank` and `world_size` explicitly from the external launcher or job configuration. v1.0 does not publish a process-group API.
 
-Pass a custom sampler to the `DataPipeline` constructor for index strategies
-the built-ins do not cover, such as weighted sampling.
+Pass a custom sampler to the `DataPipeline` constructor for index strategies the built-ins do not cover, such as weighted sampling.
