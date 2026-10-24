@@ -158,6 +158,67 @@ TEST(ImageDatasetTest, DecodesPairedTargetAndCanSelectIndependentPolicies) {
   EXPECT_EQ(sample.paired_target->size(2), sample.image.size(2));
 }
 
+TEST(ImageDatasetTest,
+     ExplicitMaskTargetPreservesIdsAndHasNoPhotoPixelSemantics) {
+  TempDirectory directory;
+  WriteFixture(directory.path() / "input.png", "rgb.png");
+  WriteFixture(directory.path() / "target.png", "masks/pair16.png");
+  const auto index = parse_manifest("input,target\ninput.png,target.png\n",
+                                    ManifestFormat::csv, ManifestTask::paired);
+  ImageDatasetOptions options;
+  options.image.dtype = ImageDtype::float32_normalized;
+  options.paired_target.dtype = ImageDtype::float32_normalized;
+  options.paired_target.channels = ImageChannels::rgb;
+  options.mask_target.emplace();
+  options.mask_target->ignore_id = 65535;
+  const ImageDataset dataset(directory.path(), index, options);
+  const auto sample = dataset.get(0);
+  EXPECT_EQ(sample.image.scalar_type(), torch::kFloat32);
+  ASSERT_TRUE(sample.mask_target);
+  EXPECT_EQ(sample.mask_target->ids.scalar_type(), torch::kInt64);
+  EXPECT_EQ(sample.mask_target->ids.sizes(), torch::IntArrayRef({1, 2}));
+  EXPECT_EQ(sample.mask_target->ids[0][0].item<std::int64_t>(), 1024);
+  EXPECT_EQ(sample.mask_target->ids[0][1].item<std::int64_t>(), 65535);
+  EXPECT_EQ(sample.mask_target->ignore_id, 65535);
+  EXPECT_FALSE(sample.paired_target);
+  EXPECT_FALSE(sample.paired_target_pixels);
+  EXPECT_EQ(sample.target_path, "target.png");
+  ASSERT_TRUE(sample.geometry);
+  EXPECT_TRUE(sample.geometry->retains_full_source());
+}
+
+TEST(ImageDatasetTest,
+     MaskTargetRejectsMisalignmentEvenWithPairedImageSizeCheckDisabled) {
+  TempDirectory directory;
+  WriteFixture(directory.path() / "input.png", "rgb.png");
+  WriteFixture(directory.path() / "target.png", "masks/gray16.png");
+  const auto index = parse_manifest("input,target\ninput.png,target.png\n",
+                                    ManifestFormat::csv, ManifestTask::paired);
+  ImageDatasetOptions options;
+  options.mask_target.emplace();
+  options.require_matching_target_size = false;
+  const ImageDataset dataset(directory.path(), index, options);
+  EXPECT_THROW(dataset.get(0), jyppx::liuding::SerializationError);
+}
+
+TEST(ImageDatasetTest,
+     RejectsMaskPolicyOnClassificationAndNeverFallsBackToPhotoDecode) {
+  TempDirectory directory;
+  ImageDatasetOptions options;
+  options.mask_target.emplace();
+  const auto classification =
+      ClassificationIndex("path,labels\ninput.png,cat\n");
+  EXPECT_THROW(static_cast<void>(
+                   ImageDataset(directory.path(), classification, options)),
+               jyppx::liuding::InvalidArgument);
+  WriteFixture(directory.path() / "input.png", "rgb.png");
+  WriteFixture(directory.path() / "target.png", "rgb.jpg");
+  const auto paired = parse_manifest("input,target\ninput.png,target.png\n",
+                                     ManifestFormat::csv, ManifestTask::paired);
+  const ImageDataset dataset(directory.path(), paired, options);
+  EXPECT_THROW(dataset.get(0), jyppx::liuding::SerializationError);
+}
+
 TEST(ImageDatasetTest, JoinsImmutableObjectAnnotationsByExactImagePath) {
   TempDirectory directory;
   WriteFixture(directory.path() / "cat" / "rgb.png", "rgb.png");

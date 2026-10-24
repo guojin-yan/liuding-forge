@@ -18,6 +18,7 @@
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
+#include <jyppx/liuding/data_image/mask_decoder.hpp>
 #elif defined(JYPPX_CONSUMER_NN)
 #include <jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>
 #elif defined(JYPPX_CONSUMER_OPTIM)
@@ -173,6 +174,14 @@ int main() {
                          .resized({40, 20})
                          .padded(0, 10, 0, 10);
   const auto restored = trace.inverse_box({0, 10, 40, 30});
+  constexpr std::array<unsigned char, 68> mask_png{
+      137, 80,  78,  71,  13, 10, 26, 10, 0,   0,   0,   13,  73,  72,
+      68,  82,  0,   0,   0,  1,  0,  0,  0,   1,   16,  0,   0,   0,
+      0,   106, 238, 71,  22, 0,  0,  0,  11,  73,  68,  65,  84,  120,
+      218, 99,  248, 255, 31, 0,  3,  0,  1,   255, 111, 129, 171, 182,
+      0,   0,   0,   0,   73, 69, 78, 68, 174, 66,  96,  130};
+  const auto mask = jyppx::liuding::data::image::decode_mask(
+      std::as_bytes(std::span(mask_png)));
   return index.images.size() == 1U && index.images[0].objects.size() == 1U &&
                  index.images[0].objects[0].box->x_max == 20 &&
                  manifest.records().size() == 1U && image.width == 1U &&
@@ -181,7 +190,9 @@ int main() {
                  image.pixels.color ==
                      jyppx::liuding::data::image::PixelColorModel::gray &&
                  restored && restored->x_max == 20 && restored->y_max == 10 &&
-                 !trace.inverse_point({0, 0})
+                 !trace.inverse_point({0, 0}) &&
+                 mask.ids.scalar_type() == torch::kInt64 &&
+                 mask.ids.dim() == 2 && mask.ids.item<std::int64_t>() == 65535
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_NN)

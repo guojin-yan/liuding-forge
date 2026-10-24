@@ -1,4 +1,4 @@
-# 图像数据与坐标追踪
+# 图像数据、离散标签与坐标追踪
 
 图像组件提供本地图片解码、数据集索引和标注读取。构建时开启 `JYPPX_LIUDING_BUILD_DATA_IMAGE`，安装后使用 `find_package(jyppx CONFIG REQUIRED COMPONENTS data_image)`，并链接 `jyppx::liuding::data_image`。
 
@@ -20,7 +20,53 @@ image::validate_pixels(decoded.tensor, decoded.pixels);
 
 `validate_pixels` 检查形状、dtype、通道和 alpha/range 契约，支持有步幅的 CPU/CUDA 单图 Tensor。该函数不扫描像素数值、不传输设备数据、不执行颜色转换；范围表示编码语义，并非观测到的最小值和最大值。标准化后的浮点图像应显式改用 `PixelValueRange::unbounded`。单图 API 不接受 NCHW batch。
 
-`ImageDataset::get` 返回的 `VisionSample` 携带 `pixels` 和初始恒等 `geometry`；配对图像另有 `paired_target_pixels`，不会继承输入图像的颜色或归一化策略。配对图像解码本身不解释语义类别 ID，离散 mask 需要专门的读取和变换策略。
+`ImageDataset::get` 返回的 `VisionSample` 携带 `pixels` 和初始恒等 `geometry`；配对图像另有 `paired_target_pixels`，不会继承输入图像的颜色或归一化策略。语义、实例或全景标签应选择下面的离散 mask 入口。
+
+## 离散 mask
+
+`decode_mask` 和 `read_mask_file` 专门读取 PNG 标签，返回拥有存储的 `DecodedMask`。`ids` 始终是 CPU 上连续的二维 int64 张量 `[H,W]`，不会做灰度强度缩放、颜色转换或浮点归一化。支持普通 PNG 和 Adam7 交错 PNG；源约定必须显式选择。
+
+| `MaskEncoding` | 接受的 PNG | 输出 ID |
+| --- | --- | --- |
+| `class_index` | 1/2/4/8/16 位灰度 | 原始样本值，例如 2 位标签保留 0–3，16 位标签保留 0–65535 |
+| `palette_index` | 1/2/4/8 位调色板 | 原始调色板索引；重复显示颜色不会合并类别 |
+| `rgb_mapping` | 8 位 RGB | 按 `colors` 显式映射到 int64；默认拒绝未知颜色 |
+| `panoptic_rgb` | 8 位 RGB | 按 COCO 约定计算 `R + 256*G + 65536*B`，保留完整 24 位 segment ID |
+
+```cpp
+#include <jyppx/liuding/data_image/mask_decoder.hpp>
+
+image::MaskDecodeOptions mask_options;
+mask_options.encoding = image::MaskEncoding::palette_index;
+mask_options.ignore_id = 255;
+auto mask = image::read_mask_file("labels.png", mask_options);
+// mask.ids 是 [H,W] int64；mask.palette 保留 PLTE 颜色和 tRNS alpha。
+```
+
+`ignore_id` 和 `void_id` 是调用者声明的标签语义，不会自动改写像素。调色板的透明项保留原始索引，透明度仅存入 `palette` 元数据；不会自动变成背景或 ignore。RGB 映射允许多个颜色对应同一个 ID，拒绝重复颜色键；负 ID 必须声明为 ignore 或 void。需要把未知颜色设为 ignore 时，必须同时设置 `unknown_color_is_ignore=true` 和 `ignore_id`。
+
+JPEG 等有损格式、带独立 alpha 通道的 PNG、灰度/RGB 的 tRNS、APNG 和 Apple CgBI PNG 当前会明确拒绝。读入全景 ID 图不等于已校验 segment 表与类别的关联，调用者仍需结合相应标注索引。该入口检查所有 PNG chunk 的 CRC、zlib Adler-32、完整输出尺寸、调色板索引范围及文件结构。
+
+`limits` 分别限制编码字节、尺寸、像素数和 int64 输出字节；`max_working_bytes` 限制压缩副本与滤波光栅的合计字节，不包含调用者输入、输出张量和映射表。chunk 数、RGB 映射条目数另有独立上限。取消在文件读取、chunk 校验和行处理边界检查，底层一次 DEFLATE 调用不支持中途取消。
+
+### 从配对清单读取 mask
+
+```cpp
+#include <jyppx/liuding/data_image/image_dataset.hpp>
+
+auto index = image::parse_manifest(
+    "input,target\nimages/a.png,masks/a.png\n",
+    image::ManifestFormat::csv, image::ManifestTask::paired);
+image::ImageDatasetOptions dataset_options;
+dataset_options.image.channels = image::ImageChannels::rgb;
+dataset_options.image.dtype = image::ImageDtype::float32_normalized;
+dataset_options.mask_target = mask_options;
+image::ImageDataset dataset("dataset", std::move(index), dataset_options);
+auto sample = dataset.get(0);
+// sample.image 为归一化 RGB；sample.mask_target->ids 保留整数类别 ID。
+```
+
+配置 `mask_target` 后，配对清单中的 target 走标签 reader，结果存入 `VisionSample::mask_target`；`paired_target` 和 `paired_target_pixels` 为空。mask 必须与输入图像尺寸完全相同，`require_matching_target_size=false` 仅适用于普通配对图像。未配置 `mask_target` 时继续读取普通配对图像。当前数据集读取不会自动重采样或联合变换图像与标签；后续变换必须保持离散 ID，不能对标签使用 bilinear。
 
 ## 几何坐标追踪
 

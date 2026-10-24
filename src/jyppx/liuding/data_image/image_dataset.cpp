@@ -224,6 +224,8 @@ ImageDataset::ImageDataset(std::filesystem::path root, ManifestIndex index,
       options_(options),
       annotations_(std::move(annotations)) {
   ValidateIndex(index_);
+  if (options_.mask_target && index_.task() != ManifestTask::paired)
+    Invalid("mask.task", "a paired manifest when mask_target is configured");
 
   label_categories_ =
       std::make_shared<const std::vector<VisionCategory>>(index_.categories());
@@ -312,13 +314,20 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
   if (record.target_path) {
     CheckStop(stop);
     const auto target_path = ResolveDatasetFile(root_, *record.target_path);
-    auto target = read_image_file(target_path, options_.paired_target, stop);
-    if (options_.require_matching_target_size &&
-        (target.width != sample.width || target.height != sample.height)) {
-      Malformed("target.dimensions", *record.target_path);
+    if (options_.mask_target) {
+      auto target = read_mask_file(target_path, *options_.mask_target, stop);
+      if (target.width != sample.width || target.height != sample.height)
+        Malformed("mask.dimensions", *record.target_path);
+      sample.mask_target = std::move(target);
+    } else {
+      auto target = read_image_file(target_path, options_.paired_target, stop);
+      if (options_.require_matching_target_size &&
+          (target.width != sample.width || target.height != sample.height)) {
+        Malformed("target.dimensions", *record.target_path);
+      }
+      sample.paired_target = std::move(target.tensor);
+      sample.paired_target_pixels = target.pixels;
     }
-    sample.paired_target = std::move(target.tensor);
-    sample.paired_target_pixels = target.pixels;
     sample.target_path = *record.target_path;
   }
   CheckStop(stop);

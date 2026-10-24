@@ -471,6 +471,7 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         src/jyppx/liuding/data_image/manifests.cpp
         src/jyppx/liuding/data_image/yolo_dataset_yaml.cpp
         src/jyppx/liuding/data_image/image_decoder.cpp
+        src/jyppx/liuding/data_image/mask_decoder.cpp
         src/jyppx/liuding/data_image/image_dataset.cpp
         src/jyppx/liuding/data_image/pixel_spec.cpp
         src/jyppx/liuding/data_image/geometry_trace.cpp

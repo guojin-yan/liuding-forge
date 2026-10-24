@@ -21,6 +21,7 @@
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
+#include <jyppx/liuding/data_image/mask_decoder.hpp>
 
 #include <cstddef>
 #include <filesystem>
@@ -36,7 +37,9 @@ namespace jyppx::liuding::data::image {
 struct VisionSample {
   Tensor image;  ///< Decoded owning input tensor.
   std::optional<Tensor>
-      paired_target;                ///< Decoded target/mask when manifested.
+      paired_target;  ///< Decoded paired image when manifested.
+  std::optional<DecodedMask>
+      mask_target;  ///< Explicit discrete labels, never photo pixels.
   std::vector<std::size_t> labels;  ///< Contiguous classification IDs.
   std::string image_path;  ///< Dataset-relative UTF-8 path from the index.
   std::optional<std::string>
@@ -61,9 +64,13 @@ struct VisionSample {
 struct ImageDatasetOptions {
   ImageDecodeOptions
       image;  ///< Input image output, pinning and resource limits.
-  ImageDecodeOptions paired_target;  ///< Target/mask decode policy.
+  ImageDecodeOptions paired_target;  ///< Paired-image decode policy.
+  std::optional<MaskDecodeOptions> mask_target;
+  ///< When present, paired manifest targets use the lossless label reader
+  ///< instead.
   bool require_matching_target_size = true;
-  ///< Reject a paired target whose width or height differs from the input.
+  ///< Reject mismatched paired images. Discrete masks always require an exact
+  ///< size match.
 };
 
 /**
