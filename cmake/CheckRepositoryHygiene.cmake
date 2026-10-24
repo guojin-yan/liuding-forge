@@ -74,7 +74,7 @@ set(retired_placeholder_paths
     src/jyppx/liuding/distributed/distributed.cpp
 )
 foreach(path IN LISTS tracked_files)
-    if(path MATCHES "^(include|src|examples|tests|tools)/.*[.](cpp|cc|cxx|hpp|h)$")
+    if(path MATCHES "^(include|src|examples|tests|tools)/.*[.](c|cc|cpp|cxx|cu|cuh|h|hh|hpp|hxx|inc|ipp|tpp)$")
         file(READ "${source_root}/${path}" source_header LIMIT 1024)
         if(NOT source_header MATCHES "Product: 六丁炼算 [(]Liuding Forge[)]" OR
            NOT source_header MATCHES "Project alias: JYPPX Training Framework")

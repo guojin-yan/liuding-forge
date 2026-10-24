@@ -80,7 +80,7 @@ else:
                             "JYPPX_FIXTURE_COMMAND_LOG": str(self.root / "out/commands.jsonl"),
                             "JYPPX_FIXTURE_SUMMARY": str(self.root / "sample.json")}
         for key in tuple(self.environment):
-            if key.startswith("JYPPX_COVERAGE_") or key == "JYPPX_LIUDING_BUILD_PARALLEL_LEVEL":
+            if key.startswith("JYPPX_COVERAGE_") or key in {"JYPPX_LIUDING_BUILD_PARALLEL_LEVEL", "JYPPX_LIUDING_MODELS_REFERENCE_DIR"}:
                 del self.environment[key]
 
     def run_lane(self, **environment: str) -> subprocess.CompletedProcess[str]:
@@ -102,13 +102,17 @@ else:
         other = self.root / "out/another-cache/keep.gcda"
         other.parent.mkdir(parents=True)
         other.touch()
-        result = self.run_lane(JYPPX_COVERAGE_EXCLUDE_PACKAGING="1")
+        reference = str(self.root / "external model reference")
+        result = self.run_lane(JYPPX_COVERAGE_EXCLUDE_PACKAGING="1",
+                               JYPPX_LIUDING_MODELS_REFERENCE_DIR=reference)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertFalse(own.exists())
         self.assertTrue(other.exists())
         commands = self.commands()
         configure = next(row for row in commands if row[0] == "cmake" and "-S" in row)
         self.assertIn("-DTorch_DIR=" + self.environment["CMAKE_PREFIX_PATH"] + "/share/cmake/Torch", configure)
+        self.assertIn("-DJYPPX_LIUDING_MODELS_REFERENCE_DIR=" + reference, configure)
+        self.assertEqual(self.metadata()["models_reference_dir"], reference)
         for owner in ("DATA_IMAGE", "MODELS", "QUANTIZATION", "SERVING"):
             self.assertIn("-DJYPPX_LIUDING_BUILD_" + owner + "=ON", configure)
         for row in commands:

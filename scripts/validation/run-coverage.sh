@@ -26,6 +26,7 @@ stage=preflight
 torch_prefix="${CMAKE_PREFIX_PATH:-not_set}"
 build_parallelism="${JYPPX_LIUDING_BUILD_PARALLEL_LEVEL:-2}"
 packaging_excluded="${JYPPX_COVERAGE_EXCLUDE_PACKAGING:-0}"
+models_reference_dir="${JYPPX_LIUDING_MODELS_REFERENCE_DIR:-}"
 coverage_tool=not_run
 policy_sha256=not_run
 
@@ -44,6 +45,7 @@ finished_utc=$(date -u +%FT%TZ)
 build_type=Debug
 build_parallelism=$build_parallelism
 libtorch_prefix=$torch_prefix
+models_reference_dir=$models_reference_dir
 coverage_tool=$coverage_tool
 coverage_policy=coverage-policy.json
 coverage_policy_sha256=$policy_sha256
@@ -118,6 +120,7 @@ run_logged 01-configure.log cmake \
   -DJYPPX_LIUDING_ENABLE_ASAN=OFF -DJYPPX_LIUDING_ENABLE_UBSAN=OFF -DJYPPX_LIUDING_ENABLE_TSAN=OFF \
   -DJYPPX_LIUDING_BUILD_DATA_IMAGE=ON -DJYPPX_LIUDING_BUILD_MODELS=ON \
   -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON -DJYPPX_LIUDING_BUILD_SERVING=ON \
+  -DJYPPX_LIUDING_MODELS_REFERENCE_DIR="$models_reference_dir" \
   -DCMAKE_PREFIX_PATH="$torch_prefix" \
   -DTorch_DIR="$torch_prefix/share/cmake/Torch"
 

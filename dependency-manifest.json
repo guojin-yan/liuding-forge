@@ -29,6 +29,31 @@
       "support_status": "development-baseline"
     },
     {
+      "id": "libtorch-primary-linux-cu126",
+      "scope": "core",
+      "version": "2.14.1+cu126",
+      "source": {
+        "type": "official-binary",
+        "url": "https://download.pytorch.org/libtorch/cu126/libtorch-shared-with-deps-2.14.1%2Bcu126.zip",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "78409e1d17eb439efab01bbdde385ef3531ac3fc651ceda1117317ae9903dc7c"
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "linkage": "dynamic",
+      "support_status": "development-baseline"
+    },
+    {
       "id": "googletest",
       "scope": "test",
       "version": "1.14.0",

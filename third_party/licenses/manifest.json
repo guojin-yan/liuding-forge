@@ -1,10 +1,11 @@
 {
-  "audit_date": "2026-10-22",
+  "audit_date": "2026-10-24",
   "dependency_notice_states": {
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
     "libtorch-candidate-cuda-cu124": "pending",
     "libtorch-primary-windows-cu126": "pending",
+    "libtorch-primary-linux-cu126": "pending",
     "nlohmann-json": "recorded",
     "sqlite": "recorded",
     "tinyxml2": "recorded",

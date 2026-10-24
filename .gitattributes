@@ -3,3 +3,4 @@
 *.yaml text eol=lf
 *.cpp text eol=lf
 *.hpp text eol=lf
+*.inc text eol=lf

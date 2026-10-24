@@ -19,6 +19,7 @@ JYPPX package.
   `third_party/licenses/`, but does not close the bundled-component notice
   audit. The candidate `2.5.1+cu124` installation has the same unresolved
   notice boundary. Both manifest entries remain pending.
+- Ubuntu 开发构建独立锁定 Linux `2.14.1+cu126` 官方包，SHA-256 为 `78409e1d17eb439efab01bbdde385ef3531ac3fc651ceda1117317ae9903dc7c`。该摘要经过本地完整归档复核，不是厂商另行发布的摘要；二进制附带组件的 notice 审查仍为 pending，开发构建结果不代表 GA 资格。
 - Distribution rule: when a JYPPX artifact redistributes LibTorch binaries,
   it must also redistribute the exact license and notice files supplied with
   that LibTorch build. This summary does not replace those files.
