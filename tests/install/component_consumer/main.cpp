@@ -26,6 +26,8 @@
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
 #include <jyppx/liuding/data_image/panoptic.hpp>
+#elif defined(JYPPX_CONSUMER_VISION_RENDER)
+#include <jyppx/liuding/visualization/render.hpp>
 #elif defined(JYPPX_CONSUMER_NN)
 #include <jyppx/liuding/nn/loss/label_smoothing_cross_entropy.hpp>
 #elif defined(JYPPX_CONSUMER_OPTIM)
@@ -94,7 +96,7 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
 #endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
-  constexpr std::array<std::pair<std::string_view, bool>, 12U> kExpected{{
+  constexpr std::array<std::pair<std::string_view, bool>, 13U> kExpected{{
       {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
       {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
       {"data_image", JYPPX_EXPECT_COMPONENT_DATA_IMAGE != 0},
@@ -107,6 +109,7 @@ bool BuildCapabilityInventoryMatchesPackage() {
       {"quantization", JYPPX_EXPECT_COMPONENT_QUANTIZATION != 0},
       {"serving", JYPPX_EXPECT_COMPONENT_SERVING != 0},
       {"training", JYPPX_EXPECT_COMPONENT_TRAINING != 0},
+      {"vision_render", JYPPX_EXPECT_COMPONENT_VISION_RENDER != 0},
   }};
   const auto manifest = jyppx::liuding::current_capability_manifest();
   if (manifest.features.size() != kExpected.size()) return false;
@@ -114,7 +117,8 @@ bool BuildCapabilityInventoryMatchesPackage() {
     const auto& [component, enabled] = kExpected[index];
     const auto& feature = manifest.features[index];
     const bool preview = component == "models" || component == "quantization" ||
-                         component == "serving" || component == "data_image";
+                         component == "serving" || component == "data_image" ||
+                         component == "vision_render";
     const auto expected_status =
         enabled ? (preview ? jyppx::liuding::CapabilityStatus::experimental
                            : jyppx::liuding::CapabilityStatus::available)
@@ -298,6 +302,15 @@ int main() {
                      65535
              ? 0
              : 1;
+#elif defined(JYPPX_CONSUMER_VISION_RENDER)
+  using namespace jyppx::liuding::data::image;
+  using namespace jyppx::liuding::visualization;
+  PixelSpec spec;
+  const auto image = torch::zeros({3, 2, 2}, torch::kUInt8);
+  VisionAnnotationRecord record{.width = 2, .height = 2};
+  record.objects.push_back({.category = 0, .box = ImageBox{0, 0, 2, 2}});
+  const auto rendered = render_annotations(image, spec, record);
+  return rendered.pixels.sizes() == torch::IntArrayRef({2, 2, 3}) ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_NN)
   const auto loss =
       jyppx::liuding::nn::functional::label_smoothing_cross_entropy(

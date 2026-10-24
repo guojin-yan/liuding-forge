@@ -25,6 +25,7 @@ option(JYPPX_LIUDING_BUILD_CORE "Build the LibTorch value and tensor core" ON)
 option(JYPPX_LIUDING_BUILD_INTEROP "Build interoperability formats and manifests" ON)
 option(JYPPX_LIUDING_BUILD_DATA "Build data pipelines, datasets, and samplers" ON)
 option(JYPPX_LIUDING_BUILD_DATA_IMAGE "Build the optional built-in image/annotation adapters" OFF)
+option(JYPPX_LIUDING_BUILD_VISION_RENDER "Build the optional headless CPU image renderer" OFF)
 option(JYPPX_LIUDING_BUILD_NN "Build neural-network adapters and losses" ON)
 option(JYPPX_LIUDING_BUILD_OPTIM "Build optimizer and scheduler adapters" ON)
 option(JYPPX_LIUDING_BUILD_TRAINING "Build the training engine" ON)
@@ -73,6 +74,9 @@ if(JYPPX_LIUDING_BUILD_TRAINING AND
 endif()
 if(JYPPX_LIUDING_BUILD_DATA_IMAGE AND NOT JYPPX_LIUDING_BUILD_DATA)
     message(FATAL_ERROR "JYPPX_LIUDING_BUILD_DATA_IMAGE=ON requires JYPPX_LIUDING_BUILD_DATA=ON")
+endif()
+if(JYPPX_LIUDING_BUILD_VISION_RENDER AND NOT JYPPX_LIUDING_BUILD_DATA_IMAGE)
+    message(FATAL_ERROR "JYPPX_LIUDING_BUILD_VISION_RENDER=ON requires JYPPX_LIUDING_BUILD_DATA_IMAGE=ON")
 endif()
 
 # Preview model/serving adapters require the explicit lower component closure.
@@ -299,6 +303,7 @@ set(JYPPX_LIUDING_COMPONENT_CORE_ENABLED ${JYPPX_LIUDING_BUILD_CORE})
 set(JYPPX_LIUDING_COMPONENT_INTEROP_ENABLED ${JYPPX_LIUDING_BUILD_INTEROP})
 set(JYPPX_LIUDING_COMPONENT_DATA_ENABLED ${JYPPX_LIUDING_BUILD_DATA})
 set(JYPPX_LIUDING_COMPONENT_DATA_IMAGE_ENABLED ${JYPPX_LIUDING_BUILD_DATA_IMAGE})
+set(JYPPX_LIUDING_COMPONENT_VISION_RENDER_ENABLED ${JYPPX_LIUDING_BUILD_VISION_RENDER})
 set(JYPPX_LIUDING_COMPONENT_NN_ENABLED ${JYPPX_LIUDING_BUILD_NN})
 set(JYPPX_LIUDING_COMPONENT_OPTIM_ENABLED ${JYPPX_LIUDING_BUILD_OPTIM})
 set(JYPPX_LIUDING_COMPONENT_TRAINING_ENABLED ${JYPPX_LIUDING_BUILD_TRAINING})
@@ -505,6 +510,23 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_data_image)
     list(APPEND JYPPX_ENABLED_COMPONENTS data_image)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS data_image)
+endif()
+
+if(JYPPX_LIUDING_BUILD_VISION_RENDER)
+    add_library(jyppx_liuding_vision_render STATIC
+        src/jyppx/liuding/visualization/render.cpp)
+    add_library(jyppx::liuding::vision_render ALIAS jyppx_liuding_vision_render)
+    set_target_properties(jyppx_liuding_vision_render PROPERTIES
+        OUTPUT_NAME liuding-forge-vision-render EXPORT_NAME vision_render)
+    target_include_directories(jyppx_liuding_vision_render PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(jyppx_liuding_vision_render
+        PUBLIC jyppx_liuding_data_image
+        PRIVATE jyppx_liuding_foundation)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_vision_render)
+    list(APPEND JYPPX_ENABLED_COMPONENTS vision_render)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS visualization)
 endif()
 
 if(JYPPX_LIUDING_BUILD_NN)

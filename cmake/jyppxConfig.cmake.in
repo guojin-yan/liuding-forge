@@ -14,6 +14,7 @@ set(_jyppx_known_components
     interop
     data
     data_image
+    vision_render
     nn
     training
     optim
@@ -48,7 +49,8 @@ endforeach()
 foreach(_jyppx_exported_target IN ITEMS
         jyppx::liuding::foundation jyppx::liuding::core jyppx::liuding::interop jyppx::liuding::data jyppx::liuding::data_image jyppx::liuding::nn
         jyppx::liuding::training jyppx::liuding::optim jyppx::liuding::experiment
-        jyppx::liuding::models jyppx::liuding::quantization jyppx::liuding::serving jyppx::liuding::all jyppx::liuding::sdk)
+        jyppx::liuding::models jyppx::liuding::quantization jyppx::liuding::serving
+        jyppx::liuding::vision_render jyppx::liuding::all jyppx::liuding::sdk)
     if(TARGET ${_jyppx_exported_target})
         set_property(TARGET ${_jyppx_exported_target} APPEND
             PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TORCH_INCLUDE_DIRS}")

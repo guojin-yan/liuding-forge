@@ -411,13 +411,15 @@ endif()
 
 
 # Exercise the SDK and independent Preview consumers from installed artifacts.
-foreach(preview_component IN ITEMS sdk data_image models quantization serving)
+foreach(preview_component IN ITEMS sdk data_image vision_render models quantization serving)
     if(TARGET jyppx::liuding::${preview_component})
         set(consumer_labels "${preview_component};packaging")
         if(preview_component STREQUAL "sdk")
             set(preview_test_name SdkInstallConsumer)
         elseif(preview_component STREQUAL "data_image")
             set(preview_test_name DataImageInstallConsumer)
+        elseif(preview_component STREQUAL "vision_render")
+            set(preview_test_name VisionRenderInstallConsumer)
         elseif(preview_component STREQUAL "models")
             set(preview_test_name ModelsInstallConsumer)
         elseif(preview_component STREQUAL "quantization")
@@ -453,7 +455,8 @@ foreach(preview_component IN ITEMS sdk data_image models quantization serving)
     endif()
 endforeach()
 
-if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_QUANTIZATION OR JYPPX_LIUDING_BUILD_SERVING)
+if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_QUANTIZATION OR
+   JYPPX_LIUDING_BUILD_SERVING OR JYPPX_LIUDING_BUILD_VISION_RENDER)
     add_test(
         NAME PreviewComponentMatrix
         COMMAND ${CMAKE_COMMAND}
@@ -476,7 +479,7 @@ if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_QUANTIZATION OR JYPPX_LIUDI
             -P ${CMAKE_SOURCE_DIR}/cmake/tests/TestPreviewComponentMatrix.cmake
     )
     set_tests_properties(PreviewComponentMatrix PROPERTIES
-        LABELS "models;quantization;serving;preview;packaging"
+        LABELS "models;quantization;serving;vision_render;preview;packaging"
         RESOURCE_LOCK jyppx_component_profile_matrix
         TIMEOUT 10800
     )

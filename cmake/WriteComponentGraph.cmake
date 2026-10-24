@@ -37,6 +37,7 @@ function(jyppx_write_component_graph output_path)
         quantization
         serving
         training
+        vision_render
     )
     set(aggregate_targets all sdk)
 
@@ -53,6 +54,8 @@ function(jyppx_write_component_graph output_path)
         set(header_roots "${component}")
         if(component STREQUAL "core")
             list(APPEND header_roots utils)
+        elseif(component STREQUAL "vision_render")
+            set(header_roots visualization)
         endif()
         foreach(header_root IN LISTS header_roots)
             jyppx_public_headers("${header_root}" component_headers)

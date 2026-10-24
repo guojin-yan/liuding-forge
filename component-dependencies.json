@@ -216,6 +216,22 @@
         "experiment",
         "interop"
       ]
+    },
+    "vision_render": {
+      "header_roots": [
+        "visualization"
+      ],
+      "source_roots": [
+        "visualization"
+      ],
+      "required_dependencies": [
+        "data_image",
+        "foundation"
+      ],
+      "required_public_dependencies": [
+        "data_image"
+      ],
+      "optional_dependencies": []
     }
   },
   "ownership_assertions": {

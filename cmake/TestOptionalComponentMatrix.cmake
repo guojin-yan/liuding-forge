@@ -59,8 +59,8 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
     set(ENV{PATH} "${JYPPX_TORCH_RUNTIME_DIR};$ENV{PATH}")
 endif()
 
-set(optional_components core interop data data_image nn optim training experiment models quantization serving)
-set(profiles foundation core interop data data_image nn optim training experiment)
+set(optional_components core interop data data_image vision_render nn optim training experiment models quantization serving)
+set(profiles foundation core interop data data_image vision_render nn optim training experiment)
 if(JYPPX_MATRIX_PROFILES)
     foreach(profile IN LISTS JYPPX_MATRIX_PROFILES)
         if(NOT profile IN_LIST profiles)
@@ -80,6 +80,8 @@ foreach(profile IN LISTS profiles)
         set(profile_components core data)
     elseif(profile STREQUAL "data_image")
         set(profile_components core data data_image)
+    elseif(profile STREQUAL "vision_render")
+        set(profile_components core data data_image vision_render)
     elseif(profile STREQUAL "nn")
         set(profile_components core nn)
     elseif(profile STREQUAL "optim")
@@ -156,7 +158,11 @@ foreach(profile IN LISTS profiles)
     foreach(component IN LISTS optional_components)
         if(NOT component IN_LIST profile_components)
             list(APPEND absent_components "${component}")
-            if(EXISTS "${install_dir}/include/jyppx/liuding/${component}")
+            set(component_header_root "${component}")
+            if(component STREQUAL "vision_render")
+                set(component_header_root visualization)
+            endif()
+            if(EXISTS "${install_dir}/include/jyppx/liuding/${component_header_root}")
                 message(FATAL_ERROR
                     "Disabled ${component} headers remain in ${profile} profile")
             endif()
@@ -170,6 +176,10 @@ foreach(profile IN LISTS profiles)
             endif()
         endif()
     endforeach()
+    if(vision_render IN_LIST profile_components AND
+       NOT data_image IN_LIST profile_components)
+        message(FATAL_ERROR "vision_render profile omitted its data_image dependency")
+    endif()
     if(interop IN_LIST profile_components AND NOT nn IN_LIST profile_components)
         foreach(adapter IN ITEMS model_weight_import torchscript_compatibility)
             if(EXISTS "${install_dir}/include/jyppx/liuding/interop/${adapter}.hpp")
@@ -226,6 +236,7 @@ endforeach()
 
 set(invalid_cases
     data_image_without_data
+    vision_render_without_data_image
     core_off_data_on
     core_off_nn_on
     core_off_optim_on
@@ -240,6 +251,7 @@ foreach(invalid_case IN LISTS invalid_cases)
         -DJYPPX_LIUDING_BUILD_INTEROP=OFF
         -DJYPPX_LIUDING_BUILD_DATA=OFF
         -DJYPPX_LIUDING_BUILD_DATA_IMAGE=OFF
+        -DJYPPX_LIUDING_BUILD_VISION_RENDER=OFF
         -DJYPPX_LIUDING_BUILD_NN=OFF
         -DJYPPX_LIUDING_BUILD_OPTIM=OFF
         -DJYPPX_LIUDING_BUILD_TRAINING=OFF
@@ -251,6 +263,8 @@ foreach(invalid_case IN LISTS invalid_cases)
     )
     if(invalid_case STREQUAL "data_image_without_data")
         list(APPEND invalid_options -DJYPPX_LIUDING_BUILD_DATA_IMAGE=ON)
+    elseif(invalid_case STREQUAL "vision_render_without_data_image")
+        list(APPEND invalid_options -DJYPPX_LIUDING_BUILD_VISION_RENDER=ON)
     elseif(invalid_case MATCHES "^core_off_([a-z]+)_on$")
         string(TOUPPER "${CMAKE_MATCH_1}" dependent_component)
         list(APPEND invalid_options

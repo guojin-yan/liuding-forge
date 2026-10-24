@@ -12,6 +12,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_interop
     jyppx_liuding_data
     jyppx_liuding_data_image
+    jyppx_liuding_vision_render
     jyppx_liuding_nn
     jyppx_liuding_training
     jyppx_liuding_optim

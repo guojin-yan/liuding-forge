@@ -61,8 +61,8 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
 endif()
 
 set(optional_components core interop data nn optim training experiment
-    models quantization serving data_image)
-set(preview_components models quantization serving)
+    models quantization serving data_image vision_render)
+set(preview_components models quantization serving vision_render)
 set(common_options
     -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF
     -DJYPPX_LIUDING_BUILD_TOOLS=OFF -DJYPPX_LIUDING_BUILD_BENCHMARKS=OFF
@@ -122,7 +122,11 @@ function(check_preview_symbols profile)
             list(JOIN defined_symbols "\n" symbols)
         endif()
         foreach(component IN LISTS preview_components)
-            if(symbols MATCHES "jyppx::liuding::${component}::|@${component}@jyppx@")
+            set(symbol_namespace "${component}")
+            if(component STREQUAL "vision_render")
+                set(symbol_namespace visualization)
+            endif()
+            if(symbols MATCHES "jyppx::liuding::${symbol_namespace}::|@${component}@jyppx@")
                 if(NOT component IN_LIST profile_components)
                     message(FATAL_ERROR
                         "Disabled ${component} symbols in ${profile}: ${archive}")
@@ -140,7 +144,7 @@ function(check_preview_symbols profile)
 endfunction()
 
 # Begin and end with the same core-only profile to exercise ON -> OFF cleanup.
-foreach(profile IN ITEMS core_before quantization models serving all_previews core_after)
+foreach(profile IN ITEMS core_before quantization models serving vision_render all_previews core_after)
     set(profile_components)
     set(consumer_components foundation all)
     if(profile MATCHES "^core_")
@@ -152,9 +156,13 @@ foreach(profile IN ITEMS core_before quantization models serving all_previews co
     elseif(profile STREQUAL "models" OR profile STREQUAL "serving")
         set(profile_components core interop nn ${profile})
         list(APPEND consumer_components ${profile})
+    elseif(profile STREQUAL "vision_render")
+        set(profile_components core data data_image vision_render)
+        list(APPEND consumer_components vision_render)
     elseif(profile STREQUAL "all_previews")
-        set(profile_components core interop nn models quantization serving)
-        list(APPEND consumer_components models quantization serving)
+        set(profile_components core interop nn models quantization serving
+            data data_image vision_render)
+        list(APPEND consumer_components models quantization serving vision_render)
     endif()
     set(component_options)
     set(absent_components sdk)
@@ -192,16 +200,20 @@ foreach(profile IN ITEMS core_before quantization models serving all_previews co
     endif()
     foreach(component IN LISTS optional_components)
         string(REPLACE "_" "-" artifact_component "${component}")
+        set(component_header_root "${component}")
+        if(component STREQUAL "vision_render")
+            set(component_header_root visualization)
+        endif()
         file(GLOB component_libraries
             "${install_dir}/lib/*jyppx_liuding_${component}*"
             "${install_dir}/lib/*liuding-forge-${artifact_component}*")
         if(component IN_LIST profile_components)
-            if(NOT EXISTS "${install_dir}/include/jyppx/liuding/${component}" OR
+            if(NOT EXISTS "${install_dir}/include/jyppx/liuding/${component_header_root}" OR
                NOT component_libraries)
                 message(FATAL_ERROR "Enabled ${component} install is incomplete")
             endif()
         else()
-            if(EXISTS "${install_dir}/include/jyppx/liuding/${component}" OR
+            if(EXISTS "${install_dir}/include/jyppx/liuding/${component_header_root}" OR
                component_libraries)
                 message(FATAL_ERROR "Disabled ${component} surface remains installed")
             endif()

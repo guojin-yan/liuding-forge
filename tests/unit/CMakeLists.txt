@@ -134,6 +134,12 @@ if(TARGET jyppx::liuding::data_image)
     endif()
 endif()
 
+if(TARGET jyppx::liuding::vision_render)
+    jyppx_add_gtest(jyppx_test_vision_render
+        LINK_TARGET jyppx::liuding::vision_render
+        visualization/test_render.cpp)
+endif()
+
 if(TARGET jyppx::liuding::sdk)
 jyppx_add_gtest(jyppx_test_optim
     optim/test_extreme_params.cpp

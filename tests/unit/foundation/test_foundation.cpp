@@ -255,11 +255,11 @@ TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
 
 TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
   const auto manifest = jyppx::liuding::current_capability_manifest();
-  ASSERT_EQ(manifest.features.size(), 12U);
+  ASSERT_EQ(manifest.features.size(), 13U);
   EXPECT_EQ(manifest.build.jyppx_version, jyppx::liuding::version());
   EXPECT_EQ(manifest.features.front().feature_id, "jyppx.component.core");
 
-  const std::array<std::pair<std::string_view, bool>, 12U> expected_components{{
+  const std::array<std::pair<std::string_view, bool>, 13U> expected_components{{
       {"core", JYPPX_LIUDING_COMPONENT_CORE_ENABLED != 0},
       {"data", JYPPX_LIUDING_COMPONENT_DATA_ENABLED != 0},
       {"data_image", JYPPX_LIUDING_COMPONENT_DATA_IMAGE_ENABLED != 0},
@@ -272,13 +272,15 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
       {"quantization", JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED != 0},
       {"serving", JYPPX_LIUDING_COMPONENT_SERVING_ENABLED != 0},
       {"training", JYPPX_LIUDING_COMPONENT_TRAINING_ENABLED != 0},
+      {"vision_render", JYPPX_LIUDING_COMPONENT_VISION_RENDER_ENABLED != 0},
   }};
   for (std::size_t index = 0; index < expected_components.size(); ++index) {
     const auto& [component, enabled] = expected_components[index];
     const auto& feature = manifest.features[index];
     EXPECT_EQ(feature.feature_id, "jyppx.component." + std::string(component));
     const bool preview = component == "models" || component == "quantization" ||
-                         component == "serving" || component == "data_image";
+                         component == "serving" || component == "data_image" ||
+                         component == "vision_render";
     EXPECT_EQ(feature.status,
               enabled
                   ? (preview ? jyppx::liuding::CapabilityStatus::experimental
