@@ -751,7 +751,19 @@ if(JYPPX_LIUDING_BUILD_CORE AND JYPPX_LIUDING_BUILD_INTEROP AND JYPPX_LIUDING_BU
             $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>
         )
     endforeach()
-    target_link_libraries(jyppx_liuding_sdk INTERFACE jyppx_liuding_all)
+    # The SDK is the stable eight-component Core profile.  Do not route it
+    # through `all`: that aggregate intentionally includes every component
+    # enabled in the build, including independent Preview components such as
+    # models, quantization, and serving.
+    target_link_libraries(jyppx_liuding_sdk INTERFACE
+        jyppx_liuding_foundation
+        jyppx_liuding_core
+        jyppx_liuding_interop
+        jyppx_liuding_data
+        jyppx_liuding_nn
+        jyppx_liuding_optim
+        jyppx_liuding_training
+        jyppx_liuding_experiment)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_sdk)
     list(APPEND JYPPX_ENABLED_COMPONENTS sdk)
 endif()

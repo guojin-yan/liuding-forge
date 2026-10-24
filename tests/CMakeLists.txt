@@ -410,15 +410,21 @@ set_tests_properties(OptionalComponentMatrix PROPERTIES
 endif()
 
 
-# Preview consumers are independent of the stable SDK aggregate.
-foreach(preview_component IN ITEMS models quantization serving)
+# Exercise the SDK and independent Preview consumers from installed artifacts.
+foreach(preview_component IN ITEMS sdk models quantization serving)
     if(TARGET jyppx::liuding::${preview_component})
-        if(preview_component STREQUAL "models")
+        set(consumer_labels "${preview_component};packaging")
+        if(preview_component STREQUAL "sdk")
+            set(preview_test_name SdkInstallConsumer)
+        elseif(preview_component STREQUAL "models")
             set(preview_test_name ModelsInstallConsumer)
         elseif(preview_component STREQUAL "quantization")
             set(preview_test_name QuantizationInstallConsumer)
         else()
             set(preview_test_name ServingInstallConsumer)
+        endif()
+        if(NOT preview_component STREQUAL "sdk")
+            string(APPEND consumer_labels ";preview")
         endif()
         add_test(
             NAME ${preview_test_name}
@@ -438,7 +444,7 @@ foreach(preview_component IN ITEMS models quantization serving)
                 -P ${CMAKE_SOURCE_DIR}/cmake/TestInstalledTargets.cmake
         )
         set_tests_properties(${preview_test_name} PROPERTIES
-            LABELS "${preview_component};preview;packaging"
+            LABELS "${consumer_labels}"
             RESOURCE_LOCK jyppx_install_consumer
             TIMEOUT 900
         )

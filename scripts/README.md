@@ -10,6 +10,7 @@ Run the commands below from the repository root. Python script defaults also loc
 | `benchmarks/` | Windows baseline orchestration, CUDA benchmark orchestration, and statistical comparison of measured baseline samples. |
 | `interop/` | Official safetensors interoperability qualification and ONNX environment probes, with the qualification dependency lock and provenance. |
 | `release/` | Offline candidate preparation, installed-file inventory, evidence and dependency bindings, and independent release verification. |
+| `datasets/` | 显式下载 MNIST、核对 SHA-256 并有界解压到仓库外的数据根；见 [MNIST 示例](../examples/mnist/README.md)。 |
 
 [Resource baseline sampling](benchmarks/RESOURCE_BASELINE.md) covers stable storage/checkpoint/telemetry and the three optional Previews in independent processes, using existing Release binaries after chapter-level validation.
 

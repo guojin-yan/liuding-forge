@@ -13,6 +13,25 @@ add_executable(jyppx_mnist mnist/mnist.cpp)
 set_target_properties(jyppx_mnist PROPERTIES
     OUTPUT_NAME liuding-forge-example-mnist)
 target_link_libraries(jyppx_mnist PRIVATE jyppx::liuding::sdk)
+if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND)
+    add_test(NAME MnistDataPreparation
+        COMMAND ${Python3_EXECUTABLE}
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_prepare_mnist.py")
+    add_test(NAME MnistExampleOffline
+        COMMAND ${Python3_EXECUTABLE}
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_mnist_example.py"
+            --binary $<TARGET_FILE:jyppx_mnist>)
+    set_tests_properties(MnistDataPreparation MnistExampleOffline PROPERTIES
+        LABELS "examples;data;training" TIMEOUT 180)
+    if(JYPPX_LIUDING_TEST_CLI_CUDA)
+        add_test(NAME MnistExampleOfflineCUDA
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_mnist_example.py"
+                --binary $<TARGET_FILE:jyppx_mnist> --device cuda)
+        set_tests_properties(MnistExampleOfflineCUDA PROPERTIES
+            LABELS "examples;data;training;cuda" TIMEOUT 180)
+    endif()
+endif()
 
 add_executable(jyppx_distillation distillation.cpp)
 set_target_properties(jyppx_distillation PROPERTIES

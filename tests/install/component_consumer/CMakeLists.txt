@@ -14,6 +14,20 @@ if(NOT JYPPX_CONSUMER_COMPONENT IN_LIST JYPPX_SUPPORTED_COMPONENTS)
 endif()
 
 find_package(jyppx CONFIG REQUIRED COMPONENTS ${JYPPX_CONSUMER_COMPONENT})
+if(TARGET jyppx::liuding::sdk)
+    # Even when Preview components are installed, SDK consumers must link
+    # exactly the eight Core components, without the `all` aggregate.
+    set(expected_sdk_links)
+    foreach(component IN ITEMS foundation core interop data nn optim training experiment)
+        list(APPEND expected_sdk_links jyppx::liuding::${component})
+    endforeach()
+    get_target_property(actual_sdk_links jyppx::liuding::sdk INTERFACE_LINK_LIBRARIES)
+    list(SORT expected_sdk_links)
+    list(SORT actual_sdk_links)
+    if(NOT actual_sdk_links STREQUAL expected_sdk_links)
+        message(FATAL_ERROR "Installed SDK must link exactly eight Core components: ${actual_sdk_links}")
+    endif()
+endif()
 if(NOT jyppx_${JYPPX_CONSUMER_COMPONENT}_FOUND)
     message(FATAL_ERROR
         "Installed package did not satisfy component ${JYPPX_CONSUMER_COMPONENT}")

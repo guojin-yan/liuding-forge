@@ -74,6 +74,13 @@ set(retired_placeholder_paths
     src/jyppx/liuding/distributed/distributed.cpp
 )
 foreach(path IN LISTS tracked_files)
+    if(path MATCHES "^(include|src|examples|tests|tools)/.*[.](cpp|cc|cxx|hpp|h)$")
+        file(READ "${source_root}/${path}" source_header LIMIT 1024)
+        if(NOT source_header MATCHES "Product: 六丁炼算 [(]Liuding Forge[)]" OR
+           NOT source_header MATCHES "Project alias: JYPPX Training Framework")
+            list(APPEND violations "missing product/project alias in source header: ${path}")
+        endif()
+    endif()
     list(FIND retired_placeholder_paths "${path}" retired_placeholder_index)
     if(NOT retired_placeholder_index EQUAL -1)
         list(APPEND violations

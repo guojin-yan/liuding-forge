@@ -1,3 +1,10 @@
+// Copyright 2026 JYPPX Training Framework Contributors
+// Product: 六丁炼算 (Liuding Forge)
+// Project alias: JYPPX Training Framework
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
 // Knowledge distillation example (Phase 5): trains a wide teacher through the
 // Trainer, then distills it into a narrow student with a combined objective
 //   L = hard_weight * CE(student, targets)
