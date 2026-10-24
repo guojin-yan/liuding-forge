@@ -222,9 +222,8 @@ struct DataPipelineOptions {
       0};  ///< Positive worker wait deadline; zero disables timeout.
   BatchMemoryOptions
       memory;  ///< Optional bounded host-pinning and device-transfer stage.
-  std::optional<BatchConsumerTransform>
-      consumer_transform = std::nullopt;  ///< Optional post-transfer, precommit
-                                          ///< consumer stage.
+  std::optional<BatchConsumerTransform> consumer_transform = std::nullopt;
+  ///< Optional post-transfer, precommit consumer stage.
 };
 
 /**

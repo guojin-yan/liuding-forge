@@ -46,9 +46,8 @@ struct IterableDataPipelineOptions {
       memory;  ///< Optional bounded host-pinning and device-transfer stage.
   bool deterministic_batch_factory =
       true;  ///< Whether collator replay is stable.
-  std::optional<BatchConsumerTransform>
-      consumer_transform = std::nullopt;  ///< Optional post-transfer, precommit
-                                          ///< consumer stage.
+  std::optional<BatchConsumerTransform> consumer_transform = std::nullopt;
+  ///< Optional post-transfer, precommit consumer stage.
 };
 
 /**
