@@ -4,7 +4,7 @@
 
 ## 像素语义
 
-`read_image_file` 和 `decode_image` 返回拥有像素存储的 `DecodedImage`，其中 `pixels` 明确记录 dtype、CHW/HWC 布局、灰度/RGB/带 alpha 的通道含义以及数值编码范围。16 位 PNG 保留 uint16；选择 `float32_normalized` 时，输出 float32，范围语义为 `[0,1]`。解码器不执行 EXIF 定向或 ICC 色彩管理，RGB 只表示通道顺序。
+`read_image_file` 和 `decode_image` 返回拥有像素存储的 `DecodedImage`，其中 `pixels` 明确记录 dtype、CHW/HWC 布局、灰度/RGB/带 alpha 的通道含义以及数值编码范围。16 位 PNG 保留 uint16；选择 `float32_normalized` 时，输出 float32，范围语义为 `[0,1]`。解码器不执行 EXIF 定向或 ICC 色彩管理，RGB 只表示通道顺序。Apple CgBI PNG 尚未支持，会明确报错。
 
 ```cpp
 #include <jyppx/liuding/data_image/image_decoder.hpp>

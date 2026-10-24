@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 #include <iterator>
 #include <stop_token>
+#include <string>
 #include <vector>
 
 namespace {
@@ -117,6 +118,18 @@ TEST(ImageDecoderTest, RejectsUnknownLayoutAndScalarPoliciesBeforeDecode) {
   options = {};
   options.dtype = static_cast<ImageDtype>(255);
   EXPECT_THROW(decode_image(bytes, options), jyppx::liuding::InvalidArgument);
+}
+
+TEST(ImageDecoderTest, RejectsAppleCgbiInsteadOfMislabelingPremultipliedBgra) {
+  const auto bytes = ReadFixture("cgbi.png");
+  EXPECT_EQ(detect_image_format(bytes), ImageFormat::png);
+  try {
+    static_cast<void>(decode_image(bytes));
+    FAIL() << "CgBI pixels must not be published with ordinary RGB semantics";
+  } catch (const jyppx::liuding::SerializationError& error) {
+    EXPECT_EQ(error.details().operation, "decode.png.header");
+    EXPECT_NE(error.details().actual.find("CgBI"), std::string::npos);
+  }
 }
 
 TEST(ImageDecoderTest, FileReaderUsesSameBoundedPathEntryPoint) {

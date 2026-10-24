@@ -278,6 +278,14 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
 
   const auto detected = detect_image_format(bytes);
   CheckFormat(options.format, detected);
+  if (detected == ImageFormat::png) {
+    constexpr std::array<unsigned char, 8> kIhdr{0,   0,   0,   13,
+                                                 'I', 'H', 'D', 'R'};
+    if (bytes.size() < 33U ||
+        std::memcmp(bytes.data() + 8U, kIhdr.data(), kIhdr.size()) != 0)
+      Malformed("decode.png.header",
+                "expected a standard PNG IHDR; Apple CgBI PNG is unsupported");
+  }
   if (detected == ImageFormat::hdr || options.format == ImageFormat::hdr ||
       options.format == ImageFormat::pic)
     Malformed("decode.format", "HDR/PIC require a separate scalar contract");

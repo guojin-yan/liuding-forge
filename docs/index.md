@@ -1,12 +1,8 @@
-# 六丁炼算（Liuding Forge）Documentation
+# 六丁炼算（Liuding Forge）文档
 
-Liuding Forge (historical name: JYPPX Training Framework) is a C++20 deep-learning training framework on top of LibTorch. It fills the gap between LibTorch's tensor primitives and the training experience PyTorch users know: data loaders, optimizers, schedulers, metrics, callbacks, checkpointing and mixed precision.
+六丁炼算（Liuding Forge）是基于 LibTorch 的 C++20 深度学习训练框架，提供数据管线、优化器、调度器、指标、回调、检查点和混合精度等训练基础能力。
 
-The `jyppx` namespace, `include/jyppx` headers, `jyppx::liuding::` CMake targets,
-`find_package(jyppx)`, and protocol fields such as `jyppx_version` and
-`jyppx.model_bundle` are compatibility contracts. They remain unchanged while
-the public brand and generated artifact prefix use `Liuding Forge` and
-`liuding-forge`.
+使用 `<jyppx/liuding/...>` 引入公共头文件，通过 `jyppx::liuding` 访问 C++ API。安装后用 `find_package(jyppx CONFIG REQUIRED COMPONENTS ...)` 选择组件，并链接对应的 `jyppx::liuding::<component>` 目标。
 
 - Slogan: *Bridge PyTorch to C++, Empower Your Training*
 - License: Apache-2.0
@@ -79,6 +75,7 @@ the public brand and generated artifact prefix use `Liuding Forge` and
   model topology, bounded raw tensor state, strict preflight, and atomic restore
 - [Data](api/data.md) — datasets, subset/concat/split, map/iterable pipelines,
   samplers, structured batches, workers, and capability descriptors
+- [图像数据与坐标追踪](api/data_image.md) — 图片解码、显式像素语义、配对图像元数据及 resize/crop/pad/flip 的有效域与坐标还原
 - [Optimizers and Schedulers](api/optim.md) — SGD, Adam, AdamW, RMSprop,
   Adagrad, NAdam, Adadelta and LAMB; descriptor-first schedulers including
   warmup and composite schedulers
