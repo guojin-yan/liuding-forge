@@ -32,7 +32,8 @@ class ConcatDataset : public Dataset<T> {
   /**
    * @brief Creates a concatenated view in caller-provided order.
    * @param datasets Non-empty collection of non-null datasets.
-   * @throws jyppx::liuding::InvalidArgument The collection is empty or contains null.
+   * @throws jyppx::liuding::InvalidArgument The collection is empty or contains
+   * null.
    */
   explicit ConcatDataset(std::vector<std::shared_ptr<Dataset<T>>> datasets)
       : datasets_(std::move(datasets)) {
@@ -58,7 +59,8 @@ class ConcatDataset : public Dataset<T> {
    * @brief Resolves and returns one logical sample.
    * @param index Zero-based index in the concatenated view.
    * @return Sample from the owning child dataset.
-   * @throws jyppx::liuding::InvalidArgument The index is outside the combined range.
+   * @throws jyppx::liuding::InvalidArgument The index is outside the combined
+   * range.
    */
   T get(size_t index) const override {
     const auto [dataset, local_index] = locate(index);
@@ -84,7 +86,8 @@ class ConcatDataset : public Dataset<T> {
    * @brief Maps a concatenated index to a child dataset and local index.
    * @param index Zero-based index in the concatenated view.
    * @return Child dataset handle and its local index.
-   * @throws jyppx::liuding::InvalidArgument The index is outside the combined range.
+   * @throws jyppx::liuding::InvalidArgument The index is outside the combined
+   * range.
    */
   std::pair<std::shared_ptr<Dataset<T>>, size_t> locate(size_t index) const {
     if (index >= size()) {

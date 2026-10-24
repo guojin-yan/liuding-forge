@@ -44,7 +44,8 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
       torch::randn({static_cast<std::int64_t>(samples), 3, 32, 32});
   const auto targets = torch::randn({static_cast<std::int64_t>(samples), 10});
   auto pipeline = std::make_shared<jyppx::liuding::data::DataPipeline>(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(samples),
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
+          samples),
       jyppx::liuding::data::DataPipelineOptions{
           .pipeline_id = "data.benchmark",
           .dataset_version = "benchmark.random/v1",
@@ -52,7 +53,8 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
           .batch_factory_id = "benchmark.tensor-slice/v1",
           .batch_size = batch_size},
       [data, targets](std::span<const std::size_t> indices,
-                      const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
+                      const jyppx::liuding::data::DataWorkerContext&,
+                      std::stop_token) {
         std::vector<std::int64_t> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {
@@ -71,10 +73,11 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
     bindings.push_back({.parameter_id = item.key(), .parameter = item.value()});
   }
   auto optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-      "optimizer.benchmark", std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-                                 {.group_id = "main",
-                                  .parameters = std::move(bindings),
-                                  .options = {.learning_rate = 1e-3}}});
+      "optimizer.benchmark",
+      std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+          {.group_id = "main",
+           .parameters = std::move(bindings),
+           .options = {.learning_rate = 1e-3}}});
   const auto mapper = [](const jyppx::liuding::data::BatchEnvelope& batch) {
     return jyppx::liuding::nn::Invocation{
         .positional = {batch.value.toTuple()->elements().at(0)}};
@@ -91,26 +94,29 @@ double run_configuration(std::size_t batch_size, std::uint64_t epochs,
         .sample_count = input.batch.sample_ids.size()};
   };
   jyppx::liuding::training::Trainer trainer({.trainer_id = "trainer.benchmark",
-                                    .run_id = "run.benchmark",
-                                    .trace_id = "trace.benchmark",
-                                    .max_epochs = epochs});
+                                             .run_id = "run.benchmark",
+                                             .trace_id = "trace.benchmark",
+                                             .max_epochs = epochs});
   trainer.prepare(
       {.model = model,
-       .optimizers = {{.optimizer = optimizer,
-                       .checkpoint = std::make_shared<
-                           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-                           optimizer)}},
+       .optimizers =
+           {{.optimizer = optimizer,
+             .checkpoint = std::make_shared<
+                 jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+                 optimizer)}},
        .training_data = pipeline,
        .training_batch_mapper = mapper,
        .training_target_mapper = target,
        .training_step = step,
-       .strategy = std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>(),
+       .strategy =
+           std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>(),
        .model_checkpoint =
-           std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(*model),
+           std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(
+               *model),
        .rng_checkpoint =
            std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
-               jyppx::liuding::core::RngCheckpointParticipantOptions{.include_cuda =
-                                                                false})});
+               jyppx::liuding::core::RngCheckpointParticipantOptions{
+                   .include_cuda = false})});
   const auto start = std::chrono::steady_clock::now();
   static_cast<void>(trainer.fit());
   const auto elapsed =

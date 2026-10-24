@@ -47,8 +47,8 @@ std::int64_t measure_label_smoothing() {
       torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   const auto target = torch::randint(0, 32, {64}, torch::kLong);
   return measure(logits, [&](const torch::Tensor& value) {
-    return jyppx::liuding::nn::functional::label_smoothing_cross_entropy(value, target,
-                                                                0.1, "mean");
+    return jyppx::liuding::nn::functional::label_smoothing_cross_entropy(
+        value, target, 0.1, "mean");
   });
 }
 
@@ -59,7 +59,8 @@ std::int64_t measure_focal() {
       torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   const auto target = torch::randint(0, 2, {64, 32}, torch::kFloat32);
   return measure(logits, [&](const torch::Tensor& value) {
-    return jyppx::liuding::nn::functional::focal_loss(value, target, 0.25, 2.0, "mean");
+    return jyppx::liuding::nn::functional::focal_loss(value, target, 0.25, 2.0,
+                                                      "mean");
   });
 }
 
@@ -85,8 +86,8 @@ std::int64_t measure_contrastive() {
   const auto x2 = torch::randn({128, 64}, torch::kFloat32);
   const auto target = torch::randint(0, 2, {128}, torch::kLong);
   return measure(x1, [&](const torch::Tensor& value) {
-    return jyppx::liuding::nn::functional::contrastive_loss(value, x2, target, 1.0,
-                                                   "mean");
+    return jyppx::liuding::nn::functional::contrastive_loss(value, x2, target,
+                                                            1.0, "mean");
   });
 }
 

@@ -317,7 +317,8 @@ TEST(AverageMeterTest, RejectsCountAndWeightedSumOverflow) {
 TEST(AverageMeterTest, RejectsUndefinedEmptyAndComplexTensors) {
   AverageMeter meter;
   EXPECT_THROW(meter.update(Tensor{}), jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(meter.update(torch::empty({0})), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(meter.update(torch::empty({0})),
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(meter.update(torch::ones({1}, torch::kComplexFloat)),
                jyppx::liuding::InvalidArgument);
   EXPECT_EQ(meter.count(), 0);
@@ -359,7 +360,8 @@ TEST(MetricCollectionTest, UpdatesAndComputesAllMetrics) {
 TEST(MetricCollectionTest, RejectsDuplicateAndUnknownNames) {
   MetricCollection collection;
   collection.add(std::make_shared<MSE>());
-  EXPECT_THROW(collection.add(std::make_shared<MSE>()), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(collection.add(std::make_shared<MSE>()),
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(collection.add(nullptr), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(collection.add(std::make_shared<EmptyNameMetric>()),
                jyppx::liuding::InvalidArgument);

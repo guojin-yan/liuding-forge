@@ -50,25 +50,26 @@ int main(int argc, char** argv) {
       }
     q::QuantizedLinearArtifact artifact;
     auto& metrics = sample["metrics"];
-    metrics["calibration_conversion_seconds"] =
-        metric(seconds([&] {
-                 const auto data_bytes = std::as_bytes(std::span(data));
-                 q::CalibrationSession calibration(
-                     {.dataset_version = "resource-linear/v1",
-                      .dataset_digest = {.hex = jyppx::liuding::sha256_hex(data_bytes)},
-                      .preprocessing_fingerprint = "fixed-fp32-divide8/v1",
-                      .seed = 20261021});
-                 calibration.observe("sample-1",
-                                     std::span(data).first(data.size() / 2));
-                 calibration.observe("sample-2",
-                                     std::span(data).subspan(data.size() / 2));
-                 artifact = q::quantize_linear({.in_features = inputs,
-                                                .out_features = outputs,
-                                                .weights = weights,
-                                                .bias = bias},
-                                               calibration.finalize());
-               }),
-               "seconds", "lower", false);
+    metrics["calibration_conversion_seconds"] = metric(
+        seconds([&] {
+          const auto data_bytes = std::as_bytes(std::span(data));
+          q::CalibrationSession calibration(
+              {.dataset_version = "resource-linear/v1",
+               .dataset_digest = {.hex =
+                                      jyppx::liuding::sha256_hex(data_bytes)},
+               .preprocessing_fingerprint = "fixed-fp32-divide8/v1",
+               .seed = 20261021});
+          calibration.observe("sample-1",
+                              std::span(data).first(data.size() / 2));
+          calibration.observe("sample-2",
+                              std::span(data).subspan(data.size() / 2));
+          artifact = q::quantize_linear({.in_features = inputs,
+                                         .out_features = outputs,
+                                         .weights = weights,
+                                         .bias = bias},
+                                        calibration.finalize());
+        }),
+        "seconds", "lower", false);
     std::vector<std::byte> encoded;
     metrics["serialization_seconds"] =
         metric(seconds([&] {

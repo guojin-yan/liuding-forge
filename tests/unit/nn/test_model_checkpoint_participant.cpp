@@ -32,11 +32,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
       throw jyppx::liuding::SerializationError("unknown model test field");
     }
@@ -213,8 +213,9 @@ TEST(ModelCheckpointParticipantTest,
               source_manifest.fields[index].max_bytes);
   }
 
-  EXPECT_THROW(target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(alternate->branch->weight, before_weight));
   EXPECT_TRUE(torch::equal(alternate->shiftx, before_shift));
 }
@@ -228,14 +229,16 @@ TEST(ModelCheckpointParticipantTest,
   const auto before = model->linear->weight.detach().clone();
 
   store.mutable_blob("topology").front() = std::byte{'X'};
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(model->linear->weight, before));
 
   store = save_participant(participant);
   store.mutable_blob("tensor.0000000000").pop_back();
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(model->linear->weight, before));
 }
 
@@ -248,14 +251,16 @@ TEST(ModelCheckpointParticipantTest,
   const auto before = model->mask.clone();
 
   store.mutable_blob("tensor.0000000003").front() = std::byte{2};
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_TRUE(torch::equal(model->mask, before));
 
   store = save_participant(participant);
   store.mutable_manifest().schema_version = 2;
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(torch::equal(model->mask, before));
 }
 
@@ -279,11 +284,11 @@ TEST(ModelCheckpointParticipantTest,
 TEST(ModelCheckpointParticipantTest,
      EnforcesOptionsAndRejectsUnsupportedModelState) {
   auto model = std::make_shared<ProbeModelImpl>();
-  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(state_for(model),
-                                                     {.max_tensors = 2}),
+  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(
+                   state_for(model), {.max_tensors = 2}),
                jyppx::liuding::ResourceExhausted);
-  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(state_for(model),
-                                                     {.max_tensors = 0}),
+  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(
+                   state_for(model), {.max_tensors = 0}),
                jyppx::liuding::InvalidArgument);
   EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(
                    state_for(std::make_shared<EmptyModelImpl>())),
@@ -314,9 +319,9 @@ TEST(ModelCheckpointParticipantTest,
   ASSERT_FALSE(lifetime.expired());
   const auto store = save_participant(participant);
 
-  EXPECT_THROW(
-      participant.load_state(store, static_cast<jyppx::liuding::RestorePolicy>(255)),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(participant.load_state(
+                   store, static_cast<jyppx::liuding::RestorePolicy>(255)),
+               jyppx::liuding::CompatibilityError);
 }
 
 }  // namespace

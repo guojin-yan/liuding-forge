@@ -97,16 +97,19 @@ double train_student(const std::shared_ptr<Mlp>& teacher, bool distill,
 
   torch::manual_seed(2026);
   auto student = std::make_shared<Mlp>(1, 8);
-  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> student_bindings;
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding>
+      student_bindings;
   for (const auto& item : student->named_parameters()) {
     student_bindings.push_back(
         {.parameter_id = item.key(), .parameter = item.value()});
   }
-  auto optimizer = std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
-      "student.adam", std::vector<jyppx::liuding::optim::AdamParameterGroup>{
-                          {.group_id = "main",
-                           .parameters = std::move(student_bindings),
-                           .options = {.learning_rate = 3e-3}}});
+  auto optimizer =
+      std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
+          "student.adam",
+          std::vector<jyppx::liuding::optim::AdamParameterGroup>{
+              {.group_id = "main",
+               .parameters = std::move(student_bindings),
+               .options = {.learning_rate = 3e-3}}});
 
   std::vector<int64_t> order(train_x.size(0));
   std::iota(order.begin(), order.end(), 0);
@@ -155,17 +158,19 @@ int main() {
 
     // ---- Teacher: wide model, all 800 labeled samples -------------------
     auto teacher = std::make_shared<Mlp>(3, 96);
-    std::vector<jyppx::liuding::optim::OptimizerParameterBinding> teacher_bindings;
+    std::vector<jyppx::liuding::optim::OptimizerParameterBinding>
+        teacher_bindings;
     for (const auto& item : teacher->named_parameters()) {
       teacher_bindings.push_back(
           {.parameter_id = item.key(), .parameter = item.value()});
     }
     auto teacher_optimizer =
         std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
-            "teacher.adam", std::vector<jyppx::liuding::optim::AdamParameterGroup>{
-                                {.group_id = "main",
-                                 .parameters = std::move(teacher_bindings),
-                                 .options = {.learning_rate = 3e-3}}});
+            "teacher.adam",
+            std::vector<jyppx::liuding::optim::AdamParameterGroup>{
+                {.group_id = "main",
+                 .parameters = std::move(teacher_bindings),
+                 .options = {.learning_rate = 3e-3}}});
     for (int epoch = 0; epoch < 40; ++epoch) {
       teacher_optimizer->zero_grad();
       const auto teacher_loss =

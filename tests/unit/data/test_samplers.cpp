@@ -5,8 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-// Unit tests for jyppx::liuding::data samplers: SequentialSampler, RandomSampler and
-// BatchSampler.
+// Unit tests for jyppx::liuding::data samplers: SequentialSampler,
+// RandomSampler and BatchSampler.
 
 #include <jyppx/liuding/data/samplers/batch_sampler.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
@@ -98,9 +98,11 @@ TEST(BatchSamplerTest, ExactMultipleHasNoRemainder) {
 }
 
 TEST(BatchSamplerTest, RejectsNullSamplerAndZeroBatchSize) {
-  EXPECT_THROW(samplers::BatchSampler(nullptr, 1), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(samplers::BatchSampler(nullptr, 1),
+               jyppx::liuding::InvalidArgument);
   auto base = std::make_shared<samplers::SequentialSampler>(8);
-  EXPECT_THROW(samplers::BatchSampler(base, 0), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(samplers::BatchSampler(base, 0),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(BatchSamplerTest, CountsMaximumPopulationWithoutOverflow) {

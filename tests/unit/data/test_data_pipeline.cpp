@@ -34,9 +34,11 @@
 
 namespace {
 
-class TensorRowsDataset final : public jyppx::liuding::data::Dataset<jyppx::liuding::Tensor> {
+class TensorRowsDataset final
+    : public jyppx::liuding::data::Dataset<jyppx::liuding::Tensor> {
  public:
-  explicit TensorRowsDataset(jyppx::liuding::Tensor rows) : rows_(std::move(rows)) {}
+  explicit TensorRowsDataset(jyppx::liuding::Tensor rows)
+      : rows_(std::move(rows)) {}
 
   jyppx::liuding::Tensor get(std::size_t index) const override {
     return rows_[static_cast<std::int64_t>(index)];
@@ -60,11 +62,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes) {
       throw std::runtime_error("invalid DataPipeline state field");
     }
@@ -121,7 +123,9 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
   /** @brief Returns a mutable manifest for compatibility-negative tests. */
-  jyppx::liuding::StateManifest& mutable_manifest() noexcept { return manifest_; }
+  jyppx::liuding::StateManifest& mutable_manifest() noexcept {
+    return manifest_;
+  }
 
   /**
    * @brief Replaces one same-length ASCII fragment in a stored field.
@@ -161,7 +165,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Manifest enforced by this store.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Manifest enforced by this store.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Stored participant fields.
 };
@@ -243,7 +248,8 @@ std::shared_ptr<TensorRowsDataset> make_dataset() {
 jyppx::liuding::data::DataBatchFactory make_factory(
     const std::shared_ptr<TensorRowsDataset>& dataset) {
   return [dataset](std::span<const std::size_t> indices,
-                   const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
+                   const jyppx::liuding::data::DataWorkerContext&,
+                   std::stop_token) {
     std::vector<jyppx::liuding::Tensor> rows;
     rows.reserve(indices.size());
     for (const auto index : indices) {
@@ -253,7 +259,8 @@ jyppx::liuding::data::DataBatchFactory make_factory(
   };
 }
 
-MemoryStateStore save_state(const jyppx::liuding::data::DataPipeline& pipeline) {
+MemoryStateStore save_state(
+    const jyppx::liuding::data::DataPipeline& pipeline) {
   MemoryStateStore store(pipeline.describe_state());
   pipeline.save_state(store);
   return store;
@@ -327,9 +334,9 @@ MemoryStateStore load_canonical_schema_v3_fixture() {
                   .required = true}},
       .degradation_reasons = {},
   });
-  const auto fixture_dir = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
-                           "checkpoint" /
-                           "data_pipeline_schema_v3_libtorch_2.5.1";
+  const auto fixture_dir =
+      std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "checkpoint" /
+      "data_pipeline_schema_v3_libtorch_2.5.1";
   for (const auto& field : fixture.manifest().fields) {
     fixture.write_blob(
         field.name,
@@ -507,15 +514,15 @@ TEST(DataPipelineCheckpointTest,
       make_worker_options("data.pipeline.fixture", 3U, 3U, true);
 
   jyppx::liuding::data::DataPipeline uninterrupted(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
-      factory);
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options, factory);
   uninterrupted.set_epoch(8U);
   ASSERT_TRUE(uninterrupted.next().has_value());
   const auto expected = consume_worker_pipeline(uninterrupted);
 
   jyppx::liuding::data::DataPipeline restored(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
-      factory);
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options, factory);
   const auto fixture = load_canonical_schema_v3_fixture();
   restored.load_state(fixture, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(restored.state().version,
@@ -547,32 +554,35 @@ TEST(DataPipelineCheckpointTest,
   const auto options =
       make_worker_options("data.pipeline.fixture", 3U, 3U, true);
   jyppx::liuding::data::DataPipeline target(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
-      factory);
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options, factory);
   target.set_epoch(11U);
   ASSERT_TRUE(target.next().has_value());
   const auto before = target.state();
 
   auto obsolete = load_canonical_schema_v3_fixture();
   obsolete.mutable_manifest().schema_version = 2U;
-  EXPECT_THROW(target.load_state(obsolete, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(obsolete, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
 
   auto future = load_canonical_schema_v3_fixture();
   future.mutable_manifest().schema_version =
       jyppx::liuding::data::DataPipelineState::format_version + 1U;
-  EXPECT_THROW(target.load_state(future, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(future, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
 
   auto relabelled = load_canonical_schema_v3_fixture();
   relabelled.mutable_manifest().fields.front().media_type =
       "application/vnd.jyppx.relabelled";
-  EXPECT_THROW(target.load_state(relabelled, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(relabelled, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
 }
@@ -586,28 +596,29 @@ TEST(DataPipelineCheckpointTest,
   };
   auto options = make_worker_options("data.pipeline.fixture", 3U, 3U, true);
   jyppx::liuding::data::DataPipeline target(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
-      factory);
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options, factory);
   target.set_epoch(12U);
   const auto before = target.state();
 
   auto mismatched_id = load_canonical_schema_v3_fixture();
   mismatched_id.replace_ascii("topology", "worker.batch/v1", "worker.other/v1");
-  EXPECT_THROW(
-      target.load_state(mismatched_id, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(target.load_state(mismatched_id,
+                                 jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
 
   options.schema = jyppx::liuding::data::BatchSchema::tensor("worker.batch");
   jyppx::liuding::data::DataPipeline structured(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
-      factory);
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options, factory);
   structured.set_epoch(13U);
   const auto structured_before = structured.state();
   const auto fixture = load_canonical_schema_v3_fixture();
-  EXPECT_THROW(structured.load_state(fixture, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      structured.load_state(fixture, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(structured.state().epoch, structured_before.epoch);
   EXPECT_EQ(structured.state().next_cursor, structured_before.next_cursor);
 }
@@ -624,7 +635,8 @@ TEST(DataPipelineTest, FactoryFailureDoesNotAdvanceCursor) {
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       [&fail, dataset](std::span<const std::size_t> indices,
-                       const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
+                       const jyppx::liuding::data::DataWorkerContext&,
+                       std::stop_token) {
         if (fail) {
           fail = false;
           throw std::runtime_error("factory failure");
@@ -750,8 +762,10 @@ TEST(DataPipelineTest, PublishesStructuredCrossDomainCapability) {
   EXPECT_EQ(descriptor.feature_id, "jyppx.data.pipeline.map");
   EXPECT_EQ(descriptor.scope_id, "data.pipeline.capability");
   EXPECT_EQ(descriptor.status, jyppx::liuding::CapabilityStatus::available);
-  EXPECT_EQ(descriptor.implementation, jyppx::liuding::CapabilityImplementation::native);
-  EXPECT_EQ(descriptor.source, jyppx::liuding::CapabilitySource::configured_instance);
+  EXPECT_EQ(descriptor.implementation,
+            jyppx::liuding::CapabilityImplementation::native);
+  EXPECT_EQ(descriptor.source,
+            jyppx::liuding::CapabilitySource::configured_instance);
   EXPECT_EQ(descriptor.backend, "libtorch");
   EXPECT_NE(
       std::find(descriptor.dtypes.begin(), descriptor.dtypes.end(), "Float"),
@@ -771,7 +785,8 @@ TEST(DataPipelineTest, PublishesStructuredCrossDomainCapability) {
   EXPECT_EQ(worker_limit->value, 2U);
   EXPECT_EQ(worker_limit->unit, "workers");
 
-  const auto manifest = jyppx::liuding::make_current_capability_manifest({descriptor});
+  const auto manifest =
+      jyppx::liuding::make_current_capability_manifest({descriptor});
   const auto json = jyppx::liuding::capability_manifest_json(manifest);
   EXPECT_NE(json.find("\"feature_id\":\"jyppx.data.pipeline.map\""),
             std::string::npos);
@@ -870,7 +885,8 @@ TEST(DataPipelineTest, RejectsEveryCrossDomainCapabilityInvariant) {
     value.worker_model = jyppx::liuding::data::DataWorkerModel::producer_thread;
   });
   expect_invalid([](auto& value) {
-    value.worker_model = static_cast<jyppx::liuding::data::DataWorkerModel>(255);
+    value.worker_model =
+        static_cast<jyppx::liuding::data::DataWorkerModel>(255);
   });
   expect_invalid([](auto& value) {
     value.worker_shard_policy =
@@ -879,8 +895,9 @@ TEST(DataPipelineTest, RejectsEveryCrossDomainCapabilityInvariant) {
   expect_invalid([](auto& value) {
     value.degradation_reasons = {"unexpected degradation"};
   });
-  expect_invalid(
-      [](auto& value) { value.restore_level = jyppx::liuding::RestoreLevel::bounded; });
+  expect_invalid([](auto& value) {
+    value.restore_level = jyppx::liuding::RestoreLevel::bounded;
+  });
   expect_invalid([](auto& value) {
     value.restore_level = static_cast<jyppx::liuding::RestoreLevel>(255);
     value.degradation_reasons = {"invalid restore level"};
@@ -898,8 +915,9 @@ TEST(DataPipelineTest, RejectsEveryCrossDomainCapabilityInvariant) {
   excessive_metadata.restore_level = jyppx::liuding::RestoreLevel::bounded;
   excessive_metadata.degradation_reasons.assign(
       jyppx::liuding::kMaxCapabilityValues + 1U, "bounded replay");
-  EXPECT_THROW(jyppx::liuding::data::describe_data_capability(excessive_metadata),
-               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(
+      jyppx::liuding::data::describe_data_capability(excessive_metadata),
+      jyppx::liuding::ResourceExhausted);
 }
 
 TEST(DataPipelineTest, PublishesEveryOptionalCrossDomainCapabilityField) {
@@ -918,10 +936,12 @@ TEST(DataPipelineTest, PublishesEveryOptionalCrossDomainCapabilityField) {
   capability.batch_schema.value = jyppx::liuding::ValueSchema::dictionary(
       {{"payload",
         jyppx::liuding::ValueSchema::tuple({jyppx::liuding::ValueSchema::tensor(
-            {.dtype = torch::kFloat32, .device = jyppx::liuding::Device(torch::kCPU)},
+            {.dtype = torch::kFloat32,
+             .device = jyppx::liuding::Device(torch::kCPU)},
             "features")})}});
-  capability.batch_schema_fingerprint = jyppx::liuding::data::batch_schema_fingerprint(
-      capability.batch_schema, capability.schema_limits);
+  capability.batch_schema_fingerprint =
+      jyppx::liuding::data::batch_schema_fingerprint(capability.batch_schema,
+                                                     capability.schema_limits);
   capability.process_workers = true;
   capability.batch_timeout = true;
   capability.memory_stage = true;
@@ -932,7 +952,8 @@ TEST(DataPipelineTest, PublishesEveryOptionalCrossDomainCapabilityField) {
   capability.max_replayed_samples = 4;
   capability.max_omitted_samples = 2;
 
-  const auto descriptor = jyppx::liuding::data::describe_data_capability(capability);
+  const auto descriptor =
+      jyppx::liuding::data::describe_data_capability(capability);
   const auto has_operation = [&descriptor](std::string_view operation) {
     return std::find(descriptor.operations.begin(), descriptor.operations.end(),
                      operation) != descriptor.operations.end();
@@ -975,12 +996,14 @@ TEST(DataPipelineTest, DescribesIterableProducerCapability) {
   auto capability = pipeline.capability();
   capability.map_style = false;
   capability.iterable_style = true;
-  capability.worker_model = jyppx::liuding::data::DataWorkerModel::producer_thread;
+  capability.worker_model =
+      jyppx::liuding::data::DataWorkerModel::producer_thread;
   capability.worker_count = 1;
   capability.worker_shard_policy =
       jyppx::liuding::data::DataWorkerShardPolicy::single_shard;
 
-  const auto descriptor = jyppx::liuding::data::describe_data_capability(capability);
+  const auto descriptor =
+      jyppx::liuding::data::describe_data_capability(capability);
   EXPECT_EQ(descriptor.feature_id, "jyppx.data.pipeline.iterable");
   EXPECT_EQ(descriptor.scope_id, "data.pipeline.capability-iterable");
   EXPECT_NE(std::find(descriptor.operations.begin(),
@@ -1016,8 +1039,9 @@ TEST(DataPipelineCheckpointTest,
        .batch_size = 2},
       factory);
   const auto before = target.state();
-  EXPECT_THROW(target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.state().pipeline_id, before.pipeline_id);
   EXPECT_EQ(target.state().prepared, before.prepared);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
@@ -1049,8 +1073,9 @@ TEST(DataPipelineCheckpointTest,
        .batch_size = 2},
       factory);
   const auto before = target.state();
-  EXPECT_THROW(target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.state().sampler_identity, before.sampler_identity);
   EXPECT_EQ(target.state().prepared, before.prepared);
 }
@@ -1082,8 +1107,9 @@ TEST(DataPipelineCheckpointTest, RejectsCorruptCursorWithoutMutation) {
       factory);
   target.set_epoch(5);
   const auto before = target.state();
-  EXPECT_THROW(target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().epoch_indices, before.epoch_indices);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
@@ -1135,8 +1161,9 @@ TEST(DataPipelineCheckpointTest,
     SCOPED_TRACE(label);
     auto corrupted = saved;
     corrupted.replace_blob("cursor", bytes);
-    EXPECT_THROW(target.load_state(corrupted, jyppx::liuding::RestorePolicy::exact_only),
-                 jyppx::liuding::SerializationError);
+    EXPECT_THROW(
+        target.load_state(corrupted, jyppx::liuding::RestorePolicy::exact_only),
+        jyppx::liuding::SerializationError);
     EXPECT_EQ(save_state(target).blobs(), before);
   }
 
@@ -1144,8 +1171,9 @@ TEST(DataPipelineCheckpointTest,
   auto oversized_cursor = valid_cursor;
   std::fill_n(oversized_cursor.begin(), sizeof(std::uint64_t), std::byte{0xff});
   oversized.replace_blob("cursor", std::move(oversized_cursor));
-  EXPECT_THROW(target.load_state(oversized, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(
+      target.load_state(oversized, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(save_state(target).blobs(), before);
 }
 
@@ -1175,8 +1203,9 @@ TEST(DataPipelineCheckpointTest, RejectsCursorInsideUncommittedBatch) {
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
-  EXPECT_THROW(target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_FALSE(target.state().prepared);
 }
 
@@ -1205,8 +1234,9 @@ TEST(DataPipelineCheckpointTest, RejectsOutOfRangeRestoredSampleId) {
        .batch_factory_id = "factory.tensor-rows/v1",
        .batch_size = 2},
       factory);
-  EXPECT_THROW(target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_FALSE(target.state().prepared);
 }
 
@@ -1271,8 +1301,8 @@ TEST(DataPipelineWorkerTest, AssignsStableRoundRobinBatchShards) {
   auto options = make_worker_options("data.pipeline.worker-shards", 3U, 6U);
   options.dataset_size = 12U;
   jyppx::liuding::data::DataPipeline pipeline(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(12U), options,
-      factory);
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(12U),
+      options, factory);
 
   pipeline.set_epoch(5U);
   const auto capability = pipeline.capability();
@@ -1311,7 +1341,8 @@ TEST(DataPipelineWorkerTest, BoundsTotalPrefetchAndCloseCancelsFactories) {
   EXPECT_EQ(gate.maximum_entered(), 2U);
   EXPECT_THROW(pipeline.next(), jyppx::liuding::NotReady);
   EXPECT_THROW(pipeline.set_epoch(1), jyppx::liuding::NotReady);
-  EXPECT_THROW(static_cast<void>(save_state(pipeline)), jyppx::liuding::NotReady);
+  EXPECT_THROW(static_cast<void>(save_state(pipeline)),
+               jyppx::liuding::NotReady);
 }
 
 TEST(DataPipelineWorkerTest, CheckpointReplaysOnlyUncommittedBatchesExactly) {
@@ -1324,8 +1355,8 @@ TEST(DataPipelineWorkerTest, CheckpointReplaysOnlyUncommittedBatchesExactly) {
   const auto options =
       make_worker_options("data.pipeline.worker-restore", 3, 3);
   jyppx::liuding::data::DataPipeline source(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
-      factory);
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options, factory);
   source.set_epoch(8);
   ASSERT_EQ(source.outstanding_batches(), 3U);
   const auto first = source.next();
@@ -1335,8 +1366,8 @@ TEST(DataPipelineWorkerTest, CheckpointReplaysOnlyUncommittedBatchesExactly) {
   const auto expected = consume_worker_pipeline(source);
 
   jyppx::liuding::data::DataPipeline restored(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
-      factory);
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options, factory);
   restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(restored.state().next_sequence, 1U);
   EXPECT_EQ(consume_worker_pipeline(restored), expected);
@@ -1347,9 +1378,11 @@ TEST(DataPipelineWorkerTest,
   auto options = make_worker_options("data.pipeline.worker-bounded", 2, 4);
   options.deterministic_batch_factory = false;
   jyppx::liuding::data::DataPipeline pipeline(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options,
       [](std::span<const std::size_t>,
-         const jyppx::liuding::data::DataWorkerContext& context, std::stop_token) {
+         const jyppx::liuding::data::DataWorkerContext& context,
+         std::stop_token) {
         return c10::IValue(static_cast<std::int64_t>(context.sequence));
       });
 
@@ -1395,9 +1428,11 @@ TEST(DataPipelineWorkerTest, TimeoutCancelsEpochWithoutAdvancingCursor) {
   auto options = make_worker_options("data.pipeline.worker-timeout", 1, 1);
   options.batch_timeout = std::chrono::milliseconds(20);
   jyppx::liuding::data::DataPipeline pipeline(
-      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6), options,
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
+      options,
       [](std::span<const std::size_t>,
-         const jyppx::liuding::data::DataWorkerContext& context, std::stop_token stop) {
+         const jyppx::liuding::data::DataWorkerContext& context,
+         std::stop_token stop) {
         while (!stop.stop_requested()) {
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -1417,7 +1452,8 @@ TEST(DataPipelineWorkerTest, WorkerFailureIsStructuredAndStopsTheEpoch) {
       std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
       make_worker_options("data.pipeline.worker-error", 2, 2),
       [](std::span<const std::size_t>,
-         const jyppx::liuding::data::DataWorkerContext& context, std::stop_token) {
+         const jyppx::liuding::data::DataWorkerContext& context,
+         std::stop_token) {
         if (context.sequence == 0) {
           throw std::runtime_error("synthetic worker failure");
         }
@@ -1436,7 +1472,8 @@ TEST(DataPipelineWorkerTest, PersistentWorkersAcceptASecondExplicitEpoch) {
       std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6),
       make_worker_options("data.pipeline.worker-persistent", 2, 2, true),
       [&calls](std::span<const std::size_t>,
-               const jyppx::liuding::data::DataWorkerContext& context, std::stop_token) {
+               const jyppx::liuding::data::DataWorkerContext& context,
+               std::stop_token) {
         calls.fetch_add(1, std::memory_order_relaxed);
         return c10::IValue(static_cast<std::int64_t>(context.epoch));
       });
@@ -1474,14 +1511,16 @@ TEST(DataPipelineWorkerTest, RejectsWorkerTopologyMismatchWithoutMutation) {
       target_options, factory);
   target.set_epoch(9);
   const auto before = target.state();
-  EXPECT_THROW(target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
 }
 
 TEST(DataPipelineWorkerTest, RejectsInvalidWorkerOptionsBeforeStarting) {
-  auto sampler = std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6);
+  auto sampler =
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(6);
   auto factory = [](std::span<const std::size_t>,
                     const jyppx::liuding::data::DataWorkerContext& context,
                     std::stop_token) {
@@ -1490,28 +1529,33 @@ TEST(DataPipelineWorkerTest, RejectsInvalidWorkerOptionsBeforeStarting) {
 
   auto missing_identity = make_worker_options("data.pipeline.invalid-id");
   missing_identity.batch_factory_id.clear();
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, missing_identity, factory),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, missing_identity, factory),
+      jyppx::liuding::InvalidArgument);
 
   auto oversized_identity = make_worker_options("data.pipeline.invalid-size");
   oversized_identity.pipeline_id = std::string(4097, 'x');
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, oversized_identity, factory),
-               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, oversized_identity, factory),
+      jyppx::liuding::ResourceExhausted);
 
   auto empty_dataset = make_worker_options("data.pipeline.empty-dataset");
   empty_dataset.dataset_size = 0;
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, empty_dataset, factory),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, empty_dataset, factory),
+      jyppx::liuding::InvalidArgument);
 
   auto empty_batch = make_worker_options("data.pipeline.empty-batch");
   empty_batch.batch_size = 0;
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, empty_batch, factory),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, empty_batch, factory),
+      jyppx::liuding::InvalidArgument);
 
   auto excessive_workers = make_worker_options("data.pipeline.worker-bound");
   excessive_workers.num_workers = 257;
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, excessive_workers, factory),
-               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, excessive_workers, factory),
+      jyppx::liuding::ResourceExhausted);
 
   auto no_workers = make_worker_options("data.pipeline.invalid-persistent");
   no_workers.num_workers = 0;
@@ -1520,30 +1564,35 @@ TEST(DataPipelineWorkerTest, RejectsInvalidWorkerOptionsBeforeStarting) {
 
   auto no_prefetch = make_worker_options("data.pipeline.invalid-prefetch");
   no_prefetch.prefetch_batches = 0;
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, no_prefetch, factory),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, no_prefetch, factory),
+      jyppx::liuding::InvalidArgument);
 
   auto excessive_prefetch = make_worker_options("data.pipeline.prefetch-bound");
   excessive_prefetch.prefetch_batches = 4097;
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, excessive_prefetch, factory),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, excessive_prefetch, factory),
+      jyppx::liuding::InvalidArgument);
 
   auto negative_timeout = make_worker_options("data.pipeline.negative-timeout");
   negative_timeout.batch_timeout = std::chrono::milliseconds(-1);
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, negative_timeout, factory),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, negative_timeout, factory),
+      jyppx::liuding::InvalidArgument);
 
   auto excessive_timeout = make_worker_options("data.pipeline.timeout-bound");
   excessive_timeout.batch_timeout = std::chrono::milliseconds(86400001);
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, excessive_timeout, factory),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, excessive_timeout, factory),
+      jyppx::liuding::InvalidArgument);
 
   auto inline_timeout = make_worker_options("data.pipeline.invalid-timeout");
   inline_timeout.num_workers = 0;
   inline_timeout.persistent_workers = false;
   inline_timeout.batch_timeout = std::chrono::milliseconds(1);
-  EXPECT_THROW(jyppx::liuding::data::DataPipeline(sampler, inline_timeout, factory),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::DataPipeline(sampler, inline_timeout, factory),
+      jyppx::liuding::InvalidArgument);
 }
 
 }  // namespace

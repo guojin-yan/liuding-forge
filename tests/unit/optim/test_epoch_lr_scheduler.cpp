@@ -38,22 +38,25 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
-      throw jyppx::liuding::SerializationError("unknown epoch scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "unknown epoch scheduler test field");
     }
     if (data.size() > field->max_bytes) {
-      throw jyppx::liuding::ResourceExhausted("oversized epoch scheduler test field");
+      throw jyppx::liuding::ResourceExhausted(
+          "oversized epoch scheduler test field");
     }
     if (!blobs_
              .emplace(std::string(name),
                       std::vector<std::byte>(data.begin(), data.end()))
              .second) {
-      throw jyppx::liuding::SerializationError("duplicate epoch scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "duplicate epoch scheduler test field");
     }
   }
 
@@ -69,7 +72,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end()) {
-      throw jyppx::liuding::SerializationError("missing epoch scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "missing epoch scheduler test field");
     }
     if (blob->second.size() > max_bytes) {
       throw jyppx::liuding::ResourceExhausted(
@@ -83,7 +87,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Manifest enforced by this test store.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Manifest enforced by this test store.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Complete fields indexed by stable field name.
 };
@@ -108,7 +113,8 @@ std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
 }
 
 MemoryStateStore save_participant(
-    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant& participant) {
+    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant&
+        participant) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   return store;
@@ -162,8 +168,8 @@ TEST(EpochLrSchedulerTest, PublishesCompleteTypedDescriptors) {
 
 TEST(EpochLrSchedulerTest, AppliesExponentialAndMilestoneDecayToAllGroups) {
   auto exponential_optimizer = make_optimizer("optimizer.exponential");
-  jyppx::liuding::optim::ExponentialLrScheduler exponential(exponential_optimizer,
-                                                   {.gamma = 0.5});
+  jyppx::liuding::optim::ExponentialLrScheduler exponential(
+      exponential_optimizer, {.gamma = 0.5});
   exponential.step();
   exponential.step();
   EXPECT_EQ(exponential.learning_rates(), (std::vector<double>{0.05, 0.0125}));
@@ -229,8 +235,9 @@ TEST(EpochLrSchedulerTest, RejectsInvalidOptionsBeforeRateMutation) {
   EXPECT_THROW(jyppx::liuding::optim::ExponentialLrScheduler(
                    optimizer, {.scheduler_id = "", .gamma = 0.5}),
                jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(jyppx::liuding::optim::ExponentialLrScheduler(optimizer, {.gamma = -0.1}),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::optim::ExponentialLrScheduler(optimizer, {.gamma = -0.1}),
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(jyppx::liuding::optim::MultiStepLrScheduler(
                    optimizer, {.milestones = {}, .gamma = 0.1}),
                jyppx::liuding::InvalidArgument);
@@ -251,8 +258,8 @@ TEST(EpochLrSchedulerTest, RejectsInvalidOptionsBeforeRateMutation) {
           optimizer,
           {.t_max = 4, .eta_min = std::numeric_limits<double>::infinity()}),
       jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(jyppx::liuding::optim::CosineAnnealingWarmRestartsLrScheduler(optimizer,
-                                                                    {.t_0 = 0}),
+  EXPECT_THROW(jyppx::liuding::optim::CosineAnnealingWarmRestartsLrScheduler(
+                   optimizer, {.t_0 = 0}),
                jyppx::liuding::InvalidArgument);
   EXPECT_THROW(jyppx::liuding::optim::CosineAnnealingWarmRestartsLrScheduler(
                    optimizer, {.t_0 = 2, .t_mult = 0}),
@@ -294,22 +301,25 @@ TEST(EpochLrSchedulerCheckpointTest, EveryAlgorithmRestoresExactContinuation) {
        }},
       {"cosine",
        [](const auto& optimizer) {
-         return std::make_shared<jyppx::liuding::optim::CosineAnnealingLrScheduler>(
-             optimizer, jyppx::liuding::optim::CosineAnnealingLrSchedulerOptions{
-                            .scheduler_id = "scheduler.cosine",
-                            .t_max = 4,
-                            .eta_min = 0.01});
+         return std::make_shared<
+             jyppx::liuding::optim::CosineAnnealingLrScheduler>(
+             optimizer,
+             jyppx::liuding::optim::CosineAnnealingLrSchedulerOptions{
+                 .scheduler_id = "scheduler.cosine",
+                 .t_max = 4,
+                 .eta_min = 0.01});
        }},
       {"cosine_warm_restarts",
        [](const auto& optimizer) {
          return std::make_shared<
              jyppx::liuding::optim::CosineAnnealingWarmRestartsLrScheduler>(
              optimizer,
-             jyppx::liuding::optim::CosineAnnealingWarmRestartsLrSchedulerOptions{
-                 .scheduler_id = "scheduler.cosine_warm_restarts",
-                 .t_0 = 2,
-                 .t_mult = 2,
-                 .eta_min = 0.01});
+             jyppx::liuding::optim::
+                 CosineAnnealingWarmRestartsLrSchedulerOptions{
+                     .scheduler_id = "scheduler.cosine_warm_restarts",
+                     .t_0 = 2,
+                     .t_mult = 2,
+                     .eta_min = 0.01});
        }},
   };
 
@@ -320,14 +330,17 @@ TEST(EpochLrSchedulerCheckpointTest, EveryAlgorithmRestoresExactContinuation) {
     source->step();
     source->step();
     source->step();
-    jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+    jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+        source);
     const auto store = save_participant(source_participant);
 
     auto resumed_optimizer = make_optimizer();
     auto resumed = factory(resumed_optimizer);
     resumed_optimizer->set_learning_rates({0.9, 0.8});
-    jyppx::liuding::optim::LrSchedulerCheckpointParticipant resumed_participant(resumed);
-    resumed_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+    jyppx::liuding::optim::LrSchedulerCheckpointParticipant resumed_participant(
+        resumed);
+    resumed_participant.load_state(store,
+                                   jyppx::liuding::RestorePolicy::exact_only);
     EXPECT_EQ(resumed->completed_steps(), source->completed_steps());
     EXPECT_EQ(resumed->learning_rates(), source->learning_rates());
 
@@ -340,18 +353,20 @@ TEST(EpochLrSchedulerCheckpointTest, EveryAlgorithmRestoresExactContinuation) {
 
 TEST(EpochLrSchedulerCheckpointTest,
      WarmRestartRejectsCounterInconsistentCycleState) {
-  auto scheduler =
-      std::make_shared<jyppx::liuding::optim::CosineAnnealingWarmRestartsLrScheduler>(
-          make_optimizer(),
-          jyppx::liuding::optim::CosineAnnealingWarmRestartsLrSchedulerOptions{
-              .t_0 = 3, .t_mult = 2});
+  auto scheduler = std::make_shared<
+      jyppx::liuding::optim::CosineAnnealingWarmRestartsLrScheduler>(
+      make_optimizer(),
+      jyppx::liuding::optim::CosineAnnealingWarmRestartsLrSchedulerOptions{
+          .t_0 = 3, .t_mult = 2});
   scheduler->step();
   auto state =
-      jyppx::liuding::optim::detail::SchedulerStateAccess::capture_state(*scheduler);
+      jyppx::liuding::optim::detail::SchedulerStateAccess::capture_state(
+          *scheduler);
   state.control["cycle_position"] = std::int64_t{2};
-  EXPECT_THROW(jyppx::liuding::optim::detail::SchedulerStateAccess::validate_state(
-                   *scheduler, state),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      jyppx::liuding::optim::detail::SchedulerStateAccess::validate_state(
+          *scheduler, state),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(scheduler->completed_steps(), 1U);
   EXPECT_EQ(scheduler->cycle_position(), 1U);
 }
@@ -362,17 +377,19 @@ TEST(EpochLrSchedulerCheckpointTest,
       make_optimizer(), jyppx::liuding::optim::MultiStepLrSchedulerOptions{
                             .milestones = {2, 4}, .gamma = 0.1});
   source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   const auto store = save_participant(source_participant);
 
   auto target = std::make_shared<jyppx::liuding::optim::MultiStepLrScheduler>(
       make_optimizer(), jyppx::liuding::optim::MultiStepLrSchedulerOptions{
                             .milestones = {2, 5}, .gamma = 0.1});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(target);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(
+      target);
   const auto before = save_participant(target_participant);
-  EXPECT_THROW(
-      target_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(target_participant.load_state(
+                   store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   const auto after = save_participant(target_participant);
   EXPECT_EQ(after.blobs(), before.blobs());
   EXPECT_EQ(target->completed_steps(), 0U);
@@ -382,15 +399,17 @@ TEST(EpochLrSchedulerCheckpointTest,
 TEST(EpochLrSchedulerTest, ComposesAtomicallyInsideChainedScheduler) {
   auto optimizer = make_optimizer();
   std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>> children;
-  children.push_back(std::make_unique<jyppx::liuding::optim::ExponentialLrScheduler>(
-      optimizer,
-      jyppx::liuding::optim::ExponentialLrSchedulerOptions{
-          .scheduler_id = "scheduler.child.exponential", .gamma = 0.5}));
-  children.push_back(std::make_unique<jyppx::liuding::optim::MultiStepLrScheduler>(
-      optimizer, jyppx::liuding::optim::MultiStepLrSchedulerOptions{
-                     .scheduler_id = "scheduler.child.multi_step",
-                     .milestones = {1},
-                     .gamma = 0.1}));
+  children.push_back(
+      std::make_unique<jyppx::liuding::optim::ExponentialLrScheduler>(
+          optimizer,
+          jyppx::liuding::optim::ExponentialLrSchedulerOptions{
+              .scheduler_id = "scheduler.child.exponential", .gamma = 0.5}));
+  children.push_back(
+      std::make_unique<jyppx::liuding::optim::MultiStepLrScheduler>(
+          optimizer, jyppx::liuding::optim::MultiStepLrSchedulerOptions{
+                         .scheduler_id = "scheduler.child.multi_step",
+                         .milestones = {1},
+                         .gamma = 0.1}));
   jyppx::liuding::optim::ChainedLrScheduler chained(
       optimizer, std::move(children),
       {.scheduler_id = "scheduler.chained.epoch"});

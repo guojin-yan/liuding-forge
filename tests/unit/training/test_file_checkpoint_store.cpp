@@ -50,9 +50,10 @@ class CounterParticipant final : public jyppx::liuding::CheckpointParticipant {
 
   void load_state(const jyppx::liuding::StateReader& reader,
                   jyppx::liuding::RestorePolicy policy) override {
-    if (!jyppx::liuding::restore_policy_accepts(policy,
-                                       reader.manifest().restore_level)) {
-      throw jyppx::liuding::CompatibilityError("counter restore policy rejected");
+    if (!jyppx::liuding::restore_policy_accepts(
+            policy, reader.manifest().restore_level)) {
+      throw jyppx::liuding::CompatibilityError(
+          "counter restore policy rejected");
     }
     const auto bytes = reader.read_blob("value", sizeof(value_));
     if (bytes.size() != sizeof(value_)) {
@@ -174,8 +175,9 @@ TEST_F(FileCheckpointStoreTest, RejectsCorruptionAndCleansStaleTemporaryFile) {
   output.write(reinterpret_cast<const char*>(bytes.data()),
                static_cast<std::streamsize>(bytes.size()));
   output.close();
-  EXPECT_THROW({ jyppx::liuding::training::FileCheckpointStore invalid_store(path_); },
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      { jyppx::liuding::training::FileCheckpointStore invalid_store(path_); },
+      jyppx::liuding::SerializationError);
 
   std::ofstream stale(path_.string() + ".tmp", std::ios::binary);
   stale << "interrupted";

@@ -95,7 +95,7 @@ struct TrainingDomain {
   TrainingDomain()
       : linear(torch::nn::LinearOptions(1, 1).bias(false)),
         model(jyppx::liuding::nn::adapt_tensor_holder(linear, tensor_schema(1),
-                                             tensor_schema(1))) {
+                                                      tensor_schema(1))) {
     torch::NoGradGuard guard;
     linear->weight.fill_(1.0);
     std::vector<jyppx::liuding::optim::OptimizerParameterBinding> bindings;
@@ -110,8 +110,9 @@ struct TrainingDomain {
                                .options = {.learning_rate = 0.1}}});
   }
 
-  torch::nn::Linear linear;       ///< Shared concrete model holder.
-  jyppx::liuding::nn::ModelAdapter model;  ///< Schema-checked invocation boundary.
+  torch::nn::Linear linear;  ///< Shared concrete model holder.
+  jyppx::liuding::nn::ModelAdapter
+      model;  ///< Schema-checked invocation boundary.
   std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter>
       optimizer;  ///< Matching delegated optimizer.
 };
@@ -125,8 +126,10 @@ void prepare_strategy(jyppx::liuding::training::SingleDeviceStrategy& strategy,
 }
 
 jyppx::liuding::training::StrategyStepOutcome train_once(
-    TrainingDomain& domain, jyppx::liuding::training::SingleDeviceStrategy& strategy,
-    const jyppx::liuding::Device& device = jyppx::liuding::Device(torch::kCPU)) {
+    TrainingDomain& domain,
+    jyppx::liuding::training::SingleDeviceStrategy& strategy,
+    const jyppx::liuding::Device& device =
+        jyppx::liuding::Device(torch::kCPU)) {
   strategy.zero_grad(*domain.optimizer);
   const auto input =
       torch::full({1, 1}, 2.0, torch::TensorOptions().dtype(torch::kFloat32))
@@ -145,7 +148,8 @@ TEST(SingleDeviceStrategyTest, MatchesDirectSingleWeightSgdUpdate) {
 
   const auto outcome = train_once(domain, strategy);
 
-  EXPECT_EQ(outcome.status, jyppx::liuding::training::StrategyStepStatus::applied);
+  EXPECT_EQ(outcome.status,
+            jyppx::liuding::training::StrategyStepStatus::applied);
   EXPECT_EQ(outcome.optimizer_id, "optimizer.main");
   EXPECT_EQ(outcome.optimizer_completed_steps, 1U);
   EXPECT_EQ(strategy.completed_backward_calls(), 1U);
@@ -156,8 +160,9 @@ TEST(SingleDeviceStrategyTest, MatchesDirectSingleWeightSgdUpdate) {
 TEST(SingleDeviceStrategyTest,
      PreparesDisjointOptimizersInCanonicalIdentityOrder) {
   auto linear = torch::nn::Linear(torch::nn::LinearOptions(1, 1));
-  jyppx::liuding::nn::ModelAdapter model(jyppx::liuding::nn::adapt_tensor_holder(
-      linear, tensor_schema(1), tensor_schema(1)));
+  jyppx::liuding::nn::ModelAdapter model(
+      jyppx::liuding::nn::adapt_tensor_holder(linear, tensor_schema(1),
+                                              tensor_schema(1)));
   std::map<std::string, jyppx::liuding::Tensor> parameters;
   for (const auto& item : model.state().named_parameters()) {
     parameters.emplace(item.key(), item.value());
@@ -176,7 +181,8 @@ TEST(SingleDeviceStrategyTest,
            .parameters = {{.parameter_id = "bias",
                            .parameter = parameters.at("bias")}},
            .options = {.learning_rate = 0.1}}});
-  jyppx::liuding::optim::OptimizerAdapter* optimizers[] = {weight.get(), bias.get()};
+  jyppx::liuding::optim::OptimizerAdapter* optimizers[] = {weight.get(),
+                                                           bias.get()};
   jyppx::liuding::training::SingleDeviceStrategy strategy;
   strategy.prepare(model, optimizers);
   strategy.zero_grad(*bias);
@@ -193,7 +199,8 @@ TEST(SingleDeviceStrategyTest,
   EXPECT_THROW(strategy.completed_optimizer_steps("optimizer.missing"),
                jyppx::liuding::InvalidArgument);
 
-  jyppx::liuding::optim::OptimizerAdapter* reordered[] = {bias.get(), weight.get()};
+  jyppx::liuding::optim::OptimizerAdapter* reordered[] = {bias.get(),
+                                                          weight.get()};
   EXPECT_NO_THROW(strategy.prepare(model, reordered));
 }
 
@@ -201,14 +208,16 @@ TEST(SingleDeviceStrategyTest, RejectsOverlappingOptimizerParameters) {
   TrainingDomain domain;
   const auto parameter =
       domain.model.state().named_parameters().begin()->value();
-  auto overlapping = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-      "optimizer.overlap",
-      std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-          {.group_id = "overlap",
-           .parameters = {{.parameter_id = "weight", .parameter = parameter}},
-           .options = {.learning_rate = 0.1}}});
-  jyppx::liuding::optim::OptimizerAdapter* optimizers[] = {domain.optimizer.get(),
-                                                  overlapping.get()};
+  auto overlapping =
+      std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+          "optimizer.overlap",
+          std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+              {.group_id = "overlap",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = parameter}},
+               .options = {.learning_rate = 0.1}}});
+  jyppx::liuding::optim::OptimizerAdapter* optimizers[] = {
+      domain.optimizer.get(), overlapping.get()};
   jyppx::liuding::training::SingleDeviceStrategy strategy;
   EXPECT_THROW(strategy.prepare(domain.model, optimizers),
                jyppx::liuding::InvalidArgument);
@@ -217,20 +226,23 @@ TEST(SingleDeviceStrategyTest, RejectsOverlappingOptimizerParameters) {
 
 TEST(SingleDeviceStrategyTest, RejectsIncompleteOptimizerParameterCoverage) {
   auto linear = torch::nn::Linear(torch::nn::LinearOptions(1, 1));
-  jyppx::liuding::nn::ModelAdapter model(jyppx::liuding::nn::adapt_tensor_holder(
-      linear, tensor_schema(1), tensor_schema(1)));
+  jyppx::liuding::nn::ModelAdapter model(
+      jyppx::liuding::nn::adapt_tensor_holder(linear, tensor_schema(1),
+                                              tensor_schema(1)));
   const auto named_parameters = model.state().named_parameters();
-  auto weight_only = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-      "optimizer.weight",
-      std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-          {.group_id = "weight",
-           .parameters = {{.parameter_id = "weight",
-                           .parameter = named_parameters["weight"]}},
-           .options = {.learning_rate = 0.1}}});
+  auto weight_only =
+      std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+          "optimizer.weight",
+          std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+              {.group_id = "weight",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = named_parameters["weight"]}},
+               .options = {.learning_rate = 0.1}}});
   jyppx::liuding::optim::OptimizerAdapter* optimizers[] = {weight_only.get()};
   jyppx::liuding::training::SingleDeviceStrategy strategy;
 
-  EXPECT_THROW(strategy.prepare(model, optimizers), jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(strategy.prepare(model, optimizers),
+               jyppx::liuding::CompatibilityError);
   EXPECT_FALSE(strategy.prepared());
 }
 
@@ -268,7 +280,8 @@ TEST(SingleDeviceStrategyTest, RejectsInvalidLossAndDifferentOptimizer) {
       {}, std::numeric_limits<float>::quiet_NaN(),
       torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   EXPECT_THROW(strategy.backward(non_finite), jyppx::liuding::NumericalError);
-  EXPECT_THROW(strategy.optimizer_step(other), jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(strategy.optimizer_step(other),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(strategy.completed_backward_calls(), 0U);
   EXPECT_EQ(strategy.completed_optimizer_steps("optimizer.main"), 0U);
 }
@@ -297,10 +310,10 @@ TEST(SingleDeviceStrategyTest, ValidatesMetricsCancellationAndClose) {
                jyppx::liuding::InvalidArgument);
   std::stop_source cancellation;
   cancellation.request_stop();
-  EXPECT_THROW(
-      strategy.barrier(jyppx::liuding::training::StrategyBarrierReason::checkpoint,
-                       cancellation.get_token()),
-      jyppx::liuding::Cancelled);
+  EXPECT_THROW(strategy.barrier(
+                   jyppx::liuding::training::StrategyBarrierReason::checkpoint,
+                   cancellation.get_token()),
+               jyppx::liuding::Cancelled);
   strategy.close();
   strategy.close();
   EXPECT_TRUE(strategy.closed());
@@ -312,8 +325,8 @@ TEST(SingleDeviceStrategyTest, RestoresCountersAfterOptimizerState) {
   jyppx::liuding::training::SingleDeviceStrategy source;
   prepare_strategy(source, source_domain.model, *source_domain.optimizer);
   static_cast<void>(train_once(source_domain, source));
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_optimizer_state(
-      source_domain.optimizer);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant
+      source_optimizer_state(source_domain.optimizer);
   MemoryStateStore optimizer_state(source_optimizer_state.describe_state());
   source_optimizer_state.save_state(optimizer_state);
   MemoryStateStore strategy_state(source.describe_state());
@@ -322,11 +335,12 @@ TEST(SingleDeviceStrategyTest, RestoresCountersAfterOptimizerState) {
   TrainingDomain restored_domain;
   jyppx::liuding::training::SingleDeviceStrategy restored;
   prepare_strategy(restored, restored_domain.model, *restored_domain.optimizer);
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant restored_optimizer_state(
-      restored_domain.optimizer);
-  restored_optimizer_state.load_state(optimizer_state,
-                                      jyppx::liuding::RestorePolicy::exact_only);
-  restored.load_state(strategy_state, jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant
+      restored_optimizer_state(restored_domain.optimizer);
+  restored_optimizer_state.load_state(
+      optimizer_state, jyppx::liuding::RestorePolicy::exact_only);
+  restored.load_state(strategy_state,
+                      jyppx::liuding::RestorePolicy::exact_only);
 
   EXPECT_EQ(restored.completed_backward_calls(), 1U);
   EXPECT_EQ(restored.completed_optimizer_steps("optimizer.main"), 1U);
@@ -352,8 +366,9 @@ TEST(SingleDeviceStrategyTest, CorruptRestoreHasStrongGuarantee) {
     TrainingDomain target_domain;
     jyppx::liuding::training::SingleDeviceStrategy target;
     prepare_strategy(target, target_domain.model, *target_domain.optimizer);
-    EXPECT_THROW(target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-                 jyppx::liuding::SerializationError);
+    EXPECT_THROW(
+        target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
+        jyppx::liuding::SerializationError);
     EXPECT_FALSE(target.closed());
     EXPECT_EQ(target.completed_backward_calls(), 0U);
     EXPECT_EQ(target.completed_optimizer_steps("optimizer.main"), 0U);
@@ -365,8 +380,8 @@ TEST(SingleDeviceStrategyTest, RestoreOrderDoesNotDependOnParticipantIdentity) {
   jyppx::liuding::training::SingleDeviceStrategy source;
   prepare_strategy(source, source_domain.model, *source_domain.optimizer);
   static_cast<void>(train_once(source_domain, source));
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_optimizer_state(
-      source_domain.optimizer);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant
+      source_optimizer_state(source_domain.optimizer);
   MemoryStateStore optimizer_state(source_optimizer_state.describe_state());
   source_optimizer_state.save_state(optimizer_state);
   MemoryStateStore strategy_state(source.describe_state());
@@ -375,15 +390,15 @@ TEST(SingleDeviceStrategyTest, RestoreOrderDoesNotDependOnParticipantIdentity) {
   TrainingDomain target_domain;
   jyppx::liuding::training::SingleDeviceStrategy target;
   prepare_strategy(target, target_domain.model, *target_domain.optimizer);
-  EXPECT_NO_THROW(
-      target.load_state(strategy_state, jyppx::liuding::RestorePolicy::exact_only));
+  EXPECT_NO_THROW(target.load_state(strategy_state,
+                                    jyppx::liuding::RestorePolicy::exact_only));
   EXPECT_EQ(target.completed_backward_calls(), 1U);
   EXPECT_EQ(target.completed_optimizer_steps("optimizer.main"), 1U);
   EXPECT_THROW(target.zero_grad(*target_domain.optimizer),
                jyppx::liuding::CompatibilityError);
 
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant target_optimizer_state(
-      target_domain.optimizer);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant
+      target_optimizer_state(target_domain.optimizer);
   target_optimizer_state.load_state(optimizer_state,
                                     jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_NO_THROW(target.zero_grad(*target_domain.optimizer));
@@ -399,8 +414,9 @@ TEST(SingleDeviceStrategyTest, RejectsRestoreIntoClosedInstance) {
   strategy.close();
 
   EXPECT_THROW(strategy.save_state(state), jyppx::liuding::NotReady);
-  EXPECT_THROW(strategy.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::NotReady);
+  EXPECT_THROW(
+      strategy.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::NotReady);
   EXPECT_TRUE(strategy.closed());
 }
 

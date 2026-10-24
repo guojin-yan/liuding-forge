@@ -177,7 +177,8 @@ std::vector<jyppx::liuding::optim::OptimizerParameterBinding> make_bindings(
 /** @brief Creates the selected adapter with a stateful option profile. */
 std::unique_ptr<jyppx::liuding::optim::OptimizerAdapter> make_optimizer(
     BenchmarkMode mode,
-    const std::vector<jyppx::liuding::optim::OptimizerParameterBinding>& bindings) {
+    const std::vector<jyppx::liuding::optim::OptimizerParameterBinding>&
+        bindings) {
   switch (mode) {
     case BenchmarkMode::sgd:
       return std::make_unique<jyppx::liuding::optim::SgdOptimizerAdapter>(
@@ -339,8 +340,8 @@ void write_sample(BenchmarkMode mode, const BenchmarkResult& result) {
             << "\"dtype\":\"float32\","
             << "\"gradient_policy\":\"" << kGradientPolicy << "\","
             << "\"option_profile\":\"" << kOptionProfile << "\"},"
-            << "\"build_fingerprint\":" << jyppx::liuding::build_fingerprint_json()
-            << ',' << "\"cuda\":{"
+            << "\"build_fingerprint\":"
+            << jyppx::liuding::build_fingerprint_json() << ',' << "\"cuda\":{"
             << "\"device_index\":0,"
             << "\"device_name\":\"" << json_escape(properties->name) << "\","
             << "\"compute_capability\":\"" << properties->major << '.'

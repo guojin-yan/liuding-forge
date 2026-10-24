@@ -37,9 +37,9 @@ namespace detail {
                                                  std::string expected,
                                                  std::string actual,
                                                  std::string hint) {
-  ::jyppx::liuding::data::detail::throw_invalid("data.transforms.vision", operation,
-                                       std::move(expected), std::move(actual),
-                                       std::move(hint));
+  ::jyppx::liuding::data::detail::throw_invalid(
+      "data.transforms.vision", operation, std::move(expected),
+      std::move(actual), std::move(hint));
 }
 
 /**
@@ -58,7 +58,8 @@ inline std::string describe_tensor_rank(const Tensor& input) {
  * @brief Normalizes a one- or two-value crop size.
  * @param size `{n}` for a square or `{height, width}` for a rectangle.
  * @return Normalized height and width pair.
- * @throws jyppx::liuding::InvalidArgument The vector does not contain one or two values.
+ * @throws jyppx::liuding::InvalidArgument The vector does not contain one or
+ * two values.
  */
 inline std::pair<int64_t, int64_t> crop_size(const std::vector<int64_t>& size) {
   if (size.size() == 1) {
@@ -143,7 +144,8 @@ inline Tensor affine_rotate(const Tensor& input, double degrees) {
  * @brief Converts RGB to one ITU-R 601-2 luma channel.
  * @param input Tensor shaped `{1, H, W}` or `{3, H, W}`.
  * @return Original one-channel tensor or a Float32 luma tensor.
- * @throws jyppx::liuding::InvalidArgument Shape or channel count is unsupported.
+ * @throws jyppx::liuding::InvalidArgument Shape or channel count is
+ * unsupported.
  */
 inline Tensor rgb_to_grayscale(const Tensor& input) {
   if (!input.defined() || input.dim() != 3) {
@@ -235,8 +237,8 @@ class Normalize : public TensorTransform {
    * @brief Creates a per-channel affine normalization.
    * @param mean Finite mean value for each input channel.
    * @param std Positive standard deviation for each input channel.
-   * @throws jyppx::liuding::InvalidArgument Vectors are empty, differ in length, or a
-   * standard deviation is not positive.
+   * @throws jyppx::liuding::InvalidArgument Vectors are empty, differ in
+   * length, or a standard deviation is not positive.
    */
   Normalize(std::vector<double> mean, std::vector<double> std)
       : mean_(
@@ -274,7 +276,8 @@ class Normalize : public TensorTransform {
    * @brief Normalizes one channel-first tensor.
    * @param input Tensor shaped `{C, ...}` with configured channel count.
    * @return Floating tensor containing `(input - mean) / std`.
-   * @throws jyppx::liuding::InvalidArgument Input channel count is incompatible.
+   * @throws jyppx::liuding::InvalidArgument Input channel count is
+   * incompatible.
    */
   Tensor operator()(const Tensor& input) const override {
     if (!input.defined() || input.dim() < 1 || input.size(0) != mean_.size(0)) {
@@ -318,7 +321,8 @@ class Resize : public TensorTransform {
    * @brief Creates a spatial resize operation.
    * @param size `{n}` for square output or `{height, width}`.
    * @param mode Either `bilinear` or `nearest`.
-   * @throws jyppx::liuding::InvalidArgument Size or interpolation mode is invalid.
+   * @throws jyppx::liuding::InvalidArgument Size or interpolation mode is
+   * invalid.
    */
   explicit Resize(std::vector<int64_t> size, std::string mode = "bilinear")
       : size_(std::move(size)), mode_(std::move(mode)) {
@@ -398,7 +402,8 @@ class CenterCrop : public TensorTransform {
   /**
    * @brief Creates a fixed center crop.
    * @param size `{n}` for a square or `{height, width}`.
-   * @throws jyppx::liuding::InvalidArgument Shape count or dimensions are invalid.
+   * @throws jyppx::liuding::InvalidArgument Shape count or dimensions are
+   * invalid.
    */
   explicit CenterCrop(std::vector<int64_t> size)
       : size_(detail::crop_size(size)) {
@@ -414,7 +419,8 @@ class CenterCrop : public TensorTransform {
    * @brief Extracts the configured region from the image center.
    * @param input Image tensor shaped `{C, H, W}`.
    * @return Spatial tensor view of the centered crop.
-   * @throws jyppx::liuding::InvalidArgument Input shape or crop extent is incompatible.
+   * @throws jyppx::liuding::InvalidArgument Input shape or crop extent is
+   * incompatible.
    */
   Tensor operator()(const Tensor& input) const override {
     if (!input.defined() || input.dim() != 3) {
@@ -463,7 +469,8 @@ class RandomCrop : public TensorTransform {
   /**
    * @brief Creates a random fixed-size crop.
    * @param size `{n}` for a square or `{height, width}`.
-   * @throws jyppx::liuding::InvalidArgument Shape count or dimensions are invalid.
+   * @throws jyppx::liuding::InvalidArgument Shape count or dimensions are
+   * invalid.
    */
   explicit RandomCrop(std::vector<int64_t> size)
       : size_(detail::crop_size(size)) {
@@ -479,7 +486,8 @@ class RandomCrop : public TensorTransform {
    * @brief Extracts one uniformly positioned crop.
    * @param input Image tensor shaped `{C, H, W}`.
    * @return Spatial tensor view selected using the global Torch RNG.
-   * @throws jyppx::liuding::InvalidArgument Input shape or crop extent is incompatible.
+   * @throws jyppx::liuding::InvalidArgument Input shape or crop extent is
+   * incompatible.
    */
   Tensor operator()(const Tensor& input) const override {
     if (!input.defined() || input.dim() != 3) {
@@ -528,7 +536,8 @@ namespace detail {
  * @param p Flip probability in the closed range `[0, 1]`.
  * @param name Transform name included in diagnostic messages.
  * @return Flipped tensor or the original handle when the draw is rejected.
- * @throws jyppx::liuding::InvalidArgument Probability or input shape is invalid.
+ * @throws jyppx::liuding::InvalidArgument Probability or input shape is
+ * invalid.
  */
 inline Tensor random_flip(const Tensor& input, int64_t dim, double p,
                           const char* name) {
@@ -653,7 +662,8 @@ class Pad : public TensorTransform {
    * @brief Pads the two trailing spatial dimensions.
    * @param input Tensor shaped at least `{H, W}`, normally `{C, H, W}`.
    * @return Constant-padded tensor.
-   * @throws jyppx::liuding::InvalidArgument Input has fewer than two dimensions.
+   * @throws jyppx::liuding::InvalidArgument Input has fewer than two
+   * dimensions.
    */
   Tensor operator()(const Tensor& input) const override {
     if (!input.defined() || input.dim() < 2) {
@@ -834,7 +844,8 @@ class Grayscale : public TensorTransform {
   /**
    * @brief Creates a deterministic grayscale conversion.
    * @param num_output_channels One luma channel or three replicated channels.
-   * @throws jyppx::liuding::InvalidArgument Output channel count is not one or three.
+   * @throws jyppx::liuding::InvalidArgument Output channel count is not one or
+   * three.
    */
   explicit Grayscale(int64_t num_output_channels = 1)
       : channels_(num_output_channels) {
@@ -933,7 +944,8 @@ class ColorJitter : public TensorTransform {
    * @param contrast Non-negative symmetric contrast range around one.
    * @param saturation Non-negative symmetric saturation range around one.
    * @param hue Maximum hue offset in turns, within `[0, 0.5]`.
-   * @throws jyppx::liuding::InvalidArgument Any range is outside its valid domain.
+   * @throws jyppx::liuding::InvalidArgument Any range is outside its valid
+   * domain.
    */
   ColorJitter(double brightness = 0.0, double contrast = 0.0,
               double saturation = 0.0, double hue = 0.0)

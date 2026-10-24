@@ -34,8 +34,8 @@ class Subset : public Dataset<T> {
    * @brief Creates an ordered indexed view over a dataset.
    * @param dataset Shared non-null source dataset.
    * @param indices Source indices in exposed subset order; duplicates allowed.
-   * @throws jyppx::liuding::InvalidArgument @p dataset is null or a source index is
-   * invalid.
+   * @throws jyppx::liuding::InvalidArgument @p dataset is null or a source
+   * index is invalid.
    */
   Subset(std::shared_ptr<Dataset<T>> dataset, std::vector<size_t> indices)
       : dataset_(std::move(dataset)), indices_(std::move(indices)) {
@@ -103,8 +103,8 @@ class Subset : public Dataset<T> {
  * @param lengths Result sizes whose sum must equal the dataset size.
  * @param seed Optional deterministic shuffle seed.
  * @return Disjoint subsets in the same order as @p lengths.
- * @throws jyppx::liuding::InvalidArgument The dataset is null or lengths do not cover
- * the dataset.
+ * @throws jyppx::liuding::InvalidArgument The dataset is null or lengths do not
+ * cover the dataset.
  */
 template <typename DatasetT, typename T = typename DatasetT::value_type>
 std::vector<std::shared_ptr<Subset<T>>> random_split(

@@ -43,11 +43,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
       throw jyppx::liuding::SerializationError("unknown SGD test field");
     }
@@ -86,7 +86,9 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
     return blobs_.at(std::string(name));
   }
 
-  jyppx::liuding::StateManifest& mutable_manifest() noexcept { return manifest_; }
+  jyppx::liuding::StateManifest& mutable_manifest() noexcept {
+    return manifest_;
+  }
 
   void erase_blob(std::string_view name) { blobs_.erase(std::string(name)); }
 
@@ -109,15 +111,17 @@ jyppx::liuding::optim::SgdParameterGroup make_group(
 }
 
 std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
-    const torch::Tensor& tensor, jyppx::liuding::optim::SgdAdapterOptions options = {
-                                     .learning_rate = 0.05, .momentum = 0.9}) {
+    const torch::Tensor& tensor,
+    jyppx::liuding::optim::SgdAdapterOptions options = {.learning_rate = 0.05,
+                                                        .momentum = 0.9}) {
   return std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
       "optimizer.main",
       std::vector{make_group("main", "layer.weight", tensor, options)});
 }
 
 MemoryStateStore save_participant(
-    const jyppx::liuding::optim::SgdOptimizerCheckpointParticipant& participant) {
+    const jyppx::liuding::optim::SgdOptimizerCheckpointParticipant&
+        participant) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   return store;
@@ -127,9 +131,10 @@ MemoryStateStore make_schema_v1_fixture(const MemoryStateStore& current) {
   MemoryStateStore fixture = current;
   auto& manifest = fixture.mutable_manifest();
   manifest.schema_version = 1;
-  std::erase_if(manifest.fields, [](const jyppx::liuding::StateFieldDescriptor& field) {
-    return field.name == "producer";
-  });
+  std::erase_if(manifest.fields,
+                [](const jyppx::liuding::StateFieldDescriptor& field) {
+                  return field.name == "producer";
+                });
   fixture.erase_blob("producer");
   jyppx::liuding::validate_state_manifest(manifest);
   return fixture;
@@ -208,8 +213,9 @@ MemoryStateStore load_canonical_schema_v1_fixture() {
                   .required = true}},
       .degradation_reasons = {},
   });
-  const auto fixture_dir = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
-                           "checkpoint" / "sgd_schema_v1_libtorch_2.5.1";
+  const auto fixture_dir =
+      std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "checkpoint" /
+      "sgd_schema_v1_libtorch_2.5.1";
   for (const auto& field : fixture.manifest().fields) {
     const auto bytes =
         read_base64_fixture(fixture_dir / (field.name + ".bin.b64"));
@@ -225,10 +231,10 @@ TEST(SgdOptimizerAdapterTest, DelegatesUpdatesAndTracksSuccessfulSteps) {
   auto native_parameter =
       adapted_parameter.detach().clone().set_requires_grad(true);
   const jyppx::liuding::optim::SgdAdapterOptions options{.learning_rate = 0.03,
-                                                .momentum = 0.9,
-                                                .dampening = 0.0,
-                                                .weight_decay = 0.01,
-                                                .nesterov = true};
+                                                         .momentum = 0.9,
+                                                         .dampening = 0.0,
+                                                         .weight_decay = 0.01,
+                                                         .nesterov = true};
   jyppx::liuding::optim::SgdOptimizerAdapter adapted(
       "optimizer.main",
       {make_group("main", "weight", adapted_parameter, options)});
@@ -270,7 +276,8 @@ TEST(SgdOptimizerAdapterTest,
   auto parameter = torch::ones(
       {3}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   auto optimizer = make_optimizer(parameter);
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant participant(optimizer);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant participant(
+      optimizer);
 
   parameter.set_data(parameter.to(torch::kFloat64));
   EXPECT_NO_THROW(optimizer->synchronize_parameter_placement());
@@ -278,22 +285,23 @@ TEST(SgdOptimizerAdapterTest,
   parameter.mutable_grad() = torch::ones_like(parameter);
   optimizer->step();
 
-  EXPECT_THROW(optimizer->synchronize_parameter_placement(), jyppx::liuding::NotReady);
+  EXPECT_THROW(optimizer->synchronize_parameter_placement(),
+               jyppx::liuding::NotReady);
   EXPECT_NO_THROW(static_cast<void>(participant.describe_state()));
 }
 
 TEST(SgdOptimizerAdapterTest,
      MatchesLibTorchAcrossLongRunsAndOptionCombinations) {
-  const std::array<jyppx::liuding::optim::SgdAdapterOptions, 4> option_matrix = {
-      jyppx::liuding::optim::SgdAdapterOptions{.learning_rate = 0.03},
-      jyppx::liuding::optim::SgdAdapterOptions{
-          .learning_rate = 0.02, .momentum = 0.85, .dampening = 0.15},
-      jyppx::liuding::optim::SgdAdapterOptions{.learning_rate = 0.015,
-                                      .momentum = 0.9,
-                                      .weight_decay = 0.02,
-                                      .nesterov = true},
-      jyppx::liuding::optim::SgdAdapterOptions{
-          .learning_rate = 0.0, .momentum = 0.75, .weight_decay = 0.1}};
+  const std::array<jyppx::liuding::optim::SgdAdapterOptions, 4> option_matrix =
+      {jyppx::liuding::optim::SgdAdapterOptions{.learning_rate = 0.03},
+       jyppx::liuding::optim::SgdAdapterOptions{
+           .learning_rate = 0.02, .momentum = 0.85, .dampening = 0.15},
+       jyppx::liuding::optim::SgdAdapterOptions{.learning_rate = 0.015,
+                                                .momentum = 0.9,
+                                                .weight_decay = 0.02,
+                                                .nesterov = true},
+       jyppx::liuding::optim::SgdAdapterOptions{
+           .learning_rate = 0.0, .momentum = 0.75, .weight_decay = 0.1}};
 
   for (const auto& options : option_matrix) {
     auto adapted_parameter = torch::tensor(
@@ -434,10 +442,11 @@ TEST(SgdOptimizerAdapterCudaTest, MatchesLibTorchForFloat32AndFloat16) {
         torch::TensorOptions().dtype(dtype).device(device).requires_grad(true));
     auto native_parameter =
         adapted_parameter.detach().clone().set_requires_grad(true);
-    const jyppx::liuding::optim::SgdAdapterOptions options{.learning_rate = 0.02,
-                                                  .momentum = 0.9,
-                                                  .weight_decay = 0.01,
-                                                  .nesterov = true};
+    const jyppx::liuding::optim::SgdAdapterOptions options{
+        .learning_rate = 0.02,
+        .momentum = 0.9,
+        .weight_decay = 0.01,
+        .nesterov = true};
     jyppx::liuding::optim::SgdOptimizerAdapter adapted(
         "optimizer.cuda",
         {make_group("main", "weight", adapted_parameter, options)});
@@ -480,7 +489,8 @@ TEST(SgdOptimizerAdapterCudaTest,
     source->step();
   }
   source->set_learning_rates({0.0125});
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(
+      source);
   const auto schema_v1 =
       make_schema_v1_fixture(save_participant(source_participant));
 
@@ -492,8 +502,10 @@ TEST(SgdOptimizerAdapterCudaTest,
   resumed_parameter.mutable_grad() = torch::ones_like(resumed_parameter);
   resumed->step();
   resumed_parameter.detach().copy_(source_parameter.detach());
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
-  resumed_participant.load_state(schema_v1, jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(
+      resumed);
+  resumed_participant.load_state(schema_v1,
+                                 jyppx::liuding::RestorePolicy::exact_only);
 
   const auto next_gradient = torch::tensor({-0.3, 0.7}, tensor_options);
   source_parameter.mutable_grad() = next_gradient.clone();
@@ -524,7 +536,8 @@ TEST(SgdOptimizerAdapterTest, PreservesExplicitPerGroupOptionsAndRateUpdates) {
 
   optimizer.set_learning_rates({0.1, 0.02});
   EXPECT_EQ(optimizer.learning_rates(), (std::vector<double>{0.1, 0.02}));
-  EXPECT_THROW(optimizer.set_learning_rates({0.5}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(optimizer.set_learning_rates({0.5}),
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(optimizer.set_learning_rates(
                    {0.5, std::numeric_limits<double>::quiet_NaN()}),
                jyppx::liuding::InvalidArgument);
@@ -569,7 +582,8 @@ TEST(SgdOptimizerCheckpointTest, UsesFixedRawFieldsWithoutNativeArchive) {
   auto parameter = torch::ones(
       {2}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
   auto optimizer = make_optimizer(parameter);
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant participant(optimizer);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant participant(
+      optimizer);
 
   const auto manifest = participant.describe_state();
   ASSERT_EQ(manifest.schema_version, 2U);
@@ -607,7 +621,8 @@ TEST(SgdOptimizerCheckpointTest,
     source->step();
   }
   source->set_learning_rates({0.015});
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(
+      source);
   const auto store = save_participant(source_participant);
 
   auto resumed_parameter =
@@ -618,8 +633,10 @@ TEST(SgdOptimizerCheckpointTest,
   resumed_parameter.mutable_grad() = torch::ones_like(resumed_parameter);
   resumed->step();
   resumed_parameter.detach().copy_(source_parameter.detach());
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
-  resumed_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(
+      resumed);
+  resumed_participant.load_state(store,
+                                 jyppx::liuding::RestorePolicy::exact_only);
 
   ASSERT_EQ(resumed->completed_steps(), 2U);
   ASSERT_EQ(resumed->learning_rates().size(), 1U);
@@ -647,7 +664,8 @@ TEST(SgdOptimizerCheckpointTest,
     source->step();
   }
   source->set_learning_rates({0.015});
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(
+      source);
   const auto schema_v1 =
       make_schema_v1_fixture(save_participant(source_participant));
   ASSERT_EQ(schema_v1.manifest().schema_version, 1U);
@@ -661,9 +679,11 @@ TEST(SgdOptimizerCheckpointTest,
   resumed_parameter.mutable_grad() = torch::ones_like(resumed_parameter);
   resumed->step();
   resumed_parameter.detach().copy_(source_parameter.detach());
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(
+      resumed);
 
-  resumed_participant.load_state(schema_v1, jyppx::liuding::RestorePolicy::exact_only);
+  resumed_participant.load_state(schema_v1,
+                                 jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(resumed->completed_steps(), 2U);
   EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.015}));
   const auto migrated = save_participant(resumed_participant);
@@ -704,9 +724,11 @@ TEST(SgdOptimizerCheckpointTest,
   auto resumed = make_optimizer(
       resumed_parameter,
       {.learning_rate = 0.9, .momentum = 0.8, .weight_decay = 0.02});
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(
+      resumed);
   const auto schema_v1 = load_canonical_schema_v1_fixture();
-  resumed_participant.load_state(schema_v1, jyppx::liuding::RestorePolicy::exact_only);
+  resumed_participant.load_state(schema_v1,
+                                 jyppx::liuding::RestorePolicy::exact_only);
 
   EXPECT_EQ(resumed->completed_steps(), 2U);
   EXPECT_EQ(resumed->learning_rates(), (std::vector<double>{0.015}));
@@ -725,7 +747,8 @@ TEST(SgdOptimizerCheckpointTest, FreshStateRestoreRemovesStaleMomentum) {
   auto fresh_parameter = torch::tensor(
       {1.0}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
   auto fresh = make_optimizer(fresh_parameter, options);
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant fresh_participant(fresh);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant fresh_participant(
+      fresh);
   const auto fresh_store = save_participant(fresh_participant);
 
   auto resumed_parameter =
@@ -734,8 +757,10 @@ TEST(SgdOptimizerCheckpointTest, FreshStateRestoreRemovesStaleMomentum) {
   resumed_parameter.mutable_grad() = torch::tensor({4.0}, torch::kFloat64);
   resumed->step();
   resumed_parameter.detach().copy_(fresh_parameter.detach());
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
-  resumed_participant.load_state(fresh_store, jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(
+      resumed);
+  resumed_participant.load_state(fresh_store,
+                                 jyppx::liuding::RestorePolicy::exact_only);
 
   fresh_parameter.mutable_grad() = torch::tensor({2.0}, torch::kFloat64);
   resumed_parameter.mutable_grad() = torch::tensor({2.0}, torch::kFloat64);
@@ -759,14 +784,17 @@ TEST(SgdOptimizerCheckpointTest,
         torch::full_like(source_parameter, 0.03125 * step);
     source->step();
   }
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(
+      source);
   const auto store = save_participant(source_participant);
 
   auto resumed_parameter =
       source_parameter.detach().clone().set_requires_grad(true);
   auto resumed = make_optimizer(resumed_parameter, options);
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(resumed);
-  resumed_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant resumed_participant(
+      resumed);
+  resumed_participant.load_state(store,
+                                 jyppx::liuding::RestorePolicy::exact_only);
 
   const auto next_gradient = torch::full_like(source_parameter, -0.125);
   source_parameter.mutable_grad() = next_gradient.clone();
@@ -784,7 +812,8 @@ TEST(SgdOptimizerCheckpointTest,
   auto source = make_optimizer(source_parameter);
   source_parameter.mutable_grad() = torch::ones_like(source_parameter);
   source->step();
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(
+      source);
   const auto source_store = save_participant(source_participant);
 
   auto target_parameter = torch::ones(
@@ -793,10 +822,11 @@ TEST(SgdOptimizerCheckpointTest,
       "optimizer.main",
       std::vector{make_group("main", "other.weight", target_parameter,
                              {.learning_rate = 0.05, .momentum = 0.9})});
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant target_participant(target);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant target_participant(
+      target);
   const auto before_mismatch = save_participant(target_participant);
-  EXPECT_THROW(target_participant.load_state(source_store,
-                                             jyppx::liuding::RestorePolicy::exact_only),
+  EXPECT_THROW(target_participant.load_state(
+                   source_store, jyppx::liuding::RestorePolicy::exact_only),
                jyppx::liuding::CompatibilityError);
   EXPECT_EQ(save_participant(target_participant).blobs(),
             before_mismatch.blobs());
@@ -826,7 +856,8 @@ TEST(SgdOptimizerCheckpointTest,
   auto source = make_optimizer(source_parameter);
   source_parameter.mutable_grad() = torch::ones_like(source_parameter);
   source->step();
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant source_participant(
+      source);
   const auto current_store = save_participant(source_participant);
 
   auto target_parameter = torch::ones(
@@ -835,49 +866,52 @@ TEST(SgdOptimizerCheckpointTest,
   target_parameter.mutable_grad() = torch::full_like(target_parameter, 3.0);
   target->step();
   target->set_learning_rates({0.2});
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant target_participant(target);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant target_participant(
+      target);
   const auto before = save_participant(target_participant);
 
   auto future = current_store;
   future.mutable_manifest().schema_version = 3;
-  EXPECT_THROW(
-      target_participant.load_state(future, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(target_participant.load_state(
+                   future, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
 
   auto obsolete = current_store;
   obsolete.mutable_manifest().schema_version = 0;
-  EXPECT_THROW(
-      target_participant.load_state(obsolete, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(target_participant.load_state(
+                   obsolete, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::InvalidArgument);
   EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
 
   auto relabeled = current_store;
   relabeled.mutable_manifest().schema_version = 1;
-  EXPECT_THROW(target_participant.load_state(relabeled,
-                                             jyppx::liuding::RestorePolicy::exact_only),
+  EXPECT_THROW(target_participant.load_state(
+                   relabeled, jyppx::liuding::RestorePolicy::exact_only),
                jyppx::liuding::CompatibilityError);
   EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
 
   auto malformed_producer = current_store;
   malformed_producer.mutable_blob("producer").front() = std::byte{'X'};
-  EXPECT_THROW(target_participant.load_state(malformed_producer,
-                                             jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target_participant.load_state(malformed_producer,
+                                    jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
 
   auto incompatible_producer = current_store;
   ASSERT_GT(incompatible_producer.mutable_blob("producer").size(), 24U);
   incompatible_producer.mutable_blob("producer")[24] = std::byte{0xFF};
-  EXPECT_THROW(target_participant.load_state(incompatible_producer,
-                                             jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target_participant.load_state(incompatible_producer,
+                                    jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
 
   auto malformed_v1 = make_schema_v1_fixture(current_store);
   malformed_v1.mutable_blob("control").front() = std::byte{'X'};
-  EXPECT_THROW(target_participant.load_state(malformed_v1,
-                                             jyppx::liuding::RestorePolicy::exact_only),
+  EXPECT_THROW(target_participant.load_state(
+                   malformed_v1, jyppx::liuding::RestorePolicy::exact_only),
                jyppx::liuding::SerializationError);
   EXPECT_EQ(save_participant(target_participant).blobs(), before.blobs());
 }
@@ -899,7 +933,8 @@ TEST(SgdOptimizerCheckpointTest, EnforcesParticipantResourceLimits) {
                    optimizer, {.max_producer_bytes = 1}),
                jyppx::liuding::ResourceExhausted);
 
-  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant participant(optimizer);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant participant(
+      optimizer);
   parameter.requires_grad_(false);
   EXPECT_THROW(participant.describe_state(), jyppx::liuding::InvalidArgument);
 }

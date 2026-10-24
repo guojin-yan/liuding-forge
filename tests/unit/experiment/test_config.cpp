@@ -52,8 +52,9 @@ class TempJsonFile {
   std::filesystem::path path_;
 };
 
-jyppx::liuding::ValueSchema Scalar(jyppx::liuding::ValueKind kind, bool required = true,
-                          bool nullable = false) {
+jyppx::liuding::ValueSchema Scalar(jyppx::liuding::ValueKind kind,
+                                   bool required = true,
+                                   bool nullable = false) {
   return jyppx::liuding::ValueSchema{
       .kind = kind, .required = required, .nullable = nullable};
 }
@@ -67,10 +68,12 @@ ConfigSchema MakeSchema() {
       {{"enabled", Scalar(jyppx::liuding::ValueKind::boolean)},
        {"epochs", Scalar(jyppx::liuding::ValueKind::integer)},
        {"learning_rate", Scalar(jyppx::liuding::ValueKind::floating)},
-       {"tags", jyppx::liuding::ValueSchema::list(Scalar(jyppx::liuding::ValueKind::string))}});
+       {"tags", jyppx::liuding::ValueSchema::list(
+                    Scalar(jyppx::liuding::ValueKind::string))}});
   auto root = jyppx::liuding::ValueSchema::dictionary(
-      {{"credentials", jyppx::liuding::ValueSchema::dictionary(
-                           {{"token", Scalar(jyppx::liuding::ValueKind::string)}})},
+      {{"credentials",
+        jyppx::liuding::ValueSchema::dictionary(
+            {{"token", Scalar(jyppx::liuding::ValueKind::string)}})},
        {"model", jyppx::liuding::ValueSchema::dictionary(
                      {{"name", Scalar(jyppx::liuding::ValueKind::string)}})},
        {"note", Scalar(jyppx::liuding::ValueKind::string, false, true)},
@@ -174,7 +177,8 @@ TEST(ConfigTest, RejectsUnknownAndDuplicateJsonFields) {
   TempJsonFile duplicate(R"({"trainer":{"epochs":2,"epochs":3}})");
   ConfigResolver duplicate_resolver(MakeSchema());
   duplicate_resolver.add_json_file(duplicate.path());
-  EXPECT_THROW((void)duplicate_resolver.resolve(), jyppx::liuding::SerializationError);
+  EXPECT_THROW((void)duplicate_resolver.resolve(),
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ConfigTest, RejectsMissingRequiredFieldsAfterAllSources) {
@@ -189,7 +193,8 @@ TEST(ConfigTest, RejectsMissingRequiredFieldsAfterAllSources) {
 TEST(ConfigTest, RejectsSchemaDefaultsAndOpenObjectsOutsideContract) {
   auto open_schema = MakeSchema();
   open_schema.root.allow_extra_fields = true;
-  EXPECT_THROW(ConfigResolver(std::move(open_schema)), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(ConfigResolver(std::move(open_schema)),
+               jyppx::liuding::InvalidArgument);
 
   auto wrong_default = MakeSchema();
   auto defaults = wrong_default.defaults.toGenericDict();
@@ -300,18 +305,21 @@ TEST(ConfigTest, RejectsInvalidUtf8AndBoundedSources) {
                             static_cast<char>(0xC3) + "(\"}");
   ConfigResolver invalid_resolver(MakeSchema());
   invalid_resolver.add_json_file(invalid_utf8.path());
-  EXPECT_THROW((void)invalid_resolver.resolve(), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW((void)invalid_resolver.resolve(),
+               jyppx::liuding::InvalidArgument);
 
   TempJsonFile oversized(R"({"trainer":{"epochs":2}})");
   auto limits = jyppx::liuding::experiment::config::ConfigLimits{};
   limits.max_file_bytes = 8;
   ConfigResolver size_resolver(MakeSchema(), limits);
   size_resolver.add_json_file(oversized.path());
-  EXPECT_THROW((void)size_resolver.resolve(), jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW((void)size_resolver.resolve(),
+               jyppx::liuding::ResourceExhausted);
 
   limits = {};
   limits.max_nodes = 2;
-  EXPECT_THROW(ConfigResolver(MakeSchema(), limits), jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(ConfigResolver(MakeSchema(), limits),
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ConfigTest, RejectsMalformedCliAndDuplicateEnvironmentSnapshots) {
@@ -329,7 +337,8 @@ TEST(ConfigTest, ExposesStructuredConfigCapabilityWithoutNewManifestTypes) {
       jyppx::liuding::experiment::config::make_config_capability(MakeSchema());
   EXPECT_EQ(descriptor.feature_id, "experiment.config");
   EXPECT_EQ(descriptor.scope_id, "experiment.training");
-  EXPECT_EQ(descriptor.source, jyppx::liuding::CapabilitySource::configured_instance);
+  EXPECT_EQ(descriptor.source,
+            jyppx::liuding::CapabilitySource::configured_instance);
   EXPECT_EQ(descriptor.status, jyppx::liuding::CapabilityStatus::experimental);
   EXPECT_EQ(descriptor.backend, "nlohmann-json");
   EXPECT_NE(std::find(descriptor.operations.begin(),

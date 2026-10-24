@@ -32,7 +32,8 @@ struct RestoreRounding {
   ~RestoreRounding() { static_cast<void>(std::fesetround(mode)); }
 };
 
-class MemoryState final : public jyppx::liuding::StateWriter, public jyppx::liuding::StateReader {
+class MemoryState final : public jyppx::liuding::StateWriter,
+                          public jyppx::liuding::StateReader {
  public:
   explicit MemoryState(jyppx::liuding::StateManifest manifest)
       : manifest_(std::move(manifest)) {}
@@ -43,7 +44,8 @@ class MemoryState final : public jyppx::liuding::StateWriter, public jyppx::liud
         std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
                      [name](const auto& value) { return value.name == name; });
     if (field == manifest_.fields.end() || fields.contains(std::string(name)))
-      throw jyppx::liuding::SerializationError("Unknown or duplicate test state field");
+      throw jyppx::liuding::SerializationError(
+          "Unknown or duplicate test state field");
     if (data.size() > field->max_bytes)
       throw jyppx::liuding::ResourceExhausted(
           "Test state field exceeds declared budget");
@@ -224,7 +226,8 @@ TEST(QuantizationReference,
       largest.scale = std::bit_cast<double>(0x4780204070e1c387ULL);
       EXPECT_NO_THROW(q::quantize_symmetric({}, largest));
       largest.scale = std::bit_cast<double>(0x4780204070e1c388ULL);
-      EXPECT_THROW(q::quantize_symmetric({}, largest), jyppx::liuding::InvalidArgument);
+      EXPECT_THROW(q::quantize_symmetric({}, largest),
+                   jyppx::liuding::InvalidArgument);
       EXPECT_EQ(std::fegetround(), mode);
     }
   }
@@ -235,13 +238,16 @@ TEST(QuantizationReference, NonfiniteInputsAndMalformedQparamsAreExplicit) {
   const std::array<float, 2U> values{std::numeric_limits<float>::quiet_NaN(),
                                      std::numeric_limits<float>::infinity()};
   EXPECT_THROW(q::derive_symmetric_params(values), jyppx::liuding::NotReady);
-  EXPECT_THROW(q::quantize_symmetric(values, {}), jyppx::liuding::NumericalError);
+  EXPECT_THROW(q::quantize_symmetric(values, {}),
+               jyppx::liuding::NumericalError);
   q::QuantizationParams params;
   params.scale = 0.0;
-  EXPECT_THROW(q::quantize_symmetric({}, params), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(q::quantize_symmetric({}, params),
+               jyppx::liuding::InvalidArgument);
   params.scale = 1.0;
   params.zero_point = 1;
-  EXPECT_THROW(q::dequantize_symmetric({}, params), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(q::dequantize_symmetric({}, params),
+               jyppx::liuding::InvalidArgument);
   const std::array<std::int8_t, 1U> noncanonical{-128};
   EXPECT_THROW(q::dequantize_symmetric(noncanonical, {}),
                jyppx::liuding::InvalidArgument);
@@ -259,7 +265,8 @@ TEST(QuantizationReference, ErrorReportGolden) {
   EXPECT_DOUBLE_EQ(result.max_relative_error, 0.5);
   EXPECT_NEAR(result.sqnr_db, 6.020599913279624, 1.0e-12);
   EXPECT_NEAR(result.cosine_similarity, 1.0, 1.0e-12);
-  EXPECT_THROW(q::compare_reference(original, {}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(q::compare_reference(original, {}),
+               jyppx::liuding::InvalidArgument);
   const std::array<float, 1U> nan{std::numeric_limits<float>::quiet_NaN()};
   EXPECT_EQ(q::compare_reference(nan, nan).nonfinite_inputs, 1U);
 }
@@ -340,20 +347,22 @@ TEST(QuantizationObserver,
   for (std::size_t size = 0U; size < good.fields.at("state").size(); ++size) {
     auto malformed = good;
     malformed.fields.at("state").resize(size);
-    EXPECT_THROW(target.load_state(malformed, jyppx::liuding::RestorePolicy::exact_only),
-                 jyppx::liuding::SerializationError);
+    EXPECT_THROW(
+        target.load_state(malformed, jyppx::liuding::RestorePolicy::exact_only),
+        jyppx::liuding::SerializationError);
     expect_same_state(target.state(), before);
   }
   auto wrong_id = good;
   wrong_id.manifest_.participant_id = "different.observer";
-  EXPECT_THROW(target.load_state(wrong_id, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(wrong_id, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   expect_same_state(target.state(), before);
   auto invalid_bool = good;
   invalid_bool.fields.at("state")[24U] = std::byte{2U};
-  EXPECT_THROW(
-      target.load_state(invalid_bool, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::SerializationError);
+  EXPECT_THROW(target.load_state(invalid_bool,
+                                 jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
   expect_same_state(target.state(), before);
   auto nan_minimum = good;
   const auto nan_bits =
@@ -361,8 +370,9 @@ TEST(QuantizationObserver,
   for (std::size_t i = 0U; i < sizeof(float); ++i)
     nan_minimum.fields.at("state")[32U + i] =
         static_cast<std::byte>((nan_bits >> (8U * i)) & 0xffU);
-  EXPECT_THROW(target.load_state(nan_minimum, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target.load_state(nan_minimum, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   expect_same_state(target.state(), before);
 }
 
@@ -386,11 +396,13 @@ TEST(QuantizationCalibration, DuplicateAndBudgetRejectionDoNotMutateSession) {
   q::CalibrationSession session(lineage(), limits);
   const std::array<float, 1U> value{2.0F};
   session.observe("sample-a", value);
-  EXPECT_THROW(session.observe("sample-b", value), jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(session.observe("sample-b", value),
+               jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(session.finalize().sample_ids.size(), 1U);
   q::CalibrationSession duplicate(lineage());
   duplicate.observe("sample-a", value);
-  EXPECT_THROW(duplicate.observe("sample-a", value), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(duplicate.observe("sample-a", value),
+               jyppx::liuding::InvalidArgument);
   EXPECT_EQ(duplicate.finalize().activation_state.sample_count, 1U);
 }
 
@@ -518,13 +530,16 @@ TEST(QuantizationArtifact,
 TEST(QuantizationArtifact, RejectsShapePayloadMismatchesAndFalseClaims) {
   auto bad = artifact();
   bad.quantized_weights.pop_back();
-  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(q::serialize_linear_artifact(bad),
+               jyppx::liuding::InvalidArgument);
   bad = artifact();
   bad.format.compute_quantized = true;
-  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(q::serialize_linear_artifact(bad),
+               jyppx::liuding::InvalidArgument);
   bad = artifact();
   bad.calibration.activation_params.scale *= 2.0;
-  EXPECT_THROW(q::serialize_linear_artifact(bad), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(q::serialize_linear_artifact(bad),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(QuantizationArtifact, RejectsEncodedDimensionAndCountBeforeAllocation) {

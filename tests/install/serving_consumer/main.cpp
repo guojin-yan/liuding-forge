@@ -22,10 +22,10 @@ int main() {
     BatchOptions options;
     options.max_batch_size = 2;
     DynamicBatcher batcher(predictor, options);
-    auto first =
-        batcher.submit(example::Request(jyppx::liuding::Device(c10::kCPU), "first"));
-    auto second =
-        batcher.submit(example::Request(jyppx::liuding::Device(c10::kCPU), "second", 2));
+    auto first = batcher.submit(
+        example::Request(jyppx::liuding::Device(c10::kCPU), "first"));
+    auto second = batcher.submit(
+        example::Request(jyppx::liuding::Device(c10::kCPU), "second", 2));
     if (first.get().context.request_id != "first" ||
         !torch::equal(second.get().output.value.toTensor(),
                       torch::tensor({{4.0F, -6.0F}})) ||
@@ -34,8 +34,9 @@ int main() {
     if (serving_preview_manifest_json().find("\"default_enabled\":false") ==
         std::string::npos)
       throw std::runtime_error("Missing serving preview manifest");
-    std::cout << "Verified installed jyppx::liuding::serving native bundle, forward, "
-                 "batch and drain\n";
+    std::cout
+        << "Verified installed jyppx::liuding::serving native bundle, forward, "
+           "batch and drain\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

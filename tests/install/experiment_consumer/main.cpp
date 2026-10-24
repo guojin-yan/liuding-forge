@@ -50,7 +50,8 @@ bool storage_consumer() {
          .producer = "install-consumer",
          .expected_size_bytes = bytes.size()},
         2U);
-    if (reference.artifact.digest.hex != jyppx::liuding::sha256_hex(bytes)) return false;
+    if (reference.artifact.digest.hex != jyppx::liuding::sha256_hex(bytes))
+      return false;
   }
   jyppx::liuding::experiment::SQLiteRunStore reopened(root.path);
   return reopened.find("consumer.run").has_value() &&
@@ -67,8 +68,12 @@ int main() {
       .schema_id = "consumer.config",
       .version = 1,
       .root = jyppx::liuding::ValueSchema::dictionary(
-          {{"epochs", jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer}},
-           {"token", jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::string}}}),
+          {{"epochs",
+            jyppx::liuding::ValueSchema{
+                .kind = jyppx::liuding::ValueKind::integer}},
+           {"token",
+            jyppx::liuding::ValueSchema{
+                .kind = jyppx::liuding::ValueKind::string}}}),
       .defaults = c10::IValue(defaults),
       .environment_bindings = {},
       .secret_paths = {"/token"},

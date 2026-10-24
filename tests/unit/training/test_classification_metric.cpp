@@ -33,11 +33,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   /** @brief Copies one declared, bounded state blob into memory. */
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& descriptor) {
-                       return descriptor.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& descriptor) {
+          return descriptor.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes ||
         !blobs_
              .emplace(std::string(name),
@@ -71,7 +71,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   void corrupt_final_count() { blobs_.at("counts").back() = std::byte{0xff}; }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Exact manifest stored with the blobs.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Exact manifest stored with the blobs.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Owned blobs indexed by stable field name.
 };
@@ -111,7 +112,8 @@ TEST(ClassificationMetricTest, PublishesStableFixedTopologyDescriptors) {
   EXPECT_EQ(metric.descriptor().num_classes, 3U);
   EXPECT_EQ(metric.classes(), 3U);
   EXPECT_EQ(metric.confusion_matrix().size(), 3U);
-  EXPECT_EQ(metric.describe_state().restore_level, jyppx::liuding::RestoreLevel::exact);
+  EXPECT_EQ(metric.describe_state().restore_level,
+            jyppx::liuding::RestoreLevel::exact);
   EXPECT_NO_THROW(jyppx::liuding::validate_checkpoint_participant(metric));
 
   EXPECT_THROW(Precision({.num_classes = 0}), jyppx::liuding::InvalidArgument);
@@ -231,7 +233,8 @@ TEST(ClassificationMetricTest, RejectsInvalidInputWithoutMutation) {
                jyppx::liuding::InvalidArgument);
   auto non_finite = logits().clone();
   non_finite.index_put_({0, 0}, std::numeric_limits<double>::quiet_NaN());
-  EXPECT_THROW(metric.update(non_finite, targets()), jyppx::liuding::NumericalError);
+  EXPECT_THROW(metric.update(non_finite, targets()),
+               jyppx::liuding::NumericalError);
   EXPECT_EQ(metric.confusion_matrix(), before);
 }
 
@@ -250,14 +253,16 @@ TEST(ClassificationMetricTest, RestoresExactTypedStateAtomically) {
 
   F1Score incompatible({.metric_id = "f1.checkpoint", .num_classes = 2});
   const auto incompatible_before = incompatible.confusion_matrix();
-  EXPECT_THROW(incompatible.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      incompatible.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(incompatible.confusion_matrix(), incompatible_before);
 
   const auto restored_before = restored.confusion_matrix();
   store.corrupt_final_count();
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_EQ(restored.confusion_matrix(), restored_before);
 }
 

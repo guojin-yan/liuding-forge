@@ -20,15 +20,17 @@ using jyppx::liuding::Tensor;
 /** @brief Creates a linear regression batch stream over in-memory tensors. */
 std::shared_ptr<jyppx::liuding::data::DataPipeline> make_pipeline(
     const Tensor& inputs, const Tensor& targets, std::string pipeline_id) {
-  auto sampler = std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
-      static_cast<std::size_t>(inputs.size(0)));
+  auto sampler =
+      std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
+          static_cast<std::size_t>(inputs.size(0)));
   return std::make_shared<jyppx::liuding::data::DataPipeline>(
       std::move(sampler),
       jyppx::liuding::data::DataPipelineOptions{
           .pipeline_id = std::move(pipeline_id),
           .dataset_version = "example.linear/v1",
           .dataset_size = static_cast<std::size_t>(inputs.size(0)),
-          .schema = jyppx::liuding::data::BatchSchema::any("example.linear.batch", 1),
+          .schema =
+              jyppx::liuding::data::BatchSchema::any("example.linear.batch", 1),
           .batch_factory_id = "example.linear.tensor-slice/v1",
           .batch_size = 4},
       [inputs, targets](std::span<const std::size_t> indices,
@@ -49,17 +51,21 @@ std::shared_ptr<jyppx::liuding::data::DataPipeline> make_pipeline(
 /** @brief Builds the new type-erased model/optimizer training domain. */
 jyppx::liuding::training::FitRequest make_request(
     const std::shared_ptr<jyppx::liuding::nn::ModelAdapter>& model,
-    const std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter>& optimizer,
+    const std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter>&
+        optimizer,
     const std::shared_ptr<jyppx::liuding::data::BatchPipeline>& training_data,
-    const std::shared_ptr<jyppx::liuding::data::BatchPipeline>& validation_data) {
-  auto strategy = std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>();
+    const std::shared_ptr<jyppx::liuding::data::BatchPipeline>&
+        validation_data) {
+  auto strategy =
+      std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>();
   auto model_checkpoint =
       std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(*model);
-  auto optimizer_checkpoint =
-      std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-          optimizer);
-  auto rng_checkpoint = std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
-      jyppx::liuding::core::RngCheckpointParticipantOptions{.include_cuda = false});
+  auto optimizer_checkpoint = std::make_shared<
+      jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(optimizer);
+  auto rng_checkpoint =
+      std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
+          jyppx::liuding::core::RngCheckpointParticipantOptions{.include_cuda =
+                                                                    false});
   const auto mapper = [](const jyppx::liuding::data::BatchEnvelope& batch) {
     const auto& values = batch.value.toTuple()->elements();
     return jyppx::liuding::nn::Invocation{.positional = {values.at(0)}};
@@ -109,17 +115,19 @@ int main() {
       bindings.push_back(
           {.parameter_id = item.key(), .parameter = item.value()});
     }
-    auto optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-        "optimizer.example", std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-                                 {.group_id = "main",
-                                  .parameters = std::move(bindings),
-                                  .options = {.learning_rate = 0.01}}});
+    auto optimizer =
+        std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+            "optimizer.example",
+            std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+                {.group_id = "main",
+                 .parameters = std::move(bindings),
+                 .options = {.learning_rate = 0.01}}});
     auto train = make_pipeline(inputs, targets, "data.example.train");
     auto validation = make_pipeline(inputs, targets, "data.example.validation");
     jyppx::liuding::training::Trainer trainer({.trainer_id = "trainer.example",
-                                      .run_id = "run.example",
-                                      .trace_id = "trace.example",
-                                      .max_epochs = 2});
+                                               .run_id = "run.example",
+                                               .trace_id = "trace.example",
+                                               .max_epochs = 2});
     trainer.prepare(make_request(model, optimizer, train, validation));
     const auto result = trainer.fit();
     std::cout << "status=" << static_cast<int>(result.status)

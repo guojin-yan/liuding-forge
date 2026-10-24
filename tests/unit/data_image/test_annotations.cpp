@@ -444,7 +444,8 @@ TEST(ImageAnnotationTest,
         "names: [cat]\nnames: [dog]", "names: {1: cat}",
         "names: [cat]\n---\nnames: [dog]", "names: [cat]\nnc: 2",
         "names: [cat]\nkpt_shape: [2,3]\nflip_idx: [0,0]"})
-    EXPECT_THROW(parse_yolo_dataset_yaml(text), jyppx::liuding::SerializationError);
+    EXPECT_THROW(parse_yolo_dataset_yaml(text),
+                 jyppx::liuding::SerializationError);
   EXPECT_EQ(parse_yolo_dataset_yaml("names: [cat, dog]").categories.size(), 2U);
 }
 

@@ -39,7 +39,8 @@ class IntegerDataset final : public data::Dataset<int> {
   /** @brief Returns the requested index as a signed value. */
   int get(std::size_t index) const override {
     if (index >= size()) {
-      throw jyppx::liuding::InvalidArgument("integer dataset index is out of range");
+      throw jyppx::liuding::InvalidArgument(
+          "integer dataset index is out of range");
     }
     return static_cast<int>(index);
   }
@@ -172,7 +173,8 @@ TEST_F(DatasetUtilsTest, ConcatDatasetSpansDatasets) {
 }
 
 TEST_F(DatasetUtilsTest, ConcatDatasetValidatesArguments) {
-  EXPECT_THROW(data::ConcatDataset<data::Example>({}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(data::ConcatDataset<data::Example>({}),
+               jyppx::liuding::InvalidArgument);
 
   std::shared_ptr<data::Dataset<data::Example>> null_dataset;
   auto valid = std::make_shared<data::Subset<data::Example>>(

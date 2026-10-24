@@ -46,7 +46,8 @@ TEST(TrainingTelemetryAdapterTest,
   EXPECT_FALSE(first.time.wall_time_unix_ns.has_value());
   EXPECT_FALSE(first.time.monotonic_time_ns.has_value());
   EXPECT_EQ(first.attributes.at("migration.trace_id"), source.event.trace_id);
-  const auto& payload = std::get<jyppx::liuding::TelemetryLifecycle>(first.payload);
+  const auto& payload =
+      std::get<jyppx::liuding::TelemetryLifecycle>(first.payload);
   ASSERT_EQ(payload.metrics.size(), 1U);
   EXPECT_EQ(payload.metrics.front().definition.unit,
             jyppx::liuding::TelemetryMetricUnit::unspecified);
@@ -73,11 +74,12 @@ TEST(TrainingTelemetryAdapterTest,
       .definition = {.metric_id = "training.loss",
                      .unit = jyppx::liuding::TelemetryMetricUnit::dimensionless,
                      .aggregation = jyppx::liuding::TelemetryAggregation::mean,
-                     .direction = jyppx::liuding::TelemetryMetricDirection::minimize},
+                     .direction =
+                         jyppx::liuding::TelemetryMetricDirection::minimize},
       .context = {}};
   const jyppx::liuding::TelemetryTime time{.wall_time_unix_ns = 123,
-                                  .monotonic_time_ns = 40U,
-                                  .clock_id = "clock.2"};
+                                           .monotonic_time_ns = 40U,
+                                           .clock_id = "clock.2"};
   const auto adapted = jt::adapt_training_event(source, options, time);
   EXPECT_EQ(adapted.time.wall_time_unix_ns, 123);
   EXPECT_EQ(adapted.correlation.attempt_id, "attempt.2");
@@ -119,11 +121,11 @@ TEST(TrainingTelemetryAdapterTest,
   source.pending.push_back({legacy(), 1U});
   const std::array current{
       jyppx::liuding::TelemetrySinkDescriptor{.type_id = "neutral.jsonl/v1",
-                                     .sink_id = "a",
-                                     .destination_id = "jsonl"},
+                                              .sink_id = "a",
+                                              .destination_id = "jsonl"},
       jyppx::liuding::TelemetrySinkDescriptor{.type_id = "neutral.console/v1",
-                                     .sink_id = "b",
-                                     .destination_id = "console"}};
+                                              .sink_id = "b",
+                                              .destination_id = "console"}};
   const std::array pairs{std::make_pair(std::string("legacy.jsonl/v1"),
                                         std::string("neutral.jsonl/v1")),
                          std::make_pair(std::string("legacy.console/v1"),
@@ -169,8 +171,8 @@ TEST(TrainingTelemetryAdapterTest,
      LegacySinkCompatibilityCapturesRealTimeWithoutInventingMetrics) {
   const auto source = legacy();
   const jyppx::liuding::TelemetryTime time{.wall_time_unix_ns = 456,
-                                  .monotonic_time_ns = 90U,
-                                  .clock_id = "clock.live"};
+                                           .monotonic_time_ns = 90U,
+                                           .clock_id = "clock.live"};
   const auto result =
       jt::adapt_training_compatibility_event(source, "stream.live", time);
   EXPECT_EQ(result.identity.stream_id, "stream.live");
@@ -180,7 +182,8 @@ TEST(TrainingTelemetryAdapterTest,
             "training.event-envelope/v1");
   EXPECT_FALSE(result.attributes.contains("migration.time"));
   EXPECT_FALSE(result.attributes.contains("migration.source"));
-  const auto& payload = std::get<jyppx::liuding::TelemetryLifecycle>(result.payload);
+  const auto& payload =
+      std::get<jyppx::liuding::TelemetryLifecycle>(result.payload);
   EXPECT_EQ(payload.metrics.at(0U).definition.unit,
             jyppx::liuding::TelemetryMetricUnit::unspecified);
   EXPECT_EQ(

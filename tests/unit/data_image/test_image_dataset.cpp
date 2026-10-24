@@ -62,7 +62,8 @@ class TempDirectory final {
 };
 
 std::vector<char> FixtureBytes(std::string_view name) {
-  const auto path = fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / name;
+  const auto path =
+      fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / name;
   std::ifstream stream(path, std::ios::binary);
   EXPECT_TRUE(stream.good()) << path.string();
   return {std::istreambuf_iterator<char>(stream),
@@ -181,7 +182,8 @@ TEST(ImageDatasetTest, RejectsAnnotationSizeMismatchWhenSampleIsRead) {
   annotations.images.push_back(record);
   const ImageDataset dataset(directory.path(), manifest, annotations);
 
-  EXPECT_THROW(static_cast<void>(dataset.get(0U)), jyppx::liuding::SerializationError);
+  EXPECT_THROW(static_cast<void>(dataset.get(0U)),
+               jyppx::liuding::SerializationError);
 }
 
 TEST(ImageDatasetTest, RejectsMissingLinksAndOutOfRangeSamples) {
@@ -189,7 +191,8 @@ TEST(ImageDatasetTest, RejectsMissingLinksAndOutOfRangeSamples) {
   const auto index = ClassificationIndex("path,labels\nmissing.png,cat\n");
   const ImageDataset dataset(directory.path(), index);
   EXPECT_THROW(static_cast<void>(dataset.get(0U)), jyppx::liuding::IoError);
-  EXPECT_THROW(static_cast<void>(dataset.get(1U)), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(static_cast<void>(dataset.get(1U)),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(ImageDatasetTest, ObservesCancellationBeforeFilesystemAccess) {

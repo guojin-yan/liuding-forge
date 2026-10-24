@@ -41,7 +41,8 @@ namespace {
 using jyppx::liuding::Tensor;
 
 /** @brief In-memory participant state used by checkpoint tests. */
-class MemoryState final : public jyppx::liuding::StateWriter, public jyppx::liuding::StateReader {
+class MemoryState final : public jyppx::liuding::StateWriter,
+                          public jyppx::liuding::StateReader {
  public:
   explicit MemoryState(jyppx::liuding::StateManifest manifest)
       : manifest_(std::move(manifest)) {}
@@ -49,14 +50,15 @@ class MemoryState final : public jyppx::liuding::StateWriter, public jyppx::liud
   /** @brief Copies one bounded participant field. */
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes ||
         blobs_.contains(std::string(name))) {
-      throw jyppx::liuding::SerializationError("invalid in-memory participant field");
+      throw jyppx::liuding::SerializationError(
+          "invalid in-memory participant field");
     }
     blobs_.emplace(std::string(name),
                    std::vector<std::byte>(data.begin(), data.end()));
@@ -77,7 +79,8 @@ class MemoryState final : public jyppx::liuding::StateWriter, public jyppx::liud
                                        std::uint64_t max_bytes) const override {
     const auto found = blobs_.find(std::string(name));
     if (found == blobs_.end() || found->second.size() > max_bytes) {
-      throw jyppx::liuding::SerializationError("missing in-memory participant field");
+      throw jyppx::liuding::SerializationError(
+          "missing in-memory participant field");
     }
     return found->second;
   }
@@ -88,11 +91,13 @@ class MemoryState final : public jyppx::liuding::StateWriter, public jyppx::liud
 };
 
 /** @brief Transactional in-memory checkpoint sink and source. */
-class MemoryCheckpoint final : public jyppx::liuding::training::CheckpointStateSink,
-                               public jyppx::liuding::training::CheckpointStateSource {
+class MemoryCheckpoint final
+    : public jyppx::liuding::training::CheckpointStateSink,
+      public jyppx::liuding::training::CheckpointStateSource {
  public:
   /** @brief Starts a replacement checkpoint transaction. */
-  void begin(const jyppx::liuding::training::CheckpointDescriptor& descriptor) override {
+  void begin(const jyppx::liuding::training::CheckpointDescriptor& descriptor)
+      override {
     descriptor_ = descriptor;
     states_.clear();
     for (const auto& manifest : descriptor.participants) {
@@ -103,7 +108,8 @@ class MemoryCheckpoint final : public jyppx::liuding::training::CheckpointStateS
   }
 
   /** @brief Returns a writer for one declared participant. */
-  jyppx::liuding::StateWriter& writer_for(std::string_view participant_id) override {
+  jyppx::liuding::StateWriter& writer_for(
+      std::string_view participant_id) override {
     if (!open_) {
       throw jyppx::liuding::NotReady("checkpoint transaction is closed");
     }
@@ -116,7 +122,8 @@ class MemoryCheckpoint final : public jyppx::liuding::training::CheckpointStateS
       const auto& state = states_.at(manifest.participant_id);
       for (const auto& field : manifest.fields) {
         if (field.required && !state->contains(field.name)) {
-          throw jyppx::liuding::SerializationError("checkpoint field was not written");
+          throw jyppx::liuding::SerializationError(
+              "checkpoint field was not written");
         }
       }
     }
@@ -139,7 +146,8 @@ class MemoryCheckpoint final : public jyppx::liuding::training::CheckpointStateS
   }
 
  private:
-  jyppx::liuding::training::CheckpointDescriptor descriptor_;  ///< Published topology.
+  jyppx::liuding::training::CheckpointDescriptor
+      descriptor_;  ///< Published topology.
   std::map<std::string, std::shared_ptr<MemoryState>> states_;  ///< Fields.
   bool open_ = false;  ///< Whether a transaction is currently being written.
 };
@@ -172,7 +180,8 @@ class TestIterableSource final : public jyppx::liuding::data::IterableSource {
     void load_state(std::string_view state) override {
       position_ = static_cast<std::size_t>(std::stoull(std::string(state)));
       if (position_ > 5U) {
-        throw jyppx::liuding::SerializationError("invalid iterable test position");
+        throw jyppx::liuding::SerializationError(
+            "invalid iterable test position");
       }
     }
 
@@ -203,15 +212,18 @@ class TestIterableSource final : public jyppx::liuding::data::IterableSource {
 };
 
 /** @brief Records events and emits one optional deterministic command. */
-class RecordingCallback final : public jyppx::liuding::training::CallbackHandler {
+class RecordingCallback final
+    : public jyppx::liuding::training::CallbackHandler {
  public:
-  using Command = std::function<jyppx::liuding::training::CallbackCommandRequest(
-      const jyppx::liuding::training::CallbackEvent&)>;
+  using Command =
+      std::function<jyppx::liuding::training::CallbackCommandRequest(
+          const jyppx::liuding::training::CallbackEvent&)>;
 
-  RecordingCallback(std::string callback_id,
-                    jyppx::liuding::training::CallbackEventKind subscription,
-                    std::vector<jyppx::liuding::training::CallbackCommandKind> allowed,
-                    Command command = {})
+  RecordingCallback(
+      std::string callback_id,
+      jyppx::liuding::training::CallbackEventKind subscription,
+      std::vector<jyppx::liuding::training::CallbackCommandKind> allowed,
+      Command command = {})
       : descriptor_{.type_id = "test.callback.v1",
                     .callback_id = std::move(callback_id),
                     .subscriptions = {subscription},
@@ -233,18 +245,22 @@ class RecordingCallback final : public jyppx::liuding::training::CallbackHandler
   }
 
   /** @brief Returns all observed event kinds. */
-  const std::vector<jyppx::liuding::training::CallbackEventKind>& events() const {
+  const std::vector<jyppx::liuding::training::CallbackEventKind>& events()
+      const {
     return events_;
   }
 
  private:
-  jyppx::liuding::training::CallbackDescriptor descriptor_;  ///< Frozen capabilities.
+  jyppx::liuding::training::CallbackDescriptor
+      descriptor_;   ///< Frozen capabilities.
   Command command_;  ///< Optional command policy.
-  std::vector<jyppx::liuding::training::CallbackEventKind> events_;  ///< Audit log.
+  std::vector<jyppx::liuding::training::CallbackEventKind>
+      events_;  ///< Audit log.
 };
 
 struct Domain {
-  std::shared_ptr<jyppx::liuding::nn::ModelAdapter> model;  ///< Adapted linear model.
+  std::shared_ptr<jyppx::liuding::nn::ModelAdapter>
+      model;  ///< Adapted linear model.
   std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter>
       optimizer;  ///< Delegated SGD optimizer.
   std::shared_ptr<jyppx::liuding::data::BatchPipeline>
@@ -277,12 +293,14 @@ Domain make_domain(std::size_t samples = 8, std::size_t batch_size = 2) {
   };
   auto make_pipeline = [&](std::string id) {
     return std::make_shared<jyppx::liuding::data::DataPipeline>(
-        std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(samples),
+        std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
+            samples),
         jyppx::liuding::data::DataPipelineOptions{
             .pipeline_id = std::move(id),
             .dataset_version = "test.linear/v1",
             .dataset_size = samples,
-            .schema = jyppx::liuding::data::BatchSchema::any("test.linear.batch", 1),
+            .schema =
+                jyppx::liuding::data::BatchSchema::any("test.linear.batch", 1),
             .batch_factory_id = "test.linear.factory/v1",
             .batch_size = batch_size},
         train_factory);
@@ -295,11 +313,13 @@ Domain make_domain(std::size_t samples = 8, std::size_t batch_size = 2) {
   for (const auto& item : domain.model->state().named_parameters()) {
     bindings.push_back({.parameter_id = item.key(), .parameter = item.value()});
   }
-  domain.optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-      "optimizer.main", std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-                            {.group_id = "main",
-                             .parameters = std::move(bindings),
-                             .options = {.learning_rate = 1e-4}}});
+  domain.optimizer =
+      std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+          "optimizer.main",
+          std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+              {.group_id = "main",
+               .parameters = std::move(bindings),
+               .options = {.learning_rate = 1e-4}}});
   domain.train = make_pipeline("data.train");
   domain.validation = make_pipeline("data.validation");
   return domain;
@@ -319,46 +339,53 @@ SplitOptimizers make_split_optimizers(const Domain& domain) {
   for (const auto& item : domain.model->state().named_parameters()) {
     parameters.emplace(item.key(), item.value());
   }
-  return {.bias = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-              "optimizer.bias",
-              std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-                  {.group_id = "bias",
-                   .parameters = {{.parameter_id = "bias",
-                                   .parameter = parameters.at("bias")}},
-                   .options = {.learning_rate = 1e-4}}}),
-          .weight = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-              "optimizer.weight",
-              std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-                  {.group_id = "weight",
-                   .parameters = {{.parameter_id = "weight",
-                                   .parameter = parameters.at("weight")}},
-                   .options = {.learning_rate = 1e-4}}})};
+  return {
+      .bias = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+          "optimizer.bias",
+          std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+              {.group_id = "bias",
+               .parameters = {{.parameter_id = "bias",
+                               .parameter = parameters.at("bias")}},
+               .options = {.learning_rate = 1e-4}}}),
+      .weight = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+          "optimizer.weight",
+          std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+              {.group_id = "weight",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = parameters.at("weight")}},
+               .options = {.learning_rate = 1e-4}}})};
 }
 
 /** @brief Creates the complete current Trainer request for a domain. */
 jyppx::liuding::training::FitRequest make_request(
     const Domain& domain,
-    std::shared_ptr<jyppx::liuding::training::CallbackDispatcher> callbacks = {},
+    std::shared_ptr<jyppx::liuding::training::CallbackDispatcher> callbacks =
+        {},
     std::shared_ptr<jyppx::liuding::training::SchedulerAdapter> scheduler = {},
     std::function<void(const jyppx::liuding::training::CheckpointCoordinator&)>
         checkpoint_action = {},
     jyppx::liuding::Device device = jyppx::liuding::Device(torch::kCPU),
     bool include_cuda_rng = false) {
   auto model_checkpoint =
-      std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(*domain.model);
-  auto optimizer_checkpoint =
-      std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-          domain.optimizer);
-  auto rng_checkpoint = std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
-      jyppx::liuding::core::RngCheckpointParticipantOptions{.include_cuda =
-                                                       include_cuda_rng});
-  auto strategy = std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>(
-      jyppx::liuding::training::SingleDeviceStrategyOptions{.device = device});
-  const auto mapper = [device](const jyppx::liuding::data::BatchEnvelope& batch) {
-    return jyppx::liuding::nn::Invocation{
-        .positional = {
-            batch.value.toTuple()->elements().at(0).toTensor().to(device)}};
-  };
+      std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(
+          *domain.model);
+  auto optimizer_checkpoint = std::make_shared<
+      jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+      domain.optimizer);
+  auto rng_checkpoint =
+      std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
+          jyppx::liuding::core::RngCheckpointParticipantOptions{
+              .include_cuda = include_cuda_rng});
+  auto strategy =
+      std::make_shared<jyppx::liuding::training::SingleDeviceStrategy>(
+          jyppx::liuding::training::SingleDeviceStrategyOptions{.device =
+                                                                    device});
+  const auto mapper =
+      [device](const jyppx::liuding::data::BatchEnvelope& batch) {
+        return jyppx::liuding::nn::Invocation{
+            .positional = {
+                batch.value.toTuple()->elements().at(0).toTensor().to(device)}};
+      };
   const auto target = [device](const jyppx::liuding::data::BatchEnvelope& batch)
       -> std::optional<c10::IValue> {
     return batch.value.toTuple()->elements().at(1).toTensor().to(device);
@@ -391,7 +418,7 @@ jyppx::liuding::training::FitRequest make_request(
 }
 
 jyppx::liuding::training::TrainerOptions options(std::uint64_t max_epochs,
-                                        std::uint64_t max_steps = 0) {
+                                                 std::uint64_t max_steps = 0) {
   return {.trainer_id = "trainer.test",
           .run_id = "run.test",
           .trace_id = "trace.test",
@@ -402,10 +429,13 @@ jyppx::liuding::training::TrainerOptions options(std::uint64_t max_epochs,
 TEST(TrainerTest, FitMapPipelinePublishesOrderedEventsAndMetrics) {
   auto domain = make_domain();
   auto callback = std::make_shared<RecordingCallback>(
-      "callback.record", jyppx::liuding::training::CallbackEventKind::run_finished,
+      "callback.record",
+      jyppx::liuding::training::CallbackEventKind::run_finished,
       std::vector<jyppx::liuding::training::CallbackCommandKind>{});
-  auto dispatcher = std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
-      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{callback});
+  auto dispatcher = std::make_shared<
+      jyppx::liuding::training::CallbackDispatcher>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
+          callback});
   jyppx::liuding::training::Trainer trainer(options(2));
   trainer.prepare(make_request(domain, dispatcher));
   const auto result = trainer.fit();
@@ -429,13 +459,13 @@ TEST(TrainerTest, CommitsDisjointOptimizersAsOneLogicalStep) {
   auto request = make_request(domain);
   request.optimizers = {
       {.optimizer = optimizers.weight,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.weight)},
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.weight)},
       {.optimizer = optimizers.bias,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.bias)}};
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.bias)}};
   const auto strategy =
       std::dynamic_pointer_cast<jyppx::liuding::training::SingleDeviceStrategy>(
           request.strategy);
@@ -465,10 +495,12 @@ TEST(TrainerTest, CommitsDisjointOptimizersAsOneLogicalStep) {
 TEST(TrainerTest, TracksIndependentSchedulerEventCursors) {
   auto domain = make_domain();
   auto optimizers = make_split_optimizers(domain);
-  auto epoch_scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      optimizers.weight,
-      jyppx::liuding::optim::StepLrSchedulerOptions{
-          .scheduler_id = "scheduler.weight", .step_size = 1, .gamma = 0.5});
+  auto epoch_scheduler =
+      std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
+          optimizers.weight, jyppx::liuding::optim::StepLrSchedulerOptions{
+                                 .scheduler_id = "scheduler.weight",
+                                 .step_size = 1,
+                                 .gamma = 0.5});
   auto metric_scheduler =
       std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
           optimizers.bias,
@@ -477,17 +509,19 @@ TEST(TrainerTest, TracksIndependentSchedulerEventCursors) {
   auto request = make_request(domain);
   request.optimizers = {
       {.optimizer = optimizers.weight,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.weight),
-       .scheduler = std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
-           epoch_scheduler)},
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.weight),
+       .scheduler =
+           std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
+               epoch_scheduler)},
       {.optimizer = optimizers.bias,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.bias),
-       .scheduler = std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
-           metric_scheduler)}};
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.bias),
+       .scheduler =
+           std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
+               metric_scheduler)}};
   jyppx::liuding::training::Trainer trainer(options(2));
   trainer.prepare(std::move(request));
   EXPECT_EQ(trainer.fit().completed_epochs, 2U);
@@ -503,8 +537,8 @@ TEST(TrainerTest, IterablePipelineCommitsFiniteBatches) {
           .dataset_version = "test.iterable/v1",
           .batch_factory_id = "test.iterable.factory/v1",
           .batch_size = 2},
-      [](std::span<const jyppx::liuding::data::IterableSample> samples, std::uint64_t,
-         std::uint64_t, std::stop_token) {
+      [](std::span<const jyppx::liuding::data::IterableSample> samples,
+         std::uint64_t, std::uint64_t, std::stop_token) {
         return c10::IValue(static_cast<std::int64_t>(samples.size()));
       });
   pipeline->set_epoch(0);
@@ -529,18 +563,22 @@ TEST(TrainerTest, CpuBfloat16PrecisionScopesTrainingAndValidationAutocast) {
   auto validation_step = request.validation_step;
   bool training_autocast = false;
   bool validation_autocast = false;
-  request.training_step = [&](const jyppx::liuding::training::StepInput& input) {
-    training_autocast =
-        at::autocast::is_autocast_enabled(c10::DeviceType::CPU) &&
-        at::autocast::get_autocast_dtype(c10::DeviceType::CPU) == at::kBFloat16;
-    return training_step(input);
-  };
-  request.validation_step = [&](const jyppx::liuding::training::StepInput& input) {
-    validation_autocast =
-        at::autocast::is_autocast_enabled(c10::DeviceType::CPU) &&
-        at::autocast::get_autocast_dtype(c10::DeviceType::CPU) == at::kBFloat16;
-    return validation_step(input);
-  };
+  request.training_step =
+      [&](const jyppx::liuding::training::StepInput& input) {
+        training_autocast =
+            at::autocast::is_autocast_enabled(c10::DeviceType::CPU) &&
+            at::autocast::get_autocast_dtype(c10::DeviceType::CPU) ==
+                at::kBFloat16;
+        return training_step(input);
+      };
+  request.validation_step =
+      [&](const jyppx::liuding::training::StepInput& input) {
+        validation_autocast =
+            at::autocast::is_autocast_enabled(c10::DeviceType::CPU) &&
+            at::autocast::get_autocast_dtype(c10::DeviceType::CPU) ==
+                at::kBFloat16;
+        return validation_step(input);
+      };
   jyppx::liuding::training::Trainer trainer(
       {.trainer_id = "trainer.bfloat16",
        .run_id = "run.bfloat16",
@@ -559,11 +597,12 @@ TEST(TrainerTest, FullPrecisionRejectsGradientScalerState) {
   auto request = make_request(domain);
   request.gradient_scaler =
       std::make_shared<jyppx::liuding::training::amp::GradScaler>();
-  request.gradient_scaler_checkpoint =
-      std::make_shared<jyppx::liuding::training::amp::GradScalerCheckpointParticipant>(
-          request.gradient_scaler);
+  request.gradient_scaler_checkpoint = std::make_shared<
+      jyppx::liuding::training::amp::GradScalerCheckpointParticipant>(
+      request.gradient_scaler);
   jyppx::liuding::training::Trainer trainer(options(1));
-  EXPECT_THROW(trainer.prepare(std::move(request)), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(trainer.prepare(std::move(request)),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(TrainerCudaTest, Float16PrecisionOwnsMultiOptimizerScalerCycle) {
@@ -572,26 +611,25 @@ TEST(TrainerCudaTest, Float16PrecisionOwnsMultiOptimizerScalerCycle) {
   }
   auto domain = make_domain();
   auto optimizers = make_split_optimizers(domain);
-  auto request =
-      make_request(domain, {}, {}, {}, jyppx::liuding::Device(torch::kCUDA, 0), true);
+  auto request = make_request(domain, {}, {}, {},
+                              jyppx::liuding::Device(torch::kCUDA, 0), true);
   request.optimizers = {
       {.optimizer = optimizers.weight,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.weight)},
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.weight)},
       {.optimizer = optimizers.bias,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.bias)}};
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.bias)}};
   auto scaler = std::make_shared<jyppx::liuding::training::amp::GradScaler>(
       jyppx::liuding::training::amp::GradScalerOptions{
           .init_scale = 8.0,
           .growth_factor = 2.0,
           .growth_interval = 1,
           .scaler_id = "grad_scaler.trainer.cuda"});
-  auto scaler_checkpoint =
-      std::make_shared<jyppx::liuding::training::amp::GradScalerCheckpointParticipant>(
-          scaler);
+  auto scaler_checkpoint = std::make_shared<
+      jyppx::liuding::training::amp::GradScalerCheckpointParticipant>(scaler);
   request.gradient_scaler = scaler;
   request.gradient_scaler_checkpoint = scaler_checkpoint;
   jyppx::liuding::training::Trainer trainer(
@@ -623,7 +661,8 @@ TEST(TrainerTest, AccumulationTailFlushAndDropAreExplicit) {
        .trace_id = "trace.flush",
        .max_epochs = 1,
        .accumulate_steps = 3,
-       .accumulation_tail = jyppx::liuding::training::AccumulationTailPolicy::flush});
+       .accumulation_tail =
+           jyppx::liuding::training::AccumulationTailPolicy::flush});
   flush_trainer.prepare(make_request(flush_domain));
   EXPECT_EQ(flush_trainer.fit().global_step, 1U);
 
@@ -634,19 +673,22 @@ TEST(TrainerTest, AccumulationTailFlushAndDropAreExplicit) {
        .trace_id = "trace.drop",
        .max_epochs = 1,
        .accumulate_steps = 3,
-       .accumulation_tail = jyppx::liuding::training::AccumulationTailPolicy::drop});
+       .accumulation_tail =
+           jyppx::liuding::training::AccumulationTailPolicy::drop});
   drop_trainer.prepare(make_request(drop_domain));
   EXPECT_EQ(drop_trainer.fit().global_step, 0U);
 }
 
 TEST(TrainerTest, EpochSchedulerAndMetricSchedulerReceiveStrictEvents) {
   auto epoch_domain = make_domain();
-  auto epoch_scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      epoch_domain.optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{
-          .scheduler_id = "scheduler.epoch", .step_size = 1, .gamma = 0.5});
+  auto epoch_scheduler =
+      std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
+          epoch_domain.optimizer,
+          jyppx::liuding::optim::StepLrSchedulerOptions{
+              .scheduler_id = "scheduler.epoch", .step_size = 1, .gamma = 0.5});
   auto epoch_adapter =
-      std::make_shared<jyppx::liuding::training::SchedulerAdapter>(epoch_scheduler);
+      std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
+          epoch_scheduler);
   jyppx::liuding::training::Trainer epoch_trainer(options(2));
   epoch_trainer.prepare(make_request(epoch_domain, {}, epoch_adapter));
   EXPECT_EQ(epoch_trainer.fit().completed_epochs, 2U);
@@ -659,7 +701,8 @@ TEST(TrainerTest, EpochSchedulerAndMetricSchedulerReceiveStrictEvents) {
           jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
               .scheduler_id = "scheduler.metric", .patience = 0});
   auto metric_adapter =
-      std::make_shared<jyppx::liuding::training::SchedulerAdapter>(metric_scheduler);
+      std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
+          metric_scheduler);
   jyppx::liuding::training::Trainer metric_trainer(options(2));
   metric_trainer.prepare(make_request(metric_domain, {}, metric_adapter));
   EXPECT_EQ(metric_trainer.fit().completed_epochs, 2U);
@@ -669,7 +712,8 @@ TEST(TrainerTest, EpochSchedulerAndMetricSchedulerReceiveStrictEvents) {
 TEST(TrainerTest, CallbackStopRequestsSafeBoundary) {
   auto domain = make_domain();
   auto callback = std::make_shared<RecordingCallback>(
-      "callback.stop", jyppx::liuding::training::CallbackEventKind::batch_finished,
+      "callback.stop",
+      jyppx::liuding::training::CallbackEventKind::batch_finished,
       std::vector<jyppx::liuding::training::CallbackCommandKind>{
           jyppx::liuding::training::CallbackCommandKind::stop},
       [](const jyppx::liuding::training::CallbackEvent&) {
@@ -677,8 +721,10 @@ TEST(TrainerTest, CallbackStopRequestsSafeBoundary) {
             .kind = jyppx::liuding::training::CallbackCommandKind::stop,
             .reason = "test stop"};
       });
-  auto dispatcher = std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
-      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{callback});
+  auto dispatcher = std::make_shared<
+      jyppx::liuding::training::CallbackDispatcher>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
+          callback});
   jyppx::liuding::training::Trainer trainer(options(10));
   trainer.prepare(make_request(domain, dispatcher));
   const auto result = trainer.fit();
@@ -694,31 +740,37 @@ TEST(TrainerTest, CheckpointResumeMatchesUninterruptedMidEpoch) {
   auto request = make_request(source_domain);
   request.optimizers = {
       {.optimizer = source_optimizers.weight,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               source_optimizers.weight)},
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           source_optimizers.weight)},
       {.optimizer = source_optimizers.bias,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               source_optimizers.bias)}};
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           source_optimizers.bias)}};
   auto callback = std::make_shared<RecordingCallback>(
-      "callback.checkpoint", jyppx::liuding::training::CallbackEventKind::batch_finished,
+      "callback.checkpoint",
+      jyppx::liuding::training::CallbackEventKind::batch_finished,
       std::vector<jyppx::liuding::training::CallbackCommandKind>{
           jyppx::liuding::training::CallbackCommandKind::request_checkpoint},
-      [triggered = false](const jyppx::liuding::training::CallbackEvent& event) mutable {
+      [triggered = false](
+          const jyppx::liuding::training::CallbackEvent& event) mutable {
         if (!triggered &&
             event.phase == jyppx::liuding::training::CallbackPhase::training) {
           triggered = true;
           return jyppx::liuding::training::CallbackCommandRequest{
-              .kind = jyppx::liuding::training::CallbackCommandKind::request_checkpoint,
+              .kind = jyppx::liuding::training::CallbackCommandKind::
+                  request_checkpoint,
               .reason = "mid-epoch test checkpoint"};
         }
         return jyppx::liuding::training::CallbackCommandRequest{};
       });
-  request.callbacks = std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
-      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{callback});
+  request.callbacks = std::make_shared<
+      jyppx::liuding::training::CallbackDispatcher>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
+          callback});
   request.checkpoint_action =
-      [checkpoint](const jyppx::liuding::training::CheckpointCoordinator& coordinator) {
+      [checkpoint](
+          const jyppx::liuding::training::CheckpointCoordinator& coordinator) {
         coordinator.save(*checkpoint);
       };
   jyppx::liuding::training::Trainer source(options(2));
@@ -730,23 +782,24 @@ TEST(TrainerTest, CheckpointResumeMatchesUninterruptedMidEpoch) {
   auto restored_optimizers = make_split_optimizers(restored_domain);
   jyppx::liuding::training::Trainer restored(options(2));
   auto restored_callback = std::make_shared<RecordingCallback>(
-      "callback.checkpoint", jyppx::liuding::training::CallbackEventKind::batch_finished,
+      "callback.checkpoint",
+      jyppx::liuding::training::CallbackEventKind::batch_finished,
       std::vector<jyppx::liuding::training::CallbackCommandKind>{
           jyppx::liuding::training::CallbackCommandKind::request_checkpoint});
-  auto restored_dispatcher =
-      std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
-          std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
-              restored_callback});
+  auto restored_dispatcher = std::make_shared<
+      jyppx::liuding::training::CallbackDispatcher>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
+          restored_callback});
   auto restored_request = make_request(restored_domain, restored_dispatcher);
   restored_request.optimizers = {
       {.optimizer = restored_optimizers.weight,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               restored_optimizers.weight)},
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           restored_optimizers.weight)},
       {.optimizer = restored_optimizers.bias,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               restored_optimizers.bias)}};
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           restored_optimizers.bias)}};
   restored.prepare(std::move(restored_request));
   restored.restore_checkpoint(*checkpoint);
   const auto actual = restored.fit();
@@ -795,51 +848,57 @@ TEST(TrainerTest, PreparationRejectsDuplicateOptimizerIdentities) {
   auto domain = make_domain();
   auto optimizers = make_split_optimizers(domain);
   const auto bias_bindings = optimizers.bias->parameter_bindings();
-  auto duplicate_identity = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-      "optimizer.weight",
-      std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-          {.group_id = "bias",
-           .parameters = std::vector<jyppx::liuding::optim::OptimizerParameterBinding>(
-               bias_bindings.begin(), bias_bindings.end()),
-           .options = {.learning_rate = 1e-4}}});
+  auto duplicate_identity =
+      std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+          "optimizer.weight",
+          std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+              {.group_id = "bias",
+               .parameters = std::vector<
+                   jyppx::liuding::optim::OptimizerParameterBinding>(
+                   bias_bindings.begin(), bias_bindings.end()),
+               .options = {.learning_rate = 1e-4}}});
   auto request = make_request(domain);
   request.optimizers = {
       {.optimizer = optimizers.weight,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.weight)},
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.weight)},
       {.optimizer = duplicate_identity,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               duplicate_identity)}};
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           duplicate_identity)}};
   jyppx::liuding::training::Trainer trainer(options(1));
 
-  EXPECT_THROW(trainer.prepare(std::move(request)), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(trainer.prepare(std::move(request)),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(TrainerTest, PreparationRejectsSchedulerForDifferentOptimizer) {
   auto domain = make_domain();
   auto optimizers = make_split_optimizers(domain);
-  auto mismatched_scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      optimizers.bias, jyppx::liuding::optim::StepLrSchedulerOptions{
-                           .scheduler_id = "scheduler.mismatched",
-                           .step_size = 1,
-                           .gamma = 0.5});
+  auto mismatched_scheduler =
+      std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
+          optimizers.bias, jyppx::liuding::optim::StepLrSchedulerOptions{
+                               .scheduler_id = "scheduler.mismatched",
+                               .step_size = 1,
+                               .gamma = 0.5});
   auto request = make_request(domain);
   request.optimizers = {
       {.optimizer = optimizers.weight,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.weight),
-       .scheduler = std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
-           mismatched_scheduler)},
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.weight),
+       .scheduler =
+           std::make_shared<jyppx::liuding::training::SchedulerAdapter>(
+               mismatched_scheduler)},
       {.optimizer = optimizers.bias,
-       .checkpoint =
-           std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-               optimizers.bias)}};
+       .checkpoint = std::make_shared<
+           jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+           optimizers.bias)}};
   jyppx::liuding::training::Trainer trainer(options(1));
 
-  EXPECT_THROW(trainer.prepare(std::move(request)), jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(trainer.prepare(std::move(request)),
+               jyppx::liuding::CompatibilityError);
 }
 
 }  // namespace

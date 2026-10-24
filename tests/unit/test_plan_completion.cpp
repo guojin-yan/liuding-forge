@@ -103,7 +103,8 @@ TEST(WeightedRandomSamplerTest, DeterministicWithSeed) {
 }
 
 TEST(WeightedRandomSamplerTest, ValidatesArguments) {
-  EXPECT_THROW(samplers::WeightedRandomSampler({}, 10), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(samplers::WeightedRandomSampler({}, 10),
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(samplers::WeightedRandomSampler({1.0}, 0),
                jyppx::liuding::InvalidArgument);
   EXPECT_THROW(samplers::WeightedRandomSampler({1.0, -1.0}, 10),
@@ -172,8 +173,10 @@ TEST(DistributedSamplerTest, SingleProcessBehavesLikeIdentity) {
 }
 
 TEST(DistributedSamplerTest, ValidatesArguments) {
-  EXPECT_THROW(samplers::DistributedSampler(10, 1, 1), jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(samplers::DistributedSampler(10, 0, 0), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(samplers::DistributedSampler(10, 1, 1),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(samplers::DistributedSampler(10, 0, 0),
+               jyppx::liuding::InvalidArgument);
 }
 
 // ---- Chain / Stack datasets
@@ -346,7 +349,8 @@ TEST_F(TransformsExtraTest, ColorJitterBrightnessScales) {
 
 TEST_F(TransformsExtraTest, ColorJitterValidatesArguments) {
   EXPECT_THROW(ColorJitter(-0.5), jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(ColorJitter(0.0, 0.0, 0.0, 0.9), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(ColorJitter(0.0, 0.0, 0.0, 0.9),
+               jyppx::liuding::InvalidArgument);
 }
 
 // ---- Model summary / profiler

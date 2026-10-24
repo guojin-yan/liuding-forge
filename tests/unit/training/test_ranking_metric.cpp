@@ -33,17 +33,18 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   /** @brief Copies one declared, bounded state blob into memory. */
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& descriptor) {
-                       return descriptor.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& descriptor) {
+          return descriptor.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes ||
         !blobs_
              .emplace(std::string(name),
                       std::vector<std::byte>(data.begin(), data.end()))
              .second) {
-      throw jyppx::liuding::SerializationError("invalid ranking metric test write");
+      throw jyppx::liuding::SerializationError(
+          "invalid ranking metric test write");
     }
   }
 
@@ -62,7 +63,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end() || blob->second.size() > max_bytes) {
-      throw jyppx::liuding::SerializationError("invalid ranking metric test read");
+      throw jyppx::liuding::SerializationError(
+          "invalid ranking metric test read");
     }
     return blob->second;
   }
@@ -73,7 +75,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Exact manifest stored with the blobs.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Exact manifest stored with the blobs.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Owned blobs indexed by stable field name.
 };
@@ -135,7 +138,8 @@ TEST(RankingMetricTest, PublishesStableDescriptorAndGroupedThresholdCurve) {
   EXPECT_EQ(metric.observations(), 4U);
   EXPECT_EQ(metric.positive_observations(), 2U);
   EXPECT_EQ(metric.negative_observations(), 2U);
-  EXPECT_EQ(metric.describe_state().restore_level, jyppx::liuding::RestoreLevel::exact);
+  EXPECT_EQ(metric.describe_state().restore_level,
+            jyppx::liuding::RestoreLevel::exact);
   EXPECT_NO_THROW(jyppx::liuding::validate_checkpoint_participant(metric));
 
   EXPECT_EQ(metric.threshold_curve(),
@@ -331,14 +335,16 @@ TEST(RankingMetricTest, RestoresExactTypedStateAtomically) {
       {.metric_id = "ranking.checkpoint",
        .undefined_policy = UndefinedRankingPolicy::zero},
       limits(8));
-  EXPECT_THROW(incompatible.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      incompatible.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(incompatible.observations(), 0U);
 
   const auto restored_before = restored.threshold_curve();
   store.corrupt_final_label();
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_EQ(restored.threshold_curve(), restored_before);
 }
 
@@ -489,14 +495,16 @@ TEST(RankingMetricTest, MergesAndRestoresClasswiseExactStateAtomically) {
   auto incompatible_options = options;
   incompatible_options.average = RankingAverage::macro;
   MulticlassAveragePrecision incompatible(incompatible_options, limits(12));
-  EXPECT_THROW(incompatible.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      incompatible.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(incompatible.observations(), 0U);
 
   const auto before = restored.per_class_scores();
   store.corrupt_final_label();
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_EQ(restored.per_class_scores(), before);
 
   MulticlassAveragePrecision bounded(options, limits(8));
@@ -532,7 +540,8 @@ TEST(RankingMetricTest, RejectsInvalidClasswiseUpdatesWithoutMutation) {
   EXPECT_EQ(metric.observations(), 4U);
   EXPECT_EQ(metric.per_class_scores(), before);
 
-  EXPECT_THROW(MulticlassAUROC({.num_classes = 1}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(MulticlassAUROC({.num_classes = 1}),
+               jyppx::liuding::InvalidArgument);
   MulticlassAUROC pair_limited({.num_classes = 3}, limits(2));
   EXPECT_THROW(pair_limited.update(torch::tensor({{0.7, 0.2, 0.1}}),
                                    torch::tensor({0}, torch::kInt64)),

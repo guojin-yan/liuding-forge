@@ -32,8 +32,8 @@ class TensorDataset : public Dataset<Example> {
    * @brief Creates a paired tensor dataset.
    * @param data Defined tensor with a leading sample dimension.
    * @param targets Defined target tensor with the same leading size.
-   * @throws jyppx::liuding::InvalidArgument A tensor is undefined, scalar, or has a
-   * mismatched leading size.
+   * @throws jyppx::liuding::InvalidArgument A tensor is undefined, scalar, or
+   * has a mismatched leading size.
    */
   TensorDataset(const Tensor& data, const Tensor& targets);
 

@@ -64,11 +64,13 @@ TEST(ExtremeOptimizerParamsTest, VeryLargeBatchIsBatchedWithoutOverflow) {
       {.pipeline_id = "data.extreme.large_batch",
        .dataset_version = "test.extreme.large_batch/v1",
        .dataset_size = 8192,
-       .schema = jyppx::liuding::data::BatchSchema::any("test.extreme.batch", 1),
+       .schema =
+           jyppx::liuding::data::BatchSchema::any("test.extreme.batch", 1),
        .batch_factory_id = "test.extreme.tensor_pair/v1",
        .batch_size = 8192},
       [data, targets](std::span<const std::size_t> indices,
-                      const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
+                      const jyppx::liuding::data::DataWorkerContext&,
+                      std::stop_token) {
         std::vector<std::int64_t> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {

@@ -157,9 +157,9 @@ class BlobParticipant final : public jyppx::liuding::CheckpointParticipant {
   }
   void load_state(const jyppx::liuding::StateReader& reader,
                   jyppx::liuding::RestorePolicy policy) override {
-    require(
-        jyppx::liuding::restore_policy_accepts(policy, reader.manifest().restore_level),
-        "restore policy mismatch");
+    require(jyppx::liuding::restore_policy_accepts(
+                policy, reader.manifest().restore_level),
+            "restore policy mismatch");
     const auto saved = reader.read_blob("payload", 1U << 20U);
     require(saved.size() == (1U << 20U), "checkpoint payload truncated");
     bytes.assign(saved.begin(), saved.end());
@@ -232,18 +232,20 @@ void telemetry(const Arguments& args) {
          .correlation = {.project_id = "resource-project",
                          .run_id = "resource-run"},
          .reliability = jyppx::liuding::TelemetryReliability::required,
-         .payload = jyppx::liuding::TelemetryLog{jyppx::liuding::TelemetryLogSeverity::info,
-                                        "fixed finite local resource event"}});
+         .payload = jyppx::liuding::TelemetryLog{
+             jyppx::liuding::TelemetryLogSeverity::info,
+             "fixed finite local resource event"}});
   }
   auto& metrics = sample["metrics"];
   std::size_t encoded_bytes = 0;
-  metrics["serialization_seconds"] = metric(
-      seconds([&] {
-        for (std::size_t round = 0; round < encode_rounds; ++round)
-          for (const auto& event : events)
-            encoded_bytes += jyppx::liuding::encode_telemetry_envelope(event).size();
-      }),
-      "seconds");
+  metrics["serialization_seconds"] =
+      metric(seconds([&] {
+               for (std::size_t round = 0; round < encode_rounds; ++round)
+                 for (const auto& event : events)
+                   encoded_bytes +=
+                       jyppx::liuding::encode_telemetry_envelope(event).size();
+             }),
+             "seconds");
   const ex::JsonlTelemetryOptions options{.path =
                                               args.directory / "events.jsonl"};
   std::unique_ptr<ex::JsonlTelemetrySink> sink;
@@ -258,7 +260,8 @@ void telemetry(const Arguments& args) {
                 std::all_of(
                     receipts.dispositions.begin(), receipts.dispositions.end(),
                     [](auto value) {
-                      return value == jyppx::liuding::TelemetryDisposition::accepted;
+                      return value ==
+                             jyppx::liuding::TelemetryDisposition::accepted;
                     }),
             "JSONL export did not accept all events");
     require(sink->close().exported_events == count,
@@ -275,14 +278,15 @@ void telemetry(const Arguments& args) {
                     reopened.recovery().truncated_tail_bytes == 0,
                 "JSONL recovery mismatch");
         const auto receipts = reopened.emit(events);
-        require(receipts.dispositions.size() == count &&
-                    std::all_of(receipts.dispositions.begin(),
-                                receipts.dispositions.end(),
-                                [](auto value) {
-                                  return value ==
-                                         jyppx::liuding::TelemetryDisposition::duplicate;
-                                }),
-                "JSONL replay was not deduplicated");
+        require(
+            receipts.dispositions.size() == count &&
+                std::all_of(
+                    receipts.dispositions.begin(), receipts.dispositions.end(),
+                    [](auto value) {
+                      return value ==
+                             jyppx::liuding::TelemetryDisposition::duplicate;
+                    }),
+            "JSONL replay was not deduplicated");
         require(reopened.close().exported_events == count,
                 "JSONL replay changed persisted event count");
       }),

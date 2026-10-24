@@ -54,8 +54,8 @@ int cuda_device_count();
  *
  * @param device_str Device specification to parse.
  * @return Parsed LibTorch device.
- * @throws jyppx::liuding::InvalidArgument The string is empty, too long, contains an
- * embedded NUL byte, or is not a valid device specification.
+ * @throws jyppx::liuding::InvalidArgument The string is empty, too long,
+ * contains an embedded NUL byte, or is not a valid device specification.
  */
 Device parse_device(const std::string& device_str);
 

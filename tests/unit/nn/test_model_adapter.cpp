@@ -38,8 +38,8 @@ TORCH_MODULE(ProbeModel);
 static_assert(jyppx::liuding::nn::ModuleImplementation<ProbeModelImpl>);
 static_assert(jyppx::liuding::nn::ModuleHolderLike<ProbeModel>);
 
-jyppx::liuding::TensorSchema matrix_schema(std::int64_t columns,
-                                  torch::Dtype dtype = torch::kFloat32) {
+jyppx::liuding::TensorSchema matrix_schema(
+    std::int64_t columns, torch::Dtype dtype = torch::kFloat32) {
   jyppx::liuding::TensorSchema schema;
   schema.dtype = dtype;
   schema.rank = 2;
@@ -53,11 +53,13 @@ TEST(InvocationSchemaTest, RejectsMalformedTensorAndListSchemas) {
   tensor.tensor_constraints->rank = 2;
   tensor.tensor_constraints->shape =
       std::vector<std::optional<std::int64_t>>{3};
-  EXPECT_THROW(jyppx::liuding::validate_value_schema(tensor), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value_schema(tensor),
+               jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::ValueSchema list;
   list.kind = jyppx::liuding::ValueKind::list;
-  EXPECT_THROW(jyppx::liuding::validate_value_schema(list), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value_schema(list),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(InvocationSchemaTest, ValidatesNestedTupleListAndDictionaryValues) {
@@ -73,16 +75,19 @@ TEST(InvocationSchemaTest, ValidatesNestedTupleListAndDictionaryValues) {
 
   c10::Dict<std::string, torch::Tensor> output;
   output.insert("scores", torch::ones({3, 2}));
-  EXPECT_NO_THROW(jyppx::liuding::validate_value(c10::IValue(output), output_schema));
+  EXPECT_NO_THROW(
+      jyppx::liuding::validate_value(c10::IValue(output), output_schema));
 
   c10::Dict<std::string, torch::Tensor> unexpected;
   unexpected.insert("scores", torch::ones({3, 2}));
   unexpected.insert("extra", torch::zeros({1}));
-  EXPECT_THROW(jyppx::liuding::validate_value(c10::IValue(unexpected), output_schema),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::validate_value(c10::IValue(unexpected), output_schema),
+      jyppx::liuding::InvalidArgument);
 
   const auto tuple_schema = jyppx::liuding::ValueSchema::tuple(
-      {jyppx::liuding::ValueSchema::list(jyppx::liuding::ValueSchema::tensor(matrix_schema(2))),
+      {jyppx::liuding::ValueSchema::list(
+           jyppx::liuding::ValueSchema::tensor(matrix_schema(2))),
        jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer}},
       "batched_result");
   c10::impl::GenericList tensors(c10::TensorType::get());
@@ -90,7 +95,8 @@ TEST(InvocationSchemaTest, ValidatesNestedTupleListAndDictionaryValues) {
   tensors.push_back(torch::zeros({1, 2}));
   const auto tuple = c10::ivalue::Tuple::create(
       {c10::IValue(tensors), c10::IValue(std::int64_t{2})});
-  EXPECT_NO_THROW(jyppx::liuding::validate_value(c10::IValue(tuple), tuple_schema));
+  EXPECT_NO_THROW(
+      jyppx::liuding::validate_value(c10::IValue(tuple), tuple_schema));
 }
 
 TEST(InvocationSchemaTest, ChecksArgumentsBeforeCallingTheModel) {
@@ -101,11 +107,13 @@ TEST(InvocationSchemaTest, ChecksArgumentsBeforeCallingTheModel) {
       jyppx::liuding::ValueSchema::tensor(matrix_schema(2), "features"));
   auto adapter = jyppx::liuding::nn::adapt_module(
       model,
-      [&calls](ProbeModelImpl& concrete, const jyppx::liuding::nn::Invocation& input) {
+      [&calls](ProbeModelImpl& concrete,
+               const jyppx::liuding::nn::Invocation& input) {
         ++calls;
         return concrete.forward(input.positional.front().toTensor());
       },
-      input_schema, jyppx::liuding::ValueSchema::tensor(matrix_schema(1), "prediction"));
+      input_schema,
+      jyppx::liuding::ValueSchema::tensor(matrix_schema(1), "prediction"));
 
   EXPECT_THROW(adapter.invoke({.positional = {torch::ones({4, 3})}}),
                jyppx::liuding::InvalidArgument);
@@ -141,8 +149,8 @@ TEST(ModelStateViewTest,
 TEST(ModelAdapterTest, TensorHelperOwnsConcreteModuleAndValidatesResult) {
   auto model = std::make_shared<ProbeModelImpl>();
   const std::weak_ptr<ProbeModelImpl> lifetime = model;
-  auto adapter =
-      jyppx::liuding::nn::adapt_tensor_module(model, matrix_schema(2), matrix_schema(1));
+  auto adapter = jyppx::liuding::nn::adapt_tensor_module(
+      model, matrix_schema(2), matrix_schema(1));
   model.reset();
 
   ASSERT_FALSE(lifetime.expired());
@@ -156,8 +164,8 @@ TEST(ModelAdapterTest, TensorHelperOwnsConcreteModuleAndValidatesResult) {
 TEST(ModelAdapterTest, TensorHolderHelperRetainsTheImplementation) {
   ProbeModel holder;
   const std::weak_ptr<ProbeModelImpl> lifetime = holder.ptr();
-  auto adapter = jyppx::liuding::nn::adapt_tensor_holder(holder, matrix_schema(2),
-                                                matrix_schema(1));
+  auto adapter = jyppx::liuding::nn::adapt_tensor_holder(
+      holder, matrix_schema(2), matrix_schema(1));
   holder = nullptr;
 
   ASSERT_FALSE(lifetime.expired());
@@ -178,10 +186,12 @@ TEST(ModelAdapterTest, BaseModuleFactoryRetainsStateForARawTypedInvoker) {
       jyppx::liuding::ValueSchema::tensor(matrix_schema(2)));
   auto adapter = jyppx::liuding::nn::adapt_module(
       std::move(base),
-      jyppx::liuding::nn::ModelInvoker([raw](const jyppx::liuding::nn::Invocation& input) {
-        return raw->forward(input.positional.front().toTensor());
-      }),
-      std::move(input_schema), jyppx::liuding::ValueSchema::tensor(matrix_schema(1)));
+      jyppx::liuding::nn::ModelInvoker(
+          [raw](const jyppx::liuding::nn::Invocation& input) {
+            return raw->forward(input.positional.front().toTensor());
+          }),
+      std::move(input_schema),
+      jyppx::liuding::ValueSchema::tensor(matrix_schema(1)));
 
   ASSERT_FALSE(lifetime.expired());
   EXPECT_TRUE(
@@ -205,7 +215,8 @@ TEST(ModelAdapterTest, SupportsMultipleInputsAndTupleOutputs) {
       std::move(input_schema),
       jyppx::liuding::ValueSchema::tuple(
           {jyppx::liuding::ValueSchema::tensor(matrix_schema(2), "sum"),
-           jyppx::liuding::ValueSchema::tensor(matrix_schema(2), "difference")}));
+           jyppx::liuding::ValueSchema::tensor(matrix_schema(2),
+                                               "difference")}));
 
   const auto result = adapter.invoke(
       {.positional = {torch::ones({3, 2}), torch::full({3, 2}, 2.0)}});
@@ -225,7 +236,8 @@ TEST(ModelAdapterTest, RejectsAnOutputThatViolatesTheDeclaredSchema) {
       [](ProbeModelImpl&, const jyppx::liuding::nn::Invocation&) {
         return c10::IValue(std::int64_t{7});
       },
-      std::move(input_schema), jyppx::liuding::ValueSchema::tensor(matrix_schema(1)));
+      std::move(input_schema),
+      jyppx::liuding::ValueSchema::tensor(matrix_schema(1)));
 
   EXPECT_THROW(adapter.invoke({.positional = {torch::ones({1, 2})}}),
                jyppx::liuding::InvalidArgument);
@@ -239,7 +251,8 @@ TEST(ModelAdapterTest, PreservesNestedLibTorchFailureContext) {
         return c10::IValue(
             torch::matmul(torch::ones({2, 3}), torch::ones({5, 4})));
       },
-      jyppx::liuding::nn::InvocationSchema{}, jyppx::liuding::ValueSchema::tensor());
+      jyppx::liuding::nn::InvocationSchema{},
+      jyppx::liuding::ValueSchema::tensor());
 
   try {
     static_cast<void>(adapter.invoke({}));
@@ -252,20 +265,23 @@ TEST(ModelAdapterTest, PreservesNestedLibTorchFailureContext) {
 }
 
 TEST(ModelAdapterTest, RejectsMissingModulesHoldersAndInvokers) {
-  EXPECT_THROW(jyppx::liuding::nn::adapt_module(
-                   std::shared_ptr<torch::nn::Module>{},
-                   [](const jyppx::liuding::nn::Invocation&) { return c10::IValue{}; },
-                   {}, jyppx::liuding::ValueSchema::any()),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::nn::adapt_module(
+          std::shared_ptr<torch::nn::Module>{},
+          [](const jyppx::liuding::nn::Invocation&) { return c10::IValue{}; },
+          {}, jyppx::liuding::ValueSchema::any()),
+      jyppx::liuding::InvalidArgument);
 
   auto model = std::make_shared<ProbeModelImpl>();
   EXPECT_THROW(jyppx::liuding::nn::adapt_module(
                    std::static_pointer_cast<torch::nn::Module>(model),
-                   jyppx::liuding::nn::ModelInvoker{}, {}, jyppx::liuding::ValueSchema::any()),
+                   jyppx::liuding::nn::ModelInvoker{}, {},
+                   jyppx::liuding::ValueSchema::any()),
                jyppx::liuding::InvalidArgument);
 
   ProbeModel empty(nullptr);
-  EXPECT_THROW(jyppx::liuding::nn::adapt_tensor_holder(empty), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::nn::adapt_tensor_holder(empty),
+               jyppx::liuding::InvalidArgument);
 }
 
 }  // namespace

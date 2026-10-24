@@ -32,10 +32,10 @@ namespace jyppx::liuding::data::detail {
   throw ::jyppx::liuding::InvalidArgument(
       "Invalid data API argument",
       ::jyppx::liuding::ErrorDetails{.component = std::string(component),
-                            .operation = std::string(operation),
-                            .expected = std::move(expected),
-                            .actual = std::move(actual),
-                            .hint = std::move(hint)});
+                                     .operation = std::string(operation),
+                                     .expected = std::move(expected),
+                                     .actual = std::move(actual),
+                                     .hint = std::move(hint)});
 }
 
 /**
@@ -66,12 +66,13 @@ namespace jyppx::liuding::data::detail {
                                            std::string actual) {
   throw ::jyppx::liuding::SerializationError(
       "Invalid data sampler state",
-      ::jyppx::liuding::ErrorDetails{.component = std::string(component),
-                            .operation = std::string(operation),
-                            .expected = "state produced by the same sampler",
-                            .actual = std::move(actual),
-                            .hint = "Restore state from the matching sampler "
-                                    "configuration"});
+      ::jyppx::liuding::ErrorDetails{
+          .component = std::string(component),
+          .operation = std::string(operation),
+          .expected = "state produced by the same sampler",
+          .actual = std::move(actual),
+          .hint = "Restore state from the matching sampler "
+                  "configuration"});
 }
 
 /**
@@ -91,10 +92,10 @@ namespace jyppx::liuding::data::detail {
   throw ::jyppx::liuding::CompatibilityError(
       "Incompatible data state",
       ::jyppx::liuding::ErrorDetails{.component = std::string(component),
-                            .operation = std::string(operation),
-                            .expected = std::move(expected),
-                            .actual = std::move(actual),
-                            .hint = std::move(hint)});
+                                     .operation = std::string(operation),
+                                     .expected = std::move(expected),
+                                     .actual = std::move(actual),
+                                     .hint = std::move(hint)});
 }
 
 /**
@@ -114,10 +115,10 @@ namespace jyppx::liuding::data::detail {
   throw ::jyppx::liuding::SerializationError(
       "Invalid serialized data state",
       ::jyppx::liuding::ErrorDetails{.component = std::string(component),
-                            .operation = std::string(operation),
-                            .expected = std::move(expected),
-                            .actual = std::move(actual),
-                            .hint = std::move(hint)});
+                                     .operation = std::string(operation),
+                                     .expected = std::move(expected),
+                                     .actual = std::move(actual),
+                                     .hint = std::move(hint)});
 }
 
 }  // namespace jyppx::liuding::data::detail

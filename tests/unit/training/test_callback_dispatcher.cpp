@@ -41,11 +41,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   /** @brief Stores one declared field exactly once. */
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes ||
         !blobs_
              .emplace(std::string(name),
@@ -62,7 +62,9 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   /** @brief Changes metadata independently to exercise strict restore checks.
    */
-  jyppx::liuding::StateManifest& mutable_manifest() noexcept { return manifest_; }
+  jyppx::liuding::StateManifest& mutable_manifest() noexcept {
+    return manifest_;
+  }
 
   /** @brief Reports whether a named field has been written. */
   bool contains(std::string_view name) const override {
@@ -97,7 +99,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
       blobs_;  ///< Encoded fields indexed by stable field name.
 };
 
-class RecordingCallback final : public jyppx::liuding::training::CallbackHandler {
+class RecordingCallback final
+    : public jyppx::liuding::training::CallbackHandler {
  public:
   /**
    * @brief Creates a stateless callback with one deterministic response.
@@ -126,13 +129,16 @@ class RecordingCallback final : public jyppx::liuding::training::CallbackHandler
   }
 
  private:
-  jyppx::liuding::training::CallbackDescriptor descriptor_;   ///< Mock capabilities.
-  jyppx::liuding::training::CallbackCommandRequest request_;  ///< Fixed response.
+  jyppx::liuding::training::CallbackDescriptor
+      descriptor_;  ///< Mock capabilities.
+  jyppx::liuding::training::CallbackCommandRequest
+      request_;                      ///< Fixed response.
   std::vector<std::string>* calls_;  ///< Borrowed execution-order recorder.
 };
 
-class RollbackFailingCallback final : public jyppx::liuding::training::CallbackHandler,
-                                      public jyppx::liuding::CheckpointParticipant {
+class RollbackFailingCallback final
+    : public jyppx::liuding::training::CallbackHandler,
+      public jyppx::liuding::CheckpointParticipant {
  public:
   /** @brief Creates a stateful callback that issues an undeclared command. */
   RollbackFailingCallback() = default;
@@ -147,8 +153,10 @@ class RollbackFailingCallback final : public jyppx::liuding::training::CallbackH
   jyppx::liuding::training::CallbackCommandRequest handle(
       const jyppx::liuding::training::CallbackEvent&) override {
     ++value_;
-    return {.kind = jyppx::liuding::training::CallbackCommandKind::request_checkpoint,
-            .reason = "undeclared"};
+    return {
+        .kind =
+            jyppx::liuding::training::CallbackCommandKind::request_checkpoint,
+        .reason = "undeclared"};
   }
 
   /** @brief Returns the callback identity used by the test manifest. */
@@ -171,8 +179,10 @@ class RollbackFailingCallback final : public jyppx::liuding::training::CallbackH
   }
 
   /** @brief Fails deliberately to exercise indeterminate rollback reporting. */
-  void load_state(const jyppx::liuding::StateReader&, jyppx::liuding::RestorePolicy) override {
-    throw jyppx::liuding::SerializationError("deliberate callback rollback failure");
+  void load_state(const jyppx::liuding::StateReader&,
+                  jyppx::liuding::RestorePolicy) override {
+    throw jyppx::liuding::SerializationError(
+        "deliberate callback rollback failure");
   }
 
   /** @brief Returns the mutable value for post-failure assertions. */
@@ -184,7 +194,8 @@ class RollbackFailingCallback final : public jyppx::liuding::training::CallbackH
       .type_id = "test.rollback_failure.v1",
       .callback_id = "callback.rollback_failure",
       .priority = 0,
-      .subscriptions = {jyppx::liuding::training::CallbackEventKind::epoch_finished},
+      .subscriptions =
+          {jyppx::liuding::training::CallbackEventKind::epoch_finished},
       .allowed_commands = {},
       .stateful = true};    ///< Fixed state identity and capabilities.
   std::uint8_t value_ = 0;  ///< Mutable value changed before failure.
@@ -201,7 +212,8 @@ jyppx::liuding::training::CallbackDescriptor descriptor(
           .type_id = "test.recording.v1",
           .callback_id = std::move(callback_id),
           .priority = priority,
-          .subscriptions = {jyppx::liuding::training::CallbackEventKind::epoch_finished},
+          .subscriptions =
+              {jyppx::liuding::training::CallbackEventKind::epoch_finished},
           .allowed_commands = std::move(commands),
           .stateful = false};
 }
@@ -248,10 +260,11 @@ TEST(CallbackDispatcherTest, UsesStableExecutionAndFixedCommandPriority) {
       &calls);
   auto stop = std::make_shared<RecordingCallback>(
       descriptor("callback.b", 10, CallbackCommandKind::stop),
-      jyppx::liuding::training::CallbackCommandRequest{.kind = CallbackCommandKind::stop,
-                                              .reason = "limit"},
+      jyppx::liuding::training::CallbackCommandRequest{
+          .kind = CallbackCommandKind::stop, .reason = "limit"},
       &calls);
-  jyppx::liuding::training::CallbackDispatcher dispatcher({stop, checkpoint, skip});
+  jyppx::liuding::training::CallbackDispatcher dispatcher(
+      {stop, checkpoint, skip});
 
   EXPECT_TRUE(dispatcher.dispatch(run_started()).commands.empty());
   const auto result = dispatcher.dispatch(epoch_finished(2, 1));
@@ -268,12 +281,14 @@ TEST(CallbackDispatcherTest, UsesStableExecutionAndFixedCommandPriority) {
 TEST(CallbackDispatcherTest, RejectsInvalidAndDuplicateEventStreams) {
   jyppx::liuding::training::CallbackDispatcher dispatcher;
   auto wrong_start = epoch_finished(1, 0);
-  EXPECT_THROW(dispatcher.dispatch(wrong_start), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(dispatcher.dispatch(wrong_start),
+               jyppx::liuding::InvalidArgument);
 
   dispatcher.dispatch(run_started());
   auto wrong_phase = epoch_finished(2, 1);
   wrong_phase.phase = jyppx::liuding::training::CallbackPhase::validation;
-  EXPECT_THROW(dispatcher.dispatch(wrong_phase), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(dispatcher.dispatch(wrong_phase),
+               jyppx::liuding::InvalidArgument);
   EXPECT_EQ(dispatcher.last_event_index(), 1U);
 
   dispatcher.dispatch(epoch_finished(2, 1));
@@ -320,24 +335,25 @@ TEST(CallbackDispatcherTest, RejectsDuplicateAndFalseStatefulDescriptors) {
   EXPECT_THROW(jyppx::liuding::training::CallbackDispatcher({first, second}),
                jyppx::liuding::InvalidArgument);
 
-  auto stateful_descriptor = descriptor(
-      "callback.false_state", 0, jyppx::liuding::training::CallbackCommandKind::none);
+  auto stateful_descriptor =
+      descriptor("callback.false_state", 0,
+                 jyppx::liuding::training::CallbackCommandKind::none);
   stateful_descriptor.stateful = true;
   auto false_stateful = std::make_shared<RecordingCallback>(
-      std::move(stateful_descriptor), jyppx::liuding::training::CallbackCommandRequest{},
-      &calls);
+      std::move(stateful_descriptor),
+      jyppx::liuding::training::CallbackCommandRequest{}, &calls);
   EXPECT_THROW(jyppx::liuding::training::CallbackDispatcher({false_stateful}),
                jyppx::liuding::InvalidArgument);
 }
 
 TEST(EarlyStoppingCallbackTest, AppliesExplicitPatienceAndDeltaSemantics) {
-  auto early =
-      std::make_shared<jyppx::liuding::training::callbacks::EarlyStoppingCallback>(
-          jyppx::liuding::training::callbacks::EarlyStoppingOptions{
-              .callback_id = "callback.early",
-              .monitor = "val_loss",
-              .patience = 1,
-              .min_delta = 0.1});
+  auto early = std::make_shared<
+      jyppx::liuding::training::callbacks::EarlyStoppingCallback>(
+      jyppx::liuding::training::callbacks::EarlyStoppingOptions{
+          .callback_id = "callback.early",
+          .monitor = "val_loss",
+          .patience = 1,
+          .min_delta = 0.1});
   jyppx::liuding::training::CallbackDispatcher dispatcher({early});
   dispatcher.dispatch(run_started());
 
@@ -356,8 +372,8 @@ TEST(EarlyStoppingCallbackTest, AppliesExplicitPatienceAndDeltaSemantics) {
 }
 
 TEST(EarlyStoppingCallbackTest, RejectsMissingMetricWithoutStateMutation) {
-  auto early =
-      std::make_shared<jyppx::liuding::training::callbacks::EarlyStoppingCallback>();
+  auto early = std::make_shared<
+      jyppx::liuding::training::callbacks::EarlyStoppingCallback>();
   jyppx::liuding::training::CallbackDispatcher dispatcher({early});
   dispatcher.dispatch(run_started());
 
@@ -367,7 +383,8 @@ TEST(EarlyStoppingCallbackTest, RejectsMissingMetricWithoutStateMutation) {
   } catch (const jyppx::liuding::InternalError& error) {
     EXPECT_EQ(error.details().actual,
               "callback.early_stopping at epoch_finished");
-    EXPECT_THROW(std::rethrow_if_nested(error), jyppx::liuding::InvalidArgument);
+    EXPECT_THROW(std::rethrow_if_nested(error),
+                 jyppx::liuding::InvalidArgument);
   }
   EXPECT_FALSE(early->has_best_value());
   EXPECT_EQ(early->non_improving_observations(), 0U);
@@ -377,10 +394,10 @@ TEST(EarlyStoppingCallbackTest, RejectsMissingMetricWithoutStateMutation) {
 TEST(CallbackDispatcherTest, LaterInvalidCommandRollsBackEarlierStatefulWork) {
   using jyppx::liuding::training::CallbackCommandKind;
   std::vector<std::string> calls;
-  auto early =
-      std::make_shared<jyppx::liuding::training::callbacks::EarlyStoppingCallback>(
-          jyppx::liuding::training::callbacks::EarlyStoppingOptions{
-              .callback_id = "callback.early", .priority = 10});
+  auto early = std::make_shared<
+      jyppx::liuding::training::callbacks::EarlyStoppingCallback>(
+      jyppx::liuding::training::callbacks::EarlyStoppingOptions{
+          .callback_id = "callback.early", .priority = 10});
   auto invalid = std::make_shared<RecordingCallback>(
       descriptor("callback.invalid", 0, CallbackCommandKind::stop),
       jyppx::liuding::training::CallbackCommandRequest{
@@ -408,26 +425,27 @@ TEST(CallbackDispatcherTest, RegistersCompleteCallbackStateDomainAtomically) {
 
   auto duplicate = std::make_shared<EarlyStoppingCallback>(
       EarlyStoppingOptions{.callback_id = "callback.shared"});
-  auto rejected_dispatcher =
-      std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
-          std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
-              duplicate},
-          jyppx::liuding::training::CallbackDispatcherOptions{.dispatcher_id =
-                                                         "callbacks.rejected"});
-  EXPECT_THROW(jyppx::liuding::training::register_callback_checkpoint_participants(
-                   registry, rejected_dispatcher),
-               jyppx::liuding::InvalidArgument);
+  auto rejected_dispatcher = std::make_shared<
+      jyppx::liuding::training::CallbackDispatcher>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
+          duplicate},
+      jyppx::liuding::training::CallbackDispatcherOptions{
+          .dispatcher_id = "callbacks.rejected"});
+  EXPECT_THROW(
+      jyppx::liuding::training::register_callback_checkpoint_participants(
+          registry, rejected_dispatcher),
+      jyppx::liuding::InvalidArgument);
   EXPECT_EQ(registry.participant_ids(),
             std::vector<std::string>{"callback.shared"});
 
   auto accepted = std::make_shared<EarlyStoppingCallback>(
       EarlyStoppingOptions{.callback_id = "callback.accepted"});
-  auto accepted_dispatcher =
-      std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
-          std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
-              accepted},
-          jyppx::liuding::training::CallbackDispatcherOptions{.dispatcher_id =
-                                                         "callbacks.accepted"});
+  auto accepted_dispatcher = std::make_shared<
+      jyppx::liuding::training::CallbackDispatcher>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
+          accepted},
+      jyppx::liuding::training::CallbackDispatcherOptions{
+          .dispatcher_id = "callbacks.accepted"});
   jyppx::liuding::training::register_callback_checkpoint_participants(
       registry, accepted_dispatcher);
   EXPECT_EQ(registry.participant_ids(),
@@ -436,8 +454,8 @@ TEST(CallbackDispatcherTest, RegistersCompleteCallbackStateDomainAtomically) {
 }
 
 TEST(CallbackDispatcherTest, EnforcesRollbackBudgetBeforeHandlerMutation) {
-  auto early =
-      std::make_shared<jyppx::liuding::training::callbacks::EarlyStoppingCallback>();
+  auto early = std::make_shared<
+      jyppx::liuding::training::callbacks::EarlyStoppingCallback>();
   jyppx::liuding::training::CallbackDispatcher dispatcher(
       {early}, jyppx::liuding::training::CallbackDispatcherOptions{
                    .max_dispatch_rollback_bytes = 1});
@@ -460,7 +478,8 @@ TEST(CallbackDispatcherTest, ReportsIncompleteRollbackWithOriginalCause) {
   } catch (const jyppx::liuding::InternalError& error) {
     EXPECT_EQ(error.details().operation, "dispatch.rollback");
     EXPECT_EQ(error.details().actual, "callback.rollback_failure");
-    EXPECT_THROW(std::rethrow_if_nested(error), jyppx::liuding::CompatibilityError);
+    EXPECT_THROW(std::rethrow_if_nested(error),
+                 jyppx::liuding::CompatibilityError);
   }
   EXPECT_EQ(callback->value(), 1U);
   EXPECT_EQ(dispatcher.last_event_index(), 1U);
@@ -469,12 +488,14 @@ TEST(CallbackDispatcherTest, ReportsIncompleteRollbackWithOriginalCause) {
 TEST(CallbackDispatcherTest,
      RestoresDispatcherAndStatefulCallbackWithReorderedFields) {
   using jyppx::liuding::training::callbacks::EarlyStoppingCallback;
-  const auto options = jyppx::liuding::training::callbacks::EarlyStoppingOptions{
-      .callback_id = "callback.resume",
-      .monitor = "score",
-      .patience = 1,
-      .min_delta = 0.0,
-      .mode = jyppx::liuding::training::callbacks::EarlyStoppingMode::maximize};
+  const auto options =
+      jyppx::liuding::training::callbacks::EarlyStoppingOptions{
+          .callback_id = "callback.resume",
+          .monitor = "score",
+          .patience = 1,
+          .min_delta = 0.0,
+          .mode =
+              jyppx::liuding::training::callbacks::EarlyStoppingMode::maximize};
   auto source_callback = std::make_shared<EarlyStoppingCallback>(options);
   jyppx::liuding::training::CallbackDispatcher source({source_callback});
   source.dispatch(run_started());
@@ -496,7 +517,8 @@ TEST(CallbackDispatcherTest,
   jyppx::liuding::training::CallbackDispatcher restored({restored_callback});
   restored_callback->load_state(callback_store,
                                 jyppx::liuding::RestorePolicy::exact_only);
-  restored.load_state(dispatcher_store, jyppx::liuding::RestorePolicy::exact_only);
+  restored.load_state(dispatcher_store,
+                      jyppx::liuding::RestorePolicy::exact_only);
 
   const auto participants = restored.checkpoint_participants();
   ASSERT_EQ(participants.size(), 1U);
@@ -523,28 +545,34 @@ TEST(EarlyStoppingCallbackTest, ReorderedFieldsStillRejectChangedContracts) {
   restored.handle(epoch_finished(2, 1, {{"validation.loss", 2.0}}));
   auto& fields = store.mutable_manifest().fields;
   fields.pop_back();
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   store.mutable_manifest() = valid;
   fields.push_back({.name = "unknown", .max_bytes = 1});
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   store.mutable_manifest() = valid;
   fields.front().name = "unknown";
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   store.mutable_manifest() = valid;
   fields.front() = fields.back();
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::InvalidArgument);
   store.mutable_manifest() = valid;
   fields.front().media_type = "application/x-other";
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   store.mutable_manifest() = valid;
   fields.front().required = false;
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_DOUBLE_EQ(restored.best_value(), 2.0);
 
   store.mutable_manifest() = valid;
@@ -562,8 +590,9 @@ TEST(EarlyStoppingCallbackTest, RejectsCorruptStateTransactionally) {
 
   EarlyStoppingCallback restored;
   restored.handle(epoch_finished(2, 1, {{"validation.loss", 2.0}}));
-  EXPECT_THROW(restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_TRUE(restored.has_best_value());
   EXPECT_DOUBLE_EQ(restored.best_value(), 2.0);
   EXPECT_FALSE(restored.should_stop());

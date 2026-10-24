@@ -34,11 +34,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
       throw jyppx::liuding::SerializationError("unknown StepLR test field");
     }
@@ -68,7 +68,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
       throw jyppx::liuding::SerializationError("missing StepLR test field");
     }
     if (blob->second.size() > max_bytes) {
-      throw jyppx::liuding::ResourceExhausted("StepLR test read limit exceeded");
+      throw jyppx::liuding::ResourceExhausted(
+          "StepLR test read limit exceeded");
     }
     return blob->second;
   }
@@ -82,7 +83,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Descriptor enforced by this test store.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Descriptor enforced by this test store.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Complete fields indexed by their stable names.
 };
@@ -108,7 +110,8 @@ std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
 }
 
 MemoryStateStore save_participant(
-    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant& participant) {
+    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant&
+        participant) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   return store;
@@ -123,7 +126,8 @@ TEST(StepLrSchedulerTest, PublishesTypedStableDescriptor) {
   const auto& descriptor = scheduler.descriptor();
   EXPECT_EQ(descriptor.schema_version, 1U);
   EXPECT_EQ(descriptor.type_id, "jyppx.scheduler.step_lr/v1");
-  EXPECT_EQ(descriptor.step_mode, jyppx::liuding::optim::SchedulerStepMode::epoch);
+  EXPECT_EQ(descriptor.step_mode,
+            jyppx::liuding::optim::SchedulerStepMode::epoch);
   EXPECT_EQ(descriptor.optimizer_id, "optimizer.main");
   EXPECT_EQ(descriptor.optimizer_group_ids,
             (std::vector<std::string>{"backbone", "head"}));
@@ -134,14 +138,15 @@ TEST(StepLrSchedulerTest, PublishesTypedStableDescriptor) {
             (std::vector<double>{0.2, 0.05}));
   EXPECT_FALSE(descriptor.optimizer_group_signature.empty());
   EXPECT_EQ(descriptor.fingerprint.size(), 16U);
-  EXPECT_EQ(jyppx::liuding::optim::scheduler_step_mode_name(descriptor.step_mode),
-            "epoch");
+  EXPECT_EQ(
+      jyppx::liuding::optim::scheduler_step_mode_name(descriptor.step_mode),
+      "epoch");
 }
 
 TEST(StepLrSchedulerTest, DecaysEveryConfiguredCompletedStepInterval) {
   auto optimizer = make_optimizer();
-  jyppx::liuding::optim::StepLrScheduler scheduler(optimizer,
-                                          {.step_size = 2, .gamma = 0.5});
+  jyppx::liuding::optim::StepLrScheduler scheduler(
+      optimizer, {.step_size = 2, .gamma = 0.5});
 
   scheduler.step();
   EXPECT_EQ(scheduler.completed_steps(), 1U);
@@ -158,16 +163,17 @@ TEST(StepLrSchedulerTest, DecaysEveryConfiguredCompletedStepInterval) {
 TEST(StepLrSchedulerTest, RejectsInvalidConstructionBeforeMutation) {
   auto optimizer = make_optimizer();
   const auto before = optimizer->learning_rates();
-  EXPECT_THROW(jyppx::liuding::optim::StepLrScheduler(nullptr), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::optim::StepLrScheduler(nullptr),
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(jyppx::liuding::optim::StepLrScheduler(
                    optimizer, {.scheduler_id = "", .step_size = 1}),
                jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(
-      jyppx::liuding::optim::StepLrScheduler(optimizer, {.step_size = 0, .gamma = 0.1}),
-      jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(
-      jyppx::liuding::optim::StepLrScheduler(optimizer, {.step_size = 1, .gamma = -0.1}),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::optim::StepLrScheduler(
+                   optimizer, {.step_size = 0, .gamma = 0.1}),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::optim::StepLrScheduler(
+                   optimizer, {.step_size = 1, .gamma = -0.1}),
+               jyppx::liuding::InvalidArgument);
   EXPECT_EQ(optimizer->learning_rates(), before);
 }
 
@@ -175,22 +181,25 @@ TEST(StepLrSchedulerCheckpointTest,
      RestoresCounterAndRatesForExactContinuation) {
   auto source_optimizer = make_optimizer();
   auto source = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      source_optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
+      source_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
+                            .step_size = 2, .gamma = 0.5});
   source->step();
   source->step();
   source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   const auto store = save_participant(source_participant);
 
   auto resumed_optimizer = make_optimizer();
   auto resumed = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      resumed_optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
+      resumed_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
+                             .step_size = 2, .gamma = 0.5});
   resumed_optimizer->set_learning_rates({0.9, 0.8});
   resumed->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant resumed_participant(resumed);
-  resumed_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant resumed_participant(
+      resumed);
+  resumed_participant.load_state(store,
+                                 jyppx::liuding::RestorePolicy::exact_only);
 
   EXPECT_EQ(resumed->completed_steps(), 3U);
   EXPECT_EQ(resumed->learning_rates(), source->learning_rates());
@@ -204,31 +213,33 @@ TEST(StepLrSchedulerCheckpointTest,
      RejectsTopologyAndMalformedControlWithoutMutation) {
   auto source_optimizer = make_optimizer();
   auto source = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      source_optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
+      source_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
+                            .step_size = 2, .gamma = 0.5});
   source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   const auto store = save_participant(source_participant);
 
   auto different_optimizer = make_optimizer("optimizer.main", "classifier");
   auto different = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      different_optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
+      different_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
+                               .step_size = 2, .gamma = 0.5});
   jyppx::liuding::optim::LrSchedulerCheckpointParticipant different_participant(
       different);
   const auto before_mismatch = save_participant(different_participant);
-  EXPECT_THROW(
-      different_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(different_participant.load_state(
+                   store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(save_participant(different_participant).blobs(),
             before_mismatch.blobs());
 
   auto matching_optimizer = make_optimizer();
   auto matching = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      matching_optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
+      matching_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
+                              .step_size = 2, .gamma = 0.5});
   matching_optimizer->set_learning_rates({0.7, 0.6});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant matching_participant(matching);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant matching_participant(
+      matching);
   const auto before_malformed = save_participant(matching_participant);
   auto malformed = store;
   malformed.mutable_blob("control").front() = std::byte{'X'};
@@ -240,8 +251,8 @@ TEST(StepLrSchedulerCheckpointTest,
 }
 
 TEST(StepLrSchedulerCheckpointTest, UsesBoundedCurrentFormatOnly) {
-  auto scheduler =
-      std::make_shared<jyppx::liuding::optim::StepLrScheduler>(make_optimizer());
+  auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
+      make_optimizer());
   EXPECT_THROW(jyppx::liuding::optim::LrSchedulerCheckpointParticipant(
                    scheduler, {.max_groups = 0}),
                jyppx::liuding::InvalidArgument);
@@ -252,7 +263,8 @@ TEST(StepLrSchedulerCheckpointTest, UsesBoundedCurrentFormatOnly) {
                    scheduler, {.max_topology_bytes = 8}),
                jyppx::liuding::ResourceExhausted);
 
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant participant(scheduler);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant participant(
+      scheduler);
   const auto manifest = participant.describe_state();
   EXPECT_EQ(manifest.schema_version, 3U);
   ASSERT_EQ(manifest.fields.size(), 2U);

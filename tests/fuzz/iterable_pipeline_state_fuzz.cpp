@@ -47,7 +47,8 @@ class FuzzCursor final : public jyppx::liuding::data::IterableSourceCursor {
   void load_state(std::string_view state) override {
     const auto value = std::stoull(std::string(state));
     if (value > 8U) {
-      throw jyppx::liuding::CompatibilityError("fuzz cursor position out of range");
+      throw jyppx::liuding::CompatibilityError(
+          "fuzz cursor position out of range");
     }
     position_ = static_cast<std::size_t>(value);
   }
@@ -121,10 +122,13 @@ class FuzzStateStore final : public jyppx::liuding::StateWriter,
   }
 
   /** @brief Returns the mutable manifest used to select the N-1 decoder. */
-  jyppx::liuding::StateManifest& mutable_manifest() noexcept { return manifest_; }
+  jyppx::liuding::StateManifest& mutable_manifest() noexcept {
+    return manifest_;
+  }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Participant descriptor under test.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Participant descriptor under test.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Mutable encoded fields.
 };
@@ -178,7 +182,8 @@ void replace_seed_string(std::vector<std::byte>& value, std::size_t index,
     const auto length = read_seed_u64(value, length_offset);
     offset += sizeof(std::uint64_t);
     if (length > value.size() - offset) {
-      throw jyppx::liuding::InternalError("valid iterable fuzz seed is malformed");
+      throw jyppx::liuding::InternalError(
+          "valid iterable fuzz seed is malformed");
     }
     if (current == index) {
       const auto begin = value.begin() + static_cast<std::ptrdiff_t>(offset);

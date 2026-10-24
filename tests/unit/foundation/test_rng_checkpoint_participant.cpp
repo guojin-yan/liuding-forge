@@ -33,11 +33,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
       throw jyppx::liuding::SerializationError("unknown RNG state field");
     }
@@ -78,10 +78,13 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void erase_blob(std::string_view name) { blobs_.erase(std::string(name)); }
 
-  jyppx::liuding::StateManifest& mutable_manifest() noexcept { return manifest_; }
+  jyppx::liuding::StateManifest& mutable_manifest() noexcept {
+    return manifest_;
+  }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Descriptor enforced by this test store.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Descriptor enforced by this test store.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Complete fields indexed by stable field name.
 };
@@ -111,25 +114,29 @@ TEST(RngCheckpointParticipantTest, RestoresExactCpuContinuation) {
 
 TEST(RngCheckpointParticipantTest, RejectsCorruptionWithoutMutation) {
   jyppx::liuding::core::RngGuard guard(41, false);
-  jyppx::liuding::core::RngCheckpointParticipant participant({.include_cuda = false});
+  jyppx::liuding::core::RngCheckpointParticipant participant(
+      {.include_cuda = false});
   auto store = save_participant(participant);
   store.mutable_blob("topology").front() ^= std::byte{0x01};
 
   jyppx::liuding::core::manual_seed(99, false);
   const auto before = jyppx::liuding::core::get_rng_state(false);
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   const auto after = jyppx::liuding::core::get_rng_state(false);
   EXPECT_TRUE(torch::equal(after.cpu, before.cpu));
 }
 
 TEST(RngCheckpointParticipantTest, RejectsManifestAndResourceMismatch) {
   jyppx::liuding::core::RngGuard guard(73, false);
-  jyppx::liuding::core::RngCheckpointParticipant participant({.include_cuda = false});
+  jyppx::liuding::core::RngCheckpointParticipant participant(
+      {.include_cuda = false});
   auto store = save_participant(participant);
   store.mutable_manifest().participant_id = "rng.other";
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
 
   EXPECT_THROW(jyppx::liuding::core::RngCheckpointParticipant(
                    {.include_cuda = false, .max_total_bytes = 1}),
@@ -139,33 +146,40 @@ TEST(RngCheckpointParticipantTest, RejectsManifestAndResourceMismatch) {
 TEST(RngCheckpointParticipantTest,
      RejectsUnknownPolicyAndMissingCpuStateWithoutMutation) {
   jyppx::liuding::core::RngGuard guard(83, false);
-  jyppx::liuding::core::RngCheckpointParticipant participant({.include_cuda = false});
+  jyppx::liuding::core::RngCheckpointParticipant participant(
+      {.include_cuda = false});
   auto store = save_participant(participant);
 
   jyppx::liuding::core::manual_seed(101, false);
   const auto before = jyppx::liuding::core::get_rng_state(false);
-  EXPECT_THROW(
-      participant.load_state(store, static_cast<jyppx::liuding::RestorePolicy>(255)),
-      jyppx::liuding::CompatibilityError);
-  EXPECT_TRUE(torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
+  EXPECT_THROW(participant.load_state(
+                   store, static_cast<jyppx::liuding::RestorePolicy>(255)),
+               jyppx::liuding::CompatibilityError);
+  EXPECT_TRUE(
+      torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
 
   store.erase_blob("cpu");
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
-  EXPECT_TRUE(torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
+  EXPECT_TRUE(
+      torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
 }
 
 TEST(RngCheckpointParticipantTest, RejectsTruncatedCpuStateWithoutMutation) {
   jyppx::liuding::core::RngGuard guard(89, false);
-  jyppx::liuding::core::RngCheckpointParticipant participant({.include_cuda = false});
+  jyppx::liuding::core::RngCheckpointParticipant participant(
+      {.include_cuda = false});
   auto store = save_participant(participant);
   store.mutable_blob("cpu").pop_back();
 
   jyppx::liuding::core::manual_seed(103, false);
   const auto before = jyppx::liuding::core::get_rng_state(false);
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
-  EXPECT_TRUE(torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
+  EXPECT_TRUE(
+      torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
 }
 
 TEST(RngCheckpointParticipantCudaTest, RestoresEveryVisibleGenerator) {

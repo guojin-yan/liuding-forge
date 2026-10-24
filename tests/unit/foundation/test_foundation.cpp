@@ -40,28 +40,30 @@ TEST(FoundationErrorTest, PreservesStableCodeAndStructuredContext) {
 }
 
 TEST(FoundationErrorTest, KeepsSerializedCodeValuesAndNamesStable) {
-  constexpr std::array<std::pair<jyppx::liuding::ErrorCode, const char*>, 13> kCases{{
-      {jyppx::liuding::ErrorCode::invalid_argument, "invalid_argument"},
-      {jyppx::liuding::ErrorCode::not_implemented, "not_implemented"},
-      {jyppx::liuding::ErrorCode::device, "device"},
-      {jyppx::liuding::ErrorCode::serialization, "serialization"},
-      {jyppx::liuding::ErrorCode::numerical, "numerical"},
-      {jyppx::liuding::ErrorCode::io, "io"},
-      {jyppx::liuding::ErrorCode::resource_exhausted, "resource_exhausted"},
-      {jyppx::liuding::ErrorCode::cancelled, "cancelled"},
-      {jyppx::liuding::ErrorCode::compatibility, "compatibility"},
-      {jyppx::liuding::ErrorCode::backend, "backend"},
-      {jyppx::liuding::ErrorCode::internal, "internal"},
-      {jyppx::liuding::ErrorCode::not_ready, "not_ready"},
-      {jyppx::liuding::ErrorCode::deadline_exceeded, "deadline_exceeded"},
-  }};
+  constexpr std::array<std::pair<jyppx::liuding::ErrorCode, const char*>, 13>
+      kCases{{
+          {jyppx::liuding::ErrorCode::invalid_argument, "invalid_argument"},
+          {jyppx::liuding::ErrorCode::not_implemented, "not_implemented"},
+          {jyppx::liuding::ErrorCode::device, "device"},
+          {jyppx::liuding::ErrorCode::serialization, "serialization"},
+          {jyppx::liuding::ErrorCode::numerical, "numerical"},
+          {jyppx::liuding::ErrorCode::io, "io"},
+          {jyppx::liuding::ErrorCode::resource_exhausted, "resource_exhausted"},
+          {jyppx::liuding::ErrorCode::cancelled, "cancelled"},
+          {jyppx::liuding::ErrorCode::compatibility, "compatibility"},
+          {jyppx::liuding::ErrorCode::backend, "backend"},
+          {jyppx::liuding::ErrorCode::internal, "internal"},
+          {jyppx::liuding::ErrorCode::not_ready, "not_ready"},
+          {jyppx::liuding::ErrorCode::deadline_exceeded, "deadline_exceeded"},
+      }};
 
   for (std::size_t index = 0; index < kCases.size(); ++index) {
     const auto [code, name] = kCases[index];
     EXPECT_EQ(static_cast<std::uint16_t>(code), index + 1);
     EXPECT_EQ(jyppx::liuding::error_code_name(code), name);
   }
-  EXPECT_EQ(jyppx::liuding::error_code_name(static_cast<jyppx::liuding::ErrorCode>(0)),
+  EXPECT_EQ(jyppx::liuding::error_code_name(
+                static_cast<jyppx::liuding::ErrorCode>(0)),
             "unknown");
 }
 
@@ -71,11 +73,12 @@ TEST(FoundationErrorTest, BackendTranslationUsesExplicitKindAndNestsCause) {
   } catch (const c10::Error& cause) {
     try {
       jyppx::liuding::detail::rethrow_backend_error(
-          cause, {.component = "FoundationTest",
-                  .operation = "cuda_probe",
-                  .failure_kind = jyppx::liuding::detail::BackendFailureKind::device,
-                  .expected = "available device",
-                  .hint = "Use a supported runtime."});
+          cause,
+          {.component = "FoundationTest",
+           .operation = "cuda_probe",
+           .failure_kind = jyppx::liuding::detail::BackendFailureKind::device,
+           .expected = "available device",
+           .hint = "Use a supported runtime."});
     } catch (const jyppx::liuding::DeviceError& converted) {
       EXPECT_EQ(converted.code(), jyppx::liuding::ErrorCode::device);
       EXPECT_EQ(converted.details().operation, "cuda_probe");
@@ -103,7 +106,8 @@ TEST(FoundationRandomTest, RejectsUnknownStateVersionWithoutMutation) {
   invalid.format_version += 1;
   EXPECT_THROW(jyppx::liuding::core::set_rng_state(invalid, false),
                jyppx::liuding::CompatibilityError);
-  EXPECT_TRUE(torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
+  EXPECT_TRUE(
+      torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
 }
 
 TEST(FoundationRandomTest, RejectsMalformedCpuStateWithoutMutation) {
@@ -114,7 +118,8 @@ TEST(FoundationRandomTest, RejectsMalformedCpuStateWithoutMutation) {
 
   EXPECT_THROW(jyppx::liuding::core::set_rng_state(malformed, false),
                jyppx::liuding::InvalidArgument);
-  EXPECT_TRUE(torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
+  EXPECT_TRUE(
+      torch::equal(jyppx::liuding::core::get_rng_state(false).cpu, before.cpu));
 }
 
 TEST(FoundationRandomTest, RejectsEveryInvalidCpuRepresentation) {
@@ -228,7 +233,8 @@ jyppx::liuding::BuildFingerprint test_build_fingerprint() {
 }
 
 TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
-  EXPECT_EQ(jyppx::liuding::capability_status_name(jyppx::liuding::CapabilityStatus::available),
+  EXPECT_EQ(jyppx::liuding::capability_status_name(
+                jyppx::liuding::CapabilityStatus::available),
             "available");
   EXPECT_EQ(jyppx::liuding::capability_implementation_name(
                 jyppx::liuding::CapabilityImplementation::delegated),
@@ -236,15 +242,15 @@ TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
   EXPECT_EQ(jyppx::liuding::capability_source_name(
                 jyppx::liuding::CapabilitySource::configured_instance),
             "configured-instance");
-  EXPECT_EQ(
-      jyppx::liuding::capability_status_name(static_cast<jyppx::liuding::CapabilityStatus>(0)),
-      "unknown");
+  EXPECT_EQ(jyppx::liuding::capability_status_name(
+                static_cast<jyppx::liuding::CapabilityStatus>(0)),
+            "unknown");
   EXPECT_EQ(jyppx::liuding::capability_implementation_name(
                 static_cast<jyppx::liuding::CapabilityImplementation>(0)),
             "unknown");
-  EXPECT_EQ(
-      jyppx::liuding::capability_source_name(static_cast<jyppx::liuding::CapabilitySource>(0)),
-      "unknown");
+  EXPECT_EQ(jyppx::liuding::capability_source_name(
+                static_cast<jyppx::liuding::CapabilitySource>(0)),
+            "unknown");
 }
 
 TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
@@ -274,9 +280,10 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
     const bool preview = component == "models" || component == "quantization" ||
                          component == "serving" || component == "data_image";
     EXPECT_EQ(feature.status,
-              enabled ? (preview ? jyppx::liuding::CapabilityStatus::experimental
-                                 : jyppx::liuding::CapabilityStatus::available)
-                      : jyppx::liuding::CapabilityStatus::unsupported);
+              enabled
+                  ? (preview ? jyppx::liuding::CapabilityStatus::experimental
+                             : jyppx::liuding::CapabilityStatus::available)
+                  : jyppx::liuding::CapabilityStatus::unsupported);
     EXPECT_EQ(feature.implementation,
               enabled ? jyppx::liuding::CapabilityImplementation::native
                       : jyppx::liuding::CapabilityImplementation::unsupported);
@@ -365,7 +372,8 @@ TEST(FoundationCapabilityTest, RejectsContradictionsDuplicatesAndBounds) {
   EXPECT_THROW(jyppx::liuding::validate_capability_descriptor(unsupported),
                jyppx::liuding::InvalidArgument);
 
-  unsupported.implementation = jyppx::liuding::CapabilityImplementation::unsupported;
+  unsupported.implementation =
+      jyppx::liuding::CapabilityImplementation::unsupported;
   unsupported.operations = {"collective.all-reduce"};
   EXPECT_THROW(jyppx::liuding::validate_capability_descriptor(unsupported),
                jyppx::liuding::InvalidArgument);
@@ -379,11 +387,12 @@ TEST(FoundationCapabilityTest, RejectsContradictionsDuplicatesAndBounds) {
 
   auto uppercase_identifier = unsupported;
   uppercase_identifier.backend = "LibTorch";
-  EXPECT_THROW(jyppx::liuding::validate_capability_descriptor(uppercase_identifier),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::validate_capability_descriptor(uppercase_identifier),
+      jyppx::liuding::InvalidArgument);
 
-  EXPECT_THROW(jyppx::liuding::make_capability_manifest({unsupported, unsupported},
-                                               test_build_fingerprint()),
+  EXPECT_THROW(jyppx::liuding::make_capability_manifest(
+                   {unsupported, unsupported}, test_build_fingerprint()),
                jyppx::liuding::InvalidArgument);
 
   std::vector<jyppx::liuding::CapabilityDescriptor> excessive(
@@ -392,8 +401,8 @@ TEST(FoundationCapabilityTest, RejectsContradictionsDuplicatesAndBounds) {
     excessive[index].feature_id =
         "jyppx.unsupported.feature-" + std::to_string(index);
   }
-  EXPECT_THROW(jyppx::liuding::make_capability_manifest(std::move(excessive),
-                                               test_build_fingerprint()),
+  EXPECT_THROW(jyppx::liuding::make_capability_manifest(
+                   std::move(excessive), test_build_fingerprint()),
                jyppx::liuding::ResourceExhausted);
 
   auto invalid_utf8 = unsupported;
@@ -427,7 +436,8 @@ TEST(FoundationCapabilityTest, RejectsEverySchemaV1ControlBoundary) {
     value.status = static_cast<jyppx::liuding::CapabilityStatus>(0);
   });
   expect_invalid([](auto& value) {
-    value.implementation = static_cast<jyppx::liuding::CapabilityImplementation>(0);
+    value.implementation =
+        static_cast<jyppx::liuding::CapabilityImplementation>(0);
   });
   expect_invalid([](auto& value) {
     value.source = static_cast<jyppx::liuding::CapabilitySource>(0);
@@ -440,13 +450,15 @@ TEST(FoundationCapabilityTest, RejectsEverySchemaV1ControlBoundary) {
       [](auto& value) { value.limits.push_back(value.limits.front()); });
   expect_invalid([](auto& value) {
     value.status = jyppx::liuding::CapabilityStatus::unsupported;
-    value.implementation = jyppx::liuding::CapabilityImplementation::unsupported;
+    value.implementation =
+        jyppx::liuding::CapabilityImplementation::unsupported;
     value.operations.clear();
     value.limitations.clear();
   });
 
   auto too_many_values = valid;
-  too_many_values.devices.assign(jyppx::liuding::kMaxCapabilityValues + 1U, "cpu");
+  too_many_values.devices.assign(jyppx::liuding::kMaxCapabilityValues + 1U,
+                                 "cpu");
   EXPECT_THROW(jyppx::liuding::validate_capability_descriptor(too_many_values),
                jyppx::liuding::ResourceExhausted);
 
@@ -457,12 +469,13 @@ TEST(FoundationCapabilityTest, RejectsEverySchemaV1ControlBoundary) {
                jyppx::liuding::ResourceExhausted);
 
   auto oversized_string = valid;
-  oversized_string.backend.assign(jyppx::liuding::kMaxCapabilityStringBytes + 1U, 'a');
+  oversized_string.backend.assign(
+      jyppx::liuding::kMaxCapabilityStringBytes + 1U, 'a');
   EXPECT_THROW(jyppx::liuding::validate_capability_descriptor(oversized_string),
                jyppx::liuding::ResourceExhausted);
 
-  auto manifest =
-      jyppx::liuding::make_capability_manifest({valid}, test_build_fingerprint());
+  auto manifest = jyppx::liuding::make_capability_manifest(
+      {valid}, test_build_fingerprint());
   manifest.schema_version = 2;
   EXPECT_THROW(jyppx::liuding::validate_capability_manifest(manifest),
                jyppx::liuding::InvalidArgument);
@@ -493,9 +506,9 @@ TEST(FoundationCapabilityTest,
   EXPECT_EQ(manifest.features[0].scope_id, "data.pipeline.first");
   EXPECT_EQ(manifest.features[1].scope_id, "data.pipeline.second");
 
-  EXPECT_THROW(
-      jyppx::liuding::make_capability_manifest({first, first}, test_build_fingerprint()),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::make_capability_manifest(
+                   {first, first}, test_build_fingerprint()),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(FoundationCapabilityTest, ValidatesUtf8AndEscapesJsonText) {
@@ -511,7 +524,8 @@ TEST(FoundationCapabilityTest, ValidatesUtf8AndEscapesJsonText) {
   };
   EXPECT_NO_THROW(jyppx::liuding::validate_capability_descriptor(descriptor));
   const auto json = jyppx::liuding::capability_manifest_json(
-      jyppx::liuding::make_capability_manifest({descriptor}, test_build_fingerprint()));
+      jyppx::liuding::make_capability_manifest({descriptor},
+                                               test_build_fingerprint()));
   EXPECT_NE(json.find("quoted \\\"text\\\" with \\\\"), std::string::npos);
 
   const std::vector<std::string> invalid_utf8{

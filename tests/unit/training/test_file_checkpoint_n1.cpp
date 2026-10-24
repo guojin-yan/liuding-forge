@@ -39,7 +39,8 @@ std::vector<std::byte> read_historical_fixture(
   const auto decode = [&](char character) -> std::uint32_t {
     const auto position = alphabet.find(character);
     if (position == std::string_view::npos) {
-      throw jyppx::liuding::SerializationError("Invalid base64 fixture character");
+      throw jyppx::liuding::SerializationError(
+          "Invalid base64 fixture character");
     }
     return static_cast<std::uint32_t>(position);
   };
@@ -52,7 +53,8 @@ std::vector<std::byte> read_historical_fixture(
     if (encoded[offset] == '=' || encoded[offset + 1U] == '=' ||
         (!final && (third_padding || fourth_padding)) ||
         (third_padding && !fourth_padding)) {
-      throw jyppx::liuding::SerializationError("Invalid base64 fixture padding");
+      throw jyppx::liuding::SerializationError(
+          "Invalid base64 fixture padding");
     }
     const auto packed =
         (decode(encoded[offset]) << 18U) |
@@ -172,9 +174,8 @@ TEST_F(FileCheckpointN1Test,
       reference_parameter.detach().clone().set_requires_grad(true);
   auto resumed = make_sgd(resumed_parameter, 0.9);
   jyppx::liuding::training::CheckpointParticipantRegistry registry;
-  const auto participant =
-      std::make_shared<jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
-          resumed);
+  const auto participant = std::make_shared<
+      jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(resumed);
   registry.register_participant(participant);
   jyppx::liuding::training::CheckpointCoordinator coordinator(registry);
   coordinator.restore(reopened);
@@ -202,8 +203,9 @@ TEST_F(FileCheckpointN1Test,
   write_historical_sgd_checkpoint(store);
   jyppx::liuding::training::FileCheckpointStore reopened(path_);
   const auto& reader = reopened.reader_for("optimizer.main");
-  const auto directory = std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) /
-                         "checkpoint" / "sgd_schema_v1_libtorch_2.5.1";
+  const auto directory =
+      std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "checkpoint" /
+      "sgd_schema_v1_libtorch_2.5.1";
   for (const auto& field : historical_sgd_manifest().fields) {
     const auto expected =
         read_historical_fixture(directory / (field.name + ".bin.b64"));

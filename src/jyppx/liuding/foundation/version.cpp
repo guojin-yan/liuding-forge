@@ -51,8 +51,9 @@ long language_standard() noexcept {
 }  // namespace
 
 BuildInfo build_info() noexcept {
-  return {JYPPX_VERSION, JYPPX_LIUDING_BUILD_LIBTORCH_VERSION, JYPPX_LIUDING_BUILD_COMPILER,
-          JYPPX_LIUDING_BUILD_TYPE, language_standard()};
+  return {JYPPX_VERSION, JYPPX_LIUDING_BUILD_LIBTORCH_VERSION,
+          JYPPX_LIUDING_BUILD_COMPILER, JYPPX_LIUDING_BUILD_TYPE,
+          language_standard()};
 }
 
 BuildFingerprint current_build_fingerprint() {

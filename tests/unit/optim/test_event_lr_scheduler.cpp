@@ -38,22 +38,25 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
-      throw jyppx::liuding::SerializationError("unknown event-scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "unknown event-scheduler test field");
     }
     if (data.size() > field->max_bytes) {
-      throw jyppx::liuding::ResourceExhausted("oversized event-scheduler test field");
+      throw jyppx::liuding::ResourceExhausted(
+          "oversized event-scheduler test field");
     }
     if (!blobs_
              .emplace(std::string(name),
                       std::vector<std::byte>(data.begin(), data.end()))
              .second) {
-      throw jyppx::liuding::SerializationError("duplicate event-scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "duplicate event-scheduler test field");
     }
   }
 
@@ -69,10 +72,12 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end()) {
-      throw jyppx::liuding::SerializationError("missing event-scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "missing event-scheduler test field");
     }
     if (blob->second.size() > max_bytes) {
-      throw jyppx::liuding::ResourceExhausted("event-scheduler read limit exceeded");
+      throw jyppx::liuding::ResourceExhausted(
+          "event-scheduler read limit exceeded");
     }
     return blob->second;
   }
@@ -82,7 +87,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Manifest enforced by this memory store.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Manifest enforced by this memory store.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Complete fields indexed by stable field name.
 };
@@ -107,7 +113,8 @@ std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
 }
 
 MemoryStateStore save_participant(
-    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant& participant) {
+    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant&
+        participant) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   return store;
@@ -148,12 +155,13 @@ TEST(EventLrSchedulerTest, PlateauPublishesMetricDescriptorAndCooldownState) {
 TEST(EventLrSchedulerTest, PlateauSupportsMaximizeAbsoluteThreshold) {
   auto optimizer = make_optimizer();
   jyppx::liuding::optim::ReduceLrOnPlateauScheduler scheduler(
-      optimizer, {.direction = jyppx::liuding::optim::MetricDirection::maximize,
-                  .factor = 0.5,
-                  .patience = 0,
-                  .threshold = 0.1,
-                  .threshold_mode = jyppx::liuding::optim::MetricThresholdMode::absolute,
-                  .eps = 0.0});
+      optimizer,
+      {.direction = jyppx::liuding::optim::MetricDirection::maximize,
+       .factor = 0.5,
+       .patience = 0,
+       .threshold = 0.1,
+       .threshold_mode = jyppx::liuding::optim::MetricThresholdMode::absolute,
+       .eps = 0.0});
 
   scheduler.step(-2.0);
   scheduler.step(-1.95);
@@ -164,27 +172,32 @@ TEST(EventLrSchedulerTest, PlateauSupportsMaximizeAbsoluteThreshold) {
 
 TEST(EventLrSchedulerTest, PlateauCheckpointRestoresCompleteMetricHistory) {
   auto source_optimizer = make_optimizer();
-  auto source = std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
-      source_optimizer,
-      jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
-          .factor = 0.5, .patience = 1, .cooldown = 2, .eps = 0.0});
+  auto source =
+      std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
+          source_optimizer,
+          jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
+              .factor = 0.5, .patience = 1, .cooldown = 2, .eps = 0.0});
   source->step(3.0);
   source->step(3.1);
   source->step(3.2);
   source->step(3.3);
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   const auto store = save_participant(source_participant);
   EXPECT_EQ(store.manifest().schema_version, 3U);
   EXPECT_EQ(store.manifest().fields[1].media_type,
             "application/vnd.jyppx.scheduler-state-tree-v2");
 
   auto restored_optimizer = make_optimizer();
-  auto restored = std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
-      restored_optimizer,
-      jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
-          .factor = 0.5, .patience = 1, .cooldown = 2, .eps = 0.0});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant restored_participant(restored);
-  restored_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  auto restored =
+      std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
+          restored_optimizer,
+          jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
+              .factor = 0.5, .patience = 1, .cooldown = 2, .eps = 0.0});
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant restored_participant(
+      restored);
+  restored_participant.load_state(store,
+                                  jyppx::liuding::RestorePolicy::exact_only);
 
   EXPECT_EQ(restored->completed_steps(), source->completed_steps());
   EXPECT_EQ(restored->learning_rates(), source->learning_rates());
@@ -200,9 +213,9 @@ TEST(EventLrSchedulerTest, PlateauCheckpointRestoresCompleteMetricHistory) {
 TEST(EventLrSchedulerTest, PlateauRejectsInvalidInputWithoutMutation) {
   auto optimizer = make_optimizer();
   const auto before = optimizer->learning_rates();
-  EXPECT_THROW(
-      jyppx::liuding::optim::ReduceLrOnPlateauScheduler(optimizer, {.factor = 1.0}),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::optim::ReduceLrOnPlateauScheduler(
+                   optimizer, {.factor = 1.0}),
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(jyppx::liuding::optim::ReduceLrOnPlateauScheduler(
                    optimizer, {.min_learning_rates = {0.3}}),
                jyppx::liuding::InvalidArgument);
@@ -218,12 +231,13 @@ TEST(EventLrSchedulerTest, PlateauRejectsInvalidInputWithoutMutation) {
 TEST(EventLrSchedulerTest, OneCycleHasBoundedNonNegativeEndpoints) {
   auto optimizer = make_optimizer();
   jyppx::liuding::optim::OneCycleLrScheduler scheduler(
-      optimizer, {.max_learning_rates = {0.4, 0.1},
-                  .total_steps = 10,
-                  .pct_start = 0.3,
-                  .anneal_strategy = jyppx::liuding::optim::AnnealStrategy::linear,
-                  .div_factor = 4.0,
-                  .final_div_factor = 10.0});
+      optimizer,
+      {.max_learning_rates = {0.4, 0.1},
+       .total_steps = 10,
+       .pct_start = 0.3,
+       .anneal_strategy = jyppx::liuding::optim::AnnealStrategy::linear,
+       .div_factor = 4.0,
+       .final_div_factor = 10.0});
 
   EXPECT_EQ(scheduler.descriptor().step_mode,
             jyppx::liuding::optim::SchedulerStepMode::batch);
@@ -244,13 +258,14 @@ TEST(EventLrSchedulerTest, OneCycleHasBoundedNonNegativeEndpoints) {
 TEST(EventLrSchedulerTest, OneCycleThreePhaseReturnsThroughInitialRate) {
   auto optimizer = make_optimizer();
   jyppx::liuding::optim::OneCycleLrScheduler scheduler(
-      optimizer, {.max_learning_rates = {0.4, 0.1},
-                  .total_steps = 10,
-                  .pct_start = 0.3,
-                  .anneal_strategy = jyppx::liuding::optim::AnnealStrategy::linear,
-                  .div_factor = 4.0,
-                  .final_div_factor = 10.0,
-                  .three_phase = true});
+      optimizer,
+      {.max_learning_rates = {0.4, 0.1},
+       .total_steps = 10,
+       .pct_start = 0.3,
+       .anneal_strategy = jyppx::liuding::optim::AnnealStrategy::linear,
+       .div_factor = 4.0,
+       .final_div_factor = 10.0,
+       .three_phase = true});
   for (int step = 0; step < 3; ++step) {
     scheduler.step();
   }
@@ -270,17 +285,17 @@ TEST(EventLrSchedulerTest, OneCycleThreePhaseReturnsThroughInitialRate) {
 TEST(EventLrSchedulerTest, BatchSchedulersRejectNonAtomicMomentumCycling) {
   auto optimizer = make_optimizer();
   const auto before = optimizer->learning_rates();
-  EXPECT_THROW(
-      jyppx::liuding::optim::OneCycleLrScheduler(optimizer, {.max_learning_rates = {0.4},
-                                                    .total_steps = 10,
-                                                    .cycle_momentum = true}),
-      jyppx::liuding::NotImplemented);
-  EXPECT_THROW(
-      jyppx::liuding::optim::CyclicLrScheduler(optimizer, {.base_learning_rates = {0.1},
-                                                  .max_learning_rates = {0.4},
-                                                  .step_size_up = 2,
-                                                  .cycle_momentum = true}),
-      jyppx::liuding::NotImplemented);
+  EXPECT_THROW(jyppx::liuding::optim::OneCycleLrScheduler(
+                   optimizer, {.max_learning_rates = {0.4},
+                               .total_steps = 10,
+                               .cycle_momentum = true}),
+               jyppx::liuding::NotImplemented);
+  EXPECT_THROW(jyppx::liuding::optim::CyclicLrScheduler(
+                   optimizer, {.base_learning_rates = {0.1},
+                               .max_learning_rates = {0.4},
+                               .step_size_up = 2,
+                               .cycle_momentum = true}),
+               jyppx::liuding::NotImplemented);
   EXPECT_EQ(optimizer->learning_rates(), before);
 }
 
@@ -349,22 +364,24 @@ TEST(EventLrSchedulerTest, MalformedCurrentControlDoesNotMutateTarget) {
   auto source_optimizer = make_optimizer();
   auto source = std::make_shared<jyppx::liuding::optim::OneCycleLrScheduler>(
       source_optimizer,
-      jyppx::liuding::optim::OneCycleLrSchedulerOptions{.max_learning_rates = {0.4, 0.1},
-                                               .total_steps = 5});
+      jyppx::liuding::optim::OneCycleLrSchedulerOptions{
+          .max_learning_rates = {0.4, 0.1}, .total_steps = 5});
   source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   auto malformed = save_participant(source_participant);
   malformed.mutable_blob("control").front() = std::byte{'X'};
 
   auto target_optimizer = make_optimizer();
   auto target = std::make_shared<jyppx::liuding::optim::OneCycleLrScheduler>(
       target_optimizer,
-      jyppx::liuding::optim::OneCycleLrSchedulerOptions{.max_learning_rates = {0.4, 0.1},
-                                               .total_steps = 5});
+      jyppx::liuding::optim::OneCycleLrSchedulerOptions{
+          .max_learning_rates = {0.4, 0.1}, .total_steps = 5});
   const auto before_rates = target->learning_rates();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(target);
-  EXPECT_THROW(target_participant.load_state(malformed,
-                                             jyppx::liuding::RestorePolicy::exact_only),
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(
+      target);
+  EXPECT_THROW(target_participant.load_state(
+                   malformed, jyppx::liuding::RestorePolicy::exact_only),
                jyppx::liuding::SerializationError);
   EXPECT_EQ(target->learning_rates(), before_rates);
   EXPECT_EQ(target->completed_steps(), 0U);

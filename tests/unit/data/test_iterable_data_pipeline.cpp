@@ -52,11 +52,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   /** @brief Stores one declared checkpoint field. */
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes) {
       throw std::runtime_error("undeclared iterable checkpoint field");
     }
@@ -89,7 +89,9 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
   /** @brief Returns the mutable manifest for compatibility-negative tests. */
-  jyppx::liuding::StateManifest& mutable_manifest() noexcept { return manifest_; }
+  jyppx::liuding::StateManifest& mutable_manifest() noexcept {
+    return manifest_;
+  }
 
   /** @brief Removes one field to exercise required-field validation. */
   void erase_blob(std::string_view name) { blobs_.erase(std::string(name)); }
@@ -105,7 +107,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Immutable participant descriptor.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Immutable participant descriptor.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Encoded participant fields.
 };
@@ -158,11 +161,13 @@ class VectorCursor final : public IterableSourceCursor {
     try {
       parsed = static_cast<std::size_t>(std::stoull(std::string(state)));
     } catch (const std::exception&) {
-      throw jyppx::liuding::SerializationError("invalid vector cursor position");
+      throw jyppx::liuding::SerializationError(
+          "invalid vector cursor position");
     }
     std::lock_guard<std::mutex> lock(mutex_);
     if (parsed > values_.size()) {
-      throw jyppx::liuding::CompatibilityError("vector cursor position is out of range");
+      throw jyppx::liuding::CompatibilityError(
+          "vector cursor position is out of range");
     }
     position_ = parsed;
   }
@@ -245,7 +250,8 @@ class BlockingCursor final : public IterableSourceCursor {
   /** @brief Accepts only the empty initial position. */
   void load_state(std::string_view state) override {
     if (!state.empty()) {
-      throw jyppx::liuding::SerializationError("blocking cursor state is not empty");
+      throw jyppx::liuding::SerializationError(
+          "blocking cursor state is not empty");
     }
   }
 
@@ -343,8 +349,9 @@ IterableDataPipelineOptions options(std::string id,
           .schema = {.id = "batch.iterable",
                      .version = 1,
                      .value =
-                         jyppx::liuding::ValueSchema{.semantic_tag = "aggregate",
-                                            .kind = jyppx::liuding::ValueKind::integer}},
+                         jyppx::liuding::ValueSchema{
+                             .semantic_tag = "aggregate",
+                             .kind = jyppx::liuding::ValueKind::integer}},
           .batch_factory_id = "factory.sum/v1",
           .batch_size = batch_size,
           .prefetch_batches = 2};
@@ -526,15 +533,16 @@ bool wait_for_pulls(const std::shared_ptr<CursorStats>& stats,
 }
 
 TEST(IterableDataPipelineTest, ValidatesRestoreDescriptorMatrix) {
-  EXPECT_NO_THROW(
-      jyppx::liuding::data::validate_iterable_source_descriptor(exact_descriptor()));
+  EXPECT_NO_THROW(jyppx::liuding::data::validate_iterable_source_descriptor(
+      exact_descriptor()));
 
   auto bounded = exact_descriptor();
   bounded.restore_level = jyppx::liuding::RestoreLevel::bounded;
   bounded.max_replayed_samples = 3;
   bounded.max_omitted_samples = 2;
   bounded.degradation_reasons = {"upstream partition movement"};
-  EXPECT_NO_THROW(jyppx::liuding::data::validate_iterable_source_descriptor(bounded));
+  EXPECT_NO_THROW(
+      jyppx::liuding::data::validate_iterable_source_descriptor(bounded));
 
   auto best_effort = exact_descriptor();
   best_effort.checkpointable = false;
@@ -548,8 +556,9 @@ TEST(IterableDataPipelineTest, ValidatesRestoreDescriptorMatrix) {
 
   auto invalid = exact_descriptor();
   invalid.degradation_reasons = {"unexpected degradation"};
-  EXPECT_THROW(jyppx::liuding::data::validate_iterable_source_descriptor(invalid),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::validate_iterable_source_descriptor(invalid),
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(IterableDataPipelineTest, CommitsBatchesAndPreservesWatermarks) {
@@ -640,12 +649,12 @@ TEST(IterableDataPipelineTest,
   config.prefetch_batches = 3;
   config.memory.target_device = jyppx::liuding::Device(torch::kCPU);
   config.memory.stage_capacity = 1;
-  config.schema =
-      jyppx::liuding::data::BatchSchema::tensor("batch.iterable",
-                                       {.dtype = torch::kFloat32,
-                                        .device = jyppx::liuding::Device(torch::kCPU),
-                                        .rank = 1},
-                                       1, "features");
+  config.schema = jyppx::liuding::data::BatchSchema::tensor(
+      "batch.iterable",
+      {.dtype = torch::kFloat32,
+       .device = jyppx::liuding::Device(torch::kCPU),
+       .rank = 1},
+      1, "features");
   IterableDataPipeline pipeline(
       source, config,
       [](std::span<const IterableSample> samples, std::uint64_t, std::uint64_t,
@@ -707,10 +716,10 @@ TEST(IterableDataPipelineTest, MemoryStageFailureDoesNotCommitSourceCursor) {
 TEST(IterableDataPipelineTest,
      SchemaFailureDoesNotCommitSourceCursorOrSequence) {
   auto config = options("data.iterable.schema-failure", 1);
-  config.schema = {
-      .id = "batch.iterable",
-      .version = 1,
-      .value = jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer}};
+  config.schema = {.id = "batch.iterable",
+                   .version = 1,
+                   .value = jyppx::liuding::ValueSchema{
+                       .kind = jyppx::liuding::ValueKind::integer}};
   IterableDataPipeline pipeline(
       make_source({1, 2}), config,
       [](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
@@ -746,8 +755,8 @@ TEST(IterableDataPipelineTest, RestoresExactStateAtLastCommittedBatch) {
   EXPECT_EQ(original.state().source_state, "2");
 
   IterableDataPipeline restored(source, config, sum_factory());
-  EXPECT_NO_THROW(
-      restored.load_state(checkpoint, jyppx::liuding::RestorePolicy::exact_only));
+  EXPECT_NO_THROW(restored.load_state(
+      checkpoint, jyppx::liuding::RestorePolicy::exact_only));
   const auto next = restored.next();
   ASSERT_TRUE(next.has_value());
   EXPECT_EQ(next->sample_ids, (std::vector<std::uint64_t>{7002, 7003}));
@@ -783,10 +792,11 @@ TEST(IterableDataPipelineCheckpointTest,
   IterableDataPipeline bounded(make_fixture_source("bounded"),
                                fixture_options("bounded"), sum_factory());
   const auto bounded_fixture = load_canonical_schema_v2_fixture("bounded");
-  EXPECT_THROW(
-      bounded.load_state(bounded_fixture, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
-  bounded.load_state(bounded_fixture, jyppx::liuding::RestorePolicy::allow_bounded);
+  EXPECT_THROW(bounded.load_state(bounded_fixture,
+                                  jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
+  bounded.load_state(bounded_fixture,
+                     jyppx::liuding::RestorePolicy::allow_bounded);
   const auto bounded_next = bounded.next();
   ASSERT_TRUE(bounded_next.has_value());
   EXPECT_EQ(bounded_next->sample_ids,
@@ -796,10 +806,11 @@ TEST(IterableDataPipelineCheckpointTest,
                                    fixture_options("best-effort"),
                                    sum_factory());
   const auto best_fixture = load_canonical_schema_v2_fixture("best-effort");
-  EXPECT_THROW(
-      best_effort.load_state(best_fixture, jyppx::liuding::RestorePolicy::allow_bounded),
-      jyppx::liuding::CompatibilityError);
-  best_effort.load_state(best_fixture, jyppx::liuding::RestorePolicy::allow_best_effort);
+  EXPECT_THROW(best_effort.load_state(
+                   best_fixture, jyppx::liuding::RestorePolicy::allow_bounded),
+               jyppx::liuding::CompatibilityError);
+  best_effort.load_state(best_fixture,
+                         jyppx::liuding::RestorePolicy::allow_best_effort);
   const auto replayed = best_effort.next();
   ASSERT_TRUE(replayed.has_value());
   EXPECT_EQ(replayed->sample_ids, (std::vector<std::uint64_t>{7000U, 7001U}));
@@ -815,29 +826,34 @@ TEST(IterableDataPipelineCheckpointTest,
 
   auto obsolete = load_canonical_schema_v2_fixture("exact");
   obsolete.mutable_manifest().schema_version = 1U;
-  EXPECT_THROW(target.load_state(obsolete, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(obsolete, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
 
   auto future = load_canonical_schema_v2_fixture("exact");
   future.mutable_manifest().schema_version =
       jyppx::liuding::data::IterableDataPipelineState::format_version + 1U;
-  EXPECT_THROW(target.load_state(future, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(future, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
 
   auto relabelled = load_canonical_schema_v2_fixture("exact");
   relabelled.mutable_manifest().fields.front().max_bytes = 2U * 1024U * 1024U;
-  EXPECT_THROW(target.load_state(relabelled, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(relabelled, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
 
   auto missing = load_canonical_schema_v2_fixture("exact");
   missing.erase_blob("cursor");
-  EXPECT_THROW(target.load_state(missing, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target.load_state(missing, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
 
   auto trailing = load_canonical_schema_v2_fixture("exact");
   trailing.append_byte("cursor");
-  EXPECT_THROW(target.load_state(trailing, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target.load_state(trailing, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
 
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().next_sequence, before.next_sequence);
@@ -849,7 +865,8 @@ TEST(IterableDataPipelineCheckpointTest,
 TEST(IterableDataPipelineCheckpointTest,
      RejectsSchemaV2IdentityStructureOrSourceMismatchWithoutMutation) {
   auto mismatched_options = fixture_options("exact");
-  mismatched_options.schema = jyppx::liuding::data::BatchSchema::any("batch.other", 1);
+  mismatched_options.schema =
+      jyppx::liuding::data::BatchSchema::any("batch.other", 1);
   IterableDataPipeline mismatched(make_fixture_source("exact"),
                                   mismatched_options, sum_factory());
   mismatched.set_epoch(12U);
@@ -898,17 +915,18 @@ TEST(IterableDataPipelineTest,
   const auto checkpoint = save_state(original);
 
   auto changed_config = original_config;
-  changed_config.schema = {
-      .id = "batch.iterable",
-      .version = 1,
-      .value = jyppx::liuding::ValueSchema{.semantic_tag = "class-index",
-                                  .kind = jyppx::liuding::ValueKind::integer}};
+  changed_config.schema = {.id = "batch.iterable",
+                           .version = 1,
+                           .value = jyppx::liuding::ValueSchema{
+                               .semantic_tag = "class-index",
+                               .kind = jyppx::liuding::ValueKind::integer}};
   IterableDataPipeline changed(source, changed_config, sum_factory());
   changed.set_epoch(9);
   const auto before = changed.state();
 
-  EXPECT_THROW(changed.load_state(checkpoint, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      changed.load_state(checkpoint, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(changed.state().epoch, before.epoch);
   EXPECT_EQ(changed.state().committed_samples, before.committed_samples);
   EXPECT_EQ(changed.state().schema_descriptor, before.schema_descriptor);
@@ -928,11 +946,11 @@ TEST(IterableDataPipelineTest, BoundedAndBestEffortPoliciesAreExplicit) {
   auto bounded_state = save_state(bounded);
   auto& reasons = bounded_state.mutable_manifest().degradation_reasons;
   std::reverse(reasons.begin(), reasons.end());
-  EXPECT_THROW(
-      bounded.load_state(bounded_state, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
-  EXPECT_NO_THROW(
-      bounded.load_state(bounded_state, jyppx::liuding::RestorePolicy::allow_bounded));
+  EXPECT_THROW(bounded.load_state(bounded_state,
+                                  jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
+  EXPECT_NO_THROW(bounded.load_state(
+      bounded_state, jyppx::liuding::RestorePolicy::allow_bounded));
 
   auto best_descriptor = exact_descriptor();
   best_descriptor.checkpointable = false;
@@ -948,8 +966,8 @@ TEST(IterableDataPipelineTest, BoundedAndBestEffortPoliciesAreExplicit) {
   ASSERT_TRUE(best.next().has_value());
   auto checkpoint = save_state(best);
   IterableDataPipeline reopened(best_source, best_config, sum_factory());
-  EXPECT_NO_THROW(
-      reopened.load_state(checkpoint, jyppx::liuding::RestorePolicy::allow_best_effort));
+  EXPECT_NO_THROW(reopened.load_state(
+      checkpoint, jyppx::liuding::RestorePolicy::allow_best_effort));
   const auto replayed = reopened.next();
   ASSERT_TRUE(replayed.has_value());
   EXPECT_EQ(replayed->sample_ids.front(), 1000U);
@@ -1041,8 +1059,9 @@ TEST(IterableDataPipelineTest, InvalidCheckpointDoesNotMutatePreparedPipeline) {
   const auto before = pipeline.state();
 
   MemoryStateStore malformed(pipeline.describe_state());
-  EXPECT_THROW(pipeline.load_state(malformed, jyppx::liuding::RestorePolicy::exact_only),
-               std::exception);
+  EXPECT_THROW(
+      pipeline.load_state(malformed, jyppx::liuding::RestorePolicy::exact_only),
+      std::exception);
   const auto after = pipeline.state();
   EXPECT_EQ(after.epoch, before.epoch);
   EXPECT_EQ(after.prepared, before.prepared);

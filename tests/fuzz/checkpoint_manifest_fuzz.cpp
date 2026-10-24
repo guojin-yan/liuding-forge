@@ -58,7 +58,8 @@ const std::vector<std::vector<std::byte>>& seeds() {
                         .size_bytes = 8U,
                         .digest = {.hex = std::string(64U, 'a')}}}}}};
     std::vector<std::vector<std::byte>> result;
-    for (auto level : {jyppx::liuding::RestoreLevel::exact, jyppx::liuding::RestoreLevel::bounded,
+    for (auto level : {jyppx::liuding::RestoreLevel::exact,
+                       jyppx::liuding::RestoreLevel::bounded,
                        jyppx::liuding::RestoreLevel::best_effort}) {
       auto& state = manifest.participants.front().state;
       state.restore_level = level;

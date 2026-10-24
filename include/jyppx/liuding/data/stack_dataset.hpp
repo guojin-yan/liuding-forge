@@ -69,8 +69,8 @@ class StackDataset : public Dataset<std::tuple<Ts...>> {
   /**
    * @brief Creates a positional zip of non-empty datasets.
    * @param datasets Non-null dataset handles, one per sample type.
-   * @throws jyppx::liuding::InvalidArgument No datasets are supplied, a handle is null,
-   * or the smallest dataset is empty.
+   * @throws jyppx::liuding::InvalidArgument No datasets are supplied, a handle
+   * is null, or the smallest dataset is empty.
    */
   explicit StackDataset(std::shared_ptr<Dataset<Ts>>... datasets)
       : datasets_(std::move(datasets)...) {
@@ -101,7 +101,8 @@ class StackDataset : public Dataset<std::tuple<Ts...>> {
    * @brief Returns one tuple of positionally matched samples.
    * @param index Zero-based index less than `size()`.
    * @return Tuple containing one sample from every child dataset.
-   * @throws jyppx::liuding::InvalidArgument The index is outside the shared prefix.
+   * @throws jyppx::liuding::InvalidArgument The index is outside the shared
+   * prefix.
    */
   std::tuple<Ts...> get(size_t index) const override {
     if (index >= size()) {

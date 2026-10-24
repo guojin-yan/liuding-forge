@@ -241,7 +241,8 @@ TelemetryMetricPoint metric(std::uint64_t step = 0U, double value = 0.5) {
   point.definition.metric_id = "eval.accuracy";
   point.definition.unit = jyppx::liuding::TelemetryMetricUnit::ratio;
   point.definition.aggregation = jyppx::liuding::TelemetryAggregation::mean;
-  point.definition.direction = jyppx::liuding::TelemetryMetricDirection::maximize;
+  point.definition.direction =
+      jyppx::liuding::TelemetryMetricDirection::maximize;
   point.definition.parameters = {{"average", "macro"}};
   point.definition.context_keys = {"dataset", "split"};
   point.context = {{"dataset", "validation-v1"}, {"split", "val"}};
@@ -373,7 +374,8 @@ TEST(SQLiteRunEventTest, RejectsSequenceGapsAndRollsBackPrecedingNewEvidence) {
   SQLiteRunStore store(root.path());
   store.start(make_run());
   const std::array gap{metric_event(1U), metric_event(3U)};
-  EXPECT_THROW(store.append("run-1", "gap", gap), jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(store.append("run-1", "gap", gap),
+               jyppx::liuding::CompatibilityError);
   EXPECT_TRUE(store.events("run-1").events.empty());
   EXPECT_TRUE(
       store.metrics("run-1", {.metric_id = "eval.accuracy"}).points.empty());
@@ -393,7 +395,8 @@ TEST(SQLiteRunEventTest,
   store.start(make_run("run-2"));
   append_one(store, "first", log_event());
   auto moved = log_event(2U, "producer-1", "run-2");
-  EXPECT_THROW(append_one(store, "moved", moved), jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(append_one(store, "moved", moved),
+               jyppx::liuding::CompatibilityError);
   auto wrong_project = log_event(1U, "fresh");
   wrong_project.correlation.project_id = "project-other";
   EXPECT_THROW(append_one(store, "wrong-project", wrong_project),
@@ -485,8 +488,8 @@ TEST(SQLiteRunEventTest,
       std::numeric_limits<double>::infinity());
   points[3].observation = jyppx::liuding::make_telemetry_metric_value(
       -std::numeric_limits<double>::infinity());
-  points[4].observation =
-      jyppx::liuding::make_telemetry_metric_value(std::nullopt, "no valid population");
+  points[4].observation = jyppx::liuding::make_telemetry_metric_value(
+      std::nullopt, "no valid population");
   points[5].step.value = std::numeric_limits<std::uint64_t>::max();
   envelope.attributes["clock_provenance"] = "historical-unavailable";
   append_one(store, "values", envelope);
@@ -538,7 +541,8 @@ TEST(SQLiteRunEventTest,
       jyppx::liuding::InvalidArgument);
   EXPECT_THROW(store.events("run-1", {.snapshot_through = 5U}),
                jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(store.events("run-1", {.limit = 0U}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(store.events("run-1", {.limit = 0U}),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(SQLiteRunEventTest,
@@ -571,8 +575,9 @@ TEST(SQLiteRunEventTest,
       store.metrics("run-1", {.metric_id = "eval.accuracy"}).points.size(), 4U);
   EXPECT_TRUE(
       store
-          .metrics("run-1", {.metric_id = "eval.accuracy",
-                             .step_kind = jyppx::liuding::TelemetryStepKind::epoch})
+          .metrics("run-1",
+                   {.metric_id = "eval.accuracy",
+                    .step_kind = jyppx::liuding::TelemetryStepKind::epoch})
           .points.empty());
   EXPECT_THROW(store.metrics(
                    "run-1", {.metric_id = "eval.accuracy",
@@ -637,15 +642,16 @@ TEST(SQLiteRunEventTest,
   store.start(make_run());
   const auto artifact = publish_unattached(store);
   auto event = log_event();
-  event.payload = jyppx::liuding::TelemetryArtifactReference{.role = "evaluation.report",
-                                                    .artifact = artifact};
+  event.payload = jyppx::liuding::TelemetryArtifactReference{
+      .role = "evaluation.report", .artifact = artifact};
   append_one(store, "artifact-event", event);
   const auto references = store.references("run-1");
   ASSERT_EQ(references.size(), 1U);
   EXPECT_EQ(references[0].artifact.digest, artifact.digest);
   EXPECT_EQ(
       references[0].reference_id,
-      "telemetry." + jyppx::liuding::telemetry_idempotency_digest(event.identity).hex);
+      "telemetry." +
+          jyppx::liuding::telemetry_idempotency_digest(event.identity).hex);
   EXPECT_EQ(references[0].attached_at_unix_ms, 100U);
   EXPECT_EQ(store.find("run-1")->updated_at_unix_ms, 100U);
   EXPECT_EQ(store.collect_garbage(std::chrono::seconds(0)).removed_files, 0U);
@@ -666,7 +672,8 @@ TEST(SQLiteRunEventTest,
                    .media_type = "application/octet-stream",
                    .producer = "event-test"}};
   const std::array batch{metric_event(), event};
-  EXPECT_THROW(store.append("run-1", "missing", batch), jyppx::liuding::IoError);
+  EXPECT_THROW(store.append("run-1", "missing", batch),
+               jyppx::liuding::IoError);
   EXPECT_TRUE(store.events("run-1").events.empty());
   EXPECT_TRUE(store.references("run-1").empty());
   EXPECT_NO_THROW(append_one(store, "reuse", log_event()));
@@ -679,8 +686,8 @@ TEST(SQLiteRunEventTest,
   store.start(make_run());
   const auto artifact = publish_unattached(store);
   auto referenced = log_event(2U);
-  referenced.payload =
-      jyppx::liuding::TelemetryArtifactReference{.role = "report", .artifact = artifact};
+  referenced.payload = jyppx::liuding::TelemetryArtifactReference{
+      .role = "report", .artifact = artifact};
   const std::array batch{metric_event(), referenced};
   RawDatabase raw(store.database_path());
   raw.execute(
@@ -817,8 +824,8 @@ TEST(SQLiteRunEventTest, IntegrityAndGcRejectMissingEventArtifactRelationship) {
   store.start(make_run());
   const auto artifact = publish_unattached(store);
   auto event = log_event();
-  event.payload =
-      jyppx::liuding::TelemetryArtifactReference{.role = "report", .artifact = artifact};
+  event.payload = jyppx::liuding::TelemetryArtifactReference{
+      .role = "report", .artifact = artifact};
   append_one(store, "artifact", event);
   RawDatabase raw(store.database_path());
   raw.execute("DELETE FROM jyppx_run_artifacts");
@@ -946,7 +953,8 @@ TEST(SQLiteRunEventTest,
   EXPECT_EQ(sink.descriptor().type_id, "jyppx.telemetry-sink.sqlite/v1");
   const std::array batch{metric_event(), log_event(2U)};
   const auto first = sink.emit(batch);
-  jyppx::liuding::validate_telemetry_emit_result(sink.descriptor(), batch, first);
+  jyppx::liuding::validate_telemetry_emit_result(sink.descriptor(), batch,
+                                                 first);
   EXPECT_EQ(first.dispositions[0], TelemetryDisposition::accepted);
   const auto retried = sink.emit(batch);
   EXPECT_EQ(retried.dispositions[1], TelemetryDisposition::duplicate);
@@ -1003,7 +1011,8 @@ TEST(SQLiteRunEventCapacityTest,
       EXPECT_EQ(point.point.step.value, count);
       EXPECT_EQ(point.point.observation.value, static_cast<double>(count));
       EXPECT_EQ(point.point.definition.version, 1U);
-      EXPECT_EQ(point.point.definition.unit, jyppx::liuding::TelemetryMetricUnit::ratio);
+      EXPECT_EQ(point.point.definition.unit,
+                jyppx::liuding::TelemetryMetricUnit::ratio);
       ++count;
     }
     if (!page.next_after) break;
@@ -1032,8 +1041,8 @@ TEST(SQLiteRunBackupTest,
   source.start(make_run());
   auto artifact_event = log_event(2U);
   const auto live = publish_unattached(source, "confirmed-live-object");
-  artifact_event.payload =
-      jyppx::liuding::TelemetryArtifactReference{.role = "report", .artifact = live};
+  artifact_event.payload = jyppx::liuding::TelemetryArtifactReference{
+      .role = "report", .artifact = live};
   const std::array batch{metric_event(1U, 4U), artifact_event};
   source.append("run-1", "snapshot-batch", batch);
   const auto orphan =
@@ -1097,8 +1106,8 @@ TEST(SQLiteRunBackupTest,
     source.start(make_run());
     const auto live = publish_unattached(source);
     auto event = log_event();
-    event.payload =
-        jyppx::liuding::TelemetryArtifactReference{.role = "report", .artifact = live};
+    event.payload = jyppx::liuding::TelemetryArtifactReference{
+        .role = "report", .artifact = live};
     append_one(source, "artifact", event);
     const auto backup = root.path() / "backup";
     source.backup(backup);
@@ -1114,7 +1123,8 @@ TEST(SQLiteRunBackupTest,
       output << "corrupt-backup-evidence";
     }
     const auto target = root.path() / "target";
-    EXPECT_THROW(SQLiteRunStore::restore_backup(backup, target), jyppx::liuding::Error);
+    EXPECT_THROW(SQLiteRunStore::restore_backup(backup, target),
+                 jyppx::liuding::Error);
     EXPECT_FALSE(std::filesystem::exists(target));
     EXPECT_TRUE(source.integrity_check().ok());
   }

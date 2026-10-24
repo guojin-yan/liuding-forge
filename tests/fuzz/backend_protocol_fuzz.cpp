@@ -71,8 +71,8 @@ std::vector<std::uint64_t> call(ex::OfficialTelemetrySink& sink,
   if (operation == Operation::emit) {
     const auto batch = std::array{fuzz::seed_envelope()};
     const auto result = sink.emit(batch);
-    jyppx::liuding::validate_telemetry_emit_result(sink.descriptor(), batch, result,
-                                          fuzz::telemetry_limits());
+    jyppx::liuding::validate_telemetry_emit_result(
+        sink.descriptor(), batch, result, fuzz::telemetry_limits());
     std::vector<std::uint64_t> encoded;
     for (auto disposition : result.dispositions)
       encoded.push_back(static_cast<std::uint64_t>(disposition));
@@ -173,8 +173,8 @@ const std::vector<std::vector<std::byte>>& seeds() {
     const auto content = jyppx::liuding::telemetry_content_digest(
         fuzz::seed_envelope(), fuzz::telemetry_limits());
     const auto identity = "jyppx.telemetry.sidecar-batch/v1" + content.hex;
-    auto receipt =
-        Json::parse(response(jyppx::liuding::sha256_hex(fuzz::bytes(identity))));
+    auto receipt = Json::parse(
+        response(jyppx::liuding::sha256_hex(fuzz::bytes(identity))));
     receipt["receipts"] = Json::array({1U});
     std::vector<std::vector<std::byte>> result{
         fuzz::copy_bytes(response("flush")),

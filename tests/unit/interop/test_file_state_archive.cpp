@@ -331,7 +331,8 @@ TEST_F(FileStateArchiveTest, TruncationCorruptionAndForgedFramingAreRejected) {
       std::span<const std::byte>(forged).first(forged.size() - 32U));
   std::copy(digest.begin(), digest.end(), forged.end() - 32U);
   write_file(path_, forged);
-  EXPECT_THROW({ FileStateArchive invalid(path_); }, jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW({ FileStateArchive invalid(path_); },
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST_F(FileStateArchiveTest, ValidatesLimitsFieldsAndTransactionLifecycle) {

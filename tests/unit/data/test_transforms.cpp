@@ -187,7 +187,8 @@ TEST_F(TransformsTest, RejectsNonFiniteRangesAndMalformedImageShapes) {
     EXPECT_EQ(error.details().component, "data.transforms.vision");
     EXPECT_EQ(error.details().operation, "pad.padding");
   }
-  EXPECT_THROW((void)RandomHorizontalFlip{nan}, jyppx::liuding::InvalidArgument);
+  EXPECT_THROW((void)RandomHorizontalFlip{nan},
+               jyppx::liuding::InvalidArgument);
   EXPECT_THROW((void)RandomRotation{nan}, jyppx::liuding::InvalidArgument);
   EXPECT_THROW((void)RandomAffine{nan}, jyppx::liuding::InvalidArgument);
   EXPECT_THROW((void)ColorJitter{nan}, jyppx::liuding::InvalidArgument);
@@ -306,7 +307,8 @@ TEST_F(TransformsTest, TransformPipelineWithCompose) {
 
 TEST_F(TransformsTest, TransformsWorkInsideDataPipeline) {
   // A dataset whose get() applies the transform: the standard integration.
-  class TransformedDataset : public jyppx::liuding::data::Dataset<jyppx::liuding::data::Example> {
+  class TransformedDataset
+      : public jyppx::liuding::data::Dataset<jyppx::liuding::data::Example> {
    public:
     TransformedDataset(Tensor data, Tensor targets, Normalize normalize)
         : data_(std::move(data)),
@@ -333,11 +335,13 @@ TEST_F(TransformsTest, TransformsWorkInsideDataPipeline) {
       {.pipeline_id = "data.transforms.pipeline",
        .dataset_version = "test.transforms.dataset/v1",
        .dataset_size = dataset->size(),
-       .schema = jyppx::liuding::data::BatchSchema::any("test.transforms.batch", 1),
+       .schema =
+           jyppx::liuding::data::BatchSchema::any("test.transforms.batch", 1),
        .batch_factory_id = "test.transforms.collate/v1",
        .batch_size = 2},
       [dataset](std::span<const std::size_t> indices,
-                const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
+                const jyppx::liuding::data::DataWorkerContext&,
+                std::stop_token) {
         std::vector<Tensor> inputs;
         std::vector<Tensor> targets;
         inputs.reserve(indices.size());

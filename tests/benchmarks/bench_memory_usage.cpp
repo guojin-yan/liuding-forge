@@ -77,10 +77,13 @@ std::uint64_t peak_resident_bytes() {
 #endif
 }
 
-class MemoryDataset final : public jyppx::liuding::data::Dataset<jyppx::liuding::Tensor> {
+class MemoryDataset final
+    : public jyppx::liuding::data::Dataset<jyppx::liuding::Tensor> {
  public:
   explicit MemoryDataset(int count) : data_(torch::randn({count, 256})) {}
-  jyppx::liuding::Tensor get(std::size_t index) const override { return data_[index]; }
+  jyppx::liuding::Tensor get(std::size_t index) const override {
+    return data_[index];
+  }
   std::size_t size() const override { return data_.size(0); }
 
  private:
@@ -111,21 +114,23 @@ int main(int argc, char** argv) {
     const auto dataset = std::make_shared<MemoryDataset>(samples);
     const auto before = resident_bytes();
     auto sampler =
-        std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(samples);
+        std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(
+            samples);
     jyppx::liuding::data::DataPipeline pipeline(
         std::move(sampler),
         jyppx::liuding::data::DataPipelineOptions{
             .pipeline_id = "benchmark.memory_pipeline",
             .dataset_version = "benchmark.memory_dataset/v1",
             .dataset_size = samples,
-            .schema =
-                jyppx::liuding::data::BatchSchema::any("benchmark.memory.batch", 1),
+            .schema = jyppx::liuding::data::BatchSchema::any(
+                "benchmark.memory.batch", 1),
             .batch_factory_id = "benchmark.memory_dataset.collate/v1",
             .batch_size = 64,
             .num_workers = workers,
             .prefetch_batches = 2},
         [dataset](std::span<const std::size_t> indices,
-                  const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
+                  const jyppx::liuding::data::DataWorkerContext&,
+                  std::stop_token) {
           std::vector<jyppx::liuding::Tensor> samples;
           samples.reserve(indices.size());
           for (const auto index : indices) {

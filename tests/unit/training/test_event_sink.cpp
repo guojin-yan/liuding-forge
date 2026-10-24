@@ -82,7 +82,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Participant-owned field contract.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Participant-owned field contract.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Complete blobs keyed by field name.
 };
@@ -100,8 +101,8 @@ class RecordingSink final : public jyppx::liuding::training::EventSink {
                     .type_id = "test.recording-sink/v1",
                     .sink_id = std::move(sink_id),
                     .destination_id = "test.memory",
-                    .delivery_guarantee =
-                        jyppx::liuding::training::EventDeliveryGuarantee::at_least_once},
+                    .delivery_guarantee = jyppx::liuding::training::
+                        EventDeliveryGuarantee::at_least_once},
         failures_remaining_(failures),
         close_failures_remaining_(close_failures) {}
 
@@ -164,7 +165,8 @@ class RecordingSink final : public jyppx::liuding::training::EventSink {
   int flush_calls() const noexcept { return flush_calls_; }
 
  private:
-  jyppx::liuding::training::EventSinkDescriptor descriptor_;  ///< Stable sink topology.
+  jyppx::liuding::training::EventSinkDescriptor
+      descriptor_;              ///< Stable sink topology.
   int failures_remaining_ = 0;  ///< Rejected attempts before first success.
   int close_failures_remaining_ = 0;  ///< Rejected close attempts.
   int publish_attempts_ = 0;          ///< All publish invocations.
@@ -187,7 +189,7 @@ jyppx::liuding::training::CallbackEvent run_started() {
 }
 
 jyppx::liuding::training::CallbackEvent epoch_finished(std::uint64_t index,
-                                              double loss = 1.0) {
+                                                       double loss = 1.0) {
   return {.schema_version = 1,
           .kind = jyppx::liuding::training::CallbackEventKind::epoch_finished,
           .phase = jyppx::liuding::training::CallbackPhase::training,
@@ -219,9 +221,10 @@ TEST(EventOutboxTest, PublishesOnlyAfterCallbackTransactionCommits) {
 TEST(EventOutboxTest, QueueExhaustionRollsBackStatefulCallbacksAndCursor) {
   auto sink = std::make_shared<RecordingSink>("sink.recording");
   jyppx::liuding::training::EventOutbox outbox(
-      {sink}, jyppx::liuding::training::EventOutboxOptions{.max_pending_events = 1});
-  auto early =
-      std::make_shared<jyppx::liuding::training::callbacks::EarlyStoppingCallback>();
+      {sink},
+      jyppx::liuding::training::EventOutboxOptions{.max_pending_events = 1});
+  auto early = std::make_shared<
+      jyppx::liuding::training::callbacks::EarlyStoppingCallback>();
   jyppx::liuding::training::CallbackDispatcher dispatcher({early});
   dispatcher.dispatch(run_started(), outbox);
 
@@ -263,7 +266,8 @@ TEST(EventOutboxTest, CheckpointRestoresPendingPerSinkDeliveryCursor) {
 
   auto restored_first = std::make_shared<RecordingSink>("sink.a");
   auto restored_second = std::make_shared<RecordingSink>("sink.b");
-  jyppx::liuding::training::EventOutbox restored({restored_second, restored_first});
+  jyppx::liuding::training::EventOutbox restored(
+      {restored_second, restored_first});
   restored.load_state(state, jyppx::liuding::RestorePolicy::exact_only);
 
   EXPECT_EQ(restored.pending_events(), 1U);
@@ -306,8 +310,9 @@ TEST(EventOutboxTest, CorruptRestoreLeavesLiveQueueUnchanged) {
   auto target_sink = std::make_shared<RecordingSink>("sink.recording");
   jyppx::liuding::training::EventOutbox target({target_sink});
   target.enqueue(run_started(), {});
-  EXPECT_THROW(target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::Error);
+  EXPECT_THROW(
+      target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::Error);
   EXPECT_EQ(target.pending_events(), 1U);
   EXPECT_EQ(target.last_enqueued_event_index(), 1U);
 }
@@ -326,8 +331,9 @@ TEST(EventOutboxTest, RejectsInvalidControlFlagsWithoutMutation) {
   auto target_sink = std::make_shared<RecordingSink>("sink.recording");
   jyppx::liuding::training::EventOutbox target({target_sink});
   target.enqueue(run_started(), {});
-  EXPECT_THROW(target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_EQ(target.pending_events(), 1U);
   EXPECT_EQ(target.last_enqueued_event_index(), 1U);
   EXPECT_EQ(target.last_delivered_event_index(), 0U);
@@ -342,14 +348,16 @@ TEST(EventOutboxTest, RejectsTruncatedControlAndUnknownPolicy) {
 
   auto target_sink = std::make_shared<RecordingSink>("sink.recording");
   jyppx::liuding::training::EventOutbox target({target_sink});
-  EXPECT_THROW(target.load_state(state, static_cast<jyppx::liuding::RestorePolicy>(255)),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(state, static_cast<jyppx::liuding::RestorePolicy>(255)),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.pending_events(), 0U);
 
   auto& control = state.mutable_blob("control");
   control.pop_back();
-  EXPECT_THROW(target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_EQ(target.pending_events(), 0U);
   EXPECT_EQ(target.last_enqueued_event_index(), 0U);
 }
@@ -361,7 +369,8 @@ TEST(EventOutboxTest, CancellationAndCloseHaveExplicitBoundaries) {
   std::stop_source cancellation;
   cancellation.request_stop();
 
-  EXPECT_THROW(outbox.drain(cancellation.get_token()), jyppx::liuding::Cancelled);
+  EXPECT_THROW(outbox.drain(cancellation.get_token()),
+               jyppx::liuding::Cancelled);
   EXPECT_EQ(outbox.pending_events(), 1U);
   outbox.close();
   outbox.close();
@@ -411,7 +420,8 @@ TEST(EventOutboxTest, RejectsInconsistentCallbackResultWithoutMutation) {
 
 TEST(EventSinkTest, ConsoleWritesCanonicalMachineReadableLine) {
   std::ostringstream output;
-  auto sink = std::make_shared<jyppx::liuding::training::ConsoleEventSink>(output);
+  auto sink =
+      std::make_shared<jyppx::liuding::training::ConsoleEventSink>(output);
   jyppx::liuding::training::EventOutbox outbox({sink});
   outbox.enqueue(run_started(), {});
   outbox.close();
@@ -446,19 +456,21 @@ TEST(EventSinkTest, JsonlAppendsWithoutLeavingTestArtifacts) {
 
 class NeutralRecordingSink final : public jyppx::liuding::TelemetrySink {
  public:
-  explicit NeutralRecordingSink(
-      std::string sink_id = "sink.neutral",
-      jyppx::liuding::TelemetrySinkRole role = jyppx::liuding::TelemetrySinkRole::evidence)
+  explicit NeutralRecordingSink(std::string sink_id = "sink.neutral",
+                                jyppx::liuding::TelemetrySinkRole role =
+                                    jyppx::liuding::TelemetrySinkRole::evidence)
       : descriptor_{.type_id = "test.neutral-sink/v2",
                     .sink_id = std::move(sink_id),
                     .destination_id = "test.memory",
                     .role = role} {}
 
-  const jyppx::liuding::TelemetrySinkDescriptor& descriptor() const noexcept override {
+  const jyppx::liuding::TelemetrySinkDescriptor& descriptor()
+      const noexcept override {
     return descriptor_;
   }
   jyppx::liuding::TelemetryEmitResult emit(
-      std::span<const jyppx::liuding::TelemetryEnvelope> envelopes, std::stop_token stop,
+      std::span<const jyppx::liuding::TelemetryEnvelope> envelopes,
+      std::stop_token stop,
       jyppx::liuding::TelemetryDeadline deadline) override {
     jyppx::liuding::check_telemetry_operation(stop, deadline);
     jyppx::liuding::validate_telemetry_batch(envelopes);
@@ -472,16 +484,18 @@ class NeutralRecordingSink final : public jyppx::liuding::TelemetrySink {
     if (incomplete_receipt) return {};
     accepted.insert(accepted.end(), envelopes.begin(), envelopes.end());
     return {std::vector<jyppx::liuding::TelemetryDisposition>(envelopes.size(),
-                                                     disposition)};
+                                                              disposition)};
   }
   jyppx::liuding::TelemetryFlushResult flush(
-      std::stop_token stop, jyppx::liuding::TelemetryDeadline deadline) override {
+      std::stop_token stop,
+      jyppx::liuding::TelemetryDeadline deadline) override {
     jyppx::liuding::check_telemetry_operation(stop, deadline);
     ++flush_calls;
     return {.exported_events = static_cast<std::uint64_t>(accepted.size())};
   }
   jyppx::liuding::TelemetryFlushResult close(
-      std::stop_token stop, jyppx::liuding::TelemetryDeadline deadline) override {
+      std::stop_token stop,
+      jyppx::liuding::TelemetryDeadline deadline) override {
     jyppx::liuding::check_telemetry_operation(stop, deadline);
     if (!closed) {
       ++close_calls;
@@ -512,7 +526,8 @@ jyppx::liuding::training::TrainingTelemetryAdapterOptions typed_options() {
       .definition = {.metric_id = "training.validation.loss",
                      .unit = jyppx::liuding::TelemetryMetricUnit::dimensionless,
                      .aggregation = jyppx::liuding::TelemetryAggregation::mean,
-                     .direction = jyppx::liuding::TelemetryMetricDirection::minimize,
+                     .direction =
+                         jyppx::liuding::TelemetryMetricDirection::minimize,
                      .context_keys = {"split"}},
       .context = {{"split", "validation"}}};
   return options;
@@ -619,8 +634,8 @@ TEST(EventOutboxTelemetryTest,
   source.save_state(state);
   auto restored_first = std::make_shared<NeutralRecordingSink>("sink.a");
   auto restored_second = std::make_shared<NeutralRecordingSink>("sink.b");
-  jyppx::liuding::training::EventOutbox restored({restored_first, restored_second},
-                                        options);
+  jyppx::liuding::training::EventOutbox restored(
+      {restored_first, restored_second}, options);
   EXPECT_NE(restored.telemetry_stream_id(), stream);
   restored.load_state(state, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(restored.telemetry_stream_id(), stream);
@@ -641,7 +656,8 @@ TEST(EventOutboxTelemetryTest,
   EXPECT_NE(next.time.clock_id, original_time.clock_id);
   const auto& metric =
       std::get<jyppx::liuding::TelemetryLifecycle>(next.payload).metrics.at(0U);
-  EXPECT_EQ(metric.definition.unit, jyppx::liuding::TelemetryMetricUnit::dimensionless);
+  EXPECT_EQ(metric.definition.unit,
+            jyppx::liuding::TelemetryMetricUnit::dimensionless);
   EXPECT_EQ(metric.context.at("split"), "validation");
 }
 
@@ -651,8 +667,8 @@ TEST(EventOutboxTelemetryTest,
   auto options = typed_options();
   options.metrics.clear();
   jyppx::liuding::training::EventOutbox outbox({sink}, options);
-  auto early =
-      std::make_shared<jyppx::liuding::training::callbacks::EarlyStoppingCallback>();
+  auto early = std::make_shared<
+      jyppx::liuding::training::callbacks::EarlyStoppingCallback>();
   jyppx::liuding::training::CallbackDispatcher dispatcher({early});
   dispatcher.dispatch(run_started(), outbox);
   outbox.drain();
@@ -762,17 +778,19 @@ TEST(EventOutboxTelemetryTest,
   target.enqueue(run_started(), {});
   const auto previous_charge = target.pending_bytes();
   const auto previous_stream = std::string(target.telemetry_stream_id());
-  EXPECT_THROW(target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.pending_bytes(), previous_charge);
   EXPECT_EQ(target.telemetry_stream_id(), previous_stream);
 
   auto explicit_options = options;
   explicit_options.stream_id = "different.stream";
-  jyppx::liuding::training::EventOutbox explicit_target({target_sink}, explicit_options);
-  EXPECT_THROW(
-      explicit_target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  jyppx::liuding::training::EventOutbox explicit_target({target_sink},
+                                                        explicit_options);
+  EXPECT_THROW(explicit_target.load_state(
+                   state, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(explicit_target.last_enqueued_event_index(), 0U);
 }
 
@@ -783,8 +801,10 @@ TEST(EventOutboxTelemetryTest,
   probe.enqueue(run_started(), {});
   jyppx::liuding::training::EventOutboxOptions bounds;
   bounds.max_pending_bytes = probe.pending_bytes() - 1U;
-  jyppx::liuding::training::EventOutbox limited({sink}, typed_options(), bounds);
-  EXPECT_THROW(limited.enqueue(run_started(), {}), jyppx::liuding::ResourceExhausted);
+  jyppx::liuding::training::EventOutbox limited({sink}, typed_options(),
+                                                bounds);
+  EXPECT_THROW(limited.enqueue(run_started(), {}),
+               jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(limited.pending_events(), 0U);
   EXPECT_EQ(limited.pending_bytes(), 0U);
   EXPECT_EQ(limited.last_enqueued_event_index(), 0U);
@@ -798,8 +818,8 @@ TEST(EventOutboxTelemetryTest,
   jyppx::liuding::training::EventOutboxOptions bounds;
   bounds.v1_sink_type_migrations = {
       {"test.recording-sink/v1", "test.neutral-sink/v2"}};
-  jyppx::liuding::training::EventOutbox migrated({second, first}, typed_options(),
-                                        bounds);
+  jyppx::liuding::training::EventOutbox migrated({second, first},
+                                                 typed_options(), bounds);
   migrated.load_state(state, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(migrated.last_delivered_event_index(), 1U);
   EXPECT_EQ(migrated.last_enqueued_event_index(), 2U);
@@ -809,8 +829,8 @@ TEST(EventOutboxTelemetryTest,
   migrated.save_state(current);
   EXPECT_EQ(current.manifest().schema_version, 2U);
 
-  jyppx::liuding::training::EventOutbox restored({first, second}, typed_options(),
-                                        bounds);
+  jyppx::liuding::training::EventOutbox restored({first, second},
+                                                 typed_options(), bounds);
   restored.load_state(current, jyppx::liuding::RestorePolicy::exact_only);
   restored.drain();
   EXPECT_TRUE(first->attempted.empty());
@@ -821,7 +841,8 @@ TEST(EventOutboxTelemetryTest,
   EXPECT_FALSE(old.time.wall_time_unix_ns.has_value());
   EXPECT_FALSE(old.time.monotonic_time_ns.has_value());
   EXPECT_EQ(old.attributes.at("migration.time"), "unavailable");
-  const auto& lifecycle = std::get<jyppx::liuding::TelemetryLifecycle>(old.payload);
+  const auto& lifecycle =
+      std::get<jyppx::liuding::TelemetryLifecycle>(old.payload);
   ASSERT_EQ(lifecycle.decisions.size(), 1U);
   EXPECT_EQ(lifecycle.decisions.front().actor_id, "callback.stop");
   EXPECT_TRUE(lifecycle.decisions.front().effective);
@@ -834,7 +855,8 @@ TEST(EventOutboxTelemetryTest,
   EXPECT_EQ(second->accepted.back().identity.sequence, 3U);
   EXPECT_EQ(second->accepted.back().identity.stream_id, stream);
   EXPECT_TRUE(second->accepted.back().time.wall_time_unix_ns.has_value());
-  EXPECT_EQ(std::get<jyppx::liuding::TelemetryLifecycle>(second->accepted.back().payload)
+  EXPECT_EQ(std::get<jyppx::liuding::TelemetryLifecycle>(
+                second->accepted.back().payload)
                 .metrics.at(0U)
                 .definition.unit,
             jyppx::liuding::TelemetryMetricUnit::dimensionless);
@@ -845,24 +867,28 @@ TEST(EventOutboxTelemetryTest,
   auto state = frozen_v1_state();
   auto first = std::make_shared<NeutralRecordingSink>("sink.a");
   auto second = std::make_shared<NeutralRecordingSink>("sink.b");
-  jyppx::liuding::training::EventOutbox target({first, second}, typed_options());
+  jyppx::liuding::training::EventOutbox target({first, second},
+                                               typed_options());
   target.enqueue(run_started(), {});
   const auto stream = std::string(target.telemetry_stream_id());
   const auto charge = target.pending_bytes();
-  EXPECT_THROW(target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.pending_bytes(), charge);
   EXPECT_EQ(target.telemetry_stream_id(), stream);
 
   jyppx::liuding::training::EventOutboxOptions bounds;
   bounds.v1_sink_type_migrations = {
       {"test.recording-sink/v1", "test.neutral-sink/v2"}};
-  jyppx::liuding::training::EventOutbox mapped({first, second}, typed_options(), bounds);
+  jyppx::liuding::training::EventOutbox mapped({first, second}, typed_options(),
+                                               bounds);
   mapped.enqueue(run_started(), {});
   auto& control = state.mutable_blob("control");
   control.push_back(std::byte{0});
-  EXPECT_THROW(mapped.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      mapped.load_state(state, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   EXPECT_EQ(mapped.last_enqueued_event_index(), 1U);
   EXPECT_EQ(mapped.pending_events(), 1U);
   EXPECT_EQ(mapped.last_delivered_event_index(), 0U);

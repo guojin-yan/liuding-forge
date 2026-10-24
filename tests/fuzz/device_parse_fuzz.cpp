@@ -39,7 +39,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
   }
 
   const std::string input(reinterpret_cast<const char*>(data), size);
-  static_cast<void>(
-      jyppx::liuding::fuzz::parse_input([&] { return jyppx::liuding::parse_device(input); }));
+  static_cast<void>(jyppx::liuding::fuzz::parse_input(
+      [&] { return jyppx::liuding::parse_device(input); }));
   return 0;
 }

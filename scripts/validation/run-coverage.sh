@@ -48,7 +48,7 @@ coverage_tool=$coverage_tool
 coverage_policy=coverage-policy.json
 coverage_policy_sha256=$policy_sha256
 gcov_search_root=$build_root
-previews=models,quantization,serving
+previews=data_image,models,quantization,serving
 ctest_excluded_label=$(test "$packaging_excluded" = 1 && echo packaging || echo none)
 ctest_exit=$ctest_status
 policy_exit=$policy_status
@@ -116,7 +116,8 @@ run_logged 01-configure.log cmake \
   -DJYPPX_LIUDING_BUILD_BENCHMARKS=OFF \
   -DJYPPX_LIUDING_ENABLE_COVERAGE=ON \
   -DJYPPX_LIUDING_ENABLE_ASAN=OFF -DJYPPX_LIUDING_ENABLE_UBSAN=OFF -DJYPPX_LIUDING_ENABLE_TSAN=OFF \
-  -DJYPPX_LIUDING_BUILD_MODELS=ON -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON -DJYPPX_LIUDING_BUILD_SERVING=ON \
+  -DJYPPX_LIUDING_BUILD_DATA_IMAGE=ON -DJYPPX_LIUDING_BUILD_MODELS=ON \
+  -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON -DJYPPX_LIUDING_BUILD_SERVING=ON \
   -DCMAKE_PREFIX_PATH="$torch_prefix" \
   -DTorch_DIR="$torch_prefix/share/cmake/Torch"
 

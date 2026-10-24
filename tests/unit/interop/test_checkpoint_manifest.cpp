@@ -52,7 +52,8 @@ jyppx::liuding::interop::CheckpointParticipantEntry MakeParticipant(
       .blobs = {{.field_name = std::move(field_name),
                  .relative_path = std::move(path),
                  .size_bytes = size,
-                 .digest = {.algorithm = jyppx::liuding::ArtifactDigestAlgorithm::sha256,
+                 .digest = {.algorithm =
+                                jyppx::liuding::ArtifactDigestAlgorithm::sha256,
                             .hex = std::move(digest)}}},
   };
 }
@@ -106,162 +107,180 @@ TEST(CheckpointManifestTest, AcceptsAbsentOptionalFieldsAndUtf8Reasons) {
 
 TEST(CheckpointManifestTest, RejectsUnknownDuplicateAndMalformedJson) {
   const auto encoded =
-      jyppx::liuding::interop::checkpoint_artifact_manifest_json(MakeManifest());
+      jyppx::liuding::interop::checkpoint_artifact_manifest_json(
+          MakeManifest());
   auto unknown = encoded;
   unknown.insert(unknown.size() - 1U, R"(,"unknown":true)");
-  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(unknown),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(unknown),
+      jyppx::liuding::SerializationError);
 
   const std::string duplicate = R"({"schema_version":1,"schema_version":1})";
-  EXPECT_THROW(
-      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(duplicate),
-      jyppx::liuding::SerializationError);
-  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json("{"),
+  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(
+                   duplicate),
                jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json("{"),
+      jyppx::liuding::SerializationError);
 }
 
 TEST(CheckpointManifestTest, RejectsInvalidUtf8BeforeParsing) {
   std::string invalid = R"({"schema_version":")";
   invalid.push_back(static_cast<char>(0xFF));
   invalid += R"("})";
-  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(invalid),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(invalid),
+      jyppx::liuding::SerializationError);
 }
 
 TEST(CheckpointManifestTest, RejectsUnsupportedSchemaVersion) {
   auto manifest = MakeManifest();
   manifest.schema_version = 2U;
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::CompatibilityError);
 
-  auto encoded =
-      jyppx::liuding::interop::checkpoint_artifact_manifest_json(MakeManifest());
+  auto encoded = jyppx::liuding::interop::checkpoint_artifact_manifest_json(
+      MakeManifest());
   const auto version = encoded.rfind(R"("schema_version":1)");
   ASSERT_NE(version, std::string::npos);
   encoded.replace(version, std::string(R"("schema_version":1)").size(),
                   R"("schema_version":2)");
-  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(encoded),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(encoded),
+      jyppx::liuding::CompatibilityError);
 }
 
 TEST(CheckpointManifestTest, EnforcesParserResourceLimits) {
   const auto encoded =
-      jyppx::liuding::interop::checkpoint_artifact_manifest_json(MakeManifest());
+      jyppx::liuding::interop::checkpoint_artifact_manifest_json(
+          MakeManifest());
   auto limits = jyppx::liuding::interop::CheckpointManifestLimits{};
   limits.max_manifest_bytes = encoded.size() - 1U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(encoded, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(
+                   encoded, limits),
+               jyppx::liuding::ResourceExhausted);
 
   limits = {};
   limits.max_depth = 1U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(encoded, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(
+                   encoded, limits),
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_nodes = 1U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(encoded, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(
+                   encoded, limits),
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_string_bytes = 3U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(encoded, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(
+                   encoded, limits),
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_total_string_bytes = 3U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(encoded, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::parse_checkpoint_artifact_manifest_json(
+                   encoded, limits),
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(CheckpointManifestTest, EnforcesParticipantBlobAndByteLimits) {
   const auto manifest = MakeManifest();
   auto limits = jyppx::liuding::interop::CheckpointManifestLimits{};
   limits.max_participants = 1U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(
+                   manifest, limits),
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_blobs = 1U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(
+                   manifest, limits),
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_total_blob_bytes = 19U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(
+                   manifest, limits),
+               jyppx::liuding::ResourceExhausted);
   limits = {};
   limits.max_path_bytes = 4U;
-  EXPECT_THROW(
-      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest, limits),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(
+                   manifest, limits),
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(CheckpointManifestTest,
      RejectsMissingUndeclaredDuplicateAndOversizedBlobs) {
   auto manifest = MakeManifest();
   manifest.participants.front().blobs.clear();
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 
   manifest = MakeManifest();
   manifest.participants.front().blobs.front().field_name = "undeclared";
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 
   manifest = MakeManifest();
   manifest.participants.front().blobs.push_back(
       manifest.participants.front().blobs.front());
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 
   manifest = MakeManifest();
   manifest.participants.front().blobs.front().size_bytes = 65U;
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::ResourceExhausted);
 }
 
 TEST(CheckpointManifestTest, RejectsUnsafeAndDuplicateArtifactPaths) {
   auto manifest = MakeManifest();
   manifest.participants.front().blobs.front().relative_path = "../escape.bin";
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 
   manifest = MakeManifest();
   manifest.participants[1].blobs.front().relative_path =
       manifest.participants[0].blobs.front().relative_path;
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 
   manifest = MakeManifest();
   manifest.participants.front().blobs.front().relative_path = "drive:C.bin";
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(CheckpointManifestTest, RejectsInvalidDigestsAndDuplicateParticipants) {
   auto manifest = MakeManifest();
   manifest.participants.front().blobs.front().digest.hex = "ABC";
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 
   manifest = MakeManifest();
   manifest.participants.front().blobs.front().digest.algorithm =
       static_cast<jyppx::liuding::ArtifactDigestAlgorithm>(99U);
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 
   manifest = MakeManifest();
   manifest.participants[1].state.participant_id =
       manifest.participants[0].state.participant_id;
-  EXPECT_THROW(jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::validate_checkpoint_artifact_manifest(manifest),
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(CheckpointManifestTest, PublishesBoundedExperimentalCapability) {
-  const auto capability = jyppx::liuding::interop::make_checkpoint_manifest_capability();
+  const auto capability =
+      jyppx::liuding::interop::make_checkpoint_manifest_capability();
   EXPECT_EQ(capability.feature_id, "interop.checkpoint_manifest");
   EXPECT_EQ(capability.status, jyppx::liuding::CapabilityStatus::experimental);
   EXPECT_EQ(capability.source, jyppx::liuding::CapabilitySource::build);
@@ -271,8 +290,9 @@ TEST(CheckpointManifestTest, PublishesBoundedExperimentalCapability) {
 
   auto limits = jyppx::liuding::interop::CheckpointManifestLimits{};
   limits.max_blobs = 0U;
-  EXPECT_THROW(jyppx::liuding::interop::make_checkpoint_manifest_capability(limits),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::interop::make_checkpoint_manifest_capability(limits),
+      jyppx::liuding::InvalidArgument);
 }
 
 }  // namespace

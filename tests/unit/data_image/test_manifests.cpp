@@ -295,10 +295,12 @@ TEST(ImageManifestTest, ImageFolderRejectsRootImagesAndEmptyClasses) {
   TempDirectory fixture;
   Write(fixture.path() / "root.png", "image");
   fs::create_directory(fixture.path() / "cat");
-  EXPECT_THROW(index_image_folder(fixture.path()), jyppx::liuding::SerializationError);
+  EXPECT_THROW(index_image_folder(fixture.path()),
+               jyppx::liuding::SerializationError);
   std::error_code error;
   fs::remove(fixture.path() / "root.png", error);
-  EXPECT_THROW(index_image_folder(fixture.path()), jyppx::liuding::SerializationError);
+  EXPECT_THROW(index_image_folder(fixture.path()),
+               jyppx::liuding::SerializationError);
   ImageFolderOptions options;
   options.allow_empty_classes = true;
   EXPECT_THROW(index_image_folder(fixture.path(), options),

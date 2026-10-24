@@ -28,9 +28,10 @@ namespace {
 jyppx::liuding::data::BatchSchema integer_batch_schema(std::string id) {
   return {.id = std::move(id),
           .version = 1,
-          .value = jyppx::liuding::ValueSchema{.name = "count",
-                                      .semantic_tag = "sample_count",
-                                      .kind = jyppx::liuding::ValueKind::integer}};
+          .value = jyppx::liuding::ValueSchema{
+              .name = "count",
+              .semantic_tag = "sample_count",
+              .kind = jyppx::liuding::ValueKind::integer}};
 }
 
 /** @brief Creates a one-dimensional float32 tensor batch schema. */
@@ -40,8 +41,8 @@ jyppx::liuding::data::BatchSchema tensor_batch_schema(std::string id) {
   tensor.device = jyppx::liuding::Device(torch::kCPU);
   tensor.rank = 1;
   tensor.shape = std::vector<std::optional<std::int64_t>>{std::nullopt};
-  return jyppx::liuding::data::BatchSchema::tensor(std::move(id), std::move(tensor), 1,
-                                          "features");
+  return jyppx::liuding::data::BatchSchema::tensor(
+      std::move(id), std::move(tensor), 1, "features");
 }
 
 TEST(ValueSchemaTest,
@@ -52,20 +53,23 @@ TEST(ValueSchemaTest,
   features.rank = 2;
   features.shape = std::vector<std::optional<std::int64_t>>{std::nullopt, 4};
 
-  auto note = jyppx::liuding::ValueSchema{.name = "note",
-                                 .semantic_tag = "annotation",
-                                 .kind = jyppx::liuding::ValueKind::string,
-                                 .required = false,
-                                 .nullable = true};
+  auto note =
+      jyppx::liuding::ValueSchema{.name = "note",
+                                  .semantic_tag = "annotation",
+                                  .kind = jyppx::liuding::ValueKind::string,
+                                  .required = false,
+                                  .nullable = true};
   const auto schema = jyppx::liuding::data::BatchSchema{
       .id = "training.supervised_batch",
       .version = 3,
       .value = jyppx::liuding::ValueSchema::dictionary(
-          {{"features",
-            jyppx::liuding::ValueSchema::tensor(features, "features", "model_input")},
-           {"target", jyppx::liuding::ValueSchema{.name = "target",
-                                         .semantic_tag = "class_index",
-                                         .kind = jyppx::liuding::ValueKind::integer}},
+          {{"features", jyppx::liuding::ValueSchema::tensor(
+                            features, "features", "model_input")},
+           {"target",
+            jyppx::liuding::ValueSchema{
+                .name = "target",
+                .semantic_tag = "class_index",
+                .kind = jyppx::liuding::ValueKind::integer}},
            {"note", note}},
           false, "supervised_batch", "training_batch")};
 
@@ -79,8 +83,9 @@ TEST(ValueSchemaTest,
   EXPECT_EQ(jyppx::liuding::data::batch_schema_fingerprint(schema).size(), 16U);
 
   value.insert("extra", std::int64_t{9});
-  EXPECT_THROW(jyppx::liuding::data::validate_batch_value(c10::IValue(value), schema),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::validate_batch_value(c10::IValue(value), schema),
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(ValueSchemaTest, CanonicalDescriptorCoversIdentityVersionAndSemantics) {
@@ -101,23 +106,27 @@ TEST(ValueSchemaTest, CanonicalDescriptorCoversIdentityVersionAndSemantics) {
 }
 
 TEST(ValueSchemaTest, RejectsUnboundedOrMalformedSchemaAndRuntimeTrees) {
-  EXPECT_THROW(jyppx::liuding::data::validate_batch_schema(
-                   {.id = "", .version = 1, .value = jyppx::liuding::ValueSchema{}}),
-               jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       jyppx::liuding::data::validate_batch_schema(
-          {.id = "schema", .version = 0, .value = jyppx::liuding::ValueSchema{}}),
+          {.id = "", .version = 1, .value = jyppx::liuding::ValueSchema{}}),
       jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::data::validate_batch_schema(
+                   {.id = "schema",
+                    .version = 0,
+                    .value = jyppx::liuding::ValueSchema{}}),
+               jyppx::liuding::InvalidArgument);
 
-  auto nested = jyppx::liuding::ValueSchema::list(
+  auto nested =
       jyppx::liuding::ValueSchema::list(jyppx::liuding::ValueSchema::list(
-          jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer})));
-  EXPECT_THROW(jyppx::liuding::validate_value_schema(nested, "batch",
+          jyppx::liuding::ValueSchema::list(jyppx::liuding::ValueSchema{
+              .kind = jyppx::liuding::ValueKind::integer})));
+  EXPECT_THROW(
+      jyppx::liuding::validate_value_schema(nested, "batch",
                                             {.max_depth = 2,
                                              .max_schema_nodes = 16,
                                              .max_metadata_bytes = 1024,
                                              .max_runtime_nodes = 16}),
-               jyppx::liuding::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
 
   c10::impl::GenericList values(c10::IntType::get());
   values.push_back(std::int64_t{1});
@@ -125,31 +134,34 @@ TEST(ValueSchemaTest, RejectsUnboundedOrMalformedSchemaAndRuntimeTrees) {
   values.push_back(std::int64_t{3});
   const auto list_schema = jyppx::liuding::ValueSchema::list(
       jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer});
-  EXPECT_THROW(jyppx::liuding::validate_value(c10::IValue(values), list_schema, "batch",
+  EXPECT_THROW(
+      jyppx::liuding::validate_value(c10::IValue(values), list_schema, "batch",
                                      {.max_depth = 8,
                                       .max_schema_nodes = 16,
                                       .max_metadata_bytes = 1024,
                                       .max_runtime_nodes = 3}),
-               jyppx::liuding::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
 
   c10::impl::GenericDict keyed_value(c10::StringType::get(),
                                      c10::AnyType::get());
   keyed_value.insert("oversized-key", std::int64_t{1});
-  const auto open_dictionary = jyppx::liuding::ValueSchema::dictionary({}, true);
-  EXPECT_THROW(
-      jyppx::liuding::validate_value(c10::IValue(keyed_value), open_dictionary, "batch",
-                            {.max_depth = 8,
-                             .max_schema_nodes = 16,
-                             .max_metadata_bytes = 8,
-                             .max_runtime_nodes = 16}),
-      jyppx::liuding::ResourceExhausted);
+  const auto open_dictionary =
+      jyppx::liuding::ValueSchema::dictionary({}, true);
+  EXPECT_THROW(jyppx::liuding::validate_value(c10::IValue(keyed_value),
+                                              open_dictionary, "batch",
+                                              {.max_depth = 8,
+                                               .max_schema_nodes = 16,
+                                               .max_metadata_bytes = 8,
+                                               .max_runtime_nodes = 16}),
+               jyppx::liuding::ResourceExhausted);
 
   jyppx::liuding::TensorSchema excessive_shape;
   excessive_shape.shape =
       std::vector<std::optional<std::int64_t>>(17, std::nullopt);
   EXPECT_THROW(
       jyppx::liuding::validate_value_schema(
-          jyppx::liuding::ValueSchema::tensor(std::move(excessive_shape)), "value",
+          jyppx::liuding::ValueSchema::tensor(std::move(excessive_shape)),
+          "value",
           {.max_depth = 8,
            .max_schema_nodes = 16,
            .max_metadata_bytes = 1024,
@@ -158,26 +170,40 @@ TEST(ValueSchemaTest, RejectsUnboundedOrMalformedSchemaAndRuntimeTrees) {
 }
 
 TEST(ValueSchemaTest, CoversEveryStableKindNameAndRuntimeCategory) {
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::any), "any");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::tensor), "tensor");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::tuple), "tuple");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::list), "list");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::dictionary), "dictionary");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::integer), "integer");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::floating), "floating");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::boolean), "boolean");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::string), "string");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::none), "none");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::device), "device");
-  EXPECT_EQ(jyppx::liuding::value_kind_name(static_cast<jyppx::liuding::ValueKind>(255)),
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::any),
+            "any");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::tensor),
+            "tensor");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::tuple),
+            "tuple");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::list),
+            "list");
+  EXPECT_EQ(
+      jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::dictionary),
+      "dictionary");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::integer),
+            "integer");
+  EXPECT_EQ(
+      jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::floating),
+      "floating");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::boolean),
+            "boolean");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::string),
+            "string");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::none),
+            "none");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(jyppx::liuding::ValueKind::device),
+            "device");
+  EXPECT_EQ(jyppx::liuding::value_kind_name(
+                static_cast<jyppx::liuding::ValueKind>(255)),
             "unknown");
 
   EXPECT_NO_THROW(jyppx::liuding::validate_value(
       c10::IValue(std::int64_t{7}),
       jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer}));
   EXPECT_NO_THROW(jyppx::liuding::validate_value(
-      c10::IValue(1.25),
-      jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::floating}));
+      c10::IValue(1.25), jyppx::liuding::ValueSchema{
+                             .kind = jyppx::liuding::ValueKind::floating}));
   EXPECT_NO_THROW(jyppx::liuding::validate_value(
       c10::IValue(true),
       jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::boolean}));
@@ -185,37 +211,44 @@ TEST(ValueSchemaTest, CoversEveryStableKindNameAndRuntimeCategory) {
       c10::IValue(std::string("annotation")),
       jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::string}));
   EXPECT_NO_THROW(jyppx::liuding::validate_value(
-      c10::IValue(), jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::none}));
+      c10::IValue(),
+      jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::none}));
   EXPECT_NO_THROW(jyppx::liuding::validate_value(
       c10::IValue(c10::Device(c10::kCPU)),
       jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::device}));
   EXPECT_NO_THROW(jyppx::liuding::validate_value(
       c10::IValue(),
-      jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer, .nullable = true}));
+      jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer,
+                                  .nullable = true}));
 
   c10::impl::GenericList list(c10::IntType::get());
   list.push_back(std::int64_t{3});
   list.push_back(std::int64_t{5});
   const auto list_schema = jyppx::liuding::ValueSchema::list(
       jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer});
-  EXPECT_NO_THROW(jyppx::liuding::validate_value(c10::IValue(list), list_schema));
+  EXPECT_NO_THROW(
+      jyppx::liuding::validate_value(c10::IValue(list), list_schema));
 
   const auto tuple_schema = jyppx::liuding::ValueSchema::tuple(
       {jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer},
-       jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::floating}});
+       jyppx::liuding::ValueSchema{.kind =
+                                       jyppx::liuding::ValueKind::floating}});
   const auto tuple = c10::ivalue::Tuple::create(
       {c10::IValue(std::int64_t{2}), c10::IValue(0.5)});
-  EXPECT_NO_THROW(jyppx::liuding::validate_value(c10::IValue(tuple), tuple_schema));
-  EXPECT_THROW(jyppx::liuding::validate_value(c10::IValue(c10::ivalue::Tuple::create(
+  EXPECT_NO_THROW(
+      jyppx::liuding::validate_value(c10::IValue(tuple), tuple_schema));
+  EXPECT_THROW(
+      jyppx::liuding::validate_value(c10::IValue(c10::ivalue::Tuple::create(
                                          {c10::IValue(std::int64_t{2})})),
                                      tuple_schema),
-               jyppx::liuding::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 
-  EXPECT_THROW(jyppx::liuding::validate_value(
-                   c10::IValue(false),
-                   jyppx::liuding::ValueSchema{.name = "count",
-                                      .kind = jyppx::liuding::ValueKind::integer}),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::validate_value(
+          c10::IValue(false),
+          jyppx::liuding::ValueSchema{
+              .name = "count", .kind = jyppx::liuding::ValueKind::integer}),
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(ValueSchemaTest, RejectsEveryMalformedSchemaCombinationAndLimit) {
@@ -236,11 +269,14 @@ TEST(ValueSchemaTest, RejectsEveryMalformedSchemaCombinationAndLimit) {
   EXPECT_THROW(jyppx::liuding::validate_value_schema({}, "value", limits),
                jyppx::liuding::InvalidArgument);
 
-  auto primitive = jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer};
+  auto primitive =
+      jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer};
   primitive.elements.push_back(jyppx::liuding::ValueSchema{});
-  EXPECT_THROW(jyppx::liuding::validate_value_schema(primitive), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value_schema(primitive),
+               jyppx::liuding::InvalidArgument);
 
-  auto tensor_with_children = jyppx::liuding::ValueSchema::tensor({}, "invalid_tensor");
+  auto tensor_with_children =
+      jyppx::liuding::ValueSchema::tensor({}, "invalid_tensor");
   tensor_with_children.fields.emplace("child", jyppx::liuding::ValueSchema{});
   EXPECT_THROW(jyppx::liuding::validate_value_schema(tensor_with_children),
                jyppx::liuding::InvalidArgument);
@@ -253,23 +289,23 @@ TEST(ValueSchemaTest, RejectsEveryMalformedSchemaCombinationAndLimit) {
 
   jyppx::liuding::TensorSchema negative_rank;
   negative_rank.rank = -1;
-  EXPECT_THROW(
-      jyppx::liuding::validate_value_schema(jyppx::liuding::ValueSchema::tensor(negative_rank)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value_schema(
+                   jyppx::liuding::ValueSchema::tensor(negative_rank)),
+               jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::TensorSchema mismatched_rank;
   mismatched_rank.rank = 1;
   mismatched_rank.shape = std::vector<std::optional<std::int64_t>>{2, 3};
-  EXPECT_THROW(
-      jyppx::liuding::validate_value_schema(jyppx::liuding::ValueSchema::tensor(mismatched_rank)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value_schema(
+                   jyppx::liuding::ValueSchema::tensor(mismatched_rank)),
+               jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::TensorSchema negative_extent;
   negative_extent.shape =
       std::vector<std::optional<std::int64_t>>{std::int64_t{-2}};
-  EXPECT_THROW(
-      jyppx::liuding::validate_value_schema(jyppx::liuding::ValueSchema::tensor(negative_extent)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value_schema(
+                   jyppx::liuding::ValueSchema::tensor(negative_extent)),
+               jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::TensorSchema bounded_device;
   bounded_device.device = jyppx::liuding::Device(torch::kCUDA);
@@ -286,10 +322,12 @@ TEST(ValueSchemaTest, RejectsEveryMalformedSchemaCombinationAndLimit) {
   EXPECT_THROW(jyppx::liuding::validate_value_schema(malformed_tuple),
                jyppx::liuding::InvalidArgument);
 
-  auto malformed_list = jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::list};
+  auto malformed_list =
+      jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::list};
   EXPECT_THROW(jyppx::liuding::validate_value_schema(malformed_list),
                jyppx::liuding::InvalidArgument);
-  malformed_list.elements = {jyppx::liuding::ValueSchema{}, jyppx::liuding::ValueSchema{}};
+  malformed_list.elements = {jyppx::liuding::ValueSchema{},
+                             jyppx::liuding::ValueSchema{}};
   EXPECT_THROW(jyppx::liuding::validate_value_schema(malformed_list),
                jyppx::liuding::InvalidArgument);
 
@@ -318,57 +356,59 @@ TEST(ValueSchemaTest, RejectsEveryMalformedSchemaCombinationAndLimit) {
 
   const auto cumulative_metadata = jyppx::liuding::ValueSchema::dictionary(
       {{"field", jyppx::liuding::ValueSchema::any("child")}}, false, "root");
-  EXPECT_THROW(jyppx::liuding::validate_value_schema(cumulative_metadata, "value",
+  EXPECT_THROW(
+      jyppx::liuding::validate_value_schema(cumulative_metadata, "value",
                                             {.max_depth = 8,
                                              .max_schema_nodes = 16,
                                              .max_metadata_bytes = 8,
                                              .max_runtime_nodes = 16}),
-               jyppx::liuding::ResourceExhausted);
+      jyppx::liuding::ResourceExhausted);
 }
 
 TEST(ValueSchemaTest, ValidatesEveryTensorConstraintFailureAtomically) {
-  EXPECT_THROW(jyppx::liuding::validate_value(c10::IValue(jyppx::liuding::Tensor()),
+  EXPECT_THROW(
+      jyppx::liuding::validate_value(c10::IValue(jyppx::liuding::Tensor()),
                                      jyppx::liuding::ValueSchema::tensor()),
-               jyppx::liuding::InvalidArgument);
+      jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::TensorSchema dtype;
   dtype.dtype = torch::kFloat32;
-  EXPECT_THROW(
-      jyppx::liuding::validate_value(c10::IValue(torch::ones({2}, torch::kInt64)),
-                            jyppx::liuding::ValueSchema::tensor(dtype)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value(
+                   c10::IValue(torch::ones({2}, torch::kInt64)),
+                   jyppx::liuding::ValueSchema::tensor(dtype)),
+               jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::TensorSchema device;
   device.device = jyppx::liuding::Device(torch::kCUDA);
-  EXPECT_THROW(
-      jyppx::liuding::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
-                            jyppx::liuding::ValueSchema::tensor(device)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value(
+                   c10::IValue(torch::ones({2}, torch::kFloat32)),
+                   jyppx::liuding::ValueSchema::tensor(device)),
+               jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::TensorSchema rank;
   rank.rank = 2;
-  EXPECT_THROW(
-      jyppx::liuding::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
-                            jyppx::liuding::ValueSchema::tensor(rank)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value(
+                   c10::IValue(torch::ones({2}, torch::kFloat32)),
+                   jyppx::liuding::ValueSchema::tensor(rank)),
+               jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::TensorSchema shape_rank;
   shape_rank.shape = std::vector<std::optional<std::int64_t>>{2, std::nullopt};
-  EXPECT_THROW(
-      jyppx::liuding::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
-                            jyppx::liuding::ValueSchema::tensor(shape_rank)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value(
+                   c10::IValue(torch::ones({2}, torch::kFloat32)),
+                   jyppx::liuding::ValueSchema::tensor(shape_rank)),
+               jyppx::liuding::InvalidArgument);
 
   jyppx::liuding::TensorSchema extent;
   extent.shape = std::vector<std::optional<std::int64_t>>{3};
-  EXPECT_THROW(
-      jyppx::liuding::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
-                            jyppx::liuding::ValueSchema::tensor(extent)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::validate_value(
+                   c10::IValue(torch::ones({2}, torch::kFloat32)),
+                   jyppx::liuding::ValueSchema::tensor(extent)),
+               jyppx::liuding::InvalidArgument);
 
-  EXPECT_NO_THROW(
-      jyppx::liuding::validate_value(c10::IValue(torch::ones({2}, torch::kFloat32)),
-                            jyppx::liuding::ValueSchema::tensor()));
+  EXPECT_NO_THROW(jyppx::liuding::validate_value(
+      c10::IValue(torch::ones({2}, torch::kFloat32)),
+      jyppx::liuding::ValueSchema::tensor()));
 }
 
 TEST(ValueSchemaTest, TraversesAnyValuesAndOpenDictionaryExtrasWithinLimits) {
@@ -384,33 +424,40 @@ TEST(ValueSchemaTest, TraversesAnyValuesAndOpenDictionaryExtrasWithinLimits) {
 
   EXPECT_NO_THROW(jyppx::liuding::validate_value(
       nested, jyppx::liuding::ValueSchema::any("payload", "untyped_payload")));
-  EXPECT_THROW(jyppx::liuding::validate_value(nested, jyppx::liuding::ValueSchema::any(), "value",
-                                     {.max_depth = 1,
-                                      .max_schema_nodes = 16,
-                                      .max_metadata_bytes = 1024,
-                                      .max_runtime_nodes = 32}),
+  EXPECT_THROW(jyppx::liuding::validate_value(
+                   nested, jyppx::liuding::ValueSchema::any(), "value",
+                   {.max_depth = 1,
+                    .max_schema_nodes = 16,
+                    .max_metadata_bytes = 1024,
+                    .max_runtime_nodes = 32}),
                jyppx::liuding::ResourceExhausted);
 
   const auto open_schema = jyppx::liuding::ValueSchema::dictionary(
-      {{"required", jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer}},
-       {"optional", jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::string,
-                                       .required = false}}},
+      {{"required",
+        jyppx::liuding::ValueSchema{.kind =
+                                        jyppx::liuding::ValueKind::integer}},
+       {"optional",
+        jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::string,
+                                    .required = false}}},
       true, "open_payload");
   c10::impl::GenericDict open_value(c10::StringType::get(),
                                     c10::AnyType::get());
   open_value.insert("required", std::int64_t{4});
   open_value.insert("extra", nested);
-  EXPECT_NO_THROW(jyppx::liuding::validate_value(c10::IValue(open_value), open_schema));
+  EXPECT_NO_THROW(
+      jyppx::liuding::validate_value(c10::IValue(open_value), open_schema));
 
   c10::impl::GenericDict missing(c10::StringType::get(), c10::AnyType::get());
-  EXPECT_THROW(jyppx::liuding::validate_value(c10::IValue(missing), open_schema),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::validate_value(c10::IValue(missing), open_schema),
+      jyppx::liuding::InvalidArgument);
 
   c10::impl::GenericDict non_string_key(c10::IntType::get(),
                                         c10::AnyType::get());
   non_string_key.insert(std::int64_t{1}, std::int64_t{2});
-  EXPECT_THROW(jyppx::liuding::validate_value(c10::IValue(non_string_key),
-                                     jyppx::liuding::ValueSchema::dictionary({}, true)),
+  EXPECT_THROW(jyppx::liuding::validate_value(
+                   c10::IValue(non_string_key),
+                   jyppx::liuding::ValueSchema::dictionary({}, true)),
                jyppx::liuding::InvalidArgument);
 }
 
@@ -418,7 +465,9 @@ TEST(ValueSchemaTest, DirectFingerprintIsStableAndCoversCompleteDescriptor) {
   const auto schema = jyppx::liuding::ValueSchema::tuple(
       {jyppx::liuding::ValueSchema::tensor({}, "features"),
        jyppx::liuding::ValueSchema::list(
-           jyppx::liuding::ValueSchema{.kind = jyppx::liuding::ValueKind::integer}, "labels")},
+           jyppx::liuding::ValueSchema{.kind =
+                                           jyppx::liuding::ValueKind::integer},
+           "labels")},
       "batch", "training_batch");
   const auto fingerprint = jyppx::liuding::value_schema_fingerprint(schema);
   EXPECT_EQ(fingerprint.size(), 16U);
@@ -480,8 +529,8 @@ TEST(ValueSchemaPipelineTest,
          .batch_size = 2,
          .num_workers = workers,
          .prefetch_batches = 2},
-        [](std::span<const std::size_t>, const jyppx::liuding::data::DataWorkerContext&,
-           std::stop_token) {
+        [](std::span<const std::size_t>,
+           const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
           return c10::IValue(torch::ones({2}, torch::kFloat32));
         });
   };

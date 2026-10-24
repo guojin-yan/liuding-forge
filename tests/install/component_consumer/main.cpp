@@ -112,8 +112,8 @@ bool BuildCapabilityInventoryMatchesPackage() {
                 : jyppx::liuding::CapabilityStatus::unsupported;
     if (feature.feature_id != "jyppx.component." + std::string(component) ||
         feature.status != expected_status ||
-        (feature.implementation == jyppx::liuding::CapabilityImplementation::native) !=
-            enabled) {
+        (feature.implementation ==
+         jyppx::liuding::CapabilityImplementation::native) != enabled) {
       return false;
     }
   }
@@ -133,7 +133,8 @@ int main() {
 #elif defined(JYPPX_CONSUMER_CORE)
   return jyppx::liuding::parse_device("cpu").is_cpu() ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_INTEROP)
-  const auto capability = jyppx::liuding::interop::make_checkpoint_manifest_capability();
+  const auto capability =
+      jyppx::liuding::interop::make_checkpoint_manifest_capability();
   if (capability.feature_id != "interop.checkpoint_manifest") return 1;
 #if JYPPX_EXPECT_COMPONENT_NN
   return InstalledModelWeightImportAppliesVerifiedState() ? 0 : 1;
@@ -141,7 +142,8 @@ int main() {
   return 0;
 #endif
 #elif defined(JYPPX_CONSUMER_DATA)
-  const auto indices = jyppx::liuding::data::samplers::SequentialSampler(3).indices();
+  const auto indices =
+      jyppx::liuding::data::samplers::SequentialSampler(3).indices();
   return indices == std::vector<std::size_t>({0, 1, 2}) ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
   const auto metadata =
@@ -152,13 +154,15 @@ int main() {
   options.width = 20;
   options.height = 10;
   const auto index = jyppx::liuding::data::image::parse_annotations(
-      "0 .5 .5 1 1", jyppx::liuding::data::image::AnnotationFormat::yolo_detection,
-      options);
+      "0 .5 .5 1 1",
+      jyppx::liuding::data::image::AnnotationFormat::yolo_detection, options);
   jyppx::liuding::data::image::ManifestReadOptions manifest_options;
   manifest_options.categories = metadata.categories;
   const auto manifest = jyppx::liuding::data::image::parse_manifest(
-      "path,labels\na.jpg,cat\n", jyppx::liuding::data::image::ManifestFormat::csv,
-      jyppx::liuding::data::image::ManifestTask::classification, manifest_options);
+      "path,labels\na.jpg,cat\n",
+      jyppx::liuding::data::image::ManifestFormat::csv,
+      jyppx::liuding::data::image::ManifestTask::classification,
+      manifest_options);
   constexpr std::array<unsigned char, 12> pgm{'P',  '5', '\n', '1', ' ',  '1',
                                               '\n', '2', '5',  '5', '\n', 127};
   const auto image =
@@ -170,9 +174,10 @@ int main() {
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_NN)
-  const auto loss = jyppx::liuding::nn::functional::label_smoothing_cross_entropy(
-      torch::tensor({{2.0, -1.0}}, torch::kFloat64),
-      torch::tensor({0}, torch::kLong), 0.1);
+  const auto loss =
+      jyppx::liuding::nn::functional::label_smoothing_cross_entropy(
+          torch::tensor({{2.0, -1.0}}, torch::kFloat64),
+          torch::tensor({0}, torch::kLong), 0.1);
   return loss.numel() == 1 && std::isfinite(loss.item<double>()) ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_OPTIM)
   auto parameter = torch::ones(
@@ -203,7 +208,8 @@ int main() {
   jyppx::liuding::quantization::validate_format_descriptor({});
   return 0;
 #elif defined(JYPPX_CONSUMER_SERVING)
-  return jyppx::liuding::serving::serving_preview_manifest_json().empty() ? 1 : 0;
+  return jyppx::liuding::serving::serving_preview_manifest_json().empty() ? 1
+                                                                          : 0;
 #elif defined(JYPPX_CONSUMER_ALL)
   return std::string(jyppx::liuding::version()).empty() ? 1 : 0;
 #elif defined(JYPPX_CONSUMER_SDK)

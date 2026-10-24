@@ -1,13 +1,17 @@
+// Copyright 2026 JYPPX Training Framework Contributors
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
-// 六丁炼算 (Liuding Forge)
-// Project alias: JYPPX Training Framework
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+
 #ifndef JYPPX_LIUDING_LIUDING_HPP
 #define JYPPX_LIUDING_LIUDING_HPP
 
 /**
  * @file liuding.hpp
- * @brief Main header for 六丁炼算 (Liuding Forge), project alias JYPPX Training Framework
+ * @brief Main header for 六丁炼算 (Liuding Forge), project alias JYPPX Training
+ * Framework
  *
  * Include this file to use all JYPPX functionality.
  */

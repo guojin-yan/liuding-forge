@@ -44,11 +44,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
       throw jyppx::liuding::SerializationError("unknown test field");
     }
@@ -100,7 +100,8 @@ class MemoryCheckpointStore final
     : public jyppx::liuding::training::CheckpointStateSink,
       public jyppx::liuding::training::CheckpointStateSource {
  public:
-  void begin(const jyppx::liuding::training::CheckpointDescriptor& descriptor) override {
+  void begin(const jyppx::liuding::training::CheckpointDescriptor& descriptor)
+      override {
     ++begin_count_;
     if (fail_begin_) {
       throw jyppx::liuding::SerializationError("injected begin failure");
@@ -114,7 +115,8 @@ class MemoryCheckpointStore final
     }
   }
 
-  jyppx::liuding::StateWriter& writer_for(std::string_view participant_id) override {
+  jyppx::liuding::StateWriter& writer_for(
+      std::string_view participant_id) override {
     write_order_.emplace_back(participant_id);
     const auto writer = staging_.find(std::string(participant_id));
     if (writer == staging_.end()) {
@@ -182,9 +184,9 @@ class MemoryCheckpointStore final
 
 class CounterParticipant final : public jyppx::liuding::CheckpointParticipant {
  public:
-  CounterParticipant(
-      std::string identifier, std::int32_t value,
-      jyppx::liuding::RestoreLevel restore_level = jyppx::liuding::RestoreLevel::exact)
+  CounterParticipant(std::string identifier, std::int32_t value,
+                     jyppx::liuding::RestoreLevel restore_level =
+                         jyppx::liuding::RestoreLevel::exact)
       : identifier_(std::move(identifier)),
         value_(value),
         restore_level_(restore_level) {}
@@ -211,7 +213,8 @@ class CounterParticipant final : public jyppx::liuding::CheckpointParticipant {
       events_->push_back("save:" + identifier_);
     }
     if (fail_save_) {
-      throw jyppx::liuding::SerializationError("injected participant save failure");
+      throw jyppx::liuding::SerializationError(
+          "injected participant save failure");
     }
     std::array<std::byte, sizeof(value_)> bytes{};
     std::memcpy(bytes.data(), &value_, sizeof(value_));
@@ -241,8 +244,10 @@ class CounterParticipant final : public jyppx::liuding::CheckpointParticipant {
         stored_manifest.schema_version != 1) {
       throw jyppx::liuding::CompatibilityError("incompatible counter state");
     }
-    if (!jyppx::liuding::restore_policy_accepts(policy, stored_manifest.restore_level)) {
-      throw jyppx::liuding::CompatibilityError("counter restore policy rejected");
+    if (!jyppx::liuding::restore_policy_accepts(
+            policy, stored_manifest.restore_level)) {
+      throw jyppx::liuding::CompatibilityError(
+          "counter restore policy rejected");
     }
     const auto bytes = reader.read_blob("value", sizeof(value_));
     if (bytes.size() != sizeof(value_)) {
@@ -252,7 +257,8 @@ class CounterParticipant final : public jyppx::liuding::CheckpointParticipant {
     std::memcpy(&candidate, bytes.data(), sizeof(candidate));
     if (std::find(rejected_values_.begin(), rejected_values_.end(),
                   candidate) != rejected_values_.end()) {
-      throw jyppx::liuding::SerializationError("injected participant load failure");
+      throw jyppx::liuding::SerializationError(
+          "injected participant load failure");
     }
     if (events_ != nullptr) {
       events_->push_back("load:" + identifier_ + ":" +
@@ -301,22 +307,26 @@ TEST(CheckpointCoordinatorTest, ValidatesCanonicalAggregateDescriptor) {
       .restore_level = jyppx::liuding::RestoreLevel::bounded,
       .participants = {exact, bounded},
   };
-  EXPECT_NO_THROW(jyppx::liuding::training::validate_checkpoint_descriptor(descriptor));
+  EXPECT_NO_THROW(
+      jyppx::liuding::training::validate_checkpoint_descriptor(descriptor));
 
   auto invalid = descriptor;
   invalid.restore_level = jyppx::liuding::RestoreLevel::exact;
-  EXPECT_THROW(jyppx::liuding::training::validate_checkpoint_descriptor(invalid),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::training::validate_checkpoint_descriptor(invalid),
+      jyppx::liuding::InvalidArgument);
   invalid = descriptor;
   std::swap(invalid.participants[0], invalid.participants[1]);
-  EXPECT_THROW(jyppx::liuding::training::validate_checkpoint_descriptor(invalid),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::training::validate_checkpoint_descriptor(invalid),
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(CheckpointCoordinatorTest,
      RegistryRejectsNullDuplicateAndMismatchedParticipants) {
   jyppx::liuding::training::CheckpointParticipantRegistry registry;
-  EXPECT_THROW(registry.register_participant(nullptr), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(registry.register_participant(nullptr),
+               jyppx::liuding::InvalidArgument);
 
   registry.register_participant(
       std::make_shared<CounterParticipant>("model", 1));
@@ -343,7 +353,8 @@ TEST(CheckpointCoordinatorTest, GroupRegistrationHasStrongGuarantee) {
   EXPECT_THROW(registry.register_participants(std::move(group)),
                jyppx::liuding::InvalidArgument);
   EXPECT_EQ(registry.participant_ids(), std::vector<std::string>{"existing"});
-  EXPECT_THROW(registry.register_participants({}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(registry.register_participants({}),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(CheckpointCoordinatorTest, SavesInCanonicalOrderAndCommitsOnce) {
@@ -443,8 +454,9 @@ TEST(CheckpointCoordinatorTest, RejectsPolicyBeforeAnyParticipantMutation) {
   coordinator.save(store);
   participant->set_value(44);
 
-  EXPECT_THROW(coordinator.restore(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      coordinator.restore(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(participant->value(), 44);
 }
 

@@ -47,7 +47,8 @@ class AutocastGuard {
    *
    * @param device_type Device whose autocast dispatcher is configured.
    * @param dtype Lower-precision dtype used by eligible operations.
-   * @throws jyppx::liuding::InvalidArgument if the device/dtype pair is unsupported.
+   * @throws jyppx::liuding::InvalidArgument if the device/dtype pair is
+   * unsupported.
    */
   AutocastGuard(c10::DeviceType device_type, at::ScalarType dtype)
       : device_type_(device_type) {

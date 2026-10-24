@@ -57,17 +57,17 @@ int main(int argc, char** argv) {
                            .final_norm = true};
     std::optional<jyppx::liuding::nn::ModelAdapter> model;
     auto& metrics = sample["metrics"];
-    metrics["load_seconds"] =
-        metric(device_seconds(device,
-                              [&] {
-                                model.emplace(jyppx::liuding::models::create_model(
-                                    args.profile, options));
-                                model->state().eval();
-                                model->state().to(device);
-                              }),
-               "seconds", "lower", false,
-               "architecture construction, random initialization and device "
-               "transfer; no pretrained load");
+    metrics["load_seconds"] = metric(
+        device_seconds(device,
+                       [&] {
+                         model.emplace(jyppx::liuding::models::create_model(
+                             args.profile, options));
+                         model->state().eval();
+                         model->state().to(device);
+                       }),
+        "seconds", "lower", false,
+        "architecture construction, random initialization and device "
+        "transfer; no pretrained load");
     std::int64_t input_elements = 1;
     for (const auto dimension : shape) input_elements *= dimension;
     const auto input =
@@ -103,8 +103,9 @@ int main(int argc, char** argv) {
     metrics["forward_seconds"] = metric(forward_time / steps, "seconds");
     metrics["throughput_items_per_second"] =
         metric(2 * steps / forward_time, "items/second", "higher");
-    metrics["parameter_elements"] = metric(
-        jyppx::liuding::models::parameter_count(model->state().module()), "elements");
+    metrics["parameter_elements"] =
+        metric(jyppx::liuding::models::parameter_count(model->state().module()),
+               "elements");
     metrics["output_bytes"] = metric(output_elements * sizeof(float), "bytes");
     sample["execution"]["path"] =
         "ModelAdapter eval FP32; randomly initialized, no pretrained quality "

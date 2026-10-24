@@ -334,8 +334,9 @@ torch::Tensor ReferenceTensor(const std::vector<std::byte>& encoded,
 void CheckArchitectureReference(const char* architecture) {
   const auto* directory = std::getenv("JYPPX_LIUDING_MODELS_REFERENCE_DIR");
   if (directory == nullptr || *directory == '\0') {
-    GTEST_SKIP() << "Set JYPPX_LIUDING_MODELS_REFERENCE_DIR for the independent "
-                    "official reference gate";
+    GTEST_SKIP()
+        << "Set JYPPX_LIUDING_MODELS_REFERENCE_DIR for the independent "
+           "official reference gate";
   }
   const auto root = std::filesystem::path(directory);
   const auto prefix = std::string(architecture);

@@ -216,7 +216,8 @@ TEST(DiceLossTest, RejectsInvalidConfiguration) {
 TEST(DiceLossTest, RejectsInvalidTensorContracts) {
   DiceLossOptions binary;
   binary.mode = DiceMode::binary;
-  EXPECT_THROW(functional::dice_loss(jyppx::liuding::Tensor(), jyppx::liuding::Tensor(), binary),
+  EXPECT_THROW(functional::dice_loss(jyppx::liuding::Tensor(),
+                                     jyppx::liuding::Tensor(), binary),
                jyppx::liuding::InvalidArgument);
   EXPECT_THROW(functional::dice_loss(torch::zeros({2, 2}, torch::kLong),
                                      torch::zeros({2, 2}), binary),

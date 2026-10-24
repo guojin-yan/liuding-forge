@@ -109,7 +109,7 @@ else:
         commands = self.commands()
         configure = next(row for row in commands if row[0] == "cmake" and "-S" in row)
         self.assertIn("-DTorch_DIR=" + self.environment["CMAKE_PREFIX_PATH"] + "/share/cmake/Torch", configure)
-        for owner in ("MODELS", "QUANTIZATION", "SERVING"):
+        for owner in ("DATA_IMAGE", "MODELS", "QUANTIZATION", "SERVING"):
             self.assertIn("-DJYPPX_LIUDING_BUILD_" + owner + "=ON", configure)
         for row in commands:
             if row[0] == "gcovr" and "--version" not in row:

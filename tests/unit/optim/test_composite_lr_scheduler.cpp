@@ -35,22 +35,25 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
-      throw jyppx::liuding::SerializationError("unknown composite scheduler field");
+      throw jyppx::liuding::SerializationError(
+          "unknown composite scheduler field");
     }
     if (data.size() > field->max_bytes) {
-      throw jyppx::liuding::ResourceExhausted("oversized composite scheduler field");
+      throw jyppx::liuding::ResourceExhausted(
+          "oversized composite scheduler field");
     }
     if (!blobs_
              .emplace(std::string(name),
                       std::vector<std::byte>(data.begin(), data.end()))
              .second) {
-      throw jyppx::liuding::SerializationError("duplicate composite scheduler field");
+      throw jyppx::liuding::SerializationError(
+          "duplicate composite scheduler field");
     }
   }
 
@@ -66,7 +69,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end()) {
-      throw jyppx::liuding::SerializationError("missing composite scheduler field");
+      throw jyppx::liuding::SerializationError(
+          "missing composite scheduler field");
     }
     if (blob->second.size() > max_bytes) {
       throw jyppx::liuding::ResourceExhausted(
@@ -84,7 +88,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Descriptor enforced by this test store.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Descriptor enforced by this test store.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Complete fields indexed by stable field name.
 };
@@ -102,9 +107,10 @@ std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
            .options = {.learning_rate = learning_rate}}});
 }
 
-std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>> make_step_children(
-    const std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter>& optimizer,
-    double first_gamma = 0.5, double second_gamma = 0.1) {
+std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>>
+make_step_children(const std::shared_ptr<
+                       jyppx::liuding::optim::SgdOptimizerAdapter>& optimizer,
+                   double first_gamma = 0.5, double second_gamma = 0.1) {
   std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>> children;
   children.push_back(std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
       optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
@@ -120,7 +126,8 @@ std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>> make_step_child
 }
 
 MemoryStateStore save_participant(
-    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant& participant) {
+    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant&
+        participant) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   return store;
@@ -134,7 +141,8 @@ TEST(SequentialLrSchedulerTest, PublishesOrderedTypedDescriptor) {
 
   const auto& descriptor = scheduler.descriptor();
   EXPECT_EQ(descriptor.type_id, "jyppx.scheduler.sequential_lr/v1");
-  EXPECT_EQ(descriptor.step_mode, jyppx::liuding::optim::SchedulerStepMode::epoch);
+  EXPECT_EQ(descriptor.step_mode,
+            jyppx::liuding::optim::SchedulerStepMode::epoch);
   EXPECT_EQ(
       std::get<std::vector<std::int64_t>>(descriptor.config.at("milestones")),
       (std::vector<std::int64_t>{2}));
@@ -166,8 +174,8 @@ TEST(SequentialLrSchedulerTest, AssignsCompleteEventsToEachChild) {
 
 TEST(ChainedLrSchedulerTest, AppliesEveryChildWithOneOptimizerCommit) {
   auto optimizer = make_optimizer();
-  jyppx::liuding::optim::ChainedLrScheduler scheduler(optimizer,
-                                             make_step_children(optimizer));
+  jyppx::liuding::optim::ChainedLrScheduler scheduler(
+      optimizer, make_step_children(optimizer));
 
   scheduler.step();
   EXPECT_NEAR(scheduler.learning_rates().front(), 0.01, 1e-15);
@@ -185,7 +193,8 @@ TEST(CompositeLrSchedulerTest, RestoresEveryChildForExactContinuation) {
   source->step();
   source->step();
   source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   const auto store = save_participant(source_participant);
 
   auto resumed_optimizer = make_optimizer();
@@ -194,8 +203,10 @@ TEST(CompositeLrSchedulerTest, RestoresEveryChildForExactContinuation) {
       jyppx::liuding::optim::SequentialLrSchedulerOptions{
           .scheduler_id = "scheduler.root", .milestones = {2}});
   resumed->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant resumed_participant(resumed);
-  resumed_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant resumed_participant(
+      resumed);
+  resumed_participant.load_state(store,
+                                 jyppx::liuding::RestorePolicy::exact_only);
 
   EXPECT_EQ(resumed->completed_steps(), source->completed_steps());
   EXPECT_EQ(resumed->learning_rates(), source->learning_rates());
@@ -211,7 +222,8 @@ TEST(CompositeLrSchedulerTest, RejectsTopologyAndControlBeforeMutation) {
       jyppx::liuding::optim::SequentialLrSchedulerOptions{
           .scheduler_id = "scheduler.root", .milestones = {2}});
   source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   const auto store = save_participant(source_participant);
 
   auto target_optimizer = make_optimizer();
@@ -219,20 +231,23 @@ TEST(CompositeLrSchedulerTest, RejectsTopologyAndControlBeforeMutation) {
       target_optimizer, make_step_children(target_optimizer, 0.25, 0.1),
       jyppx::liuding::optim::SequentialLrSchedulerOptions{
           .scheduler_id = "scheduler.root", .milestones = {2}});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(target);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(
+      target);
   const auto topology_before = save_participant(target_participant);
-  EXPECT_THROW(
-      target_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(target_participant.load_state(
+                   store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(save_participant(target_participant).blobs(),
             topology_before.blobs());
 
   auto matching_optimizer = make_optimizer();
-  auto matching = std::make_shared<jyppx::liuding::optim::SequentialLrScheduler>(
-      matching_optimizer, make_step_children(matching_optimizer),
-      jyppx::liuding::optim::SequentialLrSchedulerOptions{
-          .scheduler_id = "scheduler.root", .milestones = {2}});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant matching_participant(matching);
+  auto matching =
+      std::make_shared<jyppx::liuding::optim::SequentialLrScheduler>(
+          matching_optimizer, make_step_children(matching_optimizer),
+          jyppx::liuding::optim::SequentialLrSchedulerOptions{
+              .scheduler_id = "scheduler.root", .milestones = {2}});
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant matching_participant(
+      matching);
   const auto control_before = save_participant(matching_participant);
   auto malformed = store;
   malformed.mutable_blob("control").front() = std::byte{'X'};
@@ -249,7 +264,8 @@ TEST(ChainedLrSchedulerTest, FailedChildPreviewLeavesWholeTreeUnchanged) {
       optimizer,
       make_step_children(optimizer, 0.5, std::numeric_limits<double>::max()));
   scheduler->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant participant(scheduler);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant participant(
+      scheduler);
   const auto before = save_participant(participant);
 
   EXPECT_THROW(scheduler->step(), jyppx::liuding::NumericalError);
@@ -278,23 +294,26 @@ TEST(CompositeLrSchedulerTest, RejectsInvalidOwnershipAndStructure) {
   duplicate_ids[1] = std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
       optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
                      .scheduler_id = "scheduler.child.first"});
-  EXPECT_THROW(
-      jyppx::liuding::optim::ChainedLrScheduler(optimizer, std::move(duplicate_ids)),
-      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::optim::ChainedLrScheduler(
+                   optimizer, std::move(duplicate_ids)),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(CompositeLrSchedulerTest, SupportsNestedTransactionalTrees) {
   auto optimizer = make_optimizer();
-  auto sequential = std::make_unique<jyppx::liuding::optim::SequentialLrScheduler>(
-      optimizer, make_step_children(optimizer),
-      jyppx::liuding::optim::SequentialLrSchedulerOptions{
-          .scheduler_id = "scheduler.nested", .milestones = {1}});
-  std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>> root_children;
+  auto sequential =
+      std::make_unique<jyppx::liuding::optim::SequentialLrScheduler>(
+          optimizer, make_step_children(optimizer),
+          jyppx::liuding::optim::SequentialLrSchedulerOptions{
+              .scheduler_id = "scheduler.nested", .milestones = {1}});
+  std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>>
+      root_children;
   root_children.push_back(std::move(sequential));
-  root_children.push_back(std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
-      optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{
-          .scheduler_id = "scheduler.tail", .step_size = 1, .gamma = 0.5}));
+  root_children.push_back(
+      std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
+          optimizer,
+          jyppx::liuding::optim::StepLrSchedulerOptions{
+              .scheduler_id = "scheduler.tail", .step_size = 1, .gamma = 0.5}));
   jyppx::liuding::optim::ChainedLrScheduler scheduler(
       optimizer, std::move(root_children), {.scheduler_id = "scheduler.root"});
 

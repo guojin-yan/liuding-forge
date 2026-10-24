@@ -36,11 +36,12 @@ decltype(auto) Backend(const char* operation, Function&& function) {
                           Details(operation, "available memory")));
   } catch (const c10::Error& error) {
     jyppx::liuding::detail::rethrow_backend_error(
-        error, {.component = "models",
-                .operation = operation,
-                .failure_kind = jyppx::liuding::detail::BackendFailureKind::unknown,
-                .expected = "a supported model invocation",
-                .hint = "Inspect the nested backend cause."});
+        error,
+        {.component = "models",
+         .operation = operation,
+         .failure_kind = jyppx::liuding::detail::BackendFailureKind::unknown,
+         .expected = "a supported model invocation",
+         .hint = "Inspect the nested backend cause."});
   } catch (const std::bad_alloc&) {
     std::throw_with_nested(ResourceExhausted(
         "Model allocation failed", Details(operation, "available memory")));

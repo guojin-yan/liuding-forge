@@ -40,11 +40,11 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   /** @brief Stores one declared bounded checkpoint field. */
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes ||
         !blobs_
              .emplace(std::string(name),
@@ -75,7 +75,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Descriptor enforced for every field.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Descriptor enforced for every field.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Independently owned checkpoint payloads.
 };
@@ -94,10 +95,9 @@ jyppx::liuding::data::DataBatchFactory tensor_factory() {
 }
 
 /** @brief Creates a map pipeline with one explicit memory-stage topology. */
-jyppx::liuding::data::DataPipeline make_pipeline(std::string id,
-                                        jyppx::liuding::data::BatchMemoryOptions memory,
-                                        std::size_t workers = 0,
-                                        std::size_t prefetch = 2) {
+jyppx::liuding::data::DataPipeline make_pipeline(
+    std::string id, jyppx::liuding::data::BatchMemoryOptions memory,
+    std::size_t workers = 0, std::size_t prefetch = 2) {
   jyppx::liuding::TensorSchema tensor_schema;
   tensor_schema.dtype = torch::kFloat32;
   tensor_schema.device =
@@ -160,23 +160,26 @@ TEST(BatchMemoryTest, PreservesNestedContainerTypesAndReportsCpuMetadata) {
 }
 
 TEST(BatchMemoryTest, RejectsModifiedPreparationMetadataBeforeTransfer) {
-  const jyppx::liuding::data::BatchMemoryOptions options{.target_device =
-                                                    jyppx::liuding::Device(torch::kCPU)};
+  const jyppx::liuding::data::BatchMemoryOptions options{
+      .target_device = jyppx::liuding::Device(torch::kCPU)};
   auto prepared = jyppx::liuding::data::prepare_batch_memory(
       c10::IValue(torch::ones({2}, torch::kFloat32)), options);
   ++prepared.metadata.tensor_count;
 
-  EXPECT_THROW(jyppx::liuding::data::transfer_batch_memory(std::move(prepared), options),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      jyppx::liuding::data::transfer_batch_memory(std::move(prepared), options),
+      jyppx::liuding::CompatibilityError);
 }
 
 TEST(BatchMemoryTest, RejectsInvalidPolicyAndPreflightsResourceLimits) {
   auto non_blocking = jyppx::liuding::data::BatchMemoryOptions{};
   non_blocking.non_blocking = true;
-  EXPECT_THROW(jyppx::liuding::data::validate_batch_memory_options(non_blocking),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::validate_batch_memory_options(non_blocking),
+      jyppx::liuding::InvalidArgument);
   non_blocking.target_device = jyppx::liuding::Device(torch::kCPU);
-  EXPECT_NO_THROW(jyppx::liuding::data::validate_batch_memory_options(non_blocking));
+  EXPECT_NO_THROW(
+      jyppx::liuding::data::validate_batch_memory_options(non_blocking));
 
   auto bytes = jyppx::liuding::data::BatchMemoryOptions{};
   bytes.target_device = jyppx::liuding::Device(torch::kCPU);
@@ -190,13 +193,15 @@ TEST(BatchMemoryTest, RejectsInvalidPolicyAndPreflightsResourceLimits) {
   nodes.max_value_nodes = 1;
   c10::impl::GenericList list(c10::IntType::get());
   list.push_back(1);
-  EXPECT_THROW(jyppx::liuding::data::stage_batch_memory(c10::IValue(list), nodes),
-               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(
+      jyppx::liuding::data::stage_batch_memory(c10::IValue(list), nodes),
+      jyppx::liuding::ResourceExhausted);
 
   const auto sparse = torch::sparse_coo_tensor(
       torch::tensor({{0}, {1}}, torch::kInt64), torch::tensor({1.0F}), {2, 2});
-  EXPECT_THROW(jyppx::liuding::data::stage_batch_memory(c10::IValue(sparse), bytes),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      jyppx::liuding::data::stage_batch_memory(c10::IValue(sparse), bytes),
+      jyppx::liuding::InvalidArgument);
 }
 
 TEST(BatchMemoryTest, MapsPinningBackendFailureToFoundationDeviceError) {
@@ -208,15 +213,18 @@ TEST(BatchMemoryTest, MapsPinningBackendFailureToFoundationDeviceError) {
     EXPECT_TRUE(result.value.toTensor().is_pinned());
     EXPECT_EQ(result.metadata.pinned_tensor_count, 1U);
   } else {
-    EXPECT_THROW(jyppx::liuding::data::stage_batch_memory(c10::IValue(tensor), options),
-                 jyppx::liuding::DeviceError);
+    EXPECT_THROW(
+        jyppx::liuding::data::stage_batch_memory(c10::IValue(tensor), options),
+        jyppx::liuding::DeviceError);
   }
 }
 
 TEST(BatchMemoryPipelineTest, ExposesIndependentStageCapacityAndMetadata) {
-  auto pipeline = make_pipeline(
-      "batch-memory.capacity",
-      {.target_device = jyppx::liuding::Device(torch::kCPU), .stage_capacity = 1}, 2, 4);
+  auto pipeline =
+      make_pipeline("batch-memory.capacity",
+                    {.target_device = jyppx::liuding::Device(torch::kCPU),
+                     .stage_capacity = 1},
+                    2, 4);
   pipeline.set_epoch(3);
 
   const auto capability = pipeline.capability();
@@ -253,9 +261,10 @@ TEST(BatchMemoryPipelineTest, WorkerStageFailureDoesNotAdvanceCommittedCursor) {
 
 TEST(BatchMemoryPipelineTest,
      RejectsMemoryTopologyMismatchWithoutMutatingPreparedState) {
-  auto source = make_pipeline(
-      "batch-memory.topology",
-      {.target_device = jyppx::liuding::Device(torch::kCPU), .stage_capacity = 1});
+  auto source =
+      make_pipeline("batch-memory.topology",
+                    {.target_device = jyppx::liuding::Device(torch::kCPU),
+                     .stage_capacity = 1});
   source.set_epoch(2);
   ASSERT_TRUE(source.next().has_value());
   MemoryStateStore checkpoint(source.describe_state());
@@ -264,8 +273,9 @@ TEST(BatchMemoryPipelineTest,
   auto target = make_pipeline("batch-memory.topology", {});
   target.set_epoch(9);
   const auto before = target.state();
-  EXPECT_THROW(target.load_state(checkpoint, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      target.load_state(checkpoint, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::CompatibilityError);
   EXPECT_EQ(target.state().epoch, before.epoch);
   EXPECT_EQ(target.state().next_cursor, before.next_cursor);
   EXPECT_EQ(target.state().target_device, before.target_device);
@@ -296,9 +306,10 @@ TEST(BatchMemoryCudaTest, PinsCpuLeavesAndTransfersNestedBatchToCuda) {
   EXPECT_EQ(prepared.metadata.transferred_tensor_count, 0U);
 
   const auto result = jyppx::liuding::data::transfer_batch_memory(
-      std::move(prepared), {.pin_memory = true,
-                            .target_device = jyppx::liuding::Device(torch::kCUDA, 0),
-                            .non_blocking = true});
+      std::move(prepared),
+      {.pin_memory = true,
+       .target_device = jyppx::liuding::Device(torch::kCUDA, 0),
+       .non_blocking = true});
 
   const auto& elements = result.value.toTupleRef().elements();
   ASSERT_TRUE(elements[0].toListRef()[0].toTensor().is_cuda());

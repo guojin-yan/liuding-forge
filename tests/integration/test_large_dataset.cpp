@@ -73,15 +73,16 @@ std::unique_ptr<jyppx::liuding::data::DataPipeline> make_pipeline(
           .pipeline_id = "data.integration.large",
           .dataset_version = "test.virtual_10gib/v1",
           .dataset_size = dataset->size(),
-          .schema =
-              jyppx::liuding::data::BatchSchema::any("test.large_dataset.batch", 1),
+          .schema = jyppx::liuding::data::BatchSchema::any(
+              "test.large_dataset.batch", 1),
           .batch_factory_id = "test.large_dataset.stack/v1",
           .batch_size = workers == 0 ? 1024U : 256U,
           .num_workers = workers,
           .prefetch_batches = prefetch_batches,
           .persistent_workers = workers > 0},
       [dataset](std::span<const std::size_t> indices,
-                const jyppx::liuding::data::DataWorkerContext&, std::stop_token) {
+                const jyppx::liuding::data::DataWorkerContext&,
+                std::stop_token) {
         std::vector<Tensor> rows;
         rows.reserve(indices.size());
         for (const auto index : indices) {

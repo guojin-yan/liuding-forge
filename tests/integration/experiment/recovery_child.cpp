@@ -89,7 +89,8 @@ Json observation(const jyppx::liuding::TelemetryEnvelope& envelope) {
   return {{"canonical_hex", hex(canonical)},
           {"canonical_bytes", canonical.size()},
           {"canonical_sha256", jyppx::liuding::sha256_hex(canonical)},
-          {"content_digest", jyppx::liuding::telemetry_content_digest(envelope).hex},
+          {"content_digest",
+           jyppx::liuding::telemetry_content_digest(envelope).hex},
           {"envelope",
            Json::parse(experiment::telemetry_projection_json(envelope))}};
 }
@@ -136,7 +137,8 @@ Json store_state(const experiment::SQLiteRunStore& store) {
     projected.time = metric.time;
     projected.correlation = metric.correlation;
     projected.attributes = metric.attributes;
-    projected.payload = jyppx::liuding::TelemetryMetricBatch{.points = {metric.point}};
+    projected.payload =
+        jyppx::liuding::TelemetryMetricBatch{.points = {metric.point}};
     const auto json =
         Json::parse(experiment::telemetry_projection_json(projected));
     stored_metrics.push_back(
@@ -178,12 +180,14 @@ class ObservedSink final : public jyppx::liuding::TelemetrySink {
                Fence fence)
       : sink_(std::move(sink)), fence_(fence) {}
 
-  const jyppx::liuding::TelemetrySinkDescriptor& descriptor() const noexcept override {
+  const jyppx::liuding::TelemetrySinkDescriptor& descriptor()
+      const noexcept override {
     return sink_->descriptor();
   }
 
   jyppx::liuding::TelemetryEmitResult emit(
-      std::span<const jyppx::liuding::TelemetryEnvelope> envelopes, std::stop_token stop,
+      std::span<const jyppx::liuding::TelemetryEnvelope> envelopes,
+      std::stop_token stop,
       jyppx::liuding::TelemetryDeadline deadline) override {
     require(envelopes.size() == 1U, "expected exactly one outbox observation");
     const auto captured = observation(envelopes.front());
@@ -202,12 +206,14 @@ class ObservedSink final : public jyppx::liuding::TelemetrySink {
   }
 
   jyppx::liuding::TelemetryFlushResult flush(
-      std::stop_token stop, jyppx::liuding::TelemetryDeadline deadline) override {
+      std::stop_token stop,
+      jyppx::liuding::TelemetryDeadline deadline) override {
     return sink_->flush(stop, deadline);
   }
 
   jyppx::liuding::TelemetryFlushResult close(
-      std::stop_token stop, jyppx::liuding::TelemetryDeadline deadline) override {
+      std::stop_token stop,
+      jyppx::liuding::TelemetryDeadline deadline) override {
     return sink_->close(stop, deadline);
   }
 
@@ -243,7 +249,8 @@ training::TrainingTelemetryAdapterOptions adapter_options() {
       .definition = {.metric_id = kMetricId,
                      .unit = jyppx::liuding::TelemetryMetricUnit::dimensionless,
                      .aggregation = jyppx::liuding::TelemetryAggregation::mean,
-                     .direction = jyppx::liuding::TelemetryMetricDirection::minimize,
+                     .direction =
+                         jyppx::liuding::TelemetryMetricDirection::minimize,
                      .context_keys = {"split"}},
       .context = {{"split", "validation"}}};
   return options;
@@ -321,7 +328,8 @@ int execute(std::string_view mode, const std::filesystem::path& root) {
                          : Fence::none;
   auto observed_sink = std::make_shared<ObservedSink>(real_sink, fence);
   auto outbox = std::make_shared<training::EventOutbox>(
-      std::vector<std::shared_ptr<jyppx::liuding::TelemetrySink>>{observed_sink},
+      std::vector<std::shared_ptr<jyppx::liuding::TelemetrySink>>{
+          observed_sink},
       adapter_options());
   training::CheckpointParticipantRegistry registry;
   registry.register_participant(outbox);
@@ -331,7 +339,8 @@ int execute(std::string_view mode, const std::filesystem::path& root) {
     training::FileCheckpointStore checkpoint(pending_path);
     coordinator.save(checkpoint);
     observed_sink->fence_callback =
-        [&](const Json& captured, const jyppx::liuding::TelemetryEmitResult& receipt) {
+        [&](const Json& captured,
+            const jyppx::liuding::TelemetryEmitResult& receipt) {
           result["phase"] = "ready-for-forced-kill";
           result["checkpoint"] = checkpoint_evidence(pending_path);
           result["outbox"] = outbox_state(*outbox);

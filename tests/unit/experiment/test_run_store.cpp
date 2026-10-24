@@ -322,9 +322,9 @@ TEST(SQLiteRunStoreTest, RestartsWithRunLineageTagsCheckpointAndWalIntact) {
               RunStatus::completed);
     RawDatabase raw(store.database_path());
     EXPECT_EQ(raw.scalar_text("PRAGMA journal_mode"), "wal");
-    EXPECT_EQ(
-        raw.scalar_text("PRAGMA user_version"),
-        std::to_string(jyppx::liuding::experiment::SQLiteRunStore::schema_version));
+    EXPECT_EQ(raw.scalar_text("PRAGMA user_version"),
+              std::to_string(
+                  jyppx::liuding::experiment::SQLiteRunStore::schema_version));
   }
   SQLiteRunStore reopened(root.path());
   const auto metadata = reopened.find("run-1");
@@ -368,7 +368,8 @@ TEST(SQLiteRunStoreTest, ReplaysOriginalStartAndRelationshipIdsAfterFinalize) {
   EXPECT_THROW(store.attach("run-1", changed), jyppx::liuding::InvalidArgument);
   EXPECT_THROW(store.transition("run-1", RunStatus::running, 130U),
                jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(publish(store, "new-after-finalize"), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(publish(store, "new-after-finalize"),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(SQLiteRunStoreTest,
@@ -411,8 +412,8 @@ TEST(SQLiteRunStoreTest,
     raw.execute("DROP TRIGGER fail_reference");
   }
   FileArtifactStore cas(store.artifact_root());
-  const jyppx::liuding::ArtifactDigest orphan{.hex =
-                                         jyppx::liuding::sha256_hex(bytes_of("orphan"))};
+  const jyppx::liuding::ArtifactDigest orphan{
+      .hex = jyppx::liuding::sha256_hex(bytes_of("orphan"))};
   EXPECT_TRUE(cas.exists(orphan));
   ASSERT_EQ(store.references("run-1").size(), 1U);
   const auto collected = store.collect_garbage(std::chrono::seconds::zero());
@@ -471,8 +472,10 @@ TEST(SQLiteRunStoreTest, RecoversOnlyExplicitlyStaleRunningRuns) {
   EXPECT_EQ(reopened.find("not-started")->status, RunStatus::created);
   EXPECT_EQ(reopened.find("completed")->status, RunStatus::completed);
   EXPECT_EQ(reopened.recover_interrupted(150U, 300U), 0U);
-  EXPECT_THROW(reopened.heartbeat("stale", 310U), jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(reopened.heartbeat("active", 1U), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(reopened.heartbeat("stale", 310U),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(reopened.heartbeat("active", 1U),
+               jyppx::liuding::InvalidArgument);
 }
 
 TEST(SQLiteRunStoreTest,
@@ -484,14 +487,17 @@ TEST(SQLiteRunStoreTest,
   options.max_run_artifact_bytes = 6U;
   SQLiteRunStore store(root.path(), options);
   store.start(make_run());
-  EXPECT_THROW(store.start(make_run("second-run")), jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(store.start(make_run("second-run")),
+               jyppx::liuding::ResourceExhausted);
   const auto reference = publish(store, "one", "four");
-  EXPECT_THROW(publish(store, "two", "more"), jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(publish(store, "two", "more"),
+               jyppx::liuding::ResourceExhausted);
   ASSERT_EQ(store.references("run-1").size(), 1U);
   EXPECT_EQ(store.references("run-1").front().artifact.digest,
             reference.artifact.digest);
   EXPECT_NO_THROW(publish(store, "small-second", "x"));
-  EXPECT_THROW(publish(store, "count-exceeded", ""), jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(publish(store, "count-exceeded", ""),
+               jyppx::liuding::ResourceExhausted);
   auto invalid = make_run();
   invalid.created_at_unix_ms = std::numeric_limits<std::uint64_t>::max();
   invalid.updated_at_unix_ms = invalid.created_at_unix_ms;
@@ -520,7 +526,8 @@ TEST(SQLiteRunStoreTest,
     RawDatabase raw(future.path() / "runs.sqlite3");
     raw.execute("PRAGMA user_version = 999");
   }
-  EXPECT_THROW(SQLiteRunStore(future.path()), jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(SQLiteRunStore(future.path()),
+               jyppx::liuding::CompatibilityError);
   {
     RawDatabase raw(future.path() / "runs.sqlite3");
     EXPECT_EQ(raw.scalar_text("PRAGMA user_version"), "999");
@@ -530,7 +537,8 @@ TEST(SQLiteRunStoreTest,
     RawDatabase raw(foreign.path() / "runs.sqlite3");
     raw.execute("CREATE TABLE unrelated(value TEXT)");
   }
-  EXPECT_THROW(SQLiteRunStore(foreign.path()), jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(SQLiteRunStore(foreign.path()),
+               jyppx::liuding::CompatibilityError);
   RawDatabase raw(foreign.path() / "runs.sqlite3");
   EXPECT_EQ(raw.scalar_text(
                 "SELECT COUNT(*) FROM sqlite_master WHERE name = 'unrelated'"),
@@ -564,7 +572,8 @@ TEST(SQLiteRunStoreTest, RejectsCorruptDatabaseAndInvalidUtf8Metadata) {
   TempRunRoot corrupt;
   std::ofstream(corrupt.path() / "runs.sqlite3", std::ios::binary)
       << "not a SQLite database";
-  EXPECT_THROW(SQLiteRunStore(corrupt.path()), jyppx::liuding::SerializationError);
+  EXPECT_THROW(SQLiteRunStore(corrupt.path()),
+               jyppx::liuding::SerializationError);
   TempRunRoot root;
   SQLiteRunStore store(root.path());
   auto invalid = make_run();

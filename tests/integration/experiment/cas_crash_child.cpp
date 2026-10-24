@@ -70,8 +70,9 @@ jyppx::liuding::ArtifactDigest target_digest() {
   return {.hex = jyppx::liuding::sha256_hex(content)};
 }
 
-std::filesystem::path object_path(const std::filesystem::path& root,
-                                  const jyppx::liuding::ArtifactDigest& digest) {
+std::filesystem::path object_path(
+    const std::filesystem::path& root,
+    const jyppx::liuding::ArtifactDigest& digest) {
   return root / "cas" / "objects" / digest.hex.substr(0U, 2U) /
          digest.hex.substr(2U);
 }

@@ -55,7 +55,8 @@ class FuzzStateStore final : public jyppx::liuding::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto found = blobs_.find(std::string(name));
     if (found == blobs_.end() || found->second.size() > max_bytes) {
-      throw jyppx::liuding::SerializationError("Fuzz state field is unavailable");
+      throw jyppx::liuding::SerializationError(
+          "Fuzz state field is unavailable");
     }
     return found->second;
   }
@@ -66,7 +67,8 @@ class FuzzStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Manifest presented to the participant.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Manifest presented to the participant.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Mutable topology and cursor fields.
 };

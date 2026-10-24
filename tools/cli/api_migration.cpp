@@ -24,7 +24,8 @@ struct Rule {
 // not imply that constructors, state/optimizer semantics, or ABI are identical.
 constexpr std::array rules{
     Rule{"jyppx_training_framework", "SDK-PACKAGE",
-         "Use find_package(jyppx CONFIG) and explicit jyppx::liuding:: components."},
+         "Use find_package(jyppx CONFIG) and explicit jyppx::liuding:: "
+         "components."},
     Rule{"jyppx/version.hpp", "FOUNDATION-VERSION",
          "Review jyppx/liuding/foundation/version.hpp."},
     Rule{"jyppx/utils/logger.hpp", "TELEMETRY-LOGGING",
@@ -36,13 +37,15 @@ constexpr std::array rules{
          "Select the owning foundation/data/training API; no general namespace "
          "replacement."},
     Rule{"jyppx/data/dataloader.hpp", "DATA-PIPELINE",
-         "Review jyppx/liuding/data/data_pipeline.hpp and explicit checkpoint/worker "
+         "Review jyppx/liuding/data/data_pipeline.hpp and explicit "
+         "checkpoint/worker "
          "semantics."},
     Rule{"jyppx/data/thread_safe_queue.hpp", "DATA-WORKER",
          "Review the owned data pipeline worker contract; retired utility is "
          "not public."},
     Rule{"jyppx/nn/losses.hpp", "NN-LOSS-SPLIT",
-         "Select the individual jyppx/liuding/nn/loss/ functional/module header."},
+         "Select the individual jyppx/liuding/nn/loss/ functional/module "
+         "header."},
     Rule{"jyppx/nn/init.hpp", "NN-INIT-RETIREMENT",
          "Use explicit LibTorch initialization with caller-owned RNG policy."},
     Rule{"jyppx/nn/quantization.hpp", "QUANTIZATION-RESERVED",
@@ -56,20 +59,26 @@ constexpr std::array rules{
          "Review jyppx/liuding/optim/sgd_adapter.hpp; recreate optimizer state "
          "explicitly."},
     Rule{"jyppx/optim/adam.hpp", "OPTIM-ADAM",
-         "Review jyppx/liuding/optim/adam_adapter.hpp and participant topology."},
+         "Review jyppx/liuding/optim/adam_adapter.hpp and participant "
+         "topology."},
     Rule{"jyppx/optim/adamw.hpp", "OPTIM-ADAMW",
-         "Review jyppx/liuding/optim/adamw_adapter.hpp and participant topology."},
-    Rule{"jyppx/optim/adagrad.hpp", "OPTIM-ADAGRAD",
-         "Review jyppx/liuding/optim/adagrad_adapter.hpp and explicit N-1 state "
-         "reader."},
-    Rule{"jyppx/optim/rmsprop.hpp", "OPTIM-RMSPROP",
-         "Review jyppx/liuding/optim/rmsprop_adapter.hpp and explicit N-1 state "
-         "reader."},
+         "Review jyppx/liuding/optim/adamw_adapter.hpp and participant "
+         "topology."},
+    Rule{
+        "jyppx/optim/adagrad.hpp", "OPTIM-ADAGRAD",
+        "Review jyppx/liuding/optim/adagrad_adapter.hpp and explicit N-1 state "
+        "reader."},
+    Rule{
+        "jyppx/optim/rmsprop.hpp", "OPTIM-RMSPROP",
+        "Review jyppx/liuding/optim/rmsprop_adapter.hpp and explicit N-1 state "
+        "reader."},
     Rule{"jyppx/optim/lamb.hpp", "OPTIM-LAMB",
-         "Review jyppx/liuding/optim/lamb_adapter.hpp and explicit native algorithm "
+         "Review jyppx/liuding/optim/lamb_adapter.hpp and explicit native "
+         "algorithm "
          "contract."},
     Rule{"jyppx/optim/nadam.hpp", "OPTIM-NADAM",
-         "Review jyppx/liuding/optim/nadam_adapter.hpp and explicit native algorithm "
+         "Review jyppx/liuding/optim/nadam_adapter.hpp and explicit native "
+         "algorithm "
          "contract."},
     Rule{"jyppx/optim/optimizer.hpp", "OPTIM-ADAPTER",
          "Review jyppx/liuding/optim/optimizer_adapter.hpp and "
@@ -80,13 +89,15 @@ constexpr std::array rules{
     Rule{"jyppx/training/callback.hpp", "TRAINING-CALLBACK",
          "Review jyppx/liuding/training/callback_dispatcher.hpp; transactional "
          "lifecycle differs."},
-    Rule{"jyppx/training/callbacks/early_stopping.hpp",
-         "TRAINING-EARLY-STOPPING",
-         "Review jyppx/liuding/training/callbacks/early_stopping_callback.hpp."},
+    Rule{
+        "jyppx/training/callbacks/early_stopping.hpp",
+        "TRAINING-EARLY-STOPPING",
+        "Review jyppx/liuding/training/callbacks/early_stopping_callback.hpp."},
     Rule{"jyppx/training/callbacks/logging_callback.hpp", "TRAINING-TELEMETRY",
          "Review durable telemetry/event sink integration."},
     Rule{"jyppx/training/callbacks/lr_scheduler_callback.hpp",
-         "TRAINING-SCHEDULER", "Review jyppx/liuding/training/scheduler_adapter.hpp."},
+         "TRAINING-SCHEDULER",
+         "Review jyppx/liuding/training/scheduler_adapter.hpp."},
     Rule{"jyppx/training/callbacks/model_checkpoint.hpp", "TRAINING-CHECKPOINT",
          "Review checkpoint_coordinator.hpp and file_checkpoint_store.hpp."},
     Rule{"jyppx/training/callbacks/progress_callback.hpp", "TRAINING-TELEMETRY",

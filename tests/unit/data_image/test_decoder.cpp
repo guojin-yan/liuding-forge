@@ -20,7 +20,8 @@ using namespace jyppx::liuding::data::image;
 namespace fs = std::filesystem;
 
 std::vector<std::byte> ReadFixture(const char* name) {
-  const auto path = fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / name;
+  const auto path =
+      fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / name;
   std::ifstream stream(path, std::ios::binary);
   EXPECT_TRUE(stream.good()) << path.string();
   const std::vector<char> raw((std::istreambuf_iterator<char>(stream)), {});

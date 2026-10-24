@@ -34,19 +34,21 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes) {
-      throw jyppx::liuding::SerializationError("invalid linear scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "invalid linear scheduler test field");
     }
     if (!blobs_
              .emplace(std::string(name),
                       std::vector<std::byte>(data.begin(), data.end()))
              .second) {
-      throw jyppx::liuding::SerializationError("duplicate linear scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "duplicate linear scheduler test field");
     }
   }
 
@@ -62,7 +64,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end()) {
-      throw jyppx::liuding::SerializationError("missing linear scheduler test field");
+      throw jyppx::liuding::SerializationError(
+          "missing linear scheduler test field");
     }
     if (blob->second.size() > max_bytes) {
       throw jyppx::liuding::ResourceExhausted(
@@ -76,7 +79,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Manifest enforced by this test store.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Manifest enforced by this test store.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Stored fields indexed by stable name.
 };
@@ -101,7 +105,8 @@ std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
 }
 
 MemoryStateStore save_state(
-    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant& participant) {
+    const jyppx::liuding::optim::LrSchedulerCheckpointParticipant&
+        participant) {
   MemoryStateStore store(participant.describe_state());
   participant.save_state(store);
   return store;
@@ -109,11 +114,11 @@ MemoryStateStore save_state(
 
 TEST(LinearFamilySchedulerTest, PublishesTypedDescriptorsAndConstructionRates) {
   auto optimizer = make_optimizer();
-  jyppx::liuding::optim::LinearLrScheduler linear(optimizer,
-                                         {.scheduler_id = "scheduler.linear",
-                                          .start_factor = 0.2,
-                                          .end_factor = 1.0,
-                                          .total_iters = 4});
+  jyppx::liuding::optim::LinearLrScheduler linear(
+      optimizer, {.scheduler_id = "scheduler.linear",
+                  .start_factor = 0.2,
+                  .end_factor = 1.0,
+                  .total_iters = 4});
   EXPECT_EQ(linear.descriptor().type_id, "jyppx.scheduler.linear_lr/v1");
   EXPECT_EQ(linear.descriptor().step_mode,
             jyppx::liuding::optim::SchedulerStepMode::epoch);
@@ -123,10 +128,10 @@ TEST(LinearFamilySchedulerTest, PublishesTypedDescriptorsAndConstructionRates) {
       std::get<std::int64_t>(linear.descriptor().config.at("total_iters")), 4);
 
   auto warmup_optimizer = make_optimizer("optimizer.warmup");
-  jyppx::liuding::optim::WarmupLrScheduler warmup(warmup_optimizer,
-                                         {.scheduler_id = "scheduler.warmup",
-                                          .warmup_iters = 4,
-                                          .start_factor = 0.2});
+  jyppx::liuding::optim::WarmupLrScheduler warmup(
+      warmup_optimizer, {.scheduler_id = "scheduler.warmup",
+                         .warmup_iters = 4,
+                         .start_factor = 0.2});
   EXPECT_EQ(warmup.descriptor().type_id, "jyppx.scheduler.warmup_lr/v1");
   EXPECT_NEAR(warmup.learning_rates()[0], 0.04, 1e-14);
   EXPECT_NEAR(warmup.learning_rates()[1], 0.01, 1e-14);
@@ -205,13 +210,15 @@ TEST(LinearFamilySchedulerTest, InvalidOptionsDoNotMutateOptimizer) {
   EXPECT_THROW(jyppx::liuding::optim::LinearLrScheduler(
                    optimizer, {.start_factor = 0.0, .end_factor = 1.0}),
                jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(jyppx::liuding::optim::ConstantLrScheduler(optimizer, {.factor = -0.1}),
+  EXPECT_THROW(
+      jyppx::liuding::optim::ConstantLrScheduler(optimizer, {.factor = -0.1}),
+      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(jyppx::liuding::optim::PolynomialLrScheduler(optimizer,
+                                                            {.total_iters = 0}),
                jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
-      jyppx::liuding::optim::PolynomialLrScheduler(optimizer, {.total_iters = 0}),
+      jyppx::liuding::optim::WarmupLrScheduler(optimizer, {.warmup_iters = 0}),
       jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(jyppx::liuding::optim::WarmupLrScheduler(optimizer, {.warmup_iters = 0}),
-               jyppx::liuding::InvalidArgument);
   EXPECT_EQ(optimizer->learning_rates(), before);
 }
 
@@ -255,26 +262,29 @@ TEST(LinearFamilySchedulerTest, OverflowingTransitionDoesNotCommitRatesOrStep) {
 TEST(LinearFamilySchedulerCheckpointTest, RestoresExactContinuation) {
   auto source_optimizer = make_optimizer("optimizer.source");
   auto source = std::make_shared<jyppx::liuding::optim::LinearLrScheduler>(
-      source_optimizer,
-      jyppx::liuding::optim::LinearLrSchedulerOptions{.scheduler_id = "scheduler.linear",
-                                             .start_factor = 0.2,
-                                             .end_factor = 1.0,
-                                             .total_iters = 4});
+      source_optimizer, jyppx::liuding::optim::LinearLrSchedulerOptions{
+                            .scheduler_id = "scheduler.linear",
+                            .start_factor = 0.2,
+                            .end_factor = 1.0,
+                            .total_iters = 4});
   source->step();
   source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   const auto store = save_state(source_participant);
 
   auto target_optimizer = make_optimizer("optimizer.source");
   auto target = std::make_shared<jyppx::liuding::optim::LinearLrScheduler>(
-      target_optimizer,
-      jyppx::liuding::optim::LinearLrSchedulerOptions{.scheduler_id = "scheduler.linear",
-                                             .start_factor = 0.2,
-                                             .end_factor = 1.0,
-                                             .total_iters = 4});
+      target_optimizer, jyppx::liuding::optim::LinearLrSchedulerOptions{
+                            .scheduler_id = "scheduler.linear",
+                            .start_factor = 0.2,
+                            .end_factor = 1.0,
+                            .total_iters = 4});
   target_optimizer->set_learning_rates({0.9, 0.8});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(target);
-  target_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(
+      target);
+  target_participant.load_state(store,
+                                jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(target->completed_steps(), source->completed_steps());
   EXPECT_EQ(target->learning_rates(), source->learning_rates());
 
@@ -291,7 +301,8 @@ TEST(LinearFamilySchedulerCheckpointTest, DescriptorMismatchDoesNotMutate) {
       jyppx::liuding::optim::PolynomialLrSchedulerOptions{
           .scheduler_id = "scheduler.poly", .total_iters = 4, .power = 2.0});
   source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant source_participant(
+      source);
   const auto store = save_state(source_participant);
 
   auto target_optimizer = make_optimizer("optimizer.mismatch");
@@ -299,11 +310,12 @@ TEST(LinearFamilySchedulerCheckpointTest, DescriptorMismatchDoesNotMutate) {
       target_optimizer,
       jyppx::liuding::optim::PolynomialLrSchedulerOptions{
           .scheduler_id = "scheduler.poly", .total_iters = 5, .power = 2.0});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(target);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant target_participant(
+      target);
   const auto before = save_state(target_participant).blobs();
-  EXPECT_THROW(
-      target_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(target_participant.load_state(
+                   store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_EQ(save_state(target_participant).blobs(), before);
   EXPECT_EQ(target->completed_steps(), 0U);
 }
@@ -318,8 +330,8 @@ TEST(LinearFamilySchedulerCheckpointTest,
                                  .start_factor = 0.2});
   warm_source->step();
   warm_source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant warm_source_participant(
-      warm_source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant
+      warm_source_participant(warm_source);
   const auto warm_store = save_state(warm_source_participant);
 
   auto warm_target_optimizer = make_optimizer("optimizer.warmup.restore");
@@ -329,8 +341,8 @@ TEST(LinearFamilySchedulerCheckpointTest,
                                  .warmup_iters = 4,
                                  .start_factor = 0.2});
   warm_target_optimizer->set_learning_rates({0.91, 0.82});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant warm_target_participant(
-      warm_target);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant
+      warm_target_participant(warm_target);
   warm_target_participant.load_state(warm_store,
                                      jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(warm_target->completed_steps(), warm_source->completed_steps());
@@ -347,30 +359,32 @@ TEST(LinearFamilySchedulerCheckpointTest,
   }
 
   auto constant_source_optimizer = make_optimizer("optimizer.constant.restore");
-  auto constant_source = std::make_shared<jyppx::liuding::optim::ConstantLrScheduler>(
-      constant_source_optimizer,
-      jyppx::liuding::optim::ConstantLrSchedulerOptions{
-          .scheduler_id = "scheduler.constant.restore",
-          .factor = 0.2,
-          .total_iters = 4});
+  auto constant_source =
+      std::make_shared<jyppx::liuding::optim::ConstantLrScheduler>(
+          constant_source_optimizer,
+          jyppx::liuding::optim::ConstantLrSchedulerOptions{
+              .scheduler_id = "scheduler.constant.restore",
+              .factor = 0.2,
+              .total_iters = 4});
   constant_source->step();
   constant_source->step();
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant constant_source_participant(
-      constant_source);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant
+      constant_source_participant(constant_source);
   const auto constant_store = save_state(constant_source_participant);
 
   auto constant_target_optimizer = make_optimizer("optimizer.constant.restore");
-  auto constant_target = std::make_shared<jyppx::liuding::optim::ConstantLrScheduler>(
-      constant_target_optimizer,
-      jyppx::liuding::optim::ConstantLrSchedulerOptions{
-          .scheduler_id = "scheduler.constant.restore",
-          .factor = 0.2,
-          .total_iters = 4});
+  auto constant_target =
+      std::make_shared<jyppx::liuding::optim::ConstantLrScheduler>(
+          constant_target_optimizer,
+          jyppx::liuding::optim::ConstantLrSchedulerOptions{
+              .scheduler_id = "scheduler.constant.restore",
+              .factor = 0.2,
+              .total_iters = 4});
   constant_target_optimizer->set_learning_rates({0.91, 0.82});
-  jyppx::liuding::optim::LrSchedulerCheckpointParticipant constant_target_participant(
-      constant_target);
-  constant_target_participant.load_state(constant_store,
-                                         jyppx::liuding::RestorePolicy::exact_only);
+  jyppx::liuding::optim::LrSchedulerCheckpointParticipant
+      constant_target_participant(constant_target);
+  constant_target_participant.load_state(
+      constant_store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(constant_target->completed_steps(),
             constant_source->completed_steps());
   EXPECT_EQ(constant_target->learning_rates(),

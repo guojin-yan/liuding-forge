@@ -34,22 +34,25 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
 
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end()) {
-      throw jyppx::liuding::SerializationError("unknown GradScaler state field");
+      throw jyppx::liuding::SerializationError(
+          "unknown GradScaler state field");
     }
     if (data.size() > field->max_bytes) {
-      throw jyppx::liuding::ResourceExhausted("oversized GradScaler state field");
+      throw jyppx::liuding::ResourceExhausted(
+          "oversized GradScaler state field");
     }
     if (!blobs_
              .emplace(std::string(name),
                       std::vector<std::byte>(data.begin(), data.end()))
              .second) {
-      throw jyppx::liuding::SerializationError("duplicate GradScaler state field");
+      throw jyppx::liuding::SerializationError(
+          "duplicate GradScaler state field");
     }
   }
 
@@ -65,10 +68,12 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto blob = blobs_.find(std::string(name));
     if (blob == blobs_.end()) {
-      throw jyppx::liuding::SerializationError("missing GradScaler state field");
+      throw jyppx::liuding::SerializationError(
+          "missing GradScaler state field");
     }
     if (blob->second.size() > max_bytes) {
-      throw jyppx::liuding::ResourceExhausted("GradScaler test read limit exceeded");
+      throw jyppx::liuding::ResourceExhausted(
+          "GradScaler test read limit exceeded");
     }
     return blob->second;
   }
@@ -80,7 +85,8 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   void erase_blob(std::string_view name) { blobs_.erase(std::string(name)); }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Descriptor enforced by this test store.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Descriptor enforced by this test store.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Complete fields indexed by stable field name.
 };
@@ -99,9 +105,10 @@ std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
            .options = {.learning_rate = 0.1}}});
 }
 
-void run_cycle(GradScaler& scaler,
-               const std::shared_ptr<jyppx::liuding::optim::OptimizerAdapter>& optimizer,
-               const jyppx::liuding::Tensor& parameter, double gradient) {
+void run_cycle(
+    GradScaler& scaler,
+    const std::shared_ptr<jyppx::liuding::optim::OptimizerAdapter>& optimizer,
+    const jyppx::liuding::Tensor& parameter, double gradient) {
   parameter.mutable_grad() = torch::full_like(parameter, gradient);
   scaler.unscale(optimizer);
   const bool applied = scaler.step_allowed(optimizer);
@@ -130,8 +137,8 @@ TEST(GradScalerCheckpointParticipantTest, RestoresExactContinuationState) {
   auto parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat64).requires_grad(true));
   auto optimizer = make_optimizer(parameter);
-  auto scaler =
-      std::make_shared<GradScaler>(jyppx::liuding::training::amp::GradScalerOptions{
+  auto scaler = std::make_shared<GradScaler>(
+      jyppx::liuding::training::amp::GradScalerOptions{
           .init_scale = 8.0,
           .growth_factor = 2.0,
           .growth_interval = 3,
@@ -185,8 +192,9 @@ TEST(GradScalerCheckpointParticipantTest,
   std::fill(control.begin() + 8, control.begin() + 16, std::byte{0});
   const auto before = scaler->capture_state();
 
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   const auto after = scaler->capture_state();
   EXPECT_DOUBLE_EQ(after.scale, before.scale);
   EXPECT_EQ(after.growth_tracker, before.growth_tracker);
@@ -200,14 +208,15 @@ TEST(GradScalerCheckpointParticipantTest,
   auto store = save_participant(participant);
   const auto before = scaler->capture_state();
 
-  EXPECT_THROW(
-      participant.load_state(store, static_cast<jyppx::liuding::RestorePolicy>(255)),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(participant.load_state(
+                   store, static_cast<jyppx::liuding::RestorePolicy>(255)),
+               jyppx::liuding::CompatibilityError);
   EXPECT_DOUBLE_EQ(scaler->capture_state().scale, before.scale);
 
   store.erase_blob("control");
-  EXPECT_THROW(participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-               jyppx::liuding::SerializationError);
+  EXPECT_THROW(
+      participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
   const auto after = scaler->capture_state();
   EXPECT_DOUBLE_EQ(after.scale, before.scale);
   EXPECT_EQ(after.growth_tracker, before.growth_tracker);
@@ -220,15 +229,15 @@ TEST(GradScalerCheckpointParticipantTest,
   GradScalerCheckpointParticipant participant(scaler);
   auto topology_store = save_participant(participant);
   topology_store.mutable_blob("topology").front() ^= std::byte{0x01};
-  EXPECT_THROW(
-      participant.load_state(topology_store, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(participant.load_state(
+                   topology_store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
 
   auto control_store = save_participant(participant);
   control_store.mutable_blob("control").front() ^= std::byte{0x01};
-  EXPECT_THROW(
-      participant.load_state(control_store, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::SerializationError);
+  EXPECT_THROW(participant.load_state(
+                   control_store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
 }
 
 TEST(GradScalerCheckpointParticipantTest, RejectsInvalidResourceLimits) {
@@ -242,13 +251,13 @@ TEST(GradScalerCheckpointParticipantTest, RejectsInvalidResourceLimits) {
                    jyppx::liuding::training::amp::GradScalerCheckpointOptions{
                        .max_total_bytes = 1}),
                jyppx::liuding::ResourceExhausted);
-  EXPECT_THROW(
-      GradScalerCheckpointParticipant(
-          std::make_shared<GradScaler>(
-              jyppx::liuding::training::amp::GradScalerOptions{.scaler_id = "long"}),
-          jyppx::liuding::training::amp::GradScalerCheckpointOptions{
-              .max_identifier_bytes = 3}),
-      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(GradScalerCheckpointParticipant(
+                   std::make_shared<GradScaler>(
+                       jyppx::liuding::training::amp::GradScalerOptions{
+                           .scaler_id = "long"}),
+                   jyppx::liuding::training::amp::GradScalerCheckpointOptions{
+                       .max_identifier_bytes = 3}),
+               jyppx::liuding::ResourceExhausted);
 }
 
 TEST(GradScalerCheckpointParticipantTest, RejectsDifferentFrozenOptions) {
@@ -260,15 +269,15 @@ TEST(GradScalerCheckpointParticipantTest, RejectsDifferentFrozenOptions) {
   auto target = std::make_shared<GradScaler>(
       jyppx::liuding::training::amp::GradScalerOptions{.init_scale = 4.0});
   GradScalerCheckpointParticipant target_participant(target);
-  EXPECT_THROW(
-      target_participant.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
-      jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(target_participant.load_state(
+                   store, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::CompatibilityError);
   EXPECT_DOUBLE_EQ(target->get_scale(), 4.0);
 }
 
 TEST(GradScalerCheckpointParticipantTest, ExposesStableIdentityAndAccessors) {
-  auto scaler =
-      std::make_shared<GradScaler>(jyppx::liuding::training::amp::GradScalerOptions{
+  auto scaler = std::make_shared<GradScaler>(
+      jyppx::liuding::training::amp::GradScalerOptions{
           .scaler_id = "grad_scaler.accessors"});
   GradScalerCheckpointParticipant participant(scaler);
 

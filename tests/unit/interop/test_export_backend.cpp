@@ -326,7 +326,8 @@ TEST(ExportBackendTest,
       json.substr(0U, json.size() - 1U),
       std::string("\xef\xbb\xbf") + json};
   for (const auto& malformed : invalid)
-    EXPECT_THROW(interop::deserialize_sidecar_request(malformed), jyppx::liuding::Error);
+    EXPECT_THROW(interop::deserialize_sidecar_request(malformed),
+                 jyppx::liuding::Error);
   EXPECT_THROW(interop::deserialize_sidecar_request(std::string("{\xc0\xaf}")),
                jyppx::liuding::SerializationError);
   EXPECT_THROW(interop::deserialize_sidecar_request(

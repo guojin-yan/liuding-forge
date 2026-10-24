@@ -92,7 +92,8 @@ class ObserverReader final : public jyppx::liuding::StateReader {
                   "observer requested an undeclared or unbounded state read");
     requested_limit_ = max_bytes;
     if (bytes_.size() > max_bytes)
-      throw jyppx::liuding::ResourceExhausted("Fuzz reader rejected oversized state");
+      throw jyppx::liuding::ResourceExhausted(
+          "Fuzz reader rejected oversized state");
     return bytes_;
   }
 
@@ -201,7 +202,8 @@ void exercise_restore(std::span<const std::byte> input,
                                         budget);
   // Signed zero in accepted state is normalized by the production encoder.
   // Any subsequent restore/encode failure must escape to libFuzzer.
-  restored.load_state(canonical_reader, jyppx::liuding::RestorePolicy::exact_only);
+  restored.load_state(canonical_reader,
+                      jyppx::liuding::RestorePolicy::exact_only);
   fuzz::require(states_equal(restored.state(), observer.state()) &&
                     observer_bytes(restored) == canonical,
                 "observer canonical state roundtrip was not stable");
@@ -210,7 +212,8 @@ void exercise_restore(std::span<const std::byte> input,
 void exercise_observer(std::span<const std::byte> input) {
   const q::MinMaxObserver observer;
   auto manifest = observer.describe_state();
-  exercise_restore(input, manifest, jyppx::liuding::RestorePolicy::exact_only, true);
+  exercise_restore(input, manifest, jyppx::liuding::RestorePolicy::exact_only,
+                   true);
   if (input.empty()) return;
 
   bool present = true;

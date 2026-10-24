@@ -451,13 +451,13 @@ struct BackendErrorContext {
     if (!(condition)) {                                           \
       std::ostringstream _jyppx_actual;                           \
       _jyppx_actual << (actual_value);                            \
-      ::jyppx::liuding::ErrorDetails _jyppx_details;                       \
+      ::jyppx::liuding::ErrorDetails _jyppx_details;              \
       _jyppx_details.component = (component_value);               \
       _jyppx_details.operation = (field_value);                   \
       _jyppx_details.expected = (expected_value);                 \
       _jyppx_details.actual = _jyppx_actual.str();                \
       _jyppx_details.hint = (hint_value);                         \
-      throw ::jyppx::liuding::InvalidArgument(                             \
+      throw ::jyppx::liuding::InvalidArgument(                    \
           std::string(field_value) + " check failed",             \
           std::move(_jyppx_details));                             \
     }                                                             \
@@ -469,11 +469,11 @@ struct BackendErrorContext {
  * `message_value` and `hint_value` are evaluated only when `condition` is
  * false.
  */
-#define JYPPX_CHECK(condition, message_value, hint_value)          \
-  do {                                                             \
-    if (!(condition)) {                                            \
+#define JYPPX_CHECK(condition, message_value, hint_value)                   \
+  do {                                                                      \
+    if (!(condition)) {                                                     \
       throw ::jyppx::liuding::InternalError((message_value), (hint_value)); \
-    }                                                              \
+    }                                                                       \
   } while (false)
 
 /**
@@ -483,7 +483,7 @@ struct BackendErrorContext {
  * execute after the expansion.
  */
 #define JYPPX_NOT_IMPLEMENTED(what_value, hint_value) \
-  throw ::jyppx::liuding::NotImplemented(                      \
+  throw ::jyppx::liuding::NotImplemented(             \
       std::string("Not implemented: ") + (what_value), (hint_value))
 
 }  // namespace jyppx::liuding

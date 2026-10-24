@@ -42,17 +42,18 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
   /** @brief Stores one declared field exactly once. */
   void write_blob(std::string_view name,
                   std::span<const std::byte> data) override {
-    const auto field =
-        std::find_if(manifest_.fields.begin(), manifest_.fields.end(),
-                     [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
-                       return candidate.name == name;
-                     });
+    const auto field = std::find_if(
+        manifest_.fields.begin(), manifest_.fields.end(),
+        [name](const jyppx::liuding::StateFieldDescriptor& candidate) {
+          return candidate.name == name;
+        });
     if (field == manifest_.fields.end() || data.size() > field->max_bytes ||
         !blobs_
              .emplace(std::string(name),
                       std::vector<std::byte>(data.begin(), data.end()))
              .second) {
-      throw jyppx::liuding::SerializationError("invalid scheduler adapter test write");
+      throw jyppx::liuding::SerializationError(
+          "invalid scheduler adapter test write");
     }
   }
 
@@ -71,13 +72,15 @@ class MemoryStateStore final : public jyppx::liuding::StateWriter,
                                        std::uint64_t max_bytes) const override {
     const auto field = blobs_.find(std::string(name));
     if (field == blobs_.end() || field->second.size() > max_bytes) {
-      throw jyppx::liuding::SerializationError("invalid scheduler adapter test read");
+      throw jyppx::liuding::SerializationError(
+          "invalid scheduler adapter test read");
     }
     return field->second;
   }
 
  private:
-  jyppx::liuding::StateManifest manifest_;  ///< Exact delegated participant manifest.
+  jyppx::liuding::StateManifest
+      manifest_;  ///< Exact delegated participant manifest.
   std::map<std::string, std::vector<std::byte>>
       blobs_;  ///< Encoded fields indexed by stable field name.
 };
@@ -98,35 +101,40 @@ std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter> make_optimizer(
 TEST(SchedulerAdapterTest, RejectsWrongDuplicateAndSkippedEpochEvents) {
   auto optimizer = make_optimizer();
   auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 1, .gamma = 0.5});
+      optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 1,
+                                                               .gamma = 0.5});
   jyppx::liuding::training::SchedulerAdapter adapter(scheduler);
   const auto initial_rates = scheduler->learning_rates();
 
   EXPECT_EQ(adapter.mode(), jyppx::liuding::optim::SchedulerStepMode::epoch);
-  EXPECT_THROW(adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::batch,
-                             .event_index = 1}),
-               jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
-                             .event_index = 2}),
-               jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
-                             .event_index = 1,
-                             .metric = 1.0}),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::batch,
+                    .event_index = 1}),
+      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
+                    .event_index = 2}),
+      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
+                    .event_index = 1,
+                    .metric = 1.0}),
+      jyppx::liuding::InvalidArgument);
   EXPECT_EQ(scheduler->completed_steps(), 0U);
   EXPECT_EQ(scheduler->learning_rates(), initial_rates);
 
-  adapter.step(
-      {.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch, .event_index = 1});
+  adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
+                .event_index = 1});
   EXPECT_EQ(scheduler->completed_steps(), 1U);
   EXPECT_EQ(scheduler->learning_rates(), (std::vector<double>{0.1}));
-  EXPECT_THROW(adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
-                             .event_index = 1}),
-               jyppx::liuding::InvalidArgument);
-  EXPECT_THROW(adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
-                             .event_index = 3}),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
+                    .event_index = 1}),
+      jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
+                    .event_index = 3}),
+      jyppx::liuding::InvalidArgument);
   EXPECT_EQ(scheduler->completed_steps(), 1U);
 }
 
@@ -137,25 +145,29 @@ TEST(SchedulerAdapterTest, DeliversStrictBatchEventsToFiniteScheduler) {
   jyppx::liuding::training::SchedulerAdapter adapter(scheduler);
 
   EXPECT_EQ(adapter.mode(), jyppx::liuding::optim::SchedulerStepMode::batch);
-  adapter.step(
-      {.trigger = jyppx::liuding::optim::SchedulerStepMode::batch, .event_index = 1});
-  adapter.step(
-      {.trigger = jyppx::liuding::optim::SchedulerStepMode::batch, .event_index = 2});
+  adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::batch,
+                .event_index = 1});
+  adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::batch,
+                .event_index = 2});
   EXPECT_EQ(scheduler->completed_steps(), 2U);
-  EXPECT_THROW(adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::batch,
-                             .event_index = 3}),
-               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(
+      adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::batch,
+                    .event_index = 3}),
+      jyppx::liuding::ResourceExhausted);
 }
 
 TEST(SchedulerAdapterTest, RequiresOneFiniteMetricPerMetricEvent) {
-  auto scheduler = std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
-      make_optimizer(), jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
-                            .factor = 0.5, .patience = 0});
+  auto scheduler =
+      std::make_shared<jyppx::liuding::optim::ReduceLrOnPlateauScheduler>(
+          make_optimizer(),
+          jyppx::liuding::optim::ReduceLrOnPlateauSchedulerOptions{
+              .factor = 0.5, .patience = 0});
   jyppx::liuding::training::SchedulerAdapter adapter(scheduler);
 
-  EXPECT_THROW(adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::metric,
-                             .event_index = 1}),
-               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::metric,
+                    .event_index = 1}),
+      jyppx::liuding::InvalidArgument);
   EXPECT_THROW(
       adapter.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::metric,
                     .event_index = 1,
@@ -174,28 +186,30 @@ TEST(SchedulerAdapterTest, RequiresOneFiniteMetricPerMetricEvent) {
 }
 
 TEST(SchedulerAdapterTest, DelegatesExactCheckpointRoundTrip) {
-  auto source_scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      make_optimizer(),
-      jyppx::liuding::optim::StepLrSchedulerOptions{
-          .scheduler_id = "scheduler.main", .step_size = 1, .gamma = 0.5});
+  auto source_scheduler =
+      std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
+          make_optimizer(),
+          jyppx::liuding::optim::StepLrSchedulerOptions{
+              .scheduler_id = "scheduler.main", .step_size = 1, .gamma = 0.5});
   jyppx::liuding::training::SchedulerAdapter source(source_scheduler);
-  source.step(
-      {.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch, .event_index = 1});
+  source.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
+               .event_index = 1});
   MemoryStateStore store(source.describe_state());
   source.save_state(store);
 
-  auto restored_scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      make_optimizer(),
-      jyppx::liuding::optim::StepLrSchedulerOptions{
-          .scheduler_id = "scheduler.main", .step_size = 1, .gamma = 0.5});
+  auto restored_scheduler =
+      std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
+          make_optimizer(),
+          jyppx::liuding::optim::StepLrSchedulerOptions{
+              .scheduler_id = "scheduler.main", .step_size = 1, .gamma = 0.5});
   jyppx::liuding::training::SchedulerAdapter restored(restored_scheduler);
   EXPECT_EQ(restored.participant_id(), "scheduler.main");
   restored.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
   EXPECT_EQ(restored_scheduler->completed_steps(), 1U);
   EXPECT_EQ(restored_scheduler->learning_rates(), (std::vector<double>{0.1}));
 
-  restored.step(
-      {.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch, .event_index = 2});
+  restored.step({.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
+                 .event_index = 2});
   EXPECT_EQ(restored_scheduler->learning_rates(), (std::vector<double>{0.05}));
 }
 

@@ -91,7 +91,8 @@ class Sampler {
   /**
    * @brief Restores state previously returned by save_state().
    * @param state Opaque state from the same sampler type and configuration.
-   * @throws jyppx::liuding::SerializationError The state is malformed or incompatible.
+   * @throws jyppx::liuding::SerializationError The state is malformed or
+   * incompatible.
    */
   virtual void load_state(const std::string& state) { (void)state; }
 };

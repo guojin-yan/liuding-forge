@@ -557,7 +557,8 @@ TEST_F(ModelBundleTest, RejectsFileSymlinksWithoutFollowingThem) {
   std::filesystem::create_symlink(Source("input"), leaf, error);
   if (error)
     GTEST_SKIP() << "File symlink creation is unavailable on this host";
-  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::liuding::IoError);
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_),
+               jyppx::liuding::IoError);
 }
 
 TEST_F(ModelBundleTest, RejectsDirectorySymlinksInBundleOrSourceAncestry) {
@@ -570,7 +571,8 @@ TEST_F(ModelBundleTest, RejectsDirectorySymlinksInBundleOrSourceAncestry) {
                                             target_ / "metadata", error);
   if (error)
     GTEST_SKIP() << "Directory symlink creation is unavailable on this host";
-  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::liuding::IoError);
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_),
+               jyppx::liuding::IoError);
   const auto source_alias = base_ / "source-alias";
   std::filesystem::create_directory_symlink(base_ / "sources", source_alias,
                                             error);
@@ -591,7 +593,8 @@ TEST_F(ModelBundleTest, RejectsHardLinkAliasesOfDeclaredFiles) {
   std::error_code error;
   std::filesystem::create_hard_link(Source("input"), leaf, error);
   if (error) GTEST_SKIP() << "Hard links are unavailable on this filesystem";
-  EXPECT_THROW(interop::verify_model_bundle_directory(target_), jyppx::liuding::IoError);
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_),
+               jyppx::liuding::IoError);
 }
 
 TEST_F(ModelBundleTest, UnsignedAndUnverifiedSignaturesNeverBecomeTrusted) {

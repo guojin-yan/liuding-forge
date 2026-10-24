@@ -82,8 +82,8 @@ class ConsumerParticipant final : public jyppx::liuding::CheckpointParticipant {
 
   void load_state(const jyppx::liuding::StateReader& reader,
                   jyppx::liuding::RestorePolicy policy) override {
-    if (!jyppx::liuding::restore_policy_accepts(policy,
-                                       reader.manifest().restore_level)) {
+    if (!jyppx::liuding::restore_policy_accepts(
+            policy, reader.manifest().restore_level)) {
       throw jyppx::liuding::CompatibilityError("consumer policy rejected");
     }
     (void)reader.read_blob("value", 8);
@@ -91,7 +91,8 @@ class ConsumerParticipant final : public jyppx::liuding::CheckpointParticipant {
 };
 
 /** @brief Minimal installed-package cursor used to consume iterable APIs. */
-class ConsumerIterableCursor final : public jyppx::liuding::data::IterableSourceCursor {
+class ConsumerIterableCursor final
+    : public jyppx::liuding::data::IterableSourceCursor {
  public:
   /** @brief Returns one stable sample and then reports exhaustion. */
   std::optional<jyppx::liuding::data::IterableSample> next(
@@ -101,9 +102,10 @@ class ConsumerIterableCursor final : public jyppx::liuding::data::IterableSource
       return std::nullopt;
     }
     ++position_;
-    return jyppx::liuding::data::IterableSample{.value = c10::IValue(std::int64_t{7}),
-                                       .sample_id = 11,
-                                       .watermark = "position:1"};
+    return jyppx::liuding::data::IterableSample{
+        .value = c10::IValue(std::int64_t{7}),
+        .sample_id = 11,
+        .watermark = "position:1"};
   }
 
   /** @brief Saves the next integer position as decimal text. */
@@ -131,7 +133,8 @@ class ConsumerIterableCursor final : public jyppx::liuding::data::IterableSource
 };
 
 /** @brief Installed-package source factory for iterable API verification. */
-class ConsumerIterableSource final : public jyppx::liuding::data::IterableSource {
+class ConsumerIterableSource final
+    : public jyppx::liuding::data::IterableSource {
  public:
   /** @brief Reports a deterministic exact one-sample source contract. */
   jyppx::liuding::data::IterableSourceDescriptor descriptor() const override {
@@ -154,17 +157,21 @@ class ConsumerIterableSource final : public jyppx::liuding::data::IterableSource
 }  // namespace
 
 int main() {
-  jyppx::liuding::training::Trainer installed_trainer({.trainer_id = "trainer.consumer",
-                                              .run_id = "run.consumer",
-                                              .trace_id = "trace.consumer"});
+  jyppx::liuding::training::Trainer installed_trainer(
+      {.trainer_id = "trainer.consumer",
+       .run_id = "run.consumer",
+       .trace_id = "trace.consumer"});
   const bool valid_trainer =
-      installed_trainer.phase() == jyppx::liuding::training::TrainerPhase::created &&
+      installed_trainer.phase() ==
+          jyppx::liuding::training::TrainerPhase::created &&
       installed_trainer.options().trainer_id == "trainer.consumer";
   const jyppx::liuding::InvalidArgument error(
-      "consumer probe", jyppx::liuding::ErrorDetails{.component = "InstallConsumer"});
+      "consumer probe",
+      jyppx::liuding::ErrorDetails{.component = "InstallConsumer"});
   const bool valid_version = std::string(jyppx::liuding::version()) == "0.3.0";
-  const bool valid_error = error.code() == jyppx::liuding::ErrorCode::invalid_argument &&
-                           error.details().component == "InstallConsumer";
+  const bool valid_error =
+      error.code() == jyppx::liuding::ErrorCode::invalid_argument &&
+      error.details().component == "InstallConsumer";
   const bool valid_device = jyppx::liuding::parse_device("cpu").is_cpu();
   const jyppx::liuding::StateManifest state_manifest{
       .participant_id = "consumer.probe",
@@ -183,16 +190,16 @@ int main() {
       checkpoint_descriptor.participants.size() == 1 &&
       checkpoint_descriptor.participants.front().participant_id ==
           "consumer.state";
-  auto installed_early_stopping =
-      std::make_shared<jyppx::liuding::training::callbacks::EarlyStoppingCallback>(
-          jyppx::liuding::training::callbacks::EarlyStoppingOptions{
-              .callback_id = "callback.consumer"});
-  auto installed_callback_dispatcher =
-      std::make_shared<jyppx::liuding::training::CallbackDispatcher>(
-          std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
-              installed_early_stopping},
-          jyppx::liuding::training::CallbackDispatcherOptions{.dispatcher_id =
-                                                         "callbacks.consumer"});
+  auto installed_early_stopping = std::make_shared<
+      jyppx::liuding::training::callbacks::EarlyStoppingCallback>(
+      jyppx::liuding::training::callbacks::EarlyStoppingOptions{
+          .callback_id = "callback.consumer"});
+  auto installed_callback_dispatcher = std::make_shared<
+      jyppx::liuding::training::CallbackDispatcher>(
+      std::vector<std::shared_ptr<jyppx::liuding::training::CallbackHandler>>{
+          installed_early_stopping},
+      jyppx::liuding::training::CallbackDispatcherOptions{
+          .dispatcher_id = "callbacks.consumer"});
   jyppx::liuding::training::CheckpointParticipantRegistry callback_registry;
   jyppx::liuding::training::register_callback_checkpoint_participants(
       callback_registry, installed_callback_dispatcher);
@@ -202,12 +209,13 @@ int main() {
   std::ostringstream installed_event_output;
   auto installed_event_sink =
       std::make_shared<jyppx::liuding::training::ConsoleEventSink>(
-          installed_event_output, jyppx::liuding::training::ConsoleEventSinkOptions{
-                                      .sink_id = "sink.consumer",
-                                      .destination_id = "console.consumer"});
+          installed_event_output,
+          jyppx::liuding::training::ConsoleEventSinkOptions{
+              .sink_id = "sink.consumer",
+              .destination_id = "console.consumer"});
   jyppx::liuding::training::EventOutbox installed_outbox(
-      {installed_event_sink},
-      jyppx::liuding::training::EventOutboxOptions{.outbox_id = "events.consumer"});
+      {installed_event_sink}, jyppx::liuding::training::EventOutboxOptions{
+                                  .outbox_id = "events.consumer"});
   installed_callback_dispatcher->dispatch(
       {.schema_version = 1,
        .kind = jyppx::liuding::training::CallbackEventKind::run_started,
@@ -226,7 +234,8 @@ int main() {
       {.participant_id = "rng.consumer", .include_cuda = false});
   const bool valid_rng_checkpoint =
       installed_rng_participant.describe_state().fields.size() == 2;
-  const auto indices = jyppx::liuding::data::samplers::SequentialSampler(3).indices();
+  const auto indices =
+      jyppx::liuding::data::samplers::SequentialSampler(3).indices();
   const bool valid_data = indices == std::vector<std::size_t>({0, 1, 2});
   auto installed_pipeline = jyppx::liuding::data::DataPipeline(
       std::make_shared<jyppx::liuding::data::samplers::SequentialSampler>(3),
@@ -246,9 +255,11 @@ int main() {
       installed_pipeline.describe_state().restore_level ==
           jyppx::liuding::RestoreLevel::exact;
   const auto installed_data_capability =
-      jyppx::liuding::data::describe_data_capability(installed_pipeline.capability());
+      jyppx::liuding::data::describe_data_capability(
+          installed_pipeline.capability());
   const auto installed_capability_manifest =
-      jyppx::liuding::make_current_capability_manifest({installed_data_capability});
+      jyppx::liuding::make_current_capability_manifest(
+          {installed_data_capability});
   const bool valid_capability_manifest =
       installed_capability_manifest.schema_version == 1 &&
       installed_capability_manifest.features.size() == 1 &&
@@ -265,8 +276,9 @@ int main() {
       {.pipeline_id = "data.iterable.consumer",
        .dataset_version = "dataset.iterable.consumer/v1",
        .batch_factory_id = "factory.iterable.consumer/v1"},
-      [](std::span<const jyppx::liuding::data::IterableSample> samples, std::uint64_t,
-         std::uint64_t, std::stop_token) { return samples.front().value; });
+      [](std::span<const jyppx::liuding::data::IterableSample> samples,
+         std::uint64_t, std::uint64_t,
+         std::stop_token) { return samples.front().value; });
   installed_iterable_pipeline.set_epoch(0);
   const auto installed_iterable_batch = installed_iterable_pipeline.next();
   const bool valid_iterable_pipeline =
@@ -277,11 +289,13 @@ int main() {
   const auto logits = torch::tensor({{2.0, -1.0}}, torch::kFloat64);
   const auto target = torch::tensor({0}, torch::kLong);
   const auto loss =
-      jyppx::liuding::nn::functional::label_smoothing_cross_entropy(logits, target, 0.1);
+      jyppx::liuding::nn::functional::label_smoothing_cross_entropy(
+          logits, target, 0.1);
   const bool valid_nn = loss.numel() == 1 && std::isfinite(loss.item<double>());
-  auto installed_metric = std::make_shared<jyppx::liuding::training::metrics::Precision>(
-      jyppx::liuding::training::metrics::ClassificationMetricOptions{
-          .metric_id = "metric.consumer", .num_classes = 2});
+  auto installed_metric =
+      std::make_shared<jyppx::liuding::training::metrics::Precision>(
+          jyppx::liuding::training::metrics::ClassificationMetricOptions{
+              .metric_id = "metric.consumer", .num_classes = 2});
   installed_metric->update(logits, target);
   jyppx::liuding::validate_checkpoint_participant(*installed_metric);
   const bool valid_metric =
@@ -302,7 +316,8 @@ int main() {
       installed_classwise_metric(
           {.metric_id = "metric.classwise.consumer",
            .num_classes = 2,
-           .average = jyppx::liuding::training::metrics::RankingAverage::macro});
+           .average =
+               jyppx::liuding::training::metrics::RankingAverage::macro});
   installed_classwise_metric.update(torch::tensor({{0.9, 0.1}, {0.2, 0.8}}),
                                     torch::tensor({0, 1}, torch::kLong));
   jyppx::liuding::validate_checkpoint_participant(installed_classwise_metric);
@@ -314,8 +329,8 @@ int main() {
   const auto pair_a = torch::tensor({{0.0, 0.0}}, torch::kFloat64);
   const auto pair_b = torch::tensor({{0.5, 0.0}}, torch::kFloat64);
   const auto pair_target = torch::tensor({1}, torch::kLong);
-  const auto contrastive =
-      jyppx::liuding::nn::functional::contrastive_loss(pair_a, pair_b, pair_target, 1.0);
+  const auto contrastive = jyppx::liuding::nn::functional::contrastive_loss(
+      pair_a, pair_b, pair_target, 1.0);
   const bool valid_contrastive =
       contrastive.numel() == 1 && std::isfinite(contrastive.item<double>());
   const auto focal = jyppx::liuding::nn::functional::focal_loss(
@@ -346,8 +361,8 @@ int main() {
        .shape = std::vector<std::optional<std::int64_t>>{std::nullopt, 2}},
       1, "features");
   const bool valid_batch_schema =
-      jyppx::liuding::data::batch_schema_fingerprint(installed_batch_schema).size() ==
-      16;
+      jyppx::liuding::data::batch_schema_fingerprint(installed_batch_schema)
+          .size() == 16;
   jyppx::liuding::TensorSchema adapter_input;
   adapter_input.dtype = torch::kFloat32;
   adapter_input.rank = 2;
@@ -365,16 +380,19 @@ int main() {
   const bool valid_adapter =
       adapted.sizes().vec() == std::vector<std::int64_t>({2, 1}) &&
       adapter.state().parameters().size() == 2;
-  std::vector<jyppx::liuding::optim::OptimizerParameterBinding> strategy_bindings;
+  std::vector<jyppx::liuding::optim::OptimizerParameterBinding>
+      strategy_bindings;
   for (const auto& item : adapter.state().named_parameters()) {
     strategy_bindings.push_back(
         {.parameter_id = item.key(), .parameter = item.value()});
   }
-  auto strategy_optimizer = std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
-      "optimizer.strategy", std::vector<jyppx::liuding::optim::SgdParameterGroup>{
-                                {.group_id = "main",
-                                 .parameters = std::move(strategy_bindings),
-                                 .options = {.learning_rate = 0.0}}});
+  auto strategy_optimizer =
+      std::make_shared<jyppx::liuding::optim::SgdOptimizerAdapter>(
+          "optimizer.strategy",
+          std::vector<jyppx::liuding::optim::SgdParameterGroup>{
+              {.group_id = "main",
+               .parameters = std::move(strategy_bindings),
+               .options = {.learning_rate = 0.0}}});
   jyppx::liuding::training::SingleDeviceStrategy installed_strategy;
   jyppx::liuding::optim::OptimizerAdapter* strategy_optimizers[] = {
       strategy_optimizer.get()};
@@ -391,7 +409,8 @@ int main() {
   const bool valid_strategy =
       installed_strategy.describe_state().restore_level ==
           jyppx::liuding::RestoreLevel::exact &&
-      strategy_outcome.status == jyppx::liuding::training::StrategyStepStatus::applied &&
+      strategy_outcome.status ==
+          jyppx::liuding::training::StrategyStepStatus::applied &&
       strategy_outcome.optimizer_completed_steps == 1;
   auto installed_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
@@ -410,37 +429,39 @@ int main() {
       installed_optimizer->parameter_count() == 1;
   auto installed_adam_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
-  auto installed_adam = std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
-      "optimizer.adam",
-      std::vector<jyppx::liuding::optim::AdamParameterGroup>{
-          {.group_id = "main",
-           .parameters = {{.parameter_id = "weight",
-                           .parameter = installed_adam_parameter}},
-           .options = {.learning_rate = 0.001, .amsgrad = true}}});
+  auto installed_adam =
+      std::make_shared<jyppx::liuding::optim::AdamOptimizerAdapter>(
+          "optimizer.adam",
+          std::vector<jyppx::liuding::optim::AdamParameterGroup>{
+              {.group_id = "main",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = installed_adam_parameter}},
+               .options = {.learning_rate = 0.001, .amsgrad = true}}});
   installed_adam_parameter.mutable_grad() =
       torch::ones_like(installed_adam_parameter);
   installed_adam->step();
-  jyppx::liuding::optim::AdamOptimizerCheckpointParticipant installed_adam_participant(
-      installed_adam);
+  jyppx::liuding::optim::AdamOptimizerCheckpointParticipant
+      installed_adam_participant(installed_adam);
   const bool valid_adam =
       installed_adam_participant.describe_state().fields.size() == 6 &&
       installed_adam->completed_steps() == 1;
   auto installed_adamw_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
-  auto installed_adamw = std::make_shared<jyppx::liuding::optim::AdamWOptimizerAdapter>(
-      "optimizer.adamw",
-      std::vector<jyppx::liuding::optim::AdamWParameterGroup>{
-          {.group_id = "main",
-           .parameters = {{.parameter_id = "weight",
-                           .parameter = installed_adamw_parameter}},
-           .options = {.learning_rate = 0.001,
-                       .weight_decay = 0.01,
-                       .amsgrad = true}}});
+  auto installed_adamw =
+      std::make_shared<jyppx::liuding::optim::AdamWOptimizerAdapter>(
+          "optimizer.adamw",
+          std::vector<jyppx::liuding::optim::AdamWParameterGroup>{
+              {.group_id = "main",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = installed_adamw_parameter}},
+               .options = {.learning_rate = 0.001,
+                           .weight_decay = 0.01,
+                           .amsgrad = true}}});
   installed_adamw_parameter.mutable_grad() =
       torch::ones_like(installed_adamw_parameter);
   installed_adamw->step();
-  jyppx::liuding::optim::AdamWOptimizerCheckpointParticipant installed_adamw_participant(
-      installed_adamw);
+  jyppx::liuding::optim::AdamWOptimizerCheckpointParticipant
+      installed_adamw_participant(installed_adamw);
   const bool valid_adamw =
       installed_adamw_participant.describe_state().fields.size() == 6 &&
       installed_adamw->completed_steps() == 1;
@@ -503,43 +524,46 @@ int main() {
       installed_adadelta->completed_steps() == 1;
   auto installed_lamb_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
-  auto installed_lamb = std::make_shared<jyppx::liuding::optim::LambOptimizerAdapter>(
-      "optimizer.lamb",
-      std::vector<jyppx::liuding::optim::LambParameterGroup>{
-          {.group_id = "main",
-           .parameters = {{.parameter_id = "weight",
-                           .parameter = installed_lamb_parameter}},
-           .options = {.learning_rate = 0.001, .weight_decay = 0.01}}});
+  auto installed_lamb =
+      std::make_shared<jyppx::liuding::optim::LambOptimizerAdapter>(
+          "optimizer.lamb",
+          std::vector<jyppx::liuding::optim::LambParameterGroup>{
+              {.group_id = "main",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = installed_lamb_parameter}},
+               .options = {.learning_rate = 0.001, .weight_decay = 0.01}}});
   installed_lamb_parameter.mutable_grad() =
       torch::ones_like(installed_lamb_parameter);
   installed_lamb->step();
-  jyppx::liuding::optim::LambOptimizerCheckpointParticipant installed_lamb_participant(
-      installed_lamb);
+  jyppx::liuding::optim::LambOptimizerCheckpointParticipant
+      installed_lamb_participant(installed_lamb);
   const bool valid_lamb =
       installed_lamb_participant.describe_state().fields.size() == 5 &&
       installed_lamb->completed_steps() == 1;
   auto installed_nadam_parameter = torch::ones(
       {1}, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
-  auto installed_nadam = std::make_shared<jyppx::liuding::optim::NAdamOptimizerAdapter>(
-      "optimizer.nadam",
-      std::vector<jyppx::liuding::optim::NAdamParameterGroup>{
-          {.group_id = "main",
-           .parameters = {{.parameter_id = "weight",
-                           .parameter = installed_nadam_parameter}},
-           .options = {.learning_rate = 0.002,
-                       .weight_decay = 0.01,
-                       .decoupled_weight_decay = true}}});
+  auto installed_nadam =
+      std::make_shared<jyppx::liuding::optim::NAdamOptimizerAdapter>(
+          "optimizer.nadam",
+          std::vector<jyppx::liuding::optim::NAdamParameterGroup>{
+              {.group_id = "main",
+               .parameters = {{.parameter_id = "weight",
+                               .parameter = installed_nadam_parameter}},
+               .options = {.learning_rate = 0.002,
+                           .weight_decay = 0.01,
+                           .decoupled_weight_decay = true}}});
   installed_nadam_parameter.mutable_grad() =
       torch::ones_like(installed_nadam_parameter);
   installed_nadam->step();
-  jyppx::liuding::optim::NAdamOptimizerCheckpointParticipant installed_nadam_participant(
-      installed_nadam);
+  jyppx::liuding::optim::NAdamOptimizerCheckpointParticipant
+      installed_nadam_participant(installed_nadam);
   const bool valid_nadam =
       installed_nadam_participant.describe_state().fields.size() == 5 &&
       installed_nadam->completed_steps() == 1;
-  auto installed_scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
-      installed_optimizer,
-      jyppx::liuding::optim::StepLrSchedulerOptions{.step_size = 2, .gamma = 0.5});
+  auto installed_scheduler =
+      std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
+          installed_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
+                                   .step_size = 2, .gamma = 0.5});
   installed_scheduler->step();
   jyppx::liuding::optim::LrSchedulerCheckpointParticipant
       installed_scheduler_participant(installed_scheduler);
@@ -551,15 +575,16 @@ int main() {
   installed_epoch_scheduler->step();
   jyppx::liuding::optim::LrSchedulerCheckpointParticipant
       installed_epoch_scheduler_participant(installed_epoch_scheduler);
-  auto installed_restart_scheduler =
-      std::make_shared<jyppx::liuding::optim::CosineAnnealingWarmRestartsLrScheduler>(
-          installed_optimizer,
-          jyppx::liuding::optim::CosineAnnealingWarmRestartsLrSchedulerOptions{
-              .scheduler_id = "scheduler.restart", .t_0 = 2, .t_mult = 2});
+  auto installed_restart_scheduler = std::make_shared<
+      jyppx::liuding::optim::CosineAnnealingWarmRestartsLrScheduler>(
+      installed_optimizer,
+      jyppx::liuding::optim::CosineAnnealingWarmRestartsLrSchedulerOptions{
+          .scheduler_id = "scheduler.restart", .t_0 = 2, .t_mult = 2});
   jyppx::liuding::training::SchedulerAdapter installed_scheduler_adapter(
       installed_restart_scheduler);
   installed_scheduler_adapter.step(
-      {.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch, .event_index = 1});
+      {.trigger = jyppx::liuding::optim::SchedulerStepMode::epoch,
+       .event_index = 1});
   auto installed_linear_scheduler =
       std::make_shared<jyppx::liuding::optim::WarmupLrScheduler>(
           installed_optimizer, jyppx::liuding::optim::WarmupLrSchedulerOptions{
@@ -577,17 +602,20 @@ int main() {
   installed_event_scheduler->step(1.0);
   jyppx::liuding::optim::LrSchedulerCheckpointParticipant
       installed_event_scheduler_participant(installed_event_scheduler);
-  std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>> scheduler_children;
-  scheduler_children.push_back(std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
-      installed_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
-                               .scheduler_id = "scheduler.child.first",
-                               .step_size = 1,
-                               .gamma = 0.5}));
-  scheduler_children.push_back(std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
-      installed_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
-                               .scheduler_id = "scheduler.child.second",
-                               .step_size = 1,
-                               .gamma = 0.5}));
+  std::vector<std::unique_ptr<jyppx::liuding::optim::LrScheduler>>
+      scheduler_children;
+  scheduler_children.push_back(
+      std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
+          installed_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
+                                   .scheduler_id = "scheduler.child.first",
+                                   .step_size = 1,
+                                   .gamma = 0.5}));
+  scheduler_children.push_back(
+      std::make_unique<jyppx::liuding::optim::StepLrScheduler>(
+          installed_optimizer, jyppx::liuding::optim::StepLrSchedulerOptions{
+                                   .scheduler_id = "scheduler.child.second",
+                                   .step_size = 1,
+                                   .gamma = 0.5}));
   auto installed_composite =
       std::make_shared<jyppx::liuding::optim::SequentialLrScheduler>(
           installed_optimizer, std::move(scheduler_children),

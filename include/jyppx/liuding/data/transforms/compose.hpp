@@ -93,7 +93,8 @@ class RandomChoice : public TensorTransform {
   /**
    * @brief Creates a uniformly selected transform set.
    * @param transforms Non-empty collection of non-null transform handles.
-   * @throws jyppx::liuding::InvalidArgument The collection is empty or contains null.
+   * @throws jyppx::liuding::InvalidArgument The collection is empty or contains
+   * null.
    */
   explicit RandomChoice(
       std::vector<std::shared_ptr<TensorTransform>> transforms)

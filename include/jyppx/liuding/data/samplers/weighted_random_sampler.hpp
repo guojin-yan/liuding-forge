@@ -36,8 +36,8 @@ class WeightedRandomSampler : public Sampler {
    * @param num_samples Number of indices produced per epoch; positive.
    * @param replacement Whether the same index may be drawn more than once.
    * @param seed Optional deterministic engine seed.
-   * @throws jyppx::liuding::InvalidArgument Weights or sample count cannot form a valid
-   * draw.
+   * @throws jyppx::liuding::InvalidArgument Weights or sample count cannot form
+   * a valid draw.
    */
   WeightedRandomSampler(std::vector<double> weights, size_t num_samples,
                         bool replacement = true,
@@ -166,8 +166,8 @@ class WeightedRandomSampler : public Sampler {
     }
     stream >> std::ws;
     if (!stream.eof()) {
-      ::jyppx::liuding::data::detail::throw_state_error("data.weighted_random_sampler",
-                                               "load_state", "trailing bytes");
+      ::jyppx::liuding::data::detail::throw_state_error(
+          "data.weighted_random_sampler", "load_state", "trailing bytes");
     }
     generator_ = restored;
   }
@@ -270,8 +270,8 @@ class SubsetRandomSampler : public Sampler {
     }
     stream >> std::ws;
     if (!stream.eof()) {
-      ::jyppx::liuding::data::detail::throw_state_error("data.subset_random_sampler",
-                                               "load_state", "trailing bytes");
+      ::jyppx::liuding::data::detail::throw_state_error(
+          "data.subset_random_sampler", "load_state", "trailing bytes");
     }
     generator_ = restored;
   }
@@ -418,7 +418,8 @@ class DistributedSampler : public Sampler {
   /**
    * @brief Restores the shuffle epoch atomically.
    * @param state Decimal state returned by save_state().
-   * @throws jyppx::liuding::SerializationError The state is malformed or negative.
+   * @throws jyppx::liuding::SerializationError The state is malformed or
+   * negative.
    */
   void load_state(const std::string& state) override {
     size_t consumed = 0;
@@ -436,8 +437,8 @@ class DistributedSampler : public Sampler {
     } catch (const ::jyppx::liuding::SerializationError&) {
       throw;
     } catch (const std::exception&) {
-      ::jyppx::liuding::data::detail::throw_state_error("data.distributed_sampler",
-                                               "load_state", "invalid epoch");
+      ::jyppx::liuding::data::detail::throw_state_error(
+          "data.distributed_sampler", "load_state", "invalid epoch");
     }
   }
 
