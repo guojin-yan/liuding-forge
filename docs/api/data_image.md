@@ -1,4 +1,4 @@
-# 图像数据、离散标签与坐标追踪
+# 图像数据、离散标签与联合变换
 
 图像组件提供本地图片解码、数据集索引和标注读取。构建时开启 `JYPPX_LIUDING_BUILD_DATA_IMAGE`，安装后使用 `find_package(jyppx CONFIG REQUIRED COMPONENTS data_image)`，并链接 `jyppx::liuding::data_image`。
 
@@ -66,7 +66,7 @@ auto sample = dataset.get(0);
 // sample.image 为归一化 RGB；sample.mask_target->ids 保留整数类别 ID。
 ```
 
-配置 `mask_target` 后，配对清单中的 target 走标签 reader，结果存入 `VisionSample::mask_target`；`paired_target` 和 `paired_target_pixels` 为空。mask 必须与输入图像尺寸完全相同，`require_matching_target_size=false` 仅适用于普通配对图像。未配置 `mask_target` 时继续读取普通配对图像。当前数据集读取不会自动重采样或联合变换图像与标签；后续变换必须保持离散 ID，不能对标签使用 bilinear。
+配置 `mask_target` 后，配对清单中的 target 走标签 reader，结果存入 `VisionSample::mask_target`；`paired_target` 和 `paired_target_pixels` 为空。mask 必须与输入图像尺寸完全相同，`require_matching_target_size=false` 仅适用于普通配对图像。未配置 `mask_target` 时继续读取普通配对图像。数据集读取不自动增强；需要联合变换时显式调用下面的 `transform_sample`。
 
 ## 几何坐标追踪
 
@@ -88,4 +88,51 @@ auto padding_point = trace.inverse_point({10, 20});
 
 点映射在内容区域外返回空值；框映射先与有效内容取交集，无正面积交集时返回空值。裁剪后 `source_region()` 表示仍保留的原图区域，`retains_full_source()` 表示原图内容是否完整保留，`output_region()` 排除人工补边。裁掉的区域不会因后续 resize 或 pad 而恢复。`matrix()` 提供数学映射矩阵，使用该矩阵时仍应自行遵守有效域；通常直接使用点和框 API 更合适。
 
-trace 最多组合 128 次操作，保存固定大小的映射状态。空尺寸、越界 crop、uint32 补边溢出、非有限坐标或不可表示的映射均明确报错。当前实现仅覆盖上述轴对齐几何；旋转、透视、多图拼接、EXIF 空间转换和图像/标注自动联合变换尚未提供。
+trace 最多组合 128 次操作，保存固定大小的映射状态。空尺寸、越界 crop、uint32 补边溢出、非有限坐标或不可表示的映射均明确报错。当前实现仅覆盖上述轴对齐几何；旋转、透视、多图拼接和 EXIF 空间转换尚未提供。
+
+## CPU 联合几何变换
+
+`transform_sample` 将同一串 resize、crop、pad、水平/垂直 flip 同时应用到照片、对齐配对照片或离散 mask，以及水平框和关键点。输入是带 `PixelSpec` 的 CPU CHW/HWC Tensor，允许非连续步幅；返回拥有独立存储、连续且未固定内存的 CPU Tensor，并组合已有 `geometry`。输入 Tensor 和共享标注不被修改。该数据处理接口拒绝带 autograd 的照片。
+
+```cpp
+#include <jyppx/liuding/data_image/joint_transform.hpp>
+
+std::array<image::ImageGeometryStep, 3> steps{{
+    {.kind = image::ImageGeometryKind::resize, .extent = {320, 240}},
+    {.kind = image::ImageGeometryKind::pad, .top = 40, .bottom = 40},
+    {.kind = image::ImageGeometryKind::horizontal_flip}}};
+image::JointTransformOptions joint_options;
+joint_options.interpolation = image::ImageInterpolation::bilinear;
+joint_options.mask_padding_id = 255; // 显式选择填充标签，通常使用已声明的 ignore/void ID。
+auto augmented = image::transform_sample(sample, steps, joint_options);
+```
+
+照片默认使用 `nearest_exact`；可显式选择 LibTorch `bilinear`，其策略为 `align_corners=false, antialias=true`。整数照片在双精度插值后按最近偶数舍入并限制到原位深范围，返回原 dtype；浮点照片保留原 dtype。通道、编码范围和 alpha 关联保持原有声明，插值逐通道执行，不隐式做颜色、线性色彩空间或 alpha 预乘转换。离散 mask 始终使用精确整数寻址：源索引为 `floor((i+0.5)*input_size/output_size)`，ID 不经过 float，包含大于 `2^53` 的 int64 ID 和显式负 ignore ID。补边时 `mask_padding_id` 必须显式给出，调色板和 ignore/void 元数据继续保留。
+
+水平框先裁到仍有效的源区域，再映射到最终输出；无正面积交集的对象删除。`min_box_visibility` 是相对本次调用原始框面积的保留比例，`min_box_area` 是最终裁后输出框面积。关键点的 visibility 保留 0/1/2 语义，原本缺失或被裁掉的点变为 `(0,0,0)`；每个实际 flip 轴都要求显式的逐类别 output-to-input permutation，允许显式恒等排列，且必须为对合排列。`drop_empty_pose` 控制是否删除已无有效关键点的姿态对象。source ID、category 映射、group、crowd/ignore/difficult/truncated 及源声明的 `area` 原样保留；`area` 仍表示来源声明，不会改写成输出框面积。
+
+当前拒绝含 polygon、OBB、RLE 或全景 segment 表引用的标注，避免只改照片而留下过时目标；这些目标仍可读取，联合适配继续开发。独立全景 ID 图可按离散 mask 变换，但不因此完成 segment 表的关联校验。配对照片要求与输入等尺寸、同坐标空间，不能据此推导超分辨率或多相机配准。batch、CUDA 联合变换与最终 batch pinning 尚未接入。
+
+`JointTransformLimits` 在分配前检查全部中间画布的边长、像素数、合计 Tensor 字节和保守工作 Tensor 估算，另有限制对象、关键点和变换步数。工作估算不包含调用者输入、分配器开销或 LibTorch 内部 workspace，不能当作操作系统 RSS 上限。取消在步骤、复制行和对象边界检查；单次 LibTorch 插值不能在调用内部中断，取消/失败不会发布半成品或修改输入。
+
+## 逐样本随机性与恢复绑定
+
+`SampleRandom` 是无可变游标的 SHA-256 counter v1 采样器。键包含 dataset、稳定 sample ID、transform ID、seed、epoch、重复 occurrence 和 view；同一键与 draw 始终返回相同值，不使用物理线程、worker 数、系统时间或 torch 全局 RNG。`bits` 提供 uint64，`unit` 使用高 53 位得到 `[0,1)`，`bounded` 通过有界拒绝采样避免取模偏差。字符串按原始字节编码，不做路径、Unicode 或大小写规范化；内容身份必须由调用方冻结。
+
+```cpp
+image::RandomGeometryOptions random_options;
+random_options.resize = image::ImageExtent{256, 256};
+random_options.crop = image::ImageExtent{224, 224};
+random_options.horizontal_flip_probability = 0.5;
+const auto transform_id = image::joint_transform_identity(random_options, joint_options);
+image::SampleRandom rng({.dataset_id = "dataset-v3",
+                         .sample_id = sample.image_path,
+                         .transform_id = transform_id,
+                         .seed = 42, .epoch = 7, .occurrence = 0, .view = 0});
+auto sampled = image::sample_geometry({sample.width, sample.height}, random_options, rng);
+auto view = image::transform_sample(sample, sampled, joint_options);
+```
+
+`sample_geometry` 当前提供固定 resize、均匀整数原点 crop 和独立的水平/垂直 flip；x/y/horizontal/vertical 分别使用固定 draw slot 0/1/2/3。`joint_transform_identity` 摘要包含采样、插值、padding、框筛选、pose 排列和资源策略。示例中的 `dataset-v3` 应替换为实际冻结的数据/标注/reader 身份；重复采样时必须显式提供稳定 occurrence，不能用 worker 执行次数代替。
+
+接入 `DataPipeline` 时，调用方须将来源身份绑定到 `dataset_version`，将上述配置摘要以及 RNG 版本、seed、view/occurrence 分配策略绑定到 `batch_factory_id`。直接提供手工 `ImageGeometryStep` 时，也要把完整 steps 纳入自己的 factory 身份；配置摘要不会自动读取任意 lambda 或推断其行为。当前已验证同一数据与配置在 0/1/3 workers 的像素结果一致、同拓扑 checkpoint 恢复重放，以及来源/变换身份变化被拒绝；pipeline 仍会拒绝不同 worker 拓扑的 exact restore。原 Core `data/transforms/vision.hpp` 的随机算子继续具有各自的旧 RNG 行为，不会自动变成此采样器。

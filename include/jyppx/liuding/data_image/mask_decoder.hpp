@@ -75,8 +75,9 @@ struct DecodedMask {
   Tensor ids;  ///< Contiguous, owning int64 [H,W]; never normalized or
                ///< color-scaled.
   MaskEncoding encoding = MaskEncoding::class_index;  ///< Interpretation used.
-  std::uint32_t width = 0;                            ///< Original PNG width.
-  std::uint32_t height = 0;                           ///< Original PNG height.
+  std::uint32_t width = 0;  ///< Current canvas width; PNG width when decoded.
+  std::uint32_t height =
+      0;  ///< Current canvas height; PNG height when decoded.
   std::uint8_t source_bit_depth = 0;  ///< Encoded sample precision.
   bool source_interlaced = false;     ///< True when Adam7 was decoded.
   std::vector<MaskPaletteEntry>

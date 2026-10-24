@@ -17,6 +17,7 @@
 #include <jyppx/liuding/data_image/annotation_files.hpp>
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
+#include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
 #elif defined(JYPPX_CONSUMER_NN)
@@ -182,6 +183,21 @@ int main() {
       0,   0,   0,   0,   73, 69, 78, 68, 174, 66,  96,  130};
   const auto mask = jyppx::liuding::data::image::decode_mask(
       std::as_bytes(std::span(mask_png)));
+  using namespace jyppx::liuding::data::image;
+  VisionSample sample;
+  sample.image = image.tensor;
+  sample.pixels = image.pixels;
+  sample.width = image.width;
+  sample.height = image.height;
+  sample.mask_target = mask;
+  RandomGeometryOptions geometry_options;
+  geometry_options.resize = ImageExtent{3, 2};
+  const SampleRandom random(
+      {.dataset_id = "installed-fixture-v1",
+       .sample_id = "a.png",
+       .transform_id = joint_transform_identity(geometry_options, {})});
+  const auto transformed = transform_sample(
+      sample, sample_geometry({1, 1}, geometry_options, random));
   return index.images.size() == 1U && index.images[0].objects.size() == 1U &&
                  index.images[0].objects[0].box->x_max == 20 &&
                  manifest.records().size() == 1U && image.width == 1U &&
@@ -192,7 +208,12 @@ int main() {
                  restored && restored->x_max == 20 && restored->y_max == 10 &&
                  !trace.inverse_point({0, 0}) &&
                  mask.ids.scalar_type() == torch::kInt64 &&
-                 mask.ids.dim() == 2 && mask.ids.item<std::int64_t>() == 65535
+                 mask.ids.dim() == 2 &&
+                 mask.ids.item<std::int64_t>() == 65535 &&
+                 transformed.width == 3 && transformed.height == 2 &&
+                 transformed.image[0][1][2].item<int>() == 127 &&
+                 transformed.mask_target->ids[1][2].item<std::int64_t>() ==
+                     65535
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_NN)

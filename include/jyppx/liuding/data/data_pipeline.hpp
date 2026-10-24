@@ -267,10 +267,12 @@ struct DataPipelineState {
 /**
  * @brief Provides deterministic identity and cancellation to a batch factory.
  *
- * A factory that declares deterministic behavior must derive all random work
- * from `worker_seed` instead of mutable process-global RNG state. Logical
- * worker assignment is stable even when a different physical thread executes
- * the task.
+ * A deterministic factory derives random work from frozen source/transform
+ * identity and logical context, never mutable process-global RNG state.
+ * `worker_seed` supplies a topology-bound stream; an explicit stateless sample
+ * stream may instead use epoch, stable sample ID and occurrence/view. Logical
+ * worker assignment is stable across physical thread scheduling. Pipeline
+ * checkpoint compatibility still requires the same worker topology.
  */
 struct DataWorkerContext {
   std::uint32_t worker_id = 0;     ///< Logical shard assigned to this batch.
