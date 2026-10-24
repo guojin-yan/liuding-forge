@@ -5,15 +5,14 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/liuding/visualization/render.hpp>
-
 #include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/visualization/render.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <string>
 #include <utility>
@@ -22,20 +21,29 @@ namespace jyppx::liuding::visualization {
 namespace {
 
 using data::image::ImageBox;
-using data::image::ImagePoint;
 using data::image::ImageLayout;
+using data::image::ImagePoint;
 using data::image::PixelAlphaMode;
 using data::image::PixelColorModel;
-using data::image::PixelValueRange;
 using data::image::PixelSpec;
+using data::image::PixelValueRange;
 using data::image::VisionAnnotationRecord;
 using data::image::VisionCategory;
 using data::image::VisionObject;
 
 constexpr std::array<RgbColor, 12> kPalette{{
-    {230, 25, 75},   {60, 180, 75},   {255, 225, 25}, {0, 130, 200},
-    {245, 130, 48},  {145, 30, 180},  {70, 240, 240}, {240, 50, 230},
-    {210, 245, 60},  {250, 190, 190}, {0, 128, 128},  {170, 110, 40},
+    {230, 25, 75},
+    {60, 180, 75},
+    {255, 225, 25},
+    {0, 130, 200},
+    {245, 130, 48},
+    {145, 30, 180},
+    {70, 240, 240},
+    {240, 50, 230},
+    {210, 245, 60},
+    {250, 190, 190},
+    {0, 128, 128},
+    {170, 110, 40},
 }};
 
 [[noreturn]] void Invalid(std::string operation, std::string actual = {}) {
@@ -143,14 +151,12 @@ class Canvas final {
         !ClipTest(dy, max_y - from.y, first, last))
       return;
 
-    const auto x0 = static_cast<std::int64_t>(
-        std::llround(from.x + first * dx));
-    const auto y0 = static_cast<std::int64_t>(
-        std::llround(from.y + first * dy));
-    const auto x1 = static_cast<std::int64_t>(
-        std::llround(from.x + last * dx));
-    const auto y1 = static_cast<std::int64_t>(
-        std::llround(from.y + last * dy));
+    const auto x0 =
+        static_cast<std::int64_t>(std::llround(from.x + first * dx));
+    const auto y0 =
+        static_cast<std::int64_t>(std::llround(from.y + first * dy));
+    const auto x1 = static_cast<std::int64_t>(std::llround(from.x + last * dx));
+    const auto y1 = static_cast<std::int64_t>(std::llround(from.y + last * dy));
     auto x = x0;
     auto y = y0;
     const auto delta_x = std::llabs(x1 - x0);
@@ -240,15 +246,16 @@ void DrawBox(Canvas& canvas, const ImageBox& box, RgbColor color,
              std::uint32_t thickness, std::stop_token stop) {
   ValidateBox(box);
   const std::array<ImagePoint, 4> corners{{
-      {box.x_min, box.y_min}, {box.x_max, box.y_min},
-      {box.x_max, box.y_max}, {box.x_min, box.y_max},
+      {box.x_min, box.y_min},
+      {box.x_max, box.y_min},
+      {box.x_max, box.y_max},
+      {box.x_min, box.y_max},
   }};
   canvas.polygon(corners, color, thickness, stop);
 }
 
 void DrawRle(Canvas& canvas, const VisionObject& object, std::uint64_t width,
-             std::uint64_t height, std::uint8_t alpha,
-             std::stop_token stop) {
+             std::uint64_t height, std::uint8_t alpha, std::stop_token stop) {
   if (!object.rle) return;
   const auto& rle = *object.rle;
   if (rle.width != width || rle.height != height)
@@ -266,8 +273,8 @@ void DrawRle(Canvas& canvas, const VisionObject& object, std::uint64_t width,
         if ((offset & 4095U) == 0U) CheckStop(stop);
         const auto x = offset / height;
         const auto y = offset % height;
-        canvas.blend(static_cast<std::int64_t>(x),
-                     static_cast<std::int64_t>(y), color, alpha);
+        canvas.blend(static_cast<std::int64_t>(x), static_cast<std::int64_t>(y),
+                     color, alpha);
       }
     }
     cursor += run;
@@ -325,12 +332,13 @@ RgbColor HeatColor(double value) noexcept {
 
 }  // namespace
 
-RenderedImage render_annotations(
-    const Tensor& pixels, const PixelSpec& pixel_spec,
-    const VisionAnnotationRecord& annotations,
-    std::span<const VisionCategory> categories, const Tensor& mask,
-    const Tensor& heatmap, const RenderOptions& options,
-    std::stop_token stop) {
+RenderedImage render_annotations(const Tensor& pixels,
+                                 const PixelSpec& pixel_spec,
+                                 const VisionAnnotationRecord& annotations,
+                                 std::span<const VisionCategory> categories,
+                                 const Tensor& mask, const Tensor& heatmap,
+                                 const RenderOptions& options,
+                                 std::stop_token stop) {
   if (options.line_width == 0U || options.line_width > 128U ||
       options.point_radius > 512U || options.max_pixels == 0U ||
       options.max_output_bytes == 0U || options.max_objects == 0U ||
@@ -458,30 +466,29 @@ RenderedImage render_annotations(
     CheckStop(stop);
     for (std::uint64_t x = 0; x < width; ++x) {
       canvas.spend();
-      const auto source_offset =
-          static_cast<std::int64_t>(y) * row_stride +
-          static_cast<std::int64_t>(x) * column_stride;
+      const auto source_offset = static_cast<std::int64_t>(y) * row_stride +
+                                 static_cast<std::int64_t>(x) * column_stride;
       const auto channel = [&](std::uint64_t index) {
-        return input[source_offset + static_cast<std::int64_t>(index) *
-                                         channel_stride];
+        return input[source_offset +
+                     static_cast<std::int64_t>(index) * channel_stride];
       };
       std::uint8_t red = channel(gray ? 0U : (bgr ? 2U : 0U));
       std::uint8_t green = gray ? red : channel(1U);
       std::uint8_t blue = gray ? red : channel(bgr ? 0U : 2U);
-      const auto alpha = has_alpha ? channel(static_cast<std::uint64_t>(alpha_index))
-                                   : static_cast<std::uint8_t>(255U);
+      const auto alpha = has_alpha
+                             ? channel(static_cast<std::uint64_t>(alpha_index))
+                             : static_cast<std::uint8_t>(255U);
       const auto composite = [&](std::uint8_t source, std::uint8_t back) {
         if (!has_alpha) return source;
-        const auto foreground = pixel_spec.alpha == PixelAlphaMode::straight
-                                    ? (static_cast<std::uint32_t>(source) * alpha +
-                                       127U) /
-                                          255U
-                                    : source;
+        const auto foreground =
+            pixel_spec.alpha == PixelAlphaMode::straight
+                ? (static_cast<std::uint32_t>(source) * alpha + 127U) / 255U
+                : source;
         return static_cast<std::uint8_t>(std::min(
-            255U, foreground +
-                      (static_cast<std::uint32_t>(back) * (255U - alpha) +
-                       127U) /
-                          255U));
+            255U,
+            foreground +
+                (static_cast<std::uint32_t>(back) * (255U - alpha) + 127U) /
+                    255U));
       };
       const auto target_offset =
           (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
@@ -502,16 +509,16 @@ RenderedImage render_annotations(
         canvas.spend();
         const auto offset = static_cast<std::int64_t>(y) * row_stride_heat +
                             static_cast<std::int64_t>(x) * column_stride_heat;
-        const auto value = heatmap.scalar_type() == torch::kFloat32
-                               ? static_cast<double>(
-                                     heatmap.const_data_ptr<float>()[offset])
-                               : heatmap.const_data_ptr<double>()[offset];
+        const auto value =
+            heatmap.scalar_type() == torch::kFloat32
+                ? static_cast<double>(heatmap.const_data_ptr<float>()[offset])
+                : heatmap.const_data_ptr<double>()[offset];
         if (!std::isfinite(value) || value < 0.0 || value > 1.0)
           Invalid("heatmap.value", "expected finite value in [0,1]");
         const auto alpha = static_cast<std::uint8_t>(
             std::lround(value * options.heatmap_alpha));
-        canvas.blend(static_cast<std::int64_t>(x),
-                     static_cast<std::int64_t>(y), HeatColor(value), alpha);
+        canvas.blend(static_cast<std::int64_t>(x), static_cast<std::int64_t>(y),
+                     HeatColor(value), alpha);
       }
     }
   }
@@ -526,9 +533,8 @@ RenderedImage render_annotations(
         const auto id = ids[static_cast<std::int64_t>(y) * row_stride_mask +
                             static_cast<std::int64_t>(x) * column_stride_mask];
         if (options.mask_ignore_id && id == *options.mask_ignore_id) continue;
-        canvas.blend(static_cast<std::int64_t>(x),
-                     static_cast<std::int64_t>(y), MaskColor(id),
-                     options.mask_alpha);
+        canvas.blend(static_cast<std::int64_t>(x), static_cast<std::int64_t>(y),
+                     MaskColor(id), options.mask_alpha);
       }
     }
   }

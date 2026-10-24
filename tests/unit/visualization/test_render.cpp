@@ -7,9 +7,8 @@
 
 #include <jyppx/liuding/visualization/render.hpp>
 
-#include <gtest/gtest.h>
-
 #include <array>
+#include <gtest/gtest.h>
 #include <limits>
 #include <stop_token>
 #include <vector>
@@ -48,7 +47,8 @@ TEST(RenderTest, ProducesIndependentRgbCanvasAndDrawsGeometry) {
   const std::array<VisionCategory, 1> categories{{VisionCategory{
       .source_id = 1, .name = "object", .skeleton = {{{0, 1}}}}}};
 
-  const auto result = render_annotations(image, RgbSpec(), Record(), categories);
+  const auto result =
+      render_annotations(image, RgbSpec(), Record(), categories);
   ASSERT_EQ(result.pixels.sizes(), torch::IntArrayRef({4, 5, 3}));
   EXPECT_TRUE(result.pixels.device().is_cpu());
   EXPECT_EQ(result.pixels.scalar_type(), torch::kUInt8);
@@ -83,8 +83,8 @@ TEST(RenderTest, PreservesDeclaredLayoutAndCompositesAlpha) {
   auto gray_alpha = torch::zeros({1, 1, 2}, torch::kUInt8);
   gray_alpha[0][0][0] = 128;
   gray_alpha[0][0][1] = 128;
-  const auto rendered_gray = render_annotations(
-      gray_alpha, gray_alpha_spec, one_pixel, {}, {}, {}, options);
+  const auto rendered_gray = render_annotations(gray_alpha, gray_alpha_spec,
+                                                one_pixel, {}, {}, {}, options);
   EXPECT_EQ(rendered_gray.pixels[0][0][0].item<std::uint8_t>(), 69U);
   EXPECT_EQ(rendered_gray.pixels[0][0][1].item<std::uint8_t>(), 74U);
   EXPECT_EQ(rendered_gray.pixels[0][0][2].item<std::uint8_t>(), 79U);
@@ -124,14 +124,16 @@ TEST(RenderTest, BlendsMaskAndHeatmapWithoutChangingSource) {
 
 TEST(RenderTest, RendersColumnMajorInstanceRle) {
   VisionAnnotationRecord record{.width = 2, .height = 2};
-  record.objects.push_back({.category = 0, .rle = ImageMaskRle{2, 2, {0, 2, 2}}});
+  record.objects.push_back(
+      {.category = 0, .rle = ImageMaskRle{2, 2, {0, 2, 2}}});
   auto options = RenderOptions{};
   options.draw_boxes = false;
   options.draw_polygons = false;
   options.draw_keypoints = false;
   options.mask_alpha = 255;
-  const auto result = render_annotations(torch::zeros({3, 2, 2}, torch::kUInt8),
-                                         RgbSpec(), record, {}, {}, {}, options);
+  const auto result =
+      render_annotations(torch::zeros({3, 2, 2}, torch::kUInt8), RgbSpec(),
+                         record, {}, {}, {}, options);
   EXPECT_EQ(result.pixels[0][0][0].item<std::uint8_t>(), 230U);
   EXPECT_EQ(result.pixels[1][0][0].item<std::uint8_t>(), 230U);
   EXPECT_EQ(result.pixels[0][1][0].item<std::uint8_t>(), 0U);
@@ -160,14 +162,16 @@ TEST(RenderTest, BoundsBaseAndOverlayPixelWork) {
   const VisionAnnotationRecord record{.width = 2, .height = 2};
   auto options = RenderOptions{};
   options.max_raster_ops = 3;
-  EXPECT_THROW(render_annotations(image, RgbSpec(), record, {}, {}, {}, options),
-               ResourceExhausted);
+  EXPECT_THROW(
+      render_annotations(image, RgbSpec(), record, {}, {}, {}, options),
+      ResourceExhausted);
 
   const auto mask = torch::zeros({2, 2}, torch::kInt64);
   options.max_raster_ops = 7;
   options.mask_alpha = 0;
-  EXPECT_THROW(render_annotations(image, RgbSpec(), record, {}, mask, {}, options),
-               ResourceExhausted);
+  EXPECT_THROW(
+      render_annotations(image, RgbSpec(), record, {}, mask, {}, options),
+      ResourceExhausted);
 }
 
 TEST(RenderTest, CountsGeneratedBoxVerticesAgainstPointBudget) {
@@ -176,8 +180,9 @@ TEST(RenderTest, CountsGeneratedBoxVerticesAgainstPointBudget) {
   record.objects.push_back({.category = 0, .box = ImageBox{0, 0, 2, 2}});
   auto options = RenderOptions{};
   options.max_points = 3;
-  EXPECT_THROW(render_annotations(image, RgbSpec(), record, {}, {}, {}, options),
-               ResourceExhausted);
+  EXPECT_THROW(
+      render_annotations(image, RgbSpec(), record, {}, {}, {}, options),
+      ResourceExhausted);
 }
 
 TEST(RenderTest, HonorsCancellationAndRasterBudget) {
@@ -186,14 +191,16 @@ TEST(RenderTest, HonorsCancellationAndRasterBudget) {
   record.objects.push_back({.category = 0, .box = ImageBox{0, 0, 32, 32}});
   auto options = RenderOptions{};
   options.max_raster_ops = 2;
-  EXPECT_THROW(render_annotations(image, RgbSpec(), record, {}, {}, {}, options),
-               ResourceExhausted);
+  EXPECT_THROW(
+      render_annotations(image, RgbSpec(), record, {}, {}, {}, options),
+      ResourceExhausted);
   std::stop_source source;
   source.request_stop();
-  EXPECT_THROW(render_annotations(image, RgbSpec(),
-                                  VisionAnnotationRecord{.width = 32, .height = 32},
-                                  {}, {}, {}, {}, source.get_token()),
-               Cancelled);
+  EXPECT_THROW(
+      render_annotations(image, RgbSpec(),
+                         VisionAnnotationRecord{.width = 32, .height = 32}, {},
+                         {}, {}, {}, source.get_token()),
+      Cancelled);
 }
 
 }  // namespace
