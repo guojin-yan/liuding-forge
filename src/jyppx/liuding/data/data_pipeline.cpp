@@ -1190,7 +1190,8 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
           {.dataset_version = envelope.dataset_version,
            .epoch = envelope.epoch,
            .sequence = sequence,
-           .sample_ids = envelope.sample_ids},
+           .sample_ids = envelope.sample_ids,
+           .source_watermark = {}},
           impl_->options.memory, stop_token);
     }
     validate_batch_value(envelope.value, impl_->options.schema);
