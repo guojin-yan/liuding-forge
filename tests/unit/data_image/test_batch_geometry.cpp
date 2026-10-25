@@ -58,6 +58,22 @@ bool SameSteps(const std::vector<ImageGeometryStep>& a,
   return true;
 }
 
+#if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)
+ImageBatch ToCuda(ImageBatch batch) {
+  if (batch.layout == ImageBatchLayout::ragged) {
+    for (auto& image : batch.image_list) image = image.cuda();
+    for (auto& valid : batch.valid_list) valid = valid.cuda();
+    for (auto& mask : batch.mask_list) mask = mask.cuda();
+  } else {
+    batch.images = batch.images.cuda();
+    batch.valid = batch.valid.cuda();
+    if (batch.masks) batch.masks = batch.masks->cuda();
+  }
+  batch.labels = batch.labels.cuda();
+  return batch;
+}
+#endif
+
 TEST(ImageBatchGeometryTest, PaddedBatchTransformsValidSamplesAndTargets) {
   auto a = Photo(3, 1, 10);
   auto b = Photo(2, 1, 30);
@@ -310,15 +326,115 @@ TEST(ImageBatchGeometryTest, AggregateBudgetAndCancellationDoNotMutateInput) {
 }
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)
-TEST(ImageBatchGeometryTest, RejectsCudaWithoutImplicitTransfer) {
+TEST(ImageBatchGeometryTest, CudaPixelGeometryMatchesCpuAndKeepsMaskIds) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
-  auto batch = collate_images(std::array{Photo(2, 2, 1)},
-                              std::array{ImageBatchKey{"a"}});
-  batch.images = batch.images.cuda();
-  batch.valid = batch.valid.cuda();
-  batch.labels = batch.labels.cuda();
+  auto sample = Photo(3, 2, 10);
+  sample.mask_target = Mask(sample, 9007199254740993LL);
+  ImageCollateOptions collate;
+  collate.layout = ImageBatchLayout::pad;
+  collate.padded_extent = ImageExtent{4, 3};
+  collate.image_padding = 101;
+  collate.mask_padding_id = -9;
+  const auto cpu = collate_images(std::array{sample},
+                                  std::array{ImageBatchKey{"cuda-geometry"}},
+                                  collate);
+
+  ImageBatchGeometryOptions options;
+  options.joint.mask_padding_id = -9;
+  options.output_padded_extent = ImageExtent{6, 5};
+  const std::vector<std::vector<ImageGeometryStep>> steps{{
+      {.kind = ImageGeometryKind::crop, .extent = {2, 2}, .left = 1},
+      {.kind = ImageGeometryKind::resize, .extent = {3, 3}},
+      {.kind = ImageGeometryKind::pad, .left = 1, .top = 1, .right = 1},
+      {.kind = ImageGeometryKind::horizontal_flip},
+      {.kind = ImageGeometryKind::vertical_flip},
+  }};
+  const auto expected = transform_image_batch_geometry(cpu, steps, options);
+
+  auto cuda_batch = ToCuda(cpu);
+  const auto stream = c10::cuda::getStreamFromPool(false, 0);
+  c10::cuda::CUDAStreamGuard guard(stream);
+  const auto result = transform_image_batch_geometry(cuda_batch, steps, options);
+  EXPECT_EQ(c10::cuda::getCurrentCUDAStream(0), stream);
+  EXPECT_TRUE(result.images.device().is_cuda());
+  ASSERT_TRUE(result.masks);
+  EXPECT_TRUE(result.masks->device().is_cuda());
+  EXPECT_TRUE(result.valid.device().is_cuda());
+  EXPECT_TRUE(torch::equal(result.images.cpu(), expected.images));
+  EXPECT_TRUE(torch::equal(result.masks->cpu(), *expected.masks));
+  EXPECT_TRUE(torch::equal(result.valid.cpu(), expected.valid));
+  EXPECT_EQ(result.items[0].valid_extent.width, 5U);
+  EXPECT_EQ(result.items[0].valid_extent.height, 4U);
+  EXPECT_EQ(result.valid.sum().item<int>(), 20);
+  EXPECT_EQ((*result.masks)[0][0][0].item<std::int64_t>(), -9);
+  EXPECT_EQ((*result.masks)[0][0][5].item<std::int64_t>(), -9);
+  EXPECT_EQ((*result.masks)[0][4][0].item<std::int64_t>(), -9);
+  EXPECT_EQ((*result.masks)[0][1][1].item<std::int64_t>(),
+            (*expected.masks)[0][1][1].item<std::int64_t>());
+  EXPECT_EQ((*result.masks)[0].max().item<std::int64_t>(),
+            9007199254740998LL);
+}
+
+TEST(ImageBatchGeometryTest, CudaRichAnnotationsAreRejectedExplicitly) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  auto sample = Photo(2, 2, 1);
+  sample.categories = std::make_shared<const std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{.source_id = 7, .name = "object"}});
+  auto annotation = std::make_shared<VisionAnnotationRecord>();
+  annotation->image_path = sample.image_path;
+  annotation->width = sample.width;
+  annotation->height = sample.height;
+  sample.annotation = annotation;
+  const auto cpu = collate_images(std::array{sample},
+                                  std::array{ImageBatchKey{"cuda-rich"}});
+  const auto cuda_batch = ToCuda(cpu);
   const std::vector<std::vector<ImageGeometryStep>> steps(1);
-  EXPECT_THROW(transform_image_batch_geometry(batch, steps), InvalidArgument);
+  EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps),
+               InvalidArgument);
+}
+
+TEST(ImageBatchGeometryTest, CudaPixelGeometryPreservesStackAndRaggedLayouts) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  for (const auto layout : {ImageBatchLayout::stack,
+                            ImageBatchLayout::ragged}) {
+    auto first = Photo(2, 2, 1);
+    auto second = Photo(2, 2, 5);
+    first.mask_target = Mask(first, 100);
+    second.mask_target = Mask(second, 200);
+    ImageCollateOptions collate;
+    collate.layout = layout;
+    collate.mask_padding_id = -9;
+    const auto cpu = collate_images(
+        std::array{first, second},
+        std::array{ImageBatchKey{"cuda-layout-a"},
+                   ImageBatchKey{"cuda-layout-b"}},
+        collate);
+    const std::vector<std::vector<ImageGeometryStep>> steps{
+        {{.kind = ImageGeometryKind::horizontal_flip}},
+        {{.kind = ImageGeometryKind::vertical_flip}}};
+    ImageBatchGeometryOptions options;
+    options.joint.mask_padding_id = -9;
+    const auto expected = transform_image_batch_geometry(cpu, steps, options);
+    const auto result = transform_image_batch_geometry(ToCuda(cpu), steps,
+                                                       options);
+    EXPECT_EQ(result.layout, layout);
+    if (layout == ImageBatchLayout::ragged) {
+      ASSERT_EQ(result.image_list.size(), 2U);
+      ASSERT_EQ(result.mask_list.size(), 2U);
+      for (std::size_t i = 0; i < 2; ++i) {
+        EXPECT_TRUE(torch::equal(result.image_list[i].cpu(),
+                                 expected.image_list[i]));
+        EXPECT_TRUE(torch::equal(result.mask_list[i].cpu(),
+                                 expected.mask_list[i]));
+        EXPECT_TRUE(result.valid_list[i].device().is_cuda());
+      }
+    } else {
+      ASSERT_TRUE(result.masks);
+      EXPECT_TRUE(torch::equal(result.images.cpu(), expected.images));
+      EXPECT_TRUE(torch::equal(result.masks->cpu(), *expected.masks));
+      EXPECT_TRUE(result.valid.device().is_cuda());
+    }
+  }
 }
 #endif
 }  // namespace

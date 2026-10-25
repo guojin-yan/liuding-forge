@@ -8,7 +8,7 @@
 #ifndef JYPPX_LIUDING_DATA_IMAGE_BATCH_GEOMETRY_HPP
 #define JYPPX_LIUDING_DATA_IMAGE_BATCH_GEOMETRY_HPP
 /** @file batch_geometry.hpp
- * @brief Per-sample CPU geometry for structured image batches.
+ * @brief Per-sample geometry for structured image batches.
  */
 
 #include <jyppx/liuding/data_image/image_batch.hpp>
@@ -18,7 +18,7 @@
 
 namespace jyppx::liuding::data::image {
 
-/** @brief Joint CPU geometry policy and aggregate batch resource limits. */
+/** @brief Joint geometry policy and aggregate batch resource limits. */
 struct ImageBatchGeometryOptions {
   JointTransformOptions joint;
   ImageBatchLimits limits;
@@ -50,12 +50,12 @@ std::string image_batch_geometry_identity(
 
 /**
  * @brief Applies per-sample geometry while preserving stack/pad/ragged layout.
- * @param batch Structurally valid CPU batch from a trusted producer.
+ * @param batch Structurally valid CPU or CUDA batch from a trusted producer.
  * @param sample_steps One explicit sequence per batch item.
  * @param options Joint policy and aggregate per-call limits.
  * @param stop Cooperative cancellation before publication.
- * @return New pageable CPU batch; input tensors and metadata remain unchanged.
- * @throws InvalidArgument Invalid geometry, schema, or non-CPU batch.
+ * @return New batch on the input device; input tensors and metadata remain unchanged.
+ * @throws InvalidArgument Invalid geometry, schema, or unsupported CUDA metadata.
  * @throws ResourceExhausted Per-sample or aggregate tensor/metadata budget.
  * @throws DeviceError LibTorch operation failed.
  * @throws Cancelled Cancellation requested before publication.
@@ -63,10 +63,12 @@ std::string image_batch_geometry_identity(
  * Right/bottom collation padding is removed before each sample's sequence is
  * applied, then the configured layout is rebuilt. The valid tensor must match
  * that rectangular padding contract. Discrete masks are transformed as int64
- * IDs with nearest-exact sampling. CUDA tensors are rejected explicitly; no
- * hidden device transfer or synchronization is performed. For pad layout, an
- * output extent and size divisor may be specified; their resolved canvas is
- * part of the transform identity.
+ * IDs with nearest-exact sampling. CPU and CUDA pixel leaves stay on their
+ * existing device and caller-current stream; no hidden device transfer or
+ * synchronization is performed. The CUDA slice currently requires batches
+ * without rich annotation records because annotation mapping remains a
+ * host-only path. For pad layout, an output extent and size divisor may be
+ * specified; their resolved canvas is part of the transform identity.
  */
 ImageBatch transform_image_batch_geometry(
     const ImageBatch& batch,

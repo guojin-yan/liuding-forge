@@ -10,6 +10,8 @@
 #include <jyppx/liuding/data_image/batch_geometry.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 
+#include <torch/nn/functional/upsampling.h>
+
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -125,6 +127,14 @@ Tensor ValidAt(const ImageBatch& batch, std::size_t index) {
 
 void CheckValidRectangle(const Tensor& valid, ImageExtent canvas,
                          ImageExtent valid_extent, std::stop_token stop) {
+  if (!valid.device().is_cpu()) {
+    // A CUDA batch is produced by the validated CPU collator or by an
+    // explicit device transfer. Reading it back to validate every padding
+    // bit would synchronize the caller's stream, so keep this check shape
+    // only; CheckImageBatch already validated the rectangle dimensions.
+    Stop(stop);
+    return;
+  }
   const auto* values = valid.const_data_ptr<bool>();
   for (std::uint32_t y = 0; y < canvas.height; ++y) {
     Stop(stop);
@@ -199,6 +209,116 @@ void CheckCpu(const ImageBatch& batch) {
     if (batch.paired_images) cpu(*batch.paired_images);
     if (batch.masks) cpu(*batch.masks);
   }
+}
+
+void CheckCudaMetadata(const ImageBatch& batch) {
+  for (const auto& item : batch.items)
+    if (item.annotation)
+      InvalidBatch("batch_geometry.cuda_annotations");
+}
+
+Tensor CudaNearestResize(const Tensor& input, bool mask, ImageExtent before,
+                         ImageExtent after, std::stop_token stop) {
+  Stop(stop);
+  const auto index_options =
+      input.options().dtype(torch::kInt64).requires_grad(false);
+  const auto x =
+      (torch::arange(static_cast<std::int64_t>(after.width), index_options) *
+           static_cast<std::int64_t>(before.width) +
+       static_cast<std::int64_t>(before.width / 2U))
+          .floor_divide(static_cast<std::int64_t>(after.width));
+  const auto y =
+      (torch::arange(static_cast<std::int64_t>(after.height), index_options) *
+           static_cast<std::int64_t>(before.height) +
+       static_cast<std::int64_t>(before.height / 2U))
+          .floor_divide(static_cast<std::int64_t>(after.height));
+  // Advanced indexing keeps the gather on the caller's CUDA stream and also
+  // supports the int64 mask path without converting IDs through floating
+  // point. The unsqueezed indices form an explicit HxW grid.
+  if (mask)
+    return input.index({y.unsqueeze(1), x.unsqueeze(0)}).contiguous();
+  return input.index({torch::indexing::Slice(), y.unsqueeze(1),
+                      x.unsqueeze(0)})
+      .contiguous();
+}
+
+Tensor CudaCopyStep(const Tensor& input, bool mask, ImageExtent before,
+                    ImageExtent after, const ImageGeometryStep& step,
+                    const c10::Scalar& fill, std::stop_token stop) {
+  Stop(stop);
+  switch (step.kind) {
+    case ImageGeometryKind::resize:
+      return CudaNearestResize(input, mask, before, after, stop);
+    case ImageGeometryKind::crop:
+      return input
+          .narrow(mask ? 0 : 1, step.top, after.height)
+          .narrow(mask ? 1 : 2, step.left, after.width)
+          .clone();
+    case ImageGeometryKind::pad:
+      return torch::constant_pad_nd(
+          input,
+          {static_cast<std::int64_t>(step.left),
+           static_cast<std::int64_t>(step.right),
+           static_cast<std::int64_t>(step.top),
+           static_cast<std::int64_t>(step.bottom)},
+          fill)
+          .contiguous();
+    case ImageGeometryKind::horizontal_flip:
+      return input.flip({mask ? 1 : 2}).contiguous();
+    case ImageGeometryKind::vertical_flip:
+      return input.flip({mask ? 0 : 1}).contiguous();
+  }
+  InvalidBatch("batch_geometry.kind");
+}
+
+Tensor CudaPhotoStep(const Tensor& input, ImageExtent before,
+                     ImageExtent after, const ImageGeometryStep& step,
+                     const JointTransformOptions& options, double fill,
+                     std::stop_token stop) {
+  if (step.kind != ImageGeometryKind::resize ||
+      options.interpolation == ImageInterpolation::nearest_exact)
+    return CudaCopyStep(input, false, before, after, step, fill, stop);
+  Stop(stop);
+  const bool integer = input.scalar_type() == torch::kUInt8 ||
+                       input.scalar_type() == torch::kUInt16;
+  auto floating = integer ? input.to(torch::kFloat64) : input;
+  auto result = torch::nn::functional::interpolate(
+                    floating.unsqueeze(0),
+                    torch::nn::functional::InterpolateFuncOptions()
+                        .size(std::vector<std::int64_t>{
+                            static_cast<std::int64_t>(after.height),
+                            static_cast<std::int64_t>(after.width)})
+                        .mode(torch::kBilinear)
+                        .align_corners(false)
+                        .antialias(true))
+                    .squeeze(0);
+  Stop(stop);
+  if (integer) {
+    const auto maximum = input.scalar_type() == torch::kUInt8 ? 255 : 65535;
+    result = result.round().clamp(0, maximum).to(input.scalar_type());
+  }
+  return result.contiguous();
+}
+
+Tensor CudaPadToCanvas(const Tensor& input, ImageExtent extent,
+                       ImageExtent canvas, const c10::Scalar& fill) {
+  if (Equal(extent, canvas)) return input.contiguous();
+  return torch::constant_pad_nd(
+             input,
+             {0, static_cast<std::int64_t>(canvas.width - extent.width), 0,
+              static_cast<std::int64_t>(canvas.height - extent.height)},
+             fill)
+      .contiguous();
+}
+
+Tensor CudaValid(ImageExtent extent, ImageExtent canvas,
+                 const torch::Device& device) {
+  auto valid = torch::zeros(
+      {static_cast<std::int64_t>(canvas.height),
+       static_cast<std::int64_t>(canvas.width)},
+      torch::TensorOptions().device(device).dtype(torch::kBool));
+  valid.narrow(0, 0, extent.height).narrow(1, 0, extent.width).fill_(true);
+  return valid;
 }
 
 void BoundPerSampleOptions(JointTransformOptions& joint,
@@ -304,10 +424,17 @@ ImageBatch transform_image_batch_geometry(
   Stop(stop);
   try {
     detail::CheckImageBatch(batch, options.limits, stop);
-    CheckCpu(batch);
     if (sample_steps.size() != batch.items.size())
       InvalidBatch("batch_geometry.step_count");
     const auto count = batch.items.size();
+    const auto device = PhotoAt(batch, 0).device();
+    if (device.is_cpu()) {
+      CheckCpu(batch);
+    } else if (device.is_cuda()) {
+      CheckCudaMetadata(batch);
+    } else {
+      InvalidBatch("batch_geometry.device");
+    }
     JointTransformOptions joint = options.joint;
     BoundPerSampleOptions(joint, options.limits, count);
     CheckOutputPolicy(batch.layout, options);
@@ -447,6 +574,105 @@ ImageBatch transform_image_batch_geometry(
             "batch_geometry.working_bytes");
     if (working > options.limits.max_working_bytes)
       BatchLimit("batch_geometry.working_bytes");
+
+    if (device.is_cuda()) {
+      ImageBatch result;
+      result.layout = batch.layout;
+      result.pixels = batch.pixels;
+      result.paired_pixels = batch.paired_pixels;
+      result.labels = batch.labels.clone();
+      result.label_offsets = batch.label_offsets;
+      result.items = batch.items;
+      result.memory = {};
+
+      std::vector<Tensor> images;
+      std::vector<Tensor> paired;
+      std::vector<Tensor> masks;
+      std::vector<Tensor> valid;
+      images.reserve(count);
+      valid.reserve(count);
+      if (batch.paired_pixels) paired.reserve(count);
+      if (batch.items.front().mask) masks.reserve(count);
+
+      for (std::size_t i = 0; i < count; ++i) {
+        Stop(stop);
+        auto image = PhotoAt(batch, i);
+        auto paired_image =
+            batch.paired_pixels ? std::optional<Tensor>(PairedAt(batch, i))
+                                : std::nullopt;
+        auto mask = batch.items[i].mask
+                        ? std::optional<Tensor>(MaskAt(batch, i))
+                        : std::nullopt;
+        auto before = input_canvases[i];
+        auto progress = GeometryTrace(before);
+        std::vector<ImageGeometryStep> effective;
+        if (!Equal(batch.items[i].valid_extent, before))
+          effective.push_back({.kind = ImageGeometryKind::crop,
+                               .extent = batch.items[i].valid_extent});
+        effective.insert(effective.end(), sample_steps[i].begin(),
+                         sample_steps[i].end());
+        for (const auto& step : effective) {
+          const auto after = Append(progress, step).output_extent();
+          image = CudaPhotoStep(image, before, after, step, joint,
+                                joint.image_padding, stop);
+          if (paired_image)
+            *paired_image = CudaPhotoStep(*paired_image, before, after, step,
+                                          joint, joint.paired_padding, stop);
+          if (mask)
+            *mask = CudaCopyStep(*mask, true, before, after, step,
+                                 c10::Scalar(joint.mask_padding_id.value_or(0)),
+                                 stop);
+          progress = Append(std::move(progress), step);
+          before = after;
+        }
+        result.items[i].valid_extent = output_extents[i];
+        auto composed = batch.items[i].geometry.value_or(
+            GeometryTrace(input_canvases[i]));
+        for (const auto& step : effective)
+          composed = Append(std::move(composed), step);
+        if (batch.layout == ImageBatchLayout::pad &&
+            !Equal(output_extents[i], output_canvas))
+          composed = composed.padded(
+              0, 0, output_canvas.width - output_extents[i].width,
+              output_canvas.height - output_extents[i].height);
+        result.items[i].geometry = std::move(composed);
+
+        if (batch.layout == ImageBatchLayout::pad) {
+          image = CudaPadToCanvas(image, output_extents[i], output_canvas,
+                                  joint.image_padding);
+          if (paired_image)
+            *paired_image = CudaPadToCanvas(
+                *paired_image, output_extents[i], output_canvas,
+                joint.paired_padding);
+          if (mask)
+            *mask = CudaPadToCanvas(*mask, output_extents[i], output_canvas,
+                                    c10::Scalar(
+                                        joint.mask_padding_id.value_or(0)));
+          valid.push_back(
+              CudaValid(output_extents[i], output_canvas, device));
+        } else {
+          valid.push_back(
+              CudaValid(output_extents[i], output_extents[i], device));
+        }
+        images.push_back(std::move(image));
+        if (paired_image) paired.push_back(std::move(*paired_image));
+        if (mask) masks.push_back(std::move(*mask));
+      }
+
+      if (batch.layout == ImageBatchLayout::ragged) {
+        result.image_list = std::move(images);
+        result.valid_list = std::move(valid);
+        if (batch.paired_pixels) result.paired_image_list = std::move(paired);
+        if (batch.items.front().mask) result.mask_list = std::move(masks);
+      } else {
+        result.images = torch::stack(images);
+        result.valid = torch::stack(valid);
+        if (batch.paired_pixels) result.paired_images = torch::stack(paired);
+        if (batch.items.front().mask) result.masks = torch::stack(masks);
+      }
+      detail::CheckImageBatch(result, options.limits, stop);
+      return result;
+    }
 
     std::vector<VisionSample> transformed;
     std::vector<ImageBatchKey> keys;
