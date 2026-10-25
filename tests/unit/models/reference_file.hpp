@@ -64,7 +64,7 @@ class MappedReference final {
     const auto file = open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (file < 0)
       throw std::runtime_error("cannot open models reference artifact");
-    struct stat status{};
+    struct stat status {};
     if (fstat(file, &status) != 0 || !S_ISREG(status.st_mode) ||
         status.st_size < 0 ||
         static_cast<std::uint64_t>(status.st_size) != size) {
