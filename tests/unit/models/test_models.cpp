@@ -761,6 +761,30 @@ TEST(ModelsCuda, DinoV3ConvNeXtLowResourceFactoriesSupportCudaHalfForward) {
       {96, 192, 384, 768});
 }
 
+void CheckDinoV3ConvNeXtCudaResourceBudget(
+    const char* name, const char* phase,
+    std::chrono::steady_clock::time_point start) {
+  torch::cuda::synchronize(0);
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 6ULL << 30U);
+  const auto elapsed_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+          .count();
+  std::cout << "RESOURCE_METRICS model=" << name << " phase=" << phase
+            << " elapsed_ms=" << elapsed_ms
+            << " process_peak_rss_bytes=" << peak << '\n';
+#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+  const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  const auto peak_cuda = stats.allocated_bytes[0].peak;
+  ASSERT_GT(peak_cuda, 0);
+  EXPECT_LE(peak_cuda, 5LL << 30U);
+  std::cout << "RESOURCE_METRICS model=" << name
+            << " peak_cuda_allocated_bytes=" << peak_cuda << '\n';
+#endif
+}
+
 template <typename Factory>
 void RunDinoV3ConvNeXtHighCudaHalfForward(
     const char* name, Factory factory,
@@ -775,25 +799,7 @@ void RunDinoV3ConvNeXtHighCudaHalfForward(
     GTEST_SKIP() << "CUDA device is unavailable";
   const auto start = std::chrono::steady_clock::now();
   RunDinoV3ConvNeXtCudaHalfForward(factory, channels);
-  torch::cuda::synchronize(0);
-  const auto end = std::chrono::steady_clock::now();
-  const auto peak = ProcessPeakRssBytes();
-  ASSERT_GT(peak, 0U);
-  EXPECT_LE(peak, 6ULL << 30U);
-  const auto elapsed_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-          .count();
-  std::cout << "RESOURCE_METRICS model=" << name
-            << " cuda_forward_ms=" << elapsed_ms
-            << " process_peak_rss_bytes=" << peak << '\n';
-#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
-  const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
-  const auto peak_cuda = stats.allocated_bytes[0].peak;
-  ASSERT_GT(peak_cuda, 0);
-  EXPECT_LE(peak_cuda, 5LL << 30U);
-  std::cout << "RESOURCE_METRICS model=" << name
-            << " peak_cuda_allocated_bytes=" << peak_cuda << '\n';
-#endif
+  CheckDinoV3ConvNeXtCudaResourceBudget(name, "forward", start);
 }
 
 TEST(ModelsCuda, DinoV3ConvNeXtBaseCudaHalfResourceGate) {
@@ -810,6 +816,81 @@ TEST(ModelsCuda, DinoV3ConvNeXtLargeCudaHalfResourceGate) {
                                          return dinov3_convnext_large(options);
                                        },
                                        {192, 384, 768, 1536});
+}
+
+template <typename Factory>
+void RunDinoV3ConvNeXtHighCudaTrainingStep(const char* name, Factory factory) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_CUDA_TRAINING_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP()
+        << "Set JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_CUDA_TRAINING_GATE=1 "
+           "for the serial B/L CUDA FP16 backward and SGD resource gate";
+  }
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0)
+    GTEST_SKIP() << "CUDA device is unavailable";
+
+  const auto start = std::chrono::steady_clock::now();
+  const torch::Device device(torch::kCUDA, 0);
+  auto model = factory(DinoV3ConvNeXtOptions{.num_classes = 3});
+  ASSERT_TRUE(model);
+  model->to(device);
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto named_before = model->named_parameters(true);
+  ASSERT_TRUE(named_before.contains("downsample_layers.0.0.weight"));
+  ASSERT_TRUE(named_before.contains("head.weight"));
+  const auto head_before = named_before["head.weight"].clone();
+  const auto input = torch::randn(
+      {1, 3, 32, 32},
+      torch::TensorOptions().dtype(torch::kFloat32).device(device));
+
+  optimizer.zero_grad();
+  {
+    jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CUDA,
+                                                       at::kHalf);
+    ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+    const auto logits = model->forward(input);
+    ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+    EXPECT_EQ(logits.scalar_type(), torch::kHalf);
+    const auto loss = logits.to(torch::kFloat32).square().mean();
+    ASSERT_TRUE(torch::isfinite(loss).template item<bool>());
+    loss.backward();
+  }
+  EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+
+  const auto named = model->named_parameters(true);
+  const auto stem_gradient = named["downsample_layers.0.0.weight"].grad();
+  const auto head_gradient = named["head.weight"].grad();
+  ASSERT_TRUE(stem_gradient.defined());
+  ASSERT_TRUE(head_gradient.defined());
+  EXPECT_TRUE(stem_gradient.device().is_cuda());
+  EXPECT_TRUE(head_gradient.device().is_cuda());
+  EXPECT_EQ(stem_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_TRUE(torch::isfinite(stem_gradient).all().template item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+  EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
+  optimizer.step();
+  const auto head_after = model->named_parameters(true)["head.weight"];
+  EXPECT_GT(torch::abs(head_after - head_before).sum().template item<double>(),
+            0.0);
+  CheckDinoV3ConvNeXtCudaResourceBudget(name, "backward_sgd", start);
+}
+
+TEST(ModelsCuda, DinoV3ConvNeXtBaseCudaHalfTrainingResourceGate) {
+  RunDinoV3ConvNeXtHighCudaTrainingStep("dinov3_convnext_base",
+                                        [](DinoV3ConvNeXtOptions options) {
+                                          return dinov3_convnext_base(options);
+                                        });
+}
+
+TEST(ModelsCuda, DinoV3ConvNeXtLargeCudaHalfTrainingResourceGate) {
+  RunDinoV3ConvNeXtHighCudaTrainingStep("dinov3_convnext_large",
+                                        [](DinoV3ConvNeXtOptions options) {
+                                          return dinov3_convnext_large(options);
+                                        });
 }
 
 TEST(Models, ResNetVariantsExposeExpectedFeatureStridesAndParameterCounts) {
