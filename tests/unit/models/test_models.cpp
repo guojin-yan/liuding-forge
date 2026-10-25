@@ -23,15 +23,41 @@
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <iostream>
 #include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <psapi.h>
+#elif defined(__linux__) || defined(__APPLE__)
+#include <sys/resource.h>
+#endif
+
 namespace {
 using namespace jyppx::liuding;
 using namespace jyppx::liuding::models;
+
+std::uint64_t ProcessPeakRssBytes() {
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS counters{};
+  if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
+    return static_cast<std::uint64_t>(counters.PeakWorkingSetSize);
+#elif defined(__linux__) || defined(__APPLE__)
+  rusage usage{};
+  if (getrusage(RUSAGE_SELF, &usage) == 0) {
+#if defined(__APPLE__)
+    return static_cast<std::uint64_t>(usage.ru_maxrss);
+#else
+    return static_cast<std::uint64_t>(usage.ru_maxrss) * 1024U;
+#endif
+  }
+#endif
+  return 0U;
+}
 
 Tensor Images(std::int64_t channels = 3) {
   return torch::zeros({2, channels, 64, 64}, torch::kFloat32);
@@ -526,6 +552,42 @@ TEST(Models, DinoV3ConvNeXtLowResourceFactoriesSupportCpuTrainingGate) {
       });
 }
 
+template <typename Factory>
+void RunDinoV3ConvNeXtHighResourceTrainingStep(const char* name,
+                                               Factory factory) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_RESOURCE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_RESOURCE_GATE=1 "
+                    "for the serial B/L CPU backward resource gate";
+  }
+  const auto start = std::chrono::steady_clock::now();
+  RunDinoV3ConvNeXtCpuTrainingStep(factory);
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 6ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=" << name
+            << " training_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+                   .count()
+            << " process_peak_rss_bytes=" << peak << '\n';
+}
+
+TEST(Models, DinoV3ConvNeXtBaseCpuBackwardResourceGate) {
+  RunDinoV3ConvNeXtHighResourceTrainingStep(
+      "dinov3_convnext_base", [](DinoV3ConvNeXtOptions options) {
+        return dinov3_convnext_base(options);
+      });
+}
+
+TEST(Models, DinoV3ConvNeXtLargeCpuBackwardResourceGate) {
+  RunDinoV3ConvNeXtHighResourceTrainingStep(
+      "dinov3_convnext_large", [](DinoV3ConvNeXtOptions options) {
+        return dinov3_convnext_large(options);
+      });
+}
+
 TEST(Models, DinoV3ConvNeXtLowResourceFactoriesExposeStageContracts) {
   const auto tiny_info = model_info("dinov3_convnext_tiny");
   const auto small_info = model_info("dinov3_convnext_small");
@@ -534,6 +596,8 @@ TEST(Models, DinoV3ConvNeXtLowResourceFactoriesExposeStageContracts) {
   EXPECT_EQ(tiny_info.family, "dinov3_convnext");
   EXPECT_EQ(tiny_info.default_parameters, 27820128U);
   EXPECT_EQ(small_info.default_parameters, 49454688U);
+  EXPECT_EQ(base_info.default_parameters, 87566464U);
+  EXPECT_EQ(large_info.default_parameters, 196230336U);
   EXPECT_LT(tiny_info.default_parameters, small_info.default_parameters);
   EXPECT_LT(small_info.default_parameters, base_info.default_parameters);
   EXPECT_LT(base_info.default_parameters, large_info.default_parameters);
@@ -868,7 +932,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 42> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 48> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -995,6 +1059,24 @@ constexpr std::array<ReferenceFileIdentity, 42> kReferenceFiles{{
     {"dinov3_convnext_small-state.safetensors",
      "581a5b3b35ba7b40040fdd0ea9b0c0f0e444907f046f6ea787bd66cfc0ebe40c",
      197850432ULL},
+    {"dinov3_convnext_base-input.safetensors",
+     "8d89fc9932b75f3f3dffdd16a6a184e589f37507b165413ae6459a13e64b7600",
+     75740ULL},
+    {"dinov3_convnext_base-output.safetensors",
+     "d20b8429e6049cf38de39a215134f5830811708625cee1ba4126ea3e2b1537b7",
+     373120ULL},
+    {"dinov3_convnext_base-state.safetensors",
+     "aee1e3b8fefa959f9c42260661d49b56910a23847c3f78eac3d93e94d141b1c2",
+     350297880ULL},
+    {"dinov3_convnext_large-input.safetensors",
+     "7c1f0b1421d137fe5c8033c199543bc2d17acfc567d40d4089142b2789f434ca",
+     75740ULL},
+    {"dinov3_convnext_large-output.safetensors",
+     "406ff3512d66ceff0628052e8a41f56284c03c50a43a97f4bcb56660be3b334c",
+     559488ULL},
+    {"dinov3_convnext_large-state.safetensors",
+     "d139fe505fcc9674c4a0e05fda13051140c99317bc1a0071976dd888c390f159",
+     784953496ULL},
 }};
 
 test::MappedReference ReadReference(const std::filesystem::path& path) {
@@ -1263,13 +1345,14 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3BaseReferenceReallyRuns) {
   CheckDinoV3Reference("dinov3_vitb16", dinov3_vitb16());
 }
 
-void CheckDinoV3ConvNeXtReference(const char* prefix,
-                                  DinoV3ConvNeXt model) {
-  const auto* directory =
-      std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR");
+void CheckDinoV3ConvNeXtReference(const char* prefix, DinoV3ConvNeXt model,
+                                  const char* directory_variable =
+                                      "JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR",
+                                  std::uint64_t staging_bytes = 1ULL << 30U) {
+  const auto* directory = std::getenv(directory_variable);
   if (directory == nullptr || *directory == '\0') {
-    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR "
-                    "for the pinned Meta ConvNeXt random-state gate";
+    GTEST_SKIP() << "Set " << directory_variable
+                 << " for the pinned Meta ConvNeXt random-state gate";
   }
   const auto root = std::filesystem::path(directory);
   const auto name = std::string(prefix);
@@ -1296,7 +1379,7 @@ void CheckDinoV3ConvNeXtReference(const char* prefix,
           "Random architecture differential; no pretrained weights."};
   auto adapter = adapt(model);
   interop::ModelWeightImportOptions options;
-  options.max_staging_bytes = 1ULL << 30U;
+  options.max_staging_bytes = staging_bytes;
   const auto imported = load_weights(adapter, record, state, options);
   ::testing::Message diagnostics;
   diagnostics << prefix << " mapped=" << imported.plan.matched.size()
@@ -1330,6 +1413,10 @@ void CheckDinoV3ConvNeXtReference(const char* prefix,
   EXPECT_TRUE(torch::allclose(actual_global, reference_global, 5e-4, 5e-5))
       << prefix << " global max error: "
       << (actual_global - reference_global).abs().max().item<double>();
+  const auto invoked = adapter.invoke(
+      {.positional = {image}, .keyword = {}}).value.toTensor();
+  ASSERT_EQ(invoked.sizes(), reference_global.sizes());
+  EXPECT_TRUE(torch::allclose(invoked, reference_global, 5e-4, 5e-5));
 }
 
 TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtTinyReferenceReallyRuns) {
@@ -1339,6 +1426,58 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtTinyReferenceReallyRuns) {
 TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtSmallReferenceReallyRuns) {
   CheckDinoV3ConvNeXtReference("dinov3_convnext_small",
                                dinov3_convnext_small());
+}
+
+template <typename Factory>
+void CheckDinoV3ConvNeXtHighResourceReference(const char* prefix,
+                                              Factory factory,
+                                              std::uint64_t parameters) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_RESOURCE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_RESOURCE_GATE=1 "
+                    "for the serial B/L CPU reference and resource gate";
+  }
+  const auto* directory =
+      std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_REFERENCE_DIR");
+  if (directory == nullptr || *directory == '\0') {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_REFERENCE_DIR "
+                    "to the pinned Meta B/L fixture directory";
+  }
+  const auto construction_start = std::chrono::steady_clock::now();
+  auto model = factory();
+  ASSERT_TRUE(model);
+  const auto construction_end = std::chrono::steady_clock::now();
+  EXPECT_EQ(parameter_count(*model), parameters);
+  const auto construction_peak = ProcessPeakRssBytes();
+  CheckDinoV3ConvNeXtReference(
+      prefix, model, "JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_REFERENCE_DIR",
+      3ULL << 30U);
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 6ULL << 30U);
+  const auto milliseconds = [](auto begin, auto finish) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(finish - begin)
+        .count();
+  };
+  std::cout << "RESOURCE_METRICS model=" << prefix
+            << " construction_ms="
+            << milliseconds(construction_start, construction_end)
+            << " total_ms=" << milliseconds(construction_start, end)
+            << " construction_peak_rss_bytes=" << construction_peak
+            << " process_peak_rss_bytes=" << peak << '\n';
+}
+
+TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtBaseResourceGate) {
+  CheckDinoV3ConvNeXtHighResourceReference(
+      "dinov3_convnext_base", [] { return dinov3_convnext_base(); },
+      87566464U);
+}
+TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtLargeResourceGate) {
+  CheckDinoV3ConvNeXtHighResourceReference(
+      "dinov3_convnext_large", [] { return dinov3_convnext_large(); },
+      196230336U);
 }
 
 #endif

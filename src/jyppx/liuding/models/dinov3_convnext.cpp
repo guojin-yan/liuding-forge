@@ -277,7 +277,7 @@ nn::ModelAdapter adapt(DinoV3ConvNeXt model) {
   output.rank = 2;
   output.shape = {{std::nullopt, model->options().num_classes > 0
                                      ? model->options().num_classes
-                                     : 768}};
+                                     : VariantConfig(model->variant()).channels.back()}};
   return nn::adapt_holder(
       model,
       [](DinoV3ConvNeXtImpl& module, const nn::Invocation& invocation) {

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 from pathlib import Path
@@ -17,7 +18,12 @@ SOURCE_SHA256 = {
     "dinov3/hub/backbones.py": "821b0f6f034fd866862d1b355036321389436fd534766829251cd4e19da2ef45",
     "dinov3/models/convnext.py": "a8c8017839c7db5621fdee50570d664e3027a1ddcd5cad85f60c01f0139f5f9d",
 }
-VARIANTS = ("dinov3_convnext_tiny", "dinov3_convnext_small")
+VARIANTS = {
+    "dinov3_convnext_tiny": (0, (96, 192, 384, 768)),
+    "dinov3_convnext_small": (1, (96, 192, 384, 768)),
+    "dinov3_convnext_base": (2, (128, 256, 512, 1024)),
+    "dinov3_convnext_large": (3, (192, 384, 768, 1536)),
+}
 INPUT_SHAPE = (1, 3, 65, 97)
 SEED = 20261026
 ALIASES = {
@@ -38,7 +44,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--upstream-root", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--variants", nargs="+", choices=VARIANTS,
+                        default=("dinov3_convnext_tiny", "dinov3_convnext_small"))
     args = parser.parse_args()
+    if len(set(args.variants)) != len(args.variants):
+        raise ValueError("Duplicate ConvNeXt variant")
     upstream = args.upstream_root.resolve(strict=True)
     revision = subprocess.check_output(
         ["git", "-C", str(upstream), "rev-parse", "HEAD"], text=True
@@ -67,7 +77,8 @@ def main() -> int:
     torch.set_num_threads(2)
     torch.set_num_interop_threads(1)
     cases = {}
-    for index, name in enumerate(VARIANTS):
+    for name in args.variants:
+        index, channels = VARIANTS[name]
         torch.manual_seed(SEED + index)
         model = getattr(backbones, name)(pretrained=False).cpu().eval()
         official_state = model.state_dict()
@@ -90,13 +101,14 @@ def main() -> int:
                 cropped, n=[0, 1, 2, 3], reshape=True, norm=False
             )
             global_feature = model(cropped)
-        expected_shapes = (
-            (1, 96, 16, 24), (1, 192, 8, 12),
-            (1, 384, 4, 6), (1, 768, 2, 3),
+        expected_shapes = tuple(
+            (1, channel, height, width)
+            for channel, height, width in zip(channels, (16, 8, 4, 2),
+                                              (24, 12, 6, 3))
         )
         if tuple(tuple(stage.shape) for stage in stages) != expected_shapes:
             raise ValueError(f"Unexpected official stage shapes: {name}")
-        if global_feature.shape != (1, 768):
+        if global_feature.shape != (1, channels[-1]):
             raise ValueError(f"Unexpected official global shape: {name}")
         if not all(torch.isfinite(stage).all() for stage in stages):
             raise ValueError(f"Nonfinite official stage: {name}")
@@ -126,6 +138,9 @@ def main() -> int:
             "global_shape": list(global_feature.shape),
             "files": files,
         }
+        del model, official_state, state, inputs, cropped, stages
+        del global_feature, values
+        gc.collect()
 
     evidence = {
         "schema_id": "jyppx.models.dinov3-convnext-reference",
