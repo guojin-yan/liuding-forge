@@ -14,6 +14,7 @@
 #include <jyppx/liuding/data/batch_memory.hpp>
 #include <jyppx/liuding/data/batch_schema.hpp>
 #include <jyppx/liuding/data_image/image_dataset.hpp>
+#include <jyppx/liuding/data_image/resource_budget.hpp>
 
 #include <span>
 
@@ -75,6 +76,7 @@ struct ImageCollateOptions {
   double paired_padding = 0;
   std::optional<std::int64_t> mask_padding_id;  ///< Explicit whenever padded.
   ImageBatchLimits limits;
+  std::shared_ptr<ImageResourceBudget> resource_budget;
 };
 
 /**
@@ -102,6 +104,14 @@ struct ImageBatch {
   std::vector<std::int64_t> label_offsets;
   std::vector<ImageBatchItem> items;
   data::BatchMemoryMetadata memory;
+  /**
+   * @brief Aggregate resource leases held until this batch result is released.
+   *
+   * Each set is shared by copies of the batch. Lease sets are intentionally
+   * outside the serialized value and are recreated only by an explicit stage
+   * that receives a resource budget.
+   */
+  std::vector<std::shared_ptr<ImageResourceLeaseSet>> resource_lease_sets;
 };
 
 /**
@@ -153,16 +163,18 @@ data::BatchSchema image_batch_schema(const ImageBatch& batch, Device device);
  * @param options Existing data memory-stage policy and bounds.
  * @return Batch with pinned tensor leaves and observable memory metadata.
  */
-ImageBatch prepare_image_batch(const ImageBatch& batch,
-                               const data::BatchMemoryOptions& options,
-                               const ImageBatchLimits& limits = {});
+ImageBatch prepare_image_batch(
+    const ImageBatch& batch, const data::BatchMemoryOptions& options,
+    const ImageBatchLimits& limits = {},
+    std::shared_ptr<ImageResourceBudget> resource_budget = {});
 
 /** @brief Transfers a prepared batch on the calling consumer's current stream.
  * @note Uses existing two-phase data memory contract, without hidden streams.
  */
-ImageBatch transfer_image_batch(ImageBatch prepared,
-                                const data::BatchMemoryOptions& options,
-                                const ImageBatchLimits& limits = {});
+ImageBatch transfer_image_batch(
+    ImageBatch prepared, const data::BatchMemoryOptions& options,
+    const ImageBatchLimits& limits = {},
+    std::shared_ptr<ImageResourceBudget> resource_budget = {});
 
 }  // namespace jyppx::liuding::data::image
 

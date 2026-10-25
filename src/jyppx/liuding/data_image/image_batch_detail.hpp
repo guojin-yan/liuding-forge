@@ -23,6 +23,9 @@ std::size_t CheckBatchMetadata(const ImageBatch& batch,
                                bool source_panoptic = false,
                                std::stop_token stop = {});
 std::uint64_t BatchTensorBytes(const ImageBatch& batch);
+std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
+    const ImageBatch& batch, const std::shared_ptr<ImageResourceBudget>& budget,
+    const ImageBatchLimits& limits, std::stop_token stop = {});
 bool SamePixels(const PixelSpec& a, const PixelSpec& b);
 void CheckImageFill(const PixelSpec& spec, double value);
 }  // namespace jyppx::liuding::data::image::detail

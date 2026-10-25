@@ -297,6 +297,106 @@ std::uint64_t BatchTensorBytes(const ImageBatch& b) {
   return result;
 }
 
+std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
+    const ImageBatch& b, const std::shared_ptr<ImageResourceBudget>& budget,
+    const ImageBatchLimits& l, std::stop_token stop) {
+  if (!budget) return {};
+  CheckStop(stop);
+
+  auto leases = std::make_shared<ImageResourceLeaseSet>();
+  const auto add = [](std::uint64_t current, std::uint64_t value,
+                      const char* operation) {
+    if (value > std::numeric_limits<std::uint64_t>::max() - current)
+      BatchLimit(operation);
+    return current + value;
+  };
+  const auto tensor_bytes = BatchTensorBytes(b);
+  std::uint64_t pixel_count = 0;
+  std::uint64_t pinned_bytes = 0;
+  std::uint64_t gpu_bytes = 0;
+  const auto inspect = [&](const Tensor& tensor) {
+    if (!tensor.defined()) return;
+    const auto bytes =
+        static_cast<std::uint64_t>(tensor.numel()) * tensor.element_size();
+    if (tensor.device().is_cuda()) {
+      gpu_bytes = add(gpu_bytes, bytes, "batch.resource.gpu_bytes");
+    } else if (tensor.is_pinned()) {
+      pinned_bytes = add(pinned_bytes, bytes, "batch.resource.pinned_bytes");
+    }
+  };
+  const auto inspect_image = [&](const Tensor& tensor) {
+    if (!tensor.defined()) return;
+    if (tensor.dim() < 2) InvalidBatch("batch.resource.image_rank");
+    const auto height =
+        static_cast<std::uint64_t>(tensor.size(tensor.dim() - 2));
+    const auto width =
+        static_cast<std::uint64_t>(tensor.size(tensor.dim() - 1));
+    if (height && width > std::numeric_limits<std::uint64_t>::max() / height)
+      BatchLimit("batch.resource.pixels");
+    pixel_count = add(pixel_count, height * width, "batch.resource.pixels");
+    inspect(tensor);
+  };
+  if (b.layout == ImageBatchLayout::ragged) {
+    for (const auto& tensor : b.image_list) inspect_image(tensor);
+    for (const auto& tensor : b.paired_image_list) inspect_image(tensor);
+    for (const auto& tensor : b.mask_list) inspect(tensor);
+    for (const auto& tensor : b.valid_list) inspect(tensor);
+  } else {
+    if (b.images.defined()) {
+      if (b.images.dim() != 4) InvalidBatch("batch.resource.image_rank");
+      const auto count = static_cast<std::uint64_t>(b.images.size(0));
+      const auto height = static_cast<std::uint64_t>(b.images.size(2));
+      const auto width = static_cast<std::uint64_t>(b.images.size(3));
+      if (height && width > std::numeric_limits<std::uint64_t>::max() / height)
+        BatchLimit("batch.resource.pixels");
+      const auto area = height * width;
+      if (count && area > std::numeric_limits<std::uint64_t>::max() / count)
+        BatchLimit("batch.resource.pixels");
+      pixel_count = add(pixel_count, count * area, "batch.resource.pixels");
+      inspect(b.images);
+    }
+    if (b.paired_images) inspect_image(*b.paired_images);
+    if (b.masks) inspect(*b.masks);
+    inspect(b.valid);
+  }
+  inspect(b.labels);
+
+  std::vector<ImageExtent> canvases;
+  canvases.reserve(b.items.size());
+  for (std::size_t i = 0; i < b.items.size(); ++i) {
+    const auto tensor = b.layout == ImageBatchLayout::ragged
+                            ? b.image_list[i]
+                            : b.images[static_cast<std::int64_t>(i)];
+    canvases.push_back(
+        {static_cast<std::uint32_t>(tensor.size(tensor.dim() - 1)),
+         static_cast<std::uint32_t>(tensor.size(tensor.dim() - 2))});
+  }
+  const auto metadata_bytes = CheckBatchMetadata(b, canvases, l, false, stop);
+  const auto label_count = static_cast<std::uint64_t>(b.labels.numel());
+  if (label_count >
+      std::numeric_limits<std::uint64_t>::max() / sizeof(std::int64_t))
+    BatchLimit("batch.resource.index_bytes");
+  std::uint64_t index_bytes = label_count * sizeof(std::int64_t);
+  if (b.label_offsets.size() >
+      (std::numeric_limits<std::uint64_t>::max() - index_bytes) /
+          sizeof(std::int64_t))
+    BatchLimit("batch.resource.index_bytes");
+  index_bytes +=
+      static_cast<std::uint64_t>(b.label_offsets.size()) * sizeof(std::int64_t);
+
+  const auto reserve = [&](ImageResourceKind kind, std::uint64_t amount) {
+    if (amount) leases->emplace_back(budget->reserve(kind, amount));
+  };
+  reserve(ImageResourceKind::staged_batches, 1);
+  reserve(ImageResourceKind::decoded_bytes, tensor_bytes);
+  reserve(ImageResourceKind::pixels, pixel_count);
+  reserve(ImageResourceKind::annotation_bytes, metadata_bytes);
+  reserve(ImageResourceKind::index_bytes, index_bytes);
+  reserve(ImageResourceKind::pinned_bytes, pinned_bytes);
+  reserve(ImageResourceKind::gpu_bytes, gpu_bytes);
+  return leases;
+}
+
 void CheckImageBatch(const ImageBatch& b, const ImageBatchLimits& l,
                      std::stop_token stop) {
   CheckBatchLimits(l);
@@ -719,6 +819,9 @@ ImageBatch collate_images(std::span<const VisionSample> samples,
     }
     Stop(stop);
     detail::CheckImageBatch(b, o.limits, stop);
+    if (o.resource_budget)
+      b.resource_lease_sets.push_back(
+          detail::ReserveBatchResources(b, o.resource_budget, o.limits, stop));
     return b;
   } catch (const std::bad_alloc&) {
     BatchLimit("batch.allocate");

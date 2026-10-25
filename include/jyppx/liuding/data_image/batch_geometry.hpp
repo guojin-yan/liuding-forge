@@ -24,6 +24,7 @@ struct ImageBatchGeometryOptions {
   ImageBatchLimits limits;
   std::optional<ImageExtent> output_padded_extent;
   std::uint32_t output_size_divisor = 1;
+  std::shared_ptr<ImageResourceBudget> resource_budget;
 };
 
 /**

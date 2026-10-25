@@ -7,6 +7,7 @@
 
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
+#include <jyppx/liuding/data_image/batch_geometry.hpp>
 #include <jyppx/liuding/data_image/batch_identity.hpp>
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 
@@ -120,6 +121,69 @@ TEST(ImageBatchTest, StackAcceptsMixedStridedLayoutsAndOwnsFinalStorage) {
   EXPECT_EQ(batch.items[1].key.id, "sample-1");
   EXPECT_EQ(batch.items[1].key.occurrence, 1U);
   EXPECT_EQ(batch.items[1].key.view, 2U);
+}
+
+TEST(ImageBatchResourceBudgetTest, BatchStagesRetainAggregateLeases) {
+  auto budget = std::make_shared<ImageResourceBudget>();
+  ImageCollateOptions collate;
+  collate.resource_budget = budget;
+  auto batch = Batch({Photo(), Photo()}, collate);
+
+  const auto staged = budget->usage(ImageResourceKind::staged_batches);
+  const auto decoded = budget->usage(ImageResourceKind::decoded_bytes);
+  const auto pixels = budget->usage(ImageResourceKind::pixels);
+  const auto annotations = budget->usage(ImageResourceKind::annotation_bytes);
+  const auto indexes = budget->usage(ImageResourceKind::index_bytes);
+  EXPECT_EQ(staged.current, 1U);
+  EXPECT_EQ(staged.peak, 1U);
+  EXPECT_EQ(decoded.current, 48U);  // image bytes plus valid masks
+  EXPECT_EQ(pixels.current, 12U);   // two 3x2 image canvases
+  EXPECT_GT(annotations.current, 0U);
+  EXPECT_EQ(indexes.current, 24U);  // three int64 label offsets
+
+  ImageBatchTransformOptions numeric;
+  numeric.image.dtype = torch::kFloat32;
+  numeric.image.scale = BatchPixelScale::preserve;
+  numeric.resource_budget = budget;
+  auto transformed = transform_image_batch(batch, numeric);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 2U);
+  EXPECT_GT(budget->usage(ImageResourceKind::decoded_bytes).current,
+            decoded.current);
+
+  transformed = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
+  batch = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+}
+
+TEST(ImageBatchResourceBudgetTest, GeometryAndMemoryStagesCanBeBound) {
+  auto budget = std::make_shared<ImageResourceBudget>();
+  ImageCollateOptions collate;
+  collate.resource_budget = budget;
+  const auto batch = Batch({Photo()}, collate);
+
+  ImageBatchGeometryOptions geometry;
+  geometry.resource_budget = budget;
+  const auto transformed = transform_image_batch_geometry(
+      batch, std::vector<std::vector<ImageGeometryStep>>(1), geometry);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 2U);
+
+  const auto prepared =
+      prepare_image_batch(transformed, BatchMemoryOptions{}, {}, budget);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 3U);
+  EXPECT_GT(prepared.resource_lease_sets.size(), 0U);
+}
+
+TEST(ImageBatchResourceBudgetTest, FailedReservationRollsBackEarlierLeases) {
+  ImageResourceBudgetLimits limits;
+  limits.max_decoded_bytes = 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  ImageCollateOptions collate;
+  collate.resource_budget = budget;
+  EXPECT_THROW(Batch({Photo()}, collate), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
 }
 
 TEST(ImageBatchTest,

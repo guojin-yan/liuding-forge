@@ -635,21 +635,29 @@ data::BatchSchema image_batch_schema(const ImageBatch& batch, Device device) {
 
 ImageBatch prepare_image_batch(const ImageBatch& batch,
                                const data::BatchMemoryOptions& options,
-                               const ImageBatchLimits& limits) {
+                               const ImageBatchLimits& limits,
+                               std::shared_ptr<ImageResourceBudget> budget) {
   const auto prepared =
       data::prepare_batch_memory(image_batch_value(batch, limits), options);
   auto result = image_batch_from_value(prepared.value, limits);
   result.memory = prepared.metadata;
+  if (budget)
+    result.resource_lease_sets.push_back(
+        detail::ReserveBatchResources(result, budget, limits));
   return result;
 }
 
 ImageBatch transfer_image_batch(ImageBatch prepared,
                                 const data::BatchMemoryOptions& options,
-                                const ImageBatchLimits& limits) {
+                                const ImageBatchLimits& limits,
+                                std::shared_ptr<ImageResourceBudget> budget) {
   auto staged = data::transfer_batch_memory(
       {image_batch_value(prepared, limits), prepared.memory}, options);
   auto result = image_batch_from_value(staged.value, limits);
   result.memory = staged.metadata;
+  if (budget)
+    result.resource_lease_sets.push_back(
+        detail::ReserveBatchResources(result, budget, limits));
   return result;
 }
 }  // namespace jyppx::liuding::data::image

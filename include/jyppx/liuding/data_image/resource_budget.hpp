@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace jyppx::liuding::data::image {
 
@@ -137,6 +138,9 @@ class ImageResourceBudget {
  private:
   std::shared_ptr<resource_detail::ImageResourceBudgetState> state_;
 };
+
+/** @brief Shared lease collection retained by an image batch result. */
+using ImageResourceLeaseSet = std::vector<ImageResourceLease>;
 
 }  // namespace jyppx::liuding::data::image
 

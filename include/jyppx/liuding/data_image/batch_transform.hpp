@@ -36,6 +36,7 @@ struct ImageBatchTransformOptions {
   std::optional<BatchPixelTransform>
       paired;  ///< Absent preserves paired pixels.
   ImageBatchLimits limits;
+  std::shared_ptr<ImageResourceBudget> resource_budget;
 };
 
 /**
