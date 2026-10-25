@@ -6,7 +6,7 @@
 #ifndef JYPPX_LIUDING_MODELS_DINO_HPP
 #define JYPPX_LIUDING_MODELS_DINO_HPP
 /** @file dino.hpp
- * @brief DINOv2 ViT/14 image backbones and classification adapters.
+ * @brief DINOv2 and the first DINOv3 ViT/16 image backbones.
  *
  * The public contract exposes the four DINOv2 capacities selected for v1.0.
  * Architectures are randomly initialized; pretrained weights remain a
@@ -111,6 +111,77 @@ DinoV2 dinov2_vit_giant14(DinoV2Options options = {});
 
 /** @brief Creates a schema-checked adapter for a DINOv2 holder. */
 nn::ModelAdapter adapt(DinoV2 model);
+
+/** @brief Low-resource DINOv3 ViT/16 capacities selected for v1.0. */
+enum class DinoV3Variant : std::uint8_t {
+  small = 1,       ///< 384-dimensional, 12-block, 6-head encoder.
+  small_plus = 2,  ///< 384-dimensional SwiGLU, 12-block, 6-head encoder.
+  base = 3,        ///< 768-dimensional, 12-block, 12-head encoder.
+};
+
+/** @brief Input, head and initialization settings shared by DINOv3 ViT models. */
+struct DinoV3Options {
+  std::int64_t num_classes = 0;
+  ///< Zero returns the CLS embedding; positive values add a classifier head.
+  std::int64_t input_channels = 3;  ///< Positive input channel count.
+  std::int64_t extra_tokens = 4;    ///< Fixed DINOv3 storage/register tokens.
+  double layer_scale_init = 1e-5;   ///< Positive LayerScale initialization.
+};
+
+/** @brief DINOv3 ViT/16 encoder with CLS, extra and patch tokens. */
+class DinoV3Impl final : public torch::nn::Module {
+ public:
+  /** @brief Constructs a low-resource randomly initialized DINOv3 encoder. */
+  explicit DinoV3Impl(DinoV3Variant variant, DinoV3Options options = {});
+
+  /**
+   * @brief Returns CLS, extra/storage and row-major patch tokens.
+   * @param input Dense floating NCHW input on the module device and dtype.
+   * @return `[N, 1 + extra_tokens + floor(H/16)*floor(W/16), embedding]`.
+   * @note H and W are cropped to their largest positive multiples of 16.
+   */
+  Tensor forward_features(const Tensor& input);
+
+  /** @brief Returns CLS embeddings or classifier logits. */
+  Tensor forward(const Tensor& input);
+
+  /** @brief Returns immutable constructor options. */
+  const DinoV3Options& options() const noexcept;
+
+  /** @brief Returns the fixed variant selected at construction. */
+  DinoV3Variant variant() const noexcept;
+
+  /** @brief Replaces or removes the linear classification head. */
+  void reset_classifier(std::int64_t num_classes);
+
+ private:
+  DinoV3Options options_;
+  DinoV3Variant variant_;
+  std::int64_t embedding_dimension_ = 0;
+  std::int64_t attention_heads_ = 0;
+  std::int64_t block_count_ = 0;
+  std::int64_t hidden_dimension_ = 0;
+  bool swiglu_ = false;
+  std::shared_ptr<torch::nn::Module> patch_embed_;
+  torch::nn::LayerNorm final_norm_{nullptr};
+  torch::nn::Linear head_{nullptr};
+  Tensor cls_token_;
+  Tensor extra_tokens_;
+  torch::nn::Sequential blocks_{nullptr};
+};
+
+/** @brief Shared owning holder for a DINOv3 encoder. */
+TORCH_MODULE(DinoV3);
+
+/** @brief Constructs DINOv3 ViT-S/16. */
+DinoV3 dinov3_vits16(DinoV3Options options = {});
+/** @brief Constructs DINOv3 ViT-S+/16. */
+DinoV3 dinov3_vits16plus(DinoV3Options options = {});
+/** @brief Constructs DINOv3 ViT-B/16. */
+DinoV3 dinov3_vitb16(DinoV3Options options = {});
+
+/** @brief Creates a schema-checked adapter for a DINOv3 holder. */
+nn::ModelAdapter adapt(DinoV3 model);
 
 }  // namespace jyppx::liuding::models
 

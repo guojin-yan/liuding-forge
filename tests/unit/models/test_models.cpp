@@ -176,8 +176,8 @@ void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 9U);
-  EXPECT_EQ(entries.front().name, "mobilenet_v3_large");
+  ASSERT_EQ(entries.size(), 12U);
+  EXPECT_EQ(entries.front().name, "dinov3_vitb16");
   EXPECT_EQ(list_models("resnet").size(), 2U);
 
   auto residual = create_model("resnet18");
@@ -288,6 +288,50 @@ TEST(Models,
   EXPECT_LT(base.default_parameters, large.default_parameters);
   EXPECT_LT(large.default_parameters, giant.default_parameters);
   EXPECT_EQ(list_models("dinov2").size(), 4U);
+}
+
+TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
+  const auto small = model_info("dinov3_vits16");
+  const auto small_plus = model_info("dinov3_vits16plus");
+  const auto base = model_info("dinov3_vitb16");
+  EXPECT_EQ(small.family, "dinov3_vit");
+  EXPECT_LT(small.default_parameters, base.default_parameters);
+  EXPECT_EQ(list_models("dinov3").size(), 3U);
+
+  const auto input = torch::randn({2, 3, 225, 239});
+  const auto check = [&](DinoV3 model, std::int64_t dimension) {
+    ASSERT_TRUE(model);
+    model->eval();
+    const auto tokens = model->forward_features(input);
+    // 224x224 after explicit floor/crop: four extra tokens plus CLS and 196
+    // patch tokens.
+    EXPECT_EQ(tokens.sizes(), torch::IntArrayRef({2, 201, dimension}));
+    EXPECT_EQ(model->forward(input).sizes(),
+              torch::IntArrayRef({2, dimension}));
+    EXPECT_TRUE(torch::isfinite(tokens).all().item<bool>());
+    model->reset_classifier(5);
+    EXPECT_EQ(model->forward(input).sizes(), torch::IntArrayRef({2, 5}));
+    model->reset_classifier(0);
+  };
+  check(dinov3_vits16(), 384);
+  check(dinov3_vits16plus(), 384);
+  check(dinov3_vitb16(), 768);
+
+  const auto adapter = create_model("dinov3_vits16",
+                                    {.dinov3 = {.num_classes = 7}});
+  EXPECT_EQ(adapter.invoke({.positional = {input}, .keyword = {}})
+                .value.toTensor()
+                .sizes(),
+            torch::IntArrayRef({2, 7}));
+  EXPECT_THROW(dinov3_vits16()->forward(torch::zeros({1, 3, 15, 16})),
+               InvalidArgument);
+  EXPECT_THROW(
+      {
+        auto invalid = std::make_shared<DinoV3Impl>(
+            DinoV3Variant::small, DinoV3Options{.extra_tokens = 3});
+        static_cast<void>(invalid);
+      },
+      InvalidArgument);
 }
 
 TEST(Models, DinoV2SmallSupportsCpuBackwardAndOptimizerStep) {

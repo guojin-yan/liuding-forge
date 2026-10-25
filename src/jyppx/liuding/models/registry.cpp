@@ -23,8 +23,10 @@ bool Name(std::string_view name) {
     hint += "resnet18, resnet50.";
   else if (name.starts_with("mobile"))
     hint += "mobilenet_v3_small, mobilenet_v3_large.";
+  else if (name.starts_with("dinov3"))
+    hint += "dinov3_vits16, dinov3_vits16plus, dinov3_vitb16.";
   else
-    hint += "transformer_encoder, resnet18, mobilenet_v3_small.";
+    hint += "transformer_encoder, resnet18, dinov3_vits16.";
   throw InvalidArgument("Unknown model architecture",
                         {.component = "models.registry",
                          .operation = "lookup",
@@ -135,6 +137,32 @@ ModelRegistry default_model_registry() {
                [](const ModelOptions& o) {
                  return adapt(dinov2_vit_giant14(o.dinov2));
                });
+  registry.add({.name = "dinov3_vits16",
+                .family = "dinov3_vit",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 21600000U,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(dinov3_vits16(o.dinov3)); });
+  registry.add({.name = "dinov3_vits16plus",
+                .family = "dinov3_vit",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 24000000U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(dinov3_vits16plus(o.dinov3));
+               });
+  registry.add({.name = "dinov3_vitb16",
+                .family = "dinov3_vit",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 86000000U,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(dinov3_vitb16(o.dinov3)); });
   return registry;
 }
 std::vector<ModelInfo> list_models(std::string_view filter) {

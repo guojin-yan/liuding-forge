@@ -33,6 +33,7 @@ struct ModelOptions {
   MobileNetV3Options mobile;              ///< Applied only to mobile models.
   TransformerEncoderOptions transformer;  ///< Applied only to feature encoder.
   DinoV2Options dinov2;                   ///< Applied only to DINOv2 models.
+  DinoV3Options dinov3;                   ///< Applied only to DINOv3 models.
 };
 /** @brief An explicit factory retaining model state through its adapter. */
 using ModelFactory = std::function<nn::ModelAdapter(const ModelOptions&)>;
