@@ -330,7 +330,9 @@ if(TARGET jyppx::liuding::models)
             message(FATAL_ERROR "JYPPX_LIUDING_MODELS_REFERENCE_DIR must be one directory")
         endif()
         foreach(reference_architecture IN ITEMS resnet18 resnet50
-                mobilenet_v3_small mobilenet_v3_large transformer_encoder)
+                mobilenet_v3_small mobilenet_v3_large transformer_encoder
+                vit_small_patch14_dinov2 vit_base_patch14_dinov2
+                vit_large_patch14_dinov2 vit_giant_patch14_dinov2)
             foreach(reference_role IN ITEMS state input output)
                 set(reference_file "${reference_architecture}-${reference_role}.safetensors")
                 if(NOT EXISTS "${JYPPX_LIUDING_MODELS_REFERENCE_DIR}/${reference_file}")

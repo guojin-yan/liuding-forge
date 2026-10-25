@@ -17,7 +17,7 @@
 #include <utility>
 namespace jyppx::liuding::models {
 namespace {
-constexpr std::uint64_t kHardLimit = 4ULL << 30U;
+constexpr std::uint64_t kHardLimit = 16ULL << 30U;
 bool Text(std::string_view value) {
   if (value.empty() || value.size() > 4096U) return false;
   for (const unsigned char ch : value)
@@ -36,7 +36,7 @@ void Bound(std::uint64_t limit) {
       limit > static_cast<std::uint64_t>(
                   std::numeric_limits<std::streamsize>::max()))
     detail::Invalid("weights.limit",
-                    "positive encoded limit no greater than 4GiB");
+                    "positive encoded limit no greater than 16GiB");
 }
 template <class Function>
 decltype(auto) Filesystem(const char* operation, Function&& function) {

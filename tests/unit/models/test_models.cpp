@@ -3,6 +3,8 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0 (the "License");
 
+#include "reference_file.hpp"
+
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
 #include <jyppx/liuding/models/models.hpp>
@@ -16,7 +18,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
 #include <memory>
@@ -393,7 +394,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 18> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 27> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -448,9 +449,36 @@ constexpr std::array<ReferenceFileIdentity, 18> kReferenceFiles{{
     {"vit_small_patch14_dinov2-state.safetensors",
      "cd1aa20613acd6d68210f84d170e1c3b5c16d67968c10c8918881a682f2971a9",
      88240512ULL},
+    {"vit_base_patch14_dinov2-input.safetensors",
+     "48b75b936e2b87cca3cfcf4e76f8e21427b2a7461dfa9c6e3c913286c9949242",
+     1505368ULL},
+    {"vit_base_patch14_dinov2-output.safetensors",
+     "c9d11866fe58e00b42f3541f69f33af5aa22f968820c1879b7fd0b96901c9687",
+     1978520ULL},
+    {"vit_base_patch14_dinov2-state.safetensors",
+     "2941c91046ca4ae4cc3c1d2526b01863e9444383dbea1eb0a7d78b32e7d55e9b",
+     346334872ULL},
+    {"vit_large_patch14_dinov2-input.safetensors",
+     "dc67edfd1e67541e68115fd914b8fba35cdec0375d69b42f9ead25b3e26cb4fc",
+     1505368ULL},
+    {"vit_large_patch14_dinov2-output.safetensors",
+     "1dfd3ae6fe886d27593820ee0fb5d2702ae61527a65b97ca5e55c7a1b6d51b00",
+     2637976ULL},
+    {"vit_large_patch14_dinov2-state.safetensors",
+     "0de163cfe892194462c39ab65c4be7ebdcc85ec7dca9858c51b24a6cfc8557ff",
+     1217502752ULL},
+    {"vit_giant_patch14_dinov2-input.safetensors",
+     "2839e43d3b6f84207e66b08628e65a9b05e5d84c0be27f50a87f20ce691de698",
+     1505368ULL},
+    {"vit_giant_patch14_dinov2-output.safetensors",
+     "7c9b742fe3556340c81a4f43437a2a971ca0fc53bb64d6d8e3e1bbb3d3ef1cd4",
+     3956896ULL},
+    {"vit_giant_patch14_dinov2-state.safetensors",
+     "b40769853a079205711aab6ecb7867ad45d9c3e35d5856e189cb321d21a55027",
+     4545971216ULL},
 }};
 
-std::vector<std::byte> ReadReference(const std::filesystem::path& path) {
+test::MappedReference ReadReference(const std::filesystem::path& path) {
   const auto filename = path.filename().string();
   const auto identity =
       std::find_if(kReferenceFiles.begin(), kReferenceFiles.end(),
@@ -458,19 +486,13 @@ std::vector<std::byte> ReadReference(const std::filesystem::path& path) {
   if (identity == kReferenceFiles.end() ||
       std::filesystem::file_size(path) != identity->size_bytes)
     throw std::runtime_error("models reference file identity/size mismatch");
-  std::ifstream input(path, std::ios::in | std::ios::binary);
-  if (!input) throw std::runtime_error("cannot open models reference artifact");
-  std::vector<std::byte> encoded(
-      static_cast<std::size_t>(identity->size_bytes));
-  input.read(reinterpret_cast<char*>(encoded.data()),
-             static_cast<std::streamsize>(encoded.size()));
-  if (!input || input.peek() != std::char_traits<char>::eof() ||
-      sha256_hex(encoded) != identity->sha256)
+  test::MappedReference encoded(path, identity->size_bytes);
+  if (sha256_hex(encoded) != identity->sha256)
     throw std::runtime_error("models reference file fixed SHA-256 mismatch");
   return encoded;
 }
 
-torch::Tensor ReferenceTensor(const std::vector<std::byte>& encoded,
+torch::Tensor ReferenceTensor(std::span<const std::byte> encoded,
                               std::string_view name) {
   const interop::SafeTensorsView view(encoded);
   const auto& info = view.directory().tensors;
@@ -572,7 +594,8 @@ TEST(ModelsPythonInterop, OfficialTransformerEncoderReferenceReallyRuns) {
   CheckArchitectureReference("transformer_encoder");
 }
 
-TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
+void CheckDinoV2Reference(const char* prefix, DinoV2 model,
+                          std::uint64_t staging_bytes) {
   const auto* directory = std::getenv("JYPPX_LIUDING_MODELS_REFERENCE_DIR");
   if (directory == nullptr || *directory == '\0') {
     GTEST_SKIP()
@@ -580,7 +603,6 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
            "timm DINOv2 reference gate";
   }
   const auto root = std::filesystem::path(directory);
-  constexpr auto prefix = "vit_small_patch14_dinov2";
   const auto state =
       ReadReference(root / (std::string(prefix) + "-state.safetensors"));
   const auto input =
@@ -588,7 +610,7 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
   const auto expected =
       ReadReference(root / (std::string(prefix) + "-output.safetensors"));
   const WeightRecord record{
-      .id = "reference-vit-small-patch14-dinov2-random-v1",
+      .id = "reference-" + std::string(prefix) + "-random-v1",
       .model_name = prefix,
       .source_uri = "fixture://timm/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/" +
                     std::string(prefix),
@@ -604,9 +626,10 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
               .producer = "timm-python-reference"},
       .status_reason =
           "Random timm architecture differential; no pretrained weights."};
-  auto model = dinov2_vits14();
   auto adapter = adapt(model);
-  const auto imported = load_weights(adapter, record, state);
+  interop::ModelWeightImportOptions import_options;
+  import_options.max_staging_bytes = staging_bytes;
+  const auto imported = load_weights(adapter, record, state, import_options);
   ASSERT_TRUE(imported.applied);
   adapter.state().eval();
   torch::NoGradGuard no_grad;
@@ -622,6 +645,30 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
   EXPECT_TRUE(torch::allclose(actual_tokens / scale, reference_tokens / scale,
                               2e-4, 2e-5));
   EXPECT_TRUE(torch::allclose(actual_cls, reference_cls, 2e-4, 2e-5));
+}
+
+TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
+  CheckDinoV2Reference("vit_small_patch14_dinov2", dinov2_vits14(),
+                       512ULL << 20U);
+}
+
+TEST(ModelsPythonInterop, OfficialTimmDinoV2BaseReferenceReallyRuns) {
+  CheckDinoV2Reference("vit_base_patch14_dinov2", dinov2_vitb14(), 2ULL << 30U);
+}
+
+TEST(ModelsPythonInterop, OfficialTimmDinoV2LargeReferenceReallyRuns) {
+  CheckDinoV2Reference("vit_large_patch14_dinov2", dinov2_vitl14(),
+                       6ULL << 30U);
+}
+
+TEST(ModelsPythonInterop, OfficialTimmDinoV2GiantReferenceReallyRuns) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV2_GIANT_REFERENCE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1")
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV2_GIANT_REFERENCE_GATE=1 for the "
+                    "serial DINOv2 Giant reference gate";
+  CheckDinoV2Reference("vit_giant_patch14_dinov2", dinov2_vit_giant14(),
+                       16ULL << 30U);
 }
 
 #endif

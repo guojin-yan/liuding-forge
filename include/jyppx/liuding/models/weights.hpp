@@ -64,7 +64,7 @@ void validate_weight_record(const WeightRecord& record);
 /** @brief Verifies exact bytes and bounded data-only tensor structure.
  * @param record Independently approved exact artifact identity and provenance.
  * @param bytes Stable complete encoded safetensors artifact.
- * @param max_bytes Maximum accepted encoded artifact size.
+ * @param max_bytes Maximum accepted encoded artifact size, at most 16 GiB.
  * @throws NotReady If no pinned verified artifact identity is available.
  */
 void verify_weights(const WeightRecord& record,
@@ -74,7 +74,8 @@ void verify_weights(const WeightRecord& record,
  * @param model Exclusively owned quiescent model state to update.
  * @param record Independently approved exact artifact identity and provenance.
  * @param bytes Stable complete encoded safetensors artifact.
- * @param options Explicit strict/partial mapping and resource limits.
+ * @param options Explicit strict/partial mapping and resource limits. Encoded
+ * artifacts are capped at 16 GiB; staging has its own independent byte budget.
  * @return Full import mapping and actual application result.
  * @note Caller must exclusively own quiescent model state as documented by
  * import_model_weights. Optimizer/storage handles need rebuilding after import.

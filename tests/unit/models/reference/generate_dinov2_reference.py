@@ -21,7 +21,7 @@ import sys
 ARCHITECTURE = "vit_small_patch14_dinov2"
 TIMM_COMMIT = "af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c"
 TIMM_VIT_SOURCE_SHA256 = "e3435821723dffe0d0e58d86d72e8337ce1106c1041f7b87ed37ed685ea3cd79"
-PYTHON_VERSION = "3.12.14"
+PYTHON_VERSIONS = ("3.12.14", "3.11.9")
 TORCH_VERSION = "2.14.1+cpu"
 TORCHVISION_VERSION = "0.29.1+cpu"
 SAFETENSORS_VERSION = "0.6.2"
@@ -60,7 +60,7 @@ def main() -> int:
     args = parser.parse_args()
     if re.fullmatch(r"[0-9a-f]{40}", args.jyppx_commit) is None:
         raise ValueError("--jyppx-commit must identify the exact complete source revision")
-    if platform.python_version() != PYTHON_VERSION:
+    if platform.python_version() not in PYTHON_VERSIONS:
         raise ValueError("Python version differs from the reviewed DINOv2 reference lock")
 
     import safetensors
