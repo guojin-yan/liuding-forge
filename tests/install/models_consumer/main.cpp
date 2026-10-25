@@ -18,7 +18,7 @@ void Require(bool condition, const char* operation) {
 int main() {
   try {
     const auto entries = jyppx::liuding::models::list_models();
-    Require(entries.size() == 9U, "installed-model-catalog");
+    Require(entries.size() == 20U, "installed-model-catalog");
     auto resnet = jyppx::liuding::models::create_model(
         "resnet18", {.resnet = {.num_classes = 4}});
     auto mobile = jyppx::liuding::models::create_model(
