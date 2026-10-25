@@ -55,6 +55,13 @@ struct BatchEnvelope {
   std::optional<BatchMemoryUsage>
       transformed_memory;  ///< Final output usage; present only after
                            ///< transform.
+  /**
+   * @brief Opaque aggregate-resource lease retained with this envelope.
+   *
+   * This is runtime state only and is never serialized into checkpoint
+   * values. Its concrete owner is supplied by an optional adapter callback.
+   */
+  std::shared_ptr<void> resource_lease;
 };
 
 /**
@@ -224,6 +231,8 @@ struct DataPipelineOptions {
       memory;  ///< Optional bounded host-pinning and device-transfer stage.
   std::optional<BatchConsumerTransform> consumer_transform = std::nullopt;
   ///< Optional post-transfer, precommit consumer stage.
+  BatchResourceLeaseFactory resource_lease_factory;
+  ///< Optional aggregate-resource reservation for produced batches.
 };
 
 /**

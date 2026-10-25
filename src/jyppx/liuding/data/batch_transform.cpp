@@ -60,4 +60,34 @@ BatchMemoryUsage run_consumer_transform(c10::IValue& value,
   return usage;
 }
 
+std::shared_ptr<void> run_resource_lease_factory(
+    const BatchResourceLeaseFactory& factory, const c10::IValue& value,
+    const BatchMemoryMetadata& metadata, std::stop_token stop) {
+  if (!factory) return {};
+  if (stop.stop_requested()) throw Cancelled("Batch resource lease cancelled");
+  try {
+    auto lease = factory(value, metadata, stop);
+    if (stop.stop_requested()) {
+      lease.reset();
+      throw Cancelled("Batch resource lease cancelled");
+    }
+    return lease;
+  } catch (const Error&) {
+    throw;
+  } catch (const std::exception& cause) {
+    std::throw_with_nested(BackendError(
+        "Batch resource lease factory failed",
+        ErrorDetails{.component = "data.resource_lease",
+                     .operation = "acquire",
+                     .expected = "one bounded opaque lease",
+                     .actual = cause.what(),
+                     .hint = "Inspect the nested adapter error."}));
+  } catch (...) {
+    std::throw_with_nested(BackendError(
+        "Batch resource lease factory raised a non-standard exception",
+        ErrorDetails{.component = "data.resource_lease",
+                     .operation = "acquire"}));
+  }
+}
+
 }  // namespace jyppx::liuding::data::detail

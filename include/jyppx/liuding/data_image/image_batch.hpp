@@ -13,6 +13,7 @@
 
 #include <jyppx/liuding/data/batch_memory.hpp>
 #include <jyppx/liuding/data/batch_schema.hpp>
+#include <jyppx/liuding/data/batch_transform.hpp>
 #include <jyppx/liuding/data_image/image_dataset.hpp>
 #include <jyppx/liuding/data_image/resource_budget.hpp>
 
@@ -150,6 +151,23 @@ c10::IValue image_batch_value(const ImageBatch& batch,
  */
 ImageBatch image_batch_from_value(const c10::IValue& value,
                                   const ImageBatchLimits& limits = {});
+
+/**
+ * @brief Reserves image resources for an encoded ImageBatch value.
+ *
+ * The returned opaque owner is suitable for
+ * `data::BatchResourceLeaseFactory`; it keeps all aggregate leases alive until
+ * the pipeline result is released. The runtime resource state is never
+ * serialized into the ImageBatch value.
+ */
+std::shared_ptr<void> image_batch_resource_lease(
+    const c10::IValue& value, std::shared_ptr<ImageResourceBudget> budget,
+    const ImageBatchLimits& limits = {}, std::stop_token stop = {});
+
+/** @brief Creates a pipeline callback for ImageBatch aggregate accounting. */
+data::BatchResourceLeaseFactory make_image_batch_resource_lease_factory(
+    std::shared_ptr<ImageResourceBudget> budget,
+    ImageBatchLimits limits = {});
 
 /** @brief Creates the full versioned structural BatchSchema for this batch.
  * @param batch Exemplar supplying layout, pixel and optional-target contracts.

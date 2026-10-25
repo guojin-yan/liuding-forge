@@ -38,6 +38,7 @@ using jyppx::liuding::data::IterableSample;
 using jyppx::liuding::data::IterableSource;
 using jyppx::liuding::data::IterableSourceCursor;
 using jyppx::liuding::data::IterableSourceDescriptor;
+using jyppx::liuding::data::BatchMemoryMetadata;
 
 /** @brief Storage-neutral in-memory checkpoint used by iterable tests. */
 class MemoryStateStore final : public jyppx::liuding::StateWriter,
@@ -591,6 +592,44 @@ TEST(IterableDataPipelineTest, CommitsBatchesAndPreservesWatermarks) {
   EXPECT_EQ(pipeline.state().committed_samples, 5U);
   pipeline.close();
   EXPECT_TRUE(pipeline.closed());
+}
+
+TEST(IterableDataPipelineTest,
+     ResourceLeaseMovesFromProducerWithoutDuplicateFinalReservation) {
+  struct LeaseState {
+    std::mutex mutex;
+    std::map<std::int64_t, int> calls;
+  };
+  auto state = std::make_shared<LeaseState>();
+  auto config = options("data.iterable.resource-lease", 2);
+  config.prefetch_batches = 1;
+  config.resource_lease_factory = [state](const c10::IValue& value,
+                                           const BatchMemoryMetadata&,
+                                           std::stop_token) {
+    const auto key = value.toInt();
+    {
+      std::lock_guard<std::mutex> lock(state->mutex);
+      if (!state->calls.emplace(key, 1).second) {
+        throw std::runtime_error("duplicate resource lease reservation");
+      }
+    }
+    return std::shared_ptr<void>(new int(0), [](void* pointer) {
+      delete static_cast<int*>(pointer);
+    });
+  };
+
+  IterableDataPipeline pipeline(make_source({1, 2, 3, 4}), config,
+                                sum_factory());
+  pipeline.set_epoch(0);
+  auto first = pipeline.next();
+  ASSERT_TRUE(first.has_value());
+  EXPECT_EQ(first->value.toInt(), 3);
+  {
+    std::lock_guard<std::mutex> lock(state->mutex);
+    EXPECT_EQ(state->calls[3], 1);
+  }
+  first.reset();
+  pipeline.close();
 }
 
 TEST(IterableDataPipelineTest, HandlesEmptyAndSingleItemEpochs) {

@@ -446,6 +446,8 @@ struct BatchResult {
   BatchMemoryMetadata memory;
   // Structured factory failure retained for ordered propagation.
   std::exception_ptr error;
+  // Opaque aggregate-resource lease retained until consumer publication.
+  std::shared_ptr<void> resource_lease;
 };
 
 struct EpochWork {
@@ -503,8 +505,12 @@ class WorkerRuntime final {
   // Starts a fixed worker pool. Workers remain idle until activate() installs
   // an epoch plan.
   WorkerRuntime(DataBatchFactory factory, BatchMemoryOptions memory,
+                BatchResourceLeaseFactory resource_lease_factory,
                 std::size_t workers, std::chrono::milliseconds timeout)
-      : factory_(std::move(factory)), memory_(memory), timeout_(timeout) {
+      : factory_(std::move(factory)),
+        memory_(memory),
+        resource_lease_factory_(std::move(resource_lease_factory)),
+        timeout_(timeout) {
     workers_.reserve(workers);
     try {
       for (std::size_t index = 0; index < workers; ++index) {
@@ -535,8 +541,8 @@ class WorkerRuntime final {
 
   // Waits for the next consumer-visible sequence while retaining later
   // completions in the reorder buffer.
-  std::shared_ptr<const BatchResult> wait_for(std::uint64_t sequence,
-                                              std::stop_token stop) {
+  std::shared_ptr<BatchResult> wait_for(std::uint64_t sequence,
+                                        std::stop_token stop) {
     std::stop_callback notify_stop(stop, [this] { cancel_active(); });
     std::unique_lock<std::mutex> lock(mutex_);
     const auto deadline = std::chrono::steady_clock::now() + timeout_;
@@ -689,6 +695,9 @@ class WorkerRuntime final {
           result->value = std::move(staged.value);
           result->memory = staged.metadata;
         }
+        result->resource_lease = detail::run_resource_lease_factory(
+            resource_lease_factory_, result->value, result->memory,
+            epoch->stop_source.get_token());
       } catch (...) {
         result->error = std::current_exception();
       }
@@ -704,6 +713,7 @@ class WorkerRuntime final {
 
   // User factory copied into the runtime so persistent workers can reuse it.
   DataBatchFactory factory_;
+  BatchResourceLeaseFactory resource_lease_factory_;
   // Immutable memory-stage policy shared by every worker invocation.
   BatchMemoryOptions memory_;
   // Zero means an unbounded wait; positive values apply per next() call.
@@ -977,6 +987,7 @@ struct DataPipeline::Impl {
 
   std::unique_ptr<WorkerRuntime> make_runtime() const {
     return std::make_unique<WorkerRuntime>(batch_factory, options.memory,
+                                           options.resource_lease_factory,
                                            options.num_workers,
                                            options.batch_timeout);
   }
@@ -1160,7 +1171,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
         envelope.memory = staged.metadata;
       }
     } else {
-      const auto result = impl_->runtime->wait_for(sequence, stop_token);
+      auto result = impl_->runtime->wait_for(sequence, stop_token);
       if (!result) {
         impl_->fail_delivery(std::make_exception_ptr(
             Cancelled("DataPipeline epoch cancelled before commit")));
@@ -1172,6 +1183,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
       }
       envelope.value = result->value;
       envelope.memory = result->memory;
+      envelope.resource_lease = std::move(result->resource_lease);
       if (!stop_token.stop_requested() &&
           batch_memory_stage_enabled(impl_->options.memory)) {
         auto staged = transfer_batch_memory(
@@ -1193,6 +1205,18 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
            .sample_ids = envelope.sample_ids,
            .source_watermark = {}},
           impl_->options.memory, stop_token);
+    }
+    const bool reacquire_final_lease =
+        impl_->options.num_workers == 0 ||
+        impl_->options.consumer_transform.has_value() ||
+        batch_memory_stage_enabled(impl_->options.memory);
+    if (impl_->options.resource_lease_factory && reacquire_final_lease) {
+      // Release the worker/producer reservation before accounting the final
+      // consumer value, so a strict budget is never charged twice.
+      envelope.resource_lease.reset();
+      envelope.resource_lease = detail::run_resource_lease_factory(
+          impl_->options.resource_lease_factory, envelope.value,
+          envelope.memory, stop_token);
     }
     validate_batch_value(envelope.value, impl_->options.schema);
     if (stop_token.stop_requested())

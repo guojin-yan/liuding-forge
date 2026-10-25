@@ -624,6 +624,24 @@ ImageBatch image_batch_from_value(const c10::IValue& value,
   }
 }
 
+std::shared_ptr<void> image_batch_resource_lease(
+    const c10::IValue& value, std::shared_ptr<ImageResourceBudget> budget,
+    const ImageBatchLimits& limits, std::stop_token stop) {
+  if (!budget) return {};
+  auto batch = image_batch_from_value(value, limits);
+  auto leases = detail::ReserveBatchResources(batch, budget, limits, stop);
+  return std::static_pointer_cast<void>(std::move(leases));
+}
+
+data::BatchResourceLeaseFactory make_image_batch_resource_lease_factory(
+    std::shared_ptr<ImageResourceBudget> budget, ImageBatchLimits limits) {
+  return [budget = std::move(budget), limits](
+             const c10::IValue& value, const data::BatchMemoryMetadata&,
+             std::stop_token stop) {
+    return image_batch_resource_lease(value, budget, limits, stop);
+  };
+}
+
 data::BatchSchema image_batch_schema(const ImageBatch& batch, Device device) {
   if (batch.layout != ImageBatchLayout::stack &&
       batch.layout != ImageBatchLayout::pad &&

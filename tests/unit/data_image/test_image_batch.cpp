@@ -186,6 +186,46 @@ TEST(ImageBatchResourceBudgetTest, FailedReservationRollsBackEarlierLeases) {
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
 }
 
+TEST(ImageBatchResourceBudgetTest,
+     WorkerPipelineRetainsImageLeaseUntilEnvelopeRelease) {
+  auto budget = std::make_shared<ImageResourceBudget>();
+  DataPipelineOptions options;
+  options.pipeline_id = "image.batch.resource-worker";
+  options.dataset_version = "image-batch-fixture/v1";
+  options.dataset_size = 2;
+  options.batch_factory_id = "image-batch-fixture/resource/v1";
+  options.batch_size = 2;
+  options.num_workers = 2;
+  options.prefetch_batches = 1;
+  const auto template_batch = Batch({Photo(), Photo()});
+  options.schema = image_batch_schema(template_batch, torch::kCPU);
+  options.resource_lease_factory =
+      make_image_batch_resource_lease_factory(budget);
+
+  DataPipeline pipeline(
+      std::make_shared<samplers::SequentialSampler>(2), options,
+      [](std::span<const std::size_t> indices,
+         const DataWorkerContext& context, std::stop_token stop) {
+        std::vector<VisionSample> samples;
+        std::vector<ImageBatchKey> keys;
+        for (const auto index : indices) {
+          auto sample = Photo();
+          sample.image.fill_(static_cast<int>(index));
+          samples.push_back(std::move(sample));
+          keys.push_back({std::to_string(index), context.epoch, 0});
+        }
+        return image_batch_value(collate_images(samples, keys, {}, stop));
+      });
+  pipeline.set_epoch(0);
+  auto envelope = pipeline.next();
+  ASSERT_TRUE(envelope);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
+  EXPECT_GT(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  envelope.reset();
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+}
+
 TEST(ImageBatchTest,
      ClassificationOffsetsAndMissingVersusEmptyAnnotationsRoundTrip) {
   auto a = Photo(), b = Photo(), c = Photo();

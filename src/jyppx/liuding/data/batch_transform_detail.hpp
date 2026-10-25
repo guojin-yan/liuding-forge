@@ -24,6 +24,10 @@ BatchMemoryUsage run_consumer_transform(c10::IValue& value,
                                         const BatchMemoryOptions& limits,
                                         std::stop_token stop);
 
+std::shared_ptr<void> run_resource_lease_factory(
+    const BatchResourceLeaseFactory& factory, const c10::IValue& value,
+    const BatchMemoryMetadata& metadata, std::stop_token stop);
+
 }  // namespace jyppx::liuding::data::detail
 
 #endif  // JYPPX_LIUDING_DATA_BATCH_TRANSFORM_DETAIL_HPP

@@ -12,10 +12,12 @@
  * @brief Declares consumer-side transforms executed before batch commit.
  */
 
+#include <jyppx/liuding/data/batch_memory.hpp>
 #include <jyppx/liuding/data/batch_schema.hpp>
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -38,6 +40,20 @@ struct BatchConsumerContext {
   std::string_view
       source_watermark;  ///< Candidate iterable position, or empty.
 };
+
+/**
+ * @brief Acquires an opaque aggregate-resource lease for one batch value.
+ *
+ * The data pipeline owns the returned object while a batch is prefetched or
+ * delivered. The callback is intentionally type-erased so the codec/image
+ * adapter can account for annotation, pixel, pinned, GPU, and queue resources
+ * without making the codec-free data component depend on `data_image`.
+ * Returning an empty pointer means that the value has no additional aggregate
+ * reservation. The callback must be bounded, thread-safe for worker calls,
+ * and honor the stop token.
+ */
+using BatchResourceLeaseFactory = std::function<std::shared_ptr<void>(
+    const c10::IValue&, const BatchMemoryMetadata&, std::stop_token)>;
 
 /**
  * @brief Optional synchronous consumer transform, after transfer and before

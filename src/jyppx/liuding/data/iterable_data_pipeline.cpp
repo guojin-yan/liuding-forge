@@ -489,7 +489,7 @@ struct ProducedBatch {
   std::string source_state;       ///< Cursor position after this batch or tail.
   std::string source_watermark;   ///< Last pulled source watermark.
   bool source_exhausted = false;  ///< Whether no later source item exists.
-  std::exception_ptr error;       ///< Ordered source or collator failure.
+  std::exception_ptr error;  ///< Ordered source or collator failure.
 };
 
 class IterableRuntime final {
@@ -513,7 +513,7 @@ class IterableRuntime final {
 
   ~IterableRuntime() { close(); }
 
-  std::shared_ptr<const ProducedBatch> wait_next(std::stop_token stop) {
+  std::shared_ptr<ProducedBatch> wait_next(std::stop_token stop) {
     std::stop_callback notify_stop(stop, [this] { condition_.notify_all(); });
     std::unique_lock<std::mutex> lock(mutex_);
     const auto deadline =
@@ -696,6 +696,9 @@ class IterableRuntime final {
       envelope.value = std::move(staged.value);
       envelope.memory = staged.metadata;
     }
+    envelope.resource_lease = detail::run_resource_lease_factory(
+        options_.resource_lease_factory, envelope.value, envelope.memory,
+        stop);
     envelope.schema = options_.schema;
     envelope.dataset_version = options_.dataset_version;
     envelope.epoch = epoch_;
@@ -1056,7 +1059,7 @@ std::optional<BatchEnvelope> IterableDataPipeline::next(
     return std::nullopt;
   }
   try {
-    const auto result = impl_->runtime->wait_next(stop_token);
+    auto result = impl_->runtime->wait_next(stop_token);
     if (!result) {
       impl_->fail_delivery(std::make_exception_ptr(
           Cancelled("IterableDataPipeline epoch cancelled before commit")));
@@ -1078,7 +1081,7 @@ std::optional<BatchEnvelope> IterableDataPipeline::next(
       impl_->runtime.reset();
       return std::nullopt;
     }
-    auto envelope = *result->envelope;
+    auto envelope = std::move(*result->envelope);
     if (batch_memory_stage_enabled(impl_->options.memory)) {
       auto staged = transfer_batch_memory(
           {.value = std::move(envelope.value), .metadata = envelope.memory},
@@ -1098,6 +1101,17 @@ std::optional<BatchEnvelope> IterableDataPipeline::next(
            .sample_ids = envelope.sample_ids,
            .source_watermark = envelope.source_watermark},
           impl_->options.memory, stop_token);
+    }
+    const bool reacquire_final_lease =
+        impl_->options.consumer_transform.has_value() ||
+        batch_memory_stage_enabled(impl_->options.memory);
+    if (impl_->options.resource_lease_factory && reacquire_final_lease) {
+      // Release the producer reservation before accounting the final
+      // consumer value, so a strict budget is never charged twice.
+      envelope.resource_lease.reset();
+      envelope.resource_lease = detail::run_resource_lease_factory(
+          impl_->options.resource_lease_factory, envelope.value,
+          envelope.memory, stop_token);
     }
     validate_batch_value(envelope.value, impl_->options.schema);
     if (envelope.sample_ids.size() > std::numeric_limits<std::uint64_t>::max() -

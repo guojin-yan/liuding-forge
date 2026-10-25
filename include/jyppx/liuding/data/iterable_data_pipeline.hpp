@@ -48,6 +48,8 @@ struct IterableDataPipelineOptions {
       true;  ///< Whether collator replay is stable.
   std::optional<BatchConsumerTransform> consumer_transform = std::nullopt;
   ///< Optional post-transfer, precommit consumer stage.
+  BatchResourceLeaseFactory resource_lease_factory;
+  ///< Optional aggregate-resource reservation for produced batches.
 };
 
 /**
