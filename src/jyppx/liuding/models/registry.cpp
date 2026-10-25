@@ -142,7 +142,7 @@ ModelRegistry default_model_registry() {
                 .task = "image_classification_or_embedding",
                 .reference =
                     "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 21600000U,
+                .default_parameters = 21601152U,
                 .preview = true},
                [](const ModelOptions& o) { return adapt(dinov3_vits16(o.dinov3)); });
   registry.add({.name = "dinov3_vits16plus",
@@ -150,7 +150,7 @@ ModelRegistry default_model_registry() {
                 .task = "image_classification_or_embedding",
                 .reference =
                     "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 24000000U,
+                .default_parameters = 28697472U,
                 .preview = true},
                [](const ModelOptions& o) {
                  return adapt(dinov3_vits16plus(o.dinov3));
@@ -160,7 +160,7 @@ ModelRegistry default_model_registry() {
                 .task = "image_classification_or_embedding",
                 .reference =
                     "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 86000000U,
+                .default_parameters = 85669632U,
                 .preview = true},
                [](const ModelOptions& o) { return adapt(dinov3_vitb16(o.dinov3)); });
   registry.add({.name = "dinov3_vitl16",
@@ -168,7 +168,7 @@ ModelRegistry default_model_registry() {
                 .task = "image_classification_or_embedding",
                 .reference =
                     "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 303000000ULL,
+                .default_parameters = 303154176ULL,
                 .preview = true},
                [](const ModelOptions& o) { return adapt(dinov3_vitl16(o.dinov3)); });
   registry.add({.name = "dinov3_vitl16plus",
@@ -176,7 +176,7 @@ ModelRegistry default_model_registry() {
                 .task = "image_classification_or_embedding",
                 .reference =
                     "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 305000000ULL,
+                .default_parameters = 403915776ULL,
                 .preview = true},
                [](const ModelOptions& o) {
                  return adapt(dinov3_vitl16plus(o.dinov3));

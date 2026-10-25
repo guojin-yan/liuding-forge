@@ -1073,7 +1073,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 48> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 54> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -1182,6 +1182,24 @@ constexpr std::array<ReferenceFileIdentity, 48> kReferenceFiles{{
     {"dinov3_vitb16-state.safetensors",
      "f0f54ed6fadeec515cb2037a53e5dba992368758627593de06a586620fcc2b04",
      342806544ULL},
+    {"dinov3_vitl16-input.safetensors",
+     "528af5c1a18c930b1e315990c3e02a2fcf6d53a338149d4d114a8e6ea773844e",
+     21080ULL},
+    {"dinov3_vitl16-output.safetensors",
+     "65669bef34b739c419391737ab0ca58a5bf41921ba6feae0c0eb9232a66c4983",
+     49304ULL},
+    {"dinov3_vitl16-state.safetensors",
+     "5801b1bd7f0a5caccfee4dd35c9885f6599c080ba40462b777923a0751d2e69d",
+     1212946512ULL},
+    {"dinov3_vitl16plus-input.safetensors",
+     "0048aa489147658d3bbc66617bc0bb0fd1d4478689cee233b0801ed8d9b15187",
+     21080ULL},
+    {"dinov3_vitl16plus-output.safetensors",
+     "bec216d314acb284afb65852021633b432f2d5b7167493a2af8c5893288e743a",
+     49304ULL},
+    {"dinov3_vitl16plus-state.safetensors",
+     "77c9422ed9d93ec99dbeacba7506e38eeed5866de8b0240917af4f569954fcea",
+     1615997568ULL},
     {"dinov3_convnext_tiny-input.safetensors",
      "24b25a4c01bcff80de9249a6d7ef1c31cfd2858c06db626710a040469304f228",
      75740ULL},
@@ -1413,11 +1431,14 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2GiantReferenceReallyRuns) {
                        16ULL << 30U);
 }
 
-void CheckDinoV3Reference(const char* prefix, DinoV3 model) {
-  const auto* directory = std::getenv("JYPPX_LIUDING_DINOV3_REFERENCE_DIR");
+void CheckDinoV3Reference(
+    const char* prefix, DinoV3 model,
+    const char* directory_variable = "JYPPX_LIUDING_DINOV3_REFERENCE_DIR",
+    std::uint64_t staging_bytes = 1ULL << 30U) {
+  const auto* directory = std::getenv(directory_variable);
   if (directory == nullptr || *directory == '\0') {
-    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_REFERENCE_DIR for the pinned "
-                    "Meta DINOv3 random-state reference gate";
+    GTEST_SKIP() << "Set " << directory_variable
+                 << " for the pinned Meta DINOv3 random-state reference gate";
   }
   const auto root = std::filesystem::path(directory);
   const auto name = std::string(prefix);
@@ -1444,7 +1465,7 @@ void CheckDinoV3Reference(const char* prefix, DinoV3 model) {
           "Random architecture differential; no pretrained weights."};
   auto adapter = adapt(model);
   interop::ModelWeightImportOptions options;
-  options.max_staging_bytes = 1ULL << 30U;
+  options.max_staging_bytes = staging_bytes;
   const auto imported = load_weights(adapter, record, state, options);
   ::testing::Message diagnostics;
   diagnostics << prefix << " mapped=" << imported.plan.matched.size()
@@ -1484,6 +1505,55 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3SmallPlusReferenceReallyRuns) {
 }
 TEST(ModelsPythonInterop, OfficialMetaDinoV3BaseReferenceReallyRuns) {
   CheckDinoV3Reference("dinov3_vitb16", dinov3_vitb16());
+}
+
+template <typename Factory>
+void CheckDinoV3HighResourceReference(const char* prefix, Factory factory,
+                                      std::uint64_t parameters) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_VIT_HIGH_RESOURCE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_VIT_HIGH_RESOURCE_GATE=1 "
+                    "for the serial ViT-L/L+ CPU reference and resource gate";
+  }
+  const auto* directory =
+      std::getenv("JYPPX_LIUDING_DINOV3_VIT_HIGH_REFERENCE_DIR");
+  if (directory == nullptr || *directory == '\0') {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_VIT_HIGH_REFERENCE_DIR "
+                    "to the pinned Meta ViT-L/L+ fixture directory";
+  }
+  const auto construction_start = std::chrono::steady_clock::now();
+  auto model = factory();
+  ASSERT_TRUE(model);
+  const auto construction_end = std::chrono::steady_clock::now();
+  EXPECT_EQ(parameter_count(*model), parameters);
+  EXPECT_EQ(model_info(prefix).default_parameters, parameters);
+  const auto construction_peak = ProcessPeakRssBytes();
+  CheckDinoV3Reference(prefix, model,
+                       "JYPPX_LIUDING_DINOV3_VIT_HIGH_REFERENCE_DIR",
+                       6ULL << 30U);
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 8ULL << 30U);
+  const auto milliseconds = [](auto begin, auto finish) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(finish - begin)
+        .count();
+  };
+  std::cout << "RESOURCE_METRICS model=" << prefix << " construction_ms="
+            << milliseconds(construction_start, construction_end)
+            << " total_ms=" << milliseconds(construction_start, end)
+            << " construction_peak_rss_bytes=" << construction_peak
+            << " process_peak_rss_bytes=" << peak << '\n';
+}
+
+TEST(ModelsPythonInterop, OfficialMetaDinoV3LargeResourceGate) {
+  CheckDinoV3HighResourceReference(
+      "dinov3_vitl16", [] { return dinov3_vitl16(); }, 303154176U);
+}
+TEST(ModelsPythonInterop, OfficialMetaDinoV3LargePlusResourceGate) {
+  CheckDinoV3HighResourceReference(
+      "dinov3_vitl16plus", [] { return dinov3_vitl16plus(); }, 403915776U);
 }
 
 void CheckDinoV3ConvNeXtReference(const char* prefix, DinoV3ConvNeXt model,

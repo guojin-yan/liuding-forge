@@ -22,13 +22,19 @@ SOURCE_SHA256 = {
     "dinov3/layers/ffn_layers.py": "62875b278c7045b6538581f8e5c19fc2b89505c028832bf95359ce4f3d8b3741",
     "dinov3/layers/patch_embed.py": "a9ec7336332ac0b0073a60ff79040a250d05e719f3ab85fcb6759a7d97dff6be",
 }
-VARIANTS = {
+LOW_RESOURCE_VARIANTS = {
     "dinov3_vits16": 384,
     "dinov3_vits16plus": 384,
     "dinov3_vitb16": 768,
 }
-INPUT_SHAPE = (2, 3, 35, 50)
-SEED = 20261025
+HIGH_RESOURCE_VARIANTS = {
+    "dinov3_vitl16": 1024,
+    "dinov3_vitl16plus": 1024,
+}
+PROFILES = {
+    "low": (LOW_RESOURCE_VARIANTS, (2, 3, 35, 50), 20261025),
+    "high": (HIGH_RESOURCE_VARIANTS, (1, 3, 35, 50), 20261026),
+}
 
 
 def digest(path: Path) -> str:
@@ -43,7 +49,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--upstream-root", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--profile", choices=PROFILES, default="low")
     args = parser.parse_args()
+    variants, input_shape, seed = PROFILES[args.profile]
     upstream = args.upstream_root.resolve(strict=True)
     revision = subprocess.check_output(
         ["git", "-C", str(upstream), "rev-parse", "HEAD"], text=True
@@ -72,10 +80,10 @@ def main() -> int:
     torch.set_num_threads(2)
     torch.set_num_interop_threads(1)
     cases = {}
-    for index, (name, dimension) in enumerate(VARIANTS.items()):
-        torch.manual_seed(SEED + index)
+    for index, (name, dimension) in enumerate(variants.items()):
+        torch.manual_seed(seed + index)
         model = getattr(backbones, name)(pretrained=False).cpu().eval()
-        inputs = torch.randn(INPUT_SHAPE, dtype=torch.float32)
+        inputs = torch.randn(input_shape, dtype=torch.float32)
         with torch.inference_mode():
             features = model.forward_features(inputs)
             tokens = torch.cat(
@@ -84,7 +92,9 @@ def main() -> int:
                  features["x_norm_patchtokens"]), dim=1
             )
             cls = model(inputs)
-        if tokens.shape != (2, 11, dimension) or cls.shape != (2, dimension):
+        patch_count = (input_shape[2] // 16) * (input_shape[3] // 16)
+        if tokens.shape != (input_shape[0], 5 + patch_count, dimension) or \
+                cls.shape != (input_shape[0], dimension):
             raise ValueError(f"Unexpected official DINOv3 output shape: {name}")
         if not torch.isfinite(tokens).all() or not torch.isfinite(cls).all():
             raise ValueError(f"Nonfinite official DINOv3 output: {name}")
@@ -103,7 +113,7 @@ def main() -> int:
         cases[name] = {
             "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
             "state_keys": len(values["state"]),
-            "input_shape": list(INPUT_SHAPE),
+            "input_shape": list(input_shape),
             "token_shape": list(tokens.shape),
             "cls_shape": list(cls.shape),
             "files": files,
@@ -123,7 +133,7 @@ def main() -> int:
         "device": "cpu",
         "intraop_threads": 2,
         "interop_threads": 1,
-        "seed": SEED,
+        "seed": seed,
         "pretrained": False,
         "weight_license": "NOASSERTION",
         "qualification": "random-architecture-differential-only",
