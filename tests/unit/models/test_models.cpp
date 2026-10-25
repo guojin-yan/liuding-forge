@@ -190,6 +190,32 @@ TEST(Models, DinoV2GiantResourceGateIsExplicit) {
             torch::IntArrayRef({1, 2, 1536}));
 }
 
+TEST(ModelsCuda, DinoV2SmallForwardUsesCudaWhenAvailable) {
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0) {
+    GTEST_SKIP() << "CUDA device is unavailable";
+  }
+
+  const torch::Device device(torch::kCUDA, 0);
+  auto model = dinov2_vits14();
+  ASSERT_TRUE(model);
+  model->to(device);
+  model->eval();
+
+  torch::NoGradGuard no_grad;
+  const auto input = torch::randn(
+      {1, 3, 224, 224},
+      torch::TensorOptions().dtype(torch::kFloat32).device(device));
+  const auto tokens = model->forward_features(input);
+  const auto cls = model->forward(input);
+
+  EXPECT_TRUE(tokens.device().is_cuda());
+  EXPECT_TRUE(cls.device().is_cuda());
+  EXPECT_EQ(tokens.sizes(), torch::IntArrayRef({1, 257, 384}));
+  EXPECT_EQ(cls.sizes(), torch::IntArrayRef({1, 384}));
+  EXPECT_TRUE(torch::isfinite(tokens).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(cls).all().item<bool>());
+}
+
 TEST(Models, ResNetVariantsExposeExpectedFeatureStridesAndParameterCounts) {
   auto small = resnet18({.num_classes = 7});
   auto large = resnet50({.num_classes = 7});
