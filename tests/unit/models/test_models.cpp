@@ -33,9 +33,9 @@ Tensor Images(std::int64_t channels = 3) {
   return torch::zeros({2, channels, 64, 64}, torch::kFloat32);
 }
 
-TEST(Models, RegistryListsFivePreviewArchitecturesAndCreatesAdapters) {
+TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 5U);
+  ASSERT_EQ(entries.size(), 9U);
   EXPECT_EQ(entries.front().name, "mobilenet_v3_large");
   EXPECT_EQ(list_models("resnet").size(), 2U);
 
@@ -63,6 +63,131 @@ TEST(Models, RegistryListsFivePreviewArchitecturesAndCreatesAdapters) {
   const auto encoded = transformer.invoke(
       {.positional = {torch::zeros({2, 5, 32})}, .keyword = {}});
   EXPECT_EQ(encoded.value.toTensor().sizes(), torch::IntArrayRef({2, 5, 32}));
+}
+
+TEST(Models, DinoV2SmallPreservesClsPatchContractAndSupportsHeadReplacement) {
+  auto backbone = dinov2_vits14();
+  backbone->eval();
+  const auto parameters = backbone->named_parameters(true);
+  std::vector<std::string> parameter_names;
+  parameter_names.reserve(parameters.size());
+  for (const auto& entry : parameters) parameter_names.push_back(entry.key());
+  for (const auto* key : {"patch_embed.proj.weight", "cls_token", "pos_embed",
+                           "blocks.0.norm1.weight",
+                           "blocks.0.attn.qkv.weight",
+                           "blocks.0.attn.proj.weight",
+                           "blocks.0.ls1.gamma",
+                           "blocks.0.norm2.weight",
+                           "blocks.0.mlp.fc1.weight",
+                           "blocks.0.mlp.fc2.weight",
+                           "blocks.0.ls2.gamma", "norm.weight"}) {
+    EXPECT_NE(std::find(parameter_names.begin(), parameter_names.end(), key),
+              parameter_names.end())
+        << key;
+  }
+
+  const auto input = torch::randn({1, 3, 224, 224});
+  const auto tokens = backbone->forward_features(input);
+  EXPECT_EQ(tokens.sizes(), torch::IntArrayRef({1, 257, 384}));
+  EXPECT_EQ(backbone->forward(input).sizes(), torch::IntArrayRef({1, 384}));
+  EXPECT_EQ(parameter_count(*backbone), 22'056'192U);
+
+  auto rectangular_input = torch::randn({1, 3, 28, 42});
+  rectangular_input.set_requires_grad(true);
+  backbone->train();
+  const auto rectangular_tokens = backbone->forward_features(rectangular_input);
+  EXPECT_EQ(rectangular_tokens.sizes(), torch::IntArrayRef({1, 7, 384}));
+  rectangular_tokens.square().mean().backward();
+  EXPECT_TRUE(torch::isfinite(rectangular_input.grad()).all().item<bool>());
+  bool qkv_gradient_defined = false;
+  for (const auto& entry : backbone->named_parameters(true)) {
+    if (entry.key() == "blocks.0.attn.qkv.weight") {
+      qkv_gradient_defined = entry.value().grad().defined() &&
+                             torch::isfinite(entry.value().grad())
+                                 .all()
+                                 .item<bool>();
+      break;
+    }
+  }
+  EXPECT_TRUE(qkv_gradient_defined);
+
+  backbone->eval();
+  backbone->reset_classifier(5);
+  EXPECT_EQ(backbone->forward(input).sizes(), torch::IntArrayRef({1, 5}));
+  const auto parameter_count_with_head = parameter_count(*backbone);
+  EXPECT_THROW(backbone->reset_classifier(-1), InvalidArgument);
+  EXPECT_EQ(backbone->options().num_classes, 5);
+  EXPECT_EQ(parameter_count(*backbone), parameter_count_with_head);
+  backbone->reset_classifier(0);
+  EXPECT_EQ(backbone->forward(input).sizes(), torch::IntArrayRef({1, 384}));
+
+  auto classifier = create_model(
+      "vit_small_patch14_dinov2",
+      {.dinov2 = {.num_classes = 7, .input_channels = 3}});
+  classifier.state().eval();
+  const auto logits = classifier.invoke(
+      {.positional = {input}, .keyword = {}}).value.toTensor();
+  EXPECT_EQ(logits.sizes(), torch::IntArrayRef({1, 7}));
+  EXPECT_THROW(backbone->forward(torch::zeros({1, 3, 225, 224})),
+               InvalidArgument);
+
+  backbone->to(torch::kFloat64);
+  backbone->reset_classifier(3);
+  const auto double_input = torch::zeros({1, 3, 14, 14}, torch::kFloat64);
+  EXPECT_EQ(backbone->forward_features(double_input).scalar_type(),
+            torch::kFloat64);
+  EXPECT_EQ(backbone->forward(double_input).sizes(),
+            torch::IntArrayRef({1, 3}));
+}
+
+TEST(Models, DinoV2CapacityMetadataIsExplicitAndGiantIsNotConstructedImplicitly) {
+  const auto small = model_info("vit_small_patch14_dinov2");
+  const auto base = model_info("vit_base_patch14_dinov2");
+  const auto large = model_info("vit_large_patch14_dinov2");
+  const auto giant = model_info("vit_giant_patch14_dinov2");
+  EXPECT_EQ(small.family, "dinov2");
+  EXPECT_LT(small.default_parameters, base.default_parameters);
+  EXPECT_LT(base.default_parameters, large.default_parameters);
+  EXPECT_LT(large.default_parameters, giant.default_parameters);
+  EXPECT_EQ(list_models("dinov2").size(), 4U);
+}
+
+TEST(Models, DinoV2BaseAndLargeMatchPinnedCapacityContracts) {
+  const auto check = [](DinoV2 model, std::int64_t dimension,
+                        std::uint64_t parameters) {
+    ASSERT_TRUE(model);
+    model->eval();
+    const auto named = model->named_parameters(true);
+    EXPECT_TRUE(named.contains("patch_embed.proj.weight"));
+    EXPECT_TRUE(named.contains("blocks.0.attn.qkv.weight"));
+    EXPECT_TRUE(named.contains("blocks.0.mlp.fc1.weight"));
+    EXPECT_TRUE(named.contains("blocks.0.ls1.gamma"));
+    EXPECT_TRUE(named.contains("norm.weight"));
+    EXPECT_EQ(parameter_count(*model), parameters);
+    const auto tokens = model->forward_features(
+        torch::zeros({1, 3, 14, 28}, torch::kFloat32));
+    EXPECT_EQ(tokens.sizes(), torch::IntArrayRef({1, 3, dimension}));
+    EXPECT_EQ(model->forward(torch::zeros({1, 3, 14, 28})).sizes(),
+              torch::IntArrayRef({1, dimension}));
+  };
+
+  // Keep the allocations serial: the large variant is a 304M-parameter
+  // model and must not be resident while the base variant is checked.
+  check(dinov2_vitb14(), 768, 86'579'712U);
+  check(dinov2_vitl14(), 1024, 304'367'616U);
+}
+
+TEST(Models, DinoV2GiantResourceGateIsExplicit) {
+  const auto* enabled = std::getenv("JYPPX_LIUDING_DINOV2_GIANT_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1")
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV2_GIANT_GATE=1 for the serial "
+                    "1.136B-parameter resource gate";
+  auto model = dinov2_vit_giant14();
+  ASSERT_TRUE(model);
+  EXPECT_EQ(parameter_count(*model), 1'136'479'232ULL);
+  model->eval();
+  EXPECT_EQ(model->forward_features(torch::zeros({1, 3, 14, 14})).sizes(),
+            torch::IntArrayRef({1, 2, 1536}));
 }
 
 TEST(Models, ResNetVariantsExposeExpectedFeatureStridesAndParameterCounts) {
@@ -162,6 +287,14 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
             std::string::npos);
   EXPECT_THROW(verify_weights(records.front(), std::span<const std::byte>{}),
                NotReady);
+  const auto dino = available_weights("vit_small_patch14_dinov2");
+  ASSERT_EQ(dino.size(), 1U);
+  EXPECT_EQ(dino.front().id, "vit_small_patch14_dinov2.lvd142m");
+  EXPECT_EQ(dino.front().availability, WeightAvailability::not_provisioned);
+  EXPECT_FALSE(dino.front().artifact.has_value());
+  EXPECT_EQ(dino.front().license_spdx, "NOASSERTION");
+  EXPECT_NE(models_preview_manifest_json().find("vit_giant_patch14_dinov2"),
+            std::string::npos);
 }
 
 struct TinyModel final : torch::nn::Module {
@@ -237,7 +370,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 15> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 18> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -283,6 +416,15 @@ constexpr std::array<ReferenceFileIdentity, 15> kReferenceFiles{{
     {"transformer_encoder-state.safetensors",
      "be4d41ef9fd15d7c3345a32d04c12d524a730a555cb3d329323bad490de461f2",
      75668848ULL},
+    {"vit_small_patch14_dinov2-input.safetensors",
+     "0ba7d144d17e1d8a0d97494357b80d8d16d7448339e7755b2b21d45d767a4632",
+     1505368ULL},
+    {"vit_small_patch14_dinov2-output.safetensors",
+     "c8347532d3e7ae4b5328a889d4ce18f9a20f86c13197d96beb52e456bf46730a",
+     989336ULL},
+    {"vit_small_patch14_dinov2-state.safetensors",
+     "cd1aa20613acd6d68210f84d170e1c3b5c16d67968c10c8918881a682f2971a9",
+     88240512ULL},
 }};
 
 std::vector<std::byte> ReadReference(const std::filesystem::path& path) {
@@ -405,6 +547,58 @@ TEST(ModelsPythonInterop,
 }
 TEST(ModelsPythonInterop, OfficialTransformerEncoderReferenceReallyRuns) {
   CheckArchitectureReference("transformer_encoder");
+}
+
+TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
+  const auto* directory = std::getenv("JYPPX_LIUDING_MODELS_REFERENCE_DIR");
+  if (directory == nullptr || *directory == '\0') {
+    GTEST_SKIP()
+        << "Set JYPPX_LIUDING_MODELS_REFERENCE_DIR for the independent "
+           "timm DINOv2 reference gate";
+  }
+  const auto root = std::filesystem::path(directory);
+  constexpr auto prefix = "vit_small_patch14_dinov2";
+  const auto state = ReadReference(root / (std::string(prefix) +
+                                            "-state.safetensors"));
+  const auto input = ReadReference(root / (std::string(prefix) +
+                                            "-input.safetensors"));
+  const auto expected = ReadReference(root / (std::string(prefix) +
+                                               "-output.safetensors"));
+  const WeightRecord record{
+      .id = "reference-vit-small-patch14-dinov2-random-v1",
+      .model_name = prefix,
+      .source_uri =
+          "fixture://timm/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/" +
+          std::string(prefix),
+      .license_spdx = "LicenseRef-Generated-Test-Fixture",
+      .license_uri = "fixture://models-reference/local-generated-state",
+      .availability = WeightAvailability::pinned_external,
+      .artifact = ArtifactRef{
+          .digest = ArtifactDigest{.hex = sha256_hex(state)},
+          .size_bytes = state.size(),
+          .logical_name = std::string(prefix) + "-state.safetensors",
+          .media_type = "application/x-safetensors",
+          .producer = "timm-python-reference"},
+      .status_reason =
+          "Random timm architecture differential; no pretrained weights."};
+  auto model = dinov2_vits14();
+  auto adapter = adapt(model);
+  const auto imported = load_weights(adapter, record, state);
+  ASSERT_TRUE(imported.applied);
+  adapter.state().eval();
+  torch::NoGradGuard no_grad;
+  const auto image = ReferenceTensor(input, "input");
+  const auto actual_tokens = model->forward_features(image);
+  const auto actual_cls = model->forward(image);
+  const auto reference_tokens = ReferenceTensor(expected, "tokens");
+  const auto reference_cls = ReferenceTensor(expected, "output");
+  ASSERT_EQ(actual_tokens.sizes(), reference_tokens.sizes());
+  ASSERT_EQ(actual_cls.sizes(), reference_cls.sizes());
+  const auto scale = reference_tokens.abs().max().item<double>();
+  ASSERT_GT(scale, 0.0);
+  EXPECT_TRUE(torch::allclose(actual_tokens / scale, reference_tokens / scale,
+                             2e-4, 2e-5));
+  EXPECT_TRUE(torch::allclose(actual_cls, reference_cls, 2e-4, 2e-5));
 }
 
 #endif

@@ -102,6 +102,34 @@ ModelRegistry default_model_registry() {
                [](const ModelOptions& o) {
                  return adapt(transformer_encoder(o.transformer));
                });
+  registry.add({.name = "vit_small_patch14_dinov2",
+                .family = "dinov2",
+                .task = "image_classification_or_embedding",
+                .reference = "timm vit_small_patch14_dinov2",
+                .default_parameters = 22056192U,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(dinov2_vits14(o.dinov2)); });
+  registry.add({.name = "vit_base_patch14_dinov2",
+                .family = "dinov2",
+                .task = "image_classification_or_embedding",
+                .reference = "timm vit_base_patch14_dinov2",
+                .default_parameters = 86579712U,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(dinov2_vitb14(o.dinov2)); });
+  registry.add({.name = "vit_large_patch14_dinov2",
+                .family = "dinov2",
+                .task = "image_classification_or_embedding",
+                .reference = "timm vit_large_patch14_dinov2",
+                .default_parameters = 304367616U,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(dinov2_vitl14(o.dinov2)); });
+  registry.add({.name = "vit_giant_patch14_dinov2",
+                .family = "dinov2",
+                .task = "image_classification_or_embedding",
+                .reference = "timm vit_giant_patch14_dinov2",
+                .default_parameters = 1136479232ULL,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(dinov2_vit_giant14(o.dinov2)); });
   return registry;
 }
 std::vector<ModelInfo> list_models(std::string_view filter) {

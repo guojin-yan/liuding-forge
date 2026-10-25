@@ -9,6 +9,10 @@ The `models` component is independently optional and defaults to OFF. Its public
 | `mobilenet_v3_small` | 11 inverted residual blocks, depthwise convolutions, SE, hard swish | 2,542,856 |
 | `mobilenet_v3_large` | 15 inverted residual blocks, depthwise convolutions, SE, hard swish | 5,483,032 |
 | `transformer_encoder` | Six post-norm attention/FFN blocks, width 512, eight heads, FFN 2048, final LayerNorm | 18,915,328 |
+| `vit_small_patch14_dinov2` | DINOv2 ViT-S/14, 12 pre-norm blocks, 384 embedding, 6 heads | 22,056,192 |
+| `vit_base_patch14_dinov2` | DINOv2 ViT-B/14, 12 pre-norm blocks, 768 embedding, 12 heads | 86,579,712 |
+| `vit_large_patch14_dinov2` | DINOv2 ViT-L/14, 24 pre-norm blocks, 1024 embedding, 16 heads | 304,367,616 |
+| `vit_giant_patch14_dinov2` | DINOv2 ViT-G/14, 40 pre-norm SwiGLU blocks, 1536 embedding, 24 heads | 1,136,479,232 |
 
 All constructors create registered, trainable LibTorch modules. They consume the caller's LibTorch RNG normally and do not change the global seed. For repeatable random initialization, seed before construction and record the LibTorch/device lane. Forward/backward follows normal LibTorch autograd and train/eval behavior; inference callers select eval and an appropriate no-grad guard themselves.
 
@@ -23,6 +27,8 @@ auto result = adapter.invoke({.positional = {images}, .keyword = {}});
 ```
 
 Image models accept positive dense floating NCHW inputs on exactly the module's device and dtype and return unnormalized `[N,num_classes]` logits. They do not resize, normalize, decode images or interpret labels. `forward_features` returns the four residual stage maps for ResNet, or the last convolutional feature map for MobileNet. Defaults use three image channels and 1,000 classes. Mobile width multipliers in `[0.25,2]` use divisor-eight rounding. State keys follow the torchvision layouts for these documented schedules; input-channel/classifier or width changes require correspondingly matching weights. BatchNorm training retains LibTorch's minimum sample-size constraints.
+
+DINOv2 factories use patch size 14, LayerNorm epsilon `1e-6`, qkv bias, LayerScale initialized to `1e-5`, and a 37x37 reference positional grid. Inputs must be dense floating NCHW tensors whose height and width are positive multiples of 14. `forward_features` returns `[N,1+H/14*W/14,D]`, with CLS at index zero and row-major patch tokens after it. Non-reference grids use bicubic positional interpolation. `forward` returns the CLS embedding when `num_classes == 0` and logits otherwise. `reset_classifier(0)` removes the head; a positive value creates a new head, after which callers must create a new adapter so its output schema is refreshed. The four DINOv2 architectures are code-complete in this preview slice, but no pretrained artifact is provisioned or implicitly downloaded.
 
 The Transformer is an encoder of already embedded floating features, not a tokenizer, BERT, language model or embedding/position-encoding package. Its input and output are `[batch,sequence,model_dimension]`. The explicit public transpose wraps the sequence-first LibTorch C++ encoder. Optional keyword tensors are
 `attention_mask` (bool `[S,S]`) and `padding_mask` (bool `[N,S]`); true means a
@@ -41,8 +47,9 @@ and mode/device changes require caller synchronization. Returned tensors retain
 normal storage/autograd semantics; this API does not serialize concurrent calls
 or produce independent inference snapshots.
 
-`default_model_registry()` constructs a local catalog with five explicit
-factories. `list_models`, `model_info` and `create_model` expose the same entries.
+`default_model_registry()` constructs a local catalog with nine explicit
+factories, including the four DINOv2/14 capacities. `list_models`, `model_info`
+and `create_model` expose the same entries.
 `ModelRegistry::add` supports caller-owned extension and rejects duplicate names
 and empty factories. Catalog modification needs caller exclusion; there is no
 static initializer or implicit plugin loading. Unknown-model diagnostics include

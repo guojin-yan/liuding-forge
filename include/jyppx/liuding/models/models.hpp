@@ -5,6 +5,7 @@
 #ifndef JYPPX_LIUDING_MODELS_MODELS_HPP
 #define JYPPX_LIUDING_MODELS_MODELS_HPP
 /** @file models.hpp @brief Optional model preview public umbrella. */
+#include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/registry.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
 #include <jyppx/liuding/models/vision.hpp>

@@ -7,6 +7,7 @@
 /** @file registry.hpp
  * @brief Explicit owning model catalog; no static plugin registration.
  */
+#include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
 #include <jyppx/liuding/models/vision.hpp>
 
@@ -31,6 +32,7 @@ struct ModelOptions {
   ResNetOptions resnet;                   ///< Applied only to residual models.
   MobileNetV3Options mobile;              ///< Applied only to mobile models.
   TransformerEncoderOptions transformer;  ///< Applied only to feature encoder.
+  DinoV2Options dinov2;                    ///< Applied only to DINOv2 models.
 };
 /** @brief An explicit factory retaining model state through its adapter. */
 using ModelFactory = std::function<nn::ModelAdapter(const ModelOptions&)>;
@@ -71,7 +73,7 @@ class ModelRegistry final {
   std::map<std::string, Entry, std::less<>>
       entries_;  ///< Explicit lexical catalog.
 };
-/** @brief Builds the five explicit built-in entries, without global mutation.
+/** @brief Builds the explicit built-in entries, without global mutation.
  * @return Independent caller-owned registry with the five preview factories.
  */
 ModelRegistry default_model_registry();

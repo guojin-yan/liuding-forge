@@ -143,10 +143,22 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
         "mobilenet_v3_large",
         "https://download.pytorch.org/models/mobilenet_v3_large-8738ca79.pth")};
   if (model == "transformer_encoder") return {};
+  if (model == "vit_small_patch14_dinov2" ||
+      model == "vit_base_patch14_dinov2" ||
+      model == "vit_large_patch14_dinov2" ||
+      model == "vit_giant_patch14_dinov2") {
+    auto record = Missing(model.data(), "https://huggingface.co/timm");
+    record.id = std::string(model) + ".lvd142m";
+    record.format = "safetensors";
+    record.status_reason =
+        "Candidate timm lvd142m lineage only; upstream revision, exact "
+        "bytes, weight license and state-key mapping are not provisioned.";
+    return {std::move(record)};
+  }
   detail::Invalid("weights.catalog", "a built-in model architecture");
 }
 std::string models_preview_manifest_json() {
-  return R"JSON({"schema_id":"jyppx.models.preview","schema_version":1,"component":"models","default_enabled":false,"preview":true,"architectures":["resnet18","resnet50","mobilenet_v3_small","mobilenet_v3_large","transformer_encoder"],"state_format":"safetensors","reference_workflow":"tests/unit/models/reference/generate_reference.py","reference_qualification":"requires-recorded-execution","reference_kind":"official-random-initialized-architecture-differential","pretrained_weights":"not-provisioned","pretrained_full_sha256":null,"weight_license":"NOASSERTION","release_qualification":"pending-independent-component-gates"})JSON";
+  return R"JSON({"schema_id":"jyppx.models.preview","schema_version":1,"component":"models","default_enabled":false,"preview":true,"architectures":["resnet18","resnet50","mobilenet_v3_small","mobilenet_v3_large","transformer_encoder","vit_small_patch14_dinov2","vit_base_patch14_dinov2","vit_large_patch14_dinov2","vit_giant_patch14_dinov2"],"state_format":"safetensors","reference_workflow":"tests/unit/models/reference/generate_reference.py","reference_qualification":"requires-recorded-execution","reference_kind":"official-random-initialized-architecture-differential","pretrained_weights":"not-provisioned","pretrained_full_sha256":null,"weight_license":"NOASSERTION","release_qualification":"pending-independent-component-gates"})JSON";
 }
 void validate_weight_record(const WeightRecord& record) {
   if (!Text(record.id) || !Text(record.model_name) ||
