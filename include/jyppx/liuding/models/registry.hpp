@@ -8,6 +8,7 @@
  * @brief Explicit owning model catalog; no static plugin registration.
  */
 #include <jyppx/liuding/models/dino.hpp>
+#include <jyppx/liuding/models/densenet.hpp>
 #include <jyppx/liuding/models/dinov3_convnext.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
 #include <jyppx/liuding/models/vision.hpp>
@@ -30,6 +31,7 @@ struct ModelInfo {
 };
 /** @brief Typed architecture options for the selected catalog family. */
 struct ModelOptions {
+  DenseNetOptions densenet;               ///< Applied only to DenseNet models.
   ResNetOptions resnet;                   ///< Applied only to residual models.
   MobileNetV3Options mobile;              ///< Applied only to mobile models.
   TransformerEncoderOptions transformer;  ///< Applied only to feature encoder.

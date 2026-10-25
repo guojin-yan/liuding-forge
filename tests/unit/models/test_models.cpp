@@ -356,8 +356,10 @@ void RunDinoV3ConvNeXtCudaHalfForward(
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 23U);
-  EXPECT_EQ(entries.front().name, "dinov3_convnext_base");
+  ASSERT_EQ(entries.size(), 24U);
+  EXPECT_EQ(entries.front().name, "densenet121");
+  EXPECT_EQ(list_models("densenet").size(), 1U);
+  EXPECT_EQ(model_info("densenet121").default_parameters, 7978856U);
   EXPECT_EQ(list_models("resnet").size(), 4U);
   EXPECT_EQ(list_models("resnext").size(), 1U);
   EXPECT_EQ(model_info("resnext50_32x4d").default_parameters, 25028904U);
@@ -1135,6 +1137,58 @@ TEST(Models, ResNeXt50SupportsBackwardAndOptimizerStep) {
   CheckResNetTrainingStep(resnext50_32x4d({.num_classes = 3}));
 }
 
+TEST(Models, DenseNet121ExposesFullBlocksAndStageContract) {
+  torch::NoGradGuard no_grad;
+  auto model = densenet121();
+  model->eval();
+  EXPECT_EQ(parameter_count(*model), 7978856U);
+  const auto parameters = model->named_parameters(true);
+  EXPECT_EQ(parameters["features.denseblock1.denselayer1.conv1.weight"].sizes(),
+            torch::IntArrayRef({128, 64, 1, 1}));
+  EXPECT_EQ(parameters["features.transition3.conv.weight"].sizes(),
+            torch::IntArrayRef({512, 1024, 1, 1}));
+  EXPECT_EQ(parameters["features.denseblock4.denselayer16.conv2.weight"].sizes(),
+            torch::IntArrayRef({32, 128, 3, 3}));
+  const auto stages = model->forward_features(Images());
+  ASSERT_EQ(stages.size(), 4U);
+  const std::array<std::int64_t, 4> channels{256, 512, 1024, 1024};
+  for (std::size_t index = 0; index < stages.size(); ++index)
+    EXPECT_EQ(stages[index].sizes(),
+              torch::IntArrayRef({2, channels[index], 16LL >> index,
+                                  16LL >> index}));
+  EXPECT_EQ(model->forward(Images()).sizes(), torch::IntArrayRef({2, 1000}));
+  EXPECT_EQ(model->forward(torch::zeros({1, 3, 29, 29})).sizes(),
+            torch::IntArrayRef({1, 1000}));
+  EXPECT_THROW(model->forward(torch::zeros({1, 3, 16, 16})), InvalidArgument);
+}
+
+TEST(Models, DenseNet121SupportsBackwardAndOptimizerStep) {
+  auto model = densenet121({.num_classes = 3});
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto before = model->named_parameters(true)["classifier.weight"].clone();
+  optimizer.zero_grad();
+  const auto logits = model->forward(torch::randn({1, 3, 64, 64}));
+  ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+  logits.square().mean().backward();
+  const auto parameters = model->named_parameters(true);
+  for (const auto* name : {"features.conv0.weight",
+                           "features.denseblock4.denselayer16.conv2.weight",
+                           "classifier.weight"}) {
+    const auto grad = parameters[name].grad();
+    ASSERT_TRUE(grad.defined()) << name;
+    EXPECT_TRUE(torch::isfinite(grad).all().item<bool>()) << name;
+    EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
+  }
+  optimizer.step();
+  EXPECT_GT((parameters["classifier.weight"] - before)
+                .abs()
+                .sum()
+                .item<double>(),
+            0.0);
+}
+
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
   auto small = mobilenet_v3_small({.num_classes = 9});
   auto large = mobilenet_v3_large({.num_classes = 9});
@@ -1210,7 +1264,8 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   EXPECT_FALSE(records.front().artifact.has_value());
   EXPECT_EQ(records.front().license_spdx, "NOASSERTION");
   validate_weight_record(records.front());
-  for (const auto* name : {"resnet34", "resnet101", "resnext50_32x4d"}) {
+  for (const auto* name : {"densenet121", "resnet34", "resnet101",
+                           "resnext50_32x4d"}) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
     EXPECT_EQ(candidates.front().availability,
@@ -1308,7 +1363,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 63> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 66> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -1318,6 +1373,15 @@ constexpr std::array<ReferenceFileIdentity, 63> kReferenceFiles{{
     {"mobilenet_v3_large-state.safetensors",
      "c28d8eb4d0437515d69501c03d4e5da19d482ea9ec1efb86a0b0f98d8c0f5404",
      22060512ULL},
+    {"densenet121-input.safetensors",
+     "b4a16c0b5df586b29e41c48136fa0c5253eff36521cd3f403c1f8a5bfb0befc7",
+     49232ULL},
+    {"densenet121-output.safetensors",
+     "1fa64959d3d60787f617c42dca287284434c67d093bc022ce87dc26fadb415cf",
+     479544ULL},
+    {"densenet121-state.safetensors",
+     "8373efdfd9a026c6c0e32035d56c263792c22a4eedd9308eb320584339ac3737",
+     32334440ULL},
     {"mobilenet_v3_small-input.safetensors",
      "56c82c0b3e6009ac07360ad32021b6e828cc02e39ba8e7ab79c47695a2dc60e6",
      98384ULL},
@@ -1542,7 +1606,8 @@ torch::Tensor ReferenceTensor(std::span<const std::byte> encoded,
 
 void CheckArchitectureReference(const char* architecture,
                                 ResNet* feature_model = nullptr,
-                                const char* reference_dir_variable = nullptr) {
+                                const char* reference_dir_variable = nullptr,
+                                DenseNet* dense_model = nullptr) {
   if (reference_dir_variable == nullptr)
     reference_dir_variable =
         feature_model == nullptr
@@ -1576,8 +1641,10 @@ void CheckArchitectureReference(const char* architecture,
           "Random architecture differential; no pretrained weights."};
   ModelOptions options;
   options.transformer.dropout = 0.0;
-  auto adapter = feature_model == nullptr ? create_model(prefix, options)
-                                          : adapt(*feature_model);
+  auto adapter = feature_model != nullptr
+                     ? adapt(*feature_model)
+                     : dense_model != nullptr ? adapt(*dense_model)
+                                              : create_model(prefix, options);
   const auto imported = load_weights(adapter, record, state);
   ASSERT_TRUE(imported.applied) << prefix;
   adapter.state().eval();
@@ -1603,13 +1670,17 @@ void CheckArchitectureReference(const char* architecture,
   EXPECT_TRUE(torch::allclose(actual / scale, reference / scale, 1e-4, 1e-5))
       << prefix << " normalized maximum absolute error: "
       << ((actual - reference) / scale).abs().max().item<double>();
-  if (feature_model != nullptr) {
-    const auto stages =
-        (*feature_model)
-            ->forward_features(invocation.positional.front().toTensor());
+  if (feature_model != nullptr || dense_model != nullptr) {
+    const auto stages = feature_model != nullptr
+                            ? (*feature_model)->forward_features(
+                                  invocation.positional.front().toTensor())
+                            : (*dense_model)->forward_features(
+                                  invocation.positional.front().toTensor());
     ASSERT_EQ(stages.size(), 4U) << prefix;
     for (std::size_t index = 0; index < stages.size(); ++index) {
-      const auto stage_name = "layer" + std::to_string(index + 1);
+      const auto stage_name =
+          (dense_model == nullptr ? "layer" : "denseblock") +
+          std::to_string(index + 1);
       const auto expected_stage = ReferenceTensor(expected, stage_name);
       ASSERT_EQ(stages[index].sizes(), expected_stage.sizes()) << stage_name;
       const auto stage_scale = expected_stage.abs().max().item<double>();
@@ -1644,6 +1715,11 @@ TEST(ModelsPythonInterop, OfficialTorchvisionResNeXt50ReferenceReallyRuns) {
   auto model = resnext50_32x4d();
   CheckArchitectureReference("resnext50_32x4d", &model,
                              "JYPPX_LIUDING_RESNEXT_REFERENCE_DIR");
+}
+TEST(ModelsPythonInterop, OfficialTorchvisionDenseNet121ReferenceReallyRuns) {
+  auto model = densenet121();
+  CheckArchitectureReference("densenet121", nullptr,
+                             "JYPPX_LIUDING_DENSENET_REFERENCE_DIR", &model);
 }
 TEST(ModelsPythonInterop,
      OfficialTorchvisionMobileNetV3SmallReferenceReallyRuns) {

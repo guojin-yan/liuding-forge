@@ -18,7 +18,9 @@ void Require(bool condition, const char* operation) {
 int main() {
   try {
     const auto entries = jyppx::liuding::models::list_models();
-    Require(entries.size() == 23U, "installed-model-catalog");
+    Require(entries.size() == 24U, "installed-model-catalog");
+    auto dense = jyppx::liuding::models::create_model(
+        "densenet121", {.densenet = {.num_classes = 4}});
     auto resnet = jyppx::liuding::models::create_model(
         "resnet18", {.resnet = {.num_classes = 4}});
     auto resnet34 = jyppx::liuding::models::create_model(
@@ -37,6 +39,7 @@ int main() {
                                                 .dropout = 0.0}});
     auto dino =
         jyppx::liuding::models::create_model("vit_small_patch14_dinov2");
+    dense.state().eval();
     resnet.state().eval();
     resnet34.state().eval();
     resnet101.state().eval();
@@ -45,6 +48,10 @@ int main() {
     encoder.state().eval();
     dino.state().eval();
     const auto images = torch::zeros({1, 3, 64, 64});
+    Require(dense.invoke({.positional = {images}, .keyword = {}})
+                    .value.toTensor()
+                    .sizes() == torch::IntArrayRef({1, 4}),
+            "installed-densenet121-adapter");
     Require(resnet.invoke({.positional = {images}, .keyword = {}})
                     .value.toTensor()
                     .sizes() == torch::IntArrayRef({1, 4}),

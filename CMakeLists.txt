@@ -703,6 +703,7 @@ endif()
 # Independent, default-OFF Preview components do not add reverse edges to core.
 if(JYPPX_LIUDING_BUILD_MODELS)
     add_library(jyppx_liuding_models STATIC
+        src/jyppx/liuding/models/densenet.cpp
         src/jyppx/liuding/models/dino.cpp
         src/jyppx/liuding/models/dinov3_convnext.cpp
         src/jyppx/liuding/models/registry.cpp

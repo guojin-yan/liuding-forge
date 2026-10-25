@@ -21,6 +21,8 @@ bool Name(std::string_view name) {
   std::string hint = "Use list_models(); closest families: ";
   if (name.starts_with("res"))
     hint += "resnet18, resnet34, resnet50, resnet101, resnext50_32x4d.";
+  else if (name.starts_with("dense"))
+    hint += "densenet121.";
   else if (name.starts_with("mobile"))
     hint += "mobilenet_v3_small, mobilenet_v3_large.";
   else if (name.starts_with("dinov3"))
@@ -63,6 +65,15 @@ nn::ModelAdapter ModelRegistry::create(std::string_view name,
 }
 ModelRegistry default_model_registry() {
   ModelRegistry registry;
+  registry.add({.name = "densenet121",
+                .family = "densenet",
+                .task = "image_classification",
+                .reference = "torchvision.models.densenet121",
+                .default_parameters = 7978856U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(densenet121(o.densenet));
+               });
   registry.add({.name = "resnet18",
                 .family = "resnet",
                 .task = "image_classification",
