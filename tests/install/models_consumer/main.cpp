@@ -18,9 +18,13 @@ void Require(bool condition, const char* operation) {
 int main() {
   try {
     const auto entries = jyppx::liuding::models::list_models();
-    Require(entries.size() == 20U, "installed-model-catalog");
+    Require(entries.size() == 22U, "installed-model-catalog");
     auto resnet = jyppx::liuding::models::create_model(
         "resnet18", {.resnet = {.num_classes = 4}});
+    auto resnet34 = jyppx::liuding::models::create_model(
+        "resnet34", {.resnet = {.num_classes = 4}});
+    auto resnet101 = jyppx::liuding::models::create_model(
+        "resnet101", {.resnet = {.num_classes = 4}});
     auto mobile = jyppx::liuding::models::create_model(
         "mobilenet_v3_small", {.mobile = {.num_classes = 4}});
     auto encoder = jyppx::liuding::models::create_model(
@@ -32,6 +36,8 @@ int main() {
     auto dino =
         jyppx::liuding::models::create_model("vit_small_patch14_dinov2");
     resnet.state().eval();
+    resnet34.state().eval();
+    resnet101.state().eval();
     mobile.state().eval();
     encoder.state().eval();
     dino.state().eval();
@@ -40,6 +46,14 @@ int main() {
                     .value.toTensor()
                     .sizes() == torch::IntArrayRef({1, 4}),
             "installed-resnet-adapter");
+    Require(resnet34.invoke({.positional = {images}, .keyword = {}})
+                    .value.toTensor()
+                    .sizes() == torch::IntArrayRef({1, 4}),
+            "installed-resnet34-adapter");
+    Require(resnet101.invoke({.positional = {images}, .keyword = {}})
+                    .value.toTensor()
+                    .sizes() == torch::IntArrayRef({1, 4}),
+            "installed-resnet101-adapter");
     Require(mobile.invoke({.positional = {images}, .keyword = {}})
                     .value.toTensor()
                     .sizes() == torch::IntArrayRef({1, 4}),
