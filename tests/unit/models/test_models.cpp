@@ -847,6 +847,81 @@ TEST(ModelsCuda, DinoV3LargePlusCudaHalfResourceGate) {
 }
 
 template <typename Factory>
+void RunDinoV3HighCudaTrainingStep(const char* name, Factory factory) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_VIT_HIGH_CUDA_TRAINING_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP()
+        << "Set JYPPX_LIUDING_DINOV3_VIT_HIGH_CUDA_TRAINING_GATE=1 "
+           "for the serial ViT-L/L+ CUDA FP16 backward and SGD resource gate";
+  }
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0)
+    GTEST_SKIP() << "CUDA device is unavailable";
+
+  torch::manual_seed(20261026);
+  const auto start = std::chrono::steady_clock::now();
+  const torch::Device device(torch::kCUDA, 0);
+  auto model = factory(DinoV3Options{.num_classes = 3});
+  ASSERT_TRUE(model);
+  model->to(device);
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto named_before = model->named_parameters(true);
+  ASSERT_TRUE(named_before.contains("patch_embed.proj.weight"));
+  ASSERT_TRUE(named_before.contains("head.weight"));
+  const auto head_before = named_before["head.weight"].clone();
+  const auto input = torch::randn(
+      {1, 3, 16, 16},
+      torch::TensorOptions().dtype(torch::kFloat32).device(device));
+
+  optimizer.zero_grad();
+  {
+    jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CUDA,
+                                                       at::kHalf);
+    ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+    const auto logits = model->forward(input);
+    ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+    EXPECT_EQ(logits.scalar_type(), torch::kHalf);
+    const auto loss = logits.to(torch::kFloat32).square().mean();
+    ASSERT_TRUE(torch::isfinite(loss).template item<bool>());
+    loss.backward();
+  }
+  EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+
+  const auto named = model->named_parameters(true);
+  const auto patch_gradient = named["patch_embed.proj.weight"].grad();
+  const auto head_gradient = named["head.weight"].grad();
+  ASSERT_TRUE(patch_gradient.defined());
+  ASSERT_TRUE(head_gradient.defined());
+  EXPECT_TRUE(patch_gradient.device().is_cuda());
+  EXPECT_TRUE(head_gradient.device().is_cuda());
+  EXPECT_EQ(patch_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_TRUE(torch::isfinite(patch_gradient).all().template item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+  EXPECT_GT(patch_gradient.abs().max().template item<double>(), 0.0);
+  EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
+  optimizer.step();
+  const auto head_after = model->named_parameters(true)["head.weight"];
+  EXPECT_GT(torch::abs(head_after - head_before).sum().template item<double>(),
+            0.0);
+  CheckDinoV3CudaResourceBudget(name, "backward_sgd", start);
+}
+
+TEST(ModelsCuda, DinoV3LargeCudaHalfTrainingResourceGate) {
+  RunDinoV3HighCudaTrainingStep("dinov3_vitl16", [](DinoV3Options options) {
+    return dinov3_vitl16(options);
+  });
+}
+
+TEST(ModelsCuda, DinoV3LargePlusCudaHalfTrainingResourceGate) {
+  RunDinoV3HighCudaTrainingStep("dinov3_vitl16plus", [](DinoV3Options options) {
+    return dinov3_vitl16plus(options);
+  });
+}
+
+template <typename Factory>
 void RunDinoV3ConvNeXtHighCudaHalfForward(
     const char* name, Factory factory,
     const std::array<std::int64_t, 4>& channels) {
