@@ -22,6 +22,7 @@
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
+#include <jyppx/liuding/data_image/image_encoder.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
@@ -181,6 +182,8 @@ int main() {
   const auto image =
       jyppx::liuding::data::image::decode_image(std::as_bytes(std::span(pgm)));
   jyppx::liuding::data::image::validate_pixels(image.tensor, image.pixels);
+  const auto encoded =
+      jyppx::liuding::data::image::encode_image(image.tensor, image.pixels);
   const auto trace = jyppx::liuding::data::image::GeometryTrace({20, 10})
                          .resized({40, 20})
                          .padded(0, 10, 0, 10);
@@ -275,6 +278,9 @@ int main() {
                  index.images[0].objects[0].box->x_max == 20 &&
                  manifest.records().size() == 1U && image.width == 1U &&
                  image.height == 1U &&
+                 encoded.format ==
+                     jyppx::liuding::data::image::ImageFormat::png &&
+                 !encoded.bytes.empty() &&
                  image.tensor.item<std::uint8_t>() == 127 &&
                  image.pixels.color ==
                      jyppx::liuding::data::image::PixelColorModel::gray &&

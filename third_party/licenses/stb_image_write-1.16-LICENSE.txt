@@ -1,0 +1,5 @@
+stb_image_write v1.16 is available under the public-domain dedication in the upstream header.
+
+The complete upstream license and attribution block is retained in third_party/stb/stb_image_write.h.
+Source: https://github.com/nothings/stb/blob/master/stb_image_write.h
+SHA-256: CBD5F0AD7A9CF4468AFFB36354A1D2338034F2C12473CF1A8E32053CB6914A05

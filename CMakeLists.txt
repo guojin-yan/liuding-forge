@@ -477,6 +477,7 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         src/jyppx/liuding/data_image/manifests.cpp
         src/jyppx/liuding/data_image/yolo_dataset_yaml.cpp
         src/jyppx/liuding/data_image/image_decoder.cpp
+        src/jyppx/liuding/data_image/image_encoder.cpp
         src/jyppx/liuding/data_image/mask_decoder.cpp
         src/jyppx/liuding/data_image/panoptic.cpp
         src/jyppx/liuding/data_image/image_dataset.cpp
@@ -973,6 +974,7 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         third_party/licenses/tinyxml2-11.0.0-LICENSE.txt
         third_party/licenses/yaml-cpp-0.9.0-LICENSE.txt
         third_party/licenses/stb_image-2.30-LICENSE.txt
+        third_party/licenses/stb_image_write-1.16-LICENSE.txt
         DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
 endif()
 if(JYPPX_LIUDING_BUILD_EXPERIMENT)

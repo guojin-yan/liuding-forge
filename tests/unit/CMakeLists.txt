@@ -119,6 +119,7 @@ if(TARGET jyppx::liuding::data_image)
         data_image/test_extended_annotations.cpp
         data_image/test_manifests.cpp
         data_image/test_decoder.cpp
+        data_image/test_encoder.cpp
         data_image/test_mask_decoder.cpp
         data_image/test_pixel_spec.cpp
         data_image/test_geometry_trace.cpp

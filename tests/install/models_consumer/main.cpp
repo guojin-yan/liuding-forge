@@ -29,8 +29,8 @@ int main() {
                                                 .feedforward_dimension = 32,
                                                 .layers = 1,
                                                 .dropout = 0.0}});
-    auto dino = jyppx::liuding::models::create_model(
-        "vit_small_patch14_dinov2");
+    auto dino =
+        jyppx::liuding::models::create_model("vit_small_patch14_dinov2");
     resnet.state().eval();
     mobile.state().eval();
     encoder.state().eval();
@@ -50,9 +50,9 @@ int main() {
             "installed-transformer-adapter");
     const auto dino_output = dino.invoke(
         {.positional = {torch::zeros({1, 3, 14, 28})}, .keyword = {}});
-    Require(dino_output.value.toTensor().sizes() ==
-                torch::IntArrayRef({1, 384}),
-            "installed-dinov2-adapter");
+    Require(
+        dino_output.value.toTensor().sizes() == torch::IntArrayRef({1, 384}),
+        "installed-dinov2-adapter");
     const auto weights = jyppx::liuding::models::available_weights("resnet18");
     Require(
         weights.size() == 1U &&
