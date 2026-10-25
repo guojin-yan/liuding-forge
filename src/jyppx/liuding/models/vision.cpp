@@ -87,9 +87,8 @@ torch::nn::Sequential Stage(bool bottleneck, std::int64_t& input,
   for (std::int64_t i = 0; i < count; ++i) {
     const auto block_stride = i == 0 ? stride : 1;
     if (bottleneck)
-      result->push_back(
-          std::make_shared<Bottleneck>(input, planes, block_stride, groups,
-                                       base_width));
+      result->push_back(std::make_shared<Bottleneck>(
+          input, planes, block_stride, groups, base_width));
     else
       result->push_back(
           std::make_shared<BasicBlock>(input, planes, block_stride));
@@ -270,24 +269,25 @@ ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
         base_width = 4;
         break;
       default:
-        detail::Invalid("resnet.variant",
-                        "resnet18, resnet34, resnet50, resnet101 or resnext50_32x4d");
+        detail::Invalid(
+            "resnet.variant",
+            "resnet18, resnet34, resnet50, resnet101 or resnext50_32x4d");
     }
     conv1_ = register_module("conv1", Conv(options.input_channels, 64, 7, 2));
     bn1_ = register_module("bn1", torch::nn::BatchNorm2d(64));
     std::int64_t input = 64;
-    layer1_ =
-        register_module("layer1", Stage(bottleneck, input, 64, schedule[0], 1,
-                                         groups, base_width));
-    layer2_ = register_module("layer2",
-                              Stage(bottleneck, input, 128, schedule[1], 2,
-                                    groups, base_width));
-    layer3_ = register_module("layer3",
-                              Stage(bottleneck, input, 256, schedule[2], 2,
-                                    groups, base_width));
-    layer4_ = register_module("layer4",
-                              Stage(bottleneck, input, 512, schedule[3], 2,
-                                    groups, base_width));
+    layer1_ = register_module(
+        "layer1",
+        Stage(bottleneck, input, 64, schedule[0], 1, groups, base_width));
+    layer2_ = register_module(
+        "layer2",
+        Stage(bottleneck, input, 128, schedule[1], 2, groups, base_width));
+    layer3_ = register_module(
+        "layer3",
+        Stage(bottleneck, input, 256, schedule[2], 2, groups, base_width));
+    layer4_ = register_module(
+        "layer4",
+        Stage(bottleneck, input, 512, schedule[3], 2, groups, base_width));
     fc_ = register_module("fc", torch::nn::Linear(input, options.num_classes));
     InitVision(*this, false);
     if (options.zero_init_residual) {

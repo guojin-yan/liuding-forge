@@ -1125,9 +1125,9 @@ TEST(Models, ResNeXt50UsesGroupedBottlenecksAndStageContract) {
   const auto stages = model->forward_features(Images());
   ASSERT_EQ(stages.size(), 4U);
   for (std::size_t index = 0; index < stages.size(); ++index)
-    EXPECT_EQ(stages[index].sizes(),
-              torch::IntArrayRef({2, 256LL << index, 16LL >> index,
-                                  16LL >> index}));
+    EXPECT_EQ(
+        stages[index].sizes(),
+        torch::IntArrayRef({2, 256LL << index, 16LL >> index, 16LL >> index}));
   EXPECT_EQ(model->forward(Images()).sizes(), torch::IntArrayRef({2, 1000}));
 }
 
@@ -1545,8 +1545,9 @@ void CheckArchitectureReference(const char* architecture,
                                 const char* reference_dir_variable = nullptr) {
   if (reference_dir_variable == nullptr)
     reference_dir_variable =
-        feature_model == nullptr ? "JYPPX_LIUDING_MODELS_REFERENCE_DIR"
-                                 : "JYPPX_LIUDING_RESNET_EXTENDED_REFERENCE_DIR";
+        feature_model == nullptr
+            ? "JYPPX_LIUDING_MODELS_REFERENCE_DIR"
+            : "JYPPX_LIUDING_RESNET_EXTENDED_REFERENCE_DIR";
   const auto* directory = std::getenv(reference_dir_variable);
   if (directory == nullptr || *directory == '\0') {
     GTEST_SKIP() << "Set the corresponding models reference directory for the "
