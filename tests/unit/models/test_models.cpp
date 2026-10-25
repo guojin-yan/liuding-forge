@@ -14,6 +14,10 @@
 #include <torch/torch.h>
 #include <torch/optim.h>
 
+#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+#include <c10/cuda/CUDACachingAllocator.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -314,7 +318,8 @@ void RunDinoV3CudaHalfForward(Factory factory, std::int64_t dimension) {
 }
 
 template <typename Factory>
-void RunDinoV3ConvNeXtCudaHalfForward(Factory factory) {
+void RunDinoV3ConvNeXtCudaHalfForward(
+    Factory factory, const std::array<std::int64_t, 4>& channels) {
   if (!torch::cuda::is_available() || torch::cuda::device_count() == 0) {
     GTEST_SKIP() << "CUDA device is unavailable";
   }
@@ -333,10 +338,10 @@ void RunDinoV3ConvNeXtCudaHalfForward(Factory factory) {
   const auto features = model->forward_features(input);
   const auto logits = model->forward(input);
   ASSERT_EQ(features.size(), 4U);
-  EXPECT_EQ(features[0].sizes(), torch::IntArrayRef({1, 96, 8, 8}));
-  EXPECT_EQ(features[1].sizes(), torch::IntArrayRef({1, 192, 4, 4}));
-  EXPECT_EQ(features[2].sizes(), torch::IntArrayRef({1, 384, 2, 2}));
-  EXPECT_EQ(features[3].sizes(), torch::IntArrayRef({1, 768, 1, 1}));
+  EXPECT_EQ(features[0].sizes(), torch::IntArrayRef({1, channels[0], 8, 8}));
+  EXPECT_EQ(features[1].sizes(), torch::IntArrayRef({1, channels[1], 4, 4}));
+  EXPECT_EQ(features[2].sizes(), torch::IntArrayRef({1, channels[2], 2, 2}));
+  EXPECT_EQ(features[3].sizes(), torch::IntArrayRef({1, channels[3], 1, 1}));
   EXPECT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
   EXPECT_EQ(logits.scalar_type(), torch::kHalf);
   for (const auto& feature : features) {
@@ -746,10 +751,62 @@ TEST(ModelsCuda, DinoV3LowResourceFactoriesSupportCudaHalfForward) {
 TEST(ModelsCuda, DinoV3ConvNeXtLowResourceFactoriesSupportCudaHalfForward) {
   RunDinoV3ConvNeXtCudaHalfForward([](DinoV3ConvNeXtOptions options) {
     return dinov3_convnext_tiny(options);
-  });
+  }, {96, 192, 384, 768});
   RunDinoV3ConvNeXtCudaHalfForward([](DinoV3ConvNeXtOptions options) {
     return dinov3_convnext_small(options);
-  });
+  }, {96, 192, 384, 768});
+}
+
+template <typename Factory>
+void RunDinoV3ConvNeXtHighCudaHalfForward(
+    const char* name, Factory factory,
+    const std::array<std::int64_t, 4>& channels) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_CUDA_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_CONVNEXT_HIGH_CUDA_GATE=1 "
+                    "for the serial B/L CUDA FP16 forward resource gate";
+  }
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0)
+    GTEST_SKIP() << "CUDA device is unavailable";
+  const auto start = std::chrono::steady_clock::now();
+  RunDinoV3ConvNeXtCudaHalfForward(factory, channels);
+  torch::cuda::synchronize(0);
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 6ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=" << name
+            << " cuda_forward_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+                   .count()
+            << " process_peak_rss_bytes=" << peak << '\n';
+#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+  const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  const auto peak_cuda = stats.allocated_bytes[0].peak;
+  ASSERT_GT(peak_cuda, 0);
+  EXPECT_LE(peak_cuda, 5LL << 30U);
+  std::cout << "RESOURCE_METRICS model=" << name
+            << " peak_cuda_allocated_bytes=" << peak_cuda << '\n';
+#endif
+}
+
+TEST(ModelsCuda, DinoV3ConvNeXtBaseCudaHalfResourceGate) {
+  RunDinoV3ConvNeXtHighCudaHalfForward(
+      "dinov3_convnext_base",
+      [](DinoV3ConvNeXtOptions options) {
+        return dinov3_convnext_base(options);
+      },
+      {128, 256, 512, 1024});
+}
+
+TEST(ModelsCuda, DinoV3ConvNeXtLargeCudaHalfResourceGate) {
+  RunDinoV3ConvNeXtHighCudaHalfForward(
+      "dinov3_convnext_large",
+      [](DinoV3ConvNeXtOptions options) {
+        return dinov3_convnext_large(options);
+      },
+      {192, 384, 768, 1536});
 }
 
 TEST(Models, ResNetVariantsExposeExpectedFeatureStridesAndParameterCounts) {
