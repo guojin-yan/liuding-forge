@@ -18,9 +18,13 @@ void Require(bool condition, const char* operation) {
 int main() {
   try {
     const auto entries = jyppx::liuding::models::list_models();
-    Require(entries.size() == 25U, "installed-model-catalog");
+    Require(entries.size() == 27U, "installed-model-catalog");
     auto dense = jyppx::liuding::models::create_model(
         "densenet121", {.densenet = {.num_classes = 4}});
+    auto efficient_b0 = jyppx::liuding::models::create_model(
+        "efficientnet_b0", {.efficientnet = {.num_classes = 4}});
+    auto efficient_b2 = jyppx::liuding::models::create_model(
+        "efficientnet_b2", {.efficientnet = {.num_classes = 4}});
     auto resnet = jyppx::liuding::models::create_model(
         "resnet18", {.resnet = {.num_classes = 4}});
     auto resnet34 = jyppx::liuding::models::create_model(
@@ -42,6 +46,8 @@ int main() {
     auto dino =
         jyppx::liuding::models::create_model("vit_small_patch14_dinov2");
     dense.state().eval();
+    efficient_b0.state().eval();
+    efficient_b2.state().eval();
     resnet.state().eval();
     resnet34.state().eval();
     resnet101.state().eval();
@@ -55,6 +61,14 @@ int main() {
                     .value.toTensor()
                     .sizes() == torch::IntArrayRef({1, 4}),
             "installed-densenet121-adapter");
+    Require(efficient_b0.invoke({.positional = {images}, .keyword = {}})
+                    .value.toTensor()
+                    .sizes() == torch::IntArrayRef({1, 4}),
+            "installed-efficientnet-b0-adapter");
+    Require(efficient_b2.invoke({.positional = {images}, .keyword = {}})
+                    .value.toTensor()
+                    .sizes() == torch::IntArrayRef({1, 4}),
+            "installed-efficientnet-b2-adapter");
     Require(resnet.invoke({.positional = {images}, .keyword = {}})
                     .value.toTensor()
                     .sizes() == torch::IntArrayRef({1, 4}),

@@ -356,10 +356,13 @@ void RunDinoV3ConvNeXtCudaHalfForward(
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 25U);
+  ASSERT_EQ(entries.size(), 27U);
   EXPECT_EQ(entries.front().name, "densenet121");
   EXPECT_EQ(list_models("densenet").size(), 1U);
   EXPECT_EQ(model_info("densenet121").default_parameters, 7978856U);
+  EXPECT_EQ(list_models("efficientnet").size(), 2U);
+  EXPECT_EQ(model_info("efficientnet_b0").default_parameters, 5288548U);
+  EXPECT_EQ(model_info("efficientnet_b2").default_parameters, 9109994U);
   EXPECT_EQ(list_models("mobilenetv2").size(), 1U);
   EXPECT_EQ(model_info("mobilenetv2_100").default_parameters, 3504872U);
   EXPECT_EQ(list_models("resnet").size(), 4U);
@@ -369,6 +372,7 @@ TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   EXPECT_EQ(model_info("resnet101").default_parameters, 44549160U);
 
   auto residual = create_model("resnet18");
+  auto efficient = create_model("efficientnet_b0");
   auto mobile_v2 = create_model("mobilenetv2_100");
   auto mobile = create_model("mobilenet_v3_small");
   auto transformer = create_model("transformer_encoder",
@@ -380,10 +384,15 @@ TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
                                                    .gelu = true,
                                                    .final_norm = true}});
   residual.state().eval();
+  efficient.state().eval();
   mobile_v2.state().eval();
   mobile.state().eval();
   transformer.state().eval();
   EXPECT_EQ(residual.invoke({.positional = {Images()}, .keyword = {}})
+                .value.toTensor()
+                .sizes(),
+            torch::IntArrayRef({2, 1000}));
+  EXPECT_EQ(efficient.invoke({.positional = {Images()}, .keyword = {}})
                 .value.toTensor()
                 .sizes(),
             torch::IntArrayRef({2, 1000}));
@@ -1251,6 +1260,71 @@ TEST(Models, MobileNetV2SupportsBackwardAndOptimizerStep) {
       0.0);
 }
 
+TEST(Models, EfficientNetB0B2MatchTimmBlockAndFeatureContracts) {
+  torch::NoGradGuard no_grad;
+  for (const auto variant : {EfficientNetVariant::b0, EfficientNetVariant::b2}) {
+    auto model = variant == EfficientNetVariant::b0 ? efficientnet_b0()
+                                                     : efficientnet_b2();
+    model->eval();
+    const auto b2 = variant == EfficientNetVariant::b2;
+    EXPECT_EQ(parameter_count(*model), b2 ? 9109994U : 5288548U);
+    const auto parameters = model->named_parameters(true);
+    EXPECT_EQ(parameters["blocks.0.0.se.conv_reduce.weight"].sizes(),
+              torch::IntArrayRef({8, 32, 1, 1}));
+    EXPECT_EQ(parameters["blocks.2.0.conv_dw.weight"].size(2), 5);
+    EXPECT_EQ(parameters["conv_head.weight"].sizes(),
+              torch::IntArrayRef({b2 ? 1408 : 1280, b2 ? 352 : 320, 1, 1}));
+    const auto stages = model->forward_features(Images());
+    ASSERT_EQ(stages.size(), 5U);
+    const std::array<std::int64_t, 5> channels =
+        b2 ? std::array<std::int64_t, 5>{16, 24, 48, 120, 352}
+           : std::array<std::int64_t, 5>{16, 24, 40, 112, 320};
+    for (std::size_t index = 0; index < stages.size(); ++index)
+      EXPECT_EQ(stages[index].sizes(),
+                torch::IntArrayRef({2, channels[index], 32LL >> index,
+                                    32LL >> index}));
+    EXPECT_EQ(model->forward(Images()).sizes(), torch::IntArrayRef({2, 1000}));
+    EXPECT_THROW(model->forward(torch::zeros({2, 3, 64})), InvalidArgument);
+  }
+  auto custom = efficientnet_b0({.num_classes = 3, .input_channels = 1});
+  custom->eval();
+  EXPECT_EQ(custom->forward(Images(1)).sizes(), torch::IntArrayRef({2, 3}));
+  EXPECT_THROW(efficientnet_b2({.num_classes = 0}), InvalidArgument);
+  EXPECT_THROW(EfficientNet(static_cast<EfficientNetVariant>(3)),
+               InvalidArgument);
+}
+
+TEST(Models, EfficientNetB0B2SupportBackwardAndOptimizerStep) {
+  for (const auto variant : {EfficientNetVariant::b0, EfficientNetVariant::b2}) {
+    auto model = variant == EfficientNetVariant::b0
+                     ? efficientnet_b0({.num_classes = 3})
+                     : efficientnet_b2({.num_classes = 3});
+    model->train();
+    torch::optim::SGD optimizer(model->parameters(),
+                                torch::optim::SGDOptions(1e-3));
+    const auto before =
+        model->named_parameters(true)["classifier.weight"].clone();
+    optimizer.zero_grad();
+    const auto logits = model->forward(torch::randn({2, 3, 64, 64}));
+    ASSERT_EQ(logits.sizes(), torch::IntArrayRef({2, 3}));
+    logits.square().mean().backward();
+    const auto parameters = model->named_parameters(true);
+    for (const auto* name : {"conv_stem.weight",
+                             "blocks.6.0.conv_pwl.weight", "classifier.weight"}) {
+      const auto grad = parameters[name].grad();
+      ASSERT_TRUE(grad.defined()) << name;
+      EXPECT_TRUE(torch::isfinite(grad).all().item<bool>()) << name;
+      EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
+    }
+    optimizer.step();
+    EXPECT_GT((parameters["classifier.weight"] - before)
+                  .abs()
+                  .sum()
+                  .item<double>(),
+              0.0);
+  }
+}
+
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
   auto small = mobilenet_v3_small({.num_classes = 9});
   auto large = mobilenet_v3_large({.num_classes = 9});
@@ -1326,7 +1400,8 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   EXPECT_FALSE(records.front().artifact.has_value());
   EXPECT_EQ(records.front().license_spdx, "NOASSERTION");
   validate_weight_record(records.front());
-  for (const auto* name : {"densenet121", "mobilenetv2_100", "resnet34",
+  for (const auto* name : {"densenet121", "efficientnet_b0",
+                           "efficientnet_b2", "mobilenetv2_100", "resnet34",
                            "resnet101", "resnext50_32x4d"}) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
@@ -1425,7 +1500,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 69> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 75> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -1444,6 +1519,24 @@ constexpr std::array<ReferenceFileIdentity, 69> kReferenceFiles{{
     {"densenet121-state.safetensors",
      "8373efdfd9a026c6c0e32035d56c263792c22a4eedd9308eb320584339ac3737",
      32334440ULL},
+    {"efficientnet_b0-input.safetensors",
+     "0ce92573476ce900c532eee39332b3f69b5d3d2ed2ac35a58b32957e6114455f",
+     49232ULL},
+    {"efficientnet_b0-output.safetensors",
+     "59218970e72dbaaa817d8f5296be066ef9ef19fba1af2d49da187f628f94eaa5",
+     117104ULL},
+    {"efficientnet_b0-state.safetensors",
+     "c97cf6ae708f78bfbc0b8236c6cef03a73b99657b5ad6cbb097189db2a0a2530",
+     21355344ULL},
+    {"efficientnet_b2-input.safetensors",
+     "c2a9493e576aa58ccdaf6005711be2f00b2bd9a97d11483af41bc712e186c0ca",
+     49232ULL},
+    {"efficientnet_b2-output.safetensors",
+     "030d198cbbda8651b54620d3939aadedb9e29518c321466830285b03a0bd4768",
+     120176ULL},
+    {"efficientnet_b2-state.safetensors",
+     "bf752a9ea9bfc9fd5ef7bc8bb5512f34aac172a5f920868c913b9f849b844357",
+     36757200ULL},
     {"mobilenetv2_100-input.safetensors",
      "e8d8efd09e3942ce315f9dd32edc674fbf693f29ce30989f93511bc6813ad81e",
      49232ULL},
@@ -1679,7 +1772,8 @@ void CheckArchitectureReference(const char* architecture,
                                 ResNet* feature_model = nullptr,
                                 const char* reference_dir_variable = nullptr,
                                 DenseNet* dense_model = nullptr,
-                                MobileNetV2* mobile_v2_model = nullptr) {
+                                MobileNetV2* mobile_v2_model = nullptr,
+                                EfficientNet* efficient_model = nullptr) {
   if (reference_dir_variable == nullptr)
     reference_dir_variable =
         feature_model == nullptr
@@ -1717,6 +1811,7 @@ void CheckArchitectureReference(const char* architecture,
     if (feature_model != nullptr) return adapt(*feature_model);
     if (dense_model != nullptr) return adapt(*dense_model);
     if (mobile_v2_model != nullptr) return adapt(*mobile_v2_model);
+    if (efficient_model != nullptr) return adapt(*efficient_model);
     return create_model(prefix, options);
   }();
   const auto imported = load_weights(adapter, record, state);
@@ -1745,18 +1840,25 @@ void CheckArchitectureReference(const char* architecture,
       << prefix << " normalized maximum absolute error: "
       << ((actual - reference) / scale).abs().max().item<double>();
   if (feature_model != nullptr || dense_model != nullptr ||
-      mobile_v2_model != nullptr) {
+      mobile_v2_model != nullptr || efficient_model != nullptr) {
     const auto image = invocation.positional.front().toTensor();
-    const auto stages =
-        feature_model != nullptr ? (*feature_model)->forward_features(image)
-        : dense_model != nullptr ? (*dense_model)->forward_features(image)
-                                 : (*mobile_v2_model)->forward_features(image);
-    ASSERT_EQ(stages.size(), mobile_v2_model != nullptr ? 5U : 4U) << prefix;
+    std::vector<Tensor> stages;
+    if (feature_model != nullptr)
+      stages = (*feature_model)->forward_features(image);
+    else if (dense_model != nullptr)
+      stages = (*dense_model)->forward_features(image);
+    else if (mobile_v2_model != nullptr)
+      stages = (*mobile_v2_model)->forward_features(image);
+    else
+      stages = (*efficient_model)->forward_features(image);
+    const auto mobile_stages =
+        mobile_v2_model != nullptr || efficient_model != nullptr;
+    ASSERT_EQ(stages.size(), mobile_stages ? 5U : 4U) << prefix;
     for (std::size_t index = 0; index < stages.size(); ++index) {
-      const std::array<std::size_t, 5> mobile_stages{0, 1, 2, 4, 6};
+      const std::array<std::size_t, 5> mobile_stage_indices{0, 1, 2, 4, 6};
       const auto stage_name =
-          mobile_v2_model != nullptr
-              ? "blocks" + std::to_string(mobile_stages[index])
+          mobile_stages
+              ? "blocks" + std::to_string(mobile_stage_indices[index])
               : (dense_model == nullptr ? "layer" : "denseblock") +
                     std::to_string(index + 1);
       const auto expected_stage = ReferenceTensor(expected, stage_name);
@@ -1804,6 +1906,18 @@ TEST(ModelsPythonInterop, OfficialTimmMobileNetV2ReferenceReallyRuns) {
   CheckArchitectureReference("mobilenetv2_100", nullptr,
                              "JYPPX_LIUDING_MOBILENETV2_REFERENCE_DIR", nullptr,
                              &model);
+}
+TEST(ModelsPythonInterop, OfficialTimmEfficientNetB0ReferenceReallyRuns) {
+  auto model = efficientnet_b0();
+  CheckArchitectureReference("efficientnet_b0", nullptr,
+                             "JYPPX_LIUDING_EFFICIENTNET_REFERENCE_DIR", nullptr,
+                             nullptr, &model);
+}
+TEST(ModelsPythonInterop, OfficialTimmEfficientNetB2ReferenceReallyRuns) {
+  auto model = efficientnet_b2();
+  CheckArchitectureReference("efficientnet_b2", nullptr,
+                             "JYPPX_LIUDING_EFFICIENTNET_REFERENCE_DIR", nullptr,
+                             nullptr, &model);
 }
 TEST(ModelsPythonInterop,
      OfficialTorchvisionMobileNetV3SmallReferenceReallyRuns) {

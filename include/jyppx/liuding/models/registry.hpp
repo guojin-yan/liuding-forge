@@ -10,6 +10,7 @@
 #include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/densenet.hpp>
 #include <jyppx/liuding/models/dinov3_convnext.hpp>
+#include <jyppx/liuding/models/efficientnet.hpp>
 #include <jyppx/liuding/models/mobilenetv2.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
 #include <jyppx/liuding/models/vision.hpp>
@@ -24,7 +25,7 @@ namespace jyppx::liuding::models {
 /** @brief Model catalog metadata; default count excludes buffers. */
 struct ModelInfo {
   std::string name;       ///< Unique lowercase architecture name.
-  std::string family;     ///< resnet/mobilenet/transformer.
+  std::string family;     ///< Model family, such as resnet or efficientnet.
   std::string task;       ///< image_classification or feature_encoding.
   std::string reference;  ///< Exact authoritative algorithm/source family.
   std::uint64_t default_parameters = 0;  ///< Default options only.
@@ -33,6 +34,7 @@ struct ModelInfo {
 /** @brief Typed architecture options for the selected catalog family. */
 struct ModelOptions {
   DenseNetOptions densenet;               ///< Applied only to DenseNet models.
+  EfficientNetOptions efficientnet;        ///< Applied only to EfficientNet.
   ResNetOptions resnet;                   ///< Applied only to residual models.
   MobileNetV2Options mobile_v2;           ///< Applied only to MobileNetV2.
   MobileNetV3Options mobile;              ///< Applied only to mobile models.
@@ -81,7 +83,7 @@ class ModelRegistry final {
       entries_;  ///< Explicit lexical catalog.
 };
 /** @brief Builds the explicit built-in entries, without global mutation.
- * @return Independent caller-owned registry with the five preview factories.
+ * @return Independent caller-owned registry with built-in preview factories.
  */
 ModelRegistry default_model_registry();
 /** @brief Lists built-in architectures, optionally filtered by name substring.

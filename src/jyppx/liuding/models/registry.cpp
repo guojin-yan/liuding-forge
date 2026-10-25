@@ -23,6 +23,8 @@ bool Name(std::string_view name) {
     hint += "resnet18, resnet34, resnet50, resnet101, resnext50_32x4d.";
   else if (name.starts_with("dense"))
     hint += "densenet121.";
+  else if (name.starts_with("efficient"))
+    hint += "efficientnet_b0, efficientnet_b2.";
   else if (name.starts_with("mobile"))
     hint += "mobilenetv2_100, mobilenet_v3_small, mobilenet_v3_large.";
   else if (name.starts_with("dinov3"))
@@ -73,6 +75,24 @@ ModelRegistry default_model_registry() {
                 .preview = true},
                [](const ModelOptions& o) {
                  return adapt(densenet121(o.densenet));
+               });
+  registry.add({.name = "efficientnet_b0",
+                .family = "efficientnet",
+                .task = "image_classification",
+                .reference = "timm efficientnet_b0",
+                .default_parameters = 5288548U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(efficientnet_b0(o.efficientnet));
+               });
+  registry.add({.name = "efficientnet_b2",
+                .family = "efficientnet",
+                .task = "image_classification",
+                .reference = "timm efficientnet_b2",
+                .default_parameters = 9109994U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(efficientnet_b2(o.efficientnet));
                });
   registry.add({.name = "mobilenetv2_100",
                 .family = "mobilenetv2",
