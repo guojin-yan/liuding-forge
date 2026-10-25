@@ -35,7 +35,7 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **基础计算：基础组件与损失函数** | foundation 合约、错误/RNG/build fingerprint 和常用 loss 垂直切片 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.nn` 损失函数、随机数和设备基础能力；覆盖范围按本项目 C++ 合约定义。 |
 | **数据管线：数据集与数据加载** | map/iterable pipeline、worker、sampler、确定性 cursor 和数据生命周期 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.utils.data.Dataset`、`DataLoader`、`Sampler` 和 worker 机制；多进程 distributed 数据加载不在当前范围。 |
 | **数据管线：结构化 Batch 与能力描述** | batch schema、字段访问、能力声明和受约束的 collate 行为 | 已具备 | 已完成 | 对应 PyTorch 的 `collate_fn`、batch 组合和数据字段处理；本项目增加显式能力描述合约。 |
-| **模型系统：模型适配与模型生态** | ModelAdapter、模型 checkpoint participant、ResNet/MobileNet/Transformer 预览和 DINOv2 四种 ViT/14 容量 | 部分具备 | DINOv2 架构首批已接入；权重、DINOv3、其余骨干和独立参考验收持续开发 | 对应 PyTorch 的 `torch.nn.Module`、torchvision 和 timm/Transformers 等模型生态；当前仅声明已验证的架构，不宣称 model zoo 等价。 |
+| **模型系统：模型适配与模型生态** | ModelAdapter、模型 checkpoint participant、ResNet/ResNeXt/DenseNet/MobileNet/EfficientNet、DINOv2 四容量和 DINOv3 十一种工厂 | 部分具备 | A 批 11 个变体已有 C++ 架构；部分变体完成固定随机状态、特征差分和单步训练验证。B 批、预训练权重、统一接口与完整设备/任务矩阵仍在开发 | 对应 PyTorch 的 `torch.nn.Module`、torchvision、timm 和 DINO 模型生态；详见[模型 API](docs/api/models.md)。架构验证不代表预训练模型可用。 |
 | **训练系统：优化器** | SGD、Adam、AdamW、RMSprop、Adagrad、NAdam、Adadelta、LAMB adapter 及状态恢复 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.optim` 及其 optimizer state；跨版本迁移、稀疏参数和更大扩展生态仍有限。 |
 | **训练系统：学习率调度** | descriptor-first scheduler、组合调度、训练事件适配和精确恢复 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.optim.lr_scheduler`；本项目增加显式描述、事件绑定和可恢复状态。 |
 | **训练系统：Trainer 与训练编排** | Trainer、callback、metric、strategy、AMP、多 optimizer 和 checkpoint domain | 已具备 | 已完成 | 对应 PyTorch 的训练循环、optimizer/model 组合和生态 Trainer；本项目提供 C++ 训练闭环。 |
@@ -48,7 +48,7 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **交付工具：C++ CLI 与交付工具链** | liuding-forge CLI、迁移、评估、检查、打包和安装消费者工具 | 已具备 | 已完成 | 对应 PyTorch 的 LibTorch C++ frontend、`torchrun` 周边和扩展构建工具；本项目侧重原生 C++ 和离线交付。 |
 | **交付工具：性能观测与资源基线** | BuildFingerprint、设备/工作负载身份、数据管线资源观测和基线协议 | 已具备 | 持续完善 | 对应 PyTorch Profiler、CUDA 观测和 benchmark 工具；性能结果必须绑定精确环境，不能跨环境直接比较。 |
 | **交付工具：质量、恢复与发布门槛** | 当前训练生命周期的质量/恢复验证、coverage、sanitizer、fuzz、资源矩阵和发布回退 | 部分具备 | 持续完善 | 对应 PyTorch testing、benchmark 和发布验证生态；完整覆盖率、依赖安全、发布回退和签名交付仍在完善。 |
-| **扩展能力：图像输入与标注工作流** | 图像/标注读取、像素语义、坐标追踪、mask、联合变换、批处理和绘图输出 | 部分具备 | 读取、无损 PNG 标签、CPU 联合几何与逐样本随机性、stack/pad/ragged 组批、整批 pin/传输、CPU/CUDA 数值变换与提交前恢复边界已实现；CPU raster 绘制支持框、旋转框、polygon、骨架、mask、RLE 和 heatmap；CUDA 几何、PNG/JPEG 编码与文件输出仍在开发 | 对应 torchvision datasets、transforms、mask/annotation 和视觉数据管线；当前用法见[图像数据 API](docs/api/data_image.md)和[图像绘制 API](docs/api/vision_render.md)。 |
+| **扩展能力：图像输入与标注工作流** | 图像/标注读取、像素语义、坐标追踪、mask、联合变换、批处理和绘图输出 | 部分具备 | 无损 PNG 标签、CPU 联合几何与逐样本随机性、stack/pad/ragged 组批、CPU/CUDA 数值与像素批量几何、提交前恢复、CPU 标注绘制及有界 PNG/JPEG 编码与本地写出已有切片；CUDA rich annotation、异步输出和完整任务贯通仍在开发 | 对应 torchvision datasets、transforms、mask/annotation 和视觉数据管线；当前用法见[图像数据 API](docs/api/data_image.md)和[图像绘制 API](docs/api/vision_render.md)。 |
 | **扩展能力：量化** | storage quantization 与 FP32 fallback 的独立预览边界 | 部分具备 | 开发中（预览） | 对应 PyTorch `torch.ao.quantization`；当前不是 compute quantization，也不承诺量化感知训练（QAT）。 |
 | **扩展能力：导出、Serving 与部署** | 有界 model bundle、互操作后端和本地 serving preview | 部分具备 | 开发中（预览） | 对应 TorchScript、`torch.export`、TorchServe 和部署生态；不宣称完整部署平台或一一等价映射。 |
 | **当前范围外：分布式训练** | 多进程、多后端和跨节点训练控制面 | 暂不具备 | 当前范围外 | 对应 PyTorch `torch.distributed`、DDP 和多后端通信；不属于当前 v1.0 代码仓库交付范围。 |
