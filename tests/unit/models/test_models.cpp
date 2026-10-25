@@ -8,8 +8,11 @@
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
 #include <jyppx/liuding/models/models.hpp>
+#include <jyppx/liuding/training/amp/autocast.hpp>
 
+#include <ATen/autocast_mode.h>
 #include <torch/torch.h>
+#include <torch/optim.h>
 
 #include <algorithm>
 #include <array>
@@ -32,6 +35,143 @@ using namespace jyppx::liuding::models;
 
 Tensor Images(std::int64_t channels = 3) {
   return torch::zeros({2, channels, 64, 64}, torch::kFloat32);
+}
+
+template <typename Factory>
+void RunDinoV2CpuTrainingStep(Factory factory, std::int64_t dimension) {
+  auto model = factory(DinoV2Options{.num_classes = 3});
+  ASSERT_TRUE(model);
+  model->train();
+
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto named_before = model->named_parameters(true);
+  ASSERT_TRUE(named_before.contains("head.weight"));
+  const auto head_before = named_before["head.weight"].clone();
+  const auto input = torch::randn({1, 3, 14, 14}, torch::kFloat32);
+
+  optimizer.zero_grad();
+  const auto logits = model->forward(input);
+  ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+  ASSERT_EQ(logits.scalar_type(), torch::kFloat32);
+  const auto loss = logits.square().mean();
+  ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+  loss.backward();
+
+  const auto named = model->named_parameters(true);
+  ASSERT_TRUE(named.contains("patch_embed.proj.weight"));
+  ASSERT_TRUE(named.contains("head.weight"));
+  const auto patch_gradient = named["patch_embed.proj.weight"].grad();
+  const auto head_gradient = named["head.weight"].grad();
+  ASSERT_TRUE(patch_gradient.defined());
+  ASSERT_TRUE(head_gradient.defined());
+  EXPECT_EQ(patch_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_TRUE(torch::isfinite(patch_gradient).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
+  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+
+  optimizer.step();
+  const auto head_after = model->named_parameters(true)["head.weight"];
+  EXPECT_GT(torch::abs(head_after - head_before).sum().item<double>(), 0.0);
+
+  model->eval();
+  torch::NoGradGuard no_grad;
+  const auto features = model->forward_features(input);
+  EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 2, dimension}));
+  EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
+}
+
+template <typename Factory>
+void RunDinoV2CpuBfloat16AutocastStep(Factory factory,
+                                      std::int64_t dimension) {
+  auto model = factory(DinoV2Options{.num_classes = 3});
+  ASSERT_TRUE(model);
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto input = torch::randn({1, 3, 14, 14}, torch::kFloat32);
+
+  optimizer.zero_grad();
+  {
+    jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CPU,
+                                                       at::kBFloat16);
+    ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CPU));
+    EXPECT_EQ(at::autocast::get_autocast_dtype(c10::DeviceType::CPU),
+              at::kBFloat16);
+    const auto logits = model->forward(input);
+    ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+    EXPECT_EQ(logits.scalar_type(), torch::kBFloat16);
+    const auto loss = logits.to(torch::kFloat32).square().mean();
+    ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+    loss.backward();
+  }
+  EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CPU));
+
+  const auto head_gradient =
+      model->named_parameters(true)["head.weight"].grad();
+  ASSERT_TRUE(head_gradient.defined());
+  EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
+  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+  optimizer.step();
+
+  model->eval();
+  torch::NoGradGuard no_grad;
+  EXPECT_EQ(model->forward_features(input).sizes(),
+            torch::IntArrayRef({1, 2, dimension}));
+}
+
+template <typename Factory>
+void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0) {
+    GTEST_SKIP() << "CUDA device is unavailable";
+  }
+  const torch::Device device(torch::kCUDA, 0);
+  auto model = factory(DinoV2Options{.num_classes = 3});
+  ASSERT_TRUE(model);
+  model->to(device);
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto input = torch::randn(
+      {1, 3, 14, 14},
+      torch::TensorOptions().dtype(torch::kFloat32).device(device));
+
+  optimizer.zero_grad();
+  {
+    jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CUDA,
+                                                       at::kHalf);
+    ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+    const auto logits = model->forward(input);
+    ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+    EXPECT_EQ(logits.scalar_type(), torch::kFloat16);
+    const auto loss = logits.to(torch::kFloat32).square().mean();
+    ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+    loss.backward();
+  }
+  EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+
+  const auto named = model->named_parameters(true);
+  ASSERT_TRUE(named.contains("patch_embed.proj.weight"));
+  ASSERT_TRUE(named.contains("head.weight"));
+  const auto patch_gradient = named["patch_embed.proj.weight"].grad();
+  const auto head_gradient = named["head.weight"].grad();
+  ASSERT_TRUE(patch_gradient.defined());
+  ASSERT_TRUE(head_gradient.defined());
+  EXPECT_TRUE(patch_gradient.device().is_cuda());
+  EXPECT_TRUE(head_gradient.device().is_cuda());
+  EXPECT_TRUE(torch::isfinite(patch_gradient).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
+  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+  optimizer.step();
+
+  model->eval();
+  torch::NoGradGuard no_grad;
+  const auto features = model->forward_features(input);
+  EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 2, dimension}));
+  EXPECT_TRUE(features.device().is_cuda());
+  EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
 }
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
@@ -150,6 +290,29 @@ TEST(Models,
   EXPECT_EQ(list_models("dinov2").size(), 4U);
 }
 
+TEST(Models, DinoV2SmallSupportsCpuBackwardAndOptimizerStep) {
+  RunDinoV2CpuTrainingStep(
+      [](DinoV2Options options) { return dinov2_vits14(options); }, 384);
+}
+
+TEST(Models, DinoV2BaseAndLargeCpuTrainingGateIsExplicit) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV2_TRAINING_CAPACITY_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV2_TRAINING_CAPACITY_GATE=1 for the "
+                    "serial Base/Large backward and optimizer gate";
+  }
+  RunDinoV2CpuTrainingStep(
+      [](DinoV2Options options) { return dinov2_vitb14(options); }, 768);
+  RunDinoV2CpuTrainingStep(
+      [](DinoV2Options options) { return dinov2_vitl14(options); }, 1024);
+}
+
+TEST(Models, DinoV2SmallSupportsCpuBfloat16AutocastBackward) {
+  RunDinoV2CpuBfloat16AutocastStep(
+      [](DinoV2Options options) { return dinov2_vits14(options); }, 384);
+}
+
 TEST(Models, DinoV2BaseAndLargeMatchPinnedCapacityContracts) {
   const auto check = [](DinoV2 model, std::int64_t dimension,
                         std::uint64_t parameters) {
@@ -212,6 +375,11 @@ TEST(ModelsCuda, DinoV2SmallForwardUsesCudaWhenAvailable) {
   EXPECT_EQ(cls.sizes(), torch::IntArrayRef({1, 384}));
   EXPECT_TRUE(torch::isfinite(tokens).all().item<bool>());
   EXPECT_TRUE(torch::isfinite(cls).all().item<bool>());
+}
+
+TEST(ModelsCuda, DinoV2SmallSupportsCudaHalfAutocastBackward) {
+  RunDinoV2CudaTrainingStep(
+      [](DinoV2Options options) { return dinov2_vits14(options); }, 384);
 }
 
 TEST(Models, ResNetVariantsExposeExpectedFeatureStridesAndParameterCounts) {
