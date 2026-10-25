@@ -176,8 +176,8 @@ void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 18U);
-  EXPECT_EQ(entries.front().name, "dinov3_convnext_small");
+  ASSERT_EQ(entries.size(), 20U);
+  EXPECT_EQ(entries.front().name, "dinov3_convnext_base");
   EXPECT_EQ(list_models("resnet").size(), 2U);
 
   auto residual = create_model("resnet18");
@@ -349,9 +349,15 @@ TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
 TEST(Models, DinoV3ConvNeXtLowResourceFactoriesExposeStageContracts) {
   const auto tiny_info = model_info("dinov3_convnext_tiny");
   const auto small_info = model_info("dinov3_convnext_small");
+  const auto base_info = model_info("dinov3_convnext_base");
+  const auto large_info = model_info("dinov3_convnext_large");
   EXPECT_EQ(tiny_info.family, "dinov3_convnext");
   EXPECT_LT(tiny_info.default_parameters, small_info.default_parameters);
-  EXPECT_EQ(list_models("dinov3_convnext").size(), 2U);
+  EXPECT_LT(small_info.default_parameters, base_info.default_parameters);
+  EXPECT_LT(base_info.default_parameters, large_info.default_parameters);
+  EXPECT_EQ(list_models("dinov3_convnext").size(), 4U);
+  EXPECT_EQ(available_weights("dinov3_convnext_large").front().availability,
+            WeightAvailability::not_provisioned);
 
   const auto input = torch::randn({2, 3, 65, 97});
   const auto check = [&](DinoV3ConvNeXt model) {

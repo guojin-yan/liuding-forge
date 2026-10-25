@@ -26,6 +26,8 @@ namespace jyppx::liuding::models {
 enum class DinoV3ConvNeXtVariant : std::uint8_t {
   tiny = 1,   ///< depths [3,3,9,3], channels [96,192,384,768].
   small = 2,  ///< depths [3,3,27,3], channels [96,192,384,768].
+  base = 3,   ///< depths [3,3,27,3], channels [128,256,512,1024].
+  large = 4,  ///< depths [3,3,27,3], channels [192,384,768,1536].
 };
 
 /** @brief Input, head and initialization settings for ConvNeXt backbones. */
@@ -74,6 +76,8 @@ TORCH_MODULE(DinoV3ConvNeXt);
 
 DinoV3ConvNeXt dinov3_convnext_tiny(DinoV3ConvNeXtOptions options = {});
 DinoV3ConvNeXt dinov3_convnext_small(DinoV3ConvNeXtOptions options = {});
+DinoV3ConvNeXt dinov3_convnext_base(DinoV3ConvNeXtOptions options = {});
+DinoV3ConvNeXt dinov3_convnext_large(DinoV3ConvNeXtOptions options = {});
 
 /** @brief Creates a schema-checked adapter for a ConvNeXt holder. */
 nn::ModelAdapter adapt(DinoV3ConvNeXt model);

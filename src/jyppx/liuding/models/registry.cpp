@@ -221,6 +221,26 @@ ModelRegistry default_model_registry() {
                [](const ModelOptions& o) {
                  return adapt(dinov3_convnext_small(o.dinov3_convnext));
                });
+  registry.add({.name = "dinov3_convnext_base",
+                .family = "dinov3_convnext",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 88400000U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(dinov3_convnext_base(o.dinov3_convnext));
+               });
+  registry.add({.name = "dinov3_convnext_large",
+                .family = "dinov3_convnext",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 198000000ULL,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(dinov3_convnext_large(o.dinov3_convnext));
+               });
   return registry;
 }
 std::vector<ModelInfo> list_models(std::string_view filter) {

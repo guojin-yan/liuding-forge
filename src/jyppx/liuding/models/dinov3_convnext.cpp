@@ -28,8 +28,12 @@ Config VariantConfig(DinoV3ConvNeXtVariant variant) {
       return {{3, 3, 9, 3}, {96, 192, 384, 768}};
     case DinoV3ConvNeXtVariant::small:
       return {{3, 3, 27, 3}, {96, 192, 384, 768}};
+    case DinoV3ConvNeXtVariant::base:
+      return {{3, 3, 27, 3}, {128, 256, 512, 1024}};
+    case DinoV3ConvNeXtVariant::large:
+      return {{3, 3, 27, 3}, {192, 384, 768, 1536}};
   }
-  detail::Invalid("dinov3.convnext.variant", "tiny or small");
+  detail::Invalid("dinov3.convnext.variant", "tiny, small, base or large");
 }
 
 void Validate(const DinoV3ConvNeXtOptions& options) {
@@ -259,6 +263,18 @@ DinoV3ConvNeXt dinov3_convnext_small(DinoV3ConvNeXtOptions options) {
   return DinoV3ConvNeXt(
       std::make_shared<DinoV3ConvNeXtImpl>(
           DinoV3ConvNeXtVariant::small, std::move(options)));
+}
+
+DinoV3ConvNeXt dinov3_convnext_base(DinoV3ConvNeXtOptions options) {
+  return DinoV3ConvNeXt(
+      std::make_shared<DinoV3ConvNeXtImpl>(
+          DinoV3ConvNeXtVariant::base, std::move(options)));
+}
+
+DinoV3ConvNeXt dinov3_convnext_large(DinoV3ConvNeXtOptions options) {
+  return DinoV3ConvNeXt(
+      std::make_shared<DinoV3ConvNeXtImpl>(
+          DinoV3ConvNeXtVariant::large, std::move(options)));
 }
 
 nn::ModelAdapter adapt(DinoV3ConvNeXt model) {
