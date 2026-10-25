@@ -176,7 +176,7 @@ void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 14U);
+  ASSERT_EQ(entries.size(), 18U);
   EXPECT_EQ(entries.front().name, "dinov3_convnext_small");
   EXPECT_EQ(list_models("resnet").size(), 2U);
 
@@ -296,7 +296,19 @@ TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
   const auto base = model_info("dinov3_vitb16");
   EXPECT_EQ(small.family, "dinov3_vit");
   EXPECT_LT(small.default_parameters, base.default_parameters);
-  EXPECT_EQ(list_models("dinov3_vit").size(), 3U);
+  EXPECT_EQ(list_models("dinov3_vit").size(), 7U);
+  const auto large_info = model_info("dinov3_vitl16");
+  const auto large_plus_info = model_info("dinov3_vitl16plus");
+  const auto huge_plus_info = model_info("dinov3_vith16plus");
+  const auto seven_b_info = model_info("dinov3_vit7b16");
+  EXPECT_LT(base.default_parameters, large_info.default_parameters);
+  EXPECT_LT(large_info.default_parameters, huge_plus_info.default_parameters);
+  EXPECT_LT(huge_plus_info.default_parameters, seven_b_info.default_parameters);
+  EXPECT_EQ(available_weights("dinov3_vit7b16").front().availability,
+            WeightAvailability::not_provisioned);
+  EXPECT_FALSE(
+      available_weights("dinov3_vitl16plus").front().artifact.has_value());
+  EXPECT_GT(large_plus_info.default_parameters, large_info.default_parameters);
 
   const auto input = torch::randn({2, 3, 225, 239});
   const auto check = [&](DinoV3 model, std::int64_t dimension) {

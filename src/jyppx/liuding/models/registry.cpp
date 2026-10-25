@@ -163,6 +163,44 @@ ModelRegistry default_model_registry() {
                 .default_parameters = 86000000U,
                 .preview = true},
                [](const ModelOptions& o) { return adapt(dinov3_vitb16(o.dinov3)); });
+  registry.add({.name = "dinov3_vitl16",
+                .family = "dinov3_vit",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 303000000ULL,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(dinov3_vitl16(o.dinov3)); });
+  registry.add({.name = "dinov3_vitl16plus",
+                .family = "dinov3_vit",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 305000000ULL,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(dinov3_vitl16plus(o.dinov3));
+               });
+  registry.add({.name = "dinov3_vith16plus",
+                .family = "dinov3_vit",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 840000000ULL,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(dinov3_vith16plus(o.dinov3));
+               });
+  registry.add({.name = "dinov3_vit7b16",
+                .family = "dinov3_vit",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 6700000000ULL,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(dinov3_vit7b16(o.dinov3));
+               });
   registry.add({.name = "dinov3_convnext_tiny",
                 .family = "dinov3_convnext",
                 .task = "image_classification_or_embedding",

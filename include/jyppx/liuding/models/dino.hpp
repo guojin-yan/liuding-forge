@@ -117,6 +117,10 @@ enum class DinoV3Variant : std::uint8_t {
   small = 1,       ///< 384-dimensional, 12-block, 6-head encoder.
   small_plus = 2,  ///< 384-dimensional SwiGLU, 12-block, 6-head encoder.
   base = 3,        ///< 768-dimensional, 12-block, 12-head encoder.
+  large = 4,       ///< 1024-dimensional, 24-block, 16-head encoder.
+  large_plus = 5,  ///< 1024-dimensional SwiGLU, 24-block, 16-head encoder.
+  huge_plus = 6,   ///< 1280-dimensional SwiGLU, 32-block, 20-head encoder.
+  seven_b = 7,     ///< 4096-dimensional SwiGLU, 40-block, 32-head encoder.
 };
 
 /** @brief Input, head and initialization settings shared by DINOv3 ViT models. */
@@ -179,6 +183,14 @@ DinoV3 dinov3_vits16(DinoV3Options options = {});
 DinoV3 dinov3_vits16plus(DinoV3Options options = {});
 /** @brief Constructs DINOv3 ViT-B/16. */
 DinoV3 dinov3_vitb16(DinoV3Options options = {});
+/** @brief Constructs DINOv3 ViT-L/16. */
+DinoV3 dinov3_vitl16(DinoV3Options options = {});
+/** @brief Constructs DINOv3 ViT-L+/16. */
+DinoV3 dinov3_vitl16plus(DinoV3Options options = {});
+/** @brief Constructs DINOv3 ViT-H+/16. */
+DinoV3 dinov3_vith16plus(DinoV3Options options = {});
+/** @brief Constructs DINOv3 ViT-7B/16. */
+DinoV3 dinov3_vit7b16(DinoV3Options options = {});
 
 /** @brief Creates a schema-checked adapter for a DINOv3 holder. */
 nn::ModelAdapter adapt(DinoV3 model);

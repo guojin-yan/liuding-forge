@@ -455,8 +455,34 @@ DinoV3Config Config(DinoV3Variant variant) {
               .blocks = 12,
               .hidden = 3072,
               .swiglu = false};
+    case DinoV3Variant::large:
+      return {.dimension = 1024,
+              .heads = 16,
+              .blocks = 24,
+              .hidden = 4096,
+              .swiglu = false};
+    case DinoV3Variant::large_plus:
+      return {.dimension = 1024,
+              .heads = 16,
+              .blocks = 24,
+              .hidden = 4096,
+              .swiglu = true};
+    case DinoV3Variant::huge_plus:
+      return {.dimension = 1280,
+              .heads = 20,
+              .blocks = 32,
+              .hidden = 7680,
+              .swiglu = true};
+    case DinoV3Variant::seven_b:
+      return {.dimension = 4096,
+              .heads = 32,
+              .blocks = 40,
+              .hidden = 12288,
+              .swiglu = true};
   }
-  detail::Invalid("dinov3.variant", "small, small_plus or base");
+  detail::Invalid("dinov3.variant",
+                  "small, small_plus, base, large, large_plus, huge_plus or "
+                  "seven_b");
 }
 
 void ValidateOptions(const DinoV3Options& options) {
@@ -698,6 +724,18 @@ DinoV3 dinov3_vits16plus(DinoV3Options options) {
 }
 DinoV3 dinov3_vitb16(DinoV3Options options) {
   return DinoV3(DinoV3Variant::base, options);
+}
+DinoV3 dinov3_vitl16(DinoV3Options options) {
+  return DinoV3(DinoV3Variant::large, options);
+}
+DinoV3 dinov3_vitl16plus(DinoV3Options options) {
+  return DinoV3(DinoV3Variant::large_plus, options);
+}
+DinoV3 dinov3_vith16plus(DinoV3Options options) {
+  return DinoV3(DinoV3Variant::huge_plus, options);
+}
+DinoV3 dinov3_vit7b16(DinoV3Options options) {
+  return DinoV3(DinoV3Variant::seven_b, options);
 }
 
 nn::ModelAdapter adapt(DinoV3 model) {
