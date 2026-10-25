@@ -123,6 +123,50 @@ void RunDinoV2CpuBfloat16AutocastStep(Factory factory,
 }
 
 template <typename Factory>
+void RunDinoV3CpuTrainingStep(Factory factory, std::int64_t dimension) {
+  auto model = factory(DinoV3Options{.num_classes = 3});
+  ASSERT_TRUE(model);
+  model->train();
+
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto named_before = model->named_parameters(true);
+  ASSERT_TRUE(named_before.contains("head.weight"));
+  const auto head_before = named_before["head.weight"].clone();
+  const auto input = torch::randn({1, 3, 16, 16}, torch::kFloat32);
+
+  optimizer.zero_grad();
+  const auto logits = model->forward(input);
+  ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+  ASSERT_EQ(logits.scalar_type(), torch::kFloat32);
+  const auto loss = logits.square().mean();
+  ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+  loss.backward();
+
+  const auto named = model->named_parameters(true);
+  ASSERT_TRUE(named.contains("patch_embed.proj.weight"));
+  const auto patch_gradient = named["patch_embed.proj.weight"].grad();
+  const auto head_gradient = named["head.weight"].grad();
+  ASSERT_TRUE(patch_gradient.defined());
+  ASSERT_TRUE(head_gradient.defined());
+  EXPECT_EQ(patch_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
+  EXPECT_TRUE(torch::isfinite(patch_gradient).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
+  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+
+  optimizer.step();
+  const auto head_after = model->named_parameters(true)["head.weight"];
+  EXPECT_GT(torch::abs(head_after - head_before).sum().item<double>(), 0.0);
+
+  model->eval();
+  torch::NoGradGuard no_grad;
+  const auto features = model->forward_features(input);
+  EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 6, dimension}));
+  EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
+}
+
+template <typename Factory>
 void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
   if (!torch::cuda::is_available() || torch::cuda::device_count() == 0) {
     GTEST_SKIP() << "CUDA device is unavailable";
@@ -172,6 +216,37 @@ void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
   EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 2, dimension}));
   EXPECT_TRUE(features.device().is_cuda());
   EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
+}
+
+template <typename Factory>
+void RunDinoV3CudaHalfForward(Factory factory, std::int64_t dimension) {
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0) {
+    GTEST_SKIP() << "CUDA device is unavailable";
+  }
+  const torch::Device device(torch::kCUDA, 0);
+  auto model = factory(DinoV3Options{.num_classes = 3});
+  ASSERT_TRUE(model);
+  model->to(device);
+  model->eval();
+  const auto input = torch::randn(
+      {1, 3, 16, 16},
+      torch::TensorOptions().dtype(torch::kFloat32).device(device));
+  torch::NoGradGuard no_grad;
+  jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CUDA,
+                                                      at::kHalf);
+  ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+  const auto features = model->forward_features(input);
+  const auto logits = model->forward(input);
+  EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 6, dimension}));
+  EXPECT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+  // LayerNorm keeps the feature contract in FP32 under CUDA autocast; the
+  // classifier output remains half precision.
+  EXPECT_EQ(features.scalar_type(), torch::kFloat32);
+  EXPECT_EQ(logits.scalar_type(), torch::kHalf);
+  EXPECT_TRUE(features.device().is_cuda());
+  EXPECT_TRUE(logits.device().is_cuda());
+  EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(logits).all().item<bool>());
 }
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
@@ -346,6 +421,21 @@ TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
       InvalidArgument);
 }
 
+TEST(Models, DinoV3LowResourceFactoriesSupportCpuTrainingGate) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_TRAINING_CAPACITY_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_TRAINING_CAPACITY_GATE=1 for the "
+                    "serial DINOv3-S/S+/B CPU backward and optimizer gate";
+  }
+  RunDinoV3CpuTrainingStep(
+      [](DinoV3Options options) { return dinov3_vits16(options); }, 384);
+  RunDinoV3CpuTrainingStep(
+      [](DinoV3Options options) { return dinov3_vits16plus(options); }, 384);
+  RunDinoV3CpuTrainingStep(
+      [](DinoV3Options options) { return dinov3_vitb16(options); }, 768);
+}
+
 TEST(Models, DinoV3ConvNeXtLowResourceFactoriesExposeStageContracts) {
   const auto tiny_info = model_info("dinov3_convnext_tiny");
   const auto small_info = model_info("dinov3_convnext_small");
@@ -486,6 +576,15 @@ TEST(ModelsCuda, DinoV2SmallForwardUsesCudaWhenAvailable) {
 TEST(ModelsCuda, DinoV2SmallSupportsCudaHalfAutocastBackward) {
   RunDinoV2CudaTrainingStep(
       [](DinoV2Options options) { return dinov2_vits14(options); }, 384);
+}
+
+TEST(ModelsCuda, DinoV3LowResourceFactoriesSupportCudaHalfForward) {
+  RunDinoV3CudaHalfForward(
+      [](DinoV3Options options) { return dinov3_vits16(options); }, 384);
+  RunDinoV3CudaHalfForward(
+      [](DinoV3Options options) { return dinov3_vits16plus(options); }, 384);
+  RunDinoV3CudaHalfForward(
+      [](DinoV3Options options) { return dinov3_vitb16(options); }, 768);
 }
 
 TEST(Models, ResNetVariantsExposeExpectedFeatureStridesAndParameterCounts) {
