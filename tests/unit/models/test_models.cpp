@@ -183,6 +183,7 @@ void RunDinoV3CpuTrainingStep(Factory factory, std::int64_t dimension) {
   EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
   EXPECT_TRUE(torch::isfinite(patch_gradient).all().template item<bool>());
   EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+  EXPECT_GT(patch_gradient.abs().max().template item<double>(), 0.0);
   EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
 
   optimizer.step();
@@ -539,6 +540,40 @@ TEST(Models, DinoV3LowResourceFactoriesSupportCpuTrainingGate) {
       [](DinoV3Options options) { return dinov3_vitb16(options); }, 768);
 }
 
+template <typename Factory>
+void RunDinoV3HighResourceCpuTrainingStep(const char* name, Factory factory) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_VIT_HIGH_TRAINING_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_VIT_HIGH_TRAINING_GATE=1 "
+                    "for the serial ViT-L/L+ CPU backward and SGD gate";
+  }
+  torch::manual_seed(20261026);
+  const auto start = std::chrono::steady_clock::now();
+  RunDinoV3CpuTrainingStep(factory, 1024);
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 8ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=" << name << " training_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(end -
+                                                                     start)
+                   .count()
+            << " process_peak_rss_bytes=" << peak << '\n';
+}
+
+TEST(Models, DinoV3LargeCpuBackwardResourceGate) {
+  RunDinoV3HighResourceCpuTrainingStep(
+      "dinov3_vitl16",
+      [](DinoV3Options options) { return dinov3_vitl16(options); });
+}
+
+TEST(Models, DinoV3LargePlusCpuBackwardResourceGate) {
+  RunDinoV3HighResourceCpuTrainingStep(
+      "dinov3_vitl16plus",
+      [](DinoV3Options options) { return dinov3_vitl16plus(options); });
+}
+
 TEST(Models, DinoV3ConvNeXtLowResourceFactoriesSupportCpuTrainingGate) {
   const auto* enabled =
       std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_TRAINING_CAPACITY_GATE");
@@ -761,7 +796,7 @@ TEST(ModelsCuda, DinoV3ConvNeXtLowResourceFactoriesSupportCudaHalfForward) {
       {96, 192, 384, 768});
 }
 
-void CheckDinoV3ConvNeXtCudaResourceBudget(
+void CheckDinoV3CudaResourceBudget(
     const char* name, const char* phase,
     std::chrono::steady_clock::time_point start) {
   torch::cuda::synchronize(0);
@@ -786,6 +821,32 @@ void CheckDinoV3ConvNeXtCudaResourceBudget(
 }
 
 template <typename Factory>
+void RunDinoV3HighCudaHalfForward(const char* name, Factory factory) {
+  const auto* enabled = std::getenv("JYPPX_LIUDING_DINOV3_VIT_HIGH_CUDA_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_VIT_HIGH_CUDA_GATE=1 "
+                    "for the serial ViT-L/L+ CUDA FP16 forward resource gate";
+  }
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0)
+    GTEST_SKIP() << "CUDA device is unavailable";
+  const auto start = std::chrono::steady_clock::now();
+  RunDinoV3CudaHalfForward(factory, 1024);
+  CheckDinoV3CudaResourceBudget(name, "forward", start);
+}
+
+TEST(ModelsCuda, DinoV3LargeCudaHalfResourceGate) {
+  RunDinoV3HighCudaHalfForward("dinov3_vitl16", [](DinoV3Options options) {
+    return dinov3_vitl16(options);
+  });
+}
+
+TEST(ModelsCuda, DinoV3LargePlusCudaHalfResourceGate) {
+  RunDinoV3HighCudaHalfForward("dinov3_vitl16plus", [](DinoV3Options options) {
+    return dinov3_vitl16plus(options);
+  });
+}
+
+template <typename Factory>
 void RunDinoV3ConvNeXtHighCudaHalfForward(
     const char* name, Factory factory,
     const std::array<std::int64_t, 4>& channels) {
@@ -799,7 +860,7 @@ void RunDinoV3ConvNeXtHighCudaHalfForward(
     GTEST_SKIP() << "CUDA device is unavailable";
   const auto start = std::chrono::steady_clock::now();
   RunDinoV3ConvNeXtCudaHalfForward(factory, channels);
-  CheckDinoV3ConvNeXtCudaResourceBudget(name, "forward", start);
+  CheckDinoV3CudaResourceBudget(name, "forward", start);
 }
 
 TEST(ModelsCuda, DinoV3ConvNeXtBaseCudaHalfResourceGate) {
@@ -876,7 +937,7 @@ void RunDinoV3ConvNeXtHighCudaTrainingStep(const char* name, Factory factory) {
   const auto head_after = model->named_parameters(true)["head.weight"];
   EXPECT_GT(torch::abs(head_after - head_before).sum().template item<double>(),
             0.0);
-  CheckDinoV3ConvNeXtCudaResourceBudget(name, "backward_sgd", start);
+  CheckDinoV3CudaResourceBudget(name, "backward_sgd", start);
 }
 
 TEST(ModelsCuda, DinoV3ConvNeXtBaseCudaHalfTrainingResourceGate) {
