@@ -203,4 +203,28 @@ TEST(RenderTest, HonorsCancellationAndRasterBudget) {
       Cancelled);
 }
 
+TEST(RenderTest, AggregateBudgetRetainsRenderedBytesUntilConsumption) {
+  const auto image = torch::zeros({3, 2, 2}, torch::kUInt8);
+  const VisionAnnotationRecord record{.width = 2, .height = 2};
+  auto budget_limits = data::image::ImageResourceBudgetLimits{};
+  budget_limits.max_decoded_bytes = 23;
+  auto budget = std::make_shared<data::image::ImageResourceBudget>(
+      budget_limits);
+  auto options = RenderOptions{};
+  options.resource_budget = budget;
+  EXPECT_THROW(render_annotations(image, RgbSpec(), record, {}, {}, {}, options),
+               ResourceExhausted);
+
+  budget_limits.max_decoded_bytes = 24;
+  budget = std::make_shared<data::image::ImageResourceBudget>(budget_limits);
+  options.resource_budget = budget;
+  auto rendered =
+      render_annotations(image, RgbSpec(), record, {}, {}, {}, options);
+  EXPECT_EQ(budget->usage(data::image::ImageResourceKind::decoded_bytes).current,
+            12U);
+  rendered.output_lease.release();
+  EXPECT_EQ(budget->usage(data::image::ImageResourceKind::decoded_bytes).current,
+            0U);
+}
+
 }  // namespace

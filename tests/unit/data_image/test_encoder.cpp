@@ -12,6 +12,7 @@
 #include <chrono>
 #include <filesystem>
 #include <gtest/gtest.h>
+#include <memory>
 
 namespace {
 
@@ -117,6 +118,42 @@ TEST(ImageEncoderTest, BoundsInvalidTypesAndCancellationAreExplicit) {
   EXPECT_THROW(
       encode_image(image, RgbSpec(ImageLayout::chw), {}, stop.get_token()),
       Cancelled);
+}
+
+TEST(ImageResourceBudgetTest, LeasesTrackPeakAndRejectAggregateOverflow) {
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_bytes = 8;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+
+  auto first = budget->reserve(ImageResourceKind::encoded_bytes, 6);
+  EXPECT_TRUE(first.active());
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 6U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).peak, 6U);
+  EXPECT_THROW(budget->reserve(ImageResourceKind::encoded_bytes, 3),
+               ResourceExhausted);
+
+  first.release();
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
+  auto second = budget->reserve(ImageResourceKind::encoded_bytes, 8);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).peak, 8U);
+}
+
+TEST(ImageEncoderTest, AggregateBudgetRetainsEncodedLeaseUntilConsumption) {
+  const auto image = torch::zeros({3, 4, 5}, torch::kUInt8);
+  const auto reference = encode_image(image, RgbSpec(ImageLayout::chw));
+
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_bytes = reference.bytes.size();
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  ImageEncodeOptions options;
+  options.resource_budget = budget;
+  auto encoded = encode_image(image, RgbSpec(ImageLayout::chw), options);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current,
+            encoded.bytes.size());
+  EXPECT_THROW(encode_image(image, RgbSpec(ImageLayout::chw), options),
+               ResourceExhausted);
+  encoded.output_lease.release();
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
 }
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)

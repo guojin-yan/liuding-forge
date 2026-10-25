@@ -200,6 +200,19 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
       Resource("encode.working",
                std::to_string(options.limits.max_working_bytes),
                std::to_string(required_working));
+    ImageResourceLease decoded_lease;
+    ImageResourceLease pixel_lease;
+    ImageResourceLease scratch_lease;
+    if (options.resource_budget) {
+      decoded_lease = options.resource_budget->reserve(
+          ImageResourceKind::decoded_bytes, input_bytes);
+      pixel_lease = options.resource_budget->reserve(
+          ImageResourceKind::pixels,
+          static_cast<std::uint64_t>(width) *
+              static_cast<std::uint64_t>(height));
+      scratch_lease = options.resource_budget->reserve(
+          ImageResourceKind::codec_scratch_bytes, required_working);
+    }
     if (width > std::numeric_limits<int>::max() ||
         height > std::numeric_limits<int>::max() ||
         static_cast<std::uint64_t>(width) * channels >
@@ -227,12 +240,19 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
                std::to_string(options.limits.max_output_bytes));
     if (!ok) BackendFailure("encode.backend");
     CheckStop(stop);
+    ImageResourceLease output_lease;
+    if (options.resource_budget) {
+      output_lease = options.resource_budget->reserve(
+          ImageResourceKind::encoded_bytes,
+          static_cast<std::uint64_t>(state.bytes.size()));
+    }
     return EncodedImage{std::move(state.bytes),
                         options.format == ImageEncodeFormat::png
                             ? ImageFormat::png
                             : ImageFormat::jpeg,
                         static_cast<std::uint32_t>(width),
-                        static_cast<std::uint32_t>(height), channels};
+                        static_cast<std::uint32_t>(height), channels,
+                        std::move(output_lease)};
   } catch (const c10::Error& error) {
     detail::rethrow_backend_error(
         error, detail::BackendErrorContext{

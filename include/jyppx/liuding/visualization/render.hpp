@@ -14,6 +14,7 @@
 
 #include <jyppx/liuding/data_image/annotations.hpp>
 #include <jyppx/liuding/data_image/pixel_spec.hpp>
+#include <jyppx/liuding/data_image/resource_budget.hpp>
 
 #include <array>
 #include <cstddef>
@@ -50,12 +51,15 @@ struct RenderOptions {
   std::size_t max_points =
       5'000'000;  ///< Vertices, keypoints, links and RLE runs.
   std::uint64_t max_raster_ops = 250'000'000;
+  std::shared_ptr<data::image::ImageResourceBudget> resource_budget;
 };
 
 /** @brief Owning HWC RGB8 render result with explicit pixel semantics. */
 struct RenderedImage {
   Tensor pixels;
   data::image::PixelSpec spec;
+  /** @brief Holds the aggregate decoded-byte lease while pixels are retained. */
+  data::image::ImageResourceLease output_lease;
 };
 
 /**

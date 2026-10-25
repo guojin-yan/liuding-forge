@@ -13,6 +13,7 @@
  */
 
 #include <jyppx/liuding/data_image/image_decoder.hpp>
+#include <jyppx/liuding/data_image/resource_budget.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -43,6 +44,7 @@ struct ImageEncodeOptions {
   ImageEncodeLimits limits = {};
   ImageEncodeFormat format = ImageEncodeFormat::png;
   int jpeg_quality = 90;  ///< Inclusive range 1..100; ignored for PNG.
+  std::shared_ptr<ImageResourceBudget> resource_budget;
 };
 
 /** @brief Owning encoded image and dimensions used by the writer. */
@@ -52,6 +54,8 @@ struct EncodedImage {
   std::uint32_t width = 0;
   std::uint32_t height = 0;
   std::uint8_t channels = 0;
+  /** @brief Holds the aggregate encoded-byte lease until bytes are consumed. */
+  ImageResourceLease output_lease;
 };
 
 /**

@@ -491,6 +491,7 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         src/jyppx/liuding/data_image/batch_transform.cpp
         src/jyppx/liuding/data_image/batch_geometry.cpp
         src/jyppx/liuding/data_image/batch_identity.cpp
+        src/jyppx/liuding/data_image/resource_budget.cpp
         src/jyppx/liuding/data_image/stb_image_impl.cpp
         $<TARGET_OBJECTS:data_image_xml_backend>
         $<TARGET_OBJECTS:data_image_yaml_backend>)

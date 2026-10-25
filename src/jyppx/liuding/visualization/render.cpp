@@ -370,6 +370,15 @@ RenderedImage render_annotations(const Tensor& pixels,
       pixel_count > std::numeric_limits<std::size_t>::max() / 3U)
     Exhausted("image.output_bytes", std::to_string(options.max_output_bytes),
               "RGB8 output size overflow or limit exceeded");
+  data::image::ImageResourceLease input_lease;
+  data::image::ImageResourceLease pixel_lease;
+  if (options.resource_budget) {
+    input_lease = options.resource_budget->reserve(
+        data::image::ImageResourceKind::decoded_bytes,
+        static_cast<std::uint64_t>(pixels.numel()));
+    pixel_lease = options.resource_budget->reserve(
+        data::image::ImageResourceKind::pixels, pixel_count);
+  }
   if (annotations.objects.size() > options.max_objects)
     Exhausted("annotations.objects", std::to_string(options.max_objects),
               std::to_string(annotations.objects.size()));
@@ -552,7 +561,15 @@ RenderedImage render_annotations(const Tensor& pixels,
   output_spec.alpha = PixelAlphaMode::none;
   output_spec.dtype = torch::kUInt8;
   output_spec.range = PixelValueRange::unsigned_full_scale;
-  return {.pixels = std::move(output), .spec = output_spec};
+  data::image::ImageResourceLease output_lease;
+  if (options.resource_budget) {
+    output_lease = options.resource_budget->reserve(
+        data::image::ImageResourceKind::decoded_bytes,
+        pixel_count * 3U);
+  }
+  return {.pixels = std::move(output),
+          .spec = output_spec,
+          .output_lease = std::move(output_lease)};
 }
 
 }  // namespace jyppx::liuding::visualization
