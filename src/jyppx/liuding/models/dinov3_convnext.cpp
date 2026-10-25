@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <utility>
 
 namespace jyppx::liuding::models {
 namespace {
@@ -254,27 +253,23 @@ void DinoV3ConvNeXtImpl::reset_classifier(std::int64_t num_classes) {
 }
 
 DinoV3ConvNeXt dinov3_convnext_tiny(DinoV3ConvNeXtOptions options) {
-  return DinoV3ConvNeXt(
-      std::make_shared<DinoV3ConvNeXtImpl>(
-          DinoV3ConvNeXtVariant::tiny, std::move(options)));
+  return DinoV3ConvNeXt(std::make_shared<DinoV3ConvNeXtImpl>(
+      DinoV3ConvNeXtVariant::tiny, options));
 }
 
 DinoV3ConvNeXt dinov3_convnext_small(DinoV3ConvNeXtOptions options) {
-  return DinoV3ConvNeXt(
-      std::make_shared<DinoV3ConvNeXtImpl>(
-          DinoV3ConvNeXtVariant::small, std::move(options)));
+  return DinoV3ConvNeXt(std::make_shared<DinoV3ConvNeXtImpl>(
+      DinoV3ConvNeXtVariant::small, options));
 }
 
 DinoV3ConvNeXt dinov3_convnext_base(DinoV3ConvNeXtOptions options) {
-  return DinoV3ConvNeXt(
-      std::make_shared<DinoV3ConvNeXtImpl>(
-          DinoV3ConvNeXtVariant::base, std::move(options)));
+  return DinoV3ConvNeXt(std::make_shared<DinoV3ConvNeXtImpl>(
+      DinoV3ConvNeXtVariant::base, options));
 }
 
 DinoV3ConvNeXt dinov3_convnext_large(DinoV3ConvNeXtOptions options) {
-  return DinoV3ConvNeXt(
-      std::make_shared<DinoV3ConvNeXtImpl>(
-          DinoV3ConvNeXtVariant::large, std::move(options)));
+  return DinoV3ConvNeXt(std::make_shared<DinoV3ConvNeXtImpl>(
+      DinoV3ConvNeXtVariant::large, options));
 }
 
 nn::ModelAdapter adapt(DinoV3ConvNeXt model) {
