@@ -24,6 +24,7 @@ enum class ResNetVariant : std::uint8_t {
   resnet50 = 2,   ///< Bottlenecks in a 3/4/6/3 schedule with v1.5 strides.
   resnet34 = 3,   ///< Basic blocks in a 3/4/6/3 schedule.
   resnet101 = 4,  ///< Bottlenecks in a 3/4/23/3 schedule with v1.5 strides.
+  resnext50_32x4d = 5,  ///< Grouped bottlenecks in a 3/4/6/3 schedule.
 };
 /** @brief Architecture options; inputs are already normalized NCHW images. */
 struct ResNetOptions {
@@ -31,7 +32,7 @@ struct ResNetOptions {
   std::int64_t input_channels = 3;  ///< Positive stem input width.
   bool zero_init_residual = false;  ///< Zero final residual BN scale.
 };
-/** @brief Trainable torchvision-style ResNet18/34/50/101. */
+/** @brief Trainable torchvision-style ResNet18/34/50/101 and ResNeXt50. */
 class ResNetImpl final : public torch::nn::Module {
  public:
   /** @brief Constructs a randomly initialized classifier, without downloading.
@@ -88,6 +89,11 @@ ResNet resnet50(ResNetOptions options = {});
  * @return Owning randomly initialized ResNet101 holder.
  */
 ResNet resnet101(ResNetOptions options = {});
+/** @brief Constructs the 32-group, 4-base-width ResNeXt50 classifier.
+ * @param options Explicit image channels, class count and initialization.
+ * @return Owning randomly initialized ResNeXt50-32x4d holder.
+ */
+ResNet resnext50_32x4d(ResNetOptions options = {});
 /** @brief Creates an owning NCHW/logit schema-checked adapter.
  * @param model Nonempty shared holder whose mode and identity are preserved.
  * @return Adapter retaining the same registered module and state.

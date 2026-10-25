@@ -356,9 +356,11 @@ void RunDinoV3ConvNeXtCudaHalfForward(
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 22U);
+  ASSERT_EQ(entries.size(), 23U);
   EXPECT_EQ(entries.front().name, "dinov3_convnext_base");
   EXPECT_EQ(list_models("resnet").size(), 4U);
+  EXPECT_EQ(list_models("resnext").size(), 1U);
+  EXPECT_EQ(model_info("resnext50_32x4d").default_parameters, 25028904U);
   EXPECT_EQ(model_info("resnet34").default_parameters, 21797672U);
   EXPECT_EQ(model_info("resnet101").default_parameters, 44549160U);
 
@@ -1108,6 +1110,31 @@ TEST(Models, ResNet101SupportsBackwardAndOptimizerStep) {
   CheckResNetTrainingStep(resnet101({.num_classes = 3}));
 }
 
+TEST(Models, ResNeXt50UsesGroupedBottlenecksAndStageContract) {
+  torch::NoGradGuard no_grad;
+  auto model = resnext50_32x4d();
+  model->eval();
+  EXPECT_EQ(parameter_count(*model), 25028904U);
+  const auto parameters = model->named_parameters(true);
+  EXPECT_EQ(parameters["layer1.0.conv1.weight"].sizes(),
+            torch::IntArrayRef({128, 64, 1, 1}));
+  EXPECT_EQ(parameters["layer1.0.conv2.weight"].sizes(),
+            torch::IntArrayRef({128, 4, 3, 3}));
+  EXPECT_EQ(parameters["layer1.0.conv3.weight"].sizes(),
+            torch::IntArrayRef({256, 128, 1, 1}));
+  const auto stages = model->forward_features(Images());
+  ASSERT_EQ(stages.size(), 4U);
+  for (std::size_t index = 0; index < stages.size(); ++index)
+    EXPECT_EQ(stages[index].sizes(),
+              torch::IntArrayRef({2, 256LL << index, 16LL >> index,
+                                  16LL >> index}));
+  EXPECT_EQ(model->forward(Images()).sizes(), torch::IntArrayRef({2, 1000}));
+}
+
+TEST(Models, ResNeXt50SupportsBackwardAndOptimizerStep) {
+  CheckResNetTrainingStep(resnext50_32x4d({.num_classes = 3}));
+}
+
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
   auto small = mobilenet_v3_small({.num_classes = 9});
   auto large = mobilenet_v3_large({.num_classes = 9});
@@ -1183,7 +1210,7 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   EXPECT_FALSE(records.front().artifact.has_value());
   EXPECT_EQ(records.front().license_spdx, "NOASSERTION");
   validate_weight_record(records.front());
-  for (const auto* name : {"resnet34", "resnet101"}) {
+  for (const auto* name : {"resnet34", "resnet101", "resnext50_32x4d"}) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
     EXPECT_EQ(candidates.front().availability,
@@ -1281,7 +1308,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 60> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 63> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -1336,6 +1363,15 @@ constexpr std::array<ReferenceFileIdentity, 60> kReferenceFiles{{
     {"resnet101-state.safetensors",
      "44fcfafdd8504224968ddc05afd6afbb8ef2c5c2e2cbaabe0a52e63aaf1aeec5",
      178675808ULL},
+    {"resnext50_32x4d-input.safetensors",
+     "6b99dcc49601e1640ae223963afa0639e7091c50f07e1c6bf98bcf96667375a8",
+     49232ULL},
+    {"resnext50_32x4d-output.safetensors",
+     "dec808139cf1bb6c4d18fc4594afabd00e0b62d0a245aa029a7539cfff1aefdd",
+     495912ULL},
+    {"resnext50_32x4d-state.safetensors",
+     "8540deaf5deda4e829592f52bd3a79e9955ee183397bdf93c867d0851f648826",
+     100417784ULL},
     {"transformer_encoder-input.safetensors",
      "48e5989ff42ba42d9ad2bdd996c27710758ca7dd8ba424161c4b0e28ab8f9455",
      20747ULL},
@@ -1505,10 +1541,13 @@ torch::Tensor ReferenceTensor(std::span<const std::byte> encoded,
 }
 
 void CheckArchitectureReference(const char* architecture,
-                                ResNet* feature_model = nullptr) {
-  const auto* directory = std::getenv(
-      feature_model == nullptr ? "JYPPX_LIUDING_MODELS_REFERENCE_DIR"
-                               : "JYPPX_LIUDING_RESNET_EXTENDED_REFERENCE_DIR");
+                                ResNet* feature_model = nullptr,
+                                const char* reference_dir_variable = nullptr) {
+  if (reference_dir_variable == nullptr)
+    reference_dir_variable =
+        feature_model == nullptr ? "JYPPX_LIUDING_MODELS_REFERENCE_DIR"
+                                 : "JYPPX_LIUDING_RESNET_EXTENDED_REFERENCE_DIR";
+  const auto* directory = std::getenv(reference_dir_variable);
   if (directory == nullptr || *directory == '\0') {
     GTEST_SKIP() << "Set the corresponding models reference directory for the "
                     "independent official reference gate";
@@ -1599,6 +1638,11 @@ TEST(ModelsPythonInterop, OfficialTorchvisionResNet34ReferenceReallyRuns) {
 TEST(ModelsPythonInterop, OfficialTorchvisionResNet101ReferenceReallyRuns) {
   auto model = resnet101();
   CheckArchitectureReference("resnet101", &model);
+}
+TEST(ModelsPythonInterop, OfficialTorchvisionResNeXt50ReferenceReallyRuns) {
+  auto model = resnext50_32x4d();
+  CheckArchitectureReference("resnext50_32x4d", &model,
+                             "JYPPX_LIUDING_RESNEXT_REFERENCE_DIR");
 }
 TEST(ModelsPythonInterop,
      OfficialTorchvisionMobileNetV3SmallReferenceReallyRuns) {

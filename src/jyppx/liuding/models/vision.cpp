@@ -52,13 +52,15 @@ class BasicBlock final : public torch::nn::Module {
 };
 class Bottleneck final : public torch::nn::Module {
  public:
-  Bottleneck(std::int64_t in, std::int64_t planes, std::int64_t stride) {
-    conv1 = register_module("conv1", Conv(in, planes, 1));
-    bn1 = register_module("bn1", torch::nn::BatchNorm2d(planes));
+  Bottleneck(std::int64_t in, std::int64_t planes, std::int64_t stride,
+             std::int64_t groups, std::int64_t base_width) {
+    const auto width = planes * base_width / 64 * groups;
+    conv1 = register_module("conv1", Conv(in, width, 1));
+    bn1 = register_module("bn1", torch::nn::BatchNorm2d(width));
     // torchvision v1.5 puts the downsampling stride in the 3x3 convolution.
-    conv2 = register_module("conv2", Conv(planes, planes, 3, stride));
-    bn2 = register_module("bn2", torch::nn::BatchNorm2d(planes));
-    conv3 = register_module("conv3", Conv(planes, planes * 4, 1));
+    conv2 = register_module("conv2", Conv(width, width, 3, stride, groups));
+    bn2 = register_module("bn2", torch::nn::BatchNorm2d(width));
+    conv3 = register_module("conv3", Conv(width, planes * 4, 1));
     bn3 = register_module("bn3", torch::nn::BatchNorm2d(planes * 4));
     if (stride != 1 || in != planes * 4)
       downsample = register_module(
@@ -79,13 +81,15 @@ class Bottleneck final : public torch::nn::Module {
 };
 torch::nn::Sequential Stage(bool bottleneck, std::int64_t& input,
                             std::int64_t planes, std::int64_t count,
-                            std::int64_t stride) {
+                            std::int64_t stride, std::int64_t groups = 1,
+                            std::int64_t base_width = 64) {
   torch::nn::Sequential result;
   for (std::int64_t i = 0; i < count; ++i) {
     const auto block_stride = i == 0 ? stride : 1;
     if (bottleneck)
       result->push_back(
-          std::make_shared<Bottleneck>(input, planes, block_stride));
+          std::make_shared<Bottleneck>(input, planes, block_stride, groups,
+                                       base_width));
     else
       result->push_back(
           std::make_shared<BasicBlock>(input, planes, block_stride));
@@ -242,6 +246,8 @@ ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
     ImageOptions(options.num_classes, options.input_channels);
     std::array<std::int64_t, 4> schedule;
     bool bottleneck = false;
+    std::int64_t groups = 1;
+    std::int64_t base_width = 64;
     switch (variant) {
       case ResNetVariant::resnet18:
         schedule = {2, 2, 2, 2};
@@ -257,21 +263,31 @@ ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
         schedule = {3, 4, 23, 3};
         bottleneck = true;
         break;
+      case ResNetVariant::resnext50_32x4d:
+        schedule = {3, 4, 6, 3};
+        bottleneck = true;
+        groups = 32;
+        base_width = 4;
+        break;
       default:
         detail::Invalid("resnet.variant",
-                        "resnet18, resnet34, resnet50 or resnet101");
+                        "resnet18, resnet34, resnet50, resnet101 or resnext50_32x4d");
     }
     conv1_ = register_module("conv1", Conv(options.input_channels, 64, 7, 2));
     bn1_ = register_module("bn1", torch::nn::BatchNorm2d(64));
     std::int64_t input = 64;
     layer1_ =
-        register_module("layer1", Stage(bottleneck, input, 64, schedule[0], 1));
+        register_module("layer1", Stage(bottleneck, input, 64, schedule[0], 1,
+                                         groups, base_width));
     layer2_ = register_module("layer2",
-                              Stage(bottleneck, input, 128, schedule[1], 2));
+                              Stage(bottleneck, input, 128, schedule[1], 2,
+                                    groups, base_width));
     layer3_ = register_module("layer3",
-                              Stage(bottleneck, input, 256, schedule[2], 2));
+                              Stage(bottleneck, input, 256, schedule[2], 2,
+                                    groups, base_width));
     layer4_ = register_module("layer4",
-                              Stage(bottleneck, input, 512, schedule[3], 2));
+                              Stage(bottleneck, input, 512, schedule[3], 2,
+                                    groups, base_width));
     fc_ = register_module("fc", torch::nn::Linear(input, options.num_classes));
     InitVision(*this, false);
     if (options.zero_init_residual) {
@@ -317,6 +333,9 @@ ResNet resnet50(ResNetOptions options) {
 }
 ResNet resnet101(ResNetOptions options) {
   return ResNet(ResNetVariant::resnet101, options);
+}
+ResNet resnext50_32x4d(ResNetOptions options) {
+  return ResNet(ResNetVariant::resnext50_32x4d, options);
 }
 nn::ModelAdapter adapt(ResNet model) {
   if (!model) detail::Invalid("resnet.adapt", "a nonempty model");
