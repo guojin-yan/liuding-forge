@@ -24,7 +24,7 @@ bool Name(std::string_view name) {
   else if (name.starts_with("mobile"))
     hint += "mobilenet_v3_small, mobilenet_v3_large.";
   else if (name.starts_with("dinov3"))
-    hint += "dinov3_vits16, dinov3_vits16plus, dinov3_vitb16.";
+    hint += "dinov3_vits16, dinov3_vitb16, dinov3_convnext_tiny.";
   else
     hint += "transformer_encoder, resnet18, dinov3_vits16.";
   throw InvalidArgument("Unknown model architecture",
@@ -163,6 +163,26 @@ ModelRegistry default_model_registry() {
                 .default_parameters = 86000000U,
                 .preview = true},
                [](const ModelOptions& o) { return adapt(dinov3_vitb16(o.dinov3)); });
+  registry.add({.name = "dinov3_convnext_tiny",
+                .family = "dinov3_convnext",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 28589128U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(dinov3_convnext_tiny(o.dinov3_convnext));
+               });
+  registry.add({.name = "dinov3_convnext_small",
+                .family = "dinov3_convnext",
+                .task = "image_classification_or_embedding",
+                .reference =
+                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+                .default_parameters = 50451688U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(dinov3_convnext_small(o.dinov3_convnext));
+               });
   return registry;
 }
 std::vector<ModelInfo> list_models(std::string_view filter) {

@@ -704,6 +704,7 @@ endif()
 if(JYPPX_LIUDING_BUILD_MODELS)
     add_library(jyppx_liuding_models STATIC
         src/jyppx/liuding/models/dino.cpp
+        src/jyppx/liuding/models/dinov3_convnext.cpp
         src/jyppx/liuding/models/registry.cpp
         src/jyppx/liuding/models/transformer.cpp
         src/jyppx/liuding/models/vision.cpp

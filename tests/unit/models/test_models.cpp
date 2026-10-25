@@ -176,8 +176,8 @@ void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 12U);
-  EXPECT_EQ(entries.front().name, "dinov3_vitb16");
+  ASSERT_EQ(entries.size(), 14U);
+  EXPECT_EQ(entries.front().name, "dinov3_convnext_small");
   EXPECT_EQ(list_models("resnet").size(), 2U);
 
   auto residual = create_model("resnet18");
@@ -296,7 +296,7 @@ TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
   const auto base = model_info("dinov3_vitb16");
   EXPECT_EQ(small.family, "dinov3_vit");
   EXPECT_LT(small.default_parameters, base.default_parameters);
-  EXPECT_EQ(list_models("dinov3").size(), 3U);
+  EXPECT_EQ(list_models("dinov3_vit").size(), 3U);
 
   const auto input = torch::randn({2, 3, 225, 239});
   const auto check = [&](DinoV3 model, std::int64_t dimension) {
@@ -332,6 +332,50 @@ TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
         static_cast<void>(invalid);
       },
       InvalidArgument);
+}
+
+TEST(Models, DinoV3ConvNeXtLowResourceFactoriesExposeStageContracts) {
+  const auto tiny_info = model_info("dinov3_convnext_tiny");
+  const auto small_info = model_info("dinov3_convnext_small");
+  EXPECT_EQ(tiny_info.family, "dinov3_convnext");
+  EXPECT_LT(tiny_info.default_parameters, small_info.default_parameters);
+  EXPECT_EQ(list_models("dinov3_convnext").size(), 2U);
+
+  const auto input = torch::randn({2, 3, 65, 97});
+  const auto check = [&](DinoV3ConvNeXt model) {
+    ASSERT_TRUE(model);
+    model->eval();
+    const auto features = model->forward_features(input);
+    ASSERT_EQ(features.size(), 4U);
+    EXPECT_EQ(features[0].sizes(), torch::IntArrayRef({2, 96, 16, 24}));
+    EXPECT_EQ(features[1].sizes(), torch::IntArrayRef({2, 192, 8, 12}));
+    EXPECT_EQ(features[2].sizes(), torch::IntArrayRef({2, 384, 4, 6}));
+    EXPECT_EQ(features[3].sizes(), torch::IntArrayRef({2, 768, 2, 3}));
+    EXPECT_EQ(model->forward(input).sizes(), torch::IntArrayRef({2, 768}));
+    EXPECT_TRUE(torch::isfinite(features.back()).all().item<bool>());
+    auto training_input = input.clone();
+    training_input.set_requires_grad(true);
+    model->train();
+    model->forward(training_input).square().mean().backward();
+    ASSERT_TRUE(training_input.grad().defined());
+    EXPECT_TRUE(torch::isfinite(training_input.grad()).all().item<bool>());
+    EXPECT_GT(training_input.grad().abs().max().item<double>(), 0.0);
+    model->eval();
+    model->reset_classifier(5);
+    EXPECT_EQ(model->forward(input).sizes(), torch::IntArrayRef({2, 5}));
+    model->reset_classifier(0);
+  };
+  check(dinov3_convnext_tiny());
+  check(dinov3_convnext_small());
+
+  const auto adapter = create_model("dinov3_convnext_tiny",
+                                    {.dinov3_convnext = {.num_classes = 7}});
+  EXPECT_EQ(adapter.invoke({.positional = {input}, .keyword = {}})
+                .value.toTensor()
+                .sizes(),
+            torch::IntArrayRef({2, 7}));
+  EXPECT_THROW(dinov3_convnext_tiny()->forward(torch::zeros({1, 3, 31, 32})),
+               InvalidArgument);
 }
 
 TEST(Models, DinoV2SmallSupportsCpuBackwardAndOptimizerStep) {

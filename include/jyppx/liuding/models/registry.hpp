@@ -8,6 +8,7 @@
  * @brief Explicit owning model catalog; no static plugin registration.
  */
 #include <jyppx/liuding/models/dino.hpp>
+#include <jyppx/liuding/models/dinov3_convnext.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
 #include <jyppx/liuding/models/vision.hpp>
 
@@ -34,6 +35,7 @@ struct ModelOptions {
   TransformerEncoderOptions transformer;  ///< Applied only to feature encoder.
   DinoV2Options dinov2;                   ///< Applied only to DINOv2 models.
   DinoV3Options dinov3;                   ///< Applied only to DINOv3 models.
+  DinoV3ConvNeXtOptions dinov3_convnext; ///< Applied only to ConvNeXt models.
 };
 /** @brief An explicit factory retaining model state through its adapter. */
 using ModelFactory = std::function<nn::ModelAdapter(const ModelOptions&)>;
