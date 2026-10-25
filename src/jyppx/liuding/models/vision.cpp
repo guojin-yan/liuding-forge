@@ -240,13 +240,26 @@ ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
     : options_(options) {
   detail::Backend("resnet.construct", [&] {
     ImageOptions(options.num_classes, options.input_channels);
-    if (variant != ResNetVariant::resnet18 &&
-        variant != ResNetVariant::resnet50)
-      detail::Invalid("resnet.variant", "resnet18 or resnet50");
-    const bool bottleneck = variant == ResNetVariant::resnet50;
-    const std::array<std::int64_t, 4> schedule =
-        bottleneck ? std::array<std::int64_t, 4>{3, 4, 6, 3}
-                   : std::array<std::int64_t, 4>{2, 2, 2, 2};
+    std::array<std::int64_t, 4> schedule;
+    bool bottleneck = false;
+    switch (variant) {
+      case ResNetVariant::resnet18:
+        schedule = {2, 2, 2, 2};
+        break;
+      case ResNetVariant::resnet34:
+        schedule = {3, 4, 6, 3};
+        break;
+      case ResNetVariant::resnet50:
+        schedule = {3, 4, 6, 3};
+        bottleneck = true;
+        break;
+      case ResNetVariant::resnet101:
+        schedule = {3, 4, 23, 3};
+        bottleneck = true;
+        break;
+      default:
+        detail::Invalid("resnet.variant", "resnet18, resnet34, resnet50 or resnet101");
+    }
     conv1_ = register_module("conv1", Conv(options.input_channels, 64, 7, 2));
     bn1_ = register_module("bn1", torch::nn::BatchNorm2d(64));
     std::int64_t input = 64;
@@ -295,8 +308,14 @@ const ResNetOptions& ResNetImpl::options() const noexcept { return options_; }
 ResNet resnet18(ResNetOptions options) {
   return ResNet(ResNetVariant::resnet18, options);
 }
+ResNet resnet34(ResNetOptions options) {
+  return ResNet(ResNetVariant::resnet34, options);
+}
 ResNet resnet50(ResNetOptions options) {
   return ResNet(ResNetVariant::resnet50, options);
+}
+ResNet resnet101(ResNetOptions options) {
+  return ResNet(ResNetVariant::resnet101, options);
 }
 nn::ModelAdapter adapt(ResNet model) {
   if (!model) detail::Invalid("resnet.adapt", "a nonempty model");

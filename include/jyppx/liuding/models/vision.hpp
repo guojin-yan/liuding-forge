@@ -18,10 +18,12 @@
 #include <cstdint>
 #include <vector>
 namespace jyppx::liuding::models {
-/** @brief The two supported ImageNet-style residual block schedules. */
+/** @brief Supported ImageNet-style residual block schedules. */
 enum class ResNetVariant : std::uint8_t {
   resnet18 = 1,  ///< Basic blocks in a 2/2/2/2 schedule.
   resnet50 = 2,  ///< Bottlenecks in a 3/4/6/3 schedule with v1.5 strides.
+  resnet34 = 3,  ///< Basic blocks in a 3/4/6/3 schedule.
+  resnet101 = 4,  ///< Bottlenecks in a 3/4/23/3 schedule with v1.5 strides.
 };
 /** @brief Architecture options; inputs are already normalized NCHW images. */
 struct ResNetOptions {
@@ -29,7 +31,7 @@ struct ResNetOptions {
   std::int64_t input_channels = 3;  ///< Positive stem input width.
   bool zero_init_residual = false;  ///< Zero final residual BN scale.
 };
-/** @brief Actual trainable torchvision-style ResNet18 or ResNet50. */
+/** @brief Trainable torchvision-style ResNet18/34/50/101. */
 class ResNetImpl final : public torch::nn::Module {
  public:
   /** @brief Constructs a randomly initialized classifier, without downloading.
@@ -71,11 +73,21 @@ TORCH_MODULE(ResNet);
  * @return Owning randomly initialized ResNet18 holder.
  */
 ResNet resnet18(ResNetOptions options = {});
+/** @brief Constructs the 3/4/6/3 basic-block classifier.
+ * @param options Explicit image channels, class count and initialization.
+ * @return Owning randomly initialized ResNet34 holder.
+ */
+ResNet resnet34(ResNetOptions options = {});
 /** @brief Constructs the 3/4/6/3 bottleneck classifier.
  * @param options Explicit image channels, class count and initialization.
  * @return Owning randomly initialized ResNet50 holder.
  */
 ResNet resnet50(ResNetOptions options = {});
+/** @brief Constructs the 3/4/23/3 bottleneck classifier.
+ * @param options Explicit image channels, class count and initialization.
+ * @return Owning randomly initialized ResNet101 holder.
+ */
+ResNet resnet101(ResNetOptions options = {});
 /** @brief Creates an owning NCHW/logit schema-checked adapter.
  * @param model Nonempty shared holder whose mode and identity are preserved.
  * @return Adapter retaining the same registered module and state.

@@ -20,7 +20,7 @@ bool Name(std::string_view name) {
 [[noreturn]] void Unknown(std::string_view name) {
   std::string hint = "Use list_models(); closest families: ";
   if (name.starts_with("res"))
-    hint += "resnet18, resnet50.";
+    hint += "resnet18, resnet34, resnet50, resnet101.";
   else if (name.starts_with("mobile"))
     hint += "mobilenet_v3_small, mobilenet_v3_large.";
   else if (name.starts_with("dinov3"))
@@ -70,6 +70,13 @@ ModelRegistry default_model_registry() {
                 .default_parameters = 11689512U,
                 .preview = true},
                [](const ModelOptions& o) { return adapt(resnet18(o.resnet)); });
+  registry.add({.name = "resnet34",
+                .family = "resnet",
+                .task = "image_classification",
+                .reference = "torchvision.models.resnet34",
+                .default_parameters = 21797672U,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(resnet34(o.resnet)); });
   registry.add({.name = "resnet50",
                 .family = "resnet",
                 .task = "image_classification",
@@ -77,6 +84,13 @@ ModelRegistry default_model_registry() {
                 .default_parameters = 25557032U,
                 .preview = true},
                [](const ModelOptions& o) { return adapt(resnet50(o.resnet)); });
+  registry.add({.name = "resnet101",
+                .family = "resnet",
+                .task = "image_classification",
+                .reference = "torchvision.models.resnet101 (v1.5 stride)",
+                .default_parameters = 44549160U,
+                .preview = true},
+               [](const ModelOptions& o) { return adapt(resnet101(o.resnet)); });
   registry.add({.name = "mobilenet_v3_small",
                 .family = "mobilenet",
                 .task = "image_classification",

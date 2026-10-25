@@ -130,10 +130,18 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
     return {
         Missing("resnet18",
                 "https://download.pytorch.org/models/resnet18-f37072fd.pth")};
+  if (model == "resnet34")
+    return {
+        Missing("resnet34",
+                "https://download.pytorch.org/models/resnet34-b627a593.pth")};
   if (model == "resnet50")
     return {
         Missing("resnet50",
                 "https://download.pytorch.org/models/resnet50-0676ba61.pth")};
+  if (model == "resnet101")
+    return {
+        Missing("resnet101",
+                "https://download.pytorch.org/models/resnet101-cd907fc2.pth")};
   if (model == "mobilenet_v3_small")
     return {Missing(
         "mobilenet_v3_small",
@@ -175,7 +183,7 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
   detail::Invalid("weights.catalog", "a built-in model architecture");
 }
 std::string models_preview_manifest_json() {
-  return R"JSON({"schema_id":"jyppx.models.preview","schema_version":1,"component":"models","default_enabled":false,"preview":true,"architectures":["resnet18","resnet50","mobilenet_v3_small","mobilenet_v3_large","transformer_encoder","vit_small_patch14_dinov2","vit_base_patch14_dinov2","vit_large_patch14_dinov2","vit_giant_patch14_dinov2","dinov3_vits16","dinov3_vits16plus","dinov3_vitb16","dinov3_vitl16","dinov3_vitl16plus","dinov3_vith16plus","dinov3_vit7b16","dinov3_convnext_tiny","dinov3_convnext_small","dinov3_convnext_base","dinov3_convnext_large"],"state_format":"safetensors","reference_workflow":"tests/unit/models/reference/generate_reference.py","reference_qualification":"requires-recorded-execution","reference_kind":"official-random-initialized-architecture-differential","pretrained_weights":"not-provisioned","pretrained_full_sha256":null,"weight_license":"NOASSERTION","release_qualification":"pending-independent-component-gates"})JSON";
+  return R"JSON({"schema_id":"jyppx.models.preview","schema_version":1,"component":"models","default_enabled":false,"preview":true,"architectures":["resnet18","resnet34","resnet50","resnet101","mobilenet_v3_small","mobilenet_v3_large","transformer_encoder","vit_small_patch14_dinov2","vit_base_patch14_dinov2","vit_large_patch14_dinov2","vit_giant_patch14_dinov2","dinov3_vits16","dinov3_vits16plus","dinov3_vitb16","dinov3_vitl16","dinov3_vitl16plus","dinov3_vith16plus","dinov3_vit7b16","dinov3_convnext_tiny","dinov3_convnext_small","dinov3_convnext_base","dinov3_convnext_large"],"state_format":"safetensors","reference_workflow":"tests/unit/models/reference/generate_reference.py","reference_qualification":"requires-recorded-execution","reference_kind":"official-random-initialized-architecture-differential","pretrained_weights":"not-provisioned","pretrained_full_sha256":null,"weight_license":"NOASSERTION","release_qualification":"pending-independent-component-gates"})JSON";
 }
 void validate_weight_record(const WeightRecord& record) {
   if (!Text(record.id) || !Text(record.model_name) ||

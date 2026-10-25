@@ -32,6 +32,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #if defined(_WIN32)
@@ -355,9 +356,11 @@ void RunDinoV3ConvNeXtCudaHalfForward(
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 20U);
+  ASSERT_EQ(entries.size(), 22U);
   EXPECT_EQ(entries.front().name, "dinov3_convnext_base");
-  EXPECT_EQ(list_models("resnet").size(), 2U);
+  EXPECT_EQ(list_models("resnet").size(), 4U);
+  EXPECT_EQ(model_info("resnet34").default_parameters, 21797672U);
+  EXPECT_EQ(model_info("resnet101").default_parameters, 44549160U);
 
   auto residual = create_model("resnet18");
   auto mobile = create_model("mobilenet_v3_small");
@@ -1047,6 +1050,63 @@ TEST(Models, ResNetVariantsExposeExpectedFeatureStridesAndParameterCounts) {
   EXPECT_EQ(parameter_count(*large), 23522375U);
 }
 
+TEST(Models, ResNet34And101ExposeFullSchedulesAndStageChannels) {
+  torch::NoGradGuard no_grad;
+  const auto input = Images();
+  for (const auto& [name, factory, channels, expected_parameters] :
+       std::array<std::tuple<const char*, ResNet (*)(ResNetOptions),
+                             std::int64_t, std::uint64_t>, 2>{{
+           {"resnet34", resnet34, 512, 21797672U},
+           {"resnet101", resnet101, 2048, 44549160U},
+       }}) {
+    auto model = factory({});
+    model->eval();
+    EXPECT_EQ(parameter_count(*model), expected_parameters) << name;
+    const auto stages = model->forward_features(input);
+    ASSERT_EQ(stages.size(), 4U) << name;
+    EXPECT_EQ(stages[0].size(1), channels / 8) << name;
+    EXPECT_EQ(stages[1].size(1), channels / 4) << name;
+    EXPECT_EQ(stages[2].size(1), channels / 2) << name;
+    EXPECT_EQ(stages[3].size(1), channels) << name;
+    EXPECT_EQ(stages[0].size(2), 16) << name;
+    EXPECT_EQ(stages[1].size(2), 8) << name;
+    EXPECT_EQ(stages[2].size(2), 4) << name;
+    EXPECT_EQ(stages[3].size(2), 2) << name;
+    EXPECT_EQ(model->forward(input).sizes(), torch::IntArrayRef({2, 1000}))
+        << name;
+  }
+}
+
+void CheckResNetTrainingStep(ResNet model) {
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto before = model->named_parameters(true)["fc.weight"].clone();
+  const auto input = torch::randn({1, 3, 64, 64});
+  optimizer.zero_grad();
+  const auto logits = model->forward(input);
+  ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+  logits.square().mean().backward();
+  const auto parameters = model->named_parameters(true);
+  for (const auto* name : {"conv1.weight", "layer4.0.conv1.weight", "fc.weight"}) {
+    const auto grad = parameters[name].grad();
+    ASSERT_TRUE(grad.defined()) << name;
+    EXPECT_TRUE(torch::isfinite(grad).all().item<bool>()) << name;
+    EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
+  }
+  optimizer.step();
+  EXPECT_GT((parameters["fc.weight"] - before).abs().sum().item<double>(),
+            0.0);
+}
+
+TEST(Models, ResNet34SupportsBackwardAndOptimizerStep) {
+  CheckResNetTrainingStep(resnet34({.num_classes = 3}));
+}
+
+TEST(Models, ResNet101SupportsBackwardAndOptimizerStep) {
+  CheckResNetTrainingStep(resnet101({.num_classes = 3}));
+}
+
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
   auto small = mobilenet_v3_small({.num_classes = 9});
   auto large = mobilenet_v3_large({.num_classes = 9});
@@ -1122,6 +1182,16 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   EXPECT_FALSE(records.front().artifact.has_value());
   EXPECT_EQ(records.front().license_spdx, "NOASSERTION");
   validate_weight_record(records.front());
+  for (const auto* name : {"resnet34", "resnet101"}) {
+    const auto candidates = available_weights(name);
+    ASSERT_EQ(candidates.size(), 1U) << name;
+    EXPECT_EQ(candidates.front().availability,
+              WeightAvailability::not_provisioned) << name;
+    EXPECT_FALSE(candidates.front().artifact.has_value()) << name;
+    EXPECT_EQ(candidates.front().license_spdx, "NOASSERTION") << name;
+    validate_weight_record(candidates.front());
+    EXPECT_NE(models_preview_manifest_json().find(name), std::string::npos);
+  }
   EXPECT_NE(models_preview_manifest_json().find("not-provisioned"),
             std::string::npos);
   EXPECT_THROW(verify_weights(records.front(), std::span<const std::byte>{}),
@@ -1209,7 +1279,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 54> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 60> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -1246,6 +1316,24 @@ constexpr std::array<ReferenceFileIdentity, 54> kReferenceFiles{{
     {"resnet50-state.safetensors",
      "9db254eff7e63cee123e56c0bc858def81cfc099095fe86d72639c873ee805a4",
      102469840ULL},
+    {"resnet34-input.safetensors",
+     "d94d095908ae36bc606680c08416da2880f06ff6c2dd881b7db33f961793716c",
+     49232ULL},
+    {"resnet34-output.safetensors",
+     "3da8bcbe56bd12267ee99df2133f74c904adcb3d0451b88f255807f0705c9b6b",
+     127264ULL},
+    {"resnet34-state.safetensors",
+     "4dfa489a46f30668754e30e90befc3e381b12a3dbf68535dae56967cdb309e56",
+     87278528ULL},
+    {"resnet101-input.safetensors",
+     "40d24319665f627fa301a607cf5a26ad785bded8e2d98bb1820904cf8fc48ae1",
+     49232ULL},
+    {"resnet101-output.safetensors",
+     "db6dd2f90fecc0ec720a03d8b11bb9fc58d18abb45ef23b645a9b08c033db210",
+     495912ULL},
+    {"resnet101-state.safetensors",
+     "44fcfafdd8504224968ddc05afd6afbb8ef2c5c2e2cbaabe0a52e63aaf1aeec5",
+     178675808ULL},
     {"transformer_encoder-input.safetensors",
      "48e5989ff42ba42d9ad2bdd996c27710758ca7dd8ba424161c4b0e28ab8f9455",
      20747ULL},
@@ -1414,12 +1502,15 @@ torch::Tensor ReferenceTensor(std::span<const std::byte> encoded,
   return torch::from_blob(values.data(), shape, torch::kFloat32).clone();
 }
 
-void CheckArchitectureReference(const char* architecture) {
-  const auto* directory = std::getenv("JYPPX_LIUDING_MODELS_REFERENCE_DIR");
+void CheckArchitectureReference(const char* architecture,
+                                ResNet* feature_model = nullptr) {
+  const auto* directory = std::getenv(
+      feature_model == nullptr ? "JYPPX_LIUDING_MODELS_REFERENCE_DIR"
+                               : "JYPPX_LIUDING_RESNET_EXTENDED_REFERENCE_DIR");
   if (directory == nullptr || *directory == '\0') {
     GTEST_SKIP()
-        << "Set JYPPX_LIUDING_MODELS_REFERENCE_DIR for the independent "
-           "official reference gate";
+        << "Set the corresponding models reference directory for the "
+           "independent official reference gate";
   }
   const auto root = std::filesystem::path(directory);
   const auto prefix = std::string(architecture);
@@ -1444,7 +1535,8 @@ void CheckArchitectureReference(const char* architecture) {
           "Random architecture differential; no pretrained weights."};
   ModelOptions options;
   options.transformer.dropout = 0.0;
-  auto adapter = create_model(prefix, options);
+  auto adapter = feature_model == nullptr ? create_model(prefix, options)
+                                          : adapt(*feature_model);
   const auto imported = load_weights(adapter, record, state);
   ASSERT_TRUE(imported.applied) << prefix;
   adapter.state().eval();
@@ -1470,6 +1562,25 @@ void CheckArchitectureReference(const char* architecture) {
   EXPECT_TRUE(torch::allclose(actual / scale, reference / scale, 1e-4, 1e-5))
       << prefix << " normalized maximum absolute error: "
       << ((actual - reference) / scale).abs().max().item<double>();
+  if (feature_model != nullptr) {
+    const auto stages = (*feature_model)->forward_features(
+        invocation.positional.front().toTensor());
+    ASSERT_EQ(stages.size(), 4U) << prefix;
+    for (std::size_t index = 0; index < stages.size(); ++index) {
+      const auto stage_name = "layer" + std::to_string(index + 1);
+      const auto expected_stage = ReferenceTensor(expected, stage_name);
+      ASSERT_EQ(stages[index].sizes(), expected_stage.sizes()) << stage_name;
+      const auto stage_scale = expected_stage.abs().max().item<double>();
+      ASSERT_GT(stage_scale, 0.0) << stage_name;
+      EXPECT_TRUE(torch::allclose(stages[index] / stage_scale,
+                                  expected_stage / stage_scale, 1e-4, 1e-5))
+          << prefix << ' ' << stage_name << " normalized maximum absolute error: "
+          << ((stages[index] - expected_stage) / stage_scale)
+                 .abs()
+                 .max()
+                 .item<double>();
+    }
+  }
 }
 
 TEST(ModelsPythonInterop, OfficialTorchvisionResNet18ReferenceReallyRuns) {
@@ -1477,6 +1588,14 @@ TEST(ModelsPythonInterop, OfficialTorchvisionResNet18ReferenceReallyRuns) {
 }
 TEST(ModelsPythonInterop, OfficialTorchvisionResNet50ReferenceReallyRuns) {
   CheckArchitectureReference("resnet50");
+}
+TEST(ModelsPythonInterop, OfficialTorchvisionResNet34ReferenceReallyRuns) {
+  auto model = resnet34();
+  CheckArchitectureReference("resnet34", &model);
+}
+TEST(ModelsPythonInterop, OfficialTorchvisionResNet101ReferenceReallyRuns) {
+  auto model = resnet101();
+  CheckArchitectureReference("resnet101", &model);
 }
 TEST(ModelsPythonInterop,
      OfficialTorchvisionMobileNetV3SmallReferenceReallyRuns) {
