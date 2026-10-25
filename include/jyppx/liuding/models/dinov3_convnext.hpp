@@ -64,8 +64,7 @@ class DinoV3ConvNeXtImpl final : public torch::nn::Module {
   DinoV3ConvNeXtVariant variant_;
   std::vector<std::int64_t> channels_;
   torch::nn::Conv2d stem_{nullptr};
-  torch::nn::LayerNorm stem_norm_{nullptr};
-  torch::nn::ModuleList downsample_;
+  torch::nn::ModuleList downsample_layers_;
   torch::nn::ModuleList stages_;
   torch::nn::LayerNorm final_norm_{nullptr};
   torch::nn::Linear head_{nullptr};

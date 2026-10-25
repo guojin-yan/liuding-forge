@@ -60,9 +60,25 @@ void Initialize(torch::nn::Module& module) {
   }
 }
 
-Tensor ChannelsLastNorm(torch::nn::LayerNorm& norm, const Tensor& input) {
-  return norm->forward(input.permute({0, 2, 3, 1})).permute({0, 3, 1, 2});
-}
+class ChannelsFirstLayerNorm final : public torch::nn::Module {
+ public:
+  explicit ChannelsFirstLayerNorm(std::int64_t channels) {
+    weight_ = register_parameter("weight", torch::ones({channels}));
+    bias_ = register_parameter("bias", torch::zeros({channels}));
+  }
+
+  Tensor forward(const Tensor& input) {
+    const auto mean = input.mean(1, true);
+    const auto centered = input - mean;
+    const auto variance = centered.pow(2).mean(1, true);
+    const auto normalized = centered / torch::sqrt(variance + 1e-6);
+    return weight_.view({1, -1, 1, 1}) * normalized +
+           bias_.view({1, -1, 1, 1});
+  }
+
+ private:
+  Tensor weight_, bias_;
+};
 
 class ConvNeXtBlock final : public torch::nn::Module {
  public:
@@ -102,33 +118,6 @@ class ConvNeXtBlock final : public torch::nn::Module {
   Tensor layer_scale_;
 };
 
-class ConvNeXtStageDownsample final : public torch::nn::Module {
- public:
-  ConvNeXtStageDownsample(std::int64_t input_channels,
-                          std::int64_t output_channels,
-                          std::int64_t stride) {
-    convolution_ = register_module(
-        "conv", torch::nn::Conv2d(
-                    torch::nn::Conv2dOptions(input_channels, output_channels, 2)
-                        .stride(stride)
-                        .padding(0)
-                        .bias(true)));
-    norm_ = register_module(
-        "norm", torch::nn::LayerNorm(
-                     torch::nn::LayerNormOptions({output_channels}).eps(1e-6)));
-  }
-
-  Tensor forward(const Tensor& input) {
-    auto output = convolution_->forward(input);
-    return norm_->forward(output.permute({0, 2, 3, 1}))
-        .permute({0, 3, 1, 2});
-  }
-
- private:
-  torch::nn::Conv2d convolution_{nullptr};
-  torch::nn::LayerNorm norm_{nullptr};
-};
-
 }  // namespace
 
 DinoV3ConvNeXtImpl::DinoV3ConvNeXtImpl(DinoV3ConvNeXtVariant variant,
@@ -138,29 +127,38 @@ DinoV3ConvNeXtImpl::DinoV3ConvNeXtImpl(DinoV3ConvNeXtVariant variant,
     Validate(options_);
     const auto config = VariantConfig(variant_);
     channels_ = config.channels;
-    stem_ = register_module(
-        "stem", torch::nn::Conv2d(
-                    torch::nn::Conv2dOptions(options_.input_channels,
-                                             channels_.front(), 4)
-                        .stride(4)
-                        .padding(0)
-                        .bias(true)));
-    stem_norm_ = register_module(
-        "stem_norm", torch::nn::LayerNorm(
-                          torch::nn::LayerNormOptions({channels_.front()})
-                              .eps(1e-6)));
-    downsample_ = register_module("downsample", torch::nn::ModuleList());
+    downsample_layers_ =
+        register_module("downsample_layers", torch::nn::ModuleList());
+    auto stem = torch::nn::Sequential();
+    stem_ = torch::nn::Conv2d(
+        torch::nn::Conv2dOptions(options_.input_channels,
+                                 channels_.front(), 4)
+            .stride(4)
+            .padding(0)
+            .bias(true));
+    stem->push_back(stem_);
+    stem->push_back(
+        std::make_shared<ChannelsFirstLayerNorm>(channels_.front()));
+    downsample_layers_->push_back(stem);
     stages_ = register_module("stages", torch::nn::ModuleList());
     for (std::size_t index = 0; index < channels_.size(); ++index) {
+      if (index > 0) {
+        auto downsample = torch::nn::Sequential();
+        downsample->push_back(
+            std::make_shared<ChannelsFirstLayerNorm>(channels_[index - 1]));
+        downsample->push_back(torch::nn::Conv2d(
+            torch::nn::Conv2dOptions(channels_[index - 1], channels_[index],
+                                     2)
+                .stride(2)
+                .padding(0)
+                .bias(true)));
+        downsample_layers_->push_back(downsample);
+      }
       auto stage = torch::nn::Sequential();
       for (std::int64_t block = 0; block < config.depths[index]; ++block)
         stage->push_back(std::make_shared<ConvNeXtBlock>(
             channels_[index], options_.layer_scale_init));
       stages_->push_back(stage);
-      if (index + 1 < channels_.size()) {
-        downsample_->push_back(std::make_shared<ConvNeXtStageDownsample>(
-            channels_[index], channels_[index + 1], 2));
-      }
     }
     final_norm_ = register_module(
         "norm", torch::nn::LayerNorm(
@@ -191,17 +189,14 @@ std::vector<Tensor> DinoV3ConvNeXtImpl::forward_features(const Tensor& input) {
     const auto height = (input.size(2) / 32) * 32;
     const auto width = (input.size(3) / 32) * 32;
     auto output = input.narrow(2, 0, height).narrow(3, 0, width);
-    output = stem_->forward(output);
-    output = ChannelsLastNorm(stem_norm_, output);
     std::vector<Tensor> features;
     features.reserve(stages_->size());
     for (std::size_t index = 0; index < stages_->size(); ++index) {
+      output = downsample_layers_[index]
+                   ->as<torch::nn::Sequential>()
+                   ->forward(output);
       output = stages_[index]->as<torch::nn::Sequential>()->forward(output);
       features.push_back(output);
-      if (index + 1 < stages_->size())
-        output = downsample_[index]
-                     ->as<ConvNeXtStageDownsample>()
-                     ->forward(output);
     }
     return features;
   });

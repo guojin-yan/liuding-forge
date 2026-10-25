@@ -206,7 +206,7 @@ ModelRegistry default_model_registry() {
                 .task = "image_classification_or_embedding",
                 .reference =
                     "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 28589128U,
+                .default_parameters = 27820128U,
                 .preview = true},
                [](const ModelOptions& o) {
                  return adapt(dinov3_convnext_tiny(o.dinov3_convnext));
@@ -216,7 +216,7 @@ ModelRegistry default_model_registry() {
                 .task = "image_classification_or_embedding",
                 .reference =
                     "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 50451688U,
+                .default_parameters = 49454688U,
                 .preview = true},
                [](const ModelOptions& o) {
                  return adapt(dinov3_convnext_small(o.dinov3_convnext));

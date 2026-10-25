@@ -176,7 +176,7 @@ void RunDinoV3ConvNeXtCpuTrainingStep(Factory factory) {
   torch::optim::SGD optimizer(model->parameters(),
                               torch::optim::SGDOptions(1e-3));
   const auto named_before = model->named_parameters(true);
-  ASSERT_TRUE(named_before.contains("stem.weight"));
+  ASSERT_TRUE(named_before.contains("downsample_layers.0.0.weight"));
   ASSERT_TRUE(named_before.contains("head.weight"));
   const auto head_before = named_before["head.weight"].clone();
   const auto input = torch::randn({1, 3, 32, 32}, torch::kFloat32);
@@ -190,7 +190,7 @@ void RunDinoV3ConvNeXtCpuTrainingStep(Factory factory) {
   loss.backward();
 
   const auto named = model->named_parameters(true);
-  const auto stem_gradient = named["stem.weight"].grad();
+  const auto stem_gradient = named["downsample_layers.0.0.weight"].grad();
   const auto head_gradient = named["head.weight"].grad();
   ASSERT_TRUE(stem_gradient.defined());
   ASSERT_TRUE(head_gradient.defined());
@@ -532,6 +532,8 @@ TEST(Models, DinoV3ConvNeXtLowResourceFactoriesExposeStageContracts) {
   const auto base_info = model_info("dinov3_convnext_base");
   const auto large_info = model_info("dinov3_convnext_large");
   EXPECT_EQ(tiny_info.family, "dinov3_convnext");
+  EXPECT_EQ(tiny_info.default_parameters, 27820128U);
+  EXPECT_EQ(small_info.default_parameters, 49454688U);
   EXPECT_LT(tiny_info.default_parameters, small_info.default_parameters);
   EXPECT_LT(small_info.default_parameters, base_info.default_parameters);
   EXPECT_LT(base_info.default_parameters, large_info.default_parameters);
@@ -866,7 +868,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 36> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 42> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -975,6 +977,24 @@ constexpr std::array<ReferenceFileIdentity, 36> kReferenceFiles{{
     {"dinov3_vitb16-state.safetensors",
      "f0f54ed6fadeec515cb2037a53e5dba992368758627593de06a586620fcc2b04",
      342806544ULL},
+    {"dinov3_convnext_tiny-input.safetensors",
+     "24b25a4c01bcff80de9249a6d7ef1c31cfd2858c06db626710a040469304f228",
+     75740ULL},
+    {"dinov3_convnext_tiny-output.safetensors",
+     "da026ff69d1933c6d2da77fac28fe12cceb449348321a3e60338a8c09f63cb32",
+     279936ULL},
+    {"dinov3_convnext_tiny-state.safetensors",
+     "ed9b870c0f5502205969ed4c734096dca1fc97c817fb8e3dfae49c533dd82e32",
+     111296920ULL},
+    {"dinov3_convnext_small-input.safetensors",
+     "277f374dc39f35797b52965c82dddd7745151d1645975f182cf446938c3fb9e1",
+     75740ULL},
+    {"dinov3_convnext_small-output.safetensors",
+     "02055bff3c41c69bff1dcd8c984d879118d91371125bca071a0ee1ef8ffa0f6f",
+     279936ULL},
+    {"dinov3_convnext_small-state.safetensors",
+     "581a5b3b35ba7b40040fdd0ea9b0c0f0e444907f046f6ea787bd66cfc0ebe40c",
+     197850432ULL},
 }};
 
 test::MappedReference ReadReference(const std::filesystem::path& path) {
@@ -1241,6 +1261,84 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3SmallPlusReferenceReallyRuns) {
 }
 TEST(ModelsPythonInterop, OfficialMetaDinoV3BaseReferenceReallyRuns) {
   CheckDinoV3Reference("dinov3_vitb16", dinov3_vitb16());
+}
+
+void CheckDinoV3ConvNeXtReference(const char* prefix,
+                                  DinoV3ConvNeXt model) {
+  const auto* directory =
+      std::getenv("JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR");
+  if (directory == nullptr || *directory == '\0') {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR "
+                    "for the pinned Meta ConvNeXt random-state gate";
+  }
+  const auto root = std::filesystem::path(directory);
+  const auto name = std::string(prefix);
+  const auto state = ReadReference(root / (name + "-state.safetensors"));
+  const auto input = ReadReference(root / (name + "-input.safetensors"));
+  const auto expected = ReadReference(root / (name + "-output.safetensors"));
+  const WeightRecord record{
+      .id = "reference-" + name + "-random-v1",
+      .model_name = name,
+      .source_uri =
+          "fixture://facebookresearch/dinov3/"
+          "6876159a11b4df116f30f667f8c9888617df0751/" +
+          name,
+      .license_spdx = "LicenseRef-Generated-Test-Fixture",
+      .license_uri = "fixture://models-reference/local-generated-state",
+      .availability = WeightAvailability::pinned_external,
+      .artifact =
+          ArtifactRef{.digest = ArtifactDigest{.hex = sha256_hex(state)},
+                      .size_bytes = state.size(),
+                      .logical_name = name + "-state.safetensors",
+                      .media_type = "application/x-safetensors",
+                      .producer = "pinned-meta-dinov3-convnext-python-reference"},
+      .status_reason =
+          "Random architecture differential; no pretrained weights."};
+  auto adapter = adapt(model);
+  interop::ModelWeightImportOptions options;
+  options.max_staging_bytes = 1ULL << 30U;
+  const auto imported = load_weights(adapter, record, state, options);
+  ::testing::Message diagnostics;
+  diagnostics << prefix << " mapped=" << imported.plan.matched.size()
+              << " source=" << imported.plan.source_tensor_count
+              << " target=" << imported.plan.target_tensor_count;
+  for (const auto& key : imported.plan.missing)
+    diagnostics << "\nmissing: " << key;
+  for (const auto& key : imported.plan.unexpected)
+    diagnostics << "\nunexpected: " << key;
+  for (const auto& mismatch : imported.plan.shape_mismatches)
+    diagnostics << "\nshape mismatch: " << mismatch.key;
+  for (const auto& mismatch : imported.plan.dtype_mismatches)
+    diagnostics << "\ndtype mismatch: " << mismatch.key;
+  ASSERT_TRUE(imported.applied) << diagnostics.GetString();
+  adapter.state().eval();
+  torch::NoGradGuard no_grad;
+  const auto image = ReferenceTensor(input, "input");
+  const auto actual_stages = model->forward_features(image);
+  ASSERT_EQ(actual_stages.size(), 4U);
+  for (std::size_t index = 0; index < actual_stages.size(); ++index) {
+    const auto reference =
+        ReferenceTensor(expected, "stage" + std::to_string(index));
+    ASSERT_EQ(actual_stages[index].sizes(), reference.sizes());
+    EXPECT_TRUE(torch::allclose(actual_stages[index], reference, 5e-4, 5e-5))
+        << prefix << " stage " << index << " max error: "
+        << (actual_stages[index] - reference).abs().max().item<double>();
+  }
+  const auto actual_global = model->forward(image);
+  const auto reference_global = ReferenceTensor(expected, "output");
+  ASSERT_EQ(actual_global.sizes(), reference_global.sizes());
+  EXPECT_TRUE(torch::allclose(actual_global, reference_global, 5e-4, 5e-5))
+      << prefix << " global max error: "
+      << (actual_global - reference_global).abs().max().item<double>();
+}
+
+TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtTinyReferenceReallyRuns) {
+  CheckDinoV3ConvNeXtReference("dinov3_convnext_tiny",
+                               dinov3_convnext_tiny());
+}
+TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtSmallReferenceReallyRuns) {
+  CheckDinoV3ConvNeXtReference("dinov3_convnext_small",
+                               dinov3_convnext_small());
 }
 
 #endif
