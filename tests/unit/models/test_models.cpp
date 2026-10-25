@@ -864,7 +864,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 27> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 36> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -946,6 +946,33 @@ constexpr std::array<ReferenceFileIdentity, 27> kReferenceFiles{{
     {"vit_giant_patch14_dinov2-state.safetensors",
      "b40769853a079205711aab6ecb7867ad45d9c3e35d5856e189cb321d21a55027",
      4545971216ULL},
+    {"dinov3_vits16-input.safetensors",
+     "43ce9bd3c548f763a6e733f7f38e7d118d770feffb82781c6bbe812c559dcbf5",
+     42080ULL},
+    {"dinov3_vits16-output.safetensors",
+     "27ffaf9b5c69c0f435b8e5a0e8103013338011f27eb881129173a0d5897e2e9d",
+     37016ULL},
+    {"dinov3_vits16-state.safetensors",
+     "74412baf39fda638532a3c1a8e469721f66763e3a0ca274854079ca643301e1d",
+     86477024ULL},
+    {"dinov3_vits16plus-input.safetensors",
+     "adfea670ab51a34d4c5a7c05f2bd8a13cf2e94df3934058dde0dc42c003ae867",
+     42080ULL},
+    {"dinov3_vits16plus-output.safetensors",
+     "f452eb077dd772849dbba6d4eb776adb5b2ecf43dc4cf1050b61bc7d93710cf9",
+     37016ULL},
+    {"dinov3_vits16plus-state.safetensors",
+     "c4bcd47f9cd049784dc616b2be8031e5ad34d6ddc6bc10e75666642053eac9bc",
+     114864544ULL},
+    {"dinov3_vitb16-input.safetensors",
+     "fc961035896b13372faac66c4e77575dbf1c25a6a09f46cc4f3bcebc4de41f58",
+     42080ULL},
+    {"dinov3_vitb16-output.safetensors",
+     "3ebddb3f9aa7acab7d854d1f4bb3b5570f9e2480b97e6add131a5712146d0601",
+     73880ULL},
+    {"dinov3_vitb16-state.safetensors",
+     "f0f54ed6fadeec515cb2037a53e5dba992368758627593de06a586620fcc2b04",
+     342806544ULL},
 }};
 
 test::MappedReference ReadReference(const std::filesystem::path& path) {
@@ -1139,6 +1166,79 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2GiantReferenceReallyRuns) {
                     "serial DINOv2 Giant reference gate";
   CheckDinoV2Reference("vit_giant_patch14_dinov2", dinov2_vit_giant14(),
                        16ULL << 30U);
+}
+
+void CheckDinoV3Reference(const char* prefix, DinoV3 model) {
+  const auto* directory = std::getenv("JYPPX_LIUDING_DINOV3_REFERENCE_DIR");
+  if (directory == nullptr || *directory == '\0') {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_REFERENCE_DIR for the pinned "
+                    "Meta DINOv3 random-state reference gate";
+  }
+  const auto root = std::filesystem::path(directory);
+  const auto name = std::string(prefix);
+  const auto state = ReadReference(root / (name + "-state.safetensors"));
+  const auto input = ReadReference(root / (name + "-input.safetensors"));
+  const auto expected = ReadReference(root / (name + "-output.safetensors"));
+  const WeightRecord record{
+      .id = "reference-" + name + "-random-v1",
+      .model_name = name,
+      .source_uri =
+          "fixture://facebookresearch/dinov3/"
+          "6876159a11b4df116f30f667f8c9888617df0751/" +
+          name,
+      .license_spdx = "LicenseRef-Generated-Test-Fixture",
+      .license_uri = "fixture://models-reference/local-generated-state",
+      .availability = WeightAvailability::pinned_external,
+      .artifact =
+          ArtifactRef{.digest = ArtifactDigest{.hex = sha256_hex(state)},
+                      .size_bytes = state.size(),
+                      .logical_name = name + "-state.safetensors",
+                      .media_type = "application/x-safetensors",
+                      .producer = "pinned-meta-dinov3-python-reference"},
+      .status_reason =
+          "Random architecture differential; no pretrained weights."};
+  auto adapter = adapt(model);
+  interop::ModelWeightImportOptions options;
+  options.max_staging_bytes = 1ULL << 30U;
+  const auto imported = load_weights(adapter, record, state, options);
+  ::testing::Message diagnostics;
+  diagnostics << prefix << " mapped=" << imported.plan.matched.size()
+              << " source=" << imported.plan.source_tensor_count
+              << " target=" << imported.plan.target_tensor_count;
+  for (const auto& key : imported.plan.missing)
+    diagnostics << "\nmissing: " << key;
+  for (const auto& key : imported.plan.unexpected)
+    diagnostics << "\nunexpected: " << key;
+  for (const auto& mismatch : imported.plan.shape_mismatches)
+    diagnostics << "\nshape mismatch: " << mismatch.key;
+  for (const auto& mismatch : imported.plan.dtype_mismatches)
+    diagnostics << "\ndtype mismatch: " << mismatch.key;
+  ASSERT_TRUE(imported.applied) << diagnostics.GetString();
+  adapter.state().eval();
+  torch::NoGradGuard no_grad;
+  const auto image = ReferenceTensor(input, "input");
+  const auto actual_tokens = model->forward_features(image);
+  const auto actual_cls = model->forward(image);
+  const auto reference_tokens = ReferenceTensor(expected, "tokens");
+  const auto reference_cls = ReferenceTensor(expected, "output");
+  ASSERT_EQ(actual_tokens.sizes(), reference_tokens.sizes());
+  ASSERT_EQ(actual_cls.sizes(), reference_cls.sizes());
+  EXPECT_TRUE(torch::allclose(actual_tokens, reference_tokens, 5e-4, 5e-5))
+      << prefix << " token max error: "
+      << (actual_tokens - reference_tokens).abs().max().item<double>();
+  EXPECT_TRUE(torch::allclose(actual_cls, reference_cls, 5e-4, 5e-5))
+      << prefix << " CLS max error: "
+      << (actual_cls - reference_cls).abs().max().item<double>();
+}
+
+TEST(ModelsPythonInterop, OfficialMetaDinoV3SmallReferenceReallyRuns) {
+  CheckDinoV3Reference("dinov3_vits16", dinov3_vits16());
+}
+TEST(ModelsPythonInterop, OfficialMetaDinoV3SmallPlusReferenceReallyRuns) {
+  CheckDinoV3Reference("dinov3_vits16plus", dinov3_vits16plus());
+}
+TEST(ModelsPythonInterop, OfficialMetaDinoV3BaseReferenceReallyRuns) {
+  CheckDinoV3Reference("dinov3_vitb16", dinov3_vitb16());
 }
 
 #endif

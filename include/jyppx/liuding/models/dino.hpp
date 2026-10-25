@@ -167,10 +167,12 @@ class DinoV3Impl final : public torch::nn::Module {
   std::int64_t hidden_dimension_ = 0;
   bool swiglu_ = false;
   std::shared_ptr<torch::nn::Module> patch_embed_;
+  std::shared_ptr<torch::nn::Module> rope_embed_;
   torch::nn::LayerNorm final_norm_{nullptr};
   torch::nn::Linear head_{nullptr};
   Tensor cls_token_;
-  Tensor extra_tokens_;
+  Tensor storage_tokens_;
+  Tensor mask_token_;
   torch::nn::Sequential blocks_{nullptr};
 };
 

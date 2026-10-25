@@ -14,6 +14,8 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <numbers>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -433,6 +435,7 @@ struct DinoV3Config {
   std::int64_t blocks;
   std::int64_t hidden;
   bool swiglu;
+  bool qkv_bias;
 };
 
 DinoV3Config Config(DinoV3Variant variant) {
@@ -442,43 +445,50 @@ DinoV3Config Config(DinoV3Variant variant) {
               .heads = 6,
               .blocks = 12,
               .hidden = 1536,
-              .swiglu = false};
+              .swiglu = false,
+              .qkv_bias = true};
     case DinoV3Variant::small_plus:
       return {.dimension = 384,
               .heads = 6,
               .blocks = 12,
               .hidden = 1536,
-              .swiglu = true};
+              .swiglu = true,
+              .qkv_bias = true};
     case DinoV3Variant::base:
       return {.dimension = 768,
               .heads = 12,
               .blocks = 12,
               .hidden = 3072,
-              .swiglu = false};
+              .swiglu = false,
+              .qkv_bias = true};
     case DinoV3Variant::large:
       return {.dimension = 1024,
               .heads = 16,
               .blocks = 24,
               .hidden = 4096,
-              .swiglu = false};
+              .swiglu = false,
+              .qkv_bias = true};
     case DinoV3Variant::large_plus:
       return {.dimension = 1024,
               .heads = 16,
               .blocks = 24,
               .hidden = 4096,
-              .swiglu = true};
+              .swiglu = true,
+              .qkv_bias = true};
     case DinoV3Variant::huge_plus:
       return {.dimension = 1280,
               .heads = 20,
               .blocks = 32,
-              .hidden = 7680,
-              .swiglu = true};
+              .hidden = 5120,
+              .swiglu = true,
+              .qkv_bias = true};
     case DinoV3Variant::seven_b:
       return {.dimension = 4096,
               .heads = 32,
               .blocks = 40,
-              .hidden = 12288,
-              .swiglu = true};
+              .hidden = 8192,
+              .swiglu = true,
+              .qkv_bias = false};
   }
   detail::Invalid("dinov3.variant",
                   "small, small_plus, base, large, large_plus, huge_plus or "
@@ -496,16 +506,81 @@ void ValidateOptions(const DinoV3Options& options) {
   }
 }
 
+using DinoV3RopeValues = std::pair<Tensor, Tensor>;
+
+class DinoV3Rope final : public torch::nn::Module {
+ public:
+  explicit DinoV3Rope(std::int64_t head_dimension)
+      : head_dimension_(head_dimension) {
+    if (head_dimension_ <= 0 || head_dimension_ % 4 != 0)
+      detail::Invalid("dinov3.rope", "a positive head width divisible by four");
+    const auto quarter = head_dimension_ / 4;
+    const auto exponent = torch::arange(quarter, torch::kFloat32) / quarter;
+    periods_ =
+        register_buffer("periods", torch::exp(exponent * std::log(100.0)));
+  }
+
+  DinoV3RopeValues forward(std::int64_t height, std::int64_t width) {
+    const auto options = periods_.options().dtype(torch::kFloat32);
+    auto rows = (torch::arange(height, options) + 0.5) / height * 2.0 - 1.0;
+    auto columns = (torch::arange(width, options) + 0.5) / width * 2.0 - 1.0;
+    rows = rows.view({height, 1}).expand({height, width}).reshape({-1});
+    columns = columns.view({1, width}).expand({height, width}).reshape({-1});
+    if (is_training()) {
+      const auto log_range = std::log(2.0);
+      const auto scale =
+          torch::empty({1}, options).uniform_(-log_range, log_range).exp_();
+      rows = rows * scale;
+      columns = columns * scale;
+    }
+    const auto factor = 2.0 * std::numbers::pi_v<double>;
+    const auto vertical = rows.unsqueeze(1) / periods_.unsqueeze(0) * factor;
+    const auto horizontal =
+        columns.unsqueeze(1) / periods_.unsqueeze(0) * factor;
+    auto angles = torch::cat({vertical, horizontal}, 1);
+    angles = torch::cat({angles, angles}, 1)
+                 .view({1, 1, height * width, head_dimension_});
+    return {angles.sin(), angles.cos()};
+  }
+
+ private:
+  std::int64_t head_dimension_;
+  Tensor periods_;
+};
+
+class DinoV3MaskedQkv final : public torch::nn::LinearImpl {
+ public:
+  DinoV3MaskedQkv(std::int64_t dimension, bool qkv_bias)
+      : torch::nn::LinearImpl(
+            torch::nn::LinearOptions(dimension, dimension * 3).bias(qkv_bias)) {
+    if (qkv_bias) {
+      auto mask = torch::ones({dimension * 3}, torch::kFloat32);
+      mask.slice(0, dimension, dimension * 2).zero_();
+      bias_mask_ = register_buffer("bias_mask", mask);
+    }
+  }
+
+  Tensor forward(const Tensor& input) {
+    std::optional<Tensor> masked_bias;
+    if (bias.defined()) masked_bias = bias * bias_mask_;
+    return at::linear(input, weight, masked_bias);
+  }
+
+ private:
+  Tensor bias_mask_;
+};
+
 class DinoV3Attention final : public torch::nn::Module {
  public:
-  DinoV3Attention(std::int64_t dimension, std::int64_t heads)
+  DinoV3Attention(std::int64_t dimension, std::int64_t heads, bool qkv_bias)
       : dimension_(dimension), heads_(heads) {
-    qkv_ = register_module("qkv", torch::nn::Linear(dimension, dimension * 3));
+    qkv_ = register_module(
+        "qkv", std::make_shared<DinoV3MaskedQkv>(dimension, qkv_bias));
     projection_ =
         register_module("proj", torch::nn::Linear(dimension, dimension));
   }
 
-  Tensor forward(const Tensor& input) {
+  Tensor forward(const Tensor& input, const DinoV3RopeValues& rope) {
     const auto batch = input.size(0);
     const auto tokens = input.size(1);
     const auto head_dimension = dimension_ / heads_;
@@ -516,27 +591,21 @@ class DinoV3Attention final : public torch::nn::Module {
         qkv[1].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
     auto value =
         qkv[2].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
-
-    // DINOv3 uses rotary position embeddings. The implementation deliberately
-    // keeps the token contract explicit: the same deterministic row-major
-    // positions are applied to CLS, extra and patch tokens, while the first
-    // four positions remain stable when the patch grid changes.
-    const auto half = head_dimension / 2;
-    auto float_options = input.options().dtype(torch::kFloat32);
-    auto position = torch::arange(tokens, float_options).view({1, 1, tokens, 1});
-    auto index = torch::arange(half, float_options).view({1, 1, 1, half});
-    auto frequency = torch::exp(-std::log(100.0) * index / half);
-    auto angles = position * frequency;
-    auto cosine = torch::cos(angles).to(query.scalar_type());
-    auto sine = torch::sin(angles).to(query.scalar_type());
-    auto rotate = [&](const Tensor& tensor) {
-      auto even = tensor.slice(-1, 0, half);
-      auto odd = tensor.slice(-1, half, head_dimension);
-      return torch::cat({even * cosine - odd * sine,
-                         even * sine + odd * cosine}, -1);
+    const auto rotate_patches = [&](const Tensor& source) {
+      const auto source_dtype = source.scalar_type();
+      const auto fp32 = source.to(torch::kFloat32);
+      const auto patch_count = rope.first.size(2);
+      const auto prefix_count = fp32.size(2) - patch_count;
+      auto patches = fp32.narrow(2, prefix_count, patch_count);
+      const auto halves = patches.chunk(2, -1);
+      const auto rotated = torch::cat({-halves[1], halves[0]}, -1);
+      return torch::cat({fp32.narrow(2, 0, prefix_count),
+                         patches * rope.second + rotated * rope.first},
+                        2)
+          .to(source_dtype);
     };
-    query = rotate(query);
-    key = rotate(key);
+    query = rotate_patches(query);
+    key = rotate_patches(key);
     auto attention =
         torch::softmax(torch::matmul(query, key.transpose(-2, -1)) /
                            std::sqrt(static_cast<double>(head_dimension)),
@@ -551,36 +620,64 @@ class DinoV3Attention final : public torch::nn::Module {
  private:
   std::int64_t dimension_;
   std::int64_t heads_;
-  torch::nn::Linear qkv_{nullptr}, projection_{nullptr};
+  std::shared_ptr<DinoV3MaskedQkv> qkv_;
+  torch::nn::Linear projection_{nullptr};
+};
+
+class DinoV3Mlp final : public torch::nn::Module {
+ public:
+  DinoV3Mlp(std::int64_t dimension, std::int64_t hidden, bool swiglu)
+      : swiglu_(swiglu) {
+    if (swiglu_) {
+      w1_ = register_module("w1", torch::nn::Linear(dimension, hidden));
+      w2_ = register_module("w2", torch::nn::Linear(dimension, hidden));
+      w3_ = register_module("w3", torch::nn::Linear(hidden, dimension));
+    } else {
+      fc1_ = register_module("fc1", torch::nn::Linear(dimension, hidden));
+      fc2_ = register_module("fc2", torch::nn::Linear(hidden, dimension));
+    }
+  }
+
+  Tensor forward(const Tensor& input) {
+    if (swiglu_)
+      return w3_->forward(torch::silu(w1_->forward(input)) *
+                          w2_->forward(input));
+    return fc2_->forward(torch::gelu(fc1_->forward(input)));
+  }
+
+ private:
+  bool swiglu_;
+  torch::nn::Linear fc1_{nullptr}, fc2_{nullptr};
+  torch::nn::Linear w1_{nullptr}, w2_{nullptr}, w3_{nullptr};
 };
 
 class DinoV3Block final : public torch::nn::Module {
  public:
-  DinoV3Block(std::int64_t dimension, std::int64_t heads,
-              std::int64_t hidden, bool swiglu, double layer_scale) {
+  DinoV3Block(std::int64_t dimension, std::int64_t heads, std::int64_t hidden,
+              bool swiglu, bool qkv_bias, double layer_scale) {
     if (dimension <= 0 || heads <= 0 || dimension % heads != 0 || hidden <= 0 ||
         layer_scale <= 0) {
       detail::Invalid("dinov3.block", "positive divisible attention widths");
     }
     norm1_ = register_module(
         "norm1", torch::nn::LayerNorm(
-                     torch::nn::LayerNormOptions({dimension}).eps(1e-6)));
+                     torch::nn::LayerNormOptions({dimension}).eps(1e-5)));
     attention_ = register_module(
-        "attn", std::make_shared<DinoV3Attention>(dimension, heads));
+        "attn", std::make_shared<DinoV3Attention>(dimension, heads, qkv_bias));
     layer_scale1_ = register_module(
         "ls1", std::make_shared<DinoV2LayerScale>(dimension, layer_scale));
     norm2_ = register_module(
         "norm2", torch::nn::LayerNorm(
-                     torch::nn::LayerNormOptions({dimension}).eps(1e-6)));
+                     torch::nn::LayerNormOptions({dimension}).eps(1e-5)));
     mlp_ = register_module(
-        "mlp", std::make_shared<DinoV2Mlp>(dimension, hidden, swiglu));
+        "mlp", std::make_shared<DinoV3Mlp>(dimension, hidden, swiglu));
     layer_scale2_ = register_module(
         "ls2", std::make_shared<DinoV2LayerScale>(dimension, layer_scale));
   }
 
-  Tensor forward(const Tensor& input) {
-    auto output = input + layer_scale1_->forward(
-                              attention_->forward(norm1_->forward(input)));
+  Tensor forward(const Tensor& input, const DinoV3RopeValues& rope) {
+    auto output = input + layer_scale1_->forward(attention_->forward(
+                              norm1_->forward(input), rope));
     return output +
            layer_scale2_->forward(mlp_->forward(norm2_->forward(output)));
   }
@@ -588,7 +685,7 @@ class DinoV3Block final : public torch::nn::Module {
  private:
   torch::nn::LayerNorm norm1_{nullptr}, norm2_{nullptr};
   std::shared_ptr<DinoV3Attention> attention_;
-  std::shared_ptr<DinoV2Mlp> mlp_;
+  std::shared_ptr<DinoV3Mlp> mlp_;
   std::shared_ptr<DinoV2LayerScale> layer_scale1_, layer_scale2_;
 };
 
@@ -633,27 +730,32 @@ DinoV3Impl::DinoV3Impl(DinoV3Variant variant, DinoV3Options options)
     patch_embed_ = register_module(
         "patch_embed", std::make_shared<DinoV3PatchEmbed>(
                            options_.input_channels, embedding_dimension_));
+    rope_embed_ = register_module(
+        "rope_embed",
+        std::make_shared<DinoV3Rope>(embedding_dimension_ / attention_heads_));
     cls_token_ = register_parameter(
         "cls_token", torch::zeros({1, 1, embedding_dimension_}), true);
-    extra_tokens_ = register_parameter(
-        "extra_tokens",
+    storage_tokens_ = register_parameter(
+        "storage_tokens",
         torch::zeros({1, options_.extra_tokens, embedding_dimension_}), true);
+    mask_token_ = register_parameter(
+        "mask_token", torch::zeros({1, embedding_dimension_}), true);
     blocks_ = register_module("blocks", torch::nn::Sequential());
     for (std::int64_t i = 0; i < block_count_; ++i) {
       blocks_->push_back(std::make_shared<DinoV3Block>(
           embedding_dimension_, attention_heads_, hidden_dimension_, swiglu_,
-          options_.layer_scale_init));
+          config.qkv_bias, options_.layer_scale_init));
     }
     final_norm_ = register_module(
         "norm",
         torch::nn::LayerNorm(
-            torch::nn::LayerNormOptions({embedding_dimension_}).eps(1e-6)));
+            torch::nn::LayerNormOptions({embedding_dimension_}).eps(1e-5)));
     if (options_.num_classes > 0)
       head_ = register_module("head", torch::nn::Linear(embedding_dimension_,
                                                         options_.num_classes));
     Initialize(*this);
-    torch::nn::init::normal_(cls_token_, 0.0, 1e-6);
-    torch::nn::init::normal_(extra_tokens_, 0.0, 1e-6);
+    torch::nn::init::normal_(cls_token_, 0.0, 0.02);
+    torch::nn::init::normal_(storage_tokens_, 0.0, 0.02);
   });
 }
 
@@ -668,11 +770,17 @@ Tensor DinoV3Impl::forward_features(const Tensor& input) {
     const auto width = (input.size(3) / 16) * 16;
     auto cropped = input.narrow(2, 0, height).narrow(3, 0, width);
     auto patches = PatchEmbedV3(patch_embed_).forward(cropped);
+    const auto grid_height = patches.size(2);
+    const auto grid_width = patches.size(3);
+    const auto rope = std::dynamic_pointer_cast<DinoV3Rope>(rope_embed_)
+                          ->forward(grid_height, grid_width);
     auto tokens = patches.flatten(2).transpose(1, 2);
     auto cls = cls_token_.expand({input.size(0), -1, -1});
-    auto extra = extra_tokens_.expand({input.size(0), -1, -1});
-    tokens = torch::cat({cls, extra, tokens}, 1);
-    return final_norm_->forward(blocks_->forward(tokens));
+    auto storage = storage_tokens_.expand({input.size(0), -1, -1});
+    tokens = torch::cat({cls, storage, tokens}, 1);
+    for (std::int64_t index = 0; index < block_count_; ++index)
+      tokens = blocks_[index]->as<DinoV3Block>()->forward(tokens, rope);
+    return final_norm_->forward(tokens);
   });
 }
 
