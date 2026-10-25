@@ -749,12 +749,16 @@ TEST(ModelsCuda, DinoV3LowResourceFactoriesSupportCudaHalfForward) {
 }
 
 TEST(ModelsCuda, DinoV3ConvNeXtLowResourceFactoriesSupportCudaHalfForward) {
-  RunDinoV3ConvNeXtCudaHalfForward([](DinoV3ConvNeXtOptions options) {
-    return dinov3_convnext_tiny(options);
-  }, {96, 192, 384, 768});
-  RunDinoV3ConvNeXtCudaHalfForward([](DinoV3ConvNeXtOptions options) {
-    return dinov3_convnext_small(options);
-  }, {96, 192, 384, 768});
+  RunDinoV3ConvNeXtCudaHalfForward(
+      [](DinoV3ConvNeXtOptions options) {
+        return dinov3_convnext_tiny(options);
+      },
+      {96, 192, 384, 768});
+  RunDinoV3ConvNeXtCudaHalfForward(
+      [](DinoV3ConvNeXtOptions options) {
+        return dinov3_convnext_small(options);
+      },
+      {96, 192, 384, 768});
 }
 
 template <typename Factory>
@@ -776,10 +780,11 @@ void RunDinoV3ConvNeXtHighCudaHalfForward(
   const auto peak = ProcessPeakRssBytes();
   ASSERT_GT(peak, 0U);
   EXPECT_LE(peak, 6ULL << 30U);
+  const auto elapsed_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+          .count();
   std::cout << "RESOURCE_METRICS model=" << name
-            << " cuda_forward_ms="
-            << std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-                   .count()
+            << " cuda_forward_ms=" << elapsed_ms
             << " process_peak_rss_bytes=" << peak << '\n';
 #ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
   const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
@@ -792,21 +797,19 @@ void RunDinoV3ConvNeXtHighCudaHalfForward(
 }
 
 TEST(ModelsCuda, DinoV3ConvNeXtBaseCudaHalfResourceGate) {
-  RunDinoV3ConvNeXtHighCudaHalfForward(
-      "dinov3_convnext_base",
-      [](DinoV3ConvNeXtOptions options) {
-        return dinov3_convnext_base(options);
-      },
-      {128, 256, 512, 1024});
+  RunDinoV3ConvNeXtHighCudaHalfForward("dinov3_convnext_base",
+                                       [](DinoV3ConvNeXtOptions options) {
+                                         return dinov3_convnext_base(options);
+                                       },
+                                       {128, 256, 512, 1024});
 }
 
 TEST(ModelsCuda, DinoV3ConvNeXtLargeCudaHalfResourceGate) {
-  RunDinoV3ConvNeXtHighCudaHalfForward(
-      "dinov3_convnext_large",
-      [](DinoV3ConvNeXtOptions options) {
-        return dinov3_convnext_large(options);
-      },
-      {192, 384, 768, 1536});
+  RunDinoV3ConvNeXtHighCudaHalfForward("dinov3_convnext_large",
+                                       [](DinoV3ConvNeXtOptions options) {
+                                         return dinov3_convnext_large(options);
+                                       },
+                                       {192, 384, 768, 1536});
 }
 
 TEST(Models, ResNetVariantsExposeExpectedFeatureStridesAndParameterCounts) {
