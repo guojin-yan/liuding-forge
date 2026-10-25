@@ -258,7 +258,8 @@ ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
         bottleneck = true;
         break;
       default:
-        detail::Invalid("resnet.variant", "resnet18, resnet34, resnet50 or resnet101");
+        detail::Invalid("resnet.variant",
+                        "resnet18, resnet34, resnet50 or resnet101");
     }
     conv1_ = register_module("conv1", Conv(options.input_channels, 64, 7, 2));
     bn1_ = register_module("bn1", torch::nn::BatchNorm2d(64));

@@ -20,9 +20,9 @@
 namespace jyppx::liuding::models {
 /** @brief Supported ImageNet-style residual block schedules. */
 enum class ResNetVariant : std::uint8_t {
-  resnet18 = 1,  ///< Basic blocks in a 2/2/2/2 schedule.
-  resnet50 = 2,  ///< Bottlenecks in a 3/4/6/3 schedule with v1.5 strides.
-  resnet34 = 3,  ///< Basic blocks in a 3/4/6/3 schedule.
+  resnet18 = 1,   ///< Basic blocks in a 2/2/2/2 schedule.
+  resnet50 = 2,   ///< Bottlenecks in a 3/4/6/3 schedule with v1.5 strides.
+  resnet34 = 3,   ///< Basic blocks in a 3/4/6/3 schedule.
   resnet101 = 4,  ///< Bottlenecks in a 3/4/23/3 schedule with v1.5 strides.
 };
 /** @brief Architecture options; inputs are already normalized NCHW images. */

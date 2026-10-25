@@ -26,8 +26,8 @@
 #include <cstring>
 #include <filesystem>
 #include <gtest/gtest.h>
-#include <iterator>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -1055,7 +1055,8 @@ TEST(Models, ResNet34And101ExposeFullSchedulesAndStageChannels) {
   const auto input = Images();
   for (const auto& [name, factory, channels, expected_parameters] :
        std::array<std::tuple<const char*, ResNet (*)(ResNetOptions),
-                             std::int64_t, std::uint64_t>, 2>{{
+                             std::int64_t, std::uint64_t>,
+                  2>{{
            {"resnet34", resnet34, 512, 21797672U},
            {"resnet101", resnet101, 2048, 44549160U},
        }}) {
@@ -1088,15 +1089,15 @@ void CheckResNetTrainingStep(ResNet model) {
   ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
   logits.square().mean().backward();
   const auto parameters = model->named_parameters(true);
-  for (const auto* name : {"conv1.weight", "layer4.0.conv1.weight", "fc.weight"}) {
+  for (const auto* name :
+       {"conv1.weight", "layer4.0.conv1.weight", "fc.weight"}) {
     const auto grad = parameters[name].grad();
     ASSERT_TRUE(grad.defined()) << name;
     EXPECT_TRUE(torch::isfinite(grad).all().item<bool>()) << name;
     EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
   }
   optimizer.step();
-  EXPECT_GT((parameters["fc.weight"] - before).abs().sum().item<double>(),
-            0.0);
+  EXPECT_GT((parameters["fc.weight"] - before).abs().sum().item<double>(), 0.0);
 }
 
 TEST(Models, ResNet34SupportsBackwardAndOptimizerStep) {
@@ -1186,7 +1187,8 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
     EXPECT_EQ(candidates.front().availability,
-              WeightAvailability::not_provisioned) << name;
+              WeightAvailability::not_provisioned)
+        << name;
     EXPECT_FALSE(candidates.front().artifact.has_value()) << name;
     EXPECT_EQ(candidates.front().license_spdx, "NOASSERTION") << name;
     validate_weight_record(candidates.front());
@@ -1508,9 +1510,8 @@ void CheckArchitectureReference(const char* architecture,
       feature_model == nullptr ? "JYPPX_LIUDING_MODELS_REFERENCE_DIR"
                                : "JYPPX_LIUDING_RESNET_EXTENDED_REFERENCE_DIR");
   if (directory == nullptr || *directory == '\0') {
-    GTEST_SKIP()
-        << "Set the corresponding models reference directory for the "
-           "independent official reference gate";
+    GTEST_SKIP() << "Set the corresponding models reference directory for the "
+                    "independent official reference gate";
   }
   const auto root = std::filesystem::path(directory);
   const auto prefix = std::string(architecture);
@@ -1563,8 +1564,9 @@ void CheckArchitectureReference(const char* architecture,
       << prefix << " normalized maximum absolute error: "
       << ((actual - reference) / scale).abs().max().item<double>();
   if (feature_model != nullptr) {
-    const auto stages = (*feature_model)->forward_features(
-        invocation.positional.front().toTensor());
+    const auto stages =
+        (*feature_model)
+            ->forward_features(invocation.positional.front().toTensor());
     ASSERT_EQ(stages.size(), 4U) << prefix;
     for (std::size_t index = 0; index < stages.size(); ++index) {
       const auto stage_name = "layer" + std::to_string(index + 1);
@@ -1574,7 +1576,8 @@ void CheckArchitectureReference(const char* architecture,
       ASSERT_GT(stage_scale, 0.0) << stage_name;
       EXPECT_TRUE(torch::allclose(stages[index] / stage_scale,
                                   expected_stage / stage_scale, 1e-4, 1e-5))
-          << prefix << ' ' << stage_name << " normalized maximum absolute error: "
+          << prefix << ' ' << stage_name
+          << " normalized maximum absolute error: "
           << ((stages[index] - expected_stage) / stage_scale)
                  .abs()
                  .max()

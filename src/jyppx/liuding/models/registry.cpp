@@ -84,13 +84,14 @@ ModelRegistry default_model_registry() {
                 .default_parameters = 25557032U,
                 .preview = true},
                [](const ModelOptions& o) { return adapt(resnet50(o.resnet)); });
-  registry.add({.name = "resnet101",
-                .family = "resnet",
-                .task = "image_classification",
-                .reference = "torchvision.models.resnet101 (v1.5 stride)",
-                .default_parameters = 44549160U,
-                .preview = true},
-               [](const ModelOptions& o) { return adapt(resnet101(o.resnet)); });
+  registry.add(
+      {.name = "resnet101",
+       .family = "resnet",
+       .task = "image_classification",
+       .reference = "torchvision.models.resnet101 (v1.5 stride)",
+       .default_parameters = 44549160U,
+       .preview = true},
+      [](const ModelOptions& o) { return adapt(resnet101(o.resnet)); });
   registry.add({.name = "mobilenet_v3_small",
                 .family = "mobilenet",
                 .task = "image_classification",
