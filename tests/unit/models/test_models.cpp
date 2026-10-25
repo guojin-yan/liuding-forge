@@ -55,7 +55,7 @@ void RunDinoV2CpuTrainingStep(Factory factory, std::int64_t dimension) {
   ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
   ASSERT_EQ(logits.scalar_type(), torch::kFloat32);
   const auto loss = logits.square().mean();
-  ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+  ASSERT_TRUE(torch::isfinite(loss).template item<bool>());
   loss.backward();
 
   const auto named = model->named_parameters(true);
@@ -67,24 +67,24 @@ void RunDinoV2CpuTrainingStep(Factory factory, std::int64_t dimension) {
   ASSERT_TRUE(head_gradient.defined());
   EXPECT_EQ(patch_gradient.scalar_type(), torch::kFloat32);
   EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
-  EXPECT_TRUE(torch::isfinite(patch_gradient).all().item<bool>());
-  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
-  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+  EXPECT_TRUE(torch::isfinite(patch_gradient).all().template item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+  EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
 
   optimizer.step();
   const auto head_after = model->named_parameters(true)["head.weight"];
-  EXPECT_GT(torch::abs(head_after - head_before).sum().item<double>(), 0.0);
+  EXPECT_GT(torch::abs(head_after - head_before).sum().template item<double>(),
+            0.0);
 
   model->eval();
   torch::NoGradGuard no_grad;
   const auto features = model->forward_features(input);
   EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 2, dimension}));
-  EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(features).all().template item<bool>());
 }
 
 template <typename Factory>
-void RunDinoV2CpuBfloat16AutocastStep(Factory factory,
-                                      std::int64_t dimension) {
+void RunDinoV2CpuBfloat16AutocastStep(Factory factory, std::int64_t dimension) {
   auto model = factory(DinoV2Options{.num_classes = 3});
   ASSERT_TRUE(model);
   model->train();
@@ -103,7 +103,7 @@ void RunDinoV2CpuBfloat16AutocastStep(Factory factory,
     ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
     EXPECT_EQ(logits.scalar_type(), torch::kBFloat16);
     const auto loss = logits.to(torch::kFloat32).square().mean();
-    ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+    ASSERT_TRUE(torch::isfinite(loss).template item<bool>());
     loss.backward();
   }
   EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CPU));
@@ -112,8 +112,8 @@ void RunDinoV2CpuBfloat16AutocastStep(Factory factory,
       model->named_parameters(true)["head.weight"].grad();
   ASSERT_TRUE(head_gradient.defined());
   EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
-  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
-  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+  EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
   optimizer.step();
 
   model->eval();
@@ -140,7 +140,7 @@ void RunDinoV3CpuTrainingStep(Factory factory, std::int64_t dimension) {
   ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
   ASSERT_EQ(logits.scalar_type(), torch::kFloat32);
   const auto loss = logits.square().mean();
-  ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+  ASSERT_TRUE(torch::isfinite(loss).template item<bool>());
   loss.backward();
 
   const auto named = model->named_parameters(true);
@@ -151,19 +151,20 @@ void RunDinoV3CpuTrainingStep(Factory factory, std::int64_t dimension) {
   ASSERT_TRUE(head_gradient.defined());
   EXPECT_EQ(patch_gradient.scalar_type(), torch::kFloat32);
   EXPECT_EQ(head_gradient.scalar_type(), torch::kFloat32);
-  EXPECT_TRUE(torch::isfinite(patch_gradient).all().item<bool>());
-  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
-  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+  EXPECT_TRUE(torch::isfinite(patch_gradient).all().template item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+  EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
 
   optimizer.step();
   const auto head_after = model->named_parameters(true)["head.weight"];
-  EXPECT_GT(torch::abs(head_after - head_before).sum().item<double>(), 0.0);
+  EXPECT_GT(torch::abs(head_after - head_before).sum().template item<double>(),
+            0.0);
 
   model->eval();
   torch::NoGradGuard no_grad;
   const auto features = model->forward_features(input);
   EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 6, dimension}));
-  EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(features).all().template item<bool>());
 }
 
 template <typename Factory>
@@ -185,7 +186,7 @@ void RunDinoV3ConvNeXtCpuTrainingStep(Factory factory) {
   ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
   ASSERT_EQ(logits.scalar_type(), torch::kFloat32);
   const auto loss = logits.square().mean();
-  ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+  ASSERT_TRUE(torch::isfinite(loss).template item<bool>());
   loss.backward();
 
   const auto named = model->named_parameters(true);
@@ -193,13 +194,14 @@ void RunDinoV3ConvNeXtCpuTrainingStep(Factory factory) {
   const auto head_gradient = named["head.weight"].grad();
   ASSERT_TRUE(stem_gradient.defined());
   ASSERT_TRUE(head_gradient.defined());
-  EXPECT_TRUE(torch::isfinite(stem_gradient).all().item<bool>());
-  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
-  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+  EXPECT_TRUE(torch::isfinite(stem_gradient).all().template item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+  EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
 
   optimizer.step();
   const auto head_after = model->named_parameters(true)["head.weight"];
-  EXPECT_GT(torch::abs(head_after - head_before).sum().item<double>(), 0.0);
+  EXPECT_GT(torch::abs(head_after - head_before).sum().template item<double>(),
+            0.0);
 }
 
 template <typename Factory>
@@ -227,7 +229,7 @@ void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
     ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
     EXPECT_EQ(logits.scalar_type(), torch::kFloat16);
     const auto loss = logits.to(torch::kFloat32).square().mean();
-    ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+    ASSERT_TRUE(torch::isfinite(loss).template item<bool>());
     loss.backward();
   }
   EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
@@ -241,9 +243,9 @@ void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
   ASSERT_TRUE(head_gradient.defined());
   EXPECT_TRUE(patch_gradient.device().is_cuda());
   EXPECT_TRUE(head_gradient.device().is_cuda());
-  EXPECT_TRUE(torch::isfinite(patch_gradient).all().item<bool>());
-  EXPECT_TRUE(torch::isfinite(head_gradient).all().item<bool>());
-  EXPECT_GT(head_gradient.abs().max().item<double>(), 0.0);
+  EXPECT_TRUE(torch::isfinite(patch_gradient).all().template item<bool>());
+  EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+  EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
   optimizer.step();
 
   model->eval();
@@ -251,7 +253,7 @@ void RunDinoV2CudaTrainingStep(Factory factory, std::int64_t dimension) {
   const auto features = model->forward_features(input);
   EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 2, dimension}));
   EXPECT_TRUE(features.device().is_cuda());
-  EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(features).all().template item<bool>());
 }
 
 template <typename Factory>
@@ -269,7 +271,7 @@ void RunDinoV3CudaHalfForward(Factory factory, std::int64_t dimension) {
       torch::TensorOptions().dtype(torch::kFloat32).device(device));
   torch::NoGradGuard no_grad;
   jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CUDA,
-                                                      at::kHalf);
+                                                     at::kHalf);
   ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
   const auto features = model->forward_features(input);
   const auto logits = model->forward(input);
@@ -281,8 +283,8 @@ void RunDinoV3CudaHalfForward(Factory factory, std::int64_t dimension) {
   EXPECT_EQ(logits.scalar_type(), torch::kHalf);
   EXPECT_TRUE(features.device().is_cuda());
   EXPECT_TRUE(logits.device().is_cuda());
-  EXPECT_TRUE(torch::isfinite(features).all().item<bool>());
-  EXPECT_TRUE(torch::isfinite(logits).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(features).all().template item<bool>());
+  EXPECT_TRUE(torch::isfinite(logits).all().template item<bool>());
 }
 
 template <typename Factory>
@@ -300,7 +302,7 @@ void RunDinoV3ConvNeXtCudaHalfForward(Factory factory) {
       torch::TensorOptions().dtype(torch::kFloat32).device(device));
   torch::NoGradGuard no_grad;
   jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CUDA,
-                                                      at::kHalf);
+                                                     at::kHalf);
   ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
   const auto features = model->forward_features(input);
   const auto logits = model->forward(input);
@@ -313,10 +315,10 @@ void RunDinoV3ConvNeXtCudaHalfForward(Factory factory) {
   EXPECT_EQ(logits.scalar_type(), torch::kHalf);
   for (const auto& feature : features) {
     EXPECT_TRUE(feature.device().is_cuda());
-    EXPECT_TRUE(torch::isfinite(feature).all().item<bool>());
+    EXPECT_TRUE(torch::isfinite(feature).all().template item<bool>());
   }
   EXPECT_TRUE(logits.device().is_cuda());
-  EXPECT_TRUE(torch::isfinite(logits).all().item<bool>());
+  EXPECT_TRUE(torch::isfinite(logits).all().template item<bool>());
 }
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
