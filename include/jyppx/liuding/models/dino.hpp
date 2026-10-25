@@ -25,7 +25,6 @@
 
 namespace jyppx::liuding::models {
 
-
 /** @brief Fixed DINOv2 ViT/14 capacities in the v1.0 model matrix. */
 enum class DinoV2Variant : std::uint8_t {
   small = 1,  ///< 384-dimensional, 12-block, 6-head encoder.

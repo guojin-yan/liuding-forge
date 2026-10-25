@@ -31,16 +31,28 @@ struct VariantConfig {
 VariantConfig Config(DinoV2Variant variant) {
   switch (variant) {
     case DinoV2Variant::small:
-      return {.dimension = 384, .heads = 6, .blocks = 12, .hidden = 1536,
+      return {.dimension = 384,
+              .heads = 6,
+              .blocks = 12,
+              .hidden = 1536,
               .swiglu = false};
     case DinoV2Variant::base:
-      return {.dimension = 768, .heads = 12, .blocks = 12, .hidden = 3072,
+      return {.dimension = 768,
+              .heads = 12,
+              .blocks = 12,
+              .hidden = 3072,
               .swiglu = false};
     case DinoV2Variant::large:
-      return {.dimension = 1024, .heads = 16, .blocks = 24, .hidden = 4096,
+      return {.dimension = 1024,
+              .heads = 16,
+              .blocks = 24,
+              .hidden = 4096,
               .swiglu = false};
     case DinoV2Variant::giant:
-      return {.dimension = 1536, .heads = 24, .blocks = 40, .hidden = 4096,
+      return {.dimension = 1536,
+              .heads = 24,
+              .blocks = 40,
+              .hidden = 4096,
               .swiglu = true};
   }
   detail::Invalid("dinov2.variant", "small, base, large or giant");
@@ -62,7 +74,8 @@ class DinoV2Attention final : public torch::nn::Module {
   DinoV2Attention(std::int64_t dimension, std::int64_t heads)
       : dimension_(dimension), heads_(heads) {
     qkv_ = register_module("qkv", torch::nn::Linear(dimension, dimension * 3));
-    projection_ = register_module("proj", torch::nn::Linear(dimension, dimension));
+    projection_ =
+        register_module("proj", torch::nn::Linear(dimension, dimension));
   }
 
   Tensor forward(const Tensor& input) {
@@ -70,16 +83,16 @@ class DinoV2Attention final : public torch::nn::Module {
     const auto tokens = input.size(1);
     const auto head_dimension = dimension_ / heads_;
     auto qkv = qkv_->forward(input).chunk(3, -1);
-    auto query = qkv[0].view({batch, tokens, heads_, head_dimension})
-                     .transpose(1, 2);
-    auto key = qkv[1].view({batch, tokens, heads_, head_dimension})
-                   .transpose(1, 2);
-    auto value = qkv[2].view({batch, tokens, heads_, head_dimension})
-                     .transpose(1, 2);
-    auto attention = torch::softmax(
-        torch::matmul(query, key.transpose(-2, -1)) /
-            std::sqrt(static_cast<double>(head_dimension)),
-        -1);
+    auto query =
+        qkv[0].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
+    auto key =
+        qkv[1].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
+    auto value =
+        qkv[2].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
+    auto attention =
+        torch::softmax(torch::matmul(query, key.transpose(-2, -1)) /
+                           std::sqrt(static_cast<double>(head_dimension)),
+                       -1);
     auto attended = torch::matmul(attention, value)
                         .transpose(1, 2)
                         .contiguous()
@@ -131,8 +144,8 @@ class DinoV2LayerScale final : public torch::nn::Module {
  public:
   DinoV2LayerScale(std::int64_t dimension, double initial_value)
       : dimension_(dimension) {
-    gamma_ = register_parameter(
-        "gamma", torch::full({dimension}, initial_value), true);
+    gamma_ = register_parameter("gamma",
+                                torch::full({dimension}, initial_value), true);
   }
 
   Tensor forward(const Tensor& input) {
@@ -146,10 +159,10 @@ class DinoV2LayerScale final : public torch::nn::Module {
 
 class DinoV2Block final : public torch::nn::Module {
  public:
-  DinoV2Block(std::int64_t dimension, std::int64_t heads,
-              std::int64_t hidden, bool swiglu, double layer_scale) {
-    if (dimension <= 0 || heads <= 0 || dimension % heads != 0 ||
-        hidden <= 0 || layer_scale <= 0) {
+  DinoV2Block(std::int64_t dimension, std::int64_t heads, std::int64_t hidden,
+              bool swiglu, double layer_scale) {
+    if (dimension <= 0 || heads <= 0 || dimension % heads != 0 || hidden <= 0 ||
+        layer_scale <= 0) {
       detail::Invalid("dinov2.block", "positive divisible attention widths");
     }
     norm1_ = register_module(
@@ -170,7 +183,7 @@ class DinoV2Block final : public torch::nn::Module {
 
   Tensor forward(const Tensor& input) {
     auto output = input + layer_scale1_->forward(
-                               attention_->forward(norm1_->forward(input)));
+                              attention_->forward(norm1_->forward(input)));
     return output +
            layer_scale2_->forward(mlp_->forward(norm2_->forward(output)));
   }
@@ -186,11 +199,11 @@ class DinoV2PatchEmbed final : public torch::nn::Module {
  public:
   DinoV2PatchEmbed(std::int64_t input_channels, std::int64_t dimension) {
     projection_ = register_module(
-        "proj", torch::nn::Conv2d(torch::nn::Conv2dOptions(
-                                      input_channels, dimension, 14)
-                                      .stride(14)
-                                      .padding(0)
-                                      .bias(true)));
+        "proj", torch::nn::Conv2d(
+                    torch::nn::Conv2dOptions(input_channels, dimension, 14)
+                        .stride(14)
+                        .padding(0)
+                        .bias(true)));
   }
 
   Tensor forward(const Tensor& input) { return projection_->forward(input); }
@@ -202,7 +215,8 @@ class DinoV2PatchEmbed final : public torch::nn::Module {
 
 DinoV2PatchEmbed& PatchEmbed(const std::shared_ptr<torch::nn::Module>& module) {
   const auto patch = std::dynamic_pointer_cast<DinoV2PatchEmbed>(module);
-  if (!patch) detail::Invalid("dinov2.patch_embed", "the registered patch module");
+  if (!patch)
+    detail::Invalid("dinov2.patch_embed", "the registered patch module");
   return *patch;
 }
 
@@ -217,8 +231,7 @@ void TruncatedNormal_(const Tensor& tensor, double standard_deviation) {
     torch::nn::init::normal_(replacement, 0.0, standard_deviation);
     auto replacement_rejected = replacement.abs().gt(bound);
     while (replacement_rejected.any().item<bool>()) {
-      const auto refill_count =
-          replacement_rejected.sum().item<std::int64_t>();
+      const auto refill_count = replacement_rejected.sum().item<std::int64_t>();
       auto refill = torch::empty({refill_count}, values.options());
       torch::nn::init::normal_(refill, 0.0, standard_deviation);
       replacement.masked_scatter_(replacement_rejected, refill);
@@ -261,15 +274,16 @@ Tensor PositionForGrid(const Tensor& position_embedding, std::int64_t height,
   patches = patches.permute({0, 3, 1, 2});
   if (height != reference_grid || width != reference_grid) {
     patches = torch::nn::functional::interpolate(
-        patches.to(torch::kFloat32),
-        torch::nn::functional::InterpolateFuncOptions()
-            .size(std::vector<std::int64_t>{height, width})
-            .mode(torch::kBicubic)
-            .align_corners(false)
-            .antialias(true))
+                  patches.to(torch::kFloat32),
+                  torch::nn::functional::InterpolateFuncOptions()
+                      .size(std::vector<std::int64_t>{height, width})
+                      .mode(torch::kBicubic)
+                      .align_corners(false)
+                      .antialias(true))
                   .to(position_embedding.scalar_type());
   }
-  patches = patches.permute({0, 2, 3, 1}).reshape({1, height * width, dimension});
+  patches =
+      patches.permute({0, 2, 3, 1}).reshape({1, height * width, dimension});
   return torch::cat({cls, patches}, 1);
 }
 
@@ -291,8 +305,8 @@ DinoV2Impl::DinoV2Impl(DinoV2Variant variant, DinoV2Options options)
     cls_token_ = register_parameter(
         "cls_token", torch::zeros({1, 1, embedding_dimension_}), true);
     position_embedding_ = register_parameter(
-        "pos_embed",
-        torch::zeros({1, 1 + 37 * 37, embedding_dimension_}), true);
+        "pos_embed", torch::zeros({1, 1 + 37 * 37, embedding_dimension_}),
+        true);
     blocks_ = register_module("blocks", torch::nn::Sequential());
     for (std::int64_t i = 0; i < block_count_; ++i) {
       blocks_->push_back(std::make_shared<DinoV2Block>(
@@ -300,12 +314,12 @@ DinoV2Impl::DinoV2Impl(DinoV2Variant variant, DinoV2Options options)
           options_.layer_scale_init));
     }
     final_norm_ = register_module(
-        "norm", torch::nn::LayerNorm(torch::nn::LayerNormOptions(
-                                         {embedding_dimension_})
-                                         .eps(1e-6)));
+        "norm",
+        torch::nn::LayerNorm(
+            torch::nn::LayerNormOptions({embedding_dimension_}).eps(1e-6)));
     if (options_.num_classes > 0)
-      head_ = register_module(
-          "head", torch::nn::Linear(embedding_dimension_, options_.num_classes));
+      head_ = register_module("head", torch::nn::Linear(embedding_dimension_,
+                                                        options_.num_classes));
     Initialize(*this);
     torch::nn::init::normal_(cls_token_, 0.0, 1e-6);
     TruncatedNormal_(position_embedding_, 0.02);
@@ -316,8 +330,10 @@ Tensor DinoV2Impl::forward_features(const Tensor& input) {
   return detail::Backend("dinov2.forward_features", [&] {
     detail::FloatingInput(input, PatchEmbed(patch_embed_).weight(), 4);
     if (input.size(1) != options_.input_channels || input.size(2) <= 0 ||
-        input.size(3) <= 0 || input.size(2) % 14 != 0 || input.size(3) % 14 != 0)
-      detail::Invalid("dinov2.input", "NCHW floating images with H/W divisible by 14");
+        input.size(3) <= 0 || input.size(2) % 14 != 0 ||
+        input.size(3) % 14 != 0)
+      detail::Invalid("dinov2.input",
+                      "NCHW floating images with H/W divisible by 14");
     auto patches = PatchEmbed(patch_embed_).forward(input);
     const auto height = patches.size(2);
     const auto width = patches.size(3);
@@ -358,8 +374,7 @@ void DinoV2Impl::reset_classifier(std::int64_t num_classes) {
     // Construct and initialize the replacement before touching the currently
     // registered head. Allocation/device failures therefore preserve the old
     // classifier and its option value.
-    auto replacement =
-        torch::nn::Linear(embedding_dimension_, num_classes);
+    auto replacement = torch::nn::Linear(embedding_dimension_, num_classes);
     {
       torch::NoGradGuard guard;
       TruncatedNormal_(replacement->weight, 0.02);
@@ -396,10 +411,9 @@ nn::ModelAdapter adapt(DinoV2 model) {
                   std::nullopt}};
   TensorSchema output;
   output.rank = 2;
-  output.shape = {{std::nullopt,
-                   model->options().num_classes > 0
-                       ? model->options().num_classes
-                       : Config(model->variant()).dimension}};
+  output.shape = {{std::nullopt, model->options().num_classes > 0
+                                     ? model->options().num_classes
+                                     : Config(model->variant()).dimension}};
   return nn::adapt_holder(
       model,
       [](DinoV2Impl& module, const nn::Invocation& invocation) {

@@ -72,15 +72,12 @@ TEST(Models, DinoV2SmallPreservesClsPatchContractAndSupportsHeadReplacement) {
   std::vector<std::string> parameter_names;
   parameter_names.reserve(parameters.size());
   for (const auto& entry : parameters) parameter_names.push_back(entry.key());
-  for (const auto* key : {"patch_embed.proj.weight", "cls_token", "pos_embed",
-                           "blocks.0.norm1.weight",
-                           "blocks.0.attn.qkv.weight",
-                           "blocks.0.attn.proj.weight",
-                           "blocks.0.ls1.gamma",
-                           "blocks.0.norm2.weight",
-                           "blocks.0.mlp.fc1.weight",
-                           "blocks.0.mlp.fc2.weight",
-                           "blocks.0.ls2.gamma", "norm.weight"}) {
+  for (const auto* key :
+       {"patch_embed.proj.weight", "cls_token", "pos_embed",
+        "blocks.0.norm1.weight", "blocks.0.attn.qkv.weight",
+        "blocks.0.attn.proj.weight", "blocks.0.ls1.gamma",
+        "blocks.0.norm2.weight", "blocks.0.mlp.fc1.weight",
+        "blocks.0.mlp.fc2.weight", "blocks.0.ls2.gamma", "norm.weight"}) {
     EXPECT_NE(std::find(parameter_names.begin(), parameter_names.end(), key),
               parameter_names.end())
         << key;
@@ -102,10 +99,9 @@ TEST(Models, DinoV2SmallPreservesClsPatchContractAndSupportsHeadReplacement) {
   bool qkv_gradient_defined = false;
   for (const auto& entry : backbone->named_parameters(true)) {
     if (entry.key() == "blocks.0.attn.qkv.weight") {
-      qkv_gradient_defined = entry.value().grad().defined() &&
-                             torch::isfinite(entry.value().grad())
-                                 .all()
-                                 .item<bool>();
+      qkv_gradient_defined =
+          entry.value().grad().defined() &&
+          torch::isfinite(entry.value().grad()).all().item<bool>();
       break;
     }
   }
@@ -121,12 +117,12 @@ TEST(Models, DinoV2SmallPreservesClsPatchContractAndSupportsHeadReplacement) {
   backbone->reset_classifier(0);
   EXPECT_EQ(backbone->forward(input).sizes(), torch::IntArrayRef({1, 384}));
 
-  auto classifier = create_model(
-      "vit_small_patch14_dinov2",
-      {.dinov2 = {.num_classes = 7, .input_channels = 3}});
+  auto classifier =
+      create_model("vit_small_patch14_dinov2",
+                   {.dinov2 = {.num_classes = 7, .input_channels = 3}});
   classifier.state().eval();
-  const auto logits = classifier.invoke(
-      {.positional = {input}, .keyword = {}}).value.toTensor();
+  const auto logits = classifier.invoke({.positional = {input}, .keyword = {}})
+                          .value.toTensor();
   EXPECT_EQ(logits.sizes(), torch::IntArrayRef({1, 7}));
   EXPECT_THROW(backbone->forward(torch::zeros({1, 3, 225, 224})),
                InvalidArgument);
@@ -140,7 +136,8 @@ TEST(Models, DinoV2SmallPreservesClsPatchContractAndSupportsHeadReplacement) {
             torch::IntArrayRef({1, 3}));
 }
 
-TEST(Models, DinoV2CapacityMetadataIsExplicitAndGiantIsNotConstructedImplicitly) {
+TEST(Models,
+     DinoV2CapacityMetadataIsExplicitAndGiantIsNotConstructedImplicitly) {
   const auto small = model_info("vit_small_patch14_dinov2");
   const auto base = model_info("vit_base_patch14_dinov2");
   const auto large = model_info("vit_large_patch14_dinov2");
@@ -164,8 +161,8 @@ TEST(Models, DinoV2BaseAndLargeMatchPinnedCapacityContracts) {
     EXPECT_TRUE(named.contains("blocks.0.ls1.gamma"));
     EXPECT_TRUE(named.contains("norm.weight"));
     EXPECT_EQ(parameter_count(*model), parameters);
-    const auto tokens = model->forward_features(
-        torch::zeros({1, 3, 14, 28}, torch::kFloat32));
+    const auto tokens =
+        model->forward_features(torch::zeros({1, 3, 14, 28}, torch::kFloat32));
     EXPECT_EQ(tokens.sizes(), torch::IntArrayRef({1, 3, dimension}));
     EXPECT_EQ(model->forward(torch::zeros({1, 3, 14, 28})).sizes(),
               torch::IntArrayRef({1, dimension}));
@@ -584,27 +581,27 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
   }
   const auto root = std::filesystem::path(directory);
   constexpr auto prefix = "vit_small_patch14_dinov2";
-  const auto state = ReadReference(root / (std::string(prefix) +
-                                            "-state.safetensors"));
-  const auto input = ReadReference(root / (std::string(prefix) +
-                                            "-input.safetensors"));
-  const auto expected = ReadReference(root / (std::string(prefix) +
-                                               "-output.safetensors"));
+  const auto state =
+      ReadReference(root / (std::string(prefix) + "-state.safetensors"));
+  const auto input =
+      ReadReference(root / (std::string(prefix) + "-input.safetensors"));
+  const auto expected =
+      ReadReference(root / (std::string(prefix) + "-output.safetensors"));
   const WeightRecord record{
       .id = "reference-vit-small-patch14-dinov2-random-v1",
       .model_name = prefix,
-      .source_uri =
-          "fixture://timm/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/" +
-          std::string(prefix),
+      .source_uri = "fixture://timm/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/" +
+                    std::string(prefix),
       .license_spdx = "LicenseRef-Generated-Test-Fixture",
       .license_uri = "fixture://models-reference/local-generated-state",
       .availability = WeightAvailability::pinned_external,
-      .artifact = ArtifactRef{
-          .digest = ArtifactDigest{.hex = sha256_hex(state)},
-          .size_bytes = state.size(),
-          .logical_name = std::string(prefix) + "-state.safetensors",
-          .media_type = "application/x-safetensors",
-          .producer = "timm-python-reference"},
+      .artifact =
+          ArtifactRef{
+              .digest = ArtifactDigest{.hex = sha256_hex(state)},
+              .size_bytes = state.size(),
+              .logical_name = std::string(prefix) + "-state.safetensors",
+              .media_type = "application/x-safetensors",
+              .producer = "timm-python-reference"},
       .status_reason =
           "Random timm architecture differential; no pretrained weights."};
   auto model = dinov2_vits14();
@@ -623,7 +620,7 @@ TEST(ModelsPythonInterop, OfficialTimmDinoV2SmallReferenceReallyRuns) {
   const auto scale = reference_tokens.abs().max().item<double>();
   ASSERT_GT(scale, 0.0);
   EXPECT_TRUE(torch::allclose(actual_tokens / scale, reference_tokens / scale,
-                             2e-4, 2e-5));
+                              2e-4, 2e-5));
   EXPECT_TRUE(torch::allclose(actual_cls, reference_cls, 2e-4, 2e-5));
 }
 
