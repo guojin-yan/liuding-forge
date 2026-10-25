@@ -18,7 +18,7 @@ void Require(bool condition, const char* operation) {
 int main() {
   try {
     const auto entries = jyppx::liuding::models::list_models();
-    Require(entries.size() == 24U, "installed-model-catalog");
+    Require(entries.size() == 25U, "installed-model-catalog");
     auto dense = jyppx::liuding::models::create_model(
         "densenet121", {.densenet = {.num_classes = 4}});
     auto resnet = jyppx::liuding::models::create_model(
@@ -29,6 +29,8 @@ int main() {
         "resnet101", {.resnet = {.num_classes = 4}});
     auto resnext = jyppx::liuding::models::create_model(
         "resnext50_32x4d", {.resnet = {.num_classes = 4}});
+    auto mobile_v2 = jyppx::liuding::models::create_model(
+        "mobilenetv2_100", {.mobile_v2 = {.num_classes = 4}});
     auto mobile = jyppx::liuding::models::create_model(
         "mobilenet_v3_small", {.mobile = {.num_classes = 4}});
     auto encoder = jyppx::liuding::models::create_model(
@@ -44,6 +46,7 @@ int main() {
     resnet34.state().eval();
     resnet101.state().eval();
     resnext.state().eval();
+    mobile_v2.state().eval();
     mobile.state().eval();
     encoder.state().eval();
     dino.state().eval();
@@ -68,6 +71,10 @@ int main() {
                     .value.toTensor()
                     .sizes() == torch::IntArrayRef({1, 4}),
             "installed-resnext50-adapter");
+    Require(mobile_v2.invoke({.positional = {images}, .keyword = {}})
+                    .value.toTensor()
+                    .sizes() == torch::IntArrayRef({1, 4}),
+            "installed-mobilenetv2-adapter");
     Require(mobile.invoke({.positional = {images}, .keyword = {}})
                     .value.toTensor()
                     .sizes() == torch::IntArrayRef({1, 4}),

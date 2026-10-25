@@ -24,7 +24,7 @@ bool Name(std::string_view name) {
   else if (name.starts_with("dense"))
     hint += "densenet121.";
   else if (name.starts_with("mobile"))
-    hint += "mobilenet_v3_small, mobilenet_v3_large.";
+    hint += "mobilenetv2_100, mobilenet_v3_small, mobilenet_v3_large.";
   else if (name.starts_with("dinov3"))
     hint += "dinov3_vits16, dinov3_vitb16, dinov3_convnext_tiny.";
   else
@@ -73,6 +73,15 @@ ModelRegistry default_model_registry() {
                 .preview = true},
                [](const ModelOptions& o) {
                  return adapt(densenet121(o.densenet));
+               });
+  registry.add({.name = "mobilenetv2_100",
+                .family = "mobilenetv2",
+                .task = "image_classification",
+                .reference = "timm mobilenetv2_100",
+                .default_parameters = 3504872U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(mobilenetv2_100(o.mobile_v2));
                });
   registry.add({.name = "resnet18",
                 .family = "resnet",

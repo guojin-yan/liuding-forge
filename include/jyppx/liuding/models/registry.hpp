@@ -10,6 +10,7 @@
 #include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/densenet.hpp>
 #include <jyppx/liuding/models/dinov3_convnext.hpp>
+#include <jyppx/liuding/models/mobilenetv2.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
 #include <jyppx/liuding/models/vision.hpp>
 
@@ -33,6 +34,7 @@ struct ModelInfo {
 struct ModelOptions {
   DenseNetOptions densenet;               ///< Applied only to DenseNet models.
   ResNetOptions resnet;                   ///< Applied only to residual models.
+  MobileNetV2Options mobile_v2;           ///< Applied only to MobileNetV2.
   MobileNetV3Options mobile;              ///< Applied only to mobile models.
   TransformerEncoderOptions transformer;  ///< Applied only to feature encoder.
   DinoV2Options dinov2;                   ///< Applied only to DINOv2 models.

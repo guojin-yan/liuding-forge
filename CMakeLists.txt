@@ -706,6 +706,7 @@ if(JYPPX_LIUDING_BUILD_MODELS)
         src/jyppx/liuding/models/densenet.cpp
         src/jyppx/liuding/models/dino.cpp
         src/jyppx/liuding/models/dinov3_convnext.cpp
+        src/jyppx/liuding/models/mobilenetv2.cpp
         src/jyppx/liuding/models/registry.cpp
         src/jyppx/liuding/models/transformer.cpp
         src/jyppx/liuding/models/vision.cpp

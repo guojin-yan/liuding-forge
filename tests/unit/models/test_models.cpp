@@ -356,10 +356,12 @@ void RunDinoV3ConvNeXtCudaHalfForward(
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 24U);
+  ASSERT_EQ(entries.size(), 25U);
   EXPECT_EQ(entries.front().name, "densenet121");
   EXPECT_EQ(list_models("densenet").size(), 1U);
   EXPECT_EQ(model_info("densenet121").default_parameters, 7978856U);
+  EXPECT_EQ(list_models("mobilenetv2").size(), 1U);
+  EXPECT_EQ(model_info("mobilenetv2_100").default_parameters, 3504872U);
   EXPECT_EQ(list_models("resnet").size(), 4U);
   EXPECT_EQ(list_models("resnext").size(), 1U);
   EXPECT_EQ(model_info("resnext50_32x4d").default_parameters, 25028904U);
@@ -367,6 +369,7 @@ TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   EXPECT_EQ(model_info("resnet101").default_parameters, 44549160U);
 
   auto residual = create_model("resnet18");
+  auto mobile_v2 = create_model("mobilenetv2_100");
   auto mobile = create_model("mobilenet_v3_small");
   auto transformer = create_model("transformer_encoder",
                                   {.transformer = {.model_dimension = 32,
@@ -377,9 +380,14 @@ TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
                                                    .gelu = true,
                                                    .final_norm = true}});
   residual.state().eval();
+  mobile_v2.state().eval();
   mobile.state().eval();
   transformer.state().eval();
   EXPECT_EQ(residual.invoke({.positional = {Images()}, .keyword = {}})
+                .value.toTensor()
+                .sizes(),
+            torch::IntArrayRef({2, 1000}));
+  EXPECT_EQ(mobile_v2.invoke({.positional = {Images()}, .keyword = {}})
                 .value.toTensor()
                 .sizes(),
             torch::IntArrayRef({2, 1000}));
@@ -1189,6 +1197,60 @@ TEST(Models, DenseNet121SupportsBackwardAndOptimizerStep) {
             0.0);
 }
 
+TEST(Models, MobileNetV2MatchesTimmBlockAndFeatureContracts) {
+  torch::NoGradGuard no_grad;
+  auto model = mobilenetv2_100();
+  model->eval();
+  EXPECT_EQ(parameter_count(*model), 3504872U);
+  const auto parameters = model->named_parameters(true);
+  EXPECT_EQ(parameters["blocks.0.0.conv_dw.weight"].sizes(),
+            torch::IntArrayRef({32, 1, 3, 3}));
+  EXPECT_EQ(parameters["blocks.1.0.conv_pw.weight"].sizes(),
+            torch::IntArrayRef({96, 16, 1, 1}));
+  EXPECT_EQ(parameters["blocks.6.0.conv_pwl.weight"].sizes(),
+            torch::IntArrayRef({320, 960, 1, 1}));
+  EXPECT_EQ(parameters["conv_head.weight"].sizes(),
+            torch::IntArrayRef({1280, 320, 1, 1}));
+  const auto stages = model->forward_features(Images());
+  ASSERT_EQ(stages.size(), 5U);
+  const std::array<std::int64_t, 5> channels{16, 24, 32, 96, 320};
+  for (std::size_t index = 0; index < stages.size(); ++index)
+    EXPECT_EQ(
+        stages[index].sizes(),
+        torch::IntArrayRef({2, channels[index], 32LL >> index, 32LL >> index}));
+  EXPECT_EQ(model->forward(Images()).sizes(), torch::IntArrayRef({2, 1000}));
+  auto custom = mobilenetv2_100({.num_classes = 3, .input_channels = 1});
+  custom->eval();
+  EXPECT_EQ(custom->forward(Images(1)).sizes(), torch::IntArrayRef({2, 3}));
+  EXPECT_THROW(model->forward(torch::zeros({2, 3, 64})), InvalidArgument);
+  EXPECT_THROW(mobilenetv2_100({.num_classes = 0}), InvalidArgument);
+}
+
+TEST(Models, MobileNetV2SupportsBackwardAndOptimizerStep) {
+  auto model = mobilenetv2_100({.num_classes = 3});
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto before =
+      model->named_parameters(true)["classifier.weight"].clone();
+  optimizer.zero_grad();
+  const auto logits = model->forward(torch::randn({2, 3, 64, 64}));
+  ASSERT_EQ(logits.sizes(), torch::IntArrayRef({2, 3}));
+  logits.square().mean().backward();
+  const auto parameters = model->named_parameters(true);
+  for (const auto* name : {"conv_stem.weight", "blocks.6.0.conv_pwl.weight",
+                           "classifier.weight"}) {
+    const auto grad = parameters[name].grad();
+    ASSERT_TRUE(grad.defined()) << name;
+    EXPECT_TRUE(torch::isfinite(grad).all().item<bool>()) << name;
+    EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
+  }
+  optimizer.step();
+  EXPECT_GT(
+      (parameters["classifier.weight"] - before).abs().sum().item<double>(),
+      0.0);
+}
+
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
   auto small = mobilenet_v3_small({.num_classes = 9});
   auto large = mobilenet_v3_large({.num_classes = 9});
@@ -1264,8 +1326,8 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   EXPECT_FALSE(records.front().artifact.has_value());
   EXPECT_EQ(records.front().license_spdx, "NOASSERTION");
   validate_weight_record(records.front());
-  for (const auto* name : {"densenet121", "resnet34", "resnet101",
-                           "resnext50_32x4d"}) {
+  for (const auto* name : {"densenet121", "mobilenetv2_100", "resnet34",
+                           "resnet101", "resnext50_32x4d"}) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
     EXPECT_EQ(candidates.front().availability,
@@ -1363,7 +1425,7 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 66> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 69> kReferenceFiles{{
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -1382,6 +1444,15 @@ constexpr std::array<ReferenceFileIdentity, 66> kReferenceFiles{{
     {"densenet121-state.safetensors",
      "8373efdfd9a026c6c0e32035d56c263792c22a4eedd9308eb320584339ac3737",
      32334440ULL},
+    {"mobilenetv2_100-input.safetensors",
+     "e8d8efd09e3942ce315f9dd32edc674fbf693f29ce30989f93511bc6813ad81e",
+     49232ULL},
+    {"mobilenetv2_100-output.safetensors",
+     "135f43058d79eae47cccc3e1f038750efd84ffe1ed0231591158ad3824003205",
+     114024ULL},
+    {"mobilenetv2_100-state.safetensors",
+     "3f1a2a14c9a4a6b6308ff57a7e88ec22da1370fd8bd1a75541a0f07ba5a92aa8",
+     14184144ULL},
     {"mobilenet_v3_small-input.safetensors",
      "56c82c0b3e6009ac07360ad32021b6e828cc02e39ba8e7ab79c47695a2dc60e6",
      98384ULL},
@@ -1607,7 +1678,8 @@ torch::Tensor ReferenceTensor(std::span<const std::byte> encoded,
 void CheckArchitectureReference(const char* architecture,
                                 ResNet* feature_model = nullptr,
                                 const char* reference_dir_variable = nullptr,
-                                DenseNet* dense_model = nullptr) {
+                                DenseNet* dense_model = nullptr,
+                                MobileNetV2* mobile_v2_model = nullptr) {
   if (reference_dir_variable == nullptr)
     reference_dir_variable =
         feature_model == nullptr
@@ -1641,10 +1713,12 @@ void CheckArchitectureReference(const char* architecture,
           "Random architecture differential; no pretrained weights."};
   ModelOptions options;
   options.transformer.dropout = 0.0;
-  auto adapter = feature_model != nullptr
-                     ? adapt(*feature_model)
-                     : dense_model != nullptr ? adapt(*dense_model)
-                                              : create_model(prefix, options);
+  auto adapter = [&]() -> nn::ModelAdapter {
+    if (feature_model != nullptr) return adapt(*feature_model);
+    if (dense_model != nullptr) return adapt(*dense_model);
+    if (mobile_v2_model != nullptr) return adapt(*mobile_v2_model);
+    return create_model(prefix, options);
+  }();
   const auto imported = load_weights(adapter, record, state);
   ASSERT_TRUE(imported.applied) << prefix;
   adapter.state().eval();
@@ -1670,17 +1744,21 @@ void CheckArchitectureReference(const char* architecture,
   EXPECT_TRUE(torch::allclose(actual / scale, reference / scale, 1e-4, 1e-5))
       << prefix << " normalized maximum absolute error: "
       << ((actual - reference) / scale).abs().max().item<double>();
-  if (feature_model != nullptr || dense_model != nullptr) {
-    const auto stages = feature_model != nullptr
-                            ? (*feature_model)->forward_features(
-                                  invocation.positional.front().toTensor())
-                            : (*dense_model)->forward_features(
-                                  invocation.positional.front().toTensor());
-    ASSERT_EQ(stages.size(), 4U) << prefix;
+  if (feature_model != nullptr || dense_model != nullptr ||
+      mobile_v2_model != nullptr) {
+    const auto image = invocation.positional.front().toTensor();
+    const auto stages =
+        feature_model != nullptr ? (*feature_model)->forward_features(image)
+        : dense_model != nullptr ? (*dense_model)->forward_features(image)
+                                 : (*mobile_v2_model)->forward_features(image);
+    ASSERT_EQ(stages.size(), mobile_v2_model != nullptr ? 5U : 4U) << prefix;
     for (std::size_t index = 0; index < stages.size(); ++index) {
+      const std::array<std::size_t, 5> mobile_stages{0, 1, 2, 4, 6};
       const auto stage_name =
-          (dense_model == nullptr ? "layer" : "denseblock") +
-          std::to_string(index + 1);
+          mobile_v2_model != nullptr
+              ? "blocks" + std::to_string(mobile_stages[index])
+              : (dense_model == nullptr ? "layer" : "denseblock") +
+                    std::to_string(index + 1);
       const auto expected_stage = ReferenceTensor(expected, stage_name);
       ASSERT_EQ(stages[index].sizes(), expected_stage.sizes()) << stage_name;
       const auto stage_scale = expected_stage.abs().max().item<double>();
@@ -1720,6 +1798,12 @@ TEST(ModelsPythonInterop, OfficialTorchvisionDenseNet121ReferenceReallyRuns) {
   auto model = densenet121();
   CheckArchitectureReference("densenet121", nullptr,
                              "JYPPX_LIUDING_DENSENET_REFERENCE_DIR", &model);
+}
+TEST(ModelsPythonInterop, OfficialTimmMobileNetV2ReferenceReallyRuns) {
+  auto model = mobilenetv2_100();
+  CheckArchitectureReference("mobilenetv2_100", nullptr,
+                             "JYPPX_LIUDING_MOBILENETV2_REFERENCE_DIR", nullptr,
+                             &model);
 }
 TEST(ModelsPythonInterop,
      OfficialTorchvisionMobileNetV3SmallReferenceReallyRuns) {
