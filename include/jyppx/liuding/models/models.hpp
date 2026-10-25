@@ -8,6 +8,7 @@
 #include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/dinov3_convnext.hpp>
 #include <jyppx/liuding/models/efficientnet.hpp>
+#include <jyppx/liuding/models/efficientnetv2.hpp>
 #include <jyppx/liuding/models/mobilenetv2.hpp>
 #include <jyppx/liuding/models/registry.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
