@@ -141,7 +141,7 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
   if (model == "resnet101")
     return {
         Missing("resnet101",
-                "https://download.pytorch.org/models/resnet101-cd907fc2.pth")};
+                "https://download.pytorch.org/models/resnet101-63fe2227.pth")};
   if (model == "mobilenet_v3_small")
     return {Missing(
         "mobilenet_v3_small",
