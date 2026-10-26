@@ -33,6 +33,8 @@ bool Name(std::string_view name) {
     hint += "dinov3_vits16, dinov3_vitb16, dinov3_convnext_tiny.";
   else if (name.starts_with("vit"))
     hint += "vit_tiny_patch16_224, vit_small_patch16_224, vit_base_patch16_224.";
+  else if (name.starts_with("swin"))
+    hint += "swin_tiny_patch4_window7_224.";
   else
     hint += "transformer_encoder, resnet18, dinov3_vits16.";
   throw InvalidArgument("Unknown model architecture",
@@ -224,6 +226,15 @@ ModelRegistry default_model_registry() {
                 .preview = true},
                [](const ModelOptions& o) {
                  return adapt(vit_base_patch16_224(o.vit));
+               });
+  registry.add({.name = "swin_tiny_patch4_window7_224",
+                .family = "swin",
+                .task = "image_classification",
+                .reference = "timm swin_tiny_patch4_window7_224",
+                .default_parameters = 28288354U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(swin_tiny_patch4_window7_224(o.swin));
                });
   registry.add(
       {.name = "vit_small_patch14_dinov2",

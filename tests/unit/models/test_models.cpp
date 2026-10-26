@@ -356,7 +356,7 @@ void RunDinoV3ConvNeXtCudaHalfForward(
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 33U);
+  ASSERT_EQ(entries.size(), 34U);
   EXPECT_EQ(entries.front().name, "convnext_small");
   EXPECT_EQ(list_models("convnext").size(), 6U);
   EXPECT_EQ(model_info("convnext_tiny").default_parameters, 28589128U);
@@ -370,6 +370,8 @@ TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   EXPECT_EQ(model_info("vit_tiny_patch16_224").default_parameters, 5717416U);
   EXPECT_EQ(model_info("vit_small_patch16_224").default_parameters, 22050664U);
   EXPECT_EQ(model_info("vit_base_patch16_224").default_parameters, 86567656U);
+  EXPECT_EQ(model_info("swin_tiny_patch4_window7_224").default_parameters,
+            28288354U);
   EXPECT_EQ(list_models("mobilenetv2").size(), 1U);
   EXPECT_EQ(model_info("mobilenetv2_100").default_parameters, 3504872U);
   EXPECT_EQ(list_models("resnet").size(), 4U);
@@ -1560,6 +1562,80 @@ TEST(Models, ViTBaseCpuBackwardResourceGate) {
   EXPECT_GT((named["head.weight"] - before).abs().sum().item<double>(), 0.0);
 }
 
+TEST(Models, SwinTinyPreservesHierarchyAndShiftedWindowContract) {
+  auto model = swin_tiny_patch4_window7_224(
+      {.num_classes = 3, .dynamic_image_size = true});
+  model->eval();
+  EXPECT_EQ(parameter_count(*model), 27521661U);
+  const auto named = model->named_parameters(true);
+  EXPECT_EQ(named.size(), 173U);
+  for (const auto* key : {"patch_embed.proj.weight", "patch_embed.norm.weight",
+                          "layers.0.blocks.0.attn.relative_position_bias_table",
+                          "layers.0.blocks.1.attn.qkv.weight",
+                          "layers.1.downsample.norm.weight",
+                          "layers.1.downsample.reduction.weight",
+                          "layers.2.blocks.5.mlp.fc2.weight",
+                          "layers.3.blocks.1.attn.proj.weight", "norm.weight",
+                          "head.fc.weight"})
+    EXPECT_TRUE(named.contains(key)) << key;
+  torch::NoGradGuard guard;
+  const auto image = torch::randn({1, 3, 56, 84});
+  const auto stages = model->forward_features(image);
+  ASSERT_EQ(stages.size(), 4U);
+  EXPECT_EQ(stages[0].sizes(), torch::IntArrayRef({1, 96, 14, 21}));
+  EXPECT_EQ(stages[1].sizes(), torch::IntArrayRef({1, 192, 7, 11}));
+  EXPECT_EQ(stages[2].sizes(), torch::IntArrayRef({1, 384, 4, 6}));
+  EXPECT_EQ(stages[3].sizes(), torch::IntArrayRef({1, 768, 2, 3}));
+  EXPECT_EQ(model->forward(image).sizes(), torch::IntArrayRef({1, 3}));
+  auto adapter = create_model(
+      "swin_tiny_patch4_window7_224",
+      {.swin = {.num_classes = 3, .dynamic_image_size = true}});
+  EXPECT_EQ(adapter
+                .invoke({.positional = {torch::zeros({1, 3, 32, 32})},
+                         .keyword = {}})
+                .value.toTensor()
+                .sizes(),
+            torch::IntArrayRef({1, 3}));
+  auto fixed = swin_tiny_patch4_window7_224();
+  EXPECT_EQ(parameter_count(*fixed), 28288354U);
+  EXPECT_THROW(fixed->forward(torch::zeros({1, 3, 56, 84})), InvalidArgument);
+  fixed->eval();
+  EXPECT_EQ(fixed->forward(torch::zeros({1, 3, 224, 224})).sizes(),
+            torch::IntArrayRef({1, 1000}));
+  EXPECT_THROW(model->forward(torch::zeros({1, 3, 55, 84})), InvalidArgument);
+  EXPECT_THROW(swin_tiny_patch4_window7_224({.num_classes = -1}),
+               InvalidArgument);
+  model->reset_classifier(0);
+  EXPECT_EQ(model->forward(torch::zeros({1, 3, 32, 32})).sizes(),
+            torch::IntArrayRef({1, 768}));
+  model->reset_classifier(3);
+  EXPECT_EQ(model->forward(torch::zeros({1, 3, 32, 32})).sizes(),
+            torch::IntArrayRef({1, 3}));
+}
+
+TEST(Models, SwinTinySupportsBackwardAndOptimizerStep) {
+  auto model = swin_tiny_patch4_window7_224(
+      {.num_classes = 3, .dynamic_image_size = true});
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto named = model->named_parameters(true);
+  const auto before = named["head.fc.weight"].clone();
+  optimizer.zero_grad();
+  model->forward(torch::randn({1, 3, 32, 32})).square().mean().backward();
+  for (const auto* key : {"patch_embed.proj.weight",
+                          "layers.0.blocks.1.attn.relative_position_bias_table",
+                          "layers.2.blocks.5.attn.qkv.weight",
+                          "head.fc.weight"}) {
+    const auto gradient = named[key].grad();
+    ASSERT_TRUE(gradient.defined()) << key;
+    EXPECT_TRUE(torch::isfinite(gradient).all().item<bool>()) << key;
+    EXPECT_GT(gradient.abs().sum().item<double>(), 0.0) << key;
+  }
+  optimizer.step();
+  EXPECT_GT((named["head.fc.weight"] - before).abs().sum().item<double>(), 0.0);
+}
+
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
   auto small = mobilenet_v3_small({.num_classes = 9});
   auto large = mobilenet_v3_large({.num_classes = 9});
@@ -1639,7 +1715,8 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
                            "tf_efficientnetv2_s", "mobilenetv2_100", "resnet34",
                            "resnet101", "resnext50_32x4d",
                            "vit_tiny_patch16_224", "vit_small_patch16_224",
-                           "vit_base_patch16_224"}) {
+                           "vit_base_patch16_224",
+                           "swin_tiny_patch4_window7_224"}) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
     EXPECT_EQ(candidates.front().availability,
@@ -1737,7 +1814,16 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 93> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 96> kReferenceFiles{{
+    {"swin_tiny_patch4_window7_224-input.safetensors",
+     "d023736e18dca4c3a9194b1e4d7b0b6eee1eba26304ac062772dbe91fec5cf39",
+     56528ULL},
+    {"swin_tiny_patch4_window7_224-output.safetensors",
+     "0e7745d7c4bb2a73c9f8c1d2f12df0717851c5623bd8ec8776d745739140a632",
+     231712ULL},
+    {"swin_tiny_patch4_window7_224-state.safetensors",
+     "f357952715690e031314b8f7c6fae72119ed2c2f741afd003a363938c50f4bfe",
+     113170824ULL},
     {"vit_base_patch16_224-input.safetensors",
      "925f5afae36eb544abae13955bdaf38043b3f9a2896bd6294c8f27b70bb27a79",
      61520ULL},
@@ -2312,6 +2398,58 @@ TEST(ModelsPythonInterop, OfficialTimmViTSmallReferenceReallyRuns) {
 TEST(ModelsPythonInterop, OfficialTimmViTBaseReferenceReallyRuns) {
   CheckViTReference("vit_base_patch16_224",
                     vit_base_patch16_224({.dynamic_image_size = true}));
+}
+
+TEST(ModelsPythonInterop, OfficialTimmSwinTinyReferenceReallyRuns) {
+  const auto* directory = std::getenv("JYPPX_LIUDING_SWIN_REFERENCE_DIR");
+  if (directory == nullptr || *directory == '\0')
+    GTEST_SKIP() << "Set JYPPX_LIUDING_SWIN_REFERENCE_DIR for the pinned "
+                    "timm Swin-T random-state gate";
+  const auto root = std::filesystem::path(directory);
+  const std::string prefix = "swin_tiny_patch4_window7_224";
+  const auto state = ReadReference(root / (prefix + "-state.safetensors"));
+  const auto input = ReadReference(root / (prefix + "-input.safetensors"));
+  const auto expected = ReadReference(root / (prefix + "-output.safetensors"));
+  const WeightRecord record{
+      .id = "reference-swin-tiny-random-v1",
+      .model_name = prefix,
+      .source_uri =
+          "fixture://timm/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/" +
+          prefix,
+      .license_spdx = "LicenseRef-Generated-Test-Fixture",
+      .license_uri = "fixture://swin-reference/local-generated-state",
+      .availability = WeightAvailability::pinned_external,
+      .artifact =
+          ArtifactRef{.digest = ArtifactDigest{.hex = sha256_hex(state)},
+                      .size_bytes = state.size(),
+                      .logical_name = prefix + "-state.safetensors",
+                      .media_type = "application/x-safetensors",
+                      .producer = "pinned-timm-swin-reference"},
+      .status_reason =
+          "Random architecture differential; no pretrained weights."};
+  auto model = swin_tiny_patch4_window7_224({.dynamic_image_size = true});
+  auto adapter = adapt(model);
+  interop::ModelWeightImportOptions import_options;
+  import_options.max_staging_bytes = 512ULL * 1024U * 1024U;
+  ASSERT_TRUE(load_weights(adapter, record, state, import_options).applied);
+  model->eval();
+  torch::NoGradGuard no_grad;
+  const auto image = ReferenceTensor(input, "input");
+  const auto actual_stages = model->forward_features(image);
+  const auto actual_logits = model->forward(image);
+  ASSERT_EQ(actual_stages.size(), 4U);
+  for (std::size_t index = 0; index < 5; ++index) {
+    const auto key = index == 4 ? "output" : "stage" + std::to_string(index);
+    const auto actual = index == 4 ? actual_logits : actual_stages[index];
+    const auto reference = ReferenceTensor(expected, key);
+    ASSERT_EQ(actual.sizes(), reference.sizes()) << key;
+    ASSERT_TRUE(torch::isfinite(actual).all().item<bool>()) << key;
+    const auto scale = reference.abs().max().item<double>();
+    ASSERT_GT(scale, 0.0) << key;
+    EXPECT_TRUE(torch::allclose(actual / scale, reference / scale, 1e-4, 1e-5))
+        << key << " normalized maximum absolute error: "
+        << ((actual - reference) / scale).abs().max().item<double>();
+  }
 }
 
 TEST(ModelsPythonInterop,

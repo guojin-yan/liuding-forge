@@ -14,6 +14,7 @@
 #include <jyppx/liuding/models/efficientnet.hpp>
 #include <jyppx/liuding/models/efficientnetv2.hpp>
 #include <jyppx/liuding/models/mobilenetv2.hpp>
+#include <jyppx/liuding/models/swin.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
 #include <jyppx/liuding/models/vit.hpp>
 #include <jyppx/liuding/models/vision.hpp>
@@ -45,6 +46,7 @@ struct ModelOptions {
   MobileNetV2Options mobile_v2;           ///< Applied only to MobileNetV2.
   MobileNetV3Options mobile;              ///< Applied only to mobile models.
   TransformerEncoderOptions transformer;  ///< Applied only to feature encoder.
+  SwinOptions swin;                        ///< Applied only to Swin-T.
   ViTOptions vit;                          ///< Applied only to ViT/16 models.
   DinoV2Options dinov2;                   ///< Applied only to DINOv2 models.
   DinoV3Options dinov3;                   ///< Applied only to DINOv3 models.
