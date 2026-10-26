@@ -356,8 +356,11 @@ void RunDinoV3ConvNeXtCudaHalfForward(
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 28U);
-  EXPECT_EQ(entries.front().name, "densenet121");
+  ASSERT_EQ(entries.size(), 30U);
+  EXPECT_EQ(entries.front().name, "convnext_small");
+  EXPECT_EQ(list_models("convnext").size(), 6U);
+  EXPECT_EQ(model_info("convnext_tiny").default_parameters, 28589128U);
+  EXPECT_EQ(model_info("convnext_small").default_parameters, 50223688U);
   EXPECT_EQ(list_models("densenet").size(), 1U);
   EXPECT_EQ(model_info("densenet121").default_parameters, 7978856U);
   EXPECT_EQ(list_models("efficientnet").size(), 3U);
@@ -1384,6 +1387,75 @@ TEST(Models, TfEfficientNetV2SSupportsBackwardAndOptimizerStep) {
       0.0);
 }
 
+TEST(Models, ConvNeXtTinyAndSmallExposeTimmStateAndStageShapes) {
+  torch::NoGradGuard no_grad;
+  for (const auto variant : {ConvNeXtVariant::tiny, ConvNeXtVariant::small}) {
+    auto model = ConvNeXt(std::make_shared<ConvNeXtImpl>(variant));
+    model->eval();
+    const auto is_small = variant == ConvNeXtVariant::small;
+    EXPECT_EQ(parameter_count(*model), is_small ? 50223688U : 28589128U);
+    const auto parameters = model->named_parameters(true);
+    EXPECT_EQ(parameters["stem.0.weight"].sizes(),
+              torch::IntArrayRef({96, 3, 4, 4}));
+    EXPECT_EQ(parameters["stages.1.downsample.1.weight"].sizes(),
+              torch::IntArrayRef({192, 96, 2, 2}));
+    EXPECT_EQ(parameters["stages.2.blocks.0.mlp.fc1.weight"].sizes(),
+              torch::IntArrayRef({1536, 384}));
+    EXPECT_EQ(parameters["head.fc.weight"].sizes(),
+              torch::IntArrayRef({1000, 768}));
+    EXPECT_EQ(model->named_parameters(true).size(), is_small ? 344U : 182U);
+    const auto image = torch::randn({1, 3, 65, 69});
+    const auto stages = model->forward_features(image);
+    ASSERT_EQ(stages.size(), 4U);
+    EXPECT_EQ(stages[0].sizes(), torch::IntArrayRef({1, 96, 16, 17}));
+    EXPECT_EQ(stages[1].sizes(), torch::IntArrayRef({1, 192, 8, 8}));
+    EXPECT_EQ(stages[2].sizes(), torch::IntArrayRef({1, 384, 4, 4}));
+    EXPECT_EQ(stages[3].sizes(), torch::IntArrayRef({1, 768, 2, 2}));
+    EXPECT_EQ(model->forward(image).sizes(), torch::IntArrayRef({1, 1000}));
+  }
+  auto model = convnext_tiny({.num_classes = 3, .input_channels = 1});
+  EXPECT_EQ(model->forward(torch::zeros({1, 1, 32, 32})).sizes(),
+            torch::IntArrayRef({1, 3}));
+  model->reset_classifier(0);
+  EXPECT_EQ(model->forward(torch::zeros({1, 1, 32, 32})).sizes(),
+            torch::IntArrayRef({1, 768}));
+  model->reset_classifier(5);
+  EXPECT_EQ(model->forward(torch::zeros({1, 1, 32, 32})).sizes(),
+            torch::IntArrayRef({1, 5}));
+  EXPECT_THROW(convnext_tiny({.num_classes = -1}), InvalidArgument);
+  EXPECT_THROW(model->forward(torch::zeros({1, 1, 31, 32})), InvalidArgument);
+  EXPECT_THROW(model->forward(torch::zeros({1, 1, 32})), InvalidArgument);
+}
+
+TEST(Models, ConvNeXtTinyAndSmallSupportBackwardAndOptimizerStep) {
+  for (const auto variant : {ConvNeXtVariant::tiny, ConvNeXtVariant::small}) {
+    auto model = ConvNeXt(std::make_shared<ConvNeXtImpl>(
+        variant, ConvNeXtOptions{.num_classes = 3}));
+    model->train();
+    torch::optim::SGD optimizer(model->parameters(),
+                                torch::optim::SGDOptions(1e-3));
+    const auto parameters = model->named_parameters(true);
+    const auto before = parameters["head.fc.weight"].clone();
+    optimizer.zero_grad();
+    const auto logits = model->forward(torch::randn({1, 3, 32, 32}));
+    logits.square().mean().backward();
+    for (const auto* name : {"stem.0.weight",
+                             "stages.2.blocks.0.mlp.fc1.weight",
+                             "head.fc.weight"}) {
+      const auto grad = parameters[name].grad();
+      ASSERT_TRUE(grad.defined()) << name;
+      EXPECT_TRUE(torch::isfinite(grad).all().item<bool>()) << name;
+      EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
+    }
+    optimizer.step();
+    EXPECT_GT((parameters["head.fc.weight"] - before)
+                  .abs()
+                  .sum()
+                  .item<double>(),
+              0.0);
+  }
+}
+
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
   auto small = mobilenet_v3_small({.num_classes = 9});
   auto large = mobilenet_v3_large({.num_classes = 9});
@@ -1459,7 +1531,7 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   EXPECT_FALSE(records.front().artifact.has_value());
   EXPECT_EQ(records.front().license_spdx, "NOASSERTION");
   validate_weight_record(records.front());
-  for (const auto* name : {"densenet121", "efficientnet_b0", "efficientnet_b2",
+  for (const auto* name : {"convnext_tiny", "convnext_small", "densenet121", "efficientnet_b0", "efficientnet_b2",
                            "tf_efficientnetv2_s", "mobilenetv2_100", "resnet34",
                            "resnet101", "resnext50_32x4d"}) {
     const auto candidates = available_weights(name);
@@ -1559,7 +1631,25 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 78> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 84> kReferenceFiles{{
+    {"convnext_small-input.safetensors",
+     "2e36ac17bf36b4ae4c8453c50a01a591d7765ca1e54ae58928f8a6e7ea0eeb7b",
+     53900ULL},
+    {"convnext_small-output.safetensors",
+     "abb1f5f1a04e8f065a908e6c26d78be019f8226a96b65f1b8e12dba7b835560b",
+     194848ULL},
+    {"convnext_small-state.safetensors",
+     "9dddc15d47fb6d5415dac083ec8c7f5931a27961ec89887bf321121845de648e",
+     200928944ULL},
+    {"convnext_tiny-input.safetensors",
+     "0061105c4f63d9cecf83b6c8fb7861955ea57bcf5ecd80e62f35657dfb35bc4a",
+     53900ULL},
+    {"convnext_tiny-output.safetensors",
+     "5fa834bf7d356b6b27ae43659c2c4d6dea225ef4fa20c4885fb4e7a287b5a5a5",
+     194848ULL},
+    {"convnext_tiny-state.safetensors",
+     "2187fc91737b80a62a4369aa25da836f44a284829829b89eef65c990fbac4894",
+     114374272ULL},
     {"mobilenet_v3_large-input.safetensors",
      "c33bce57a419a3b79e14fbae93c9bcba4514e1d2211aeb88c2ca02e1446054b3",
      98384ULL},
@@ -1842,7 +1932,8 @@ void CheckArchitectureReference(const char* architecture,
                                 DenseNet* dense_model = nullptr,
                                 MobileNetV2* mobile_v2_model = nullptr,
                                 EfficientNet* efficient_model = nullptr,
-                                EfficientNetV2* efficient_v2_model = nullptr) {
+                                EfficientNetV2* efficient_v2_model = nullptr,
+                                ConvNeXt* convnext_model = nullptr) {
   if (reference_dir_variable == nullptr)
     reference_dir_variable =
         feature_model == nullptr
@@ -1882,9 +1973,13 @@ void CheckArchitectureReference(const char* architecture,
     if (mobile_v2_model != nullptr) return adapt(*mobile_v2_model);
     if (efficient_model != nullptr) return adapt(*efficient_model);
     if (efficient_v2_model != nullptr) return adapt(*efficient_v2_model);
+    if (convnext_model != nullptr) return adapt(*convnext_model);
     return create_model(prefix, options);
   }();
-  const auto imported = load_weights(adapter, record, state);
+  interop::ModelWeightImportOptions import_options;
+  if (convnext_model != nullptr)
+    import_options.max_staging_bytes = 768ULL * 1024U * 1024U;
+  const auto imported = load_weights(adapter, record, state, import_options);
   ASSERT_TRUE(imported.applied) << prefix;
   adapter.state().eval();
   torch::NoGradGuard no_grad;
@@ -1911,7 +2006,7 @@ void CheckArchitectureReference(const char* architecture,
       << ((actual - reference) / scale).abs().max().item<double>();
   if (feature_model != nullptr || dense_model != nullptr ||
       mobile_v2_model != nullptr || efficient_model != nullptr ||
-      efficient_v2_model != nullptr) {
+      efficient_v2_model != nullptr || convnext_model != nullptr) {
     const auto image = invocation.positional.front().toTensor();
     std::vector<Tensor> stages;
     if (feature_model != nullptr)
@@ -1922,6 +2017,8 @@ void CheckArchitectureReference(const char* architecture,
       stages = (*mobile_v2_model)->forward_features(image);
     else if (efficient_v2_model != nullptr)
       stages = (*efficient_v2_model)->forward_features(image);
+    else if (convnext_model != nullptr)
+      stages = (*convnext_model)->forward_features(image);
     else
       stages = (*efficient_model)->forward_features(image);
     const auto mobile_stages = mobile_v2_model != nullptr ||
@@ -1932,7 +2029,9 @@ void CheckArchitectureReference(const char* architecture,
       const std::array<std::size_t, 5> mobile_stage_indices{0, 1, 2, 4, 6};
       const std::array<std::size_t, 5> v2_stage_indices{0, 1, 2, 4, 5};
       const auto stage_name =
-          mobile_stages
+          convnext_model != nullptr
+              ? "stage" + std::to_string(index)
+              : mobile_stages
               ? "blocks" + std::to_string(efficient_v2_model != nullptr
                                               ? v2_stage_indices[index]
                                               : mobile_stage_indices[index])
@@ -2000,6 +2099,20 @@ TEST(ModelsPythonInterop, OfficialTimmTfEfficientNetV2SReferenceReallyRuns) {
   auto model = tf_efficientnetv2_s();
   CheckArchitectureReference("tf_efficientnetv2_s", nullptr,
                              "JYPPX_LIUDING_EFFICIENTNETV2_REFERENCE_DIR",
+                             nullptr, nullptr, nullptr, &model);
+}
+
+TEST(ModelsPythonInterop, OfficialTimmConvNeXtTinyReferenceReallyRuns) {
+  auto model = convnext_tiny();
+  CheckArchitectureReference("convnext_tiny", nullptr,
+                             "JYPPX_LIUDING_CONVNEXT_REFERENCE_DIR", nullptr,
+                             nullptr, nullptr, nullptr, &model);
+}
+
+TEST(ModelsPythonInterop, OfficialTimmConvNeXtSmallReferenceReallyRuns) {
+  auto model = convnext_small();
+  CheckArchitectureReference("convnext_small", nullptr,
+                             "JYPPX_LIUDING_CONVNEXT_REFERENCE_DIR", nullptr,
                              nullptr, nullptr, nullptr, &model);
 }
 TEST(ModelsPythonInterop,

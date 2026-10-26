@@ -7,6 +7,7 @@
 /** @file registry.hpp
  * @brief Explicit owning model catalog; no static plugin registration.
  */
+#include <jyppx/liuding/models/convnext.hpp>
 #include <jyppx/liuding/models/densenet.hpp>
 #include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/dinov3_convnext.hpp>
@@ -34,6 +35,7 @@ struct ModelInfo {
 };
 /** @brief Typed architecture options for the selected catalog family. */
 struct ModelOptions {
+  ConvNeXtOptions convnext;                ///< Applied only to ConvNeXt models.
   DenseNetOptions densenet;               ///< Applied only to DenseNet models.
   EfficientNetOptions efficientnet;        ///< Applied only to EfficientNet.
   EfficientNetV2Options

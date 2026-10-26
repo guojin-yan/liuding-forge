@@ -34,6 +34,7 @@ CNN 分类模型接收与模块设备、dtype 一致的稠密浮点 NCHW 图像�
 | MobileNetV3 | `mobilenet_v3_small`、`mobilenet_v3_large` | 最后一级卷积特征；与目标 timm 变体的精确映射尚未验收。 |
 | EfficientNet | `efficientnet_b0`、`efficientnet_b2` | 步长 2/4/8/16/32 的五级特征；固定 timm 随机参考通过。 |
 | EfficientNetV2 | `tf_efficientnetv2_s` | fused-MBConv、MBConv 与动态 TF SAME padding，返回五级特征；固定 timm 随机状态、logits 和特征差分通过。 |
+| ConvNeXt | `convnext_tiny`、`convnext_small` | 四级 NCHW 特征与全局分类头；固定 timm 随机 state、logits 和四级特征差分通过。与 DINOv3 ConvNeXt 是独立架构及权重身份。 |
 | DINOv2 ViT/14 | `vit_small_patch14_dinov2`、`vit_base_patch14_dinov2`、`vit_large_patch14_dinov2`、`vit_giant_patch14_dinov2` | 四容量的 token/CLS 固定 timm 随机参考通过；Giant 的 backward/资源及完整设备矩阵未关闭。 |
 | DINOv3 ViT/16 | `dinov3_vits16`、`dinov3_vits16plus`、`dinov3_vitb16`、`dinov3_vitl16`、`dinov3_vitl16plus`、`dinov3_vith16plus`、`dinov3_vit7b16` | 七个官方 factory 已登记；S/S+/B、L/L+ 有分层固定 Meta 随机参考，H+/7B 尚无独立执行资源门禁。 |
 | DINOv3 ConvNeXt | `dinov3_convnext_tiny`、`dinov3_convnext_small`、`dinov3_convnext_base`、`dinov3_convnext_large` | 四级空间特征；T/S/B/L 有固定 Meta 随机参考，B/L 的完整 dtype/设备矩阵未关闭。 |
@@ -43,7 +44,7 @@ CNN 分类模型接收与模块设备、dtype 一致的稠密浮点 NCHW 图像�
 
 ## 特征与输入语义
 
-ResNet/ResNeXt 返回四级 NCHW stage，DenseNet 返回四级 dense/transition 特征，MobileNetV2、EfficientNet 与 EfficientNetV2 返回五级特征，MobileNetV3 返回最后卷积特征图。`tf_efficientnetv2_s` 对奇数尺寸输入使用动态 TF SAME padding，五级特征对应步长 2/4/8/16/32。`forward_features` 保留 autograd；在提取特征前应按任务选择 train/eval 模式。
+ResNet/ResNeXt 与 ConvNeXt 返回四级 NCHW stage，DenseNet 返回四级 dense/transition 特征，MobileNetV2、EfficientNet 与 EfficientNetV2 返回五级特征，MobileNetV3 返回最后卷积特征图。普通 ConvNeXt Tiny/Small 的四级步长为 4/8/16/32，默认通道为 96/192/384/768，对不能整除步长的输入逐级取整，默认分类头在全局平均池化后执行通道归一化。`tf_efficientnetv2_s` 对奇数尺寸输入使用动态 TF SAME padding，五级特征对应步长 2/4/8/16/32。`forward_features` 保留 autograd；在提取特征前应按任务选择 train/eval 模式。
 
 DINOv2 要求高宽为 14 的正整数倍，`forward_features` 返回 `[N, 1 + H/14 * W/14, D]`，CLS 在第一个位置，其后为行优先 patch token。非参考网格使用 bicubic 位置编码插值。`num_classes == 0` 时 `forward` 返回 CLS embedding；设置正类别数才返回 logits。`reset_classifier()` 后应重建 adapter，使输出 schema 与新 head 一致。
 

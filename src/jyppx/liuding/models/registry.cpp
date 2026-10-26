@@ -23,6 +23,8 @@ bool Name(std::string_view name) {
     hint += "resnet18, resnet34, resnet50, resnet101, resnext50_32x4d.";
   else if (name.starts_with("dense"))
     hint += "densenet121.";
+  else if (name.starts_with("convnext"))
+    hint += "convnext_tiny, convnext_small.";
   else if (name.starts_with("efficient"))
     hint += "efficientnet_b0, efficientnet_b2, tf_efficientnetv2_s.";
   else if (name.starts_with("mobile"))
@@ -67,6 +69,24 @@ nn::ModelAdapter ModelRegistry::create(std::string_view name,
 }
 ModelRegistry default_model_registry() {
   ModelRegistry registry;
+  registry.add({.name = "convnext_tiny",
+                .family = "convnext",
+                .task = "image_classification",
+                .reference = "timm convnext_tiny",
+                .default_parameters = 28589128U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(convnext_tiny(o.convnext));
+               });
+  registry.add({.name = "convnext_small",
+                .family = "convnext",
+                .task = "image_classification",
+                .reference = "timm convnext_small",
+                .default_parameters = 50223688U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(convnext_small(o.convnext));
+               });
   registry.add({.name = "densenet121",
                 .family = "densenet",
                 .task = "image_classification",

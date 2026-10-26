@@ -5,6 +5,7 @@
 #ifndef JYPPX_LIUDING_MODELS_MODELS_HPP
 #define JYPPX_LIUDING_MODELS_MODELS_HPP
 /** @file models.hpp @brief Optional model preview public umbrella. */
+#include <jyppx/liuding/models/convnext.hpp>
 #include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/dinov3_convnext.hpp>
 #include <jyppx/liuding/models/efficientnet.hpp>

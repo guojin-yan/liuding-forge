@@ -18,7 +18,18 @@ void Require(bool condition, const char* operation) {
 int main() {
   try {
     const auto entries = jyppx::liuding::models::list_models();
-    Require(entries.size() == 28U, "installed-model-catalog");
+    Require(entries.size() == 30U, "installed-model-catalog");
+    for (const auto* name : {"convnext_tiny", "convnext_small"}) {
+      auto convnext = jyppx::liuding::models::create_model(
+          name, {.convnext = {.num_classes = 4}});
+      convnext.state().eval();
+      Require(convnext
+                      .invoke({.positional = {torch::zeros({1, 3, 32, 32})},
+                               .keyword = {}})
+                      .value.toTensor()
+                      .sizes() == torch::IntArrayRef({1, 4}),
+              "installed-convnext-adapter");
+    }
     auto dense = jyppx::liuding::models::create_model(
         "densenet121", {.densenet = {.num_classes = 4}});
     auto efficient_b0 = jyppx::liuding::models::create_model(
