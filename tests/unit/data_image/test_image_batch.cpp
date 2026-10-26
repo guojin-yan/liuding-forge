@@ -18,6 +18,7 @@
 
 #include <array>
 #include <bit>
+#include <cstddef>
 #include <gtest/gtest.h>
 #include <limits>
 #include <map>
@@ -154,6 +155,54 @@ TEST(ImageBatchResourceBudgetTest, BatchStagesRetainAggregateLeases) {
   EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
   batch = {};
   EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+}
+
+TEST(ImageBatchResourceBudgetTest, CollateChargesEveryPairedCanvas) {
+  auto a = Photo();
+  a.paired_target = a.image.clone();
+  a.paired_target_pixels = a.pixels;
+  auto b = Photo();
+  b.paired_target = b.image.clone();
+  b.paired_target_pixels = b.pixels;
+  ImageCollateOptions options;
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto batch = Batch({a, b}, options);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 24U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 84U);
+  batch = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+
+  ImageResourceBudgetLimits limits;
+  limits.max_pixels = 23;
+  auto tight_budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = tight_budget;
+  EXPECT_THROW(Batch({a, b}, options), ResourceExhausted);
+  EXPECT_EQ(tight_budget->usage(ImageResourceKind::staged_batches).current, 0U);
+  EXPECT_EQ(tight_budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(tight_budget->usage(ImageResourceKind::pixels).current, 0U);
+}
+
+TEST(ImageBatchResourceBudgetTest, AssignmentReleasesStorageBeforeLease) {
+  auto budget = std::make_shared<ImageResourceBudget>();
+  std::uint64_t charged_at_storage_release = 0;
+  auto* bytes = new std::byte[4];
+  ImageBatch batch;
+  batch.resource_lease_sets.push_back(
+      std::make_shared<ImageResourceLeaseSet>());
+  batch.resource_lease_sets.back()->push_back(
+      budget->reserve(ImageResourceKind::decoded_bytes, 4));
+  batch.images = torch::from_blob(
+      bytes, {4},
+      [budget, &charged_at_storage_release](void* storage) {
+        charged_at_storage_release =
+            budget->usage(ImageResourceKind::decoded_bytes).current;
+        delete[] static_cast<std::byte*>(storage);
+      },
+      torch::TensorOptions().dtype(torch::kUInt8));
+  batch = {};
+  EXPECT_EQ(charged_at_storage_release, 4U);
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
 }
 

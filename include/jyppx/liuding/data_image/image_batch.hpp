@@ -18,6 +18,7 @@
 #include <jyppx/liuding/data_image/resource_budget.hpp>
 
 #include <span>
+#include <utility>
 
 namespace jyppx::liuding::data::image {
 
@@ -90,6 +91,42 @@ struct ImageCollateOptions {
  * label_offsets of length N+1. Annotation coordinates use each output canvas.
  */
 struct ImageBatch {
+  ImageBatch() = default;
+  ImageBatch(const ImageBatch&) = default;
+  ImageBatch(ImageBatch&&) = default;
+  /** @brief Swaps owners before the replaced batch releases its storage. */
+  friend void swap(ImageBatch& a, ImageBatch& b) {
+    using std::swap;
+    swap(a.resource_lease_sets, b.resource_lease_sets);
+    swap(a.layout, b.layout);
+    swap(a.pixels, b.pixels);
+    swap(a.paired_pixels, b.paired_pixels);
+    swap(a.images, b.images);
+    swap(a.image_list, b.image_list);
+    swap(a.paired_images, b.paired_images);
+    swap(a.paired_image_list, b.paired_image_list);
+    swap(a.masks, b.masks);
+    swap(a.mask_list, b.mask_list);
+    swap(a.valid, b.valid);
+    swap(a.valid_list, b.valid_list);
+    swap(a.labels, b.labels);
+    swap(a.label_offsets, b.label_offsets);
+    swap(a.items, b.items);
+    swap(a.memory, b.memory);
+  }
+
+  ImageBatch& operator=(ImageBatch other) {
+    swap(*this, other);
+    return *this;
+  }
+
+  /**
+   * @brief Aggregate reservations outlive every tensor and host field below.
+   *
+   * Copies share each lease set. Runtime leases are not serialized and are
+   * recreated only by a stage receiving a resource budget.
+   */
+  std::vector<std::shared_ptr<ImageResourceLeaseSet>> resource_lease_sets;
   ImageBatchLayout layout = ImageBatchLayout::stack;
   PixelSpec pixels;
   std::optional<PixelSpec> paired_pixels;
@@ -105,14 +142,6 @@ struct ImageBatch {
   std::vector<std::int64_t> label_offsets;
   std::vector<ImageBatchItem> items;
   data::BatchMemoryMetadata memory;
-  /**
-   * @brief Aggregate resource leases held until this batch result is released.
-   *
-   * Each set is shared by copies of the batch. Lease sets are intentionally
-   * outside the serialized value and are recreated only by an explicit stage
-   * that receives a resource budget.
-   */
-  std::vector<std::shared_ptr<ImageResourceLeaseSet>> resource_lease_sets;
 };
 
 /**
