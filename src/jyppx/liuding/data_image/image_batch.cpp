@@ -320,7 +320,7 @@ std::shared_ptr<ImageResourceLeaseSet> ReserveBatchTotals(
 
 std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
     const ImageBatch& b, const std::shared_ptr<ImageResourceBudget>& budget,
-    const ImageBatchLimits& l, std::stop_token stop) {
+    const ImageBatchLimits& l, std::stop_token stop, bool reserve_gpu_bytes) {
   if (!budget) return {};
   CheckStop(stop);
 
@@ -407,7 +407,8 @@ std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
       static_cast<std::uint64_t>(b.label_offsets.size()) * sizeof(std::int64_t);
 
   return ReserveBatchTotals(budget, tensor_bytes, pixel_count, metadata_bytes,
-                            index_bytes, pinned_bytes, gpu_bytes, stop);
+                            index_bytes, pinned_bytes,
+                            reserve_gpu_bytes ? gpu_bytes : 0, stop);
 }
 
 void CheckImageBatch(const ImageBatch& b, const ImageBatchLimits& l,

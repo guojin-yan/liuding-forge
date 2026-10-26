@@ -326,6 +326,64 @@ TEST(ImageBatchGeometryTest, AggregateBudgetAndCancellationDoNotMutateInput) {
 }
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)
+TEST(ImageBatchGeometryTest, CudaOutputGpuBudgetPrecedesAllocation) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  auto sample = Photo(2, 2, 1);
+  sample.mask_target = Mask(sample, 9007199254740993LL);
+  const std::vector<std::vector<ImageGeometryStep>> steps(1);
+  for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
+                            ImageBatchLayout::ragged}) {
+    ImageCollateOptions collate;
+    collate.layout = layout;
+    if (layout == ImageBatchLayout::pad) {
+      collate.padded_extent = ImageExtent{3, 3};
+      collate.mask_padding_id = -9;
+    }
+    const auto cpu = collate_images(
+        std::array{sample}, std::array{ImageBatchKey{"cuda-budget"}}, collate);
+    const auto input = ToCuda(cpu);
+    const auto output_bytes = layout == ImageBatchLayout::pad ? 90U : 40U;
+    ImageBatchGeometryOptions options;
+    if (layout == ImageBatchLayout::pad) {
+      options.joint.mask_padding_id = -9;
+      options.output_padded_extent = ImageExtent{3, 3};
+    }
+    ImageResourceBudgetLimits limits;
+    limits.max_gpu_bytes = output_bytes - 1;
+    auto budget = std::make_shared<ImageResourceBudget>(limits);
+    options.resource_budget = budget;
+    EXPECT_THROW(transform_image_batch_geometry(input, steps, options),
+                 ResourceExhausted);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 0U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
+
+    limits.max_gpu_bytes = output_bytes;
+    budget = std::make_shared<ImageResourceBudget>(limits);
+    options.resource_budget = budget;
+    auto result = transform_image_batch_geometry(input, steps, options);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current,
+              output_bytes);
+    EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
+    if (layout == ImageBatchLayout::ragged) {
+      ASSERT_EQ(result.mask_list.size(), 1U);
+      EXPECT_TRUE(torch::equal(result.mask_list[0].cpu(), cpu.mask_list[0]));
+    } else {
+      ASSERT_TRUE(result.masks);
+      EXPECT_TRUE(torch::equal(result.masks->cpu(), *cpu.masks));
+    }
+    result = {};
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
+
+    limits.max_annotation_bytes = 1;
+    budget = std::make_shared<ImageResourceBudget>(limits);
+    options.resource_budget = budget;
+    EXPECT_THROW(transform_image_batch_geometry(input, steps, options),
+                 ResourceExhausted);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+  }
+}
+
 TEST(ImageBatchGeometryTest, CudaPixelGeometryMatchesCpuAndKeepsMaskIds) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
   auto sample = Photo(3, 2, 10);

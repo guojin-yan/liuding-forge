@@ -847,7 +847,15 @@ ImageBatch transform_image_batch_geometry(
       BatchLimit("batch_geometry.working_bytes");
 
     if (device.is_cuda()) {
+      std::shared_ptr<ImageResourceLeaseSet> output_gpu_lease;
+      if (options.resource_budget) {
+        output_gpu_lease = std::make_shared<ImageResourceLeaseSet>();
+        output_gpu_lease->push_back(options.resource_budget->reserve(
+            ImageResourceKind::gpu_bytes, output_bytes));
+      }
       ImageBatch result;
+      if (output_gpu_lease)
+        result.resource_lease_sets.push_back(std::move(output_gpu_lease));
       result.layout = batch.layout;
       result.pixels = batch.pixels;
       result.paired_pixels = batch.paired_pixels;
@@ -964,7 +972,7 @@ ImageBatch transform_image_batch_geometry(
       detail::CheckImageBatch(result, options.limits, stop);
       if (options.resource_budget)
         result.resource_lease_sets.push_back(detail::ReserveBatchResources(
-            result, options.resource_budget, options.limits, stop));
+            result, options.resource_budget, options.limits, stop, false));
       return result;
     }
 

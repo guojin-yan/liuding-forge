@@ -31,7 +31,8 @@ std::shared_ptr<ImageResourceLeaseSet> ReserveBatchTotals(
     std::stop_token stop = {});
 std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
     const ImageBatch& batch, const std::shared_ptr<ImageResourceBudget>& budget,
-    const ImageBatchLimits& limits, std::stop_token stop = {});
+    const ImageBatchLimits& limits, std::stop_token stop = {},
+    bool reserve_gpu_bytes = true);
 bool SamePixels(const PixelSpec& a, const PixelSpec& b);
 void CheckImageFill(const PixelSpec& spec, double value);
 }  // namespace jyppx::liuding::data::image::detail
