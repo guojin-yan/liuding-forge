@@ -263,6 +263,7 @@ std::shared_ptr<const VisionAnnotationRecord> MapCudaAnnotation(
 struct CudaPanopticResult {
   std::shared_ptr<const VisionAnnotationRecord> annotation;
   Tensor mask;
+  ImageResourceLease annotation_lease;
 };
 
 [[noreturn]] void PanopticMismatch(const char* operation) {
@@ -329,6 +330,13 @@ CudaPanopticResult MapCudaPanoptic(const ImageBatch& batch, std::size_t index,
                             "batch_geometry.cuda_panoptic_summary"),
                    2U, "batch_geometry.cuda_panoptic_summary"),
                sizeof(double), "batch_geometry.cuda_panoptic_summary");
+  const auto summary_count = summary_bytes / sizeof(double);
+  const auto host_scratch_bytes =
+      Add(Multiply(summary_count, sizeof(Tensor) + 2U * sizeof(double),
+                   "batch_geometry.cuda_panoptic_host_scratch"),
+          Multiply(bound.objects.size(), sizeof(std::size_t),
+                   "batch_geometry.cuda_panoptic_host_scratch"),
+          "batch_geometry.cuda_panoptic_host_scratch");
   const auto reduction_bytes =
       Add(Multiply(Add(source_pixels, output_pixels,
                        "batch_geometry.cuda_panoptic_working"),
@@ -338,6 +346,10 @@ CudaPanopticResult MapCudaPanoptic(const ImageBatch& batch, std::size_t index,
   if (reduction_bytes > options.limits.max_working_bytes ||
       summary_bytes > std::numeric_limits<std::size_t>::max())
     BatchLimit("batch_geometry.cuda_panoptic_summary");
+  ImageResourceLease host_scratch_lease;
+  if (options.resource_budget)
+    host_scratch_lease = options.resource_budget->reserve(
+        ImageResourceKind::annotation_bytes, host_scratch_bytes);
   ImageResourceLease reduction_lease;
   if (options.resource_budget)
     reduction_lease = options.resource_budget->reserve(
@@ -386,7 +398,7 @@ CudaPanopticResult MapCudaPanoptic(const ImageBatch& batch, std::size_t index,
     output_known.logical_or_(output_mask.eq(*ignore_id));
   }
   std::vector<Tensor> summary;
-  summary.reserve(static_cast<std::size_t>(summary_bytes / sizeof(double)));
+  summary.reserve(static_cast<std::size_t>(summary_count));
   const auto collect = [&](const Tensor& ids, const Tensor& x, const Tensor& y,
                            Tensor& known, std::int64_t id,
                            const Tensor* weights) {
@@ -420,15 +432,8 @@ CudaPanopticResult MapCudaPanoptic(const ImageBatch& batch, std::size_t index,
   if (values[unknown_offset] != 0 || values[unknown_offset + 1U] != 0)
     PanopticMismatch("batch_geometry.cuda_panoptic_unknown_id");
 
-  auto record = std::make_shared<VisionAnnotationRecord>();
-  record->source_image_id = bound.source_image_id;
-  record->image_path = bound.image_path;
-  record->panoptic_mask_path = bound.panoptic_mask_path;
-  record->width = destination.width;
-  record->height = destination.height;
-  record->panoptic_mask_materialized = true;
-  std::vector<std::int64_t> kept;
-  kept.reserve(bound.objects.size());
+  std::vector<std::size_t> selected;
+  selected.reserve(bound.objects.size());
   for (std::size_t i = 0; i < bound.objects.size(); ++i) {
     Stop(stop);
     const auto* row = values + i * 11U;
@@ -448,18 +453,46 @@ CudaPanopticResult MapCudaPanoptic(const ImageBatch& batch, std::size_t index,
         row[5] / source_count < options.min_region_visibility ||
         !detail::PanopticBoxKeeps(original, object, local, options))
       continue;
-    kept.push_back(object.source_id);
+    selected.push_back(i);
+  }
+  const auto output_annotation_bytes =
+      Add(Add(sizeof(VisionAnnotationRecord),
+              Multiply(selected.size(), sizeof(VisionObject),
+                       "batch_geometry.cuda_panoptic_host_output"),
+              "batch_geometry.cuda_panoptic_host_output"),
+          Add(Add(bound.image_path.size(), bound.panoptic_mask_path->size(),
+                  "batch_geometry.cuda_panoptic_host_output"),
+              2U, "batch_geometry.cuda_panoptic_host_output"),
+          "batch_geometry.cuda_panoptic_host_output");
+  ImageResourceLease output_lease;
+  if (options.resource_budget)
+    output_lease = options.resource_budget->reserve(
+        ImageResourceKind::annotation_bytes, output_annotation_bytes);
+  auto record = std::make_shared<VisionAnnotationRecord>();
+  record->source_image_id = bound.source_image_id;
+  record->image_path = bound.image_path;
+  record->panoptic_mask_path = bound.panoptic_mask_path;
+  record->width = destination.width;
+  record->height = destination.height;
+  record->panoptic_mask_materialized = true;
+  record->objects.reserve(selected.size());
+  for (const auto selected_index : selected) {
+    auto object = bound.objects[selected_index];
+    const auto* row = values + selected_index * 11U;
+    object.box = ImageBox{row[7], row[8], row[9] + 1, row[10] + 1};
+    object.mask_pixel_area = static_cast<std::uint64_t>(row[6]);
     record->objects.push_back(std::move(object));
   }
-  if (kept.size() == bound.objects.size()) return {record, output_mask};
+  if (selected.size() == bound.objects.size())
+    return {record, output_mask, std::move(output_lease)};
   auto keep = output_mask.eq(void_id);
   if (ignore_id) keep.logical_or_(output_mask.eq(*ignore_id));
-  for (const auto id : kept) {
+  for (const auto& object : record->objects) {
     Stop(stop);
-    keep.logical_or_(output_mask.eq(id));
+    keep.logical_or_(output_mask.eq(object.source_id));
   }
   auto filtered = output_mask.masked_fill(keep.logical_not(), void_id);
-  return {record, std::move(filtered)};
+  return {record, std::move(filtered), std::move(output_lease)};
 }
 
 Tensor CudaNearestResize(const Tensor& input, bool mask, ImageExtent before,
@@ -898,6 +931,7 @@ ImageBatch transform_image_batch_geometry(
       std::vector<Tensor> paired;
       std::vector<Tensor> masks;
       std::vector<Tensor> valid;
+      ImageResourceLeaseSet pending_annotation_leases;
       images.reserve(count);
       valid.reserve(count);
       if (batch.paired_pixels) paired.reserve(count);
@@ -982,6 +1016,9 @@ ImageBatch transform_image_batch_geometry(
                               input_canvases[i], annotation_steps, joint, stop);
           result.items[i].annotation = std::move(mapped.annotation);
           mask = std::move(mapped.mask);
+          if (mapped.annotation_lease.active())
+            pending_annotation_leases.push_back(
+                std::move(mapped.annotation_lease));
         }
         images.push_back(std::move(image));
         if (paired_image) paired.push_back(std::move(*paired_image));

@@ -642,8 +642,31 @@ TEST(ImageBatchGeometryTest, CudaPanopticRequiresExplicitSummaryTransfer) {
   EXPECT_EQ(result.items[0].annotation->objects[0].mask_pixel_area, 2U);
 
   ImageResourceBudgetLimits limits;
-  limits.max_gpu_bytes = 871;
+  limits.max_gpu_bytes = 872;
+  limits.max_annotation_bytes = 1;
   auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps, options),
+               ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+
+  const auto scratch_bytes =
+      13U * (sizeof(Tensor) + 2U * sizeof(double)) + sizeof(std::size_t);
+  limits.max_annotation_bytes = scratch_bytes;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps, options),
+               ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            scratch_bytes);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+
+  limits.max_annotation_bytes =
+      ImageResourceBudgetLimits{}.max_annotation_bytes;
+  limits.max_gpu_bytes = 871;
+  budget = std::make_shared<ImageResourceBudget>(limits);
   options.resource_budget = budget;
   EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps, options),
                ResourceExhausted);
@@ -658,8 +681,12 @@ TEST(ImageBatchGeometryTest, CudaPanopticRequiresExplicitSummaryTransfer) {
   EXPECT_TRUE(torch::equal(bounded.masks->cpu(), *expected.masks));
   EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 872U);
   EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 40U);
+  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            budget->usage(ImageResourceKind::annotation_bytes).current);
+  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
   bounded = {};
   EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
 }
 
 TEST(ImageBatchGeometryTest, CudaPanopticMatchesCpuAndValidatesBinding) {
