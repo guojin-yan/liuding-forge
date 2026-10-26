@@ -279,29 +279,108 @@ TEST(JointRegionTest, RleRasterBudgetPrecedesAllocationAndReleasesOnFailure) {
       ImageGeometryStep{.kind = ImageGeometryKind::resize, .extent = {6, 1}}};
   JointTransformOptions options;
   ImageResourceBudgetLimits limits;
+  const auto source_runs =
+      record->objects[0].rle->counts.size() * sizeof(std::uint64_t);
 
-  limits.max_annotation_bytes = 2;
+  limits.max_annotation_bytes = source_runs - 1;
   auto budget = std::make_shared<ImageResourceBudget>(limits);
   options.resource_budget = budget;
   EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
   EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
   EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
 
-  limits.max_annotation_bytes = 8;
+  limits.max_annotation_bytes = source_runs + 2;
   budget = std::make_shared<ImageResourceBudget>(limits);
   options.resource_budget = budget;
   EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
-  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 3U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            source_runs);
   EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
 
-  limits.max_annotation_bytes = 9;
+  limits.max_annotation_bytes = source_runs + 3 + 6 - 1;
   budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            source_runs + 3);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  budget = std::make_shared<ImageResourceBudget>();
   options.resource_budget = budget;
   const auto result = transform_sample(sample, steps, options);
   ASSERT_EQ(result.annotation->objects.size(), 1U);
   EXPECT_EQ(Decode(*result.annotation->objects[0].rle),
             (std::vector<int>{0, 0, 1, 1, 0, 0}));
-  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 9U);
+  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            budget->usage(ImageResourceKind::annotation_bytes).current);
+  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
+TEST(JointRegionTest, RleRunCapacityIsBudgetedAndFollowsAnnotationOwner) {
+  auto sample = Sample(3, 1);
+  auto record = Record(sample);
+  record->objects.push_back({.rle = Encode(3, 1, {0, 1, 0})});
+  JointTransformOptions options;
+  ImageResourceBudgetLimits limits;
+  const auto source_runs =
+      record->objects[0].rle->counts.size() * sizeof(std::uint64_t);
+  limits.max_annotation_bytes =
+      source_runs + 3 + (2 + 4) * sizeof(std::uint64_t) - 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, {}, options), ResourceExhausted);
+  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, {}, options);
+  ASSERT_EQ(output.annotation->objects.size(), 1U);
+  EXPECT_EQ(Decode(*output.annotation->objects[0].rle),
+            (std::vector<int>{0, 1, 0}));
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  EXPECT_EQ(live.current,
+            sizeof(ImageResourceLease) +
+                output.annotation->objects[0].rle->counts.capacity() *
+                    sizeof(std::uint64_t));
+  EXPECT_GT(live.peak, live.current);
+  auto retained = output;
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            live.current);
+  retained = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
+TEST(JointRegionTest, MultipleRleOutputLeasesRollBackTogether) {
+  auto sample = Sample(3, 1);
+  auto record = Record(sample);
+  record->objects.push_back({.source_id = 1, .rle = Encode(3, 1, {0, 1, 0})});
+  record->objects.push_back({.source_id = 2, .rle = Encode(3, 1, {0, 1, 0})});
+  JointTransformOptions options;
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, {}, options);
+  ASSERT_EQ(output.annotation->objects.size(), 2U);
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  const auto run_capacity =
+      output.annotation->objects[0].rle->counts.capacity() +
+      output.annotation->objects[1].rle->counts.capacity();
+  EXPECT_EQ(live.current, 2 * sizeof(ImageResourceLease) +
+                              run_capacity * sizeof(std::uint64_t));
+  auto retained = output;
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            live.current);
+  retained = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = live.peak - 1;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, {}, options), ResourceExhausted);
+  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
   EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
 }
 

@@ -29,6 +29,29 @@ void Charge(std::uint64_t& total, std::uint64_t count,
   total += count;
 }
 
+ImageResourceLease ReserveAnnotation(
+    const std::shared_ptr<ImageResourceBudget>& resource_budget,
+    std::size_t count, std::size_t element_bytes, const char* operation) {
+  if (!resource_budget) return {};
+  if (count > std::numeric_limits<std::uint64_t>::max() / element_bytes)
+    Resource(operation);
+  return resource_budget->reserve(ImageResourceKind::annotation_bytes,
+                                  count * element_bytes);
+}
+
+std::size_t NextCapacity(std::size_t current, std::size_t maximum,
+                         const char* operation) {
+  if (current >= maximum) Resource(operation);
+  return current > maximum / 2 ? maximum
+                               : std::max<std::size_t>(1, current * 2);
+}
+
+struct RleRecordOwner {
+  ImageResourceLease lease_storage;
+  ImageResourceLeaseSet run_leases;
+  VisionAnnotationRecord record;
+};
+
 std::uint64_t Pixels(ImageExtent extent) {
   return static_cast<std::uint64_t>(extent.width) * extent.height;
 }
@@ -298,7 +321,8 @@ bool MapPose(VisionObject& object, std::span<const ImageGeometryStep> steps,
 bool MapRle(VisionObject& object, std::span<const ImageGeometryStep> steps,
             std::span<const ImageExtent> extents,
             const JointTransformOptions& options, const GeometryTrace& local,
-            JointAnnotationState& budget, std::stop_token stop) {
+            JointAnnotationState& budget, ImageResourceLease& copied_runs,
+            ImageResourceLease& output_runs, std::stop_token stop) {
   const auto& source = *object.rle;
   BudgetedDiscreteRaster raster;
   if (options.resource_budget)
@@ -334,9 +358,22 @@ bool MapRle(VisionObject& object, std::span<const ImageGeometryStep> steps,
   std::uint64_t count = 0, area = 0;
   value = false;
   std::optional<ImageBox> box;
+  ImageResourceLease counts_lease;
   const auto emit = [&] {
     Add(budget.output_runs, 1, options.limits.max_rle_runs,
         "transform.output_runs");
+    if (options.resource_budget &&
+        result.counts.size() == result.counts.capacity()) {
+      const auto maximum =
+          std::min(options.limits.max_rle_runs, result.counts.max_size());
+      const auto capacity = NextCapacity(result.counts.capacity(), maximum,
+                                         "transform.rle_runs_capacity");
+      auto next_lease =
+          ReserveAnnotation(options.resource_budget, capacity,
+                            sizeof(std::uint64_t), "transform.rle_runs_bytes");
+      result.counts.reserve(capacity);
+      counts_lease = std::move(next_lease);
+    }
     result.counts.push_back(count);
     count = 0;
   };
@@ -366,6 +403,8 @@ bool MapRle(VisionObject& object, std::span<const ImageGeometryStep> steps,
   if (!area || static_cast<long double>(area) < options.min_region_area)
     return false;
   object.rle = std::move(result);
+  copied_runs.release();
+  output_runs = std::move(counts_lease);
   object.mask_pixel_area = area;
   object.box = box;
   return true;
@@ -522,6 +561,7 @@ JointAnnotationState CheckJointAnnotations(
         Invalid("transform.obb_convex_order");
     }
     if (object.rle) {
+      result.has_rle = true;
       const auto& rle = *object.rle;
       if (rle.width != sample.width || rle.height != sample.height ||
           rle.counts.empty())
@@ -614,10 +654,15 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
         options.resource_budget->reserve(ImageResourceKind::annotation_bytes,
                                          PanopticRecordBytes(*budget.panoptic));
   std::shared_ptr<VisionAnnotationRecord> record;
+  std::shared_ptr<RleRecordOwner> rle_owner;
   if (budget.panoptic) {
     auto owner = std::make_shared<PanopticRecordOwner>();
     owner->output_lease = std::move(output_lease);
     record = std::shared_ptr<VisionAnnotationRecord>(owner, &owner->record);
+  } else if (options.resource_budget && budget.has_rle) {
+    rle_owner = std::make_shared<RleRecordOwner>();
+    record =
+        std::shared_ptr<VisionAnnotationRecord>(rle_owner, &rle_owner->record);
   } else {
     record = std::make_shared<VisionAnnotationRecord>();
   }
@@ -634,6 +679,12 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
   }
   for (const auto& source : sample.annotation->objects) {
     CheckStop(stop);
+    auto copied_runs =
+        source.rle ? ReserveAnnotation(
+                         options.resource_budget, source.rle->counts.size(),
+                         sizeof(std::uint64_t), "transform.rle_source_copy")
+                   : ImageResourceLease{};
+    ImageResourceLease output_runs;
     auto object = source;
     if (source.box) object.box = local.forward_box(*source.box);
     if (!source.polygons.empty()) {
@@ -664,13 +715,28 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
         object.polygons = std::move(parts);
         object.oriented_box_to_polygon = true;
       }
-    } else if (source.rle &&
-               !MapRle(object, steps, extents, options, local, budget, stop))
+    } else if (source.rle && !MapRle(object, steps, extents, options, local,
+                                     budget, copied_runs, output_runs, stop))
       continue;
     if (source.box && !object.box) continue;
     if (!BoxKeeps(source, object, local, options) ||
         !MapPose(object, steps, options, local))
       continue;
+    if (output_runs.active()) {
+      auto& leases = rle_owner->run_leases;
+      if (leases.size() == leases.capacity()) {
+        const auto maximum =
+            std::min(options.limits.max_objects, leases.max_size());
+        const auto capacity = NextCapacity(leases.capacity(), maximum,
+                                           "transform.rle_lease_capacity");
+        auto next_lease = ReserveAnnotation(options.resource_budget, capacity,
+                                            sizeof(ImageResourceLease),
+                                            "transform.rle_lease_bytes");
+        leases.reserve(capacity);
+        rle_owner->lease_storage = std::move(next_lease);
+      }
+      leases.push_back(std::move(output_runs));
+    }
     record->objects.push_back(std::move(object));
   }
   output.annotation = std::move(record);

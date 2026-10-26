@@ -17,6 +17,7 @@ struct JointAnnotationState {
   std::size_t output_points = 0;
   std::size_t output_fragments = 0;
   std::size_t output_runs = 0;
+  bool has_rle = false;
   ImageResourceLease panoptic_lease;
   std::optional<VisionAnnotationRecord> panoptic;
 };
