@@ -70,7 +70,11 @@ TEST(JointRegionTest, ConvexPolygonClipsMapsAndKeepsSourceMetadata) {
       {.source_id = 77,
        .polygons = {{{0, 0}, {5, 0}, {5, 4}, {0, 4}, {0, 0}}},
        .area = 999,
-       .crowd = true});
+       .group_id = 7,
+       .crowd = true,
+       .ignore = true,
+       .difficult = true,
+       .truncated = true});
   const std::array steps{
       ImageGeometryStep{.kind = ImageGeometryKind::crop,
                         .extent = {3, 3},
@@ -87,7 +91,11 @@ TEST(JointRegionTest, ConvexPolygonClipsMapsAndKeepsSourceMetadata) {
   EXPECT_DOUBLE_EQ(object.box->y_max, 3);
   EXPECT_EQ(object.source_id, 77);
   EXPECT_EQ(object.area, 999);
+  EXPECT_EQ(object.group_id, 7);
   EXPECT_TRUE(object.crowd);
+  EXPECT_TRUE(object.ignore);
+  EXPECT_TRUE(object.difficult);
+  EXPECT_TRUE(object.truncated);
   EXPECT_FALSE(object.polygon_partitioned);
   EXPECT_EQ(record->objects[0].polygons[0].size(), 5U);
 }
@@ -248,6 +256,55 @@ TEST(JointRegionTest, NonPanopticObjectCapacityIsBudgetedAndOwned) {
   EXPECT_EQ(live.current,
             output.annotation->objects.capacity() * sizeof(VisionObject));
   EXPECT_EQ(live.peak, 6 * sizeof(VisionObject));
+  auto retained = output;
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            live.current);
+  retained = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
+TEST(JointRegionTest, PoseCopyAndReusableFlipScratchAreBudgeted) {
+  auto sample = Sample(3, 1);
+  auto record = Record(sample);
+  record->objects.push_back(
+      {.source_id = 47, .keypoints = {{{0.25, 0.5}, 2}, {{2.25, 0.5}, 1}}});
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::horizontal_flip},
+      ImageGeometryStep{.kind = ImageGeometryKind::horizontal_flip}};
+  JointTransformOptions options;
+  options.horizontal_keypoint_permutations = {{1, 0}};
+  const auto keypoint_bytes = 2 * sizeof(ImageKeypoint);
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = keypoint_bytes - 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  limits.max_annotation_bytes = 2 * keypoint_bytes - 1;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            keypoint_bytes);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, steps, options);
+  ASSERT_EQ(output.annotation->objects.size(), 1U);
+  const auto& points = output.annotation->objects[0].keypoints;
+  ASSERT_EQ(points.size(), 2U);
+  EXPECT_DOUBLE_EQ(points[0].point.x, 0.25);
+  EXPECT_DOUBLE_EQ(points[1].point.x, 2.25);
+  EXPECT_EQ(points[0].visibility, 2);
+  EXPECT_EQ(points[1].visibility, 1);
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  EXPECT_EQ(live.current,
+            output.annotation->objects.capacity() * sizeof(VisionObject) +
+                sizeof(ImageResourceLease) + keypoint_bytes);
   auto retained = output;
   output = {};
   EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
@@ -421,6 +478,35 @@ TEST(JointRegionTest, MultipleRleOutputLeasesRollBackTogether) {
   options.resource_budget = budget;
   EXPECT_THROW(transform_sample(sample, {}, options), ResourceExhausted);
   EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
+TEST(JointRegionTest, RleAndPoseLeasesShareTheOutputLifetime) {
+  auto sample = Sample(3, 1);
+  auto record = Record(sample);
+  record->objects.push_back({.rle = Encode(3, 1, {0, 1, 0}),
+                             .keypoints = {{{0.5, 0.5}, 2}, {{2.5, 0.5}, 1}}});
+  JointTransformOptions options;
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, {}, options);
+  ASSERT_EQ(output.annotation->objects.size(), 1U);
+  const auto& object = output.annotation->objects[0];
+  ASSERT_TRUE(object.rle);
+  EXPECT_EQ(Decode(*object.rle), (std::vector<int>{0, 1, 0}));
+  ASSERT_EQ(object.keypoints.size(), 2U);
+  EXPECT_EQ(object.keypoints[0].visibility, 2);
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  EXPECT_EQ(live.current,
+            output.annotation->objects.capacity() * sizeof(VisionObject) +
+                2 * sizeof(ImageResourceLease) +
+                object.rle->counts.capacity() * sizeof(std::uint64_t) +
+                object.keypoints.size() * sizeof(ImageKeypoint));
+  auto retained = output;
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            live.current);
+  retained = {};
   EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
 }
 

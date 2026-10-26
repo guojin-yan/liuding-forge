@@ -50,8 +50,31 @@ struct NonPanopticRecordOwner {
   ImageResourceLease object_storage;
   ImageResourceLease run_lease_storage;
   ImageResourceLeaseSet run_leases;
+  ImageResourceLease keypoint_lease_storage;
+  ImageResourceLeaseSet keypoint_leases;
   VisionAnnotationRecord record;
 };
+
+// Polygon geometry is rebuilt below; copying source rings only raises peak
+// memory.
+VisionObject CopyForMapping(const VisionObject& source) {
+  return {.source_id = source.source_id,
+          .category = source.category,
+          .box = source.box,
+          .polygons = {},
+          .oriented_box = source.oriented_box,
+          .rle = source.rle,
+          .keypoints = source.keypoints,
+          .area = source.area,
+          .mask_pixel_area = source.mask_pixel_area,
+          .oriented_box_to_polygon = source.oriented_box_to_polygon,
+          .polygon_partitioned = source.polygon_partitioned,
+          .group_id = source.group_id,
+          .crowd = source.crowd,
+          .ignore = source.ignore,
+          .difficult = source.difficult,
+          .truncated = source.truncated};
+}
 
 std::uint64_t Pixels(ImageExtent extent) {
   return static_cast<std::uint64_t>(extent.width) * extent.height;
@@ -302,6 +325,8 @@ bool MapPose(VisionObject& object, std::span<const ImageGeometryStep> steps,
     else
       keypoint = {};
   }
+  ImageResourceLease permutation_lease;
+  std::vector<ImageKeypoint> previous;
   for (const auto& step : steps) {
     const auto* table = step.kind == ImageGeometryKind::horizontal_flip
                             ? &options.horizontal_keypoint_permutations
@@ -309,14 +334,41 @@ bool MapPose(VisionObject& object, std::span<const ImageGeometryStep> steps,
                             ? &options.vertical_keypoint_permutations
                             : nullptr;
     if (!table || object.keypoints.empty()) continue;
-    const auto old = object.keypoints;
+    if (previous.empty()) {
+      permutation_lease = ReserveAnnotation(
+          options.resource_budget, object.keypoints.size(),
+          sizeof(ImageKeypoint), "transform.pose_permutation_bytes");
+      previous.resize(object.keypoints.size());
+    }
+    std::copy(object.keypoints.begin(), object.keypoints.end(),
+              previous.begin());
     const auto& permutation = (*table)[object.category];
     for (std::size_t i = 0; i < permutation.size(); ++i)
-      object.keypoints[i] = old[permutation[i]];
+      object.keypoints[i] = previous[permutation[i]];
   }
   return !options.drop_empty_pose || object.keypoints.empty() ||
          std::any_of(object.keypoints.begin(), object.keypoints.end(),
                      [](const auto& p) { return p.visibility != 0; });
+}
+
+void KeepOutputLease(ImageResourceLeaseSet& leases, ImageResourceLease& storage,
+                     ImageResourceLease lease,
+                     const JointTransformOptions& options,
+                     const char* capacity_operation,
+                     const char* bytes_operation) {
+  if (!lease.active()) return;
+  if (leases.size() == leases.capacity()) {
+    const auto maximum =
+        std::min(options.limits.max_objects, leases.max_size());
+    const auto capacity =
+        NextCapacity(leases.capacity(), maximum, capacity_operation);
+    auto next_lease =
+        ReserveAnnotation(options.resource_budget, capacity,
+                          sizeof(ImageResourceLease), bytes_operation);
+    leases.reserve(capacity);
+    storage = std::move(next_lease);
+  }
+  leases.push_back(std::move(lease));
 }
 
 bool MapRle(VisionObject& object, std::span<const ImageGeometryStep> steps,
@@ -684,11 +736,16 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
                          options.resource_budget, source.rle->counts.size(),
                          sizeof(std::uint64_t), "transform.rle_source_copy")
                    : ImageResourceLease{};
+    auto copied_keypoints =
+        source.keypoints.empty()
+            ? ImageResourceLease{}
+            : ReserveAnnotation(options.resource_budget,
+                                source.keypoints.size(), sizeof(ImageKeypoint),
+                                "transform.pose_source_copy");
     ImageResourceLease output_runs;
-    auto object = source;
+    auto object = CopyForMapping(source);
     if (source.box) object.box = local.forward_box(*source.box);
     if (!source.polygons.empty()) {
-      object.polygons.clear();
       for (const auto& ring : source.polygons) {
         auto parts = ClipRing(ring, local, options, budget,
                               object.polygon_partitioned, stop);
@@ -734,19 +791,16 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
       mapped_owner->object_storage = std::move(next_lease);
     }
     if (output_runs.active()) {
-      auto& leases = mapped_owner->run_leases;
-      if (leases.size() == leases.capacity()) {
-        const auto maximum =
-            std::min(options.limits.max_objects, leases.max_size());
-        const auto capacity = NextCapacity(leases.capacity(), maximum,
-                                           "transform.rle_lease_capacity");
-        auto next_lease = ReserveAnnotation(options.resource_budget, capacity,
-                                            sizeof(ImageResourceLease),
-                                            "transform.rle_lease_bytes");
-        leases.reserve(capacity);
-        mapped_owner->run_lease_storage = std::move(next_lease);
-      }
-      leases.push_back(std::move(output_runs));
+      KeepOutputLease(mapped_owner->run_leases, mapped_owner->run_lease_storage,
+                      std::move(output_runs), options,
+                      "transform.rle_lease_capacity",
+                      "transform.rle_lease_bytes");
+    }
+    if (copied_keypoints.active()) {
+      KeepOutputLease(
+          mapped_owner->keypoint_leases, mapped_owner->keypoint_lease_storage,
+          std::move(copied_keypoints), options, "transform.pose_lease_capacity",
+          "transform.pose_lease_bytes");
     }
     record->objects.push_back(std::move(object));
   }
