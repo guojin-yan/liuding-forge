@@ -15,6 +15,7 @@
 #include <jyppx/liuding/models/efficientnetv2.hpp>
 #include <jyppx/liuding/models/mobilenetv2.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
+#include <jyppx/liuding/models/vit.hpp>
 #include <jyppx/liuding/models/vision.hpp>
 
 #include <cstdint>
@@ -44,6 +45,7 @@ struct ModelOptions {
   MobileNetV2Options mobile_v2;           ///< Applied only to MobileNetV2.
   MobileNetV3Options mobile;              ///< Applied only to mobile models.
   TransformerEncoderOptions transformer;  ///< Applied only to feature encoder.
+  ViTOptions vit;                          ///< Applied only to ViT/16 models.
   DinoV2Options dinov2;                   ///< Applied only to DINOv2 models.
   DinoV3Options dinov3;                   ///< Applied only to DINOv3 models.
   DinoV3ConvNeXtOptions dinov3_convnext; ///< Applied only to ConvNeXt models.

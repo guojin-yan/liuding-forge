@@ -356,7 +356,7 @@ void RunDinoV3ConvNeXtCudaHalfForward(
 
 TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   const auto entries = list_models();
-  ASSERT_EQ(entries.size(), 30U);
+  ASSERT_EQ(entries.size(), 33U);
   EXPECT_EQ(entries.front().name, "convnext_small");
   EXPECT_EQ(list_models("convnext").size(), 6U);
   EXPECT_EQ(model_info("convnext_tiny").default_parameters, 28589128U);
@@ -367,6 +367,9 @@ TEST(Models, RegistryListsPreviewArchitecturesAndCreatesAdapters) {
   EXPECT_EQ(model_info("efficientnet_b0").default_parameters, 5288548U);
   EXPECT_EQ(model_info("efficientnet_b2").default_parameters, 9109994U);
   EXPECT_EQ(model_info("tf_efficientnetv2_s").default_parameters, 21458488U);
+  EXPECT_EQ(model_info("vit_tiny_patch16_224").default_parameters, 5717416U);
+  EXPECT_EQ(model_info("vit_small_patch16_224").default_parameters, 22050664U);
+  EXPECT_EQ(model_info("vit_base_patch16_224").default_parameters, 86567656U);
   EXPECT_EQ(list_models("mobilenetv2").size(), 1U);
   EXPECT_EQ(model_info("mobilenetv2_100").default_parameters, 3504872U);
   EXPECT_EQ(list_models("resnet").size(), 4U);
@@ -1456,6 +1459,107 @@ TEST(Models, ConvNeXtTinyAndSmallSupportBackwardAndOptimizerStep) {
   }
 }
 
+TEST(Models, ViTCapacitiesPreserveTimmStateAndPatchGridContract) {
+  struct Case {
+    ViTVariant variant;
+    const char* name;
+    std::int64_t dimension;
+    std::uint64_t parameters;
+  };
+  constexpr std::array<Case, 3> cases{{
+      {ViTVariant::tiny, "vit_tiny_patch16_224", 192, 5717416U},
+      {ViTVariant::small, "vit_small_patch16_224", 384, 22050664U},
+      {ViTVariant::base, "vit_base_patch16_224", 768, 86567656U},
+  }};
+  for (const auto& item : cases) {
+    auto model = ViT(std::make_shared<ViTImpl>(
+        item.variant, ViTOptions{.dynamic_image_size = true}));
+    model->eval();
+    EXPECT_EQ(parameter_count(*model), item.parameters) << item.name;
+    const auto named = model->named_parameters(true);
+    EXPECT_EQ(named.size(), 152U) << item.name;
+    for (const auto* key :
+         {"patch_embed.proj.weight", "cls_token", "pos_embed",
+          "blocks.0.norm1.weight", "blocks.0.attn.qkv.weight",
+          "blocks.0.attn.proj.weight", "blocks.0.norm2.weight",
+          "blocks.0.mlp.fc1.weight", "blocks.0.mlp.fc2.weight", "norm.weight",
+          "head.weight"})
+      EXPECT_TRUE(named.contains(key)) << item.name << ": " << key;
+    EXPECT_FALSE(named.contains("blocks.0.ls1.gamma")) << item.name;
+    torch::NoGradGuard no_grad;
+    const auto image = torch::randn({1, 3, 64, 80});
+    EXPECT_EQ(model->forward_features(image).sizes(),
+              torch::IntArrayRef({1, 21, item.dimension}));
+    EXPECT_EQ(model->forward_patch_grid(image).sizes(),
+              torch::IntArrayRef({1, item.dimension, 4, 5}));
+    EXPECT_EQ(model->forward(image).sizes(), torch::IntArrayRef({1, 1000}));
+  }
+  auto fixed = vit_tiny_patch16_224();
+  EXPECT_THROW(fixed->forward(torch::zeros({1, 3, 64, 80})), InvalidArgument);
+  EXPECT_THROW(vit_tiny_patch16_224({.num_classes = -1}), InvalidArgument);
+  fixed->reset_classifier(0);
+  EXPECT_EQ(fixed->forward(torch::zeros({1, 3, 224, 224})).sizes(),
+            torch::IntArrayRef({1, 192}));
+  fixed->reset_classifier(3);
+  EXPECT_EQ(fixed->forward(torch::zeros({1, 3, 224, 224})).sizes(),
+            torch::IntArrayRef({1, 3}));
+  auto adapter =
+      create_model("vit_tiny_patch16_224",
+                   {.vit = {.num_classes = 3, .dynamic_image_size = true}});
+  EXPECT_EQ(
+      adapter
+          .invoke({.positional = {torch::zeros({1, 3, 16, 32})}, .keyword = {}})
+          .value.toTensor()
+          .sizes(),
+      torch::IntArrayRef({1, 3}));
+}
+
+TEST(Models, ViTTinyAndSmallSupportBackwardAndOptimizerStep) {
+  for (const auto variant : {ViTVariant::tiny, ViTVariant::small}) {
+    auto model = ViT(std::make_shared<ViTImpl>(
+        variant, ViTOptions{.num_classes = 3, .dynamic_image_size = true}));
+    model->train();
+    torch::optim::SGD optimizer(model->parameters(),
+                                torch::optim::SGDOptions(1e-3));
+    const auto named = model->named_parameters(true);
+    const auto before = named["head.weight"].clone();
+    optimizer.zero_grad();
+    const auto logits = model->forward(torch::randn({1, 3, 16, 32}));
+    logits.square().mean().backward();
+    for (const auto* key : {"patch_embed.proj.weight",
+                            "blocks.0.attn.qkv.weight", "head.weight"}) {
+      const auto gradient = named[key].grad();
+      ASSERT_TRUE(gradient.defined()) << key;
+      EXPECT_TRUE(torch::isfinite(gradient).all().item<bool>()) << key;
+      EXPECT_GT(gradient.abs().sum().item<double>(), 0.0) << key;
+    }
+    optimizer.step();
+    EXPECT_GT((named["head.weight"] - before).abs().sum().item<double>(), 0.0);
+  }
+}
+
+TEST(Models, ViTBaseCpuBackwardResourceGate) {
+  const auto* enabled = std::getenv("JYPPX_LIUDING_VIT_BASE_TRAINING_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1")
+    GTEST_SKIP() << "Set JYPPX_LIUDING_VIT_BASE_TRAINING_GATE=1 for the "
+                    "serial ViT-Base CPU backward gate";
+  auto model =
+      vit_base_patch16_224({.num_classes = 3, .dynamic_image_size = true});
+  model->train();
+  torch::optim::SGD optimizer(model->parameters(),
+                              torch::optim::SGDOptions(1e-3));
+  const auto named = model->named_parameters(true);
+  const auto before = named["head.weight"].clone();
+  optimizer.zero_grad();
+  model->forward(torch::randn({1, 3, 16, 32})).square().mean().backward();
+  EXPECT_TRUE(torch::isfinite(named["patch_embed.proj.weight"].grad())
+                  .all()
+                  .item<bool>());
+  EXPECT_TRUE(torch::isfinite(named["head.weight"].grad()).all().item<bool>());
+  optimizer.step();
+  EXPECT_GT((named["head.weight"] - before).abs().sum().item<double>(), 0.0);
+}
+
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
   auto small = mobilenet_v3_small({.num_classes = 9});
   auto large = mobilenet_v3_large({.num_classes = 9});
@@ -1533,7 +1637,9 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   validate_weight_record(records.front());
   for (const auto* name : {"convnext_tiny", "convnext_small", "densenet121", "efficientnet_b0", "efficientnet_b2",
                            "tf_efficientnetv2_s", "mobilenetv2_100", "resnet34",
-                           "resnet101", "resnext50_32x4d"}) {
+                           "resnet101", "resnext50_32x4d",
+                           "vit_tiny_patch16_224", "vit_small_patch16_224",
+                           "vit_base_patch16_224"}) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
     EXPECT_EQ(candidates.front().availability,
@@ -1631,7 +1737,34 @@ struct ReferenceFileIdentity {
   std::uint64_t size_bytes;
 };
 // Fixed reviewed reference bytes, independent of runtime evidence JSON.
-constexpr std::array<ReferenceFileIdentity, 84> kReferenceFiles{{
+constexpr std::array<ReferenceFileIdentity, 93> kReferenceFiles{{
+    {"vit_base_patch16_224-input.safetensors",
+     "925f5afae36eb544abae13955bdaf38043b3f9a2896bd6294c8f27b70bb27a79",
+     61520ULL},
+    {"vit_base_patch16_224-output.safetensors",
+     "95dacd0bcea8a5c1c32bd4dd2fa646d579d9e8e6e65ec5e6e5eda88f93ed7455",
+     130176ULL},
+    {"vit_base_patch16_224-state.safetensors",
+     "2487fd0ef6843d84385519d9203ec77b2d2708fff4bcbeb41d77edf68fa717a0",
+     346284720ULL},
+    {"vit_small_patch16_224-input.safetensors",
+     "37414e39ba673efa7e1067ba798e78e7cff6843fb5681d6d9a58f5bf5984de25",
+     61520ULL},
+    {"vit_small_patch16_224-output.safetensors",
+     "c30956800473b73928faff052c8ae5c3adb260a44d67c1b7308ef3dc2c29c58d",
+     67200ULL},
+    {"vit_small_patch16_224-state.safetensors",
+     "74369f12ddb44da2b4d136dcdea37a1eeffe1d80ec7c482fd4892b359eaae52b",
+     88216496ULL},
+    {"vit_tiny_patch16_224-input.safetensors",
+     "0e4e52430c8f5b41acb0613a0d62a0fd6cf95d2c592bb5f4643dd788f1aff2d3",
+     61520ULL},
+    {"vit_tiny_patch16_224-output.safetensors",
+     "0220d6beb10b36e144583e95c641cbc5317d3b9c96faafc98a3344d5de88ab23",
+     35712ULL},
+    {"vit_tiny_patch16_224-state.safetensors",
+     "f7eb01186c3278faa69785b45f7a96c53b332b45ee093959e8116cc25515d52f",
+     22883344ULL},
     {"convnext_small-input.safetensors",
      "2e36ac17bf36b4ae4c8453c50a01a591d7765ca1e54ae58928f8a6e7ea0eeb7b",
      53900ULL},
@@ -2115,6 +2248,72 @@ TEST(ModelsPythonInterop, OfficialTimmConvNeXtSmallReferenceReallyRuns) {
                              "JYPPX_LIUDING_CONVNEXT_REFERENCE_DIR", nullptr,
                              nullptr, nullptr, nullptr, &model);
 }
+void CheckViTReference(const char* name, ViT model) {
+  const auto* directory = std::getenv("JYPPX_LIUDING_VIT_REFERENCE_DIR");
+  if (directory == nullptr || *directory == '\0')
+    GTEST_SKIP() << "Set JYPPX_LIUDING_VIT_REFERENCE_DIR for the pinned "
+                    "timm ViT random-state gate";
+  const auto root = std::filesystem::path(directory);
+  const auto prefix = std::string(name);
+  const auto state = ReadReference(root / (prefix + "-state.safetensors"));
+  const auto input = ReadReference(root / (prefix + "-input.safetensors"));
+  const auto expected = ReadReference(root / (prefix + "-output.safetensors"));
+  const WeightRecord record{
+      .id = "reference-" + prefix + "-random-v1",
+      .model_name = prefix,
+      .source_uri =
+          "fixture://timm/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/" + prefix,
+      .license_spdx = "LicenseRef-Generated-Test-Fixture",
+      .license_uri = "fixture://vit-reference/local-generated-state",
+      .availability = WeightAvailability::pinned_external,
+      .artifact =
+          ArtifactRef{.digest = ArtifactDigest{.hex = sha256_hex(state)},
+                      .size_bytes = state.size(),
+                      .logical_name = prefix + "-state.safetensors",
+                      .media_type = "application/x-safetensors",
+                      .producer = "pinned-timm-vit-reference"},
+      .status_reason =
+          "Random architecture differential; no pretrained weights."};
+  auto adapter = adapt(model);
+  interop::ModelWeightImportOptions import_options;
+  import_options.max_staging_bytes = 1024ULL * 1024U * 1024U;
+  const auto imported = load_weights(adapter, record, state, import_options);
+  ASSERT_TRUE(imported.applied) << name;
+  model->eval();
+  torch::NoGradGuard no_grad;
+  const auto image = ReferenceTensor(input, "input");
+  const auto actual_logits = model->forward(image);
+  const auto actual_tokens = model->forward_features(image);
+  const auto actual_grid = model->forward_patch_grid(image);
+  for (const auto& [actual, key] :
+       {std::pair<Tensor, const char*>{actual_logits, "output"},
+        {actual_tokens, "tokens"},
+        {actual_grid, "grid"}}) {
+    const auto reference = ReferenceTensor(expected, key);
+    ASSERT_EQ(actual.sizes(), reference.sizes()) << name << ' ' << key;
+    ASSERT_TRUE(torch::isfinite(actual).all().item<bool>())
+        << name << ' ' << key;
+    const auto scale = reference.abs().max().item<double>();
+    ASSERT_GT(scale, 0.0) << name << ' ' << key;
+    EXPECT_TRUE(torch::allclose(actual / scale, reference / scale, 1e-4, 1e-5))
+        << name << ' ' << key << " normalized maximum absolute error: "
+        << ((actual - reference) / scale).abs().max().item<double>();
+  }
+}
+
+TEST(ModelsPythonInterop, OfficialTimmViTTinyReferenceReallyRuns) {
+  CheckViTReference("vit_tiny_patch16_224",
+                    vit_tiny_patch16_224({.dynamic_image_size = true}));
+}
+TEST(ModelsPythonInterop, OfficialTimmViTSmallReferenceReallyRuns) {
+  CheckViTReference("vit_small_patch16_224",
+                    vit_small_patch16_224({.dynamic_image_size = true}));
+}
+TEST(ModelsPythonInterop, OfficialTimmViTBaseReferenceReallyRuns) {
+  CheckViTReference("vit_base_patch16_224",
+                    vit_base_patch16_224({.dynamic_image_size = true}));
+}
+
 TEST(ModelsPythonInterop,
      OfficialTorchvisionMobileNetV3SmallReferenceReallyRuns) {
   CheckArchitectureReference("mobilenet_v3_small");

@@ -18,7 +18,7 @@ void Require(bool condition, const char* operation) {
 int main() {
   try {
     const auto entries = jyppx::liuding::models::list_models();
-    Require(entries.size() == 30U, "installed-model-catalog");
+    Require(entries.size() == 33U, "installed-model-catalog");
     for (const auto* name : {"convnext_tiny", "convnext_small"}) {
       auto convnext = jyppx::liuding::models::create_model(
           name, {.convnext = {.num_classes = 4}});
@@ -29,6 +29,19 @@ int main() {
                       .value.toTensor()
                       .sizes() == torch::IntArrayRef({1, 4}),
               "installed-convnext-adapter");
+    }
+    for (const auto* name : {"vit_tiny_patch16_224",
+                             "vit_small_patch16_224",
+                             "vit_base_patch16_224"}) {
+      auto vit = jyppx::liuding::models::create_model(
+          name, {.vit = {.num_classes = 4, .dynamic_image_size = true}});
+      vit.state().eval();
+      Require(vit
+                      .invoke({.positional = {torch::zeros({1, 3, 16, 32})},
+                               .keyword = {}})
+                      .value.toTensor()
+                      .sizes() == torch::IntArrayRef({1, 4}),
+              "installed-vit-adapter");
     }
     auto dense = jyppx::liuding::models::create_model(
         "densenet121", {.densenet = {.num_classes = 4}});

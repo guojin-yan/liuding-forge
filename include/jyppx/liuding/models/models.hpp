@@ -13,6 +13,7 @@
 #include <jyppx/liuding/models/mobilenetv2.hpp>
 #include <jyppx/liuding/models/registry.hpp>
 #include <jyppx/liuding/models/transformer.hpp>
+#include <jyppx/liuding/models/vit.hpp>
 #include <jyppx/liuding/models/vision.hpp>
 #include <jyppx/liuding/models/weights.hpp>
 #endif

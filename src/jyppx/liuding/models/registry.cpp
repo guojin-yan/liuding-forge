@@ -31,6 +31,8 @@ bool Name(std::string_view name) {
     hint += "mobilenetv2_100, mobilenet_v3_small, mobilenet_v3_large.";
   else if (name.starts_with("dinov3"))
     hint += "dinov3_vits16, dinov3_vitb16, dinov3_convnext_tiny.";
+  else if (name.starts_with("vit"))
+    hint += "vit_tiny_patch16_224, vit_small_patch16_224, vit_base_patch16_224.";
   else
     hint += "transformer_encoder, resnet18, dinov3_vits16.";
   throw InvalidArgument("Unknown model architecture",
@@ -195,6 +197,33 @@ ModelRegistry default_model_registry() {
                 .preview = true},
                [](const ModelOptions& o) {
                  return adapt(transformer_encoder(o.transformer));
+               });
+  registry.add({.name = "vit_tiny_patch16_224",
+                .family = "vit",
+                .task = "image_classification",
+                .reference = "timm vit_tiny_patch16_224",
+                .default_parameters = 5717416U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(vit_tiny_patch16_224(o.vit));
+               });
+  registry.add({.name = "vit_small_patch16_224",
+                .family = "vit",
+                .task = "image_classification",
+                .reference = "timm vit_small_patch16_224",
+                .default_parameters = 22050664U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(vit_small_patch16_224(o.vit));
+               });
+  registry.add({.name = "vit_base_patch16_224",
+                .family = "vit",
+                .task = "image_classification",
+                .reference = "timm vit_base_patch16_224",
+                .default_parameters = 86567656U,
+                .preview = true},
+               [](const ModelOptions& o) {
+                 return adapt(vit_base_patch16_224(o.vit));
                });
   registry.add(
       {.name = "vit_small_patch14_dinov2",
