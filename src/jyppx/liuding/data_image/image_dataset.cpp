@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "panoptic_detail.hpp"
+
 #include <jyppx/liuding/data_image/image_dataset.hpp>
 
 #include <algorithm>
@@ -366,11 +368,14 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
     const auto reference = *sample.annotation->panoptic_mask_path;
     auto mask = read_mask_file(ResolveDatasetFile(root_, reference),
                                *options_.panoptic_target, stop);
-    auto bound =
-        bind_panoptic_mask(*sample.annotation, mask, sample.categories->size(),
-                           options_.panoptic_validation, stop);
+    auto bound = detail::BindPanopticMask(
+        *sample.annotation, mask, sample.categories->size(),
+        options_.panoptic_validation, options_.resource_budget, stop);
+    auto owner = std::make_shared<detail::PanopticRecordOwner>();
+    owner->output_lease = std::move(bound.output_lease);
+    owner->record = std::move(bound.record);
     sample.annotation =
-        std::make_shared<const VisionAnnotationRecord>(std::move(bound));
+        std::shared_ptr<const VisionAnnotationRecord>(owner, &owner->record);
     sample.mask_target = std::move(mask);
     sample.target_path = reference;
   }

@@ -419,6 +419,47 @@ TEST(ImageDatasetTest, ExplicitPanopticReadBindsSourcePathAndSegmentTable) {
   EXPECT_THROW(mismatch.get(0), jyppx::liuding::SerializationError);
 }
 
+TEST(ImageDatasetTest, PanopticBindingBudgetFollowsSharedAnnotation) {
+  TempDirectory directory;
+  WriteFixture(directory.path() / "photo.png", "rgb.png");
+  WriteFixture(directory.path() / "labels.png", "rgb.png");
+  const auto manifest = ClassificationIndex("path,labels\nphoto.png,cat\n");
+  const auto annotations = PanopticIndex();
+  auto options = PanopticOptions();
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  ImageDataset dataset(directory.path(), manifest, annotations, options);
+
+  auto sample = dataset.get(0);
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  EXPECT_GT(live.current, 0U);
+  EXPECT_GT(live.peak, live.current);
+  auto retained = sample;
+  sample = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            live.current);
+  retained = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = 255;
+  auto tight = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = tight;
+  ImageDataset rejected(directory.path(), manifest, annotations, options);
+  EXPECT_THROW(rejected.get(0), jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(tight->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(tight->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  limits.max_annotation_bytes = 256;
+  tight = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = tight;
+  ImageDataset output_rejected(directory.path(), manifest, annotations,
+                               options);
+  EXPECT_THROW(output_rejected.get(0), jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(tight->usage(ImageResourceKind::annotation_bytes).peak, 256U);
+  EXPECT_EQ(tight->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
 TEST(ImageDatasetTest, PanopticReadRequiresCompleteExplicitAssociations) {
   TempDirectory directory;
   WriteFixture(directory.path() / "photo.png", "rgb.png");

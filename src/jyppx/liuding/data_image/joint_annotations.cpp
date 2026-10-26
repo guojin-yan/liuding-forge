@@ -7,9 +7,11 @@
 
 #include "annotation_detail.hpp"
 #include "joint_annotation_detail.hpp"
+#include "panoptic_detail.hpp"
 
 #include <jyppx/liuding/data_image/panoptic.hpp>
 
+#include <limits>
 #include <numeric>
 #include <unordered_map>
 
@@ -374,6 +376,12 @@ void MapPanoptic(const VisionSample& source, VisionSample& output,
     ImageBox box;
     bool keep = false;
   };
+  if (bound.objects.size() > std::numeric_limits<std::size_t>::max() / 128U)
+    Resource("transform.panoptic_working_bytes");
+  ImageResourceLease scratch_lease;
+  if (options.resource_budget)
+    scratch_lease = options.resource_budget->reserve(
+        ImageResourceKind::annotation_bytes, bound.objects.size() * 128U);
   std::unordered_map<std::int64_t, std::size_t> lookup;
   lookup.reserve(bound.objects.size());
   std::vector<Stats> stats(bound.objects.size());
@@ -407,6 +415,7 @@ void MapPanoptic(const VisionSample& source, VisionSample& output,
                  std::max(s.box.x_max, right), std::max(s.box.y_max, bottom)};
     }
   }
+  std::size_t kept_count = 0;
   for (std::size_t i = 0; i < stats.size(); ++i) {
     CheckStop(stop);
     auto& s = stats[i];
@@ -420,6 +429,14 @@ void MapPanoptic(const VisionSample& source, VisionSample& output,
         !BoxKeeps(bound.objects[i], object, local, options))
       continue;
     s.keep = true;
+    ++kept_count;
+  }
+  record.objects.reserve(kept_count);
+  for (std::size_t i = 0; i < stats.size(); ++i) {
+    if (!stats[i].keep) continue;
+    auto object = bound.objects[i];
+    object.box = stats[i].box;
+    object.mask_pixel_area = stats[i].count;
     record.objects.push_back(std::move(object));
   }
   for (std::uint32_t y = 0; y < output.height; ++y) {
@@ -566,9 +583,13 @@ JointAnnotationState CheckJointAnnotations(
     bind.max_working_bytes = static_cast<std::size_t>(
         std::min<std::uint64_t>(options.limits.max_working_bytes,
                                 std::numeric_limits<std::size_t>::max()));
-    if (!defer_panoptic_binding)
-      result.panoptic = bind_panoptic_mask(
-          record, *sample.mask_target, sample.categories->size(), bind, stop);
+    if (!defer_panoptic_binding) {
+      auto bound = BindPanopticMask(record, *sample.mask_target,
+                                    sample.categories->size(), bind,
+                                    options.resource_budget, stop);
+      result.panoptic_lease = std::move(bound.output_lease);
+      result.panoptic = std::move(bound.record);
+    }
   } else if (record.panoptic_mask_materialized)
     Invalid("transform.panoptic_reference");
   return result;
@@ -581,7 +602,19 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
                          const GeometryTrace& local,
                          JointAnnotationState& budget, std::stop_token stop) {
   if (!sample.annotation) return;
-  auto record = std::make_shared<VisionAnnotationRecord>();
+  ImageResourceLease output_lease;
+  if (budget.panoptic && options.resource_budget)
+    output_lease =
+        options.resource_budget->reserve(ImageResourceKind::annotation_bytes,
+                                         PanopticRecordBytes(*budget.panoptic));
+  std::shared_ptr<VisionAnnotationRecord> record;
+  if (budget.panoptic) {
+    auto owner = std::make_shared<PanopticRecordOwner>();
+    owner->output_lease = std::move(output_lease);
+    record = std::shared_ptr<VisionAnnotationRecord>(owner, &owner->record);
+  } else {
+    record = std::make_shared<VisionAnnotationRecord>();
+  }
   record->source_image_id = sample.annotation->source_image_id;
   record->image_path = sample.annotation->image_path;
   record->panoptic_mask_path = sample.annotation->panoptic_mask_path;

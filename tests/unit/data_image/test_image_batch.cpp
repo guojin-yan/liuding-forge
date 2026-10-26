@@ -592,6 +592,36 @@ TEST(ImageBatchTest, PanopticBindsOnCpuAndPaddingMustUseVoid) {
   EXPECT_THROW(Batch({s}, options), SerializationError);
 }
 
+TEST(ImageBatchResourceBudgetTest, PanopticCopiesTransferToFinalBatchBudget) {
+  const auto sample = Panoptic();
+  ImageCollateOptions options{.layout = ImageBatchLayout::pad,
+                              .padded_extent = ImageExtent{3, 3},
+                              .mask_padding_id = 0};
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto batch = Batch({sample}, options);
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  EXPECT_GT(live.current, 0U);
+  EXPECT_GT(live.peak, live.current);
+  EXPECT_TRUE(batch.items[0].annotation->panoptic_mask_materialized);
+  batch = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = 127;
+  auto tight = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = tight;
+  EXPECT_THROW(Batch({sample}, options), ResourceExhausted);
+  EXPECT_EQ(tight->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(tight->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  limits.max_annotation_bytes = live.peak - 1U;
+  tight = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = tight;
+  EXPECT_THROW(Batch({sample}, options), ResourceExhausted);
+  EXPECT_EQ(tight->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
 TEST(ImageBatchTest, RejectsAmbiguousShapesTargetsFillsLabelsAndCancellation) {
   auto a = Photo(), b = Photo(2, 3);
   EXPECT_THROW(Batch({a, b}), InvalidArgument);

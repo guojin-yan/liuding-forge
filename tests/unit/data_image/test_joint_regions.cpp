@@ -549,6 +549,44 @@ TEST(PanopticTest, BoundedBindingAndCancellationRejectBeforePublication) {
   EXPECT_NO_THROW(transform_sample(sample, {}, joint));
 }
 
+TEST(PanopticTest, JointMappingKeepsOnlyOutputAnnotationCharged) {
+  const auto sample = Panoptic();
+  JointTransformOptions options;
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, {}, options);
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  EXPECT_GT(live.current, 0U);
+  EXPECT_GT(live.peak, live.current);
+  auto retained = output;
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            live.current);
+  retained = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = 255;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, {}, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  const auto& record = *sample.annotation;
+  const auto record_bytes = sizeof(VisionAnnotationRecord) +
+                            record.objects.size() * sizeof(VisionObject) +
+                            record.image_path.size() +
+                            record.panoptic_mask_path->size() + 2U;
+  limits.max_annotation_bytes = 2 * record_bytes + 255U;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, {}, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            2 * record_bytes);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
 TEST(JointRegionTest, IdentityBindsEveryNewPolicyAndResourceLimit) {
   const auto identity = joint_transform_identity({}, {});
   JointTransformOptions options;

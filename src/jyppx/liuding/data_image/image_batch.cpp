@@ -7,6 +7,7 @@
 
 #include "annotation_detail.hpp"
 #include "image_batch_detail.hpp"
+#include "panoptic_detail.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -608,6 +609,7 @@ ImageBatch collate_images(std::span<const VisionSample> samples,
                           (o.padded_extent || o.size_divisor != 1)))
     InvalidBatch("batch.padding_policy");
   try {
+    ImageResourceLeaseSet interim_annotation_leases;
     ImageBatch b;
     b.layout = o.layout;
     b.pixels = samples[0].pixels;
@@ -735,9 +737,14 @@ ImageBatch collate_images(std::span<const VisionSample> samples,
                 (o.limits.max_working_bytes - source_metadata) / 2,
                 std::numeric_limits<std::size_t>::max()));
         if (!bind.max_working_bytes) BatchLimit("batch.panoptic_working");
-        item.annotation = std::make_shared<VisionAnnotationRecord>(
-            bind_panoptic_mask(*item.annotation, *samples[i].mask_target,
-                               item.categories->size(), bind, stop));
+        auto bound = detail::BindPanopticMask(
+            *item.annotation, *samples[i].mask_target, item.categories->size(),
+            bind, o.resource_budget, stop);
+        auto annotation =
+            std::make_shared<VisionAnnotationRecord>(std::move(bound.record));
+        if (bound.output_lease.active())
+          interim_annotation_leases.push_back(std::move(bound.output_lease));
+        item.annotation = std::move(annotation);
       }
     }
     std::size_t output_runs = 0;
@@ -753,6 +760,11 @@ ImageBatch collate_images(std::span<const VisionSample> samples,
           item.geometry->padded(0, 0, e.width - item.valid_extent.width,
                                 e.height - item.valid_extent.height);
       if (item.annotation) {
+        ImageResourceLease padded_lease;
+        if (item.annotation->panoptic_mask_path && o.resource_budget)
+          padded_lease = o.resource_budget->reserve(
+              ImageResourceKind::annotation_bytes,
+              detail::PanopticRecordBytes(*item.annotation));
         auto record =
             std::make_shared<VisionAnnotationRecord>(*item.annotation);
         record->width = e.width;
@@ -760,6 +772,8 @@ ImageBatch collate_images(std::span<const VisionSample> samples,
         for (auto& object : record->objects)
           if (object.rle)
             object.rle = PadRuns(*object.rle, e, o.limits, output_runs, stop);
+        if (padded_lease.active())
+          interim_annotation_leases.push_back(std::move(padded_lease));
         item.annotation = std::move(record);
       }
     }
@@ -780,6 +794,7 @@ ImageBatch collate_images(std::span<const VisionSample> samples,
       b.resource_lease_sets.push_back(
           detail::ReserveBatchTotals(o.resource_budget, bytes, pixel_charge,
                                      metadata_bytes, index_bytes, 0, 0, stop));
+      interim_annotation_leases.clear();
     }
     Stop(stop);
     const auto photo_options = torch::TensorOptions()

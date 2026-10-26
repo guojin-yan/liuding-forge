@@ -5,12 +5,14 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/liuding/data_image/panoptic.hpp>
+#include "panoptic_detail.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <new>
 #include <unordered_map>
+#include <utility>
 
 namespace jyppx::liuding::data::image {
 namespace {
@@ -47,11 +49,27 @@ struct Segment {
 };
 }  // namespace
 
-VisionAnnotationRecord bind_panoptic_mask(const VisionAnnotationRecord& record,
-                                          const DecodedMask& mask,
-                                          std::size_t category_count,
-                                          const PanopticBindOptions& options,
-                                          std::stop_token stop) {
+std::uint64_t detail::PanopticRecordBytes(
+    const VisionAnnotationRecord& record) {
+  constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
+  if (record.objects.size() >
+      (maximum - sizeof(VisionAnnotationRecord)) / sizeof(VisionObject))
+    Limit("bind.output_bytes");
+  std::uint64_t bytes = sizeof(VisionAnnotationRecord) +
+                        record.objects.size() * sizeof(VisionObject);
+  const auto add_path = [&](const std::string& path) {
+    if (path.size() >= maximum - bytes) Limit("bind.output_bytes");
+    bytes += path.size() + 1U;
+  };
+  add_path(record.image_path);
+  if (record.panoptic_mask_path) add_path(*record.panoptic_mask_path);
+  return bytes;
+}
+
+detail::PanopticBinding detail::BindPanopticMask(
+    const VisionAnnotationRecord& record, const DecodedMask& mask,
+    std::size_t category_count, const PanopticBindOptions& options,
+    const std::shared_ptr<ImageResourceBudget>& budget, std::stop_token stop) {
   Stop(stop);
   const auto& limits = options.limits;
   if (!limits.max_dimension || !limits.max_pixels || !options.max_working_bytes)
@@ -79,6 +97,10 @@ VisionAnnotationRecord bind_panoptic_mask(const VisionAnnotationRecord& record,
     Invalid("bind.mask");
   if (record.objects.size() > options.max_working_bytes / 128U)
     Limit("bind.lookup_bytes");
+  ImageResourceLease scratch_lease;
+  if (budget)
+    scratch_lease = budget->reserve(ImageResourceKind::annotation_bytes,
+                                    record.objects.size() * 128U);
   try {
     std::unordered_map<std::int64_t, std::size_t> lookup;
     lookup.reserve(record.objects.size());
@@ -118,6 +140,10 @@ VisionAnnotationRecord bind_panoptic_mask(const VisionAnnotationRecord& record,
                          std::max(segment.box.y_max, bottom)};
       }
     }
+    ImageResourceLease output_lease;
+    if (budget)
+      output_lease = budget->reserve(ImageResourceKind::annotation_bytes,
+                                     PanopticRecordBytes(record));
     auto result = record;
     for (std::size_t i = 0; i < segments.size(); ++i) {
       Stop(stop);
@@ -139,9 +165,19 @@ VisionAnnotationRecord bind_panoptic_mask(const VisionAnnotationRecord& record,
     }
     result.panoptic_mask_materialized = true;
     Stop(stop);
-    return result;
+    return {std::move(output_lease), std::move(result)};
   } catch (const std::bad_alloc&) {
     Limit("bind.allocate");
   }
+}
+
+VisionAnnotationRecord bind_panoptic_mask(const VisionAnnotationRecord& record,
+                                          const DecodedMask& mask,
+                                          std::size_t category_count,
+                                          const PanopticBindOptions& options,
+                                          std::stop_token stop) {
+  auto bound =
+      detail::BindPanopticMask(record, mask, category_count, options, {}, stop);
+  return std::move(bound.record);
 }
 }  // namespace jyppx::liuding::data::image
