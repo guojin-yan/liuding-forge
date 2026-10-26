@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <span>
 #include <string>
 
@@ -52,10 +53,39 @@ bool storage_consumer() {
         2U);
     if (reference.artifact.digest.hex != jyppx::liuding::sha256_hex(bytes))
       return false;
+    const auto published = root.path / "published.bin";
+    std::ofstream file(published, std::ios::binary);
+    file.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    file.close();
+    if (!file) return false;
+    jyppx::liuding::experiment::PublishedFileEvidenceRequest request;
+    request.run_id = "consumer.run";
+    request.reference_id = "published.1";
+    request.path = published;
+    request.descriptor = {.logical_name = "published.bin",
+                          .producer = "install-consumer",
+                          .expected_size_bytes = bytes.size()};
+    request.attached_at_unix_ms = 3U;
+    request.expected_digest = {.hex = jyppx::liuding::sha256_hex(bytes)};
+    request.event_batch_key = "published.event";
+    request.event.identity = {.stream_id = "consumer.output",
+                              .event_id = "published.1",
+                              .idempotency_key = "published.1",
+                              .sequence = 1U};
+    request.event.correlation.project_id = "consumer.project";
+    request.event.correlation.run_id = "consumer.run";
+    request.event.payload =
+        jyppx::liuding::TelemetryArtifactReference{.role = "output.file"};
+    const auto evidence = store.record_published_file_evidence(request);
+    if (evidence.reference_replay || evidence.event.receipts.size() != 1U)
+      return false;
+    if (!std::filesystem::remove(published)) return false;
   }
   jyppx::liuding::experiment::SQLiteRunStore reopened(root.path);
   return reopened.find("consumer.run").has_value() &&
-         reopened.references("consumer.run").size() == 1U &&
+         reopened.find_reference("consumer.run", "published.1").has_value() &&
+         reopened.references("consumer.run").size() == 3U &&
+         reopened.events("consumer.run").events.size() == 1U &&
          reopened.integrity_check().ok();
 }
 }  // namespace

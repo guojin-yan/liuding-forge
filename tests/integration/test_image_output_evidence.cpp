@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 #include <iterator>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <variant>
 
@@ -69,6 +70,26 @@ ArtifactDescriptor descriptor(std::size_t size) {
           .media_type = "image/png",
           .producer = "image-output-evidence-test",
           .expected_size_bytes = size};
+}
+
+PublishedFileEvidenceRequest evidence_request(
+    const ImageSinkWriteResult& published, std::uint64_t sequence = 1U) {
+  PublishedFileEvidenceRequest request;
+  request.run_id = "run-1";
+  request.reference_id = "image-preview";
+  request.path = published.path;
+  request.descriptor = descriptor(published.bytes);
+  request.attached_at_unix_ms = 101U;
+  request.expected_digest = ArtifactDigest{.hex = published.sha256};
+  request.event_batch_key = "image-preview-event";
+  request.event.identity = {.stream_id = "image-output-1",
+                            .event_id = "image-preview-1",
+                            .idempotency_key = "image-preview-1",
+                            .sequence = sequence};
+  request.event.correlation.project_id = "project-1";
+  request.event.correlation.run_id = "run-1";
+  request.event.payload = TelemetryArtifactReference{.role = "image.preview"};
+  return request;
 }
 
 TEST(ImageOutputEvidenceTest, PublishedBytesBecomeDurableArtifactAndEvent) {
@@ -188,6 +209,108 @@ TEST(ImageOutputEvidenceTest,
                    "output.file", path, file_descriptor, 101U, digest),
                ResourceExhausted);
   EXPECT_TRUE(limited.references("run-1").empty());
+}
+
+TEST(ImageOutputEvidenceTest, EvidenceRetryAfterSequenceFailureAndFileRemoval) {
+  OutputDirectory directory;
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  ASSERT_EQ(ticket.disposition, ImageSinkDisposition::queued);
+  const auto published = ticket.completion.get();
+  sink.close();
+  auto request = evidence_request(published, 2U);
+
+  {
+    SQLiteRunStore store(directory.path / "store");
+    store.start(run());
+    EXPECT_THROW(store.record_published_file_evidence(request),
+                 CompatibilityError);
+    const auto registered = store.find_reference("run-1", request.reference_id);
+    ASSERT_TRUE(registered);
+    EXPECT_EQ(registered->artifact.digest, request.expected_digest);
+    EXPECT_TRUE(store.events("run-1").events.empty());
+  }
+  ASSERT_TRUE(std::filesystem::remove(published.path));
+  request.path.reset();
+
+  SQLiteRunStore reopened(directory.path / "store");
+  TelemetryEnvelope earlier;
+  earlier.identity = {.stream_id = "image-output-1",
+                      .event_id = "earlier-1",
+                      .idempotency_key = "earlier-1",
+                      .sequence = 1U};
+  earlier.correlation.project_id = "project-1";
+  earlier.correlation.run_id = "run-1";
+  earlier.payload = TelemetryLog{.body = "prior event"};
+  reopened.append("run-1", "earlier-event",
+                  std::span<const TelemetryEnvelope>(&earlier, 1U));
+  const auto confirmed = reopened.record_published_file_evidence(request);
+  EXPECT_TRUE(confirmed.reference_replay);
+  ASSERT_EQ(confirmed.event.receipts.size(), 1U);
+  EXPECT_FALSE(confirmed.event.batch_replay);
+  EXPECT_EQ(reopened.references("run-1").size(), 2U);
+  EXPECT_TRUE(reopened.integrity_check().ok());
+  EXPECT_TRUE(
+      reopened.record_published_file_evidence(request).event.batch_replay);
+  EXPECT_EQ(reopened.references("run-1").size(), 2U);
+}
+
+TEST(ImageOutputEvidenceTest, EvidenceRetryRejectsRelationshipConflicts) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  ASSERT_EQ(ticket.disposition, ImageSinkDisposition::queued);
+  const auto published = ticket.completion.get();
+  sink.close();
+  auto request = evidence_request(published);
+  const auto first = store.record_published_file_evidence(request);
+  EXPECT_FALSE(first.reference_replay);
+  ASSERT_EQ(first.event.receipts.size(), 1U);
+  ASSERT_TRUE(std::filesystem::remove(published.path));
+  request.path.reset();
+
+  request.descriptor.logical_name = "different.png";
+  EXPECT_THROW(store.record_published_file_evidence(request), InvalidArgument);
+  request.descriptor.logical_name = "preview.png";
+  request.expected_digest.hex[0] =
+      request.expected_digest.hex[0] == '0' ? '1' : '0';
+  EXPECT_THROW(store.record_published_file_evidence(request), InvalidArgument);
+  std::stop_source stopped;
+  stopped.request_stop();
+  EXPECT_THROW(
+      store.find_reference("run-1", request.reference_id, stopped.get_token()),
+      Cancelled);
+  EXPECT_EQ(store.references("run-1").size(), 2U);
+  EXPECT_EQ(store.events("run-1").events.size(), 1U);
+}
+
+TEST(ImageOutputEvidenceTest, EventReferenceQuotaCanRecoverAfterRestart) {
+  OutputDirectory directory;
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  ASSERT_EQ(ticket.disposition, ImageSinkDisposition::queued);
+  const auto published = ticket.completion.get();
+  sink.close();
+  auto request = evidence_request(published);
+  SQLiteRunStoreOptions limited_options;
+  limited_options.max_references_per_run = 1U;
+  {
+    SQLiteRunStore limited(directory.path / "store", limited_options);
+    limited.start(run());
+    EXPECT_THROW(limited.record_published_file_evidence(request),
+                 ResourceExhausted);
+    EXPECT_TRUE(limited.find_reference("run-1", request.reference_id));
+    EXPECT_TRUE(limited.events("run-1").events.empty());
+  }
+  ASSERT_TRUE(std::filesystem::remove(published.path));
+  request.path.reset();
+  SQLiteRunStore reopened(directory.path / "store");
+  const auto recovered = reopened.record_published_file_evidence(request);
+  EXPECT_TRUE(recovered.reference_replay);
+  ASSERT_EQ(recovered.event.receipts.size(), 1U);
+  EXPECT_EQ(reopened.references("run-1").size(), 2U);
 }
 
 }  // namespace

@@ -726,6 +726,13 @@ constexpr const char* kSelectReferences =
     "FROM jyppx_run_artifacts r JOIN jyppx_blobs b ON b.digest = r.digest "
     "WHERE r.run_id = ?1 ORDER BY r.reference_id";
 
+constexpr const char* kSelectReference =
+    "SELECT r.reference_id, r.kind, r.role, b.algorithm, b.digest, "
+    "b.size_bytes, "
+    "r.logical_name, r.media_type, r.producer, r.attached_at_ms "
+    "FROM jyppx_run_artifacts r JOIN jyppx_blobs b ON b.digest = r.digest "
+    "WHERE r.run_id = ?1 AND r.reference_id = ?2";
+
 }  // namespace
 
 class SQLiteRunStore::Impl final {
@@ -982,30 +989,45 @@ class SQLiteRunStore::Impl final {
         exhausted("run.references", "bounded stored reference count",
                   "too many references");
       }
-      const auto& limits = options_.artifact_limits;
-      const auto kind = statement.integer(1);
-      const auto algorithm = statement.integer(3);
-      if ((kind != 1U && kind != 2U) || algorithm != 1U) {
-        corrupt("run.references",
-                "unknown persisted artifact kind or digest algorithm");
-      }
-      RunArtifactReference reference{
-          .reference_id = statement.text(0, options_.max_reference_id_bytes),
-          .kind = static_cast<RunArtifactKind>(kind),
-          .role = statement.text(2, options_.max_role_bytes),
-          .artifact =
-              {.digest = {.algorithm =
-                              static_cast<ArtifactDigestAlgorithm>(algorithm),
-                          .hex = statement.text(4, 64U)},
-               .size_bytes = statement.integer(5),
-               .logical_name = statement.text(6, limits.max_logical_name_bytes),
-               .media_type = statement.text(7, limits.max_media_type_bytes),
-               .producer = statement.text(8, limits.max_producer_bytes)},
-          .attached_at_unix_ms = statement.integer(9)};
-      validate_reference(reference);
-      result.push_back(std::move(reference));
+      result.push_back(read_reference(statement));
     }
     return result;
+  }
+
+  std::optional<RunArtifactReference> find_reference_unlocked(
+      std::string_view run_id, std::string_view reference_id,
+      const OperationControl* control = nullptr) const {
+    Statement statement(database_, kSelectReference, "run.find_reference",
+                        control);
+    statement.bind(1, run_id);
+    statement.bind(2, reference_id);
+    if (!statement.row()) return std::nullopt;
+    return read_reference(statement);
+  }
+
+  RunArtifactReference read_reference(Statement& statement) const {
+    const auto& limits = options_.artifact_limits;
+    const auto kind = statement.integer(1);
+    const auto algorithm = statement.integer(3);
+    if ((kind != 1U && kind != 2U) || algorithm != 1U) {
+      corrupt("run.references",
+              "unknown persisted artifact kind or digest algorithm");
+    }
+    RunArtifactReference reference{
+        .reference_id = statement.text(0, options_.max_reference_id_bytes),
+        .kind = static_cast<RunArtifactKind>(kind),
+        .role = statement.text(2, options_.max_role_bytes),
+        .artifact =
+            {.digest = {.algorithm =
+                            static_cast<ArtifactDigestAlgorithm>(algorithm),
+                        .hex = statement.text(4, 64U)},
+             .size_bytes = statement.integer(5),
+             .logical_name = statement.text(6, limits.max_logical_name_bytes),
+             .media_type = statement.text(7, limits.max_media_type_bytes),
+             .producer = statement.text(8, limits.max_producer_bytes)},
+        .attached_at_unix_ms = statement.integer(9)};
+    validate_reference(reference);
+    return reference;
   }
 
   std::vector<ArtifactRef> live_blobs() const {
@@ -1357,6 +1379,64 @@ RunArtifactReference SQLiteRunStore::put_artifact_file(
   return reference;
 }
 
+PublishedFileEvidenceResult SQLiteRunStore::record_published_file_evidence(
+    const PublishedFileEvidenceRequest& request, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  check_telemetry_operation(stop, deadline);
+  validate_artifact_digest(request.expected_digest);
+  if (!request.descriptor.expected_size_bytes) {
+    invalid("published_file.descriptor.expected_size_bytes",
+            "the exact published byte count", "missing size");
+  }
+  const auto* payload =
+      std::get_if<TelemetryArtifactReference>(&request.event.payload);
+  if (!payload || payload->role.empty() ||
+      !payload->artifact.digest.hex.empty() ||
+      payload->artifact.size_bytes != 0U ||
+      !payload->artifact.logical_name.empty() ||
+      !payload->artifact.producer.empty() ||
+      payload->artifact.media_type != "application/octet-stream") {
+    invalid("published_file.event.payload",
+            "an artifact payload containing only its role",
+            "invalid event template");
+  }
+  auto existing =
+      find_reference(request.run_id, request.reference_id, stop, deadline);
+  PublishedFileEvidenceResult result;
+  result.reference_replay = existing.has_value();
+  if (existing) {
+    if (existing->kind != RunArtifactKind::artifact ||
+        existing->role != payload->role ||
+        existing->artifact.digest != request.expected_digest ||
+        existing->artifact.size_bytes !=
+            *request.descriptor.expected_size_bytes ||
+        existing->artifact.logical_name != request.descriptor.logical_name ||
+        existing->artifact.media_type != request.descriptor.media_type ||
+        existing->artifact.producer != request.descriptor.producer ||
+        existing->attached_at_unix_ms != request.attached_at_unix_ms) {
+      invalid("published_file.reference_id",
+              "the original immutable relationship", "identity conflict");
+    }
+    result.reference = std::move(*existing);
+  } else {
+    if (!request.path) {
+      invalid("published_file.path", "a path for first registration",
+              "missing source file");
+    }
+    result.reference = put_artifact_file(
+        request.run_id, request.reference_id, RunArtifactKind::artifact,
+        payload->role, *request.path, request.descriptor,
+        request.attached_at_unix_ms, request.expected_digest, stop, deadline);
+  }
+  auto event = request.event;
+  event.payload = TelemetryArtifactReference{
+      .role = payload->role, .artifact = result.reference.artifact};
+  result.event =
+      append(request.run_id, request.event_batch_key,
+             std::span<const TelemetryEnvelope>(&event, 1U), stop, deadline);
+  return result;
+}
+
 std::optional<RunMetadata> SQLiteRunStore::find(std::string_view run_id) const {
   impl_->validate_run_id(run_id);
   std::lock_guard lock(impl_->mutex_);
@@ -1375,6 +1455,29 @@ std::vector<RunArtifactReference> SQLiteRunStore::references(
   auto result = impl_->references_unlocked(run_id);
   transaction.commit();
   return result;
+}
+
+std::optional<RunArtifactReference> SQLiteRunStore::find_reference(
+    std::string_view run_id, std::string_view reference_id,
+    std::stop_token stop, TelemetryDeadline deadline) const {
+  check_telemetry_operation(stop, deadline);
+  impl_->validate_run_id(run_id);
+  validate_text(reference_id, impl_->options_.max_reference_id_bytes,
+                "reference_id");
+  auto lock = event_lock(impl_->mutex_, stop, deadline);
+  OperationControl control(impl_->database_, impl_->options_.busy_timeout, stop,
+                           deadline);
+  try {
+    Transaction transaction(impl_->database_, false, &control);
+    (void)impl_->require_run(run_id);
+    auto result =
+        impl_->find_reference_unlocked(run_id, reference_id, &control);
+    transaction.commit();
+    return result;
+  } catch (...) {
+    control.check();
+    throw;
+  }
 }
 
 RunMetadata SQLiteRunStore::heartbeat(std::string_view run_id,

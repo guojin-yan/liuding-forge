@@ -108,6 +108,8 @@ metadata, not mutable alias pointers.
 `find` returns `std::nullopt` for a missing run. `references` requires an
 existing run and returns detached records in reference ID order.
 
+For a successfully published local output file, `record_published_file_evidence` accepts a stable run/reference ID, the file path, exact size and SHA-256, descriptor, attachment time, event batch key, and a telemetry envelope whose artifact payload contains only the role. It streams the file into CAS, attaches the run reference, then appends the completed artifact event. The two commits are separate: if the event fails, retain the same request identity and retry with `path` omitted. `find_reference(run_id, reference_id)` uses the run-local primary key to inspect the durable relationship without loading every reference or requiring the original file. A retry rejects changed digest, size, descriptor, role, kind, or attachment time; event retries still require the original stream, sequence, batch key, and envelope fields. The event creates a second run reference, so allow for both references and their linked bytes in the run quotas. Neither this API nor a successful CAS copy measures end-to-end training speed, RSS, or GPU memory.
+
 ## Durability and schema v2
 
 SQLite uses WAL, `synchronous=FULL`, foreign-key enforcement, a full-mutex connection, and a per-handle mutex. Different handles/processes writing the same database coordinate through `BEGIN IMMEDIATE`. The default busy timeout is five seconds; exhaustion reports `NotReady`, so callers can retry the same operation identity. The directory must permit creation of SQLite's WAL and shared-memory files and support WAL; this is a local store, with no network filesystem or remote-service guarantee.

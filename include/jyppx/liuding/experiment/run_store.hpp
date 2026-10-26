@@ -51,6 +51,26 @@ struct RunArtifactReference {
   std::uint64_t attached_at_unix_ms = 0;  ///< Relationship timestamp.
 };
 
+/** @brief One published file and its durable artifact observation. */
+struct PublishedFileEvidenceRequest {
+  std::string run_id;        ///< Existing run identity.
+  std::string reference_id;  ///< Stable run relationship identity.
+  std::optional<std::filesystem::path>
+      path;  ///< Required for first registration; optional on retry.
+  ArtifactDescriptor descriptor;  ///< Must include the exact published size.
+  std::uint64_t attached_at_unix_ms = 0U;  ///< Stable relationship timestamp.
+  ArtifactDigest expected_digest;  ///< Published file SHA-256 assertion.
+  std::string event_batch_key;     ///< Stable event batch identity.
+  TelemetryEnvelope event;  ///< Stable envelope with an artifact payload role.
+};
+
+/** @brief Both durable receipts from one recoverable evidence operation. */
+struct PublishedFileEvidenceResult {
+  RunArtifactReference reference;  ///< Confirmed file relationship.
+  RunEventAppendResult event;      ///< Accepted or replayed event receipt.
+  bool reference_replay = false;   ///< Existing relationship was reused.
+};
+
 /** @brief Bounds and durability options captured by one local run store. */
 struct SQLiteRunStoreOptions {
   std::chrono::milliseconds busy_timeout =
@@ -254,6 +274,18 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
       TelemetryDeadline deadline = std::nullopt);
 
   /**
+   * @brief Registers a published file and appends its artifact observation.
+   * @note Registration and event append are separate durable transactions. If
+   * append fails, retry the same request without `path`; the already-registered
+   * relationship is checked by ID without reading the original file. The event
+   * payload must be an artifact reference containing only its nonempty role.
+   * A successful event consumes a second run reference and its byte quota.
+   */
+  PublishedFileEvidenceResult record_published_file_evidence(
+      const PublishedFileEvidenceRequest& request, std::stop_token stop = {},
+      TelemetryDeadline deadline = std::nullopt);
+
+  /**
    * @brief Finds one run without changing it.
    * @param run_id Stable run identity to query.
    * @return Detached metadata, or no value when absent.
@@ -277,6 +309,12 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
    * @return Detached immutable relationships, possibly empty.
    */
   std::vector<RunArtifactReference> references(std::string_view run_id) const;
+
+  /** @brief Finds one relationship using its run-local primary key. */
+  std::optional<RunArtifactReference> find_reference(
+      std::string_view run_id, std::string_view reference_id,
+      std::stop_token stop = {},
+      TelemetryDeadline deadline = std::nullopt) const;
 
   /**
    * @brief Advances the activity timestamp of a running run.
