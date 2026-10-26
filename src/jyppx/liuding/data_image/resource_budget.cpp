@@ -134,40 +134,56 @@ ImageResourceBudget::ImageResourceBudget(ImageResourceBudgetLimits limits)
 
 ImageResourceBudget::~ImageResourceBudget() = default;
 
-ImageResourceLease ImageResourceBudget::reserve(ImageResourceKind kind,
-                                                std::uint64_t amount) {
+ImageResourceLease ImageResourceLease::reserve_related(
+    ImageResourceKind kind, std::uint64_t amount) const {
+  if (!active())
+    throw InvalidArgument(
+        "Cannot reserve from an inactive image resource lease",
+        ErrorDetails{.component = "data.image.resource_budget",
+                     .operation = "reserve.related"});
+  return Reserve(state_, kind, amount);
+}
+
+ImageResourceLease ImageResourceLease::Reserve(
+    const std::shared_ptr<resource_detail::ImageResourceBudgetState>& state,
+    ImageResourceKind kind, std::uint64_t amount) {
   if (amount == 0) return {};
   const auto index = Index(kind);
-  if (index >= state_->limits.size()) {
-    throw InvalidArgument("Unknown image resource category",
-                          ErrorDetails{.component = "data.image.resource_budget",
-                                       .operation = "reserve.kind"});
+  if (index >= state->limits.size()) {
+    throw InvalidArgument(
+        "Unknown image resource category",
+        ErrorDetails{.component = "data.image.resource_budget",
+                     .operation = "reserve.kind"});
   }
 
   std::uint64_t current = 0;
   std::uint64_t limit = 0;
   {
-    std::scoped_lock lock(state_->mutex);
-    current = state_->current[index];
-    limit = state_->limits[index];
-    if (amount <= limit - std::min(current, limit) &&
-        current <= limit &&
+    std::scoped_lock lock(state->mutex);
+    current = state->current[index];
+    limit = state->limits[index];
+    if (amount <= limit - std::min(current, limit) && current <= limit &&
         amount <= std::numeric_limits<std::uint64_t>::max() - current) {
-      state_->current[index] = current + amount;
-      state_->peak[index] = std::max(state_->peak[index], current + amount);
-      return ImageResourceLease(state_, kind, amount);
+      state->current[index] = current + amount;
+      state->peak[index] = std::max(state->peak[index], current + amount);
+      return ImageResourceLease(state, kind, amount);
     }
   }
 
   throw ResourceExhausted(
       "Image aggregate resource budget exceeded",
-      ErrorDetails{.component = "data.image.resource_budget",
-                   .operation = "reserve." + std::string(KindName(kind)),
-                   .expected = std::to_string(limit),
-                   .actual = std::to_string(current) + "+" +
-                             std::to_string(amount),
-                   .hint =
-                       "Release an earlier stage lease or lower the batch/output size"});
+      ErrorDetails{
+          .component = "data.image.resource_budget",
+          .operation = "reserve." + std::string(KindName(kind)),
+          .expected = std::to_string(limit),
+          .actual = std::to_string(current) + "+" + std::to_string(amount),
+          .hint =
+              "Release an earlier stage lease or lower the batch/output size"});
+}
+
+ImageResourceLease ImageResourceBudget::reserve(ImageResourceKind kind,
+                                                std::uint64_t amount) {
+  return ImageResourceLease::Reserve(state_, kind, amount);
 }
 
 std::uint64_t ImageResourceBudget::limit(ImageResourceKind kind) const noexcept {

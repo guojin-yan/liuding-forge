@@ -92,8 +92,15 @@ class ImageResourceLease {
   /** @return Amount reserved by this lease. */
   [[nodiscard]] std::uint64_t amount() const noexcept { return amount_; }
 
+  /** @brief Reserves another resource against this lease's budget state. */
+  [[nodiscard]] ImageResourceLease reserve_related(ImageResourceKind kind,
+                                                   std::uint64_t amount) const;
+
  private:
   friend class ImageResourceBudget;
+  static ImageResourceLease Reserve(
+      const std::shared_ptr<resource_detail::ImageResourceBudgetState>& state,
+      ImageResourceKind kind, std::uint64_t amount);
   ImageResourceLease(
       std::shared_ptr<resource_detail::ImageResourceBudgetState> state,
       ImageResourceKind kind, std::uint64_t amount) noexcept;

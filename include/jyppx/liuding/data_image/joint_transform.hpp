@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stop_token>
@@ -99,6 +100,8 @@ struct JointTransformOptions {
   std::vector<std::vector<std::size_t>> vertical_keypoint_permutations;
   ///< Required for each applied flip axis when keypoints are present.
   JointTransformLimits limits;  ///< Checked before tensor allocation.
+  std::shared_ptr<ImageResourceBudget> resource_budget;
+  ///< Used for new tensors when the input has no retained resource lease.
 };
 
 /**
@@ -157,7 +160,8 @@ std::vector<ImageGeometryStep> sample_geometry(
     const SampleRandom& random);
 
 /**
- * @brief Hashes all random/joint options, including resource and pose policies.
+ * @brief Hashes random/joint semantics and local limits, excluding the runtime
+ * aggregate budget instance.
  * @param random Frozen sampler configuration.
  * @param joint Frozen execution configuration.
  * @return Versioned lowercase SHA-256 fingerprint for transform_id/factory ID.

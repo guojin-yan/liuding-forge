@@ -142,6 +142,71 @@ TEST(JointTransformTest, GridLabelsBoxesPoseAndTraceUseOneAnalyticGeometry) {
             9007199254740993LL);
 }
 
+TEST(JointTransformTest, OutputLeasesOutliveSourceWithoutRetainingItsCharge) {
+  auto budget = std::make_shared<ImageResourceBudget>();
+  auto sample = Grid();
+  sample.image_resource_leases = std::make_shared<ImageResourceLeaseSet>();
+  sample.image_resource_leases->push_back(
+      budget->reserve(ImageResourceKind::pixels, 12));
+  sample.image_resource_leases->push_back(
+      budget->reserve(ImageResourceKind::decoded_bytes, 12));
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::horizontal_flip}};
+  auto output = transform_sample(sample, steps);
+  EXPECT_NE(output.image_resource_leases, sample.image_resource_leases);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 36U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 24U);
+  sample = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 12U);
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+}
+
+TEST(JointTransformTest, TargetUsesItsOwnBudgetAndFailedStepRollsBack) {
+  auto image_budget = std::make_shared<ImageResourceBudget>();
+  ImageResourceBudgetLimits mask_limits;
+  mask_limits.max_decoded_bytes = 288;
+  auto mask_budget = std::make_shared<ImageResourceBudget>(mask_limits);
+  auto sample = Grid();
+  AddMask(sample);
+  sample.image_resource_leases = std::make_shared<ImageResourceLeaseSet>();
+  sample.image_resource_leases->push_back(
+      image_budget->reserve(ImageResourceKind::decoded_bytes, 12));
+  sample.mask_target->resource_leases =
+      std::make_shared<ImageResourceLeaseSet>();
+  sample.mask_target->resource_leases->push_back(
+      mask_budget->reserve(ImageResourceKind::decoded_bytes, 96));
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::horizontal_flip}};
+  auto output = transform_sample(sample, steps);
+  EXPECT_EQ(image_budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+  EXPECT_EQ(mask_budget->usage(ImageResourceKind::decoded_bytes).current, 192U);
+  output = {};
+  EXPECT_EQ(image_budget->usage(ImageResourceKind::decoded_bytes).current, 12U);
+  EXPECT_EQ(mask_budget->usage(ImageResourceKind::decoded_bytes).current, 96U);
+
+  ImageResourceBudgetLimits tight_limits;
+  tight_limits.max_decoded_bytes = 24;
+  auto tight_budget = std::make_shared<ImageResourceBudget>(tight_limits);
+  sample.image_resource_leases = std::make_shared<ImageResourceLeaseSet>();
+  sample.image_resource_leases->push_back(
+      tight_budget->reserve(ImageResourceKind::decoded_bytes, 12));
+  EXPECT_THROW(transform_sample(sample, steps), ResourceExhausted);
+  EXPECT_EQ(tight_budget->usage(ImageResourceKind::decoded_bytes).current, 12U);
+  EXPECT_EQ(tight_budget->usage(ImageResourceKind::pixels).current, 0U);
+  std::stop_source cancelled;
+  cancelled.request_stop();
+  EXPECT_THROW(transform_sample(sample, steps, {}, cancelled.get_token()),
+               Cancelled);
+  EXPECT_EQ(tight_budget->usage(ImageResourceKind::decoded_bytes).current, 12U);
+  sample = {};
+  EXPECT_EQ(tight_budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(mask_budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(image_budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+}
+
 TEST(JointTransformTest, BoxFilteringMeasuresFinalAreaAndOriginalVisibility) {
   auto sample = Grid();
   AddPose(sample);

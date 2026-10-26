@@ -680,6 +680,7 @@ ImageBatch transform_image_batch_geometry(
     if (device.is_cuda())
       static_cast<void>(joint_transform_identity({}, options.joint));
     JointTransformOptions joint = options.joint;
+    if (!joint.resource_budget) joint.resource_budget = options.resource_budget;
     BoundPerSampleOptions(joint, options.limits, count);
     CheckOutputPolicy(batch.layout, options);
 

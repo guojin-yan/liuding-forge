@@ -273,6 +273,49 @@ Tensor OwnPixels(const Tensor& input) {
   result.copy_(input);
   return result;
 }
+
+ImageResourceLease ReserveKind(
+    const std::shared_ptr<ImageResourceLeaseSet>& source,
+    const std::shared_ptr<ImageResourceBudget>& fallback,
+    ImageResourceKind kind, std::uint64_t amount) {
+  if (source)
+    for (const auto& lease : *source)
+      if (lease.active()) return lease.reserve_related(kind, amount);
+  return fallback ? fallback->reserve(kind, amount) : ImageResourceLease{};
+}
+
+std::shared_ptr<ImageResourceLeaseSet> ReservePixels(
+    const std::shared_ptr<ImageResourceLeaseSet>& source,
+    const std::shared_ptr<ImageResourceBudget>& fallback, ImageExtent extent,
+    std::uint64_t bytes_per_pixel) {
+  if (!fallback && (!source || std::none_of(source->begin(), source->end(),
+                                            [](const auto& lease) {
+                                              return lease.active();
+                                            })))
+    return {};
+  const auto pixels = static_cast<std::uint64_t>(extent.width) * extent.height;
+  auto leases = std::make_shared<ImageResourceLeaseSet>();
+  leases->push_back(
+      ReserveKind(source, fallback, ImageResourceKind::pixels, pixels));
+  leases->push_back(ReserveKind(source, fallback,
+                                ImageResourceKind::decoded_bytes,
+                                pixels * bytes_per_pixel));
+  return leases;
+}
+
+ImageResourceLease ReserveBilinearScratch(
+    const std::shared_ptr<ImageResourceLeaseSet>& source,
+    const std::shared_ptr<ImageResourceBudget>& fallback, ImageExtent before,
+    ImageExtent after, std::uint64_t channels) {
+  const auto pixels =
+      std::max(static_cast<std::uint64_t>(before.width) * before.height,
+               static_cast<std::uint64_t>(after.width) * after.height);
+  if (channels > std::numeric_limits<std::uint64_t>::max() / 32ULL ||
+      pixels > std::numeric_limits<std::uint64_t>::max() / (32ULL * channels))
+    Limit("transform.scratch_bytes");
+  return ReserveKind(source, fallback, ImageResourceKind::codec_scratch_bytes,
+                     pixels * 32ULL * channels);
+}
 }  // namespace
 
 Tensor detail::TransformDiscrete(const Tensor& input,
@@ -379,27 +422,70 @@ VisionSample transform_sample(const VisionSample& sample,
     auto annotation_budget = detail::CheckJointAnnotations(
         sample, steps, canvases, options, local, stop);
     VisionSample result = sample;
+    result.image_resource_leases = ReservePixels(
+        sample.image_resource_leases, options.resource_budget, input,
+        static_cast<std::uint64_t>(sample.pixels.channels()) *
+            sample.image.element_size());
     result.image = OwnPixels(sample.image);
-    if (sample.paired_target)
+    if (sample.paired_target) {
+      result.paired_target_resource_leases = ReservePixels(
+          sample.paired_target_resource_leases, options.resource_budget, input,
+          static_cast<std::uint64_t>(sample.paired_target_pixels->channels()) *
+              sample.paired_target->element_size());
       result.paired_target = OwnPixels(*sample.paired_target);
-    if (sample.mask_target)
+    }
+    if (sample.mask_target) {
+      result.mask_target->resource_leases =
+          ReservePixels(sample.mask_target->resource_leases,
+                        options.resource_budget, input, 8);
       result.mask_target->ids = OwnPixels(sample.mask_target->ids);
+    }
     auto before = input;
     auto progress = GeometryTrace(input);
     for (const auto& step : steps) {
       CheckStop(stop);
       progress = Append(progress, step);
       const auto after = progress.output_extent();
+      auto next_image_leases = ReservePixels(
+          result.image_resource_leases, options.resource_budget, after,
+          static_cast<std::uint64_t>(result.pixels.channels()) *
+              result.image.element_size());
+      ImageResourceLease image_scratch;
+      if (step.kind == ImageGeometryKind::resize &&
+          options.interpolation == ImageInterpolation::bilinear)
+        image_scratch = ReserveBilinearScratch(result.image_resource_leases,
+                                               options.resource_budget, before,
+                                               after, result.pixels.channels());
       result.image = PhotoStep(result.image, result.pixels, before, after, step,
                                options, options.image_padding, stop);
-      if (result.paired_target)
+      result.image_resource_leases = std::move(next_image_leases);
+      if (result.paired_target) {
+        auto next_paired_leases =
+            ReservePixels(result.paired_target_resource_leases,
+                          options.resource_budget, after,
+                          static_cast<std::uint64_t>(
+                              result.paired_target_pixels->channels()) *
+                              result.paired_target->element_size());
+        ImageResourceLease paired_scratch;
+        if (step.kind == ImageGeometryKind::resize &&
+            options.interpolation == ImageInterpolation::bilinear)
+          paired_scratch = ReserveBilinearScratch(
+              result.paired_target_resource_leases, options.resource_budget,
+              before, after, result.paired_target_pixels->channels());
         result.paired_target = PhotoStep(
             *result.paired_target, *result.paired_target_pixels, before, after,
             step, options, options.paired_padding, stop);
-      if (result.mask_target)
+        result.paired_target_resource_leases = std::move(next_paired_leases);
+      }
+      if (result.mask_target) {
+        auto next_mask_leases =
+            ReservePixels(result.mask_target->resource_leases,
+                          options.resource_budget, after, 8);
         result.mask_target->ids = CopyStep(
             result.mask_target->ids, ImageLayout::chw, true, before, after,
             step, c10::Scalar(options.mask_padding_id.value_or(0)), stop);
+        result.mask_target->resource_leases = std::move(next_mask_leases);
+      }
       before = after;
     }
     result.width = before.width;
