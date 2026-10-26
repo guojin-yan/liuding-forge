@@ -473,14 +473,15 @@ Tensor CudaNearestResize(const Tensor& input, bool mask, ImageExtent before,
            static_cast<std::int64_t>(before.height) +
        static_cast<std::int64_t>(before.height / 2U))
           .floor_divide(static_cast<std::int64_t>(after.height));
-  // Advanced indexing keeps the gather on the caller's CUDA stream and also
-  // supports the int64 mask path without converting IDs through floating
-  // point. The unsqueezed indices form an explicit HxW grid.
-  if (mask)
-    return input.index({y.unsqueeze(1), x.unsqueeze(0)}).contiguous();
-  return input.index({torch::indexing::Slice(), y.unsqueeze(1),
-                      x.unsqueeze(0)})
-      .contiguous();
+  // The smaller first gather avoids materializing a broadcast HxW index grid.
+  const bool rows_first =
+      static_cast<std::uint64_t>(after.height) * before.width <=
+      static_cast<std::uint64_t>(after.width) * before.height;
+  const auto row_dim = mask ? 0 : 1;
+  const auto column_dim = mask ? 1 : 2;
+  if (rows_first)
+    return input.index_select(row_dim, y).index_select(column_dim, x);
+  return input.index_select(column_dim, x).index_select(row_dim, y);
 }
 
 Tensor CudaCopyStep(const Tensor& input, bool mask, ImageExtent before,
@@ -690,6 +691,7 @@ ImageBatch transform_image_batch_geometry(
     output_extents.reserve(count);
     ImageExtent largest{0, 0};
     std::uint64_t max_intermediate_bytes = 0;
+    std::uint64_t cuda_index_bytes = 0;
     for (std::size_t i = 0; i < count; ++i) {
       Stop(stop);
       const auto image = PhotoAt(batch, i);
@@ -704,6 +706,7 @@ ImageBatch transform_image_batch_geometry(
         trace = trace.cropped(0, 0, item.valid_extent);
       std::uint64_t maximum =
           static_cast<std::uint64_t>(canvas.width) * canvas.height;
+      std::uint64_t sample_index_bytes = 0;
       for (const auto& step : sample_steps[i]) {
         Stop(stop);
         trace = Append(trace, step);
@@ -719,6 +722,15 @@ ImageBatch transform_image_batch_geometry(
             pixels > options.limits.max_pixels)
           BatchLimit("batch_geometry.sample_pixels");
         maximum = std::max(maximum, pixels);
+        if (device.is_cuda() && step.kind == ImageGeometryKind::resize &&
+            (joint.interpolation == ImageInterpolation::nearest_exact ||
+             item.mask)) {
+          const auto axes = Add(extent.width, extent.height,
+                                "batch_geometry.cuda_index_bytes");
+          sample_index_bytes = std::max(
+              sample_index_bytes, Multiply(axes, 4U * sizeof(std::int64_t),
+                                           "batch_geometry.cuda_index_bytes"));
+        }
       }
       if (batch.layout != ImageBatchLayout::ragged && i > 0 &&
           batch.layout == ImageBatchLayout::stack &&
@@ -751,6 +763,8 @@ ImageBatch transform_image_batch_geometry(
           max_intermediate_bytes,
           Multiply(maximum, working_per_pixel, "batch_geometry.working_bytes"),
           "batch_geometry.working_bytes");
+      cuda_index_bytes = Add(cuda_index_bytes, sample_index_bytes,
+                             "batch_geometry.cuda_index_bytes");
     }
 
     ImageExtent output_canvas = largest;
@@ -812,11 +826,19 @@ ImageBatch transform_image_batch_geometry(
       BatchLimit("batch_geometry.output_bytes");
     const auto source_metadata = detail::CheckBatchMetadata(
         batch, input_canvases, options.limits, false, stop);
+    const auto cuda_pixel_working_bytes =
+        device.is_cuda()
+            ? Add(Add(max_intermediate_bytes, output_bytes,
+                      "batch_geometry.cuda_pixel_working"),
+                  cuda_index_bytes, "batch_geometry.cuda_pixel_working")
+            : 0;
     auto working =
         Add(Add(max_intermediate_bytes, output_bytes,
                 "batch_geometry.working_bytes"),
             Multiply(source_metadata, 2, "batch_geometry.working_bytes"),
             "batch_geometry.working_bytes");
+    if (device.is_cuda())
+      working = Add(working, cuda_index_bytes, "batch_geometry.working_bytes");
     if (device.is_cuda()) {
       for (std::size_t i = 0; i < count; ++i) {
         if (!IsPanoptic(batch.items[i])) continue;
@@ -848,10 +870,13 @@ ImageBatch transform_image_batch_geometry(
 
     if (device.is_cuda()) {
       std::shared_ptr<ImageResourceLeaseSet> output_gpu_lease;
+      ImageResourceLease pixel_working_lease;
       if (options.resource_budget) {
         output_gpu_lease = std::make_shared<ImageResourceLeaseSet>();
         output_gpu_lease->push_back(options.resource_budget->reserve(
             ImageResourceKind::gpu_bytes, output_bytes));
+        pixel_working_lease = options.resource_budget->reserve(
+            ImageResourceKind::gpu_bytes, cuda_pixel_working_bytes);
       }
       ImageBatch result;
       if (output_gpu_lease)

@@ -357,12 +357,24 @@ TEST(ImageBatchGeometryTest, CudaOutputGpuBudgetPrecedesAllocation) {
     EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 0U);
     EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
 
-    limits.max_gpu_bytes = output_bytes;
+    const auto maximum_pixels = layout == ImageBatchLayout::pad ? 9U : 4U;
+    const auto working_bytes = 2U * maximum_pixels * 9U + output_bytes;
+    limits.max_gpu_bytes = output_bytes + working_bytes - 1;
+    budget = std::make_shared<ImageResourceBudget>(limits);
+    options.resource_budget = budget;
+    EXPECT_THROW(transform_image_batch_geometry(input, steps, options),
+                 ResourceExhausted);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, output_bytes);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+
+    limits.max_gpu_bytes = output_bytes + working_bytes;
     budget = std::make_shared<ImageResourceBudget>(limits);
     options.resource_budget = budget;
     auto result = transform_image_batch_geometry(input, steps, options);
     EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current,
               output_bytes);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak,
+              output_bytes + working_bytes);
     EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
     if (layout == ImageBatchLayout::ragged) {
       ASSERT_EQ(result.mask_list.size(), 1U);
@@ -380,6 +392,51 @@ TEST(ImageBatchGeometryTest, CudaOutputGpuBudgetPrecedesAllocation) {
     options.resource_budget = budget;
     EXPECT_THROW(transform_image_batch_geometry(input, steps, options),
                  ResourceExhausted);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+  }
+}
+
+TEST(ImageBatchGeometryTest, CudaNearestResizeUsesBoundedAxisIndexes) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  for (const auto before : {ImageExtent{31, 2}, ImageExtent{2, 31}}) {
+    auto sample = Photo(before.width, before.height, 1);
+    sample.mask_target = Mask(sample, 9007199254740993LL);
+    const auto cpu = collate_images(std::array{sample},
+                                    std::array{ImageBatchKey{"cuda-nearest"}});
+    const auto cuda = ToCuda(cpu);
+    const ImageExtent after =
+        before.width > before.height ? ImageExtent{2, 29} : ImageExtent{29, 2};
+    const std::vector<std::vector<ImageGeometryStep>> steps{{
+        {.kind = ImageGeometryKind::resize, .extent = after},
+    }};
+    const auto expected = transform_image_batch_geometry(cpu, steps);
+    const auto output_bytes =
+        static_cast<std::uint64_t>(after.width) * after.height * 10U;
+    const auto index_bytes =
+        static_cast<std::uint64_t>(after.width + after.height) * 32U;
+    const auto working_bytes = 62U * 18U + output_bytes + index_bytes;
+    ImageResourceBudgetLimits limits;
+    limits.max_gpu_bytes = output_bytes + working_bytes - 1;
+    auto budget = std::make_shared<ImageResourceBudget>(limits);
+    ImageBatchGeometryOptions options;
+    options.resource_budget = budget;
+    EXPECT_THROW(transform_image_batch_geometry(cuda, steps, options),
+                 ResourceExhausted);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, output_bytes);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+
+    limits.max_gpu_bytes = output_bytes + working_bytes;
+    budget = std::make_shared<ImageResourceBudget>(limits);
+    options.resource_budget = budget;
+    auto result = transform_image_batch_geometry(cuda, steps, options);
+    EXPECT_TRUE(torch::equal(result.images.cpu(), expected.images));
+    ASSERT_TRUE(result.masks);
+    EXPECT_TRUE(torch::equal(result.masks->cpu(), *expected.masks));
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current,
+              output_bytes);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak,
+              output_bytes + working_bytes);
+    result = {};
     EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
   }
 }
