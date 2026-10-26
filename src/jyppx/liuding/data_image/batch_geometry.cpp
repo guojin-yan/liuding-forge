@@ -333,10 +333,15 @@ CudaPanopticResult MapCudaPanoptic(const ImageBatch& batch, std::size_t index,
       Add(Multiply(Add(source_pixels, output_pixels,
                        "batch_geometry.cuda_panoptic_working"),
                    64U, "batch_geometry.cuda_panoptic_working"),
-          summary_bytes, "batch_geometry.cuda_panoptic_working");
+          Multiply(summary_bytes, 2U, "batch_geometry.cuda_panoptic_working"),
+          "batch_geometry.cuda_panoptic_working");
   if (reduction_bytes > options.limits.max_working_bytes ||
       summary_bytes > std::numeric_limits<std::size_t>::max())
     BatchLimit("batch_geometry.cuda_panoptic_summary");
+  ImageResourceLease reduction_lease;
+  if (options.resource_budget)
+    reduction_lease = options.resource_budget->reserve(
+        ImageResourceKind::gpu_bytes, reduction_bytes);
 
   const auto coordinates = source_mask.options().dtype(torch::kInt64);
   const auto source_x =
@@ -453,8 +458,7 @@ CudaPanopticResult MapCudaPanoptic(const ImageBatch& batch, std::size_t index,
     Stop(stop);
     keep.logical_or_(output_mask.eq(id));
   }
-  auto filtered =
-      torch::where(keep, output_mask, torch::full_like(output_mask, void_id));
+  auto filtered = output_mask.masked_fill(keep.logical_not(), void_id);
   return {record, std::move(filtered)};
 }
 
@@ -856,13 +860,14 @@ ImageBatch transform_image_batch_geometry(
                                   11U, "batch_geometry.cuda_panoptic_working"),
                          2U, "batch_geometry.cuda_panoptic_working"),
                      sizeof(double), "batch_geometry.cuda_panoptic_working");
-        working =
-            Add(working,
-                Add(Multiply(Add(source_pixels, destination_pixels,
-                                 "batch_geometry.cuda_panoptic_working"),
-                             64U, "batch_geometry.cuda_panoptic_working"),
-                    summary_bytes, "batch_geometry.cuda_panoptic_working"),
-                "batch_geometry.cuda_panoptic_working");
+        const auto panoptic_working = Add(
+            Multiply(Add(source_pixels, destination_pixels,
+                         "batch_geometry.cuda_panoptic_working"),
+                     64U, "batch_geometry.cuda_panoptic_working"),
+            Multiply(summary_bytes, 2U, "batch_geometry.cuda_panoptic_working"),
+            "batch_geometry.cuda_panoptic_working");
+        working = Add(working, panoptic_working,
+                      "batch_geometry.cuda_panoptic_working");
       }
     }
     if (working > options.limits.max_working_bytes)

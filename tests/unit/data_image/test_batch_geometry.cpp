@@ -640,6 +640,26 @@ TEST(ImageBatchGeometryTest, CudaPanopticRequiresExplicitSummaryTransfer) {
   ASSERT_TRUE(result.items[0].annotation);
   ASSERT_EQ(result.items[0].annotation->objects.size(), 1U);
   EXPECT_EQ(result.items[0].annotation->objects[0].mask_pixel_area, 2U);
+
+  ImageResourceBudgetLimits limits;
+  limits.max_gpu_bytes = 871;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps, options),
+               ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 152U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+
+  limits.max_gpu_bytes = 872;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  auto bounded = transform_image_batch_geometry(cuda_batch, steps, options);
+  ASSERT_TRUE(bounded.masks);
+  EXPECT_TRUE(torch::equal(bounded.masks->cpu(), *expected.masks));
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 872U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 40U);
+  bounded = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
 }
 
 TEST(ImageBatchGeometryTest, CudaPanopticMatchesCpuAndValidatesBinding) {
@@ -687,6 +707,8 @@ TEST(ImageBatchGeometryTest, CudaPanopticMatchesCpuAndValidatesBinding) {
   options.joint.min_region_visibility = 0.6;
   options.output_padded_extent = ImageExtent{5, 5};
   const auto expected = transform_image_batch_geometry(cpu, steps, options);
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
   const auto stream = c10::cuda::getStreamFromPool(false, 0);
   c10::cuda::CUDAStreamGuard guard(stream);
   const auto result =
@@ -695,6 +717,8 @@ TEST(ImageBatchGeometryTest, CudaPanopticMatchesCpuAndValidatesBinding) {
   ASSERT_TRUE(result.masks);
   EXPECT_TRUE(result.masks->device().is_cuda());
   EXPECT_TRUE(torch::equal(result.masks->cpu(), *expected.masks));
+  EXPECT_GT(budget->usage(ImageResourceKind::gpu_bytes).peak,
+            budget->usage(ImageResourceKind::gpu_bytes).current);
   EXPECT_TRUE(torch::equal(cuda_batch.masks->cpu(), *cpu.masks));
   ASSERT_TRUE(result.items[0].annotation);
   ASSERT_TRUE(expected.items[0].annotation);
