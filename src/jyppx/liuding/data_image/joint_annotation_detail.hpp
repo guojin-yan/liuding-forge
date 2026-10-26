@@ -38,10 +38,16 @@ void MapJointAnnotations(const VisionSample& source, VisionSample& output,
                          const GeometryTrace& local,
                          JointAnnotationState& budget, std::stop_token stop);
 
-Tensor TransformDiscrete(const Tensor& input,
-                         std::span<const ImageGeometryStep> steps,
-                         std::span<const ImageExtent> extents,
-                         std::int64_t fill, std::stop_token stop);
+struct BudgetedDiscreteRaster {
+  Tensor pixels;
+  ImageResourceLease lease;
+};
+
+BudgetedDiscreteRaster TransformDiscrete(
+    BudgetedDiscreteRaster raster, std::span<const ImageGeometryStep> steps,
+    std::span<const ImageExtent> extents, std::int64_t fill,
+    const std::shared_ptr<ImageResourceBudget>& resource_budget,
+    std::stop_token stop);
 
 }  // namespace jyppx::liuding::data::image::detail
 

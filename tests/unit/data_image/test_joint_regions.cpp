@@ -271,6 +271,40 @@ TEST(JointRegionTest, RleResizesSequentiallyAndCountsActualPixels) {
             (std::vector<std::uint64_t>{1, 1, 1}));
 }
 
+TEST(JointRegionTest, RleRasterBudgetPrecedesAllocationAndReleasesOnFailure) {
+  auto sample = Sample(3, 1);
+  auto record = Record(sample);
+  record->objects.push_back({.rle = Encode(3, 1, {0, 1, 0})});
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::resize, .extent = {6, 1}}};
+  JointTransformOptions options;
+  ImageResourceBudgetLimits limits;
+
+  limits.max_annotation_bytes = 2;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  limits.max_annotation_bytes = 8;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 3U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  limits.max_annotation_bytes = 9;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  const auto result = transform_sample(sample, steps, options);
+  ASSERT_EQ(result.annotation->objects.size(), 1U);
+  EXPECT_EQ(Decode(*result.annotation->objects[0].rle),
+            (std::vector<int>{0, 0, 1, 1, 0, 0}));
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 9U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
 TEST(JointRegionTest, RleCropPadFlipMatchesIndependentRasterAndRebinds) {
   auto sample = Sample(3, 2);
   auto record = Record(sample);

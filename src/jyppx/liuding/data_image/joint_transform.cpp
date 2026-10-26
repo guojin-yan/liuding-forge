@@ -318,15 +318,24 @@ ImageResourceLease ReserveBilinearScratch(
 }
 }  // namespace
 
-Tensor detail::TransformDiscrete(const Tensor& input,
-                                 std::span<const ImageGeometryStep> steps,
-                                 std::span<const ImageExtent> extents,
-                                 std::int64_t fill, std::stop_token stop) {
-  auto result = OwnPixels(input);
-  for (std::size_t i = 0; i < steps.size(); ++i)
-    result = CopyStep(result, ImageLayout::chw, true, extents[i],
-                      extents[i + 1], steps[i], c10::Scalar(fill), stop);
-  return result;
+detail::BudgetedDiscreteRaster detail::TransformDiscrete(
+    BudgetedDiscreteRaster raster, std::span<const ImageGeometryStep> steps,
+    std::span<const ImageExtent> extents, std::int64_t fill,
+    const std::shared_ptr<ImageResourceBudget>& resource_budget,
+    std::stop_token stop) {
+  for (std::size_t i = 0; i < steps.size(); ++i) {
+    ImageResourceLease next_lease;
+    if (resource_budget)
+      next_lease = resource_budget->reserve(
+          ImageResourceKind::annotation_bytes,
+          static_cast<std::uint64_t>(extents[i + 1].width) *
+              extents[i + 1].height);
+    auto next = CopyStep(raster.pixels, ImageLayout::chw, true, extents[i],
+                         extents[i + 1], steps[i], c10::Scalar(fill), stop);
+    raster.pixels = std::move(next);
+    raster.lease = std::move(next_lease);
+  }
+  return raster;
 }
 
 VisionSample transform_sample(const VisionSample& sample,

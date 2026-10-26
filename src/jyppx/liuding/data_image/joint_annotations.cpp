@@ -300,8 +300,13 @@ bool MapRle(VisionObject& object, std::span<const ImageGeometryStep> steps,
             const JointTransformOptions& options, const GeometryTrace& local,
             JointAnnotationState& budget, std::stop_token stop) {
   const auto& source = *object.rle;
-  auto binary = torch::empty({source.height, source.width}, torch::kUInt8);
-  auto* pixels = binary.data_ptr<std::uint8_t>();
+  BudgetedDiscreteRaster raster;
+  if (options.resource_budget)
+    raster.lease = options.resource_budget->reserve(
+        ImageResourceKind::annotation_bytes,
+        static_cast<std::uint64_t>(source.width) * source.height);
+  raster.pixels = torch::empty({source.height, source.width}, torch::kUInt8);
+  auto* pixels = raster.pixels.data_ptr<std::uint8_t>();
   std::uint64_t position = 0, foreground = 0;
   long double visible = 0;
   bool value = false;
@@ -320,8 +325,9 @@ bool MapRle(VisionObject& object, std::span<const ImageGeometryStep> steps,
   }
   if (!foreground || visible / foreground < options.min_region_visibility)
     return false;
-  const auto transformed = TransformDiscrete(binary, steps, extents, 0, stop);
-  const auto* data = transformed.const_data_ptr<std::uint8_t>();
+  const auto transformed = TransformDiscrete(std::move(raster), steps, extents,
+                                             0, options.resource_budget, stop);
+  const auto* data = transformed.pixels.const_data_ptr<std::uint8_t>();
   ImageMaskRle result;
   result.width = extents.back().width;
   result.height = extents.back().height;
