@@ -11,6 +11,9 @@
 #include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/liuding.hpp>
+#if defined(JYPPX_BENCH_MODELS)
+#include <jyppx/liuding/models/vision.hpp>
+#endif
 
 #include <array>
 #include <atomic>
@@ -33,6 +36,9 @@ namespace {
 namespace bench = jyppx::liuding::benchmarks;
 namespace data = jyppx::liuding::data;
 namespace image = jyppx::liuding::data::image;
+#if defined(JYPPX_BENCH_MODELS)
+namespace models = jyppx::liuding::models;
+#endif
 namespace nn = jyppx::liuding::nn;
 namespace optim = jyppx::liuding::optim;
 namespace training = jyppx::liuding::training;
@@ -46,6 +52,7 @@ struct Options {
   int threads = 1;
   std::size_t workers = 0;
   std::size_t prefetch_batches = 2;
+  std::string model = "linear64";
 };
 
 std::uint64_t positive_integer(std::string_view value, std::string_view name,
@@ -88,12 +95,20 @@ Options parse_options(int argc, char** argv) {
       }
     } else if (name == "--prefetch-batches") {
       options.prefetch_batches = positive_integer(value, name, 4);
+    } else if (name == "--model") {
+      if (value != "linear64" && value != "resnet18") {
+        throw std::invalid_argument("--model must be linear64 or resnet18");
+      }
+      options.model = value;
     } else {
       throw std::invalid_argument("unknown option: " + std::string(name));
     }
   }
   if (options.root.empty()) {
     throw std::invalid_argument("--image-root is required");
+  }
+  if (options.model == "resnet18" && options.image_size < 64) {
+    throw std::invalid_argument("--model resnet18 requires --image-size >= 64");
   }
   return options;
 }
@@ -251,10 +266,23 @@ bench::Json measure(const Options& options) {
       });
   auto pipeline = std::make_shared<TimedPipeline>(raw_pipeline);
 
-  auto holder = std::make_shared<Classifier>(options.image_size, classes);
-  auto model =
-      std::make_shared<nn::ModelAdapter>(nn::adapt_tensor_module(holder));
-  const auto initial_parameter = holder->parameters().front().detach().clone();
+  std::shared_ptr<nn::ModelAdapter> model;
+  if (options.model == "resnet18") {
+#if defined(JYPPX_BENCH_MODELS)
+    models::ResNetOptions model_options;
+    model_options.num_classes = static_cast<std::int64_t>(classes);
+    model = std::make_shared<nn::ModelAdapter>(
+        models::adapt(models::resnet18(model_options)));
+#else
+    throw std::invalid_argument(
+        "--model resnet18 requires the models component");
+#endif
+  } else {
+    auto holder = std::make_shared<Classifier>(options.image_size, classes);
+    model = std::make_shared<nn::ModelAdapter>(nn::adapt_tensor_module(holder));
+  }
+  const auto initial_parameter =
+      model->state().module().parameters().front().detach().clone();
   std::vector<optim::OptimizerParameterBinding> bindings;
   for (const auto& item : model->state().named_parameters()) {
     bindings.push_back({.parameter_id = item.key(), .parameter = item.value()});
@@ -321,9 +349,10 @@ bench::Json measure(const Options& options) {
                      result.global_step == expected_steps &&
                      observed_samples == expected_samples,
                  "Trainer did not complete the expected image workload");
-  bench::require(!torch::allclose(initial_parameter,
-                                  holder->parameters().front().detach()),
-                 "SGD did not change model parameters");
+  bench::require(
+      !torch::allclose(initial_parameter,
+                       model->state().module().parameters().front().detach()),
+      "SGD did not change model parameters");
   bench::require(fit_seconds > 0, "fit duration must be positive");
 
   const bench::Json descriptor = {
@@ -339,7 +368,8 @@ bench::Json measure(const Options& options) {
       {"prefetch_batches", options.prefetch_batches},
       {"image_decode", "rgb-float32-normalized"},
       {"resize", "bilinear-antialias"},
-      {"model", "flatten-linear64-relu-linear"},
+      {"model", options.model == "resnet18" ? "resnet18-random-init"
+                                            : "flatten-linear64-relu-linear"},
       {"optimizer", "sgd-lr0.01"}};
   const auto seconds = [](std::uint64_t ns) {
     return static_cast<double>(ns) / 1e9;

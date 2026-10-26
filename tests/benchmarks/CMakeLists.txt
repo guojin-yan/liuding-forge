@@ -22,6 +22,12 @@ if(TARGET jyppx::liuding::data_image)
         bench_image_training.cpp)
     target_link_libraries(jyppx_bench_image_training PRIVATE
         jyppx::liuding::sdk nlohmann_json::nlohmann_json)
+    if(TARGET jyppx::liuding::models)
+        target_link_libraries(jyppx_bench_image_training PRIVATE
+            jyppx::liuding::models)
+        target_compile_definitions(jyppx_bench_image_training PRIVATE
+            JYPPX_BENCH_MODELS=1)
+    endif()
 endif()
 if(WIN32)
     target_link_libraries(jyppx_bench_data_pipeline PRIVATE Psapi)

@@ -52,13 +52,15 @@ def git_output(source_root: Path, *args: str) -> str:
     ).strip()
 
 
-def run_sample(command: list[str]) -> dict:
+def run_sample(command: list[str], expected_model: str) -> dict:
     completed = subprocess.run(command, capture_output=True, text=True, check=True)
     result = json.loads(completed.stdout.strip())
     if result.get("kind") != "liuding-image-training-benchmark-sample":
         raise ValueError("benchmark returned an unexpected result kind")
     validation = result["validation"]
     workload = result["workload"]["descriptor"]
+    if workload["model"] != expected_model:
+        raise ValueError("benchmark reported a different model than requested")
     expected = workload["samples_per_epoch"] * workload["epochs"]
     if validation["observed_samples"] != expected or not validation["parameter_updated"]:
         raise ValueError("benchmark did not validate its training work")
@@ -94,6 +96,7 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--prefetch-batches", type=int, default=2)
+    parser.add_argument("--model", choices=("linear64", "resnet18"), default="linear64")
     args = parser.parse_args()
     source_root = Path(__file__).resolve().parents[2]
     binary = args.binary.resolve(strict=True)
@@ -109,16 +112,22 @@ def main() -> int:
         parser.error("batch size, image size, epochs and threads must be positive")
     if not 0 <= args.workers <= 16 or not 1 <= args.prefetch_batches <= 4:
         parser.error("workers must be 0..16 and prefetch batches must be 1..4")
+    if args.model == "resnet18" and args.image_size < 64:
+        parser.error("resnet18 requires image size >= 64")
 
     content_sha256, image_count, encoded_bytes = dataset_digest(root)
     command = [
         str(binary), "--image-root", str(root), "--batch-size", str(args.batch_size),
         "--image-size", str(args.image_size), "--epochs", str(args.epochs),
         "--threads", str(args.threads), "--workers", str(args.workers),
-        "--prefetch-batches", str(args.prefetch_batches),
+        "--prefetch-batches", str(args.prefetch_batches), "--model", args.model,
     ]
-    warmup = run_sample(command)
-    samples = [run_sample(command) for _ in range(5)]
+    expected_model = (
+        "resnet18-random-init" if args.model == "resnet18"
+        else "flatten-linear64-relu-linear"
+    )
+    warmup = run_sample(command, expected_model)
+    samples = [run_sample(command, expected_model) for _ in range(5)]
     final_sha256, final_count, final_bytes = dataset_digest(root)
     if (final_sha256, final_count, final_bytes) != (content_sha256, image_count, encoded_bytes):
         raise ValueError("dataset files changed during the benchmark run")
