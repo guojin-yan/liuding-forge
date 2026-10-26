@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <stop_token>
 #include <vector>
 
@@ -35,6 +36,7 @@ enum class ImageResourceKind : std::uint8_t {
   encoded_queue_bytes,
   disk_spool_bytes,
   pipeline_inflight_batches,
+  pipeline_inflight_bytes,
 };
 
 /** @brief Aggregate limits shared by cooperating image stages. */
@@ -52,6 +54,7 @@ struct ImageResourceBudgetLimits {
   std::uint64_t max_encoded_queue_bytes = 512ULL << 20U;
   std::uint64_t max_disk_spool_bytes = 4ULL << 30U;
   std::uint64_t max_pipeline_inflight_batches = 4;
+  std::uint64_t max_pipeline_inflight_bytes = 4ULL << 30U;
 };
 
 /** @brief Current and high-water usage for one resource kind. */
@@ -113,6 +116,15 @@ class ImageResourceLease {
   std::uint64_t amount_ = 0;
 };
 
+/** @brief One amount in an atomic multi-resource admission request. */
+struct ImageResourceRequest {
+  ImageResourceKind kind;
+  std::uint64_t amount;
+};
+
+/** @brief Shared lease collection retained by an image batch result. */
+using ImageResourceLeaseSet = std::vector<ImageResourceLease>;
+
 /**
  * @brief Thread-safe aggregate budget for image pipeline stages.
  *
@@ -150,6 +162,16 @@ class ImageResourceBudget {
                                                 std::uint64_t amount,
                                                 std::stop_token stop = {});
 
+  /**
+   * @brief Waits until all requested resources fit, then reserves them
+   * together.
+   * @note Duplicate kinds are summed; any amount above its limit fails before
+   * waiting. No partial reservation survives cancellation or an exception.
+   */
+  [[nodiscard]] ImageResourceLeaseSet reserve_wait_all(
+      std::span<const ImageResourceRequest> requests,
+      std::stop_token stop = {});
+
   /** @return Configured aggregate limit for one resource category. */
   [[nodiscard]] std::uint64_t limit(ImageResourceKind kind) const noexcept;
 
@@ -159,9 +181,6 @@ class ImageResourceBudget {
  private:
   std::shared_ptr<resource_detail::ImageResourceBudgetState> state_;
 };
-
-/** @brief Shared lease collection retained by an image batch result. */
-using ImageResourceLeaseSet = std::vector<ImageResourceLease>;
 
 }  // namespace jyppx::liuding::data::image
 

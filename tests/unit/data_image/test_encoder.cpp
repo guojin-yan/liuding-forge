@@ -179,6 +179,61 @@ TEST(ImageResourceBudgetTest, WaitingAdmissionWakesOnReleaseAndCancellation) {
       ResourceExhausted);
 }
 
+TEST(ImageResourceBudgetTest, ByteAndBatchAdmissionIsAtomicAndCancellable) {
+  ImageResourceBudgetLimits limits;
+  limits.max_pipeline_inflight_batches = 2;
+  limits.max_pipeline_inflight_bytes = 64;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  const std::array requests{
+      ImageResourceRequest{ImageResourceKind::pipeline_inflight_bytes, 64},
+      ImageResourceRequest{ImageResourceKind::pipeline_inflight_batches, 1}};
+  auto occupied =
+      budget->reserve(ImageResourceKind::pipeline_inflight_bytes, 64);
+  std::atomic<bool> acquired = false;
+  std::jthread waiter([&](std::stop_token stop) {
+    auto leases = budget->reserve_wait_all(requests, stop);
+    acquired.store(leases.size() == 2U);
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  EXPECT_FALSE(acquired.load());
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_batches).current,
+            0U);
+  occupied.release();
+  waiter.join();
+  EXPECT_TRUE(acquired.load());
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_bytes).peak,
+            64U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_bytes).current,
+            0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_batches).current,
+            0U);
+
+  occupied = budget->reserve(ImageResourceKind::pipeline_inflight_bytes, 64);
+  std::atomic<bool> cancelled = false;
+  std::jthread blocked([&](std::stop_token stop) {
+    try {
+      static_cast<void>(budget->reserve_wait_all(requests, stop));
+    } catch (const Cancelled&) {
+      cancelled.store(true);
+    }
+  });
+  blocked.request_stop();
+  blocked.join();
+  EXPECT_TRUE(cancelled.load());
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_batches).current,
+            0U);
+  std::stop_source stopped;
+  stopped.request_stop();
+  EXPECT_THROW(budget->reserve_wait_all(requests, stopped.get_token()),
+               Cancelled);
+  const std::array oversized{
+      ImageResourceRequest{ImageResourceKind::pipeline_inflight_bytes, 33},
+      ImageResourceRequest{ImageResourceKind::pipeline_inflight_bytes, 33}};
+  EXPECT_THROW(budget->reserve_wait_all(oversized), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_bytes).current,
+            64U);
+}
+
 TEST(ImageEncoderTest, AggregateBudgetRetainsEncodedLeaseUntilConsumption) {
   const auto image = torch::zeros({3, 4, 5}, torch::kUInt8);
   const auto reference = encode_image(image, RgbSpec(ImageLayout::chw));

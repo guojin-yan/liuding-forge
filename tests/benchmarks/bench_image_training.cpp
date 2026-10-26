@@ -228,9 +228,11 @@ bench::Json measure(const Options& options) {
         image::image_batch_schema(exemplar_batch, torch::kCPU);
   }
   pipeline_options.admission_factory =
-      image::make_image_batch_admission_factory(budget);
+      image::make_image_batch_byte_admission_factory(budget,
+                                                     collate_options.limits);
   pipeline_options.resource_lease_factory =
-      image::make_image_batch_resource_lease_factory(budget);
+      image::make_image_batch_resource_lease_factory(budget,
+                                                     collate_options.limits);
   auto raw_pipeline = std::make_shared<data::DataPipeline>(
       std::make_shared<data::samplers::SequentialSampler>(samples_per_epoch),
       pipeline_options,

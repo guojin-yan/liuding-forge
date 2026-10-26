@@ -10,6 +10,7 @@
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -649,6 +650,25 @@ data::BatchAdmissionFactory make_image_batch_admission_factory(
     auto lease = std::make_shared<ImageResourceLease>(budget->reserve_wait(
         ImageResourceKind::pipeline_inflight_batches, 1, stop));
     return std::static_pointer_cast<void>(std::move(lease));
+  };
+}
+
+data::BatchAdmissionFactory make_image_batch_byte_admission_factory(
+    std::shared_ptr<ImageResourceBudget> budget, ImageBatchLimits limits) {
+  if (limits.max_output_bytes == 0)
+    throw InvalidArgument(
+        "Image batch byte admission requires a nonzero output byte limit",
+        ErrorDetails{.component = "data.image.image_batch",
+                     .operation = "batch.byte_admission"});
+  return [budget = std::move(budget), limits](std::stop_token stop) {
+    if (!budget) return std::shared_ptr<void>{};
+    const std::array requests{
+        ImageResourceRequest{ImageResourceKind::pipeline_inflight_batches, 1},
+        ImageResourceRequest{ImageResourceKind::pipeline_inflight_bytes,
+                             limits.max_output_bytes}};
+    auto leases = std::make_shared<ImageResourceLeaseSet>(
+        budget->reserve_wait_all(requests, stop));
+    return std::static_pointer_cast<void>(std::move(leases));
   };
 }
 

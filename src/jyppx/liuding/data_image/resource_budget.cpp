@@ -21,7 +21,7 @@ namespace jyppx::liuding::data::image {
 namespace {
 
 constexpr std::size_t kKindCount =
-    static_cast<std::size_t>(ImageResourceKind::pipeline_inflight_batches) + 1U;
+    static_cast<std::size_t>(ImageResourceKind::pipeline_inflight_bytes) + 1U;
 
 std::size_t Index(ImageResourceKind kind) noexcept {
   return static_cast<std::size_t>(kind);
@@ -55,6 +55,8 @@ std::string_view KindName(ImageResourceKind kind) noexcept {
       return "disk_spool_bytes";
     case ImageResourceKind::pipeline_inflight_batches:
       return "pipeline_inflight_batches";
+    case ImageResourceKind::pipeline_inflight_bytes:
+      return "pipeline_inflight_bytes";
   }
   return "unknown";
 }
@@ -73,7 +75,8 @@ std::array<std::uint64_t, kKindCount> Limits(
           limits.max_render_queue,
           limits.max_encoded_queue_bytes,
           limits.max_disk_spool_bytes,
-          limits.max_pipeline_inflight_batches};
+          limits.max_pipeline_inflight_batches,
+          limits.max_pipeline_inflight_bytes};
 }
 
 }  // namespace
@@ -213,14 +216,75 @@ ImageResourceLease ImageResourceBudget::reserve_wait(ImageResourceKind kind,
                      .expected = std::to_string(limit),
                      .actual = std::to_string(amount)});
   }
+  if (stop.stop_requested())
+    throw Cancelled("Image resource admission cancelled");
   if (!state_->condition.wait(lock, stop, [&] {
         return amount <= limit - state_->current[index];
       })) {
     throw Cancelled("Image resource admission cancelled");
   }
+  if (stop.stop_requested())
+    throw Cancelled("Image resource admission cancelled");
   state_->current[index] += amount;
   state_->peak[index] = std::max(state_->peak[index], state_->current[index]);
   return ImageResourceLease(state_, kind, amount);
+}
+
+ImageResourceLeaseSet ImageResourceBudget::reserve_wait_all(
+    std::span<const ImageResourceRequest> requests, std::stop_token stop) {
+  std::array<std::uint64_t, kKindCount> amounts{};
+  for (const auto& request : requests) {
+    const auto index = Index(request.kind);
+    if (index >= amounts.size()) {
+      throw InvalidArgument(
+          "Unknown image resource category",
+          ErrorDetails{.component = "data.image.resource_budget",
+                       .operation = "reserve_wait_all.kind"});
+    }
+    if (request.amount >
+        std::numeric_limits<std::uint64_t>::max() - amounts[index]) {
+      throw ResourceExhausted("Image admission amount overflow");
+    }
+    amounts[index] += request.amount;
+  }
+  ImageResourceLeaseSet leases;
+  leases.reserve(static_cast<std::size_t>(
+      std::count_if(amounts.begin(), amounts.end(),
+                    [](std::uint64_t amount) { return amount != 0; })));
+  std::unique_lock lock(state_->mutex);
+  for (std::size_t index = 0; index < amounts.size(); ++index) {
+    if (amounts[index] > state_->limits[index]) {
+      throw ResourceExhausted(
+          "Image reservation exceeds aggregate resource limit",
+          ErrorDetails{.component = "data.image.resource_budget",
+                       .operation = "reserve_wait_all." +
+                                    std::string(KindName(
+                                        static_cast<ImageResourceKind>(index))),
+                       .expected = std::to_string(state_->limits[index]),
+                       .actual = std::to_string(amounts[index])});
+    }
+  }
+  if (stop.stop_requested())
+    throw Cancelled("Image resource admission cancelled");
+  if (!state_->condition.wait(lock, stop, [&] {
+        for (std::size_t index = 0; index < amounts.size(); ++index) {
+          if (amounts[index] > state_->limits[index] - state_->current[index])
+            return false;
+        }
+        return true;
+      })) {
+    throw Cancelled("Image resource admission cancelled");
+  }
+  if (stop.stop_requested())
+    throw Cancelled("Image resource admission cancelled");
+  for (std::size_t index = 0; index < amounts.size(); ++index) {
+    if (!amounts[index]) continue;
+    state_->current[index] += amounts[index];
+    state_->peak[index] = std::max(state_->peak[index], state_->current[index]);
+    leases.push_back(ImageResourceLease(
+        state_, static_cast<ImageResourceKind>(index), amounts[index]));
+  }
+  return leases;
 }
 
 std::uint64_t ImageResourceBudget::limit(ImageResourceKind kind) const noexcept {
