@@ -31,17 +31,14 @@ torch::nn::BatchNorm2d Norm(std::int64_t channels) {
       torch::nn::BatchNorm2dOptions(channels).eps(1e-3).momentum(0.1));
 }
 
-Tensor SamePad(const Tensor& input, std::int64_t kernel,
-               std::int64_t stride) {
+Tensor SamePad(const Tensor& input, std::int64_t kernel, std::int64_t stride) {
   if (stride == 1) return input;
   const auto pad_h = ((input.size(2) + stride - 1) / stride - 1) * stride +
                      kernel - input.size(2);
   const auto pad_w = ((input.size(3) + stride - 1) / stride - 1) * stride +
                      kernel - input.size(3);
-  return torch::constant_pad_nd(input,
-                                {pad_w / 2, pad_w - pad_w / 2, pad_h / 2,
-                                 pad_h - pad_h / 2},
-                                0);
+  return torch::constant_pad_nd(
+      input, {pad_w / 2, pad_w - pad_w / 2, pad_h / 2, pad_h - pad_h / 2}, 0);
 }
 
 class SqueezeExcite final : public torch::nn::Module {
@@ -83,8 +80,7 @@ class ConvBnAct final : public Block {
 
 class FusedMbConv final : public Block {
  public:
-  FusedMbConv(std::int64_t input, std::int64_t output,
-              std::int64_t stride)
+  FusedMbConv(std::int64_t input, std::int64_t output, std::int64_t stride)
       : skip_(stride == 1 && input == output), stride_(stride) {
     const auto expanded = input * 4;
     conv_exp_ = register_module("conv_exp", Conv(input, expanded, 3, stride));
@@ -113,12 +109,11 @@ class MbConv final : public Block {
     const auto expanded = input * expansion;
     conv_pw_ = register_module("conv_pw", Conv(input, expanded, 1));
     bn1_ = register_module("bn1", Norm(expanded));
-    conv_dw_ =
-        register_module("conv_dw", Conv(expanded, expanded, 3, stride,
-                                         expanded));
+    conv_dw_ = register_module("conv_dw",
+                               Conv(expanded, expanded, 3, stride, expanded));
     bn2_ = register_module("bn2", Norm(expanded));
-    se_ = register_module("se", std::make_shared<SqueezeExcite>(
-                                    expanded, input / 4));
+    se_ = register_module("se",
+                          std::make_shared<SqueezeExcite>(expanded, input / 4));
     conv_pwl_ = register_module("conv_pwl", Conv(expanded, output, 1));
     bn3_ = register_module("bn3", Norm(output));
   }
@@ -150,11 +145,11 @@ class Stage final : public torch::nn::Module {
       if (stem_stage)
         block = std::make_shared<ConvBnAct>(block_input);
       else if (fused_stage)
-        block = std::make_shared<FusedMbConv>(block_input, output,
-                                              block_stride);
+        block =
+            std::make_shared<FusedMbConv>(block_input, output, block_stride);
       else
         block = std::make_shared<MbConv>(block_input, output, expansion,
-                                        block_stride);
+                                         block_stride);
       blocks_.push_back(register_module(std::to_string(index), block));
     }
   }
@@ -172,8 +167,7 @@ class EfficientNetV2Blocks final : public torch::nn::Module {
  public:
   EfficientNetV2Blocks() {
     constexpr std::array<std::int64_t, 6> kCounts{2, 4, 4, 6, 9, 15};
-    constexpr std::array<std::int64_t, 6> kChannels{24, 48, 64, 128, 160,
-                                                    256};
+    constexpr std::array<std::int64_t, 6> kChannels{24, 48, 64, 128, 160, 256};
     constexpr std::array<std::int64_t, 6> kStride{1, 2, 2, 2, 1, 2};
     constexpr std::array<std::int64_t, 6> kExpansion{1, 4, 4, 4, 6, 6};
     std::int64_t input = 24;
@@ -181,8 +175,8 @@ class EfficientNetV2Blocks final : public torch::nn::Module {
       stages_[index] = register_module(
           std::to_string(index),
           std::make_shared<Stage>(input, kChannels[index], kCounts[index],
-                                  kStride[index], kExpansion[index],
-                                  index == 0, index == 1 || index == 2));
+                                  kStride[index], kExpansion[index], index == 0,
+                                  index == 1 || index == 2));
       input = kChannels[index];
     }
   }
@@ -207,15 +201,15 @@ EfficientNetV2Impl::EfficientNetV2Impl(EfficientNetV2Options options)
         options.input_channels <= 0 || options.input_channels > 1024)
       detail::Invalid("efficientnetv2.options",
                       "classes 1..1000000 and channels 1..1024");
-    conv_stem_ = register_module(
-        "conv_stem", Conv(options.input_channels, 24, 3, 2));
+    conv_stem_ =
+        register_module("conv_stem", Conv(options.input_channels, 24, 3, 2));
     bn1_ = register_module("bn1", Norm(24));
     blocks_ =
         register_module("blocks", std::make_shared<EfficientNetV2Blocks>());
     conv_head_ = register_module("conv_head", Conv(256, 1280, 1));
     bn2_ = register_module("bn2", Norm(1280));
-    classifier_ = register_module(
-        "classifier", torch::nn::Linear(1280, options.num_classes));
+    classifier_ = register_module("classifier",
+                                  torch::nn::Linear(1280, options.num_classes));
   });
 }
 

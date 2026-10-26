@@ -1351,8 +1351,7 @@ TEST(Models, TfEfficientNetV2SMatchesTimmShapeAndSamePaddingContracts) {
     }
     EXPECT_EQ(model->forward(image).sizes(), torch::IntArrayRef({1, 1000}));
   }
-  auto custom = tf_efficientnetv2_s(
-      {.num_classes = 3, .input_channels = 1});
+  auto custom = tf_efficientnetv2_s({.num_classes = 3, .input_channels = 1});
   custom->eval();
   EXPECT_EQ(custom->forward(torch::zeros({1, 1, 64, 64})).sizes(),
             torch::IntArrayRef({1, 3}));
@@ -1365,7 +1364,8 @@ TEST(Models, TfEfficientNetV2SSupportsBackwardAndOptimizerStep) {
   model->train();
   torch::optim::SGD optimizer(model->parameters(),
                               torch::optim::SGDOptions(1e-3));
-  const auto before = model->named_parameters(true)["classifier.weight"].clone();
+  const auto before =
+      model->named_parameters(true)["classifier.weight"].clone();
   optimizer.zero_grad();
   const auto logits = model->forward(torch::randn({2, 3, 64, 64}));
   ASSERT_EQ(logits.sizes(), torch::IntArrayRef({2, 3}));
@@ -1379,11 +1379,9 @@ TEST(Models, TfEfficientNetV2SSupportsBackwardAndOptimizerStep) {
     EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
   }
   optimizer.step();
-  EXPECT_GT((parameters["classifier.weight"] - before)
-                .abs()
-                .sum()
-                .item<double>(),
-            0.0);
+  EXPECT_GT(
+      (parameters["classifier.weight"] - before).abs().sum().item<double>(),
+      0.0);
 }
 
 TEST(Models, MobileNetVariantsRunAndRejectNonImageContract) {
@@ -1461,9 +1459,8 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   EXPECT_FALSE(records.front().artifact.has_value());
   EXPECT_EQ(records.front().license_spdx, "NOASSERTION");
   validate_weight_record(records.front());
-  for (const auto* name : {"densenet121", "efficientnet_b0",
-                           "efficientnet_b2", "tf_efficientnetv2_s",
-                           "mobilenetv2_100", "resnet34",
+  for (const auto* name : {"densenet121", "efficientnet_b0", "efficientnet_b2",
+                           "tf_efficientnetv2_s", "mobilenetv2_100", "resnet34",
                            "resnet101", "resnext50_32x4d"}) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
@@ -1927,19 +1924,18 @@ void CheckArchitectureReference(const char* architecture,
       stages = (*efficient_v2_model)->forward_features(image);
     else
       stages = (*efficient_model)->forward_features(image);
-    const auto mobile_stages =
-        mobile_v2_model != nullptr || efficient_model != nullptr ||
-        efficient_v2_model != nullptr;
+    const auto mobile_stages = mobile_v2_model != nullptr ||
+                               efficient_model != nullptr ||
+                               efficient_v2_model != nullptr;
     ASSERT_EQ(stages.size(), mobile_stages ? 5U : 4U) << prefix;
     for (std::size_t index = 0; index < stages.size(); ++index) {
       const std::array<std::size_t, 5> mobile_stage_indices{0, 1, 2, 4, 6};
       const std::array<std::size_t, 5> v2_stage_indices{0, 1, 2, 4, 5};
       const auto stage_name =
           mobile_stages
-              ? "blocks" +
-                    std::to_string(efficient_v2_model != nullptr
-                                       ? v2_stage_indices[index]
-                                       : mobile_stage_indices[index])
+              ? "blocks" + std::to_string(efficient_v2_model != nullptr
+                                              ? v2_stage_indices[index]
+                                              : mobile_stage_indices[index])
               : (dense_model == nullptr ? "layer" : "denseblock") +
                     std::to_string(index + 1);
       const auto expected_stage = ReferenceTensor(expected, stage_name);
@@ -2000,13 +1996,11 @@ TEST(ModelsPythonInterop, OfficialTimmEfficientNetB2ReferenceReallyRuns) {
                              "JYPPX_LIUDING_EFFICIENTNET_REFERENCE_DIR", nullptr,
                              nullptr, &model);
 }
-TEST(ModelsPythonInterop,
-     OfficialTimmTfEfficientNetV2SReferenceReallyRuns) {
+TEST(ModelsPythonInterop, OfficialTimmTfEfficientNetV2SReferenceReallyRuns) {
   auto model = tf_efficientnetv2_s();
-  CheckArchitectureReference(
-      "tf_efficientnetv2_s", nullptr,
-      "JYPPX_LIUDING_EFFICIENTNETV2_REFERENCE_DIR", nullptr, nullptr,
-      nullptr, &model);
+  CheckArchitectureReference("tf_efficientnetv2_s", nullptr,
+                             "JYPPX_LIUDING_EFFICIENTNETV2_REFERENCE_DIR",
+                             nullptr, nullptr, nullptr, &model);
 }
 TEST(ModelsPythonInterop,
      OfficialTorchvisionMobileNetV3SmallReferenceReallyRuns) {

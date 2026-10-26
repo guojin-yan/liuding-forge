@@ -144,9 +144,9 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
     return {std::move(record)};
   }
   if (model == "tf_efficientnetv2_s") {
-    auto record = Missing(
-        "tf_efficientnetv2_s",
-        "https://huggingface.co/timm/tf_efficientnetv2_s.in1k");
+    auto record =
+        Missing("tf_efficientnetv2_s",
+                "https://huggingface.co/timm/tf_efficientnetv2_s.in1k");
     record.id = "tf_efficientnetv2_s.in1k";
     record.license_uri = record.source_uri;
     record.status_reason =

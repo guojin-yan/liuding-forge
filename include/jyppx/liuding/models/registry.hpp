@@ -7,8 +7,8 @@
 /** @file registry.hpp
  * @brief Explicit owning model catalog; no static plugin registration.
  */
-#include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/densenet.hpp>
+#include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/dinov3_convnext.hpp>
 #include <jyppx/liuding/models/efficientnet.hpp>
 #include <jyppx/liuding/models/efficientnetv2.hpp>
@@ -36,7 +36,8 @@ struct ModelInfo {
 struct ModelOptions {
   DenseNetOptions densenet;               ///< Applied only to DenseNet models.
   EfficientNetOptions efficientnet;        ///< Applied only to EfficientNet.
-  EfficientNetV2Options efficientnet_v2;   ///< Applied only to TF EfficientNetV2.
+  EfficientNetV2Options
+      efficientnet_v2;  ///< Applied only to TF EfficientNetV2.
   ResNetOptions resnet;                   ///< Applied only to residual models.
   MobileNetV2Options mobile_v2;           ///< Applied only to MobileNetV2.
   MobileNetV3Options mobile;              ///< Applied only to mobile models.
