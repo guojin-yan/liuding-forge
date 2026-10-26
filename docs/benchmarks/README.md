@@ -26,6 +26,21 @@ pwsh -NoProfile -File scripts/benchmarks/Run-Baseline.ps1 `
 
 资源 profile、存储身份、CUDA 要求、来源校验和证据布局见 scripts/benchmarks/RESOURCE_BASELINE.md。CUDA 训练和优化器套件使用 scripts/benchmarks/run_cuda_baseline.py。
 
+## 图像读取到训练更新
+
+启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE=ON` 与 benchmark 后，编译 `jyppx_bench_image_training`。输入是至少两个非空类别的本地 ImageFolder 目录，每个类别下放 JPEG/PNG 文件。下面的 runner 先读取所有选中图像计算内容摘要，使本轮明确为 warm-cache 测量，再启动一个独立预热进程与五个独立采样进程；`--output` 必须指向代码仓库外的新文件。
+
+~~~powershell
+cmake --build out/build/config-windows --config Release --target jyppx_bench_image_training --parallel 2
+python scripts/benchmarks/run_image_training.py `
+  --binary out/build/config-windows/tests/benchmarks/Release/liuding-forge-bench-image-training.exe `
+  --image-root F:/datasets/classification-train `
+  --output F:/GitSpace/jyppx-training-framework/v1.0-plan/06_records/phase0_records/evidence/image-training-run.json `
+  --batch-size 8 --image-size 32 --epochs 1 --threads 1
+~~~
+
+该工作负载使用 CPU、内联 `DataPipeline` 和单机 `Trainer::fit()`，实际执行文件读取、JPEG/PNG 解码、双线性 resize、ImageBatch 组批、分类损失、反向传播和 SGD 更新。结果包含完整 fit 时间、吞吐、`next()` 数据等待、各 producer 阶段累计时间和进程寿命内峰值 RSS；它不测冷缓存、多 worker、CUDA 显存或其他视觉任务，也不提供跨 PyTorch 优势结论。
+
 ## 范围
 
 benchmark 可执行文件位于 tests/benchmarks/。逻辑 CMake target 保留 jyppx_bench_* 技术身份，生成文件使用 liuding-forge 产品前缀。benchmark 输出属于本地证据，应写入被忽略的 out/ 或 CI artifact 存储。
