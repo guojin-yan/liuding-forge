@@ -632,6 +632,47 @@ TEST(IterableDataPipelineTest,
   pipeline.close();
 }
 
+TEST(IterableDataPipelineTest, AdmissionWaitsBeforeReadingNextSourceBatch) {
+  struct AdmissionState {
+    std::mutex mutex;
+    std::condition_variable_any ready;
+    bool held = false;
+  };
+  auto admission = std::make_shared<AdmissionState>();
+  auto stats = std::make_shared<CursorStats>();
+  auto config = options("data.iterable.admission", 1);
+  config.prefetch_batches = 2;
+  config.admission_factory = [admission](std::stop_token stop) {
+    std::unique_lock lock(admission->mutex);
+    if (!admission->ready.wait(lock, stop, [&] { return !admission->held; })) {
+      throw jyppx::liuding::Cancelled("Admission cancelled");
+    }
+    admission->held = true;
+    return std::shared_ptr<void>(admission.get(), [admission](void*) {
+      {
+        std::lock_guard<std::mutex> lock(admission->mutex);
+        admission->held = false;
+      }
+      admission->ready.notify_all();
+    });
+  };
+  IterableDataPipeline pipeline(
+      make_source({1, 2, 3}, exact_descriptor(), stats), config, sum_factory());
+  pipeline.set_epoch(0);
+  ASSERT_TRUE(wait_for_pulls(stats, 1, std::chrono::seconds(1)));
+  auto first = pipeline.next();
+  ASSERT_TRUE(first);
+  EXPECT_FALSE(wait_for_pulls(stats, 2, std::chrono::milliseconds(80)));
+  first.reset();
+  EXPECT_TRUE(wait_for_pulls(stats, 2, std::chrono::seconds(1)));
+  auto second = pipeline.next();
+  ASSERT_TRUE(second);
+  pipeline.close();
+  second.reset();
+  std::lock_guard<std::mutex> lock(admission->mutex);
+  EXPECT_FALSE(admission->held);
+}
+
 TEST(IterableDataPipelineTest, HandlesEmptyAndSingleItemEpochs) {
   IterableDataPipeline empty(make_source({}), options("data.iterable.empty"),
                              sum_factory());

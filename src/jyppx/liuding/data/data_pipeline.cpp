@@ -436,6 +436,7 @@ struct BatchWork {
 };
 
 struct BatchResult {
+  std::shared_ptr<void> admission_lease;
   // Sequence copied from the claimed work item.
   std::uint64_t sequence = 0;
   // Cursor boundary validated before the pipeline commits the result.
@@ -463,6 +464,7 @@ struct EpochWork {
   std::size_t committed = 0;
   // Only this sequence may be observed by the consumer next.
   std::uint64_t next_commit_sequence = 0;
+  std::uint64_t next_admission_sequence = 0;
   // Out-of-order completions retained until their sequence becomes visible.
   std::map<std::uint64_t, std::shared_ptr<BatchResult>> results;
   // First cancellation, timeout, or factory failure terminating the epoch.
@@ -473,6 +475,7 @@ std::shared_ptr<EpochWork> make_epoch_work(const DataPipelineState& state,
                                            const DataPipelineOptions& options) {
   auto epoch = std::make_shared<EpochWork>();
   epoch->next_commit_sequence = state.next_sequence;
+  epoch->next_admission_sequence = state.next_sequence;
   auto cursor = static_cast<std::size_t>(state.next_cursor);
   auto sequence = state.next_sequence;
   while (cursor < state.epoch_indices.size()) {
@@ -506,9 +509,11 @@ class WorkerRuntime final {
   // an epoch plan.
   WorkerRuntime(DataBatchFactory factory, BatchMemoryOptions memory,
                 BatchResourceLeaseFactory resource_lease_factory,
-                std::size_t workers, std::chrono::milliseconds timeout)
+                BatchAdmissionFactory admission_factory, std::size_t workers,
+                std::chrono::milliseconds timeout)
       : factory_(std::move(factory)),
         resource_lease_factory_(std::move(resource_lease_factory)),
+        admission_factory_(std::move(admission_factory)),
         memory_(memory),
         timeout_(timeout) {
     workers_.reserve(workers);
@@ -687,17 +692,37 @@ class WorkerRuntime final {
         if (epoch->stop_source.stop_requested()) {
           continue;
         }
-        result->value = invoke_factory(factory_, work->indices, work->context,
-                                       epoch->stop_source.get_token());
-        if (batch_memory_stage_enabled(memory_) &&
-            !epoch->stop_source.stop_requested()) {
-          auto staged = prepare_batch_memory(result->value, memory_);
-          result->value = std::move(staged.value);
-          result->memory = staged.metadata;
+        if (admission_factory_) {
+          std::unique_lock admission_lock(admission_mutex_);
+          if (!admission_condition_.wait(
+                  admission_lock, epoch->stop_source.get_token(), [&] {
+                    return work->sequence == epoch->next_admission_sequence;
+                  })) {
+            continue;
+          }
+          try {
+            result->admission_lease = detail::run_admission_factory(
+                admission_factory_, epoch->stop_source.get_token());
+          } catch (...) {
+            result->error = std::current_exception();
+          }
+          ++epoch->next_admission_sequence;
+          admission_lock.unlock();
+          admission_condition_.notify_all();
         }
-        result->resource_lease = detail::run_resource_lease_factory(
-            resource_lease_factory_, result->value, result->memory,
-            epoch->stop_source.get_token());
+        if (!result->error) {
+          result->value = invoke_factory(factory_, work->indices, work->context,
+                                         epoch->stop_source.get_token());
+          if (batch_memory_stage_enabled(memory_) &&
+              !epoch->stop_source.stop_requested()) {
+            auto staged = prepare_batch_memory(result->value, memory_);
+            result->value = std::move(staged.value);
+            result->memory = staged.metadata;
+          }
+          result->resource_lease = detail::run_resource_lease_factory(
+              resource_lease_factory_, result->value, result->memory,
+              epoch->stop_source.get_token());
+        }
       } catch (...) {
         result->error = std::current_exception();
       }
@@ -714,10 +739,13 @@ class WorkerRuntime final {
   // User factory copied into the runtime so persistent workers can reuse it.
   DataBatchFactory factory_;
   BatchResourceLeaseFactory resource_lease_factory_;
+  BatchAdmissionFactory admission_factory_;
   // Immutable memory-stage policy shared by every worker invocation.
   BatchMemoryOptions memory_;
   // Zero means an unbounded wait; positive values apply per next() call.
   std::chrono::milliseconds timeout_;
+  std::mutex admission_mutex_;
+  std::condition_variable_any admission_condition_;
   // Guards all fields below and every mutable EpochWork scheduling field.
   mutable std::mutex mutex_;
   // Wakes workers for scheduling and consumers for completion or shutdown.
@@ -986,10 +1014,9 @@ struct DataPipeline::Impl {
   }
 
   std::unique_ptr<WorkerRuntime> make_runtime() const {
-    return std::make_unique<WorkerRuntime>(batch_factory, options.memory,
-                                           options.resource_lease_factory,
-                                           options.num_workers,
-                                           options.batch_timeout);
+    return std::make_unique<WorkerRuntime>(
+        batch_factory, options.memory, options.resource_lease_factory,
+        options.admission_factory, options.num_workers, options.batch_timeout);
   }
 
   void install_epoch(DataPipelineState candidate,
@@ -1158,6 +1185,8 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
           static_cast<std::uint64_t>(impl_->state.epoch_indices[cursor]));
     }
     if (impl_->options.num_workers == 0) {
+      envelope.admission_lease = detail::run_admission_factory(
+          impl_->options.admission_factory, stop_token);
       const std::span<const std::size_t> indices(
           impl_->state.epoch_indices.data() + start, end - start);
       const auto context =
@@ -1182,6 +1211,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
             "DataPipeline worker result topology is inconsistent");
       }
       envelope.value = result->value;
+      envelope.admission_lease = std::move(result->admission_lease);
       envelope.memory = result->memory;
       envelope.resource_lease = std::move(result->resource_lease);
       if (!stop_token.stop_requested() &&

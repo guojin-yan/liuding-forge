@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stop_token>
 #include <vector>
 
 namespace jyppx::liuding::data::image {
@@ -33,6 +34,7 @@ enum class ImageResourceKind : std::uint8_t {
   render_queue,
   encoded_queue_bytes,
   disk_spool_bytes,
+  pipeline_inflight_batches,
 };
 
 /** @brief Aggregate limits shared by cooperating image stages. */
@@ -49,6 +51,7 @@ struct ImageResourceBudgetLimits {
   std::uint64_t max_render_queue = 32;
   std::uint64_t max_encoded_queue_bytes = 512ULL << 20U;
   std::uint64_t max_disk_spool_bytes = 4ULL << 30U;
+  std::uint64_t max_pipeline_inflight_batches = 4;
 };
 
 /** @brief Current and high-water usage for one resource kind. */
@@ -135,6 +138,17 @@ class ImageResourceBudget {
    */
   [[nodiscard]] ImageResourceLease reserve(ImageResourceKind kind,
                                            std::uint64_t amount);
+
+  /**
+   * @brief Waits for pipeline admission capacity, or throws on cancellation.
+   *
+   * An amount larger than the configured limit fails immediately. Use this at
+   * a source/queue boundary, never inside a codec or while holding a pipeline
+   * runtime lock.
+   */
+  [[nodiscard]] ImageResourceLease reserve_wait(ImageResourceKind kind,
+                                                std::uint64_t amount,
+                                                std::stop_token stop = {});
 
   /** @return Configured aggregate limit for one resource category. */
   [[nodiscard]] std::uint64_t limit(ImageResourceKind kind) const noexcept;

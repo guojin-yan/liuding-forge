@@ -642,6 +642,16 @@ data::BatchResourceLeaseFactory make_image_batch_resource_lease_factory(
   };
 }
 
+data::BatchAdmissionFactory make_image_batch_admission_factory(
+    std::shared_ptr<ImageResourceBudget> budget) {
+  return [budget = std::move(budget)](std::stop_token stop) {
+    if (!budget) return std::shared_ptr<void>{};
+    auto lease = std::make_shared<ImageResourceLease>(budget->reserve_wait(
+        ImageResourceKind::pipeline_inflight_batches, 1, stop));
+    return std::static_pointer_cast<void>(std::move(lease));
+  };
+}
+
 data::BatchSchema image_batch_schema(const ImageBatch& batch, Device device) {
   if (batch.layout != ImageBatchLayout::stack &&
       batch.layout != ImageBatchLayout::pad &&

@@ -652,6 +652,8 @@ class IterableRuntime final {
   std::shared_ptr<ProducedBatch> produce_one(std::uint64_t sequence,
                                              std::stop_token stop) {
     auto result = std::make_shared<ProducedBatch>();
+    auto admission_lease =
+        detail::run_admission_factory(options_.admission_factory, stop);
     result->sequence = sequence;
     result->source_watermark = source_watermark_;
     std::vector<IterableSample> samples;
@@ -687,6 +689,7 @@ class IterableRuntime final {
     }
 
     BatchEnvelope envelope;
+    envelope.admission_lease = std::move(admission_lease);
     envelope.value = collate(samples, sequence, stop);
     if (stop.stop_requested()) {
       return {};

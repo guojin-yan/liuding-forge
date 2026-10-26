@@ -56,6 +56,18 @@ using BatchResourceLeaseFactory = std::function<std::shared_ptr<void>(
     const c10::IValue&, const BatchMemoryMetadata&, std::stop_token)>;
 
 /**
+ * @brief Admits one batch before its source or collator starts allocating.
+ *
+ * The pipeline retains the returned lease through the delivered envelope.
+ * The callback may wait for capacity, but must honor the stop token so close,
+ * epoch replacement, and consumer timeout can cancel blocked producers.
+ * Map workers invoke it in batch sequence order. This runtime-only policy is
+ * separate from the post-production resource lease factory.
+ */
+using BatchAdmissionFactory =
+    std::function<std::shared_ptr<void>(std::stop_token)>;
+
+/**
  * @brief Optional synchronous consumer transform, after transfer and before
  * commit.
  *

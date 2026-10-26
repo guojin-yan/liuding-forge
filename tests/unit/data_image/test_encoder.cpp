@@ -9,10 +9,12 @@
 #include <jyppx/liuding/data_image/image_encoder.hpp>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <memory>
+#include <thread>
 
 namespace {
 
@@ -136,6 +138,45 @@ TEST(ImageResourceBudgetTest, LeasesTrackPeakAndRejectAggregateOverflow) {
   EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
   auto second = budget->reserve(ImageResourceKind::encoded_bytes, 8);
   EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).peak, 8U);
+}
+
+TEST(ImageResourceBudgetTest, WaitingAdmissionWakesOnReleaseAndCancellation) {
+  ImageResourceBudgetLimits limits;
+  limits.max_pipeline_inflight_batches = 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  auto first = budget->reserve(ImageResourceKind::pipeline_inflight_batches, 1);
+  std::atomic<bool> acquired = false;
+  std::jthread waiter([&](std::stop_token stop) {
+    auto second = budget->reserve_wait(
+        ImageResourceKind::pipeline_inflight_batches, 1, stop);
+    acquired.store(second.active());
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  EXPECT_FALSE(acquired.load());
+  first.release();
+  waiter.join();
+  EXPECT_TRUE(acquired.load());
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_batches).peak,
+            1U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_batches).current,
+            0U);
+
+  first = budget->reserve(ImageResourceKind::pipeline_inflight_batches, 1);
+  std::atomic<bool> cancelled = false;
+  std::jthread blocked([&](std::stop_token stop) {
+    try {
+      static_cast<void>(budget->reserve_wait(
+          ImageResourceKind::pipeline_inflight_batches, 1, stop));
+    } catch (const Cancelled&) {
+      cancelled.store(true);
+    }
+  });
+  blocked.request_stop();
+  blocked.join();
+  EXPECT_TRUE(cancelled.load());
+  EXPECT_THROW(
+      budget->reserve_wait(ImageResourceKind::pipeline_inflight_batches, 2),
+      ResourceExhausted);
 }
 
 TEST(ImageEncoderTest, AggregateBudgetRetainsEncodedLeaseUntilConsumption) {

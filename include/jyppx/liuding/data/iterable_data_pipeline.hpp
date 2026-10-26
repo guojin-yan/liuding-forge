@@ -50,6 +50,8 @@ struct IterableDataPipelineOptions {
   ///< Optional post-transfer, precommit consumer stage.
   BatchResourceLeaseFactory resource_lease_factory;
   ///< Optional aggregate-resource reservation for produced batches.
+  BatchAdmissionFactory admission_factory;
+  ///< Optional cancellable capacity gate before source reads.
 };
 
 /**

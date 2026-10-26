@@ -198,6 +198,11 @@ data::BatchResourceLeaseFactory make_image_batch_resource_lease_factory(
     std::shared_ptr<ImageResourceBudget> budget,
     ImageBatchLimits limits = {});
 
+/** @brief Waits for a bounded in-flight slot before a pipeline builds a batch.
+ */
+data::BatchAdmissionFactory make_image_batch_admission_factory(
+    std::shared_ptr<ImageResourceBudget> budget);
+
 /** @brief Creates the full versioned structural BatchSchema for this batch.
  * @param batch Exemplar supplying layout, pixel and optional-target contracts.
  * @param device Consumer tensor device, e.g. pipeline memory target.

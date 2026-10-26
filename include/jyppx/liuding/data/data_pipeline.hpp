@@ -41,6 +41,7 @@ namespace jyppx::liuding::data {
  * dtype, device, and shape constraints without depending on the nn target.
  */
 struct BatchEnvelope {
+  std::shared_ptr<void> admission_lease;  ///< Released after the batch payload.
   c10::IValue value;   ///< Collated batch value owned by the consumer.
   BatchSchema schema;  ///< Complete validated producer value contract.
   std::vector<std::uint64_t>
@@ -233,6 +234,8 @@ struct DataPipelineOptions {
   ///< Optional post-transfer, precommit consumer stage.
   BatchResourceLeaseFactory resource_lease_factory;
   ///< Optional aggregate-resource reservation for produced batches.
+  BatchAdmissionFactory admission_factory;
+  ///< Optional cancellable capacity gate before batch production.
 };
 
 /**

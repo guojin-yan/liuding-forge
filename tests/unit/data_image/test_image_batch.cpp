@@ -17,11 +17,14 @@
 #endif
 
 #include <array>
+#include <atomic>
 #include <bit>
+#include <chrono>
 #include <cstddef>
 #include <gtest/gtest.h>
 #include <limits>
 #include <map>
+#include <thread>
 
 namespace {
 using namespace jyppx::liuding;
@@ -335,6 +338,62 @@ TEST(ImageBatchResourceBudgetTest,
   envelope.reset();
   EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     AdmissionBoundsWorkerProductionUntilConsumerReleasesBatch) {
+  ImageResourceBudgetLimits limits;
+  limits.max_pipeline_inflight_batches = 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  DataPipelineOptions options;
+  options.pipeline_id = "image.batch.admission-worker";
+  options.dataset_version = "image-batch-fixture/v1";
+  options.dataset_size = 3;
+  options.batch_factory_id = "image-batch-fixture/admission/v1";
+  options.batch_size = 1;
+  options.num_workers = 2;
+  options.prefetch_batches = 2;
+  options.batch_timeout = std::chrono::seconds(2);
+  options.schema = image_batch_schema(Batch({Photo()}), torch::kCPU);
+  options.admission_factory = make_image_batch_admission_factory(budget);
+  options.resource_lease_factory =
+      make_image_batch_resource_lease_factory(budget);
+  std::atomic<int> factory_calls = 0;
+  std::atomic<int> first_sequence = -1;
+  DataPipeline pipeline(
+      std::make_shared<samplers::SequentialSampler>(3), options,
+      [&](std::span<const std::size_t> indices,
+          const DataWorkerContext& context, std::stop_token stop) {
+        int expected = -1;
+        first_sequence.compare_exchange_strong(
+            expected, static_cast<int>(context.sequence));
+        ++factory_calls;
+        const std::array<VisionSample, 1> samples{Photo()};
+        const std::array<ImageBatchKey, 1> keys{
+            ImageBatchKey{std::to_string(indices.front()), context.epoch, 0}};
+        return image_batch_value(collate_images(samples, keys, {}, stop));
+      });
+  pipeline.set_epoch(0);
+  auto first = pipeline.next();
+  ASSERT_TRUE(first);
+  EXPECT_EQ(first_sequence.load(), 0);
+  EXPECT_EQ(factory_calls.load(), 1);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_batches).current,
+            1U);
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  EXPECT_EQ(factory_calls.load(), 1);
+  first.reset();
+  auto second = pipeline.next();
+  ASSERT_TRUE(second);
+  EXPECT_EQ(second->sequence, 1U);
+  EXPECT_EQ(factory_calls.load(), 2);
+  pipeline.close();
+  EXPECT_EQ(factory_calls.load(), 2);
+  second.reset();
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_batches).current,
+            0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pipeline_inflight_batches).peak,
+            1U);
 }
 
 TEST(ImageBatchTest,

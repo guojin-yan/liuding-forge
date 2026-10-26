@@ -90,4 +90,28 @@ std::shared_ptr<void> run_resource_lease_factory(
   }
 }
 
+std::shared_ptr<void> run_admission_factory(
+    const BatchAdmissionFactory& factory, std::stop_token stop) {
+  if (!factory) return {};
+  if (stop.stop_requested()) throw Cancelled("Batch admission cancelled");
+  try {
+    auto lease = factory(stop);
+    if (stop.stop_requested()) throw Cancelled("Batch admission cancelled");
+    return lease;
+  } catch (const Error&) {
+    throw;
+  } catch (const std::exception& cause) {
+    std::throw_with_nested(
+        BackendError("Batch admission factory failed",
+                     ErrorDetails{.component = "data.batch_admission",
+                                  .operation = "acquire",
+                                  .actual = cause.what()}));
+  } catch (...) {
+    std::throw_with_nested(
+        BackendError("Batch admission factory raised a non-standard exception",
+                     ErrorDetails{.component = "data.batch_admission",
+                                  .operation = "acquire"}));
+  }
+}
+
 }  // namespace jyppx::liuding::data::detail

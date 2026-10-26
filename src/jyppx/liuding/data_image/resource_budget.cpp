@@ -6,11 +6,11 @@
 // you may not use this file except in compliance with the License.
 
 #include <jyppx/liuding/data_image/resource_budget.hpp>
-
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <algorithm>
 #include <array>
+#include <condition_variable>
 #include <limits>
 #include <mutex>
 #include <string>
@@ -21,7 +21,7 @@ namespace jyppx::liuding::data::image {
 namespace {
 
 constexpr std::size_t kKindCount =
-    static_cast<std::size_t>(ImageResourceKind::disk_spool_bytes) + 1U;
+    static_cast<std::size_t>(ImageResourceKind::pipeline_inflight_batches) + 1U;
 
 std::size_t Index(ImageResourceKind kind) noexcept {
   return static_cast<std::size_t>(kind);
@@ -53,6 +53,8 @@ std::string_view KindName(ImageResourceKind kind) noexcept {
       return "encoded_queue_bytes";
     case ImageResourceKind::disk_spool_bytes:
       return "disk_spool_bytes";
+    case ImageResourceKind::pipeline_inflight_batches:
+      return "pipeline_inflight_batches";
   }
   return "unknown";
 }
@@ -70,7 +72,8 @@ std::array<std::uint64_t, kKindCount> Limits(
           limits.max_staged_batches,
           limits.max_render_queue,
           limits.max_encoded_queue_bytes,
-          limits.max_disk_spool_bytes};
+          limits.max_disk_spool_bytes,
+          limits.max_pipeline_inflight_batches};
 }
 
 }  // namespace
@@ -82,6 +85,7 @@ struct ImageResourceBudgetState {
       : limits(Limits(values)) {}
 
   mutable std::mutex mutex;
+  std::condition_variable_any condition;
   std::array<std::uint64_t, kKindCount> limits{};
   std::array<std::uint64_t, kKindCount> current{};
   std::array<std::uint64_t, kKindCount> peak{};
@@ -117,14 +121,16 @@ void ImageResourceLease::release() noexcept {
     amount_ = 0;
     return;
   }
+  auto state = std::move(state_);
   const auto index = Index(kind_);
-  if (index < state_->current.size()) {
-    std::scoped_lock lock(state_->mutex);
-    state_->current[index] = amount_ > state_->current[index]
-                                 ? 0
-                                 : state_->current[index] - amount_;
+  if (index < state->current.size()) {
+    {
+      std::scoped_lock lock(state->mutex);
+      state->current[index] =
+          amount_ > state->current[index] ? 0 : state->current[index] - amount_;
+    }
+    state->condition.notify_all();
   }
-  state_.reset();
   amount_ = 0;
 }
 
@@ -184,6 +190,37 @@ ImageResourceLease ImageResourceLease::Reserve(
 ImageResourceLease ImageResourceBudget::reserve(ImageResourceKind kind,
                                                 std::uint64_t amount) {
   return ImageResourceLease::Reserve(state_, kind, amount);
+}
+
+ImageResourceLease ImageResourceBudget::reserve_wait(ImageResourceKind kind,
+                                                     std::uint64_t amount,
+                                                     std::stop_token stop) {
+  if (amount == 0) return {};
+  const auto index = Index(kind);
+  if (index >= state_->limits.size()) {
+    throw InvalidArgument(
+        "Unknown image resource category",
+        ErrorDetails{.component = "data.image.resource_budget",
+                     .operation = "reserve_wait.kind"});
+  }
+  std::unique_lock lock(state_->mutex);
+  const auto limit = state_->limits[index];
+  if (amount > limit) {
+    throw ResourceExhausted(
+        "Image reservation exceeds aggregate resource limit",
+        ErrorDetails{.component = "data.image.resource_budget",
+                     .operation = "reserve_wait." + std::string(KindName(kind)),
+                     .expected = std::to_string(limit),
+                     .actual = std::to_string(amount)});
+  }
+  if (!state_->condition.wait(lock, stop, [&] {
+        return amount <= limit - state_->current[index];
+      })) {
+    throw Cancelled("Image resource admission cancelled");
+  }
+  state_->current[index] += amount;
+  state_->peak[index] = std::max(state_->peak[index], state_->current[index]);
+  return ImageResourceLease(state_, kind, amount);
 }
 
 std::uint64_t ImageResourceBudget::limit(ImageResourceKind kind) const noexcept {
