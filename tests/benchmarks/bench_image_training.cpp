@@ -13,6 +13,7 @@
 #include <jyppx/liuding/liuding.hpp>
 
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -43,6 +44,8 @@ struct Options {
   std::uint32_t image_size = 32;
   std::uint64_t epochs = 1;
   int threads = 1;
+  std::size_t workers = 0;
+  std::size_t prefetch_batches = 2;
 };
 
 std::uint64_t positive_integer(std::string_view value, std::string_view name,
@@ -77,6 +80,14 @@ Options parse_options(int argc, char** argv) {
       options.epochs = positive_integer(value, name, 100);
     } else if (name == "--threads") {
       options.threads = static_cast<int>(positive_integer(value, name, 64));
+    } else if (name == "--workers") {
+      if (value == "0") {
+        options.workers = 0;
+      } else {
+        options.workers = positive_integer(value, name, 16);
+      }
+    } else if (name == "--prefetch-batches") {
+      options.prefetch_batches = positive_integer(value, name, 4);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(name));
     }
@@ -131,10 +142,10 @@ class TimedPipeline final : public data::BatchPipeline {
 };
 
 struct StageTimes {
-  std::uint64_t read_decode_ns = 0;
-  std::uint64_t transform_ns = 0;
-  std::uint64_t collate_ns = 0;
-  std::uint64_t encode_ns = 0;
+  std::atomic<std::uint64_t> read_decode_ns{0};
+  std::atomic<std::uint64_t> transform_ns{0};
+  std::atomic<std::uint64_t> collate_ns{0};
+  std::atomic<std::uint64_t> encode_ns{0};
 };
 
 class Classifier final : public torch::nn::Module {
@@ -190,7 +201,8 @@ bench::Json measure(const Options& options) {
   pipeline_options.dataset_size = samples_per_epoch;
   pipeline_options.batch_factory_id = "image-training.resize-bilinear/v1";
   pipeline_options.batch_size = options.batch_size;
-  pipeline_options.num_workers = 0;
+  pipeline_options.num_workers = options.workers;
+  pipeline_options.prefetch_batches = options.prefetch_batches;
   {
     const auto exemplar = image::transform_sample(
         dataset->get(0), std::span(&resize, 1), transform_options);
@@ -217,20 +229,24 @@ bench::Json measure(const Options& options) {
         for (const auto index : indices) {
           auto start = Clock::now();
           auto sample = dataset->get(index, stop);
-          stages.read_decode_ns += nanoseconds_since(start);
+          stages.read_decode_ns.fetch_add(nanoseconds_since(start),
+                                          std::memory_order_relaxed);
           keys.push_back({sample.image_path, context.epoch, 0});
           start = Clock::now();
           samples.push_back(image::transform_sample(
               sample, std::span(&resize, 1), transform_options, stop));
-          stages.transform_ns += nanoseconds_since(start);
+          stages.transform_ns.fetch_add(nanoseconds_since(start),
+                                        std::memory_order_relaxed);
         }
         auto start = Clock::now();
         auto batch =
             image::collate_images(samples, keys, collate_options, stop);
-        stages.collate_ns += nanoseconds_since(start);
+        stages.collate_ns.fetch_add(nanoseconds_since(start),
+                                    std::memory_order_relaxed);
         start = Clock::now();
         auto value = image::image_batch_value(batch);
-        stages.encode_ns += nanoseconds_since(start);
+        stages.encode_ns.fetch_add(nanoseconds_since(start),
+                                   std::memory_order_relaxed);
         return value;
       });
   auto pipeline = std::make_shared<TimedPipeline>(raw_pipeline);
@@ -319,7 +335,8 @@ bench::Json measure(const Options& options) {
       {"batch_size", options.batch_size},
       {"epochs", options.epochs},
       {"threads", options.threads},
-      {"workers", 0},
+      {"workers", options.workers},
+      {"prefetch_batches", options.prefetch_batches},
       {"image_decode", "rgb-float32-normalized"},
       {"resize", "bilinear-antialias"},
       {"model", "flatten-linear64-relu-linear"},
@@ -345,17 +362,20 @@ bench::Json measure(const Options& options) {
         {"images_per_second", expected_samples / fit_seconds},
         {"epoch_seconds", fit_seconds / options.epochs},
         {"data_wait_seconds", seconds(pipeline->next_ns())},
-        {"read_decode_seconds", seconds(stages.read_decode_ns)},
-        {"transform_seconds", seconds(stages.transform_ns)},
-        {"collate_seconds", seconds(stages.collate_ns)},
-        {"encode_seconds", seconds(stages.encode_ns)},
+        {"read_decode_seconds", seconds(stages.read_decode_ns.load())},
+        {"transform_seconds", seconds(stages.transform_ns.load())},
+        {"collate_seconds", seconds(stages.collate_ns.load())},
+        {"encode_seconds", seconds(stages.encode_ns.load())},
         {"peak_rss_bytes", bench::peak_rss()},
         {"peak_cuda_bytes", bench::unavailable("CPU-only workload", "bytes")}}},
       {"measurement_scope",
        {{"timer", "Trainer::fit only"},
         {"data_wait",
-         "inline DataPipeline::next wall time, including schema validation"},
-        {"stage_times", "sum of timed inline factory segments"},
+         "DataPipeline::next consumer wall time, including result/schema "
+         "processing; not isolated queue wait"},
+        {"stage_times",
+         "sum of producer factory CPU wall intervals across workers; may "
+         "overlap and exceed fit time"},
         {"rss", "process lifetime high-water mark, including setup"}}}};
 }
 

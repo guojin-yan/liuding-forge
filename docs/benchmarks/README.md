@@ -39,7 +39,7 @@ python scripts/benchmarks/run_image_training.py `
   --batch-size 8 --image-size 32 --epochs 1 --threads 1
 ~~~
 
-该工作负载使用 CPU、内联 `DataPipeline` 和单机 `Trainer::fit()`，实际执行文件读取、JPEG/PNG 解码、双线性 resize、ImageBatch 组批、分类损失、反向传播和 SGD 更新。结果包含完整 fit 时间、吞吐、`next()` 数据等待、各 producer 阶段累计时间和进程寿命内峰值 RSS；它不测冷缓存、多 worker、CUDA 显存或其他视觉任务，也不提供跨 PyTorch 优势结论。
+该工作负载使用 CPU 和单机 `Trainer::fit()`，实际执行文件读取、JPEG/PNG 解码、双线性 resize、ImageBatch 组批、分类损失、反向传播和 SGD 更新。`--workers 0` 是内联加载，`--workers 1..16` 使用有界 worker 预取，`--prefetch-batches 1..4` 控制在途批次数；比较不同配置时分别运行 runner 并保留各自结果。输出包含完整 fit 时间、吞吐、`DataPipeline::next()` 消费端耗时、各 producer 阶段累计工作时间和进程寿命内峰值 RSS。并行时 producer 阶段可能重叠，累计时间不能直接相加为训练耗时，`next()` 耗时也不是纯队列等待。当前不测冷缓存、CUDA 显存或其他视觉任务，也不提供跨 PyTorch 优势结论。
 
 ## 范围
 

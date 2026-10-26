@@ -92,6 +92,8 @@ def main() -> int:
     parser.add_argument("--image-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=0)
+    parser.add_argument("--prefetch-batches", type=int, default=2)
     args = parser.parse_args()
     source_root = Path(__file__).resolve().parents[2]
     binary = args.binary.resolve(strict=True)
@@ -105,12 +107,15 @@ def main() -> int:
         parser.error("--output already exists; use a fresh evidence path")
     if any(value <= 0 for value in (args.batch_size, args.image_size, args.epochs, args.threads)):
         parser.error("batch size, image size, epochs and threads must be positive")
+    if not 0 <= args.workers <= 16 or not 1 <= args.prefetch_batches <= 4:
+        parser.error("workers must be 0..16 and prefetch batches must be 1..4")
 
     content_sha256, image_count, encoded_bytes = dataset_digest(root)
     command = [
         str(binary), "--image-root", str(root), "--batch-size", str(args.batch_size),
         "--image-size", str(args.image_size), "--epochs", str(args.epochs),
-        "--threads", str(args.threads),
+        "--threads", str(args.threads), "--workers", str(args.workers),
+        "--prefetch-batches", str(args.prefetch_batches),
     ]
     warmup = run_sample(command)
     samples = [run_sample(command) for _ in range(5)]
