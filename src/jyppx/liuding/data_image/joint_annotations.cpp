@@ -11,6 +11,7 @@
 
 #include <jyppx/liuding/data_image/panoptic.hpp>
 
+#include <array>
 #include <limits>
 #include <numeric>
 #include <unordered_map>
@@ -46,12 +47,27 @@ std::size_t NextCapacity(std::size_t current, std::size_t maximum,
                                : std::max<std::size_t>(1, current * 2);
 }
 
+using Ring = std::vector<ImagePoint>;
+
+struct BudgetedRing {
+  ImageResourceLease lease;
+  Ring points;
+};
+
+struct PolygonObjectBudget {
+  ImageResourceLease ring_storage;
+  ImageResourceLease point_lease_storage;
+  ImageResourceLeaseSet point_leases;
+};
+
 struct NonPanopticRecordOwner {
   ImageResourceLease object_storage;
   ImageResourceLease run_lease_storage;
   ImageResourceLeaseSet run_leases;
   ImageResourceLease keypoint_lease_storage;
   ImageResourceLeaseSet keypoint_leases;
+  ImageResourceLease polygon_budget_storage;
+  std::vector<PolygonObjectBudget> polygon_budgets;
   VisionAnnotationRecord record;
 };
 
@@ -125,10 +141,24 @@ void Tick(JointAnnotationState& budget, const JointTransformOptions& options,
       "transform.geometry_checks");
 }
 
-using Ring = std::vector<ImagePoint>;
-
-Ring ClipConvex(Ring ring, const ImageBox& box, std::stop_token stop) {
-  for (int edge = 0; edge < 4 && !ring.empty(); ++edge) {
+BudgetedRing ClipConvex(std::span<const ImagePoint> input, const ImageBox& box,
+                        const JointTransformOptions& options,
+                        std::stop_token stop) {
+  if (input.size() > std::numeric_limits<std::size_t>::max() - 4)
+    Resource("transform.polygon_clip_capacity");
+  const auto capacity = input.size() + 4;
+  BudgetedRing ring;
+  ring.lease =
+      ReserveAnnotation(options.resource_budget, capacity, sizeof(ImagePoint),
+                        "transform.polygon_clip_bytes");
+  ring.points.reserve(capacity);
+  ring.points.assign(input.begin(), input.end());
+  auto next_lease =
+      ReserveAnnotation(options.resource_budget, capacity, sizeof(ImagePoint),
+                        "transform.polygon_clip_scratch_bytes");
+  Ring next;
+  next.reserve(capacity);
+  for (int edge = 0; edge < 4 && !ring.points.empty(); ++edge) {
     CheckStop(stop);
     const bool horizontal = edge >= 2;
     const bool lower = edge % 2 == 0;
@@ -142,11 +172,10 @@ Ring ClipConvex(Ring ring, const ImageBox& box, std::stop_token stop) {
     const auto inside = [&](ImagePoint p) {
       return lower ? coordinate(p) >= boundary : coordinate(p) <= boundary;
     };
-    Ring next;
-    next.reserve(ring.size() + 1);
-    auto previous = ring.back();
+    next.clear();
+    auto previous = ring.points.back();
     bool previous_inside = inside(previous);
-    for (const auto current : ring) {
+    for (const auto current : ring.points) {
       CheckStop(stop);
       const bool current_inside = inside(current);
       if (current_inside != previous_inside) {
@@ -169,13 +198,49 @@ Ring ClipConvex(Ring ring, const ImageBox& box, std::stop_token stop) {
       previous = current;
       previous_inside = current_inside;
     }
-    ring.clear();
+    ring.points.clear();
     for (const auto p : next)
-      if (ring.empty() || !Equal(p, ring.back())) ring.push_back(p);
-    if (ring.size() > 1 && Equal(ring.front(), ring.back())) ring.pop_back();
+      if (ring.points.empty() || !Equal(p, ring.points.back()))
+        ring.points.push_back(p);
+    if (ring.points.size() > 1 &&
+        Equal(ring.points.front(), ring.points.back()))
+      ring.points.pop_back();
   }
-  if (ring.size() < 3 || SignedArea(ring) == 0) ring.clear();
+  if (ring.points.size() < 3 || SignedArea(ring.points) == 0)
+    ring.points.clear();
   return ring;
+}
+
+void AppendPolygonRing(std::vector<Ring>& rings, PolygonObjectBudget& storage,
+                       BudgetedRing ring,
+                       const JointTransformOptions& options) {
+  const auto maximum =
+      std::min(options.limits.max_polygon_fragments, rings.max_size());
+  if (rings.size() == rings.capacity()) {
+    const auto capacity =
+        NextCapacity(rings.capacity(), maximum, "transform.polygon_capacity");
+    auto lease =
+        ReserveAnnotation(options.resource_budget, capacity, sizeof(Ring),
+                          "transform.polygon_ring_bytes");
+    rings.reserve(capacity);
+    storage.ring_storage = std::move(lease);
+  }
+  if (ring.lease.active()) {
+    auto& leases = storage.point_leases;
+    if (leases.size() == leases.capacity()) {
+      const auto capacity = NextCapacity(
+          leases.capacity(),
+          std::min(options.limits.max_polygon_fragments, leases.max_size()),
+          "transform.polygon_lease_capacity");
+      auto lease = ReserveAnnotation(options.resource_budget, capacity,
+                                     sizeof(ImageResourceLease),
+                                     "transform.polygon_lease_bytes");
+      leases.reserve(capacity);
+      storage.point_lease_storage = std::move(lease);
+    }
+    leases.push_back(std::move(ring.lease));
+  }
+  rings.push_back(std::move(ring.points));
 }
 
 ImagePoint Mapped(ImagePoint p, const GeometryTrace& local) {
@@ -188,39 +253,48 @@ ImagePoint Mapped(ImagePoint p, const GeometryTrace& local) {
 
 // Ear triangles have disjoint interiors. Clipping them separately preserves
 // disconnected parts of a concave ring without introducing artificial bridges.
-std::vector<Ring> ClipRing(std::span<const ImagePoint> input,
-                           const GeometryTrace& local,
-                           const JointTransformOptions& options,
-                           JointAnnotationState& budget, bool& partitioned,
-                           std::stop_token stop) {
-  if (!local.source_region()) return {};
+void ClipRing(std::span<const ImagePoint> input, const GeometryTrace& local,
+              const JointTransformOptions& options,
+              JointAnnotationState& budget, bool& partitioned,
+              std::vector<Ring>& pieces, PolygonObjectBudget& storage,
+              std::stop_token stop) {
+  if (!local.source_region()) return;
   const auto region = *local.source_region();
   if (input.size() > 1 && Equal(input.front(), input.back()))
     input = input.first(input.size() - 1);
   const auto original_area = std::abs(SignedArea(input));
-  std::vector<Ring> pieces;
+  const auto first_piece = pieces.size();
   long double visible_area = 0;
   long double output_area = 0;
-  const auto emit = [&](Ring ring) {
-    if (ring.empty()) return;
-    visible_area += std::abs(SignedArea(ring));
-    for (auto& point : ring) point = Mapped(point, local);
-    const auto area = std::abs(SignedArea(ring));
+  const auto emit = [&](BudgetedRing ring) {
+    if (ring.points.empty()) return;
+    visible_area += std::abs(SignedArea(ring.points));
+    for (auto& point : ring.points) point = Mapped(point, local);
+    const auto area = std::abs(SignedArea(ring.points));
     if (area == 0) return;
     output_area += area;
     Add(budget.output_fragments, 1, options.limits.max_polygon_fragments,
         "transform.output_fragments");
-    Add(budget.output_points, ring.size(), options.limits.max_polygon_points,
-        "transform.output_points");
-    pieces.push_back(std::move(ring));
+    Add(budget.output_points, ring.points.size(),
+        options.limits.max_polygon_points, "transform.output_points");
+    AppendPolygonRing(pieces, storage, std::move(ring), options);
   };
   if (std::all_of(input.begin(), input.end(),
                   [&](ImagePoint p) { return Inside(p, region); })) {
-    emit(Ring(input.begin(), input.end()));
+    BudgetedRing ring;
+    ring.lease =
+        ReserveAnnotation(options.resource_budget, input.size(),
+                          sizeof(ImagePoint), "transform.polygon_output_bytes");
+    ring.points.reserve(input.size());
+    ring.points.assign(input.begin(), input.end());
+    emit(std::move(ring));
   } else if (Convex(input)) {
-    emit(ClipConvex(Ring(input.begin(), input.end()), region, stop));
+    emit(ClipConvex(input, region, options, stop));
   } else {
     partitioned = true;
+    auto vertices_lease =
+        ReserveAnnotation(options.resource_budget, input.size(),
+                          sizeof(std::size_t), "transform.polygon_ear_indices");
     std::vector<std::size_t> vertices(input.size());
     std::iota(vertices.begin(), vertices.end(), 0U);
     // Remove harmless collinear middle vertices before ear selection.
@@ -255,22 +329,26 @@ std::vector<Ring> ClipRing(std::span<const ImagePoint> input,
           }
         }
         if (contains) continue;
-        emit(ClipConvex({input[a], input[b], input[c]}, region, stop));
+        const std::array triangle{input[a], input[b], input[c]};
+        emit(ClipConvex(triangle, region, options, stop));
         vertices.erase(vertices.begin() + static_cast<std::ptrdiff_t>(i));
         found = true;
         break;
       }
       if (!found) Invalid("transform.polygon_triangulation");
     }
-    emit(
-        ClipConvex({input[vertices[0]], input[vertices[1]], input[vertices[2]]},
-                   region, stop));
+    const std::array triangle{input[vertices[0]], input[vertices[1]],
+                              input[vertices[2]]};
+    emit(ClipConvex(triangle, region, options, stop));
   }
   if (output_area < options.min_region_area ||
       std::clamp(visible_area / original_area, 0.0L, 1.0L) <
-          options.min_region_visibility)
-    pieces.clear();
-  return pieces;
+          options.min_region_visibility) {
+    while (pieces.size() > first_piece) {
+      pieces.pop_back();
+      if (options.resource_budget) storage.point_leases.pop_back();
+    }
+  }
 }
 
 std::optional<ImageBox> Bounds(const std::vector<Ring>& rings) {
@@ -743,13 +821,13 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
                                 source.keypoints.size(), sizeof(ImageKeypoint),
                                 "transform.pose_source_copy");
     ImageResourceLease output_runs;
+    PolygonObjectBudget polygon_budget;
     auto object = CopyForMapping(source);
     if (source.box) object.box = local.forward_box(*source.box);
     if (!source.polygons.empty()) {
       for (const auto& ring : source.polygons) {
-        auto parts = ClipRing(ring, local, options, budget,
-                              object.polygon_partitioned, stop);
-        for (auto& part : parts) object.polygons.push_back(std::move(part));
+        ClipRing(ring, local, options, budget, object.polygon_partitioned,
+                 object.polygons, polygon_budget, stop);
       }
       if (object.polygons.empty()) continue;
       object.box = Bounds(object.polygons);
@@ -760,8 +838,10 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
           [&](ImagePoint p) { return Inside(p, *local.source_region()); });
       if (!uncut && options.oriented_box_crop == OrientedBoxCrop::discard)
         continue;
-      auto parts = ClipRing(*source.oriented_box, local, options, budget,
-                            object.polygon_partitioned, stop);
+      PolygonObjectBudget parts_budget;
+      std::vector<Ring> parts;
+      ClipRing(*source.oriented_box, local, options, budget,
+               object.polygon_partitioned, parts, parts_budget, stop);
       if (parts.empty()) continue;
       object.box = Bounds(parts);
       if (uncut) {
@@ -770,6 +850,7 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
       } else {
         object.oriented_box.reset();
         object.polygons = std::move(parts);
+        polygon_budget = std::move(parts_budget);
         object.oriented_box_to_polygon = true;
       }
     } else if (source.rle && !MapRle(object, steps, extents, options, local,
@@ -801,6 +882,21 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
           mapped_owner->keypoint_leases, mapped_owner->keypoint_lease_storage,
           std::move(copied_keypoints), options, "transform.pose_lease_capacity",
           "transform.pose_lease_bytes");
+    }
+    if (polygon_budget.ring_storage.active()) {
+      auto& budgets = mapped_owner->polygon_budgets;
+      if (budgets.size() == budgets.capacity()) {
+        const auto capacity = NextCapacity(
+            budgets.capacity(),
+            std::min(options.limits.max_objects, budgets.max_size()),
+            "transform.polygon_budget_capacity");
+        auto lease = ReserveAnnotation(options.resource_budget, capacity,
+                                       sizeof(PolygonObjectBudget),
+                                       "transform.polygon_budget_bytes");
+        budgets.reserve(capacity);
+        mapped_owner->polygon_budget_storage = std::move(lease);
+      }
+      budgets.push_back(std::move(polygon_budget));
     }
     record->objects.push_back(std::move(object));
   }

@@ -224,6 +224,116 @@ TEST(JointRegionTest, UncutObbKeepsCornerOrderButCroppedObbUsesExplicitPolicy) {
       transform_sample(sample, crop, discard).annotation->objects.empty());
 }
 
+TEST(JointRegionTest, PolygonClipStorageIsBudgetedBeforeAllocation) {
+  auto sample = Sample();
+  auto record = Record(sample);
+  record->objects.push_back({.polygons = {{{0, 0}, {5, 0}, {5, 5}, {0, 5}}}});
+  const std::array crop{ImageGeometryStep{
+      .kind = ImageGeometryKind::crop, .extent = {4, 4}, .left = 1, .top = 1}};
+  JointTransformOptions options;
+  ImageResourceBudgetLimits limits;
+  const auto clip_bytes = 8 * sizeof(ImagePoint);
+  limits.max_annotation_bytes = clip_bytes - 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, crop, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  limits.max_annotation_bytes = 2 * clip_bytes - 1;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, crop, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            clip_bytes);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  limits.max_annotation_bytes =
+      clip_bytes + sizeof(std::vector<ImagePoint>) - 1;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, crop, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            clip_bytes);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, crop, options);
+  ASSERT_EQ(output.annotation->objects.size(), 1U);
+  EXPECT_DOUBLE_EQ(Area(output.annotation->objects[0].polygons), 16);
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  EXPECT_GT(live.current, clip_bytes);
+  auto retained = output;
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            live.current);
+  retained = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  options.min_region_area = 17;
+  output = transform_sample(sample, crop, options);
+  EXPECT_TRUE(output.annotation->objects.empty());
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
+TEST(JointRegionTest, ConcavePolygonEarIndicesAreBudgetedBeforeAllocation) {
+  auto sample = Sample();
+  auto record = Record(sample);
+  record->objects.push_back(
+      {.polygons = {
+           {{0, 0}, {6, 0}, {6, 6}, {4, 6}, {4, 2}, {2, 2}, {2, 6}, {0, 6}}}});
+  const std::array crop{ImageGeometryStep{
+      .kind = ImageGeometryKind::crop, .extent = {6, 3}, .top = 3}};
+  JointTransformOptions options;
+  ImageResourceBudgetLimits limits;
+  const auto indices_bytes = 8 * sizeof(std::size_t);
+  limits.max_annotation_bytes = indices_bytes - 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, crop, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, crop, options);
+  ASSERT_EQ(output.annotation->objects.size(), 1U);
+  EXPECT_TRUE(output.annotation->objects[0].polygon_partitioned);
+  EXPECT_NEAR(Area(output.annotation->objects[0].polygons), 12, 1e-12);
+  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
+TEST(JointRegionTest, OrientedBoxRetainsOnlyCroppedPolygonStorage) {
+  auto sample = Sample();
+  auto record = Record(sample);
+  record->objects.push_back({.oriented_box = std::array<ImagePoint, 4>{
+                                 {{3, 0}, {6, 3}, {3, 6}, {0, 3}}}});
+  JointTransformOptions options;
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, {}, options);
+  ASSERT_EQ(output.annotation->objects.size(), 1U);
+  EXPECT_TRUE(output.annotation->objects[0].polygons.empty());
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            output.annotation->objects.capacity() * sizeof(VisionObject));
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  const std::array crop{ImageGeometryStep{
+      .kind = ImageGeometryKind::crop, .extent = {5, 6}, .left = 1}};
+  output = transform_sample(sample, crop, options);
+  ASSERT_EQ(output.annotation->objects.size(), 1U);
+  EXPECT_TRUE(output.annotation->objects[0].oriented_box_to_polygon);
+  EXPECT_EQ(output.annotation->objects[0].polygons.size(), 1U);
+  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).current,
+            output.annotation->objects.capacity() * sizeof(VisionObject));
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
 TEST(JointRegionTest, NonPanopticObjectCapacityIsBudgetedAndOwned) {
   auto sample = Sample();
   auto record = Record(sample);
