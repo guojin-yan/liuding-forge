@@ -224,6 +224,16 @@ ImageDataset::ImageDataset(std::filesystem::path root, ManifestIndex index,
       options_(options),
       annotations_(std::move(annotations)) {
   ValidateIndex(index_);
+  if (options_.resource_budget) {
+    if (!options_.image.resource_budget)
+      options_.image.resource_budget = options_.resource_budget;
+    if (!options_.paired_target.resource_budget)
+      options_.paired_target.resource_budget = options_.resource_budget;
+    if (options_.mask_target && !options_.mask_target->resource_budget)
+      options_.mask_target->resource_budget = options_.resource_budget;
+    if (options_.panoptic_target && !options_.panoptic_target->resource_budget)
+      options_.panoptic_target->resource_budget = options_.resource_budget;
+  }
   if (options_.mask_target && index_.task() != ManifestTask::paired)
     Invalid("mask.task", "a paired manifest when mask_target is configured");
   if (options_.panoptic_target &&
@@ -312,6 +322,7 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
 
   VisionSample sample;
   sample.image = std::move(decoded.tensor);
+  sample.image_resource_leases = std::move(decoded.resource_leases);
   sample.labels = record.labels;
   sample.image_path = record.path;
   sample.width = decoded.width;
@@ -345,6 +356,7 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
         Malformed("target.dimensions", *record.target_path);
       }
       sample.paired_target = std::move(target.tensor);
+      sample.paired_target_resource_leases = std::move(target.resource_leases);
       sample.paired_target_pixels = target.pixels;
     }
     sample.target_path = *record.target_path;

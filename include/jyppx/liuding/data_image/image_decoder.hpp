@@ -20,11 +20,13 @@
 
 #include <jyppx/liuding/core/types.hpp>
 #include <jyppx/liuding/data_image/pixel_spec.hpp>
+#include <jyppx/liuding/data_image/resource_budget.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <span>
 #include <stop_token>
 #include <string_view>
@@ -78,10 +80,15 @@ struct ImageDecodeOptions {
   ImageDtype dtype = ImageDtype::preserve;  ///< Bit-depth conversion policy.
   bool pin_memory =
       false;  ///< Publish CPU storage through the pinned allocator.
+  std::shared_ptr<ImageResourceBudget> resource_budget;
+  ///< Optional aggregate budget for known allocations, not process RSS or
+  ///< private codec/backend buffers.
 };
 
 /** @brief Owning decoded image and stable source metadata. */
 struct DecodedImage {
+  std::shared_ptr<ImageResourceLeaseSet> resource_leases;
+  ///< Holds decoded storage, pixel and optional pinned reservations.
   Tensor tensor;                              ///< Owning CPU tensor.
   ImageFormat format = ImageFormat::unknown;  ///< Detected source family.
   ImageLayout layout = ImageLayout::chw;      ///< Tensor order.
@@ -113,6 +120,8 @@ std::string_view image_format_name(ImageFormat format) noexcept;
  * @param options Explicit output, format and resource policy.
  * @param stop Cooperative cancellation checked at decode boundaries.
  * @return A contiguous HWC or CHW tensor with metadata.
+ * @note Caller-owned encoded bytes are not charged. Keep the returned object
+ * or its resource_leases alive while retaining its tensor separately.
  * @throws InvalidArgument Invalid limits or an impossible channel/layout
  * policy.
  * @throws SerializationError Unsupported, malformed or inconsistent image data.
@@ -130,6 +139,8 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
  * @param options Decode and resource policy.
  * @param stop Cooperative cancellation checked while reading and decoding.
  * @return A decoded owning image.
+ * @note With a resource budget, file bytes are charged before allocation and
+ * released after decode; the result retains decoded and pixel leases.
  * @throws IoError File access, size or read failure.
  * @throws InvalidArgument, SerializationError, ResourceExhausted, DeviceError,
  *         or Cancelled as documented by decode_image().

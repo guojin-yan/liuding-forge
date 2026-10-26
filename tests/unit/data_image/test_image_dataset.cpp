@@ -5,9 +5,11 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/data_image/image_batch.hpp>
 #include <jyppx/liuding/data_image/image_dataset.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -129,6 +131,43 @@ TEST(ImageDatasetTest, LazilyDecodesManifestRowsIntoVisionSamples) {
   EXPECT_EQ(batch[0].labels, (std::vector<std::size_t>{1U}));
 }
 
+TEST(ImageDatasetTest, HoldsSourceLeaseAcrossCollationAndReleasesOnFailure) {
+  TempDirectory directory;
+  WriteFixture(directory.path() / "input.png", "rgb.png");
+  const auto classification =
+      ClassificationIndex("path,labels\ninput.png,cat\n");
+  auto budget = std::make_shared<ImageResourceBudget>();
+  ImageDatasetOptions options;
+  options.resource_budget = budget;
+  const ImageDataset dataset(directory.path(), classification, options);
+  {
+    auto sample = dataset.get(0);
+    ASSERT_NE(sample.image_resource_leases, nullptr);
+    EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 6U);
+    ImageCollateOptions collate_options;
+    collate_options.resource_budget = budget;
+    const std::array samples{sample};
+    const std::array keys{ImageBatchKey{"input", 0, 0}};
+    auto batch = collate_images(samples, keys, collate_options);
+    EXPECT_GT(budget->usage(ImageResourceKind::decoded_bytes).current, 6U);
+    EXPECT_EQ(batch.items.size(), 1U);
+  }
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+
+  WriteFixture(directory.path() / "target.png", "rgb.png");
+  const auto paired = parse_manifest("input,target\ninput.png,target.png\n",
+                                     ManifestFormat::csv, ManifestTask::paired);
+  ImageResourceBudgetLimits limits;
+  limits.max_decoded_bytes = 6;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  const ImageDataset paired_dataset(directory.path(), paired, options);
+  EXPECT_THROW(paired_dataset.get(0), jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+}
+
 TEST(ImageDatasetTest, DecodesPairedTargetAndCanSelectIndependentPolicies) {
   TempDirectory directory;
   WriteFixture(directory.path() / "images" / "input.png", "rgb.png");
@@ -171,10 +210,15 @@ TEST(ImageDatasetTest,
   options.paired_target.channels = ImageChannels::rgb;
   options.mask_target.emplace();
   options.mask_target->ignore_id = 65535;
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
   const ImageDataset dataset(directory.path(), index, options);
   const auto sample = dataset.get(0);
   EXPECT_EQ(sample.image.scalar_type(), torch::kFloat32);
   ASSERT_TRUE(sample.mask_target);
+  ASSERT_NE(sample.mask_target->resource_leases, nullptr);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 40U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 4U);
   EXPECT_EQ(sample.mask_target->ids.scalar_type(), torch::kInt64);
   EXPECT_EQ(sample.mask_target->ids.sizes(), torch::IntArrayRef({1, 2}));
   EXPECT_EQ(sample.mask_target->ids[0][0].item<std::int64_t>(), 1024);

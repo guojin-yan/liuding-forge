@@ -36,7 +36,11 @@ namespace jyppx::liuding::data::image {
 
 /** @brief One lazily decoded image and its owned or shared target metadata. */
 struct VisionSample {
+  std::shared_ptr<ImageResourceLeaseSet> image_resource_leases;
+  ///< Keeps the decoded input charged while this sample retains it.
   Tensor image;  ///< Decoded owning input tensor.
+  std::shared_ptr<ImageResourceLeaseSet> paired_target_resource_leases;
+  ///< Keeps a decoded paired image charged while this sample retains it.
   std::optional<Tensor>
       paired_target;  ///< Decoded paired image when manifested.
   std::optional<DecodedMask>
@@ -63,6 +67,8 @@ struct VisionSample {
 
 /** @brief Decode policies and alignment requirements for a dataset source. */
 struct ImageDatasetOptions {
+  std::shared_ptr<ImageResourceBudget> resource_budget;
+  ///< Shared default for all image and mask decoder options in this source.
   ImageDecodeOptions
       image;  ///< Input image output, pinning and resource limits.
   ImageDecodeOptions paired_target;  ///< Paired-image decode policy.

@@ -10,8 +10,10 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <memory>
 #include <stop_token>
 #include <string>
 #include <vector>
@@ -138,6 +140,51 @@ TEST(ImageDecoderTest, FileReaderUsesSameBoundedPathEntryPoint) {
   const auto result = read_image_file(path);
   EXPECT_EQ(result.width, 2U);
   EXPECT_EQ(result.height, 1U);
+}
+
+TEST(ImageDecoderTest, AggregateBudgetTracksReadDecodeAndConcurrentResults) {
+  const auto path =
+      fs::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" / "rgb.png";
+  const auto bytes = ReadFixture("rgb.png");
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_bytes = bytes.size() - 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  ImageDecodeOptions options;
+  options.resource_budget = budget;
+  EXPECT_THROW(read_image_file(path, options),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
+
+  limits.max_encoded_bytes = bytes.size();
+  limits.max_decoded_bytes = 6;
+  limits.max_pixels = 2;
+  limits.max_codec_scratch_bytes = 12;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  auto decoded = read_image_file(path, options);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).peak, bytes.size());
+  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).peak, 12U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 6U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 2U);
+  auto concurrent = std::async(std::launch::async,
+                               [&] { return decode_image(bytes, options); });
+  EXPECT_THROW(concurrent.get(), jyppx::liuding::ResourceExhausted);
+
+  auto copy = decoded;
+  decoded = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 6U);
+  copy = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+
+  limits.max_codec_scratch_bytes = 1;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(decode_image(bytes, options), jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
 }
 
 TEST(ImageDecoderTest, RejectsCorruptInputLimitsAndCancellation) {

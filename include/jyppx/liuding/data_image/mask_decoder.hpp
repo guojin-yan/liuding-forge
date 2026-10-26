@@ -68,10 +68,15 @@ struct MaskDecodeOptions {
   bool unknown_color_is_ignore = false;
   ///< Opt-in unknown RGB fallback; requires rgb_mapping and an explicit
   ///< ignore_id.
+  std::shared_ptr<ImageResourceBudget> resource_budget;
+  ///< Optional aggregate budget for known allocations, not process RSS or
+  ///< private codec/backend buffers.
 };
 
 /** @brief Owning discrete CPU labels with their source interpretation. */
 struct DecodedMask {
+  std::shared_ptr<ImageResourceLeaseSet> resource_leases;
+  ///< Holds decoded storage and pixel reservations while labels are retained.
   Tensor ids;  ///< Contiguous, owning int64 [H,W]; never normalized or
                ///< color-scaled.
   MaskEncoding encoding = MaskEncoding::class_index;  ///< Interpretation used.
@@ -93,6 +98,8 @@ struct DecodedMask {
  * @param stop Cooperative cancellation checked while parsing and publishing
  * rows.
  * @return Owning CPU int64 labels; alpha never silently becomes background.
+ * @note Caller-owned encoded bytes are not charged. Keep the returned object
+ * or its resource_leases alive while retaining its tensor separately.
  * @throws InvalidArgument Invalid options or an ambiguous/duplicate color
  * mapping.
  * @throws SerializationError Corrupt PNG or unsupported source
@@ -119,6 +126,8 @@ DecodedMask decode_mask(std::span<const std::byte> bytes,
  * @param options Label interpretation and limits.
  * @param stop Cancellation checked while reading and decoding.
  * @return Decoded CPU int64 mask.
+ * @note With a resource budget, file bytes are charged before allocation and
+ * released after decode; the result retains decoded and pixel leases.
  * @throws IoError File metadata, open or read failed.
  * @throws InvalidArgument, SerializationError, ResourceExhausted, DeviceError,
  *         or Cancelled As documented by decode_mask().

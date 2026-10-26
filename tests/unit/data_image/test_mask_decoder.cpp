@@ -211,6 +211,41 @@ TEST(MaskDecoderTest, FileEntryPointSharesLabelSemanticsAndReportsIoFailure) {
                jyppx::liuding::IoError);
 }
 
+TEST(MaskDecoderTest, AggregateBudgetTracksWorkingMemoryAndRetainedLabels) {
+  const auto bytes = Read("gray8.png");
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_bytes = bytes.size();
+  limits.max_decoded_bytes = 9U * 7U * sizeof(std::int64_t);
+  limits.max_pixels = 9U * 7U;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  MaskDecodeOptions options;
+  options.resource_budget = budget;
+  auto mask = read_mask_file(FixturePath("gray8.png"), options);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).peak, bytes.size());
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
+  EXPECT_GT(budget->usage(ImageResourceKind::codec_scratch_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current,
+            limits.max_decoded_bytes);
+  auto concurrent = std::async(std::launch::async,
+                               [&] { return decode_mask(bytes, options); });
+  EXPECT_THROW(concurrent.get(), ResourceExhausted);
+  mask = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+  EXPECT_THROW(decode_mask(Read("bad-filter.png"), options),
+               SerializationError);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).current, 0U);
+
+  limits.max_codec_scratch_bytes = 1;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(decode_mask(bytes, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+}
+
 TEST(MaskDecoderTest, ChecksAllInputOutputRasterChunkAndMappingBudgets) {
   const auto bytes = Read("gray8.png");
   std::vector<MaskDecodeOptions> cases(6);

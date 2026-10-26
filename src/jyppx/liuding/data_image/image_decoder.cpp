@@ -165,7 +165,8 @@ Tensor MakeTensor(const void* data, std::int64_t width, std::int64_t height,
 }
 
 std::vector<std::byte> ReadBytes(const std::filesystem::path& path,
-                                 const ImageDecodeLimits& limits,
+                                 const ImageDecodeOptions& options,
+                                 ImageResourceLease& input_lease,
                                  std::stop_token stop) {
   CheckStop(stop);
   std::error_code error;
@@ -175,11 +176,14 @@ std::vector<std::byte> ReadBytes(const std::filesystem::path& path,
                   ErrorDetails{.component = std::string(kComponent),
                                .operation = "file.size",
                                .actual = error.message()});
-  if (size > limits.max_input_bytes)
-    Resource("file.bytes", std::to_string(limits.max_input_bytes),
+  if (size > options.limits.max_input_bytes)
+    Resource("file.bytes", std::to_string(options.limits.max_input_bytes),
              std::to_string(size));
   if (size > std::numeric_limits<std::size_t>::max())
     Resource("file.bytes", "size_t range");
+  if (options.resource_budget)
+    input_lease = options.resource_budget->reserve(
+        ImageResourceKind::encoded_bytes, size);
   std::ifstream input(path, std::ios::binary);
   if (!input)
     throw IoError("Could not open image file",
@@ -309,13 +313,42 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
                                 ? sizeof(float)
                             : source_is_16bit ? sizeof(std::uint16_t)
                                               : sizeof(std::uint8_t);
-  CheckedProduct(static_cast<std::uint64_t>(width),
-                 static_cast<std::uint64_t>(height), output_channels,
-                 element_size, options.limits);
+  const auto output_bytes = CheckedProduct(
+      static_cast<std::uint64_t>(width), static_cast<std::uint64_t>(height),
+      output_channels, element_size, options.limits);
+  const auto source_bytes = CheckedProduct(
+      static_cast<std::uint64_t>(width), static_cast<std::uint64_t>(height),
+      output_channels,
+      source_is_16bit ? sizeof(std::uint16_t) : sizeof(std::uint8_t),
+      options.limits);
 
   CheckStop(stop);
   const auto desired = DesiredChannels(options.channels);
   DecodedImage result;
+  ImageResourceLease scratch_lease;
+  try {
+    if (options.resource_budget) {
+      const auto pixels = static_cast<std::uint64_t>(width) * height;
+      result.resource_leases = std::make_shared<ImageResourceLeaseSet>();
+      auto& leases = *result.resource_leases;
+      leases.push_back(
+          options.resource_budget->reserve(ImageResourceKind::pixels, pixels));
+      leases.push_back(options.resource_budget->reserve(
+          ImageResourceKind::decoded_bytes, output_bytes));
+      if (options.pin_memory)
+        leases.push_back(options.resource_budget->reserve(
+            ImageResourceKind::pinned_bytes, output_bytes));
+      const auto extra_bytes = std::max(source_bytes, output_bytes);
+      if (source_bytes >
+          std::numeric_limits<std::uint64_t>::max() - extra_bytes)
+        Resource("decode.scratch", "uint64 range");
+      // stb pixels and one overlapping LibTorch conversion copy are known here.
+      scratch_lease = options.resource_budget->reserve(
+          ImageResourceKind::codec_scratch_bytes, source_bytes + extra_bytes);
+    }
+  } catch (const std::bad_alloc&) {
+    Resource("decode.allocation", "available memory");
+  }
   result.format = detected;
   result.layout = options.layout;
   result.width = static_cast<std::uint32_t>(width);
@@ -369,7 +402,8 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
 DecodedImage read_image_file(const std::filesystem::path& path,
                              const ImageDecodeOptions& options,
                              std::stop_token stop) {
-  const auto bytes = ReadBytes(path, options.limits, stop);
+  ImageResourceLease input_lease;
+  const auto bytes = ReadBytes(path, options, input_lease, stop);
   return decode_image(bytes, options, stop);
 }
 

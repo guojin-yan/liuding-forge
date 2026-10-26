@@ -154,9 +154,11 @@ struct Png {
   unsigned depth = 0, color = 0;
   bool interlaced = false;
   std::vector<MaskPaletteEntry> palette;
+  ImageResourceLease working_lease;
   std::vector<std::byte> compressed;
   std::vector<Pass> passes;
   std::size_t filtered_size = 0;
+  std::shared_ptr<ImageResourceLeaseSet> output_leases;
 };
 
 void ReadHeader(Png& png, Bytes data, const MaskDecodeOptions& options) {
@@ -220,6 +222,13 @@ void ReadHeader(Png& png, Bytes data, const MaskDecodeOptions& options) {
     for (const auto& pass : kAdam7) add_pass(pass);
   } else {
     add_pass({});
+  }
+  if (options.resource_budget) {
+    png.output_leases = std::make_shared<ImageResourceLeaseSet>();
+    png.output_leases->push_back(
+        options.resource_budget->reserve(ImageResourceKind::pixels, pixels));
+    png.output_leases->push_back(options.resource_budget->reserve(
+        ImageResourceKind::decoded_bytes, pixels * sizeof(std::int64_t)));
   }
 }
 
@@ -299,6 +308,10 @@ Png ParsePng(Bytes bytes, const MaskDecodeOptions& options,
       if (length != 0 || !idat || compressed_size == 0 ||
           offset != bytes.size())
         Malformed("mask.end", "invalid IEND or trailing data");
+      if (options.resource_budget)
+        png.working_lease = options.resource_budget->reserve(
+            ImageResourceKind::codec_scratch_bytes,
+            compressed_size + png.filtered_size);
       png.compressed.resize(compressed_size);
       std::size_t copied = 0;
       for (const auto chunk : idat_chunks) {
@@ -407,6 +420,7 @@ DecodedMask Decode(Bytes bytes, const MaskDecodeOptions& options,
     Malformed("mask.adler", "zlib Adler-32 mismatch");
 
   DecodedMask result;
+  result.resource_leases = std::move(png.output_leases);
   result.ids = torch::empty(
       {png.height, png.width},
       torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
@@ -475,6 +489,10 @@ DecodedMask read_mask_file(const std::filesystem::path& path,
     if (size > options.limits.max_input_bytes ||
         size > std::numeric_limits<std::size_t>::max())
       Resource("mask.input");
+    ImageResourceLease input_lease;
+    if (options.resource_budget)
+      input_lease = options.resource_budget->reserve(
+          ImageResourceKind::encoded_bytes, size);
     std::ifstream input(path, std::ios::binary);
     if (!input)
       throw IoError("Could not open mask file",
