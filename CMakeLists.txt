@@ -478,6 +478,7 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         src/jyppx/liuding/data_image/yolo_dataset_yaml.cpp
         src/jyppx/liuding/data_image/image_decoder.cpp
         src/jyppx/liuding/data_image/image_encoder.cpp
+        src/jyppx/liuding/data_image/image_output_sink.cpp
         src/jyppx/liuding/data_image/mask_decoder.cpp
         src/jyppx/liuding/data_image/panoptic.cpp
         src/jyppx/liuding/data_image/image_dataset.cpp

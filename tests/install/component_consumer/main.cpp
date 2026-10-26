@@ -23,6 +23,7 @@
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/image_encoder.hpp>
+#include <jyppx/liuding/data_image/image_output_sink.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
