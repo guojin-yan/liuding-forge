@@ -46,8 +46,9 @@ std::size_t NextCapacity(std::size_t current, std::size_t maximum,
                                : std::max<std::size_t>(1, current * 2);
 }
 
-struct RleRecordOwner {
-  ImageResourceLease lease_storage;
+struct NonPanopticRecordOwner {
+  ImageResourceLease object_storage;
+  ImageResourceLease run_lease_storage;
   ImageResourceLeaseSet run_leases;
   VisionAnnotationRecord record;
 };
@@ -561,7 +562,6 @@ JointAnnotationState CheckJointAnnotations(
         Invalid("transform.obb_convex_order");
     }
     if (object.rle) {
-      result.has_rle = true;
       const auto& rle = *object.rle;
       if (rle.width != sample.width || rle.height != sample.height ||
           rle.counts.empty())
@@ -654,15 +654,15 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
         options.resource_budget->reserve(ImageResourceKind::annotation_bytes,
                                          PanopticRecordBytes(*budget.panoptic));
   std::shared_ptr<VisionAnnotationRecord> record;
-  std::shared_ptr<RleRecordOwner> rle_owner;
+  std::shared_ptr<NonPanopticRecordOwner> mapped_owner;
   if (budget.panoptic) {
     auto owner = std::make_shared<PanopticRecordOwner>();
     owner->output_lease = std::move(output_lease);
     record = std::shared_ptr<VisionAnnotationRecord>(owner, &owner->record);
-  } else if (options.resource_budget && budget.has_rle) {
-    rle_owner = std::make_shared<RleRecordOwner>();
-    record =
-        std::shared_ptr<VisionAnnotationRecord>(rle_owner, &rle_owner->record);
+  } else if (options.resource_budget) {
+    mapped_owner = std::make_shared<NonPanopticRecordOwner>();
+    record = std::shared_ptr<VisionAnnotationRecord>(mapped_owner,
+                                                     &mapped_owner->record);
   } else {
     record = std::make_shared<VisionAnnotationRecord>();
   }
@@ -722,8 +722,19 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
     if (!BoxKeeps(source, object, local, options) ||
         !MapPose(object, steps, options, local))
       continue;
+    if (mapped_owner && record->objects.size() == record->objects.capacity()) {
+      const auto maximum =
+          std::min(options.limits.max_objects, record->objects.max_size());
+      const auto capacity = NextCapacity(record->objects.capacity(), maximum,
+                                         "transform.object_capacity");
+      auto next_lease =
+          ReserveAnnotation(options.resource_budget, capacity,
+                            sizeof(VisionObject), "transform.object_bytes");
+      record->objects.reserve(capacity);
+      mapped_owner->object_storage = std::move(next_lease);
+    }
     if (output_runs.active()) {
-      auto& leases = rle_owner->run_leases;
+      auto& leases = mapped_owner->run_leases;
       if (leases.size() == leases.capacity()) {
         const auto maximum =
             std::min(options.limits.max_objects, leases.max_size());
@@ -733,7 +744,7 @@ void MapJointAnnotations(const VisionSample& sample, VisionSample& output,
                                             sizeof(ImageResourceLease),
                                             "transform.rle_lease_bytes");
         leases.reserve(capacity);
-        rle_owner->lease_storage = std::move(next_lease);
+        mapped_owner->run_lease_storage = std::move(next_lease);
       }
       leases.push_back(std::move(output_runs));
     }

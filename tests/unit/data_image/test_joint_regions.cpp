@@ -216,6 +216,46 @@ TEST(JointRegionTest, UncutObbKeepsCornerOrderButCroppedObbUsesExplicitPolicy) {
       transform_sample(sample, crop, discard).annotation->objects.empty());
 }
 
+TEST(JointRegionTest, NonPanopticObjectCapacityIsBudgetedAndOwned) {
+  auto sample = Sample();
+  auto record = Record(sample);
+  for (std::int64_t id = 1; id <= 3; ++id)
+    record->objects.push_back({.source_id = id});
+  JointTransformOptions options;
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = sizeof(VisionObject) - 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, {}, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  limits.max_annotation_bytes = 6 * sizeof(VisionObject) - 1;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, {}, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).peak,
+            3 * sizeof(VisionObject));
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+
+  budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  auto output = transform_sample(sample, {}, options);
+  ASSERT_EQ(output.annotation->objects.size(), 3U);
+  for (std::int64_t id = 1; id <= 3; ++id)
+    EXPECT_EQ(output.annotation->objects[id - 1].source_id, id);
+  const auto live = budget->usage(ImageResourceKind::annotation_bytes);
+  EXPECT_EQ(live.current,
+            output.annotation->objects.capacity() * sizeof(VisionObject));
+  EXPECT_EQ(live.peak, 6 * sizeof(VisionObject));
+  auto retained = output;
+  output = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            live.current);
+  retained = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+}
+
 ImageMaskRle Encode(std::uint32_t w, std::uint32_t h,
                     const std::vector<int>& row_major) {
   ImageMaskRle rle{w, h, {0}};
@@ -311,8 +351,6 @@ TEST(JointRegionTest, RleRasterBudgetPrecedesAllocationAndReleasesOnFailure) {
   ASSERT_EQ(result.annotation->objects.size(), 1U);
   EXPECT_EQ(Decode(*result.annotation->objects[0].rle),
             (std::vector<int>{0, 0, 1, 1, 0, 0}));
-  EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).peak,
-            budget->usage(ImageResourceKind::annotation_bytes).current);
   EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
 }
 
@@ -340,10 +378,10 @@ TEST(JointRegionTest, RleRunCapacityIsBudgetedAndFollowsAnnotationOwner) {
             (std::vector<int>{0, 1, 0}));
   const auto live = budget->usage(ImageResourceKind::annotation_bytes);
   EXPECT_EQ(live.current,
-            sizeof(ImageResourceLease) +
+            output.annotation->objects.capacity() * sizeof(VisionObject) +
+                sizeof(ImageResourceLease) +
                 output.annotation->objects[0].rle->counts.capacity() *
                     sizeof(std::uint64_t));
-  EXPECT_GT(live.peak, live.current);
   auto retained = output;
   output = {};
   EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
@@ -366,8 +404,10 @@ TEST(JointRegionTest, MultipleRleOutputLeasesRollBackTogether) {
   const auto run_capacity =
       output.annotation->objects[0].rle->counts.capacity() +
       output.annotation->objects[1].rle->counts.capacity();
-  EXPECT_EQ(live.current, 2 * sizeof(ImageResourceLease) +
-                              run_capacity * sizeof(std::uint64_t));
+  EXPECT_EQ(live.current,
+            output.annotation->objects.capacity() * sizeof(VisionObject) +
+                2 * sizeof(ImageResourceLease) +
+                run_capacity * sizeof(std::uint64_t));
   auto retained = output;
   output = {};
   EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
