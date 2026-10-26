@@ -1285,6 +1285,78 @@ RunArtifactReference SQLiteRunStore::put_artifact(
   return reference;
 }
 
+RunArtifactReference SQLiteRunStore::put_artifact_file(
+    std::string_view run_id, std::string reference_id, RunArtifactKind kind,
+    std::string role, const std::filesystem::path& path,
+    const ArtifactDescriptor& descriptor, std::uint64_t attached_at_unix_ms,
+    ArtifactDigest expected_digest, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  check_telemetry_operation(stop, deadline);
+  impl_->validate_run_id(run_id);
+  validate_artifact_digest(expected_digest);
+  std::error_code path_error;
+  const auto status = std::filesystem::symlink_status(path, path_error);
+  if (path_error || !std::filesystem::is_regular_file(status)) {
+    throw IoError("Published artifact path is not an ordinary file",
+                  ErrorDetails{.component = "experiment.run_store",
+                               .operation = "put_artifact_file.open",
+                               .expected = "an existing ordinary file",
+                               .actual = utf8_path(path),
+                               .hint = "Wait for successful file publication "
+                                       "before registering its result."});
+  }
+  std::ifstream input(path, std::ios::binary | std::ios::ate);
+  if (!input || input.tellg() < 0) {
+    throw IoError("Could not open published artifact file");
+  }
+  const auto size = static_cast<std::uint64_t>(input.tellg());
+  if (size > impl_->options_.artifact_limits.max_artifact_bytes) {
+    exhausted("put_artifact_file.size", "configured artifact byte bound",
+              "oversized file");
+  }
+  if (descriptor.expected_size_bytes &&
+      size != *descriptor.expected_size_bytes) {
+    invalid("put_artifact_file.size", "the published byte count",
+            std::to_string(size) + " bytes");
+  }
+  input.seekg(0);
+  if (!input) throw IoError("Could not seek published artifact file");
+
+  std::lock_guard lock(impl_->mutex_);
+  Transaction transaction(impl_->database_);
+  (void)impl_->require_run(run_id);
+  auto upload = impl_->artifacts_.begin(descriptor);
+  std::array<std::byte, 64U * 1024U> buffer{};
+  std::uint64_t copied = 0U;
+  while (copied < size) {
+    check_telemetry_operation(stop, deadline);
+    const auto requested = static_cast<std::streamsize>(
+        std::min<std::uint64_t>(buffer.size(), size - copied));
+    input.read(reinterpret_cast<char*>(buffer.data()), requested);
+    const auto count = input.gcount();
+    if (count != requested)
+      throw IoError("Published artifact file changed while reading");
+    upload->write(std::span<const std::byte>(buffer.data(),
+                                             static_cast<std::size_t>(count)));
+    copied += static_cast<std::uint64_t>(count);
+  }
+  if (input.peek() != std::char_traits<char>::eof() || input.bad()) {
+    throw IoError("Published artifact file changed while reading");
+  }
+  RunArtifactReference reference{
+      .reference_id = std::move(reference_id),
+      .kind = kind,
+      .role = std::move(role),
+      .artifact = impl_->artifacts_.commit(*upload, std::move(expected_digest),
+                                           stop, deadline),
+      .attached_at_unix_ms = attached_at_unix_ms};
+  impl_->attach_unlocked(run_id,
+                         std::span<const RunArtifactReference>(&reference, 1U),
+                         stop, deadline);
+  transaction.commit();
+  return reference;
+}
+
 std::optional<RunMetadata> SQLiteRunStore::find(std::string_view run_id) const {
   impl_->validate_run_id(run_id);
   std::lock_guard lock(impl_->mutex_);

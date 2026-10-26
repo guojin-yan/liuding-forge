@@ -3,6 +3,14 @@
 jyppx_add_gtest(jyppx_test_large_dataset test_large_dataset.cpp)
 jyppx_add_gtest(jyppx_test_concurrent_stress test_concurrent_stress.cpp)
 
+if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::experiment)
+    jyppx_add_gtest(jyppx_test_image_output_evidence
+        LINK_TARGET jyppx::liuding::data_image
+        test_image_output_evidence.cpp)
+    target_link_libraries(jyppx_test_image_output_evidence PRIVATE
+        jyppx::liuding::experiment)
+endif()
+
 # A real process boundary is required to validate durable outbox replay after
 # SQLite commits but the producer has not received its receipt.
 if(Python3_Interpreter_FOUND)

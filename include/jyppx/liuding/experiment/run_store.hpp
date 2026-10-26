@@ -238,6 +238,22 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
       std::optional<ArtifactDigest> expected_digest = std::nullopt);
 
   /**
+   * @brief Streams a published file into CAS and attaches it under one writer
+   * transaction without retaining the entire file in memory.
+   * @param path Existing ordinary file; its path is not persisted.
+   * @param expected_digest Producer assertion for the exact published bytes.
+   * @note Pass an image sink completion's path, size in descriptor, and SHA-256
+   * only after the completion succeeds. A later telemetry artifact event may
+   * reference the returned immutable artifact independently.
+   */
+  RunArtifactReference put_artifact_file(
+      std::string_view run_id, std::string reference_id, RunArtifactKind kind,
+      std::string role, const std::filesystem::path& path,
+      const ArtifactDescriptor& descriptor, std::uint64_t attached_at_unix_ms,
+      ArtifactDigest expected_digest, std::stop_token stop = {},
+      TelemetryDeadline deadline = std::nullopt);
+
+  /**
    * @brief Finds one run without changing it.
    * @param run_id Stable run identity to query.
    * @return Detached metadata, or no value when absent.
