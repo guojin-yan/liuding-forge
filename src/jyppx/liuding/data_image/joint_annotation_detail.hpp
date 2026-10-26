@@ -23,7 +23,12 @@ struct JointAnnotationState {
 JointAnnotationState CheckJointAnnotations(
     const VisionSample& sample, std::span<const ImageGeometryStep> steps,
     std::span<const ImageExtent> extents, const JointTransformOptions& options,
-    const GeometryTrace& local, std::stop_token stop);
+    const GeometryTrace& local, std::stop_token stop,
+    bool defer_panoptic_binding = false);
+
+bool PanopticBoxKeeps(const VisionObject& source, const VisionObject& output,
+                      const GeometryTrace& local,
+                      const JointTransformOptions& options);
 
 void MapJointAnnotations(const VisionSample& source, VisionSample& output,
                          std::span<const ImageGeometryStep> steps,

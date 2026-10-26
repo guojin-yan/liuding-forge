@@ -24,6 +24,8 @@ struct ImageBatchGeometryOptions {
   ImageBatchLimits limits;
   std::optional<ImageExtent> output_padded_extent;
   std::uint32_t output_size_divisor = 1;
+  /// Authorizes one bounded CUDA-to-host segment summary per panoptic sample.
+  bool allow_cuda_panoptic_summary_transfer = false;
   std::shared_ptr<ImageResourceBudget> resource_budget;
 };
 
@@ -57,7 +59,8 @@ std::string image_batch_geometry_identity(
  * @param stop Cooperative cancellation before publication.
  * @return New batch on the input device; input tensors and metadata remain
  * unchanged.
- * @throws InvalidArgument Invalid geometry, schema, or CUDA panoptic binding.
+ * @throws InvalidArgument Invalid geometry, schema, or implicit CUDA panoptic
+ * transfer.
  * @throws ResourceExhausted Per-sample or aggregate tensor/metadata budget.
  * @throws DeviceError LibTorch operation failed.
  * @throws Cancelled Cancellation requested before publication.
@@ -66,10 +69,12 @@ std::string image_batch_geometry_identity(
  * applied, then the configured layout is rebuilt. The valid tensor must match
  * that rectangular padding contract. Discrete masks are transformed as int64
  * IDs with nearest-exact sampling. CPU and CUDA pixel leaves stay on their
- * existing device and caller-current stream; no hidden device transfer or
- * synchronization is performed. CUDA maps boxes, polygons, OBBs, keypoints
- * and RLE from host metadata without reading device pixels; panoptic segment
- * binding remains unsupported on CUDA. For pad layout, an output extent and
+ * existing device and caller-current stream. CUDA maps boxes, polygons, OBBs,
+ * keypoints and RLE from host metadata without reading device pixels.
+ * Panoptic CUDA mapping requires allow_cuda_panoptic_summary_transfer: it
+ * computes bounded exact segment statistics on the calling stream, then
+ * synchronizes one compact summary per sample to update host metadata. It
+ * never transfers image or mask pixels. For pad layout, an output extent and
  * size divisor may be specified; their resolved canvas is part of the
  * transform identity.
  */

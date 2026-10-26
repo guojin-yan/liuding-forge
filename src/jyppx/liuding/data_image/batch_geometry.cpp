@@ -15,11 +15,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <new>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace jyppx::liuding::data::image {
 namespace {
@@ -212,10 +214,13 @@ void CheckCpu(const ImageBatch& batch) {
   }
 }
 
-void CheckCudaMetadata(const ImageBatch& batch) {
+bool IsPanoptic(const ImageBatchItem& item) {
+  return item.annotation && item.annotation->panoptic_mask_path.has_value();
+}
+
+void CheckCudaMetadata(const ImageBatch& batch, bool allow_summary_transfer) {
   for (const auto& item : batch.items)
-    if (item.annotation && (item.annotation->panoptic_mask_path ||
-                            item.annotation->panoptic_mask_materialized))
+    if (IsPanoptic(item) && !allow_summary_transfer)
       InvalidBatch("batch_geometry.cuda_panoptic");
 }
 
@@ -253,6 +258,204 @@ std::shared_ptr<const VisionAnnotationRecord> MapCudaAnnotation(
   detail::MapJointAnnotations(source, output, steps, extents, options, local,
                               budget, stop);
   return output.annotation;
+}
+
+struct CudaPanopticResult {
+  std::shared_ptr<const VisionAnnotationRecord> annotation;
+  Tensor mask;
+};
+
+[[noreturn]] void PanopticMismatch(const char* operation) {
+  throw SerializationError(
+      "CUDA panoptic mask/table mismatch",
+      ErrorDetails{.component = "data.image.batch_geometry",
+                   .operation = operation});
+}
+
+CudaPanopticResult MapCudaPanoptic(const ImageBatch& batch, std::size_t index,
+                                   const Tensor& source_mask,
+                                   const Tensor& output_mask,
+                                   ImageExtent source_canvas,
+                                   std::span<const ImageGeometryStep> steps,
+                                   const JointTransformOptions& options,
+                                   std::stop_token stop) {
+  const auto& item = batch.items[index];
+  if (!item.mask || item.mask->encoding != MaskEncoding::panoptic_rgb ||
+      !item.mask->void_id || !item.annotation ||
+      !item.annotation->panoptic_mask_path ||
+      item.annotation->panoptic_mask_path->empty() ||
+      !item.annotation->panoptic_mask_materialized)
+    InvalidBatch("batch_geometry.cuda_panoptic_source");
+  auto local = GeometryTrace(source_canvas);
+  std::vector<ImageExtent> extents{source_canvas};
+  extents.reserve(steps.size() + 1);
+  for (const auto& step : steps) {
+    Stop(stop);
+    local = Append(local, step);
+    extents.push_back(local.output_extent());
+  }
+  const auto destination = extents.back();
+  VisionSample source;
+  source.width = source_canvas.width;
+  source.height = source_canvas.height;
+  source.categories = item.categories;
+  source.annotation = item.annotation;
+  DecodedMask mask;
+  mask.ids = source_mask;
+  mask.width = source_canvas.width;
+  mask.height = source_canvas.height;
+  mask.encoding = item.mask->encoding;
+  mask.ignore_id = item.mask->ignore_id;
+  mask.void_id = item.mask->void_id;
+  source.mask_target = std::move(mask);
+  static_cast<void>(detail::CheckJointAnnotations(source, steps, extents,
+                                                  options, local, stop, true));
+
+  const auto& bound = *item.annotation;
+  const auto source_pixels = Multiply(source_canvas.width, source_canvas.height,
+                                      "batch_geometry.cuda_panoptic_pixels");
+  const auto output_pixels = Multiply(destination.width, destination.height,
+                                      "batch_geometry.cuda_panoptic_pixels");
+  const auto scans = Multiply(
+      Add(source_pixels, output_pixels, "batch_geometry.cuda_panoptic_work"),
+      Multiply(
+          Add(bound.objects.size(), 1U, "batch_geometry.cuda_panoptic_work"),
+          8U, "batch_geometry.cuda_panoptic_work"),
+      "batch_geometry.cuda_panoptic_work");
+  if (scans > options.limits.max_mask_work_pixels)
+    BatchLimit("batch_geometry.cuda_panoptic_work");
+  const auto summary_bytes =
+      Multiply(Add(Multiply(bound.objects.size(), 11U,
+                            "batch_geometry.cuda_panoptic_summary"),
+                   2U, "batch_geometry.cuda_panoptic_summary"),
+               sizeof(double), "batch_geometry.cuda_panoptic_summary");
+  const auto reduction_bytes =
+      Add(Multiply(Add(source_pixels, output_pixels,
+                       "batch_geometry.cuda_panoptic_working"),
+                   64U, "batch_geometry.cuda_panoptic_working"),
+          summary_bytes, "batch_geometry.cuda_panoptic_working");
+  if (reduction_bytes > options.limits.max_working_bytes ||
+      summary_bytes > std::numeric_limits<std::size_t>::max())
+    BatchLimit("batch_geometry.cuda_panoptic_summary");
+
+  const auto coordinates = source_mask.options().dtype(torch::kInt64);
+  const auto source_x =
+      torch::arange(source_canvas.width, coordinates)
+          .unsqueeze(0)
+          .expand({source_canvas.height, source_canvas.width});
+  const auto source_y =
+      torch::arange(source_canvas.height, coordinates)
+          .unsqueeze(1)
+          .expand({source_canvas.height, source_canvas.width});
+  const auto output_x = torch::arange(destination.width, coordinates)
+                            .unsqueeze(0)
+                            .expand({destination.height, destination.width});
+  const auto output_y = torch::arange(destination.height, coordinates)
+                            .unsqueeze(1)
+                            .expand({destination.height, destination.width});
+  Tensor visibility;
+  if (local.source_region()) {
+    const auto region = *local.source_region();
+    auto x =
+        torch::arange(source_canvas.width, coordinates.dtype(torch::kFloat64));
+    auto y =
+        torch::arange(source_canvas.height, coordinates.dtype(torch::kFloat64));
+    auto x_weight =
+        ((x + 1).clamp_max(region.x_max) - x.clamp_min(region.x_min))
+            .clamp_min(0);
+    auto y_weight =
+        ((y + 1).clamp_max(region.y_max) - y.clamp_min(region.y_min))
+            .clamp_min(0);
+    visibility = y_weight.unsqueeze(1) * x_weight.unsqueeze(0);
+  } else {
+    visibility = torch::zeros({source_canvas.height, source_canvas.width},
+                              coordinates.dtype(torch::kFloat64));
+  }
+
+  const auto void_id = *item.mask->void_id;
+  const auto ignore_id = item.mask->ignore_id;
+  auto source_known = source_mask.eq(void_id);
+  auto output_known = output_mask.eq(void_id);
+  if (ignore_id) {
+    source_known.logical_or_(source_mask.eq(*ignore_id));
+    output_known.logical_or_(output_mask.eq(*ignore_id));
+  }
+  std::vector<Tensor> summary;
+  summary.reserve(static_cast<std::size_t>(summary_bytes / sizeof(double)));
+  const auto collect = [&](const Tensor& ids, const Tensor& x, const Tensor& y,
+                           Tensor& known, std::int64_t id,
+                           const Tensor* weights) {
+    auto match = ids.eq(id);
+    known.logical_or_(match);
+    auto absent = match.logical_not();
+    summary.push_back(match.sum().to(torch::kFloat64));
+    summary.push_back(
+        x.masked_fill(absent, ids.size(1)).min().to(torch::kFloat64));
+    summary.push_back(
+        y.masked_fill(absent, ids.size(0)).min().to(torch::kFloat64));
+    summary.push_back(x.masked_fill(absent, -1).max().to(torch::kFloat64));
+    summary.push_back(y.masked_fill(absent, -1).max().to(torch::kFloat64));
+    if (weights)
+      summary.push_back((match.to(torch::kFloat64) * *weights).sum());
+  };
+  for (const auto& object : bound.objects) {
+    Stop(stop);
+    collect(source_mask, source_x, source_y, source_known, object.source_id,
+            &visibility);
+    collect(output_mask, output_x, output_y, output_known, object.source_id,
+            nullptr);
+  }
+  summary.push_back(source_known.logical_not().sum().to(torch::kFloat64));
+  summary.push_back(output_known.logical_not().sum().to(torch::kFloat64));
+  Stop(stop);
+  // The explicit option authorizes this single bounded D2H summary and sync.
+  const auto host = torch::stack(summary).cpu().contiguous();
+  const auto* values = host.const_data_ptr<double>();
+  const auto unknown_offset = summary.size() - 2U;
+  if (values[unknown_offset] != 0 || values[unknown_offset + 1U] != 0)
+    PanopticMismatch("batch_geometry.cuda_panoptic_unknown_id");
+
+  auto record = std::make_shared<VisionAnnotationRecord>();
+  record->source_image_id = bound.source_image_id;
+  record->image_path = bound.image_path;
+  record->panoptic_mask_path = bound.panoptic_mask_path;
+  record->width = destination.width;
+  record->height = destination.height;
+  record->panoptic_mask_materialized = true;
+  std::vector<std::int64_t> kept;
+  kept.reserve(bound.objects.size());
+  for (std::size_t i = 0; i < bound.objects.size(); ++i) {
+    Stop(stop);
+    const auto* row = values + i * 11U;
+    const auto& original = bound.objects[i];
+    const auto source_count = static_cast<std::uint64_t>(row[0]);
+    if (!source_count || original.mask_pixel_area != source_count ||
+        !original.box || original.box->x_min != row[1] ||
+        original.box->y_min != row[2] || original.box->x_max != row[3] + 1 ||
+        original.box->y_max != row[4] + 1)
+      PanopticMismatch("batch_geometry.cuda_panoptic_source_binding");
+    const auto output_count = static_cast<std::uint64_t>(row[6]);
+    if (!output_count) continue;
+    auto object = original;
+    object.box = ImageBox{row[7], row[8], row[9] + 1, row[10] + 1};
+    object.mask_pixel_area = output_count;
+    if (static_cast<long double>(output_count) < options.min_region_area ||
+        row[5] / source_count < options.min_region_visibility ||
+        !detail::PanopticBoxKeeps(original, object, local, options))
+      continue;
+    kept.push_back(object.source_id);
+    record->objects.push_back(std::move(object));
+  }
+  if (kept.size() == bound.objects.size()) return {record, output_mask};
+  auto keep = output_mask.eq(void_id);
+  if (ignore_id) keep.logical_or_(output_mask.eq(*ignore_id));
+  for (const auto id : kept) {
+    Stop(stop);
+    keep.logical_or_(output_mask.eq(id));
+  }
+  auto filtered =
+      torch::where(keep, output_mask, torch::full_like(output_mask, void_id));
+  return {record, std::move(filtered)};
 }
 
 Tensor CudaNearestResize(const Tensor& input, bool mask, ImageExtent before,
@@ -422,6 +625,7 @@ std::string image_batch_geometry_identity(
     integer(options.output_padded_extent->height);
   }
   integer(options.output_size_divisor);
+  integer(options.allow_cuda_panoptic_summary_transfer);
   return sha256_digest_hex(hash.finish());
 }
 
@@ -469,7 +673,7 @@ ImageBatch transform_image_batch_geometry(
     if (device.is_cpu()) {
       CheckCpu(batch);
     } else if (device.is_cuda()) {
-      CheckCudaMetadata(batch);
+      CheckCudaMetadata(batch, options.allow_cuda_panoptic_summary_transfer);
     } else {
       InvalidBatch("batch_geometry.device");
     }
@@ -607,11 +811,37 @@ ImageBatch transform_image_batch_geometry(
       BatchLimit("batch_geometry.output_bytes");
     const auto source_metadata = detail::CheckBatchMetadata(
         batch, input_canvases, options.limits, false, stop);
-    const auto working =
+    auto working =
         Add(Add(max_intermediate_bytes, output_bytes,
                 "batch_geometry.working_bytes"),
             Multiply(source_metadata, 2, "batch_geometry.working_bytes"),
             "batch_geometry.working_bytes");
+    if (device.is_cuda()) {
+      for (std::size_t i = 0; i < count; ++i) {
+        if (!IsPanoptic(batch.items[i])) continue;
+        const auto source_pixels =
+            Multiply(input_canvases[i].width, input_canvases[i].height,
+                     "batch_geometry.cuda_panoptic_working");
+        const auto destination = batch.layout == ImageBatchLayout::pad
+                                     ? output_canvas
+                                     : output_extents[i];
+        const auto destination_pixels =
+            Multiply(destination.width, destination.height,
+                     "batch_geometry.cuda_panoptic_working");
+        const auto summary_bytes =
+            Multiply(Add(Multiply(batch.items[i].annotation->objects.size(),
+                                  11U, "batch_geometry.cuda_panoptic_working"),
+                         2U, "batch_geometry.cuda_panoptic_working"),
+                     sizeof(double), "batch_geometry.cuda_panoptic_working");
+        working =
+            Add(working,
+                Add(Multiply(Add(source_pixels, destination_pixels,
+                                 "batch_geometry.cuda_panoptic_working"),
+                             64U, "batch_geometry.cuda_panoptic_working"),
+                    summary_bytes, "batch_geometry.cuda_panoptic_working"),
+                "batch_geometry.cuda_panoptic_working");
+      }
+    }
     if (working > options.limits.max_working_bytes)
       BatchLimit("batch_geometry.working_bytes");
 
@@ -658,8 +888,12 @@ ImageBatch transform_image_batch_geometry(
               {.kind = ImageGeometryKind::pad,
                .right = output_canvas.width - output_extents[i].width,
                .bottom = output_canvas.height - output_extents[i].height});
-        result.items[i].annotation =
-            MapCudaAnnotation(batch, i, before, effective, joint, stop);
+        const bool panoptic = IsPanoptic(batch.items[i]);
+        if (!panoptic)
+          result.items[i].annotation =
+              MapCudaAnnotation(batch, i, before, effective, joint, stop);
+        const auto annotation_steps =
+            panoptic ? effective : std::vector<ImageGeometryStep>{};
         if (pad_output) effective.pop_back();
         for (const auto& step : effective) {
           const auto after = Append(progress, step).output_extent();
@@ -702,6 +936,13 @@ ImageBatch transform_image_batch_geometry(
         } else {
           valid.push_back(
               CudaValid(output_extents[i], output_extents[i], device));
+        }
+        if (panoptic) {
+          auto mapped =
+              MapCudaPanoptic(batch, i, MaskAt(batch, i), *mask,
+                              input_canvases[i], annotation_steps, joint, stop);
+          result.items[i].annotation = std::move(mapped.annotation);
+          mask = std::move(mapped.mask);
         }
         images.push_back(std::move(image));
         if (paired_image) paired.push_back(std::move(*paired_image));

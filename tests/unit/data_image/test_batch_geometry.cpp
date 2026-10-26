@@ -487,7 +487,7 @@ TEST(ImageBatchGeometryTest, CudaRichAnnotationsMatchCpuWithoutPixelReadback) {
                InvalidArgument);
 }
 
-TEST(ImageBatchGeometryTest, CudaPanopticBindingIsRejectedExplicitly) {
+TEST(ImageBatchGeometryTest, CudaPanopticRequiresExplicitSummaryTransfer) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
   auto sample = Photo(2, 2, 1);
   sample.categories = std::make_shared<const std::vector<VisionCategory>>(
@@ -513,6 +513,141 @@ TEST(ImageBatchGeometryTest, CudaPanopticBindingIsRejectedExplicitly) {
   const std::vector<std::vector<ImageGeometryStep>> steps(1);
   EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps),
                InvalidArgument);
+  ImageBatchGeometryOptions options;
+  options.allow_cuda_panoptic_summary_transfer = true;
+  EXPECT_NE(image_batch_geometry_identity({}, options),
+            image_batch_geometry_identity({}, {}));
+  const auto expected = transform_image_batch_geometry(cpu, steps, options);
+  const auto result =
+      transform_image_batch_geometry(cuda_batch, steps, options);
+  ASSERT_TRUE(result.masks);
+  EXPECT_TRUE(torch::equal(result.masks->cpu(), *expected.masks));
+  ASSERT_TRUE(result.items[0].annotation);
+  ASSERT_EQ(result.items[0].annotation->objects.size(), 1U);
+  EXPECT_EQ(result.items[0].annotation->objects[0].mask_pixel_area, 2U);
+}
+
+TEST(ImageBatchGeometryTest, CudaPanopticMatchesCpuAndValidatesBinding) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  auto sample = Photo(3, 2, 10);
+  sample.categories = std::make_shared<const std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{.source_id = 4, .name = "thing"}});
+  DecodedMask mask;
+  mask.ids = torch::tensor({1, 1, 16777215, 0, -7, 16777215}, torch::kInt64)
+                 .reshape({2, 3});
+  mask.encoding = MaskEncoding::panoptic_rgb;
+  mask.width = 3;
+  mask.height = 2;
+  mask.ignore_id = -7;
+  mask.void_id = 0;
+  sample.mask_target = mask;
+  auto annotation = std::make_shared<VisionAnnotationRecord>();
+  annotation->image_path = sample.image_path;
+  annotation->width = sample.width;
+  annotation->height = sample.height;
+  annotation->panoptic_mask_path = "segments.png";
+  annotation->objects.push_back(
+      {.source_id = 1, .category = 0, .box = ImageBox{0, 0, 2, 1}, .area = 2});
+  annotation->objects.push_back({.source_id = 16777215,
+                                 .category = 0,
+                                 .box = ImageBox{2, 0, 3, 2},
+                                 .area = 2});
+  sample.annotation = annotation;
+  ImageCollateOptions collate;
+  collate.layout = ImageBatchLayout::pad;
+  collate.padded_extent = ImageExtent{4, 3};
+  collate.mask_padding_id = 0;
+  const auto cpu = collate_images(
+      std::array{sample}, std::array{ImageBatchKey{"cuda-panoptic-filter"}},
+      collate);
+  const auto cuda_batch = ToCuda(cpu);
+  const std::vector<std::vector<ImageGeometryStep>> steps{{
+      {.kind = ImageGeometryKind::crop, .extent = {2, 2}, .left = 1},
+      {.kind = ImageGeometryKind::resize, .extent = {4, 4}},
+      {.kind = ImageGeometryKind::horizontal_flip},
+  }};
+  ImageBatchGeometryOptions options;
+  options.allow_cuda_panoptic_summary_transfer = true;
+  options.joint.mask_padding_id = 0;
+  options.joint.min_region_visibility = 0.6;
+  options.output_padded_extent = ImageExtent{5, 5};
+  const auto expected = transform_image_batch_geometry(cpu, steps, options);
+  const auto stream = c10::cuda::getStreamFromPool(false, 0);
+  c10::cuda::CUDAStreamGuard guard(stream);
+  const auto result =
+      transform_image_batch_geometry(cuda_batch, steps, options);
+  EXPECT_EQ(c10::cuda::getCurrentCUDAStream(0), stream);
+  ASSERT_TRUE(result.masks);
+  EXPECT_TRUE(result.masks->device().is_cuda());
+  EXPECT_TRUE(torch::equal(result.masks->cpu(), *expected.masks));
+  EXPECT_TRUE(torch::equal(cuda_batch.masks->cpu(), *cpu.masks));
+  ASSERT_TRUE(result.items[0].annotation);
+  ASSERT_TRUE(expected.items[0].annotation);
+  const auto& actual = *result.items[0].annotation;
+  const auto& reference = *expected.items[0].annotation;
+  EXPECT_EQ(actual.width, reference.width);
+  EXPECT_EQ(actual.height, reference.height);
+  EXPECT_TRUE(actual.panoptic_mask_materialized);
+  ASSERT_EQ(actual.objects.size(), reference.objects.size());
+  ASSERT_EQ(actual.objects.size(), 1U);
+  EXPECT_EQ(actual.objects[0].source_id, reference.objects[0].source_id);
+  EXPECT_EQ(actual.objects[0].mask_pixel_area,
+            reference.objects[0].mask_pixel_area);
+  ASSERT_TRUE(actual.objects[0].box);
+  ASSERT_TRUE(reference.objects[0].box);
+  EXPECT_DOUBLE_EQ(actual.objects[0].box->x_min,
+                   reference.objects[0].box->x_min);
+  EXPECT_DOUBLE_EQ(actual.objects[0].box->y_min,
+                   reference.objects[0].box->y_min);
+  EXPECT_DOUBLE_EQ(actual.objects[0].box->x_max,
+                   reference.objects[0].box->x_max);
+  EXPECT_DOUBLE_EQ(actual.objects[0].box->y_max,
+                   reference.objects[0].box->y_max);
+
+  auto corrupted = cuda_batch;
+  corrupted.masks = cuda_batch.masks->clone();
+  (*corrupted.masks)[0][0][0] = 9;
+  EXPECT_THROW(transform_image_batch_geometry(corrupted, steps, options),
+               SerializationError);
+  (*corrupted.masks)[0][0][0] = 16777215;
+  EXPECT_THROW(transform_image_batch_geometry(corrupted, steps, options),
+               SerializationError);
+  auto limited = options;
+  limited.joint.limits.max_mask_work_pixels = 1;
+  EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps, limited),
+               ResourceExhausted);
+}
+
+TEST(ImageBatchGeometryTest, CudaPanopticAcceptsEmptySegmentTable) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  auto sample = Photo(2, 2, 1);
+  sample.categories = std::make_shared<const std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{.source_id = 7, .name = "object"}});
+  DecodedMask mask;
+  mask.ids = torch::zeros({2, 2}, torch::kInt64);
+  mask.encoding = MaskEncoding::panoptic_rgb;
+  mask.width = 2;
+  mask.height = 2;
+  mask.void_id = 0;
+  sample.mask_target = mask;
+  auto annotation = std::make_shared<VisionAnnotationRecord>();
+  annotation->image_path = sample.image_path;
+  annotation->width = sample.width;
+  annotation->height = sample.height;
+  annotation->panoptic_mask_path = "segments.png";
+  sample.annotation = annotation;
+  const auto cpu = collate_images(std::array{sample},
+                                  std::array{ImageBatchKey{"empty-panoptic"}});
+  const std::vector<std::vector<ImageGeometryStep>> steps(1);
+  ImageBatchGeometryOptions options;
+  options.allow_cuda_panoptic_summary_transfer = true;
+  const auto result =
+      transform_image_batch_geometry(ToCuda(cpu), steps, options);
+  ASSERT_TRUE(result.masks);
+  EXPECT_TRUE(torch::equal(result.masks->cpu(), *cpu.masks));
+  ASSERT_TRUE(result.items[0].annotation);
+  EXPECT_TRUE(result.items[0].annotation->panoptic_mask_materialized);
+  EXPECT_TRUE(result.items[0].annotation->objects.empty());
 }
 
 TEST(ImageBatchGeometryTest, CudaPixelGeometryPreservesStackAndRaggedLayouts) {

@@ -435,10 +435,17 @@ void MapPanoptic(const VisionSample& source, VisionSample& output,
 }
 }  // namespace
 
+bool PanopticBoxKeeps(const VisionObject& source, const VisionObject& output,
+                      const GeometryTrace& local,
+                      const JointTransformOptions& options) {
+  return BoxKeeps(source, output, local, options);
+}
+
 JointAnnotationState CheckJointAnnotations(
     const VisionSample& sample, std::span<const ImageGeometryStep> steps,
     std::span<const ImageExtent> extents, const JointTransformOptions& options,
-    const GeometryTrace& local, std::stop_token stop) {
+    const GeometryTrace& local, std::stop_token stop,
+    bool defer_panoptic_binding) {
   JointAnnotationState result;
   std::uint64_t raster_work = 0;
   const auto sequence_work = [&] {
@@ -559,8 +566,9 @@ JointAnnotationState CheckJointAnnotations(
     bind.max_working_bytes = static_cast<std::size_t>(
         std::min<std::uint64_t>(options.limits.max_working_bytes,
                                 std::numeric_limits<std::size_t>::max()));
-    result.panoptic = bind_panoptic_mask(record, *sample.mask_target,
-                                         sample.categories->size(), bind, stop);
+    if (!defer_panoptic_binding)
+      result.panoptic = bind_panoptic_mask(
+          record, *sample.mask_target, sample.categories->size(), bind, stop);
   } else if (record.panoptic_mask_materialized)
     Invalid("transform.panoptic_reference");
   return result;
