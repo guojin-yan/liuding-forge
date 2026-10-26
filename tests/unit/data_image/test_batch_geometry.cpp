@@ -375,18 +375,140 @@ TEST(ImageBatchGeometryTest, CudaPixelGeometryMatchesCpuAndKeepsMaskIds) {
             9007199254740998LL);
 }
 
-TEST(ImageBatchGeometryTest, CudaRichAnnotationsAreRejectedExplicitly) {
+TEST(ImageBatchGeometryTest, CudaRichAnnotationsMatchCpuWithoutPixelReadback) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
-  auto sample = Photo(2, 2, 1);
+  auto sample = Photo(3, 2, 1);
+  sample.mask_target = Mask(sample, 9007199254740993LL);
   sample.categories = std::make_shared<const std::vector<VisionCategory>>(
-      std::vector<VisionCategory>{{.source_id = 7, .name = "object"}});
+      std::vector<VisionCategory>{{.source_id = 7,
+                                   .name = "object",
+                                   .keypoint_names = {"left", "right"}}});
   auto annotation = std::make_shared<VisionAnnotationRecord>();
   annotation->image_path = sample.image_path;
   annotation->width = sample.width;
   annotation->height = sample.height;
+  annotation->objects.push_back(
+      {.source_id = 11,
+       .box = ImageBox{0, 0, 2, 2},
+       .keypoints = {{{0.5, 0.5}, 2}, {{1.5, 1.5}, 2}}});
+  annotation->objects.push_back(
+      {.source_id = 12, .rle = ImageMaskRle{3, 2, {1, 2, 3}}});
+  annotation->objects.push_back(
+      {.source_id = 13, .polygons = {{{1, 0}, {3, 0}, {3, 2}, {1, 2}}}});
+  annotation->objects.push_back({.source_id = 14,
+                                 .oriented_box = std::array<ImagePoint, 4>{
+                                     ImagePoint{0.5, 0}, ImagePoint{2.5, 0},
+                                     ImagePoint{2.5, 2}, ImagePoint{0.5, 2}}});
+  sample.annotation = annotation;
+  ImageCollateOptions collate;
+  collate.layout = ImageBatchLayout::pad;
+  collate.padded_extent = ImageExtent{4, 3};
+  collate.mask_padding_id = -9;
+  const auto cpu = collate_images(
+      std::array{sample}, std::array{ImageBatchKey{"cuda-rich"}}, collate);
+  const auto cuda_batch = ToCuda(cpu);
+  const std::vector<std::vector<ImageGeometryStep>> steps{{
+      {.kind = ImageGeometryKind::crop, .extent = {2, 2}, .left = 1},
+      {.kind = ImageGeometryKind::horizontal_flip},
+      {.kind = ImageGeometryKind::resize, .extent = {4, 2}},
+  }};
+  ImageBatchGeometryOptions options;
+  options.joint.mask_padding_id = -9;
+  options.joint.horizontal_keypoint_permutations = {{1, 0}};
+  options.output_padded_extent = ImageExtent{6, 4};
+  const auto expected = transform_image_batch_geometry(cpu, steps, options);
+  const auto stream = c10::cuda::getStreamFromPool(false, 0);
+  c10::cuda::CUDAStreamGuard guard(stream);
+  const auto result =
+      transform_image_batch_geometry(cuda_batch, steps, options);
+  EXPECT_EQ(c10::cuda::getCurrentCUDAStream(0), stream);
+  EXPECT_TRUE(result.images.device().is_cuda());
+  ASSERT_TRUE(result.masks);
+  EXPECT_TRUE(result.masks->device().is_cuda());
+  EXPECT_TRUE(torch::equal(result.images.cpu(), expected.images));
+  EXPECT_TRUE(torch::equal(result.masks->cpu(), *expected.masks));
+  EXPECT_TRUE(torch::equal(result.valid.cpu(), expected.valid));
+  ASSERT_TRUE(result.items[0].annotation);
+  ASSERT_TRUE(expected.items[0].annotation);
+  const auto& actual_record = *result.items[0].annotation;
+  const auto& expected_record = *expected.items[0].annotation;
+  EXPECT_EQ(actual_record.width, expected_record.width);
+  EXPECT_EQ(actual_record.height, expected_record.height);
+  ASSERT_EQ(actual_record.objects.size(), expected_record.objects.size());
+  ASSERT_EQ(actual_record.objects.size(), 4U);
+  for (std::size_t i = 0; i < actual_record.objects.size(); ++i) {
+    const auto& actual = actual_record.objects[i];
+    const auto& reference = expected_record.objects[i];
+    EXPECT_EQ(actual.source_id, reference.source_id);
+    EXPECT_EQ(actual.box.has_value(), reference.box.has_value());
+    if (actual.box && reference.box) {
+      EXPECT_DOUBLE_EQ(actual.box->x_min, reference.box->x_min);
+      EXPECT_DOUBLE_EQ(actual.box->y_min, reference.box->y_min);
+      EXPECT_DOUBLE_EQ(actual.box->x_max, reference.box->x_max);
+      EXPECT_DOUBLE_EQ(actual.box->y_max, reference.box->y_max);
+    }
+    ASSERT_EQ(actual.polygons.size(), reference.polygons.size());
+    for (std::size_t ring = 0; ring < actual.polygons.size(); ++ring) {
+      ASSERT_EQ(actual.polygons[ring].size(), reference.polygons[ring].size());
+      for (std::size_t point = 0; point < actual.polygons[ring].size();
+           ++point) {
+        EXPECT_DOUBLE_EQ(actual.polygons[ring][point].x,
+                         reference.polygons[ring][point].x);
+        EXPECT_DOUBLE_EQ(actual.polygons[ring][point].y,
+                         reference.polygons[ring][point].y);
+      }
+    }
+    EXPECT_EQ(actual.oriented_box.has_value(),
+              reference.oriented_box.has_value());
+    EXPECT_EQ(actual.rle.has_value(), reference.rle.has_value());
+    if (actual.rle && reference.rle) {
+      EXPECT_EQ(actual.rle->width, reference.rle->width);
+      EXPECT_EQ(actual.rle->height, reference.rle->height);
+      EXPECT_EQ(actual.rle->counts, reference.rle->counts);
+    }
+    ASSERT_EQ(actual.keypoints.size(), reference.keypoints.size());
+    for (std::size_t point = 0; point < actual.keypoints.size(); ++point) {
+      EXPECT_DOUBLE_EQ(actual.keypoints[point].point.x,
+                       reference.keypoints[point].point.x);
+      EXPECT_DOUBLE_EQ(actual.keypoints[point].point.y,
+                       reference.keypoints[point].point.y);
+      EXPECT_EQ(actual.keypoints[point].visibility,
+                reference.keypoints[point].visibility);
+    }
+  }
+  EXPECT_EQ(cuda_batch.items[0].annotation->width, 4U);
+  auto limited = options;
+  limited.joint.limits.max_rle_runs = 1;
+  EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps, limited),
+               ResourceExhausted);
+  limited = options;
+  limited.joint.min_region_area = -1;
+  EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps, limited),
+               InvalidArgument);
+}
+
+TEST(ImageBatchGeometryTest, CudaPanopticBindingIsRejectedExplicitly) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  auto sample = Photo(2, 2, 1);
+  sample.categories = std::make_shared<const std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{.source_id = 7, .name = "object"}});
+  DecodedMask mask;
+  mask.ids = torch::tensor({1, 1, 0, 0}, torch::kInt64).reshape({2, 2});
+  mask.encoding = MaskEncoding::panoptic_rgb;
+  mask.width = 2;
+  mask.height = 2;
+  mask.void_id = 0;
+  sample.mask_target = mask;
+  auto annotation = std::make_shared<VisionAnnotationRecord>();
+  annotation->image_path = sample.image_path;
+  annotation->width = sample.width;
+  annotation->height = sample.height;
+  annotation->panoptic_mask_path = "segments.png";
+  annotation->objects.push_back(
+      {.source_id = 1, .box = ImageBox{0, 0, 2, 1}, .area = 2});
   sample.annotation = annotation;
   const auto cpu = collate_images(std::array{sample},
-                                  std::array{ImageBatchKey{"cuda-rich"}});
+                                  std::array{ImageBatchKey{"cuda-panoptic"}});
   const auto cuda_batch = ToCuda(cpu);
   const std::vector<std::vector<ImageGeometryStep>> steps(1);
   EXPECT_THROW(transform_image_batch_geometry(cuda_batch, steps),

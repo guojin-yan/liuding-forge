@@ -508,8 +508,8 @@ class WorkerRuntime final {
                 BatchResourceLeaseFactory resource_lease_factory,
                 std::size_t workers, std::chrono::milliseconds timeout)
       : factory_(std::move(factory)),
-        memory_(memory),
         resource_lease_factory_(std::move(resource_lease_factory)),
+        memory_(memory),
         timeout_(timeout) {
     workers_.reserve(workers);
     try {

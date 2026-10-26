@@ -75,7 +75,7 @@ struct Writer {
     budget.Node();
     c10::impl::GenericList result(c10::AnyType::get());
     for (auto& v : values) result.push_back(std::move(v));
-    return I(std::move(result));
+    return I(result);
   }
   I OptionalInt(const std::optional<std::int64_t>& v) {
     return v ? Int(*v) : None();
@@ -450,7 +450,7 @@ void Inspect(const I& value, Budget& budget, std::size_t depth = 0) {
 I TensorList(const std::vector<Tensor>& tensors) {
   c10::impl::GenericList list(c10::TensorType::get());
   for (const auto& tensor : tensors) list.push_back(tensor);
-  return I(std::move(list));
+  return I(list);
 }
 std::vector<Tensor> Tensors(const I& v) {
   std::vector<Tensor> result;
@@ -545,7 +545,7 @@ c10::IValue image_batch_value(const ImageBatch& batch,
     value.insert("labels", batch.labels);
     value.insert("label_offsets", w.List(std::move(offsets)));
     value.insert("items", w.List(std::move(items)));
-    I result(std::move(value));
+    I result(value);
     Budget budget{limits};
     Inspect(result, budget);
     return result;

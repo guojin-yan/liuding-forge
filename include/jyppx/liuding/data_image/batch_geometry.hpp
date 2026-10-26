@@ -55,8 +55,9 @@ std::string image_batch_geometry_identity(
  * @param sample_steps One explicit sequence per batch item.
  * @param options Joint policy and aggregate per-call limits.
  * @param stop Cooperative cancellation before publication.
- * @return New batch on the input device; input tensors and metadata remain unchanged.
- * @throws InvalidArgument Invalid geometry, schema, or unsupported CUDA metadata.
+ * @return New batch on the input device; input tensors and metadata remain
+ * unchanged.
+ * @throws InvalidArgument Invalid geometry, schema, or CUDA panoptic binding.
  * @throws ResourceExhausted Per-sample or aggregate tensor/metadata budget.
  * @throws DeviceError LibTorch operation failed.
  * @throws Cancelled Cancellation requested before publication.
@@ -66,10 +67,11 @@ std::string image_batch_geometry_identity(
  * that rectangular padding contract. Discrete masks are transformed as int64
  * IDs with nearest-exact sampling. CPU and CUDA pixel leaves stay on their
  * existing device and caller-current stream; no hidden device transfer or
- * synchronization is performed. The CUDA slice currently requires batches
- * without rich annotation records because annotation mapping remains a
- * host-only path. For pad layout, an output extent and size divisor may be
- * specified; their resolved canvas is part of the transform identity.
+ * synchronization is performed. CUDA maps boxes, polygons, OBBs, keypoints
+ * and RLE from host metadata without reading device pixels; panoptic segment
+ * binding remains unsupported on CUDA. For pad layout, an output extent and
+ * size divisor may be specified; their resolved canvas is part of the
+ * transform identity.
  */
 ImageBatch transform_image_batch_geometry(
     const ImageBatch& batch,

@@ -6,6 +6,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "image_batch_detail.hpp"
+#include "joint_annotation_detail.hpp"
 
 #include <jyppx/liuding/data_image/batch_geometry.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -213,8 +214,45 @@ void CheckCpu(const ImageBatch& batch) {
 
 void CheckCudaMetadata(const ImageBatch& batch) {
   for (const auto& item : batch.items)
-    if (item.annotation)
-      InvalidBatch("batch_geometry.cuda_annotations");
+    if (item.annotation && (item.annotation->panoptic_mask_path ||
+                            item.annotation->panoptic_mask_materialized))
+      InvalidBatch("batch_geometry.cuda_panoptic");
+}
+
+std::shared_ptr<const VisionAnnotationRecord> MapCudaAnnotation(
+    const ImageBatch& batch, std::size_t index, ImageExtent canvas,
+    std::span<const ImageGeometryStep> steps,
+    const JointTransformOptions& options, std::stop_token stop) {
+  const auto& item = batch.items[index];
+  if (!item.annotation) return {};
+  VisionSample source;
+  source.width = canvas.width;
+  source.height = canvas.height;
+  source.categories = item.categories;
+  source.annotation = item.annotation;
+  if (item.mask) {
+    DecodedMask mask;
+    mask.ids = MaskAt(batch, index);
+    mask.width = canvas.width;
+    mask.height = canvas.height;
+    source.mask_target = std::move(mask);
+  }
+  auto local = GeometryTrace(canvas);
+  std::vector<ImageExtent> extents{canvas};
+  extents.reserve(steps.size() + 1);
+  for (const auto& step : steps) {
+    Stop(stop);
+    local = Append(local, step);
+    extents.push_back(local.output_extent());
+  }
+  auto budget = detail::CheckJointAnnotations(source, steps, extents, options,
+                                              local, stop);
+  VisionSample output;
+  output.width = local.output_extent().width;
+  output.height = local.output_extent().height;
+  detail::MapJointAnnotations(source, output, steps, extents, options, local,
+                              budget, stop);
+  return output.annotation;
 }
 
 Tensor CudaNearestResize(const Tensor& input, bool mask, ImageExtent before,
@@ -435,6 +473,8 @@ ImageBatch transform_image_batch_geometry(
     } else {
       InvalidBatch("batch_geometry.device");
     }
+    if (device.is_cuda())
+      static_cast<void>(joint_transform_identity({}, options.joint));
     JointTransformOptions joint = options.joint;
     BoundPerSampleOptions(joint, options.limits, count);
     CheckOutputPolicy(batch.layout, options);
@@ -461,7 +501,7 @@ ImageBatch transform_image_batch_geometry(
           static_cast<std::uint64_t>(canvas.width) * canvas.height;
       for (const auto& step : sample_steps[i]) {
         Stop(stop);
-        trace = Append(std::move(trace), step);
+        trace = Append(trace, step);
         const auto extent = trace.output_extent();
         if (extent.width > joint.limits.max_dimension ||
             extent.height > joint.limits.max_dimension ||
@@ -611,6 +651,16 @@ ImageBatch transform_image_batch_geometry(
                                .extent = batch.items[i].valid_extent});
         effective.insert(effective.end(), sample_steps[i].begin(),
                          sample_steps[i].end());
+        const bool pad_output = batch.layout == ImageBatchLayout::pad &&
+                                !Equal(output_extents[i], output_canvas);
+        if (pad_output)
+          effective.push_back(
+              {.kind = ImageGeometryKind::pad,
+               .right = output_canvas.width - output_extents[i].width,
+               .bottom = output_canvas.height - output_extents[i].height});
+        result.items[i].annotation =
+            MapCudaAnnotation(batch, i, before, effective, joint, stop);
+        if (pad_output) effective.pop_back();
         for (const auto& step : effective) {
           const auto after = Append(progress, step).output_extent();
           image = CudaPhotoStep(image, before, after, step, joint,
@@ -622,20 +672,19 @@ ImageBatch transform_image_batch_geometry(
             *mask = CudaCopyStep(*mask, true, before, after, step,
                                  c10::Scalar(joint.mask_padding_id.value_or(0)),
                                  stop);
-          progress = Append(std::move(progress), step);
+          progress = Append(progress, step);
           before = after;
         }
         result.items[i].valid_extent = output_extents[i];
         auto composed = batch.items[i].geometry.value_or(
             GeometryTrace(input_canvases[i]));
-        for (const auto& step : effective)
-          composed = Append(std::move(composed), step);
+        for (const auto& step : effective) composed = Append(composed, step);
         if (batch.layout == ImageBatchLayout::pad &&
             !Equal(output_extents[i], output_canvas))
           composed = composed.padded(
               0, 0, output_canvas.width - output_extents[i].width,
               output_canvas.height - output_extents[i].height);
-        result.items[i].geometry = std::move(composed);
+        result.items[i].geometry = composed;
 
         if (batch.layout == ImageBatchLayout::pad) {
           image = CudaPadToCanvas(image, output_extents[i], output_canvas,
