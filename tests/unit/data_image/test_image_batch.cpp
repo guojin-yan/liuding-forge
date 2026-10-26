@@ -206,6 +206,68 @@ TEST(ImageBatchResourceBudgetTest, AssignmentReleasesStorageBeforeLease) {
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
 }
 
+TEST(ImageBatchResourceBudgetTest,
+     NumericReservesOutputAndWorkingStorageBeforeConversion) {
+  const auto batch = Batch({Photo()});
+  ImageBatchTransformOptions options;
+  options.image.scale = BatchPixelScale::preserve;
+  ImageResourceBudgetLimits limits;
+  limits.max_decoded_bytes = 77;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_image_batch(batch, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
+
+  limits.max_decoded_bytes = 221;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_image_batch(batch, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 78U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+
+  limits.max_decoded_bytes = 222;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  auto result = transform_image_batch(batch, options);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 222U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 78U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
+  result = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 0U);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     NumericChargesUnchangedPairedPhotosInRaggedOutput) {
+  auto a = Photo();
+  auto b = Photo(2, 1);
+  for (auto* sample : {&a, &b}) {
+    sample->paired_target = sample->image.clone();
+    sample->paired_target_pixels = sample->pixels;
+  }
+  const auto batch = Batch({a, b}, {.layout = ImageBatchLayout::ragged});
+  ImageBatchTransformOptions options;
+  options.image.scale = BatchPixelScale::preserve;
+  ImageResourceBudgetLimits limits;
+  limits.max_pixels = 15;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_image_batch(batch, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+
+  limits.max_pixels = 16;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  auto result = transform_image_batch(batch, options);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 16U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 128U);
+  EXPECT_EQ(result.paired_image_list[0].data_ptr(),
+            batch.paired_image_list[0].data_ptr());
+  result = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+}
+
 TEST(ImageBatchResourceBudgetTest, GeometryAndMemoryStagesCanBeBound) {
   auto budget = std::make_shared<ImageResourceBudget>();
   ImageCollateOptions collate;
@@ -855,6 +917,35 @@ TEST(ImageBatchCUDATest, ContentIdentityRejectsDeviceBatchWithoutTransfer) {
   const auto device_batch =
       transfer_image_batch(prepare_image_batch(batch, memory), memory);
   EXPECT_THROW(image_batch_content_identity(device_batch), InvalidArgument);
+}
+
+TEST(ImageBatchCUDATest, NumericReservesGpuOutputAndWorkingStorage) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const auto batch = Batch({Photo()});
+  BatchMemoryOptions memory{.pin_memory = true,
+                            .target_device = Device(torch::kCUDA, 0),
+                            .non_blocking = true};
+  const auto device_batch =
+      transfer_image_batch(prepare_image_batch(batch, memory), memory);
+  ImageBatchTransformOptions options;
+  options.image.scale = BatchPixelScale::preserve;
+  ImageResourceBudgetLimits limits;
+  limits.max_gpu_bytes = 221;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_image_batch(device_batch, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 78U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+
+  limits.max_gpu_bytes = 222;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  auto result = transform_image_batch(device_batch, options);
+  EXPECT_TRUE(result.images.device().is_cuda());
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 222U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 78U);
+  result = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
 }
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)

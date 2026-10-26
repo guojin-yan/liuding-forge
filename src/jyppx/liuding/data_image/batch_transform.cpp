@@ -150,10 +150,13 @@ ImageBatch transform_image_batch(const ImageBatch& b,
         BatchLimit("batch_transform.working");
       scratch_bytes += count * 2 * compute;
     };
-    reserve(Count(b.images, b.image_list), b.pixels, o.image);
-    if (o.paired)
-      reserve(Count(b.paired_images.value_or(Tensor()), b.paired_image_list),
-              *b.paired_pixels, *o.paired);
+    const auto image_elements = Count(b.images, b.image_list);
+    reserve(image_elements, b.pixels, o.image);
+    const auto paired_elements =
+        (o.paired || (o.resource_budget && b.paired_pixels))
+            ? Count(b.paired_images.value_or(Tensor()), b.paired_image_list)
+            : 0;
+    if (o.paired) reserve(paired_elements, *b.paired_pixels, *o.paired);
     std::vector<ImageExtent> canvases;
     for (std::size_t i = 0; i < b.items.size(); ++i) {
       const auto t = b.layout == ImageBatchLayout::ragged
@@ -167,11 +170,73 @@ ImageBatch transform_image_batch(const ImageBatch& b,
     if (scratch_bytes > o.limits.max_working_bytes - metadata ||
         output_bytes > o.limits.max_working_bytes - metadata - scratch_bytes)
       BatchLimit("batch_transform.working");
+    const auto device = b.layout == ImageBatchLayout::ragged
+                            ? b.image_list.front().device()
+                            : b.images.device();
+    std::shared_ptr<ImageResourceLeaseSet> output_leases;
+    if (o.resource_budget) {
+      const auto image_pixels = image_elements / b.pixels.channels();
+      const auto paired_pixels_count =
+          b.paired_pixels ? paired_elements / b.paired_pixels->channels() : 0;
+      if (paired_pixels_count >
+          std::numeric_limits<std::uint64_t>::max() - image_pixels)
+        BatchLimit("batch_transform.resource_pixels");
+      const auto label_count = static_cast<std::uint64_t>(b.labels.numel());
+      if (label_count >
+          std::numeric_limits<std::uint64_t>::max() / sizeof(std::int64_t))
+        BatchLimit("batch_transform.resource_index");
+      auto index_bytes = label_count * sizeof(std::int64_t);
+      if (b.label_offsets.size() >
+          (std::numeric_limits<std::uint64_t>::max() - index_bytes) /
+              sizeof(std::int64_t))
+        BatchLimit("batch_transform.resource_index");
+      index_bytes += b.label_offsets.size() * sizeof(std::int64_t);
+      std::uint64_t pinned_bytes = 0;
+      const auto charge_pinned = [&](const Tensor& tensor) {
+        if (!tensor.defined() || !tensor.is_pinned()) return;
+        const auto bytes =
+            static_cast<std::uint64_t>(tensor.numel()) * tensor.element_size();
+        if (bytes > std::numeric_limits<std::uint64_t>::max() - pinned_bytes)
+          BatchLimit("batch_transform.resource_pinned");
+        pinned_bytes += bytes;
+      };
+      if (device.is_cpu()) {
+        charge_pinned(b.valid);
+        charge_pinned(b.labels);
+        if (b.masks) charge_pinned(*b.masks);
+        for (const auto& tensor : b.valid_list) charge_pinned(tensor);
+        for (const auto& tensor : b.mask_list) charge_pinned(tensor);
+        if (!o.paired) {
+          if (b.paired_images) charge_pinned(*b.paired_images);
+          for (const auto& tensor : b.paired_image_list) charge_pinned(tensor);
+        }
+      }
+      output_leases = detail::ReserveBatchTotals(
+          o.resource_budget, output_bytes, image_pixels + paired_pixels_count,
+          metadata, index_bytes, pinned_bytes,
+          device.is_cuda() ? output_bytes : 0, stop);
+    }
+    const auto numeric = [&](const Tensor& source, const PixelSpec& spec,
+                             const BatchPixelTransform& policy) {
+      ImageResourceLease scratch;
+      if (o.resource_budget) {
+        const auto compute = policy.dtype == torch::kFloat64 ? 8U : 4U;
+        const auto amount =
+            static_cast<std::uint64_t>(source.numel()) * 2 * compute;
+        scratch = o.resource_budget->reserve(
+            device.is_cuda() ? ImageResourceKind::gpu_bytes
+                             : ImageResourceKind::decoded_bytes,
+            amount);
+      }
+      return Numeric(source, spec, policy);
+    };
     auto result = b;
     result.pixels = pixels;
     result.paired_pixels = paired_pixels;
     result.memory = {};
     result.resource_lease_sets.clear();
+    if (output_leases)
+      result.resource_lease_sets.push_back(std::move(output_leases));
     if (b.layout == ImageBatchLayout::ragged) {
       result.image_list.clear();
       result.paired_image_list =
@@ -179,23 +244,20 @@ ImageBatch transform_image_batch(const ImageBatch& b,
       for (std::size_t i = 0; i < b.items.size(); ++i) {
         Stop(stop);
         result.image_list.push_back(
-            Numeric(b.image_list[i], b.pixels, o.image));
+            numeric(b.image_list[i], b.pixels, o.image));
         if (o.paired)
           result.paired_image_list.push_back(
-              Numeric(b.paired_image_list[i], *b.paired_pixels, *o.paired));
+              numeric(b.paired_image_list[i], *b.paired_pixels, *o.paired));
       }
     } else {
-      result.images = Numeric(b.images, b.pixels, o.image);
+      result.images = numeric(b.images, b.pixels, o.image);
       Stop(stop);
       if (o.paired)
         result.paired_images =
-            Numeric(*b.paired_images, *b.paired_pixels, *o.paired);
+            numeric(*b.paired_images, *b.paired_pixels, *o.paired);
     }
     Stop(stop);
     detail::CheckImageBatch(result, o.limits, stop);
-    if (o.resource_budget)
-      result.resource_lease_sets.push_back(detail::ReserveBatchResources(
-          result, o.resource_budget, o.limits, stop));
     return result;
   } catch (const std::bad_alloc&) {
     BatchLimit("batch_transform.allocate");

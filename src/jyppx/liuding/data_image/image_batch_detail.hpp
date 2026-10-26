@@ -23,6 +23,12 @@ std::size_t CheckBatchMetadata(const ImageBatch& batch,
                                bool source_panoptic = false,
                                std::stop_token stop = {});
 std::uint64_t BatchTensorBytes(const ImageBatch& batch);
+std::shared_ptr<ImageResourceLeaseSet> ReserveBatchTotals(
+    const std::shared_ptr<ImageResourceBudget>& budget,
+    std::uint64_t tensor_bytes, std::uint64_t pixel_count,
+    std::uint64_t metadata_bytes, std::uint64_t index_bytes,
+    std::uint64_t pinned_bytes, std::uint64_t gpu_bytes,
+    std::stop_token stop = {});
 std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
     const ImageBatch& batch, const std::shared_ptr<ImageResourceBudget>& budget,
     const ImageBatchLimits& limits, std::stop_token stop = {});
