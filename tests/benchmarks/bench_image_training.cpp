@@ -14,6 +14,12 @@
 #if defined(JYPPX_BENCH_MODELS)
 #include <jyppx/liuding/models/vision.hpp>
 #endif
+#if defined(JYPPX_BENCH_CUDA)
+#include <torch/cuda.h>
+
+#include <ATen/cuda/CUDAContextLight.h>
+#include <c10/cuda/CUDACachingAllocator.h>
+#endif
 
 #include <array>
 #include <atomic>
@@ -53,6 +59,7 @@ struct Options {
   std::size_t workers = 0;
   std::size_t prefetch_batches = 2;
   std::string model = "linear64";
+  std::string device = "cpu";
 };
 
 std::uint64_t positive_integer(std::string_view value, std::string_view name,
@@ -100,6 +107,11 @@ Options parse_options(int argc, char** argv) {
         throw std::invalid_argument("--model must be linear64 or resnet18");
       }
       options.model = value;
+    } else if (name == "--device") {
+      if (value != "cpu" && value != "cuda:0") {
+        throw std::invalid_argument("--device must be cpu or cuda:0");
+      }
+      options.device = value;
     } else {
       throw std::invalid_argument("unknown option: " + std::string(name));
     }
@@ -184,6 +196,16 @@ class Classifier final : public torch::nn::Module {
 bench::Json measure(const Options& options) {
   torch::manual_seed(1729);
   torch::set_num_threads(options.threads);
+  const bool cuda = options.device == "cuda:0";
+#if defined(JYPPX_BENCH_CUDA)
+  if (cuda)
+    bench::require(torch::cuda::is_available(),
+                   "CUDA requested but unavailable at runtime");
+#else
+  bench::require(!cuda, "CUDA requested from a CPU-only benchmark binary");
+#endif
+  const auto device = cuda ? jyppx::liuding::Device(torch::kCUDA, 0)
+                           : jyppx::liuding::Device(torch::kCPU);
   image::ImageFolderOptions folder_options;
   folder_options.extensions = {".jpg", ".jpeg", ".png"};
   auto index = image::index_image_folder(options.root, folder_options);
@@ -218,14 +240,18 @@ bench::Json measure(const Options& options) {
   pipeline_options.batch_size = options.batch_size;
   pipeline_options.num_workers = options.workers;
   pipeline_options.prefetch_batches = options.prefetch_batches;
+  if (cuda) {
+    pipeline_options.memory.pin_memory = true;
+    pipeline_options.memory.target_device = device;
+    pipeline_options.memory.non_blocking = true;
+  }
   {
     const auto exemplar = image::transform_sample(
         dataset->get(0), std::span(&resize, 1), transform_options);
     const std::array exemplar_keys{image::ImageBatchKey{"exemplar", 0, 0}};
     const auto exemplar_batch = image::collate_images(
         std::span(&exemplar, 1), exemplar_keys, collate_options);
-    pipeline_options.schema =
-        image::image_batch_schema(exemplar_batch, torch::kCPU);
+    pipeline_options.schema = image::image_batch_schema(exemplar_batch, device);
   }
   pipeline_options.admission_factory =
       image::make_image_batch_byte_admission_factory(budget,
@@ -283,8 +309,6 @@ bench::Json measure(const Options& options) {
     auto holder = std::make_shared<Classifier>(options.image_size, classes);
     model = std::make_shared<nn::ModelAdapter>(nn::adapt_tensor_module(holder));
   }
-  const auto initial_parameter =
-      model->state().module().parameters().front().detach().clone();
   std::vector<optim::OptimizerParameterBinding> bindings;
   for (const auto& item : model->state().named_parameters()) {
     bindings.push_back({.parameter_id = item.key(), .parameter = item.value()});
@@ -295,13 +319,18 @@ bench::Json measure(const Options& options) {
           {.group_id = "main",
            .parameters = std::move(bindings),
            .options = {.learning_rate = 1e-2}}});
-  const auto mapper = [](const data::BatchEnvelope& batch) {
-    return nn::Invocation{
-        .positional = {image::image_batch_from_value(batch.value).images}};
+  const auto mapper = [device](const data::BatchEnvelope& batch) {
+    const auto images = image::image_batch_from_value(batch.value).images;
+    bench::require(images.device() == device,
+                   "image batch was not transferred to the selected device");
+    return nn::Invocation{.positional = {images}};
   };
   const auto target =
-      [](const data::BatchEnvelope& batch) -> std::optional<c10::IValue> {
-    return image::image_batch_from_value(batch.value).labels;
+      [device](const data::BatchEnvelope& batch) -> std::optional<c10::IValue> {
+    const auto labels = image::image_batch_from_value(batch.value).labels;
+    bench::require(labels.device() == device,
+                   "labels were not transferred to the selected device");
+    return labels;
   };
   std::uint64_t observed_samples = 0;
   const auto step = [&observed_samples](const training::StepInput& input) {
@@ -331,16 +360,49 @@ bench::Json measure(const Options& options) {
        .training_batch_mapper = mapper,
        .training_target_mapper = target,
        .training_step = step,
-       .strategy = std::make_shared<training::SingleDeviceStrategy>(),
+       .strategy = std::make_shared<training::SingleDeviceStrategy>(
+           training::SingleDeviceStrategyOptions{.device = device}),
        .model_checkpoint =
            std::make_shared<nn::ModelCheckpointParticipant>(*model),
        .rng_checkpoint =
            std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
                jyppx::liuding::core::RngCheckpointParticipantOptions{
-                   .include_cuda = false})});
+                   .include_cuda = cuda})});
+  const auto initial_parameter =
+      model->state().module().parameters().front().detach().clone();
+#if defined(JYPPX_BENCH_CUDA)
+  if (cuda) {
+    torch::cuda::synchronize(0);
+    c10::cuda::CUDACachingAllocator::resetPeakStats(0);
+  }
+#endif
   const auto start = Clock::now();
   const auto result = trainer.fit();
+#if defined(JYPPX_BENCH_CUDA)
+  if (cuda) torch::cuda::synchronize(0);
+#endif
   const auto fit_seconds = static_cast<double>(nanoseconds_since(start)) / 1e9;
+  auto cuda_allocated = bench::unavailable("CPU-only workload", "bytes");
+  auto cuda_reserved = bench::unavailable("CPU-only workload", "bytes");
+  bench::Json execution = {
+      {"device", options.device},
+      {"timing", cuda ? "steady_clock with CUDA sync" : "steady_clock"}};
+#if defined(JYPPX_BENCH_CUDA)
+  if (cuda) {
+    const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+    constexpr std::size_t aggregate = 0;
+    cuda_allocated = bench::metric(
+        static_cast<double>(stats.allocated_bytes[aggregate].peak), "bytes",
+        "lower", true, "LibTorch allocator peak since before Trainer::fit");
+    cuda_reserved = bench::metric(
+        static_cast<double>(stats.reserved_bytes[aggregate].peak), "bytes",
+        "lower", true, "LibTorch allocator peak since before Trainer::fit");
+    const auto* properties = at::cuda::getDeviceProperties(0);
+    execution["cuda_device_name"] = properties->name;
+    execution["compute_capability"] = std::to_string(properties->major) + "." +
+                                      std::to_string(properties->minor);
+  }
+#endif
   trainer.close();
   const auto expected_samples = samples_per_epoch * options.epochs;
   const auto expected_steps =
@@ -358,7 +420,7 @@ bench::Json measure(const Options& options) {
   bench::require(fit_seconds > 0, "fit duration must be positive");
 
   const bench::Json descriptor = {
-      {"task", "cpu-imagefolder-classification"},
+      {"task", "imagefolder-classification"},
       {"dataset_inventory_sha256", inventory_sha256},
       {"samples_per_epoch", samples_per_epoch},
       {"classes", classes},
@@ -368,6 +430,8 @@ bench::Json measure(const Options& options) {
       {"threads", options.threads},
       {"workers", options.workers},
       {"prefetch_batches", options.prefetch_batches},
+      {"device", options.device},
+      {"batch_transfer", cuda ? "pin-and-nonblocking-transfer" : "none"},
       {"image_decode", "rgb-float32-normalized"},
       {"resize", "bilinear-antialias"},
       {"model", options.model == "resnet18" ? "resnet18-random-init"
@@ -376,39 +440,43 @@ bench::Json measure(const Options& options) {
   const auto seconds = [](std::uint64_t ns) {
     return static_cast<double>(ns) / 1e9;
   };
-  return {
-      {"schema_version", 1},
-      {"kind", "liuding-image-training-benchmark-sample"},
-      {"workload",
-       {{"descriptor", descriptor},
-        {"digest", bench::digest(descriptor.dump())}}},
-      {"build_fingerprint",
-       bench::Json::parse(jyppx::liuding::build_fingerprint_json())},
-      {"validation",
-       {{"completed_epochs", result.completed_epochs},
-        {"global_step", result.global_step},
-        {"observed_samples", observed_samples},
-        {"parameter_updated", true}}},
-      {"metrics",
-       {{"fit_seconds", fit_seconds},
-        {"images_per_second", expected_samples / fit_seconds},
-        {"epoch_seconds", fit_seconds / options.epochs},
-        {"data_wait_seconds", seconds(pipeline->next_ns())},
-        {"read_decode_seconds", seconds(stages.read_decode_ns.load())},
-        {"transform_seconds", seconds(stages.transform_ns.load())},
-        {"collate_seconds", seconds(stages.collate_ns.load())},
-        {"encode_seconds", seconds(stages.encode_ns.load())},
-        {"peak_rss_bytes", bench::peak_rss()},
-        {"peak_cuda_bytes", bench::unavailable("CPU-only workload", "bytes")}}},
-      {"measurement_scope",
-       {{"timer", "Trainer::fit only"},
-        {"data_wait",
-         "DataPipeline::next consumer wall time, including result/schema "
-         "processing; not isolated queue wait"},
-        {"stage_times",
-         "sum of producer factory CPU wall intervals across workers; may "
-         "overlap and exceed fit time"},
-        {"rss", "process lifetime high-water mark, including setup"}}}};
+  return {{"schema_version", 1},
+          {"kind", "liuding-image-training-benchmark-sample"},
+          {"workload",
+           {{"descriptor", descriptor},
+            {"digest", bench::digest(descriptor.dump())}}},
+          {"build_fingerprint",
+           bench::Json::parse(jyppx::liuding::build_fingerprint_json())},
+          {"execution", execution},
+          {"validation",
+           {{"completed_epochs", result.completed_epochs},
+            {"global_step", result.global_step},
+            {"observed_samples", observed_samples},
+            {"parameter_updated", true}}},
+          {"metrics",
+           {{"fit_seconds", fit_seconds},
+            {"images_per_second", expected_samples / fit_seconds},
+            {"epoch_seconds", fit_seconds / options.epochs},
+            {"data_wait_seconds", seconds(pipeline->next_ns())},
+            {"read_decode_seconds", seconds(stages.read_decode_ns.load())},
+            {"transform_seconds", seconds(stages.transform_ns.load())},
+            {"collate_seconds", seconds(stages.collate_ns.load())},
+            {"encode_seconds", seconds(stages.encode_ns.load())},
+            {"peak_rss_bytes", bench::peak_rss()},
+            {"peak_cuda_allocated_bytes", cuda_allocated},
+            {"peak_cuda_reserved_bytes", cuda_reserved}}},
+          {"measurement_scope",
+           {{"timer", "Trainer::fit only"},
+            {"data_wait",
+             "DataPipeline::next consumer wall time, including result/schema "
+             "processing; not isolated queue wait"},
+            {"stage_times",
+             "sum of producer factory CPU wall intervals across workers; may "
+             "overlap and exceed fit time"},
+            {"rss", "process lifetime high-water mark, including setup"},
+            {"cuda",
+             "LibTorch allocator peak during Trainer::fit; excludes "
+             "driver/context and setup peak"}}}};
 }
 
 }  // namespace

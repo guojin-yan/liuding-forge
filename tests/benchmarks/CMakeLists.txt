@@ -28,6 +28,10 @@ if(TARGET jyppx::liuding::data_image)
         target_compile_definitions(jyppx_bench_image_training PRIVATE
             JYPPX_BENCH_MODELS=1)
     endif()
+    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+        target_compile_definitions(jyppx_bench_image_training PRIVATE
+            JYPPX_BENCH_CUDA=1)
+    endif()
 endif()
 if(WIN32)
     target_link_libraries(jyppx_bench_data_pipeline PRIVATE Psapi)

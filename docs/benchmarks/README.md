@@ -39,7 +39,9 @@ python scripts/benchmarks/run_image_training.py `
   --batch-size 8 --image-size 32 --epochs 1 --threads 1
 ~~~
 
-该工作负载使用 CPU 和单机 `Trainer::fit()`，实际执行文件读取、JPEG/PNG 解码、双线性 resize、ImageBatch 组批、分类损失、反向传播和 SGD 更新。默认 `--model linear64` 使用轻量分类器；启用可选 `models` 组件后，可用 `--model resnet18 --image-size 224` 测量随机初始化的视觉骨干训练，ResNet18 要求图像尺寸至少 64。模型只用于性能测量和参数更新检查，不报告分类准确率或收敛质量。`--workers 0` 是内联加载，`--workers 1..16` 使用有界 worker 预取，`--prefetch-batches 1..4` 控制在途批次数；比较不同配置时分别运行 runner 并保留各自结果。输出包含完整 fit 时间、吞吐、`DataPipeline::next()` 消费端耗时、各 producer 阶段累计工作时间和进程寿命内峰值 RSS。并行时 producer 阶段可能重叠，累计时间不能直接相加为训练耗时，`next()` 耗时也不是纯队列等待。当前不测冷缓存、CUDA 显存或其他视觉任务，也不提供跨 PyTorch 优势结论。
+该工作负载使用单机 `Trainer::fit()`，实际执行文件读取、JPEG/PNG 解码、双线性 resize、ImageBatch 组批、分类损失、反向传播和 SGD 更新。默认 `--device cpu --model linear64` 使用 CPU 轻量分类器；启用可选 `models` 组件后，可用 `--model resnet18 --image-size 224` 测量随机初始化的视觉骨干训练，ResNet18 要求图像尺寸至少 64。CUDA LibTorch 构建可显式选择 `--device cuda:0`：CPU worker 组批后通过框架的 pin/transfer 阶段传输图像与标签，模型和优化器在同一 GPU 上更新；计时在 `Trainer::fit()` 前后同步 CUDA，并分别记录该区间 LibTorch allocator 的 allocated/reserved 显存峰值。CPU 模式的显存字段明确为不适用。模型只用于性能测量和参数更新检查，不报告分类准确率或收敛质量。
+
+`--workers 0` 是内联加载，`--workers 1..16` 使用有界 worker 预取，`--prefetch-batches 1..4` 控制在途批次数；比较不同配置时分别运行 runner 并保留各自结果。输出包含完整 fit 时间、吞吐、`DataPipeline::next()` 消费端耗时、各 producer 阶段累计工作时间和进程寿命内峰值 RSS。并行时 producer 阶段可能重叠，累计时间不能直接相加为训练耗时，`next()` 耗时也不是纯队列等待。CUDA allocator 峰值包含计时开始时仍驻留的模型/优化器资源及训练期分配，不包含驱动/context 或模型准备阶段的峰值。当前不测冷缓存、其他视觉任务或等价 PyTorch 基线，不能据此宣称速度、内存或显存优势。
 
 ## 范围
 

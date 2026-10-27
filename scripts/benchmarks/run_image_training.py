@@ -52,7 +52,7 @@ def git_output(source_root: Path, *args: str) -> str:
     ).strip()
 
 
-def run_sample(command: list[str], expected_model: str) -> dict:
+def run_sample(command: list[str], expected_model: str, expected_device: str) -> dict:
     completed = subprocess.run(command, capture_output=True, text=True, check=True)
     result = json.loads(completed.stdout.strip())
     if result.get("kind") != "liuding-image-training-benchmark-sample":
@@ -61,6 +61,8 @@ def run_sample(command: list[str], expected_model: str) -> dict:
     workload = result["workload"]["descriptor"]
     if workload["model"] != expected_model:
         raise ValueError("benchmark reported a different model than requested")
+    if workload["device"] != expected_device or result["execution"]["device"] != expected_device:
+        raise ValueError("benchmark reported a different device than requested")
     expected = workload["samples_per_epoch"] * workload["epochs"]
     if validation["observed_samples"] != expected or not validation["parameter_updated"]:
         raise ValueError("benchmark did not validate its training work")
@@ -68,6 +70,16 @@ def run_sample(command: list[str], expected_model: str) -> dict:
         raise ValueError("benchmark did not complete all requested epochs")
     if result["metrics"]["peak_rss_bytes"]["status"] != "available":
         raise ValueError("peak process RSS is unavailable")
+    for name in ("peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes"):
+        status = result["metrics"][name]["status"]
+        if status != ("available" if expected_device == "cuda:0" else "unavailable"):
+            raise ValueError(f"unexpected {name} status for {expected_device}")
+    if expected_device == "cuda:0":
+        metrics = result["metrics"]
+        if (metrics["peak_cuda_allocated_bytes"]["value"] <= 0 or
+                metrics["peak_cuda_reserved_bytes"]["value"] <
+                metrics["peak_cuda_allocated_bytes"]["value"]):
+            raise ValueError("invalid CUDA allocator peaks")
     return result
 
 
@@ -97,6 +109,7 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--prefetch-batches", type=int, default=2)
     parser.add_argument("--model", choices=("linear64", "resnet18"), default="linear64")
+    parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
     args = parser.parse_args()
     source_root = Path(__file__).resolve().parents[2]
     binary = args.binary.resolve(strict=True)
@@ -121,18 +134,21 @@ def main() -> int:
         "--image-size", str(args.image_size), "--epochs", str(args.epochs),
         "--threads", str(args.threads), "--workers", str(args.workers),
         "--prefetch-batches", str(args.prefetch_batches), "--model", args.model,
+        "--device", args.device,
     ]
     expected_model = (
         "resnet18-random-init" if args.model == "resnet18"
         else "flatten-linear64-relu-linear"
     )
-    warmup = run_sample(command, expected_model)
-    samples = [run_sample(command, expected_model) for _ in range(5)]
+    warmup = run_sample(command, expected_model, args.device)
+    samples = [run_sample(command, expected_model, args.device) for _ in range(5)]
     final_sha256, final_count, final_bytes = dataset_digest(root)
     if (final_sha256, final_count, final_bytes) != (content_sha256, image_count, encoded_bytes):
         raise ValueError("dataset files changed during the benchmark run")
-    identity = (warmup["workload"]["digest"], warmup["build_fingerprint"])
-    if any((sample["workload"]["digest"], sample["build_fingerprint"]) != identity
+    identity = (warmup["workload"]["digest"], warmup["build_fingerprint"],
+                warmup["execution"])
+    if any((sample["workload"]["digest"], sample["build_fingerprint"],
+            sample["execution"]) != identity
            for sample in samples):
         raise ValueError("independent processes reported different workload/build identities")
     commit = git_output(source_root, "rev-parse", "HEAD")
@@ -164,6 +180,14 @@ def main() -> int:
             "peak_rss_bytes": summarize_values([
                 float(sample["metrics"]["peak_rss_bytes"]["value"]) for sample in samples
             ]),
+            "peak_cuda_allocated_bytes": (
+                summarize_values([float(sample["metrics"]["peak_cuda_allocated_bytes"]["value"])
+                                  for sample in samples]) if args.device == "cuda:0"
+                else {"status": "not_applicable"}),
+            "peak_cuda_reserved_bytes": (
+                summarize_values([float(sample["metrics"]["peak_cuda_reserved_bytes"]["value"])
+                                  for sample in samples]) if args.device == "cuda:0"
+                else {"status": "not_applicable"}),
         },
     }
     output.parent.mkdir(parents=True, exist_ok=True)
