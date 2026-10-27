@@ -22,7 +22,7 @@
 
 namespace jyppx::liuding::models {
 
-enum class ConvNeXtVariant : std::uint8_t { tiny = 1, small = 2 };
+enum class ConvNeXtVariant : std::uint8_t { tiny = 1, small_capacity = 2 };
 
 struct ConvNeXtOptions {
   std::int64_t num_classes = 1000;  ///< Zero returns the pooled embedding.

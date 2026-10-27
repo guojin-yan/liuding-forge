@@ -23,9 +23,9 @@
 namespace jyppx::liuding::models {
 
 enum class ViTVariant : std::uint8_t {
-  tiny = 1,   ///< 192 dimensions and three attention heads.
-  small = 2,  ///< 384 dimensions and six attention heads.
-  base = 3,   ///< 768 dimensions and twelve attention heads.
+  tiny = 1,            ///< 192 dimensions and three attention heads.
+  small_capacity = 2,  ///< 384 dimensions and six attention heads.
+  base = 3,            ///< 768 dimensions and twelve attention heads.
 };
 
 struct ViTOptions {

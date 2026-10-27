@@ -14,6 +14,17 @@ from pathlib import Path
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
+MODEL_SPECS = {
+    "linear64": ("flatten-linear64-relu-linear", 1, 1),
+    "resnet18": ("resnet18-random-init", 64, 1),
+    "vit_small_patch14_dinov2": ("vit_small_patch14_dinov2-random-init", 14, 14),
+    "vit_base_patch14_dinov2": ("vit_base_patch14_dinov2-random-init", 14, 14),
+    "dinov3_vits16": ("dinov3_vits16-random-init", 16, 16),
+    "dinov3_vits16plus": ("dinov3_vits16plus-random-init", 16, 16),
+    "dinov3_vitb16": ("dinov3_vitb16-random-init", 16, 16),
+    "dinov3_convnext_tiny": ("dinov3_convnext_tiny-random-init", 32, 1),
+    "dinov3_convnext_small": ("dinov3_convnext_small-random-init", 32, 1),
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -122,9 +133,7 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--prefetch-batches", type=int, default=2)
-    parser.add_argument("--model", choices=("linear64", "resnet18",
-                                            "vit_small_patch14_dinov2",
-                                            "dinov3_vits16"), default="linear64")
+    parser.add_argument("--model", choices=tuple(MODEL_SPECS), default="linear64")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
     parser.add_argument("--source-mode", choices=("image-folder", "tensor-cache",
                                                   "tensor-cache-resized"),
@@ -147,12 +156,11 @@ def main() -> int:
         parser.error("workers must be 0..16 and prefetch batches must be 1..4")
     if not 0 < args.max_cached_bytes <= 64 << 30:
         parser.error("max cached bytes must be in 1..64 GiB")
-    if args.model == "resnet18" and args.image_size < 64:
-        parser.error("resnet18 requires image size >= 64")
-    if args.model == "vit_small_patch14_dinov2" and args.image_size % 14:
-        parser.error("vit_small_patch14_dinov2 requires image size divisible by 14")
-    if args.model == "dinov3_vits16" and args.image_size % 16:
-        parser.error("dinov3_vits16 requires image size divisible by 16")
+    expected_model, minimum_image_size, image_size_multiple = MODEL_SPECS[args.model]
+    if args.image_size < minimum_image_size:
+        parser.error(f"{args.model} requires image size >= {minimum_image_size}")
+    if args.image_size % image_size_multiple:
+        parser.error(f"{args.model} requires image size divisible by {image_size_multiple}")
 
     content_sha256, image_count, encoded_bytes = dataset_digest(root)
     command = [
@@ -164,12 +172,6 @@ def main() -> int:
         "--source-mode", args.source_mode,
         "--max-cached-bytes", str(args.max_cached_bytes),
     ]
-    expected_model = {
-        "linear64": "flatten-linear64-relu-linear",
-        "resnet18": "resnet18-random-init",
-        "vit_small_patch14_dinov2": "vit_small_patch14_dinov2-random-init",
-        "dinov3_vits16": "dinov3_vits16-random-init",
-    }[args.model]
     warmup = run_sample(command, expected_model, args.device, args.source_mode)
     samples = [run_sample(command, expected_model, args.device, args.source_mode)
                for _ in range(5)]

@@ -112,7 +112,7 @@ std::array<std::int64_t, 4> Depths(ConvNeXtVariant variant) {
   switch (variant) {
     case ConvNeXtVariant::tiny:
       return {3, 3, 9, 3};
-    case ConvNeXtVariant::small:
+    case ConvNeXtVariant::small_capacity:
       return {3, 3, 27, 3};
   }
   detail::Invalid("convnext.variant", "tiny or small");
@@ -253,7 +253,7 @@ ConvNeXt convnext_tiny(ConvNeXtOptions options) {
 
 ConvNeXt convnext_small(ConvNeXtOptions options) {
   return ConvNeXt(
-      std::make_shared<ConvNeXtImpl>(ConvNeXtVariant::small, options));
+      std::make_shared<ConvNeXtImpl>(ConvNeXtVariant::small_capacity, options));
 }
 
 nn::ModelAdapter adapt(ConvNeXt model) {

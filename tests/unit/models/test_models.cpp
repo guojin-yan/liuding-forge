@@ -1394,10 +1394,11 @@ TEST(Models, TfEfficientNetV2SSupportsBackwardAndOptimizerStep) {
 
 TEST(Models, ConvNeXtTinyAndSmallExposeTimmStateAndStageShapes) {
   torch::NoGradGuard no_grad;
-  for (const auto variant : {ConvNeXtVariant::tiny, ConvNeXtVariant::small}) {
+  for (const auto variant :
+       {ConvNeXtVariant::tiny, ConvNeXtVariant::small_capacity}) {
     auto model = ConvNeXt(std::make_shared<ConvNeXtImpl>(variant));
     model->eval();
-    const auto is_small = variant == ConvNeXtVariant::small;
+    const auto is_small = variant == ConvNeXtVariant::small_capacity;
     EXPECT_EQ(parameter_count(*model), is_small ? 50223688U : 28589128U);
     const auto parameters = model->named_parameters(true);
     EXPECT_EQ(parameters["stem.0.weight"].sizes(),
@@ -1433,7 +1434,8 @@ TEST(Models, ConvNeXtTinyAndSmallExposeTimmStateAndStageShapes) {
 }
 
 TEST(Models, ConvNeXtTinyAndSmallSupportBackwardAndOptimizerStep) {
-  for (const auto variant : {ConvNeXtVariant::tiny, ConvNeXtVariant::small}) {
+  for (const auto variant :
+       {ConvNeXtVariant::tiny, ConvNeXtVariant::small_capacity}) {
     auto model = ConvNeXt(std::make_shared<ConvNeXtImpl>(
         variant, ConvNeXtOptions{.num_classes = 3}));
     model->train();
@@ -1470,7 +1472,7 @@ TEST(Models, ViTCapacitiesPreserveTimmStateAndPatchGridContract) {
   };
   constexpr std::array<Case, 3> cases{{
       {ViTVariant::tiny, "vit_tiny_patch16_224", 192, 5717416U},
-      {ViTVariant::small, "vit_small_patch16_224", 384, 22050664U},
+      {ViTVariant::small_capacity, "vit_small_patch16_224", 384, 22050664U},
       {ViTVariant::base, "vit_base_patch16_224", 768, 86567656U},
   }};
   for (const auto& item : cases) {
@@ -1517,7 +1519,7 @@ TEST(Models, ViTCapacitiesPreserveTimmStateAndPatchGridContract) {
 }
 
 TEST(Models, ViTTinyAndSmallSupportBackwardAndOptimizerStep) {
-  for (const auto variant : {ViTVariant::tiny, ViTVariant::small}) {
+  for (const auto variant : {ViTVariant::tiny, ViTVariant::small_capacity}) {
     auto model = ViT(std::make_shared<ViTImpl>(
         variant, ViTOptions{.num_classes = 3, .dynamic_image_size = true}));
     model->train();

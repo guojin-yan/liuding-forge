@@ -24,10 +24,10 @@ namespace jyppx::liuding::models {
 
 /** @brief Low-resource DINOv3 ConvNeXt capacities selected for v1.0. */
 enum class DinoV3ConvNeXtVariant : std::uint8_t {
-  tiny = 1,   ///< depths [3,3,9,3], channels [96,192,384,768].
-  small = 2,  ///< depths [3,3,27,3], channels [96,192,384,768].
-  base = 3,   ///< depths [3,3,27,3], channels [128,256,512,1024].
-  large = 4,  ///< depths [3,3,27,3], channels [192,384,768,1536].
+  tiny = 1,            ///< depths [3,3,9,3], channels [96,192,384,768].
+  small_capacity = 2,  ///< depths [3,3,27,3], channels [96,192,384,768].
+  base = 3,            ///< depths [3,3,27,3], channels [128,256,512,1024].
+  large = 4,           ///< depths [3,3,27,3], channels [192,384,768,1536].
 };
 
 /** @brief Input, head and initialization settings for ConvNeXt backbones. */

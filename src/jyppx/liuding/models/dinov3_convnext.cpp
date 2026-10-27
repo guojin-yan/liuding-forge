@@ -25,7 +25,7 @@ Config VariantConfig(DinoV3ConvNeXtVariant variant) {
   switch (variant) {
     case DinoV3ConvNeXtVariant::tiny:
       return {{3, 3, 9, 3}, {96, 192, 384, 768}};
-    case DinoV3ConvNeXtVariant::small:
+    case DinoV3ConvNeXtVariant::small_capacity:
       return {{3, 3, 27, 3}, {96, 192, 384, 768}};
     case DinoV3ConvNeXtVariant::base:
       return {{3, 3, 27, 3}, {128, 256, 512, 1024}};
@@ -254,7 +254,7 @@ DinoV3ConvNeXt dinov3_convnext_tiny(DinoV3ConvNeXtOptions options) {
 
 DinoV3ConvNeXt dinov3_convnext_small(DinoV3ConvNeXtOptions options) {
   return DinoV3ConvNeXt(std::make_shared<DinoV3ConvNeXtImpl>(
-      DinoV3ConvNeXtVariant::small, options));
+      DinoV3ConvNeXtVariant::small_capacity, options));
 }
 
 DinoV3ConvNeXt dinov3_convnext_base(DinoV3ConvNeXtOptions options) {

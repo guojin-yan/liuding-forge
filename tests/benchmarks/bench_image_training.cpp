@@ -14,8 +14,7 @@
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/liuding.hpp>
 #if defined(JYPPX_BENCH_MODELS)
-#include <jyppx/liuding/models/dino.hpp>
-#include <jyppx/liuding/models/vision.hpp>
+#include <jyppx/liuding/models/registry.hpp>
 #endif
 #if defined(JYPPX_BENCH_CUDA)
 #include <torch/cuda.h>
@@ -38,6 +37,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -67,22 +67,30 @@ struct Options {
   std::uint64_t max_cached_bytes = 512ULL << 20U;
 };
 
-constexpr std::array<std::string_view, 4> kSupportedModels = {
-    "linear64", "resnet18", "vit_small_patch14_dinov2", "dinov3_vits16"};
+struct ModelSpec {
+  std::string_view name;
+  std::string_view descriptor;
+  std::uint32_t minimum_image_size;
+  std::uint32_t image_size_multiple;
+};
 
-bool supported_model(std::string_view value) {
-  for (const auto candidate : kSupportedModels)
-    if (value == candidate) return true;
-  return false;
-}
+constexpr std::array<ModelSpec, 9> kSupportedModels = {{
+    {"linear64", "flatten-linear64-relu-linear", 1, 1},
+    {"resnet18", "resnet18-random-init", 64, 1},
+    {"vit_small_patch14_dinov2", "vit_small_patch14_dinov2-random-init", 14,
+     14},
+    {"vit_base_patch14_dinov2", "vit_base_patch14_dinov2-random-init", 14, 14},
+    {"dinov3_vits16", "dinov3_vits16-random-init", 16, 16},
+    {"dinov3_vits16plus", "dinov3_vits16plus-random-init", 16, 16},
+    {"dinov3_vitb16", "dinov3_vitb16-random-init", 16, 16},
+    {"dinov3_convnext_tiny", "dinov3_convnext_tiny-random-init", 32, 1},
+    {"dinov3_convnext_small", "dinov3_convnext_small-random-init", 32, 1},
+}};
 
-std::string_view model_descriptor(std::string_view model) {
-  if (model == "linear64") return "flatten-linear64-relu-linear";
-  if (model == "resnet18") return "resnet18-random-init";
-  if (model == "vit_small_patch14_dinov2")
-    return "vit_small_patch14_dinov2-random-init";
-  if (model == "dinov3_vits16") return "dinov3_vits16-random-init";
-  throw std::invalid_argument("unsupported benchmark model");
+const ModelSpec& model_spec(std::string_view value) {
+  for (const auto& candidate : kSupportedModels)
+    if (value == candidate.name) return candidate;
+  throw std::invalid_argument("unsupported --model: " + std::string(value));
 }
 
 std::uint64_t positive_integer(std::string_view value, std::string_view name,
@@ -126,10 +134,7 @@ Options parse_options(int argc, char** argv) {
     } else if (name == "--prefetch-batches") {
       options.prefetch_batches = positive_integer(value, name, 4);
     } else if (name == "--model") {
-      if (!supported_model(value))
-        throw std::invalid_argument(
-            "--model must be linear64, resnet18, "
-            "vit_small_patch14_dinov2 or dinov3_vits16");
+      static_cast<void>(model_spec(value));
       options.model = value;
     } else if (name == "--device") {
       if (value != "cpu" && value != "cuda:0") {
@@ -153,18 +158,16 @@ Options parse_options(int argc, char** argv) {
   if (options.root.empty()) {
     throw std::invalid_argument("--image-root is required");
   }
-  if (options.model == "resnet18" && options.image_size < 64) {
-    throw std::invalid_argument("--model resnet18 requires --image-size >= 64");
-  }
-  if (options.model == "vit_small_patch14_dinov2" &&
-      options.image_size % 14 != 0) {
+  const auto& spec = model_spec(options.model);
+  if (options.image_size < spec.minimum_image_size) {
     throw std::invalid_argument(
-        "--model vit_small_patch14_dinov2 requires --image-size divisible by "
-        "14");
+        "--model " + options.model +
+        " requires --image-size >= " + std::to_string(spec.minimum_image_size));
   }
-  if (options.model == "dinov3_vits16" && options.image_size % 16 != 0) {
-    throw std::invalid_argument(
-        "--model dinov3_vits16 requires --image-size divisible by 16");
+  if (options.image_size % spec.image_size_multiple != 0) {
+    throw std::invalid_argument("--model " + options.model +
+                                " requires --image-size divisible by " +
+                                std::to_string(spec.image_size_multiple));
   }
   return options;
 }
@@ -420,20 +423,13 @@ bench::Json measure(const Options& options) {
   } else {
 #if defined(JYPPX_BENCH_MODELS)
     const auto num_classes = static_cast<std::int64_t>(classes);
-    if (options.model == "resnet18") {
-      model = std::make_shared<nn::ModelAdapter>(models::adapt(
-          models::resnet18(models::ResNetOptions{.num_classes = num_classes})));
-    } else if (options.model == "vit_small_patch14_dinov2") {
-      model = std::make_shared<nn::ModelAdapter>(
-          models::adapt(models::dinov2_vits14(
-              models::DinoV2Options{.num_classes = num_classes})));
-    } else if (options.model == "dinov3_vits16") {
-      model = std::make_shared<nn::ModelAdapter>(
-          models::adapt(models::dinov3_vits16(
-              models::DinoV3Options{.num_classes = num_classes})));
-    } else {
-      throw std::invalid_argument("unsupported benchmark model");
-    }
+    models::ModelOptions model_options;
+    model_options.resnet.num_classes = num_classes;
+    model_options.dinov2.num_classes = num_classes;
+    model_options.dinov3.num_classes = num_classes;
+    model_options.dinov3_convnext.num_classes = num_classes;
+    model = std::make_shared<nn::ModelAdapter>(
+        models::create_model(options.model, model_options));
 #else
     throw std::invalid_argument(
         "the selected --model requires the models component");
@@ -577,7 +573,7 @@ bench::Json measure(const Options& options) {
       {"batch_transfer", cuda ? "pin-and-nonblocking-transfer" : "none"},
       {"image_decode", "rgb-float32-normalized"},
       {"resize", "bilinear-antialias"},
-      {"model", model_descriptor(options.model)},
+      {"model", model_spec(options.model).descriptor},
       {"optimizer", "sgd-lr0.01"}};
   const auto seconds = [](std::uint64_t ns) {
     return static_cast<double>(ns) / 1e9;

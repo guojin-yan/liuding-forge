@@ -25,7 +25,7 @@ std::int64_t Dimension(ViTVariant variant) {
   switch (variant) {
     case ViTVariant::tiny:
       return 192;
-    case ViTVariant::small:
+    case ViTVariant::small_capacity:
       return 384;
     case ViTVariant::base:
       return 768;
@@ -301,7 +301,7 @@ ViT vit_tiny_patch16_224(ViTOptions options) {
   return ViT(ViTVariant::tiny, options);
 }
 ViT vit_small_patch16_224(ViTOptions options) {
-  return ViT(ViTVariant::small, options);
+  return ViT(ViTVariant::small_capacity, options);
 }
 ViT vit_base_patch16_224(ViTOptions options) {
   return ViT(ViTVariant::base, options);
