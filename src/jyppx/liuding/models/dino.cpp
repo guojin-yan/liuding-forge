@@ -32,7 +32,7 @@ struct VariantConfig {
 
 VariantConfig Config(DinoV2Variant variant) {
   switch (variant) {
-    case DinoV2Variant::small:
+    case DinoV2Variant::small_capacity:
       return {.dimension = 384,
               .heads = 6,
               .blocks = 12,
@@ -393,7 +393,7 @@ void DinoV2Impl::reset_classifier(std::int64_t num_classes) {
 }
 
 DinoV2 dinov2_vits14(DinoV2Options options) {
-  return DinoV2(DinoV2Variant::small, options);
+  return DinoV2(DinoV2Variant::small_capacity, options);
 }
 DinoV2 dinov2_vitb14(DinoV2Options options) {
   return DinoV2(DinoV2Variant::base, options);
@@ -440,7 +440,7 @@ struct DinoV3Config {
 
 DinoV3Config Config(DinoV3Variant variant) {
   switch (variant) {
-    case DinoV3Variant::small:
+    case DinoV3Variant::small_capacity:
       return {.dimension = 384,
               .heads = 6,
               .blocks = 12,
@@ -825,7 +825,7 @@ void DinoV3Impl::reset_classifier(std::int64_t num_classes) {
 }
 
 DinoV3 dinov3_vits16(DinoV3Options options) {
-  return DinoV3(DinoV3Variant::small, options);
+  return DinoV3(DinoV3Variant::small_capacity, options);
 }
 DinoV3 dinov3_vits16plus(DinoV3Options options) {
   return DinoV3(DinoV3Variant::small_plus, options);

@@ -552,7 +552,7 @@ TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
   EXPECT_THROW(
       {
         auto invalid = std::make_shared<DinoV3Impl>(
-            DinoV3Variant::small, DinoV3Options{.extra_tokens = 3});
+            DinoV3Variant::small_capacity, DinoV3Options{.extra_tokens = 3});
         static_cast<void>(invalid);
       },
       InvalidArgument);

@@ -27,10 +27,10 @@ namespace jyppx::liuding::models {
 
 /** @brief Fixed DINOv2 ViT/14 capacities in the v1.0 model matrix. */
 enum class DinoV2Variant : std::uint8_t {
-  small = 1,  ///< 384-dimensional, 12-block, 6-head encoder.
-  base = 2,   ///< 768-dimensional, 12-block, 12-head encoder.
-  large = 3,  ///< 1024-dimensional, 24-block, 16-head encoder.
-  giant = 4,  ///< 1536-dimensional, 40-block, 24-head SwiGLU encoder.
+  small_capacity = 1,  ///< 384-dimensional, 12-block, 6-head encoder.
+  base = 2,            ///< 768-dimensional, 12-block, 12-head encoder.
+  large = 3,           ///< 1024-dimensional, 24-block, 16-head encoder.
+  giant = 4,           ///< 1536-dimensional, 40-block, 24-head SwiGLU encoder.
 };
 
 /** @brief Input, head and initialization settings shared by DINOv2 models. */
@@ -114,13 +114,13 @@ nn::ModelAdapter adapt(DinoV2 model);
 
 /** @brief Low-resource DINOv3 ViT/16 capacities selected for v1.0. */
 enum class DinoV3Variant : std::uint8_t {
-  small = 1,       ///< 384-dimensional, 12-block, 6-head encoder.
-  small_plus = 2,  ///< 384-dimensional SwiGLU, 12-block, 6-head encoder.
-  base = 3,        ///< 768-dimensional, 12-block, 12-head encoder.
-  large = 4,       ///< 1024-dimensional, 24-block, 16-head encoder.
-  large_plus = 5,  ///< 1024-dimensional SwiGLU, 24-block, 16-head encoder.
-  huge_plus = 6,   ///< 1280-dimensional SwiGLU, 32-block, 20-head encoder.
-  seven_b = 7,     ///< 4096-dimensional SwiGLU, 40-block, 32-head encoder.
+  small_capacity = 1,  ///< 384-dimensional, 12-block, 6-head encoder.
+  small_plus = 2,      ///< 384-dimensional SwiGLU, 12-block, 6-head encoder.
+  base = 3,            ///< 768-dimensional, 12-block, 12-head encoder.
+  large = 4,           ///< 1024-dimensional, 24-block, 16-head encoder.
+  large_plus = 5,      ///< 1024-dimensional SwiGLU, 24-block, 16-head encoder.
+  huge_plus = 6,       ///< 1280-dimensional SwiGLU, 32-block, 20-head encoder.
+  seven_b = 7,         ///< 4096-dimensional SwiGLU, 40-block, 32-head encoder.
 };
 
 /** @brief Input, head and initialization settings shared by DINOv3 ViT models. */

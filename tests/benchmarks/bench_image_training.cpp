@@ -14,6 +14,7 @@
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/liuding.hpp>
 #if defined(JYPPX_BENCH_MODELS)
+#include <jyppx/liuding/models/dino.hpp>
 #include <jyppx/liuding/models/vision.hpp>
 #endif
 #if defined(JYPPX_BENCH_CUDA)
@@ -66,6 +67,24 @@ struct Options {
   std::uint64_t max_cached_bytes = 512ULL << 20U;
 };
 
+constexpr std::array<std::string_view, 4> kSupportedModels = {
+    "linear64", "resnet18", "vit_small_patch14_dinov2", "dinov3_vits16"};
+
+bool supported_model(std::string_view value) {
+  for (const auto candidate : kSupportedModels)
+    if (value == candidate) return true;
+  return false;
+}
+
+std::string_view model_descriptor(std::string_view model) {
+  if (model == "linear64") return "flatten-linear64-relu-linear";
+  if (model == "resnet18") return "resnet18-random-init";
+  if (model == "vit_small_patch14_dinov2")
+    return "vit_small_patch14_dinov2-random-init";
+  if (model == "dinov3_vits16") return "dinov3_vits16-random-init";
+  throw std::invalid_argument("unsupported benchmark model");
+}
+
 std::uint64_t positive_integer(std::string_view value, std::string_view name,
                                std::uint64_t maximum) {
   std::uint64_t result = 0;
@@ -107,9 +126,10 @@ Options parse_options(int argc, char** argv) {
     } else if (name == "--prefetch-batches") {
       options.prefetch_batches = positive_integer(value, name, 4);
     } else if (name == "--model") {
-      if (value != "linear64" && value != "resnet18") {
-        throw std::invalid_argument("--model must be linear64 or resnet18");
-      }
+      if (!supported_model(value))
+        throw std::invalid_argument(
+            "--model must be linear64, resnet18, "
+            "vit_small_patch14_dinov2 or dinov3_vits16");
       options.model = value;
     } else if (name == "--device") {
       if (value != "cpu" && value != "cuda:0") {
@@ -135,6 +155,16 @@ Options parse_options(int argc, char** argv) {
   }
   if (options.model == "resnet18" && options.image_size < 64) {
     throw std::invalid_argument("--model resnet18 requires --image-size >= 64");
+  }
+  if (options.model == "vit_small_patch14_dinov2" &&
+      options.image_size % 14 != 0) {
+    throw std::invalid_argument(
+        "--model vit_small_patch14_dinov2 requires --image-size divisible by "
+        "14");
+  }
+  if (options.model == "dinov3_vits16" && options.image_size % 16 != 0) {
+    throw std::invalid_argument(
+        "--model dinov3_vits16 requires --image-size divisible by 16");
   }
   return options;
 }
@@ -384,19 +414,30 @@ bench::Json measure(const Options& options) {
   auto pipeline = std::make_shared<TimedPipeline>(raw_pipeline);
 
   std::shared_ptr<nn::ModelAdapter> model;
-  if (options.model == "resnet18") {
-#if defined(JYPPX_BENCH_MODELS)
-    models::ResNetOptions model_options;
-    model_options.num_classes = static_cast<std::int64_t>(classes);
-    model = std::make_shared<nn::ModelAdapter>(
-        models::adapt(models::resnet18(model_options)));
-#else
-    throw std::invalid_argument(
-        "--model resnet18 requires the models component");
-#endif
-  } else {
+  if (options.model == "linear64") {
     auto holder = std::make_shared<Classifier>(options.image_size, classes);
     model = std::make_shared<nn::ModelAdapter>(nn::adapt_tensor_module(holder));
+  } else {
+#if defined(JYPPX_BENCH_MODELS)
+    const auto num_classes = static_cast<std::int64_t>(classes);
+    if (options.model == "resnet18") {
+      model = std::make_shared<nn::ModelAdapter>(models::adapt(
+          models::resnet18(models::ResNetOptions{.num_classes = num_classes})));
+    } else if (options.model == "vit_small_patch14_dinov2") {
+      model = std::make_shared<nn::ModelAdapter>(
+          models::adapt(models::dinov2_vits14(
+              models::DinoV2Options{.num_classes = num_classes})));
+    } else if (options.model == "dinov3_vits16") {
+      model = std::make_shared<nn::ModelAdapter>(
+          models::adapt(models::dinov3_vits16(
+              models::DinoV3Options{.num_classes = num_classes})));
+    } else {
+      throw std::invalid_argument("unsupported benchmark model");
+    }
+#else
+    throw std::invalid_argument(
+        "the selected --model requires the models component");
+#endif
   }
   std::vector<optim::OptimizerParameterBinding> bindings;
   for (const auto& item : model->state().named_parameters()) {
@@ -536,8 +577,7 @@ bench::Json measure(const Options& options) {
       {"batch_transfer", cuda ? "pin-and-nonblocking-transfer" : "none"},
       {"image_decode", "rgb-float32-normalized"},
       {"resize", "bilinear-antialias"},
-      {"model", options.model == "resnet18" ? "resnet18-random-init"
-                                            : "flatten-linear64-relu-linear"},
+      {"model", model_descriptor(options.model)},
       {"optimizer", "sgd-lr0.01"}};
   const auto seconds = [](std::uint64_t ns) {
     return static_cast<double>(ns) / 1e9;

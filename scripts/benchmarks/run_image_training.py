@@ -122,7 +122,9 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--prefetch-batches", type=int, default=2)
-    parser.add_argument("--model", choices=("linear64", "resnet18"), default="linear64")
+    parser.add_argument("--model", choices=("linear64", "resnet18",
+                                            "vit_small_patch14_dinov2",
+                                            "dinov3_vits16"), default="linear64")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
     parser.add_argument("--source-mode", choices=("image-folder", "tensor-cache",
                                                   "tensor-cache-resized"),
@@ -147,6 +149,10 @@ def main() -> int:
         parser.error("max cached bytes must be in 1..64 GiB")
     if args.model == "resnet18" and args.image_size < 64:
         parser.error("resnet18 requires image size >= 64")
+    if args.model == "vit_small_patch14_dinov2" and args.image_size % 14:
+        parser.error("vit_small_patch14_dinov2 requires image size divisible by 14")
+    if args.model == "dinov3_vits16" and args.image_size % 16:
+        parser.error("dinov3_vits16 requires image size divisible by 16")
 
     content_sha256, image_count, encoded_bytes = dataset_digest(root)
     command = [
@@ -158,10 +164,12 @@ def main() -> int:
         "--source-mode", args.source_mode,
         "--max-cached-bytes", str(args.max_cached_bytes),
     ]
-    expected_model = (
-        "resnet18-random-init" if args.model == "resnet18"
-        else "flatten-linear64-relu-linear"
-    )
+    expected_model = {
+        "linear64": "flatten-linear64-relu-linear",
+        "resnet18": "resnet18-random-init",
+        "vit_small_patch14_dinov2": "vit_small_patch14_dinov2-random-init",
+        "dinov3_vits16": "dinov3_vits16-random-init",
+    }[args.model]
     warmup = run_sample(command, expected_model, args.device, args.source_mode)
     samples = [run_sample(command, expected_model, args.device, args.source_mode)
                for _ in range(5)]
