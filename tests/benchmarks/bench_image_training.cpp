@@ -235,6 +235,7 @@ bench::Json measure(const Options& options) {
 #endif
   const auto device = cuda ? jyppx::liuding::Device(torch::kCUDA, 0)
                            : jyppx::liuding::Device(torch::kCPU);
+  const auto source_start = Clock::now();
   image::ImageFolderOptions folder_options;
   folder_options.extensions = {".jpg", ".jpeg", ".png"};
   auto index = image::index_image_folder(options.root, folder_options);
@@ -287,7 +288,7 @@ bench::Json measure(const Options& options) {
         "Tensor cache accounting differs from retained storage");
   }
   const auto source_preparation_seconds =
-      static_cast<double>(nanoseconds_since(workload_start)) / 1e9;
+      static_cast<double>(nanoseconds_since(source_start)) / 1e9;
   const auto sample_at = [file_source, tensor_source](std::size_t index,
                                                       std::stop_token stop) {
     return tensor_source ? tensor_source->get(index, stop)
@@ -544,6 +545,7 @@ bench::Json measure(const Options& options) {
             {"source_preparation_seconds", source_preparation_seconds},
             {"cached_source_bytes", cached_bytes},
             {"images_per_second", expected_samples / fit_seconds},
+            {"workload_images_per_second", expected_samples / workload_seconds},
             {"epoch_seconds", fit_seconds / options.epochs},
             {"data_wait_seconds", seconds(pipeline->next_ns())},
             {"read_decode_seconds", seconds(stages.read_decode_ns.load())},
@@ -555,8 +557,9 @@ bench::Json measure(const Options& options) {
             {"peak_cuda_reserved_bytes", cuda_reserved}}},
           {"measurement_scope",
            {{"timer",
-             "fit excludes source preparation; workload includes "
-             "indexing, optional Tensor caching, setup and fit"},
+             "source preparation includes indexing and optional Tensor "
+             "caching; fit excludes it; workload includes runtime setup, "
+             "source preparation, model setup and fit"},
             {"cached_source_bytes",
              "retained decoded Tensor payload, excluding allocator overhead"},
             {"data_wait",

@@ -77,7 +77,8 @@ def run_sample(command: list[str], expected_model: str, expected_device: str,
         raise ValueError("peak process RSS is unavailable")
     metrics = result["metrics"]
     if not (metrics["workload_seconds"] >= metrics["fit_seconds"] > 0 and
-            metrics["source_preparation_seconds"] > 0):
+            metrics["source_preparation_seconds"] > 0 and
+            metrics["workload_images_per_second"] > 0):
         raise ValueError("invalid workload/source timing")
     if ((metrics["cached_source_bytes"] > 0) !=
             (expected_source == "tensor-cache")):
@@ -199,6 +200,7 @@ def main() -> int:
         "samples": samples,
         "summary": {
             "images_per_second": summary(samples, "images_per_second"),
+            "workload_images_per_second": summary(samples, "workload_images_per_second"),
             "fit_seconds": summary(samples, "fit_seconds"),
             "workload_seconds": summary(samples, "workload_seconds"),
             "source_preparation_seconds": summary(samples, "source_preparation_seconds"),
