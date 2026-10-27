@@ -358,6 +358,18 @@ if(TARGET jyppx::liuding::models)
         target_compile_definitions(jyppx_test_models PRIVATE
             JYPPX_LIUDING_MODELS_PYTHON_INTEROP=1)
     endif()
+    if(TARGET jyppx::liuding::training)
+        jyppx_add_gtest(jyppx_test_models_amp
+            LINK_TARGET jyppx::liuding::models
+            models/test_models_amp.cpp
+        )
+        target_link_libraries(jyppx_test_models_amp PRIVATE
+            jyppx::liuding::training)
+        if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+            target_compile_definitions(jyppx_test_models_amp PRIVATE
+                JYPPX_LIUDING_MODELS_CUDA_METRICS=1)
+        endif()
+    endif()
 endif()
 
 if(TARGET jyppx::liuding::quantization)
