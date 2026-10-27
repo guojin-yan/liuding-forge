@@ -112,6 +112,25 @@ TEST(ImageDecoderTest, PreservesSixteenBitPngAndCanNormalizeToFloat) {
   EXPECT_NO_THROW(validate_pixels(normalized.tensor, normalized.pixels));
 }
 
+TEST(ImageDecoderTest, NormalizationOwnsPixelsForBothDepthsAndLayouts) {
+  for (const auto* name : {"rgb.png", "gray16.png"}) {
+    const auto bytes = ReadFixture(name);
+    for (const auto layout : {ImageLayout::hwc, ImageLayout::chw}) {
+      ImageDecodeOptions options;
+      options.layout = layout;
+      const auto preserved = decode_image(bytes, options);
+      options.dtype = ImageDtype::float32_normalized;
+      auto normalized = decode_image(bytes, options);
+      const auto divisor = preserved.source_is_16bit ? 65535.0 : 255.0;
+      EXPECT_TRUE(torch::allclose(
+          normalized.tensor, preserved.tensor.to(torch::kFloat32) / divisor));
+      EXPECT_TRUE(normalized.tensor.is_contiguous());
+      EXPECT_NE(normalized.tensor.data_ptr(), preserved.tensor.data_ptr());
+      EXPECT_NO_THROW(validate_pixels(normalized.tensor, normalized.pixels));
+    }
+  }
+}
+
 TEST(ImageDecoderTest, RejectsUnknownLayoutAndScalarPoliciesBeforeDecode) {
   const auto bytes = ReadFixture("rgb.png");
   ImageDecodeOptions options;

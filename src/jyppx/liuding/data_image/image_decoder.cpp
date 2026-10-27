@@ -142,13 +142,15 @@ Tensor MakeTensor(const void* data, std::int64_t width, std::int64_t height,
                   std::int64_t channels, bool source_is_16bit,
                   const ImageDecodeOptions& options) {
   const auto dtype = source_is_16bit ? torch::kUInt16 : torch::kUInt8;
-  auto tensor =
+  const auto source =
       torch::from_blob(const_cast<void*>(data), {height, width, channels},
-                       torch::TensorOptions().dtype(dtype).device(torch::kCPU))
-          .clone();
+                       torch::TensorOptions().dtype(dtype).device(torch::kCPU));
+  Tensor tensor;
   if (options.dtype == ImageDtype::float32_normalized) {
-    tensor = tensor.to(torch::kFloat32);
+    tensor = source.to(torch::kFloat32);
     tensor.div_(source_is_16bit ? 65535.0 : 255.0);
+  } else {
+    tensor = source.clone();
   }
   if (options.layout == ImageLayout::chw)
     tensor = tensor.permute({2, 0, 1}).contiguous();
