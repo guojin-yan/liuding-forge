@@ -14,10 +14,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <iterator>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <vector>
@@ -85,6 +87,7 @@ TEST(ImageOutputSinkTest, PublishesCompleteBytesAndReleasesBudgetLeases) {
   EXPECT_EQ(result.path, path);
   EXPECT_EQ(result.bytes, expected.size());
   EXPECT_EQ(result.sha256, sha256_hex(expected));
+  EXPECT_FALSE(ticket.evidence_completion.valid());
   EXPECT_EQ(Read(path), expected);
   EXPECT_EQ(sink.stats().completed, 1U);
   EXPECT_EQ(sink.stats().pending_bytes, 0U);
@@ -226,6 +229,136 @@ TEST(ImageOutputSinkTest, RejectsOversizeAndCancelledAdmission) {
                              cancelled.get_token()),
                Cancelled);
   EXPECT_FALSE(std::filesystem::exists(directory.path / "cancelled.png"));
+}
+
+TEST(ImageOutputSinkTest,
+     EvidenceRunsAfterPublicationWithReleasedEncodedBytesAndHeldCapacity) {
+  using namespace std::chrono_literals;
+  SinkDirectory directory;
+  auto image = Png();
+  const auto bytes = image.bytes.size();
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_queue_bytes = bytes;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  ImageOutputSinkOptions options;
+  options.resource_budget = budget;
+  options.max_pending_items = 1;
+  options.max_pending_bytes = bytes;
+  options.overflow = ImageSinkOverflowPolicy::drop_newest;
+  ImageOutputSink sink(options);
+  std::promise<void> entered;
+  std::promise<void> release;
+  auto released = release.get_future().share();
+  const auto path = directory.path / "result.png";
+  auto ticket = sink.submit_with_evidence(
+      path, std::move(image), [&](const ImageSinkWriteResult& published) {
+        EXPECT_EQ(published.path, path);
+        EXPECT_TRUE(std::filesystem::exists(path));
+        entered.set_value();
+        released.wait();
+      });
+  const auto entered_status = entered.get_future().wait_for(5s);
+  const auto file_status = ticket.completion.wait_for(5s);
+  const auto evidence_status = ticket.evidence_completion.wait_for(0s);
+  const auto pending = sink.stats();
+  const auto encoded_usage =
+      budget->usage(ImageResourceKind::encoded_queue_bytes).current;
+  auto dropped = sink.submit_with_evidence(
+      directory.path / "dropped.png", Png(),
+      [](const ImageSinkWriteResult&) { FAIL() << "dropped callback ran"; });
+  release.set_value();
+  EXPECT_EQ(entered_status, std::future_status::ready);
+  EXPECT_EQ(file_status, std::future_status::ready);
+  EXPECT_EQ(evidence_status, std::future_status::timeout);
+  EXPECT_EQ(pending.pending_items, 1U);
+  EXPECT_EQ(pending.pending_bytes, bytes);
+  EXPECT_EQ(encoded_usage, 0U);
+  EXPECT_EQ(dropped.disposition, ImageSinkDisposition::dropped);
+  EXPECT_FALSE(dropped.completion.valid());
+  EXPECT_FALSE(dropped.evidence_completion.valid());
+  EXPECT_EQ(ticket.completion.get().path, path);
+  EXPECT_NO_THROW(ticket.evidence_completion.get());
+  sink.close();
+  EXPECT_EQ(sink.stats().completed, 1U);
+}
+
+TEST(ImageOutputSinkTest, EvidenceFailureKeepsFileResultForRetry) {
+  SinkDirectory directory;
+  ImageOutputSink sink;
+  const auto path = directory.path / "result.png";
+  auto ticket =
+      sink.submit_with_evidence(path, Png(), [](const ImageSinkWriteResult&) {
+        throw std::runtime_error("evidence unavailable");
+      });
+  const auto published = ticket.completion.get();
+  EXPECT_EQ(published.path, path);
+  EXPECT_EQ(published.sha256, sha256_hex(Read(path)));
+  EXPECT_THROW(ticket.evidence_completion.get(), std::runtime_error);
+  EXPECT_THROW(sink.flush(), std::runtime_error);
+  EXPECT_THROW(sink.close(), std::runtime_error);
+  EXPECT_EQ(sink.stats().failed, 1U);
+  EXPECT_EQ(sink.stats().completed, 0U);
+  ASSERT_EQ(sink.failures().size(), 1U);
+  EXPECT_EQ(sink.failures().front().path, path);
+}
+
+TEST(ImageOutputSinkTest, EvidenceSkipsFailedAndSampledPublications) {
+  SinkDirectory directory;
+  ImageOutputSink failing;
+  std::atomic<int> invoked{0};
+  auto failed = failing.submit_with_evidence(
+      directory.path / "missing" / "result.png", Png(),
+      [&](const ImageSinkWriteResult&) { ++invoked; });
+  EXPECT_THROW(failed.completion.get(), IoError);
+  EXPECT_THROW(failed.evidence_completion.get(), IoError);
+  EXPECT_THROW(failing.close(), IoError);
+  EXPECT_EQ(invoked.load(), 0);
+
+  ImageOutputSinkOptions options;
+  options.sample_every = 17;
+  ImageOutputSink sampled(options);
+  std::size_t queued = 0;
+  std::size_t skipped = 0;
+  for (int index = 0; index < 40; ++index) {
+    auto ticket = sampled.submit_with_evidence(
+        directory.path / ("sample-" + std::to_string(index) + ".png"), Png(),
+        [&](const ImageSinkWriteResult&) { ++invoked; },
+        "sample-" + std::to_string(index));
+    if (ticket.disposition == ImageSinkDisposition::queued) {
+      ++queued;
+      ticket.completion.get();
+      ticket.evidence_completion.get();
+    } else {
+      ++skipped;
+      EXPECT_EQ(ticket.disposition, ImageSinkDisposition::sampled_out);
+      EXPECT_FALSE(ticket.completion.valid());
+      EXPECT_FALSE(ticket.evidence_completion.valid());
+    }
+  }
+  sampled.close();
+  EXPECT_GT(skipped, 0U);
+  EXPECT_EQ(invoked.load(), queued);
+  EXPECT_THROW(
+      sampled.submit_with_evidence(directory.path / "empty.png", Png(), {}),
+      InvalidArgument);
+}
+
+TEST(ImageOutputSinkTest, ContinuesPublishingAfterEvidenceFailureWhenEnabled) {
+  SinkDirectory directory;
+  ImageOutputSinkOptions options;
+  options.continue_after_error = true;
+  ImageOutputSink sink(options);
+  auto failed = sink.submit_with_evidence(
+      directory.path / "first.png", Png(), [](const ImageSinkWriteResult&) {
+        throw std::runtime_error("evidence unavailable");
+      });
+  EXPECT_TRUE(std::filesystem::exists(failed.completion.get().path));
+  EXPECT_THROW(failed.evidence_completion.get(), std::runtime_error);
+  auto later = sink.submit(directory.path / "second.png", Png(7));
+  EXPECT_TRUE(std::filesystem::exists(later.completion.get().path));
+  EXPECT_THROW(sink.close(), std::runtime_error);
+  EXPECT_EQ(sink.stats().failed, 1U);
+  EXPECT_EQ(sink.stats().completed, 1U);
 }
 
 }  // namespace

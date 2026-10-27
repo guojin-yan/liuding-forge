@@ -18,6 +18,7 @@
 #include <exception>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <system_error>
@@ -251,9 +252,10 @@ class ImageOutputSink::Impl final {
     worker_ = std::jthread([this] { Run(); });
   }
 
-  ImageSinkSubmission Submit(std::filesystem::path path, EncodedImage image,
-                             std::string_view sample_key,
-                             std::stop_token stop) {
+  ImageSinkSubmission Submit(
+      std::filesystem::path path, EncodedImage image,
+      std::string_view sample_key, std::stop_token stop,
+      std::function<void(const ImageSinkWriteResult&)> record_evidence = {}) {
     ValidateImage(path, image);
     const auto bytes = image.bytes.size();
     if (bytes > options_.max_item_bytes || bytes > options_.max_pending_bytes)
@@ -273,7 +275,8 @@ class ImageOutputSink::Impl final {
     if (!selected) {
       ++stats_.sampled_out;
       return {.disposition = ImageSinkDisposition::sampled_out,
-              .completion = {}};
+              .completion = {},
+              .evidence_completion = {}};
     }
     const auto capacity = [&] {
       return stats_.pending_items < options_.max_pending_items &&
@@ -282,7 +285,9 @@ class ImageOutputSink::Impl final {
     if (!capacity() &&
         options_.overflow == ImageSinkOverflowPolicy::drop_newest) {
       ++stats_.dropped;
-      return {.disposition = ImageSinkDisposition::dropped, .completion = {}};
+      return {.disposition = ImageSinkDisposition::dropped,
+              .completion = {},
+              .evidence_completion = {}};
     }
     if (!capacity()) {
       const bool ready = changed_.wait(lock, stop, [&] {
@@ -310,14 +315,21 @@ class ImageOutputSink::Impl final {
     work.path = std::move(path);
     work.image = std::move(image);
     work.queue_lease = std::move(queue_lease);
+    work.record_evidence = std::move(record_evidence);
     auto completion = work.promise.get_future();
+    std::future<void> evidence_completion;
+    if (work.record_evidence) {
+      work.evidence_promise.emplace();
+      evidence_completion = work.evidence_promise->get_future();
+    }
     queue_.push_back(std::move(work));
     ++stats_.queued;
     ++stats_.pending_items;
     stats_.pending_bytes += bytes;
     changed_.notify_all();
     return {.disposition = ImageSinkDisposition::queued,
-            .completion = std::move(completion)};
+            .completion = std::move(completion),
+            .evidence_completion = std::move(evidence_completion)};
   }
 
   void Flush(std::stop_token stop) {
@@ -361,6 +373,8 @@ class ImageOutputSink::Impl final {
     EncodedImage image;
     ImageResourceLease queue_lease;
     std::promise<ImageSinkWriteResult> promise;
+    std::function<void(const ImageSinkWriteResult&)> record_evidence;
+    std::optional<std::promise<void>> evidence_promise;
   };
 
   ImageSinkWriteResult Publish(const Work& work) {
@@ -390,18 +404,42 @@ class ImageOutputSink::Impl final {
           skipped_error = first_error_;
       }
       std::exception_ptr error = skipped_error;
+      std::optional<ImageSinkWriteResult> published;
       if (!error) {
         try {
-          work.promise.set_value(Publish(work));
+          published = Publish(work);
         } catch (...) {
           error = std::current_exception();
         }
       }
-      if (error) work.promise.set_exception(error);
+      if (published) {
+        try {
+          work.promise.set_value(*published);
+        } catch (...) {
+          error = std::current_exception();
+          work.promise.set_exception(error);
+          published.reset();
+        }
+      } else {
+        work.promise.set_exception(error);
+      }
       const auto bytes = work.image.bytes.size();
       work.queue_lease.release();
       work.image.output_lease.release();
       std::vector<std::byte>().swap(work.image.bytes);
+      if (work.evidence_promise) {
+        if (published) {
+          try {
+            work.record_evidence(*published);
+            work.evidence_promise->set_value();
+          } catch (...) {
+            error = std::current_exception();
+            work.evidence_promise->set_exception(error);
+          }
+        } else {
+          work.evidence_promise->set_exception(error);
+        }
+      }
       {
         std::scoped_lock lock(mutex_);
         if (error) {
@@ -463,6 +501,16 @@ ImageSinkSubmission ImageOutputSink::submit(std::filesystem::path path,
                                             std::string_view sample_key,
                                             std::stop_token stop) {
   return impl_->Submit(std::move(path), std::move(image), sample_key, stop);
+}
+
+ImageSinkSubmission ImageOutputSink::submit_with_evidence(
+    std::filesystem::path path, EncodedImage image,
+    std::function<void(const ImageSinkWriteResult&)> record_evidence,
+    std::string_view sample_key, std::stop_token stop) {
+  if (!record_evidence)
+    Invalid("submit.record_evidence", "nonempty publication callback");
+  return impl_->Submit(std::move(path), std::move(image), sample_key, stop,
+                       std::move(record_evidence));
 }
 
 void ImageOutputSink::flush(std::stop_token stop) { impl_->Flush(stop); }

@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <memory>
 #include <stop_token>
@@ -59,13 +60,14 @@ struct ImageSinkWriteResult {
   std::string sha256;
 };
 
-/** @brief Admission result; completion is valid only when queued. */
+/** @brief Admission result; futures are valid only when queued. */
 struct ImageSinkSubmission {
   ImageSinkDisposition disposition = ImageSinkDisposition::dropped;
   std::future<ImageSinkWriteResult> completion;
+  std::future<void> evidence_completion;
 };
 
-/** @brief Outstanding accepted work and cumulative admission/write counters. */
+/** @brief Outstanding accepted work and cumulative admission/task counters. */
 struct ImageOutputSinkStats {
   std::uint64_t submitted = 0;
   std::uint64_t queued = 0;
@@ -77,7 +79,7 @@ struct ImageOutputSinkStats {
   std::size_t pending_bytes = 0;
 };
 
-/** @brief One failed asynchronous write retained in a bounded diagnostic list.
+/** @brief One failed asynchronous publication or callback diagnostic.
  */
 struct ImageSinkFailure {
   std::filesystem::path path;
@@ -89,10 +91,13 @@ struct ImageSinkFailure {
  *
  * The caller encodes before admission; no Tensor or CUDA transfer is hidden in
  * the sink. Sampling hashes a stable key and is independent of submission
- * order. Accepted images retain their encoded-byte lease until completion.
- * Queue and temporary-file bytes use separate aggregate budget categories.
+ * order. Encoded-byte leases are released after publication settles; item and
+ * byte admission remain held until the optional callback finishes. Queue and
+ * temporary-file bytes use separate aggregate budget categories.
  * A successful ticket identifies the published bytes, while flush/close also
- * surface any asynchronous failure. The destructor drains without throwing;
+ * surface any asynchronous failure. An optional per-submission evidence
+ * callback runs on the same writer thread after publication. The destructor
+ * drains without throwing;
  * callers requiring evidence must inspect tickets or call flush/close.
  */
 class ImageOutputSink final {
@@ -119,6 +124,24 @@ class ImageOutputSink final {
   ImageSinkSubmission submit(std::filesystem::path path, EncodedImage image,
                              std::string_view sample_key = {},
                              std::stop_token stop = {});
+
+  /**
+   * @brief Admits an image and binds evidence work to its published bytes.
+   *
+   * The callback runs only after successful publication, on the writer thread,
+   * without holding the sink mutex. It must finish promptly and must not call
+   * back into this sink. Captured objects must outlive callback completion.
+   * File completion remains successful if the callback
+   * fails; evidence_completion and flush/close report that failure. The caller
+   * can retry evidence registration using the file completion's path/digest.
+   * This callback does not make file publication and evidence atomic.
+   * Sampled or dropped submissions invoke no callback and have no futures.
+   * @throws InvalidArgument The callback is empty or submit input is invalid.
+   */
+  ImageSinkSubmission submit_with_evidence(
+      std::filesystem::path path, EncodedImage image,
+      std::function<void(const ImageSinkWriteResult&)> record_evidence,
+      std::string_view sample_key = {}, std::stop_token stop = {});
 
   /** @brief Waits for all work accepted before this call and rethrows errors.
    */

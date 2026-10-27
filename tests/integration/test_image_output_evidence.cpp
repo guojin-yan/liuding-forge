@@ -313,4 +313,62 @@ TEST(ImageOutputEvidenceTest, EventReferenceQuotaCanRecoverAfterRestart) {
   EXPECT_EQ(reopened.references("run-1").size(), 2U);
 }
 
+TEST(ImageOutputEvidenceTest, SinkCallbackRegistersPublishedArtifactAndEvent) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  ImageOutputSink sink;
+  auto ticket = sink.submit_with_evidence(
+      directory.path / "preview.png", png(),
+      [&](const ImageSinkWriteResult& published) {
+        store.record_published_file_evidence(evidence_request(published));
+      });
+  ASSERT_EQ(ticket.disposition, ImageSinkDisposition::queued);
+  const auto published = ticket.completion.get();
+  EXPECT_NO_THROW(ticket.evidence_completion.get());
+  sink.close();
+  const auto reference = store.find_reference("run-1", "image-preview");
+  ASSERT_TRUE(reference);
+  EXPECT_EQ(reference->artifact.digest.hex, published.sha256);
+  EXPECT_EQ(reference->artifact.size_bytes, published.bytes);
+  ASSERT_EQ(store.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(store.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest, SinkCallbackFailureRetainsRecoveryIdentity) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  ImageOutputSink sink;
+  auto ticket = sink.submit_with_evidence(
+      directory.path / "preview.png", png(),
+      [&](const ImageSinkWriteResult& published) {
+        store.record_published_file_evidence(evidence_request(published, 2U));
+      });
+  const auto published = ticket.completion.get();
+  EXPECT_THROW(ticket.evidence_completion.get(), CompatibilityError);
+  EXPECT_THROW(sink.flush(), CompatibilityError);
+  EXPECT_THROW(sink.close(), CompatibilityError);
+  EXPECT_TRUE(store.find_reference("run-1", "image-preview"));
+  EXPECT_TRUE(store.events("run-1").events.empty());
+
+  TelemetryEnvelope earlier;
+  earlier.identity = {.stream_id = "image-output-1",
+                      .event_id = "earlier-1",
+                      .idempotency_key = "earlier-1",
+                      .sequence = 1U};
+  earlier.correlation.project_id = "project-1";
+  earlier.correlation.run_id = "run-1";
+  earlier.payload = TelemetryLog{.body = "prior event"};
+  store.append("run-1", "earlier-event",
+               std::span<const TelemetryEnvelope>(&earlier, 1U));
+  ASSERT_TRUE(std::filesystem::remove(published.path));
+  auto request = evidence_request(published, 2U);
+  request.path.reset();
+  const auto recovered = store.record_published_file_evidence(request);
+  EXPECT_TRUE(recovered.reference_replay);
+  ASSERT_EQ(recovered.event.receipts.size(), 1U);
+  EXPECT_TRUE(store.integrity_check().ok());
+}
+
 }  // namespace

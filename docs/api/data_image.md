@@ -223,3 +223,11 @@ auto view = image::transform_sample(sample, sampled, joint_options);
 `sample_geometry` 当前提供固定 resize、均匀整数原点 crop 和独立的水平/垂直 flip；x/y/horizontal/vertical 分别使用固定 draw slot 0/1/2/3。`joint_transform_identity` 摘要使用 `liuding.joint-transform.cpu.v2` 域，包含采样、插值、padding、框/区域筛选、OBB 裁剪策略、pose 排列和全部资源上限。升级后的指纹与旧版本不同，调用方须更新绑定后重新建立兼容的 checkpoint。示例中的 `dataset-v3` 应替换为实际冻结的数据/标注/reader 身份；重复采样时必须显式提供稳定 occurrence，不能用 worker 执行次数代替。
 
 接入 `DataPipeline` 时，调用方须将来源身份绑定到 `dataset_version`，将上述配置摘要以及 RNG 版本、seed、view/occurrence 分配策略绑定到 `batch_factory_id`。直接提供手工 `ImageGeometryStep` 时，也要把完整 steps 纳入自己的 factory 身份；配置摘要不会自动读取任意 lambda 或推断其行为。当前已验证同一数据与配置在 0/1/3 workers 的像素结果一致、同拓扑 checkpoint 恢复重放，以及来源/变换身份变化被拒绝；pipeline 仍会拒绝不同 worker 拓扑的 exact restore。原 Core `data/transforms/vision.hpp` 的随机算子继续具有各自的旧 RNG 行为，不会自动变成此采样器。
+
+## 异步图像输出与证据登记
+
+`ImageOutputSink` 接受已编码的 CPU PNG/JPEG 字节，以单个写入线程和有界项数/字节容量发布本地文件；它不会隐式编码 Tensor 或执行 CUDA D2H。`submit` 的 `completion` 在文件成功发布后返回路径、字节数和 SHA-256。需要把每个成功文件关联到 run 时，使用 `submit_with_evidence(path, image, callback, sample_key, stop)`：调用方在回调中捕获稳定的 run、reference 和事件身份，并将发布结果传给 [`SQLiteRunStore::record_published_file_evidence`](local_run_storage.md)。`data_image` 组件不依赖 `experiment` 组件。
+
+回调仅在文件成功发布后由现有写入线程执行；采样跳过、容量丢弃、文件写入失败均不会调用它。已排队的提交同时返回文件 `completion` 和 `evidence_completion`，前者即使证据登记失败仍保留成功发布的路径与摘要，后者单独报告登记结果。无回调的 `submit` 只有文件 future；未入队时两个 future 都无效。回调执行前已释放编码缓冲及其资源租约，但该项仍占用 sink 的项数和容量直到回调结束；调用方须保证捕获对象活到回调完成。回调捕获对象的内存不计入编码字节预算，应保持有界并及时返回，不得重新调用同一 sink。回调失败计入失败统计并由 `flush/close` 传播；默认策略停止后续已排队写入，`continue_after_error` 可允许继续。
+
+文件发布、CAS 引用登记和事件追加不是一个原子事务。证据失败后保留 `completion` 的身份，按[本地 run 存储](local_run_storage.md)使用原有 reference、事件身份和描述符重试；已持久化的引用可在原文件移走后恢复事件。该回调只简化关联，不代表跨阶段严格内存上界或端到端训练提速。
