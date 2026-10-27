@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 #include <latch>
 #include <limits>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -110,6 +111,95 @@ TEST_F(FileStateArchiveTest, ReopensEmbeddedManifestAndValidatesAllDigests) {
   const auto digest = jyppx::liuding::sha256(
       std::span<const std::byte>(encoded).first(encoded.size() - 32U));
   EXPECT_TRUE(std::equal(digest.begin(), digest.end(), encoded.end() - 32U));
+}
+
+TEST_F(FileStateArchiveTest, CanonicalWireBytesSpanParticipantsAndEmptyFields) {
+  auto first = state();
+  first.participant_id = "a.state";
+  first.fields = {{.name = "empty", .max_bytes = 1U, .required = true},
+                  {.name = "payload", .max_bytes = 32769U, .required = true},
+                  {.name = "unused", .max_bytes = 1U, .required = false}};
+  auto last = state();
+  last.participant_id = "z.state";
+  last.fields.front().max_bytes = 3U;
+  std::vector<std::byte> input(32769U, std::byte{7});
+  const std::array tail{std::byte{0}, std::byte{255}, std::byte{3}};
+  FileStateArchive archive(path_);
+  archive.begin({first, last});
+  archive.writer_for("z.state").write_blob("payload", tail);
+  archive.writer_for("a.state").write_blob("payload", input);
+  archive.writer_for("a.state").write_blob("empty", {});
+  // Writers must consume the caller's bytes before returning, even though
+  // publication later streams the captured fields.
+  std::fill(input.begin(), input.end(), std::byte{99});
+  archive.commit();
+
+  const auto json = jyppx::liuding::interop::checkpoint_artifact_manifest_json(
+      archive.manifest());
+  std::vector<std::byte> expected;
+  for (const char value : std::string_view("JYPPXCK1"))
+    expected.push_back(static_cast<std::byte>(value));
+  const auto integer = [&](std::uint64_t value, unsigned size) {
+    for (unsigned index = 0; index < size; ++index)
+      expected.push_back(static_cast<std::byte>(value >> (8U * index)));
+  };
+  integer(1U, 4U);
+  integer(json.size(), 8U);
+  for (const unsigned char value : json)
+    expected.push_back(static_cast<std::byte>(value));
+  expected.insert(expected.end(), 32769U, std::byte{7});
+  expected.insert(expected.end(), tail.begin(), tail.end());
+  const auto digest = jyppx::liuding::sha256(expected);
+  expected.insert(expected.end(), digest.begin(), digest.end());
+  EXPECT_EQ(read_file(path_), expected);
+  FileStateArchive reopened(path_);
+  EXPECT_TRUE(reopened.reader_for("a.state").contains("empty"));
+  EXPECT_TRUE(reopened.reader_for("a.state").read_blob("empty", 0U).empty());
+  EXPECT_FALSE(reopened.reader_for("a.state").contains("unused"));
+  EXPECT_EQ(reopened.reader_for("a.state").read_blob("payload", 32769U)[0],
+            std::byte{7});
+}
+
+TEST_F(FileStateArchiveTest, ExactArtifactLimitIncludesFramingAndTrailer) {
+  auto descriptor = state();
+  descriptor.fields.front().max_bytes = 64U;
+  const std::array<std::byte, 64> payload{};
+  {
+    FileStateArchive reference(path_);
+    reference.begin({descriptor});
+    reference.writer_for("test.state").write_blob("payload", payload);
+    reference.commit();
+  }
+  const auto expected = read_file(path_);
+  for (const auto shortage : {0U, 1U}) {
+    SCOPED_TRACE(shortage);
+    const auto destination =
+        directory_ / ("bounded-" + std::to_string(shortage));
+    const std::array prior{std::byte{42}};
+    {
+      FileStateArchive previous(destination);
+      previous.begin({descriptor});
+      previous.writer_for("test.state").write_blob("payload", prior);
+      previous.commit();
+    }
+    const auto previous = read_file(destination);
+    jyppx::liuding::interop::FileStateArchiveOptions options;
+    options.max_artifact_bytes = expected.size() - shortage;
+    options.max_field_bytes = 64U;
+    FileStateArchive archive(destination, options);
+    archive.begin({descriptor});
+    archive.writer_for("test.state").write_blob("payload", payload);
+    if (shortage == 0U) {
+      EXPECT_NO_THROW(archive.commit());
+      EXPECT_EQ(read_file(destination), expected);
+    } else {
+      EXPECT_THROW(archive.commit(), jyppx::liuding::ResourceExhausted);
+      EXPECT_EQ(read_file(destination), previous);
+      EXPECT_EQ(archive.reader_for("test.state").read_blob("payload", 1U)[0],
+                prior[0]);
+    }
+    EXPECT_FALSE(std::filesystem::exists(destination.string() + ".tmp"));
+  }
 }
 
 TEST_F(FileStateArchiveTest, ReaderCannotCleanAnActiveWritersTemporaryFile) {
@@ -372,7 +462,7 @@ TEST_F(FileStateArchiveTest,
     // Limit the child process's real file writes without changing the host
     // filesystem or allocating a disposable disk. EFBIG is reported by the OS.
     ::signal(SIGXFSZ, SIG_IGN);
-    const rlimit limit{512, 512};
+    const rlimit limit{4096, 4096};
     if (::setrlimit(RLIMIT_FSIZE, &limit) != 0) ::_exit(2);
     try {
       FileStateArchive archive(path_);

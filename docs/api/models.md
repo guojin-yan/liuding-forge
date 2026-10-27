@@ -64,7 +64,7 @@ DINOv3 ViT 的 token 顺序为 CLS、四个 extra/storage token、patch token；
 
 启用 `models` 与 `training` 后，可将模型适配器交给 `Trainer`，通过 [`FileCheckpointStore`](durable_checkpoint.md) 保存和恢复完整训练状态。重建时必须保持模型、分类头、优化器、精度和数据管线拓扑一致，并登记模型、优化器、调度器、RNG、数据游标、回调及 CUDA FP16 所需的 GradScaler 状态；只保存模型权重不能恢复训练进度。
 
-当前一致续训验证覆盖 DINOv2 ViT-S、DINOv3 ViT-S 和 ConvNeXt-T 的 CPU FP32 与 CUDA FP16 autocast，CUDA 路径保留 FP32 参数。逐字节相同的续训结果要求固定软件、硬件、线程和确定性算法设置；DINOv2 的 CUDA 验证使用原生 518×518 输入，位置插值的 CUDA 反向计算可能存在数值非确定性。其他容量、精度和任务仍需分别验证。
+当前一致续训验证覆盖 DINOv2 ViT-S/B、DINOv3 ViT-S/S+/B 和 ConvNeXt-T/S 的 CPU FP32 与 CUDA FP16 autocast，CUDA 路径保留 FP32 参数。逐字节相同的续训结果要求固定软件、硬件、线程和确定性算法设置；这些验证使用单线程 CPU 计算、两个数据 worker 和严格确定性算法。DINOv2 的 CPU/CUDA 输入分别为 28×28/原生 518×518，DINOv3 为 32×32；DINOv2 位置插值的 CUDA 反向计算可能存在数值非确定性。其他容量、精度、分辨率和任务仍需分别验证。
 
 ## 权重与验证
 

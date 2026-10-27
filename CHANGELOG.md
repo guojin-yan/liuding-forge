@@ -12,10 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- 持久化检查点提交按字段逐段写入临时文件并累计 SHA-256，省去额外的完整编码缓冲区；容器格式、大小限制及原子发布行为保持一致。
 - Public branding is now 六丁炼算 (Liuding Forge), with `liuding-forge-*` library, example, benchmark, fuzzer, archive and CLI output names. The historical JYPPX Training Framework name and all `jyppx` C++/CMake/package compatibility surfaces remain available.
 - The documentation index is now a concise Chinese task-based entry point; tutorials remain the detailed learning path and one-time development reports stay outside the source repository.
 
 ### Added
+- 补充 DINOv2 ViT-B、DINOv3 ViT-S+/B、ConvNeXt-S 的 CPU FP32/CUDA AMP 完整训练状态恢复验证，覆盖模型、SGD momentum、调度器、GradScaler、RNG 与数据进度。
 - 图像训练基准增加 DINOv3 ViT-L/L+、ConvNeXt-Base/Large，可通过公共模型工厂进入 ImageFolder、Trainer、反向传播与 SGD 测量链。
 - 图像训练基准支持 DINOv2 Large/Giant，以及 CUDA FP16 autocast/动态 GradScaler 和显式 FP16 参数存储；报告核对精度、参数 dtype 与实际 SGD 更新次数。
 - Repository-local `.agents/skills` workflows for project builds and tests, model onboarding, and documentation maintenance.

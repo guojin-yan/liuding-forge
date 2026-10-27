@@ -1,59 +1,32 @@
-# Durable checkpoint files
+# 持久化训练检查点
 
-`jyppx::liuding::training::FileCheckpointStore` adapts the training coordinator to
-`jyppx::liuding::interop::FileStateArchive`. Link `jyppx::liuding::training` with interop enabled;
-the file adapter is absent from the installed training headers when interop is disabled. Custom loops can use `FileStateArchive` directly with foundation participant manifests and readers/writers.
+启用 interop 后，`jyppx::liuding::training::FileCheckpointStore` 将训练协调器连接到 `jyppx::liuding::interop::FileStateArchive`。禁用 interop 时，安装的 training 头文件不提供该文件适配器。自定义训练循环可直接使用 `FileStateArchive` 和 foundation 的 participant、reader/writer 契约。
 
 ```cpp
 #include <jyppx/liuding/training/file_checkpoint_store.hpp>
 
 jyppx::liuding::training::FileCheckpointStore destination("checkpoints/last.bin");
-coordinator.save(destination);  // Capture at a supported committed boundary.
+coordinator.save(destination);  // 在受支持的已提交边界捕获状态。
 
-// Rebuild the complete training domain before restoring it.
+// 先重建完整训练域，再恢复所有已登记的状态。
 jyppx::liuding::training::FileCheckpointStore source("checkpoints/last.bin");
 new_coordinator.restore(source, jyppx::liuding::RestorePolicy::exact_only);
 ```
 
-Register every state owner before capture and reconstruction: model, optimizers, schedulers, precision scaler, RNG, data pipelines, metrics, callbacks, dispatcher, event outbox, strategy, and trainer. The coordinator validates the complete domain before mutation and rolls back participant changes on a failed restore. The file store does not discover missing state owners. Batch midpoint and uncommitted gradient recovery remain unsupported.
+保存与重建时必须登记所有实际参与的状态所有者：模型、优化器、调度器、精度缩放器、RNG、数据管线、指标、回调、dispatcher、事件 outbox、strategy 和 Trainer。协调器先验证完整训练域，再执行恢复；失败时回滚 participant 的修改。文件存储不会发现漏登的状态，不支持 batch 中点或未提交梯度的恢复。
 
-The format-v1 file contains an eight-byte magic, a little-endian version and manifest length, the canonical checkpoint manifest JSON, the declared blobs, and a SHA-256 trailer over the preceding bytes. The manifest includes a build fingerprint, participant schema and restore levels, and each blob's exact size and SHA-256. Digest identities belong to foundation (`ArtifactDigest` and
-`ArtifactDigestAlgorithm`), shared with the local CAS. Field order is not
-identity: the canonical codec sorts fields by name, and participants must
-validate fields by their names and schema properties.
+## 格式与完整性
 
-Readers verify framing, bounds, complete-artifact and per-blob hashes before
-exposing state. SHA-256 detects byte changes; producer authentication requires
-a separate trusted signature. The first released container format is v1.
-Historical participant schemas can be migrated by their participant readers;
-there is no invented v0 file container migration.
+v1 容器包含八字节 magic、小端版本号和 manifest 长度、规范化 JSON manifest、字段内容及完整 payload 的 SHA-256 尾部。manifest 记录构建身份、participant schema/恢复等级、字段大小与摘要。字段按名称排序，通过名称和 schema 属性匹配；调用方写入顺序不构成身份。读取端在暴露 reader 前校验完整文件及每个字段的摘要、格式和限额。SHA-256 检测字节变化，来源认证需要独立的可信签名；历史 participant schema 由对应 reader 迁移。
 
-Writes use a sibling temporary file, flush data, and atomically replace the
-final file on the same filesystem. A per-path operating-system lock rejects
-concurrent writers. Read handles retain one opened file generation and allow
-concurrent replacement. A reader cannot remove an active writer's temporary
-file. Stale temporary files can be discarded when their writer lock is free.
-The lock sidecar remains as a reusable synchronization object.
+## 发布与恢复
 
-For inspection tools, set `FileStateArchiveOptions::read_only=true`. This
-requires an existing valid snapshot, rejects capture, and preserves all sibling
-temporary/lock files without creating directories or acquiring a writer lock.
-The CLI's `checkpoint inspect/verify/diff` commands use this mode.
+提交按规范顺序逐段写入同目录临时文件，同时计算完整文件摘要，不再拼接额外的完整编码缓冲区。完成写入后才原子替换目标；每个路径的操作系统锁拒绝并发 writer，reader 保留打开时的完整文件代际，并允许其他 writer 替换路径。reader 不清理活动 writer 的临时文件；锁空闲时可清理遗留临时文件，锁侧文件保留供复用。
 
-On Windows, publication retries transient sharing, lock, and access conflicts
-for at most 500 milliseconds. A persistent conflict fails without deleting the
-prior destination. Readers open the snapshot directly and treat only a missing
-file/path as a new archive; other open failures remain errors.
+`synchronize=true` 请求内容和目录持久化：Windows 使用 `FlushFileBuffers`、`MOVEFILE_WRITE_THROUGH`，POSIX 使用 `fsync`、`rename`，新建父目录条目也会同步。替换前失败保留旧文件。替换后目录同步失败时，调用报错，当前句柄仍保留旧 descriptor/reader；重新打开路径可检查已发布的完整代际，断电后的结果取决于文件系统保证。Windows 对共享、锁和访问冲突最多重试 500 毫秒，持续冲突时保留旧目标。只有文件或路径缺失视为空的新归档，其他打开错误仍会报错。
 
-`synchronize=true` requests file and directory durability (Windows uses
-`FlushFileBuffers` and `MOVEFILE_WRITE_THROUGH`; POSIX uses `fsync` and
-`rename`). Newly created parent directory entries are synchronized as well.
-A failure before replacement preserves the prior file. If directory sync fails after replacement, either complete generation may survive a power loss: the call fails, the current handle keeps its prior descriptor and readers together, and reopening inspects the complete generation at the final path. Atomicity and durability depend on the local filesystem's guarantees.
+## 限额与只读检查
 
-All blobs and the encoded file are held in memory. Set `max_field_bytes`,
-`max_artifact_bytes`, manifest parser limits, and a free-storage reserve for
-the workload; these bounds are not a streaming-memory guarantee. Truncation,
-hash mismatch, unknown format version, incomplete required fields, lock
-contention, storage exhaustion, and filesystem errors produce structured
-foundation errors. Objects are not thread-safe; quiesce training state during
-capture and use separate handles for independent readers.
+`max_field_bytes` 限制单字段，`max_artifact_bytes` 包含全部 framing 和摘要；manifest parser 限额和 `min_free_storage_bytes` 分别约束元数据及写入后的剩余空间。字段快照仍驻留内存，读取时也会加载并验证整份制品，这些限额不构成进程 RSS 上限。截断、摘要不符、未知版本、缺少必需字段、锁冲突、空间不足和文件系统失败均返回结构化 foundation 错误。
+
+检查工具可设置 `FileStateArchiveOptions::read_only=true`：必须打开已存在的有效快照，禁止捕获，不创建目录、不获取 writer 锁，也不清理临时/锁文件。CLI 的 `checkpoint inspect/verify/diff` 使用此模式。对象不具备线程安全性，捕获时须暂停 participant 修改；独立读取使用不同句柄。

@@ -395,16 +395,17 @@ std::optional<std::vector<std::byte>> read_snapshot(
   return bytes;
 }
 
-void publish(const std::filesystem::path& path,
-             std::span<const std::byte> bytes,
-             const FileStateArchiveOptions& options) {
+template <class WritePayload>
+void publish(const std::filesystem::path& path, std::uint64_t artifact_bytes,
+             const FileStateArchiveOptions& options,
+             const WritePayload& write_payload) {
   const auto parent =
       path.has_parent_path() ? path.parent_path() : std::filesystem::path(".");
   std::error_code error;
   const auto space = std::filesystem::space(parent, error);
   if (error) io_failure("space", parent, error);
-  if (bytes.size() > space.available ||
-      options.min_free_storage_bytes > space.available - bytes.size()) {
+  if (artifact_bytes > space.available ||
+      options.min_free_storage_bytes > space.available - artifact_bytes) {
     throw ResourceExhausted(
         "Insufficient space to stage a checkpoint replacement",
         ErrorDetails{
@@ -422,8 +423,21 @@ void publish(const std::filesystem::path& path,
     if (!output)
       io_failure("open.temp", temporary,
                  {errno != 0 ? errno : EIO, std::generic_category()});
-    output.write(reinterpret_cast<const char*>(bytes.data()),
-                 static_cast<std::streamsize>(bytes.size()));
+    std::uint64_t written = 0;
+    const auto append = [&](std::span<const std::byte> bytes) {
+      if (bytes.size() > artifact_bytes - written)
+        resource("write.artifact", artifact_bytes, bytes.size());
+      if (!bytes.empty())
+        output.write(reinterpret_cast<const char*>(bytes.data()),
+                     static_cast<std::streamsize>(bytes.size()));
+      if (!output)
+        io_failure("write.temp", temporary,
+                   {errno != 0 ? errno : EIO, std::generic_category()});
+      written += bytes.size();
+    };
+    write_payload(append);
+    if (written != artifact_bytes)
+      malformed("write.artifact", "encoded size differs from staged size");
     output.flush();
     if (!output)
       io_failure("write.temp", temporary,
@@ -584,15 +598,30 @@ class FileStateArchive::Impl {
     return result;
   }
 
-  std::vector<std::byte> encode(
+  struct EncodedHeader {
+    std::vector<std::byte> bytes;
+    std::uint64_t artifact_bytes;
+  };
+
+  EncodedHeader encode_header(
       const CheckpointArtifactManifest& manifest) const {
     const auto json =
         checkpoint_artifact_manifest_json(manifest, options_.manifest_limits);
-    std::vector<std::byte> result;
+    constexpr auto framing_bytes = kMagic.size() + 4U + 8U;
+    const auto header_bytes = framing_bytes + json.size();
+    std::uint64_t total = 0;
+    const auto account = [&](std::uint64_t size) {
+      if (size > options_.max_artifact_bytes - total)
+        resource("write.artifact", options_.max_artifact_bytes, size);
+      total += size;
+    };
+    account(header_bytes);
+    account(staged_bytes_);
+    account(kDigestBytes);
+    EncodedHeader result{.bytes = {}, .artifact_bytes = total};
+    result.bytes.reserve(header_bytes);
     const auto append = [&](std::span<const std::byte> bytes) {
-      if (bytes.size() > options_.max_artifact_bytes - result.size())
-        resource("write.artifact", options_.max_artifact_bytes, bytes.size());
-      result.insert(result.end(), bytes.begin(), bytes.end());
+      result.bytes.insert(result.bytes.end(), bytes.begin(), bytes.end());
     };
     const auto integer = [&](std::uint64_t value, unsigned count) {
       std::array<std::byte, 8> bytes{};
@@ -604,13 +633,6 @@ class FileStateArchive::Impl {
     integer(kFormatVersion, 4U);
     integer(json.size(), 8U);
     append({reinterpret_cast<const std::byte*>(json.data()), json.size()});
-    for (const auto& entry : manifest.participants) {
-      for (const auto& blob : entry.blobs)
-        append(
-            staged_.at(entry.state.participant_id).blobs.at(blob.field_name));
-    }
-    const auto digest = sha256(result);
-    append(digest);
     return result;
   }
 
@@ -710,7 +732,8 @@ void FileStateArchive::commit() {
     } catch (const InvalidArgument& error) {
       throw SerializationError("Incomplete checkpoint state", error.details());
     }
-    auto bytes = impl_->encode(manifest);
+    const auto header = impl_->encode_header(manifest);
+    Sha256 digest;
     // Prepare readers before the filesystem commit so allocation cannot fail
     // after publication and turn a successful replacement into a false failure.
     std::map<std::string, std::unique_ptr<FieldReader>> readers;
@@ -719,7 +742,20 @@ void FileStateArchive::commit() {
     // A late durability failure may leave the new complete file at the path.
     // Keep this object's old manifest/readers together until a successful
     // commit, just as an independently opened snapshot retains its generation.
-    publish(impl_->path_, bytes, impl_->options_);
+    publish(impl_->path_, header.artifact_bytes, impl_->options_,
+            [&](const auto& append) {
+              const auto payload = [&](std::span<const std::byte> bytes) {
+                append(bytes);
+                digest.update(bytes);
+              };
+              payload(header.bytes);
+              for (const auto& entry : manifest.participants) {
+                for (const auto& blob : entry.blobs)
+                  payload(impl_->staged_.at(entry.state.participant_id)
+                              .blobs.at(blob.field_name));
+              }
+              append(digest.finish());
+            });
     impl_->stored_.swap(impl_->staged_);
     impl_->manifest_ = std::move(manifest);
     impl_->readers_.swap(readers);

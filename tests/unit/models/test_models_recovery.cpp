@@ -31,6 +31,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <iostream>
@@ -39,6 +40,7 @@
 #include <span>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -69,6 +71,9 @@ struct RecoveryCase {
   std::string model;
   std::int64_t image_size;
   bool cuda;
+  bool extended = false;
+  std::uint64_t max_rss_bytes = 4ULL << 30U;
+  std::int64_t max_cuda_allocated_bytes = 2LL << 30U;
 };
 
 void PrintTo(const RecoveryCase &scenario, std::ostream *output) {
@@ -358,6 +363,13 @@ class DinoRecoveryTest : public ::testing::TestWithParam<RecoveryCase> {
 
 TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
   const auto scenario = GetParam();
+  if (scenario.extended) {
+    const auto *gate = std::getenv("JYPPX_LIUDING_DINO_EXTENDED_RECOVERY_GATE");
+    if (gate == nullptr || std::string_view(gate) != "1") {
+      GTEST_SKIP() << "Set JYPPX_LIUDING_DINO_EXTENDED_RECOVERY_GATE=1 for "
+                      "serial medium-capacity durable training recovery";
+    }
+  }
   if (scenario.cuda && !torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA device is unavailable";
   }
@@ -489,7 +501,7 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
   ExpectEqualCheckpoint(baseline_path, resumed_path);
   const auto peak_rss = PeakRssBytes();
   ASSERT_GT(peak_rss, 0U);
-  EXPECT_LE(peak_rss, 4ULL << 30U);
+  EXPECT_LE(peak_rss, scenario.max_rss_bytes);
   std::cout << "RECOVERY_METRICS model=" << scenario.model
             << " precision=" << (scenario.cuda ? "cuda-fp16" : "fp32")
             << " image_size=" << scenario.image_size
@@ -502,7 +514,7 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
   if (scenario.cuda) {
     torch::cuda::synchronize(0);
     const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
-    EXPECT_LE(stats.allocated_bytes[0].peak, 2LL << 30U);
+    EXPECT_LE(stats.allocated_bytes[0].peak, scenario.max_cuda_allocated_bytes);
     // Deterministic cuBLAS retains its workspace independently of model state.
     // Release it explicitly after quiescing all work, before the residency
     // gate.
@@ -534,7 +546,17 @@ INSTANTIATE_TEST_SUITE_P(
         // the native 37x37 grid exercises exact CUDA continuation.
         RecoveryCase{"vit_small_patch14_dinov2", 518, true},
         RecoveryCase{"dinov3_vits16", 32, true},
-        RecoveryCase{"dinov3_convnext_tiny", 32, true}),
+        RecoveryCase{"dinov3_convnext_tiny", 32, true},
+        RecoveryCase{"vit_base_patch14_dinov2", 28, false, true, 6ULL << 30U,
+                     4LL << 30U},
+        RecoveryCase{"dinov3_vits16plus", 32, false, true},
+        RecoveryCase{"dinov3_vitb16", 32, false, true, 6ULL << 30U, 4LL << 30U},
+        RecoveryCase{"dinov3_convnext_small", 32, false, true},
+        RecoveryCase{"vit_base_patch14_dinov2", 518, true, true, 6ULL << 30U,
+                     4LL << 30U},
+        RecoveryCase{"dinov3_vits16plus", 32, true, true},
+        RecoveryCase{"dinov3_vitb16", 32, true, true, 6ULL << 30U, 4LL << 30U},
+        RecoveryCase{"dinov3_convnext_small", 32, true, true}),
     [](const ::testing::TestParamInfo<RecoveryCase> &info) {
       return info.param.model + (info.param.cuda ? "_CudaAmp" : "_Cpu");
     });
