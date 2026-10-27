@@ -73,7 +73,8 @@ enum class RecoveryGate {
   extended,
   high_capacity,
   large_capacity,
-  vit_large_capacity
+  vit_large_capacity,
+  dinov2_large_capacity
 };
 
 const char *GateVariable(RecoveryGate gate) {
@@ -86,6 +87,8 @@ const char *GateVariable(RecoveryGate gate) {
       return "JYPPX_LIUDING_DINO_LARGE_RECOVERY_GATE";
     case RecoveryGate::vit_large_capacity:
       return "JYPPX_LIUDING_DINO_VIT_LARGE_RECOVERY_GATE";
+    case RecoveryGate::dinov2_large_capacity:
+      return "JYPPX_LIUDING_DINOV2_LARGE_RECOVERY_GATE";
     case RecoveryGate::standard:
       return nullptr;
   }
@@ -233,8 +236,10 @@ RecoveryDomain MakeDomain(const RecoveryCase &scenario,
                                  : training::PrecisionMode::full,
       .checkpoint = {
           .max_rollback_bytes =
-              scenario.gate == RecoveryGate::vit_large_capacity ? 4ULL << 30U
-              : scenario.gate == RecoveryGate::large_capacity   ? 3ULL << 30U
+              scenario.gate == RecoveryGate::vit_large_capacity ||
+                      scenario.gate == RecoveryGate::dinov2_large_capacity
+                  ? 4ULL << 30U
+              : scenario.gate == RecoveryGate::large_capacity ? 3ULL << 30U
                                                               : 1ULL << 30U}});
   domain.trainer->prepare(
       {.model = domain.model,
@@ -609,7 +614,11 @@ INSTANTIATE_TEST_SUITE_P(
                      5LL << 30U},
         RecoveryCase{"dinov3_vitl16plus", 32, true,
                      RecoveryGate::vit_large_capacity, 12ULL << 30U,
-                     5LL << 30U}),
+                     5LL << 30U},
+        // Keep CUDA recovery separate: exact bicubic backward requires the
+        // native grid, whose training memory needs its own resource profile.
+        RecoveryCase{"vit_large_patch14_dinov2", 28, false,
+                     RecoveryGate::dinov2_large_capacity, 12ULL << 30U}),
     [](const ::testing::TestParamInfo<RecoveryCase> &info) {
       return info.param.model + (info.param.cuda ? "_CudaAmp" : "_Cpu");
     });

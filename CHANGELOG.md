@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - The documentation index is now a concise Chinese task-based entry point; tutorials remain the detailed learning path and one-time development reports stay outside the source repository.
 
 ### Added
+- 补充 DINOv2 ViT-L 的 CPU FP32 完整训练状态恢复验证，使用独立资源门禁和显式回滚预算；CUDA 完整恢复仍待验证。
 - 补充 DINOv3 ViT-L/L+ 的 CPU FP32/CUDA AMP 完整训练状态恢复验证，使用独立资源门禁和显式回滚预算。
 - `TrainerOptions::checkpoint` 开放协调器 participant 和回滚快照预算，支持大型模型显式配置；默认仍为 1024 个 participant 和 1 GiB 回滚预算。
 - 补充 DINOv3 ConvNeXt-L 的 CPU FP32/CUDA AMP 完整训练状态恢复验证；大容量恢复采用独立的资源开关和检查点 I/O 超时，默认跳过。
