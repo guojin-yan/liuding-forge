@@ -357,9 +357,15 @@ int main() {
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_TRAINING)
-  jyppx::liuding::training::Trainer trainer({.trainer_id = "trainer.consumer"});
+  jyppx::liuding::training::Trainer trainer(
+      {.trainer_id = "trainer.consumer",
+       .checkpoint = {.max_participants = 64,
+                      .max_rollback_bytes = 3ULL << 30U}});
   return trainer.phase() == jyppx::liuding::training::TrainerPhase::created &&
-                 trainer.options().trainer_id == "trainer.consumer"
+                 trainer.options().trainer_id == "trainer.consumer" &&
+                 trainer.options().checkpoint.max_participants == 64 &&
+                 trainer.options().checkpoint.max_rollback_bytes ==
+                     (3ULL << 30U)
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)

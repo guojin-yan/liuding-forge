@@ -374,8 +374,23 @@ if(TARGET jyppx::liuding::models)
         jyppx_add_torch_runtime_dependency(jyppx_test_models_recovery)
         gtest_discover_tests(jyppx_test_models_recovery
             DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
+            TEST_LIST jyppx_dino_recovery_tests
             PROPERTIES RUN_SERIAL TRUE TIMEOUT 180
                 ENVIRONMENT "CUBLAS_WORKSPACE_CONFIG=:4096:8")
+        # Apply the larger checkpoint I/O timeout only to its explicit profile.
+        # TEST_INCLUDE_FILES works with our CMake 3.18 minimum and runs after
+        # the preceding discovery include has populated the test list.
+        file(GENERATE
+            OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/DinoRecoveryLimits.cmake"
+            CONTENT [[
+foreach(jyppx_dino_recovery_test IN LISTS jyppx_dino_recovery_tests)
+    if(jyppx_dino_recovery_test MATCHES "/dinov3_convnext_large_")
+        set_tests_properties("${jyppx_dino_recovery_test}" PROPERTIES TIMEOUT 360)
+    endif()
+endforeach()
+]])
+        set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+            "${CMAKE_CURRENT_BINARY_DIR}/DinoRecoveryLimits.cmake")
         if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
             target_compile_definitions(jyppx_test_models_amp PRIVATE
                 JYPPX_LIUDING_MODELS_CUDA_METRICS=1)

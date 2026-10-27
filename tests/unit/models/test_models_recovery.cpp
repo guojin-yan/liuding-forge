@@ -38,6 +38,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -67,14 +68,29 @@ constexpr std::size_t kSamples = 3;
 
 struct InterruptedAfterSave final {};
 
+enum class RecoveryGate { standard, extended, high_capacity, large_capacity };
+
+const char *GateVariable(RecoveryGate gate) {
+  switch (gate) {
+    case RecoveryGate::extended:
+      return "JYPPX_LIUDING_DINO_EXTENDED_RECOVERY_GATE";
+    case RecoveryGate::high_capacity:
+      return "JYPPX_LIUDING_DINO_HIGH_CAPACITY_RECOVERY_GATE";
+    case RecoveryGate::large_capacity:
+      return "JYPPX_LIUDING_DINO_LARGE_RECOVERY_GATE";
+    case RecoveryGate::standard:
+      return nullptr;
+  }
+  throw std::logic_error("Unknown recovery resource gate");
+}
+
 struct RecoveryCase {
   std::string model;
   std::int64_t image_size;
   bool cuda;
-  bool extended = false;
+  RecoveryGate gate = RecoveryGate::standard;
   std::uint64_t max_rss_bytes = 4ULL << 30U;
   std::int64_t max_cuda_allocated_bytes = 2LL << 30U;
-  bool high_capacity = false;
 };
 
 void PrintTo(const RecoveryCase &scenario, std::ostream *output) {
@@ -206,7 +222,11 @@ RecoveryDomain MakeDomain(const RecoveryCase &scenario,
       .trace_id = "trace.dino",
       .max_epochs = kEpochs,
       .precision = scenario.cuda ? training::PrecisionMode::cuda_float16
-                                 : training::PrecisionMode::full});
+                                 : training::PrecisionMode::full,
+      .checkpoint = {.max_rollback_bytes =
+                         scenario.gate == RecoveryGate::large_capacity
+                             ? 3ULL << 30U
+                             : 1ULL << 30U}});
   domain.trainer->prepare(
       {.model = domain.model,
        .optimizers =
@@ -364,20 +384,11 @@ class DinoRecoveryTest : public ::testing::TestWithParam<RecoveryCase> {
 
 TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
   const auto scenario = GetParam();
-  if (scenario.high_capacity) {
-    const auto *gate =
-        std::getenv("JYPPX_LIUDING_DINO_HIGH_CAPACITY_RECOVERY_GATE");
+  if (const auto *variable = GateVariable(scenario.gate)) {
+    const auto *gate = std::getenv(variable);
     if (gate == nullptr || std::string_view(gate) != "1") {
-      GTEST_SKIP()
-          << "Set JYPPX_LIUDING_DINO_HIGH_CAPACITY_RECOVERY_GATE=1 for "
-             "serial high-capacity durable training recovery";
-    }
-  }
-  if (scenario.extended) {
-    const auto *gate = std::getenv("JYPPX_LIUDING_DINO_EXTENDED_RECOVERY_GATE");
-    if (gate == nullptr || std::string_view(gate) != "1") {
-      GTEST_SKIP() << "Set JYPPX_LIUDING_DINO_EXTENDED_RECOVERY_GATE=1 for "
-                      "serial medium-capacity durable training recovery";
+      GTEST_SKIP() << "Set " << variable
+                   << "=1 for this serial durable recovery resource profile";
     }
   }
   if (scenario.cuda && !torch::cuda::is_available()) {
@@ -557,20 +568,27 @@ INSTANTIATE_TEST_SUITE_P(
         RecoveryCase{"vit_small_patch14_dinov2", 518, true},
         RecoveryCase{"dinov3_vits16", 32, true},
         RecoveryCase{"dinov3_convnext_tiny", 32, true},
-        RecoveryCase{"vit_base_patch14_dinov2", 28, false, true, 6ULL << 30U,
-                     4LL << 30U},
-        RecoveryCase{"dinov3_vits16plus", 32, false, true},
-        RecoveryCase{"dinov3_vitb16", 32, false, true, 6ULL << 30U, 4LL << 30U},
-        RecoveryCase{"dinov3_convnext_small", 32, false, true},
-        RecoveryCase{"vit_base_patch14_dinov2", 518, true, true, 6ULL << 30U,
-                     4LL << 30U},
-        RecoveryCase{"dinov3_vits16plus", 32, true, true},
-        RecoveryCase{"dinov3_vitb16", 32, true, true, 6ULL << 30U, 4LL << 30U},
-        RecoveryCase{"dinov3_convnext_small", 32, true, true},
-        RecoveryCase{"dinov3_convnext_base", 32, false, false, 6ULL << 30U,
-                     4LL << 30U, true},
-        RecoveryCase{"dinov3_convnext_base", 32, true, false, 6ULL << 30U,
-                     4LL << 30U, true}),
+        RecoveryCase{"vit_base_patch14_dinov2", 28, false,
+                     RecoveryGate::extended, 6ULL << 30U, 4LL << 30U},
+        RecoveryCase{"dinov3_vits16plus", 32, false, RecoveryGate::extended},
+        RecoveryCase{"dinov3_vitb16", 32, false, RecoveryGate::extended,
+                     6ULL << 30U, 4LL << 30U},
+        RecoveryCase{"dinov3_convnext_small", 32, false,
+                     RecoveryGate::extended},
+        RecoveryCase{"vit_base_patch14_dinov2", 518, true,
+                     RecoveryGate::extended, 6ULL << 30U, 4LL << 30U},
+        RecoveryCase{"dinov3_vits16plus", 32, true, RecoveryGate::extended},
+        RecoveryCase{"dinov3_vitb16", 32, true, RecoveryGate::extended,
+                     6ULL << 30U, 4LL << 30U},
+        RecoveryCase{"dinov3_convnext_small", 32, true, RecoveryGate::extended},
+        RecoveryCase{"dinov3_convnext_base", 32, false,
+                     RecoveryGate::high_capacity, 6ULL << 30U, 4LL << 30U},
+        RecoveryCase{"dinov3_convnext_base", 32, true,
+                     RecoveryGate::high_capacity, 6ULL << 30U, 4LL << 30U},
+        RecoveryCase{"dinov3_convnext_large", 32, false,
+                     RecoveryGate::large_capacity, 8ULL << 30U, 5LL << 30U},
+        RecoveryCase{"dinov3_convnext_large", 32, true,
+                     RecoveryGate::large_capacity, 8ULL << 30U, 5LL << 30U}),
     [](const ::testing::TestParamInfo<RecoveryCase> &info) {
       return info.param.model + (info.param.cuda ? "_CudaAmp" : "_Cpu");
     });

@@ -426,6 +426,103 @@ jyppx::liuding::training::TrainerOptions options(std::uint64_t max_epochs,
           .max_steps = max_steps};
 }
 
+TEST(TrainerTest, RejectsZeroCheckpointLimitsAtConstruction) {
+  auto limits = options(1);
+  limits.checkpoint.max_participants = 0;
+  EXPECT_THROW(jyppx::liuding::training::Trainer{limits},
+               jyppx::liuding::InvalidArgument);
+  limits.checkpoint = {};
+  limits.checkpoint.max_rollback_bytes = 0;
+  EXPECT_THROW(jyppx::liuding::training::Trainer{limits},
+               jyppx::liuding::InvalidArgument);
+}
+
+TEST(TrainerTest, CheckpointParticipantLimitRejectsBeforeCapture) {
+  auto domain = make_domain();
+  auto limits = options(1);
+  limits.checkpoint.max_participants = 1;
+  jyppx::liuding::training::Trainer trainer(limits);
+  trainer.prepare(make_request(domain));
+  MemoryCheckpoint destination;
+  EXPECT_THROW(trainer.save_checkpoint(destination),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_TRUE(destination.descriptor().participants.empty());
+  EXPECT_EQ(domain.optimizer->completed_steps(), 0U);
+  EXPECT_EQ(trainer.global_step(), 0U);
+}
+
+TEST(TrainerTest, ExactRollbackBudgetRestoresAndOneByteShortPreservesState) {
+  auto domain = make_domain();
+  jyppx::liuding::training::Trainer source(options(1));
+  source.prepare(make_request(domain));
+  const auto expected = source.fit();
+  MemoryCheckpoint saved;
+  source.save_checkpoint(saved);
+
+  // Limits account for the current domain's declared field maxima, including
+  // optional fields, rather than the smaller encoded checkpoint payload.
+  std::uint64_t required = 0;
+  {
+    auto probe_domain = make_domain();
+    jyppx::liuding::training::Trainer probe(options(1));
+    probe.prepare(make_request(probe_domain));
+    MemoryCheckpoint current;
+    const auto descriptor = probe.save_checkpoint(current);
+    for (const auto& participant : descriptor.participants) {
+      for (const auto& field : participant.fields) required += field.max_bytes;
+    }
+  }
+  ASSERT_GT(required, 1U);
+  for (const auto shortage : {1U, 0U}) {
+    SCOPED_TRACE(shortage);
+    auto rebuilt = make_domain();
+    auto limits = options(1);
+    limits.checkpoint.max_rollback_bytes = required - shortage;
+    jyppx::liuding::training::Trainer restored(limits);
+    restored.prepare(make_request(rebuilt));
+    const auto initial = rebuilt.model->state().parameters().front().clone();
+    if (shortage != 0U) {
+      MemoryCheckpoint before;
+      restored.save_checkpoint(before);
+      EXPECT_THROW(restored.restore_checkpoint(saved),
+                   jyppx::liuding::ResourceExhausted);
+      EXPECT_TRUE(
+          torch::equal(initial, rebuilt.model->state().parameters().front()));
+      EXPECT_EQ(rebuilt.optimizer->completed_steps(), 0U);
+      EXPECT_EQ(restored.global_step(), 0U);
+      EXPECT_EQ(restored.phase(),
+                jyppx::liuding::training::TrainerPhase::prepared);
+      MemoryCheckpoint after;
+      restored.save_checkpoint(after);
+      for (const auto& participant : before.descriptor().participants) {
+        const auto& left = before.reader_for(participant.participant_id);
+        const auto& right = after.reader_for(participant.participant_id);
+        for (const auto& field : participant.fields) {
+          ASSERT_EQ(left.contains(field.name), right.contains(field.name));
+          if (!left.contains(field.name)) continue;
+          const auto expected_blob =
+              left.read_blob(field.name, field.max_bytes);
+          const auto actual_blob = right.read_blob(field.name, field.max_bytes);
+          EXPECT_TRUE(std::equal(expected_blob.begin(), expected_blob.end(),
+                                 actual_blob.begin(), actual_blob.end()));
+        }
+      }
+    } else {
+      restored.restore_checkpoint(saved);
+      EXPECT_EQ(restored.global_step(), expected.global_step);
+      EXPECT_EQ(rebuilt.optimizer->completed_steps(), expected.global_step);
+      const auto actual_parameters = rebuilt.model->state().parameters();
+      const auto expected_parameters = domain.model->state().parameters();
+      ASSERT_EQ(actual_parameters.size(), expected_parameters.size());
+      for (std::size_t i = 0; i < actual_parameters.size(); ++i) {
+        EXPECT_TRUE(torch::equal(actual_parameters[i], expected_parameters[i]));
+      }
+      EXPECT_EQ(restored.phase(),
+                jyppx::liuding::training::TrainerPhase::completed);
+    }
+  }
+}
+
 TEST(TrainerTest, FitMapPipelinePublishesOrderedEventsAndMetrics) {
   auto domain = make_domain();
   auto callback = std::make_shared<RecordingCallback>(

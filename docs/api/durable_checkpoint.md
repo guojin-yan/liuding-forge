@@ -15,6 +15,8 @@ new_coordinator.restore(source, jyppx::liuding::RestorePolicy::exact_only);
 
 保存与重建时必须登记所有实际参与的状态所有者：模型、优化器、调度器、精度缩放器、RNG、数据管线、指标、回调、dispatcher、事件 outbox、strategy 和 Trainer。协调器先验证完整训练域，再执行恢复；失败时回滚 participant 的修改。文件存储不会发现漏登的状态，不支持 batch 中点或未提交梯度的恢复。
 
+`TrainerOptions::checkpoint` 配置协调器的 participant 数量和恢复回滚预算。`max_rollback_bytes` 默认 1 GiB，按恢复前所有 participant 字段声明的最大字节数合计，包含可选字段；大型模型须显式配置足够的预算，例如 `.checkpoint = {.max_rollback_bytes = 3ULL << 30U}`。不足时在修改状态前拒绝恢复。该运行资源配置不属于训练拓扑，可在恢复时调整；实际 RSS 还包括模型、已读取检查点及后端临时量。
+
 ## 格式与完整性
 
 v1 容器包含八字节 magic、小端版本号和 manifest 长度、规范化 JSON manifest、字段内容及完整 payload 的 SHA-256 尾部。manifest 记录构建身份、participant schema/恢复等级、字段大小与摘要。字段按名称排序，通过名称和 schema 属性匹配；调用方写入顺序不构成身份。读取端在暴露 reader 前校验完整文件及每个字段的摘要、格式和限额。SHA-256 检测字节变化，来源认证需要独立的可信签名；历史 participant schema 由对应 reader 迁移。

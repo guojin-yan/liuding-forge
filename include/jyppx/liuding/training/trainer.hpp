@@ -15,6 +15,7 @@
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/foundation/checkpoint.hpp>
 #include <jyppx/liuding/nn/invocation.hpp>
+#include <jyppx/liuding/training/checkpoint_coordinator.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -147,6 +148,7 @@ struct TrainerOptions {
       1024ULL * 1024ULL;  ///< Maximum encoded Trainer topology bytes.
   std::uint64_t max_control_bytes =
       16ULL * 1024ULL * 1024ULL;  ///< Maximum mutable loop-state bytes.
+  CheckpointCoordinatorOptions checkpoint;  ///< Checkpoint resource limits.
 };
 
 /** @brief Carries immutable cursor information to one task step. */

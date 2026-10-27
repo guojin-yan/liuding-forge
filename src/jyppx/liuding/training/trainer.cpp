@@ -375,7 +375,9 @@ void validate_options(const TrainerOptions& options) {
   };
   if (options.max_identifier_bytes == 0U || options.max_topology_bytes == 0U ||
       options.max_control_bytes == 0U || options.max_metrics == 0U ||
-      options.max_optimizers == 0U) {
+      options.max_optimizers == 0U ||
+      options.checkpoint.max_participants == 0U ||
+      options.checkpoint.max_rollback_bytes == 0U) {
     throw_invalid("options.limits", "positive resource limits", "zero",
                   "Configure explicit positive Trainer limits.");
   }
@@ -1224,8 +1226,8 @@ void Trainer::prepare(FitRequest request) {
     impl_->zero_grad_all();
     impl_->participant_ids = registry->participant_ids();
     impl_->registry = std::move(registry);
-    impl_->coordinator =
-        std::make_unique<CheckpointCoordinator>(*impl_->registry);
+    impl_->coordinator = std::make_unique<CheckpointCoordinator>(
+        *impl_->registry, impl_->options.checkpoint);
     impl_->state = TrainerControlState{};
     impl_->state.phase = TrainerPhase::prepared;
     impl_->prepared = true;
