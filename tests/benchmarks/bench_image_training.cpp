@@ -289,9 +289,11 @@ bench::Json measure(const Options& options) {
       bench::require(bytes <= options.max_cached_bytes - cached_bytes,
                      "decoded Tensor cache exceeds --max-cached-bytes");
       cached_bytes += bytes;
-      records.push_back({std::move(sample.image), sample.pixels,
-                         std::move(sample.image_path),
-                         std::move(sample.labels)});
+      image::TensorImageRecord record{std::move(sample.image), sample.pixels,
+                                      std::move(sample.image_path),
+                                      std::move(sample.labels)};
+      record.geometry = std::move(sample.geometry);
+      records.push_back(std::move(record));
       cache_leases.push_back(std::move(sample.image_resource_leases));
     }
     tensor_source = std::make_shared<image::TensorImageDataset>(

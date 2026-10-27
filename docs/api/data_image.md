@@ -24,7 +24,7 @@ image::validate_pixels(decoded.tensor, decoded.pixels);
 
 ### 已解码 Tensor 输入
 
-已有 CPU/CUDA 图像 Tensor 可交给 `TensorImageDataset`，按每个样本显式提供 `PixelSpec`、稳定来源 ID 和可选分类标签。每条记录还可携带一张同设备、同空间尺寸的配对照片，或一张 CPU int64 `[H,W]` 的 `class_index` 离散 mask；二者互斥，且都必须提供目标 ID。配对照片使用独立的 `PixelSpec`；mask 的 ignore/void ID 作为显式元数据保留。构造时校验 dtype、CHW/HWC 形状、颜色、范围、设备、目标对齐及照片与目标合计的单样本逻辑字节上限；不扫描像素值。`get` 只共享 Tensor 句柄，保留非连续步幅，不解码、不复制像素，也不隐式传输设备。返回的样本在数据集析构后仍持有存储。调用方在数据集和样本使用期间不得原位修改共享像素或标签；需要隔离时应在传入前自行复制。
+已有 CPU/CUDA 图像 Tensor 可交给 `TensorImageDataset`，按每个样本显式提供 `PixelSpec`、稳定来源 ID 和可选分类标签。每条记录还可携带一张同设备、同空间尺寸的配对照片，或一张 CPU int64 `[H,W]` 的 `class_index` 离散 mask；二者互斥，且都必须提供目标 ID。配对照片使用独立的 `PixelSpec`；mask 的 ignore/void ID 作为显式元数据保留。若 Tensor 已经过 resize、crop 或 padding，可在 `TensorImageRecord::geometry` 提供对应的原图到当前画布映射；构造时验证 trace 的输出尺寸与 Tensor 一致，并按源尺寸限制校验原图范围。未提供时 `get` 生成当前画布的恒等 trace。构造时还校验 dtype、CHW/HWC 形状、颜色、范围、设备、目标对齐及照片与目标合计的单样本逻辑字节上限；不扫描像素值。`get` 只共享 Tensor 句柄，保留非连续步幅，不解码、不复制像素，也不隐式传输设备。返回的样本在数据集析构后仍持有存储。调用方在数据集和样本使用期间不得原位修改共享像素或标签；需要隔离时应在传入前自行复制。
 
 ```cpp
 #include <jyppx/liuding/data_image/image_dataset.hpp>

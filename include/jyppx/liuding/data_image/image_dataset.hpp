@@ -188,6 +188,8 @@ struct TensorImageRecord {
   std::optional<PixelSpec> paired_target_pixels;  ///< Independent semantics.
   std::optional<DecodedMask> mask_target;  ///< Shared CPU int64 class IDs.
   std::optional<std::string> target_id;    ///< Required for either target kind.
+  std::optional<GeometryTrace> geometry;   ///< Source-to-current mapping when
+                                           ///< pixels were pretransformed.
 };
 
 /** @brief Limits checked against each caller-owned Tensor before publication.
@@ -211,7 +213,9 @@ struct TensorImageDatasetLimits {
  * both require an explicit target ID and exact spatial alignment. Views may
  * retain storage larger than their logical payload. Existing source storage is
  * caller-owned and is not charged to ImageResourceBudget; downstream transforms
- * and collation account for their own new allocations.
+ * and collation account for their own new allocations. An optional geometry
+ * trace must end at the supplied Tensor canvas; otherwise get() starts an
+ * identity trace there.
  */
 class TensorImageDataset final : public Dataset<VisionSample> {
  public:

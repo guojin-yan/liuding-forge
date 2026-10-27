@@ -128,6 +128,58 @@ TEST(TensorImageDatasetTest, SharesNoncontiguousCpuStorageAndSurvivesDataset) {
   EXPECT_EQ(retained.image[0][0][0].item<std::uint8_t>(), 1U);
 }
 
+TEST(TensorImageDatasetTest, PreservesPretransformedTraceAndMaskThroughBatch) {
+  constexpr std::int64_t large_id = 9007199254740993LL;
+  TensorImageRecord record{
+      torch::zeros({3, 2, 3}, torch::kUInt8), PixelSpec{}, "resized", {}};
+  record.geometry = GeometryTrace({6, 4}).resized({3, 2});
+  DecodedMask mask;
+  mask.ids = torch::full({2, 3}, large_id, torch::kInt64);
+  mask.width = 3;
+  mask.height = 2;
+  record.mask_target = mask;
+  record.target_id = "resized-mask";
+  TensorImageDataset dataset({record});
+
+  const auto sample = dataset.get(0);
+  ASSERT_TRUE(sample.geometry);
+  EXPECT_EQ(sample.geometry->source_extent().width, 6U);
+  EXPECT_EQ(sample.geometry->output_extent().width, 3U);
+  const auto source_point = sample.geometry->inverse_point({1.5, 1.0});
+  ASSERT_TRUE(source_point);
+  EXPECT_DOUBLE_EQ(source_point->x, 3.0);
+  EXPECT_DOUBLE_EQ(source_point->y, 2.0);
+  const std::array samples{sample};
+  const std::array keys{ImageBatchKey{"resized", 0, 0}};
+  const auto batch =
+      image_batch_from_value(image_batch_value(collate_images(samples, keys)));
+  ASSERT_TRUE(batch.items[0].geometry);
+  const auto restored = batch.items[0].geometry->inverse_point({1.5, 1.0});
+  ASSERT_TRUE(restored);
+  EXPECT_DOUBLE_EQ(restored->x, 3.0);
+  EXPECT_DOUBLE_EQ(restored->y, 2.0);
+  ASSERT_TRUE(batch.masks);
+  EXPECT_EQ((*batch.masks)[0][0][0].item<std::int64_t>(), large_id);
+}
+
+TEST(TensorImageDatasetTest, RejectsMismatchedOrOversizedGeometry) {
+  TensorImageRecord record{
+      torch::zeros({3, 2, 3}, torch::kUInt8), PixelSpec{}, "resized", {}};
+  record.geometry = GeometryTrace({6, 4}).resized({4, 2});
+  EXPECT_THROW(TensorImageDataset({record}), jyppx::liuding::InvalidArgument);
+  record.geometry = GeometryTrace({6, 4}).resized({3, 2});
+  auto limits = TensorImageDatasetLimits{};
+  limits.max_dimension = 5;
+  EXPECT_THROW(TensorImageDataset({record}, {}, limits),
+               jyppx::liuding::ResourceExhausted);
+  limits.max_dimension = 6;
+  limits.max_pixels = 20;
+  EXPECT_THROW(TensorImageDataset({record}, {}, limits),
+               jyppx::liuding::ResourceExhausted);
+  limits.max_pixels = 24;
+  EXPECT_NO_THROW(TensorImageDataset({record}, {}, limits));
+}
+
 TEST(TensorImageDatasetTest, RejectsInvalidMetadataAndLogicalLimits) {
   const auto image = torch::zeros({3, 2, 3}, torch::kUInt8);
   const auto record = TensorImageRecord{image, PixelSpec{}, "sample", {0}};

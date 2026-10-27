@@ -451,6 +451,19 @@ TensorImageDataset::TensorImageDataset(std::vector<TensorImageRecord> records,
     const auto pixels =
         static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height);
     if (pixels > limits.max_pixels) TensorLimit("source.pixels");
+    if (record.geometry) {
+      const auto trace = GeometryTrace::from_state(record.geometry->state());
+      const auto source = trace.source_extent();
+      const auto output = trace.output_extent();
+      if (output.width != width || output.height != height)
+        TensorInvalid("source.geometry_output", "trace ending at image canvas");
+      if (source.width > limits.max_dimension ||
+          source.height > limits.max_dimension)
+        TensorLimit("source.geometry_dimension");
+      if (static_cast<std::uint64_t>(source.width) * source.height >
+          limits.max_pixels)
+        TensorLimit("source.geometry_pixels");
+    }
     std::uint64_t charged = 0;
     ChargeTensorBytes(pixels,
                       static_cast<std::uint64_t>(record.pixels.channels()) *
@@ -526,7 +539,9 @@ VisionSample TensorImageDataset::get(std::size_t index,
   sample.paired_target_pixels = record.paired_target_pixels;
   sample.mask_target = record.mask_target;
   sample.target_path = record.target_id;
-  sample.geometry.emplace(ImageExtent{sample.width, sample.height});
+  sample.geometry = record.geometry;
+  if (!sample.geometry)
+    sample.geometry.emplace(ImageExtent{sample.width, sample.height});
   sample.label_categories = categories_;
   CheckTensorStop(stop);
   return sample;
