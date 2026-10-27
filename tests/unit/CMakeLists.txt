@@ -345,6 +345,10 @@ if(TARGET jyppx::liuding::models)
         list(APPEND models_test_environment
              "JYPPX_LIUDING_MODELS_REFERENCE_DIR=${JYPPX_LIUDING_MODELS_REFERENCE_DIR}")
     endif()
+    jyppx_add_gtest(jyppx_test_models_features
+        LINK_TARGET jyppx::liuding::models
+        models/test_model_features.cpp
+    )
     jyppx_add_gtest(jyppx_test_models
         LINK_TARGET jyppx::liuding::models
         models/test_models.cpp

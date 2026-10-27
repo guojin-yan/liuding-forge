@@ -60,6 +60,22 @@ DINOv3 ViT 的 token 顺序为 CLS、四个 extra/storage token、patch token；
 
 `transformer_encoder` 接收已嵌入的 `[batch, sequence, model_dimension]` 浮点特征，返回相同形状。可选 `attention_mask` 是 `[S,S]` bool，`padding_mask` 是 `[N,S]` bool，`true` 分别表示屏蔽注意力边或忽略 key。调用方提供位置与因果语义；全屏蔽行保持 LibTorch 后端行为，可能产生 NaN。
 
+## 统一特征提取
+
+`model_info(name).features` 查询输出名称、布局、通道数、步幅和特殊 token 数，`feature_input` 说明输入尺寸规则。当前统一入口覆盖 DINOv2、DINOv3 ViT 与 DINOv3 ConvNeXt；其他骨干仍使用各自的 `forward_features`。元数据不代表每种容量都已通过设备和资源验收。
+
+```cpp
+auto extractor = models::create_feature_extractor("dinov3_vits16", {}, {0, 2});
+extractor.state().eval();
+auto outputs = extractor.invoke({.positional = {images}}).value.toTuple();
+auto cls = outputs->elements().at(0).toTensor();
+auto grid = outputs->elements().at(1).toTensor();
+```
+
+第三个参数是 `features` 的零起始索引，保持请求顺序；空列表选择全部输出，重复或越界索引在构造模型前报错。ViT 的四项依次为 `cls`（NC）、`patch_tokens`（NTC）、`patch_grid`（NCHW）和完整 `tokens`（NTC）；DINOv2 的完整序列含一个 CLS，DINOv3 含 CLS 加四个 extra token，patch 输出均移除这些前缀。这些是最终层的不同视图。ConvNeXt 的四项为 `stage1`–`stage4`，布局 NCHW，步幅为 4/8/16/32。
+
+提取器执行一次完整特征前向，保留所选 Tensor 的 autograd、device 和 dtype；选择输出不减少主干计算。ViT 的 token/grid 输出共享存储，可能不连续；需要连续布局时由调用方显式转换。状态与模式操作仍通过 `ModelAdapter::state()`，不会自动冻结参数。DINOv2 要求输入高宽为 14 的倍数，DINOv3 ViT/ConvNeXt 分别将底部和右侧裁到 16/32 的倍数；调用方应将该裁剪纳入自己的几何记录。
+
 ## 训练状态恢复
 
 启用 `models` 与 `training` 后，可将模型适配器交给 `Trainer`，通过 [`FileCheckpointStore`](durable_checkpoint.md) 保存和恢复完整训练状态。重建时必须保持模型、分类头、优化器、精度和数据管线拓扑一致，并登记模型、优化器、调度器、RNG、数据游标、回调及 CUDA FP16 所需的 GradScaler 状态；只保存模型权重不能恢复训练进度。

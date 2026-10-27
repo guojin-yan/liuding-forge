@@ -3,10 +3,13 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 #include "detail.hpp"
+#include "feature_adapters.hpp"
 
 #include <jyppx/liuding/models/registry.hpp>
 
+#include <algorithm>
 #include <limits>
+#include <numeric>
 #include <utility>
 namespace jyppx::liuding::models {
 namespace {
@@ -32,7 +35,8 @@ bool Name(std::string_view name) {
   else if (name.starts_with("dinov3"))
     hint += "dinov3_vits16, dinov3_vitb16, dinov3_convnext_tiny.";
   else if (name.starts_with("vit"))
-    hint += "vit_tiny_patch16_224, vit_small_patch16_224, vit_base_patch16_224.";
+    hint +=
+        "vit_tiny_patch16_224, vit_small_patch16_224, vit_base_patch16_224.";
   else if (name.starts_with("swin"))
     hint += "swin_tiny_patch4_window7_224.";
   else
@@ -44,15 +48,77 @@ bool Name(std::string_view name) {
                          .actual = std::string(name.substr(0, 128)),
                          .hint = std::move(hint)});
 }
+
+void ValidateFeatures(const ModelInfo& info, const ModelFactory& factory) {
+  if (info.features.empty() != !factory ||
+      info.features.empty() != !info.feature_input ||
+      info.features.size() > 64U)
+    detail::Invalid("registry.features",
+                    "matching bounded feature metadata and factory");
+  if (info.feature_input && info.feature_input->spatial_multiple <= 0)
+    detail::Invalid("registry.features", "a positive spatial input multiple");
+  std::vector<std::string> names;
+  for (const auto& feature : info.features) {
+    if (!Name(feature.name) || feature.channels <= 0 ||
+        feature.prefix_tokens < 0 ||
+        std::find(names.begin(), names.end(), feature.name) != names.end())
+      detail::Invalid("registry.features",
+                      "unique named features with positive channels");
+    names.push_back(feature.name);
+    switch (feature.layout) {
+      case FeatureLayout::nc:
+        if (feature.reduction != 0 || feature.prefix_tokens != 0)
+          detail::Invalid("registry.features",
+                          "global features without spatial stride or tokens");
+        break;
+      case FeatureLayout::ntc:
+        if (feature.reduction <= 0)
+          detail::Invalid("registry.features",
+                          "token features with positive patch stride");
+        break;
+      case FeatureLayout::nchw:
+        if (feature.reduction <= 0 || feature.prefix_tokens != 0)
+          detail::Invalid(
+              "registry.features",
+              "spatial features with positive stride and no prefix tokens");
+        break;
+      default:
+        detail::Invalid("registry.features", "a declared feature layout");
+    }
+  }
+}
+
+ValueSchema FeatureSchema(const FeatureInfo& feature) {
+  TensorSchema tensor;
+  switch (feature.layout) {
+    case FeatureLayout::nc:
+      tensor.rank = 2;
+      tensor.shape = {{std::nullopt, feature.channels}};
+      break;
+    case FeatureLayout::ntc:
+      tensor.rank = 3;
+      tensor.shape = {{std::nullopt, std::nullopt, feature.channels}};
+      break;
+    case FeatureLayout::nchw:
+      tensor.rank = 4;
+      tensor.shape = {
+          {std::nullopt, feature.channels, std::nullopt, std::nullopt}};
+      break;
+  }
+  return ValueSchema::tensor(std::move(tensor), feature.name, "image_feature");
+}
 }  // namespace
-void ModelRegistry::add(ModelInfo info, ModelFactory factory) {
+void ModelRegistry::add(ModelInfo info, ModelFactory factory,
+                        ModelFactory feature_factory) {
   if (!Name(info.name) || info.family.empty() || info.task.empty() ||
       info.reference.empty() || !factory)
     detail::Invalid("registry.add", "valid metadata and a nonempty factory");
   if (entries_.contains(info.name))
     detail::Invalid("registry.add", "a unique explicit model name");
+  ValidateFeatures(info, feature_factory);
   auto key = info.name;
-  entries_.emplace(std::move(key), Entry{std::move(info), std::move(factory)});
+  entries_.emplace(std::move(key), Entry{std::move(info), std::move(factory),
+                                         std::move(feature_factory)});
 }
 ModelInfo ModelRegistry::info(std::string_view name) const {
   const auto found = entries_.find(name);
@@ -71,35 +137,110 @@ nn::ModelAdapter ModelRegistry::create(std::string_view name,
   if (found == entries_.end()) Unknown(name);
   return found->second.factory(options);
 }
+
+nn::ModelAdapter ModelRegistry::create_features(
+    std::string_view name, const ModelOptions& options,
+    const std::vector<std::size_t>& out_indices) const {
+  const auto found = entries_.find(name);
+  if (found == entries_.end()) Unknown(name);
+  const auto& entry = found->second;
+  if (!entry.feature_factory)
+    throw NotImplemented("Model has no registered feature extractor",
+                         detail::Details("registry.create_features",
+                                         "an entry with feature metadata"));
+  if (out_indices.size() > entry.info.features.size())
+    detail::Invalid("registry.feature_indices", "unique valid feature indices");
+  auto selected = out_indices;
+  if (selected.empty()) {
+    selected.resize(entry.info.features.size());
+    std::iota(selected.begin(), selected.end(), 0U);
+  }
+  std::vector<bool> seen(entry.info.features.size(), false);
+  std::vector<ValueSchema> output;
+  for (const auto index : selected) {
+    if (index >= seen.size() || seen[index])
+      detail::Invalid("registry.feature_indices",
+                      "unique in-range feature indices");
+    seen[index] = true;
+    output.push_back(FeatureSchema(entry.info.features[index]));
+  }
+  auto full = entry.feature_factory(options);
+  const auto& schema = full.output_schema();
+  if (schema.kind != ValueKind::tuple ||
+      schema.elements.size() != entry.info.features.size() ||
+      !std::all_of(schema.elements.begin(), schema.elements.end(),
+                   [](const ValueSchema& value) {
+                     return value.kind == ValueKind::tensor;
+                   }))
+    detail::Invalid("registry.feature_factory",
+                    "an ordered tuple of all declared feature tensors");
+  if (full.input_schema().positional.empty() ||
+      full.input_schema().positional.front().kind != ValueKind::tensor ||
+      !full.input_schema().positional.front().tensor_constraints ||
+      full.input_schema().positional.front().tensor_constraints->rank != 4)
+    detail::Invalid("registry.feature_factory",
+                    "an NCHW tensor as the first positional input");
+  auto input = full.input_schema();
+  auto module = full.state().shared_module();
+  const auto spatial = *entry.info.feature_input;
+  return nn::adapt_module(
+      std::move(module),
+      [full = std::move(full), selected = std::move(selected),
+       spatial](const nn::Invocation& invocation) {
+        const auto images = invocation.positional.front().toTensor();
+        const auto multiple = spatial.spatial_multiple;
+        if (images.size(2) < multiple || images.size(3) < multiple ||
+            (!spatial.crop_to_multiple &&
+             (images.size(2) % multiple || images.size(3) % multiple)))
+          detail::Invalid("registry.feature_input",
+                          "valid spatial multiples for this architecture");
+        auto value = [&] {
+          if (spatial.crop_to_multiple &&
+              (images.size(2) % multiple || images.size(3) % multiple)) {
+            auto cropped = invocation;
+            cropped.positional.front() =
+                images.narrow(2, 0, (images.size(2) / multiple) * multiple)
+                    .narrow(3, 0, (images.size(3) / multiple) * multiple);
+            return full.invoke(cropped).value;
+          }
+          return full.invoke(invocation).value;
+        }();
+        const auto features = value.toTuple();
+        std::vector<c10::IValue> result;
+        result.reserve(selected.size());
+        for (const auto index : selected)
+          result.push_back(features->elements()[index]);
+        return c10::ivalue::Tuple::create(std::move(result));
+      },
+      std::move(input),
+      ValueSchema::tuple(std::move(output), "features", "image_features"));
+}
 ModelRegistry default_model_registry() {
   ModelRegistry registry;
-  registry.add({.name = "convnext_tiny",
-                .family = "convnext",
-                .task = "image_classification",
-                .reference = "timm convnext_tiny",
-                .default_parameters = 28589128U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(convnext_tiny(o.convnext));
-               });
-  registry.add({.name = "convnext_small",
-                .family = "convnext",
-                .task = "image_classification",
-                .reference = "timm convnext_small",
-                .default_parameters = 50223688U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(convnext_small(o.convnext));
-               });
-  registry.add({.name = "densenet121",
-                .family = "densenet",
-                .task = "image_classification",
-                .reference = "torchvision.models.densenet121",
-                .default_parameters = 7978856U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(densenet121(o.densenet));
-               });
+  registry.add(
+      {.name = "convnext_tiny",
+       .family = "convnext",
+       .task = "image_classification",
+       .reference = "timm convnext_tiny",
+       .default_parameters = 28589128U,
+       .preview = true},
+      [](const ModelOptions& o) { return adapt(convnext_tiny(o.convnext)); });
+  registry.add(
+      {.name = "convnext_small",
+       .family = "convnext",
+       .task = "image_classification",
+       .reference = "timm convnext_small",
+       .default_parameters = 50223688U,
+       .preview = true},
+      [](const ModelOptions& o) { return adapt(convnext_small(o.convnext)); });
+  registry.add(
+      {.name = "densenet121",
+       .family = "densenet",
+       .task = "image_classification",
+       .reference = "torchvision.models.densenet121",
+       .default_parameters = 7978856U,
+       .preview = true},
+      [](const ModelOptions& o) { return adapt(densenet121(o.densenet)); });
   registry.add({.name = "efficientnet_b0",
                 .family = "efficientnet",
                 .task = "image_classification",
@@ -200,15 +341,14 @@ ModelRegistry default_model_registry() {
                [](const ModelOptions& o) {
                  return adapt(transformer_encoder(o.transformer));
                });
-  registry.add({.name = "vit_tiny_patch16_224",
-                .family = "vit",
-                .task = "image_classification",
-                .reference = "timm vit_tiny_patch16_224",
-                .default_parameters = 5717416U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(vit_tiny_patch16_224(o.vit));
-               });
+  registry.add(
+      {.name = "vit_tiny_patch16_224",
+       .family = "vit",
+       .task = "image_classification",
+       .reference = "timm vit_tiny_patch16_224",
+       .default_parameters = 5717416U,
+       .preview = true},
+      [](const ModelOptions& o) { return adapt(vit_tiny_patch16_224(o.vit)); });
   registry.add({.name = "vit_small_patch16_224",
                 .family = "vit",
                 .task = "image_classification",
@@ -218,15 +358,14 @@ ModelRegistry default_model_registry() {
                [](const ModelOptions& o) {
                  return adapt(vit_small_patch16_224(o.vit));
                });
-  registry.add({.name = "vit_base_patch16_224",
-                .family = "vit",
-                .task = "image_classification",
-                .reference = "timm vit_base_patch16_224",
-                .default_parameters = 86567656U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(vit_base_patch16_224(o.vit));
-               });
+  registry.add(
+      {.name = "vit_base_patch16_224",
+       .family = "vit",
+       .task = "image_classification",
+       .reference = "timm vit_base_patch16_224",
+       .default_parameters = 86567656U,
+       .preview = true},
+      [](const ModelOptions& o) { return adapt(vit_base_patch16_224(o.vit)); });
   registry.add({.name = "swin_tiny_patch4_window7_224",
                 .family = "swin",
                 .task = "image_classification",
@@ -242,137 +381,229 @@ ModelRegistry default_model_registry() {
        .task = "image_classification_or_embedding",
        .reference = "timm vit_small_patch14_dinov2",
        .default_parameters = 22056192U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(dinov2_vits14(o.dinov2)); });
+       .preview = true,
+       .features = detail::TokenFeatureInfo(384, 14, 1),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 14, .crop_to_multiple = false}},
+      [](const ModelOptions& o) { return adapt(dinov2_vits14(o.dinov2)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov2_vits14(o.dinov2));
+      });
   registry.add(
       {.name = "vit_base_patch14_dinov2",
        .family = "dinov2",
        .task = "image_classification_or_embedding",
        .reference = "timm vit_base_patch14_dinov2",
        .default_parameters = 86579712U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(dinov2_vitb14(o.dinov2)); });
+       .preview = true,
+       .features = detail::TokenFeatureInfo(768, 14, 1),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 14, .crop_to_multiple = false}},
+      [](const ModelOptions& o) { return adapt(dinov2_vitb14(o.dinov2)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov2_vitb14(o.dinov2));
+      });
   registry.add(
       {.name = "vit_large_patch14_dinov2",
        .family = "dinov2",
        .task = "image_classification_or_embedding",
        .reference = "timm vit_large_patch14_dinov2",
        .default_parameters = 304367616U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(dinov2_vitl14(o.dinov2)); });
-  registry.add({.name = "vit_giant_patch14_dinov2",
-                .family = "dinov2",
-                .task = "image_classification_or_embedding",
-                .reference = "timm vit_giant_patch14_dinov2",
-                .default_parameters = 1136479232ULL,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov2_vit_giant14(o.dinov2));
-               });
-  registry.add({.name = "dinov3_vits16",
-                .family = "dinov3_vit",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 21601152U,
-                .preview = true},
-               [](const ModelOptions& o) { return adapt(dinov3_vits16(o.dinov3)); });
-  registry.add({.name = "dinov3_vits16plus",
-                .family = "dinov3_vit",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 28697472U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov3_vits16plus(o.dinov3));
-               });
-  registry.add({.name = "dinov3_vitb16",
-                .family = "dinov3_vit",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 85669632U,
-                .preview = true},
-               [](const ModelOptions& o) { return adapt(dinov3_vitb16(o.dinov3)); });
-  registry.add({.name = "dinov3_vitl16",
-                .family = "dinov3_vit",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 303154176ULL,
-                .preview = true},
-               [](const ModelOptions& o) { return adapt(dinov3_vitl16(o.dinov3)); });
-  registry.add({.name = "dinov3_vitl16plus",
-                .family = "dinov3_vit",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 403915776ULL,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov3_vitl16plus(o.dinov3));
-               });
-  registry.add({.name = "dinov3_vith16plus",
-                .family = "dinov3_vit",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 840000000ULL,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov3_vith16plus(o.dinov3));
-               });
-  registry.add({.name = "dinov3_vit7b16",
-                .family = "dinov3_vit",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 6700000000ULL,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov3_vit7b16(o.dinov3));
-               });
-  registry.add({.name = "dinov3_convnext_tiny",
-                .family = "dinov3_convnext",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 27820128U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov3_convnext_tiny(o.dinov3_convnext));
-               });
-  registry.add({.name = "dinov3_convnext_small",
-                .family = "dinov3_convnext",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 49454688U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov3_convnext_small(o.dinov3_convnext));
-               });
-  registry.add({.name = "dinov3_convnext_base",
-                .family = "dinov3_convnext",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 87566464U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov3_convnext_base(o.dinov3_convnext));
-               });
-  registry.add({.name = "dinov3_convnext_large",
-                .family = "dinov3_convnext",
-                .task = "image_classification_or_embedding",
-                .reference =
-                    "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-                .default_parameters = 196230336ULL,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(dinov3_convnext_large(o.dinov3_convnext));
-               });
+       .preview = true,
+       .features = detail::TokenFeatureInfo(1024, 14, 1),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 14, .crop_to_multiple = false}},
+      [](const ModelOptions& o) { return adapt(dinov2_vitl14(o.dinov2)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov2_vitl14(o.dinov2));
+      });
+  registry.add(
+      {.name = "vit_giant_patch14_dinov2",
+       .family = "dinov2",
+       .task = "image_classification_or_embedding",
+       .reference = "timm vit_giant_patch14_dinov2",
+       .default_parameters = 1136479232ULL,
+       .preview = true,
+       .features = detail::TokenFeatureInfo(1536, 14, 1),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 14, .crop_to_multiple = false}},
+      [](const ModelOptions& o) { return adapt(dinov2_vit_giant14(o.dinov2)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov2_vit_giant14(o.dinov2));
+      });
+  registry.add(
+      {.name = "dinov3_vits16",
+       .family = "dinov3_vit",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 21601152U,
+       .preview = true,
+       .features = detail::TokenFeatureInfo(384, 16, 5),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 16, .crop_to_multiple = true}},
+      [](const ModelOptions& o) { return adapt(dinov3_vits16(o.dinov3)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_vits16(o.dinov3));
+      });
+  registry.add(
+      {.name = "dinov3_vits16plus",
+       .family = "dinov3_vit",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 28697472U,
+       .preview = true,
+       .features = detail::TokenFeatureInfo(384, 16, 5),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 16, .crop_to_multiple = true}},
+      [](const ModelOptions& o) { return adapt(dinov3_vits16plus(o.dinov3)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_vits16plus(o.dinov3));
+      });
+  registry.add(
+      {.name = "dinov3_vitb16",
+       .family = "dinov3_vit",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 85669632U,
+       .preview = true,
+       .features = detail::TokenFeatureInfo(768, 16, 5),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 16, .crop_to_multiple = true}},
+      [](const ModelOptions& o) { return adapt(dinov3_vitb16(o.dinov3)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_vitb16(o.dinov3));
+      });
+  registry.add(
+      {.name = "dinov3_vitl16",
+       .family = "dinov3_vit",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 303154176ULL,
+       .preview = true,
+       .features = detail::TokenFeatureInfo(1024, 16, 5),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 16, .crop_to_multiple = true}},
+      [](const ModelOptions& o) { return adapt(dinov3_vitl16(o.dinov3)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_vitl16(o.dinov3));
+      });
+  registry.add(
+      {.name = "dinov3_vitl16plus",
+       .family = "dinov3_vit",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 403915776ULL,
+       .preview = true,
+       .features = detail::TokenFeatureInfo(1024, 16, 5),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 16, .crop_to_multiple = true}},
+      [](const ModelOptions& o) { return adapt(dinov3_vitl16plus(o.dinov3)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_vitl16plus(o.dinov3));
+      });
+  registry.add(
+      {.name = "dinov3_vith16plus",
+       .family = "dinov3_vit",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 840000000ULL,
+       .preview = true,
+       .features = detail::TokenFeatureInfo(1280, 16, 5),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 16, .crop_to_multiple = true}},
+      [](const ModelOptions& o) { return adapt(dinov3_vith16plus(o.dinov3)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_vith16plus(o.dinov3));
+      });
+  registry.add(
+      {.name = "dinov3_vit7b16",
+       .family = "dinov3_vit",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 6700000000ULL,
+       .preview = true,
+       .features = detail::TokenFeatureInfo(4096, 16, 5),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 16, .crop_to_multiple = true}},
+      [](const ModelOptions& o) { return adapt(dinov3_vit7b16(o.dinov3)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_vit7b16(o.dinov3));
+      });
+  registry.add(
+      {.name = "dinov3_convnext_tiny",
+       .family = "dinov3_convnext",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 27820128U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({96, 192, 384, 768}),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 32, .crop_to_multiple = true}},
+      [](const ModelOptions& o) {
+        return adapt(dinov3_convnext_tiny(o.dinov3_convnext));
+      },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_convnext_tiny(o.dinov3_convnext));
+      });
+  registry.add(
+      {.name = "dinov3_convnext_small",
+       .family = "dinov3_convnext",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 49454688U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({96, 192, 384, 768}),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 32, .crop_to_multiple = true}},
+      [](const ModelOptions& o) {
+        return adapt(dinov3_convnext_small(o.dinov3_convnext));
+      },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_convnext_small(o.dinov3_convnext));
+      });
+  registry.add(
+      {.name = "dinov3_convnext_base",
+       .family = "dinov3_convnext",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 87566464U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({128, 256, 512, 1024}),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 32, .crop_to_multiple = true}},
+      [](const ModelOptions& o) {
+        return adapt(dinov3_convnext_base(o.dinov3_convnext));
+      },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_convnext_base(o.dinov3_convnext));
+      });
+  registry.add(
+      {.name = "dinov3_convnext_large",
+       .family = "dinov3_convnext",
+       .task = "image_classification_or_embedding",
+       .reference =
+           "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
+       .default_parameters = 196230336ULL,
+       .preview = true,
+       .features = detail::StageFeatureInfo({192, 384, 768, 1536}),
+       .feature_input =
+           FeatureInputSpec{.spatial_multiple = 32, .crop_to_multiple = true}},
+      [](const ModelOptions& o) {
+        return adapt(dinov3_convnext_large(o.dinov3_convnext));
+      },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(dinov3_convnext_large(o.dinov3_convnext));
+      });
   return registry;
 }
 std::vector<ModelInfo> list_models(std::string_view filter) {
@@ -384,6 +615,11 @@ ModelInfo model_info(std::string_view name) {
 nn::ModelAdapter create_model(std::string_view name,
                               const ModelOptions& options) {
   return default_model_registry().create(name, options);
+}
+nn::ModelAdapter create_feature_extractor(
+    std::string_view name, const ModelOptions& options,
+    const std::vector<std::size_t>& out_indices) {
+  return default_model_registry().create_features(name, options, out_indices);
 }
 std::uint64_t parameter_count(const torch::nn::Module& module) {
   return detail::Backend("parameter_count", [&] {

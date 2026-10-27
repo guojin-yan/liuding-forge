@@ -35,7 +35,7 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **基础计算：基础组件与损失函数** | foundation 合约、错误/RNG/build fingerprint 和常用 loss 垂直切片 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.nn` 损失函数、随机数和设备基础能力；覆盖范围按本项目 C++ 合约定义。 |
 | **数据管线：数据集与数据加载** | map/iterable pipeline、worker、sampler、确定性 cursor 和数据生命周期 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.utils.data.Dataset`、`DataLoader`、`Sampler` 和 worker 机制；多进程 distributed 数据加载不在当前范围。 |
 | **数据管线：结构化 Batch 与能力描述** | batch schema、字段访问、能力声明和受约束的 collate 行为 | 已具备 | 已完成 | 对应 PyTorch 的 `collate_fn`、batch 组合和数据字段处理；本项目增加显式能力描述合约。 |
-| **模型系统：模型适配与模型生态** | ModelAdapter、模型 checkpoint participant、ResNet/ResNeXt/DenseNet/MobileNet/EfficientNet、`tf_efficientnetv2_s`、ConvNeXt、ViT、Swin-T、DINOv2 四容量和 DINOv3 十一种工厂 | 部分具备 | 所列常用骨干已有 C++ 架构，选定变体通过固定随机状态、特征差分和单步训练验证；预训练权重、统一接口与完整设备/任务矩阵仍在开发 | 对应 PyTorch 的 `torch.nn.Module`、torchvision、timm 和 DINO 模型生态；详见[模型 API](docs/api/models.md)。架构验证不代表预训练模型可用。 |
+| **模型系统：模型适配与模型生态** | ModelAdapter、模型 checkpoint participant、ResNet/ResNeXt/DenseNet/MobileNet/EfficientNet、`tf_efficientnetv2_s`、ConvNeXt、ViT、Swin-T、DINOv2 四容量和 DINOv3 十一种工厂 | 部分具备 | 所列常用骨干已有 C++ 架构，DINO 提供统一特征提取入口；选定变体通过固定随机状态、特征差分和训练验证，统一分类头、预处理、预训练权重与完整设备/任务矩阵仍在开发 | 对应 PyTorch 的 `torch.nn.Module`、torchvision、timm 和 DINO 模型生态；详见[模型 API](docs/api/models.md)。架构验证不代表预训练模型可用。 |
 | **训练系统：优化器** | SGD、Adam、AdamW、RMSprop、Adagrad、NAdam、Adadelta、LAMB adapter 及状态恢复 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.optim` 及其 optimizer state；跨版本迁移、稀疏参数和更大扩展生态仍有限。 |
 | **训练系统：学习率调度** | descriptor-first scheduler、组合调度、训练事件适配和精确恢复 | 已具备 | 已完成 | 对应 PyTorch 的 `torch.optim.lr_scheduler`；本项目增加显式描述、事件绑定和可恢复状态。 |
 | **训练系统：Trainer 与训练编排** | Trainer、callback、metric、strategy、AMP、多 optimizer 和 checkpoint domain | 已具备 | 已完成 | 对应 PyTorch 的训练循环、optimizer/model 组合和生态 Trainer；本项目提供 C++ 训练闭环。 |

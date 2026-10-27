@@ -19,26 +19,40 @@ int main() {
   try {
     const auto entries = jyppx::liuding::models::list_models();
     Require(entries.size() == 34U, "installed-model-catalog");
+    {
+      const auto info = jyppx::liuding::models::model_info("dinov3_vits16");
+      Require(info.features.size() == 4 && info.features[3].prefix_tokens == 5,
+              "installed-feature-metadata");
+      auto features = jyppx::liuding::models::create_feature_extractor(
+          "dinov3_vits16", {}, {0, 2});
+      features.state().eval();
+      torch::NoGradGuard no_grad;
+      const auto outputs =
+          features.invoke({.positional = {torch::zeros({2, 3, 35, 50})}})
+              .value.toTuple();
+      Require(outputs->elements()[0].toTensor().sizes() ==
+                      torch::IntArrayRef({2, 384}) &&
+                  outputs->elements()[1].toTensor().sizes() ==
+                      torch::IntArrayRef({2, 384, 2, 3}),
+              "installed-selected-features");
+    }
     for (const auto* name : {"convnext_tiny", "convnext_small"}) {
       auto convnext = jyppx::liuding::models::create_model(
           name, {.convnext = {.num_classes = 4}});
       convnext.state().eval();
-      Require(convnext
-                      .invoke({.positional = {torch::zeros({1, 3, 32, 32})},
+      Require(convnext.invoke({.positional = {torch::zeros({1, 3, 32, 32})},
                                .keyword = {}})
                       .value.toTensor()
                       .sizes() == torch::IntArrayRef({1, 4}),
               "installed-convnext-adapter");
     }
-    for (const auto* name : {"vit_tiny_patch16_224",
-                             "vit_small_patch16_224",
+    for (const auto* name : {"vit_tiny_patch16_224", "vit_small_patch16_224",
                              "vit_base_patch16_224"}) {
       auto vit = jyppx::liuding::models::create_model(
           name, {.vit = {.num_classes = 4, .dynamic_image_size = true}});
       vit.state().eval();
-      Require(vit
-                      .invoke({.positional = {torch::zeros({1, 3, 16, 32})},
-                               .keyword = {}})
+      Require(vit.invoke({.positional = {torch::zeros({1, 3, 16, 32})},
+                          .keyword = {}})
                       .value.toTensor()
                       .sizes() == torch::IntArrayRef({1, 4}),
               "installed-vit-adapter");
@@ -47,9 +61,8 @@ int main() {
         "swin_tiny_patch4_window7_224",
         {.swin = {.num_classes = 4, .dynamic_image_size = true}});
     swin.state().eval();
-    Require(swin
-                    .invoke({.positional = {torch::zeros({1, 3, 32, 32})},
-                             .keyword = {}})
+    Require(swin.invoke({.positional = {torch::zeros({1, 3, 32, 32})},
+                         .keyword = {}})
                     .value.toTensor()
                     .sizes() == torch::IntArrayRef({1, 4}),
             "installed-swin-adapter");

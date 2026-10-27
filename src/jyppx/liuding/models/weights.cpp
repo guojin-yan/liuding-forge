@@ -6,12 +6,14 @@
 
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
+#include <jyppx/liuding/models/registry.hpp>
 #include <jyppx/liuding/models/weights.hpp>
 
 #include <array>
 #include <atomic>
 #include <fstream>
 #include <limits>
+#include <locale>
 #include <sstream>
 #include <system_error>
 #include <utility>
@@ -124,14 +126,26 @@ WeightRecord Missing(const char* model, const char* url) {
               "not provisioned. Native loader accepts independently converted "
               "safetensors only."};
 }
+const char* LayoutName(FeatureLayout layout) {
+  switch (layout) {
+    case FeatureLayout::nc:
+      return "NC";
+    case FeatureLayout::ntc:
+      return "NTC";
+    case FeatureLayout::nchw:
+      return "NCHW";
+  }
+  detail::Invalid("manifest.features", "a declared feature layout");
+}
 }  // namespace
 std::vector<WeightRecord> available_weights(std::string_view model) {
   if (model == "convnext_tiny" || model == "convnext_small") {
     const auto name = std::string(model);
-    auto record = Missing(name.c_str(),
-                          model == "convnext_tiny"
-                              ? "https://huggingface.co/timm/convnext_tiny.fb_in1k"
-                              : "https://huggingface.co/timm/convnext_small.fb_in1k");
+    auto record =
+        Missing(name.c_str(),
+                model == "convnext_tiny"
+                    ? "https://huggingface.co/timm/convnext_tiny.fb_in1k"
+                    : "https://huggingface.co/timm/convnext_small.fb_in1k");
     record.id = name + ".fb_in1k";
     record.license_uri = record.source_uri;
     record.status_reason =
@@ -145,10 +159,11 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
         "https://download.pytorch.org/models/densenet121-a639ec97.pth")};
   if (model == "efficientnet_b0" || model == "efficientnet_b2") {
     const auto name = std::string(model);
-    auto record = Missing(name.c_str(),
-                          model == "efficientnet_b0"
-                              ? "https://huggingface.co/timm/efficientnet_b0.ra_in1k"
-                              : "https://huggingface.co/timm/efficientnet_b2.ra_in1k");
+    auto record =
+        Missing(name.c_str(),
+                model == "efficientnet_b0"
+                    ? "https://huggingface.co/timm/efficientnet_b0.ra_in1k"
+                    : "https://huggingface.co/timm/efficientnet_b2.ra_in1k");
     record.id = name + ".ra_in1k";
     record.license_uri = record.source_uri;
     record.status_reason =
@@ -207,8 +222,7 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
         "mobilenet_v3_large",
         "https://download.pytorch.org/models/mobilenet_v3_large-8738ca79.pth")};
   if (model == "transformer_encoder") return {};
-  if (model == "vit_tiny_patch16_224" ||
-      model == "vit_small_patch16_224" ||
+  if (model == "vit_tiny_patch16_224" || model == "vit_small_patch16_224" ||
       model == "vit_base_patch16_224") {
     const auto name = std::string(model);
     const auto uri =
@@ -250,12 +264,13 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
       model == "dinov3_vit7b16" || model == "dinov3_convnext_tiny" ||
       model == "dinov3_convnext_small" || model == "dinov3_convnext_base" ||
       model == "dinov3_convnext_large") {
-    auto record = Missing(model.data(),
-                          "https://github.com/facebookresearch/dinov3");
+    auto record =
+        Missing(model.data(), "https://github.com/facebookresearch/dinov3");
     record.id = std::string(model) + ".lvd1689m";
     record.format = "safetensors";
-    record.license_uri = "https://github.com/facebookresearch/dinov3/blob/"
-                         "6876159a11b4df116f30f667f8c9888617df0751/LICENSE";
+    record.license_uri =
+        "https://github.com/facebookresearch/dinov3/blob/"
+        "6876159a11b4df116f30f667f8c9888617df0751/LICENSE";
     record.status_reason =
         "Candidate DINOv3 LVD1689M lineage only; upstream revision, exact "
         "bytes, weight license and state-key mapping are not provisioned.";
@@ -264,7 +279,41 @@ std::vector<WeightRecord> available_weights(std::string_view model) {
   detail::Invalid("weights.catalog", "a built-in model architecture");
 }
 std::string models_preview_manifest_json() {
-  return R"JSON({"schema_id":"jyppx.models.preview","schema_version":1,"component":"models","default_enabled":false,"preview":true,"architectures":["convnext_tiny","convnext_small","densenet121","efficientnet_b0","efficientnet_b2","tf_efficientnetv2_s","mobilenetv2_100","resnet18","resnet34","resnet50","resnet101","resnext50_32x4d","mobilenet_v3_small","mobilenet_v3_large","swin_tiny_patch4_window7_224","transformer_encoder","vit_tiny_patch16_224","vit_small_patch16_224","vit_base_patch16_224","vit_small_patch14_dinov2","vit_base_patch14_dinov2","vit_large_patch14_dinov2","vit_giant_patch14_dinov2","dinov3_vits16","dinov3_vits16plus","dinov3_vitb16","dinov3_vitl16","dinov3_vitl16plus","dinov3_vith16plus","dinov3_vit7b16","dinov3_convnext_tiny","dinov3_convnext_small","dinov3_convnext_base","dinov3_convnext_large"],"state_format":"safetensors","reference_workflow":"tests/unit/models/reference/generate_reference.py","reference_qualification":"requires-recorded-execution","reference_kind":"official-random-initialized-architecture-differential","pretrained_weights":"not-provisioned","pretrained_full_sha256":null,"weight_license":"NOASSERTION","release_qualification":"pending-independent-component-gates"})JSON";
+  const auto entries = list_models();
+  std::ostringstream output;
+  output.imbue(std::locale::classic());
+  output
+      << R"JSON({"schema_id":"jyppx.models.preview","schema_version":1,"component":"models","default_enabled":false,"preview":true,"architectures":[)JSON";
+  bool first = true;
+  for (const auto& entry : entries) {
+    if (!first) output << ',';
+    first = false;
+    output << '"' << entry.name << '"';
+  }
+  output << R"JSON(],"feature_extractors":[)JSON";
+  first = true;
+  for (const auto& entry : entries) {
+    if (entry.features.empty()) continue;
+    if (!first) output << ',';
+    first = false;
+    output << "{\"model\":\"" << entry.name << "\",\"input_spatial_multiple\":"
+           << entry.feature_input->spatial_multiple << ",\"crop_to_multiple\":"
+           << (entry.feature_input->crop_to_multiple ? "true" : "false")
+           << ",\"features\":[";
+    for (std::size_t index = 0; index < entry.features.size(); ++index) {
+      if (index) output << ',';
+      const auto& feature = entry.features[index];
+      output << "{\"name\":\"" << feature.name << "\",\"layout\":\""
+             << LayoutName(feature.layout)
+             << "\",\"channels\":" << feature.channels
+             << ",\"reduction\":" << feature.reduction
+             << ",\"prefix_tokens\":" << feature.prefix_tokens << '}';
+    }
+    output << "]}";
+  }
+  output
+      << R"JSON(],"feature_qualification":"requires-recorded-execution","state_format":"safetensors","reference_workflow":"tests/unit/models/reference/generate_reference.py","reference_qualification":"requires-recorded-execution","reference_kind":"official-random-initialized-architecture-differential","pretrained_weights":"not-provisioned","pretrained_full_sha256":null,"weight_license":"NOASSERTION","release_qualification":"pending-independent-component-gates"})JSON";
+  return output.str();
 }
 void validate_weight_record(const WeightRecord& record) {
   if (!Text(record.id) || !Text(record.model_name) ||

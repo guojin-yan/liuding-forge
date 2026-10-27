@@ -710,6 +710,7 @@ if(JYPPX_LIUDING_BUILD_MODELS)
         src/jyppx/liuding/models/dinov3_convnext.cpp
         src/jyppx/liuding/models/efficientnet.cpp
         src/jyppx/liuding/models/efficientnetv2.cpp
+        src/jyppx/liuding/models/features.cpp
         src/jyppx/liuding/models/mobilenetv2.cpp
         src/jyppx/liuding/models/registry.cpp
         src/jyppx/liuding/models/swin.cpp
