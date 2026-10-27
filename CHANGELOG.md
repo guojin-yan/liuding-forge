@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- SGD 检查点接受单元素维度上等价的 momentum stride，修复 DINO CLS token 使用 momentum 后无法保存训练状态的问题；参数布局、数值类型、设备和形状仍严格校验。
+
 ### Changed
 
 - Public branding is now 六丁炼算 (Liuding Forge), with `liuding-forge-*` library, example, benchmark, fuzzer, archive and CLI output names. The historical JYPPX Training Framework name and all `jyppx` C++/CMake/package compatibility surfaces remain available.

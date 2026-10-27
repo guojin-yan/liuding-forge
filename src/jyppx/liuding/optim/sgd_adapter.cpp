@@ -966,6 +966,22 @@ void validate_step_gradients(const std::vector<FlatParameter>& parameters) {
   }
 }
 
+bool momentum_strides_match(const Tensor& buffer,
+                            const FlatParameter& parameter) {
+  if (buffer.dim() != static_cast<std::int64_t>(parameter.sizes.size())) {
+    return false;
+  }
+  for (std::size_t axis = 0; axis < parameter.sizes.size(); ++axis) {
+    // Singleton-axis strides do not affect logical element addresses. Autograd
+    // and native SGD may preserve different singleton strides for CLS tokens.
+    if (parameter.sizes[axis] > 1 && buffer.stride(static_cast<std::int64_t>(
+                                         axis)) != parameter.strides[axis]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 OptimizerSnapshot inspect_optimizer(
     const std::vector<SgdParameterGroup>& groups,
     const std::vector<FlatParameter>& parameters,
@@ -1016,7 +1032,7 @@ OptimizerSnapshot inspect_optimizer(
         buffer.scalar_type() != parameter.parameter.scalar_type() ||
         buffer.device() != parameter.parameter.device() ||
         buffer.sizes().vec() != parameter.sizes ||
-        buffer.strides().vec() != parameter.strides ||
+        !momentum_strides_match(buffer, parameter) ||
         buffer.layout() != c10::Layout::Strided ||
         !buffer.is_non_overlapping_and_dense() ||
         checked_tensor_bytes(buffer, parameter.dtype_code) !=

@@ -650,6 +650,67 @@ TEST(SgdOptimizerCheckpointTest,
       torch::allclose(source_parameter, resumed_parameter, 1e-12, 1e-12));
 }
 
+void expect_singleton_momentum_continuation(const torch::Device& device) {
+  const auto options =
+      torch::TensorOptions().dtype(torch::kFloat64).device(device);
+  const auto make_parameter = [&] {
+    auto parameter = torch::empty_strided({1, 1, 4}, {16, 8, 1}, options);
+    parameter.fill_(1.0);
+    return parameter.set_requires_grad(true);
+  };
+  auto source_parameter = make_parameter();
+  auto native_parameter = make_parameter();
+  auto source = make_optimizer(source_parameter);
+  torch::optim::SGD native({native_parameter},
+                           torch::optim::SGDOptions(0.05).momentum(0.9));
+  const auto gradient = torch::arange(1, 5, options).reshape({1, 1, 4});
+  source_parameter.mutable_grad() = gradient.clone();
+  native_parameter.mutable_grad() = gradient.clone();
+  source->step();
+  native.step();
+  const auto& native_state = dynamic_cast<const torch::optim::SGDParamState&>(
+      *native.state().at(native_parameter.unsafeGetTensorImpl()));
+  ASSERT_NE(native_state.momentum_buffer().strides(),
+            source_parameter.strides());
+  EXPECT_TRUE(native_state.momentum_buffer().is_non_overlapping_and_dense());
+  EXPECT_TRUE(torch::equal(source_parameter, native_parameter));
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant participant(source);
+  const auto saved = save_participant(participant);
+  auto resumed_parameter = make_parameter();
+  resumed_parameter.detach().copy_(source_parameter);
+  auto resumed = make_optimizer(resumed_parameter);
+  jyppx::liuding::optim::SgdOptimizerCheckpointParticipant restored(resumed);
+  restored.load_state(saved, jyppx::liuding::RestorePolicy::exact_only);
+  EXPECT_EQ(resumed->completed_steps(), 1U);
+  for (std::int64_t step = 2; step <= 4; ++step) {
+    source_parameter.mutable_grad() = gradient * static_cast<double>(step);
+    native_parameter.mutable_grad() = gradient * static_cast<double>(step);
+    resumed_parameter.mutable_grad() = gradient * static_cast<double>(step);
+    source->step();
+    native.step();
+    resumed->step();
+    EXPECT_TRUE(torch::equal(source_parameter, native_parameter));
+    EXPECT_TRUE(torch::equal(source_parameter, resumed_parameter));
+    const auto expected = save_participant(participant);
+    const auto actual = save_participant(restored);
+    for (const auto& field : expected.manifest().fields) {
+      const auto left = expected.read_blob(field.name, field.max_bytes);
+      const auto right = actual.read_blob(field.name, field.max_bytes);
+      ASSERT_EQ(left.size(), right.size());
+      EXPECT_TRUE(std::equal(left.begin(), left.end(), right.begin()));
+    }
+  }
+}
+
+TEST(SgdOptimizerCheckpointTest, SingletonMomentumStridesRestoreExactly) {
+  expect_singleton_momentum_continuation(torch::Device(torch::kCPU));
+}
+
+TEST(SgdOptimizerAdapterCudaTest, SingletonMomentumStridesRestoreExactly) {
+  if (!cuda_is_available()) GTEST_SKIP() << "CUDA not available";
+  expect_singleton_momentum_continuation(torch::Device(torch::kCUDA, 0));
+}
+
 TEST(SgdOptimizerCheckpointTest,
      MigratesSchemaV1AndWritesOnlyCurrentSchemaAfterRestore) {
   const jyppx::liuding::optim::SgdAdapterOptions source_options{

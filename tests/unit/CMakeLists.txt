@@ -365,8 +365,21 @@ if(TARGET jyppx::liuding::models)
         )
         target_link_libraries(jyppx_test_models_amp PRIVATE
             jyppx::liuding::training)
+        add_executable(jyppx_test_models_recovery
+            models/test_models_recovery.cpp
+        )
+        target_link_libraries(jyppx_test_models_recovery PRIVATE
+            jyppx::liuding::models jyppx::liuding::training GTest::gtest_main)
+        jyppx_apply_instrumentation(jyppx_test_models_recovery)
+        jyppx_add_torch_runtime_dependency(jyppx_test_models_recovery)
+        gtest_discover_tests(jyppx_test_models_recovery
+            DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
+            PROPERTIES RUN_SERIAL TRUE TIMEOUT 180
+                ENVIRONMENT "CUBLAS_WORKSPACE_CONFIG=:4096:8")
         if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
             target_compile_definitions(jyppx_test_models_amp PRIVATE
+                JYPPX_LIUDING_MODELS_CUDA_METRICS=1)
+            target_compile_definitions(jyppx_test_models_recovery PRIVATE
                 JYPPX_LIUDING_MODELS_CUDA_METRICS=1)
         endif()
     endif()

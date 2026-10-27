@@ -58,6 +58,12 @@ DINOv3 ViT 的 token 顺序为 CLS、四个 extra/storage token、patch token；
 
 `transformer_encoder` 接收已嵌入的 `[batch, sequence, model_dimension]` 浮点特征，返回相同形状。可选 `attention_mask` 是 `[S,S]` bool，`padding_mask` 是 `[N,S]` bool，`true` 分别表示屏蔽注意力边或忽略 key。调用方提供位置与因果语义；全屏蔽行保持 LibTorch 后端行为，可能产生 NaN。
 
+## 训练状态恢复
+
+启用 `models` 与 `training` 后，可将模型适配器交给 `Trainer`，通过 [`FileCheckpointStore`](durable_checkpoint.md) 保存和恢复完整训练状态。重建时必须保持模型、分类头、优化器、精度和数据管线拓扑一致，并登记模型、优化器、调度器、RNG、数据游标、回调及 CUDA FP16 所需的 GradScaler 状态；只保存模型权重不能恢复训练进度。
+
+当前一致续训验证覆盖 DINOv2 ViT-S、DINOv3 ViT-S 和 ConvNeXt-T 的 CPU FP32 与 CUDA FP16 autocast，CUDA 路径保留 FP32 参数。逐字节相同的续训结果要求固定软件、硬件、线程和确定性算法设置；DINOv2 的 CUDA 验证使用原生 518×518 输入，位置插值的 CUDA 反向计算可能存在数值非确定性。其他容量、精度和任务仍需分别验证。
+
 ## 权重与验证
 
 `available_weights()` 返回的上游候选默认均为 `not_provisioned`，许可证为 `NOASSERTION`。候选名称或短哈希不构成可用权重证据。模型组件不会下载或反序列化 `.pth`/pickle，也不因架构参考通过而宣称预训练准确率。

@@ -58,6 +58,8 @@ struct SgdParameterGroup {
  * owned. It deliberately does not expose the native optimizer, mutable groups,
  * or pointer-keyed state. Stable identity and checkpoint state are provided by
  * the JYPPX descriptor types and `SgdOptimizerCheckpointParticipant`.
+ * Momentum may have different strides on singleton axes; checkpoint bytes
+ * preserve logical values while parameter topology remains unchanged.
  *
  * Instances are not internally synchronized. Callers must serialize gradient,
  * step, learning-rate, and checkpoint operations. Backend failure during
