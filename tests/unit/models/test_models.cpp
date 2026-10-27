@@ -768,12 +768,47 @@ TEST(Models, DinoV2GiantResourceGateIsExplicit) {
   if (enabled == nullptr || std::string_view(enabled) != "1")
     GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV2_GIANT_GATE=1 for the serial "
                     "1.136B-parameter resource gate";
+  torch::manual_seed(20261027);
+  const auto start = std::chrono::steady_clock::now();
   auto model = dinov2_vit_giant14();
   ASSERT_TRUE(model);
   EXPECT_EQ(parameter_count(*model), 1'136'479'232ULL);
   model->eval();
   EXPECT_EQ(model->forward_features(torch::zeros({1, 3, 14, 14})).sizes(),
             torch::IntArrayRef({1, 2, 1536}));
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 8ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=vit_giant_patch14_dinov2"
+            << " operation=construct-and-forward elapsed_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(end -
+                                                                     start)
+                   .count()
+            << " process_peak_rss_bytes=" << peak << '\n';
+}
+
+TEST(Models, DinoV2GiantCpuBackwardResourceGate) {
+  const auto* enabled = std::getenv("JYPPX_LIUDING_DINOV2_GIANT_TRAINING_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP()
+        << "Set JYPPX_LIUDING_DINOV2_GIANT_TRAINING_GATE=1 for the serial "
+           "1.136B-parameter CPU backward and SGD resource gate";
+  }
+  torch::manual_seed(20261027);
+  const auto start = std::chrono::steady_clock::now();
+  RunDinoV2CpuTrainingStep(
+      [](DinoV2Options options) { return dinov2_vit_giant14(options); }, 1536);
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 14ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=vit_giant_patch14_dinov2"
+            << " operation=cpu-backward-sgd elapsed_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(end -
+                                                                     start)
+                   .count()
+            << " process_peak_rss_bytes=" << peak << '\n';
 }
 
 TEST(ModelsCuda, DinoV2SmallForwardUsesCudaWhenAvailable) {
@@ -1616,6 +1651,7 @@ TEST(Models, SwinTinyPreservesHierarchyAndShiftedWindowContract) {
 }
 
 TEST(Models, SwinTinySupportsBackwardAndOptimizerStep) {
+  torch::manual_seed(20261027);
   auto model = swin_tiny_patch4_window7_224(
       {.num_classes = 3, .dynamic_image_size = true});
   model->train();
