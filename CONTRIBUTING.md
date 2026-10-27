@@ -47,11 +47,14 @@ ctest --output-on-failure
 
 ### Documentation
 
-- Add complete Doxygen comments to every declaration in a header, including private members, constructors, methods, structs and their fields, enums and every enum value
-- Document ownership, lifetime, thread-safety, error behavior, state mutation, units, valid ranges, and determinism whenever those constraints apply
-- Treat undocumented declarations and malformed Doxygen as build failures
-- Include usage examples for complex features
-- Update relevant tutorials in `docs/tutorials/`
+- Write primarily for library users. Tutorials may be detailed; API, design, and maintenance pages should contain only the current contract, required procedure, and support boundary.
+- Keep complete Doxygen contracts for header declarations and document ownership, lifetime, threading, errors, state, units, ranges, and determinism when they apply.
+- Update an existing page before adding another one, keep examples executable, and store one-time reports or validation results outside the source repository.
+- Keep natural-language paragraphs on one source line and let the Markdown renderer wrap them.
+
+### Repository-local agent skills
+
+`.agents/skills/` contains narrow workflows for AI-assisted maintenance. Use the relevant skill when building and testing the project, onboarding a model, or editing documentation; these skills supplement this guide and do not replace repository tests or review.
 
 ### Local Quality Gates
 

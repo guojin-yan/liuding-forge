@@ -9,8 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Changed
 
 - Public branding is now 六丁炼算 (Liuding Forge), with `liuding-forge-*` library, example, benchmark, fuzzer, archive and CLI output names. The historical JYPPX Training Framework name and all `jyppx` C++/CMake/package compatibility surfaces remain available.
+- The documentation index is now a concise Chinese task-based entry point; tutorials remain the detailed learning path and one-time development reports stay outside the source repository.
 
 ### Added
+- Repository-local `.agents/skills` workflows for project builds and tests, model onboarding, and documentation maintenance.
 - An independently exported `jyppx::liuding::interop` target with a schema-v1 checkpoint artifact manifest codec, deterministic JSON, strict field and digest validation, portable path checks, resource limits, capability metadata, and an installed-package consumer.
 - An installed-package component matrix that configures, builds, links, and runs a consumer against each exported target independently.
 - A legacy-surface gate that rejects retired headers, sources, package names, and build target names in both the source tree and staged installation.
