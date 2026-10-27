@@ -56,6 +56,8 @@ Swin-T 默认要求 224×224 输入；设置 `SwinOptions::dynamic_image_size = 
 
 DINOv3 ViT 的 token 顺序为 CLS、四个 extra/storage token、patch token；输入高宽会裁到不大于原尺寸的 16 倍数。DINOv3 ConvNeXt 输出四级 NCHW 特征，输入高宽会裁到 32 的倍数。调用方应在数据管线中明确记录这些裁剪及其几何语义，不能把输出当作原图全幅特征。高资源变体的构造、训练、显存和设备能力以各自实测门禁为准。
 
+[图像训练基准](../benchmarks/README.md#图像读取到训练更新)可选择 DINOv2 四容量，以及 DINOv3 ViT-S/S+/B/L/L+ 和 ConvNeXt-T/S/B/L，检查文件读取、Trainer、反向传播与实际 SGD 更新。高容量模型须显式选择并串行测量；小尺寸随机初始化验证不代表预训练权重、任务准确率或常用分辨率的资源要求。DINOv3 H+/7B 尚未接入该训练基准。
+
 `transformer_encoder` 接收已嵌入的 `[batch, sequence, model_dimension]` 浮点特征，返回相同形状。可选 `attention_mask` 是 `[S,S]` bool，`padding_mask` 是 `[N,S]` bool，`true` 分别表示屏蔽注意力边或忽略 key。调用方提供位置与因果语义；全屏蔽行保持 LibTorch 后端行为，可能产生 NaN。
 
 ## 训练状态恢复

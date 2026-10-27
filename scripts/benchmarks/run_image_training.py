@@ -25,8 +25,12 @@ MODEL_SPECS = {
     "dinov3_vits16": ("dinov3_vits16-random-init", 16, 16),
     "dinov3_vits16plus": ("dinov3_vits16plus-random-init", 16, 16),
     "dinov3_vitb16": ("dinov3_vitb16-random-init", 16, 16),
+    "dinov3_vitl16": ("dinov3_vitl16-random-init", 16, 16),
+    "dinov3_vitl16plus": ("dinov3_vitl16plus-random-init", 16, 16),
     "dinov3_convnext_tiny": ("dinov3_convnext_tiny-random-init", 32, 1),
     "dinov3_convnext_small": ("dinov3_convnext_small-random-init", 32, 1),
+    "dinov3_convnext_base": ("dinov3_convnext_base-random-init", 32, 1),
+    "dinov3_convnext_large": ("dinov3_convnext_large-random-init", 32, 1),
 }
 
 

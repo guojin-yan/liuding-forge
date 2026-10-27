@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - The documentation index is now a concise Chinese task-based entry point; tutorials remain the detailed learning path and one-time development reports stay outside the source repository.
 
 ### Added
+- 图像训练基准增加 DINOv3 ViT-L/L+、ConvNeXt-Base/Large，可通过公共模型工厂进入 ImageFolder、Trainer、反向传播与 SGD 测量链。
 - 图像训练基准支持 DINOv2 Large/Giant，以及 CUDA FP16 autocast/动态 GradScaler 和显式 FP16 参数存储；报告核对精度、参数 dtype 与实际 SGD 更新次数。
 - Repository-local `.agents/skills` workflows for project builds and tests, model onboarding, and documentation maintenance.
 - An independently exported `jyppx::liuding::interop` target with a schema-v1 checkpoint artifact manifest codec, deterministic JSON, strict field and digest validation, portable path checks, resource limits, capability metadata, and an installed-package consumer.

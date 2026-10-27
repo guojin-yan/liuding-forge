@@ -77,7 +77,7 @@ struct ModelSpec {
   std::uint32_t image_size_multiple;
 };
 
-constexpr std::array<ModelSpec, 11> kSupportedModels = {{
+constexpr std::array<ModelSpec, 15> kSupportedModels = {{
     {"linear64", "flatten-linear64-relu-linear", 1, 1},
     {"resnet18", "resnet18-random-init", 64, 1},
     {"vit_small_patch14_dinov2", "vit_small_patch14_dinov2-random-init", 14,
@@ -90,8 +90,12 @@ constexpr std::array<ModelSpec, 11> kSupportedModels = {{
     {"dinov3_vits16", "dinov3_vits16-random-init", 16, 16},
     {"dinov3_vits16plus", "dinov3_vits16plus-random-init", 16, 16},
     {"dinov3_vitb16", "dinov3_vitb16-random-init", 16, 16},
+    {"dinov3_vitl16", "dinov3_vitl16-random-init", 16, 16},
+    {"dinov3_vitl16plus", "dinov3_vitl16plus-random-init", 16, 16},
     {"dinov3_convnext_tiny", "dinov3_convnext_tiny-random-init", 32, 1},
     {"dinov3_convnext_small", "dinov3_convnext_small-random-init", 32, 1},
+    {"dinov3_convnext_base", "dinov3_convnext_base-random-init", 32, 1},
+    {"dinov3_convnext_large", "dinov3_convnext_large-random-init", 32, 1},
 }};
 
 const ModelSpec& model_spec(std::string_view value) {

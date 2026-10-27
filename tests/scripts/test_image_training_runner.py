@@ -15,12 +15,12 @@ runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
 
 
-def report(precision="fp32", device="cpu"):
+def report(precision="fp32", device="cpu", model="vit_giant_patch14_dinov2-random-init"):
     cuda = device == "cuda:0"
     return {
         "kind": "liuding-image-training-benchmark-sample",
         "workload": {"descriptor": {
-            "model": "vit_giant_patch14_dinov2-random-init", "device": device,
+            "model": model, "device": device,
             "source_mode": "image-folder", "precision": precision,
             "parameter_dtype": "float16" if precision == "cuda-fp16-storage" else "float32",
             "model_input_dtype": "float16" if precision == "cuda-fp16-storage" else "float32",
@@ -46,10 +46,11 @@ def report(precision="fp32", device="cpu"):
 
 
 class ImageTrainingReportTest(unittest.TestCase):
-    def run_report(self, payload, precision="fp32", device="cpu"):
+    def run_report(self, payload, precision="fp32", device="cpu",
+                   model="vit_giant_patch14_dinov2-random-init"):
         completed = SimpleNamespace(stdout=json.dumps(payload))
         with mock.patch.object(runner.subprocess, "run", return_value=completed):
-            return runner.run_sample(["benchmark"], "vit_giant_patch14_dinov2-random-init",
+            return runner.run_sample(["benchmark"], model,
                                      device, "image-folder", precision)
 
     def test_accepts_each_declared_parameter_storage_mode(self):
@@ -87,10 +88,12 @@ class ImageTrainingReportTest(unittest.TestCase):
                     self.run_report(payload, "cuda-fp16-storage", "cuda:0")
 
     def test_rejects_mismatched_model_identity(self):
-        payload = report()
-        payload["workload"]["descriptor"]["model"] = "linear64"
-        with self.assertRaisesRegex(ValueError, "different model"):
-            self.run_report(payload)
+        for expected in ("vit_giant_patch14_dinov2", "dinov3_vitl16", "dinov3_vitl16plus",
+                         "dinov3_convnext_base", "dinov3_convnext_large"):
+            for actual in ("flatten-linear64-relu-linear", "dinov3_vits16-random-init"):
+                with self.subTest(expected=expected, actual=actual):
+                    with self.assertRaisesRegex(ValueError, "different model"):
+                        self.run_report(report(model=actual), model=expected + "-random-init")
 
     def test_rejects_cuda_precision_on_cpu_before_running_a_binary(self):
         for precision in ("cuda-fp16", "cuda-fp16-storage"):
