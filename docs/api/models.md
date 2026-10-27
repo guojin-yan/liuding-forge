@@ -62,7 +62,7 @@ DINOv3 ViT 的 token 顺序为 CLS、四个 extra/storage token、patch token；
 
 ## 统一特征提取
 
-`model_info(name).features` 查询输出名称、布局、通道数、步幅和特殊 token 数，`feature_input` 说明输入尺寸规则。当前统一入口覆盖 DINOv2、DINOv3 ViT 与 DINOv3 ConvNeXt；其他骨干仍使用各自的 `forward_features`。元数据不代表每种容量都已通过设备和资源验收。
+`create_feature_extractor()` 覆盖注册表中的 33 个视觉变体。`model_info(name).features` 和 `feature_input` 描述默认配置；`model_feature_spec(name, options)` 无需构造模型即可查询当前配置的输出名称、布局、通道数、步幅和输入规则。MobileNetV3 宽度与 ViT/Swin 动态尺寸选项会反映在查询结果和提取器的 schema 中。元数据不代表每种容量都已通过设备和资源验收；通用 `transformer_encoder` 不提供图像特征入口。
 
 ```cpp
 auto extractor = models::create_feature_extractor("dinov3_vits16", {}, {0, 2});
@@ -72,7 +72,19 @@ auto cls = outputs->elements().at(0).toTensor();
 auto grid = outputs->elements().at(1).toTensor();
 ```
 
-第三个参数是 `features` 的零起始索引，保持请求顺序；空列表选择全部输出，重复或越界索引在构造模型前报错。ViT 的四项依次为 `cls`（NC）、`patch_tokens`（NTC）、`patch_grid`（NCHW）和完整 `tokens`（NTC）；DINOv2 的完整序列含一个 CLS，DINOv3 含 CLS 加四个 extra token，patch 输出均移除这些前缀。这些是最终层的不同视图。ConvNeXt 的四项为 `stage1`–`stage4`，布局 NCHW，步幅为 4/8/16/32。
+第三个参数是输出的零起始索引，保持请求顺序；空列表选择全部输出，重复或越界索引在构造模型前报错。ViT/DINO 的四项依次为 `cls`（NC）、`patch_tokens`（NTC）、`patch_grid`（NCHW）和完整 `tokens`（NTC）；普通 ViT 与 DINOv2 含一个 CLS，DINOv3 含 CLS 加四个 extra token，patch 输出均移除前缀。这四项是最终层的不同视图。
+
+| 家族 | 输出 | 输入规则 |
+| --- | --- | --- |
+| ResNet/ResNeXt、DenseNet121 | `stage1`–`stage4`，NCHW，名义步幅 4/8/16/32；DenseNet 在 transition 前取各 block 输出 | 接受奇数尺寸；DenseNet 高宽至少 29 |
+| MobileNetV2、EfficientNet B0/B2、TF EfficientNetV2-S | `stage1`–`stage5`，NCHW，名义步幅 2/4/8/16/32 | 接受奇数尺寸，保留各网络的 padding 规则 |
+| MobileNetV3 Small/Large | 一个 `spatial`，NCHW，名义步幅 32，默认通道 576/960 | 接受奇数尺寸；宽度配置影响输出通道 |
+| ConvNeXt Tiny/Small | `stage1`–`stage4`，NCHW，名义步幅 4/8/16/32 | 高宽至少 32，逐级向下取整，保留原输入 |
+| Swin-T | `stage1`–`stage4`，NCHW，名义步幅 4/8/16/32 | 默认 224×224；动态模式接受 4 倍数，patch merging 逐级向上取整 |
+| 普通 ViT/16 | CLS、patch token、patch grid、完整 token | 默认 224×224；动态模式接受 16 倍数 |
+| DINOv2、DINOv3 ViT/ConvNeXt | ViT 的四种最终层视图或 ConvNeXt 的四级 stage | DINOv2 要求 14 倍数；DINOv3 ViT/ConvNeXt 分别裁到 16/32 倍数 |
+
+`FeatureInputSpec::minimum_spatial` 指定高宽各自的最小值，`spatial_multiple` 指定对齐倍数，`fixed_size` 非零时指定精确高宽。`FeatureInfo::reduction` 是名义步幅；遇到奇数尺寸时不能直接用输入尺寸除以它推断输出尺寸。自定义注册表可通过 `FeatureSpecFactory` 解析配置，输出名称、顺序、布局与步幅须保持稳定；解析器只查询元数据，不构造模型或消耗随机数。
 
 提取器执行一次完整特征前向，保留所选 Tensor 的 autograd、device 和 dtype；选择输出不减少主干计算。ViT 的 token/grid 输出共享存储，可能不连续；需要连续布局时由调用方显式转换。状态与模式操作仍通过 `ModelAdapter::state()`，不会自动冻结参数。DINOv2 要求输入高宽为 14 的倍数，DINOv3 ViT/ConvNeXt 分别将底部和右侧裁到 16/32 的倍数；调用方应将该裁剪纳入自己的几何记录。
 

@@ -61,6 +61,10 @@ struct ModelOptions {
 };
 /** @brief An explicit factory retaining model state through its adapter. */
 using ModelFactory = std::function<nn::ModelAdapter(const ModelOptions&)>;
+/** @brief Metadata-only resolver; must not construct modules or consume RNG.
+ * Output names/layouts/order/strides remain stable across options.
+ */
+using FeatureSpecFactory = std::function<FeatureSpec(const ModelOptions&)>;
 /** @brief Local extensible catalog; modification needs external exclusion. */
 class ModelRegistry final {
  public:
@@ -70,16 +74,29 @@ class ModelRegistry final {
    * @param feature_factory Optional owning factory producing all features as
    * an ordered tensor tuple from a first positional NCHW tensor. Required
    * exactly when feature metadata is present.
+   * @param feature_spec_factory Optional metadata-only options resolver;
+   * omitted uses the default metadata. May vary channels and spatial rules.
    * @throws InvalidArgument For invalid metadata, duplicates or an empty
    * factory.
    */
   void add(ModelInfo info, ModelFactory factory,
-           ModelFactory feature_factory = {});
+           ModelFactory feature_factory = {},
+           FeatureSpecFactory feature_spec_factory = {});
   /** @brief Returns model metadata or an actionable unknown-model error.
    * @param name Exact registered architecture name.
    * @return Copy of the selected architecture metadata.
    */
   ModelInfo info(std::string_view name) const;
+  /** @brief Resolves feature channels and input rules without construction.
+   * @param name Exact registered architecture name.
+   * @param options Architecture settings affecting the feature contract.
+   * @return Ordered outputs and input rules for these options.
+   * @throws NotImplemented If no feature factory is registered.
+   * @throws InvalidArgument For invalid resolved metadata or options.
+   * @note Other architecture options are validated by model construction.
+   */
+  FeatureSpec feature_spec(std::string_view name,
+                           const ModelOptions& options = {}) const;
   /** @brief Lists the deterministic name order, with optional name substring.
    * @param filter Optional substring matched against architecture names.
    * @return Metadata copies in lexical name order.
@@ -115,6 +132,7 @@ class ModelRegistry final {
     ModelInfo info;                ///< Validated public architecture metadata.
     ModelFactory factory;          ///< Nonempty owning constructor callback.
     ModelFactory feature_factory;  ///< Optional ordered-feature constructor.
+    FeatureSpecFactory feature_spec_factory;  ///< Optional options resolver.
   };
   std::map<std::string, Entry, std::less<>>
       entries_;  ///< Explicit lexical catalog.
@@ -133,6 +151,14 @@ std::vector<ModelInfo> list_models(std::string_view filter = {});
  * @return Copy of the selected built-in metadata.
  */
 ModelInfo model_info(std::string_view name);
+/** @brief Resolves built-in feature metadata for the selected options.
+ * @param name Exact built-in architecture name with feature support.
+ * @param options Architecture settings; no module allocation or RNG use.
+ * @return Ordered outputs and spatial rules for the selected configuration.
+ * @throws NotImplemented If the architecture has no feature factory.
+ */
+FeatureSpec model_feature_spec(std::string_view name,
+                               const ModelOptions& options = {});
 /** @brief Returns a real architecture through the common ModelAdapter boundary.
  * @param name Exact built-in architecture name.
  * @param options Typed options consumed by the selected family.
@@ -146,9 +172,9 @@ nn::ModelAdapter create_model(std::string_view name,
  * @param options Explicit architecture options; no implicit preprocessing.
  * @param out_indices Unique metadata indices in requested order; empty is all.
  * @return Owning extractor returning a tensor tuple with matching schema.
- * @note ModelInfo::features names each output and its layout. The extractor
+ * @note model_feature_spec() names each output and its layout. The extractor
  * runs one complete feature forward and retains selected tensor handles.
- * Cropping follows ModelInfo::feature_input; no geometry is inferred.
+ * Cropping follows the resolved input rule; no geometry is inferred.
  * @throws NotImplemented If the architecture has no feature factory.
  */
 nn::ModelAdapter create_feature_extractor(

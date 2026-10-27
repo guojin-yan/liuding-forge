@@ -135,14 +135,7 @@ nn::ModelAdapter ImageAdapter(std::shared_ptr<torch::nn::Module> module,
        .allow_extra_keywords = false},
       ValueSchema::tensor(output, "logits", "classification_logits"));
 }
-std::int64_t Divisible(double value, std::int64_t divisor = 8) {
-  auto result = std::max(
-      divisor,
-      static_cast<std::int64_t>(value + static_cast<double>(divisor) / 2.0) /
-          divisor * divisor);
-  if (static_cast<double>(result) < 0.9 * value) result += divisor;
-  return result;
-}
+using detail::Divisible;
 enum class Activation { none, relu, hard_swish };
 class HardSwish final : public torch::nn::Module {
  public:

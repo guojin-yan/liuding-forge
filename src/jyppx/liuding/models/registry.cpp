@@ -55,8 +55,19 @@ void ValidateFeatures(const ModelInfo& info, const ModelFactory& factory) {
       info.features.size() > 64U)
     detail::Invalid("registry.features",
                     "matching bounded feature metadata and factory");
-  if (info.feature_input && info.feature_input->spatial_multiple <= 0)
-    detail::Invalid("registry.features", "a positive spatial input multiple");
+  if (info.feature_input) {
+    const auto& input = *info.feature_input;
+    if (input.spatial_multiple <= 0 || input.minimum_spatial <= 0)
+      detail::Invalid("registry.features",
+                      "positive spatial alignment and minimum");
+    const auto& fixed = input.fixed_size;
+    if (fixed != std::array<std::int64_t, 2>{0, 0} &&
+        (input.crop_to_multiple || fixed[0] < input.minimum_spatial ||
+         fixed[1] < input.minimum_spatial ||
+         fixed[0] % input.spatial_multiple ||
+         fixed[1] % input.spatial_multiple))
+      detail::Invalid("registry.features", "valid fixed dimensions or {0,0}");
+  }
   std::vector<std::string> names;
   for (const auto& feature : info.features) {
     if (!Name(feature.name) || feature.channels <= 0 ||
@@ -109,21 +120,56 @@ ValueSchema FeatureSchema(const FeatureInfo& feature) {
 }
 }  // namespace
 void ModelRegistry::add(ModelInfo info, ModelFactory factory,
-                        ModelFactory feature_factory) {
+                        ModelFactory feature_factory,
+                        FeatureSpecFactory feature_spec_factory) {
   if (!Name(info.name) || info.family.empty() || info.task.empty() ||
       info.reference.empty() || !factory)
     detail::Invalid("registry.add", "valid metadata and a nonempty factory");
   if (entries_.contains(info.name))
     detail::Invalid("registry.add", "a unique explicit model name");
   ValidateFeatures(info, feature_factory);
+  if (feature_spec_factory && !feature_factory)
+    detail::Invalid("registry.features",
+                    "a feature factory with the options resolver");
   auto key = info.name;
   entries_.emplace(std::move(key), Entry{std::move(info), std::move(factory),
-                                         std::move(feature_factory)});
+                                         std::move(feature_factory),
+                                         std::move(feature_spec_factory)});
 }
 ModelInfo ModelRegistry::info(std::string_view name) const {
   const auto found = entries_.find(name);
   if (found == entries_.end()) Unknown(name);
   return found->second.info;
+}
+FeatureSpec ModelRegistry::feature_spec(std::string_view name,
+                                        const ModelOptions& options) const {
+  const auto found = entries_.find(name);
+  if (found == entries_.end()) Unknown(name);
+  const auto& entry = found->second;
+  if (!entry.feature_factory)
+    throw NotImplemented("Model has no registered feature extractor",
+                         detail::Details("registry.feature_spec",
+                                         "an entry with feature metadata"));
+  if (!entry.feature_spec_factory)
+    return {.outputs = entry.info.features, .input = *entry.info.feature_input};
+  auto spec = entry.feature_spec_factory(options);
+  auto resolved = entry.info;
+  resolved.features = spec.outputs;
+  resolved.feature_input = spec.input;
+  ValidateFeatures(resolved, entry.feature_factory);
+  if (spec.outputs.size() != entry.info.features.size())
+    detail::Invalid("registry.feature_spec",
+                    "stable feature count across options");
+  for (std::size_t index = 0; index < spec.outputs.size(); ++index) {
+    const auto& output = spec.outputs[index];
+    const auto& original = entry.info.features[index];
+    if (output.name != original.name || output.layout != original.layout ||
+        output.reduction != original.reduction ||
+        output.prefix_tokens != original.prefix_tokens)
+      detail::Invalid("registry.feature_spec",
+                      "stable feature identity across options");
+  }
+  return spec;
 }
 std::vector<ModelInfo> ModelRegistry::list(std::string_view filter) const {
   std::vector<ModelInfo> result;
@@ -156,13 +202,14 @@ nn::ModelAdapter ModelRegistry::create_features(
     std::iota(selected.begin(), selected.end(), 0U);
   }
   std::vector<bool> seen(entry.info.features.size(), false);
+  const auto spec = feature_spec(name, options);
   std::vector<ValueSchema> output;
   for (const auto index : selected) {
     if (index >= seen.size() || seen[index])
       detail::Invalid("registry.feature_indices",
                       "unique in-range feature indices");
     seen[index] = true;
-    output.push_back(FeatureSchema(entry.info.features[index]));
+    output.push_back(FeatureSchema(spec.outputs[index]));
   }
   auto full = entry.feature_factory(options);
   const auto& schema = full.output_schema();
@@ -182,18 +229,23 @@ nn::ModelAdapter ModelRegistry::create_features(
                     "an NCHW tensor as the first positional input");
   auto input = full.input_schema();
   auto module = full.state().shared_module();
-  const auto spatial = *entry.info.feature_input;
+  const auto spatial = spec.input;
   return nn::adapt_module(
       std::move(module),
       [full = std::move(full), selected = std::move(selected),
        spatial](const nn::Invocation& invocation) {
         const auto images = invocation.positional.front().toTensor();
         const auto multiple = spatial.spatial_multiple;
-        if (images.size(2) < multiple || images.size(3) < multiple ||
+        const auto minimum = std::max(multiple, spatial.minimum_spatial);
+        if (images.size(2) < minimum || images.size(3) < minimum ||
+            (spatial.fixed_size[0] &&
+             (images.size(2) != spatial.fixed_size[0] ||
+              images.size(3) != spatial.fixed_size[1])) ||
             (!spatial.crop_to_multiple &&
              (images.size(2) % multiple || images.size(3) % multiple)))
           detail::Invalid("registry.feature_input",
-                          "valid spatial multiples for this architecture");
+                          "the resolved minimum, fixed size and alignment for "
+                          "this architecture");
         auto value = [&] {
           if (spatial.crop_to_multiple &&
               (images.size(2) % multiple || images.size(3) % multiple)) {
@@ -223,115 +275,194 @@ ModelRegistry default_model_registry() {
        .task = "image_classification",
        .reference = "timm convnext_tiny",
        .default_parameters = 28589128U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(convnext_tiny(o.convnext)); });
+       .preview = true,
+       .features = detail::StageFeatureInfo({96, 192, 384, 768}),
+       .feature_input = FeatureInputSpec{.minimum_spatial = 32}},
+      [](const ModelOptions& o) { return adapt(convnext_tiny(o.convnext)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(convnext_tiny(o.convnext));
+      });
   registry.add(
       {.name = "convnext_small",
        .family = "convnext",
        .task = "image_classification",
        .reference = "timm convnext_small",
        .default_parameters = 50223688U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(convnext_small(o.convnext)); });
+       .preview = true,
+       .features = detail::StageFeatureInfo({96, 192, 384, 768}),
+       .feature_input = FeatureInputSpec{.minimum_spatial = 32}},
+      [](const ModelOptions& o) { return adapt(convnext_small(o.convnext)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(convnext_small(o.convnext));
+      });
   registry.add(
       {.name = "densenet121",
        .family = "densenet",
        .task = "image_classification",
        .reference = "torchvision.models.densenet121",
        .default_parameters = 7978856U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(densenet121(o.densenet)); });
-  registry.add({.name = "efficientnet_b0",
-                .family = "efficientnet",
-                .task = "image_classification",
-                .reference = "timm efficientnet_b0",
-                .default_parameters = 5288548U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(efficientnet_b0(o.efficientnet));
-               });
-  registry.add({.name = "efficientnet_b2",
-                .family = "efficientnet",
-                .task = "image_classification",
-                .reference = "timm efficientnet_b2",
-                .default_parameters = 9109994U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(efficientnet_b2(o.efficientnet));
-               });
-  registry.add({.name = "tf_efficientnetv2_s",
-                .family = "efficientnetv2",
-                .task = "image_classification",
-                .reference = "timm tf_efficientnetv2_s",
-                .default_parameters = 21458488U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(tf_efficientnetv2_s(o.efficientnet_v2));
-               });
-  registry.add({.name = "mobilenetv2_100",
-                .family = "mobilenetv2",
-                .task = "image_classification",
-                .reference = "timm mobilenetv2_100",
-                .default_parameters = 3504872U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(mobilenetv2_100(o.mobile_v2));
-               });
-  registry.add({.name = "resnet18",
-                .family = "resnet",
-                .task = "image_classification",
-                .reference = "torchvision.models.resnet18",
-                .default_parameters = 11689512U,
-                .preview = true},
-               [](const ModelOptions& o) { return adapt(resnet18(o.resnet)); });
-  registry.add({.name = "resnet34",
-                .family = "resnet",
-                .task = "image_classification",
-                .reference = "torchvision.models.resnet34",
-                .default_parameters = 21797672U,
-                .preview = true},
-               [](const ModelOptions& o) { return adapt(resnet34(o.resnet)); });
-  registry.add({.name = "resnet50",
-                .family = "resnet",
-                .task = "image_classification",
-                .reference = "torchvision.models.resnet50 (v1.5 stride)",
-                .default_parameters = 25557032U,
-                .preview = true},
-               [](const ModelOptions& o) { return adapt(resnet50(o.resnet)); });
+       .preview = true,
+       .features = detail::StageFeatureInfo({256, 512, 1024, 1024}),
+       .feature_input = FeatureInputSpec{.minimum_spatial = 29}},
+      [](const ModelOptions& o) { return adapt(densenet121(o.densenet)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(densenet121(o.densenet));
+      });
+  registry.add(
+      {.name = "efficientnet_b0",
+       .family = "efficientnet",
+       .task = "image_classification",
+       .reference = "timm efficientnet_b0",
+       .default_parameters = 5288548U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({16, 24, 40, 112, 320}, 2),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) {
+        return adapt(efficientnet_b0(o.efficientnet));
+      },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(efficientnet_b0(o.efficientnet));
+      });
+  registry.add(
+      {.name = "efficientnet_b2",
+       .family = "efficientnet",
+       .task = "image_classification",
+       .reference = "timm efficientnet_b2",
+       .default_parameters = 9109994U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({16, 24, 48, 120, 352}, 2),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) {
+        return adapt(efficientnet_b2(o.efficientnet));
+      },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(efficientnet_b2(o.efficientnet));
+      });
+  registry.add(
+      {.name = "tf_efficientnetv2_s",
+       .family = "efficientnetv2",
+       .task = "image_classification",
+       .reference = "timm tf_efficientnetv2_s",
+       .default_parameters = 21458488U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({24, 48, 64, 160, 256}, 2),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) {
+        return adapt(tf_efficientnetv2_s(o.efficientnet_v2));
+      },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(tf_efficientnetv2_s(o.efficientnet_v2));
+      });
+  registry.add(
+      {.name = "mobilenetv2_100",
+       .family = "mobilenetv2",
+       .task = "image_classification",
+       .reference = "timm mobilenetv2_100",
+       .default_parameters = 3504872U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({16, 24, 32, 96, 320}, 2),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) { return adapt(mobilenetv2_100(o.mobile_v2)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(mobilenetv2_100(o.mobile_v2));
+      });
+  registry.add(
+      {.name = "resnet18",
+       .family = "resnet",
+       .task = "image_classification",
+       .reference = "torchvision.models.resnet18",
+       .default_parameters = 11689512U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({64, 128, 256, 512}),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) { return adapt(resnet18(o.resnet)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(resnet18(o.resnet));
+      });
+  registry.add(
+      {.name = "resnet34",
+       .family = "resnet",
+       .task = "image_classification",
+       .reference = "torchvision.models.resnet34",
+       .default_parameters = 21797672U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({64, 128, 256, 512}),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) { return adapt(resnet34(o.resnet)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(resnet34(o.resnet));
+      });
+  registry.add(
+      {.name = "resnet50",
+       .family = "resnet",
+       .task = "image_classification",
+       .reference = "torchvision.models.resnet50 (v1.5 stride)",
+       .default_parameters = 25557032U,
+       .preview = true,
+       .features = detail::StageFeatureInfo({256, 512, 1024, 2048}),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) { return adapt(resnet50(o.resnet)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(resnet50(o.resnet));
+      });
   registry.add(
       {.name = "resnet101",
        .family = "resnet",
        .task = "image_classification",
        .reference = "torchvision.models.resnet101 (v1.5 stride)",
        .default_parameters = 44549160U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(resnet101(o.resnet)); });
+       .preview = true,
+       .features = detail::StageFeatureInfo({256, 512, 1024, 2048}),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) { return adapt(resnet101(o.resnet)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(resnet101(o.resnet));
+      });
   registry.add(
       {.name = "resnext50_32x4d",
        .family = "resnext",
        .task = "image_classification",
        .reference = "torchvision.models.resnext50_32x4d (v1.5 stride)",
        .default_parameters = 25028904U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(resnext50_32x4d(o.resnet)); });
-  registry.add({.name = "mobilenet_v3_small",
-                .family = "mobilenet",
-                .task = "image_classification",
-                .reference = "torchvision.models.mobilenet_v3_small",
-                .default_parameters = 2542856U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(mobilenet_v3_small(o.mobile));
-               });
-  registry.add({.name = "mobilenet_v3_large",
-                .family = "mobilenet",
-                .task = "image_classification",
-                .reference = "torchvision.models.mobilenet_v3_large",
-                .default_parameters = 5483032U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(mobilenet_v3_large(o.mobile));
-               });
+       .preview = true,
+       .features = detail::StageFeatureInfo({256, 512, 1024, 2048}),
+       .feature_input = FeatureInputSpec{}},
+      [](const ModelOptions& o) { return adapt(resnext50_32x4d(o.resnet)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(resnext50_32x4d(o.resnet));
+      });
+  registry.add(
+      {.name = "mobilenet_v3_small",
+       .family = "mobilenet",
+       .task = "image_classification",
+       .reference = "torchvision.models.mobilenet_v3_small",
+       .default_parameters = 2542856U,
+       .preview = true,
+       .features = detail::MobileFeatureSpec(1.0, false).outputs,
+       .feature_input = detail::MobileFeatureSpec(1.0, false).input},
+      [](const ModelOptions& o) { return adapt(mobilenet_v3_small(o.mobile)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(mobilenet_v3_small(o.mobile));
+      },
+      [](const ModelOptions& o) {
+        return detail::MobileFeatureSpec(o.mobile.width_multiplier, false);
+      });
+  registry.add(
+      {.name = "mobilenet_v3_large",
+       .family = "mobilenet",
+       .task = "image_classification",
+       .reference = "torchvision.models.mobilenet_v3_large",
+       .default_parameters = 5483032U,
+       .preview = true,
+       .features = detail::MobileFeatureSpec(1.0, true).outputs,
+       .feature_input = detail::MobileFeatureSpec(1.0, true).input},
+      [](const ModelOptions& o) { return adapt(mobilenet_v3_large(o.mobile)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(mobilenet_v3_large(o.mobile));
+      },
+      [](const ModelOptions& o) {
+        return detail::MobileFeatureSpec(o.mobile.width_multiplier, true);
+      });
   registry.add({.name = "transformer_encoder",
                 .family = "transformer",
                 .task = "feature_encoding",
@@ -347,34 +478,66 @@ ModelRegistry default_model_registry() {
        .task = "image_classification",
        .reference = "timm vit_tiny_patch16_224",
        .default_parameters = 5717416U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(vit_tiny_patch16_224(o.vit)); });
-  registry.add({.name = "vit_small_patch16_224",
-                .family = "vit",
-                .task = "image_classification",
-                .reference = "timm vit_small_patch16_224",
-                .default_parameters = 22050664U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(vit_small_patch16_224(o.vit));
-               });
+       .preview = true,
+       .features = detail::ViTFeatureSpec(192, false).outputs,
+       .feature_input = detail::ViTFeatureSpec(192, false).input},
+      [](const ModelOptions& o) { return adapt(vit_tiny_patch16_224(o.vit)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(vit_tiny_patch16_224(o.vit));
+      },
+      [](const ModelOptions& o) {
+        return detail::ViTFeatureSpec(192, o.vit.dynamic_image_size);
+      });
+  registry.add(
+      {.name = "vit_small_patch16_224",
+       .family = "vit",
+       .task = "image_classification",
+       .reference = "timm vit_small_patch16_224",
+       .default_parameters = 22050664U,
+       .preview = true,
+       .features = detail::ViTFeatureSpec(384, false).outputs,
+       .feature_input = detail::ViTFeatureSpec(384, false).input},
+      [](const ModelOptions& o) { return adapt(vit_small_patch16_224(o.vit)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(vit_small_patch16_224(o.vit));
+      },
+      [](const ModelOptions& o) {
+        return detail::ViTFeatureSpec(384, o.vit.dynamic_image_size);
+      });
   registry.add(
       {.name = "vit_base_patch16_224",
        .family = "vit",
        .task = "image_classification",
        .reference = "timm vit_base_patch16_224",
        .default_parameters = 86567656U,
-       .preview = true},
-      [](const ModelOptions& o) { return adapt(vit_base_patch16_224(o.vit)); });
-  registry.add({.name = "swin_tiny_patch4_window7_224",
-                .family = "swin",
-                .task = "image_classification",
-                .reference = "timm swin_tiny_patch4_window7_224",
-                .default_parameters = 28288354U,
-                .preview = true},
-               [](const ModelOptions& o) {
-                 return adapt(swin_tiny_patch4_window7_224(o.swin));
-               });
+       .preview = true,
+       .features = detail::ViTFeatureSpec(768, false).outputs,
+       .feature_input = detail::ViTFeatureSpec(768, false).input},
+      [](const ModelOptions& o) { return adapt(vit_base_patch16_224(o.vit)); },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(vit_base_patch16_224(o.vit));
+      },
+      [](const ModelOptions& o) {
+        return detail::ViTFeatureSpec(768, o.vit.dynamic_image_size);
+      });
+  registry.add(
+      {.name = "swin_tiny_patch4_window7_224",
+       .family = "swin",
+       .task = "image_classification",
+       .reference = "timm swin_tiny_patch4_window7_224",
+       .default_parameters = 28288354U,
+       .preview = true,
+       .features = detail::SwinFeatureSpec(false).outputs,
+       .feature_input = detail::SwinFeatureSpec(false).input},
+      [](const ModelOptions& o) {
+        return adapt(swin_tiny_patch4_window7_224(o.swin));
+      },
+      [](const ModelOptions& o) {
+        return detail::AdaptFeatures(swin_tiny_patch4_window7_224(o.swin));
+      },
+      [](const ModelOptions& o) {
+        return detail::SwinFeatureSpec(o.swin.dynamic_image_size);
+      });
   registry.add(
       {.name = "vit_small_patch14_dinov2",
        .family = "dinov2",
@@ -611,6 +774,10 @@ std::vector<ModelInfo> list_models(std::string_view filter) {
 }
 ModelInfo model_info(std::string_view name) {
   return default_model_registry().info(name);
+}
+FeatureSpec model_feature_spec(std::string_view name,
+                               const ModelOptions& options) {
+  return default_model_registry().feature_spec(name, options);
 }
 nn::ModelAdapter create_model(std::string_view name,
                               const ModelOptions& options) {

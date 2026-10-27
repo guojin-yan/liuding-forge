@@ -7,12 +7,21 @@
 #include <jyppx/liuding/core/types.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
+#include <algorithm>
 #include <c10/util/Exception.h>
 #include <exception>
 #include <new>
 #include <string>
 #include <utility>
 namespace jyppx::liuding::models::detail {
+inline std::int64_t Divisible(double value, std::int64_t divisor = 8) {
+  auto result = std::max(
+      divisor,
+      static_cast<std::int64_t>(value + static_cast<double>(divisor) / 2.0) /
+          divisor * divisor);
+  if (static_cast<double>(result) < 0.9 * value) result += divisor;
+  return result;
+}
 inline ErrorDetails Details(std::string operation, std::string expected) {
   return {.component = "models",
           .operation = std::move(operation),

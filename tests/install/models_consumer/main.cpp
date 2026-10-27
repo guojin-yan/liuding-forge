@@ -20,6 +20,48 @@ int main() {
     const auto entries = jyppx::liuding::models::list_models();
     Require(entries.size() == 34U, "installed-model-catalog");
     {
+      using namespace jyppx::liuding::models;
+      std::size_t feature_count = 0;
+      for (const auto& entry : entries)
+        if (!entry.features.empty()) ++feature_count;
+      Require(feature_count == 33U, "installed-visual-feature-catalog");
+      auto features = create_feature_extractor("resnet18", {}, {3, 0});
+      features.state().eval();
+      torch::NoGradGuard no_grad;
+      const auto outputs =
+          features.invoke({.positional = {torch::zeros({1, 3, 35, 67})}})
+              .value.toTuple();
+      Require(outputs->elements()[0].toTensor().sizes() ==
+                      torch::IntArrayRef({1, 512, 2, 3}) &&
+                  outputs->elements()[1].toTensor().sizes() ==
+                      torch::IntArrayRef({1, 64, 9, 17}),
+              "installed-resnet-features-and-order");
+    }
+    {
+      using namespace jyppx::liuding::models;
+      ModelOptions options;
+      options.mobile.width_multiplier = 0.37;
+      options.mobile.input_channels = 1;
+      const auto spec = model_feature_spec("mobilenet_v3_small", options);
+      Require(spec.outputs[0].channels == 192,
+              "installed-configured-feature-spec");
+      auto features = create_feature_extractor("mobilenet_v3_small", options);
+      features.state().eval();
+      torch::NoGradGuard no_grad;
+      const auto outputs =
+          features.invoke({.positional = {torch::zeros({1, 1, 35, 67})}})
+              .value.toTuple();
+      Require(outputs->elements()[0].toTensor().sizes() ==
+                  torch::IntArrayRef({1, 192, 2, 3}),
+              "installed-configured-mobile-features");
+      const auto fixed = model_feature_spec("vit_tiny_patch16_224");
+      options.vit.dynamic_image_size = true;
+      const auto dynamic = model_feature_spec("vit_tiny_patch16_224", options);
+      Require(
+          fixed.input.fixed_size[0] == 224 && dynamic.input.fixed_size[0] == 0,
+          "installed-configured-spatial-spec");
+    }
+    {
       const auto info = jyppx::liuding::models::model_info("dinov3_vits16");
       Require(info.features.size() == 4 && info.features[3].prefix_tokens == 5,
               "installed-feature-metadata");

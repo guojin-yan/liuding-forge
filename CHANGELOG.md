@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- 统一特征提取覆盖全部 33 个视觉变体，新增按配置查询的特征约定；MobileNetV3 宽度、ViT/Swin 动态尺寸与 CNN 最小尺寸均同步到输出或输入校验，保留各家族原有的尺寸和 padding 规则。
 - 持久化检查点读取时，字段共享同一份已验证文件快照，省去逐字段的额外字节副本；回滚、提交失败和独立路径替换保留旧 reader 与字节视图。
 - 持久化检查点提交按字段逐段写入临时文件并累计 SHA-256，省去额外的完整编码缓冲区；容器格式、大小限制及原子发布行为保持一致。
 - Public branding is now 六丁炼算 (Liuding Forge), with `liuding-forge-*` library, example, benchmark, fuzzer, archive and CLI output names. The historical JYPPX Training Framework name and all `jyppx` C++/CMake/package compatibility surfaces remain available.

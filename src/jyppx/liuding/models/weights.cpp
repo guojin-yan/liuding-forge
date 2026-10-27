@@ -299,7 +299,9 @@ std::string models_preview_manifest_json() {
     output << "{\"model\":\"" << entry.name << "\",\"input_spatial_multiple\":"
            << entry.feature_input->spatial_multiple << ",\"crop_to_multiple\":"
            << (entry.feature_input->crop_to_multiple ? "true" : "false")
-           << ",\"features\":[";
+           << ",\"minimum_spatial\":" << entry.feature_input->minimum_spatial
+           << ",\"fixed_size\":[" << entry.feature_input->fixed_size[0] << ','
+           << entry.feature_input->fixed_size[1] << ']' << ",\"features\":[";
     for (std::size_t index = 0; index < entry.features.size(); ++index) {
       if (index) output << ',';
       const auto& feature = entry.features[index];
