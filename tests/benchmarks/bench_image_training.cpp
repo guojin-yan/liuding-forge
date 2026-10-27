@@ -13,6 +13,8 @@
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/liuding.hpp>
+#include <jyppx/liuding/training/amp/grad_scaler.hpp>
+#include <jyppx/liuding/training/amp/grad_scaler_checkpoint_participant.hpp>
 #if defined(JYPPX_BENCH_MODELS)
 #include <jyppx/liuding/models/registry.hpp>
 #endif
@@ -63,6 +65,7 @@ struct Options {
   std::size_t prefetch_batches = 2;
   std::string model = "linear64";
   std::string device = "cpu";
+  std::string precision = "fp32";
   std::string source_mode = "image-folder";
   std::uint64_t max_cached_bytes = 512ULL << 20U;
 };
@@ -74,12 +77,16 @@ struct ModelSpec {
   std::uint32_t image_size_multiple;
 };
 
-constexpr std::array<ModelSpec, 9> kSupportedModels = {{
+constexpr std::array<ModelSpec, 11> kSupportedModels = {{
     {"linear64", "flatten-linear64-relu-linear", 1, 1},
     {"resnet18", "resnet18-random-init", 64, 1},
     {"vit_small_patch14_dinov2", "vit_small_patch14_dinov2-random-init", 14,
      14},
     {"vit_base_patch14_dinov2", "vit_base_patch14_dinov2-random-init", 14, 14},
+    {"vit_large_patch14_dinov2", "vit_large_patch14_dinov2-random-init", 14,
+     14},
+    {"vit_giant_patch14_dinov2", "vit_giant_patch14_dinov2-random-init", 14,
+     14},
     {"dinov3_vits16", "dinov3_vits16-random-init", 16, 16},
     {"dinov3_vits16plus", "dinov3_vits16plus-random-init", 16, 16},
     {"dinov3_vitb16", "dinov3_vitb16-random-init", 16, 16},
@@ -141,6 +148,13 @@ Options parse_options(int argc, char** argv) {
         throw std::invalid_argument("--device must be cpu or cuda:0");
       }
       options.device = value;
+    } else if (name == "--precision") {
+      if (value != "fp32" && value != "cuda-fp16" &&
+          value != "cuda-fp16-storage") {
+        throw std::invalid_argument(
+            "--precision must be fp32, cuda-fp16 or cuda-fp16-storage");
+      }
+      options.precision = value;
     } else if (name == "--source-mode") {
       if (value != "image-folder" && value != "tensor-cache" &&
           value != "tensor-cache-resized") {
@@ -157,6 +171,9 @@ Options parse_options(int argc, char** argv) {
   }
   if (options.root.empty()) {
     throw std::invalid_argument("--image-root is required");
+  }
+  if (options.precision != "fp32" && options.device != "cuda:0") {
+    throw std::invalid_argument("CUDA precision requires --device cuda:0");
   }
   const auto& spec = model_spec(options.model);
   if (options.image_size < spec.minimum_image_size) {
@@ -435,8 +452,14 @@ bench::Json measure(const Options& options) {
         "the selected --model requires the models component");
 #endif
   }
+  const bool amp = options.precision != "fp32";
+  const bool half_storage = options.precision == "cuda-fp16-storage";
+  const auto parameter_dtype = half_storage ? torch::kHalf : torch::kFloat32;
+  if (half_storage) model->state().module().to(parameter_dtype);
   std::vector<optim::OptimizerParameterBinding> bindings;
   for (const auto& item : model->state().named_parameters()) {
+    bench::require(item.value().scalar_type() == parameter_dtype,
+                   "model parameter dtype does not match precision");
     bindings.push_back({.parameter_id = item.key(), .parameter = item.value()});
   }
   auto optimizer = std::make_shared<optim::SgdOptimizerAdapter>(
@@ -445,11 +468,12 @@ bench::Json measure(const Options& options) {
           {.group_id = "main",
            .parameters = std::move(bindings),
            .options = {.learning_rate = 1e-2}}});
-  const auto mapper = [device](const data::BatchEnvelope& batch) {
+  const auto mapper = [device, half_storage](const data::BatchEnvelope& batch) {
     const auto images = image::image_batch_from_value(batch.value).images;
     bench::require(images.device() == device,
                    "image batch was not transferred to the selected device");
-    return nn::Invocation{.positional = {images}};
+    return nn::Invocation{
+        .positional = {half_storage ? images.to(torch::kHalf) : images}};
   };
   const auto target =
       [device](const data::BatchEnvelope& batch) -> std::optional<c10::IValue> {
@@ -471,10 +495,20 @@ bench::Json measure(const Options& options) {
         .loss = torch::nn::functional::cross_entropy(prediction, labels),
         .sample_count = input.batch.sample_ids.size()};
   };
-  training::Trainer trainer({.trainer_id = "trainer.benchmark.image-training",
-                             .run_id = "run.benchmark.image-training",
-                             .trace_id = "trace.benchmark.image-training",
-                             .max_epochs = options.epochs});
+  auto scaler = amp ? std::make_shared<training::amp::GradScaler>(
+                          training::amp::GradScalerOptions{.init_scale = 128.0})
+                    : nullptr;
+  auto scaler_checkpoint =
+      amp ? std::make_shared<training::amp::GradScalerCheckpointParticipant>(
+                scaler)
+          : nullptr;
+  training::Trainer trainer(
+      {.trainer_id = "trainer.benchmark.image-training",
+       .run_id = "run.benchmark.image-training",
+       .trace_id = "trace.benchmark.image-training",
+       .max_epochs = options.epochs,
+       .precision = amp ? training::PrecisionMode::cuda_float16
+                        : training::PrecisionMode::full});
   trainer.prepare(
       {.model = model,
        .optimizers =
@@ -488,6 +522,8 @@ bench::Json measure(const Options& options) {
        .training_step = step,
        .strategy = std::make_shared<training::SingleDeviceStrategy>(
            training::SingleDeviceStrategyOptions{.device = device}),
+       .gradient_scaler = scaler,
+       .gradient_scaler_checkpoint = scaler_checkpoint,
        .model_checkpoint =
            std::make_shared<nn::ModelCheckpointParticipant>(*model),
        .rng_checkpoint =
@@ -546,6 +582,7 @@ bench::Json measure(const Options& options) {
   bench::require(result.status == training::FitStatus::completed &&
                      result.completed_epochs == options.epochs &&
                      result.global_step == expected_steps &&
+                     optimizer->completed_steps() == expected_steps &&
                      observed_samples == expected_samples,
                  "Trainer did not complete the expected image workload");
   bench::require(
@@ -570,6 +607,10 @@ bench::Json measure(const Options& options) {
       {"source_mode", options.source_mode},
       {"max_cached_bytes", cache_source ? options.max_cached_bytes : 0},
       {"device", options.device},
+      {"precision", options.precision},
+      {"parameter_dtype", half_storage ? "float16" : "float32"},
+      {"model_input_dtype", half_storage ? "float16" : "float32"},
+      {"grad_scaler_init_scale", amp ? 128.0 : 1.0},
       {"batch_transfer", cuda ? "pin-and-nonblocking-transfer" : "none"},
       {"image_decode", "rgb-float32-normalized"},
       {"resize", "bilinear-antialias"},
@@ -589,6 +630,8 @@ bench::Json measure(const Options& options) {
           {"validation",
            {{"completed_epochs", result.completed_epochs},
             {"global_step", result.global_step},
+            {"optimizer_completed_steps", optimizer->completed_steps()},
+            {"final_loss_scale", scaler ? scaler->get_scale() : 1.0},
             {"observed_samples", observed_samples},
             {"parameter_updated", true},
             {"final_parameter_sha256", final_parameter_sha256}}},

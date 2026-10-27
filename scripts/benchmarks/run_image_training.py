@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import platform
 import statistics
 import subprocess
@@ -19,6 +20,8 @@ MODEL_SPECS = {
     "resnet18": ("resnet18-random-init", 64, 1),
     "vit_small_patch14_dinov2": ("vit_small_patch14_dinov2-random-init", 14, 14),
     "vit_base_patch14_dinov2": ("vit_base_patch14_dinov2-random-init", 14, 14),
+    "vit_large_patch14_dinov2": ("vit_large_patch14_dinov2-random-init", 14, 14),
+    "vit_giant_patch14_dinov2": ("vit_giant_patch14_dinov2-random-init", 14, 14),
     "dinov3_vits16": ("dinov3_vits16-random-init", 16, 16),
     "dinov3_vits16plus": ("dinov3_vits16plus-random-init", 16, 16),
     "dinov3_vitb16": ("dinov3_vitb16-random-init", 16, 16),
@@ -64,7 +67,7 @@ def git_output(source_root: Path, *args: str) -> str:
 
 
 def run_sample(command: list[str], expected_model: str, expected_device: str,
-               expected_source: str) -> dict:
+               expected_source: str, expected_precision: str) -> dict:
     completed = subprocess.run(command, capture_output=True, text=True, check=True)
     result = json.loads(completed.stdout.strip())
     if result.get("kind") != "liuding-image-training-benchmark-sample":
@@ -77,11 +80,29 @@ def run_sample(command: list[str], expected_model: str, expected_device: str,
         raise ValueError("benchmark reported a different device than requested")
     if workload["source_mode"] != expected_source:
         raise ValueError("benchmark reported a different source mode than requested")
+    if workload["precision"] != expected_precision:
+        raise ValueError("benchmark reported a different precision than requested")
+    expected_dtype = "float16" if expected_precision == "cuda-fp16-storage" else "float32"
+    if workload["parameter_dtype"] != expected_dtype:
+        raise ValueError("benchmark reported a different parameter dtype than requested")
+    if workload["model_input_dtype"] != expected_dtype:
+        raise ValueError("benchmark reported a different model input dtype than requested")
+    expected_scale = 1.0 if expected_precision == "fp32" else 128.0
+    if workload["grad_scaler_init_scale"] != expected_scale:
+        raise ValueError("benchmark reported a different initial loss scale")
     expected = workload["samples_per_epoch"] * workload["epochs"]
     if validation["observed_samples"] != expected or not validation["parameter_updated"]:
         raise ValueError("benchmark did not validate its training work")
     if validation["completed_epochs"] != workload["epochs"]:
         raise ValueError("benchmark did not complete all requested epochs")
+    expected_steps = ((workload["samples_per_epoch"] + workload["batch_size"] - 1) //
+                      workload["batch_size"]) * workload["epochs"]
+    if (validation["global_step"] != expected_steps or
+            validation["optimizer_completed_steps"] != expected_steps):
+        raise ValueError("benchmark skipped or miscounted optimizer updates")
+    if (not math.isfinite(validation["final_loss_scale"]) or
+            validation["final_loss_scale"] <= 0):
+        raise ValueError("invalid final loss scale")
     if len(validation["final_parameter_sha256"]) != 64:
         raise ValueError("missing final parameter digest")
     if result["metrics"]["peak_rss_bytes"]["status"] != "available":
@@ -135,11 +156,15 @@ def main() -> int:
     parser.add_argument("--prefetch-batches", type=int, default=2)
     parser.add_argument("--model", choices=tuple(MODEL_SPECS), default="linear64")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
+    parser.add_argument("--precision", choices=("fp32", "cuda-fp16", "cuda-fp16-storage"),
+                        default="fp32")
     parser.add_argument("--source-mode", choices=("image-folder", "tensor-cache",
                                                   "tensor-cache-resized"),
                         default="image-folder")
     parser.add_argument("--max-cached-bytes", type=int, default=512 << 20)
     args = parser.parse_args()
+    if args.precision != "fp32" and args.device != "cuda:0":
+        parser.error("CUDA precision requires --device cuda:0")
     source_root = Path(__file__).resolve().parents[2]
     binary = args.binary.resolve(strict=True)
     root = args.image_root.resolve(strict=True)
@@ -168,12 +193,12 @@ def main() -> int:
         "--image-size", str(args.image_size), "--epochs", str(args.epochs),
         "--threads", str(args.threads), "--workers", str(args.workers),
         "--prefetch-batches", str(args.prefetch_batches), "--model", args.model,
-        "--device", args.device,
+        "--device", args.device, "--precision", args.precision,
         "--source-mode", args.source_mode,
         "--max-cached-bytes", str(args.max_cached_bytes),
     ]
-    warmup = run_sample(command, expected_model, args.device, args.source_mode)
-    samples = [run_sample(command, expected_model, args.device, args.source_mode)
+    warmup = run_sample(command, expected_model, args.device, args.source_mode, args.precision)
+    samples = [run_sample(command, expected_model, args.device, args.source_mode, args.precision)
                for _ in range(5)]
     final_sha256, final_count, final_bytes = dataset_digest(root)
     if (final_sha256, final_count, final_bytes) != (content_sha256, image_count, encoded_bytes):

@@ -28,6 +28,14 @@ if(Python3_Interpreter_FOUND)
         LABELS "hygiene;compatibility"
     )
     add_test(
+        NAME ImageTrainingRunnerToolUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_image_training_runner.py
+    )
+    set_tests_properties(ImageTrainingRunnerToolUnitTests PROPERTIES
+        LABELS "hygiene;benchmark;training"
+    )
+    add_test(
         NAME DependencyManifest
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/dependency_manifest.py
                 --file ${CMAKE_SOURCE_DIR}/dependency-manifest.json
