@@ -8,8 +8,10 @@
 #include "resource_support.hpp"
 
 #include <jyppx/liuding/data_image/image_batch.hpp>
+#include <jyppx/liuding/data_image/image_dataset.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/data_image/manifests.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/liuding.hpp>
 #if defined(JYPPX_BENCH_MODELS)
 #include <jyppx/liuding/models/vision.hpp>
@@ -60,6 +62,8 @@ struct Options {
   std::size_t prefetch_batches = 2;
   std::string model = "linear64";
   std::string device = "cpu";
+  std::string source_mode = "image-folder";
+  std::uint64_t max_cached_bytes = 512ULL << 20U;
 };
 
 std::uint64_t positive_integer(std::string_view value, std::string_view name,
@@ -112,6 +116,14 @@ Options parse_options(int argc, char** argv) {
         throw std::invalid_argument("--device must be cpu or cuda:0");
       }
       options.device = value;
+    } else if (name == "--source-mode") {
+      if (value != "image-folder" && value != "tensor-cache") {
+        throw std::invalid_argument(
+            "--source-mode must be image-folder or tensor-cache");
+      }
+      options.source_mode = value;
+    } else if (name == "--max-cached-bytes") {
+      options.max_cached_bytes = positive_integer(value, name, 64ULL << 30U);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(name));
     }
@@ -193,7 +205,24 @@ class Classifier final : public torch::nn::Module {
   torch::nn::Sequential network_{nullptr};
 };
 
+std::string parameter_digest(const nn::ModelAdapter& model) {
+  jyppx::liuding::Sha256 digest;
+  for (const auto& item : model.state().named_parameters()) {
+    const auto tensor = item.value().detach().to(torch::kCPU).contiguous();
+    const auto name = item.key();
+    const auto name_bytes = static_cast<std::uint64_t>(name.size());
+    const auto tensor_bytes = static_cast<std::uint64_t>(tensor.nbytes());
+    digest.update(std::as_bytes(std::span(&name_bytes, 1)));
+    digest.update(std::as_bytes(std::span(name.data(), name.size())));
+    digest.update(std::as_bytes(std::span(&tensor_bytes, 1)));
+    digest.update(std::span(static_cast<const std::byte*>(tensor.data_ptr()),
+                            tensor.nbytes()));
+  }
+  return jyppx::liuding::sha256_digest_hex(digest.finish());
+}
+
 bench::Json measure(const Options& options) {
+  const auto workload_start = Clock::now();
   torch::manual_seed(1729);
   torch::set_num_threads(options.threads);
   const bool cuda = options.device == "cuda:0";
@@ -217,12 +246,53 @@ bench::Json measure(const Options& options) {
   const auto samples_per_epoch = index.records().size();
   const auto classes = index.categories().size();
   auto budget = std::make_shared<image::ImageResourceBudget>();
+  std::shared_ptr<image::ImageResourceBudget> cache_budget;
+  if (options.source_mode == "tensor-cache") {
+    image::ImageResourceBudgetLimits cache_limits;
+    cache_limits.max_decoded_bytes = options.max_cached_bytes;
+    cache_budget = std::make_shared<image::ImageResourceBudget>(cache_limits);
+  }
   image::ImageDatasetOptions dataset_options;
-  dataset_options.resource_budget = budget;
+  dataset_options.resource_budget = cache_budget ? cache_budget : budget;
   dataset_options.image.channels = image::ImageChannels::rgb;
   dataset_options.image.dtype = image::ImageDtype::float32_normalized;
-  auto dataset = std::make_shared<image::ImageDataset>(
+  auto categories = index.categories();
+  auto file_source = std::make_shared<image::ImageDataset>(
       options.root, std::move(index), dataset_options);
+  std::shared_ptr<image::TensorImageDataset> tensor_source;
+  std::vector<std::shared_ptr<image::ImageResourceLeaseSet>> cache_leases;
+  std::uint64_t cached_bytes = 0;
+  if (cache_budget) {
+    std::vector<image::TensorImageRecord> records;
+    records.reserve(samples_per_epoch);
+    cache_leases.reserve(samples_per_epoch);
+    for (std::size_t i = 0; i < samples_per_epoch; ++i) {
+      auto sample = file_source->get(i);
+      const auto bytes = static_cast<std::uint64_t>(sample.image.numel()) *
+                         sample.image.element_size();
+      bench::require(bytes <= options.max_cached_bytes - cached_bytes,
+                     "decoded Tensor cache exceeds --max-cached-bytes");
+      cached_bytes += bytes;
+      records.push_back({std::move(sample.image), sample.pixels,
+                         std::move(sample.image_path),
+                         std::move(sample.labels)});
+      cache_leases.push_back(std::move(sample.image_resource_leases));
+    }
+    tensor_source = std::make_shared<image::TensorImageDataset>(
+        std::move(records), std::move(categories));
+    file_source.reset();
+    bench::require(
+        cache_budget->usage(image::ImageResourceKind::decoded_bytes).current ==
+            cached_bytes,
+        "Tensor cache accounting differs from retained storage");
+  }
+  const auto source_preparation_seconds =
+      static_cast<double>(nanoseconds_since(workload_start)) / 1e9;
+  const auto sample_at = [file_source, tensor_source](std::size_t index,
+                                                      std::stop_token stop) {
+    return tensor_source ? tensor_source->get(index, stop)
+                         : file_source->get(index, stop);
+  };
   const image::ImageGeometryStep resize{
       .kind = image::ImageGeometryKind::resize,
       .extent = {options.image_size, options.image_size}};
@@ -247,7 +317,7 @@ bench::Json measure(const Options& options) {
   }
   {
     const auto exemplar = image::transform_sample(
-        dataset->get(0), std::span(&resize, 1), transform_options);
+        sample_at(0, {}), std::span(&resize, 1), transform_options);
     const std::array exemplar_keys{image::ImageBatchKey{"exemplar", 0, 0}};
     const auto exemplar_batch = image::collate_images(
         std::span(&exemplar, 1), exemplar_keys, collate_options);
@@ -262,7 +332,7 @@ bench::Json measure(const Options& options) {
   auto raw_pipeline = std::make_shared<data::DataPipeline>(
       std::make_shared<data::samplers::SequentialSampler>(samples_per_epoch),
       pipeline_options,
-      [dataset, resize, transform_options, collate_options, &stages](
+      [sample_at, resize, transform_options, collate_options, &stages](
           std::span<const std::size_t> indices,
           const data::DataWorkerContext& context, std::stop_token stop) {
         std::vector<image::VisionSample> samples;
@@ -271,7 +341,7 @@ bench::Json measure(const Options& options) {
         keys.reserve(indices.size());
         for (const auto index : indices) {
           auto start = Clock::now();
-          auto sample = dataset->get(index, stop);
+          auto sample = sample_at(index, stop);
           stages.read_decode_ns.fetch_add(nanoseconds_since(start),
                                           std::memory_order_relaxed);
           keys.push_back({sample.image_path, context.epoch, 0});
@@ -381,7 +451,16 @@ bench::Json measure(const Options& options) {
 #if defined(JYPPX_BENCH_CUDA)
   if (cuda) torch::cuda::synchronize(0);
 #endif
-  const auto fit_seconds = static_cast<double>(nanoseconds_since(start)) / 1e9;
+  const auto finish = Clock::now();
+  const auto fit_seconds =
+      std::chrono::duration<double>(finish - start).count();
+  const auto workload_seconds =
+      std::chrono::duration<double>(finish - workload_start).count();
+  if (cache_budget)
+    bench::require(
+        cache_budget->usage(image::ImageResourceKind::decoded_bytes).current ==
+            cached_bytes,
+        "Tensor cache was released before training completed");
   auto cuda_allocated = bench::unavailable("CPU-only workload", "bytes");
   auto cuda_reserved = bench::unavailable("CPU-only workload", "bytes");
   bench::Json execution = {
@@ -418,6 +497,8 @@ bench::Json measure(const Options& options) {
                        model->state().module().parameters().front().detach()),
       "SGD did not change model parameters");
   bench::require(fit_seconds > 0, "fit duration must be positive");
+  const auto peak_rss = bench::peak_rss();
+  const auto final_parameter_sha256 = parameter_digest(*model);
 
   const bench::Json descriptor = {
       {"task", "imagefolder-classification"},
@@ -430,6 +511,9 @@ bench::Json measure(const Options& options) {
       {"threads", options.threads},
       {"workers", options.workers},
       {"prefetch_batches", options.prefetch_batches},
+      {"source_mode", options.source_mode},
+      {"max_cached_bytes",
+       options.source_mode == "tensor-cache" ? options.max_cached_bytes : 0},
       {"device", options.device},
       {"batch_transfer", cuda ? "pin-and-nonblocking-transfer" : "none"},
       {"image_decode", "rgb-float32-normalized"},
@@ -452,9 +536,13 @@ bench::Json measure(const Options& options) {
            {{"completed_epochs", result.completed_epochs},
             {"global_step", result.global_step},
             {"observed_samples", observed_samples},
-            {"parameter_updated", true}}},
+            {"parameter_updated", true},
+            {"final_parameter_sha256", final_parameter_sha256}}},
           {"metrics",
            {{"fit_seconds", fit_seconds},
+            {"workload_seconds", workload_seconds},
+            {"source_preparation_seconds", source_preparation_seconds},
+            {"cached_source_bytes", cached_bytes},
             {"images_per_second", expected_samples / fit_seconds},
             {"epoch_seconds", fit_seconds / options.epochs},
             {"data_wait_seconds", seconds(pipeline->next_ns())},
@@ -462,17 +550,22 @@ bench::Json measure(const Options& options) {
             {"transform_seconds", seconds(stages.transform_ns.load())},
             {"collate_seconds", seconds(stages.collate_ns.load())},
             {"encode_seconds", seconds(stages.encode_ns.load())},
-            {"peak_rss_bytes", bench::peak_rss()},
+            {"peak_rss_bytes", peak_rss},
             {"peak_cuda_allocated_bytes", cuda_allocated},
             {"peak_cuda_reserved_bytes", cuda_reserved}}},
           {"measurement_scope",
-           {{"timer", "Trainer::fit only"},
+           {{"timer",
+             "fit excludes source preparation; workload includes "
+             "indexing, optional Tensor caching, setup and fit"},
+            {"cached_source_bytes",
+             "retained decoded Tensor payload, excluding allocator overhead"},
             {"data_wait",
              "DataPipeline::next consumer wall time, including result/schema "
              "processing; not isolated queue wait"},
             {"stage_times",
-             "sum of producer factory CPU wall intervals across workers; may "
-             "overlap and exceed fit time"},
+             "sum of producer factory CPU wall intervals across workers; "
+             "read_decode_seconds measures shared-handle access for "
+             "tensor-cache; intervals may overlap and exceed fit time"},
             {"rss", "process lifetime high-water mark, including setup"},
             {"cuda",
              "LibTorch allocator peak during Trainer::fit; excludes "

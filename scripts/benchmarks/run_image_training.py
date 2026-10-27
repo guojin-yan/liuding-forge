@@ -52,7 +52,8 @@ def git_output(source_root: Path, *args: str) -> str:
     ).strip()
 
 
-def run_sample(command: list[str], expected_model: str, expected_device: str) -> dict:
+def run_sample(command: list[str], expected_model: str, expected_device: str,
+               expected_source: str) -> dict:
     completed = subprocess.run(command, capture_output=True, text=True, check=True)
     result = json.loads(completed.stdout.strip())
     if result.get("kind") != "liuding-image-training-benchmark-sample":
@@ -63,13 +64,24 @@ def run_sample(command: list[str], expected_model: str, expected_device: str) ->
         raise ValueError("benchmark reported a different model than requested")
     if workload["device"] != expected_device or result["execution"]["device"] != expected_device:
         raise ValueError("benchmark reported a different device than requested")
+    if workload["source_mode"] != expected_source:
+        raise ValueError("benchmark reported a different source mode than requested")
     expected = workload["samples_per_epoch"] * workload["epochs"]
     if validation["observed_samples"] != expected or not validation["parameter_updated"]:
         raise ValueError("benchmark did not validate its training work")
     if validation["completed_epochs"] != workload["epochs"]:
         raise ValueError("benchmark did not complete all requested epochs")
+    if len(validation["final_parameter_sha256"]) != 64:
+        raise ValueError("missing final parameter digest")
     if result["metrics"]["peak_rss_bytes"]["status"] != "available":
         raise ValueError("peak process RSS is unavailable")
+    metrics = result["metrics"]
+    if not (metrics["workload_seconds"] >= metrics["fit_seconds"] > 0 and
+            metrics["source_preparation_seconds"] > 0):
+        raise ValueError("invalid workload/source timing")
+    if ((metrics["cached_source_bytes"] > 0) !=
+            (expected_source == "tensor-cache")):
+        raise ValueError("invalid Tensor cache accounting")
     for name in ("peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes"):
         status = result["metrics"][name]["status"]
         if status != ("available" if expected_device == "cuda:0" else "unavailable"):
@@ -89,11 +101,12 @@ def summary(samples: list[dict], name: str) -> dict:
 
 
 def summarize_values(values: list[float]) -> dict:
+    mean = statistics.mean(values)
     return {
         "median": statistics.median(values),
         "min": min(values),
         "max": max(values),
-        "coefficient_of_variation": statistics.stdev(values) / statistics.mean(values),
+        "coefficient_of_variation": statistics.stdev(values) / mean if mean else 0.0,
     }
 
 
@@ -110,6 +123,9 @@ def main() -> int:
     parser.add_argument("--prefetch-batches", type=int, default=2)
     parser.add_argument("--model", choices=("linear64", "resnet18"), default="linear64")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
+    parser.add_argument("--source-mode", choices=("image-folder", "tensor-cache"),
+                        default="image-folder")
+    parser.add_argument("--max-cached-bytes", type=int, default=512 << 20)
     args = parser.parse_args()
     source_root = Path(__file__).resolve().parents[2]
     binary = args.binary.resolve(strict=True)
@@ -125,6 +141,8 @@ def main() -> int:
         parser.error("batch size, image size, epochs and threads must be positive")
     if not 0 <= args.workers <= 16 or not 1 <= args.prefetch_batches <= 4:
         parser.error("workers must be 0..16 and prefetch batches must be 1..4")
+    if not 0 < args.max_cached_bytes <= 64 << 30:
+        parser.error("max cached bytes must be in 1..64 GiB")
     if args.model == "resnet18" and args.image_size < 64:
         parser.error("resnet18 requires image size >= 64")
 
@@ -135,13 +153,16 @@ def main() -> int:
         "--threads", str(args.threads), "--workers", str(args.workers),
         "--prefetch-batches", str(args.prefetch_batches), "--model", args.model,
         "--device", args.device,
+        "--source-mode", args.source_mode,
+        "--max-cached-bytes", str(args.max_cached_bytes),
     ]
     expected_model = (
         "resnet18-random-init" if args.model == "resnet18"
         else "flatten-linear64-relu-linear"
     )
-    warmup = run_sample(command, expected_model, args.device)
-    samples = [run_sample(command, expected_model, args.device) for _ in range(5)]
+    warmup = run_sample(command, expected_model, args.device, args.source_mode)
+    samples = [run_sample(command, expected_model, args.device, args.source_mode)
+               for _ in range(5)]
     final_sha256, final_count, final_bytes = dataset_digest(root)
     if (final_sha256, final_count, final_bytes) != (content_sha256, image_count, encoded_bytes):
         raise ValueError("dataset files changed during the benchmark run")
@@ -151,6 +172,10 @@ def main() -> int:
             sample["execution"]) != identity
            for sample in samples):
         raise ValueError("independent processes reported different workload/build identities")
+    if args.device == "cpu" and any(
+            sample["validation"]["final_parameter_sha256"] !=
+            warmup["validation"]["final_parameter_sha256"] for sample in samples):
+        raise ValueError("independent CPU processes produced different parameters")
     commit = git_output(source_root, "rev-parse", "HEAD")
     if not warmup["build_fingerprint"]["git_commit"].startswith(commit):
         raise ValueError("binary build fingerprint does not match current commit")
@@ -175,6 +200,9 @@ def main() -> int:
         "summary": {
             "images_per_second": summary(samples, "images_per_second"),
             "fit_seconds": summary(samples, "fit_seconds"),
+            "workload_seconds": summary(samples, "workload_seconds"),
+            "source_preparation_seconds": summary(samples, "source_preparation_seconds"),
+            "cached_source_bytes": summary(samples, "cached_source_bytes"),
             "epoch_seconds": summary(samples, "epoch_seconds"),
             "data_wait_seconds": summary(samples, "data_wait_seconds"),
             "peak_rss_bytes": summarize_values([
