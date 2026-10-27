@@ -27,6 +27,6 @@ v1 容器包含八字节 magic、小端版本号和 manifest 长度、规范化 
 
 ## 限额与只读检查
 
-`max_field_bytes` 限制单字段，`max_artifact_bytes` 包含全部 framing 和摘要；manifest parser 限额和 `min_free_storage_bytes` 分别约束元数据及写入后的剩余空间。字段快照仍驻留内存，读取时也会加载并验证整份制品，这些限额不构成进程 RSS 上限。截断、摘要不符、未知版本、缺少必需字段、锁冲突、空间不足和文件系统失败均返回结构化 foundation 错误。
+`max_field_bytes` 限制单字段，`max_artifact_bytes` 包含全部 framing 和摘要；manifest parser 限额和 `min_free_storage_bytes` 分别约束元数据及写入后的剩余空间。读取时整份制品驻留内存，字段直接引用同一份已验证快照，避免逐字段再复制。reader 和返回的字节视图有效至该对象下一次成功提交或销毁；回滚、提交失败及其他句柄修改路径均不改变已打开的快照。捕获时仍复制调用方输入，这些限额不构成进程 RSS 上限。截断、摘要不符、未知版本、缺少必需字段、锁冲突、空间不足和文件系统失败均返回结构化 foundation 错误。
 
 检查工具可设置 `FileStateArchiveOptions::read_only=true`：必须打开已存在的有效快照，禁止捕获，不创建目录、不获取 writer 锁，也不清理临时/锁文件。CLI 的 `checkpoint inspect/verify/diff` 使用此模式。对象不具备线程安全性，捕获时须暂停 participant 修改；独立读取使用不同句柄。

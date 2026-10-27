@@ -19,6 +19,7 @@
 #include <optional>
 #include <thread>
 #include <utility>
+#include <variant>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -182,9 +183,20 @@ class ByteReader final {
   std::size_t offset_ = 0;
 };
 
+// Captured fields own their bytes; loaded fields borrow the archive's immutable
+// file snapshot. Neither representation borrows the caller's write buffer.
+using StoredBlob =
+    std::variant<std::vector<std::byte>, std::span<const std::byte>>;
+
+std::span<const std::byte> blob_bytes(const StoredBlob& blob) {
+  return std::visit(
+      [](const auto& bytes) -> std::span<const std::byte> { return bytes; },
+      blob);
+}
+
 struct StoredParticipant {
   StateManifest manifest;
-  std::map<std::string, std::vector<std::byte>> blobs;
+  std::map<std::string, StoredBlob> blobs;
 };
 
 class FieldWriter final : public StateWriter {
@@ -240,10 +252,11 @@ class FieldReader final : public StateReader {
     const auto found = participant_.blobs.find(std::string(name));
     if (found == participant_.blobs.end())
       malformed("read.field", std::string(name));
-    if (found->second.size() > max_bytes) {
-      resource("read.field", max_bytes, found->second.size());
+    const auto bytes = blob_bytes(found->second);
+    if (bytes.size() > max_bytes) {
+      resource("read.field", max_bytes, bytes.size());
     }
-    return found->second;
+    return bytes;
   }
 
  private:
@@ -523,15 +536,15 @@ class FileStateArchive::Impl {
   }
 
   void load() {
-    const auto snapshot = read_snapshot(path_, options_.max_artifact_bytes);
-    if (!snapshot) {
+    snapshot_ = read_snapshot(path_, options_.max_artifact_bytes);
+    if (!snapshot_) {
       if (options_.read_only) {
         io_failure("read.open", path_,
                    std::make_error_code(std::errc::no_such_file_or_directory));
       }
       return;
     }
-    const auto& bytes = *snapshot;
+    const auto& bytes = *snapshot_;
     const auto payload =
         std::span<const std::byte>(bytes).first(bytes.size() - kDigestBytes);
     const auto expected = sha256(payload);
@@ -570,8 +583,7 @@ class FileStateArchive::Impl {
         const auto data = reader.take(blob.size_bytes);
         if (sha256_hex(data) != blob.digest.hex)
           malformed("read.blob.digest", blob.field_name);
-        participant.blobs.emplace(
-            blob.field_name, std::vector<std::byte>(data.begin(), data.end()));
+        participant.blobs.emplace(blob.field_name, data);
       }
       stored_.emplace(entry.state.participant_id, std::move(participant));
     }
@@ -586,7 +598,8 @@ class FileStateArchive::Impl {
     for (const auto& [id, participant] : staged_) {
       CheckpointParticipantEntry entry{.state = participant.manifest,
                                        .blobs = {}};
-      for (const auto& [name, bytes] : participant.blobs) {
+      for (const auto& [name, blob] : participant.blobs) {
+        const auto bytes = blob_bytes(blob);
         entry.blobs.push_back(
             {.field_name = name,
              .relative_path = "blobs/" + id + "/" + name + ".bin",
@@ -639,6 +652,8 @@ class FileStateArchive::Impl {
   std::filesystem::path path_;
   FileStateArchiveOptions options_;
   CheckpointArtifactManifest manifest_;
+  // Declared before the borrowing participants/readers so it outlives them.
+  std::optional<std::vector<std::byte>> snapshot_;
   std::map<std::string, StoredParticipant> stored_;
   std::map<std::string, std::unique_ptr<FieldReader>> readers_;
   std::map<std::string, StoredParticipant> staged_;
@@ -742,24 +757,29 @@ void FileStateArchive::commit() {
     // A late durability failure may leave the new complete file at the path.
     // Keep this object's old manifest/readers together until a successful
     // commit, just as an independently opened snapshot retains its generation.
-    publish(impl_->path_, header.artifact_bytes, impl_->options_,
-            [&](const auto& append) {
-              const auto payload = [&](std::span<const std::byte> bytes) {
-                append(bytes);
-                digest.update(bytes);
-              };
-              payload(header.bytes);
-              for (const auto& entry : manifest.participants) {
-                for (const auto& blob : entry.blobs)
-                  payload(impl_->staged_.at(entry.state.participant_id)
-                              .blobs.at(blob.field_name));
-              }
-              append(digest.finish());
-            });
+    publish(
+        impl_->path_, header.artifact_bytes, impl_->options_,
+        [&](const auto& append) {
+          const auto payload = [&](std::span<const std::byte> bytes) {
+            append(bytes);
+            digest.update(bytes);
+          };
+          payload(header.bytes);
+          for (const auto& entry : manifest.participants) {
+            for (const auto& blob : entry.blobs)
+              payload(blob_bytes(impl_->staged_.at(entry.state.participant_id)
+                                     .blobs.at(blob.field_name)));
+          }
+          append(digest.finish());
+        });
     impl_->stored_.swap(impl_->staged_);
     impl_->manifest_ = std::move(manifest);
     impl_->readers_.swap(readers);
+    readers.clear();
     rollback();
+    // Only a successful commit invalidates the old readers and their backing
+    // snapshot. A rollback or late publication failure must retain both.
+    impl_->snapshot_.reset();
   } catch (...) {
     rollback();
     throw;

@@ -202,6 +202,67 @@ TEST_F(FileStateArchiveTest, ExactArtifactLimitIncludesFramingAndTrailer) {
   }
 }
 
+TEST_F(FileStateArchiveTest, LoadedBlobsSurviveUntilSuccessfulReplacement) {
+  auto last = state();
+  last.participant_id = "z.state";
+  const std::vector<std::byte> original(32768U, std::byte{42});
+  const std::array optional{std::byte{0}, std::byte{255}, std::byte{7}};
+  const std::array replacement{std::byte{19}, std::byte{20}};
+  {
+    FileStateArchive destination(path_);
+    destination.begin({state(), last});
+    destination.writer_for("test.state").write_blob("payload", original);
+    destination.writer_for("test.state").write_blob("optional", optional);
+    destination.writer_for("z.state").write_blob("payload", {});
+    destination.commit();
+  }
+  FileStateArchive loaded(path_);
+  const auto& reader = loaded.reader_for("test.state");
+  const auto payload = reader.read_blob("payload", original.size());
+  const auto extra = reader.read_blob("optional", optional.size());
+  const auto verify_original = [&] {
+    EXPECT_EQ(&loaded.reader_for("test.state"), &reader);
+    EXPECT_EQ(reader.read_blob("payload", original.size()).data(),
+              payload.data());
+    EXPECT_TRUE(std::equal(payload.begin(), payload.end(), original.begin(),
+                           original.end()));
+    EXPECT_TRUE(std::equal(extra.begin(), extra.end(), optional.begin(),
+                           optional.end()));
+    EXPECT_TRUE(loaded.reader_for("z.state").contains("payload"));
+    EXPECT_TRUE(loaded.reader_for("z.state").read_blob("payload", 0U).empty());
+  };
+  verify_original();
+  loaded.begin({state()});
+  loaded.writer_for("test.state").write_blob("payload", replacement);
+  verify_original();
+  loaded.rollback();
+  verify_original();
+  loaded.begin({state()});
+  EXPECT_THROW(loaded.commit(), jyppx::liuding::SerializationError);
+  verify_original();
+  // An independent atomic publication, then an in-place file mutation, must
+  // not alter any bytes already exposed by this immutable snapshot.
+  save(replacement);
+  verify_original();
+  write_file(path_, replacement);
+  verify_original();
+  loaded.begin({state()});
+  loaded.writer_for("test.state").write_blob("payload", replacement);
+  loaded.commit();
+  // The old borrowed reader/spans are invalid now; acquire the new generation.
+  const auto current =
+      loaded.reader_for("test.state").read_blob("payload", replacement.size());
+  EXPECT_TRUE(std::equal(current.begin(), current.end(), replacement.begin(),
+                         replacement.end()));
+  EXPECT_THROW(loaded.reader_for("z.state"),
+               jyppx::liuding::SerializationError);
+  const FileStateArchive reopened(path_);
+  const auto published = reopened.reader_for("test.state")
+                             .read_blob("payload", replacement.size());
+  EXPECT_TRUE(std::equal(published.begin(), published.end(), current.begin(),
+                         current.end()));
+}
+
 TEST_F(FileStateArchiveTest, ReaderCannotCleanAnActiveWritersTemporaryFile) {
   const std::array<std::byte, 1> content{std::byte{42}};
   save(content);

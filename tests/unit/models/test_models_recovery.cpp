@@ -74,6 +74,7 @@ struct RecoveryCase {
   bool extended = false;
   std::uint64_t max_rss_bytes = 4ULL << 30U;
   std::int64_t max_cuda_allocated_bytes = 2LL << 30U;
+  bool high_capacity = false;
 };
 
 void PrintTo(const RecoveryCase &scenario, std::ostream *output) {
@@ -363,6 +364,15 @@ class DinoRecoveryTest : public ::testing::TestWithParam<RecoveryCase> {
 
 TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
   const auto scenario = GetParam();
+  if (scenario.high_capacity) {
+    const auto *gate =
+        std::getenv("JYPPX_LIUDING_DINO_HIGH_CAPACITY_RECOVERY_GATE");
+    if (gate == nullptr || std::string_view(gate) != "1") {
+      GTEST_SKIP()
+          << "Set JYPPX_LIUDING_DINO_HIGH_CAPACITY_RECOVERY_GATE=1 for "
+             "serial high-capacity durable training recovery";
+    }
+  }
   if (scenario.extended) {
     const auto *gate = std::getenv("JYPPX_LIUDING_DINO_EXTENDED_RECOVERY_GATE");
     if (gate == nullptr || std::string_view(gate) != "1") {
@@ -556,7 +566,11 @@ INSTANTIATE_TEST_SUITE_P(
                      4LL << 30U},
         RecoveryCase{"dinov3_vits16plus", 32, true, true},
         RecoveryCase{"dinov3_vitb16", 32, true, true, 6ULL << 30U, 4LL << 30U},
-        RecoveryCase{"dinov3_convnext_small", 32, true, true}),
+        RecoveryCase{"dinov3_convnext_small", 32, true, true},
+        RecoveryCase{"dinov3_convnext_base", 32, false, false, 6ULL << 30U,
+                     4LL << 30U, true},
+        RecoveryCase{"dinov3_convnext_base", 32, true, false, 6ULL << 30U,
+                     4LL << 30U, true}),
     [](const ::testing::TestParamInfo<RecoveryCase> &info) {
       return info.param.model + (info.param.cuda ? "_CudaAmp" : "_Cpu");
     });
