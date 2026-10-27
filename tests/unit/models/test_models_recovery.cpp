@@ -68,7 +68,13 @@ constexpr std::size_t kSamples = 3;
 
 struct InterruptedAfterSave final {};
 
-enum class RecoveryGate { standard, extended, high_capacity, large_capacity };
+enum class RecoveryGate {
+  standard,
+  extended,
+  high_capacity,
+  large_capacity,
+  vit_large_capacity
+};
 
 const char *GateVariable(RecoveryGate gate) {
   switch (gate) {
@@ -78,6 +84,8 @@ const char *GateVariable(RecoveryGate gate) {
       return "JYPPX_LIUDING_DINO_HIGH_CAPACITY_RECOVERY_GATE";
     case RecoveryGate::large_capacity:
       return "JYPPX_LIUDING_DINO_LARGE_RECOVERY_GATE";
+    case RecoveryGate::vit_large_capacity:
+      return "JYPPX_LIUDING_DINO_VIT_LARGE_RECOVERY_GATE";
     case RecoveryGate::standard:
       return nullptr;
   }
@@ -223,10 +231,11 @@ RecoveryDomain MakeDomain(const RecoveryCase &scenario,
       .max_epochs = kEpochs,
       .precision = scenario.cuda ? training::PrecisionMode::cuda_float16
                                  : training::PrecisionMode::full,
-      .checkpoint = {.max_rollback_bytes =
-                         scenario.gate == RecoveryGate::large_capacity
-                             ? 3ULL << 30U
-                             : 1ULL << 30U}});
+      .checkpoint = {
+          .max_rollback_bytes =
+              scenario.gate == RecoveryGate::vit_large_capacity ? 4ULL << 30U
+              : scenario.gate == RecoveryGate::large_capacity   ? 3ULL << 30U
+                                                              : 1ULL << 30U}});
   domain.trainer->prepare(
       {.model = domain.model,
        .optimizers =
@@ -588,7 +597,19 @@ INSTANTIATE_TEST_SUITE_P(
         RecoveryCase{"dinov3_convnext_large", 32, false,
                      RecoveryGate::large_capacity, 8ULL << 30U, 5LL << 30U},
         RecoveryCase{"dinov3_convnext_large", 32, true,
-                     RecoveryGate::large_capacity, 8ULL << 30U, 5LL << 30U}),
+                     RecoveryGate::large_capacity, 8ULL << 30U, 5LL << 30U},
+        RecoveryCase{"dinov3_vitl16", 32, false,
+                     RecoveryGate::vit_large_capacity, 12ULL << 30U,
+                     5LL << 30U},
+        RecoveryCase{"dinov3_vitl16", 32, true,
+                     RecoveryGate::vit_large_capacity, 12ULL << 30U,
+                     5LL << 30U},
+        RecoveryCase{"dinov3_vitl16plus", 32, false,
+                     RecoveryGate::vit_large_capacity, 12ULL << 30U,
+                     5LL << 30U},
+        RecoveryCase{"dinov3_vitl16plus", 32, true,
+                     RecoveryGate::vit_large_capacity, 12ULL << 30U,
+                     5LL << 30U}),
     [](const ::testing::TestParamInfo<RecoveryCase> &info) {
       return info.param.model + (info.param.cuda ? "_CudaAmp" : "_Cpu");
     });
