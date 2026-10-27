@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <iterator>
@@ -40,6 +41,9 @@
 #include <psapi.h>
 #elif defined(__linux__) || defined(__APPLE__)
 #include <sys/resource.h>
+#if defined(__linux__)
+#include <unistd.h>
+#endif
 #endif
 
 namespace {
@@ -60,6 +64,22 @@ std::uint64_t ProcessPeakRssBytes() {
     return static_cast<std::uint64_t>(usage.ru_maxrss) * 1024U;
 #endif
   }
+#endif
+  return 0U;
+}
+
+std::uint64_t ProcessCurrentRssBytes() {
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS counters{};
+  if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
+    return static_cast<std::uint64_t>(counters.WorkingSetSize);
+#elif defined(__linux__)
+  std::ifstream statm("/proc/self/statm");
+  std::uint64_t total_pages = 0U;
+  std::uint64_t resident_pages = 0U;
+  const auto page_size = sysconf(_SC_PAGESIZE);
+  if ((statm >> total_pages >> resident_pages) && page_size > 0)
+    return resident_pages * static_cast<std::uint64_t>(page_size);
 #endif
   return 0U;
 }
@@ -809,6 +829,164 @@ TEST(Models, DinoV2GiantCpuBackwardResourceGate) {
                                                                      start)
                    .count()
             << " process_peak_rss_bytes=" << peak << '\n';
+}
+
+void PrepareDinoV2GiantCudaResourceGate() {
+  torch::cuda::synchronize(0);
+#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+  c10::cuda::CUDACachingAllocator::emptyCache();
+  c10::cuda::CUDACachingAllocator::resetPeakStats(0);
+#endif
+}
+
+void CheckDinoV2GiantCudaResourceGate(
+    const char *operation, std::chrono::steady_clock::time_point start) {
+  torch::cuda::synchronize(0);
+  const auto end = std::chrono::steady_clock::now();
+  const auto peak_rss = ProcessPeakRssBytes();
+  const auto current_rss = ProcessCurrentRssBytes();
+  ASSERT_GT(peak_rss, 0U);
+  ASSERT_GT(current_rss, 0U);
+  EXPECT_LE(peak_rss, 8ULL << 30U);
+  EXPECT_LE(current_rss, 3ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=vit_giant_patch14_dinov2"
+            << " operation=" << operation << " elapsed_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(end -
+                                                                     start)
+                   .count()
+            << " process_peak_rss_bytes=" << peak_rss
+            << " process_current_rss_after_destroy_bytes=" << current_rss
+            << '\n';
+#ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
+  const auto stats_after_destroy =
+      c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  const auto peak_cuda = stats_after_destroy.allocated_bytes[0].peak;
+  const auto allocated_after_destroy =
+      stats_after_destroy.allocated_bytes[0].current;
+  const auto reserved_after_destroy =
+      stats_after_destroy.reserved_bytes[0].current;
+  ASSERT_GT(peak_cuda, 0);
+  EXPECT_LE(peak_cuda, 5LL << 30U);
+  EXPECT_LE(allocated_after_destroy, 32LL << 20U);
+  c10::cuda::CUDACachingAllocator::emptyCache();
+  const auto stats_after_empty_cache =
+      c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  const auto reserved_after_empty_cache =
+      stats_after_empty_cache.reserved_bytes[0].current;
+  EXPECT_LE(reserved_after_empty_cache, 64LL << 20U);
+  std::cout << "RESOURCE_METRICS model=vit_giant_patch14_dinov2"
+            << " operation=" << operation
+            << " peak_cuda_allocated_bytes=" << peak_cuda
+            << " cuda_allocated_after_destroy_bytes=" << allocated_after_destroy
+            << " cuda_reserved_after_destroy_bytes=" << reserved_after_destroy
+            << " cuda_reserved_after_empty_cache_bytes="
+            << reserved_after_empty_cache << '\n';
+#endif
+}
+
+TEST(ModelsCuda, DinoV2GiantCudaHalfStorageForwardResourceGate) {
+  const auto *enabled = std::getenv("JYPPX_LIUDING_DINOV2_GIANT_CUDA_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV2_GIANT_CUDA_GATE=1 for the serial "
+                    "1.136B-parameter CUDA FP16-storage forward resource gate";
+  }
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0)
+    GTEST_SKIP() << "CUDA device is unavailable";
+
+  torch::manual_seed(20261027);
+  PrepareDinoV2GiantCudaResourceGate();
+  const auto start = std::chrono::steady_clock::now();
+  {
+    const torch::Device device(torch::kCUDA, 0);
+    auto model = dinov2_vit_giant14(DinoV2Options{.num_classes = 3});
+    ASSERT_TRUE(model);
+    model->to(device, torch::kHalf);
+    model->eval();
+    const auto input =
+        torch::randn({1, 3, 14, 14},
+                     torch::TensorOptions().dtype(torch::kHalf).device(device));
+    torch::NoGradGuard no_grad;
+    {
+      jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CUDA,
+                                                         at::kHalf);
+      ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+      const auto features = model->forward_features(input);
+      const auto logits = model->forward(input);
+      EXPECT_EQ(features.sizes(), torch::IntArrayRef({1, 2, 1536}));
+      EXPECT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+      EXPECT_TRUE(features.device().is_cuda());
+      EXPECT_TRUE(logits.device().is_cuda());
+      EXPECT_TRUE(torch::isfinite(features).all().template item<bool>());
+      EXPECT_TRUE(torch::isfinite(logits).all().template item<bool>());
+    }
+    EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+  }
+  CheckDinoV2GiantCudaResourceGate("cuda-half-storage-forward", start);
+}
+
+TEST(ModelsCuda, DinoV2GiantCudaHalfStorageTrainingResourceGate) {
+  const auto *enabled =
+      std::getenv("JYPPX_LIUDING_DINOV2_GIANT_CUDA_TRAINING_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP()
+        << "Set JYPPX_LIUDING_DINOV2_GIANT_CUDA_TRAINING_GATE=1 for the "
+           "serial 1.136B-parameter CUDA FP16-storage backward and SGD gate";
+  }
+  if (!torch::cuda::is_available() || torch::cuda::device_count() == 0)
+    GTEST_SKIP() << "CUDA device is unavailable";
+
+  torch::manual_seed(20261027);
+  PrepareDinoV2GiantCudaResourceGate();
+  const auto start = std::chrono::steady_clock::now();
+  {
+    constexpr double loss_scale = 128.0;
+    const torch::Device device(torch::kCUDA, 0);
+    auto model = dinov2_vit_giant14(DinoV2Options{.num_classes = 3});
+    ASSERT_TRUE(model);
+    model->to(device, torch::kHalf);
+    model->train();
+    torch::optim::SGD optimizer(model->parameters(),
+                                torch::optim::SGDOptions(0.1 / loss_scale));
+    const auto named_before = model->named_parameters(true);
+    ASSERT_TRUE(named_before.contains("patch_embed.proj.weight"));
+    ASSERT_TRUE(named_before.contains("head.weight"));
+    const auto head_before = named_before["head.weight"].clone();
+    const auto input =
+        torch::randn({1, 3, 14, 14},
+                     torch::TensorOptions().dtype(torch::kHalf).device(device));
+
+    optimizer.zero_grad();
+    {
+      jyppx::liuding::training::amp::AutocastGuard guard(c10::DeviceType::CUDA,
+                                                         at::kHalf);
+      ASSERT_TRUE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+      const auto logits = model->forward(input);
+      ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+      EXPECT_EQ(logits.scalar_type(), torch::kHalf);
+      const auto loss = logits.to(torch::kFloat32).square().mean();
+      ASSERT_TRUE(torch::isfinite(loss).template item<bool>());
+      (loss * loss_scale).backward();
+    }
+    EXPECT_FALSE(at::autocast::is_autocast_enabled(c10::DeviceType::CUDA));
+
+    const auto named = model->named_parameters(true);
+    const auto patch_gradient = named["patch_embed.proj.weight"].grad();
+    const auto head_gradient = named["head.weight"].grad();
+    ASSERT_TRUE(patch_gradient.defined());
+    ASSERT_TRUE(head_gradient.defined());
+    EXPECT_EQ(patch_gradient.scalar_type(), torch::kHalf);
+    EXPECT_EQ(head_gradient.scalar_type(), torch::kHalf);
+    EXPECT_TRUE(torch::isfinite(patch_gradient).all().template item<bool>());
+    EXPECT_TRUE(torch::isfinite(head_gradient).all().template item<bool>());
+    EXPECT_GT(patch_gradient.abs().max().template item<double>(), 0.0);
+    EXPECT_GT(head_gradient.abs().max().template item<double>(), 0.0);
+    optimizer.step();
+    const auto head_after = model->named_parameters(true)["head.weight"];
+    EXPECT_GT(
+        torch::abs(head_after - head_before).sum().template item<double>(),
+        0.0);
+  }
+  CheckDinoV2GiantCudaResourceGate("cuda-half-storage-backward-sgd", start);
 }
 
 TEST(ModelsCuda, DinoV2SmallForwardUsesCudaWhenAvailable) {
