@@ -184,13 +184,20 @@ int main() {
   const auto image =
       jyppx::liuding::data::image::decode_image(std::as_bytes(std::span(pgm)));
   jyppx::liuding::data::image::validate_pixels(image.tensor, image.pixels);
+  auto tensor_record = jyppx::liuding::data::image::TensorImageRecord{
+      image.tensor, image.pixels, "installed-tensor", {}};
+  tensor_record.paired_target = image.tensor;
+  tensor_record.paired_target_pixels = image.pixels;
+  tensor_record.target_id = "installed-paired";
   const jyppx::liuding::data::image::TensorImageDataset tensor_source(
-      {jyppx::liuding::data::image::TensorImageRecord{
-          image.tensor, image.pixels, "installed-tensor", {}}});
+      {std::move(tensor_record)});
   const auto tensor_sample = tensor_source.get(0);
   if (tensor_sample.image.data_ptr() != image.tensor.data_ptr() ||
       tensor_sample.image_path != "installed-tensor" ||
-      tensor_sample.width != 1 || tensor_sample.height != 1)
+      tensor_sample.width != 1 || tensor_sample.height != 1 ||
+      !tensor_sample.paired_target ||
+      tensor_sample.paired_target->data_ptr() != image.tensor.data_ptr() ||
+      tensor_sample.target_path != "installed-paired")
     return 1;
   const auto encoded =
       jyppx::liuding::data::image::encode_image(image.tensor, image.pixels);

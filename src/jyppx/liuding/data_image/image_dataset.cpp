@@ -89,6 +89,20 @@ void CheckTensorStop(std::stop_token stop) {
                                  .operation = "sample.cancel"});
 }
 
+void CheckTensorId(std::string_view id, std::size_t maximum,
+                   std::string_view operation) {
+  if (id.empty() || !detail::Utf8(id))
+    TensorInvalid(operation, "a non-empty UTF-8 ID without NUL");
+  if (id.size() > maximum) TensorLimit(operation);
+}
+
+void ChargeTensorBytes(std::uint64_t pixels, std::uint64_t bytes_per_pixel,
+                       std::uint64_t maximum, std::uint64_t& charged) {
+  if (pixels > (maximum - charged) / bytes_per_pixel)
+    TensorLimit("source.sample_bytes");
+  charged += pixels * bytes_per_pixel;
+}
+
 std::string FoldAscii(std::string_view text) {
   std::string result(text);
   for (char& character : result) {
@@ -422,10 +436,7 @@ TensorImageDataset::TensorImageDataset(std::vector<TensorImageRecord> records,
   if (records_.size() > limits.max_records) TensorLimit("source.records");
 
   for (const auto& record : records_) {
-    if (record.id.empty() || record.id.find('\0') != std::string::npos ||
-        !detail::Utf8(record.id))
-      TensorInvalid("source.id", "a non-empty UTF-8 source ID without NUL");
-    if (record.id.size() > limits.max_id_bytes) TensorLimit("source.id_bytes");
+    CheckTensorId(record.id, limits.max_id_bytes, "source.id");
     if (record.labels.size() > limits.max_labels_per_sample)
       TensorLimit("source.labels");
     validate_pixels(record.image, record.pixels);
@@ -440,11 +451,53 @@ TensorImageDataset::TensorImageDataset(std::vector<TensorImageRecord> records,
     const auto pixels =
         static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height);
     if (pixels > limits.max_pixels) TensorLimit("source.pixels");
-    const auto bytes_per_pixel =
-        static_cast<std::uint64_t>(record.pixels.channels()) *
-        record.image.element_size();
-    if (pixels > limits.max_sample_bytes / bytes_per_pixel)
-      TensorLimit("source.sample_bytes");
+    std::uint64_t charged = 0;
+    ChargeTensorBytes(pixels,
+                      static_cast<std::uint64_t>(record.pixels.channels()) *
+                          record.image.element_size(),
+                      limits.max_sample_bytes, charged);
+    const bool paired = record.paired_target.has_value();
+    const bool masked = record.mask_target.has_value();
+    if (paired && masked)
+      TensorInvalid("source.targets", "one paired image or one discrete mask");
+    if (paired != record.paired_target_pixels.has_value() ||
+        (paired || masked) != record.target_id.has_value())
+      TensorInvalid("source.target_metadata",
+                    "a matching PixelSpec and explicit target ID");
+    if (record.target_id)
+      CheckTensorId(*record.target_id, limits.max_id_bytes, "source.target_id");
+    if (paired) {
+      validate_pixels(*record.paired_target, *record.paired_target_pixels);
+      if (record.paired_target->requires_grad() ||
+          record.paired_target->device() != record.image.device())
+        TensorInvalid("source.paired_device",
+                      "same-device paired pixels without autograd history");
+      const auto pair_height = record.paired_target->size(
+          record.paired_target_pixels->layout == ImageLayout::chw ? 1 : 0);
+      const auto pair_width = record.paired_target->size(
+          record.paired_target_pixels->layout == ImageLayout::chw ? 2 : 1);
+      if (pair_width != width || pair_height != height)
+        TensorInvalid("source.paired_dimensions",
+                      "paired pixels aligned to the source image");
+      ChargeTensorBytes(
+          pixels,
+          static_cast<std::uint64_t>(record.paired_target_pixels->channels()) *
+              record.paired_target->element_size(),
+          limits.max_sample_bytes, charged);
+    }
+    if (masked) {
+      const auto& mask = *record.mask_target;
+      if (mask.encoding != MaskEncoding::class_index || !mask.palette.empty() ||
+          !mask.ids.defined() || !mask.ids.device().is_cpu() ||
+          mask.ids.scalar_type() != torch::kInt64 ||
+          mask.ids.layout() != torch::kStrided || mask.ids.dim() != 2 ||
+          mask.ids.requires_grad() || mask.ids.size(0) != height ||
+          mask.ids.size(1) != width || mask.width != width ||
+          mask.height != height)
+        TensorInvalid("source.mask", "aligned CPU int64 class-index labels");
+      ChargeTensorBytes(pixels, sizeof(std::int64_t), limits.max_sample_bytes,
+                        charged);
+    }
     for (const auto label : record.labels)
       if (label >= categories_->size())
         TensorInvalid("source.label", "indices into the category map");
@@ -469,6 +522,10 @@ VisionSample TensorImageDataset::get(std::size_t index,
   sample.height = static_cast<std::uint32_t>(
       record.image.size(record.pixels.layout == ImageLayout::chw ? 1 : 0));
   sample.pixels = record.pixels;
+  sample.paired_target = record.paired_target;
+  sample.paired_target_pixels = record.paired_target_pixels;
+  sample.mask_target = record.mask_target;
+  sample.target_path = record.target_id;
   sample.geometry.emplace(ImageExtent{sample.width, sample.height});
   sample.label_categories = categories_;
   CheckTensorStop(stop);

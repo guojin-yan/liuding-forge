@@ -77,8 +77,8 @@ struct MaskDecodeOptions {
 struct DecodedMask {
   std::shared_ptr<ImageResourceLeaseSet> resource_leases;
   ///< Holds decoded storage and pixel reservations while labels are retained.
-  Tensor ids;  ///< Contiguous, owning int64 [H,W]; never normalized or
-               ///< color-scaled.
+  Tensor ids;  ///< Decoded output is contiguous and owning; Tensor sources may
+               ///< share strided int64 [H,W] storage without normalization.
   MaskEncoding encoding = MaskEncoding::class_index;  ///< Interpretation used.
   std::uint32_t width = 0;  ///< Current canvas width; PNG width when decoded.
   std::uint32_t height =

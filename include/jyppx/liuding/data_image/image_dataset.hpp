@@ -184,6 +184,10 @@ struct TensorImageRecord {
   PixelSpec pixels;  ///< Layout, dtype, color and value range; never inferred.
   std::string id;    ///< Stable source ID, not a filesystem path.
   std::vector<std::size_t> labels;  ///< Indices into the dataset category map.
+  std::optional<Tensor> paired_target;  ///< Same-device paired image storage.
+  std::optional<PixelSpec> paired_target_pixels;  ///< Independent semantics.
+  std::optional<DecodedMask> mask_target;  ///< Shared CPU int64 class IDs.
+  std::optional<std::string> target_id;    ///< Required for either target kind.
 };
 
 /** @brief Limits checked against each caller-owned Tensor before publication.
@@ -192,7 +196,7 @@ struct TensorImageDatasetLimits {
   std::size_t max_records = 1'000'000;
   std::uint32_t max_dimension = 65'536;
   std::uint64_t max_pixels = 268'435'456;
-  std::uint64_t max_sample_bytes = 1ULL << 30U;
+  std::uint64_t max_sample_bytes = 1ULL << 30U;  ///< All logical pixel fields.
   std::size_t max_id_bytes = 4096;
   std::size_t max_labels_per_sample = 4096;
 };
@@ -202,7 +206,9 @@ struct TensorImageDatasetLimits {
  *
  * The dataset retains Tensor handles and returns shared handles without
  * decoding, copying or transferring pixels. The caller must not mutate the
- * backing storage while the dataset or returned samples are in use. Views may
+ * backing storage while the dataset or returned samples are in use. A record
+ * may carry one same-device paired image or one CPU int64 class-index mask;
+ * both require an explicit target ID and exact spatial alignment. Views may
  * retain storage larger than their logical payload. Existing source storage is
  * caller-owned and is not charged to ImageResourceBudget; downstream transforms
  * and collation account for their own new allocations.

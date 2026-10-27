@@ -7,6 +7,7 @@
 
 #include <jyppx/liuding/data_image/image_batch.hpp>
 #include <jyppx/liuding/data_image/image_dataset.hpp>
+#include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <array>
@@ -168,6 +169,147 @@ TEST(TensorImageDatasetTest, ChecksIndexAndCancellationBeforePublication) {
                jyppx::liuding::Cancelled);
 }
 
+TEST(TensorImageDatasetTest, SharesPairedPixelsThroughCollationAndGeometry) {
+  const auto photo = torch::zeros({3, 2, 3}, torch::kUInt8);
+  const auto paired = torch::arange(6, torch::kFloat32).reshape({2, 3, 1}) / 5;
+  PixelSpec paired_spec;
+  paired_spec.dtype = torch::kFloat32;
+  paired_spec.layout = ImageLayout::hwc;
+  paired_spec.color = PixelColorModel::gray;
+  paired_spec.range = PixelValueRange::unit_interval;
+  TensorImageRecord record{photo, PixelSpec{}, "source", {}};
+  record.paired_target = paired;
+  record.paired_target_pixels = paired_spec;
+  record.target_id = "target";
+  TensorImageDataset dataset({record});
+
+  const auto sample = dataset.get(0);
+  ASSERT_TRUE(sample.paired_target);
+  EXPECT_EQ(sample.paired_target->data_ptr(), paired.data_ptr());
+  EXPECT_EQ(sample.target_path, "target");
+  const std::array samples{sample};
+  const std::array keys{ImageBatchKey{"source", 0, 0}};
+  const auto batch = collate_images(samples, keys);
+  ASSERT_TRUE(batch.paired_images);
+  EXPECT_EQ(batch.items[0].target_path, "target");
+  EXPECT_FLOAT_EQ((*batch.paired_images)[0][0][0][2].item<float>(), 0.4f);
+
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::horizontal_flip}};
+  const auto flipped = transform_sample(sample, steps);
+  ASSERT_TRUE(flipped.paired_target);
+  EXPECT_FLOAT_EQ((*flipped.paired_target)[0][0][0].item<float>(), 0.4f);
+  EXPECT_EQ(sample.paired_target->data_ptr(), paired.data_ptr());
+}
+
+TEST(TensorImageDatasetTest, KeepsLargeDiscreteIdsThroughCpuTransform) {
+  constexpr std::int64_t large_id = 9007199254740993LL;
+  const auto photo = torch::zeros({3, 2, 3}, torch::kUInt8);
+  const auto ids = torch::full({3, 2}, large_id, torch::kInt64).transpose(0, 1);
+  ids[0][0] = -9;
+  ASSERT_FALSE(ids.is_contiguous());
+  DecodedMask mask;
+  mask.ids = ids;
+  mask.width = 3;
+  mask.height = 2;
+  mask.ignore_id = -9;
+  TensorImageRecord record{photo, PixelSpec{}, "photo", {}};
+  record.mask_target = mask;
+  record.target_id = "labels";
+  TensorImageDataset dataset({record});
+
+  const auto sample = dataset.get(0);
+  ASSERT_TRUE(sample.mask_target);
+  EXPECT_EQ(sample.mask_target->ids.data_ptr(), ids.data_ptr());
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::horizontal_flip}};
+  const auto flipped = transform_sample(sample, steps);
+  ASSERT_TRUE(flipped.mask_target);
+  EXPECT_EQ(flipped.mask_target->ids[0][2].item<std::int64_t>(), -9);
+  EXPECT_EQ(flipped.mask_target->ids[1][0].item<std::int64_t>(), large_id);
+  const std::array samples{sample};
+  const std::array keys{ImageBatchKey{"photo", 0, 0}};
+  const auto batch = collate_images(samples, keys);
+  ASSERT_TRUE(batch.masks);
+  EXPECT_EQ((*batch.masks)[0][0][1].item<std::int64_t>(), large_id);
+}
+
+TEST(TensorImageDatasetTest, RetainsTargetsAfterDatasetDestruction) {
+  VisionSample paired_sample;
+  VisionSample mask_sample;
+  {
+    TensorImageRecord paired{
+        torch::zeros({3, 1, 2}, torch::kUInt8), PixelSpec{}, "photo", {}};
+    paired.paired_target = torch::full({3, 1, 2}, 7, torch::kUInt8);
+    paired.paired_target_pixels = PixelSpec{};
+    paired.target_id = "paired";
+
+    DecodedMask mask;
+    mask.ids = torch::full({1, 2}, 9007199254740993LL, torch::kInt64);
+    mask.width = 2;
+    mask.height = 1;
+    TensorImageRecord labeled{
+        torch::zeros({3, 1, 2}, torch::kUInt8), PixelSpec{}, "labels", {}};
+    labeled.mask_target = std::move(mask);
+    labeled.target_id = "mask";
+
+    TensorImageDataset dataset({std::move(paired), std::move(labeled)});
+    paired_sample = dataset.get(0);
+    mask_sample = dataset.get(1);
+  }
+  ASSERT_TRUE(paired_sample.paired_target);
+  EXPECT_EQ(paired_sample.paired_target->index({0, 0, 0}).item<std::uint8_t>(),
+            7U);
+  EXPECT_EQ(paired_sample.target_path, "paired");
+  ASSERT_TRUE(mask_sample.mask_target);
+  EXPECT_EQ(mask_sample.mask_target->ids[0][1].item<std::int64_t>(),
+            9007199254740993LL);
+  EXPECT_EQ(mask_sample.target_path, "mask");
+}
+
+TEST(TensorImageDatasetTest, RejectsMisalignedOrAmbiguousTargets) {
+  const auto photo = torch::zeros({3, 2, 3}, torch::kUInt8);
+  const auto pair = torch::zeros({3, 2, 3}, torch::kUInt8);
+  TensorImageRecord record{photo, PixelSpec{}, "photo", {}};
+  record.paired_target = pair;
+  EXPECT_THROW(TensorImageDataset({record}), jyppx::liuding::InvalidArgument);
+  record.paired_target_pixels = PixelSpec{};
+  record.target_id = "pair";
+  EXPECT_NO_THROW(TensorImageDataset({record}));
+  record.paired_target = torch::zeros({3, 3, 2}, torch::kUInt8);
+  EXPECT_THROW(TensorImageDataset({record}), jyppx::liuding::InvalidArgument);
+  record.paired_target = pair;
+  DecodedMask mask;
+  mask.ids = torch::zeros({2, 3}, torch::kInt64);
+  mask.width = 3;
+  mask.height = 2;
+  record.mask_target = mask;
+  EXPECT_THROW(TensorImageDataset({record}), jyppx::liuding::InvalidArgument);
+  record.paired_target.reset();
+  record.paired_target_pixels.reset();
+  EXPECT_NO_THROW(TensorImageDataset({record}));
+  record.mask_target->ids = torch::zeros({2, 3}, torch::kFloat32);
+  EXPECT_THROW(TensorImageDataset({record}), jyppx::liuding::InvalidArgument);
+  record.mask_target->ids = torch::zeros({2, 3}, torch::kInt64);
+  record.mask_target->width = 2;
+  EXPECT_THROW(TensorImageDataset({record}), jyppx::liuding::InvalidArgument);
+  record.mask_target->width = 3;
+  auto limits = TensorImageDatasetLimits{};
+  limits.max_sample_bytes = 65;
+  EXPECT_THROW(TensorImageDataset({record}, {}, limits),
+               jyppx::liuding::ResourceExhausted);
+  limits.max_sample_bytes = 66;
+  EXPECT_NO_THROW(TensorImageDataset({record}, {}, limits));
+  record.mask_target.reset();
+  record.paired_target = pair;
+  record.paired_target_pixels = PixelSpec{};
+  limits.max_sample_bytes = 35;
+  EXPECT_THROW(TensorImageDataset({record}, {}, limits),
+               jyppx::liuding::ResourceExhausted);
+  limits.max_sample_bytes = 36;
+  EXPECT_NO_THROW(TensorImageDataset({record}, {}, limits));
+}
+
 TEST(TensorImageDatasetTest, RetainsCudaStorageWithoutDeviceTransfer) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA is unavailable";
   const auto image = torch::zeros({3, 2, 3}, torch::kUInt8).to(torch::kCUDA);
@@ -178,6 +320,23 @@ TEST(TensorImageDatasetTest, RetainsCudaStorageWithoutDeviceTransfer) {
   EXPECT_EQ(sample.image.data_ptr(), image.data_ptr());
   EXPECT_EQ(sample.width, 3U);
   EXPECT_EQ(sample.height, 2U);
+}
+
+TEST(TensorImageDatasetTest, RequiresSameDeviceForCudaPairedPixels) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA is unavailable";
+  const auto cpu = torch::zeros({3, 2, 3}, torch::kUInt8);
+  const auto cuda = cpu.to(torch::kCUDA);
+  TensorImageRecord record{cuda, PixelSpec{}, "cuda:photo", {}};
+  record.paired_target = cpu;
+  record.paired_target_pixels = PixelSpec{};
+  record.target_id = "cuda:paired";
+  EXPECT_THROW(TensorImageDataset({record}), jyppx::liuding::InvalidArgument);
+  record.paired_target = cuda.clone();
+  TensorImageDataset dataset({record});
+  const auto sample = dataset.get(0);
+  ASSERT_TRUE(sample.paired_target);
+  EXPECT_TRUE(sample.paired_target->is_cuda());
+  EXPECT_EQ(sample.paired_target->data_ptr(), record.paired_target->data_ptr());
 }
 
 TEST(ImageDatasetTest, LazilyDecodesManifestRowsIntoVisionSamples) {

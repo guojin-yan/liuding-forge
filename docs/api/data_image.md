@@ -24,7 +24,7 @@ image::validate_pixels(decoded.tensor, decoded.pixels);
 
 ### 已解码 Tensor 输入
 
-已有 CPU/CUDA 图像 Tensor 可交给 `TensorImageDataset`，按每个样本显式提供 `PixelSpec`、稳定来源 ID 和可选分类标签。构造时校验 dtype、CHW/HWC 形状、颜色、范围、设备及单样本逻辑尺寸上限；`get` 只共享 Tensor 句柄，保留非连续步幅，不解码、不复制像素，也不隐式传输设备。返回的样本在数据集析构后仍持有存储。调用方在数据集和样本使用期间不得原位修改共享像素；需要隔离时应在传入前自行复制。
+已有 CPU/CUDA 图像 Tensor 可交给 `TensorImageDataset`，按每个样本显式提供 `PixelSpec`、稳定来源 ID 和可选分类标签。每条记录还可携带一张同设备、同空间尺寸的配对照片，或一张 CPU int64 `[H,W]` 的 `class_index` 离散 mask；二者互斥，且都必须提供目标 ID。配对照片使用独立的 `PixelSpec`；mask 的 ignore/void ID 作为显式元数据保留。构造时校验 dtype、CHW/HWC 形状、颜色、范围、设备、目标对齐及照片与目标合计的单样本逻辑字节上限；不扫描像素值。`get` 只共享 Tensor 句柄，保留非连续步幅，不解码、不复制像素，也不隐式传输设备。返回的样本在数据集析构后仍持有存储。调用方在数据集和样本使用期间不得原位修改共享像素或标签；需要隔离时应在传入前自行复制。
 
 ```cpp
 #include <jyppx/liuding/data_image/image_dataset.hpp>
@@ -38,7 +38,9 @@ image::TensorImageDataset dataset(
 auto sample = dataset.get(0);
 ```
 
-已有 Tensor 的存储由调用方提供，不重复计入图像流水线的新分配预算；单样本字节上限约束逻辑像素量，非连续 view 可能保留更大的底层存储。后续变换和组批产生的新分配仍按各自预算处理。当前 `collate_images` 只接受 CPU 样本；CUDA Tensor source 可用于显式 CUDA 消费路径，不能直接据此推断整条 CUDA 组批链已支持。
+已有配对 Tensor 可通过 `TensorImageRecord::paired_target`、`paired_target_pixels` 和 `target_id` 传入；离散标签则通过 `mask_target` 和 `target_id` 传入。CPU 样本可以接现有联合几何和组批入口；联合几何对 int64 标签使用整数最近邻路径，保持大 ID 无损。当前 Tensor mask 入口只接受 CPU `class_index`，不从该入口推导 palette/RGB/panoptic 来源解释。CUDA 照片与配对照片可以被 source 保留，但当前 CPU 联合几何和组批入口不直接接受 CUDA Tensor。
+
+已有 Tensor 的存储由调用方提供，不重复计入图像流水线的新分配预算；单样本字节上限约束照片与目标的逻辑像素量，非连续 view 可能保留更大的底层存储。后续变换和组批产生的新分配仍按各自预算处理。
 
 ## 离散 mask
 
