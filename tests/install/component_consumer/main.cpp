@@ -21,6 +21,7 @@
 #include <jyppx/liuding/data_image/batch_identity.hpp>
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
+#include <jyppx/liuding/data_image/image_dataset.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/image_encoder.hpp>
 #include <jyppx/liuding/data_image/image_output_sink.hpp>
@@ -183,6 +184,14 @@ int main() {
   const auto image =
       jyppx::liuding::data::image::decode_image(std::as_bytes(std::span(pgm)));
   jyppx::liuding::data::image::validate_pixels(image.tensor, image.pixels);
+  const jyppx::liuding::data::image::TensorImageDataset tensor_source(
+      {jyppx::liuding::data::image::TensorImageRecord{
+          image.tensor, image.pixels, "installed-tensor", {}}});
+  const auto tensor_sample = tensor_source.get(0);
+  if (tensor_sample.image.data_ptr() != image.tensor.data_ptr() ||
+      tensor_sample.image_path != "installed-tensor" ||
+      tensor_sample.width != 1 || tensor_sample.height != 1)
+    return 1;
   const auto encoded =
       jyppx::liuding::data::image::encode_image(image.tensor, image.pixels);
   const auto trace = jyppx::liuding::data::image::GeometryTrace({20, 10})

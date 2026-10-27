@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "annotation_detail.hpp"
 #include "panoptic_detail.hpp"
 
 #include <jyppx/liuding/data_image/image_dataset.hpp>
@@ -65,6 +66,27 @@ constexpr std::string_view kComponent = "data.image.dataset";
 
 void CheckStop(std::stop_token stop) {
   if (stop.stop_requested()) Cancel();
+}
+
+[[noreturn]] void TensorInvalid(std::string_view operation,
+                                std::string_view expected) {
+  throw InvalidArgument("Invalid Tensor image source",
+                        ErrorDetails{.component = "data.image.tensor_dataset",
+                                     .operation = std::string(operation),
+                                     .expected = std::string(expected)});
+}
+
+[[noreturn]] void TensorLimit(std::string_view operation) {
+  throw ResourceExhausted("Tensor image source limit exceeded",
+                          ErrorDetails{.component = "data.image.tensor_dataset",
+                                       .operation = std::string(operation)});
+}
+
+void CheckTensorStop(std::stop_token stop) {
+  if (stop.stop_requested())
+    throw Cancelled("Tensor image source read cancelled",
+                    ErrorDetails{.component = "data.image.tensor_dataset",
+                                 .operation = "sample.cancel"});
 }
 
 std::string FoldAscii(std::string_view text) {
@@ -386,5 +408,73 @@ VisionSample ImageDataset::get(std::size_t index, std::stop_token stop) const {
 std::size_t ImageDataset::size() const { return index_.records().size(); }
 
 const ManifestIndex& ImageDataset::index() const noexcept { return index_; }
+
+TensorImageDataset::TensorImageDataset(std::vector<TensorImageRecord> records,
+                                       std::vector<VisionCategory> categories,
+                                       TensorImageDatasetLimits limits)
+    : records_(std::move(records)),
+      categories_(std::make_shared<const std::vector<VisionCategory>>(
+          std::move(categories))) {
+  if (!limits.max_records || !limits.max_dimension || !limits.max_pixels ||
+      !limits.max_sample_bytes || !limits.max_id_bytes ||
+      !limits.max_labels_per_sample)
+    TensorInvalid("source.limits", "positive source and image limits");
+  if (records_.size() > limits.max_records) TensorLimit("source.records");
+
+  for (const auto& record : records_) {
+    if (record.id.empty() || record.id.find('\0') != std::string::npos ||
+        !detail::Utf8(record.id))
+      TensorInvalid("source.id", "a non-empty UTF-8 source ID without NUL");
+    if (record.id.size() > limits.max_id_bytes) TensorLimit("source.id_bytes");
+    if (record.labels.size() > limits.max_labels_per_sample)
+      TensorLimit("source.labels");
+    validate_pixels(record.image, record.pixels);
+    if (record.image.requires_grad())
+      TensorInvalid("source.autograd", "image input without autograd history");
+    const auto width =
+        record.image.size(record.pixels.layout == ImageLayout::chw ? 2 : 1);
+    const auto height =
+        record.image.size(record.pixels.layout == ImageLayout::chw ? 1 : 0);
+    if (width > limits.max_dimension || height > limits.max_dimension)
+      TensorLimit("source.dimension");
+    const auto pixels =
+        static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height);
+    if (pixels > limits.max_pixels) TensorLimit("source.pixels");
+    const auto bytes_per_pixel =
+        static_cast<std::uint64_t>(record.pixels.channels()) *
+        record.image.element_size();
+    if (pixels > limits.max_sample_bytes / bytes_per_pixel)
+      TensorLimit("source.sample_bytes");
+    for (const auto label : record.labels)
+      if (label >= categories_->size())
+        TensorInvalid("source.label", "indices into the category map");
+  }
+}
+
+VisionSample TensorImageDataset::get(std::size_t index) const {
+  return get(index, {});
+}
+
+VisionSample TensorImageDataset::get(std::size_t index,
+                                     std::stop_token stop) const {
+  if (index >= records_.size()) TensorInvalid("sample.index", "index < size");
+  CheckTensorStop(stop);
+  const auto& record = records_[index];
+  VisionSample sample;
+  sample.image = record.image;
+  sample.labels = record.labels;
+  sample.image_path = record.id;
+  sample.width = static_cast<std::uint32_t>(
+      record.image.size(record.pixels.layout == ImageLayout::chw ? 2 : 1));
+  sample.height = static_cast<std::uint32_t>(
+      record.image.size(record.pixels.layout == ImageLayout::chw ? 1 : 0));
+  sample.pixels = record.pixels;
+  sample.geometry.emplace(ImageExtent{sample.width, sample.height});
+  sample.label_categories = categories_;
+  CheckTensorStop(stop);
+  return sample;
+}
+
+std::size_t TensorImageDataset::size() const { return records_.size(); }
 
 }  // namespace jyppx::liuding::data::image

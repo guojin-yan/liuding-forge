@@ -92,6 +92,94 @@ ManifestIndex ClassificationIndex(std::string_view document) {
                         ManifestTask::classification, ClassificationOptions());
 }
 
+TEST(TensorImageDatasetTest, SharesNoncontiguousCpuStorageAndSurvivesDataset) {
+  const auto hwc = torch::ones({2, 3, 3}, torch::kUInt8);
+  const auto chw = hwc.permute({2, 0, 1});
+  ASSERT_FALSE(chw.is_contiguous());
+  VisionSample retained;
+  {
+    TensorImageDataset dataset(
+        {TensorImageRecord{chw, PixelSpec{}, "memory:sample-0", {0}}},
+        {{41, "cat"}});
+    EXPECT_EQ(dataset.size(), 1U);
+    const auto sample = dataset.get(0);
+    EXPECT_EQ(sample.image.data_ptr(), chw.data_ptr());
+    EXPECT_EQ(sample.image_path, "memory:sample-0");
+    EXPECT_EQ(sample.width, 3U);
+    EXPECT_EQ(sample.height, 2U);
+    EXPECT_FALSE(sample.image_resource_leases);
+    ASSERT_TRUE(sample.geometry);
+    EXPECT_EQ(sample.geometry->source_extent().width, 3U);
+    ASSERT_TRUE(sample.label_categories);
+    EXPECT_EQ(sample.label_categories->at(0).name, "cat");
+    const jyppx::liuding::data::Dataset<VisionSample>& source = dataset;
+    const auto repeated = source.get_batch({0, 0});
+    ASSERT_EQ(repeated.size(), 2U);
+    EXPECT_EQ(repeated[0].image.data_ptr(), repeated[1].image.data_ptr());
+    const std::array keys{ImageBatchKey{"memory:sample-0", 0, 0},
+                          ImageBatchKey{"memory:sample-0", 1, 0}};
+    const auto batch = collate_images(repeated, keys);
+    EXPECT_EQ(batch.images.size(0), 2);
+    EXPECT_EQ(batch.items[0].image_path, "memory:sample-0");
+    retained = sample;
+  }
+  EXPECT_EQ(retained.image.data_ptr(), chw.data_ptr());
+  EXPECT_EQ(retained.image[0][0][0].item<std::uint8_t>(), 1U);
+}
+
+TEST(TensorImageDatasetTest, RejectsInvalidMetadataAndLogicalLimits) {
+  const auto image = torch::zeros({3, 2, 3}, torch::kUInt8);
+  const auto record = TensorImageRecord{image, PixelSpec{}, "sample", {0}};
+  EXPECT_THROW(TensorImageDataset({record}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(
+      TensorImageDataset({TensorImageRecord{image, PixelSpec{}, "", {}}}),
+      jyppx::liuding::InvalidArgument);
+  auto wrong_dtype = record;
+  wrong_dtype.pixels.dtype = torch::kFloat32;
+  EXPECT_THROW(TensorImageDataset({wrong_dtype}, {{41, "cat"}}),
+               jyppx::liuding::InvalidArgument);
+  auto wrong_channels = record;
+  wrong_channels.pixels.color = PixelColorModel::gray;
+  EXPECT_THROW(TensorImageDataset({wrong_channels}, {{41, "cat"}}),
+               jyppx::liuding::InvalidArgument);
+  auto limits = TensorImageDatasetLimits{};
+  limits.max_dimension = 2;
+  EXPECT_THROW(TensorImageDataset({record}, {{41, "cat"}}, limits),
+               jyppx::liuding::ResourceExhausted);
+  limits.max_dimension = 3;
+  limits.max_sample_bytes = 17;
+  EXPECT_THROW(TensorImageDataset({record}, {{41, "cat"}}, limits),
+               jyppx::liuding::ResourceExhausted);
+  limits.max_sample_bytes = 18;
+  EXPECT_NO_THROW(TensorImageDataset({record}, {{41, "cat"}}, limits));
+  limits.max_records = 0;
+  EXPECT_THROW(TensorImageDataset({record}, {{41, "cat"}}, limits),
+               jyppx::liuding::InvalidArgument);
+}
+
+TEST(TensorImageDatasetTest, ChecksIndexAndCancellationBeforePublication) {
+  const auto image = torch::zeros({3, 2, 3}, torch::kUInt8);
+  TensorImageDataset dataset(
+      {TensorImageRecord{image, PixelSpec{}, "sample", {}}});
+  EXPECT_THROW(dataset.get(1), jyppx::liuding::InvalidArgument);
+  std::stop_source cancellation;
+  cancellation.request_stop();
+  EXPECT_THROW(dataset.get(0, cancellation.get_token()),
+               jyppx::liuding::Cancelled);
+}
+
+TEST(TensorImageDatasetTest, RetainsCudaStorageWithoutDeviceTransfer) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA is unavailable";
+  const auto image = torch::zeros({3, 2, 3}, torch::kUInt8).to(torch::kCUDA);
+  TensorImageDataset dataset(
+      {TensorImageRecord{image, PixelSpec{}, "cuda:sample", {}}});
+  const auto sample = dataset.get(0);
+  EXPECT_TRUE(sample.image.is_cuda());
+  EXPECT_EQ(sample.image.data_ptr(), image.data_ptr());
+  EXPECT_EQ(sample.width, 3U);
+  EXPECT_EQ(sample.height, 2U);
+}
+
 TEST(ImageDatasetTest, LazilyDecodesManifestRowsIntoVisionSamples) {
   TempDirectory directory;
   WriteFixture(directory.path() / "cat" / "rgb.png", "rgb.png");

@@ -22,6 +22,24 @@ image::validate_pixels(decoded.tensor, decoded.pixels);
 
 `ImageDataset::get` 返回的 `VisionSample` 携带 `pixels` 和初始恒等 `geometry`；配对图像另有 `paired_target_pixels`，不会继承输入图像的颜色或归一化策略。语义、实例或全景标签应选择下面的离散 mask 入口。
 
+### 已解码 Tensor 输入
+
+已有 CPU/CUDA 图像 Tensor 可交给 `TensorImageDataset`，按每个样本显式提供 `PixelSpec`、稳定来源 ID 和可选分类标签。构造时校验 dtype、CHW/HWC 形状、颜色、范围、设备及单样本逻辑尺寸上限；`get` 只共享 Tensor 句柄，保留非连续步幅，不解码、不复制像素，也不隐式传输设备。返回的样本在数据集析构后仍持有存储。调用方在数据集和样本使用期间不得原位修改共享像素；需要隔离时应在传入前自行复制。
+
+```cpp
+#include <jyppx/liuding/data_image/image_dataset.hpp>
+
+namespace image = jyppx::liuding::data::image;
+
+auto pixels = torch::zeros({3, 224, 224}, torch::kUInt8);
+image::TensorImageDataset dataset(
+    {image::TensorImageRecord{pixels, image::PixelSpec{}, "memory:sample-0", {0}}},
+    {{1, "cat"}});
+auto sample = dataset.get(0);
+```
+
+已有 Tensor 的存储由调用方提供，不重复计入图像流水线的新分配预算；单样本字节上限约束逻辑像素量，非连续 view 可能保留更大的底层存储。后续变换和组批产生的新分配仍按各自预算处理。当前 `collate_images` 只接受 CPU 样本；CUDA Tensor source 可用于显式 CUDA 消费路径，不能直接据此推断整条 CUDA 组批链已支持。
+
 ## 离散 mask
 
 `decode_mask` 和 `read_mask_file` 专门读取 PNG 标签，返回拥有存储的 `DecodedMask`。`ids` 始终是 CPU 上连续的二维 int64 张量 `[H,W]`，不会做灰度强度缩放、颜色转换或浮点归一化。支持普通 PNG 和 Adam7 交错 PNG；源约定必须显式选择。

@@ -38,7 +38,7 @@ namespace jyppx::liuding::data::image {
 struct VisionSample {
   std::shared_ptr<ImageResourceLeaseSet> image_resource_leases;
   ///< Keeps the decoded input charged while this sample retains it.
-  Tensor image;  ///< Decoded owning input tensor.
+  Tensor image;  ///< Owning decoded pixels or a shared source Tensor handle.
   std::shared_ptr<ImageResourceLeaseSet> paired_target_resource_leases;
   ///< Keeps a decoded paired image charged while this sample retains it.
   std::optional<Tensor>
@@ -46,7 +46,7 @@ struct VisionSample {
   std::optional<DecodedMask>
       mask_target;  ///< Explicit discrete labels, never photo pixels.
   std::vector<std::size_t> labels;  ///< Contiguous classification IDs.
-  std::string image_path;  ///< Dataset-relative UTF-8 path from the index.
+  std::string image_path;  ///< Dataset-relative path or Tensor source ID.
   std::optional<std::string>
       target_path;  ///< Dataset-relative paired target path.
   std::shared_ptr<const std::vector<VisionCategory>> label_categories;
@@ -174,6 +174,63 @@ class ImageDataset final : public Dataset<VisionSample> {
   std::vector<std::shared_ptr<const VisionAnnotationRecord>>
       sample_annotations_;
   ///< Optional object records joined to the exact manifest order.
+};
+
+/** @brief One already-decoded image and its explicit classification metadata.
+ */
+struct TensorImageRecord {
+  Tensor image;      ///< CPU/CUDA storage retained by the dataset and returned
+                     ///< samples.
+  PixelSpec pixels;  ///< Layout, dtype, color and value range; never inferred.
+  std::string id;    ///< Stable source ID, not a filesystem path.
+  std::vector<std::size_t> labels;  ///< Indices into the dataset category map.
+};
+
+/** @brief Limits checked against each caller-owned Tensor before publication.
+ */
+struct TensorImageDatasetLimits {
+  std::size_t max_records = 1'000'000;
+  std::uint32_t max_dimension = 65'536;
+  std::uint64_t max_pixels = 268'435'456;
+  std::uint64_t max_sample_bytes = 1ULL << 30U;
+  std::size_t max_id_bytes = 4096;
+  std::size_t max_labels_per_sample = 4096;
+};
+
+/**
+ * @brief Map-style source for already-decoded CPU or CUDA image Tensors.
+ *
+ * The dataset retains Tensor handles and returns shared handles without
+ * decoding, copying or transferring pixels. The caller must not mutate the
+ * backing storage while the dataset or returned samples are in use. Views may
+ * retain storage larger than their logical payload. Existing source storage is
+ * caller-owned and is not charged to ImageResourceBudget; downstream transforms
+ * and collation account for their own new allocations.
+ */
+class TensorImageDataset final : public Dataset<VisionSample> {
+ public:
+  /**
+   * @param records Finite source order; Tensor handles remain valid after the
+   * caller releases its handles.
+   * @param categories Classification map required for non-empty labels.
+   * @param limits Per-source and per-image logical limits.
+   * @throws InvalidArgument Invalid limits, pixels, IDs or label indices.
+   * @throws ResourceExhausted A source or image exceeds configured limits.
+   */
+  explicit TensorImageDataset(std::vector<TensorImageRecord> records,
+                              std::vector<VisionCategory> categories = {},
+                              TensorImageDatasetLimits limits = {});
+
+  /** @brief Returns a shared Tensor handle and copied bounded metadata. */
+  VisionSample get(std::size_t index) const override;
+  /** @brief Returns one sample with cooperative cancellation. */
+  VisionSample get(std::size_t index, std::stop_token stop) const;
+  /** @brief Returns the immutable number of source records. */
+  std::size_t size() const override;
+
+ private:
+  std::vector<TensorImageRecord> records_;
+  std::shared_ptr<const std::vector<VisionCategory>> categories_;
 };
 
 }  // namespace jyppx::liuding::data::image
