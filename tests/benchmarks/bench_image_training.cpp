@@ -117,9 +117,11 @@ Options parse_options(int argc, char** argv) {
       }
       options.device = value;
     } else if (name == "--source-mode") {
-      if (value != "image-folder" && value != "tensor-cache") {
+      if (value != "image-folder" && value != "tensor-cache" &&
+          value != "tensor-cache-resized") {
         throw std::invalid_argument(
-            "--source-mode must be image-folder or tensor-cache");
+            "--source-mode must be image-folder, tensor-cache or "
+            "tensor-cache-resized");
       }
       options.source_mode = value;
     } else if (name == "--max-cached-bytes") {
@@ -246,13 +248,21 @@ bench::Json measure(const Options& options) {
   const auto inventory_sha256 = index.source_sha256();
   const auto samples_per_epoch = index.records().size();
   const auto classes = index.categories().size();
+  const bool cache_source = options.source_mode != "image-folder";
+  const bool resized_cache = options.source_mode == "tensor-cache-resized";
   auto budget = std::make_shared<image::ImageResourceBudget>();
   std::shared_ptr<image::ImageResourceBudget> cache_budget;
-  if (options.source_mode == "tensor-cache") {
+  if (cache_source) {
     image::ImageResourceBudgetLimits cache_limits;
     cache_limits.max_decoded_bytes = options.max_cached_bytes;
     cache_budget = std::make_shared<image::ImageResourceBudget>(cache_limits);
   }
+  const image::ImageGeometryStep resize{
+      .kind = image::ImageGeometryKind::resize,
+      .extent = {options.image_size, options.image_size}};
+  image::JointTransformOptions transform_options;
+  transform_options.interpolation = image::ImageInterpolation::bilinear;
+  transform_options.resource_budget = budget;
   image::ImageDatasetOptions dataset_options;
   dataset_options.resource_budget = cache_budget ? cache_budget : budget;
   dataset_options.image.channels = image::ImageChannels::rgb;
@@ -267,8 +277,13 @@ bench::Json measure(const Options& options) {
     std::vector<image::TensorImageRecord> records;
     records.reserve(samples_per_epoch);
     cache_leases.reserve(samples_per_epoch);
+    auto cache_transform_options = transform_options;
+    cache_transform_options.resource_budget = cache_budget;
     for (std::size_t i = 0; i < samples_per_epoch; ++i) {
       auto sample = file_source->get(i);
+      if (resized_cache)
+        sample = image::transform_sample(sample, std::span(&resize, 1),
+                                         cache_transform_options);
       const auto bytes = static_cast<std::uint64_t>(sample.image.numel()) *
                          sample.image.element_size();
       bench::require(bytes <= options.max_cached_bytes - cached_bytes,
@@ -294,12 +309,6 @@ bench::Json measure(const Options& options) {
     return tensor_source ? tensor_source->get(index, stop)
                          : file_source->get(index, stop);
   };
-  const image::ImageGeometryStep resize{
-      .kind = image::ImageGeometryKind::resize,
-      .extent = {options.image_size, options.image_size}};
-  image::JointTransformOptions transform_options;
-  transform_options.interpolation = image::ImageInterpolation::bilinear;
-  transform_options.resource_budget = budget;
   image::ImageCollateOptions collate_options;
   collate_options.resource_budget = budget;
   StageTimes stages;
@@ -317,8 +326,11 @@ bench::Json measure(const Options& options) {
     pipeline_options.memory.non_blocking = true;
   }
   {
-    const auto exemplar = image::transform_sample(
-        sample_at(0, {}), std::span(&resize, 1), transform_options);
+    const auto exemplar =
+        resized_cache
+            ? sample_at(0, {})
+            : image::transform_sample(sample_at(0, {}), std::span(&resize, 1),
+                                      transform_options);
     const std::array exemplar_keys{image::ImageBatchKey{"exemplar", 0, 0}};
     const auto exemplar_batch = image::collate_images(
         std::span(&exemplar, 1), exemplar_keys, collate_options);
@@ -333,9 +345,9 @@ bench::Json measure(const Options& options) {
   auto raw_pipeline = std::make_shared<data::DataPipeline>(
       std::make_shared<data::samplers::SequentialSampler>(samples_per_epoch),
       pipeline_options,
-      [sample_at, resize, transform_options, collate_options, &stages](
-          std::span<const std::size_t> indices,
-          const data::DataWorkerContext& context, std::stop_token stop) {
+      [sample_at, resize, resized_cache, transform_options, collate_options,
+       &stages](std::span<const std::size_t> indices,
+                const data::DataWorkerContext& context, std::stop_token stop) {
         std::vector<image::VisionSample> samples;
         std::vector<image::ImageBatchKey> keys;
         samples.reserve(indices.size());
@@ -346,11 +358,15 @@ bench::Json measure(const Options& options) {
           stages.read_decode_ns.fetch_add(nanoseconds_since(start),
                                           std::memory_order_relaxed);
           keys.push_back({sample.image_path, context.epoch, 0});
-          start = Clock::now();
-          samples.push_back(image::transform_sample(
-              sample, std::span(&resize, 1), transform_options, stop));
-          stages.transform_ns.fetch_add(nanoseconds_since(start),
-                                        std::memory_order_relaxed);
+          if (resized_cache) {
+            samples.push_back(std::move(sample));
+          } else {
+            start = Clock::now();
+            samples.push_back(image::transform_sample(
+                sample, std::span(&resize, 1), transform_options, stop));
+            stages.transform_ns.fetch_add(nanoseconds_since(start),
+                                          std::memory_order_relaxed);
+          }
         }
         auto start = Clock::now();
         auto batch =
@@ -513,8 +529,7 @@ bench::Json measure(const Options& options) {
       {"workers", options.workers},
       {"prefetch_batches", options.prefetch_batches},
       {"source_mode", options.source_mode},
-      {"max_cached_bytes",
-       options.source_mode == "tensor-cache" ? options.max_cached_bytes : 0},
+      {"max_cached_bytes", cache_source ? options.max_cached_bytes : 0},
       {"device", options.device},
       {"batch_transfer", cuda ? "pin-and-nonblocking-transfer" : "none"},
       {"image_decode", "rgb-float32-normalized"},
@@ -561,14 +576,16 @@ bench::Json measure(const Options& options) {
              "caching; fit excludes it; workload includes runtime setup, "
              "source preparation, model setup and fit"},
             {"cached_source_bytes",
-             "retained decoded Tensor payload, excluding allocator overhead"},
+             "retained decoded or resized Tensor payload, excluding "
+             "allocator overhead"},
             {"data_wait",
              "DataPipeline::next consumer wall time, including result/schema "
              "processing; not isolated queue wait"},
             {"stage_times",
              "sum of producer factory CPU wall intervals across workers; "
              "read_decode_seconds measures shared-handle access for "
-             "tensor-cache; intervals may overlap and exceed fit time"},
+             "Tensor cache; resized-cache transform runs during source "
+             "preparation; intervals may overlap and exceed fit time"},
             {"rss", "process lifetime high-water mark, including setup"},
             {"cuda",
              "LibTorch allocator peak during Trainer::fit; excludes "

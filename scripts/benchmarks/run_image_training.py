@@ -81,7 +81,7 @@ def run_sample(command: list[str], expected_model: str, expected_device: str,
             metrics["workload_images_per_second"] > 0):
         raise ValueError("invalid workload/source timing")
     if ((metrics["cached_source_bytes"] > 0) !=
-            (expected_source == "tensor-cache")):
+            (expected_source != "image-folder")):
         raise ValueError("invalid Tensor cache accounting")
     for name in ("peak_cuda_allocated_bytes", "peak_cuda_reserved_bytes"):
         status = result["metrics"][name]["status"]
@@ -124,7 +124,8 @@ def main() -> int:
     parser.add_argument("--prefetch-batches", type=int, default=2)
     parser.add_argument("--model", choices=("linear64", "resnet18"), default="linear64")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
-    parser.add_argument("--source-mode", choices=("image-folder", "tensor-cache"),
+    parser.add_argument("--source-mode", choices=("image-folder", "tensor-cache",
+                                                  "tensor-cache-resized"),
                         default="image-folder")
     parser.add_argument("--max-cached-bytes", type=int, default=512 << 20)
     args = parser.parse_args()
