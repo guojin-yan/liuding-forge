@@ -35,7 +35,7 @@ liuding-forge evaluation compare --baseline baseline.json --candidate quality.js
 
 将报告关联到已有本地 run 时添加 `--root RUNS --reference-id ID --attached-ms UNIX_MS`，run ID 取自输入身份。命令把规范报告写入 CAS 并提交 `evaluation.report` 关系；重试必须复用相同关系 ID、时间和内容，冲突内容会被拒绝，返回的 digest 标识确切报告。相同 evaluation 的调用方应固定同一关系 ID，不以新 ID 绕过冲突。
 
-分类推理中途恢复使用 `training::ClassificationEvaluationSession`。它保存输入身份、已提交批次游标和混淆计数；成功 EOF 后可从这些状态重建相同报告。最终提交 hook 可先保存完成态检查点，再使用稳定关系 ID 发布报告，重建后重试该 hook。检查点文件与 CAS/SQLite 关系是可重试的分步操作，不是跨存储原子事务；分割和检测评估循环尚未提供对应游标恢复。
+三类实际推理分别使用 `training::ClassificationEvaluationSession`、`SegmentationEvaluationSession`、`DetectionEvaluationSession` 恢复已提交的批次游标和任务统计；成功 EOF 后可从这些状态重建相同报告，约束见[评估保存与恢复](training.md#评估保存与恢复)。最终提交 hook 可先保存完成态检查点，再使用稳定关系 ID 发布报告，重建后重试该 hook。检查点文件与 CAS/SQLite 关系是可重试的分步操作，不构成跨存储原子事务。
 
 输出文件要求父目录已存在；相同内容允许重放，已存在的不同内容会被拒绝。每次调用应独占输出路径；展示文件与 CAS 关系分别提交。退出码为成功 0、评判失败或不完整 1、非法输入 2、操作失败 3、取消 130、超时 124；text 与 schema-1 JSON 使用相同判定。
 

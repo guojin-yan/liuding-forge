@@ -426,6 +426,28 @@ int main() {
           });
   if (segmentation.overall.score != 1.0 || !model.state().is_training())
     return 1;
+  jyppx::liuding::training::SegmentationEvaluationSession segmentation_session(
+      {.evaluation_id = "installed-segmentation",
+       .dataset_digest = {.hex = std::string(64, 'a')},
+       .model_digest = {.hex = std::string(64, 'b')},
+       .config_digest = {.hex = std::string(64, 'c')},
+       .build_fingerprint = "installed-consumer"},
+      {}, 1, 1);
+  const auto resumed_segmentation = segmentation_session.run(
+      model,
+      [](std::uint64_t index, std::stop_token)
+          -> std::optional<
+              jyppx::liuding::training::SegmentationEvaluationBatch> {
+        if (index) return std::nullopt;
+        return jyppx::liuding::training::SegmentationEvaluationBatch{
+            .invocation = {.positional = {torch::tensor({0.f, 1.f})
+                                              .reshape({1, 2, 1, 1})}},
+            .targets = torch::ones({1, 1, 1}, torch::kInt64),
+            .source_indices = {}};
+      });
+  if (!segmentation_session.progress().complete ||
+      resumed_segmentation.overall.score != 1.)
+    return 1;
   auto detection_model = jyppx::liuding::nn::adapt_module(
       std::make_shared<torch::nn::Module>(),
       [](torch::nn::Module&, const jyppx::liuding::nn::Invocation& input)
@@ -453,6 +475,39 @@ int main() {
        .expected_images = 1});
   if (detection.overall.mean_average_precision != 1.0 ||
       !detection_model.state().is_training())
+    return 1;
+  jyppx::liuding::training::DetectionEvaluationSession detection_session(
+      {.evaluation_id = "installed-detection",
+       .dataset_digest = {.hex = std::string(64, 'a')},
+       .model_digest = {.hex = std::string(64, 'b')},
+       .config_digest = {.hex = std::string(64, 'c')},
+       .build_fingerprint = "installed-consumer"},
+      {.metric = {.dataset_id = "consumer.boxes.v1",
+                  .class_vocabulary_id = "consumer.classes.v1",
+                  .num_classes = 1},
+       .expected_images = 1});
+  const auto resumed_detection = detection_session.run(
+      detection_model,
+      [](std::uint64_t index, std::stop_token)
+          -> std::optional<jyppx::liuding::training::DetectionEvaluationBatch> {
+        if (index) return std::nullopt;
+        c10::impl::GenericList output(c10::AnyType::get());
+        output.push_back(c10::ivalue::Tuple::create(
+            {torch::tensor({{0.f, 0.f, 10.f, 10.f}}), torch::ones({1}),
+             torch::zeros({1}, torch::kInt64)}));
+        return jyppx::liuding::training::DetectionEvaluationBatch{
+            .invocation = {.positional = {output}},
+            .images = {{.image_id = 1,
+                        .source_index = std::nullopt,
+                        .targets = {{.box = {0, 0, 10, 10},
+                                     .class_index = 0,
+                                     .crowd = false,
+                                     .ignore = false,
+                                     .area = std::nullopt}},
+                        .predictions = {}}}};
+      });
+  if (!detection_session.progress().complete ||
+      resumed_detection.overall.mean_average_precision != 1.)
     return 1;
   jyppx::liuding::training::Trainer trainer(
       {.trainer_id = "trainer.consumer",

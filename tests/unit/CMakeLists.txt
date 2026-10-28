@@ -302,6 +302,16 @@ if(TARGET jyppx::liuding::experiment)
         JYPPX_LIUDING_EVALUATION_REPORT_TEST=1)
 endif()
 
+jyppx_add_gtest(jyppx_test_training_spatial_evaluation_sessions
+    LINK_TARGET jyppx::liuding::training
+    training/test_spatial_evaluation_sessions.cpp)
+if(TARGET jyppx::liuding::experiment)
+    target_link_libraries(jyppx_test_training_spatial_evaluation_sessions PRIVATE
+        jyppx::liuding::experiment)
+    target_compile_definitions(jyppx_test_training_spatial_evaluation_sessions PRIVATE
+        JYPPX_LIUDING_EVALUATION_REPORT_TEST=1)
+endif()
+
 jyppx_add_gtest(jyppx_test_training_classification_evaluation
     LINK_TARGET jyppx::liuding::training
     training/test_classification_evaluation.cpp

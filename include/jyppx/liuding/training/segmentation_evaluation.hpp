@@ -7,11 +7,13 @@
 /** @file segmentation_evaluation.hpp
  * @brief Actual semantic segmentation inference with dataset-level reports.
  */
+#include <jyppx/liuding/foundation/artifact.hpp>
 #include <jyppx/liuding/foundation/telemetry.hpp>
 #include <jyppx/liuding/nn/model_adapter.hpp>
 #include <jyppx/liuding/training/metrics/segmentation.hpp>
 
 #include <functional>
+#include <memory>
 #include <stop_token>
 
 namespace jyppx::liuding::training {
@@ -88,5 +90,118 @@ SegmentationEvaluationResult evaluate_semantic_segmentation(
     nn::ModelAdapter& model, const SegmentationEvaluationSource& source,
     const SegmentationEvaluationOptions& options = {},
     std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt);
+
+/** @brief Caller-asserted immutable content/build identity for resumed
+ * inference. Config covers batching, preprocessing, seed and adapter semantics;
+ * this declaration does not authenticate the actual model or dataset bytes.
+ */
+struct SegmentationEvaluationIdentity {
+  std::string participant_id = "evaluation.segmentation";  ///< Registry ID.
+  std::string
+      evaluation_id;  ///< Stable execution ID, at most 1024 ASCII bytes.
+  ArtifactDigest dataset_digest;  ///< Complete ordered dataset selection.
+  ArtifactDigest model_digest;  ///< Fixed evaluated weights and model contract.
+  ArtifactDigest config_digest;   ///< Frozen evaluator and batch configuration.
+  std::string build_fingerprint;  ///< Exact supported runtime/build identity.
+};
+/** @brief Committed counters; ignored images/pixels remain in the input totals.
+ */
+struct SegmentationEvaluationProgress {
+  std::uint64_t batches = 0;      ///< Next zero-based batch index to request.
+  std::uint64_t images = 0;       ///< Images in successfully committed batches.
+  std::uint64_t pixels_seen = 0;  ///< All target pixels, including ignored IDs.
+  bool complete = false;  ///< Validated EOF and scoring policies committed.
+};
+/** @brief Seekable deterministic complete batches, with nullopt at EOF.
+ * Repeated requests for one index must return identical inputs/labels/sources.
+ * No source-owned mutable cursor is checkpointed by the session.
+ */
+using IndexedSegmentationEvaluationSource =
+    std::function<std::optional<SegmentationEvaluationBatch>(std::uint64_t,
+                                                             std::stop_token)>;
+/** @brief Current-only exact semantic evaluation with atomic batch commits.
+ * Retains O(classes * sources) counts, never pixels or predictions. Serialize
+ * access and keep model/source deterministic, with fixed content and topology;
+ * arbitrary mutable/stochastic producers require coordinated participants.
+ * The count budget covers live/candidate/result counts and update delta, not
+ * model/source/allocator/RSS/CUDA workspace or coordinator rollback buffers.
+ */
+class SegmentationEvaluationSession final : public CheckpointParticipant {
+ public:
+  /** @brief Validates immutable identities, scoring and positive local bounds.
+   * @param identity Actual input/build identities; ID/build text is nonempty
+   * printable ASCII, at most 1024 bytes; participant ID follows its registry.
+   * @param options Fixed scoring, slices and resource contract.
+   * @param expected_images Optional exact input total, including ignored
+   * images.
+   * @param expected_pixels Optional exact input total, including ignored
+   * pixels.
+   * @throws Error For invalid identities, policies, bounds or topology size.
+   */
+  explicit SegmentationEvaluationSession(
+      SegmentationEvaluationIdentity identity,
+      SegmentationEvaluationOptions options = {},
+      std::optional<std::uint64_t> expected_images = std::nullopt,
+      std::optional<std::uint64_t> expected_pixels = std::nullopt);
+  /** @brief Releases owned sufficient statistics. */
+  ~SegmentationEvaluationSession() override;
+  /** @brief Registered participants have stable ownership and address. */
+  SegmentationEvaluationSession(const SegmentationEvaluationSession&) = delete;
+  /** @brief Registered participants cannot be assigned. */
+  SegmentationEvaluationSession& operator=(
+      const SegmentationEvaluationSession&) = delete;
+  /** @brief Registered participants cannot be relocated. */
+  SegmentationEvaluationSession(SegmentationEvaluationSession&&) = delete;
+  /** @brief Registered participants cannot be move assigned. */
+  SegmentationEvaluationSession& operator=(SegmentationEvaluationSession&&) =
+      delete;
+  /** @brief Continues from committed counts/cursor through validated EOF.
+   * @param model Borrowed fixed model, using the free evaluator's mode
+   * contract.
+   * @param source Deterministic indexed source; retries repeat uncommitted
+   * work.
+   * @param committed Hook after each atomic batch and EOF; may save state and
+   * publish results using stable idempotency keys, but must not run/load it.
+   * @param stop Cooperative cancellation around loading, inference and metrics.
+   * @param deadline Optional monotonic operation deadline.
+   * @return EOF-only dataset/source/class observations.
+   * @throws Error For input, scoring, resource, cancellation or state errors.
+   * @throws std::exception Propagates source/model/hook exceptions.
+   * Any batch failure leaves all statistics and counters unchanged. A hook
+   * failure keeps the committed in-memory batch; another process restores the
+   * last durable boundary. Complete state replays only the final hook, without
+   * loading or inference. Save during run is allowed only inside the hook;
+   * reentrant run/load is rejected. No arbitrary model/source effects are
+   * undone.
+   */
+  SegmentationEvaluationResult run(
+      nn::ModelAdapter& model,
+      const IndexedSegmentationEvaluationSource& source,
+      const std::function<void(const SegmentationEvaluationSession&)>&
+          committed = {},
+      std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt);
+  /** @brief Returns a detached copy of the last committed progress.
+   * @return Input counters and EOF state, without a partial batch.
+   */
+  SegmentationEvaluationProgress progress() const noexcept;
+  /** @brief Rebuilds final observations from complete sufficient statistics.
+   * @return The same result as uninterrupted inference under the bound
+   * contract.
+   * @throws NotReady Until validated EOF has been committed.
+   */
+  SegmentationEvaluationResult result() const;
+  /** @copydoc CheckpointParticipant::participant_id */
+  std::string participant_id() const override;
+  /** @copydoc CheckpointParticipant::describe_state */
+  StateManifest describe_state() const override;
+  /** @copydoc CheckpointParticipant::save_state */
+  void save_state(StateWriter& writer) const override;
+  /** @copydoc CheckpointParticipant::load_state */
+  void load_state(const StateReader& reader, RestorePolicy policy) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;  ///< Immutable identity and committed counts.
+};
 }  // namespace jyppx::liuding::training
 #endif  // JYPPX_LIUDING_TRAINING_SEGMENTATION_EVALUATION_HPP

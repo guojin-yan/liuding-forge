@@ -92,11 +92,17 @@ auto result = training::evaluate_classification(model, next_batch, options);
 
 评估关闭梯度并临时切换为 eval，结束或异常后恢复各子模块原来的模式。取消、超时、非法输出和超限均抛异常，不返回部分数据的完整报告。评估期间应独占模型，并保持模块拓扑稳定；自定义 `train()` 必须支持恢复。批次数、样本数、类别、来源和已知混淆矩阵 payload 有显式上限，不保存全量 logits；这些限制不等于模型工作空间、allocator 或 RSS 的硬上限。
 
-## 分类评估保存与恢复
+## 评估保存与恢复
 
-`ClassificationEvaluationSession` 在构造时固定数据、模型、配置摘要、构建指纹和评估 ID，接收 `source(batch_index, stop_token)` 形式的确定性索引源。同一索引必须返回相同输入、标签和来源；配置摘要应包含批次划分、预处理及 seed。身份由调用方绑定真实内容，接口不会自行校验模型文件或数据字节。
+三类评估 session 在构造时固定数据、模型、配置摘要、构建指纹和评估 ID，接收 `source(batch_index, stop_token)` 形式的确定性索引源。同一索引必须返回相同输入、标签、图片身份和来源；配置摘要应包含批次划分、预处理及 seed。身份由调用方绑定真实内容，接口不会自行校验模型文件或数据字节。
 
-每批推理及所有来源统计全部成功后才提交计数和下一批游标，失败批次不会进入状态。`expected_rows` 可校验含忽略标签的总行数；只有 EOF、行数和计分策略均通过，`result()` 才返回完整结果。重建已完成状态后不再读取或推理，仍可重试最终提交 hook。
+| Session | 保存的任务统计 | 可选 EOF 总量校验 |
+| --- | --- | --- |
+| `ClassificationEvaluationSession` | 混淆计数、批次和行数 | 构造参数 `expected_rows`，包括忽略标签。 |
+| `SegmentationEvaluationSession` | 每类线性计数、批次、图片和像素数 | 构造参数 `expected_images`、`expected_pixels`，包括全忽略图片和像素。 |
+| `DetectionEvaluationSession` | 紧凑匹配记录、唯一图片 ID 和批次 | `options.expected_images`，包括空图和 crowd 图片。 |
+
+每批推理及所有来源统计全部成功后才提交统计和下一批游标，失败批次不会进入状态。只有 EOF、预期总量和计分策略均通过，`result()` 才返回完整结果。重建已完成状态后不再读取或推理，仍可重试最终提交 hook。以下以分类为例，分割和检测使用同一注册、保存及恢复流程：
 
 ```cpp
 auto session = std::make_shared<training::ClassificationEvaluationSession>(
@@ -112,9 +118,9 @@ auto result = session->run(model, indexed_source, [&](const auto& committed) {
 });
 ```
 
-当前 schema 1 将身份、资源契约、来源表、批次/行数/完成位和所有混淆计数作为同一 participant 保存。恢复校验完整契约及来源计数覆盖关系后一次提交，拒绝损坏、超限或身份改变的状态。执行中仅提交 hook 可以保存检查点，重入执行或恢复会被拒绝；hook 失败保留已提交内存状态，新进程从最后落盘状态继续。复用稳定报告关系 ID，分别重试检查点及报告提交。
+三类 session 当前均为 schema 1，将身份、资源契约、进度和任务统计作为同一 participant 保存。恢复完整校验契约、计数及来源或图片身份的一致性后一次提交，拒绝损坏、超限或身份改变的状态。执行中仅提交 hook 可以保存检查点，重入执行或恢复会被拒绝；hook 失败保留已提交内存状态，新进程从最后落盘状态继续。复用稳定报告关系 ID，分别重试检查点及报告提交；这不构成跨检查点文件和 CAS/SQLite 的原子事务。
 
-状态不保存原始预测或数据，已知混淆矩阵预算包含更新候选和结果；不包含模型、数据源、allocator、完整 RSS/显存或 coordinator 回滚缓冲。调用方应独占并固定模型；有随机或可变推理状态时，需协调模型/RNG participant 和相应数据状态。任意模型、源或 hook 的外部副作用不自动回滚；该接口不扩展为通用流式数据源或所有评估任务的故障恢复。
+状态不保存输入 Tensor、完整 logits、mask 或框；检测会保存计分所需的分数、匹配位和图片 ID。分割的计数预算包括更新候选和结果，检测直接复用整批原子匹配，不逐批复制已有数据集记录；恢复时暂时保留旧状态和候选状态，检查点编码另占 blob。逻辑预算不包含模型、数据源、allocator、完整 RSS/显存或 coordinator 回滚缓冲。检测的取消若发生于原子匹配期间，会在该批统计和游标提交后响应。调用方应独占并固定模型；随机或可变推理状态需协调模型/RNG participant 和相应数据状态，任意模型、源或 hook 的外部副作用不自动回滚。
 
 ## 语义分割 IoU/Dice 与数据集评估
 
@@ -132,7 +138,7 @@ auto class_iou = iou.per_class_scores();
 
 `ignore_index` 去除对应像素；`include_background=false` 仅从汇总排除 `background_index`，背景与前景之间的错误仍计入前景指标。真实和预测均不存在的类别按 `absent` 选择排除、零、一或报错。空集、全忽略或没有可汇总分母时抛 `NotReady`；逐类被排除的值使用 `std::nullopt`。统计使用每类三个 int64 计数，支持相同身份的 `merge()` 和当前格式的 exact 检查点；拆批、合并或恢复均从总计数计算，不能平均每批 IoU/Dice。每次更新按 `chunk_pixels` 分块，不创建整幅 one-hot；逻辑限额不等于 RSS/显存硬上限。
 
-`<jyppx/liuding/training/segmentation_evaluation.hpp>` 的 `training::evaluate_semantic_segmentation(model, source, options)` 实际逐批推理，返回整体、逐类和显式来源统计；其 `average` 选择 micro、macro 或 weighted。`source` 返回 `SegmentationEvaluationBatch`，以 `std::nullopt` 结束；来源按图像指定，数据准备及设备放置由调用方负责。评估关闭梯度、恢复原模块模式，并在错误、取消、超时或超限时抛异常。`observations` 可接入 `experiment::run_evaluation`；选择与 suite 规则匹配的整体/类别/来源观测值，并绑定真实数据、模型、配置和构建身份。评估器不持久化中途结果，不提供崩溃恢复；检测 AP 与实例 mask AP 不属于此接口。
+`<jyppx/liuding/training/segmentation_evaluation.hpp>` 的 `training::evaluate_semantic_segmentation(model, source, options)` 实际逐批推理，返回整体、逐类和显式来源统计；其 `average` 选择 micro、macro 或 weighted。`source` 返回 `SegmentationEvaluationBatch`，以 `std::nullopt` 结束；来源按图像指定，数据准备及设备放置由调用方负责。评估关闭梯度、恢复原模块模式，并在错误、取消、超时或超限时抛异常。`observations` 可接入 `experiment::run_evaluation`；选择与 suite 规则匹配的观测值，并绑定真实输入和构建身份。需要断点续评时使用同头文件中的 `SegmentationEvaluationSession`；检测 AP 与实例 mask AP 不属于此接口。
 
 ## 轴对齐框 AP 与数据集评估
 
@@ -152,4 +158,4 @@ auto details = ap.summarize(); // 逐类、逐 IoU AP 和最大 recall
 
 整图拆批、无重复图像的 `merge()` 和当前格式 exact 状态恢复保持同一数据集结果；不能平均 batch AP。重复图像（包括空图）会被拒绝，合并要求完整语义和数据身份相同。状态只保留各阈值匹配位，不保留完整框或 IoU 矩阵，来源切片共享记录；图像数、输入数、匹配操作、逻辑状态和工作量均有显式限额。这些限制不等于 allocator/RSS 或模型显存上限。
 
-`<jyppx/liuding/training/detection_evaluation.hpp>` 的 `training::evaluate_detection(model, source, options)` 实际逐批调用模型，要求每图返回一个 `(boxes[D,4], scores[D], labels[D])` tuple，所有图构成 list；框和分数是浮点数，类别为 uint8/int8/int16/int32/int64。同图三个 Tensor 在同一 CPU/CUDA 设备，支持非连续 strided 输出，经有限额的 CPU FP64/int64 暂存后匹配。`source` 提供 `DetectionEvaluationBatch`，其中 `images` 只包含元数据和 GT，`predictions` 必须为空；EOF 返回 `std::nullopt`。可用 `expected_images` 拒绝提前结束。评估关闭梯度并恢复各子模块原模式，错误、取消、超时、超限不返回部分报告。整体/类别/显式来源的 `observations` 按 suite 选取后可接现有质量报告；不提供评估游标持久化、mask AP、旋转框或姿态指标。合成模型测试只验证执行契约，真实检测任务精度需另行验收。
+`<jyppx/liuding/training/detection_evaluation.hpp>` 的 `training::evaluate_detection(model, source, options)` 实际逐批调用模型，要求每图返回一个 `(boxes[D,4], scores[D], labels[D])` tuple，所有图构成 list；框和分数是浮点数，类别为 uint8/int8/int16/int32/int64。同图三个 Tensor 在同一 CPU/CUDA 设备，支持非连续 strided 输出，经有限额的 CPU FP64/int64 暂存后匹配。`source` 提供 `DetectionEvaluationBatch`，其中 `images` 只包含元数据和 GT，`predictions` 必须为空；EOF 返回 `std::nullopt`。可用 `expected_images` 拒绝提前结束。评估关闭梯度并恢复各子模块原模式，错误、取消、超时、超限不返回部分报告。整体/类别/显式来源的 `observations` 按 suite 选取后可接现有质量报告。需要断点续评时使用同头文件中的 `DetectionEvaluationSession`；mask AP、旋转框和姿态指标仍不属于此接口，真实检测任务精度需独立验收。
