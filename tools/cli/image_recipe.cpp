@@ -6,11 +6,13 @@
 
 #include "cli.hpp"
 #include "recipe_support.hpp"
+#include "transfer_recipe.hpp"
 
 #if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
 #include <jyppx/liuding/core/device.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
+#include <jyppx/liuding/data_image/batch_transform.hpp>
 #include <jyppx/liuding/data_image/image_batch.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
 #include <jyppx/liuding/experiment/config.hpp>
@@ -69,7 +71,7 @@ constexpr std::string_view kRun = "run.image-classification";
 
 using namespace recipe_support;
 
-const std::map<std::string, ValueKind>& field_kinds() {
+const std::map<std::string, ValueKind>& field_kinds(bool transfer = false) {
   static const std::map<std::string, ValueKind> fields{
       {"schema_version", ValueKind::integer},
       {"recipe", ValueKind::string},
@@ -93,13 +95,21 @@ const std::map<std::string, ValueKind>& field_kinds() {
       {"max_data_bytes", ValueKind::integer},
       {"max_samples", ValueKind::integer},
       {"image_budget_bytes", ValueKind::integer}};
-  return fields;
+  if (!transfer) return fields;
+  static const auto transfer_fields = [] {
+    auto result = field_kinds(false);
+    for (const auto* name : {"model", "weights_file", "weights_metadata",
+                             "backbone_mode", "batch_norm"})
+      result.emplace(name, ValueKind::string);
+    return result;
+  }();
+  return transfer_fields;
 }
-ex::config::ConfigSchema config_schema() {
+ex::config::ConfigSchema config_schema(bool transfer) {
   ex::config::ConfigSchema result;
-  result.schema_id = std::string(kRecipe);
+  result.schema_id = std::string(transfer ? kTransferRecipe : kRecipe);
   result.root.kind = ValueKind::dictionary;
-  for (const auto& [name, kind] : field_kinds()) {
+  for (const auto& [name, kind] : field_kinds(transfer)) {
     ValueSchema field;
     field.kind = kind;
     field.name = name;
@@ -107,17 +117,18 @@ ex::config::ConfigSchema config_schema() {
   }
   return result;
 }
-Json schema_json() {
+Json schema_json(bool transfer = false) {
   Json fields = Json::object();
-  for (const auto& [name, kind] : field_kinds())
+  for (const auto& [name, kind] : field_kinds(transfer))
     fields[name] = {{"kind", value_kind_name(kind)}};
   return {{"schema_version", 1},
-          {"schema_id", kRecipe},
+          {"schema_id", transfer ? kTransferRecipe : kRecipe},
           {"version", 1},
           {"root", {{"kind", "dictionary"}, {"fields", fields}}}};
 }
 Json resolve_config(const std::filesystem::path& path) {
-  ex::config::ConfigResolver resolver(config_schema());
+  const auto transfer = is_transfer_recipe(parse_json(read_text(path)));
+  ex::config::ConfigResolver resolver(config_schema(transfer));
   resolver.add_json_file(path);
   const auto resolved = resolver.resolve();
   auto config = parse_json(resolved.canonical_json());
@@ -128,7 +139,8 @@ Json resolve_config(const std::filesystem::path& path) {
                    std::string("Recipe field out of range: ") + name);
   };
   integer("schema_version", 1, 1);
-  require_recipe(config.at("recipe").get<std::string>() == kRecipe,
+  require_recipe(config.at("recipe").get<std::string>() ==
+                     (transfer ? kTransferRecipe : kRecipe),
                  "Unsupported recipe identity");
   require_recipe(config.at("device") == "cpu" || config.at("device") == "cuda",
                  "Recipe device must be cpu or cuda");
@@ -167,6 +179,25 @@ Json resolve_config(const std::filesystem::path& path) {
   }
   require_recipe(config.at("train_root") != config.at("validation_root"),
                  "Training and validation directories must differ");
+  if (transfer) {
+    require_recipe(config.at("backbone_mode") == "frozen" ||
+                       config.at("backbone_mode") == "finetune",
+                   "backbone_mode must be frozen or finetune");
+    require_recipe(
+        config.at("batch_norm") == "eval" || config.at("batch_norm") == "train",
+        "batch_norm must be eval or train");
+    require_recipe(config.at("backbone_mode") != "frozen" ||
+                       config.at("batch_norm") == "eval",
+                   "Frozen backbones require batch_norm=eval");
+    for (const auto* key : {"weights_file", "weights_metadata"}) {
+      const auto name = config.at(key).get<std::string>();
+      require_recipe(!name.empty(), "Weight paths must not be empty");
+      auto input = std::filesystem::u8path(name);
+      if (input.is_relative()) input = path.parent_path() / input;
+      config[key] =
+          path_text(std::filesystem::absolute(input).lexically_normal());
+    }
+  }
   return config;
 }
 
@@ -199,10 +230,11 @@ Inputs inspect_inputs(const Json& config) {
   require_recipe(classes(train) == classes(validation),
                  "Training and validation class maps must match exactly");
   const auto batch = config.at("batch_size").get<std::size_t>();
-  require_recipe(
-      train.records().size() >= 2 && train.records().size() % batch != 1,
-      "ResNet18 BatchNorm requires training batches of at least two; choose "
-      "another batch_size");
+  if (!is_transfer_recipe(config) || config.at("batch_norm") == "train")
+    require_recipe(
+        train.records().size() >= 2 && train.records().size() % batch != 1,
+        "Training BatchNorm requires batches of at least two; choose "
+        "another batch_size or use the transfer recipe with batch_norm=eval");
   const auto total_steps = ((train.records().size() + batch - 1) / batch) *
                            config.at("epochs").get<std::uint64_t>();
   require_recipe(total_steps <= 1000000,
@@ -211,7 +243,8 @@ Inputs inspect_inputs(const Json& config) {
   const auto split = [&](const image::ManifestIndex& index,
                          const std::filesystem::path& root) {
     Sha256 hash;
-    hash.update(bytes(std::string(kRecipe) + "/content/v1\n"));
+    hash.update(
+        bytes(config.at("recipe").get<std::string>() + "/content/v1\n"));
     for (const auto& record : index.records()) {
       const auto file = root / std::filesystem::u8path(record.path);
       const auto size = std::filesystem::file_size(file);
@@ -250,7 +283,8 @@ Inputs inspect_inputs(const Json& config) {
 std::shared_ptr<data::DataPipeline> make_pipeline(
     const Json& config, image::ManifestIndex index, bool validation,
     const ArtifactDigest& identity, const Device& device,
-    const std::shared_ptr<image::ImageResourceBudget>& budget) {
+    const std::shared_ptr<image::ImageResourceBudget>& budget,
+    const TransferInput* transfer) {
   image::ImageDatasetOptions source_options;
   source_options.resource_budget = budget;
   source_options.image.channels = image::ImageChannels::rgb;
@@ -269,6 +303,7 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
       .kind = image::ImageGeometryKind::resize, .extent = {size, size}};
   image::JointTransformOptions transform;
   transform.interpolation = image::ImageInterpolation::bilinear;
+  if (transfer) transform.interpolation = image::ImageInterpolation::bicubic;
   transform.resource_budget = budget;
   image::ImageCollateOptions collate;
   collate.resource_budget = budget;
@@ -280,10 +315,20 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
   collate.limits.max_output_bytes =
       per_batch - collate.limits.max_metadata_bytes;
   collate.limits.max_working_bytes = collate.limits.max_output_bytes;
-  const auto factory = [source, resize, transform, collate](
-                           std::span<const std::size_t> indices,
-                           const data::DataWorkerContext& context,
-                           std::stop_token stop) {
+  const auto preprocess =
+      transfer ? std::optional(transfer->record.input_spec->image)
+               : std::nullopt;
+  image::ImageBatchTransformOptions numeric;
+  numeric.resource_budget = budget;
+  numeric.limits = collate.limits;
+  if (preprocess) {
+    numeric.image.mean = preprocess->mean;
+    numeric.image.std = preprocess->std;
+  }
+  const auto factory = [source, resize, transform, collate, preprocess,
+                        numeric](std::span<const std::size_t> indices,
+                                 const data::DataWorkerContext& context,
+                                 std::stop_token stop) {
     std::vector<image::VisionSample> samples;
     std::vector<image::ImageBatchKey> keys;
     samples.reserve(indices.size());
@@ -291,17 +336,35 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
     for (const auto index : indices) {
       auto sample = source->get(index, stop);
       keys.push_back({sample.image_path, context.epoch, 0});
-      samples.push_back(image::transform_sample(sample, std::span(&resize, 1),
-                                                transform, stop));
+      if (preprocess) {
+        const auto geometry = models::resolve_image_preprocess_geometry(
+            *preprocess, {sample.height, sample.width});
+        const std::array steps{
+            image::ImageGeometryStep{
+                .kind = image::ImageGeometryKind::resize,
+                .extent = {geometry.resized_size[1], geometry.resized_size[0]}},
+            image::ImageGeometryStep{
+                .kind = image::ImageGeometryKind::crop,
+                .extent = {geometry.output_size[1], geometry.output_size[0]},
+                .left = geometry.crop_left,
+                .top = geometry.crop_top}};
+        samples.push_back(
+            image::transform_sample(sample, steps, transform, stop));
+      } else {
+        samples.push_back(image::transform_sample(sample, std::span(&resize, 1),
+                                                  transform, stop));
+      }
     }
-    return image::image_batch_value(
-        image::collate_images(samples, keys, collate, stop), collate.limits);
+    auto batch = image::collate_images(samples, keys, collate, stop);
+    if (preprocess) batch = image::transform_image_batch(batch, numeric, stop);
+    return image::image_batch_value(batch, collate.limits);
   };
   data::DataPipelineOptions options;
   options.pipeline_id = validation ? "recipe.validation" : "recipe.training";
   options.dataset_version = identity.hex;
   options.dataset_size = source->size();
-  options.batch_factory_id = std::string(kRecipe);
+  options.batch_factory_id = config.at("recipe").get<std::string>();
+  if (transfer) options.batch_factory_id += "/" + transfer->input_identity;
   options.batch_size = config.at("batch_size").get<std::size_t>();
   options.num_workers = config.at("workers").get<std::size_t>();
   options.prefetch_batches = config.at("prefetch_batches").get<std::size_t>();
@@ -353,7 +416,8 @@ class Checkpoints final : public tr::CallbackHandler {
   std::uint64_t every_, pause_, total_;
 };
 
-std::vector<std::byte> encode_model(const nn::ModelAdapter& model) {
+std::vector<std::byte> encode_model(const nn::ModelAdapter& model,
+                                    const std::string& recipe) {
   std::vector<Tensor> owners;
   std::vector<interop::SafeTensorSource> tensors;
   const auto append = [&](const auto& values, const std::string& prefix) {
@@ -379,13 +443,12 @@ std::vector<std::byte> encode_model(const nn::ModelAdapter& model) {
   append(model.state().named_buffers(), "buffer.");
   interop::SafeTensorsLimits limits;
   limits.max_file_bytes = kArtifactLimit;
-  return interop::serialize_safetensors(
-      tensors, {{"recipe", std::string(kRecipe)}}, limits);
+  return interop::serialize_safetensors(tensors, {{"recipe", recipe}}, limits);
 }
 
 void attach(ex::SQLiteRunStore& store, const std::filesystem::path& path,
             const std::string& id, const std::string& role, std::uint64_t time,
-            ex::RunArtifactKind kind = ex::RunArtifactKind::artifact) {
+            ex::RunArtifactKind kind, std::string_view recipe) {
   const auto hash = file_digest(path);
   if (const auto previous = store.find_reference(kRun, id)) {
     require_recipe(previous->artifact.digest.hex == hash.hex,
@@ -396,7 +459,7 @@ void attach(ex::SQLiteRunStore& store, const std::filesystem::path& path,
       kRun, id, kind, role, path,
       {.logical_name = path_text(path.filename()),
        .media_type = "application/octet-stream",
-       .producer = std::string(kRecipe),
+       .producer = std::string(recipe),
        .expected_size_bytes = std::filesystem::file_size(path)},
       time, hash);
 }
@@ -407,7 +470,10 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
                     const BuildFingerprint& build,
                     std::span<const std::byte> weights, const Json& lineage) {
   interop::ModelBundleManifest manifest;
-  manifest.bundle_id = "imagefolder-resnet18-v1";
+  const bool transfer = is_transfer_recipe(config);
+  const auto architecture = contract.at("architecture").get<std::string>();
+  manifest.bundle_id =
+      transfer ? "imagefolder-transfer-v1" : "imagefolder-resnet18-v1";
   manifest.build = build;
   const auto weight_hash = sha256_hex(weights);
   manifest.files.push_back(
@@ -418,9 +484,9 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
                     .size_bytes = weights.size(),
                     .logical_name = "weights",
                     .media_type = "application/safetensors",
-                    .producer = std::string(kRecipe)}});
+                    .producer = config.at("recipe").get<std::string>()}});
   interop::BundleModel model;
-  model.id = "resnet18";
+  model.id = architecture;
   model.file_ids = {"weights"};
   const interop::SafeTensorsView view(weights);
   for (const auto& tensor : view.directory().tensors)
@@ -446,7 +512,7 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
                       .size_bytes = std::filesystem::file_size(path),
                       .logical_name = id,
                       .media_type = "application/json",
-                      .producer = std::string(kRecipe)}});
+                      .producer = config.at("recipe").get<std::string>()}});
     sources.push_back({id, path});
     return interop::BundleDescriptorRef{
         .schema_id = "liuding.recipe.image-classification." + id,
@@ -463,12 +529,14 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
                  {{"shape", {nullptr, data.at("classes").size()}},
                   {"dtype", "float32"},
                   {"meaning", "logits"}});
+  const Json preprocessing =
+      transfer ? contract.at("transfer").at("descriptor").at("image")
+               : Json{{"channels", "rgb"},
+                      {"range", {0, 1}},
+                      {"resize", config.at("image_size")},
+                      {"interpolation", "bilinear"}};
   manifest.preprocessing =
-      descriptor("preprocess", interop::BundleFileRole::prepost,
-                 {{"channels", "rgb"},
-                  {"range", {0, 1}},
-                  {"resize", config.at("image_size")},
-                  {"interpolation", "bilinear"}});
+      descriptor("preprocess", interop::BundleFileRole::prepost, preprocessing);
   manifest.postprocessing =
       descriptor("postprocess", interop::BundleFileRole::prepost,
                  {{"operation", "argmax"}, {"axis", 1}});
@@ -484,19 +552,21 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
        {"components",
         {{{"name", "liuding-forge"}, {"version", build.jyppx_version}},
          {{"name", "libtorch"}, {"version", build.libtorch_version}}}}});
-  manifest.provenance =
-      descriptor("provenance", interop::BundleFileRole::provenance,
-                 {{"lineage", lineage},
-                  {"config", config},
-                  {"dataset", data},
-                  {"model", contract},
-                  {"initialization", "random; no pretrained weights"},
-                  {"diagnostics", diagnostic}});
+  manifest.provenance = descriptor(
+      "provenance", interop::BundleFileRole::provenance,
+      {{"lineage", lineage},
+       {"config", config},
+       {"dataset", data},
+       {"model", contract},
+       {"initialization",
+        transfer ? "strict local pretrained backbone; seeded new linear head"
+                 : "random; no pretrained weights"},
+       {"diagnostics", diagnostic}});
   auto os_arch = build.os_arch;
   for (auto& value : os_arch)
     if (value >= 'A' && value <= 'Z')
       value = static_cast<char>(value - 'A' + 'a');
-  manifest.runtime = {.backend_id = "libtorch.resnet18",
+  manifest.runtime = {.backend_id = "libtorch." + architecture,
                       .backend_version = build.jyppx_version,
                       .environment_lock = digest(build_fingerprint_json(build)),
                       .dependencies = {{"libtorch", build.libtorch_version}},
@@ -524,6 +594,9 @@ Result execute(const Arguments& arguments, bool resume) {
   const auto config = resolve_config(std::filesystem::absolute(
       std::filesystem::u8path(arguments.require("file"))));
   auto inputs = inspect_inputs(config);
+  const auto transfer = is_transfer_recipe(config)
+                            ? std::optional(inspect_transfer_input(config))
+                            : std::nullopt;
   const Device device(config.at("device") == "cuda" ? "cuda:0" : "cpu");
   require_recipe(!device.is_cuda() || torch::cuda::is_available(),
                  "CUDA was requested but is unavailable");
@@ -551,12 +624,23 @@ Result execute(const Arguments& arguments, bool resume) {
                       {"float32_matmul_precision", "highest"},
                       {"intraop_threads", 1},
                       {"interop_threads", 1}};
-  const Json contract{{"architecture", "resnet18"},
-                      {"num_classes", inputs.train.categories().size()},
-                      {"state_names", "parameter.<name>,buffer.<name>"},
-                      {"dtype", "float32"},
-                      {"numerics", numerics},
-                      {"recipe", kRecipe}};
+  Json contract{
+      {"architecture", transfer ? config.at("model") : Json("resnet18")},
+      {"num_classes", inputs.train.categories().size()},
+      {"state_names", "parameter.<name>,buffer.<name>"},
+      {"dtype", "float32"},
+      {"numerics", numerics},
+      {"recipe", config.at("recipe")}};
+  if (transfer) {
+    contract["transfer"] = {
+        {"descriptor", transfer->descriptor},
+        {"weight_input_sha256", transfer->input_identity},
+        {"backbone_mode", config.at("backbone_mode")},
+        {"batch_norm", config.at("batch_norm")},
+        {"position_antialias", transfer->descriptor.at("position_antialias")},
+        {"head", "seeded linear with bias"},
+        {"dropout", "eval when frozen; follows mode when finetuning"}};
+  }
   const Json lineage{{"config_sha256", config_hash.hex},
                      {"dataset_sha256", inputs.identity.hex},
                      {"model_contract_sha256", digest(contract.dump()).hex},
@@ -569,11 +653,16 @@ Result execute(const Arguments& arguments, bool resume) {
         parse_json(read_text(root / "config.json")) == config &&
             parse_json(read_text(root / "dataset.json")) == inputs.manifest,
         "Recipe input evidence has changed");
+    if (transfer)
+      require_recipe(parse_json(read_text(root / "weight-input.json")) ==
+                         transfer->descriptor,
+                     "Saved source weight descriptor has changed");
   } else {
     write_json(root / "lineage.json", lineage);
     write_json(root / "config.json", config);
     write_json(root / "dataset.json", inputs.manifest);
     write_json(root / "build.json", build_json);
+    if (transfer) write_json(root / "weight-input.json", transfer->descriptor);
   }
   ex::SQLiteRunStore store(root / "run-store");
   if (!resume) {
@@ -581,7 +670,8 @@ Result execute(const Arguments& arguments, bool resume) {
     store.start({.run_id = std::string(kRun),
                  .project_id = "liuding-forge",
                  .experiment_id = "image-classification",
-                 .display_name = "ImageFolder ResNet18",
+                 .display_name = transfer ? "ImageFolder transfer learning"
+                                          : "ImageFolder ResNet18",
                  .status = ex::RunStatus::running,
                  .created_at_unix_ms = time,
                  .updated_at_unix_ms = time,
@@ -617,7 +707,13 @@ Result execute(const Arguments& arguments, bool resume) {
                  "Recipe cannot resume a run already marked terminal; retain "
                  "its evidence and start a new run");
   for (const auto* id : {"lineage", "config", "dataset", "build"})
-    attach(store, root / (std::string(id) + ".json"), id, id, time);
+    attach(store, root / (std::string(id) + ".json"), id, id, time,
+           ex::RunArtifactKind::artifact,
+           config.at("recipe").get<std::string>());
+  if (transfer)
+    attach(store, root / "weight-input.json", "weight-input",
+           "source_weight_contract", time, ex::RunArtifactKind::artifact,
+           config.at("recipe").get<std::string>());
 
   at::set_num_threads(1);
   at::set_num_interop_threads(1);
@@ -643,18 +739,24 @@ Result execute(const Arguments& arguments, bool resume) {
   limits.max_pipeline_inflight_batches =
       config.at("prefetch_batches").get<std::uint64_t>() + 2;
   auto budget = std::make_shared<image::ImageResourceBudget>(limits);
-  auto training_data = make_pipeline(config, inputs.train, false,
-                                     inputs.identity, device, budget);
-  auto validation_data = make_pipeline(config, inputs.validation, true,
-                                       inputs.identity, device, budget);
+  auto training_data =
+      make_pipeline(config, inputs.train, false, inputs.identity, device,
+                    budget, transfer ? &*transfer : nullptr);
+  auto validation_data =
+      make_pipeline(config, inputs.validation, true, inputs.identity, device,
+                    budget, transfer ? &*transfer : nullptr);
   models::ModelOptions model_options;
   model_options.resnet.num_classes =
       static_cast<std::int64_t>(inputs.train.categories().size());
-  auto model = std::make_shared<nn::ModelAdapter>(
-      models::create_model("resnet18", model_options));
+  auto model = transfer ? make_transfer_model(*transfer, config,
+                                              model_options.resnet.num_classes)
+                        : std::make_shared<nn::ModelAdapter>(
+                              models::create_model("resnet18", model_options));
+  const auto initial_state = transfer ? transfer_state(*model) : Json{};
   std::vector<optim::OptimizerParameterBinding> bindings;
   for (const auto& parameter : model->state().named_parameters())
-    bindings.push_back({parameter.key(), parameter.value()});
+    if (parameter.value().requires_grad())
+      bindings.push_back({parameter.key(), parameter.value()});
   auto optimizer = std::make_shared<optim::SgdOptimizerAdapter>(
       "recipe.sgd",
       std::vector<optim::SgdParameterGroup>{
@@ -767,7 +869,13 @@ Result execute(const Arguments& arguments, bool resume) {
                  "Recipe did not complete its configured training budget");
   tr::FileCheckpointStore final_checkpoint(root / "final.jyck");
   trainer.save_checkpoint(final_checkpoint);
-  const auto weights = encode_model(*model);
+  const auto final_transfer_state = transfer ? transfer_state(*model) : Json{};
+  if (transfer && config.at("backbone_mode") == "frozen")
+    require_recipe(initial_state.at("backbone_sha256") ==
+                       final_transfer_state.at("backbone_sha256"),
+                   "Frozen backbone parameters or buffers changed");
+  const auto weights =
+      encode_model(*model, config.at("recipe").get<std::string>());
   const auto model_hash = ArtifactDigest{.hex = sha256_hex(weights)};
   write_file(root / "model.safetensors", weights);
   validation_data->set_epoch(0);
@@ -803,7 +911,8 @@ Result execute(const Arguments& arguments, bool resume) {
       .suite_id = "recipe.image-classification",
       .task = "classification",
       .dataset_digest = inputs.identity,
-      .environment_id = "resnet18-" + device.str() + "-" + build.os_arch,
+      .environment_id = contract.at("architecture").get<std::string>() + "-" +
+                        device.str() + "-" + build.os_arch,
       .seed = config.at("seed").get<std::uint64_t>(),
       .rules = {{.rule_id = "validation-accuracy",
                  .definition = accuracy->definition,
@@ -844,6 +953,10 @@ Result execute(const Arguments& arguments, bool resume) {
   // snapshot.
   require_recipe(inspect_inputs(config).identity.hex == inputs.identity.hex,
                  "Dataset changed while the recipe was running");
+  if (transfer)
+    require_recipe(
+        inspect_transfer_input(config).descriptor == transfer->descriptor,
+        "Weight descriptor changed while training");
   const auto bundle =
       publish_bundle(root, config, inputs.manifest, contract, quality,
                      diagnostic, build, weights, lineage);
@@ -865,7 +978,7 @@ Result execute(const Arguments& arguments, bool resume) {
   const bool passed = report.verdict == ex::QualityVerdict::pass;
   Json result{
       {"schema_version", 1},
-      {"recipe", kRecipe},
+      {"recipe", config.at("recipe")},
       {"status", "completed"},
       {"run_id", kRun},
       {"global_step", fit.global_step},
@@ -889,18 +1002,28 @@ Result execute(const Arguments& arguments, bool resume) {
        sha256_hex({static_cast<const std::byte*>(next_cpu_rng.const_data_ptr()),
                    next_cpu_rng.nbytes()})},
       {"image_resource_payload", resources}};
+  if (transfer) {
+    result["transfer"] = {{"initial", initial_state},
+                          {"final", final_transfer_state},
+                          {"backbone_mode", config.at("backbone_mode")},
+                          {"batch_norm", config.at("batch_norm")},
+                          {"weight_input_sha256", transfer->input_identity}};
+  }
   write_json(root / "result.json", result);
   for (const auto* id :
        {"model.safetensors", "evaluation-suite.json", "evaluation.json",
         "diagnostics.json", "result.json"}) {
     const std::filesystem::path path(id);
-    attach(store, root / path, path.stem().string(), path.stem().string(),
-           time);
+    attach(store, root / path, path.stem().string(), path.stem().string(), time,
+           ex::RunArtifactKind::artifact,
+           config.at("recipe").get<std::string>());
   }
   attach(store, root / "final.jyck", "final-checkpoint", "final", time,
-         ex::RunArtifactKind::checkpoint);
+         ex::RunArtifactKind::checkpoint,
+         config.at("recipe").get<std::string>());
   attach(store, root / "bundle" / "manifest.json", "bundle", "model_bundle",
-         time);
+         time, ex::RunArtifactKind::artifact,
+         config.at("recipe").get<std::string>());
   store.transition(kRun, ex::RunStatus::completed, now_ms());
   trainer.close();
   return {result, passed ? 0 : 4};
@@ -915,9 +1038,11 @@ Result recipe_command(const Arguments& arguments) {
   const auto& action = arguments.words()[1];
   if (action == "schema" && arguments.optional("name") == "paired-affine")
     return paired_recipe_command(arguments);
+  const bool transfer_schema =
+      action == "schema" && arguments.optional("name") == "transfer";
   recipe_support::require_recipe(
-      !arguments.optional("name"),
-      "Only recipe schema --name paired-affine accepts --name");
+      !arguments.optional("name") || transfer_schema,
+      "recipe schema accepts --name paired-affine or --name transfer");
   if (action == "check" || action == "run" || action == "resume") {
     const auto config = parse_json(read_text(arguments.require("file")));
     if (config.is_object() &&
@@ -929,7 +1054,7 @@ Result recipe_command(const Arguments& arguments) {
     require_recipe(!arguments.optional("file") && !arguments.optional("root") &&
                        !arguments.optional("pause-after"),
                    "recipe schema accepts no file, root or pause-after");
-    return {schema_json(), 0};
+    return {schema_json(transfer_schema), 0};
   }
   if (action == "check") {
     require_recipe(
@@ -938,13 +1063,18 @@ Result recipe_command(const Arguments& arguments) {
     const auto config = resolve_config(std::filesystem::absolute(
         std::filesystem::u8path(arguments.require("file"))));
     const auto inputs = inspect_inputs(config);
-    return {Json{{"valid", true},
-                 {"config", config},
-                 {"config_sha256", digest(config.dump()).hex},
-                 {"dataset", inputs.manifest},
-                 {"dataset_sha256", inputs.identity.hex},
-                 {"total_steps", inputs.total_steps}},
-            0};
+    Json result{{"valid", true},
+                {"config", config},
+                {"config_sha256", digest(config.dump()).hex},
+                {"dataset", inputs.manifest},
+                {"dataset_sha256", inputs.identity.hex},
+                {"total_steps", inputs.total_steps}};
+    if (is_transfer_recipe(config)) {
+      const auto transfer = inspect_transfer_input(config);
+      result["transfer"] = {{"descriptor", transfer.descriptor},
+                            {"weight_input_sha256", transfer.input_identity}};
+    }
+    return {result, 0};
   }
   if (action == "run" || action == "resume")
     return execute(arguments, action == "resume");

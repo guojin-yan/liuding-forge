@@ -268,7 +268,7 @@ Result execute(const Arguments& arguments) {
                    "model bundle inspect|verify --path DIRECTORY",
                    "benchmark tensor --device cpu|cuda [options]",
                    "offline run --root PATH [options]",
-                   "recipe schema [--name paired-affine]",
+                   "recipe schema [--name paired-affine|transfer]",
                    "recipe check|run|resume --file PATH [--root PATH] "
                    "[--pause-after N]"})}},
         0};

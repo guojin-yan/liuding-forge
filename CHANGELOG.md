@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- DINOv2 在 CUDA 严格确定性模式下使用可求导的分离矩阵运算缩放位置编码，支持非原生分辨率的反向传播，保留参数梯度与 state 布局。
 - CIFAR-10 离线准备接受官方类别表末尾的空行，继续严格核对十个类别及其顺序。
 - 修复多 participant 检查点恢复失败时 strategy 的回滚计数检查，支持优化器先恢复或后恢复，并继续拒绝外部更新。
 - SGD 检查点接受单元素维度上等价的 momentum stride，修复 DINO CLS token 使用 momentum 后无法保存训练状态的问题；参数布局、数值类型、设备和形状仍严格校验。
@@ -29,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加显式本地预训练 ResNet50/DINOv2-S 的迁移学习配方，复用 Trainer、任务评估和检查点；支持冻结骨干或完整微调、独立 BN/dropout 策略、权重/预处理身份校验以及含来源的模型包。
 - 增加双输入分类/回归 C++ 配方及有界离线数据准备：支持双输出损失与任务评估、完整训练状态的独立进程恢复、配置/内容身份校验和纯数据模型包。
 - 增加独立训练诊断 JSON 报告：关联 run/attempt、模型/配置/数据身份与实际构建，保留精确计数，区分未启用、无样本和已测量，支持有界导出及既有 run/CAS 保存。
 - 增加可恢复分类评估 session：固定输入身份、原子批次统计、索引游标、完成态检查点及最终报告幂等重试。

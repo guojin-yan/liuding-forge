@@ -11,6 +11,7 @@
 5. [混合精度训练](tutorials/05_mixed_precision.md)
 6. [图像分类：ResNet18、CIFAR-10 与 Fashion-MNIST](tutorials/image_classification_recipe.md)
 7. [训练双输入、分类与回归模型](tutorials/multi_io_recipe.md)
+8. [使用预训练 ResNet50 与 DINOv2 迁移学习](tutorials/transfer_learning_recipe.md)
 
 ## 用户指南
 

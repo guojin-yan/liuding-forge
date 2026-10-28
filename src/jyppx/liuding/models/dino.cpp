@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include "detail.hpp"
+#include "position_interpolation.hpp"
 
 #include <jyppx/liuding/models/dino.hpp>
 
@@ -276,14 +277,19 @@ Tensor PositionForGrid(const Tensor& position_embedding, std::int64_t height,
       {1, reference_grid, reference_grid, dimension});
   patches = patches.permute({0, 3, 1, 2});
   if (height != reference_grid || width != reference_grid) {
-    patches = torch::nn::functional::interpolate(
-                  patches.to(torch::kFloat32),
-                  torch::nn::functional::InterpolateFuncOptions()
-                      .size(std::vector<std::int64_t>{height, width})
-                      .mode(torch::kBicubic)
-                      .align_corners(false)
-                      .antialias(antialias))
-                  .to(position_embedding.scalar_type());
+    if (patches.is_cuda() && at::globalContext().deterministicAlgorithms()) {
+      patches =
+          detail::SeparableBicubicPositions(patches, height, width, antialias);
+    } else {
+      patches = torch::nn::functional::interpolate(
+          patches.to(torch::kFloat32),
+          torch::nn::functional::InterpolateFuncOptions()
+              .size(std::vector<std::int64_t>{height, width})
+              .mode(torch::kBicubic)
+              .align_corners(false)
+              .antialias(antialias));
+    }
+    patches = patches.to(position_embedding.scalar_type());
   }
   patches =
       patches.permute({0, 2, 3, 1}).reshape({1, height * width, dimension});

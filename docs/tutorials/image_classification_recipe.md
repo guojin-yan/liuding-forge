@@ -123,4 +123,4 @@ python scripts/datasets/prepare_fashion_mnist.py --source-dir /datasets/fashion-
 
 `index/train.jsonl` 和 `index/validation.jsonl` 记录原始索引、类别 ID、相对图片路径、灰度像素 SHA-256 与 PNG 文件 SHA-256；`preparation.json` 保存来源、选择规则、类别计数和内容身份，`fashion-mnist.LICENSE` 保留原始许可文本。内容身份基于原始索引、标签和灰度字节，不依赖 PNG 压缩实现。脚本仅使用 Python 标准库，离线运行，拒绝覆盖已有输出，失败时清理本次私有暂存目录。
 
-上述工具提供数据接入，不会自动加载预训练权重。使用现有随机初始化 ResNet18 配方时，将数据路径指向对应的两个 split，并为 Fashion-MNIST 单独设置配置与质量阈值；模型所需的缩放、裁剪及 mean/std 由后续图像管线显式完成，不能沿用 CIFAR-10 的任务阈值来宣称该任务已经通过。
+上述工具提供数据接入，不会自动加载预训练权重。使用现有随机初始化 ResNet18 配方时，将数据路径指向对应的两个 split，并为 Fashion-MNIST 单独设置配置与质量阈值；模型所需的缩放、裁剪及 mean/std 由图像管线显式完成，不能沿用 CIFAR-10 的任务阈值来宣称该任务已经通过。预训练 ResNet50 和 DINOv2-S 的冻结骨干、完整微调与恢复步骤见[迁移学习教程](transfer_learning_recipe.md)。

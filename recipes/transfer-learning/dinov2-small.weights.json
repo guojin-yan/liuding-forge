@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "facebook.dinov2-small.unmasked.v1",
+  "model_name": "vit_small_patch14_dinov2",
+  "source_uri": "https://huggingface.co/facebook/dinov2-small/resolve/ed25f3a31f01632728cabb09d1542f84ab7b0056/model.safetensors",
+  "source_revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+  "license_spdx": "Apache-2.0",
+  "license_uri": "https://huggingface.co/facebook/dinov2-small/blob/ed25f3a31f01632728cabb09d1542f84ab7b0056/README.md",
+  "sha256": "f3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5",
+  "size_bytes": 88240512,
+  "source_num_classes": 0,
+  "state_mapping_version": "jyppx.liuding.dinov2-hf-small.unmasked.v1",
+  "position_antialias": false,
+  "reference_uri": "https://huggingface.co/facebook/dinov2-small/resolve/ed25f3a31f01632728cabb09d1542f84ab7b0056/preprocessor_config.json",
+  "reference_revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+  "image": {
+    "input_size": [
+      224,
+      224
+    ],
+    "resize": "shortest_edge_center_crop",
+    "resize_shorter_side": 256,
+    "interpolation": "bicubic",
+    "color": "rgb",
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  }
+}

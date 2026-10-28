@@ -477,7 +477,8 @@ if(TARGET jyppx::liuding::models)
     jyppx_add_gtest(jyppx_test_models
         LINK_TARGET jyppx::liuding::models
         models/test_models.cpp
-        ENVIRONMENT ${models_test_environment}
+        models/test_position_interpolation.cpp
+        ENVIRONMENT ${models_test_environment} "CUBLAS_WORKSPACE_CONFIG=:4096:8"
     )
     if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
         target_compile_definitions(jyppx_test_models PRIVATE

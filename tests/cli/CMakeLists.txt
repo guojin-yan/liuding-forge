@@ -23,6 +23,23 @@ if(JYPPX_LIUDING_TEST_CLI_CUDA)
 endif()
 
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
+    add_test(NAME Cli_transfer_configuration
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_transfer_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli> --contracts-only)
+    set_tests_properties(Cli_transfer_configuration PROPERTIES
+        LABELS "cli;integration;recipe" TIMEOUT 180)
+    add_test(NAME Cli_transfer_recipe
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_transfer_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli>)
+    set_tests_properties(Cli_transfer_recipe PROPERTIES
+        LABELS "cli;integration;recipe;external-weights" TIMEOUT 1200 SKIP_RETURN_CODE 77)
+    if(JYPPX_LIUDING_TEST_CLI_CUDA)
+        add_test(NAME Cli_transfer_recipe_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_transfer_recipe.py"
+                --cli $<TARGET_FILE:jyppx_cli> --device cuda)
+        set_tests_properties(Cli_transfer_recipe_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;external-weights;cuda" TIMEOUT 1200 SKIP_RETURN_CODE 77)
+    endif()
     add_test(NAME Cli_image_recipe
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_image_recipe.py"
             --cli $<TARGET_FILE:jyppx_cli>)

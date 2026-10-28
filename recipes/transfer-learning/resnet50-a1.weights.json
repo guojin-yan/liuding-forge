@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "timm.resnet50.a1_in1k",
+  "model_name": "resnet50",
+  "source_uri": "https://huggingface.co/timm/resnet50.a1_in1k/resolve/767268603ca0cb0bfe326fa87277f19c419566ef/model.safetensors",
+  "source_revision": "767268603ca0cb0bfe326fa87277f19c419566ef",
+  "license_spdx": "Apache-2.0",
+  "license_uri": "https://huggingface.co/timm/resnet50.a1_in1k/blob/767268603ca0cb0bfe326fa87277f19c419566ef/README.md",
+  "sha256": "773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb",
+  "size_bytes": 102469840,
+  "source_num_classes": 1000,
+  "state_mapping_version": "timm.resnet50.a1_in1k.identity.v1",
+  "position_antialias": false,
+  "reference_uri": "https://huggingface.co/timm/resnet50.a1_in1k/resolve/767268603ca0cb0bfe326fa87277f19c419566ef/config.json",
+  "reference_revision": "767268603ca0cb0bfe326fa87277f19c419566ef",
+  "image": {
+    "input_size": [
+      224,
+      224
+    ],
+    "resize": "shortest_edge_center_crop",
+    "resize_shorter_side": 235,
+    "interpolation": "bicubic",
+    "color": "rgb",
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  }
+}

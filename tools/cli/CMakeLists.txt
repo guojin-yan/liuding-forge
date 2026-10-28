@@ -16,6 +16,7 @@ add_library(jyppx_cli_objects OBJECT
     model_checkpoint.cpp
     offline_workflow.cpp
     image_recipe.cpp
+    transfer_recipe.cpp
     paired_recipe.cpp
     run_commands.cpp
     telemetry_commands.cpp
@@ -33,6 +34,12 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
         "${PROJECT_SOURCE_DIR}/recipes/image-classification/resnet18.json"
         "${PROJECT_SOURCE_DIR}/recipes/image-classification/cifar10-resnet18.json"
         DESTINATION share/jyppx/recipes/image-classification)
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/recipes/transfer-learning/resnet50.json"
+        "${PROJECT_SOURCE_DIR}/recipes/transfer-learning/dinov2-small.json"
+        "${PROJECT_SOURCE_DIR}/recipes/transfer-learning/resnet50-a1.weights.json"
+        "${PROJECT_SOURCE_DIR}/recipes/transfer-learning/dinov2-small.weights.json"
+        DESTINATION share/jyppx/recipes/transfer-learning)
 endif()
 if(JYPPX_LIUDING_BUILD_TESTS)
     add_executable(jyppx_cli_recipe_gate EXCLUDE_FROM_ALL)

@@ -22,6 +22,8 @@ auto result = adapter.invoke({.positional = {images}, .keyword = {}});
 
 CNN 分类模型接收与模块设备、dtype 一致的稠密浮点 NCHW 图像，默认输入通道数为 3、类别数为 1000，返回未归一化的 `[N, num_classes]` logits。全部视觉模型均支持 `num_classes=0` 返回 embedding，DINO 系列默认使用该模式。改变输入通道或分类头后，预训练 state 不再直接匹配默认结构。模块保持正常的 LibTorch autograd 与 train/eval 行为；调用方负责线程同步和推理时的 no-grad 边界。
 
+DINOv2 在 CUDA 严格确定性模式下使用可求导的分离矩阵计算缩放位置编码，支持非原生分辨率的完整微调；位置参数、激活与梯度保留在设备上，仅小型插值系数从 CPU 传入。该路径按 FP32 计算并恢复参数 dtype，不改变 state 键或形状；与原生插值的浮点舍入可能不同。CUDA 确定性矩阵运算还要求进程启动前设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`，完整训练恢复须另按实际配方验收。
+
 ## 查询与替换分类头
 
 `classifier_info(adapter)` 查询当前类别数、embedding 宽度、池化或 CLS 语义和被替换的参数前缀。`reset_classifier(adapter, classes)` 替换 head 并刷新传入 adapter 的输出 schema；`classes` 为 0–1,000,000，正数创建全新可训练 head，零移除 head。它保留具体模块与骨干参数身份、冻结标志、device、dtype 和当前模式，不自动冻结骨干或加载权重。
