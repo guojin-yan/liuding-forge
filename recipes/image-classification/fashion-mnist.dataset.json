@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "dataset_id": "jyppx.liuding.fashion-mnist/v1",
+  "source": {
+    "repository": "https://github.com/zalandoresearch/fashion-mnist",
+    "revision": "b2617bb6d3ffa2e429640350f613e3291e10b141",
+    "raw_base": "https://raw.githubusercontent.com/zalandoresearch/fashion-mnist/b2617bb6d3ffa2e429640350f613e3291e10b141/data/fashion/"
+  },
+  "license": {
+    "spdx": "MIT",
+    "file": "fashion-mnist.LICENSE",
+    "sha256": "13ef4788476d292858fa60eb9a5f74aeca5c65770bc885ccaa05823a17ef7be1"
+  },
+  "classes": [
+    {"id": 0, "name": "T-shirt/top", "directory": "00-t-shirt-top"},
+    {"id": 1, "name": "Trouser", "directory": "01-trouser"},
+    {"id": 2, "name": "Pullover", "directory": "02-pullover"},
+    {"id": 3, "name": "Dress", "directory": "03-dress"},
+    {"id": 4, "name": "Coat", "directory": "04-coat"},
+    {"id": 5, "name": "Sandal", "directory": "05-sandal"},
+    {"id": 6, "name": "Shirt", "directory": "06-shirt"},
+    {"id": 7, "name": "Sneaker", "directory": "07-sneaker"},
+    {"id": 8, "name": "Bag", "directory": "08-bag"},
+    {"id": 9, "name": "Ankle boot", "directory": "09-ankle-boot"}
+  ],
+  "files": {
+    "train": {
+      "samples": 60000,
+      "samples_per_class": 6000,
+      "images": {
+        "name": "train-images-idx3-ubyte.gz",
+        "bytes": 26421880,
+        "sha256": "3aede38d61863908ad78613f6a32ed271626dd12800ba2636569512369268a84",
+        "official_md5": "8d4fb7e6c68d591d4c3dfef9ec88bf0d"
+      },
+      "labels": {
+        "name": "train-labels-idx1-ubyte.gz",
+        "bytes": 29515,
+        "sha256": "a04f17134ac03560a47e3764e11b92fc97de4d1bfaf8ba1a3aa29af54cc90845",
+        "official_md5": "25c81989df183df01b3e8a0aad5dffbe"
+      }
+    },
+    "validation": {
+      "samples": 10000,
+      "samples_per_class": 1000,
+      "images": {
+        "name": "t10k-images-idx3-ubyte.gz",
+        "bytes": 4422102,
+        "sha256": "346e55b948d973a97e58d2351dde16a484bd415d4595297633bb08f03db6a073",
+        "official_md5": "bef4ecab320f06d8554ea6380940ec79"
+      },
+      "labels": {
+        "name": "t10k-labels-idx1-ubyte.gz",
+        "bytes": 5148,
+        "sha256": "67da17c76eaffca5446c3361aaab5c3cd6d1c2608764d35dfb1850b086bf8dd5",
+        "official_md5": "bb300cfdad3c16e7a12a480ee83cd310"
+      }
+    }
+  }
+}

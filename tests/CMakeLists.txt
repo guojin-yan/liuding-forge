@@ -45,6 +45,11 @@ if(Python3_Interpreter_FOUND)
             "${CMAKE_SOURCE_DIR}/tests/scripts/test_prepare_paired_affine.py")
     set_tests_properties(PairedAffinePreparationToolUnitTests PROPERTIES
         LABELS "data;recipe;hygiene" TIMEOUT 60)
+    add_test(NAME FashionMnistPreparationToolUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_prepare_fashion_mnist.py")
+    set_tests_properties(FashionMnistPreparationToolUnitTests PROPERTIES
+        LABELS "data;recipe;hygiene" TIMEOUT 120)
     add_test(
         NAME DependencyManifest
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/dependency_manifest.py

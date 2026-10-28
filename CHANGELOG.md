@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- 增加 Fashion-MNIST 离线 ImageFolder 准备工具：固定来源与许可，支持完整数据和每类前 100 张子集，流式生成精确 RGB PNG，保留原始索引及内容摘要。
 - 增加官方 CIFAR-10 binary 压缩包的离线校验与逐样本无损 ImageFolder 准备工具，以及完整 split 的 ResNet18 配置模板。
 - 增加 ImageFolder ResNet18 分类 CLI 配方，使用现有配置解析、逐样本图像管线、任务评估与 run/CAS；支持完整训练状态的独立进程恢复，并发布显式预处理的 safetensors 模型包。
 - DINOv2 增加显式位置编码插值 `position_antialias` 设置，默认沿用 timm 语义，`false` 可匹配官方 Transformers DINOv2 路径。

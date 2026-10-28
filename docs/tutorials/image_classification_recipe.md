@@ -108,3 +108,19 @@ python scripts/datasets/prepare_cifar10.py --archive /datasets/cifar-10-binary.t
 准备脚本仅用 Python 标准库，离线核对压缩包、逐条读取 binary record，再按精确的 RGB uint8 像素生成无损 PNG；不会加载 pickle、联网或将整套图片缓存到内存。输出 `/datasets/cifar10-imagefolder-v1/` 包含完整 50,000 张训练图、10,000 张官方 test 图及 `preparation.json`。官方 test 在输出中名为 `validation`，每类 train 5,000 张、validation 1,000 张；它会参与每个 epoch 的验证，不是额外保留且从未观察的测试集。准备失败不发布目标目录，已有目标目录始终拒绝覆盖。
 
 复制 [CIFAR-10 ResNet18 模板](../../recipes/image-classification/cifar10-resnet18.json)，把 `train_root`、`validation_root` 改为准备结果的实际路径，再执行 `recipe check` 和 `recipe run`。模板使用完整 split、32×32 RGB `[0,1]`、随机初始化 ResNet18、50 epochs、batch 128、seed `20261028`、SGD momentum 和 StepLR，共 19,550 次更新，预先声明 accuracy ≥0.65。它是限定训练配方，不表示与采用数据增强、不同 stem 或更长预算的其他 CIFAR-10 实现达到相同准确率。CPU 与 CUDA 的使用和恢复方式沿用前文，CUDA 需显式修改 `device` 并设置工作空间环境变量。
+
+## 7. 准备 Fashion-MNIST
+
+从 [Fashion-MNIST 固定版本的数据目录](https://github.com/zalandoresearch/fashion-mnist/tree/b2617bb6d3ffa2e429640350f613e3291e10b141/data/fashion)下载 `train-images-idx3-ubyte.gz`、`train-labels-idx1-ubyte.gz`、`t10k-images-idx3-ubyte.gz`、`t10k-labels-idx1-ubyte.gz`，原样放入仓库外的同一个目录。它与普通 MNIST 是不同的数据集；[数据身份清单](../../recipes/image-classification/fashion-mnist.dataset.json)固定四个文件的大小、SHA-256、官方 MD5 和类别映射，数据适用原始 MIT 许可证。
+
+```sh
+python scripts/datasets/prepare_fashion_mnist.py --source-dir /datasets/fashion-mnist-source --data-root /datasets
+```
+
+默认输出 `/datasets/fashion-mnist-first100-per-class-imagefolder-v1/`，在原始 train/test 中各按源顺序选取每类最早 100 张，共 1,000 张训练图和 1,000 张验证图。需要完整数据时增加 `--selection full`，输出独立的 `fashion-mnist-full-imagefolder-v1/`，包含 60,000 张训练图和 10,000 张验证图。两种选择均检查全部源记录、类别数量、IDX 长度和 gzip CRC，不会只检查被选中的部分。也可以设置 `JYPPX_LIUDING_DATA_ROOT` 并省略 `--data-root`。
+
+每张原始 28×28 uint8 灰度图逐像素复制为 RGB 无损 PNG，不缩放、不归一化，也不将整套数据加载到内存。`train/` 和 `validation/` 使用带数字前缀的类别目录，例如 `00-t-shirt-top`，按目录名称排序得到的类别 ID 与原始标签 0–9 一致。官方 test 在此命名为 `validation`，不是额外保留的最终测试集。
+
+`index/train.jsonl` 和 `index/validation.jsonl` 记录原始索引、类别 ID、相对图片路径、灰度像素 SHA-256 与 PNG 文件 SHA-256；`preparation.json` 保存来源、选择规则、类别计数和内容身份，`fashion-mnist.LICENSE` 保留原始许可文本。内容身份基于原始索引、标签和灰度字节，不依赖 PNG 压缩实现。脚本仅使用 Python 标准库，离线运行，拒绝覆盖已有输出，失败时清理本次私有暂存目录。
+
+上述工具提供数据接入，不会自动加载预训练权重。使用现有随机初始化 ResNet18 配方时，将数据路径指向对应的两个 split，并为 Fashion-MNIST 单独设置配置与质量阈值；模型所需的缩放、裁剪及 mean/std 由后续图像管线显式完成，不能沿用 CIFAR-10 的任务阈值来宣称该任务已经通过。

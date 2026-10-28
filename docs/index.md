@@ -9,7 +9,7 @@
 3. [优化器与调度器](tutorials/03_optimizers.md)
 4. [回调、检查点与指标](tutorials/04_callbacks.md)
 5. [混合精度训练](tutorials/05_mixed_precision.md)
-6. [用自己的图像训练 ResNet18](tutorials/image_classification_recipe.md)
+6. [图像分类：ResNet18、CIFAR-10 与 Fashion-MNIST](tutorials/image_classification_recipe.md)
 7. [训练双输入、分类与回归模型](tutorials/multi_io_recipe.md)
 
 ## 用户指南
