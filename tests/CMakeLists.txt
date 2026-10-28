@@ -40,6 +40,11 @@ if(Python3_Interpreter_FOUND)
             "${CMAKE_SOURCE_DIR}/tests/scripts/test_prepare_cifar10.py")
     set_tests_properties(Cifar10PreparationToolUnitTests PROPERTIES
         LABELS "data;recipe;hygiene" TIMEOUT 60)
+    add_test(NAME PairedAffinePreparationToolUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_prepare_paired_affine.py")
+    set_tests_properties(PairedAffinePreparationToolUnitTests PROPERTIES
+        LABELS "data;recipe;hygiene" TIMEOUT 60)
     add_test(
         NAME DependencyManifest
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/dependency_manifest.py

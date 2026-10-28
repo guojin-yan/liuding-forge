@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "dataset_id": "jyppx.liuding.paired-affine/v1",
+  "dataset_license": "Apache-2.0; self-authored synthetic example data",
+  "seed": 20261028,
+  "samples": {"train": 1024, "validation": 256},
+  "record": {
+    "id": "split:zero-padded-six-digit-index",
+    "left": "float32[2]; dyadic values in [-1,1]",
+    "right": "float32[2]; dyadic values in [-1,1]",
+    "class_id": "int64 scalar; 0 or 1; left[0]+left[1]/2+right[0]-right[1]/4 >= 0",
+    "regression": "float32[1]; (4*left[0]-2*left[1]+3*right[0]+right[1]+0.5)/8"
+  },
+  "max_record_bytes": 512,
+  "max_data_bytes": 1048576,
+  "files": {
+    "train": {
+      "file": "train.jsonl",
+      "samples": 1024,
+      "bytes": 137615,
+      "sha256": "781c7f9fa4a0c7dd8418f13714e2318fc35f9a22d65d240649e1784195b59d81",
+      "class_counts": [481, 543],
+      "max_record_bytes_observed": 141
+    },
+    "validation": {
+      "file": "validation.jsonl",
+      "samples": 256,
+      "bytes": 35760,
+      "sha256": "3155d7de4ff24ad1a8fb7f58e5d640f8b37e1fed43fabae6ca35097cb5368bf7",
+      "class_counts": [123, 133],
+      "max_record_bytes_observed": 146
+    }
+  }
+}

@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加自有双输入分类/回归示例数据的离线逐行准备工具，固定 train/validation 内容摘要、输入输出形状与独立目标，拒绝覆盖已有数据；C++ 多输入、多输出训练配方仍在开发。
 - 增加独立训练诊断 JSON 报告：关联 run/attempt、模型/配置/数据身份与实际构建，保留精确计数，区分未启用、无样本和已测量，支持有界导出及既有 run/CAS 保存。
 - 增加可恢复分类评估 session：固定输入身份、原子批次统计、索引游标、完成态检查点及最终报告幂等重试。
 - 增加固定外部 Penn-Fudan 图像任务验证：原生 C++ 分割训练、留出集 IoU/Dice、预测掩码候选框 AP、拆批等价及持久续评；数据与权重不随仓库分发。
