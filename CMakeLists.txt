@@ -568,11 +568,13 @@ add_library(jyppx_liuding_training STATIC
     src/jyppx/liuding/training/callbacks/early_stopping_callback.cpp
     src/jyppx/liuding/training/checkpoint_coordinator.cpp
     src/jyppx/liuding/training/classification_evaluation.cpp
+    src/jyppx/liuding/training/segmentation_evaluation.cpp
     src/jyppx/liuding/training/event_sink.cpp
     src/jyppx/liuding/training/telemetry_adapter.cpp
     src/jyppx/liuding/training/amp/grad_scaler.cpp
     src/jyppx/liuding/training/amp/grad_scaler_checkpoint_participant.cpp
     src/jyppx/liuding/training/metrics/classification.cpp
+    src/jyppx/liuding/training/metrics/segmentation.cpp
     src/jyppx/liuding/training/metrics/accuracy.cpp
     src/jyppx/liuding/training/metrics/average_meter.cpp
     src/jyppx/liuding/training/metrics/ranking.cpp

@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - The documentation index is now a concise Chinese task-based entry point; tutorials remain the detailed learning path and one-time development reports stay outside the source repository.
 
 ### Added
+- 增加单标签语义分割 IoU/Dice、线性大小的可合并/恢复计数及实际数据集推理入口，明确 ignore、背景和空类策略，并输出类别/来源统计与质量报告观测值。
 - 增加逐批实际推理的分类评估入口，输出准确率、宏平均 precision/recall/F1、逐类计数、来源切片和可接入质量报告的观测值；支持显式 ignore/空类策略、取消与逻辑资源限制，并恢复各子模块原模式。
 - 增加固定官方 DINOv2-S/14 safetensors 的离线流式转换工具，记录全部源参数、Q/K/V 合并和省略的 mask token；外部实际权重验证入口覆盖 ResNet50 与 DINOv2-S，完整数据集和完整微调资格仍待验证。
 - 新增 DINO 统一特征提取入口，支持查询布局/步幅/token 元数据及按顺序选择输出，复用 ModelAdapter 并保留 autograd 与共享存储。

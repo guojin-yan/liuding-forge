@@ -37,6 +37,7 @@
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #elif defined(JYPPX_CONSUMER_TRAINING)
 #include <jyppx/liuding/training/classification_evaluation.hpp>
+#include <jyppx/liuding/training/segmentation_evaluation.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)
 #include <jyppx/liuding/experiment/config.hpp>
@@ -385,6 +386,22 @@ int main() {
             .targets = torch::ones({1}, torch::kInt64)};
       });
   if (evaluation.overall.accuracy != 1.0 || !model.state().is_training())
+    return 1;
+  bool segmentation_first = true;
+  const auto segmentation =
+      jyppx::liuding::training::evaluate_semantic_segmentation(
+          model,
+          [&](std::stop_token)
+              -> std::optional<
+                  jyppx::liuding::training::SegmentationEvaluationBatch> {
+            if (!segmentation_first) return std::nullopt;
+            segmentation_first = false;
+            return jyppx::liuding::training::SegmentationEvaluationBatch{
+                .invocation = {.positional = {torch::tensor({0.f, 1.f})
+                                                  .reshape({1, 2, 1, 1})}},
+                .targets = torch::ones({1, 1, 1}, torch::kInt64)};
+          });
+  if (segmentation.overall.score != 1.0 || !model.state().is_training())
     return 1;
   jyppx::liuding::training::Trainer trainer(
       {.trainer_id = "trainer.consumer",

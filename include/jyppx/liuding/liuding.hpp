@@ -86,6 +86,7 @@
 #include <jyppx/liuding/training/event_sink.hpp>
 #include <jyppx/liuding/training/file_checkpoint_store.hpp>
 #include <jyppx/liuding/training/scheduler_adapter.hpp>
+#include <jyppx/liuding/training/segmentation_evaluation.hpp>
 #include <jyppx/liuding/training/single_device_strategy.hpp>
 #include <jyppx/liuding/training/strategy.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
@@ -102,6 +103,7 @@
 #include <jyppx/liuding/training/metrics/classification.hpp>
 #include <jyppx/liuding/training/metrics/metric_collection.hpp>
 #include <jyppx/liuding/training/metrics/regression.hpp>
+#include <jyppx/liuding/training/metrics/segmentation.hpp>
 #include <jyppx/liuding/training/metrics/topk_accuracy.hpp>
 
 // Utils
