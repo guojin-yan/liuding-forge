@@ -144,7 +144,7 @@ joint_options.mask_padding_id = 255; // 显式选择填充标签，通常使用�
 auto augmented = image::transform_sample(sample, steps, joint_options);
 ```
 
-照片默认使用 `nearest_exact`；可显式选择 LibTorch `bilinear`，其策略为 `align_corners=false, antialias=true`。整数照片在双精度插值后按最近偶数舍入并限制到原位深范围，返回原 dtype；浮点照片保留原 dtype。通道、编码范围和 alpha 关联保持原有声明，插值逐通道执行，不隐式做颜色、线性色彩空间或 alpha 预乘转换。离散 mask 始终使用精确整数寻址：源索引为 `floor((i+0.5)*input_size/output_size)`，ID 不经过 float，包含大于 `2^53` 的 int64 ID 和显式负 ignore ID。补边时 `mask_padding_id` 必须显式给出，调色板和 ignore/void 元数据继续保留。
+照片默认使用 `nearest_exact`；可显式选择 LibTorch `bilinear` 或 `bicubic`，两者均为 `align_corners=false, antialias=true`。CPU 单样本与 CPU/CUDA 批量几何使用相同策略；整数照片在 float64 插值后按最近偶数舍入并限制到原位深范围，浮点照片使用 float32 或 float64 计算并返回原 dtype，CUDA 半精度输入也先升到 float32。bicubic 的浮点结果可能过冲，不自动 clamp；`PixelSpec::range` 仍表示像素编码，不保证插值后的实际极值。通道和 alpha 关联保持原有声明，插值逐通道执行，不隐式做颜色、线性色彩空间或 alpha 预乘转换；该 Tensor 算子不声称与 PIL resize 逐位一致。离散 mask 始终使用精确整数寻址：源索引为 `floor((i+0.5)*input_size/output_size)`，ID 不经过 float，包含大于 `2^53` 的 int64 ID 和显式负 ignore ID。补边时 `mask_padding_id` 必须显式给出，调色板和 ignore/void 元数据继续保留。
 
 水平框先裁到仍有效的源区域，再映射到最终输出；无正面积交集的对象删除。`min_box_visibility` 是相对本次调用原始框面积的保留比例，`min_box_area` 是最终裁后输出框面积。关键点的 visibility 保留 0/1/2 语义，原本缺失或被裁掉的点变为 `(0,0,0)`；每个实际 flip 轴都要求显式的逐类别 output-to-input permutation，允许显式恒等排列，且必须为对合排列。`drop_empty_pose` 控制是否删除已无有效关键点的姿态对象。source ID、category 映射、group、crowd/ignore/difficult/truncated 及源声明的 `area` 原样保留；`area` 仍表示来源声明，不会改写成输出框面积。
 

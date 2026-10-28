@@ -529,18 +529,16 @@ Tensor CudaCopyStep(const Tensor& input, bool mask, ImageExtent before,
     case ImageGeometryKind::resize:
       return CudaNearestResize(input, mask, before, after, stop);
     case ImageGeometryKind::crop:
-      return input
-          .narrow(mask ? 0 : 1, step.top, after.height)
+      return input.narrow(mask ? 0 : 1, step.top, after.height)
           .narrow(mask ? 1 : 2, step.left, after.width)
           .clone();
     case ImageGeometryKind::pad:
-      return torch::constant_pad_nd(
-          input,
-          {static_cast<std::int64_t>(step.left),
-           static_cast<std::int64_t>(step.right),
-           static_cast<std::int64_t>(step.top),
-           static_cast<std::int64_t>(step.bottom)},
-          fill)
+      return torch::constant_pad_nd(input,
+                                    {static_cast<std::int64_t>(step.left),
+                                     static_cast<std::int64_t>(step.right),
+                                     static_cast<std::int64_t>(step.top),
+                                     static_cast<std::int64_t>(step.bottom)},
+                                    fill)
           .contiguous();
     case ImageGeometryKind::horizontal_flip:
       return input.flip({mask ? 1 : 2}).contiguous();
@@ -550,8 +548,8 @@ Tensor CudaCopyStep(const Tensor& input, bool mask, ImageExtent before,
   InvalidBatch("batch_geometry.kind");
 }
 
-Tensor CudaPhotoStep(const Tensor& input, ImageExtent before,
-                     ImageExtent after, const ImageGeometryStep& step,
+Tensor CudaPhotoStep(const Tensor& input, ImageExtent before, ImageExtent after,
+                     const ImageGeometryStep& step,
                      const JointTransformOptions& options, double fill,
                      std::stop_token stop) {
   if (step.kind != ImageGeometryKind::resize ||
@@ -560,23 +558,28 @@ Tensor CudaPhotoStep(const Tensor& input, ImageExtent before,
   Stop(stop);
   const bool integer = input.scalar_type() == torch::kUInt8 ||
                        input.scalar_type() == torch::kUInt16;
-  auto floating = integer ? input.to(torch::kFloat64) : input;
-  auto result = torch::nn::functional::interpolate(
-                    floating.unsqueeze(0),
-                    torch::nn::functional::InterpolateFuncOptions()
-                        .size(std::vector<std::int64_t>{
-                            static_cast<std::int64_t>(after.height),
-                            static_cast<std::int64_t>(after.width)})
-                        .mode(torch::kBilinear)
-                        .align_corners(false)
-                        .antialias(true))
-                    .squeeze(0);
+  auto floating = input.to(integer || input.scalar_type() == torch::kFloat64
+                               ? torch::kFloat64
+                               : torch::kFloat32);
+  auto interpolation = torch::nn::functional::InterpolateFuncOptions()
+                           .size(std::vector<std::int64_t>{
+                               static_cast<std::int64_t>(after.height),
+                               static_cast<std::int64_t>(after.width)})
+                           .align_corners(false)
+                           .antialias(true);
+  if (options.interpolation == ImageInterpolation::bicubic)
+    interpolation.mode(torch::kBicubic);
+  else
+    interpolation.mode(torch::kBilinear);
+  auto result =
+      torch::nn::functional::interpolate(floating.unsqueeze(0), interpolation)
+          .squeeze(0);
   Stop(stop);
   if (integer) {
     const auto maximum = input.scalar_type() == torch::kUInt8 ? 255 : 65535;
-    result = result.round().clamp(0, maximum).to(input.scalar_type());
+    result = result.round().clamp(0, maximum);
   }
-  return result.contiguous();
+  return result.to(input.scalar_type()).contiguous();
 }
 
 Tensor CudaPadToCanvas(const Tensor& input, ImageExtent extent,
@@ -592,10 +595,10 @@ Tensor CudaPadToCanvas(const Tensor& input, ImageExtent extent,
 
 Tensor CudaValid(ImageExtent extent, ImageExtent canvas,
                  const torch::Device& device) {
-  auto valid = torch::zeros(
-      {static_cast<std::int64_t>(canvas.height),
-       static_cast<std::int64_t>(canvas.width)},
-      torch::TensorOptions().device(device).dtype(torch::kBool));
+  auto valid =
+      torch::zeros({static_cast<std::int64_t>(canvas.height),
+                    static_cast<std::int64_t>(canvas.width)},
+                   torch::TensorOptions().device(device).dtype(torch::kBool));
   valid.narrow(0, 0, extent.height).narrow(1, 0, extent.width).fill_(true);
   return valid;
 }
@@ -794,7 +797,7 @@ ImageBatch transform_image_batch_geometry(
               item.annotation->objects.begin(), item.annotation->objects.end(),
               [](const auto& object) { return object.rle.has_value(); });
       auto working_per_pixel = 2 * bytes_per_pixel + (sample_has_rle ? 4 : 0);
-      if (joint.interpolation == ImageInterpolation::bilinear)
+      if (joint.interpolation != ImageInterpolation::nearest_exact)
         working_per_pixel += 32ULL * channels;
       max_intermediate_bytes = Add(
           max_intermediate_bytes,
@@ -940,8 +943,8 @@ ImageBatch transform_image_batch_geometry(
       for (std::size_t i = 0; i < count; ++i) {
         Stop(stop);
         auto image = PhotoAt(batch, i);
-        auto paired_image =
-            batch.paired_pixels ? std::optional<Tensor>(PairedAt(batch, i))
+        auto paired_image = batch.paired_pixels
+                                ? std::optional<Tensor>(PairedAt(batch, i))
                                 : std::nullopt;
         auto mask = batch.items[i].mask
                         ? std::optional<Tensor>(MaskAt(batch, i))
@@ -983,8 +986,8 @@ ImageBatch transform_image_batch_geometry(
           before = after;
         }
         result.items[i].valid_extent = output_extents[i];
-        auto composed = batch.items[i].geometry.value_or(
-            GeometryTrace(input_canvases[i]));
+        auto composed =
+            batch.items[i].geometry.value_or(GeometryTrace(input_canvases[i]));
         for (const auto& step : effective) composed = Append(composed, step);
         if (batch.layout == ImageBatchLayout::pad &&
             !Equal(output_extents[i], output_canvas))
@@ -997,15 +1000,14 @@ ImageBatch transform_image_batch_geometry(
           image = CudaPadToCanvas(image, output_extents[i], output_canvas,
                                   joint.image_padding);
           if (paired_image)
-            *paired_image = CudaPadToCanvas(
-                *paired_image, output_extents[i], output_canvas,
-                joint.paired_padding);
+            *paired_image =
+                CudaPadToCanvas(*paired_image, output_extents[i], output_canvas,
+                                joint.paired_padding);
           if (mask)
-            *mask = CudaPadToCanvas(*mask, output_extents[i], output_canvas,
-                                    c10::Scalar(
-                                        joint.mask_padding_id.value_or(0)));
-          valid.push_back(
-              CudaValid(output_extents[i], output_canvas, device));
+            *mask =
+                CudaPadToCanvas(*mask, output_extents[i], output_canvas,
+                                c10::Scalar(joint.mask_padding_id.value_or(0)));
+          valid.push_back(CudaValid(output_extents[i], output_canvas, device));
         } else {
           valid.push_back(
               CudaValid(output_extents[i], output_extents[i], device));

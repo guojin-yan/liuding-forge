@@ -49,6 +49,7 @@ struct ImageGeometryStep {
 enum class ImageInterpolation : std::uint8_t {
   nearest_exact,  ///< floor((output_index+0.5)*input_size/output_size).
   bilinear,       ///< LibTorch align_corners=false, antialias=true.
+  bicubic,        ///< Same alignment/antialias; floating values may overshoot.
 };
 
 /** @brief A partially cropped quadrilateral cannot remain a four-corner OBB. */

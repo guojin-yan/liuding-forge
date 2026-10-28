@@ -65,8 +65,9 @@ void Probability(double value) {
 
 void CheckOptions(const JointTransformOptions& options) {
   if (options.interpolation != ImageInterpolation::nearest_exact &&
-      options.interpolation != ImageInterpolation::bilinear)
-    Invalid("transform.interpolation", "nearest_exact or bilinear");
+      options.interpolation != ImageInterpolation::bilinear &&
+      options.interpolation != ImageInterpolation::bicubic)
+    Invalid("transform.interpolation", "nearest_exact, bilinear or bicubic");
   if (!std::isfinite(options.image_padding) ||
       !std::isfinite(options.paired_padding) ||
       !std::isfinite(options.min_box_area) || options.min_box_area < 0 ||
@@ -239,14 +240,17 @@ Tensor PhotoStep(const Tensor& input, const PixelSpec& spec, ImageExtent before,
   auto floating =
       chw.to(spec.dtype == torch::kFloat64 || integer ? torch::kFloat64
                                                       : torch::kFloat32);
+  auto interpolation =
+      torch::nn::functional::InterpolateFuncOptions()
+          .size(std::vector<std::int64_t>{after.height, after.width})
+          .align_corners(false)
+          .antialias(true);
+  if (options.interpolation == ImageInterpolation::bicubic)
+    interpolation.mode(torch::kBicubic);
+  else
+    interpolation.mode(torch::kBilinear);
   auto result =
-      torch::nn::functional::interpolate(
-          floating.unsqueeze(0),
-          torch::nn::functional::InterpolateFuncOptions()
-              .size(std::vector<std::int64_t>{after.height, after.width})
-              .mode(torch::kBilinear)
-              .align_corners(false)
-              .antialias(true))
+      torch::nn::functional::interpolate(floating.unsqueeze(0), interpolation)
           .squeeze(0);
   CheckStop(stop);
   if (integer)
@@ -303,7 +307,7 @@ std::shared_ptr<ImageResourceLeaseSet> ReservePixels(
   return leases;
 }
 
-ImageResourceLease ReserveBilinearScratch(
+ImageResourceLease ReservePhotoInterpolationScratch(
     const std::shared_ptr<ImageResourceLeaseSet>& source,
     const std::shared_ptr<ImageResourceBudget>& fallback, ImageExtent before,
     ImageExtent after, std::uint64_t channels) {
@@ -421,8 +425,9 @@ VisionSample transform_sample(const VisionSample& sample,
                   [](const auto& object) { return object.rle.has_value(); });
   const auto working_per_pixel =
       2 * bytes_per_pixel + (has_rle ? 4 : 0) +
-      (options.interpolation == ImageInterpolation::bilinear ? 32ULL * channels
-                                                             : 0);
+      (options.interpolation != ImageInterpolation::nearest_exact
+           ? 32ULL * channels
+           : 0);
   if (maximum_pixels > options.limits.max_working_bytes / working_per_pixel)
     Limit("transform.working_bytes");
   try {
@@ -461,10 +466,10 @@ VisionSample transform_sample(const VisionSample& sample,
               result.image.element_size());
       ImageResourceLease image_scratch;
       if (step.kind == ImageGeometryKind::resize &&
-          options.interpolation == ImageInterpolation::bilinear)
-        image_scratch = ReserveBilinearScratch(result.image_resource_leases,
-                                               options.resource_budget, before,
-                                               after, result.pixels.channels());
+          options.interpolation != ImageInterpolation::nearest_exact)
+        image_scratch = ReservePhotoInterpolationScratch(
+            result.image_resource_leases, options.resource_budget, before,
+            after, result.pixels.channels());
       result.image = PhotoStep(result.image, result.pixels, before, after, step,
                                options, options.image_padding, stop);
       result.image_resource_leases = std::move(next_image_leases);
@@ -477,8 +482,8 @@ VisionSample transform_sample(const VisionSample& sample,
                               result.paired_target->element_size());
         ImageResourceLease paired_scratch;
         if (step.kind == ImageGeometryKind::resize &&
-            options.interpolation == ImageInterpolation::bilinear)
-          paired_scratch = ReserveBilinearScratch(
+            options.interpolation != ImageInterpolation::nearest_exact)
+          paired_scratch = ReservePhotoInterpolationScratch(
               result.paired_target_resource_leases, options.resource_budget,
               before, after, result.paired_target_pixels->channels());
         result.paired_target = PhotoStep(

@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- 图像联合几何支持显式 antialiased bicubic resize，保持离散 mask 的整数 nearest-exact；CPU/CUDA 均保留原照片 dtype，CUDA bilinear/bicubic 的半精度输入先升到 float32 计算，并纳入已知工作量预算。
 - 全部视觉模型支持统一分类头查询、替换与 `num_classes=0` 的 embedding；替换时刷新传入 adapter 的 schema，保留骨干参数身份、冻结标志、设备、dtype 和模式。MobileNetV3 显式替换完整分类 MLP。
 - 统一特征提取覆盖全部 33 个视觉变体，新增按配置查询的特征约定；MobileNetV3 宽度、ViT/Swin 动态尺寸与 CNN 最小尺寸均同步到输出或输入校验，保留各家族原有的尺寸和 padding 规则。
 - 持久化检查点读取时，字段共享同一份已验证文件快照，省去逐字段的额外字节副本；回滚、提交失败和独立路径替换保留旧 reader 与字节视图。

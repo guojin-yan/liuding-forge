@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "bicubic_reference.hpp"
+
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/data_image/joint_transform.hpp>
@@ -294,6 +296,146 @@ TEST(JointTransformTest, Uint16PhotoBilinearRoundsWithoutTruncatingHighBits) {
   EXPECT_EQ(values[0][0][0].item<int>(), 0);
   EXPECT_EQ(values[0][0][1].item<int>(), 32768);
   EXPECT_EQ(values[0][0][2].item<int>(), 65535);
+}
+
+TEST(JointTransformTest, BicubicMatchesIndependentCubicReference) {
+  using namespace bicubic_reference;
+  const auto check = [](std::span<const double> source, std::uint32_t width,
+                        std::uint32_t height, ImageExtent after,
+                        std::span<const double> golden) {
+    auto sample = Grid(width, height);
+    sample.pixels.dtype = torch::kFloat64;
+    sample.pixels.range = PixelValueRange::unbounded;
+    sample.image =
+        torch::tensor(std::vector<double>(source.begin(), source.end()),
+                      torch::kFloat64)
+            .reshape({1, height, width});
+    JointTransformOptions options;
+    options.interpolation = ImageInterpolation::bicubic;
+    const std::array steps{
+        ImageGeometryStep{.kind = ImageGeometryKind::resize, .extent = after}};
+    const auto result = transform_sample(sample, steps, options);
+    const auto expected =
+        torch::tensor(std::vector<double>(golden.begin(), golden.end()),
+                      torch::kFloat64)
+            .reshape({1, after.height, after.width});
+    EXPECT_TRUE(torch::allclose(result.image, expected, 1e-12, 1e-12));
+  };
+  check(kUpInput, 3, 2, {7, 4}, kUpExpected);
+  check(kDownInput, 9, 7, {4, 3}, kDownExpected);
+}
+
+TEST(JointTransformTest, BicubicKeepsPairedHwcAndExactMaskIds) {
+  using namespace bicubic_reference;
+  auto sample = Grid(3, 2);
+  AddMask(sample);
+  sample.mask_target->ids =
+      torch::tensor(
+          std::vector<std::int64_t>{
+              std::numeric_limits<std::int64_t>::max(), 9007199254740993LL,
+              std::numeric_limits<std::int64_t>::min(), -9LL, -10LL, 7LL},
+          torch::kInt64)
+          .reshape({2, 3});
+  const auto original_ids = sample.mask_target->ids.clone();
+  sample.image =
+      torch::tensor(std::vector<double>(kUpInput.begin(), kUpInput.end()),
+                    torch::kFloat64)
+          .reshape({1, 2, 3});
+  sample.pixels.dtype = torch::kFloat64;
+  sample.pixels.range = PixelValueRange::unbounded;
+  const auto masked_sample = sample;
+  sample.mask_target.reset();
+  sample.paired_target = (sample.image * 2 + 3).permute({1, 2, 0});
+  sample.paired_target_pixels = sample.pixels;
+  sample.paired_target_pixels->layout = ImageLayout::hwc;
+  JointTransformOptions options;
+  options.interpolation = ImageInterpolation::bicubic;
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::resize, .extent = {7, 4}}};
+  const auto result = transform_sample(sample, steps, options);
+  const auto expected =
+      torch::tensor(std::vector<double>(kUpExpected.begin(), kUpExpected.end()),
+                    torch::kFloat64)
+          .reshape({1, 4, 7});
+  ASSERT_TRUE(result.paired_target);
+  EXPECT_TRUE(torch::allclose(result.image, expected, 1e-12, 1e-12));
+  EXPECT_TRUE(torch::allclose(*result.paired_target,
+                              (expected * 2 + 3).permute({1, 2, 0}), 1e-12,
+                              1e-12));
+  const auto masked_result = transform_sample(masked_sample, steps, options);
+  for (int y = 0; y < 4; ++y)
+    for (int x = 0; x < 7; ++x)
+      EXPECT_EQ(masked_result.mask_target->ids[y][x].item<std::int64_t>(),
+                original_ids[(2 * y + 1) * 2 / 8][(2 * x + 1) * 3 / 14]
+                    .item<std::int64_t>());
+  EXPECT_TRUE(torch::equal(masked_sample.mask_target->ids, original_ids));
+  EXPECT_EQ(result.geometry->output_extent().width, 7U);
+  EXPECT_EQ(result.geometry->output_extent().height, 4U);
+}
+
+TEST(JointTransformTest, BicubicSaturatesIntegersAndRetainsFloatingOvershoot) {
+  using namespace bicubic_reference;
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::resize, .extent = {5, 1}}};
+  JointTransformOptions options;
+  options.interpolation = ImageInterpolation::bicubic;
+  const auto golden = torch::tensor(std::vector<double>(kStepExpected.begin(),
+                                                        kStepExpected.end()),
+                                    torch::kFloat64)
+                          .reshape({1, 1, 5});
+  for (const auto dtype : {torch::kUInt8, torch::kUInt16}) {
+    auto sample = Grid(2, 1);
+    const auto maximum = dtype == torch::kUInt8 ? 255 : 65535;
+    sample.image =
+        torch::tensor({0, maximum}, torch::kInt32).to(dtype).reshape({1, 1, 2});
+    sample.pixels.dtype = dtype;
+    const auto result = transform_sample(sample, steps, options);
+    const auto expected =
+        (golden * (maximum / 65535.0)).round().clamp(0, maximum);
+    EXPECT_TRUE(torch::equal(result.image.to(torch::kInt64),
+                             expected.to(torch::kInt64)));
+    EXPECT_EQ(result.image.scalar_type(), dtype);
+  }
+  auto sample = Grid(2, 1);
+  sample.image = torch::tensor({0.0F, 1.0F}).reshape({1, 1, 2});
+  sample.pixels.dtype = torch::kFloat32;
+  sample.pixels.range = PixelValueRange::unit_interval;
+  const auto result = transform_sample(sample, steps, options);
+  EXPECT_TRUE(torch::allclose(result.image.to(torch::kFloat64), golden / 65535,
+                              1e-6, 1e-7));
+  EXPECT_LT(result.image.min().item<double>(), 0);
+  EXPECT_GT(result.image.max().item<double>(), 1);
+  EXPECT_EQ(result.pixels.range, PixelValueRange::unit_interval);
+}
+
+TEST(JointTransformTest,
+     BicubicAdmitsWorkingAndScratchBudgetsBeforePublishing) {
+  const auto sample = Grid(2, 1);
+  const auto original = sample.image.clone();
+  const std::array steps{
+      ImageGeometryStep{.kind = ImageGeometryKind::resize, .extent = {5, 1}}};
+  JointTransformOptions options;
+  options.interpolation = ImageInterpolation::bicubic;
+  options.limits.max_working_bytes = 5 * (2 + 32) - 1;
+  EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
+  options.limits.max_working_bytes += 1;
+  ImageResourceBudgetLimits limits;
+  limits.max_codec_scratch_bytes = 5 * 32 - 1;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  EXPECT_THROW(transform_sample(sample, steps, options), ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).peak, 0U);
+  limits.max_codec_scratch_bytes += 1;
+  budget = std::make_shared<ImageResourceBudget>(limits);
+  options.resource_budget = budget;
+  auto result = transform_sample(sample, steps, options);
+  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).peak, 160U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 5U);
+  result = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_TRUE(torch::equal(sample.image, original));
 }
 
 TEST(JointTransformTest, StridedHwcAndChwPreserveAllSupportedPhotoDtypes) {

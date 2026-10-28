@@ -232,6 +232,13 @@ int main() {
        .transform_id = joint_transform_identity(geometry_options, {})});
   const auto transformed = transform_sample(
       sample, sample_geometry({1, 1}, geometry_options, random));
+  JointTransformOptions cubic_options;
+  cubic_options.interpolation = ImageInterpolation::bicubic;
+  const auto cubic = transform_sample(
+      sample, sample_geometry({1, 1}, geometry_options, random), cubic_options);
+  if (cubic.width != 3 || cubic.height != 2 ||
+      !torch::equal(cubic.mask_target->ids, transformed.mask_target->ids))
+    return 1;
   VisionAnnotationRecord segments;
   segments.width = segments.height = 1;
   segments.panoptic_mask_path = "source.png";
