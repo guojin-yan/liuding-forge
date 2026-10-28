@@ -339,6 +339,25 @@ jyppx_add_gtest(jyppx_test_training_ranking_metric
     training/test_ranking_metric.cpp
 )
 
+if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::interop
+        AND TARGET jyppx::liuding::optim AND TARGET jyppx::liuding::experiment)
+    jyppx_add_gtest(jyppx_test_training_real_spatial_task
+        LINK_TARGET jyppx::liuding::training
+        training/test_real_spatial_task.cpp
+        ENVIRONMENT "CUBLAS_WORKSPACE_CONFIG=:4096:8")
+    target_link_libraries(jyppx_test_training_real_spatial_task PRIVATE
+        jyppx::liuding::data_image jyppx::liuding::interop
+        jyppx::liuding::optim jyppx::liuding::experiment
+        nlohmann_json::nlohmann_json)
+    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+        target_compile_definitions(jyppx_test_training_real_spatial_task PRIVATE
+            JYPPX_LIUDING_SPATIAL_CUDA_METRICS=1)
+    endif()
+    if(WIN32)
+        target_link_libraries(jyppx_test_training_real_spatial_task PRIVATE psapi)
+    endif()
+endif()
+
 jyppx_add_gtest(jyppx_test_training_callback_dispatcher
     LINK_TARGET jyppx::liuding::training
     training/test_callback_dispatcher.cpp

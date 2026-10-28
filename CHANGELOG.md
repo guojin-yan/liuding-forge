@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 - 增加可恢复分类评估 session：固定输入身份、原子批次统计、索引游标、完成态检查点及最终报告幂等重试。
+- 增加固定外部 Penn-Fudan 图像任务验证：原生 C++ 分割训练、留出集 IoU/Dice、预测掩码候选框 AP、拆批等价及持久续评；数据与权重不随仓库分发。
 - 增加语义分割 IoU/Dice 和检测 AP 的评估 session：按已提交批次恢复，校验图片/像素总量及输入身份，支持完成态报告重试；检测复用原子匹配，不逐批复制历史数据集状态。
 - 增加离线轴对齐框数据集 AP、紧凑匹配状态及实际推理/报告入口；明确 IoU、101 点插值、面积、每图每类 maxDet、crowd、并列与无 GT 类规则，支持来源切片、无重复图像合并及 exact 状态恢复。
 - 增加可采样、有资源限额并可恢复的训练诊断：loss NaN/Inf、非有限梯度、AMP 跳步、裁剪前全局 L2 和数据读取计时；Trainer 当前检查点更新为 schema 4。

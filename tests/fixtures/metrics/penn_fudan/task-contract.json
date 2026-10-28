@@ -1,0 +1,56 @@
+{
+  "dataset_manifest_sha256": "38386432386c0fc3b9560c98575677e150708b3dbfb4fc11825035309f4dbd95",
+  "detection": {
+    "ap": "COCO 101-point interpolation",
+    "ap50_minimum": 0.1,
+    "ground_truth": "tight exclusive xyxy of each resized ground-truth instance ID, ordered by ID",
+    "iou_thresholds": [
+      0.5,
+      0.75
+    ],
+    "max_det": 100,
+    "predictor": "4-connected components of model foreground argmax, minimum 16 pixels; score mean foreground softmax probability; tight exclusive xyxy; never uses GT",
+    "qualification": "derived-mask proposal baseline only; does not qualify an independent detection model or full detection recipe"
+  },
+  "frozen_before_training_and_test": true,
+  "reference": "Independent Python/Pillow/NumPy preprocessing, counts, connected components and pycocotools bbox AP from C++ predictions; no reference model predictions generated from GT.",
+  "resources": {
+    "compile_jobs": 2,
+    "cpu_threads": 2,
+    "cuda_allocated_limit_bytes": 3221225472,
+    "rss_limit_bytes": 6442450944,
+    "training_timeout_seconds": 900
+  },
+  "schema_version": 1,
+  "segmentation": {
+    "classes": [
+      "background",
+      "person"
+    ],
+    "input": "FP32 RGB /255; bilinear antialias resize to128x128; mask nearest-exact, any instance>0 becomes person",
+    "scores": [
+      "IoU",
+      "Dice"
+    ],
+    "sources": [
+      "penn",
+      "fudan"
+    ],
+    "thresholds": {
+      "foreground_iou_minimum": 0.35,
+      "mean_iou_minimum": 0.6
+    }
+  },
+  "training": {
+    "batch": 8,
+    "epochs": 80,
+    "height": 128,
+    "loss": "cross entropy + foreground soft Dice",
+    "lr": 0.001,
+    "model": "Tiny U-Net 8/16/32 channels, no BatchNorm, two 3x3 convolutions per level; random initialization; no pretrained weights",
+    "optimizer": "Adam",
+    "seed": 20261028,
+    "selection": "final epoch only; validation/test do not select model or hyperparameters",
+    "width": 128
+  }
+}
