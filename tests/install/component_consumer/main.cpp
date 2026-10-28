@@ -38,6 +38,7 @@
 #elif defined(JYPPX_CONSUMER_TRAINING)
 #include <jyppx/liuding/training/classification_evaluation.hpp>
 #include <jyppx/liuding/training/detection_evaluation.hpp>
+#include <jyppx/liuding/training/diagnostics.hpp>
 #include <jyppx/liuding/training/segmentation_evaluation.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)
@@ -436,6 +437,15 @@ int main() {
       {.trainer_id = "trainer.consumer",
        .checkpoint = {.max_participants = 64,
                       .max_rollback_bytes = 3ULL << 30U}});
+  const std::array<jyppx::liuding::Tensor, 1> gradients{
+      torch::tensor({3.0, 4.0}, torch::kFloat64)};
+  const auto norm = jyppx::liuding::training::measure_gradient_l2(gradients);
+  jyppx::liuding::training::TrainingDiagnostics diagnostics;
+  if (norm.l2 != 5.0 || norm.elements != 2 ||
+      diagnostics.describe_state().schema_version != 1 ||
+      jyppx::liuding::training::training_diagnostic_metric_bindings().size() !=
+          10)
+    return 1;
   return trainer.phase() == jyppx::liuding::training::TrainerPhase::created &&
                  trainer.options().trainer_id == "trainer.consumer" &&
                  trainer.options().checkpoint.max_participants == 64 &&

@@ -585,6 +585,7 @@ add_library(jyppx_liuding_training STATIC
     src/jyppx/liuding/training/scheduler_adapter.cpp
     src/jyppx/liuding/training/single_device_strategy.cpp
     src/jyppx/liuding/training/trainer.cpp
+    src/jyppx/liuding/training/diagnostics.cpp
 )
 add_library(jyppx::liuding::training ALIAS jyppx_liuding_training)
 set_target_properties(jyppx_liuding_training PROPERTIES

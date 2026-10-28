@@ -16,6 +16,7 @@
 #include <jyppx/liuding/training/amp/grad_scaler_checkpoint_participant.hpp>
 #include <jyppx/liuding/training/callback_dispatcher.hpp>
 #include <jyppx/liuding/training/checkpoint_coordinator.hpp>
+#include <jyppx/liuding/training/diagnostics.hpp>
 #include <jyppx/liuding/training/event_sink.hpp>
 #include <jyppx/liuding/training/scheduler_adapter.hpp>
 #include <jyppx/liuding/training/strategy.hpp>
@@ -25,6 +26,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -46,10 +48,10 @@ constexpr char kComponent[] = "training.trainer";
 constexpr char kTopologyField[] = "topology";
 constexpr char kControlField[] = "control";
 constexpr char kTopologyMediaType[] =
-    "application/vnd.jyppx.trainer-topology-v3";
-constexpr char kControlMediaType[] = "application/vnd.jyppx.trainer-control-v3";
-constexpr std::string_view kTopologyMagic = "JYPPX-TRAINER-TOPOLOGY-V3";
-constexpr std::string_view kControlMagic = "JYPPX-TRAINER-CONTROL-V3";
+    "application/vnd.jyppx.trainer-topology-v4";
+constexpr char kControlMediaType[] = "application/vnd.jyppx.trainer-control-v4";
+constexpr std::string_view kTopologyMagic = "JYPPX-TRAINER-TOPOLOGY-V4";
+constexpr std::string_view kControlMagic = "JYPPX-TRAINER-CONTROL-V4";
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
@@ -489,8 +491,9 @@ std::map<std::string, double> finish_metrics(
   return result;
 }
 
-void validate_step_output(const StepOutput& output,
-                          const data::BatchEnvelope& batch, bool require_loss) {
+std::optional<double> validate_step_output(const StepOutput& output,
+                                           const data::BatchEnvelope& batch,
+                                           bool require_loss) {
   if (output.sample_count == 0U ||
       output.sample_count != batch.sample_ids.size()) {
     throw_invalid("step.sample_count", "the committed batch sample count",
@@ -511,10 +514,9 @@ void validate_step_output(const StepOutput& output,
                     std::to_string(output.loss.numel()),
                     "Reduce task loss before returning it.");
     }
-    if (!std::isfinite(output.loss.detach().item<double>())) {
-      throw_numerical("step.loss", "non-finite scalar");
-    }
+    return output.loss.detach().item<double>();
   }
+  return std::nullopt;
 }
 
 std::vector<std::byte> encode_topology(
@@ -549,6 +551,9 @@ std::vector<std::byte> encode_topology(
                             : std::string{});
   append_string(output, request.model_checkpoint->participant_id());
   append_string(output, request.rng_checkpoint->participant_id());
+  append_string(output, request.diagnostics
+                            ? request.diagnostics->participant_id()
+                            : std::string{});
   append_string(output, request.gradient_scaler
                             ? request.gradient_scaler->options().scaler_id
                             : std::string{});
@@ -819,12 +824,57 @@ struct Trainer::Impl {
     }
   }
 
+  std::optional<double> validate_output(const StepOutput& output,
+                                        const data::BatchEnvelope& batch,
+                                        bool training) {
+    const auto loss = validate_step_output(output, batch, training);
+    if (loss.has_value()) {
+      if (request.diagnostics)
+        request.diagnostics->observe_loss(*loss, !training);
+      if (!std::isfinite(*loss))
+        throw_numerical("step.loss", "non-finite scalar");
+    }
+    if (request.diagnostics) {
+      for (const auto& [name, value] : output.metrics) {
+        static_cast<void>(value);
+        if (name.starts_with("diagnostics.")) {
+          throw_invalid("step.metrics", "task keys outside diagnostics.*", name,
+                        "Reserve diagnostic event keys for the Trainer.");
+        }
+      }
+    }
+    return loss;
+  }
+
+  std::optional<data::BatchEnvelope> next_batch(bool validation,
+                                                std::stop_token stop,
+                                                std::optional<double>& wait) {
+    auto& pipeline =
+        validation ? request.validation_data : request.training_data;
+    wait.reset();
+    if (!request.diagnostics ||
+        !request.diagnostics->options().measure_data_wait) {
+      return pipeline->next(stop);
+    }
+    const auto started = std::chrono::steady_clock::now();
+    auto batch = pipeline->next(stop);
+    if (batch.has_value()) {
+      wait = std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                           started)
+                 .count();
+      request.diagnostics->observe_wait(*wait, validation);
+    }
+    return batch;
+  }
+
   void ensure_finite_gradients() const {
     for (const auto& optimizer : request.optimizers) {
       for (const auto& binding : optimizer.optimizer->parameter_bindings()) {
         const auto gradient = binding.parameter.grad();
         if (gradient.defined() &&
             !torch::isfinite(gradient).all().item<bool>()) {
+          if (request.diagnostics)
+            request.diagnostics->observe_nonfinite_gradient(false);
           throw_numerical("optimizer.gradient", binding.parameter_id);
         }
       }
@@ -896,33 +946,55 @@ struct Trainer::Impl {
                       static_cast<double>(state.pending_micro_steps));
     }
     bool scaler_applied = true;
+    const bool sample_norm =
+        request.diagnostics && request.diagnostics->begin_gradient_attempt();
+    std::map<std::string, double> update_metrics{
+        {"optimizer.count", static_cast<double>(request.optimizers.size())}};
     if (request.gradient_scaler) {
       for (const auto& optimizer : request.optimizers) {
         request.gradient_scaler->unscale(optimizer.optimizer);
       }
       scaler_applied = request.gradient_scaler->cycle_allowed();
-      if (scaler_applied) {
-        ensure_finite_gradients();
-        clip_gradients();
-      }
-    } else {
-      ensure_finite_gradients();
-      clip_gradients();
     }
     if (!scaler_applied) {
+      if (request.diagnostics)
+        request.diagnostics->observe_nonfinite_gradient(true);
       for (const auto& optimizer : request.optimizers) {
         request.gradient_scaler->mark_step(optimizer.optimizer, false);
       }
       request.gradient_scaler->update();
       state.pending_micro_steps = 0;
       zero_grad_all();
-      emit(
-          CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
-          {{"optimizer.applied", 0.0},
-           {"optimizer.count", static_cast<double>(request.optimizers.size())}},
-          stop);
+      update_metrics.emplace("optimizer.applied", 0.0);
+      emit(CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
+           std::move(update_metrics), stop);
       return;
     }
+    ensure_finite_gradients();
+    if (sample_norm) {
+      std::vector<Tensor> gradients;
+      const auto& limits = request.diagnostics->options().gradient_norm;
+      for (const auto& optimizer : request.optimizers) {
+        for (const auto& binding : optimizer.optimizer->parameter_bindings()) {
+          const auto gradient = binding.parameter.grad();
+          if (gradient.defined()) {
+            if (gradients.size() == limits.max_tensors) {
+              throw_exhausted("diagnostics.gradient_norm.tensors",
+                              "configured tensor bound",
+                              std::to_string(gradients.size() + 1),
+                              "Increase the explicit scan bound.");
+            }
+            gradients.push_back(gradient);
+          }
+        }
+      }
+      const auto measurement = measure_gradient_l2(gradients, limits);
+      request.diagnostics->observe_norm(measurement);
+      update_metrics.emplace("diagnostics.gradient.l2", measurement.l2);
+      update_metrics.emplace("diagnostics.gradient.scan_seconds",
+                             measurement.seconds);
+    }
+    clip_gradients();
     for (const auto& optimizer : request.optimizers) {
       const auto outcome =
           request.strategy->optimizer_step(*optimizer.optimizer);
@@ -948,10 +1020,9 @@ struct Trainer::Impl {
     state.pending_micro_steps = 0;
     zero_grad_all();
     step_schedulers(optim::SchedulerStepMode::batch);
+    update_metrics.emplace("optimizer.applied", 1.0);
     emit(CallbackEventKind::optimizer_step_finished, CallbackPhase::training,
-         {{"optimizer.applied", 1.0},
-          {"optimizer.count", static_cast<double>(request.optimizers.size())}},
-         stop);
+         std::move(update_metrics), stop);
   }
 
   std::map<std::string, double> validate_epoch(std::stop_token stop) {
@@ -965,7 +1036,8 @@ struct Trainer::Impl {
       request.validation_data->set_epoch(state.active_epoch);
       torch::NoGradGuard no_grad;
       while (!stop.stop_requested()) {
-        auto batch = request.validation_data->next(stop);
+        std::optional<double> wait;
+        auto batch = next_batch(true, stop, wait);
         if (!batch.has_value()) {
           break;
         }
@@ -975,16 +1047,15 @@ struct Trainer::Impl {
             invoke_step(*batch, request.validation_batch_mapper,
                         request.validation_target_mapper,
                         request.validation_step, StepPhase::validation);
-        validate_step_output(output, *batch, false);
-        const auto loss =
-            output.loss.defined()
-                ? std::optional<double>(output.loss.detach().item<double>())
-                : std::nullopt;
+        const auto loss = validate_output(output, *batch, false);
         add_output(aggregate, output, loss, "validation.loss", options);
         auto batch_metrics = output.metrics;
         if (loss.has_value()) {
           batch_metrics.emplace("validation.loss", *loss);
         }
+        if (wait)
+          batch_metrics.emplace("diagnostics.validation.data_wait_seconds",
+                                *wait);
         emit(CallbackEventKind::batch_finished, CallbackPhase::validation,
              std::move(batch_metrics), stop);
       }
@@ -1005,7 +1076,10 @@ struct Trainer::Impl {
 
   void finalize_terminal_event(CallbackEventKind kind, CallbackPhase phase,
                                std::stop_token stop) {
-    emit(kind, phase, {}, stop, false, false);
+    emit(kind, phase,
+         request.diagnostics ? request.diagnostics->terminal_metrics()
+                             : std::map<std::string, double>{},
+         stop, false, false);
     if (request.event_outbox && options.drain_events) {
       request.event_outbox->drain(stop);
     }
@@ -1212,6 +1286,9 @@ void Trainer::prepare(FitRequest request) {
     if (impl_->request.gradient_scaler_checkpoint) {
       registry->register_participant(impl_->request.gradient_scaler_checkpoint);
     }
+    if (impl_->request.diagnostics) {
+      registry->register_participant(impl_->request.diagnostics);
+    }
     register_callback_checkpoint_participants(*registry,
                                               impl_->request.callbacks);
     if (!impl_->request.additional_participants.empty()) {
@@ -1306,7 +1383,8 @@ FitResult Trainer::fit(std::stop_token stop) {
       }
 
       while (!cancelled && !impl_->state.callback_stop && !reached_step_limit) {
-        auto batch = impl_->request.training_data->next(stop);
+        std::optional<double> wait;
+        auto batch = impl_->next_batch(false, stop, wait);
         if (!batch.has_value()) {
           cancelled = stop.stop_requested();
           break;
@@ -1317,8 +1395,7 @@ FitResult Trainer::fit(std::stop_token stop) {
             *batch, impl_->request.training_batch_mapper,
             impl_->request.training_target_mapper, impl_->request.training_step,
             StepPhase::training);
-        validate_step_output(output, *batch, true);
-        const auto loss_value = output.loss.detach().item<double>();
+        const auto loss_value = *impl_->validate_output(output, *batch, true);
         add_output(impl_->state.training, output, loss_value, "training.loss",
                    impl_->options);
         auto backward_loss =
@@ -1334,6 +1411,9 @@ FitResult Trainer::fit(std::stop_token stop) {
         }
         auto batch_metrics = output.metrics;
         batch_metrics.emplace("training.loss", loss_value);
+        if (wait)
+          batch_metrics.emplace("diagnostics.training.data_wait_seconds",
+                                *wait);
         impl_->emit(CallbackEventKind::batch_finished, CallbackPhase::training,
                     std::move(batch_metrics), stop);
         reached_step_limit =
@@ -1539,7 +1619,7 @@ std::string Trainer::participant_id() const {
 StateManifest Trainer::describe_state() const {
   StateManifest manifest{
       .participant_id = participant_id(),
-      .schema_version = 3,
+      .schema_version = 4,
       .restore_level = RestoreLevel::exact,
       .fields = {{.name = kTopologyField,
                   .media_type = kTopologyMediaType,

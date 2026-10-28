@@ -55,6 +55,7 @@ class CheckpointStateSource;
 class EventOutbox;
 class SchedulerAdapter;
 class TrainingStrategy;
+class TrainingDiagnostics;
 
 /**
  * @brief Selects how an incomplete gradient-accumulation tail is handled.
@@ -265,6 +266,8 @@ struct FitRequest {
       model_checkpoint;  ///< Required participant for exact model state.
   std::shared_ptr<core::RngCheckpointParticipant>
       rng_checkpoint;  ///< Required process RNG participant.
+  std::shared_ptr<TrainingDiagnostics>
+      diagnostics;  ///< Optional bounded diagnostics and exact sampling state.
   std::vector<std::shared_ptr<CheckpointParticipant>>
       additional_participants;  ///< Metric/scaler or task state participants.
   CheckpointAction
@@ -290,7 +293,7 @@ struct FitResult {
  * scheduler, callbacks, outbox, RNG, and task state remain independent
  * checkpoint participants registered with one `CheckpointCoordinator` during
  * `prepare()`. Checkpoints are allowed only when the accumulation window is
- * empty and validation is not active. Schema version 3 reads only the current
+ * empty and validation is not active. Schema version 4 reads only the current
  * format; no legacy Trainer archive or callback API is accepted.
  */
 class Trainer final : public CheckpointParticipant {

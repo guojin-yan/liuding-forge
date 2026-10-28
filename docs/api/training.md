@@ -1,131 +1,77 @@
-# API: Training
+# API：训练与评估
 
-Training types live in `jyppx::liuding::training`. The current API is contract-first: the loop does not infer model calls, targets, objectives, checkpoint contents, or scheduler timing.
+训练接口位于 `jyppx::liuding::training`。模型调用、目标、损失、检查点内容与调度器时点均由调用方显式配置。
 
-## Trainer
+## Trainer 与 FitRequest
 
-Include `jyppx/training/trainer.hpp` and construct an unprepared Trainer from stable run options:
+使用 `<jyppx/liuding/training/trainer.hpp>` 创建 Trainer，然后调用 `prepare(request)`、`fit()`，最后显式 `close()`。
 
 ```cpp
 jyppx::liuding::training::Trainer trainer({
     .trainer_id = "trainer.main",
-    .run_id = "run.2026-10-17",
-    .trace_id = "trace.001",
+    .run_id = "run.training",
+    .trace_id = "trace.training",
     .max_epochs = 20,
-    .max_steps = 0,
     .accumulate_steps = 4,
-    .accumulation_tail =
-        jyppx::liuding::training::AccumulationTailPolicy::flush,
     .gradient_clip_norm = 1.0,
 });
 ```
 
-`max_steps == 0` means epoch-limited. A partial accumulation tail is either
-explicitly rescaled and flushed or dropped. Checkpoint state records these
-policies and rejects a different topology during restore.
+`max_steps == 0` 表示按 epoch 限制。梯度累积尾批由 `accumulation_tail` 选择校正后更新或丢弃；恢复时必须保持这些训练策略一致。
 
-## FitRequest
+`FitRequest` 绑定模型、优化器、数据管线、任务函数与执行策略。模型、每个优化器及 RNG 的 checkpoint participant 为必需项；scheduler、callbacks、outbox、诊断与其他任务 participant 可选，启用后一起保存恢复。
 
-`prepare(FitRequest)` binds one complete execution and recovery domain:
+- `ModelAdapter` 校验模型输入输出 schema；`BatchMapper`、可选 `TargetMapper` 与 `StepFunction` 定义任务语义。
+- `BatchPipeline` 接受 map-style `DataPipeline` 或流式 `IterableDataPipeline`；训练与验证使用独立游标。
+- `TrainingStrategy` 负责设备、反向传播、清梯度、更新与 barrier。准备前优化器应无历史更新和原生状态；准备后不得改变参数 dtype/device。
+- 多个 `OptimizerExecutionBinding` 的参数必须互不重叠，并完整覆盖可训练参数；按稳定 ID 顺序共同更新成功后才推进一次 `global_step`。任意后端更新或调度失败会终止训练，不承诺撤销后端副作用。
 
-- `ModelAdapter` validates invocation and result schemas.
-- Each `OptimizerExecutionBinding` owns one optimizer, its exact checkpoint participant, and an optional scheduler.
-- `BatchPipeline` accepts either map-style `DataPipeline` or
-  `IterableDataPipeline` without inventing random access for streams.
-- `BatchMapper`, optional `TargetMapper`, and `StepFunction` own task semantics.
-- `TrainingStrategy` owns placement, backward, zero-grad, updates and barriers.
-- model, every optimizer and RNG checkpoint participant are required.
-- scheduler, callbacks, event outbox and additional task participants are
-  optional but become part of the same coordinated checkpoint.
-
-`SingleDeviceStrategy::prepare()` canonicalizes optimizers by stable identity,
-then preflights their parameter ownership before moving model state. Optimizer parameter sets must be disjoint and together cover every named trainable model parameter exactly once. Each optimizer must have zero completed steps and no native state; after preparation and the first update, dtype/device placement is immutable.
-
-```cpp
-request.optimizers = {
-    {.optimizer = encoder_optimizer,
-     .checkpoint = encoder_optimizer_state,
-     .scheduler = encoder_scheduler},
-    {.optimizer = head_optimizer,
-     .checkpoint = head_optimizer_state,
-     .scheduler = head_scheduler},
-};
-```
-
-One logical Trainer step applies every optimizer once in canonical identity order and advances `global_step` only after the complete group succeeds. Backend exceptions during an optimizer or scheduler call are fail-stop: the Trainer enters `failed` and cannot advertise a checkpoint-safe continuation; the framework does not claim rollback of arbitrary backend side effects.
-
-The training step returns a differentiable scalar loss and the exact number of committed sample IDs. Validation may omit loss, but a metric scheduler then requires the configured `scheduler_metric` to be present in validation output.
+训练函数返回可微标量 loss 和与 batch sample ID 一致的 `sample_count`。验证可不返回 loss，但 metric scheduler 仍需取得配置的 `scheduler_metric`。
 
 ```cpp
 auto step = [](const jyppx::liuding::training::StepInput& input) {
-    auto prediction = input.model.invoke(input.invocation).value.toTensor();
-    auto target = input.target->toTensor();
+    const auto prediction = input.model.invoke(input.invocation).value.toTensor();
     return jyppx::liuding::training::StepOutput{
-        .loss = torch::mse_loss(prediction, target),
-        .metrics = {{"task.mae", (prediction - target).abs().mean().item<double>()}},
+        .loss = torch::mse_loss(prediction, input.target->toTensor()),
         .sample_count = input.batch.sample_ids.size(),
     };
 };
 ```
 
-`fit()` runs once from a prepared or restored state and returns `FitResult`.
-The loop rejects non-finite loss/gradients, empty training epochs, external
-optimizer/scheduler steps, shared training/validation cursors and incomplete
-checkpoint domains. `close()` explicitly drains events and closes data and
-strategy resources.
+`fit()` 从准备或恢复状态执行一次，返回 `FitResult`。非有限 loss/梯度、空训练 epoch、外部优化/调度更新或缺失恢复状态会被拒绝。`StepOutput::metrics` 必须有限，epoch 结果按 `sample_count` 加权。
 
-## Checkpoints
+## 检查点、回调与调度
 
-Trainer checkpointing is storage-neutral:
+`save_checkpoint(sink)` 保存全部已注册 participant；新建同拓扑执行域后调用 `restore_checkpoint(source)`，再 `fit()` 续训。协调器预检描述符、保留有界回滚快照并事务恢复。Trainer 当前为 schema 4，只接受当前格式；诊断执行角色也属于拓扑，不能用相同 ID 的闲置额外 participant 替代。文件存储与资源限制见[持久检查点](durable_checkpoint.md)。
+
+`CallbackHandler` 接收不可变事件，声明订阅、顺序、状态性与允许命令。`stop > request_checkpoint > skip_validation` 为固定优先级；有状态 callback 单独保存。内置 `EarlyStoppingCallback` 默认监测 `validation.loss`。`EventOutbox` 在 callback 状态及分发游标提交后投递事件。`SchedulerAdapter` 只接受声明的 batch、epoch 或 metric 事件，拒绝重复和缺口；Trainer 是唯一事件推进者。
+
+## 混合精度与任务指标
+
+`TrainerOptions::precision` 选择 full、CPU bfloat16、CUDA float16 或 CUDA bfloat16。CUDA float16 必须绑定启用的 `GradScaler` 及其 participant；Trainer 反缩放所有优化器后统一决定更新，一处非有限梯度便跳过整组、更新一次 scale，不推进 `global_step` 或 batch scheduler。
+
+指标头位于 `<jyppx/liuding/training/metrics/...>`；需要恢复的指标通过 `additional_participants` 注册。loss 头位于 `<jyppx/liuding/nn/loss/...>`，提供 Focal、contrastive、Dice 与 label-smoothing cross entropy 的函数/模块接口；蒸馏的软硬损失、温度和 teacher 梯度策略由任务配方确定。
+
+## 训练诊断
+
+`<jyppx/liuding/training/diagnostics.hpp>` 提供可选 `TrainingDiagnostics`。绑定后复用既有有限值检查记录训练/验证 loss 的 NaN/Inf 次数、非有限梯度尝试和 AMP 溢出跳步；默认不额外测范数或读取时钟。
 
 ```cpp
-trainer.save_checkpoint(my_transactional_sink);
-
-// A fresh, topology-identical domain: restored.prepare(make_request()); restored.restore_checkpoint(my_immutable_source); auto result = restored.fit();
+auto diagnostics = std::make_shared<jyppx::liuding::training::TrainingDiagnostics>(
+    jyppx::liuding::training::TrainingDiagnosticsOptions{
+        .gradient_norm_every = 16,
+        .measure_data_wait = true,
+    });
+request.diagnostics = diagnostics;
+// trainer.prepare(request); trainer.fit();
+const auto statistics = diagnostics->snapshot();
 ```
 
-The `CheckpointCoordinator` saves every registered participant in canonical ID
-order. Restore preflights descriptors, snapshots rollback state, and restores
-participants transactionally. Current schema readers do not route old Trainer
-archives through compatibility forwarding. The configured restore policy is
-used unless the caller explicitly supplies another policy.
+`gradient_norm_every=N` 在第 N、2N…次优化尝试采样，0 关闭；AMP 跳步也推进尝试游标，但不产生有限范数样本。范数覆盖所有优化器的梯度，在尾批校正与 AMP 反缩放后、裁剪前计算。分块 FP64 缩放归约支持 CPU/CUDA 与非连续 Tensor，不 flatten 或修改原梯度；`gradient_norm` 限制 Tensor 数、总元素、tile 和已知临时 payload，超限在范数 Tensor 分配及优化器更新前失败。独立调用可使用 `measure_gradient_l2(gradients, limits)`。
 
-## Callbacks and Events
+数据等待计时只统计成功返回非空 batch 的 `next()` 主机耗时，包含消费端变换/传输，排除 EOF 和抛异常的读取；它不是纯 I/O 等待或同步 GPU 执行时间。`snapshot()` 保留精确 uint64 计数、采样位置、范数与累计耗时；participant 自动接入 Trainer 检查点，恢复已记录值，不承诺未来墙钟耗时一致。
 
-Callbacks implement `CallbackHandler` and receive immutable `CallbackEvent`
-values. They cannot mutate Trainer. A descriptor declares subscriptions,
-ordering, statefulness and the only commands the callback may emit:
-
-- `skip_validation`
-- `request_checkpoint`
-- `stop`
-
-`CallbackDispatcher` resolves commands deterministically with fixed priority
-`stop > request_checkpoint > skip_validation`. Stateful callbacks are separate
-checkpoint participants. `EarlyStoppingCallback` is the built-in stateful
-handler and monitors `validation.loss` by default.
-
-`EventOutbox` stages committed callback audit records for one or more sinks.
-Sink delivery happens only after callback state and the dispatcher cursor have committed.
-
-## Schedulers
-
-Wrap a descriptor-first `optim::LrScheduler` in `SchedulerAdapter`. The adapter accepts only its declared batch, epoch or metric event and rejects gaps, duplicates and unexpected metrics. Trainer is the sole scheduler event owner.
-
-## Metrics
-
-Focused metric headers live under `jyppx/training/metrics`. Classification and ranking metrics define explicit input, aggregation and checkpoint semantics. Register stateful metric objects through `FitRequest::additional_participants` when they must resume exactly. Per-batch scalar observations returned by
-`StepOutput` are weighted by `sample_count` for the epoch result.
-
-## Mixed Precision
-
-The AMP module exposes `AutocastGuard`, `GradScaler`, and
-`GradScalerCheckpointParticipant`. `TrainerOptions::precision` selects full,
-CPU bfloat16, CUDA float16, or CUDA bfloat16 execution. CUDA float16 requires an enabled scaler plus its checkpoint participant. Trainer unscales every optimizer before deciding the cycle; one non-finite gradient skips the entire optimizer group, updates the scaler once, and does not advance `global_step` or batch schedulers. There is no legacy `use_amp` compatibility switch.
-
-## Loss Functions
-
-Focused loss headers live under `jyppx/nn/loss`. Focal, contrastive, Dice and label-smoothing cross entropy expose functional and module APIs with explicit shape, dtype, reduction and task-mode contracts. Knowledge distillation remains a task recipe because the caller must choose hard/soft composition, temperature, teacher gradient policy and aggregation.
+采样值随 optimizer event、等待值随 batch event、运行累计问题的 0/1 标志随 terminal event 发布。任务指标不得使用保留前缀 `diagnostics.`。中立遥测目的地需将 `training_diagnostic_metric_bindings()` 合并进 `TrainingTelemetryAdapterOptions::metrics`，再配置既有 outbox/run sink；这些事件可由现有 run/报告链消费，尚无独立诊断报告导出器。已知 Tensor payload 限额不包括后端私有 workspace、allocator 驻留或完整 RSS/显存；采样尤其在 CUDA 上会增加同步与扫描成本，应按工作负载测量。
 
 ## 分类数据集评估
 

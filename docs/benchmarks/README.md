@@ -56,6 +56,8 @@ CUDA LibTorch 构建可显式选择 `--device cuda:0`：CPU worker 组批后通�
 
 `--workers 0` 是内联加载，`--workers 1..16` 使用有界 worker 预取，`--prefetch-batches 1..4` 控制在途批次数；比较不同配置时分别运行 runner 并保留各自结果。输出分别包含源索引/可选缓存准备时间、完整 fit 时间、含运行时和模型准备的总工作负载时间，以及两种时间口径各自的吞吐、常驻 Tensor 逻辑字节、`DataPipeline::next()` 消费端耗时、各 producer 阶段累计工作时间和进程寿命内峰值 RSS；训练后参数摘要用于核对三种模式的计算结果。并行时 producer 阶段可能重叠，累计时间不能直接相加为训练耗时，`next()` 耗时也不是纯队列等待；Tensor 缓存模式的读取阶段不进行文件解码，预缩放缓存的训练阶段也不重复执行固定 resize。CUDA allocator 峰值包含计时开始时仍驻留的模型/优化器资源及训练期分配，不包含驱动/context 或模型准备阶段的峰值。当前不测冷缓存、其他视觉任务或等价 PyTorch 基线，不能据此宣称速度、内存或显存优势。
 
+`--diagnostics off` 为默认基线；`counters` 仅记录既有检查的计数；`sampled` 每 16 次优化尝试测一次梯度范数并计时数据读取；`each-step` 每次尝试测范数并计时。报告保留采样次数、扫描元素、累计扫描时间和已知临时 payload 峰值。对照时保持模型、数据、设备和精度相同，同时核对最终参数摘要；这些模式用于测量诊断开销，不构成库的整体性能优势证据。
+
 ## 范围
 
 benchmark 可执行文件位于 tests/benchmarks/。逻辑 CMake target 保留 jyppx_bench_* 技术身份，生成文件使用 liuding-forge 产品前缀。benchmark 输出属于本地证据，应写入被忽略的 out/ 或 CI artifact 存储。

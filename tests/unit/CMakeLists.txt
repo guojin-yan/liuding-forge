@@ -349,6 +349,11 @@ jyppx_add_gtest(jyppx_test_training_trainer
     training/test_trainer.cpp
 )
 
+jyppx_add_gtest(jyppx_test_training_diagnostics
+    LINK_TARGET jyppx::liuding::training
+    training/test_diagnostics.cpp
+)
+
 jyppx_add_gtest(jyppx_test_training_amp
     LINK_TARGET jyppx::liuding::training
     training/test_amp.cpp

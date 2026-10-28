@@ -66,6 +66,7 @@ struct Options {
   std::string model = "linear64";
   std::string device = "cpu";
   std::string precision = "fp32";
+  std::string diagnostics = "off";
   std::string source_mode = "image-folder";
   std::uint64_t max_cached_bytes = 512ULL << 20U;
 };
@@ -159,6 +160,13 @@ Options parse_options(int argc, char** argv) {
             "--precision must be fp32, cuda-fp16 or cuda-fp16-storage");
       }
       options.precision = value;
+    } else if (name == "--diagnostics") {
+      if (value != "off" && value != "counters" && value != "sampled" &&
+          value != "each-step") {
+        throw std::invalid_argument(
+            "--diagnostics must be off, counters, sampled or each-step");
+      }
+      options.diagnostics = value;
     } else if (name == "--source-mode") {
       if (value != "image-folder" && value != "tensor-cache" &&
           value != "tensor-cache-resized") {
@@ -506,6 +514,16 @@ bench::Json measure(const Options& options) {
       amp ? std::make_shared<training::amp::GradScalerCheckpointParticipant>(
                 scaler)
           : nullptr;
+  const auto diagnostics =
+      options.diagnostics == "off"
+          ? nullptr
+          : std::make_shared<training::TrainingDiagnostics>(
+                training::TrainingDiagnosticsOptions{
+                    .gradient_norm_every =
+                        options.diagnostics == "sampled"     ? 16U
+                        : options.diagnostics == "each-step" ? 1U
+                                                             : 0U,
+                    .measure_data_wait = options.diagnostics != "counters"});
   training::Trainer trainer(
       {.trainer_id = "trainer.benchmark.image-training",
        .run_id = "run.benchmark.image-training",
@@ -533,7 +551,8 @@ bench::Json measure(const Options& options) {
        .rng_checkpoint =
            std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
                jyppx::liuding::core::RngCheckpointParticipantOptions{
-                   .include_cuda = cuda})});
+                   .include_cuda = cuda}),
+       .diagnostics = diagnostics});
   const auto initial_parameter =
       model->state().module().parameters().front().detach().clone();
 #if defined(JYPPX_BENCH_CUDA)
@@ -612,6 +631,7 @@ bench::Json measure(const Options& options) {
       {"max_cached_bytes", cache_source ? options.max_cached_bytes : 0},
       {"device", options.device},
       {"precision", options.precision},
+      {"diagnostics", options.diagnostics},
       {"parameter_dtype", half_storage ? "float16" : "float32"},
       {"model_input_dtype", half_storage ? "float16" : "float32"},
       {"grad_scaler_init_scale", amp ? 128.0 : 1.0},
@@ -623,58 +643,70 @@ bench::Json measure(const Options& options) {
   const auto seconds = [](std::uint64_t ns) {
     return static_cast<double>(ns) / 1e9;
   };
-  return {{"schema_version", 1},
-          {"kind", "liuding-image-training-benchmark-sample"},
-          {"workload",
-           {{"descriptor", descriptor},
-            {"digest", bench::digest(descriptor.dump())}}},
-          {"build_fingerprint",
-           bench::Json::parse(jyppx::liuding::build_fingerprint_json())},
-          {"execution", execution},
-          {"validation",
-           {{"completed_epochs", result.completed_epochs},
-            {"global_step", result.global_step},
-            {"optimizer_completed_steps", optimizer->completed_steps()},
-            {"final_loss_scale", scaler ? scaler->get_scale() : 1.0},
-            {"observed_samples", observed_samples},
-            {"parameter_updated", true},
-            {"final_parameter_sha256", final_parameter_sha256}}},
-          {"metrics",
-           {{"fit_seconds", fit_seconds},
-            {"workload_seconds", workload_seconds},
-            {"source_preparation_seconds", source_preparation_seconds},
-            {"cached_source_bytes", cached_bytes},
-            {"images_per_second", expected_samples / fit_seconds},
-            {"workload_images_per_second", expected_samples / workload_seconds},
-            {"epoch_seconds", fit_seconds / options.epochs},
-            {"data_wait_seconds", seconds(pipeline->next_ns())},
-            {"read_decode_seconds", seconds(stages.read_decode_ns.load())},
-            {"transform_seconds", seconds(stages.transform_ns.load())},
-            {"collate_seconds", seconds(stages.collate_ns.load())},
-            {"encode_seconds", seconds(stages.encode_ns.load())},
-            {"peak_rss_bytes", peak_rss},
-            {"peak_cuda_allocated_bytes", cuda_allocated},
-            {"peak_cuda_reserved_bytes", cuda_reserved}}},
-          {"measurement_scope",
-           {{"timer",
-             "source preparation includes indexing and optional Tensor "
-             "caching; fit excludes it; workload includes runtime setup, "
-             "source preparation, model setup and fit"},
-            {"cached_source_bytes",
-             "retained decoded or resized Tensor payload, excluding "
-             "allocator overhead"},
-            {"data_wait",
-             "DataPipeline::next consumer wall time, including result/schema "
-             "processing; not isolated queue wait"},
-            {"stage_times",
-             "sum of producer factory CPU wall intervals across workers; "
-             "read_decode_seconds measures shared-handle access for "
-             "Tensor cache; resized-cache transform runs during source "
-             "preparation; intervals may overlap and exceed fit time"},
-            {"rss", "process lifetime high-water mark, including setup"},
-            {"cuda",
-             "LibTorch allocator peak during Trainer::fit; excludes "
-             "driver/context and setup peak"}}}};
+  const auto diagnostic_state = diagnostics
+                                    ? diagnostics->snapshot()
+                                    : training::TrainingDiagnosticsSnapshot{};
+  return {
+      {"schema_version", 1},
+      {"kind", "liuding-image-training-benchmark-sample"},
+      {"workload",
+       {{"descriptor", descriptor},
+        {"digest", bench::digest(descriptor.dump())}}},
+      {"build_fingerprint",
+       bench::Json::parse(jyppx::liuding::build_fingerprint_json())},
+      {"execution", execution},
+      {"diagnostics",
+       {{"update_attempts", diagnostic_state.update_attempts},
+        {"norm_samples", diagnostic_state.norm_samples},
+        {"norm_elements", diagnostic_state.norm_elements},
+        {"norm_seconds", diagnostic_state.norm_seconds},
+        {"known_peak_scratch_bytes", diagnostic_state.known_peak_scratch_bytes},
+        {"training_wait_batches", diagnostic_state.training_wait.batches},
+        {"training_wait_seconds", diagnostic_state.training_wait.seconds}}},
+      {"validation",
+       {{"completed_epochs", result.completed_epochs},
+        {"global_step", result.global_step},
+        {"optimizer_completed_steps", optimizer->completed_steps()},
+        {"final_loss_scale", scaler ? scaler->get_scale() : 1.0},
+        {"observed_samples", observed_samples},
+        {"parameter_updated", true},
+        {"final_parameter_sha256", final_parameter_sha256}}},
+      {"metrics",
+       {{"fit_seconds", fit_seconds},
+        {"workload_seconds", workload_seconds},
+        {"source_preparation_seconds", source_preparation_seconds},
+        {"cached_source_bytes", cached_bytes},
+        {"images_per_second", expected_samples / fit_seconds},
+        {"workload_images_per_second", expected_samples / workload_seconds},
+        {"epoch_seconds", fit_seconds / options.epochs},
+        {"data_wait_seconds", seconds(pipeline->next_ns())},
+        {"read_decode_seconds", seconds(stages.read_decode_ns.load())},
+        {"transform_seconds", seconds(stages.transform_ns.load())},
+        {"collate_seconds", seconds(stages.collate_ns.load())},
+        {"encode_seconds", seconds(stages.encode_ns.load())},
+        {"peak_rss_bytes", peak_rss},
+        {"peak_cuda_allocated_bytes", cuda_allocated},
+        {"peak_cuda_reserved_bytes", cuda_reserved}}},
+      {"measurement_scope",
+       {{"timer",
+         "source preparation includes indexing and optional Tensor "
+         "caching; fit excludes it; workload includes runtime setup, "
+         "source preparation, model setup and fit"},
+        {"cached_source_bytes",
+         "retained decoded or resized Tensor payload, excluding "
+         "allocator overhead"},
+        {"data_wait",
+         "DataPipeline::next consumer wall time, including result/schema "
+         "processing; not isolated queue wait"},
+        {"stage_times",
+         "sum of producer factory CPU wall intervals across workers; "
+         "read_decode_seconds measures shared-handle access for "
+         "Tensor cache; resized-cache transform runs during source "
+         "preparation; intervals may overlap and exceed fit time"},
+        {"rss", "process lifetime high-water mark, including setup"},
+        {"cuda",
+         "LibTorch allocator peak during Trainer::fit; excludes "
+         "driver/context and setup peak"}}}};
 }
 
 }  // namespace

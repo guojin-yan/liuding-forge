@@ -84,6 +84,7 @@
 #include <jyppx/liuding/training/checkpoint_coordinator.hpp>
 #include <jyppx/liuding/training/classification_evaluation.hpp>
 #include <jyppx/liuding/training/detection_evaluation.hpp>
+#include <jyppx/liuding/training/diagnostics.hpp>
 #include <jyppx/liuding/training/event_sink.hpp>
 #include <jyppx/liuding/training/file_checkpoint_store.hpp>
 #include <jyppx/liuding/training/scheduler_adapter.hpp>

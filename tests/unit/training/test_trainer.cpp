@@ -18,15 +18,18 @@
 #include <jyppx/liuding/training/amp/grad_scaler_checkpoint_participant.hpp>
 #include <jyppx/liuding/training/callback_dispatcher.hpp>
 #include <jyppx/liuding/training/checkpoint_coordinator.hpp>
+#include <jyppx/liuding/training/diagnostics.hpp>
 #include <jyppx/liuding/training/scheduler_adapter.hpp>
 #include <jyppx/liuding/training/single_device_strategy.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <gtest/gtest.h>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -996,6 +999,372 @@ TEST(TrainerTest, PreparationRejectsSchedulerForDifferentOptimizer) {
 
   EXPECT_THROW(trainer.prepare(std::move(request)),
                jyppx::liuding::CompatibilityError);
+}
+
+namespace td = jyppx::liuding::training;
+
+td::StepOutput fixed_gradient_step(const td::StepInput& input) {
+  const auto parameters = input.model.state().named_parameters();
+  return {
+      .loss = parameters["weight"].sum() * 3.0 + parameters["bias"].sum() * 4.0,
+      .sample_count = input.batch.sample_ids.size()};
+}
+
+TEST(TrainerDiagnostics, DefaultCollectsSafetyCountsWithoutOptionalWork) {
+  auto domain = make_domain();
+  auto diagnostics = std::make_shared<td::TrainingDiagnostics>(
+      td::TrainingDiagnosticsOptions{.gradient_norm = {.max_elements = 1}});
+  auto request = make_request(domain);
+  request.diagnostics = diagnostics;
+  td::Trainer trainer(options(1));
+  trainer.prepare(std::move(request));
+  EXPECT_EQ(trainer.fit().global_step, 4U);
+  const auto state = diagnostics->snapshot();
+  EXPECT_EQ(state.training_loss.observations, 4U);
+  EXPECT_EQ(state.validation_loss.observations, 4U);
+  EXPECT_EQ(state.update_attempts, 4U);
+  EXPECT_EQ(state.norm_samples, 0U);
+  EXPECT_EQ(state.norm_elements, 0U);
+  EXPECT_EQ(state.norm_seconds, 0.0);
+  EXPECT_EQ(state.training_wait.batches, 0U);
+  EXPECT_EQ(state.validation_wait.seconds, 0.0);
+}
+
+TEST(TrainerDiagnostics,
+     MeasuresTailCorrectedPreclipNormAcrossDisjointOptimizers) {
+  for (const auto tail :
+       {td::AccumulationTailPolicy::flush, td::AccumulationTailPolicy::drop}) {
+    auto domain = make_domain(3, 1);
+    auto split = make_split_optimizers(domain);
+    auto request = make_request(domain);
+    request.optimizers = {
+        {.optimizer = split.bias,
+         .checkpoint = std::make_shared<
+             jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+             split.bias)},
+        {.optimizer = split.weight,
+         .checkpoint = std::make_shared<
+             jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(
+             split.weight)}};
+    auto diagnostics = std::make_shared<td::TrainingDiagnostics>(
+        td::TrainingDiagnosticsOptions{.gradient_norm_every = 1,
+                                       .measure_data_wait = true,
+                                       .gradient_norm = {.tile_elements = 1}});
+    request.diagnostics = diagnostics;
+    request.training_step = fixed_gradient_step;
+    std::vector<double> observed;
+    auto callback = std::make_shared<RecordingCallback>(
+        "callback.diagnostic.norm",
+        td::CallbackEventKind::optimizer_step_finished,
+        std::vector<td::CallbackCommandKind>{},
+        [&](const td::CallbackEvent& event) {
+          observed.push_back(event.metrics.at("diagnostics.gradient.l2"));
+          return td::CallbackCommandRequest{};
+        });
+    request.callbacks = std::make_shared<td::CallbackDispatcher>(
+        std::vector<std::shared_ptr<td::CallbackHandler>>{callback});
+    auto config = options(1);
+    config.accumulate_steps = 2;
+    config.accumulation_tail = tail;
+    config.gradient_clip_norm = 1.0;
+    td::Trainer trainer(config);
+    trainer.prepare(std::move(request));
+    const auto expected = tail == td::AccumulationTailPolicy::flush ? 2U : 1U;
+    EXPECT_EQ(trainer.fit().global_step, expected);
+    const auto state = diagnostics->snapshot();
+    EXPECT_EQ(state.update_attempts, expected);
+    EXPECT_EQ(state.norm_samples, expected);
+    EXPECT_EQ(state.norm_elements, expected * 3U);
+    EXPECT_NEAR(state.last_gradient_l2, std::sqrt(34.0), 1e-12);
+    EXPECT_NEAR(state.mean_gradient_l2, std::sqrt(34.0), 1e-12);
+    EXPECT_EQ(state.training_wait.batches, 3U);
+    EXPECT_EQ(state.validation_wait.batches, 3U);
+    EXPECT_GE(state.training_wait.seconds, state.training_wait.max_seconds);
+    ASSERT_EQ(observed.size(), expected);
+    for (auto norm : observed) EXPECT_NEAR(norm, std::sqrt(34.0), 1e-12);
+  }
+}
+
+TEST(TrainerDiagnostics, RejectsSampleBudgetBeforeUpdateAndClearsGradients) {
+  auto domain = make_domain();
+  auto request = make_request(domain);
+  auto diagnostics =
+      std::make_shared<td::TrainingDiagnostics>(td::TrainingDiagnosticsOptions{
+          .gradient_norm_every = 1, .gradient_norm = {.max_elements = 2}});
+  request.diagnostics = diagnostics;
+  const auto before = domain.model->state().parameters().front().clone();
+  td::Trainer trainer(options(1));
+  trainer.prepare(std::move(request));
+  EXPECT_THROW(trainer.fit(), jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(trainer.global_step(), 0U);
+  EXPECT_EQ(domain.optimizer->completed_steps(), 0U);
+  EXPECT_TRUE(torch::equal(before, domain.model->state().parameters().front()));
+  EXPECT_EQ(diagnostics->snapshot().norm_samples, 0U);
+  for (const auto& parameter : domain.model->state().parameters()) {
+    EXPECT_TRUE(!parameter.grad().defined() ||
+                parameter.grad().count_nonzero().item<int>() == 0);
+  }
+}
+
+TEST(TrainerDiagnostics,
+     NonfiniteLossesPublishFiniteIssueFlagsAndKeepOriginalError) {
+  for (const bool validation : {false, true}) {
+    for (const auto value : {std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity()}) {
+      auto domain = make_domain();
+      auto request = make_request(domain);
+      auto diagnostics = std::make_shared<td::TrainingDiagnostics>();
+      request.diagnostics = diagnostics;
+      const auto step = [value](const td::StepInput& input) {
+        return td::StepOutput{
+            .loss =
+                input.model.state().parameters().front().abs().sum().add(1).mul(
+                    value),
+            .sample_count = input.batch.sample_ids.size()};
+      };
+      if (validation)
+        request.validation_step = step;
+      else
+        request.training_step = step;
+      std::map<std::string, double> issues;
+      auto callback = std::make_shared<RecordingCallback>(
+          "callback.diagnostic.failure", td::CallbackEventKind::run_failed,
+          std::vector<td::CallbackCommandKind>{},
+          [&](const td::CallbackEvent& event) {
+            issues = event.metrics;
+            return td::CallbackCommandRequest{};
+          });
+      request.callbacks = std::make_shared<td::CallbackDispatcher>(
+          std::vector<std::shared_ptr<td::CallbackHandler>>{callback});
+      td::Trainer trainer(options(1));
+      trainer.prepare(std::move(request));
+      EXPECT_THROW(trainer.fit(), jyppx::liuding::NumericalError);
+      EXPECT_EQ(trainer.phase(), td::TrainerPhase::failed);
+      const auto state = diagnostics->snapshot();
+      const auto counts =
+          validation ? state.validation_loss : state.training_loss;
+      EXPECT_EQ(counts.observations, 1U);
+      EXPECT_EQ(counts.nan, std::isnan(value) ? 1U : 0U);
+      EXPECT_EQ(counts.infinity, std::isinf(value) ? 1U : 0U);
+      const auto key = std::string("diagnostics.") +
+                       (validation ? "validation" : "training") +
+                       (std::isnan(value) ? ".loss_nan" : ".loss_infinity");
+      EXPECT_DOUBLE_EQ(issues.at(key), 1.0);
+      for (const auto& [name, flag] : issues)
+        EXPECT_TRUE(std::isfinite(flag)) << name;
+      EXPECT_TRUE(domain.model->state().is_training());
+    }
+  }
+}
+
+TEST(TrainerDiagnostics,
+     FiniteLossWithNonfiniteGradientStillFailsNormalSafetyCheck) {
+  auto domain = make_domain();
+  auto request = make_request(domain);
+  auto diagnostics = std::make_shared<td::TrainingDiagnostics>(
+      td::TrainingDiagnosticsOptions{.gradient_norm_every = 1});
+  request.diagnostics = diagnostics;
+  request.training_step = [](const td::StepInput& input) {
+    return td::StepOutput{
+        .loss = (input.model.state().parameters().front() * 0.0).sqrt().sum(),
+        .sample_count = input.batch.sample_ids.size()};
+  };
+  td::Trainer trainer(options(1));
+  trainer.prepare(std::move(request));
+  EXPECT_THROW(trainer.fit(), jyppx::liuding::NumericalError);
+  EXPECT_EQ(diagnostics->snapshot().update_attempts, 1U);
+  EXPECT_EQ(diagnostics->snapshot().nonfinite_gradient_attempts, 1U);
+  EXPECT_EQ(diagnostics->snapshot().norm_samples, 0U);
+  EXPECT_EQ(trainer.global_step(), 0U);
+}
+
+TEST(TrainerDiagnostics, ReservedEventKeysCannotOverrideMeasurements) {
+  auto domain = make_domain();
+  auto request = make_request(domain);
+  request.diagnostics = std::make_shared<td::TrainingDiagnostics>();
+  request.training_step = [](const td::StepInput& input) {
+    auto output = fixed_gradient_step(input);
+    output.metrics.emplace("diagnostics.gradient.l2", 123.0);
+    return output;
+  };
+  td::Trainer trainer(options(1));
+  trainer.prepare(std::move(request));
+  EXPECT_THROW(trainer.fit(), jyppx::liuding::InvalidArgument);
+  EXPECT_EQ(trainer.global_step(), 0U);
+}
+
+TEST(TrainerDiagnostics,
+     CheckpointRestoresSamplingCursorAndRejectsChangedExecutionRole) {
+  auto source_domain = make_domain();
+  auto source_diagnostics = std::make_shared<td::TrainingDiagnostics>(
+      td::TrainingDiagnosticsOptions{.gradient_norm_every = 2});
+  auto request = make_request(source_domain);
+  request.diagnostics = source_diagnostics;
+  auto callback = std::make_shared<RecordingCallback>(
+      "callback.diagnostic.checkpoint", td::CallbackEventKind::batch_finished,
+      std::vector<td::CallbackCommandKind>{
+          td::CallbackCommandKind::request_checkpoint},
+      [triggered = false](const td::CallbackEvent& event) mutable {
+        if (!triggered && event.phase == td::CallbackPhase::training) {
+          triggered = true;
+          return td::CallbackCommandRequest{
+              .kind = td::CallbackCommandKind::request_checkpoint,
+              .reason = "diagnostic cursor"};
+        }
+        return td::CallbackCommandRequest{};
+      });
+  request.callbacks = std::make_shared<td::CallbackDispatcher>(
+      std::vector<std::shared_ptr<td::CallbackHandler>>{callback});
+  MemoryCheckpoint checkpoint;
+  request.checkpoint_action =
+      [&](const td::CheckpointCoordinator& coordinator) {
+        coordinator.save(checkpoint);
+      };
+  td::Trainer source(options(1));
+  source.prepare(std::move(request));
+  const auto expected = source.fit();
+  for (const bool enabled : {true, false}) {
+    auto rebuilt = make_domain();
+    auto diagnostics = std::make_shared<td::TrainingDiagnostics>(
+        td::TrainingDiagnosticsOptions{.gradient_norm_every = 2});
+    auto resumed = make_request(rebuilt);
+    if (enabled)
+      resumed.diagnostics = diagnostics;
+    else
+      resumed.additional_participants.push_back(diagnostics);
+    auto replay = std::make_shared<RecordingCallback>(
+        "callback.diagnostic.checkpoint", td::CallbackEventKind::batch_finished,
+        std::vector<td::CallbackCommandKind>{
+            td::CallbackCommandKind::request_checkpoint});
+    resumed.callbacks = std::make_shared<td::CallbackDispatcher>(
+        std::vector<std::shared_ptr<td::CallbackHandler>>{replay});
+    td::Trainer target(options(1));
+    target.prepare(std::move(resumed));
+    if (!enabled) {
+      const auto before = rebuilt.model->state().parameters().front().clone();
+      EXPECT_THROW(target.restore_checkpoint(checkpoint),
+                   jyppx::liuding::CompatibilityError);
+      EXPECT_TRUE(
+          torch::equal(before, rebuilt.model->state().parameters().front()));
+      EXPECT_EQ(diagnostics->snapshot().update_attempts, 0U);
+      EXPECT_EQ(rebuilt.optimizer->completed_steps(), 0U);
+      EXPECT_EQ(target.phase(), td::TrainerPhase::prepared);
+      EXPECT_EQ(target.fit().global_step, 4U);
+      continue;
+    }
+    target.restore_checkpoint(checkpoint);
+    EXPECT_EQ(diagnostics->snapshot().update_attempts, 1U);
+    EXPECT_EQ(diagnostics->snapshot().norm_samples, 0U);
+    EXPECT_EQ(target.fit().global_step, expected.global_step);
+    EXPECT_EQ(diagnostics->snapshot().norm_samples, 2U);
+    EXPECT_EQ(diagnostics->snapshot().update_attempts, 4U);
+    EXPECT_DOUBLE_EQ(diagnostics->snapshot().last_gradient_l2,
+                     source_diagnostics->snapshot().last_gradient_l2);
+    EXPECT_DOUBLE_EQ(diagnostics->snapshot().mean_gradient_l2,
+                     source_diagnostics->snapshot().mean_gradient_l2);
+    const auto& expected_parameters = source_domain.model->state().parameters();
+    const auto& actual_parameters = rebuilt.model->state().parameters();
+    for (std::size_t index = 0; index < expected_parameters.size(); ++index)
+      EXPECT_TRUE(
+          torch::equal(expected_parameters[index], actual_parameters[index]));
+  }
+}
+
+TEST(TrainerDiagnosticsCuda, AmpOverflowAttemptsSampleAfterUnscaleAndRestore) {
+  if (!jyppx::liuding::cuda_is_available()) GTEST_SKIP() << "CUDA unavailable";
+  auto domain = make_domain();
+  auto request = make_request(domain, {}, {}, {},
+                              jyppx::liuding::Device(torch::kCUDA, 0), true);
+  auto diagnostics = std::make_shared<td::TrainingDiagnostics>(
+      td::TrainingDiagnosticsOptions{.gradient_norm_every = 2});
+  request.diagnostics = diagnostics;
+  const td::StepFunction base_step = fixed_gradient_step;
+  request.training_step = [base_step,
+                           first = true](const td::StepInput& input) mutable {
+    auto output = base_step(input);
+    if (first) {
+      first = false;
+      output.loss.register_hook([](const Tensor& gradient) {
+        return torch::full_like(gradient,
+                                std::numeric_limits<double>::infinity());
+      });
+    }
+    return output;
+  };
+  auto scaler = std::make_shared<td::amp::GradScaler>(
+      td::amp::GradScalerOptions{.init_scale = 8.0});
+  request.gradient_scaler = scaler;
+  request.gradient_scaler_checkpoint =
+      std::make_shared<td::amp::GradScalerCheckpointParticipant>(scaler);
+  MemoryCheckpoint checkpoint;
+  auto checkpoint_callback = std::make_shared<RecordingCallback>(
+      "callback.amp.diagnostic.checkpoint",
+      td::CallbackEventKind::batch_finished,
+      std::vector<td::CallbackCommandKind>{
+          td::CallbackCommandKind::request_checkpoint},
+      [first = true](const td::CallbackEvent& event) mutable {
+        if (first && event.phase == td::CallbackPhase::training) {
+          first = false;
+          return td::CallbackCommandRequest{
+              .kind = td::CallbackCommandKind::request_checkpoint,
+              .reason = "after AMP overflow"};
+        }
+        return td::CallbackCommandRequest{};
+      });
+  request.callbacks = std::make_shared<td::CallbackDispatcher>(
+      std::vector<std::shared_ptr<td::CallbackHandler>>{checkpoint_callback});
+  request.checkpoint_action =
+      [&](const td::CheckpointCoordinator& coordinator) {
+        coordinator.save(checkpoint);
+      };
+  auto config = options(1);
+  config.precision = td::PrecisionMode::cuda_float16;
+  td::Trainer trainer(config);
+  trainer.prepare(std::move(request));
+  EXPECT_EQ(trainer.fit().global_step, 3U);
+  const auto state = diagnostics->snapshot();
+  EXPECT_EQ(state.update_attempts, 4U);
+  EXPECT_EQ(state.nonfinite_gradient_attempts, 1U);
+  EXPECT_EQ(state.amp_skipped_attempts, 1U);
+  EXPECT_EQ(state.norm_samples, 2U);
+  EXPECT_NEAR(state.last_gradient_l2, std::sqrt(34.0), 1e-12);
+
+  auto rebuilt = make_domain();
+  auto resumed = make_request(rebuilt, {}, {}, {},
+                              jyppx::liuding::Device(torch::kCUDA, 0), true);
+  auto restored_diagnostics = std::make_shared<td::TrainingDiagnostics>(
+      td::TrainingDiagnosticsOptions{.gradient_norm_every = 2});
+  resumed.diagnostics = restored_diagnostics;
+  resumed.training_step = fixed_gradient_step;
+  auto restored_scaler = std::make_shared<td::amp::GradScaler>(
+      td::amp::GradScalerOptions{.init_scale = 8.0});
+  resumed.gradient_scaler = restored_scaler;
+  resumed.gradient_scaler_checkpoint =
+      std::make_shared<td::amp::GradScalerCheckpointParticipant>(
+          restored_scaler);
+  auto replay = std::make_shared<RecordingCallback>(
+      "callback.amp.diagnostic.checkpoint",
+      td::CallbackEventKind::batch_finished,
+      std::vector<td::CallbackCommandKind>{
+          td::CallbackCommandKind::request_checkpoint});
+  resumed.callbacks = std::make_shared<td::CallbackDispatcher>(
+      std::vector<std::shared_ptr<td::CallbackHandler>>{replay});
+  td::Trainer restored(config);
+  restored.prepare(std::move(resumed));
+  restored.restore_checkpoint(checkpoint);
+  EXPECT_EQ(restored_diagnostics->snapshot().update_attempts, 1U);
+  EXPECT_EQ(restored_diagnostics->snapshot().amp_skipped_attempts, 1U);
+  EXPECT_EQ(restored.global_step(), 0U);
+  EXPECT_EQ(restored.fit().global_step, 3U);
+  EXPECT_EQ(restored_diagnostics->snapshot().norm_samples, 2U);
+  EXPECT_EQ(restored_diagnostics->snapshot().update_attempts, 4U);
+  EXPECT_DOUBLE_EQ(restored_diagnostics->snapshot().last_gradient_l2,
+                   state.last_gradient_l2);
+  for (std::size_t index = 0; index < domain.model->state().parameters().size();
+       ++index) {
+    EXPECT_TRUE(torch::equal(domain.model->state().parameters()[index],
+                             rebuilt.model->state().parameters()[index]));
+  }
 }
 
 }  // namespace

@@ -71,7 +71,7 @@ def git_output(source_root: Path, *args: str) -> str:
 
 
 def run_sample(command: list[str], expected_model: str, expected_device: str,
-               expected_source: str, expected_precision: str) -> dict:
+               expected_source: str, expected_precision: str, expected_diagnostics: str) -> dict:
     completed = subprocess.run(command, capture_output=True, text=True, check=True)
     result = json.loads(completed.stdout.strip())
     if result.get("kind") != "liuding-image-training-benchmark-sample":
@@ -86,6 +86,13 @@ def run_sample(command: list[str], expected_model: str, expected_device: str,
         raise ValueError("benchmark reported a different source mode than requested")
     if workload["precision"] != expected_precision:
         raise ValueError("benchmark reported a different precision than requested")
+    if workload["diagnostics"] != expected_diagnostics:
+        raise ValueError("benchmark reported a different diagnostic policy than requested")
+    diagnostics = result["diagnostics"]
+    attempts = validation["global_step"]
+    expected_samples = attempts // 16 if expected_diagnostics == "sampled" else attempts if expected_diagnostics == "each-step" else 0
+    if diagnostics["norm_samples"] != expected_samples:
+        raise ValueError("benchmark did not complete the expected diagnostic samples")
     expected_dtype = "float16" if expected_precision == "cuda-fp16-storage" else "float32"
     if workload["parameter_dtype"] != expected_dtype:
         raise ValueError("benchmark reported a different parameter dtype than requested")
@@ -162,6 +169,7 @@ def main() -> int:
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
     parser.add_argument("--precision", choices=("fp32", "cuda-fp16", "cuda-fp16-storage"),
                         default="fp32")
+    parser.add_argument("--diagnostics", choices=("off", "counters", "sampled", "each-step"), default="off")
     parser.add_argument("--source-mode", choices=("image-folder", "tensor-cache",
                                                   "tensor-cache-resized"),
                         default="image-folder")
@@ -198,11 +206,12 @@ def main() -> int:
         "--threads", str(args.threads), "--workers", str(args.workers),
         "--prefetch-batches", str(args.prefetch_batches), "--model", args.model,
         "--device", args.device, "--precision", args.precision,
+        "--diagnostics", args.diagnostics,
         "--source-mode", args.source_mode,
         "--max-cached-bytes", str(args.max_cached_bytes),
     ]
-    warmup = run_sample(command, expected_model, args.device, args.source_mode, args.precision)
-    samples = [run_sample(command, expected_model, args.device, args.source_mode, args.precision)
+    warmup = run_sample(command, expected_model, args.device, args.source_mode, args.precision, args.diagnostics)
+    samples = [run_sample(command, expected_model, args.device, args.source_mode, args.precision, args.diagnostics)
                for _ in range(5)]
     final_sha256, final_count, final_bytes = dataset_digest(root)
     if (final_sha256, final_count, final_bytes) != (content_sha256, image_count, encoded_bytes):

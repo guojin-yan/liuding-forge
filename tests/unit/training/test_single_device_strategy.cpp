@@ -440,4 +440,38 @@ TEST(SingleDeviceStrategyTest, RunsOnRealCudaWhenAvailable) {
   EXPECT_NO_THROW(static_cast<void>(optimizer_state.describe_state()));
 }
 
+TEST(SingleDeviceStrategyTest,
+     RollbackAcceptsEitherParticipantOrderButRejectsExternalAdvance) {
+  for (const bool optimizer_first : {false, true}) {
+    TrainingDomain domain;
+    jyppx::liuding::training::SingleDeviceStrategy strategy;
+    prepare_strategy(strategy, domain.model, *domain.optimizer);
+    jyppx::liuding::optim::SgdOptimizerCheckpointParticipant optimizer_state(
+        domain.optimizer);
+    MemoryStateStore original_optimizer(optimizer_state.describe_state());
+    MemoryStateStore original_strategy(strategy.describe_state());
+    optimizer_state.save_state(original_optimizer);
+    strategy.save_state(original_strategy);
+    EXPECT_EQ(train_once(domain, strategy).optimizer_completed_steps, 1U);
+    if (optimizer_first) {
+      optimizer_state.load_state(original_optimizer,
+                                 jyppx::liuding::RestorePolicy::exact_only);
+      strategy.load_state(original_strategy,
+                          jyppx::liuding::RestorePolicy::exact_only);
+    } else {
+      strategy.load_state(original_strategy,
+                          jyppx::liuding::RestorePolicy::exact_only);
+      optimizer_state.load_state(original_optimizer,
+                                 jyppx::liuding::RestorePolicy::exact_only);
+    }
+    EXPECT_EQ(strategy.completed_optimizer_steps("optimizer.main"), 0U);
+    EXPECT_EQ(train_once(domain, strategy).optimizer_completed_steps, 1U);
+    static_cast<void>(domain.optimizer->step());
+    EXPECT_THROW(strategy.load_state(original_strategy,
+                                     jyppx::liuding::RestorePolicy::exact_only),
+                 jyppx::liuding::CompatibilityError);
+    EXPECT_EQ(strategy.completed_optimizer_steps("optimizer.main"), 1U);
+  }
+}
+
 }  // namespace

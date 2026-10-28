@@ -877,11 +877,17 @@ void SingleDeviceStrategy::load_state(const StateReader& reader,
     const auto expected = baseline + completed;
     const auto actual = impl_->optimizers[index].optimizer->completed_steps();
     const auto prepared_baseline = impl_->optimizers[index].steps_at_prepare;
+    // A coordinator may load this strategy before its optimizer, including
+    // reverse-order rollback after a later participant rejects restoration.
+    // Accept the live strategy cursor or the candidate cursor; an unrelated
+    // external optimizer advance still matches neither.
+    const auto live_expected =
+        prepared_baseline + impl_->optimizers[index].completed_steps;
     if (baseline != prepared_baseline ||
-        (actual != prepared_baseline && actual != expected)) {
+        (actual != live_expected && actual != expected)) {
       throw_incompatible(
           "control.optimizer_steps." + impl_->optimizers[index].optimizer_id,
-          std::to_string(prepared_baseline) + " before optimizer restore or " +
+          std::to_string(live_expected) + " before optimizer restore or " +
               std::to_string(expected) + " after it",
           std::to_string(actual),
           "Prepare the same fresh optimizer domain and restore all checkpoint "

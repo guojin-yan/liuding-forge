@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 修复多 participant 检查点恢复失败时 strategy 的回滚计数检查，支持优化器先恢复或后恢复，并继续拒绝外部更新。
 - SGD 检查点接受单元素维度上等价的 momentum stride，修复 DINO CLS token 使用 momentum 后无法保存训练状态的问题；参数布局、数值类型、设备和形状仍严格校验。
 
 ### Changed
@@ -24,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 - 增加离线轴对齐框数据集 AP、紧凑匹配状态及实际推理/报告入口；明确 IoU、101 点插值、面积、每图每类 maxDet、crowd、并列与无 GT 类规则，支持来源切片、无重复图像合并及 exact 状态恢复。
+- 增加可采样、有资源限额并可恢复的训练诊断：loss NaN/Inf、非有限梯度、AMP 跳步、裁剪前全局 L2 和数据读取计时；Trainer 当前检查点更新为 schema 4。
 - 增加单标签语义分割 IoU/Dice、线性大小的可合并/恢复计数及实际数据集推理入口，明确 ignore、背景和空类策略，并输出类别/来源统计与质量报告观测值。
 - 增加逐批实际推理的分类评估入口，输出准确率、宏平均 precision/recall/F1、逐类计数、来源切片和可接入质量报告的观测值；支持显式 ignore/空类策略、取消与逻辑资源限制，并恢复各子模块原模式。
 - 增加固定官方 DINOv2-S/14 safetensors 的离线流式转换工具，记录全部源参数、Q/K/V 合并和省略的 mask token；外部实际权重验证入口覆盖 ResNet50 与 DINOv2-S，完整数据集和完整微调资格仍待验证。
