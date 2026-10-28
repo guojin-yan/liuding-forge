@@ -163,3 +163,23 @@ auto class_iou = iou.per_class_scores();
 `ignore_index` 去除对应像素；`include_background=false` 仅从汇总排除 `background_index`，背景与前景之间的错误仍计入前景指标。真实和预测均不存在的类别按 `absent` 选择排除、零、一或报错。空集、全忽略或没有可汇总分母时抛 `NotReady`；逐类被排除的值使用 `std::nullopt`。统计使用每类三个 int64 计数，支持相同身份的 `merge()` 和当前格式的 exact 检查点；拆批、合并或恢复均从总计数计算，不能平均每批 IoU/Dice。每次更新按 `chunk_pixels` 分块，不创建整幅 one-hot；逻辑限额不等于 RSS/显存硬上限。
 
 `<jyppx/liuding/training/segmentation_evaluation.hpp>` 的 `training::evaluate_semantic_segmentation(model, source, options)` 实际逐批推理，返回整体、逐类和显式来源统计；其 `average` 选择 micro、macro 或 weighted。`source` 返回 `SegmentationEvaluationBatch`，以 `std::nullopt` 结束；来源按图像指定，数据准备及设备放置由调用方负责。评估关闭梯度、恢复原模块模式，并在错误、取消、超时或超限时抛异常。`observations` 可接入 `experiment::run_evaluation`；选择与 suite 规则匹配的整体/类别/来源观测值，并绑定真实数据、模型、配置和构建身份。评估器不持久化中途结果，不提供崩溃恢复；检测 AP 与实例 mask AP 不属于此接口。
+
+## 轴对齐框 AP 与数据集评估
+
+`<jyppx/liuding/training/metrics/detection.hpp>` 的 `metrics::DetectionAveragePrecisionMetric` 接受完整图像的 `DetectionImage`：稳定且唯一的 uint64 图像 ID、显式来源、真实框和预测框。框为同一坐标系的有限连续 `xyxy`，宽高严格为正；类别映射到 `[0,C)`，分数为任意有限实数。必须指定不可变的 `dataset_id` 和有序类别映射的 `class_vocabulary_id`，调用方负责将其绑定真实数据、split 和筛选条件。
+
+默认按 IoU 0.50–0.95（间隔 0.05）计算 101 点插值 AP（召回率网格为 COCO 的 FP64 `k*0.01`，与 FP64 recall 比较，保留浮点边界行为），再对有有效 GT 的类别和阈值取宏平均。`iou_thresholds`、闭区间 `min_area/max_area`、每图每类的 `max_detections_per_image_class` 和无 GT 类的排除/零/报错策略均显式进入身份；GT 面积可指定标注面积，否则用框面积。maxDet 在匹配前按分数截断，类别相互独立。每图每类贪心匹配优先非忽略 GT；等 IoU 取标注顺序中的最后一个。crowd 不计入有效 GT，用交集除以预测框面积，可吸收多个预测；普通 ignore GT 仅匹配一次。未匹配且面积越界的预测不计 FP。分数并列按图像 ID、预测行号排序，不做隐式 NMS、阈值、裁剪或坐标还原。
+
+```cpp
+metrics::DetectionAveragePrecisionMetric ap({
+    .dataset_id = dataset_fingerprint,
+    .class_vocabulary_id = vocabulary_fingerprint,
+    .num_classes = 10});
+ap.update(complete_images);
+auto dataset_ap = ap.compute();
+auto details = ap.summarize(); // 逐类、逐 IoU AP 和最大 recall
+```
+
+整图拆批、无重复图像的 `merge()` 和当前格式 exact 状态恢复保持同一数据集结果；不能平均 batch AP。重复图像（包括空图）会被拒绝，合并要求完整语义和数据身份相同。状态只保留各阈值匹配位，不保留完整框或 IoU 矩阵，来源切片共享记录；图像数、输入数、匹配操作、逻辑状态和工作量均有显式限额。这些限制不等于 allocator/RSS 或模型显存上限。
+
+`<jyppx/liuding/training/detection_evaluation.hpp>` 的 `training::evaluate_detection(model, source, options)` 实际逐批调用模型，要求每图返回一个 `(boxes[D,4], scores[D], labels[D])` tuple，所有图构成 list；框和分数是浮点数，类别为 uint8/int8/int16/int32/int64。同图三个 Tensor 在同一 CPU/CUDA 设备，支持非连续 strided 输出，经有限额的 CPU FP64/int64 暂存后匹配。`source` 提供 `DetectionEvaluationBatch`，其中 `images` 只包含元数据和 GT，`predictions` 必须为空；EOF 返回 `std::nullopt`。可用 `expected_images` 拒绝提前结束。评估关闭梯度并恢复各子模块原模式，错误、取消、超时、超限不返回部分报告。整体/类别/显式来源的 `observations` 按 suite 选取后可接现有质量报告；不提供评估游标持久化、mask AP、旋转框或姿态指标。合成模型测试只验证执行契约，真实检测任务精度需另行验收。

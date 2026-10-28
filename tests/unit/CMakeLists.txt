@@ -281,6 +281,17 @@ jyppx_add_gtest(jyppx_test_training_segmentation_metric
     training/test_segmentation_metric.cpp
 )
 target_link_libraries(jyppx_test_training_segmentation_metric PRIVATE nlohmann_json::nlohmann_json)
+jyppx_add_gtest(jyppx_test_training_detection_metric
+    LINK_TARGET jyppx::liuding::training
+    training/test_detection_metric.cpp)
+target_link_libraries(jyppx_test_training_detection_metric PRIVATE nlohmann_json::nlohmann_json)
+jyppx_add_gtest(jyppx_test_training_detection_evaluation
+    LINK_TARGET jyppx::liuding::training
+    training/test_detection_evaluation.cpp)
+if(TARGET jyppx::liuding::experiment)
+    target_link_libraries(jyppx_test_training_detection_evaluation PRIVATE jyppx::liuding::experiment)
+    target_compile_definitions(jyppx_test_training_detection_evaluation PRIVATE JYPPX_LIUDING_EVALUATION_REPORT_TEST=1)
+endif()
 jyppx_add_gtest(jyppx_test_training_segmentation_evaluation
     LINK_TARGET jyppx::liuding::training
     training/test_segmentation_evaluation.cpp

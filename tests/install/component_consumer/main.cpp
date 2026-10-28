@@ -37,6 +37,7 @@
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #elif defined(JYPPX_CONSUMER_TRAINING)
 #include <jyppx/liuding/training/classification_evaluation.hpp>
+#include <jyppx/liuding/training/detection_evaluation.hpp>
 #include <jyppx/liuding/training/segmentation_evaluation.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)
@@ -402,6 +403,34 @@ int main() {
                 .targets = torch::ones({1, 1, 1}, torch::kInt64)};
           });
   if (segmentation.overall.score != 1.0 || !model.state().is_training())
+    return 1;
+  auto detection_model = jyppx::liuding::nn::adapt_module(
+      std::make_shared<torch::nn::Module>(),
+      [](torch::nn::Module&, const jyppx::liuding::nn::Invocation& input)
+          -> c10::IValue { return input.positional.front(); },
+      {.positional = {jyppx::liuding::ValueSchema::any()}},
+      jyppx::liuding::ValueSchema::any());
+  bool detection_first = true;
+  const auto detection = jyppx::liuding::training::evaluate_detection(
+      detection_model,
+      [&](std::stop_token)
+          -> std::optional<jyppx::liuding::training::DetectionEvaluationBatch> {
+        if (!detection_first) return std::nullopt;
+        detection_first = false;
+        c10::impl::GenericList output(c10::AnyType::get());
+        output.push_back(c10::ivalue::Tuple::create(
+            {torch::tensor({{0.f, 0.f, 10.f, 10.f}}), torch::ones({1}),
+             torch::zeros({1}, torch::kInt64)}));
+        return jyppx::liuding::training::DetectionEvaluationBatch{
+            .invocation = {.positional = {output}},
+            .images = {{.image_id = 1, .targets = {{{0, 0, 10, 10}, 0}}}}};
+      },
+      {.metric = {.dataset_id = "consumer.boxes.v1",
+                  .class_vocabulary_id = "consumer.classes.v1",
+                  .num_classes = 1},
+       .expected_images = 1});
+  if (detection.overall.mean_average_precision != 1.0 ||
+      !detection_model.state().is_training())
     return 1;
   jyppx::liuding::training::Trainer trainer(
       {.trainer_id = "trainer.consumer",

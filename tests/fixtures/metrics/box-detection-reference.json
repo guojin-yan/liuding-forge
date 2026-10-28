@@ -1,0 +1,8088 @@
+{
+  "producer": "official pycocotools==2.0.10 COCOeval bbox",
+  "dataset_id": "sha256:00a604fb9c9d055c315ed166924fbc798fd63c757433774a7a6f9be3cfea32de",
+  "num_classes": 5,
+  "sources": [
+    "alpha",
+    "beta",
+    "empty"
+  ],
+  "images": [
+    {
+      "image_id": 7,
+      "source_index": 0,
+      "targets": [
+        {
+          "box": [
+            79,
+            14,
+            87,
+            22
+          ],
+          "class_index": 0,
+          "crowd": true,
+          "area": 32.0
+        },
+        {
+          "box": [
+            51,
+            28,
+            71,
+            48
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 200.0
+        },
+        {
+          "box": [
+            1,
+            64,
+            21,
+            84
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            5,
+            79,
+            45,
+            119
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            47,
+            62,
+            87,
+            102
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            25,
+            39,
+            135,
+            149
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 12100
+        },
+        {
+          "box": [
+            46,
+            69,
+            156,
+            179
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 6050.0
+        },
+        {
+          "box": [
+            25,
+            13,
+            33,
+            21
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 32.0
+        }
+      ],
+      "predictions": [
+        {
+          "box": [
+            79,
+            14,
+            87,
+            22
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            81,
+            14,
+            89,
+            22
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            89,
+            14,
+            97,
+            22
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            51,
+            28,
+            71,
+            48
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            53,
+            28,
+            73,
+            48
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            61,
+            28,
+            81,
+            48
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            1,
+            64,
+            21,
+            84
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            3,
+            64,
+            23,
+            84
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            11,
+            64,
+            31,
+            84
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            5,
+            79,
+            45,
+            119
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            7,
+            79,
+            47,
+            119
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            15,
+            79,
+            55,
+            119
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            47,
+            62,
+            87,
+            102
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            49,
+            62,
+            89,
+            102
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            57,
+            62,
+            97,
+            102
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            25,
+            39,
+            135,
+            149
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            27,
+            39,
+            137,
+            149
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            35,
+            39,
+            145,
+            149
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            46,
+            69,
+            156,
+            179
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            48,
+            69,
+            158,
+            179
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            56,
+            69,
+            166,
+            179
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            25,
+            13,
+            33,
+            21
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            27,
+            13,
+            35,
+            21
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            35,
+            13,
+            43,
+            21
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            0,
+            0,
+            20,
+            20
+          ],
+          "score": 0.95,
+          "class_index": 4
+        }
+      ]
+    },
+    {
+      "image_id": 2,
+      "source_index": 1,
+      "targets": [
+        {
+          "box": [
+            8,
+            22,
+            28,
+            42
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            68,
+            30,
+            108,
+            70
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            13,
+            60,
+            53,
+            100
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            61,
+            38,
+            171,
+            148
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 12100
+        },
+        {
+          "box": [
+            37,
+            39,
+            147,
+            149
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 6050.0
+        },
+        {
+          "box": [
+            52,
+            48,
+            60,
+            56
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 32.0
+        },
+        {
+          "box": [
+            6,
+            56,
+            14,
+            64
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            75,
+            38,
+            95,
+            58
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 400
+        }
+      ],
+      "predictions": [
+        {
+          "box": [
+            8,
+            22,
+            28,
+            42
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            10,
+            22,
+            30,
+            42
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            18,
+            22,
+            38,
+            42
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            68,
+            30,
+            108,
+            70
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            70,
+            30,
+            110,
+            70
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            78,
+            30,
+            118,
+            70
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            13,
+            60,
+            53,
+            100
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            15,
+            60,
+            55,
+            100
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            23,
+            60,
+            63,
+            100
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            61,
+            38,
+            171,
+            148
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            63,
+            38,
+            173,
+            148
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            71,
+            38,
+            181,
+            148
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            37,
+            39,
+            147,
+            149
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            39,
+            39,
+            149,
+            149
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            47,
+            39,
+            157,
+            149
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            52,
+            48,
+            60,
+            56
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            54,
+            48,
+            62,
+            56
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            62,
+            48,
+            70,
+            56
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            6,
+            56,
+            14,
+            64
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            8,
+            56,
+            16,
+            64
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            16,
+            56,
+            24,
+            64
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            75,
+            38,
+            95,
+            58
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            77,
+            38,
+            97,
+            58
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            85,
+            38,
+            105,
+            58
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            0,
+            0,
+            20,
+            20
+          ],
+          "score": 0.95,
+          "class_index": 4
+        }
+      ]
+    },
+    {
+      "image_id": 19,
+      "source_index": 0,
+      "targets": [
+        {
+          "box": [
+            30,
+            29,
+            70,
+            69
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            31,
+            18,
+            141,
+            128
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 12100
+        },
+        {
+          "box": [
+            37,
+            72,
+            147,
+            182
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 6050.0
+        },
+        {
+          "box": [
+            20,
+            14,
+            28,
+            22
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 32.0
+        },
+        {
+          "box": [
+            61,
+            51,
+            69,
+            59
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            31,
+            4,
+            51,
+            24
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            36,
+            74,
+            56,
+            94
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            62,
+            57,
+            102,
+            97
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 1600
+        }
+      ],
+      "predictions": [
+        {
+          "box": [
+            30,
+            29,
+            70,
+            69
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            32,
+            29,
+            72,
+            69
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            40,
+            29,
+            80,
+            69
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            31,
+            18,
+            141,
+            128
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            33,
+            18,
+            143,
+            128
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            41,
+            18,
+            151,
+            128
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            37,
+            72,
+            147,
+            182
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            39,
+            72,
+            149,
+            182
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            47,
+            72,
+            157,
+            182
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            20,
+            14,
+            28,
+            22
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            22,
+            14,
+            30,
+            22
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            30,
+            14,
+            38,
+            22
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            61,
+            51,
+            69,
+            59
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            63,
+            51,
+            71,
+            59
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            71,
+            51,
+            79,
+            59
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            31,
+            4,
+            51,
+            24
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            33,
+            4,
+            53,
+            24
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            41,
+            4,
+            61,
+            24
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            36,
+            74,
+            56,
+            94
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            38,
+            74,
+            58,
+            94
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            46,
+            74,
+            66,
+            94
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            62,
+            57,
+            102,
+            97
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            64,
+            57,
+            104,
+            97
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            72,
+            57,
+            112,
+            97
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            0,
+            0,
+            20,
+            20
+          ],
+          "score": 0.95,
+          "class_index": 4
+        }
+      ]
+    },
+    {
+      "image_id": 5,
+      "source_index": 1,
+      "targets": [
+        {
+          "box": [
+            1,
+            44,
+            111,
+            154
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 6050.0
+        },
+        {
+          "box": [
+            61,
+            27,
+            69,
+            35
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 32.0
+        },
+        {
+          "box": [
+            45,
+            31,
+            53,
+            39
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            34,
+            37,
+            54,
+            57
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            32,
+            6,
+            52,
+            26
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            15,
+            59,
+            55,
+            99
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            3,
+            78,
+            43,
+            118
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 800.0
+        },
+        {
+          "box": [
+            78,
+            69,
+            188,
+            179
+          ],
+          "class_index": 3,
+          "crowd": true,
+          "area": 6050.0
+        }
+      ],
+      "predictions": [
+        {
+          "box": [
+            1,
+            44,
+            111,
+            154
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            3,
+            44,
+            113,
+            154
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            11,
+            44,
+            121,
+            154
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            61,
+            27,
+            69,
+            35
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            63,
+            27,
+            71,
+            35
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            71,
+            27,
+            79,
+            35
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            45,
+            31,
+            53,
+            39
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            47,
+            31,
+            55,
+            39
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            55,
+            31,
+            63,
+            39
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            34,
+            37,
+            54,
+            57
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            36,
+            37,
+            56,
+            57
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            44,
+            37,
+            64,
+            57
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            32,
+            6,
+            52,
+            26
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            34,
+            6,
+            54,
+            26
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            42,
+            6,
+            62,
+            26
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            15,
+            59,
+            55,
+            99
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            17,
+            59,
+            57,
+            99
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            25,
+            59,
+            65,
+            99
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            3,
+            78,
+            43,
+            118
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            5,
+            78,
+            45,
+            118
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            13,
+            78,
+            53,
+            118
+          ],
+          "score": 0.5,
+          "class_index": 3
+        },
+        {
+          "box": [
+            78,
+            69,
+            188,
+            179
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            80,
+            69,
+            190,
+            179
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            88,
+            69,
+            198,
+            179
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            0,
+            0,
+            20,
+            20
+          ],
+          "score": 0.95,
+          "class_index": 4
+        }
+      ]
+    },
+    {
+      "image_id": 11,
+      "source_index": 0,
+      "targets": [
+        {
+          "box": [
+            78,
+            54,
+            86,
+            62
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            52,
+            0,
+            72,
+            20
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            61,
+            11,
+            81,
+            31
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            8,
+            39,
+            48,
+            79
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            28,
+            61,
+            68,
+            101
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 800.0
+        },
+        {
+          "box": [
+            43,
+            58,
+            153,
+            168
+          ],
+          "class_index": 2,
+          "crowd": true,
+          "area": 6050.0
+        },
+        {
+          "box": [
+            65,
+            66,
+            175,
+            176
+          ],
+          "class_index": 3,
+          "crowd": true,
+          "area": 12100
+        },
+        {
+          "box": [
+            8,
+            71,
+            16,
+            79
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 64
+        }
+      ],
+      "predictions": [
+        {
+          "box": [
+            78,
+            54,
+            86,
+            62
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            80,
+            54,
+            88,
+            62
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            88,
+            54,
+            96,
+            62
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            52,
+            0,
+            72,
+            20
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            54,
+            0,
+            74,
+            20
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            62,
+            0,
+            82,
+            20
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            61,
+            11,
+            81,
+            31
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            63,
+            11,
+            83,
+            31
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            71,
+            11,
+            91,
+            31
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            8,
+            39,
+            48,
+            79
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            10,
+            39,
+            50,
+            79
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            18,
+            39,
+            58,
+            79
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            28,
+            61,
+            68,
+            101
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            30,
+            61,
+            70,
+            101
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            38,
+            61,
+            78,
+            101
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            43,
+            58,
+            153,
+            168
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            45,
+            58,
+            155,
+            168
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            53,
+            58,
+            163,
+            168
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            65,
+            66,
+            175,
+            176
+          ],
+          "score": 0.5,
+          "class_index": 3
+        },
+        {
+          "box": [
+            67,
+            66,
+            177,
+            176
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            75,
+            66,
+            185,
+            176
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            8,
+            71,
+            16,
+            79
+          ],
+          "score": 0.5,
+          "class_index": 3
+        },
+        {
+          "box": [
+            10,
+            71,
+            18,
+            79
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            18,
+            71,
+            26,
+            79
+          ],
+          "score": 0.5,
+          "class_index": 3
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            0,
+            0,
+            20,
+            20
+          ],
+          "score": 0.95,
+          "class_index": 4
+        }
+      ]
+    },
+    {
+      "image_id": 23,
+      "source_index": 1,
+      "targets": [
+        {
+          "box": [
+            56,
+            72,
+            76,
+            92
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            6,
+            38,
+            46,
+            78
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            42,
+            0,
+            82,
+            40
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 800.0
+        },
+        {
+          "box": [
+            51,
+            22,
+            161,
+            132
+          ],
+          "class_index": 1,
+          "crowd": true,
+          "area": 6050.0
+        },
+        {
+          "box": [
+            10,
+            5,
+            120,
+            115
+          ],
+          "class_index": 2,
+          "crowd": true,
+          "area": 12100
+        },
+        {
+          "box": [
+            37,
+            60,
+            45,
+            68
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            79,
+            63,
+            87,
+            71
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            26,
+            57,
+            46,
+            77
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 400
+        }
+      ],
+      "predictions": [
+        {
+          "box": [
+            56,
+            72,
+            76,
+            92
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            58,
+            72,
+            78,
+            92
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            66,
+            72,
+            86,
+            92
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            6,
+            38,
+            46,
+            78
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            8,
+            38,
+            48,
+            78
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            16,
+            38,
+            56,
+            78
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            42,
+            0,
+            82,
+            40
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            44,
+            0,
+            84,
+            40
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            52,
+            0,
+            92,
+            40
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            51,
+            22,
+            161,
+            132
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            53,
+            22,
+            163,
+            132
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            61,
+            22,
+            171,
+            132
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            10,
+            5,
+            120,
+            115
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            12,
+            5,
+            122,
+            115
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            20,
+            5,
+            130,
+            115
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            37,
+            60,
+            45,
+            68
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            39,
+            60,
+            47,
+            68
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            47,
+            60,
+            55,
+            68
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            79,
+            63,
+            87,
+            71
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            81,
+            63,
+            89,
+            71
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            89,
+            63,
+            97,
+            71
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            26,
+            57,
+            46,
+            77
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            28,
+            57,
+            48,
+            77
+          ],
+          "score": 0.5,
+          "class_index": 3
+        },
+        {
+          "box": [
+            36,
+            57,
+            56,
+            77
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            0,
+            0,
+            20,
+            20
+          ],
+          "score": 0.95,
+          "class_index": 4
+        }
+      ]
+    },
+    {
+      "image_id": 3,
+      "source_index": 0,
+      "targets": [
+        {
+          "box": [
+            59,
+            77,
+            99,
+            117
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 800.0
+        },
+        {
+          "box": [
+            10,
+            37,
+            120,
+            147
+          ],
+          "class_index": 0,
+          "crowd": true,
+          "area": 6050.0
+        },
+        {
+          "box": [
+            48,
+            30,
+            158,
+            140
+          ],
+          "class_index": 1,
+          "crowd": true,
+          "area": 12100
+        },
+        {
+          "box": [
+            61,
+            49,
+            69,
+            57
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            75,
+            1,
+            83,
+            9
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            52,
+            21,
+            72,
+            41
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            55,
+            1,
+            75,
+            21
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 200.0
+        },
+        {
+          "box": [
+            4,
+            48,
+            44,
+            88
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 800.0
+        }
+      ],
+      "predictions": [
+        {
+          "box": [
+            59,
+            77,
+            99,
+            117
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            61,
+            77,
+            101,
+            117
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            69,
+            77,
+            109,
+            117
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            10,
+            37,
+            120,
+            147
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            12,
+            37,
+            122,
+            147
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            20,
+            37,
+            130,
+            147
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            48,
+            30,
+            158,
+            140
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            50,
+            30,
+            160,
+            140
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            58,
+            30,
+            168,
+            140
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            61,
+            49,
+            69,
+            57
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            63,
+            49,
+            71,
+            57
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            71,
+            49,
+            79,
+            57
+          ],
+          "score": 0.3,
+          "class_index": 1
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            75,
+            1,
+            83,
+            9
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            77,
+            1,
+            85,
+            9
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            85,
+            1,
+            93,
+            9
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            52,
+            21,
+            72,
+            41
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            54,
+            21,
+            74,
+            41
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            62,
+            21,
+            82,
+            41
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            55,
+            1,
+            75,
+            21
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            57,
+            1,
+            77,
+            21
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            65,
+            1,
+            85,
+            21
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            4,
+            48,
+            44,
+            88
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            6,
+            48,
+            46,
+            88
+          ],
+          "score": 0.5,
+          "class_index": 3
+        },
+        {
+          "box": [
+            14,
+            48,
+            54,
+            88
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            0,
+            0,
+            20,
+            20
+          ],
+          "score": 0.95,
+          "class_index": 4
+        }
+      ]
+    },
+    {
+      "image_id": 29,
+      "source_index": 1,
+      "targets": [
+        {
+          "box": [
+            61,
+            60,
+            171,
+            170
+          ],
+          "class_index": 0,
+          "crowd": true,
+          "area": 12100
+        },
+        {
+          "box": [
+            30,
+            43,
+            38,
+            51
+          ],
+          "class_index": 0,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            32,
+            10,
+            40,
+            18
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 64
+        },
+        {
+          "box": [
+            2,
+            40,
+            22,
+            60
+          ],
+          "class_index": 1,
+          "crowd": false,
+          "area": 400
+        },
+        {
+          "box": [
+            20,
+            73,
+            40,
+            93
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 200.0
+        },
+        {
+          "box": [
+            38,
+            43,
+            78,
+            83
+          ],
+          "class_index": 2,
+          "crowd": false,
+          "area": 800.0
+        },
+        {
+          "box": [
+            78,
+            5,
+            118,
+            45
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 1600
+        },
+        {
+          "box": [
+            57,
+            55,
+            167,
+            165
+          ],
+          "class_index": 3,
+          "crowd": false,
+          "area": 12100
+        }
+      ],
+      "predictions": [
+        {
+          "box": [
+            61,
+            60,
+            171,
+            170
+          ],
+          "score": 0.5,
+          "class_index": 0
+        },
+        {
+          "box": [
+            63,
+            60,
+            173,
+            170
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            71,
+            60,
+            181,
+            170
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            30,
+            43,
+            38,
+            51
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            32,
+            43,
+            40,
+            51
+          ],
+          "score": 0.7,
+          "class_index": 0
+        },
+        {
+          "box": [
+            40,
+            43,
+            48,
+            51
+          ],
+          "score": 0.3,
+          "class_index": 0
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 0
+        },
+        {
+          "box": [
+            32,
+            10,
+            40,
+            18
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            34,
+            10,
+            42,
+            18
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            42,
+            10,
+            50,
+            18
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            2,
+            40,
+            22,
+            60
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            4,
+            40,
+            24,
+            60
+          ],
+          "score": 0.5,
+          "class_index": 1
+        },
+        {
+          "box": [
+            12,
+            40,
+            32,
+            60
+          ],
+          "score": 0.7,
+          "class_index": 1
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 1
+        },
+        {
+          "box": [
+            20,
+            73,
+            40,
+            93
+          ],
+          "score": 0.3,
+          "class_index": 2
+        },
+        {
+          "box": [
+            22,
+            73,
+            42,
+            93
+          ],
+          "score": 0.5,
+          "class_index": 2
+        },
+        {
+          "box": [
+            30,
+            73,
+            50,
+            93
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            38,
+            43,
+            78,
+            83
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            40,
+            43,
+            80,
+            83
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            48,
+            43,
+            88,
+            83
+          ],
+          "score": 0.7,
+          "class_index": 2
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 2
+        },
+        {
+          "box": [
+            78,
+            5,
+            118,
+            45
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            80,
+            5,
+            120,
+            45
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            88,
+            5,
+            128,
+            45
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            57,
+            55,
+            167,
+            165
+          ],
+          "score": 0.7,
+          "class_index": 3
+        },
+        {
+          "box": [
+            59,
+            55,
+            169,
+            165
+          ],
+          "score": 0.3,
+          "class_index": 3
+        },
+        {
+          "box": [
+            67,
+            55,
+            177,
+            165
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            200,
+            200,
+            210,
+            210
+          ],
+          "score": 0.9,
+          "class_index": 3
+        },
+        {
+          "box": [
+            0,
+            0,
+            20,
+            20
+          ],
+          "score": 0.95,
+          "class_index": 4
+        }
+      ]
+    },
+    {
+      "image_id": 31,
+      "source_index": 1,
+      "targets": [],
+      "predictions": []
+    }
+  ],
+  "cases": [
+    {
+      "min_area": 0,
+      "max_area": 10000000000.0,
+      "max_det": 1,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.26805162659123055,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.21687883074021688,
+                0.21687883074021688,
+                0.21687883074021688,
+                0.21687883074021688,
+                0.21687883074021688,
+                0.21687883074021688,
+                0.21687883074021688,
+                0.21687883074021688,
+                0.21687883074021688,
+                0.04903347477604904
+              ],
+              "recall_by_iou": [
+                0.3076923076923077,
+                0.3076923076923077,
+                0.3076923076923077,
+                0.3076923076923077,
+                0.3076923076923077,
+                0.3076923076923077,
+                0.3076923076923077,
+                0.3076923076923077,
+                0.3076923076923077,
+                0.15384615384615385
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.504950495049505,
+                0.504950495049505,
+                0.504950495049505,
+                0.38613861386138615,
+                0.38613861386138615,
+                0.38613861386138615,
+                0.38613861386138615,
+                0.29702970297029707,
+                0.29702970297029707,
+                0.08168316831683169
+              ],
+              "recall_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.35714285714285715,
+                0.35714285714285715,
+                0.21428571428571427
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.11386138613861384,
+                0.11386138613861384,
+                0.11386138613861384,
+                0.11386138613861384,
+                0.11386138613861384,
+                0.11386138613861384,
+                0.11386138613861384,
+                0.11386138613861384,
+                0.11386138613861384,
+                0.11386138613861384
+              ],
+              "recall_by_iou": [
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.49504950495049505,
+                0.49504950495049505,
+                0.49504950495049505,
+                0.3968646864686468,
+                0.3968646864686468,
+                0.3968646864686468,
+                0.3968646864686468,
+                0.2726897689768977,
+                0.2726897689768977,
+                0.22937293729372935
+              ],
+              "recall_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.35714285714285715,
+                0.35714285714285715,
+                0.2857142857142857
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.17545379537953792,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.04207920792079208,
+                0.04207920792079208,
+                0.04207920792079208,
+                0.04207920792079208,
+                0.04207920792079208,
+                0.04207920792079208,
+                0.04207920792079208,
+                0.04207920792079208,
+                0.04207920792079208,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.16666666666666666,
+                0.16666666666666666,
+                0.16666666666666666,
+                0.16666666666666666,
+                0.16666666666666666,
+                0.16666666666666666,
+                0.16666666666666666,
+                0.16666666666666666,
+                0.16666666666666666,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.42574257425742573,
+                0.42574257425742573,
+                0.42574257425742573,
+                0.1914191419141914,
+                0.1914191419141914,
+                0.1914191419141914,
+                0.1914191419141914,
+                0.04950495049504951,
+                0.04950495049504951,
+                0.03712871287128713
+              ],
+              "recall_by_iou": [
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.2857142857142857,
+                0.2857142857142857,
+                0.2857142857142857,
+                0.2857142857142857,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.07425742574257425,
+                0.07425742574257425,
+                0.07425742574257425,
+                0.07425742574257425,
+                0.07425742574257425,
+                0.07425742574257425,
+                0.07425742574257425,
+                0.07425742574257425,
+                0.07425742574257425,
+                0.07425742574257425
+              ],
+              "recall_by_iou": [
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5742574257425742,
+                0.5742574257425742,
+                0.5742574257425742,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.14356435643564355,
+                0.14356435643564355,
+                0.14356435643564355
+              ],
+              "recall_by_iou": [
+                0.5714285714285714,
+                0.5714285714285714,
+                0.5714285714285714,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.2857142857142857,
+                0.2857142857142857,
+                0.2857142857142857
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.36567656765676565,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.42574257425742573,
+                0.42574257425742573,
+                0.42574257425742573,
+                0.42574257425742573,
+                0.42574257425742573,
+                0.42574257425742573,
+                0.42574257425742573,
+                0.42574257425742573,
+                0.42574257425742573,
+                0.1914191419141914
+              ],
+              "recall_by_iou": [
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.2857142857142857
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5742574257425742,
+                0.5742574257425742,
+                0.5742574257425742,
+                0.5742574257425742,
+                0.5742574257425742,
+                0.5742574257425742,
+                0.5742574257425742,
+                0.5742574257425742,
+                0.5742574257425742,
+                0.14356435643564355
+              ],
+              "recall_by_iou": [
+                0.5714285714285714,
+                0.5714285714285714,
+                0.5714285714285714,
+                0.5714285714285714,
+                0.5714285714285714,
+                0.5714285714285714,
+                0.5714285714285714,
+                0.5714285714285714,
+                0.5714285714285714,
+                0.2857142857142857
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.14851485148514848,
+                0.14851485148514848,
+                0.14851485148514848,
+                0.14851485148514848,
+                0.14851485148514848,
+                0.14851485148514848,
+                0.14851485148514848,
+                0.14851485148514848,
+                0.14851485148514848,
+                0.14851485148514848
+              ],
+              "recall_by_iou": [
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285,
+                0.14285714285714285
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.3910891089108911,
+                0.2871287128712871
+              ],
+              "recall_by_iou": [
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.42857142857142855,
+                0.2857142857142857
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 0,
+      "max_area": 10000000000.0,
+      "max_det": 10,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.46990899174955036,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4598736826459599,
+                0.4093717064014094,
+                0.4093717064014094,
+                0.299119911991199
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.4740924092409241,
+                0.4740924092409241,
+                0.4740924092409241,
+                0.42647957363303896,
+                0.42647957363303896,
+                0.42647957363303896,
+                0.42647957363303896,
+                0.4158360092766033,
+                0.4158360092766033,
+                0.28000000000000014
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.49685385205187194,
+                0.49685385205187194,
+                0.49685385205187194,
+                0.4843059305930593,
+                0.4782314717958281,
+                0.4782314717958281,
+                0.4782314717958281,
+                0.45811740748542945,
+                0.4567656765676566,
+                0.4542244224422442
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6224216171617162,
+                0.6224216171617162,
+                0.6224216171617162,
+                0.5870462046204622,
+                0.5870462046204622,
+                0.5870462046204622,
+                0.5870462046204622,
+                0.4137851376123055,
+                0.4137851376123055,
+                0.39027671997969027
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.43780680020413437,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47194719471947205,
+                0.33787128712871267,
+                0.33787128712871267,
+                0.2857142857142856
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.4042904290429043,
+                0.4042904290429043,
+                0.4042904290429043,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3181818181818182
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.4236573657365738,
+                0.4236573657365738,
+                0.4236573657365738,
+                0.4165616561656167,
+                0.4003981919931123,
+                0.4003981919931123,
+                0.4003981919931123,
+                0.4003981919931123,
+                0.3985148514851484,
+                0.3967821782178218
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6711919091068769,
+                0.6711919091068769,
+                0.6711919091068769,
+                0.6069209862162686,
+                0.6069209862162686,
+                0.6069209862162686,
+                0.6069209862162686,
+                0.394729178800233,
+                0.394729178800233,
+                0.3811881188118813
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.5827597564193089,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.526045251583982,
+                0.526045251583982,
+                0.32688268826882694
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.3319739666274318
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.58525447862512,
+                0.58525447862512,
+                0.5816133536430566
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.46852521386592444,
+                0.46852521386592444,
+                0.426786060959037
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 0,
+      "max_area": 10000000000.0,
+      "max_det": 100,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.46990899174955036,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4611315079885193,
+                0.4598736826459599,
+                0.4093717064014094,
+                0.4093717064014094,
+                0.299119911991199
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.4740924092409241,
+                0.4740924092409241,
+                0.4740924092409241,
+                0.42647957363303896,
+                0.42647957363303896,
+                0.42647957363303896,
+                0.42647957363303896,
+                0.4158360092766033,
+                0.4158360092766033,
+                0.28000000000000014
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.49685385205187194,
+                0.49685385205187194,
+                0.49685385205187194,
+                0.4843059305930593,
+                0.4782314717958281,
+                0.4782314717958281,
+                0.4782314717958281,
+                0.45811740748542945,
+                0.4567656765676566,
+                0.4542244224422442
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6224216171617162,
+                0.6224216171617162,
+                0.6224216171617162,
+                0.5870462046204622,
+                0.5870462046204622,
+                0.5870462046204622,
+                0.5870462046204622,
+                0.4137851376123055,
+                0.4137851376123055,
+                0.39027671997969027
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.43780680020413437,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47524752475247517,
+                0.47194719471947205,
+                0.33787128712871267,
+                0.33787128712871267,
+                0.2857142857142856
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.4042904290429043,
+                0.4042904290429043,
+                0.4042904290429043,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.3181818181818182
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.4236573657365738,
+                0.4236573657365738,
+                0.4236573657365738,
+                0.4165616561656167,
+                0.4003981919931123,
+                0.4003981919931123,
+                0.4003981919931123,
+                0.4003981919931123,
+                0.3985148514851484,
+                0.3967821782178218
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6711919091068769,
+                0.6711919091068769,
+                0.6711919091068769,
+                0.6069209862162686,
+                0.6069209862162686,
+                0.6069209862162686,
+                0.6069209862162686,
+                0.394729178800233,
+                0.394729178800233,
+                0.3811881188118813
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.5827597564193089,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.53994685182804,
+                0.526045251583982,
+                0.526045251583982,
+                0.32688268826882694
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.6265485477119139,
+                0.3319739666274318
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.6302614876872301,
+                0.58525447862512,
+                0.58525447862512,
+                0.5816133536430566
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.6647269990156908,
+                0.46852521386592444,
+                0.46852521386592444,
+                0.426786060959037
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 0,
+      "max_area": 1024,
+      "max_det": 1,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.22519801980198018,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.03217821782178218,
+                0.03217821782178218,
+                0.03217821782178218,
+                0.03217821782178218,
+                0.03217821782178218,
+                0.03217821782178218,
+                0.03217821782178218,
+                0.03217821782178218,
+                0.03217821782178218,
+                0.03217821782178218
+              ],
+              "recall_by_iou": [
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5544554455445545,
+                0.5544554455445545,
+                0.5544554455445545,
+                0.5544554455445545,
+                0.5544554455445545,
+                0.5544554455445545,
+                0.5544554455445545,
+                0.3801980198019801,
+                0.3801980198019801,
+                0.28217821782178215
+              ],
+              "recall_by_iou": [
+                0.5555555555555556,
+                0.5555555555555556,
+                0.5555555555555556,
+                0.5555555555555556,
+                0.5555555555555556,
+                0.5555555555555556,
+                0.5555555555555556,
+                0.4444444444444444,
+                0.4444444444444444,
+                0.3333333333333333
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.504950495049505,
+                0.504950495049505,
+                0.504950495049505,
+                0.38613861386138615,
+                0.38613861386138615,
+                0.38613861386138615,
+                0.38613861386138615,
+                0.2343234323432343,
+                0.2343234323432343,
+                0.2343234323432343
+              ],
+              "recall_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.4,
+                0.4,
+                0.4,
+                0.4,
+                0.3,
+                0.3,
+                0.3
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.18250825082508249,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.504950495049505,
+                0.504950495049505,
+                0.504950495049505,
+                0.504950495049505,
+                0.504950495049505,
+                0.504950495049505,
+                0.504950495049505,
+                0.12871287128712872,
+                0.12871287128712872,
+                0.12871287128712872
+              ],
+              "recall_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.25,
+                0.25,
+                0.25
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6039603960396039,
+                0.6039603960396039,
+                0.6039603960396039,
+                0.3399339933993399,
+                0.3399339933993399,
+                0.3399339933993399,
+                0.3399339933993399,
+                0.06930693069306931,
+                0.06930693069306931,
+                0.06930693069306931
+              ],
+              "recall_by_iou": [
+                0.6,
+                0.6,
+                0.6,
+                0.4,
+                0.4,
+                0.4,
+                0.4,
+                0.2,
+                0.2,
+                0.2
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.3118811881188119,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574
+              ],
+              "recall_by_iou": [
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6039603960396039,
+                0.6039603960396039,
+                0.6039603960396039,
+                0.6039603960396039,
+                0.6039603960396039,
+                0.6039603960396039,
+                0.6039603960396039,
+                0.6039603960396039,
+                0.6039603960396039,
+                0.40594059405940597
+              ],
+              "recall_by_iou": [
+                0.6,
+                0.6,
+                0.6,
+                0.6,
+                0.6,
+                0.6,
+                0.6,
+                0.6,
+                0.6,
+                0.4
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.40594059405940597,
+                0.40594059405940597,
+                0.40594059405940597,
+                0.40594059405940597,
+                0.40594059405940597,
+                0.40594059405940597,
+                0.40594059405940597,
+                0.40594059405940597,
+                0.40594059405940597,
+                0.40594059405940597
+              ],
+              "recall_by_iou": [
+                0.4,
+                0.4,
+                0.4,
+                0.4,
+                0.4,
+                0.4,
+                0.4,
+                0.4,
+                0.4,
+                0.4
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 0,
+      "max_area": 1024,
+      "max_det": 10,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.4193302453262262,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.37843784378437834,
+                0.37843784378437834,
+                0.37843784378437834,
+                0.37843784378437834,
+                0.37843784378437834,
+                0.37843784378437834,
+                0.3769710304363771,
+                0.27586206896551724,
+                0.27586206896551724,
+                0.27586206896551724
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.3570132013201319,
+                0.3570132013201319,
+                0.3570132013201319,
+                0.354108910891089,
+                0.354108910891089,
+                0.354108910891089,
+                0.354108910891089,
+                0.31920792079207916,
+                0.31920792079207916,
+                0.2963110827211753
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.43237797463956923,
+                0.43237797463956923,
+                0.43237797463956923,
+                0.42958295829582976,
+                0.42958295829582976,
+                0.42958295829582976,
+                0.42958295829582976,
+                0.3906953195319532,
+                0.3906953195319532,
+                0.3906953195319532
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.656298915605846,
+                0.656298915605846,
+                0.656298915605846,
+                0.6185761433286185,
+                0.6185761433286185,
+                0.6185761433286185,
+                0.6185761433286185,
+                0.415023435116621,
+                0.415023435116621,
+                0.415023435116621
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.40156518605157215,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3528995756718528,
+                0.25,
+                0.25,
+                0.25
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.3076923076923076,
+                0.3076923076923076,
+                0.3076923076923076
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.36037353735373545,
+                0.36037353735373545,
+                0.36037353735373545,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.7204148986327206,
+                0.7204148986327206,
+                0.7204148986327206,
+                0.632248939179632,
+                0.632248939179632,
+                0.632248939179632,
+                0.632248939179632,
+                0.3868458274398866,
+                0.3868458274398866,
+                0.3868458274398866
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.5103859608649941,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.36468646864686477,
+                0.36468646864686477,
+                0.36468646864686477
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.40393997382931573
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5238095238095238,
+                0.5238095238095238,
+                0.5238095238095238
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.49718501261890885,
+                0.49718501261890885,
+                0.49718501261890885
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 0,
+      "max_area": 1024,
+      "max_det": 100,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.4193302453262262,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.37843784378437834,
+                0.37843784378437834,
+                0.37843784378437834,
+                0.37843784378437834,
+                0.37843784378437834,
+                0.37843784378437834,
+                0.3769710304363771,
+                0.27586206896551724,
+                0.27586206896551724,
+                0.27586206896551724
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.3570132013201319,
+                0.3570132013201319,
+                0.3570132013201319,
+                0.354108910891089,
+                0.354108910891089,
+                0.354108910891089,
+                0.354108910891089,
+                0.31920792079207916,
+                0.31920792079207916,
+                0.2963110827211753
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.43237797463956923,
+                0.43237797463956923,
+                0.43237797463956923,
+                0.42958295829582976,
+                0.42958295829582976,
+                0.42958295829582976,
+                0.42958295829582976,
+                0.3906953195319532,
+                0.3906953195319532,
+                0.3906953195319532
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.656298915605846,
+                0.656298915605846,
+                0.656298915605846,
+                0.6185761433286185,
+                0.6185761433286185,
+                0.6185761433286185,
+                0.6185761433286185,
+                0.415023435116621,
+                0.415023435116621,
+                0.415023435116621
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.40156518605157215,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3583396801218582,
+                0.3528995756718528,
+                0.25,
+                0.25,
+                0.25
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.35430312261995417,
+                0.3076923076923076,
+                0.3076923076923076,
+                0.3076923076923076
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.36037353735373545,
+                0.36037353735373545,
+                0.36037353735373545,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035,
+                0.3535103510351035
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.7204148986327206,
+                0.7204148986327206,
+                0.7204148986327206,
+                0.632248939179632,
+                0.632248939179632,
+                0.632248939179632,
+                0.632248939179632,
+                0.3868458274398866,
+                0.3868458274398866,
+                0.3868458274398866
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.5103859608649941,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.3999999999999999,
+                0.36468646864686477,
+                0.36468646864686477,
+                0.36468646864686477
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.48349834983498335,
+                0.40393997382931573
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5568128241395568,
+                0.5238095238095238,
+                0.5238095238095238,
+                0.5238095238095238
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.6864686468646861,
+                0.49718501261890885,
+                0.49718501261890885,
+                0.49718501261890885
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 1024,
+      "max_area": 9216,
+      "max_det": 1,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.5725247524752475,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.7524752475247525,
+                0.7524752475247525,
+                0.7524752475247525,
+                0.7524752475247525,
+                0.7524752475247525,
+                0.7524752475247525,
+                0.7524752475247525,
+                0.7524752475247525,
+                0.7524752475247525,
+                0.12871287128712872
+              ],
+              "recall_by_iou": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.25
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.504950495049505,
+                0.504950495049505,
+                0.504950495049505,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.2574257425742574,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634
+              ],
+              "recall_by_iou": [
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.33663366336633654
+              ],
+              "recall_by_iou": [
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.3333333333333333
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.6264851485148514,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.0
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.33663366336633654,
+                0.33663366336633654,
+                0.33663366336633654,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.3333333333333333,
+                0.3333333333333333,
+                0.3333333333333333,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048
+              ],
+              "recall_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.7297029702970297,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.6633663366336634,
+                0.16831683168316833
+              ],
+              "recall_by_iou": [
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.6666666666666666,
+                0.3333333333333333
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.0
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048,
+                0.5049504950495048
+              ],
+              "recall_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.0
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 1024,
+      "max_area": 9216,
+      "max_det": 10,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.8240026145471689,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.8424842484248423,
+                0.8424842484248423,
+                0.8424842484248423,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.3333333333333334
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.6009900990099007
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.8360266383781235,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.8076379066478078,
+                0.8076379066478078,
+                0.8076379066478078,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.9209529702970296,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.6
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.19999999999999996
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.25
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 1024,
+      "max_area": 9216,
+      "max_det": 100,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.8240026145471689,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.8762376237623762,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.8424842484248423,
+                0.8424842484248423,
+                0.8424842484248423,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.6185332818996186,
+                0.3333333333333334
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.9158415841584159,
+                0.6009900990099007
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.8360266383781235,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.8076379066478078,
+                0.8076379066478078,
+                0.8076379066478078,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527,
+                0.4526166902404527
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835,
+                0.834983498349835
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.9209529702970296,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.865346534653465,
+                0.6
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.19999999999999996
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.25
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 9216,
+      "max_area": 10000000000.0,
+      "max_det": 1,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.0,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.0,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.0,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "recall_by_iou": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 9216,
+      "max_area": 10000000000.0,
+      "max_det": 10,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.7229166666666665,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.25
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.9999999999999998,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.925,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.5,
+                0.5,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "min_area": 9216,
+      "max_area": 10000000000.0,
+      "max_det": 100,
+      "summaries": [
+        {
+          "source": null,
+          "mean_ap": 0.7229166666666665,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.3333333333333334,
+                0.3333333333333334,
+                0.25
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 0,
+          "mean_ap": 0.9999999999999998,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "source": 1,
+          "mean_ap": 0.925,
+          "per_class": [
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "ap_by_iou": [
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.9999999999999999,
+                0.5,
+                0.5,
+                0.5
+              ],
+              "recall_by_iou": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            {
+              "ap_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ],
+              "recall_by_iou": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -83,6 +83,7 @@
 #include <jyppx/liuding/training/callbacks/early_stopping_callback.hpp>
 #include <jyppx/liuding/training/checkpoint_coordinator.hpp>
 #include <jyppx/liuding/training/classification_evaluation.hpp>
+#include <jyppx/liuding/training/detection_evaluation.hpp>
 #include <jyppx/liuding/training/event_sink.hpp>
 #include <jyppx/liuding/training/file_checkpoint_store.hpp>
 #include <jyppx/liuding/training/scheduler_adapter.hpp>
@@ -101,6 +102,7 @@
 #include <jyppx/liuding/training/metrics/accuracy.hpp>
 #include <jyppx/liuding/training/metrics/average_meter.hpp>
 #include <jyppx/liuding/training/metrics/classification.hpp>
+#include <jyppx/liuding/training/metrics/detection.hpp>
 #include <jyppx/liuding/training/metrics/metric_collection.hpp>
 #include <jyppx/liuding/training/metrics/regression.hpp>
 #include <jyppx/liuding/training/metrics/segmentation.hpp>

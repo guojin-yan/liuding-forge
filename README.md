@@ -43,7 +43,7 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **训练系统：混合精度** | CPU bfloat16、CUDA float16/bfloat16、GradScaler 和 RNG participant | 部分具备 | 持续完善 | 对应 PyTorch 的 `torch.amp`、`torch.cuda.amp` 和 `GradScaler`；只覆盖声明组合，设备和 LibTorch 必须匹配兼容矩阵。 |
 | **训练系统：指标、回调与事件** | 训练指标、生命周期回调、事件分发和调度器事件适配 | 已具备 | 已完成 | 对应 PyTorch 训练循环 hooks 以及 torchmetrics、Lightning 等生态能力；当前接口服务于本项目 Trainer。 |
 | **实验与评估：本地实验与制品** | run/artifact、SQLite/CAS、遥测、环境身份和离线工作流 | 已具备 | 已完成 | 对应 PyTorch TensorBoard、`torch.profiler`、实验跟踪和制品管理生态；不替代远程 tracking 或多租户平台。 |
-| **实验与评估：评估与数据质量** | 分类及语义分割 IoU/Dice 实际推理、类别/来源切片、质量报告与数据检查 | 已具备分类与语义分割评估 | 持续开发 | 对应 PyTorch 评估循环与 torchmetrics；检测 AP、训练诊断与完整任务资格仍在开发。 |
+| **实验与评估：评估与数据质量** | 分类、语义分割 IoU/Dice、轴对齐框 AP 实际推理，类别/来源切片与质量报告 | 已具备三类限定评估 | 持续开发 | 对应 PyTorch 评估循环与 torchmetrics；训练诊断、真实检测/分割任务与完整任务资格仍在开发。 |
 | **交付工具：模型 Bundle 与互操作** | 有界 model bundle、interop backend、权重导入和安装后消费 | 部分具备 | 持续完善 | 对应 PyTorch 的 `state_dict`、TorchScript、`torch.export` 和权重导入能力；不接受任意导出物或 pickle。 |
 | **交付工具：C++ CLI 与交付工具链** | liuding-forge CLI、迁移、评估、检查、打包和安装消费者工具 | 已具备 | 已完成 | 对应 PyTorch 的 LibTorch C++ frontend、`torchrun` 周边和扩展构建工具；本项目侧重原生 C++ 和离线交付。 |
 | **交付工具：性能观测与资源基线** | BuildFingerprint、设备/工作负载身份、数据管线资源观测和基线协议 | 已具备 | 持续完善 | 对应 PyTorch Profiler、CUDA 观测和 benchmark 工具；性能结果必须绑定精确环境，不能跨环境直接比较。 |
