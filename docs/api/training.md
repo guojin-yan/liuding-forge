@@ -71,7 +71,26 @@ const auto statistics = diagnostics->snapshot();
 
 数据等待计时只统计成功返回非空 batch 的 `next()` 主机耗时，包含消费端变换/传输，排除 EOF 和抛异常的读取；它不是纯 I/O 等待或同步 GPU 执行时间。`snapshot()` 保留精确 uint64 计数、采样位置、范数与累计耗时；participant 自动接入 Trainer 检查点，恢复已记录值，不承诺未来墙钟耗时一致。
 
-采样值随 optimizer event、等待值随 batch event、运行累计问题的 0/1 标志随 terminal event 发布。任务指标不得使用保留前缀 `diagnostics.`。中立遥测目的地需将 `training_diagnostic_metric_bindings()` 合并进 `TrainingTelemetryAdapterOptions::metrics`，再配置既有 outbox/run sink；这些事件可由现有 run/报告链消费，尚无独立诊断报告导出器。已知 Tensor payload 限额不包括后端私有 workspace、allocator 驻留或完整 RSS/显存；采样尤其在 CUDA 上会增加同步与扫描成本，应按工作负载测量。
+采样值随 optimizer event、等待值随 batch event、运行累计问题的 0/1 标志随 terminal event 发布。任务指标不得使用保留前缀 `diagnostics.`。中立遥测目的地需将 `training_diagnostic_metric_bindings()` 合并进 `TrainingTelemetryAdapterOptions::metrics`，再配置既有 outbox/run sink；这些事件可由现有 run/报告链消费。已知 Tensor payload 限额不包括后端私有 workspace、allocator 驻留或完整 RSS/显存；采样尤其在 CUDA 上会增加同步与扫描成本，应按工作负载测量。
+
+独立报告使用 `capture_training_diagnostics_report()` 捕获脱离 participant 的副本及当前二进制构建身份，再通过 `training_diagnostics_report_json()` 导出版本 1 JSON。调用方提供稳定的 report/run/attempt ID，以及已核验的模型、有效配置、数据集划分与预处理契约 SHA-256；可附加相关检查点摘要。捕获和序列化在训练循环外执行，不重复扫描 Tensor；输入摘要仅建立关联，不替调用方读取或校验制品字节。
+
+```cpp
+const auto report = training::capture_training_diagnostics_report(
+    *diagnostics,
+    {.report_id = "diagnostics.final",
+     .run_id = "run.example",
+     .attempt_id = "attempt.1",
+     .model = model_contract_digest,
+     .configuration = effective_config_digest,
+     .dataset = dataset_contract_digest},
+    training::TrainingDiagnosticOutcome::completed);
+const auto json = training::training_diagnostics_report_json(report, 65536);
+```
+
+`outcome` 由调用方声明为 `incomplete/completed/failed/cancelled`，表示生命周期结果，不推断训练健康或验收通过。报告以 JSON 整数保留精确 uint64 计数；梯度范数与训练/验证等待分别标记 `disabled/no_samples/measured`，未测量值为 `null`，已经测得的零值仍为数值 0。序列化拒绝不一致统计、非法身份和 UTF-8，并在每次追加前检查输出字节限额；该限额不等于进程 RSS。相同报告内容重复导出字节一致，不自动增加时间戳。
+
+可将 JSON 字节用现有 `SQLiteRunStore::put_artifact()` 关联至报告的 `run_id`，复用不可变 CAS、物理重开、同 reference ID 重试和冲突拒绝；检查点提交与报告发布仍是独立操作。恢复 participant 后可重新捕获报告，已记录统计保持不变，构建身份反映执行捕获的二进制。当前报告覆盖上述诊断统计，不包含完整 GPU profiler、调用栈或自动根因判断。
 
 ## 分类数据集评估
 

@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加独立训练诊断 JSON 报告：关联 run/attempt、模型/配置/数据身份与实际构建，保留精确计数，区分未启用、无样本和已测量，支持有界导出及既有 run/CAS 保存。
 - 增加可恢复分类评估 session：固定输入身份、原子批次统计、索引游标、完成态检查点及最终报告幂等重试。
 - 增加固定外部 Penn-Fudan 图像任务验证：原生 C++ 分割训练、留出集 IoU/Dice、预测掩码候选框 AP、拆批等价及持久续评；数据与权重不随仓库分发。
 - 增加语义分割 IoU/Dice 和检测 AP 的评估 session：按已提交批次恢复，校验图片/像素总量及输入身份，支持完成态报告重试；检测复用原子匹配，不逐批复制历史数据集状态。

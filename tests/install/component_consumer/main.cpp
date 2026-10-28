@@ -517,6 +517,18 @@ int main() {
       torch::tensor({3.0, 4.0}, torch::kFloat64)};
   const auto norm = jyppx::liuding::training::measure_gradient_l2(gradients);
   jyppx::liuding::training::TrainingDiagnostics diagnostics;
+  const auto diagnostic_report =
+      jyppx::liuding::training::capture_training_diagnostics_report(
+          diagnostics, {.report_id = "diagnostics.consumer",
+                        .run_id = "run.consumer",
+                        .attempt_id = "attempt.consumer",
+                        .model = {.hex = std::string(64, 'a')},
+                        .configuration = {.hex = std::string(64, 'b')},
+                        .dataset = {.hex = std::string(64, 'c')}});
+  if (jyppx::liuding::training::training_diagnostics_report_json(
+          diagnostic_report)
+          .find("\"last_l2\":null") == std::string::npos)
+    return 1;
   if (norm.l2 != 5.0 || norm.elements != 2 ||
       diagnostics.describe_state().schema_version != 1 ||
       jyppx::liuding::training::training_diagnostic_metric_bindings().size() !=

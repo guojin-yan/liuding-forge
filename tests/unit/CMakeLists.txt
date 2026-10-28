@@ -383,6 +383,17 @@ jyppx_add_gtest(jyppx_test_training_diagnostics
     LINK_TARGET jyppx::liuding::training
     training/test_diagnostics.cpp
 )
+if(TARGET nlohmann_json::nlohmann_json)
+    target_link_libraries(jyppx_test_training_diagnostics PRIVATE nlohmann_json::nlohmann_json)
+    target_compile_definitions(jyppx_test_training_diagnostics PRIVATE JYPPX_LIUDING_TEST_DIAGNOSTIC_JSON=1)
+endif()
+if(TARGET jyppx::liuding::experiment)
+    target_link_libraries(jyppx_test_training_diagnostics PRIVATE jyppx::liuding::experiment)
+    target_compile_definitions(jyppx_test_training_diagnostics PRIVATE JYPPX_LIUDING_TEST_DIAGNOSTIC_STORE=1)
+endif()
+if(TARGET jyppx::liuding::interop)
+    target_link_libraries(jyppx_test_training_diagnostics PRIVATE jyppx::liuding::interop)
+endif()
 
 jyppx_add_gtest(jyppx_test_training_amp
     LINK_TARGET jyppx::liuding::training

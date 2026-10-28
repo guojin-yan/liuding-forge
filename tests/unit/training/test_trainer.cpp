@@ -27,6 +27,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <gtest/gtest.h>
 #include <limits>
@@ -1003,6 +1006,36 @@ TEST(TrainerTest, PreparationRejectsSchedulerForDifferentOptimizer) {
 
 namespace td = jyppx::liuding::training;
 
+td::TrainingDiagnosticsReport export_diagnostics(
+    const td::TrainingDiagnostics& diagnostics, std::string name,
+    td::TrainingDiagnosticOutcome outcome) {
+  td::TrainingDiagnosticIdentity identity{
+      .report_id = name,
+      .run_id = "run.trainer",
+      .attempt_id = "attempt.trainer",
+      .model = {.hex = std::string(64, 'a')},
+      .configuration = {.hex = std::string(64, 'b')},
+      .dataset = {.hex = std::string(64, 'c')}};
+  auto report =
+      td::capture_training_diagnostics_report(diagnostics, identity, outcome);
+  const auto bytes = td::training_diagnostics_report_json(report);
+  MemoryState saved(diagnostics.describe_state());
+  diagnostics.save_state(saved);
+  td::TrainingDiagnostics recreated(diagnostics.options());
+  recreated.load_state(saved, jyppx::liuding::RestorePolicy::exact_only);
+  EXPECT_EQ(bytes, td::training_diagnostics_report_json(
+                       td::capture_training_diagnostics_report(
+                           recreated, identity, outcome)));
+  if (const auto* path = std::getenv("JYPPX_LIUDING_DIAGNOSTIC_REPORT_DIR")) {
+    std::filesystem::create_directories(path);
+    std::ofstream file(std::filesystem::path(path) / (name + ".json"),
+                       std::ios::binary);
+    file << bytes;
+    EXPECT_TRUE(file.good());
+  }
+  return report;
+}
+
 td::StepOutput fixed_gradient_step(const td::StepInput& input) {
   const auto parameters = input.model.state().named_parameters();
   return {
@@ -1028,6 +1061,10 @@ TEST(TrainerDiagnostics, DefaultCollectsSafetyCountsWithoutOptionalWork) {
   EXPECT_EQ(state.norm_seconds, 0.0);
   EXPECT_EQ(state.training_wait.batches, 0U);
   EXPECT_EQ(state.validation_wait.seconds, 0.0);
+  const auto report =
+      export_diagnostics(*diagnostics, "trainer-default",
+                         td::TrainingDiagnosticOutcome::completed);
+  EXPECT_EQ(report.statistics.update_attempts, 4U);
 }
 
 TEST(TrainerDiagnostics,
@@ -1082,6 +1119,13 @@ TEST(TrainerDiagnostics,
     EXPECT_GE(state.training_wait.seconds, state.training_wait.max_seconds);
     ASSERT_EQ(observed.size(), expected);
     for (auto norm : observed) EXPECT_NEAR(norm, std::sqrt(34.0), 1e-12);
+    const auto report = export_diagnostics(
+        *diagnostics,
+        tail == td::AccumulationTailPolicy::flush ? "trainer-tail-flush"
+                                                  : "trainer-tail-drop",
+        td::TrainingDiagnosticOutcome::completed);
+    EXPECT_NEAR(report.statistics.last_gradient_l2, std::sqrt(34.0), 1e-12);
+    EXPECT_EQ(report.statistics.training_wait.batches, 3U);
   }
 }
 
@@ -1153,6 +1197,12 @@ TEST(TrainerDiagnostics,
       for (const auto& [name, flag] : issues)
         EXPECT_TRUE(std::isfinite(flag)) << name;
       EXPECT_TRUE(domain.model->state().is_training());
+      const auto report = export_diagnostics(
+          *diagnostics,
+          std::string("trainer-") + (validation ? "validation-" : "training-") +
+              (std::isnan(value) ? "nan" : "infinity"),
+          td::TrainingDiagnosticOutcome::failed);
+      EXPECT_EQ(report.outcome, td::TrainingDiagnosticOutcome::failed);
     }
   }
 }
@@ -1175,6 +1225,8 @@ TEST(TrainerDiagnostics,
   EXPECT_EQ(diagnostics->snapshot().update_attempts, 1U);
   EXPECT_EQ(diagnostics->snapshot().nonfinite_gradient_attempts, 1U);
   EXPECT_EQ(diagnostics->snapshot().norm_samples, 0U);
+  export_diagnostics(*diagnostics, "trainer-nonfinite-gradient",
+                     td::TrainingDiagnosticOutcome::failed);
   EXPECT_EQ(trainer.global_step(), 0U);
 }
 
@@ -1262,6 +1314,8 @@ TEST(TrainerDiagnostics,
                      source_diagnostics->snapshot().last_gradient_l2);
     EXPECT_DOUBLE_EQ(diagnostics->snapshot().mean_gradient_l2,
                      source_diagnostics->snapshot().mean_gradient_l2);
+    export_diagnostics(*diagnostics, "trainer-cpu-restored",
+                       td::TrainingDiagnosticOutcome::completed);
     const auto& expected_parameters = source_domain.model->state().parameters();
     const auto& actual_parameters = rebuilt.model->state().parameters();
     for (std::size_t index = 0; index < expected_parameters.size(); ++index)
@@ -1360,6 +1414,11 @@ TEST(TrainerDiagnosticsCuda, AmpOverflowAttemptsSampleAfterUnscaleAndRestore) {
   EXPECT_EQ(restored_diagnostics->snapshot().update_attempts, 4U);
   EXPECT_DOUBLE_EQ(restored_diagnostics->snapshot().last_gradient_l2,
                    state.last_gradient_l2);
+  const auto report =
+      export_diagnostics(*restored_diagnostics, "trainer-cuda-amp-restored",
+                         td::TrainingDiagnosticOutcome::completed);
+  EXPECT_EQ(report.statistics.amp_skipped_attempts, 1U);
+  EXPECT_EQ(report.statistics.norm_samples, 2U);
   for (std::size_t index = 0; index < domain.model->state().parameters().size();
        ++index) {
     EXPECT_TRUE(torch::equal(domain.model->state().parameters()[index],

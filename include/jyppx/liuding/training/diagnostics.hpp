@@ -13,12 +13,15 @@
  */
 
 #include <jyppx/liuding/core/types.hpp>
+#include <jyppx/liuding/foundation/artifact.hpp>
 #include <jyppx/liuding/foundation/checkpoint.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 #include <jyppx/liuding/training/telemetry_adapter.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -194,6 +197,77 @@ class TrainingDiagnostics final : public CheckpointParticipant {
   TrainingDiagnosticsOptions options_;  ///< Immutable participant topology.
   TrainingDiagnosticsSnapshot state_;   ///< Bounded typed mutable observations.
 };
+
+/** @brief Caller-declared lifecycle outcome, independent of diagnostic issues.
+ */
+enum class TrainingDiagnosticOutcome : std::uint8_t {
+  incomplete = 0,  ///< Capture before a terminal lifecycle outcome.
+  completed = 1,   ///< Caller reports successful lifecycle completion.
+  failed = 2,      ///< Caller reports a failed training attempt.
+  cancelled = 3,   ///< Caller reports cancellation.
+};
+
+/** @brief Associates a report with caller-verified immutable input identities.
+ */
+struct TrainingDiagnosticIdentity {
+  std::string
+      report_id;       ///< Stable report ID, 1..1024 ASCII letters/digits/._-.
+  std::string run_id;  ///< Run ID with the same character and length bounds.
+  std::string attempt_id;  ///< Attempt ID with the same identity bounds.
+  ArtifactDigest model;  ///< Model contract/content digest supplied by caller.
+  ArtifactDigest configuration;  ///< Effective configuration content digest.
+  ArtifactDigest dataset;  ///< Dataset/split/preprocessing contract digest.
+  std::optional<ArtifactDigest> checkpoint;  ///< Optional related checkpoint.
+};
+
+/** @brief Detached, versioned diagnostic data; owns no tensors or storage. */
+struct TrainingDiagnosticsReport {
+  std::uint32_t schema_version = 1;     ///< Only report schema 1 is supported.
+  TrainingDiagnosticIdentity identity;  ///< Caller-verified input association.
+  TrainingDiagnosticOutcome outcome =
+      TrainingDiagnosticOutcome::incomplete;  ///< Not an automatic health
+                                              ///< verdict.
+  BuildFingerprint
+      build;  ///< Build/runtime identity captured outside training.
+  TrainingDiagnosticsOptions
+      options;  ///< Enablement, sampling and scan bounds.
+  TrainingDiagnosticsSnapshot
+      statistics;  ///< Captured counts and measurements.
+};
+
+/**
+ * @brief Captures a report after serialized access to the participant.
+ * @param diagnostics Participant whose options and statistics are copied.
+ * @param identity Caller-verified input identities; no artifact bytes are read.
+ * @param outcome Caller-declared lifecycle outcome, not inferred from counters.
+ * @return An owned report with the current binary's build/runtime fingerprint.
+ * @throws InvalidArgument If IDs, digests, or the outcome are invalid.
+ * @throws DeviceError If build fingerprint capture cannot inspect availability.
+ * @note Use outside fit()/callbacks that mutate the participant. Capture reads
+ * no clock, scans no tensor, and executes no training or inference operation.
+ */
+TrainingDiagnosticsReport capture_training_diagnostics_report(
+    const TrainingDiagnostics& diagnostics, TrainingDiagnosticIdentity identity,
+    TrainingDiagnosticOutcome outcome = TrainingDiagnosticOutcome::incomplete);
+
+/**
+ * @brief Serializes a validated report to deterministic compact UTF-8 JSON.
+ * @param report Detached schema-1 data; inconsistent statistics are rejected.
+ * @param max_json_bytes Maximum output bytes; defaults to 64 KiB.
+ * @return JSON with exact uint64 counters and no timestamp or trailing newline.
+ * @throws InvalidArgument If schema, IDs, outcome, options or UTF-8 are
+ * invalid.
+ * @throws SerializationError If statistics violate checkpoint invariants.
+ * @throws ResourceExhausted If the output exceeds max_json_bytes.
+ * @note Gradient/wait states are disabled, no_samples or measured; missing
+ * measurements are null. Loss counts remain observable without optional work.
+ * Build fields are nonempty UTF-8 strings of at most 4096 bytes. Serialization
+ * performs no storage, clock, device, tensor or participant access. The output
+ * limit bounds string bytes, not allocator capacity or process RSS.
+ */
+std::string training_diagnostics_report_json(
+    const TrainingDiagnosticsReport& report,
+    std::size_t max_json_bytes = 65536);
 
 }  // namespace jyppx::liuding::training
 

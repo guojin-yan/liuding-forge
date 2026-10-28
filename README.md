@@ -42,7 +42,7 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **训练系统：检查点与恢复** | storage-neutral participant、事务协调、文件存储、CAS/SQLite 元数据和有界恢复 | 已具备 | 已完成 | 对应 PyTorch 的 `state_dict`、`torch.save` 和 `torch.load`；不兼容任意 PyTorch pickle，恢复由显式 participant 和 manifest 定义。 |
 | **训练系统：混合精度** | CPU bfloat16、CUDA float16/bfloat16、GradScaler 和 RNG participant | 部分具备 | 持续完善 | 对应 PyTorch 的 `torch.amp`、`torch.cuda.amp` 和 `GradScaler`；只覆盖声明组合，设备和 LibTorch 必须匹配兼容矩阵。 |
 | **训练系统：指标、回调与事件** | 训练指标、生命周期回调、事件分发和调度器事件适配 | 已具备 | 已完成 | 对应 PyTorch 训练循环 hooks 以及 torchmetrics、Lightning 等生态能力；当前接口服务于本项目 Trainer。 |
-| **训练系统：基础诊断** | loss NaN/Inf、非有限梯度、AMP 跳步、可选梯度范数与数据等待，支持采样恢复 | 已具备限定诊断 | 持续完善 | 对应 PyTorch 训练检查与 profiling hooks；默认关闭额外扫描和计时，完整 profiling 与诊断报告仍待扩展。 |
+| **训练系统：训练诊断** | loss NaN/Inf、非有限梯度、AMP 跳步、可选梯度范数与数据等待，支持采样恢复和关联运行/输入身份的 JSON 报告 | 已具备限定诊断与报告 | 持续完善 | 对应 PyTorch 训练检查与 profiling hooks；默认关闭额外扫描和计时，完整 profiling 与自动根因分析仍待扩展。 |
 | **实验与评估：本地实验与制品** | run/artifact、SQLite/CAS、遥测、环境身份和离线工作流 | 已具备 | 已完成 | 对应 PyTorch TensorBoard、`torch.profiler`、实验跟踪和制品管理生态；不替代远程 tracking 或多租户平台。 |
 | **实验与评估：评估与数据质量** | 分类、语义分割 IoU/Dice、轴对齐框 AP 实际推理，类别/来源切片、三类评估的检查点恢复与质量报告 | 已具备三类限定评估 | 持续开发 | 对应 PyTorch 评估循环与 torchmetrics；已具备小规模真实图像分割任务验证；独立检测模型任务与完整任务资格仍在开发。 |
 | **交付工具：模型 Bundle 与互操作** | 有界 model bundle、interop backend、权重导入和安装后消费 | 部分具备 | 持续完善 | 对应 PyTorch 的 `state_dict`、TorchScript、`torch.export` 和权重导入能力；不接受任意导出物或 pickle。 |
