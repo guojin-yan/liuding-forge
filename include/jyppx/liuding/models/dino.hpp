@@ -39,12 +39,17 @@ struct DinoV2Options {
   ///< Zero returns the CLS embedding; positive values add a classifier head.
   std::int64_t input_channels = 3;  ///< Positive input channel count.
   double layer_scale_init = 1e-5;   ///< Positive LayerScale initialization.
+  bool position_antialias = true;
+  ///< Antialiased timm position resize; false matches Transformers DINOv2.
 };
 
 /** @brief Trainable DINOv2 ViT/14 image encoder with an optional head. */
 class DinoV2Impl final : public torch::nn::Module {
  public:
-  /** @brief Constructs one fixed-capacity randomly initialized encoder. */
+  /** @brief Constructs one fixed-capacity randomly initialized encoder.
+   * @param variant Fixed encoder capacity.
+   * @param options Explicit input, head and interpolation settings.
+   */
   explicit DinoV2Impl(DinoV2Variant variant, DinoV2Options options = {});
 
   /**
@@ -53,6 +58,7 @@ class DinoV2Impl final : public torch::nn::Module {
    * @return `[N, 1 + floor(H/14)*floor(W/14), embedding]` tokens.
    * @note H and W must be positive multiples of 14. Positional embeddings are
    * bicubically interpolated for grids other than the 518x518 reference grid.
+   * `position_antialias` must match the selected weight implementation.
    */
   Tensor forward_features(const Tensor& input);
 
@@ -63,10 +69,14 @@ class DinoV2Impl final : public torch::nn::Module {
    */
   Tensor forward(const Tensor& input);
 
-  /** @brief Returns immutable constructor options. */
+  /** @brief Returns immutable constructor options.
+   * @return Settings retained by this encoder.
+   */
   const DinoV2Options& options() const noexcept;
 
-  /** @brief Returns the fixed variant selected at construction. */
+  /** @brief Returns the fixed variant selected at construction.
+   * @return Encoder capacity.
+   */
   DinoV2Variant variant() const noexcept;
 
   /**
@@ -79,37 +89,52 @@ class DinoV2Impl final : public torch::nn::Module {
   void reset_classifier(std::int64_t num_classes);
 
  private:
-  DinoV2Options options_;
-  DinoV2Variant variant_;
-  std::int64_t embedding_dimension_ = 0;
-  std::int64_t attention_heads_ = 0;
-  std::int64_t block_count_ = 0;
-  std::int64_t hidden_dimension_ = 0;
-  bool swiglu_ = false;
+  DinoV2Options options_;                 ///< Retained construction settings.
+  DinoV2Variant variant_;                 ///< Fixed encoder capacity.
+  std::int64_t embedding_dimension_ = 0;  ///< Token channel count.
+  std::int64_t attention_heads_ = 0;      ///< Heads per block.
+  std::int64_t block_count_ = 0;          ///< Transformer block count.
+  std::int64_t hidden_dimension_ = 0;     ///< Feedforward hidden channels.
+  bool swiglu_ = false;  ///< Whether the feedforward block uses SwiGLU.
   // Kept opaque so the implementation can expose the timm-compatible
   // `patch_embed.proj` state hierarchy without adding helper modules to the
   // public model API.
-  std::shared_ptr<torch::nn::Module> patch_embed_;
-  torch::nn::LayerNorm final_norm_{nullptr};
-  torch::nn::Linear head_{nullptr};
-  Tensor cls_token_;
-  Tensor position_embedding_;
-  torch::nn::Sequential blocks_{nullptr};
+  std::shared_ptr<torch::nn::Module> patch_embed_;  ///< Patch projection.
+  torch::nn::LayerNorm final_norm_{nullptr};  ///< Final token normalization.
+  torch::nn::Linear head_{nullptr};  ///< Optional classification projection.
+  Tensor cls_token_;                 ///< Learned CLS token.
+  Tensor position_embedding_;        ///< Learned reference-grid positions.
+  torch::nn::Sequential blocks_{nullptr};  ///< Transformer block stack.
 };
 
 /** @brief Shared owning holder for a DINOv2 encoder. */
 TORCH_MODULE(DinoV2);
 
-/** @brief Constructs DINOv2 ViT-S/14. */
+/** @brief Constructs DINOv2 ViT-S/14.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV2 dinov2_vits14(DinoV2Options options = {});
-/** @brief Constructs DINOv2 ViT-B/14. */
+/** @brief Constructs DINOv2 ViT-B/14.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV2 dinov2_vitb14(DinoV2Options options = {});
-/** @brief Constructs DINOv2 ViT-L/14. */
+/** @brief Constructs DINOv2 ViT-L/14.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV2 dinov2_vitl14(DinoV2Options options = {});
-/** @brief Constructs DINOv2 ViT-G/14. */
+/** @brief Constructs DINOv2 ViT-G/14.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV2 dinov2_vit_giant14(DinoV2Options options = {});
 
-/** @brief Creates a schema-checked adapter for a DINOv2 holder. */
+/** @brief Creates a schema-checked adapter for a DINOv2 holder.
+ * @param model Encoder retained by the adapter.
+ * @return Owning adapter sharing this encoder.
+ */
 nn::ModelAdapter adapt(DinoV2 model);
 
 /** @brief Low-resource DINOv3 ViT/16 capacities selected for v1.0. */
@@ -123,7 +148,8 @@ enum class DinoV3Variant : std::uint8_t {
   seven_b = 7,         ///< 4096-dimensional SwiGLU, 40-block, 32-head encoder.
 };
 
-/** @brief Input, head and initialization settings shared by DINOv3 ViT models. */
+/** @brief Input, head and initialization settings shared by DINOv3 ViT models.
+ */
 struct DinoV3Options {
   std::int64_t num_classes = 0;
   ///< Zero returns the CLS embedding; positive values add a classifier head.
@@ -135,7 +161,11 @@ struct DinoV3Options {
 /** @brief DINOv3 ViT/16 encoder with CLS, extra and patch tokens. */
 class DinoV3Impl final : public torch::nn::Module {
  public:
-  /** @brief Constructs a low-resource randomly initialized DINOv3 encoder. */
+  /** @brief Constructs a fixed-capacity randomly initialized DINOv3 encoder.
+   * @param variant Fixed encoder capacity; large capacities need resource
+   * gates.
+   * @param options Explicit input and head settings.
+   */
   explicit DinoV3Impl(DinoV3Variant variant, DinoV3Options options = {});
 
   /**
@@ -146,55 +176,89 @@ class DinoV3Impl final : public torch::nn::Module {
    */
   Tensor forward_features(const Tensor& input);
 
-  /** @brief Returns CLS embeddings or classifier logits. */
+  /** @brief Returns CLS embeddings or classifier logits.
+   * @param input Dense floating NCHW input matching this encoder.
+   * @return CLS embedding or classification logits.
+   */
   Tensor forward(const Tensor& input);
 
-  /** @brief Returns immutable constructor options. */
+  /** @brief Returns immutable constructor options.
+   * @return Settings retained by this encoder.
+   */
   const DinoV3Options& options() const noexcept;
 
-  /** @brief Returns the fixed variant selected at construction. */
+  /** @brief Returns the fixed variant selected at construction.
+   * @return Encoder capacity.
+   */
   DinoV3Variant variant() const noexcept;
 
-  /** @brief Replaces or removes the linear classification head. */
+  /** @brief Replaces or removes the linear classification head.
+   * @param num_classes Zero removes the head; positive values replace it.
+   */
   void reset_classifier(std::int64_t num_classes);
 
  private:
-  DinoV3Options options_;
-  DinoV3Variant variant_;
-  std::int64_t embedding_dimension_ = 0;
-  std::int64_t attention_heads_ = 0;
-  std::int64_t block_count_ = 0;
-  std::int64_t hidden_dimension_ = 0;
-  bool swiglu_ = false;
-  std::shared_ptr<torch::nn::Module> patch_embed_;
-  std::shared_ptr<torch::nn::Module> rope_embed_;
-  torch::nn::LayerNorm final_norm_{nullptr};
-  torch::nn::Linear head_{nullptr};
-  Tensor cls_token_;
-  Tensor storage_tokens_;
-  Tensor mask_token_;
-  torch::nn::Sequential blocks_{nullptr};
+  DinoV3Options options_;                 ///< Retained construction settings.
+  DinoV3Variant variant_;                 ///< Fixed encoder capacity.
+  std::int64_t embedding_dimension_ = 0;  ///< Token channel count.
+  std::int64_t attention_heads_ = 0;      ///< Heads per block.
+  std::int64_t block_count_ = 0;          ///< Transformer block count.
+  std::int64_t hidden_dimension_ = 0;     ///< Feedforward hidden channels.
+  bool swiglu_ = false;  ///< Whether the feedforward block uses SwiGLU.
+  std::shared_ptr<torch::nn::Module> patch_embed_;  ///< Patch projection.
+  std::shared_ptr<torch::nn::Module>
+      rope_embed_;                            ///< Rotary position encoding.
+  torch::nn::LayerNorm final_norm_{nullptr};  ///< Final token normalization.
+  torch::nn::Linear head_{nullptr};  ///< Optional classification projection.
+  Tensor cls_token_;                 ///< Learned CLS token.
+  Tensor storage_tokens_;            ///< Learned storage tokens.
+  Tensor mask_token_;                ///< Registered masked-image state.
+  torch::nn::Sequential blocks_{nullptr};  ///< Transformer block stack.
 };
 
 /** @brief Shared owning holder for a DINOv3 encoder. */
 TORCH_MODULE(DinoV3);
 
-/** @brief Constructs DINOv3 ViT-S/16. */
+/** @brief Constructs DINOv3 ViT-S/16.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV3 dinov3_vits16(DinoV3Options options = {});
-/** @brief Constructs DINOv3 ViT-S+/16. */
+/** @brief Constructs DINOv3 ViT-S+/16.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV3 dinov3_vits16plus(DinoV3Options options = {});
-/** @brief Constructs DINOv3 ViT-B/16. */
+/** @brief Constructs DINOv3 ViT-B/16.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV3 dinov3_vitb16(DinoV3Options options = {});
-/** @brief Constructs DINOv3 ViT-L/16. */
+/** @brief Constructs DINOv3 ViT-L/16.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV3 dinov3_vitl16(DinoV3Options options = {});
-/** @brief Constructs DINOv3 ViT-L+/16. */
+/** @brief Constructs DINOv3 ViT-L+/16.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV3 dinov3_vitl16plus(DinoV3Options options = {});
-/** @brief Constructs DINOv3 ViT-H+/16. */
+/** @brief Constructs DINOv3 ViT-H+/16.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV3 dinov3_vith16plus(DinoV3Options options = {});
-/** @brief Constructs DINOv3 ViT-7B/16. */
+/** @brief Constructs DINOv3 ViT-7B/16.
+ * @param options Explicit encoder settings.
+ * @return Randomly initialized owning encoder.
+ */
 DinoV3 dinov3_vit7b16(DinoV3Options options = {});
 
-/** @brief Creates a schema-checked adapter for a DINOv3 holder. */
+/** @brief Creates a schema-checked adapter for a DINOv3 holder.
+ * @param model Encoder retained by the adapter.
+ * @return Owning adapter sharing this encoder.
+ */
 nn::ModelAdapter adapt(DinoV3 model);
 
 }  // namespace jyppx::liuding::models

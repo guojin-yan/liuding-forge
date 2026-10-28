@@ -268,7 +268,8 @@ void Initialize(torch::nn::Module& module) {
 }
 
 Tensor PositionForGrid(const Tensor& position_embedding, std::int64_t height,
-                       std::int64_t width, std::int64_t dimension) {
+                       std::int64_t width, std::int64_t dimension,
+                       bool antialias) {
   constexpr std::int64_t reference_grid = 37;
   auto cls = position_embedding.slice(1, 0, 1);
   auto patches = position_embedding.slice(1, 1).reshape(
@@ -281,7 +282,7 @@ Tensor PositionForGrid(const Tensor& position_embedding, std::int64_t height,
                       .size(std::vector<std::int64_t>{height, width})
                       .mode(torch::kBicubic)
                       .align_corners(false)
-                      .antialias(true))
+                      .antialias(antialias))
                   .to(position_embedding.scalar_type());
   }
   patches =
@@ -343,7 +344,8 @@ Tensor DinoV2Impl::forward_features(const Tensor& input) {
     auto cls = cls_token_.expand({input.size(0), -1, -1});
     tokens = torch::cat({cls, tokens}, 1);
     tokens = tokens + PositionForGrid(position_embedding_, height, width,
-                                      embedding_dimension_);
+                                      embedding_dimension_,
+                                      options_.position_antialias);
     return final_norm_->forward(blocks_->forward(tokens));
   });
 }

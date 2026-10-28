@@ -126,3 +126,28 @@ auto grid = outputs->elements().at(1).toTensor();
 `weight_input_identity(record)` 以流式 SHA-256 绑定已固定权重的完整摘要/大小、来源和许可、输入配方与类别顺序，供配方、run 或缓存记录；没有固定权重或输入契约时报 `NotReady`。它只核验元数据格式，不能证明来源真实、实际执行了变换、分类头与类别表匹配或任务准确率，权重字节仍须单独 `verify_weights()`。类别表最多 100,000 项、文本合计 16 MiB，ID 唯一；类别名称可重复或为空。
 
 当前固定随机参考覆盖选定架构的结构、state 导入和前向/特征差分，不覆盖预训练权重、任务精度或完整 Models profile。未提供参考目录时，相应可选测试会条件跳过；跳过不算验收通过。实际支持范围以具体变体、设备、dtype 和验证结果为准。
+
+### 固定外部权重
+
+以下两个来源可用于显式离线导入。下载应由使用者执行；库内候选仍保持 `not_provisioned`，完整数据集精度和微调资格尚待验证。ResNet50 的 1000 列输出暂未绑定经过独立核验的有序类别表，不能据此推断类别名称。
+
+| 模型与固定来源 | 权重输入配方 | 导入设置 |
+| --- | --- | --- |
+| ResNet50：[timm/resnet50.a1_in1k，7672686](https://huggingface.co/timm/resnet50.a1_in1k/tree/767268603ca0cb0bfe326fa87277f19c419566ef)，Apache-2.0 | RGB 单位强度、bicubic 短边 235、中心裁剪 224×224、ImageNet mean/std | 原始 safetensors 可严格导入 `resnet50`，1000 类 |
+| DINOv2 ViT-S/14：[facebook/dinov2-small，ed25f3a](https://huggingface.co/facebook/dinov2-small/tree/ed25f3a31f01632728cabb09d1542f84ab7b0056)，Apache-2.0 | RGB 单位强度、bicubic 短边 256、中心裁剪 224×224、ImageNet mean/std | 先运行下述转换，`dinov2.num_classes=0`、`dinov2.position_antialias=false` |
+
+两者 mean 为 `{0.485, 0.456, 0.406}`，std 为 `{0.229, 0.224, 0.225}`。上述图像配方可按前文组合 Tensor 图像变换；上游 PIL/图像处理器与 Tensor bicubic 不承诺逐位相同。DINOv2 的 `position_antialias` 控制模型内部位置编码插值，独立于图像 resize：默认 `true` 对应已有 timm 参考，官方 Transformers 权重路径使用 `false`；在原生 518×518 网格上不插值。
+
+| 制品 | 字节数 | 完整 SHA-256 |
+| --- | --- | --- |
+| ResNet50 原始 `model.safetensors` | 102469840 | `773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb` |
+| 官方 DINOv2-S 原始 `model.safetensors` | 88249960 | `ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1` |
+| DINOv2-S 转换结果 | 88240512 | `f3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5` |
+
+[`convert_dinov2_hf.py`](../../scripts/models/convert_dinov2_hf.py) 仅接受表中官方固定文件，使用 Python 标准库流式转换，不联网、不执行 pickle、不依赖 Torch。它保留参数位模式，按 Q/K/V 顺序合并 attention 参数，登记无掩码图像编码器不使用的 `mask_token`，并拒绝覆盖已有输出。
+
+```powershell
+python scripts/models/convert_dinov2_hf.py --source D:/weights/dinov2-small.facebook.safetensors --destination D:/weights/dinov2-small.liuding.safetensors --report D:/weights/dinov2-small.conversion.json
+```
+
+在 `WeightRecord` 中登记转换结果的完整摘要/大小，保留官方来源 revision、许可证链接和映射版本 `jyppx.liuding.dinov2-hf-small.unmasked.v1`，再调用 `load_weights()`。转换报告保留原始权重身份和全部参数映射；转换只确认数据布局，不证明任务准确率。该入口不支持掩码训练、其他容量或其他 revision 的自动转换。

@@ -39,6 +39,8 @@ int main() {
         missing = true;
       }
       Require(missing, "installed-missing-weight-recipe-error");
+      Require(DinoV2Options{}.position_antialias,
+              "installed-dinov2-timm-position-default");
     }
     {
       using namespace jyppx::liuding::models;

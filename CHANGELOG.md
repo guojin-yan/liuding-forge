@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- DINOv2 增加显式位置编码插值 `position_antialias` 设置，默认沿用 timm 语义，`false` 可匹配官方 Transformers DINOv2 路径。
 - 权重记录可关联显式图像预处理、来源版本和有序类别表，支持无像素分配的 resize/crop 坐标解析与绑定权重字节身份的 SHA-256；缺失输入契约明确报错，不按模型名推断。
 - 图像联合几何支持显式 antialiased bicubic resize，保持离散 mask 的整数 nearest-exact；CPU/CUDA 均保留原照片 dtype，CUDA bilinear/bicubic 的半精度输入先升到 float32 计算，并纳入已知工作量预算。
 - 全部视觉模型支持统一分类头查询、替换与 `num_classes=0` 的 embedding；替换时刷新传入 adapter 的 schema，保留骨干参数身份、冻结标志、设备、dtype 和模式。MobileNetV3 显式替换完整分类 MLP。
@@ -22,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - The documentation index is now a concise Chinese task-based entry point; tutorials remain the detailed learning path and one-time development reports stay outside the source repository.
 
 ### Added
+- 增加固定官方 DINOv2-S/14 safetensors 的离线流式转换工具，记录全部源参数、Q/K/V 合并和省略的 mask token；外部实际权重验证入口覆盖 ResNet50 与 DINOv2-S，任务精度和完整微调资格仍待验证。
 - 新增 DINO 统一特征提取入口，支持查询布局/步幅/token 元数据及按顺序选择输出，复用 ModelAdapter 并保留 autograd 与共享存储。
 - 补充 DINOv2 ViT-L 的 CPU FP32 完整训练状态恢复验证，使用独立资源门禁和显式回滚预算；CUDA 完整恢复仍待验证。
 - 补充 DINOv3 ViT-L/L+ 的 CPU FP32/CUDA AMP 完整训练状态恢复验证，使用独立资源门禁和显式回滚预算。
