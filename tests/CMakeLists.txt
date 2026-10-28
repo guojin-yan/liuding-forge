@@ -35,6 +35,11 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(ImageTrainingRunnerToolUnitTests PROPERTIES
         LABELS "hygiene;benchmark;training"
     )
+    add_test(NAME Cifar10PreparationToolUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_prepare_cifar10.py")
+    set_tests_properties(Cifar10PreparationToolUnitTests PROPERTIES
+        LABELS "data;recipe;hygiene" TIMEOUT 60)
     add_test(
         NAME DependencyManifest
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/dependency_manifest.py

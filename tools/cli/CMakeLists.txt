@@ -26,7 +26,9 @@ jyppx_add_torch_runtime_dependency(jyppx_cli)
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
     target_link_libraries(jyppx_cli PRIVATE jyppx::liuding::models jyppx::liuding::data_image)
     target_compile_definitions(jyppx_cli PRIVATE JYPPX_LIUDING_CLI_IMAGE_RECIPE=1)
-    install(FILES "${PROJECT_SOURCE_DIR}/recipes/image-classification/resnet18.json"
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/recipes/image-classification/resnet18.json"
+        "${PROJECT_SOURCE_DIR}/recipes/image-classification/cifar10-resnet18.json"
         DESTINATION share/jyppx/recipes/image-classification)
 endif()
 install(TARGETS jyppx_cli RUNTIME DESTINATION bin)

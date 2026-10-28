@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "dataset": "CIFAR-10 binary version",
+  "source": "https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz",
+  "source_page": "https://www.cs.toronto.edu/~kriz/cifar.html",
+  "archive_bytes": 170052171,
+  "sha256": "c4a38c50a1bc5f3a1c5537f2155ab9d68f9f25eb1ed8d9ddda3db29a59bca1dd",
+  "checksum_source": "https://github.com/tensorflow/datasets/blob/24211da0508a86f0a9efd82c69bab9d25cda0a20/tensorflow_datasets/url_checksums/cifar10.txt",
+  "official_md5": "c32a1d4ab5d03f1284b67883e8d87530",
+  "dataset_license": "NOASSERTION; original CIFAR-10 dataset terms apply; images are not covered by this project's Apache-2.0 license",
+  "max_decoded_bytes": 185000000,
+  "samples_per_class": {
+    "train": 5000,
+    "validation": 1000
+  },
+  "batches": {
+    "data_batch_1.bin": {"split": "train", "samples": 10000},
+    "data_batch_2.bin": {"split": "train", "samples": 10000},
+    "data_batch_3.bin": {"split": "train", "samples": 10000},
+    "data_batch_4.bin": {"split": "train", "samples": 10000},
+    "data_batch_5.bin": {"split": "train", "samples": 10000},
+    "test_batch.bin": {"split": "validation", "samples": 10000}
+  }
+}

@@ -94,3 +94,17 @@ liuding-forge run verify --root runs/my-run/run-store --format json
 ```
 
 图片摘要在运行前和交付前检查，数据目录仍须由调用者保持稳定；这不是文件系统快照或对并发替换的隔离保证。文件、模型包和运行记录的发布有各自的持久化边界，不能视为一次跨目录原子事务。
+
+## 6. 使用 CIFAR-10
+
+从 [CIFAR-10 官方页面](https://www.cs.toronto.edu/~kriz/cifar.html)自行下载 **binary version** 的 `cifar-10-binary.tar.gz`，保存到仓库外。数据集适用原始条款，本项目的 Apache-2.0 许可证不覆盖这些图片；[数据身份清单](../../recipes/image-classification/cifar10.dataset.json)固定压缩包大小、SHA-256、官方 MD5、类别和完整 split 数量。
+
+```sh
+python scripts/datasets/prepare_cifar10.py --archive /datasets/cifar-10-binary.tar.gz --data-root /datasets
+```
+
+也可以设置 `JYPPX_LIUDING_DATA_ROOT` 并省略 `--data-root`。
+
+准备脚本仅用 Python 标准库，离线核对压缩包、逐条读取 binary record，再按精确的 RGB uint8 像素生成无损 PNG；不会加载 pickle、联网或将整套图片缓存到内存。输出 `/datasets/cifar10-imagefolder-v1/` 包含完整 50,000 张训练图、10,000 张官方 test 图及 `preparation.json`。官方 test 在输出中名为 `validation`，每类 train 5,000 张、validation 1,000 张；它会参与每个 epoch 的验证，不是额外保留且从未观察的测试集。准备失败不发布目标目录，已有目标目录始终拒绝覆盖。
+
+复制 [CIFAR-10 ResNet18 模板](../../recipes/image-classification/cifar10-resnet18.json)，把 `train_root`、`validation_root` 改为准备结果的实际路径，再执行 `recipe check` 和 `recipe run`。模板使用完整 split、32×32 RGB `[0,1]`、随机初始化 ResNet18、50 epochs、batch 128、seed `20261028`、SGD momentum 和 StepLR，共 19,550 次更新，预先声明 accuracy ≥0.65。它是限定训练配方，不表示与采用数据增强、不同 stem 或更长预算的其他 CIFAR-10 实现达到相同准确率。CPU 与 CUDA 的使用和恢复方式沿用前文，CUDA 需显式修改 `device` 并设置工作空间环境变量。
