@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 修复配方在非周期步暂停后额外增加检查点与回调计数的问题；Trainer 增加可续训的 `fit_until()` 安全边界，暂停后由调用方显式保存完整状态。
 - DINOv2 在 CUDA 严格确定性模式下使用可求导的分离矩阵运算缩放位置编码，支持非原生分辨率的反向传播，保留参数梯度与 state 布局。
 - CIFAR-10 离线准备接受官方类别表末尾的空行，继续严格核对十个类别及其顺序。
 - 修复多 participant 检查点恢复失败时 strategy 的回滚计数检查，支持优化器先恢复或后恢复，并继续拒绝外部更新。

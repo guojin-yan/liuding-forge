@@ -74,10 +74,10 @@ liuding-forge recipe run --file paired-affine.local.json --root runs/paired-affi
 
 ## 5. 暂停与独立进程恢复
 
-在第 256 次更新先持久保存完整检查点，再结束当前进程：
+在第 259 次更新先持久保存完整检查点，再结束当前进程；暂停点不必与 `checkpoint_every` 对齐，也不额外增加周期检查点或回调计数：
 
 ```sh
-liuding-forge recipe run --file paired-affine.local.json --root runs/paired-resume --pause-after 256 --format json
+liuding-forge recipe run --file paired-affine.local.json --root runs/paired-resume --pause-after 259 --format json
 liuding-forge recipe resume --file paired-affine.local.json --root runs/paired-resume --format json
 ```
 

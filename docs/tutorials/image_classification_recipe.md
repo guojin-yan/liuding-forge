@@ -78,6 +78,8 @@ liuding-forge recipe run --file my-resnet18.json --root runs/my-run --format jso
 
 `--pause-after` 指定绝对优化器更新次数，必须大于已恢复的次数且小于最终次数。以下第一条命令在第 19 次更新后保存完整检查点，再有序结束进程；下一条在新进程中恢复同一目录。
 
+暂停点不必与 `checkpoint_every` 对齐。CLI 在 Trainer 的安全边界显式保存状态，不额外增加训练的周期检查点或回调计数。
+
 ```sh
 liuding-forge recipe run --file my-resnet18.json --root runs/resumable --pause-after 19 --format json
 liuding-forge recipe resume --file my-resnet18.json --root runs/resumable --format json

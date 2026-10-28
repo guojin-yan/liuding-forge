@@ -82,7 +82,7 @@ class TransferRecipe(unittest.TestCase):
             "seed": 20261029, "epochs": 2, "batch_size": 2, "image_size": 224,
             "workers": 1, "prefetch_batches": 1, "learning_rate": 0.01,
             "momentum": 0.9, "weight_decay": 0.0001, "lr_gamma": 0.9,
-            "checkpoint_every": 1, "minimum_accuracy": 0.5,
+            "checkpoint_every": 2, "minimum_accuracy": 0.5,
             "max_image_bytes": 1048576, "max_data_bytes": 10485760,
             "max_samples": 1024, "image_budget_bytes": 134217728,
             "backbone_mode": "frozen", "batch_norm": "eval",

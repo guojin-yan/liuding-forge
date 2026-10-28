@@ -40,6 +40,8 @@ auto step = [](const jyppx::liuding::training::StepInput& input) {
 
 `fit()` 从准备或恢复状态执行一次，返回 `FitResult`。非有限 loss/梯度、空训练 epoch、外部优化/调度更新或缺失恢复状态会被拒绝。`StepOutput::metrics` 必须有限，epoch 结果按 `sample_count` 加权。
 
+`fit_until(absolute_step)` 可在未来的绝对优化步暂停，返回 `FitStatus::paused` 并保持 `TrainerPhase::running`。它等待梯度累积完成、批次回调与已有检查点请求提交；尾批更新会先完成 epoch。暂停不额外生成检查点或结束事件，可直接 `fit()` 继续，或显式 `save_checkpoint(sink)` 后关闭并在新执行域恢复。0 表示不设置暂停边界；非零值必须大于当前步数。已检测到的训练上限、取消和回调停止优先于暂停，取消仍为不可续训的终态。
+
 ## 检查点、回调与调度
 
 `save_checkpoint(sink)` 保存全部已注册 participant；新建同拓扑执行域后调用 `restore_checkpoint(source)`，再 `fit()` 续训。协调器预检描述符、保留有界回滚快照并事务恢复。Trainer 当前为 schema 4，只接受当前格式；诊断执行角色也属于拓扑，不能用相同 ID 的闲置额外 participant 替代。文件存储与资源限制见[持久检查点](durable_checkpoint.md)。

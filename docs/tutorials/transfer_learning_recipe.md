@@ -72,6 +72,8 @@ liuding-forge recipe resume --file my-transfer.json --root runs/resumable-transf
 
 暂停点是绝对优化器更新次数，必须小于总次数；完整模型、head、optimizer、scheduler、RNG、数据游标和 Trainer 状态一起保存。恢复要求权重字节、完整描述、冻结/BN 策略、配置、图片内容、类别和构建身份一致；改动这些内容时创建新运行。已完成运行的同配置 `resume` 返回已验证结果，不重新训练。
 
+暂停点不必与 `checkpoint_every` 对齐。CLI 在 Trainer 安全边界显式保存，不额外推进周期检查点或回调计数；新进程恢复后继续原调度。
+
 输出布局与[分类配方](image_classification_recipe.md#4-训练和评估)相同。`result.json` 额外记录初始/最终骨干与 head 摘要、可训练/冻结参数数目以及权重输入身份；冻结配方在发布模型前核对全部骨干参数和 buffer 未变化。模型包保留实际缩放/裁剪/mean/std、权重来源、模型选项、冻结策略及当前数据集类别，state 名称使用 `parameter.backbone.*`、`parameter.head.*` 和 `buffer.backbone.*`。
 
 CPU 与 CUDA 需要分别验收。显式使用 `device: "cuda"` 时还需可用的 LibTorch CUDA 环境，并设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`；没有设备时明确拒绝，不自动转 CPU。本配方为 FP32，TF32 关闭，不隐式启用 AMP。模型包当前无密码学签名，传递 SBOM、完整任务矩阵和发布资格仍需独立验证。

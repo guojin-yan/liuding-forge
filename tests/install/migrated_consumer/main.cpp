@@ -161,7 +161,14 @@ int main() {
       {.trainer_id = "trainer.consumer",
        .run_id = "run.consumer",
        .trace_id = "trace.consumer"});
+  bool rejects_unprepared_pause = false;
+  try {
+    (void)installed_trainer.fit_until(1);
+  } catch (const jyppx::liuding::NotReady&) {
+    rejects_unprepared_pause = true;
+  }
   const bool valid_trainer =
+      rejects_unprepared_pause &&
       installed_trainer.phase() ==
           jyppx::liuding::training::TrainerPhase::created &&
       installed_trainer.options().trainer_id == "trainer.consumer";

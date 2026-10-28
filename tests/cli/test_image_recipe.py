@@ -28,6 +28,12 @@ import time
 import unittest
 import zlib
 
+PARTICIPANTS = {
+    "callbacks.dispatcher", "model.main", "recipe.lr", "recipe.sgd",
+    "recipe.trainer", "recipe.training", "recipe.validation", "rng.global",
+    "strategy.single", "training.diagnostics",
+}
+
 
 def png(label: int, example: int) -> bytes:
     def chunk(kind: bytes, payload: bytes) -> bytes:
@@ -170,8 +176,8 @@ class ImageRecipe(unittest.TestCase):
         snapshots = {}
         for name, manifest in self.checkpoints.items():
             participants = {p["state"]["participant_id"]: p for p in manifest["participants"]}
-            snapshots[name] = {identity: participants[identity]
-                               for identity in ("recipe.sgd", "recipe.lr")}
+            self.assertEqual(set(participants), PARTICIPANTS)
+            snapshots[name] = participants
         self.assertEqual(snapshots["baseline"], snapshots["resumed"])
         self.assertEqual(snapshots["baseline"], snapshots["after-crash"])
 

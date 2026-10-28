@@ -1317,12 +1317,20 @@ void Trainer::prepare(FitRequest request) {
   }
 }
 
-FitResult Trainer::fit(std::stop_token stop) {
+FitResult Trainer::fit(std::stop_token stop) { return fit_until(0, stop); }
+
+FitResult Trainer::fit_until(std::uint64_t absolute_step,
+                             std::stop_token stop) {
   if (!impl_->prepared || (impl_->state.phase != TrainerPhase::prepared &&
                            impl_->state.phase != TrainerPhase::running)) {
     throw_not_ready("fit", "a prepared or resumable Trainer",
                     phase_name(impl_->state.phase),
-                    "Call prepare(), optionally restore(), then fit() once.");
+                    "Call prepare(), optionally restore(), then fit().");
+  }
+  if (absolute_step != 0U && absolute_step <= impl_->state.global_step) {
+    throw_invalid("fit_until.absolute_step", "zero or a future optimizer step",
+                  std::to_string(absolute_step),
+                  "Use fit() to continue without a temporary boundary.");
   }
   if (impl_->request.event_outbox && impl_->options.drain_events) {
     impl_->request.event_outbox->drain(stop);
@@ -1365,11 +1373,13 @@ FitResult Trainer::fit(std::stop_token stop) {
 
     impl_->request.model->state().module().train();
     bool cancelled = stop.stop_requested();
+    bool paused = false;
     bool reached_step_limit =
         impl_->options.max_steps != 0U &&
         impl_->state.global_step >= impl_->options.max_steps;
 
-    while (!cancelled && !impl_->state.callback_stop && !reached_step_limit &&
+    while (!cancelled && !paused && !impl_->state.callback_stop &&
+           !reached_step_limit &&
            impl_->state.next_epoch < impl_->options.max_epochs) {
       if (!impl_->state.epoch_in_progress) {
         impl_->state.active_epoch = impl_->state.next_epoch;
@@ -1423,6 +1433,13 @@ FitResult Trainer::fit(std::stop_token stop) {
         if (!cancelled && impl_->state.pending_micro_steps == 0U) {
           impl_->publish_checkpoint(stop);
         }
+        cancelled = stop.stop_requested();
+        if (!cancelled && !impl_->state.callback_stop && !reached_step_limit &&
+            impl_->state.pending_micro_steps == 0U && absolute_step != 0U &&
+            impl_->state.global_step >= absolute_step) {
+          paused = true;
+          break;
+        }
       }
 
       if (cancelled) {
@@ -1437,6 +1454,9 @@ FitResult Trainer::fit(std::stop_token stop) {
           impl_->zero_grad_all();
           impl_->state.pending_micro_steps = 0;
         }
+        break;
+      }
+      if (paused) {
         break;
       }
       if (impl_->state.pending_micro_steps != 0U) {
@@ -1491,6 +1511,10 @@ FitResult Trainer::fit(std::stop_token stop) {
       cancelled = stop.stop_requested();
       reached_step_limit = impl_->options.max_steps != 0U &&
                            impl_->state.global_step >= impl_->options.max_steps;
+      paused = !cancelled && !impl_->state.callback_stop &&
+               !reached_step_limit && absolute_step != 0U &&
+               impl_->state.global_step >= absolute_step &&
+               impl_->state.next_epoch < impl_->options.max_epochs;
     }
 
     FitResult result{.status = FitStatus::completed,
@@ -1505,6 +1529,9 @@ FitResult Trainer::fit(std::stop_token stop) {
       result.reason = "stop token requested";
       impl_->finalize_terminal_event(CallbackEventKind::run_cancelled,
                                      CallbackPhase::cancelled, stop);
+    } else if (paused) {
+      result.status = FitStatus::paused;
+      result.reason = "temporary optimizer-step boundary";
     } else {
       impl_->state.phase = TrainerPhase::completed;
       if (impl_->state.callback_stop) {

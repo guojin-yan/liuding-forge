@@ -107,11 +107,12 @@ enum class TrainerPhase : std::uint8_t {
   closed = 7,     ///< Explicit resource finalization completed.
 };
 
-/** @brief Reports the non-failure terminal disposition of one fit call. */
+/** @brief Reports the non-failure disposition of one fit call. */
 enum class FitStatus : std::uint8_t {
   completed = 1,  ///< Configured epoch or optimizer-step limit was reached.
   stopped = 2,    ///< A callback requested a safe-boundary stop.
   cancelled = 3,  ///< The caller's stop token was honored.
+  paused = 4,     ///< A temporary optimizer-step boundary was reached.
 };
 
 /** @brief Configures one current-only Trainer instance and its resource limits.
@@ -274,9 +275,9 @@ struct FitRequest {
       checkpoint_action;  ///< Optional callback-command publication action.
 };
 
-/** @brief Summarizes one successful, stopped, or cancelled fit execution. */
+/** @brief Summarizes one completed, stopped, cancelled, or paused fit call. */
 struct FitResult {
-  FitStatus status = FitStatus::completed;  ///< Terminal non-failure outcome.
+  FitStatus status = FitStatus::completed;  ///< Non-failure call outcome.
   std::uint64_t completed_epochs = 0;       ///< Fully committed epoch count.
   std::uint64_t global_step = 0;  ///< Committed optimizer update count.
   std::map<std::string, double>
@@ -330,6 +331,26 @@ class Trainer final : public CheckpointParticipant {
    * @throws Error If task, strategy, callback, sink, or checkpoint work fails.
    */
   FitResult fit(std::stop_token stop = {});
+
+  /**
+   * @brief Executes until a temporary safe boundary or a terminal condition.
+   * @param absolute_step Future committed optimizer-step index; zero disables
+   * the temporary boundary and is equivalent to fit(stop).
+   * @param stop Cooperative cancellation; cancellation and callback stop take
+   * precedence over a temporary pause.
+   * @return Paused with phase still running, or the terminal run summary.
+   * @throws InvalidArgument If a nonzero boundary is not beyond global_step().
+   * @throws Error If preparation, task, strategy, or publication work fails.
+   *
+   * Pauses only with no pending gradients, after batch callbacks and any
+   * requested checkpoint. An accumulation-tail update finishes its epoch
+   * before pausing. Detected run limits take precedence. No pause/terminal
+   * event or additional checkpoint is generated. The boundary is local to
+   * this call and is not checkpoint topology. After a paused result, call
+   * fit() again, or save_checkpoint(), close(), and restore a fresh matching
+   * domain. Saving remains the caller's explicit durable-storage operation.
+   */
+  FitResult fit_until(std::uint64_t absolute_step, std::stop_token stop = {});
 
   /**
    * @brief Saves every registered participant at a current safe boundary.

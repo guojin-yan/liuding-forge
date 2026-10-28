@@ -432,6 +432,208 @@ jyppx::liuding::training::TrainerOptions options(std::uint64_t max_epochs,
           .max_steps = max_steps};
 }
 
+/** @brief Compares every participant field without excluding control state. */
+void expect_same_checkpoint(const MemoryCheckpoint& expected,
+                            const MemoryCheckpoint& actual) {
+  ASSERT_EQ(expected.descriptor().participants.size(),
+            actual.descriptor().participants.size());
+  for (const auto& manifest : expected.descriptor().participants) {
+    SCOPED_TRACE(manifest.participant_id);
+    const auto& left = expected.reader_for(manifest.participant_id);
+    const auto& right = actual.reader_for(manifest.participant_id);
+    ASSERT_EQ(left.manifest().fields.size(), right.manifest().fields.size());
+    for (const auto& field : manifest.fields) {
+      SCOPED_TRACE(field.name);
+      ASSERT_EQ(left.contains(field.name), right.contains(field.name));
+      if (left.contains(field.name)) {
+        const auto a = left.read_blob(field.name, field.max_bytes);
+        const auto b = right.read_blob(field.name, field.max_bytes);
+        EXPECT_TRUE(std::equal(a.begin(), a.end(), b.begin(), b.end()));
+      }
+    }
+  }
+}
+
+/** @brief Adds periodic checkpoints, epoch LR, and deterministic diagnostics.
+ */
+jyppx::liuding::training::FitRequest make_pause_request(const Domain& domain) {
+  namespace tr = jyppx::liuding::training;
+  auto callback = std::make_shared<RecordingCallback>(
+      "callback.periodic", tr::CallbackEventKind::batch_finished,
+      std::vector<tr::CallbackCommandKind>{
+          tr::CallbackCommandKind::request_checkpoint},
+      [](const tr::CallbackEvent& event) {
+        if (event.phase == tr::CallbackPhase::training &&
+            event.global_step != 0U && event.global_step % 2U == 0U) {
+          return tr::CallbackCommandRequest{
+              .kind = tr::CallbackCommandKind::request_checkpoint,
+              .reason = "periodic"};
+        }
+        return tr::CallbackCommandRequest{};
+      });
+  auto scheduler = std::make_shared<jyppx::liuding::optim::StepLrScheduler>(
+      domain.optimizer,
+      jyppx::liuding::optim::StepLrSchedulerOptions{
+          .scheduler_id = "scheduler.epoch", .step_size = 1, .gamma = 0.5});
+  auto request = make_request(
+      domain,
+      std::make_shared<tr::CallbackDispatcher>(
+          std::vector<std::shared_ptr<tr::CallbackHandler>>{callback}),
+      std::make_shared<tr::SchedulerAdapter>(scheduler),
+      [](const tr::CheckpointCoordinator& coordinator) {
+        MemoryCheckpoint checkpoint;
+        coordinator.save(checkpoint);
+      });
+  request.diagnostics = std::make_shared<tr::TrainingDiagnostics>();
+  return request;
+}
+
+TEST(TrainerTest,
+     PauseRebuildPreservesEveryParticipantAcrossAccumulationTails) {
+  namespace tr = jyppx::liuding::training;
+  struct Scenario {
+    std::size_t samples, accumulation;
+    std::uint64_t pause;
+    tr::AccumulationTailPolicy tail;
+  };
+  for (const auto& scenario :
+       {Scenario{8, 1, 3, tr::AccumulationTailPolicy::flush},
+        Scenario{10, 2, 2, tr::AccumulationTailPolicy::flush},
+        Scenario{3, 3, 1, tr::AccumulationTailPolicy::flush},
+        Scenario{10, 2, 2, tr::AccumulationTailPolicy::drop}}) {
+    SCOPED_TRACE(::testing::Message()
+                 << scenario.samples << "/" << scenario.accumulation << "/"
+                 << static_cast<int>(scenario.tail));
+    auto config = options(3);
+    config.accumulate_steps = scenario.accumulation;
+    config.accumulation_tail = scenario.tail;
+    torch::manual_seed(20261029);
+    auto baseline = make_domain(scenario.samples, 2);
+    tr::Trainer continuous(config);
+    continuous.prepare(make_pause_request(baseline));
+    const auto expected = continuous.fit();
+    MemoryCheckpoint final_expected;
+    continuous.save_checkpoint(final_expected);
+    ASSERT_EQ(final_expected.descriptor().participants.size(), 10U);
+    continuous.close();
+
+    torch::manual_seed(20261029);
+    MemoryCheckpoint boundary;
+    {
+      auto first = make_domain(scenario.samples, 2);
+      tr::Trainer interrupted(config);
+      interrupted.prepare(make_pause_request(first));
+      const auto pause = interrupted.fit_until(scenario.pause);
+      ASSERT_EQ(pause.status, tr::FitStatus::paused);
+      ASSERT_EQ(pause.global_step, scenario.pause);
+      EXPECT_EQ(interrupted.phase(), tr::TrainerPhase::running);
+      interrupted.save_checkpoint(boundary);
+      interrupted.close();
+    }
+    auto rebuilt = make_domain(scenario.samples, 2);
+    tr::Trainer resumed(config);
+    resumed.prepare(make_pause_request(rebuilt));
+    resumed.restore_checkpoint(boundary);
+    const auto actual = resumed.fit();
+    EXPECT_EQ(actual.status, expected.status);
+    EXPECT_EQ(actual.global_step, expected.global_step);
+    EXPECT_EQ(actual.completed_epochs, expected.completed_epochs);
+    EXPECT_EQ(actual.training_metrics, expected.training_metrics);
+    EXPECT_EQ(actual.validation_metrics, expected.validation_metrics);
+    MemoryCheckpoint final_actual;
+    resumed.save_checkpoint(final_actual);
+    expect_same_checkpoint(final_expected, final_actual);
+    resumed.close();
+  }
+}
+
+TEST(TrainerTest, RepeatedPauseContinuesSameInstanceAndRejectsPastBoundaries) {
+  namespace tr = jyppx::liuding::training;
+  torch::manual_seed(20261029);
+  auto baseline = make_domain();
+  tr::Trainer continuous(options(2));
+  continuous.prepare(make_pause_request(baseline));
+  continuous.fit();
+  MemoryCheckpoint expected;
+  continuous.save_checkpoint(expected);
+  continuous.close();
+
+  torch::manual_seed(20261029);
+  auto domain = make_domain();
+  tr::Trainer trainer(options(2));
+  trainer.prepare(make_pause_request(domain));
+  EXPECT_EQ(trainer.fit_until(1).status, tr::FitStatus::paused);
+  EXPECT_EQ(trainer.fit_until(3).status, tr::FitStatus::paused);
+  MemoryCheckpoint before;
+  trainer.save_checkpoint(before);
+  EXPECT_THROW(trainer.fit_until(3), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(trainer.fit_until(1), jyppx::liuding::InvalidArgument);
+  MemoryCheckpoint after;
+  trainer.save_checkpoint(after);
+  expect_same_checkpoint(before, after);
+  EXPECT_EQ(trainer.phase(), tr::TrainerPhase::running);
+  EXPECT_EQ(trainer.fit_until(0).status, tr::FitStatus::completed);
+  trainer.save_checkpoint(after);
+  expect_same_checkpoint(expected, after);
+  EXPECT_THROW(trainer.fit_until(9), jyppx::liuding::NotReady);
+  trainer.close();
+}
+
+TEST(TrainerTest, CancellationAndCallbackStopTakePrecedenceOverPause) {
+  namespace tr = jyppx::liuding::training;
+  for (const bool cancel : {false, true}) {
+    SCOPED_TRACE(cancel);
+    std::stop_source stop;
+    auto domain = make_domain();
+    auto callback = std::make_shared<RecordingCallback>(
+        "callback.stop", tr::CallbackEventKind::batch_finished,
+        std::vector<tr::CallbackCommandKind>{tr::CallbackCommandKind::stop},
+        [&](const tr::CallbackEvent&) {
+          if (cancel) {
+            stop.request_stop();
+            return tr::CallbackCommandRequest{};
+          }
+          return tr::CallbackCommandRequest{
+              .kind = tr::CallbackCommandKind::stop, .reason = "stop"};
+        });
+    tr::Trainer trainer(options(2));
+    trainer.prepare(make_request(
+        domain,
+        std::make_shared<tr::CallbackDispatcher>(
+            std::vector<std::shared_ptr<tr::CallbackHandler>>{callback})));
+    const auto result = trainer.fit_until(1, stop.get_token());
+    EXPECT_EQ(result.status,
+              cancel ? tr::FitStatus::cancelled : tr::FitStatus::stopped);
+    EXPECT_EQ(result.global_step, 1U);
+    EXPECT_EQ(trainer.phase(), cancel ? tr::TrainerPhase::cancelled
+                                      : tr::TrainerPhase::completed);
+    EXPECT_THROW(trainer.fit(), jyppx::liuding::NotReady);
+    trainer.close();
+  }
+}
+
+TEST(TrainerTest, DetectedRunLimitsTakePrecedenceOverPause) {
+  namespace tr = jyppx::liuding::training;
+  for (const bool tail_update : {false, true}) {
+    SCOPED_TRACE(tail_update);
+    auto domain = make_domain(3, 2);
+    auto config = options(1, tail_update ? 0 : 1);
+    config.accumulate_steps = tail_update ? 3 : 1;
+    tr::Trainer trainer(config);
+    trainer.prepare(make_request(domain));
+    const auto result = trainer.fit_until(1);
+    EXPECT_EQ(result.status, tr::FitStatus::completed);
+    EXPECT_EQ(result.global_step, 1U);
+    EXPECT_EQ(trainer.phase(), tr::TrainerPhase::completed);
+    trainer.close();
+  }
+  auto domain = make_domain();
+  tr::Trainer trainer(options(1));
+  trainer.prepare(make_request(domain));
+  EXPECT_EQ(trainer.fit_until(100).status, tr::FitStatus::completed);
+  trainer.close();
+}
+
 TEST(TrainerTest, RejectsZeroCheckpointLimitsAtConstruction) {
   auto limits = options(1);
   limits.checkpoint.max_participants = 0;

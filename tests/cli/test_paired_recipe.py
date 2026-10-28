@@ -110,7 +110,7 @@ class PairedRecipe(unittest.TestCase):
         cls.results["continuous"] = cls.invoke("recipe", "run", "--file", cls.config_file,
                                               "--root", cls.roots["continuous"])["data"]
         cls.pause = cls.invoke("recipe", "run", "--file", cls.config_file,
-                               "--root", cls.roots["paused"], "--pause-after", 256)["data"]
+                               "--root", cls.roots["paused"], "--pause-after", 259)["data"]
         cls.results["paused"] = cls.invoke("recipe", "resume", "--file", cls.config_file,
                                           "--root", cls.roots["paused"])["data"]
         process = subprocess.Popen(
@@ -159,7 +159,7 @@ class PairedRecipe(unittest.TestCase):
         self.assertEqual(self.preflight["dataset"]["train"]["samples"], 1024)
         self.assertEqual(self.preflight["dataset"]["validation"]["samples"], 256)
         self.assertEqual(self.pause["status"], "paused")
-        self.assertEqual(self.pause["global_step"], 256)
+        self.assertEqual(self.pause["global_step"], 259)
         baseline = self.results["continuous"]
         for name, result in self.results.items():
             self.assertEqual(result["status"], "completed")

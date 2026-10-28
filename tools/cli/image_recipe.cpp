@@ -391,8 +391,8 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
 
 class Checkpoints final : public tr::CallbackHandler {
  public:
-  Checkpoints(std::uint64_t every, std::uint64_t pause, std::uint64_t total)
-      : every_(every), pause_(pause), total_(total) {
+  Checkpoints(std::uint64_t every, std::uint64_t total)
+      : every_(every), total_(total) {
     descriptor_.type_id = "liuding.recipe.image-classification.checkpoint-v1";
     descriptor_.callback_id = "recipe.checkpoint";
     descriptor_.subscriptions = {tr::CallbackEventKind::batch_finished};
@@ -404,8 +404,7 @@ class Checkpoints final : public tr::CallbackHandler {
   }
   tr::CallbackCommandRequest handle(const tr::CallbackEvent& event) override {
     if (event.phase == tr::CallbackPhase::training &&
-        (event.global_step % every_ == 0 || event.global_step == pause_ ||
-         event.global_step == total_))
+        (event.global_step % every_ == 0 || event.global_step == total_))
       return {tr::CallbackCommandKind::request_checkpoint,
               "recipe safe boundary"};
     return {};
@@ -413,7 +412,7 @@ class Checkpoints final : public tr::CallbackHandler {
 
  private:
   tr::CallbackDescriptor descriptor_;
-  std::uint64_t every_, pause_, total_;
+  std::uint64_t every_, total_;
 };
 
 std::vector<std::byte> encode_model(const nn::ModelAdapter& model,
@@ -772,7 +771,6 @@ Result execute(const Arguments& arguments, bool resume) {
                      .step_size = 1,
                      .gamma = config.at("lr_gamma").get<double>()});
   auto diagnostics = std::make_shared<tr::TrainingDiagnostics>();
-  std::stop_source pause_stop;
   tr::Trainer trainer({.trainer_id = "recipe.trainer",
                        .run_id = std::string(kRun),
                        .trace_id = "recipe.image-classification",
@@ -824,7 +822,7 @@ Result execute(const Arguments& arguments, bool resume) {
        .callbacks = std::make_shared<tr::CallbackDispatcher>(
            std::vector<std::shared_ptr<tr::CallbackHandler>>{
                std::make_shared<Checkpoints>(
-                   config.at("checkpoint_every").get<std::uint64_t>(), pause,
+                   config.at("checkpoint_every").get<std::uint64_t>(),
                    inputs.total_steps)}),
        .event_outbox = {},
        .model_checkpoint =
@@ -837,8 +835,6 @@ Result execute(const Arguments& arguments, bool resume) {
        .checkpoint_action = [&](const tr::CheckpointCoordinator& coordinator) {
          tr::FileCheckpointStore checkpoint(root / "latest.jyck");
          coordinator.save(checkpoint);
-         if (pause != 0 && trainer.global_step() == pause)
-           pause_stop.request_stop();
        }});
   if (resume) {
     tr::FileCheckpointStore checkpoint(root / "latest.jyck");
@@ -847,12 +843,12 @@ Result execute(const Arguments& arguments, bool resume) {
                    "pause-after must exceed the restored optimizer step");
     store.heartbeat(kRun, now_ms());
   }
-  const auto fit = trainer.fit(pause_stop.get_token());
-  const bool paused = pause_stop.stop_requested();
-  if (paused) {
-    require_recipe(
-        fit.status == tr::FitStatus::cancelled && fit.global_step == pause,
-        "Recipe did not pause at its durable boundary");
+  const auto fit = trainer.fit_until(pause);
+  if (fit.status == tr::FitStatus::paused) {
+    require_recipe(fit.global_step == pause,
+                   "Recipe did not pause at its durable boundary");
+    tr::FileCheckpointStore checkpoint(root / "latest.jyck");
+    trainer.save_checkpoint(checkpoint);
     // A pause ends this process, not the logical run. Terminal run-store states
     // are immutable and cannot be reused as a resumable process marker.
     store.heartbeat(kRun, now_ms());
