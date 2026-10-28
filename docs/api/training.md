@@ -92,6 +92,30 @@ auto result = training::evaluate_classification(model, next_batch, options);
 
 评估关闭梯度并临时切换为 eval，结束或异常后恢复各子模块原来的模式。取消、超时、非法输出和超限均抛异常，不返回部分数据的完整报告。评估期间应独占模型，并保持模块拓扑稳定；自定义 `train()` 必须支持恢复。批次数、样本数、类别、来源和已知混淆矩阵 payload 有显式上限，不保存全量 logits；这些限制不等于模型工作空间、allocator 或 RSS 的硬上限。
 
+## 分类评估保存与恢复
+
+`ClassificationEvaluationSession` 在构造时固定数据、模型、配置摘要、构建指纹和评估 ID，接收 `source(batch_index, stop_token)` 形式的确定性索引源。同一索引必须返回相同输入、标签和来源；配置摘要应包含批次划分、预处理及 seed。身份由调用方绑定真实内容，接口不会自行校验模型文件或数据字节。
+
+每批推理及所有来源统计全部成功后才提交计数和下一批游标，失败批次不会进入状态。`expected_rows` 可校验含忽略标签的总行数；只有 EOF、行数和计分策略均通过，`result()` 才返回完整结果。重建已完成状态后不再读取或推理，仍可重试最终提交 hook。
+
+```cpp
+auto session = std::make_shared<training::ClassificationEvaluationSession>(
+    identity, options, expected_rows);
+training::CheckpointParticipantRegistry registry;
+registry.register_participant(session);
+training::CheckpointCoordinator coordinator(registry);
+training::FileCheckpointStore file("evaluation.state");  // 需要启用 interop
+// 恢复已有文件时先调用 coordinator.restore(file)。
+auto result = session->run(model, indexed_source, [&](const auto& committed) {
+    coordinator.save(file);
+    // committed.progress().complete 后可幂等发布 committed.result()。
+});
+```
+
+当前 schema 1 将身份、资源契约、来源表、批次/行数/完成位和所有混淆计数作为同一 participant 保存。恢复校验完整契约及来源计数覆盖关系后一次提交，拒绝损坏、超限或身份改变的状态。执行中仅提交 hook 可以保存检查点，重入执行或恢复会被拒绝；hook 失败保留已提交内存状态，新进程从最后落盘状态继续。复用稳定报告关系 ID，分别重试检查点及报告提交。
+
+状态不保存原始预测或数据，已知混淆矩阵预算包含更新候选和结果；不包含模型、数据源、allocator、完整 RSS/显存或 coordinator 回滚缓冲。调用方应独占并固定模型；有随机或可变推理状态时，需协调模型/RNG participant 和相应数据状态。任意模型、源或 hook 的外部副作用不自动回滚；该接口不扩展为通用流式数据源或所有评估任务的故障恢复。
+
 ## 语义分割 IoU/Dice 与数据集评估
 
 `<jyppx/liuding/training/metrics/segmentation.hpp>` 的 `metrics::SemanticSegmentationMetric` 接受 `N,C,H,W` 有限浮点 logits 或显式指定的 `N,H,W` 整数类别 mask，以及同设备的 `N,H,W` 整数标签。整数类型为 uint8 或 int8/int16/int32/int64。默认按数据集计算 macro IoU；`score=dice` 选择 Dice，`average` 支持 micro、macro、真实像素数加权和仅逐类结果。类别必须映射为 `[0,C)`；不执行阈值、resize、标签重映射或实例匹配。

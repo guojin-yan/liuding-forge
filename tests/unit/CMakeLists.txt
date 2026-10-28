@@ -305,6 +305,7 @@ endif()
 jyppx_add_gtest(jyppx_test_training_classification_evaluation
     LINK_TARGET jyppx::liuding::training
     training/test_classification_evaluation.cpp
+    training/test_classification_evaluation_session.cpp
 )
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_classification_evaluation PRIVATE

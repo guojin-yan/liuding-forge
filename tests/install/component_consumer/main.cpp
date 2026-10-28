@@ -389,6 +389,27 @@ int main() {
       });
   if (evaluation.overall.accuracy != 1.0 || !model.state().is_training())
     return 1;
+  jyppx::liuding::training::ClassificationEvaluationSession recoverable(
+      {.evaluation_id = "installed-evaluation",
+       .dataset_digest = {.hex = std::string(64, 'a')},
+       .model_digest = {.hex = std::string(64, 'b')},
+       .config_digest = {.hex = std::string(64, 'c')},
+       .build_fingerprint = "installed-consumer"},
+      {}, 1);
+  const auto resumed_evaluation = recoverable.run(
+      model,
+      [](std::uint64_t index, std::stop_token)
+          -> std::optional<
+              jyppx::liuding::training::ClassificationEvaluationBatch> {
+        if (index != 0) return std::nullopt;
+        return jyppx::liuding::training::ClassificationEvaluationBatch{
+            .invocation = {.positional = {torch::tensor({{0.f, 1.f}})}},
+            .targets = torch::ones({1}, torch::kInt64)};
+      });
+  if (!recoverable.progress().complete ||
+      resumed_evaluation.overall.accuracy != 1.0 ||
+      recoverable.describe_state().schema_version != 1)
+    return 1;
   bool segmentation_first = true;
   const auto segmentation =
       jyppx::liuding::training::evaluate_semantic_segmentation(

@@ -8,6 +8,7 @@
  * @brief Streaming single-label inference and report-ready classification.
  */
 
+#include <jyppx/liuding/foundation/artifact.hpp>
 #include <jyppx/liuding/foundation/telemetry.hpp>
 #include <jyppx/liuding/nn/model_adapter.hpp>
 #include <jyppx/liuding/training/metrics/classification.hpp>
@@ -15,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <stop_token>
 #include <string>
@@ -111,6 +113,123 @@ ClassificationEvaluationResult evaluate_classification(
     nn::ModelAdapter& model, const ClassificationEvaluationSource& source,
     const ClassificationEvaluationOptions& options = {},
     std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt);
+
+/** @brief Caller-asserted immutable inputs of a recoverable evaluation.
+ * The config digest covers batching, preprocessing, seed and adapter semantics.
+ * Digests identify actual content; this object does not verify model/data
+ * bytes.
+ */
+struct ClassificationEvaluationIdentity {
+  std::string participant_id = "evaluation.classification";  ///< Registry ID.
+  std::string
+      evaluation_id;  ///< Stable execution identity, at most 1024 bytes.
+  ArtifactDigest dataset_digest;  ///< Complete ordered dataset selection.
+  ArtifactDigest model_digest;    ///< Evaluated weights and model contract.
+  ArtifactDigest config_digest;   ///< Frozen evaluator/batch configuration.
+  std::string build_fingerprint;  ///< Exact supported runtime/build identity.
+};
+
+/** @brief Committed progress, including rows whose labels were ignored. */
+struct ClassificationEvaluationProgress {
+  std::uint64_t batches = 0;    ///< Next zero-based indexed batch to request.
+  std::uint64_t rows_seen = 0;  ///< Rows in successfully committed batches.
+  bool complete = false;  ///< True only after valid EOF and score validation.
+};
+
+/** @brief Seekable deterministic source of complete inference batches.
+ * The supplied index is the next committed batch cursor. Repeated requests
+ * for that index must return the same batch, including metadata and targets.
+ * nullopt is EOF at that index. No source-owned mutable cursor is checkpointed.
+ */
+using IndexedClassificationEvaluationSource =
+    std::function<std::optional<ClassificationEvaluationBatch>(
+        std::uint64_t, std::stop_token)>;
+
+/** @brief Atomic batch progress and current-only exact classification state.
+ * Retains only confusion counts and counters, never predictions or inputs.
+ * Save through CheckpointCoordinator/FileCheckpointStore at committed hooks.
+ * Serialize access. Keep model content/topology fixed and inference/source
+ * deterministic under the bound build/config; stochastic or mutable model
+ * state requires coordinated model/RNG participants and caller quiescence.
+ * Full model/RSS/CUDA workspace, source storage and coordinator rollback
+ * buffers are outside the known confusion-payload budget.
+ */
+class ClassificationEvaluationSession final : public CheckpointParticipant {
+ public:
+  /** @brief Validates identity, fixed semantics and bounds before allocation.
+   * @param identity Actual immutable input/build identities; text is printable
+   * ASCII, nonempty and at most 1024 bytes (registry ID follows its contract).
+   * @param options Scoring, slices and aggregate logical matrix budget.
+   * @param expected_rows Optional exact total, including ignored target rows.
+   * @throws Error For invalid identities, semantics, sizes or resource limits.
+   */
+  explicit ClassificationEvaluationSession(
+      ClassificationEvaluationIdentity identity,
+      ClassificationEvaluationOptions options = {},
+      std::optional<std::uint64_t> expected_rows = std::nullopt);
+  /** @brief Releases private sufficient statistics. */
+  ~ClassificationEvaluationSession() override;
+  /** @brief A registered participant has stable ownership/address. */
+  ClassificationEvaluationSession(const ClassificationEvaluationSession&) =
+      delete;
+  /** @brief Mutable evaluation state cannot be assigned. */
+  ClassificationEvaluationSession& operator=(
+      const ClassificationEvaluationSession&) = delete;
+  /** @brief Registry handles must not be invalidated by moving. */
+  ClassificationEvaluationSession(ClassificationEvaluationSession&&) = delete;
+  /** @brief Registry handles must not be invalidated by move assignment. */
+  ClassificationEvaluationSession& operator=(
+      ClassificationEvaluationSession&&) = delete;
+
+  /** @brief Runs from committed progress through EOF, then returns final
+   * scores.
+   * @param model Borrowed fixed model returning finite N,C floating logits.
+   * @param source Deterministic indexed batches; retries repeat uncommitted
+   * work.
+   * @param committed Optional hook after each atomic batch and valid EOF. May
+   * save this participant and publish final evidence; must not run/load it.
+   * @param stop Cooperative cancellation around source/model/metric work.
+   * @param deadline Optional monotonic operation deadline.
+   * @return EOF-only result equivalent to the uninterrupted evaluation.
+   * @throws Error On invalid inputs, scoring, cancellation or resource limits.
+   * @throws std::exception Propagates caller source/model/hook failures.
+   * A batch failure leaves all counts/cursors unchanged. A hook failure keeps
+   * that committed batch; a new process restores the last durable checkpoint.
+   * Re-running complete state never invokes source/model and replays the final
+   * hook for acknowledgement recovery. Hooks must use stable idempotency keys.
+   * Uses the same no-grad/eval/mode-restoration contract as the free evaluator;
+   * arbitrary model/source side effects are not rolled back. Checkpoint save
+   * during execution is allowed only inside a committed hook; restore/run are
+   * rejected until this call returns. Caller exceptions never return a report.
+   */
+  ClassificationEvaluationResult run(
+      nn::ModelAdapter& model,
+      const IndexedClassificationEvaluationSource& source,
+      const std::function<void(const ClassificationEvaluationSession&)>&
+          committed = {},
+      std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt);
+  /** @brief Returns counters at the last atomic commit.
+   * @return A detached progress value, without partial-batch state.
+   */
+  ClassificationEvaluationProgress progress() const noexcept;
+  /** @brief Builds final observations only after validated EOF.
+   * @return Complete dataset/source scores, derived from saved counts.
+   * @throws NotReady If EOF has not been committed.
+   */
+  ClassificationEvaluationResult result() const;
+  /** @copydoc CheckpointParticipant::participant_id */
+  std::string participant_id() const override;
+  /** @copydoc CheckpointParticipant::describe_state */
+  StateManifest describe_state() const override;
+  /** @copydoc CheckpointParticipant::save_state */
+  void save_state(StateWriter& writer) const override;
+  /** @copydoc CheckpointParticipant::load_state */
+  void load_state(const StateReader& reader, RestorePolicy policy) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;  ///< Immutable contract and committed counts.
+};
 
 }  // namespace jyppx::liuding::training
 #endif  // JYPPX_LIUDING_TRAINING_CLASSIFICATION_EVALUATION_HPP
