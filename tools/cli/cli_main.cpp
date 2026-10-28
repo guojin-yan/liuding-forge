@@ -267,7 +267,9 @@ Result execute(const Arguments& arguments) {
                    "model inspect|verify --path PATH",
                    "model bundle inspect|verify --path DIRECTORY",
                    "benchmark tensor --device cpu|cuda [options]",
-                   "offline run --root PATH [options]"})}},
+                   "offline run --root PATH [options]",
+                   "recipe schema|check|run|resume [--file PATH] [--root PATH] "
+                   "[--pause-after N]"})}},
         0};
   }
   if (words.front() == "doctor" && words.size() == 1U) return doctor(arguments);
@@ -282,6 +284,7 @@ Result execute(const Arguments& arguments) {
   if (words.front() == "checkpoint") return checkpoint_command(arguments);
   if (words.front() == "benchmark") return benchmark_command(arguments);
   if (words.front() == "offline") return offline_command(arguments);
+  if (words.front() == "recipe") return recipe_command(arguments);
   usage("command", "Use --help to list supported commands.");
 }
 

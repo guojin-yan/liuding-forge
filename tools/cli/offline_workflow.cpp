@@ -369,7 +369,9 @@ Domain make_domain(const Fixture& fixture, const Device& device,
             .prefetch_batches = 2,
             .persistent_workers = true,
             .worker_seed = 1949,
-            .memory = {}},
+            .memory = {},
+            .resource_lease_factory = {},
+            .admission_factory = {}},
         factory);
   };
   domain.training_f1 = std::make_shared<tr::metrics::F1Score>(
@@ -434,7 +436,8 @@ Domain make_domain(const Fixture& fixture, const Device& device,
                          .trace_id = "trace." + run_id,
                          .max_epochs = kEpochs,
                          .gradient_clip_norm = {},
-                         .restore_policy = RestorePolicy::exact_only});
+                         .restore_policy = RestorePolicy::exact_only,
+                         .checkpoint = {}});
   domain.trainer->prepare(
       {.model = domain.model,
        .optimizers =
@@ -463,6 +466,7 @@ Domain make_domain(const Fixture& fixture, const Device& device,
        .rng_checkpoint = std::make_shared<core::RngCheckpointParticipant>(
            core::RngCheckpointParticipantOptions{.include_cuda =
                                                      device.is_cuda()}),
+       .diagnostics = {},
        .additional_participants = {domain.training_f1, domain.validation_f1},
        .checkpoint_action = [checkpoint, interrupt](
                                 const tr::CheckpointCoordinator& coordinator) {

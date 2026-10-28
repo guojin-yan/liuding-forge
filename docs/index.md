@@ -9,6 +9,7 @@
 3. [优化器与调度器](tutorials/03_optimizers.md)
 4. [回调、检查点与指标](tutorials/04_callbacks.md)
 5. [混合精度训练](tutorials/05_mixed_precision.md)
+6. [用自己的图像训练 ResNet18](tutorials/image_classification_recipe.md)
 
 ## 用户指南
 

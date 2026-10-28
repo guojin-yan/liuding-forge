@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- 增加 ImageFolder ResNet18 分类 CLI 配方，使用现有配置解析、逐样本图像管线、任务评估与 run/CAS；支持完整训练状态的独立进程恢复，并发布显式预处理的 safetensors 模型包。
 - DINOv2 增加显式位置编码插值 `position_antialias` 设置，默认沿用 timm 语义，`false` 可匹配官方 Transformers DINOv2 路径。
 - 权重记录可关联显式图像预处理、来源版本和有序类别表，支持无像素分配的 resize/crop 坐标解析与绑定权重字节身份的 SHA-256；缺失输入契约明确报错，不按模型名推断。
 - 图像联合几何支持显式 antialiased bicubic resize，保持离散 mask 的整数 nearest-exact；CPU/CUDA 均保留原照片 dtype，CUDA bilinear/bicubic 的半精度输入先升到 float32 计算，并纳入已知工作量预算。
