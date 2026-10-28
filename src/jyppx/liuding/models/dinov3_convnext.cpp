@@ -72,8 +72,7 @@ class ChannelsFirstLayerNorm final : public torch::nn::Module {
     const auto centered = input - mean;
     const auto variance = centered.pow(2).mean(1, true);
     const auto normalized = centered / torch::sqrt(variance + 1e-6);
-    return weight_.view({1, -1, 1, 1}) * normalized +
-           bias_.view({1, -1, 1, 1});
+    return weight_.view({1, -1, 1, 1}) * normalized + bias_.view({1, -1, 1, 1});
   }
 
  private:
@@ -84,19 +83,19 @@ class ConvNeXtBlock final : public torch::nn::Module {
  public:
   ConvNeXtBlock(std::int64_t channels, double layer_scale_init) {
     depthwise_ = register_module(
-        "dwconv", torch::nn::Conv2d(
-                      torch::nn::Conv2dOptions(channels, channels, 7)
-                          .stride(1)
-                          .padding(3)
-                          .groups(channels)
-                          .bias(true)));
+        "dwconv",
+        torch::nn::Conv2d(torch::nn::Conv2dOptions(channels, channels, 7)
+                              .stride(1)
+                              .padding(3)
+                              .groups(channels)
+                              .bias(true)));
     norm_ = register_module(
         "norm", torch::nn::LayerNorm(
-                     torch::nn::LayerNormOptions({channels}).eps(1e-6)));
-    pointwise1_ = register_module(
-        "pwconv1", torch::nn::Linear(channels, channels * 4));
-    pointwise2_ = register_module(
-        "pwconv2", torch::nn::Linear(channels * 4, channels));
+                    torch::nn::LayerNormOptions({channels}).eps(1e-6)));
+    pointwise1_ =
+        register_module("pwconv1", torch::nn::Linear(channels, channels * 4));
+    pointwise2_ =
+        register_module("pwconv2", torch::nn::Linear(channels * 4, channels));
     layer_scale_ = register_parameter(
         "gamma", torch::full({channels}, layer_scale_init), true);
   }
@@ -131,8 +130,7 @@ DinoV3ConvNeXtImpl::DinoV3ConvNeXtImpl(DinoV3ConvNeXtVariant variant,
         register_module("downsample_layers", torch::nn::ModuleList());
     auto stem = torch::nn::Sequential();
     stem_ = torch::nn::Conv2d(
-        torch::nn::Conv2dOptions(options_.input_channels,
-                                 channels_.front(), 4)
+        torch::nn::Conv2dOptions(options_.input_channels, channels_.front(), 4)
             .stride(4)
             .padding(0)
             .bias(true));
@@ -147,8 +145,7 @@ DinoV3ConvNeXtImpl::DinoV3ConvNeXtImpl(DinoV3ConvNeXtVariant variant,
         downsample->push_back(
             std::make_shared<ChannelsFirstLayerNorm>(channels_[index - 1]));
         downsample->push_back(torch::nn::Conv2d(
-            torch::nn::Conv2dOptions(channels_[index - 1], channels_[index],
-                                     2)
+            torch::nn::Conv2dOptions(channels_[index - 1], channels_[index], 2)
                 .stride(2)
                 .padding(0)
                 .bias(true)));
@@ -170,7 +167,8 @@ DinoV3ConvNeXtImpl::DinoV3ConvNeXtImpl(DinoV3ConvNeXtVariant variant,
     for (std::size_t index = 0; index < stages_->size(); ++index) {
       const auto stage = stages_[index]->as<torch::nn::Sequential>();
       for (const auto& child : stage->children()) {
-        if (const auto block = std::dynamic_pointer_cast<ConvNeXtBlock>(child)) {
+        if (const auto block =
+                std::dynamic_pointer_cast<ConvNeXtBlock>(child)) {
           torch::NoGradGuard guard;
           block->named_parameters()["gamma"].fill_(options_.layer_scale_init);
         }
@@ -192,9 +190,8 @@ std::vector<Tensor> DinoV3ConvNeXtImpl::forward_features(const Tensor& input) {
     std::vector<Tensor> features;
     features.reserve(stages_->size());
     for (std::size_t index = 0; index < stages_->size(); ++index) {
-      output = downsample_layers_[index]
-                   ->as<torch::nn::Sequential>()
-                   ->forward(output);
+      output = downsample_layers_[index]->as<torch::nn::Sequential>()->forward(
+          output);
       output = stages_[index]->as<torch::nn::Sequential>()->forward(output);
       features.push_back(output);
     }
@@ -239,6 +236,7 @@ void DinoV3ConvNeXtImpl::reset_classifier(std::int64_t num_classes) {
       torch::nn::init::zeros_(replacement->bias);
     }
     replacement->to(stem_->weight.device(), stem_->weight.scalar_type());
+    replacement->train(is_training());
     if (head_)
       head_ = replace_module("head", replacement);
     else
@@ -275,16 +273,17 @@ nn::ModelAdapter adapt(DinoV3ConvNeXt model) {
                   std::nullopt}};
   TensorSchema output;
   output.rank = 2;
-  output.shape = {{std::nullopt, model->options().num_classes > 0
-                                     ? model->options().num_classes
-                                     : VariantConfig(model->variant()).channels.back()}};
+  output.shape = {
+      {std::nullopt, model->options().num_classes > 0
+                         ? model->options().num_classes
+                         : VariantConfig(model->variant()).channels.back()}};
   return nn::adapt_holder(
       model,
       [](DinoV3ConvNeXtImpl& module, const nn::Invocation& invocation) {
         return module.forward(invocation.positional.front().toTensor());
       },
-      {.positional = {ValueSchema::tensor(
-           input, "images", "dinov3_convnext_images")},
+      {.positional = {ValueSchema::tensor(input, "images",
+                                          "dinov3_convnext_images")},
        .keyword = {},
        .allow_extra_keywords = false},
       ValueSchema::tensor(output, "output", "dinov3_convnext_logits_or_cls"));

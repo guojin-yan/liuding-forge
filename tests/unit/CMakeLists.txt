@@ -349,6 +349,10 @@ if(TARGET jyppx::liuding::models)
         LINK_TARGET jyppx::liuding::models
         models/test_model_features.cpp
     )
+    jyppx_add_gtest(jyppx_test_models_heads
+        LINK_TARGET jyppx::liuding::models
+        models/test_model_heads.cpp
+    )
     jyppx_add_gtest(jyppx_test_models
         LINK_TARGET jyppx::liuding::models
         models/test_models.cpp

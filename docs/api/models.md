@@ -20,7 +20,22 @@ torch::NoGradGuard no_grad;
 auto result = adapter.invoke({.positional = {images}, .keyword = {}});
 ```
 
-CNN 分类模型接收与模块设备、dtype 一致的稠密浮点 NCHW 图像，默认输入通道数为 3、类别数为 1000，返回未归一化的 `[N, num_classes]` logits。DINO 系列默认无分类头，返回 embedding；显式设置正类别数后才返回 logits。改变输入通道或分类头后，预训练 state 不再直接匹配默认结构。模块保持正常的 LibTorch autograd 与 train/eval 行为；调用方负责线程同步和推理时的 no-grad 边界。
+CNN 分类模型接收与模块设备、dtype 一致的稠密浮点 NCHW 图像，默认输入通道数为 3、类别数为 1000，返回未归一化的 `[N, num_classes]` logits。全部视觉模型均支持 `num_classes=0` 返回 embedding，DINO 系列默认使用该模式。改变输入通道或分类头后，预训练 state 不再直接匹配默认结构。模块保持正常的 LibTorch autograd 与 train/eval 行为；调用方负责线程同步和推理时的 no-grad 边界。
+
+## 查询与替换分类头
+
+`classifier_info(adapter)` 查询当前类别数、embedding 宽度、池化或 CLS 语义和被替换的参数前缀。`reset_classifier(adapter, classes)` 替换 head 并刷新传入 adapter 的输出 schema；`classes` 为 0–1,000,000，正数创建全新可训练 head，零移除 head。它保留具体模块与骨干参数身份、冻结标志、device、dtype 和当前模式，不自动冻结骨干或加载权重。
+
+```cpp
+auto model = models::create_model("resnet18");
+auto info = models::classifier_info(model);
+models::reset_classifier(model, 10);
+auto logits = model.invoke({.positional = {images}}).value.toTensor();
+```
+
+ViT/DINO 的 headless 输出为最终归一化 CLS；CNN/Swin 输出为各自定义的池化向量，保留相应归一化和激活。MobileNetV3 替换完整的两层分类 MLP；移除后返回最后卷积的池化向量，默认 Small/Large 为 576/960 维，并随宽度配置变化。MobileNetV2、EfficientNet B0/B2 和 EfficientNetV2-S 的池化向量仍经过末端卷积，宽度分别为 1280、1280/1408、1280，因此可能不同于最后一个 stage 的通道数。
+
+替换前须停止 forward/backward 和并发状态访问；替换后重建优化器、参数组、checkpoint 拓扑及其他共享 adapter。只有传入的 adapter 会刷新 schema，旧 adapter 别名需要重新创建。特征 tuple adapter 可查询底层 head，替换时会明确拒绝；通用 `transformer_encoder` 没有分类头契约。具体模型的 `reset_classifier()` 也可直接使用，此时调用方负责重建 adapter。
 
 ## 当前架构
 

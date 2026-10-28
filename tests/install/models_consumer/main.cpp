@@ -21,6 +21,29 @@ int main() {
     Require(entries.size() == 34U, "installed-model-catalog");
     {
       using namespace jyppx::liuding::models;
+      auto model = create_model("resnet18", {.resnet = {.num_classes = 0}});
+      model.state().eval();
+      const auto original = model.state().shared_module();
+      const auto info = classifier_info(model);
+      Require(info.embedding_features == 512 && info.num_classes == 0 &&
+                  info.parameter_prefix == "fc",
+              "installed-headless-classifier-info");
+      reset_classifier(model, 3);
+      Require(classifier_info(model).num_classes == 3 &&
+                  model.state().shared_module() == original,
+              "installed-reset-classifier-info");
+      torch::NoGradGuard no_grad;
+      const auto images = torch::zeros({1, 3, 35, 67});
+      Require(
+          model.invoke({.positional = {images}}).value.toTensor().size(1) == 3,
+          "installed-reset-classifier-schema");
+      reset_classifier(model, 0);
+      Require(model.invoke({.positional = {images}}).value.toTensor().size(1) ==
+                  512,
+              "installed-remove-classifier-schema");
+    }
+    {
+      using namespace jyppx::liuding::models;
       std::size_t feature_count = 0;
       for (const auto& entry : entries)
         if (!entry.features.empty()) ++feature_count;

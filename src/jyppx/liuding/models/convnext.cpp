@@ -172,6 +172,7 @@ class ConvNeXtHead final : public torch::nn::Module {
       torch::nn::init::zeros_(replacement->bias);
     }
     replacement->to(reference.device(), reference.scalar_type());
+    replacement->train(is_training());
     if (fc_)
       fc_ = replace_module("fc", replacement);
     else

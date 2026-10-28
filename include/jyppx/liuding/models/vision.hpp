@@ -28,7 +28,7 @@ enum class ResNetVariant : std::uint8_t {
 };
 /** @brief Architecture options; inputs are already normalized NCHW images. */
 struct ResNetOptions {
-  std::int64_t num_classes = 1000;  ///< Positive classifier width.
+  std::int64_t num_classes = 1000;  ///< Zero returns the pooled embedding.
   std::int64_t input_channels = 3;  ///< Positive stem input width.
   bool zero_init_residual = false;  ///< Zero final residual BN scale.
 };
@@ -50,13 +50,24 @@ class ResNetImpl final : public torch::nn::Module {
    * @return Stage outputs at nominal strides 4,8,16,32.
    */
   std::vector<Tensor> forward_features(const Tensor& input);
-  /** @brief Returns immutable architecture settings.
-   * @return Constructor options retained for the module lifetime.
+  /** @brief Returns current input/head settings.
+   * @return Settings including the current classifier width.
    */
   const ResNetOptions& options() const noexcept;
+  /** @brief Returns the pooled width before the complete classifier.
+   * @return Positive channel dimension, including configured width scaling.
+   */
+  std::int64_t embedding_dimension() const noexcept;
+  /** @brief Replaces or removes the classifier on the current device/dtype.
+   * @param num_classes Classes in [0,1000000]; zero selects the pooled
+   * embedding.
+   * @note Rebuild adapters, optimizers and checkpoint topology after mutation.
+   */
+  void reset_classifier(std::int64_t num_classes);
 
  private:
-  ResNetOptions options_;  ///< Validated immutable constructor configuration.
+  std::int64_t embedding_dimension_ = 0;  ///< Pooled residual width.
+  ResNetOptions options_;  ///< Current validated input/head configuration.
   torch::nn::Conv2d conv1_{nullptr};  ///< Registered ImageNet stem convolution.
   torch::nn::BatchNorm2d bn1_{nullptr};    ///< Registered stem normalization.
   torch::nn::Sequential layer1_{nullptr};  ///< Residual stage at stride four.
@@ -107,7 +118,7 @@ enum class MobileNetV3Variant : std::uint8_t {
 };
 /** @brief MobileNetV3 classification and width settings. */
 struct MobileNetV3Options {
-  std::int64_t num_classes = 1000;  ///< Positive classifier width.
+  std::int64_t num_classes = 1000;  ///< Zero returns the pooled embedding.
   std::int64_t input_channels = 3;  ///< Positive image channel count.
   double width_multiplier = 1.0;  ///< Finite value in [0.25,2], divisor eight.
   double dropout = 0.2;  ///< Training-only classifier dropout in [0,1).
@@ -124,7 +135,7 @@ class MobileNetV3Impl final : public torch::nn::Module {
                            MobileNetV3Options options = {});
   /** @brief Maps normalized positive NCHW images to class logits.
    * @param input Dense floating image tensor matching module device and dtype.
-   * @return Unnormalized [batch,num_classes] logits with normal autograd.
+   * @return Logits or the pre-classifier pooled embedding with normal autograd.
    */
   Tensor forward(const Tensor& input);
   /** @brief Returns the last convolutional NCHW feature map.
@@ -132,13 +143,25 @@ class MobileNetV3Impl final : public torch::nn::Module {
    * @return Last registered convolutional feature map before pooling.
    */
   Tensor forward_features(const Tensor& input);
-  /** @brief Returns immutable architecture settings.
-   * @return Constructor options retained for the module lifetime.
+  /** @brief Returns current input/head settings.
+   * @return Settings including the current classifier width.
    */
   const MobileNetV3Options& options() const noexcept;
+  /** @brief Returns the pooled width before the complete classifier.
+   * @return Positive channel dimension, including configured width scaling.
+   */
+  std::int64_t embedding_dimension() const noexcept;
+  /** @brief Replaces or removes the classifier on the current device/dtype.
+   * @param num_classes Classes in [0,1000000]; zero selects the pooled
+   * embedding.
+   * @note Rebuild adapters, optimizers and checkpoint topology after mutation.
+   */
+  void reset_classifier(std::int64_t num_classes);
 
  private:
-  MobileNetV3Options options_;  ///< Validated immutable constructor options.
+  std::int64_t embedding_dimension_ = 0;  ///< Pooled convolution width.
+  std::int64_t hidden_dimension_ = 0;     ///< Width of the classifier MLP.
+  MobileNetV3Options options_;  ///< Current validated input/head options.
   torch::nn::Sequential features_{
       nullptr};  ///< Registered convolutional stack.
   torch::nn::Sequential classifier_{

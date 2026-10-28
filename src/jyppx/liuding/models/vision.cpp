@@ -2,7 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
-#include "detail.hpp"
+#include "head_utils.hpp"
 
 #include <jyppx/liuding/models/vision.hpp>
 
@@ -120,20 +120,21 @@ void InitVision(torch::nn::Module& model, bool mobile) {
 }
 nn::ModelAdapter ImageAdapter(std::shared_ptr<torch::nn::Module> module,
                               nn::ModelInvoker invoker, std::int64_t channels,
-                              std::int64_t classes) {
+                              std::int64_t classes, bool logits) {
   TensorSchema input;
   input.rank = 4;
   input.shape = {{std::nullopt, channels, std::nullopt, std::nullopt}};
   TensorSchema output;
   output.rank = 2;
   output.shape = {{std::nullopt, classes}};
-  return nn::adapt_module(
-      std::move(module), std::move(invoker),
-      {.positional = {ValueSchema::tensor(input, "images",
-                                          "normalized_images")},
-       .keyword = {},
-       .allow_extra_keywords = false},
-      ValueSchema::tensor(output, "logits", "classification_logits"));
+  return nn::adapt_module(std::move(module), std::move(invoker),
+                          {.positional = {ValueSchema::tensor(
+                               input, "images", "normalized_images")},
+                           .keyword = {},
+                           .allow_extra_keywords = false},
+                          ValueSchema::tensor(output, "output",
+                                              logits ? "classification_logits"
+                                                     : "image_embedding"));
 }
 using detail::Divisible;
 enum class Activation { none, relu, hard_swish };
@@ -228,8 +229,8 @@ std::vector<MobileBlockConfig> Config(MobileNetV3Variant variant) {
   detail::Invalid("mobilenet.variant", "small or large");
 }
 void ImageOptions(std::int64_t classes, std::int64_t channels) {
-  if (classes <= 0 || classes > 1000000 || channels <= 0 || channels > 1024)
-    detail::Invalid("image.options", "classes 1..1000000 and channels 1..1024");
+  if (classes < 0 || classes > 1000000 || channels <= 0 || channels > 1024)
+    detail::Invalid("image.options", "classes 0..1000000 and channels 1..1024");
 }
 }  // namespace
 ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
@@ -281,7 +282,10 @@ ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
     layer4_ = register_module(
         "layer4",
         Stage(bottleneck, input, 512, schedule[3], 2, groups, base_width));
-    fc_ = register_module("fc", torch::nn::Linear(input, options.num_classes));
+    embedding_dimension_ = input;
+    if (options.num_classes > 0)
+      fc_ =
+          register_module("fc", torch::nn::Linear(input, options.num_classes));
     InitVision(*this, false);
     if (options.zero_init_residual) {
       torch::NoGradGuard guard;
@@ -311,7 +315,18 @@ std::vector<Tensor> ResNetImpl::forward_features(const Tensor& input) {
 Tensor ResNetImpl::forward(const Tensor& input) {
   return detail::Backend("resnet.forward", [&] {
     auto stages = forward_features(input);
-    return fc_(stages.back().mean({2, 3}));
+    auto pooled = stages.back().mean({2, 3});
+    return fc_ ? fc_(pooled) : pooled;
+  });
+}
+std::int64_t ResNetImpl::embedding_dimension() const noexcept {
+  return embedding_dimension_;
+}
+void ResNetImpl::reset_classifier(std::int64_t num_classes) {
+  detail::Backend("resnet.reset_classifier", [&] {
+    detail::ResetLinear(*this, fc_, "fc", embedding_dimension_, num_classes,
+                        conv1_->weight);
+    options_.num_classes = num_classes;
   });
 }
 const ResNetOptions& ResNetImpl::options() const noexcept { return options_; }
@@ -339,7 +354,10 @@ nn::ModelAdapter adapt(ResNet model) {
       [model](const nn::Invocation& input) mutable {
         return c10::IValue(model->forward(input.positional.front().toTensor()));
       },
-      options.input_channels, options.num_classes);
+      options.input_channels,
+      options.num_classes > 0 ? options.num_classes
+                              : model->embedding_dimension(),
+      options.num_classes > 0);
 }
 MobileNetV3Impl::MobileNetV3Impl(MobileNetV3Variant variant,
                                  MobileNetV3Options options)
@@ -373,12 +391,16 @@ MobileNetV3Impl::MobileNetV3Impl(MobileNetV3Variant variant,
     const auto last_channel = Divisible(
         (variant == MobileNetV3Variant::small_variant ? 1024.0 : 1280.0) *
         options.width_multiplier);
-    classifier_ = register_module("classifier", torch::nn::Sequential());
-    classifier_->push_back(torch::nn::Linear(last_conv, last_channel));
-    classifier_->push_back(std::make_shared<HardSwish>());
-    classifier_->push_back(torch::nn::Dropout(options.dropout));
-    classifier_->push_back(
-        torch::nn::Linear(last_channel, options.num_classes));
+    embedding_dimension_ = last_conv;
+    hidden_dimension_ = last_channel;
+    if (options.num_classes > 0) {
+      classifier_ = register_module("classifier", torch::nn::Sequential());
+      classifier_->push_back(torch::nn::Linear(last_conv, last_channel));
+      classifier_->push_back(std::make_shared<HardSwish>());
+      classifier_->push_back(torch::nn::Dropout(options.dropout));
+      classifier_->push_back(
+          torch::nn::Linear(last_channel, options.num_classes));
+    }
     InitVision(*this, true);
   });
 }
@@ -395,7 +417,40 @@ Tensor MobileNetV3Impl::forward_features(const Tensor& input) {
 }
 Tensor MobileNetV3Impl::forward(const Tensor& input) {
   return detail::Backend("mobilenet.forward", [&] {
-    return classifier_->forward(forward_features(input).mean({2, 3}));
+    auto pooled = forward_features(input).mean({2, 3});
+    return classifier_ ? classifier_->forward(pooled) : pooled;
+  });
+}
+std::int64_t MobileNetV3Impl::embedding_dimension() const noexcept {
+  return embedding_dimension_;
+}
+void MobileNetV3Impl::reset_classifier(std::int64_t num_classes) {
+  detail::Backend("mobilenet.reset_classifier", [&] {
+    detail::ValidateClasses(num_classes);
+    if (num_classes == 0) {
+      if (classifier_) {
+        unregister_module("classifier");
+        classifier_ = nullptr;
+      }
+      options_.num_classes = 0;
+      return;
+    }
+    auto replacement = torch::nn::Sequential();
+    replacement->push_back(
+        torch::nn::Linear(embedding_dimension_, hidden_dimension_));
+    replacement->push_back(std::make_shared<HardSwish>());
+    replacement->push_back(torch::nn::Dropout(options_.dropout));
+    replacement->push_back(torch::nn::Linear(hidden_dimension_, num_classes));
+    InitVision(*replacement, true);
+    const auto& reference =
+        features_->at<MobileConvBlock>(0).at<torch::nn::Conv2dImpl>(0).weight;
+    replacement->to(reference.device(), reference.scalar_type());
+    replacement->train(is_training());
+    if (classifier_)
+      classifier_ = replace_module("classifier", replacement);
+    else
+      classifier_ = register_module("classifier", replacement);
+    options_.num_classes = num_classes;
   });
 }
 const MobileNetV3Options& MobileNetV3Impl::options() const noexcept {
@@ -416,6 +471,9 @@ nn::ModelAdapter adapt(MobileNetV3 model) {
       [model](const nn::Invocation& input) mutable {
         return c10::IValue(model->forward(input.positional.front().toTensor()));
       },
-      options.input_channels, options.num_classes);
+      options.input_channels,
+      options.num_classes > 0 ? options.num_classes
+                              : model->embedding_dimension(),
+      options.num_classes > 0);
 }
 }  // namespace jyppx::liuding::models

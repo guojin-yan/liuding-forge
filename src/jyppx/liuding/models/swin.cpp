@@ -317,6 +317,7 @@ class SwinHead final : public torch::nn::Module {
     }
     auto replacement = torch::nn::Linear(768, num_classes);
     replacement->to(reference.device(), reference.scalar_type());
+    replacement->train(is_training());
     if (classifier_)
       classifier_ = replace_module("fc", replacement);
     else

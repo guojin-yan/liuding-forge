@@ -10,9 +10,10 @@
 #include <jyppx/liuding/models/models.hpp>
 #include <jyppx/liuding/training/amp/autocast.hpp>
 
-#include <ATen/autocast_mode.h>
-#include <torch/torch.h>
 #include <torch/optim.h>
+#include <torch/torch.h>
+
+#include <ATen/autocast_mode.h>
 
 #ifdef JYPPX_LIUDING_MODELS_CUDA_METRICS
 #include <c10/cuda/CUDACachingAllocator.h>
@@ -37,8 +38,8 @@
 #include <vector>
 
 #if defined(_WIN32)
-#include <windows.h>
 #include <psapi.h>
+#include <windows.h>
 #elif defined(__linux__) || defined(__APPLE__)
 #include <sys/resource.h>
 #if defined(__linux__)
@@ -561,8 +562,8 @@ TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
   check(dinov3_vits16plus(), 384);
   check(dinov3_vitb16(), 768);
 
-  const auto adapter = create_model("dinov3_vits16",
-                                    {.dinov3 = {.num_classes = 7}});
+  const auto adapter =
+      create_model("dinov3_vits16", {.dinov3 = {.num_classes = 7}});
   EXPECT_EQ(adapter.invoke({.positional = {input}, .keyword = {}})
                 .value.toTensor()
                 .sizes(),
@@ -635,14 +636,12 @@ TEST(Models, DinoV3ConvNeXtLowResourceFactoriesSupportCpuTrainingGate) {
         << "Set JYPPX_LIUDING_DINOV3_CONVNEXT_TRAINING_CAPACITY_GATE=1 for "
            "the serial DINOv3 ConvNeXt-T/S CPU backward and optimizer gate";
   }
-  RunDinoV3ConvNeXtCpuTrainingStep(
-      [](DinoV3ConvNeXtOptions options) {
-        return dinov3_convnext_tiny(options);
-      });
-  RunDinoV3ConvNeXtCpuTrainingStep(
-      [](DinoV3ConvNeXtOptions options) {
-        return dinov3_convnext_small(options);
-      });
+  RunDinoV3ConvNeXtCpuTrainingStep([](DinoV3ConvNeXtOptions options) {
+    return dinov3_convnext_tiny(options);
+  });
+  RunDinoV3ConvNeXtCpuTrainingStep([](DinoV3ConvNeXtOptions options) {
+    return dinov3_convnext_small(options);
+  });
 }
 
 template <typename Factory>
@@ -660,9 +659,9 @@ void RunDinoV3ConvNeXtHighResourceTrainingStep(const char* name,
   const auto peak = ProcessPeakRssBytes();
   ASSERT_GT(peak, 0U);
   EXPECT_LE(peak, 6ULL << 30U);
-  std::cout << "RESOURCE_METRICS model=" << name
-            << " training_ms="
-            << std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+  std::cout << "RESOURCE_METRICS model=" << name << " training_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(end -
+                                                                     start)
                    .count()
             << " process_peak_rss_bytes=" << peak << '\n';
 }
@@ -840,7 +839,7 @@ void PrepareDinoV2GiantCudaResourceGate() {
 }
 
 void CheckDinoV2GiantCudaResourceGate(
-    const char *operation, std::chrono::steady_clock::time_point start) {
+    const char* operation, std::chrono::steady_clock::time_point start) {
   torch::cuda::synchronize(0);
   const auto end = std::chrono::steady_clock::now();
   const auto peak_rss = ProcessPeakRssBytes();
@@ -885,7 +884,7 @@ void CheckDinoV2GiantCudaResourceGate(
 }
 
 TEST(ModelsCuda, DinoV2GiantCudaHalfStorageForwardResourceGate) {
-  const auto *enabled = std::getenv("JYPPX_LIUDING_DINOV2_GIANT_CUDA_GATE");
+  const auto* enabled = std::getenv("JYPPX_LIUDING_DINOV2_GIANT_CUDA_GATE");
   if (enabled == nullptr || std::string_view(enabled) != "1") {
     GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV2_GIANT_CUDA_GATE=1 for the serial "
                     "1.136B-parameter CUDA FP16-storage forward resource gate";
@@ -925,7 +924,7 @@ TEST(ModelsCuda, DinoV2GiantCudaHalfStorageForwardResourceGate) {
 }
 
 TEST(ModelsCuda, DinoV2GiantCudaHalfStorageTrainingResourceGate) {
-  const auto *enabled =
+  const auto* enabled =
       std::getenv("JYPPX_LIUDING_DINOV2_GIANT_CUDA_TRAINING_GATE");
   if (enabled == nullptr || std::string_view(enabled) != "1") {
     GTEST_SKIP()
@@ -1386,15 +1385,16 @@ TEST(Models, DenseNet121ExposesFullBlocksAndStageContract) {
             torch::IntArrayRef({128, 64, 1, 1}));
   EXPECT_EQ(parameters["features.transition3.conv.weight"].sizes(),
             torch::IntArrayRef({512, 1024, 1, 1}));
-  EXPECT_EQ(parameters["features.denseblock4.denselayer16.conv2.weight"].sizes(),
-            torch::IntArrayRef({32, 128, 3, 3}));
+  EXPECT_EQ(
+      parameters["features.denseblock4.denselayer16.conv2.weight"].sizes(),
+      torch::IntArrayRef({32, 128, 3, 3}));
   const auto stages = model->forward_features(Images());
   ASSERT_EQ(stages.size(), 4U);
   const std::array<std::int64_t, 4> channels{256, 512, 1024, 1024};
   for (std::size_t index = 0; index < stages.size(); ++index)
-    EXPECT_EQ(stages[index].sizes(),
-              torch::IntArrayRef({2, channels[index], 16LL >> index,
-                                  16LL >> index}));
+    EXPECT_EQ(
+        stages[index].sizes(),
+        torch::IntArrayRef({2, channels[index], 16LL >> index, 16LL >> index}));
   EXPECT_EQ(model->forward(Images()).sizes(), torch::IntArrayRef({2, 1000}));
   EXPECT_EQ(model->forward(torch::zeros({1, 3, 29, 29})).sizes(),
             torch::IntArrayRef({1, 1000}));
@@ -1406,7 +1406,8 @@ TEST(Models, DenseNet121SupportsBackwardAndOptimizerStep) {
   model->train();
   torch::optim::SGD optimizer(model->parameters(),
                               torch::optim::SGDOptions(1e-3));
-  const auto before = model->named_parameters(true)["classifier.weight"].clone();
+  const auto before =
+      model->named_parameters(true)["classifier.weight"].clone();
   optimizer.zero_grad();
   const auto logits = model->forward(torch::randn({1, 3, 64, 64}));
   ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
@@ -1421,11 +1422,9 @@ TEST(Models, DenseNet121SupportsBackwardAndOptimizerStep) {
     EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
   }
   optimizer.step();
-  EXPECT_GT((parameters["classifier.weight"] - before)
-                .abs()
-                .sum()
-                .item<double>(),
-            0.0);
+  EXPECT_GT(
+      (parameters["classifier.weight"] - before).abs().sum().item<double>(),
+      0.0);
 }
 
 TEST(Models, MobileNetV2MatchesTimmBlockAndFeatureContracts) {
@@ -1454,7 +1453,7 @@ TEST(Models, MobileNetV2MatchesTimmBlockAndFeatureContracts) {
   custom->eval();
   EXPECT_EQ(custom->forward(Images(1)).sizes(), torch::IntArrayRef({2, 3}));
   EXPECT_THROW(model->forward(torch::zeros({2, 3, 64})), InvalidArgument);
-  EXPECT_THROW(mobilenetv2_100({.num_classes = 0}), InvalidArgument);
+  EXPECT_THROW(mobilenetv2_100({.num_classes = -1}), InvalidArgument);
 }
 
 TEST(Models, MobileNetV2SupportsBackwardAndOptimizerStep) {
@@ -1484,9 +1483,10 @@ TEST(Models, MobileNetV2SupportsBackwardAndOptimizerStep) {
 
 TEST(Models, EfficientNetB0B2MatchTimmBlockAndFeatureContracts) {
   torch::NoGradGuard no_grad;
-  for (const auto variant : {EfficientNetVariant::b0, EfficientNetVariant::b2}) {
+  for (const auto variant :
+       {EfficientNetVariant::b0, EfficientNetVariant::b2}) {
     auto model = variant == EfficientNetVariant::b0 ? efficientnet_b0()
-                                                     : efficientnet_b2();
+                                                    : efficientnet_b2();
     model->eval();
     const auto b2 = variant == EfficientNetVariant::b2;
     EXPECT_EQ(parameter_count(*model), b2 ? 9109994U : 5288548U);
@@ -1503,21 +1503,22 @@ TEST(Models, EfficientNetB0B2MatchTimmBlockAndFeatureContracts) {
            : std::array<std::int64_t, 5>{16, 24, 40, 112, 320};
     for (std::size_t index = 0; index < stages.size(); ++index)
       EXPECT_EQ(stages[index].sizes(),
-                torch::IntArrayRef({2, channels[index], 32LL >> index,
-                                    32LL >> index}));
+                torch::IntArrayRef(
+                    {2, channels[index], 32LL >> index, 32LL >> index}));
     EXPECT_EQ(model->forward(Images()).sizes(), torch::IntArrayRef({2, 1000}));
     EXPECT_THROW(model->forward(torch::zeros({2, 3, 64})), InvalidArgument);
   }
   auto custom = efficientnet_b0({.num_classes = 3, .input_channels = 1});
   custom->eval();
   EXPECT_EQ(custom->forward(Images(1)).sizes(), torch::IntArrayRef({2, 3}));
-  EXPECT_THROW(efficientnet_b2({.num_classes = 0}), InvalidArgument);
+  EXPECT_THROW(efficientnet_b2({.num_classes = -1}), InvalidArgument);
   EXPECT_THROW(EfficientNet(static_cast<EfficientNetVariant>(3)),
                InvalidArgument);
 }
 
 TEST(Models, EfficientNetB0B2SupportBackwardAndOptimizerStep) {
-  for (const auto variant : {EfficientNetVariant::b0, EfficientNetVariant::b2}) {
+  for (const auto variant :
+       {EfficientNetVariant::b0, EfficientNetVariant::b2}) {
     auto model = variant == EfficientNetVariant::b0
                      ? efficientnet_b0({.num_classes = 3})
                      : efficientnet_b2({.num_classes = 3});
@@ -1531,19 +1532,17 @@ TEST(Models, EfficientNetB0B2SupportBackwardAndOptimizerStep) {
     ASSERT_EQ(logits.sizes(), torch::IntArrayRef({2, 3}));
     logits.square().mean().backward();
     const auto parameters = model->named_parameters(true);
-    for (const auto* name : {"conv_stem.weight",
-                             "blocks.6.0.conv_pwl.weight", "classifier.weight"}) {
+    for (const auto* name : {"conv_stem.weight", "blocks.6.0.conv_pwl.weight",
+                             "classifier.weight"}) {
       const auto grad = parameters[name].grad();
       ASSERT_TRUE(grad.defined()) << name;
       EXPECT_TRUE(torch::isfinite(grad).all().item<bool>()) << name;
       EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
     }
     optimizer.step();
-    EXPECT_GT((parameters["classifier.weight"] - before)
-                  .abs()
-                  .sum()
-                  .item<double>(),
-              0.0);
+    EXPECT_GT(
+        (parameters["classifier.weight"] - before).abs().sum().item<double>(),
+        0.0);
   }
 }
 
@@ -1576,7 +1575,7 @@ TEST(Models, TfEfficientNetV2SMatchesTimmShapeAndSamePaddingContracts) {
   custom->eval();
   EXPECT_EQ(custom->forward(torch::zeros({1, 1, 64, 64})).sizes(),
             torch::IntArrayRef({1, 3}));
-  EXPECT_THROW(tf_efficientnetv2_s({.num_classes = 0}), InvalidArgument);
+  EXPECT_THROW(tf_efficientnetv2_s({.num_classes = -1}), InvalidArgument);
   EXPECT_THROW(model->forward(torch::zeros({1, 3, 64})), InvalidArgument);
 }
 
@@ -1659,20 +1658,18 @@ TEST(Models, ConvNeXtTinyAndSmallSupportBackwardAndOptimizerStep) {
     optimizer.zero_grad();
     const auto logits = model->forward(torch::randn({1, 3, 32, 32}));
     logits.square().mean().backward();
-    for (const auto* name : {"stem.0.weight",
-                             "stages.2.blocks.0.mlp.fc1.weight",
-                             "head.fc.weight"}) {
+    for (const auto* name :
+         {"stem.0.weight", "stages.2.blocks.0.mlp.fc1.weight",
+          "head.fc.weight"}) {
       const auto grad = parameters[name].grad();
       ASSERT_TRUE(grad.defined()) << name;
       EXPECT_TRUE(torch::isfinite(grad).all().item<bool>()) << name;
       EXPECT_GT(grad.abs().sum().item<double>(), 0.0) << name;
     }
     optimizer.step();
-    EXPECT_GT((parameters["head.fc.weight"] - before)
-                  .abs()
-                  .sum()
-                  .item<double>(),
-              0.0);
+    EXPECT_GT(
+        (parameters["head.fc.weight"] - before).abs().sum().item<double>(),
+        0.0);
   }
 }
 
@@ -1784,14 +1781,13 @@ TEST(Models, SwinTinyPreservesHierarchyAndShiftedWindowContract) {
   EXPECT_EQ(parameter_count(*model), 27521661U);
   const auto named = model->named_parameters(true);
   EXPECT_EQ(named.size(), 173U);
-  for (const auto* key : {"patch_embed.proj.weight", "patch_embed.norm.weight",
-                          "layers.0.blocks.0.attn.relative_position_bias_table",
-                          "layers.0.blocks.1.attn.qkv.weight",
-                          "layers.1.downsample.norm.weight",
-                          "layers.1.downsample.reduction.weight",
-                          "layers.2.blocks.5.mlp.fc2.weight",
-                          "layers.3.blocks.1.attn.proj.weight", "norm.weight",
-                          "head.fc.weight"})
+  for (const auto* key :
+       {"patch_embed.proj.weight", "patch_embed.norm.weight",
+        "layers.0.blocks.0.attn.relative_position_bias_table",
+        "layers.0.blocks.1.attn.qkv.weight", "layers.1.downsample.norm.weight",
+        "layers.1.downsample.reduction.weight",
+        "layers.2.blocks.5.mlp.fc2.weight",
+        "layers.3.blocks.1.attn.proj.weight", "norm.weight", "head.fc.weight"})
     EXPECT_TRUE(named.contains(key)) << key;
   torch::NoGradGuard guard;
   const auto image = torch::randn({1, 3, 56, 84});
@@ -1802,15 +1798,15 @@ TEST(Models, SwinTinyPreservesHierarchyAndShiftedWindowContract) {
   EXPECT_EQ(stages[2].sizes(), torch::IntArrayRef({1, 384, 4, 6}));
   EXPECT_EQ(stages[3].sizes(), torch::IntArrayRef({1, 768, 2, 3}));
   EXPECT_EQ(model->forward(image).sizes(), torch::IntArrayRef({1, 3}));
-  auto adapter = create_model(
-      "swin_tiny_patch4_window7_224",
-      {.swin = {.num_classes = 3, .dynamic_image_size = true}});
-  EXPECT_EQ(adapter
-                .invoke({.positional = {torch::zeros({1, 3, 32, 32})},
-                         .keyword = {}})
-                .value.toTensor()
-                .sizes(),
-            torch::IntArrayRef({1, 3}));
+  auto adapter =
+      create_model("swin_tiny_patch4_window7_224",
+                   {.swin = {.num_classes = 3, .dynamic_image_size = true}});
+  EXPECT_EQ(
+      adapter
+          .invoke({.positional = {torch::zeros({1, 3, 32, 32})}, .keyword = {}})
+          .value.toTensor()
+          .sizes(),
+      torch::IntArrayRef({1, 3}));
   auto fixed = swin_tiny_patch4_window7_224();
   EXPECT_EQ(parameter_count(*fixed), 28288354U);
   EXPECT_THROW(fixed->forward(torch::zeros({1, 3, 56, 84})), InvalidArgument);
@@ -1839,10 +1835,10 @@ TEST(Models, SwinTinySupportsBackwardAndOptimizerStep) {
   const auto before = named["head.fc.weight"].clone();
   optimizer.zero_grad();
   model->forward(torch::randn({1, 3, 32, 32})).square().mean().backward();
-  for (const auto* key : {"patch_embed.proj.weight",
-                          "layers.0.blocks.1.attn.relative_position_bias_table",
-                          "layers.2.blocks.5.attn.qkv.weight",
-                          "head.fc.weight"}) {
+  for (const auto* key :
+       {"patch_embed.proj.weight",
+        "layers.0.blocks.1.attn.relative_position_bias_table",
+        "layers.2.blocks.5.attn.qkv.weight", "head.fc.weight"}) {
     const auto gradient = named[key].grad();
     ASSERT_TRUE(gradient.defined()) << key;
     EXPECT_TRUE(torch::isfinite(gradient).all().item<bool>()) << key;
@@ -1927,12 +1923,12 @@ TEST(Models, MissingUpstreamWeightsRemainExplicitlyUnqualified) {
   EXPECT_FALSE(records.front().artifact.has_value());
   EXPECT_EQ(records.front().license_spdx, "NOASSERTION");
   validate_weight_record(records.front());
-  for (const auto* name : {"convnext_tiny", "convnext_small", "densenet121", "efficientnet_b0", "efficientnet_b2",
-                           "tf_efficientnetv2_s", "mobilenetv2_100", "resnet34",
-                           "resnet101", "resnext50_32x4d",
-                           "vit_tiny_patch16_224", "vit_small_patch16_224",
-                           "vit_base_patch16_224",
-                           "swin_tiny_patch4_window7_224"}) {
+  for (const auto* name :
+       {"convnext_tiny", "convnext_small", "densenet121", "efficientnet_b0",
+        "efficientnet_b2", "tf_efficientnetv2_s", "mobilenetv2_100", "resnet34",
+        "resnet101", "resnext50_32x4d", "vit_tiny_patch16_224",
+        "vit_small_patch16_224", "vit_base_patch16_224",
+        "swin_tiny_patch4_window7_224"}) {
     const auto candidates = available_weights(name);
     ASSERT_EQ(candidates.size(), 1U) << name;
     EXPECT_EQ(candidates.front().availability,
@@ -2464,9 +2460,8 @@ void CheckArchitectureReference(const char* architecture,
       const std::array<std::size_t, 5> mobile_stage_indices{0, 1, 2, 4, 6};
       const std::array<std::size_t, 5> v2_stage_indices{0, 1, 2, 4, 5};
       const auto stage_name =
-          convnext_model != nullptr
-              ? "stage" + std::to_string(index)
-              : mobile_stages
+          convnext_model != nullptr ? "stage" + std::to_string(index)
+          : mobile_stages
               ? "blocks" + std::to_string(efficient_v2_model != nullptr
                                               ? v2_stage_indices[index]
                                               : mobile_stage_indices[index])
@@ -2521,14 +2516,14 @@ TEST(ModelsPythonInterop, OfficialTimmMobileNetV2ReferenceReallyRuns) {
 TEST(ModelsPythonInterop, OfficialTimmEfficientNetB0ReferenceReallyRuns) {
   auto model = efficientnet_b0();
   CheckArchitectureReference("efficientnet_b0", nullptr,
-                             "JYPPX_LIUDING_EFFICIENTNET_REFERENCE_DIR", nullptr,
-                             nullptr, &model);
+                             "JYPPX_LIUDING_EFFICIENTNET_REFERENCE_DIR",
+                             nullptr, nullptr, &model);
 }
 TEST(ModelsPythonInterop, OfficialTimmEfficientNetB2ReferenceReallyRuns) {
   auto model = efficientnet_b2();
   CheckArchitectureReference("efficientnet_b2", nullptr,
-                             "JYPPX_LIUDING_EFFICIENTNET_REFERENCE_DIR", nullptr,
-                             nullptr, &model);
+                             "JYPPX_LIUDING_EFFICIENTNET_REFERENCE_DIR",
+                             nullptr, nullptr, &model);
 }
 TEST(ModelsPythonInterop, OfficialTimmTfEfficientNetV2SReferenceReallyRuns) {
   auto model = tf_efficientnetv2_s();
@@ -2630,8 +2625,7 @@ TEST(ModelsPythonInterop, OfficialTimmSwinTinyReferenceReallyRuns) {
       .id = "reference-swin-tiny-random-v1",
       .model_name = prefix,
       .source_uri =
-          "fixture://timm/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/" +
-          prefix,
+          "fixture://timm/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/" + prefix,
       .license_spdx = "LicenseRef-Generated-Test-Fixture",
       .license_uri = "fixture://swin-reference/local-generated-state",
       .availability = WeightAvailability::pinned_external,
@@ -2882,10 +2876,11 @@ TEST(ModelsPythonInterop, OfficialMetaDinoV3LargePlusResourceGate) {
       "dinov3_vitl16plus", [] { return dinov3_vitl16plus(); }, 403915776U);
 }
 
-void CheckDinoV3ConvNeXtReference(const char* prefix, DinoV3ConvNeXt model,
-                                  const char* directory_variable =
-                                      "JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR",
-                                  std::uint64_t staging_bytes = 1ULL << 30U) {
+void CheckDinoV3ConvNeXtReference(
+    const char* prefix, DinoV3ConvNeXt model,
+    const char* directory_variable =
+        "JYPPX_LIUDING_DINOV3_CONVNEXT_REFERENCE_DIR",
+    std::uint64_t staging_bytes = 1ULL << 30U) {
   const auto* directory = std::getenv(directory_variable);
   if (directory == nullptr || *directory == '\0') {
     GTEST_SKIP() << "Set " << directory_variable
@@ -2907,11 +2902,12 @@ void CheckDinoV3ConvNeXtReference(const char* prefix, DinoV3ConvNeXt model,
       .license_uri = "fixture://models-reference/local-generated-state",
       .availability = WeightAvailability::pinned_external,
       .artifact =
-          ArtifactRef{.digest = ArtifactDigest{.hex = sha256_hex(state)},
-                      .size_bytes = state.size(),
-                      .logical_name = name + "-state.safetensors",
-                      .media_type = "application/x-safetensors",
-                      .producer = "pinned-meta-dinov3-convnext-python-reference"},
+          ArtifactRef{
+              .digest = ArtifactDigest{.hex = sha256_hex(state)},
+              .size_bytes = state.size(),
+              .logical_name = name + "-state.safetensors",
+              .media_type = "application/x-safetensors",
+              .producer = "pinned-meta-dinov3-convnext-python-reference"},
       .status_reason =
           "Random architecture differential; no pretrained weights."};
   auto adapter = adapt(model);
@@ -2950,15 +2946,14 @@ void CheckDinoV3ConvNeXtReference(const char* prefix, DinoV3ConvNeXt model,
   EXPECT_TRUE(torch::allclose(actual_global, reference_global, 5e-4, 5e-5))
       << prefix << " global max error: "
       << (actual_global - reference_global).abs().max().item<double>();
-  const auto invoked = adapter.invoke(
-      {.positional = {image}, .keyword = {}}).value.toTensor();
+  const auto invoked =
+      adapter.invoke({.positional = {image}, .keyword = {}}).value.toTensor();
   ASSERT_EQ(invoked.sizes(), reference_global.sizes());
   EXPECT_TRUE(torch::allclose(invoked, reference_global, 5e-4, 5e-5));
 }
 
 TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtTinyReferenceReallyRuns) {
-  CheckDinoV3ConvNeXtReference("dinov3_convnext_tiny",
-                               dinov3_convnext_tiny());
+  CheckDinoV3ConvNeXtReference("dinov3_convnext_tiny", dinov3_convnext_tiny());
 }
 TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtSmallReferenceReallyRuns) {
   CheckDinoV3ConvNeXtReference("dinov3_convnext_small",
@@ -2998,8 +2993,7 @@ void CheckDinoV3ConvNeXtHighResourceReference(const char* prefix,
     return std::chrono::duration_cast<std::chrono::milliseconds>(finish - begin)
         .count();
   };
-  std::cout << "RESOURCE_METRICS model=" << prefix
-            << " construction_ms="
+  std::cout << "RESOURCE_METRICS model=" << prefix << " construction_ms="
             << milliseconds(construction_start, construction_end)
             << " total_ms=" << milliseconds(construction_start, end)
             << " construction_peak_rss_bytes=" << construction_peak
@@ -3008,8 +3002,7 @@ void CheckDinoV3ConvNeXtHighResourceReference(const char* prefix,
 
 TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtBaseResourceGate) {
   CheckDinoV3ConvNeXtHighResourceReference(
-      "dinov3_convnext_base", [] { return dinov3_convnext_base(); },
-      87566464U);
+      "dinov3_convnext_base", [] { return dinov3_convnext_base(); }, 87566464U);
 }
 TEST(ModelsPythonInterop, OfficialMetaDinoV3ConvNeXtLargeResourceGate) {
   CheckDinoV3ConvNeXtHighResourceReference(

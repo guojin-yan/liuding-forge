@@ -2,7 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
-#include "detail.hpp"
+#include "head_utils.hpp"
 
 #include <jyppx/liuding/models/efficientnet.hpp>
 
@@ -194,10 +194,10 @@ EfficientNetImpl::EfficientNetImpl(EfficientNetVariant variant,
     if (variant != EfficientNetVariant::b0 &&
         variant != EfficientNetVariant::b2)
       detail::Invalid("efficientnet.variant", "b0 or b2");
-    if (options.num_classes <= 0 || options.num_classes > 1000000 ||
+    if (options.num_classes < 0 || options.num_classes > 1000000 ||
         options.input_channels <= 0 || options.input_channels > 1024)
       detail::Invalid("efficientnet.options",
-                      "classes 1..1000000 and channels 1..1024");
+                      "classes 0..1000000 and channels 1..1024");
     const auto width = variant == EfficientNetVariant::b0 ? 1.0 : 1.1;
     const auto stem_channels = RoundChannels(32, width);
     const auto last_channels = RoundChannels(320, width);
@@ -210,8 +210,10 @@ EfficientNetImpl::EfficientNetImpl(EfficientNetVariant variant,
     conv_head_ =
         register_module("conv_head", Conv(last_channels, head_channels, 1));
     bn2_ = register_module("bn2", Norm(head_channels));
-    classifier_ = register_module(
-        "classifier", torch::nn::Linear(head_channels, options.num_classes));
+    if (options.num_classes > 0) {
+      classifier_ = register_module(
+          "classifier", torch::nn::Linear(head_channels, options.num_classes));
+    }
   });
 }
 
@@ -229,7 +231,17 @@ Tensor EfficientNetImpl::forward(const Tensor& input) {
   return detail::Backend("efficientnet.forward", [&] {
     const auto stages = forward_features(input);
     const auto features = torch::silu(bn2_(conv_head_(stages.back())));
-    return classifier_(features.mean({2, 3}));
+    auto pooled = features.mean({2, 3});
+    return classifier_ ? classifier_(pooled) : pooled;
+  });
+}
+
+void EfficientNetImpl::reset_classifier(std::int64_t num_classes) {
+  detail::Backend("efficientnet.reset_classifier", [&] {
+    detail::ResetLinear(*this, classifier_, "classifier",
+                        conv_head_->options.out_channels(), num_classes,
+                        conv_stem_->weight);
+    options_.num_classes = num_classes;
   });
 }
 
@@ -258,7 +270,11 @@ nn::ModelAdapter adapt(EfficientNet model) {
       {std::nullopt, options.input_channels, std::nullopt, std::nullopt}};
   TensorSchema output;
   output.rank = 2;
-  output.shape = {{std::nullopt, options.num_classes}};
+  output.shape = {
+      {std::nullopt,
+       options.num_classes > 0
+           ? options.num_classes
+           : (model->variant() == EfficientNetVariant::b0 ? 1280 : 1408)}};
   return nn::adapt_module(
       model.ptr(),
       [model](const nn::Invocation& invocation) mutable {
@@ -269,6 +285,8 @@ nn::ModelAdapter adapt(EfficientNet model) {
                                           "normalized_images")},
        .keyword = {},
        .allow_extra_keywords = false},
-      ValueSchema::tensor(output, "logits", "classification_logits"));
+      ValueSchema::tensor(output, "output",
+                          options.num_classes > 0 ? "classification_logits"
+                                                  : "image_embedding"));
 }
 }  // namespace jyppx::liuding::models

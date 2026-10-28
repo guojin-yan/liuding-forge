@@ -2,7 +2,7 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
-#include "detail.hpp"
+#include "head_utils.hpp"
 
 #include <jyppx/liuding/models/densenet.hpp>
 
@@ -157,14 +157,16 @@ class DenseNetFeatures final : public torch::nn::Module {
 
 DenseNetImpl::DenseNetImpl(DenseNetOptions options) : options_(options) {
   detail::Backend("densenet.construct", [&] {
-    if (options.num_classes <= 0 || options.num_classes > 1000000 ||
+    if (options.num_classes < 0 || options.num_classes > 1000000 ||
         options.input_channels <= 0 || options.input_channels > 1024)
       detail::Invalid("densenet.options",
-                      "classes 1..1000000 and channels 1..1024");
+                      "classes 0..1000000 and channels 1..1024");
     features_ = register_module(
         "features", std::make_shared<DenseNetFeatures>(options.input_channels));
-    classifier_ = register_module("classifier",
-                                  torch::nn::Linear(1024, options.num_classes));
+    if (options.num_classes > 0) {
+      classifier_ = register_module(
+          "classifier", torch::nn::Linear(1024, options.num_classes));
+    }
     Initialize(*this);
   });
 }
@@ -184,7 +186,16 @@ Tensor DenseNetImpl::forward(const Tensor& input) {
   return detail::Backend("densenet.forward", [&] {
     auto stages = forward_features(input);
     auto final = features_->normalize_output(stages.back());
-    return classifier_(torch::relu(final).mean({2, 3}));
+    auto pooled = torch::relu(final).mean({2, 3});
+    return classifier_ ? classifier_(pooled) : pooled;
+  });
+}
+
+void DenseNetImpl::reset_classifier(std::int64_t num_classes) {
+  detail::Backend("densenet.reset_classifier", [&] {
+    detail::ResetLinear(*this, classifier_, "classifier", 1024, num_classes,
+                        features_->stem_weight());
+    options_.num_classes = num_classes;
   });
 }
 
@@ -203,7 +214,8 @@ nn::ModelAdapter adapt(DenseNet model) {
       {std::nullopt, options.input_channels, std::nullopt, std::nullopt}};
   TensorSchema output;
   output.rank = 2;
-  output.shape = {{std::nullopt, options.num_classes}};
+  output.shape = {
+      {std::nullopt, options.num_classes > 0 ? options.num_classes : 1024}};
   return nn::adapt_module(
       model.ptr(),
       [model](const nn::Invocation& invocation) mutable {
@@ -214,6 +226,8 @@ nn::ModelAdapter adapt(DenseNet model) {
                                           "normalized_images")},
        .keyword = {},
        .allow_extra_keywords = false},
-      ValueSchema::tensor(output, "logits", "classification_logits"));
+      ValueSchema::tensor(output, "output",
+                          options.num_classes > 0 ? "classification_logits"
+                                                  : "image_embedding"));
 }
 }  // namespace jyppx::liuding::models

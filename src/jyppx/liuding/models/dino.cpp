@@ -384,6 +384,7 @@ void DinoV2Impl::reset_classifier(std::int64_t num_classes) {
     }
     replacement->to(PatchEmbed(patch_embed_).weight().device(),
                     PatchEmbed(patch_embed_).weight().scalar_type());
+    replacement->train(is_training());
     if (head_)
       head_ = replace_module("head", replacement);
     else
@@ -816,6 +817,7 @@ void DinoV3Impl::reset_classifier(std::int64_t num_classes) {
     }
     replacement->to(PatchEmbedV3(patch_embed_).weight().device(),
                     PatchEmbedV3(patch_embed_).weight().scalar_type());
+    replacement->train(is_training());
     if (head_)
       head_ = replace_module("head", replacement);
     else

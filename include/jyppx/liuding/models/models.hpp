@@ -11,6 +11,7 @@
 #include <jyppx/liuding/models/efficientnet.hpp>
 #include <jyppx/liuding/models/efficientnetv2.hpp>
 #include <jyppx/liuding/models/features.hpp>
+#include <jyppx/liuding/models/heads.hpp>
 #include <jyppx/liuding/models/mobilenetv2.hpp>
 #include <jyppx/liuding/models/registry.hpp>
 #include <jyppx/liuding/models/swin.hpp>

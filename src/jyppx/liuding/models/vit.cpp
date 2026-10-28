@@ -289,6 +289,7 @@ void ViTImpl::reset_classifier(std::int64_t num_classes) {
     }
     replacement->to(Patch(patch_embed_).weight().device(),
                     Patch(patch_embed_).weight().scalar_type());
+    replacement->train(is_training());
     if (head_)
       head_ = replace_module("head", replacement);
     else

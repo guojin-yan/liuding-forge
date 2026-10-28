@@ -17,10 +17,11 @@
 #include <vector>
 
 namespace jyppx::liuding::models {
+/** @brief Opaque registered DenseNet block and normalization implementation. */
 class DenseNetFeatures;
 /** @brief Fixed DenseNet121 architecture with configurable input and head. */
 struct DenseNetOptions {
-  std::int64_t num_classes = 1000;  ///< Positive classifier width.
+  std::int64_t num_classes = 1000;  ///< Zero returns the pooled embedding.
   std::int64_t input_channels = 3;  ///< Positive image channel count.
 };
 
@@ -33,7 +34,8 @@ class DenseNetImpl final : public torch::nn::Module {
   explicit DenseNetImpl(DenseNetOptions options = {});
   /** @brief Maps normalized NCHW images to unnormalized class logits.
    * @param input Floating image on the model's exact device and dtype.
-   * @return Logits with shape [N,num_classes].
+   * @return Logits [N,num_classes], or the pooled embedding when classes is
+   * zero.
    */
   Tensor forward(const Tensor& input);
   /** @brief Returns outputs of four dense blocks before their transitions.
@@ -41,16 +43,23 @@ class DenseNetImpl final : public torch::nn::Module {
    * @return NCHW maps at nominal strides 4,8,16,32.
    */
   std::vector<Tensor> forward_features(const Tensor& input);
-  /** @brief Returns immutable constructor options.
-   * @return Options retained for the module lifetime.
+  /** @brief Returns current input/head settings.
+   * @return Settings including the current classifier width.
    */
   const DenseNetOptions& options() const noexcept;
+  /** @brief Replaces or removes the classifier on the current device/dtype.
+   * @param num_classes Classes in [0,1000000]; zero selects the pooled
+   * embedding.
+   * @note Rebuild adapters, optimizers and checkpoint topology after mutation.
+   */
+  void reset_classifier(std::int64_t num_classes);
 
  private:
-  DenseNetOptions options_;
-  std::shared_ptr<DenseNetFeatures> features_;
-  torch::nn::Linear classifier_{nullptr};
+  DenseNetOptions options_;  ///< Current input/head settings.
+  std::shared_ptr<DenseNetFeatures> features_;  ///< Registered dense backbone.
+  torch::nn::Linear classifier_{nullptr};       ///< Optional logits projection.
 };
+/** @brief Shared owning LibTorch holder for DenseNet121. */
 TORCH_MODULE(DenseNet);
 
 /** @brief Constructs the fixed DenseNet121 architecture.
