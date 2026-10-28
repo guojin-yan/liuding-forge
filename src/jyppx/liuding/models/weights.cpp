@@ -11,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <bit>
 #include <fstream>
 #include <limits>
 #include <locale>
@@ -26,6 +27,28 @@ bool Text(std::string_view value) {
     if (ch < 0x20U || ch == 0x7fU) return false;
   return true;
 }
+
+class InputHash final {
+ public:
+  void Integer(std::uint64_t value) {
+    std::array<std::byte, 8> bytes{};
+    for (std::size_t i = 0; i < bytes.size(); ++i)
+      bytes[i] = static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+    hash_.update(bytes);
+  }
+  void String(std::string_view value) {
+    Integer(value.size());
+    hash_.update(std::as_bytes(std::span(value.data(), value.size())));
+  }
+  void Number(double value) {
+    Integer(std::bit_cast<std::uint64_t>(value == 0 ? 0.0 : value));
+  }
+  std::string Finish() const { return sha256_digest_hex(hash_.finish()); }
+
+ private:
+  Sha256 hash_;
+};
+
 bool CanonicalCacheName(std::string_view name) {
   if (name.size() != 76U || name.substr(64) != ".safetensors") return false;
   for (const auto ch : name.substr(0, 64))
@@ -323,6 +346,7 @@ void validate_weight_record(const WeightRecord& record) {
       !Text(record.license_uri) || !Text(record.format) ||
       !Text(record.status_reason))
     detail::Invalid("weights.record", "bounded complete auditable metadata");
+  if (record.input_spec) validate_weight_input_spec(*record.input_spec);
   if (record.availability == WeightAvailability::not_provisioned) {
     if (record.artifact)
       detail::Invalid("weights.record",
@@ -341,6 +365,60 @@ void validate_weight_record(const WeightRecord& record) {
     detail::Invalid("weights.artifact",
                     "nonempty exact artifact and safetensors media type");
 }
+
+const WeightInputSpec& weight_input_spec(const WeightRecord& record) {
+  validate_weight_record(record);
+  if (!record.input_spec)
+    throw NotReady("Weight input contract has not been declared",
+                   detail::Details("weights.input",
+                                   "explicit weight-specific preprocessing"));
+  return *record.input_spec;
+}
+
+std::string weight_input_identity(const WeightRecord& record) {
+  const auto& spec = weight_input_spec(record);
+  if (record.availability != WeightAvailability::pinned_external)
+    throw NotReady("Weight input identity requires a pinned artifact",
+                   detail::Details("weights.input.identity",
+                                   "complete weight SHA256 and size"));
+  InputHash hash;
+  hash.String("jyppx.liuding.models.weight-input.v1");
+  for (const auto* value :
+       {&record.id, &record.model_name, &record.source_uri,
+        &record.license_spdx, &record.license_uri, &record.format})
+    hash.String(*value);
+  const auto& artifact = *record.artifact;
+  hash.Integer(static_cast<std::uint8_t>(artifact.digest.algorithm));
+  hash.String(artifact.digest.hex);
+  hash.Integer(artifact.size_bytes);
+  hash.String(artifact.logical_name);
+  hash.String(artifact.media_type);
+  hash.String(artifact.producer);
+  hash.String(spec.source_revision);
+  hash.String(spec.state_mapping_version);
+  hash.String(spec.reference_uri);
+  hash.String(spec.reference_revision);
+  const auto& image = spec.image;
+  for (const auto size : image.input_size) hash.Integer(size);
+  hash.Integer(static_cast<std::uint8_t>(image.resize));
+  hash.Integer(image.resize_shorter_side);
+  hash.Integer(static_cast<std::uint8_t>(image.interpolation));
+  hash.Integer(static_cast<std::uint8_t>(image.color));
+  hash.Integer(image.mean.size());
+  for (const auto value : image.mean) hash.Number(value);
+  hash.Integer(image.std.size());
+  for (const auto value : image.std) hash.Number(value);
+  hash.Integer(spec.categories.has_value() ? 1U : 0U);
+  if (spec.categories) {
+    hash.Integer(spec.categories->size());
+    for (const auto& category : *spec.categories) {
+      hash.String(category.id);
+      hash.String(category.name);
+    }
+  }
+  return hash.Finish();
+}
+
 void verify_weights(const WeightRecord& record,
                     std::span<const std::byte> bytes, std::uint64_t max_bytes) {
   detail::Backend("weights.verify", [&] {

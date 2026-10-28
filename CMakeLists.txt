@@ -713,6 +713,7 @@ if(JYPPX_LIUDING_BUILD_MODELS)
         src/jyppx/liuding/models/features.cpp
         src/jyppx/liuding/models/heads.cpp
         src/jyppx/liuding/models/mobilenetv2.cpp
+        src/jyppx/liuding/models/preprocessing.cpp
         src/jyppx/liuding/models/registry.cpp
         src/jyppx/liuding/models/swin.cpp
         src/jyppx/liuding/models/transformer.cpp

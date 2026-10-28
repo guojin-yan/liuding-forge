@@ -117,4 +117,12 @@ auto grid = outputs->elements().at(1).toTensor();
 
 调用方已独立确认完整 SHA-256、文件大小、来源和制品许可证时，可创建 `pinned_external` 的 `WeightRecord`。`verify_weights()` 验证字节身份及有界 safetensors 结构；`load_weights()` 通过 `interop::import_model_weights` 执行显式严格或部分映射，并返回实际映射报告。导入须在模型独占且静止时执行；之后应重建旧的存储视图和优化器状态。`cache_weights()` 仅在调用方提供显式传输回调时获取字节，缓存命中会重新验证；缓存目录必须由调用方独占管理。
 
+需要复现权重输入时，在 `WeightRecord::input_spec` 中登记 `WeightInputSpec`：权重来源 revision、state 映射版本、预处理声明的来源与 revision、`ImagePreprocessSpec` 和按分类器输出列排序的类别 ID/名称。embedding 权重可省略类别表；缺少表不表示已知类别。`weight_input_spec(record)` 借用该记录中的元数据，缺失时报 `NotReady`，不会按架构名猜测；记录必须保持存活且不修改。当前内置候选没有经过核验的输入契约。
+
+`ImagePreprocessSpec` 描述确定性评估输入：最终高宽、直接 resize 或保持比例的短边 resize 加中心裁剪、nearest-exact/bilinear/bicubic、gray/RGB/BGR 和逐通道 mean/std。处理顺序是几何变换、转单位强度、按输出通道顺序做 `(pixel-mean)/std`；整数照片在插值后先舍入饱和，浮点 bicubic 过冲保留。bilinear/bicubic 固定使用 `align_corners=false, antialias=true`，不承诺 PIL 逐位等价。训练随机增强、执行 dtype/device、EXIF/ICC、alpha 或灰度转换由调用方单独配置。
+
+`resolve_image_preprocess_geometry(spec, {source_height, source_width})` 只计算坐标：短边 resize 的长边向下取整，中心偏移使用最近偶数舍入；尺寸溢出或裁剪超出画布时报错。将结果转换为 [`data_image` 的 resize/crop 步骤](data_image.md)，继续保留 `GeometryTrace`，再用 `transform_image_batch` 显式设置 `to_unit`、通道交换和同一组 mean/std。模型组件本身不依赖或执行图像解码，调用方要核对源 `PixelSpec`，避免重复归一化。
+
+`weight_input_identity(record)` 以流式 SHA-256 绑定已固定权重的完整摘要/大小、来源和许可、输入配方与类别顺序，供配方、run 或缓存记录；没有固定权重或输入契约时报 `NotReady`。它只核验元数据格式，不能证明来源真实、实际执行了变换、分类头与类别表匹配或任务准确率，权重字节仍须单独 `verify_weights()`。类别表最多 100,000 项、文本合计 16 MiB，ID 唯一；类别名称可重复或为空。
+
 当前固定随机参考覆盖选定架构的结构、state 导入和前向/特征差分，不覆盖预训练权重、任务精度或完整 Models profile。未提供参考目录时，相应可选测试会条件跳过；跳过不算验收通过。实际支持范围以具体变体、设备、dtype 和验证结果为准。

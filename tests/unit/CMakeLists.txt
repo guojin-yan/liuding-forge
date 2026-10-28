@@ -353,6 +353,20 @@ if(TARGET jyppx::liuding::models)
         LINK_TARGET jyppx::liuding::models
         models/test_model_heads.cpp
     )
+    jyppx_add_gtest(jyppx_test_models_preprocessing
+        LINK_TARGET jyppx::liuding::models
+        models/test_model_preprocessing.cpp
+    )
+    if(TARGET jyppx::liuding::data_image)
+        target_link_libraries(jyppx_test_models_preprocessing PRIVATE
+            jyppx::liuding::data_image)
+        target_compile_definitions(jyppx_test_models_preprocessing PRIVATE
+            JYPPX_LIUDING_PREPROCESS_IMAGE_TESTS=1)
+        if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+            target_compile_definitions(jyppx_test_models_preprocessing PRIVATE
+                JYPPX_LIUDING_PREPROCESS_CUDA_TESTS=1)
+        endif()
+    endif()
     jyppx_add_gtest(jyppx_test_models
         LINK_TARGET jyppx::liuding::models
         models/test_models.cpp

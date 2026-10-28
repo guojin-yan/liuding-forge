@@ -8,6 +8,7 @@
  * @brief Auditable local safetensors loading and digest-addressed weight cache.
  */
 #include <jyppx/liuding/interop/model_weight_import.hpp>
+#include <jyppx/liuding/models/preprocessing.hpp>
 #include <jyppx/liuding/nn/model_adapter.hpp>
 
 #include <chrono>
@@ -43,6 +44,8 @@ struct WeightRecord {
   std::optional<ArtifactRef>
       artifact;               ///< Required complete hash/size if pinned.
   std::string status_reason;  ///< Explicit missing/qualification explanation.
+  std::optional<WeightInputSpec> input_spec = {};
+  ///< Optional independently sourced preprocessing and output interpretation.
 };
 /** @brief Returns upstream candidates with missing hash/license status
  * explicit.
@@ -61,6 +64,23 @@ std::string models_preview_manifest_json();
  * @param record Complete acquisition and artifact-license provenance.
  */
 void validate_weight_record(const WeightRecord& record);
+/** @brief Borrows the explicit input contract without inferring model defaults.
+ * @param record Complete weight metadata; keep it alive and unchanged.
+ * @return Reference to its validated input interpretation, without copying.
+ * @throws NotReady If the record has no declared input contract.
+ * @note A declared recipe does not grant weight availability or task accuracy.
+ */
+const WeightInputSpec& weight_input_spec(const WeightRecord& record);
+/** @brief Binds exact weight identity, provenance, preprocessing and
+ * categories.
+ * @param record Pinned artifact metadata with a complete input contract.
+ * @return Canonical v1 SHA-256, independent of locale and signed zero.
+ * @throws NotReady If no pinned artifact or explicit input contract exists.
+ * @note Streams bounded metadata to SHA-256 without copying category strings.
+ * Does not read weights, verify provenance, authenticate producers, or prove
+ * that the caller executed the recipe. Call verify_weights separately.
+ */
+std::string weight_input_identity(const WeightRecord& record);
 /** @brief Verifies exact bytes and bounded data-only tensor structure.
  * @param record Independently approved exact artifact identity and provenance.
  * @param bytes Stable complete encoded safetensors artifact.

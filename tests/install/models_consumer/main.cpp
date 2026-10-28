@@ -21,6 +21,27 @@ int main() {
     Require(entries.size() == 34U, "installed-model-catalog");
     {
       using namespace jyppx::liuding::models;
+      ImagePreprocessSpec spec;
+      spec.input_size = {224, 224};
+      spec.resize = PreprocessResize::shortest_edge_center_crop;
+      spec.resize_shorter_side = 256;
+      const auto geometry = resolve_image_preprocess_geometry(spec, {300, 500});
+      Require(geometry.resized_size[0] == 256 &&
+                  geometry.resized_size[1] == 426 && geometry.crop_top == 16 &&
+                  geometry.crop_left == 101,
+              "installed-weight-preprocess-geometry");
+      const auto candidate = available_weights("resnet18").front();
+      Require(!candidate.input_spec, "installed-no-inferred-weight-recipe");
+      bool missing = false;
+      try {
+        static_cast<void>(weight_input_spec(candidate));
+      } catch (const jyppx::liuding::NotReady&) {
+        missing = true;
+      }
+      Require(missing, "installed-missing-weight-recipe-error");
+    }
+    {
+      using namespace jyppx::liuding::models;
       auto model = create_model("resnet18", {.resnet = {.num_classes = 0}});
       model.state().eval();
       const auto original = model.state().shared_module();
