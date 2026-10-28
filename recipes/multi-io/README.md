@@ -20,4 +20,4 @@ python scripts/datasets/prepare_paired_affine.py --data-root /path/to/datasets
 | `class_id` | int64 标量 | `left[0] + left[1]/2 + right[0] - right[1]/4 >= 0` |
 | `regression` | float32 `[1]` | `(4*left[0] - 2*left[1] + 3*right[0] + right[1] + 0.5)/8` |
 
-两份数据文件合计 173,375 字节，每条记录不超过 512 字节；[数据合同](paired-affine.dataset.json)固定版本、种子、样本数、类别计数和文件 SHA-256。准备工具逐条生成并核对完整文件身份，不缓存整个数据集。当前交付是数据准备入口，C++ 多输入、多输出训练与恢复配方仍在开发中；这些合成数据不能证明真实任务质量或性能优势。
+两份数据文件合计 173,375 字节，每条记录不超过 512 字节；[数据合同](paired-affine.dataset.json)固定版本、种子、样本数、类别计数和文件 SHA-256。准备工具逐条生成并核对完整文件身份，不缓存整个数据集。准备完成后，按[双输入训练教程](../../docs/tutorials/multi_io_recipe.md)配置 C++ 训练、分类与回归评估、检查点和独立进程恢复。这些合成数据不能证明真实任务质量或性能优势。

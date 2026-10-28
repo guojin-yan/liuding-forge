@@ -35,6 +35,17 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
     endif()
 endif()
 
+add_test(NAME Cli_paired_recipe
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_paired_recipe.py"
+        --cli $<TARGET_FILE:jyppx_cli>)
+set_tests_properties(Cli_paired_recipe PROPERTIES LABELS "cli;integration;recipe" TIMEOUT 600)
+if(JYPPX_LIUDING_TEST_CLI_CUDA)
+    add_test(NAME Cli_paired_recipe_CUDA
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_paired_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli> --device cuda)
+    set_tests_properties(Cli_paired_recipe_CUDA PROPERTIES LABELS "cli;integration;recipe;cuda" TIMEOUT 600)
+endif()
+
 get_filename_component(JYPPX_CLI_TORCH_RUNTIME "${TORCH_LIBRARY}" DIRECTORY)
 add_test(NAME CliInstalledConsumer
     COMMAND ${Python3_EXECUTABLE} "${PROJECT_SOURCE_DIR}/tests/install/cli/run_acceptance.py"

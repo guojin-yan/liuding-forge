@@ -67,6 +67,7 @@ Result model_command(const Arguments& arguments);
 Result benchmark_command(const Arguments& arguments);
 Result offline_command(const Arguments& arguments);
 Result recipe_command(const Arguments& arguments);
+Result paired_recipe_command(const Arguments& arguments);
 
 }  // namespace jyppx::liuding::cli
 

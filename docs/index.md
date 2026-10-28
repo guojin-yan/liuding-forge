@@ -10,6 +10,7 @@
 4. [回调、检查点与指标](tutorials/04_callbacks.md)
 5. [混合精度训练](tutorials/05_mixed_precision.md)
 6. [用自己的图像训练 ResNet18](tutorials/image_classification_recipe.md)
+7. [训练双输入、分类与回归模型](tutorials/multi_io_recipe.md)
 
 ## 用户指南
 

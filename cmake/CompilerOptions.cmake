@@ -21,7 +21,9 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_quantization
     jyppx_liuding_serving
     jyppx_cli_transport
+    jyppx_cli_objects
     jyppx_cli
+    jyppx_cli_recipe_gate
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(NOT TARGET ${JYPPX_TARGET})

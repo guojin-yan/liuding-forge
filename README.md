@@ -114,6 +114,7 @@ benchmark 操作说明见 [docs/benchmarks/README.md](docs/benchmarks/README.md)
 - [回调与检查点教程](docs/tutorials/04_callbacks.md)
 - [混合精度教程](docs/tutorials/05_mixed_precision.md)
 - [图像分类与跨进程续训](docs/tutorials/image_classification_recipe.md)
+- [双输入分类、回归与跨进程续训](docs/tutorials/multi_io_recipe.md)
 - [数据 API](docs/api/data.md)、[优化器 API](docs/api/optim.md)、[训练 API](docs/api/training.md)
 - [CLI 指南](docs/user-guide/cli.md)、[部署指南](docs/user-guide/deployment.md)、[性能调优](docs/user-guide/performance_tuning.md)
 
