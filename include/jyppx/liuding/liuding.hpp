@@ -82,6 +82,7 @@
 #include <jyppx/liuding/training/callback_dispatcher.hpp>
 #include <jyppx/liuding/training/callbacks/early_stopping_callback.hpp>
 #include <jyppx/liuding/training/checkpoint_coordinator.hpp>
+#include <jyppx/liuding/training/classification_evaluation.hpp>
 #include <jyppx/liuding/training/event_sink.hpp>
 #include <jyppx/liuding/training/file_checkpoint_store.hpp>
 #include <jyppx/liuding/training/scheduler_adapter.hpp>

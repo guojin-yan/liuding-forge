@@ -36,6 +36,7 @@
 #elif defined(JYPPX_CONSUMER_OPTIM)
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #elif defined(JYPPX_CONSUMER_TRAINING)
+#include <jyppx/liuding/training/classification_evaluation.hpp>
 #include <jyppx/liuding/training/trainer.hpp>
 #elif defined(JYPPX_CONSUMER_EXPERIMENT)
 #include <jyppx/liuding/experiment/config.hpp>
@@ -364,6 +365,27 @@ int main() {
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_TRAINING)
+  auto module = std::make_shared<torch::nn::Module>();
+  auto model = jyppx::liuding::nn::adapt_module(
+      module,
+      [](torch::nn::Module&, const jyppx::liuding::nn::Invocation& input)
+          -> c10::IValue { return input.positional.front(); },
+      {.positional = {jyppx::liuding::ValueSchema::tensor()}},
+      jyppx::liuding::ValueSchema::tensor());
+  bool first = true;
+  const auto evaluation = jyppx::liuding::training::evaluate_classification(
+      model,
+      [&](std::stop_token)
+          -> std::optional<
+              jyppx::liuding::training::ClassificationEvaluationBatch> {
+        if (!first) return std::nullopt;
+        first = false;
+        return jyppx::liuding::training::ClassificationEvaluationBatch{
+            .invocation = {.positional = {torch::tensor({{0.f, 1.f}})}},
+            .targets = torch::ones({1}, torch::kInt64)};
+      });
+  if (evaluation.overall.accuracy != 1.0 || !model.state().is_training())
+    return 1;
   jyppx::liuding::training::Trainer trainer(
       {.trainer_id = "trainer.consumer",
        .checkpoint = {.max_participants = 64,

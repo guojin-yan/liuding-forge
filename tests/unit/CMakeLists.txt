@@ -276,6 +276,27 @@ jyppx_add_gtest(jyppx_test_training_classification_metric
     training/test_classification_metric.cpp
 )
 
+jyppx_add_gtest(jyppx_test_training_classification_evaluation
+    LINK_TARGET jyppx::liuding::training
+    training/test_classification_evaluation.cpp
+)
+if(TARGET jyppx::liuding::experiment)
+    target_link_libraries(jyppx_test_training_classification_evaluation PRIVATE
+        jyppx::liuding::experiment)
+    target_compile_definitions(jyppx_test_training_classification_evaluation PRIVATE
+        JYPPX_LIUDING_EVALUATION_REPORT_TEST=1)
+endif()
+
+if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image
+        AND TARGET jyppx::liuding::experiment)
+    jyppx_add_gtest(jyppx_test_models_classification
+        LINK_TARGET jyppx::liuding::models
+        models/test_models_classification.cpp)
+    target_link_libraries(jyppx_test_models_classification PRIVATE
+        jyppx::liuding::training jyppx::liuding::data_image
+        jyppx::liuding::experiment)
+endif()
+
 jyppx_add_gtest(jyppx_test_training_ranking_metric
     LINK_TARGET jyppx::liuding::training
     training/test_ranking_metric.cpp

@@ -126,3 +126,22 @@ CPU bfloat16, CUDA float16, or CUDA bfloat16 execution. CUDA float16 requires an
 ## Loss Functions
 
 Focused loss headers live under `jyppx/nn/loss`. Focal, contrastive, Dice and label-smoothing cross entropy expose functional and module APIs with explicit shape, dtype, reduction and task-mode contracts. Knowledge distillation remains a task recipe because the caller must choose hard/soft composition, temperature, teacher gradient policy and aggregation.
+
+## 分类数据集评估
+
+`<jyppx/liuding/training/classification_evaluation.hpp>` 提供 `training::evaluate_classification(model, source, options)`。`source` 每次返回一批模型参数和一维整数标签，完整读取后返回 `std::nullopt`；模型返回形状为 `N × C` 的有限浮点 logits。数据读取、预处理和设备放置由调用方明确完成，评估器不联网。
+
+结果包含整体和显式来源切片的准确率、宏平均 precision/recall/F1、逐类 support/precision/recall/F1，以及行是真实类别、列是预测类别的混淆矩阵。宏平均包含所有固定类别；logits 并列时取最小类别索引，`ignore_index` 和零分母策略显式配置。空数据或全被忽略的切片返回缺失标量，不记为零分或通过。拆批后汇总使用整数计数，不平均每批指标。
+
+```cpp
+training::ClassificationEvaluationOptions options;
+options.num_classes = 10;
+options.max_samples = 10000;
+auto result = training::evaluate_classification(model, next_batch, options);
+// next_batch(std::stop_token) -> optional<ClassificationEvaluationBatch>
+// 使用 result.observations 作为 experiment::run_evaluation 的实际观测值。
+```
+
+配置 `sources` 后，每行必须在 `source_indices` 中指定唯一来源；结果顺序与配置一致。`observations` 自带指标定义、切片上下文和有效样本数，可交给现有 `experiment::run_evaluation` 产生带阈值的质量报告；调用方必须绑定真实的模型、数据、配置和构建身份。
+
+评估关闭梯度并临时切换为 eval，结束或异常后恢复各子模块原来的模式。取消、超时、非法输出和超限均抛异常，不返回部分数据的完整报告。评估期间应独占模型，并保持模块拓扑稳定；自定义 `train()` 必须支持恢复。批次数、样本数、类别、来源和已知混淆矩阵 payload 有显式上限，不保存全量 logits；这些限制不等于模型工作空间、allocator 或 RSS 的硬上限。

@@ -151,3 +151,5 @@ python scripts/models/convert_dinov2_hf.py --source D:/weights/dinov2-small.face
 ```
 
 在 `WeightRecord` 中登记转换结果的完整摘要/大小，保留官方来源 revision、许可证链接和映射版本 `jyppx.liuding.dinov2-hf-small.unmasked.v1`，再调用 `load_weights()`。转换报告保留原始权重身份和全部参数映射；转换只确认数据布局，不证明任务准确率。该入口不支持掩码训练、其他容量或其他 revision 的自动转换。
+
+迁移学习可以将 `num_classes=0` 的 embedding 接入新分类头，并显式冻结骨干参数、保持骨干 eval 模式以固定 BN 状态。分类数据集的逐批推理与质量报告接口见[训练 API](training.md#分类数据集评估)；输入配方、特征归一化和新类别顺序由任务明确指定。

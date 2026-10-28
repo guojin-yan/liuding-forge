@@ -23,7 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - The documentation index is now a concise Chinese task-based entry point; tutorials remain the detailed learning path and one-time development reports stay outside the source repository.
 
 ### Added
-- 增加固定官方 DINOv2-S/14 safetensors 的离线流式转换工具，记录全部源参数、Q/K/V 合并和省略的 mask token；外部实际权重验证入口覆盖 ResNet50 与 DINOv2-S，任务精度和完整微调资格仍待验证。
+- 增加逐批实际推理的分类评估入口，输出准确率、宏平均 precision/recall/F1、逐类计数、来源切片和可接入质量报告的观测值；支持显式 ignore/空类策略、取消与逻辑资源限制，并恢复各子模块原模式。
+- 增加固定官方 DINOv2-S/14 safetensors 的离线流式转换工具，记录全部源参数、Q/K/V 合并和省略的 mask token；外部实际权重验证入口覆盖 ResNet50 与 DINOv2-S，完整数据集和完整微调资格仍待验证。
 - 新增 DINO 统一特征提取入口，支持查询布局/步幅/token 元数据及按顺序选择输出，复用 ModelAdapter 并保留 autograd 与共享存储。
 - 补充 DINOv2 ViT-L 的 CPU FP32 完整训练状态恢复验证，使用独立资源门禁和显式回滚预算；CUDA 完整恢复仍待验证。
 - 补充 DINOv3 ViT-L/L+ 的 CPU FP32/CUDA AMP 完整训练状态恢复验证，使用独立资源门禁和显式回滚预算。
