@@ -131,7 +131,10 @@ def convert_archive(archive: Path, staging: Path, contract: dict) -> dict:
                     if len(content) != member.size:
                         raise ValueError(f"truncated metadata: {key}")
                     if key == "batches.meta.txt":
-                        if tuple(content.decode("ascii").splitlines()) != CLASSES:
+                        # The official binary archive ends its class table with
+                        # two LF characters. Ignore terminal line endings only;
+                        # empty interior rows and altered class names stay invalid.
+                        if tuple(content.decode("ascii").rstrip("\r\n").splitlines()) != CLASSES:
                             raise ValueError("CIFAR-10 category mapping differs")
                     continue
                 split = info["split"]

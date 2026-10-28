@@ -95,6 +95,32 @@ class PrepareCifar10Tests(unittest.TestCase):
             self.prepare()
         self.assertEqual(len(list(destination.rglob("*.png"))), 20)
 
+    def test_official_metadata_terminal_blank_line_is_accepted(self):
+        # Exact metadata bytes from the published binary archive, including its
+        # final empty line; the remaining archive records are generated locally.
+        metadata = (b"airplane\nautomobile\nbird\ncat\ndeer\ndog\nfrog\n"
+                    b"horse\nship\ntruck\n\n")
+        self.members[0] = ("batches.meta.txt", metadata)
+        self.write_archive()
+        destination = self.prepare()
+        summary = json.loads((destination / "preparation.json").read_text())
+        self.assertEqual(summary["classes"], ["airplane", "automobile", "bird", "cat",
+                                            "deer", "dog", "frog", "horse", "ship", "truck"])
+        self.assertEqual(len(list(destination.rglob("*.png"))), 20)
+
+    def test_metadata_interior_blank_names_and_order_remain_strict(self):
+        metadata = b"airplane\nautomobile\nbird\ncat\ndeer\ndog\nfrog\nhorse\nship\ntruck\n\n"
+        for damaged in (metadata.replace(b"cat\n", b"cat\n\n"),
+                        metadata.replace(b"truck\n", b"truck \n"),
+                        metadata.replace(b"ship\ntruck", b"truck\nship"),
+                        metadata.replace(b"truck\n", b"")):
+            with self.subTest(metadata=damaged):
+                self.members[0] = ("batches.meta.txt", damaged)
+                self.write_archive()
+                with self.assertRaisesRegex(ValueError, "category mapping differs"):
+                    self.prepare()
+                self.assert_not_published()
+
     def test_damaged_archive_never_creates_outputs(self):
         before = self.archive.read_bytes()
         for content in (before[:-1], before + b"extra", b"x" + before[1:]):

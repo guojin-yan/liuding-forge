@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- CIFAR-10 离线准备接受官方类别表末尾的空行，继续严格核对十个类别及其顺序。
 - 修复多 participant 检查点恢复失败时 strategy 的回滚计数检查，支持优化器先恢复或后恢复，并继续拒绝外部更新。
 - SGD 检查点接受单元素维度上等价的 momentum stride，修复 DINO CLS token 使用 momentum 后无法保存训练状态的问题；参数布局、数值类型、设备和形状仍严格校验。
 
