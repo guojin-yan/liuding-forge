@@ -1,187 +1,60 @@
-# Contributing to 六丁炼算（Liuding Forge）
+# 参与六丁炼算（Liuding Forge）开发
 
-The repository's historical and technical name is JYPPX Training Framework. Keep the `jyppx` namespace, include paths, CMake options and package names stable when making brand-facing changes.
+提交问题时，请提供复现步骤、构建配置、LibTorch/编译器版本，以及必要的错误输出。修改代码时，围绕一个明确问题提交可审查的改动，并说明行为变化、验证结果和已知限制。
 
-Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
+## 构建与验证
 
-## Getting Started
+项目使用 C++20 和 CMake 3.18+。先查看 [compatibility.json](compatibility.json) 和 [dependency-manifest.json](dependency-manifest.json)，准备对应的编译器、LibTorch 和依赖；已验证的版本组合与待验证组合分别记录，不能从版本范围推导支持。Windows 官方 Release LibTorch 要求匹配 Release CRT 和 `_ITERATOR_DEBUG_LEVEL=0`。
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/liuding-forge.git`
-3. Create a feature branch: `git checkout -b feature/your-feature-name`
+在仓库根目录分别运行以下两条命令，检查兼容矩阵和依赖声明：
 
-## Development Setup
-
-### Prerequisites
-
-- C++20 compatible compiler
-- CMake 3.18+
-- Python 3 (required by configure-time repository gates)
-- An exact LibTorch combination listed in [`compatibility.json`](compatibility.json)
-
-### Building
-```bash
-mkdir build && cd build
-cmake .. -DCMAKE_PREFIX_PATH=/path/to/libtorch
-cmake --build . --parallel
+```sh
+python scripts/validation/compatibility.py --file compatibility.json --validate
+python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 ```
 
-### Running Tests
-```bash
-ctest --output-on-failure
+复用兼容的现有构建目录，保留其中的 generator、工具链和依赖路径。当前 Windows 开发目录的增量构建示例：
+
+```sh
+cmake -S . -B out/build/config-windows -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+cmake --build out/build/config-windows --config Release --target jyppx_test_core --parallel 2
+ctest --test-dir out/build/config-windows -C Release --output-on-failure -R "^(DeviceTest|TensorUtilsTest)\."
 ```
 
-## Coding Standards
+上述命令中的 `python` 应指向实际安装的 Python 3 解释器。Linux 使用对应的兼容构建目录；单配置 generator 可省略 `--config Release` 和 `-C Release`。没有可复用目录时，先按兼容矩阵准备依赖，再显式配置 `CMAKE_PREFIX_PATH` 和需要的组件。配置阶段不下载依赖；可选组件只按当前任务启用。
 
-### C++ Style
+将示例中的 target 和测试选择替换为实际受影响的范围。公共头、CMake target 或组件依赖变化还需运行以下检查，并验证安装后消费者及相关组件关闭组合：
 
-- Follow the Google C++ Style Guide and compile as C++20
-- Run clang-format with the repository configuration before submitting
-- Run clang-tidy on every target that is inside the strict migration scope
-- Follow naming conventions:
-  - Classes: `PascalCase`
-  - Functions: `snake_case`
-  - Variables: `snake_case`
-  - Constants: `UPPER_CASE`
-  - Member variables: `snake_case_` (trailing underscore)
-
-### Documentation
-
-- Write primarily for library users. Tutorials may be detailed; API, design, and maintenance pages should contain only the current contract, required procedure, and support boundary.
-- Keep complete Doxygen contracts for header declarations and document ownership, lifetime, threading, errors, state, units, ranges, and determinism when they apply.
-- Update an existing page before adding another one, keep examples executable, and store one-time reports or validation results outside the source repository.
-- Keep natural-language paragraphs on one source line and let the Markdown renderer wrap them.
-
-### Repository-local agent skills
-
-`.agents/skills/` contains narrow workflows for AI-assisted maintenance. Use the relevant skill when building and testing the project, onboarding a model, or editing documentation; these skills supplement this guide and do not replace repository tests or review.
-
-### Local Quality Gates
-
-The strict gates currently cover the migrated foundation and core targets and expand with each migrated component:
-
-```bash
-cmake -S . -B build-quality \
-  -DJYPPX_LIUDING_BUILD_TESTS=ON \
-  -DJYPPX_LIUDING_BUILD_DOCS=ON \
-  -DJYPPX_LIUDING_ENABLE_CLANG_TIDY=ON \
-  -DJYPPX_LIUDING_ENABLE_FORMAT_CHECK=ON \
-  -DJYPPX_LIUDING_ENABLE_WARNINGS_AS_ERRORS=ON \
-  -DCMAKE_PREFIX_PATH=/path/to/libtorch
-cmake --build build-quality --target jyppx_migrated_api_docs --parallel
-ctest --test-dir build-quality --output-on-failure
+```sh
+ctest --test-dir out/build/config-windows -C Release --output-on-failure -R "^(ComponentDependencyGraph|RepositoryHygiene|PublicHeaderGuards)$"
 ```
 
-The documentation option requires Doxygen. The clang options require
-`clang-format` and `clang-tidy` to be discoverable on `PATH`, unless their
-corresponding `JYPPX_*_EXECUTABLE` cache entries are supplied explicitly.
+新增行为与缺陷修复应有能验证契约的测试，覆盖适用的错误、取消、资源边界和恢复路径。测试报告应注明源码身份、环境、通过/失败/跳过数量；跳过硬件测试不代表该环境已支持。覆盖率遵循 [coverage-policy.json](coverage-policy.json) 的组件策略。
 
-Before configuring a build, validate the repository compatibility source:
+## 代码与性能要求
 
-```bash
-python scripts/validation/compatibility.py --file compatibility.json --validate python scripts/validation/dependency_manifest.py --file dependency-manifest.json
-```
+- 公共接口使用 `jyppx::liuding`、`<jyppx/liuding/...>` 和导出目标 `jyppx::liuding::<component>`；配置选项使用 `JYPPX_LIUDING_*`。组件依赖遵循 [依赖图约定](docs/development/component_dependencies.md)。
+- 使用仓库 `.clang-format`。公共声明的 Doxygen 注释应说明必要的所有权、生命周期、线程、错误、状态、单位和资源契约；严格质量配置还需通过 clang-tidy 和 Doxygen 检查。
+- C++ 文件保留产品名和项目别名文件头。修改已有接口时同步安装面、示例和用户文档，不保留已退役入口的隐式转发。
+- worker 异常应回传到消费者；提前退出、取消和析构须回收线程、队列与持有的资源。错误路径应保持声明的状态保证。
+- 数据准备与训练路径应控制复制、暂存、预取和设备传输，关注端到端耗时、峰值内存和显存。性能声明须绑定相同工作负载、环境和源码身份，并说明资源取舍。
 
-Do not infer support from a version range. Add a verified lane with reproducible
-configure, build, test, and installed-consumer evidence before changing a
-candidate lane to `supported`.
+性能采样方法见 [benchmark 指南](docs/benchmarks/README.md)，CUDA 训练测量使用 `scripts/benchmarks/run_cuda_baseline.py`，coverage 使用 `scripts/validation/run-coverage.sh`。保留规定的预热和独立采样；编译时间比较需要对应的干净构建。不同 GPU、驱动、LibTorch、编译器或工作负载的结果不能直接套用同一回归阈值。
 
-Generate the local Release timing, artifact-size, throughput, and peak-memory
-baseline with `pwsh -NoProfile -File scripts/benchmarks/Run-Baseline.ps1`. The default clean
-build is required for comparable compile-time evidence.
+## 文档与文件归属
 
-Changes affecting CUDA data transfer, Trainer execution, optimizer orchestration,
-AMP, or allocator behavior also require `scripts/benchmarks/run_cuda_baseline.py` on CUDA
-LibTorch and a real GPU. Keep its default one warmup plus five independent
-sample processes for both frozen modes. A reference is valid only for its exact
-environment key; never compare or copy thresholds across GPUs, drivers, power
-limits, LibTorch builds, host CUDA toolkits, workloads, or compiler builds.
+文档优先面向库的使用者：教程提供完整步骤，API、设计和维护说明保留当前契约、必要操作与支持边界。先更新已有页面并使用链接引用共用内容；README 中英文分文件，其他文档当前使用中文。自然语言段落和列表项各占一行，由 Markdown 渲染器自动换行；代码、表格和目录树保留结构换行。
 
-The Linux coverage lane is `bash scripts/validation/run-coverage.sh`; it requires `gcovr 5.0`
-or newer and
-`CMAKE_PREFIX_PATH` pointing to a CPU LibTorch installation. Coverage and
-sanitizer options are rejected on unsupported compilers, and sanitizer flags are applied to test executables as well as framework libraries. The coverage runner uses two build jobs by default; set `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` explicitly when running on a host with a different memory budget.
+源码、测试、产品工具及可复用维护流程放在仓库；开发报告、审计、历史测量和原始验收证据放在仓库外的方案记录目录。生成物、下载数据、隔离环境和运行日志使用被忽略的目录。复用现有构建，不清理其他任务正在使用的产物。详细规则见 [仓库卫生与测试数据](docs/development/repository_hygiene.md)。
 
-### Testing
+仓库级 AI 工作流位于 [.agents/skills/](.agents/skills/)：构建验证、模型接入和文档维护分别使用对应技能；技能不能替代测试或人工审查。模型架构、预训练权重、预处理和任务质量应分别举证，不能用形状或单步训练通过推导准确率和完整设备支持。
 
-- Write unit tests for new features
-- Ensure all tests pass before submitting
-- Aim for >80% code coverage
-- Follow the [repository hygiene and test-data rules](docs/development/repository_hygiene.md)
-- Keep logs, downloaded data and runtime outputs out of the source root
+## 提交与交付
 
-### Exception safety checklist
-- [ ] Public APIs validate null pointers, empty paths, and invalid numeric
-      options before starting worker threads or mutating state.
-- [ ] Worker-thread exceptions are captured and rethrown on the consumer
-      thread; no exception escapes a `std::thread` entry point.
-- [ ] Queues and worker threads are closed and joined on early loop exit and
-      destruction.
-- [ ] Tests cover the exception type and an informative message.
-- [ ] Error paths leave checkpoints, optimizers, and models in a documented
-      state so callers can log or retry safely.
+当前主线为 `main`。提交前检查差异，只包含当前任务的文件，并补齐必要验证和用户可见变更的 [CHANGELOG.md](CHANGELOG.md)。提交消息采用 `feat(scope): ...`、`fix(scope): ...`、`docs(scope): ...` 等明确形式；交付说明先写解决的问题与结果，再写验证和限制。
 
-## Commit Messages
+GitHub 工作流当前只通过 `workflow_dispatch` 手动触发，开发期推送不自动运行 Actions。正式发布另需完成 [发布流程](docs/development/releasing.md) 中的支持矩阵、安全、制品和升级回退验收。
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+## 贡献许可
 
-```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
-```
-
-Types:
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation
-- `style`: Formatting
-- `refactor`: Code restructuring
-- `test`: Tests
-- `chore`: Maintenance
-
-Example:
-```
-feat(optim): add AdamW optimizer
-
-Implement AdamW optimizer with decoupled weight decay.
-Includes unit tests and documentation.
-
-Closes #123
-```
-
-## Pull Request Process
-
-1. **Update documentation**: Add/update relevant docs
-2. **Add tests**: Include unit tests for new features
-3. **Run tests**: Ensure all tests pass
-4. **Update CHANGELOG.md**: Add entry under "Unreleased"
-5. **Create PR**: Use descriptive title and description
-
-### PR Checklist
-- [ ] Code follows project style
-- [ ] Header declarations and enum values have complete Doxygen comments
-- [ ] clang-format, clang-tidy, and Doxygen gates pass for migrated targets
-- [ ] All tests pass
-- [ ] Documentation updated
-- [ ] CHANGELOG.md updated
-- [ ] Commit messages follow conventions
-- [ ] `RepositoryHygiene` passes and obsolete build/output directories are removed
-
-## Code Review
-
-- Be respectful and constructive
-- Address all review comments
-- Update PR based on feedback
-
-## Questions?
-
-- Open an issue for bugs or feature requests
-- Use discussions for questions
-- Contact maintainers via email
-
-## License
-
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project is licensed exclusively under the [Apache License 2.0](LICENSE), without additional terms or conditions. Submit only work that you own or are authorized to contribute, and preserve all applicable third-party copyright, patent and attribution notices.
+除非事先明确说明，主动提交并纳入本项目的贡献采用 [Apache License 2.0](LICENSE)，不附加其他条款。只提交自己拥有或获准贡献的内容，并保留适用的第三方版权、专利和署名声明。
