@@ -12,9 +12,11 @@
 #include <jyppx/liuding/deployment/onnx_runtime/verification.hpp>
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
+#include <jyppx/liuding/interop/model_bundle.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
 #include <cstring>
@@ -34,6 +36,80 @@ std::string CheckedFile(const Arguments& arguments, const char* path,
   if (sha256_hex(Bytes(data)) != expected.hex)
     throw SerializationError("ONNX verification input SHA-256 mismatch");
   return data;
+}
+
+std::string_view TextBytes(std::span<const std::byte> bytes) {
+  return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
+}
+
+struct VerificationModel {
+  std::string standalone;
+  std::optional<interop::ModelBundleSnapshot> bundle;
+  std::string model_id;
+  std::string file_id;
+
+  std::string_view bytes() const {
+    return bundle ? TextBytes(bundle->files.at(file_id)) : standalone;
+  }
+
+  Json document() const {
+    if (!bundle) return nullptr;
+    const auto& verified = bundle->verification;
+    const auto status = verified.signature_status;
+    return {
+        {"manifest_sha256", verified.manifest_digest.hex},
+        {"bundle_id", verified.manifest.bundle_id},
+        {"model_id", model_id},
+        {"file_id", file_id},
+        {"signature_status",
+         status == interop::BundleSignatureStatus::unsigned_bundle ? "unsigned"
+         : status == interop::BundleSignatureStatus::trusted
+             ? "trusted"
+             : "present_unverified"},
+        {"authenticated", status == interop::BundleSignatureStatus::trusted},
+        {"descriptor_payloads_validated", false},
+        {"runtime_requirements_checked", false}};
+  }
+};
+
+VerificationModel Model(const Arguments& arguments, std::uint64_t model_bytes) {
+  VerificationModel result;
+  const auto bundle = arguments.optional("bundle");
+  if (!bundle) {
+    if (arguments.optional("bundle-sha256") || arguments.optional("model-id"))
+      throw InvalidArgument("Bundle identity options require --bundle");
+    result.standalone = read_text(arguments.require("path"),
+                                  static_cast<std::size_t>(model_bytes));
+    return result;
+  }
+  if (arguments.optional("path"))
+    throw InvalidArgument("Choose exactly one ONNX --path or --bundle");
+  const auto directory = std::filesystem::u8path(*bundle);
+  const ArtifactDigest digest{.hex = arguments.require("bundle-sha256")};
+  validate_artifact_digest(digest);
+  result.model_id = arguments.require("model-id");
+  interop::ModelBundleVerifyOptions options;
+  options.limits.max_manifest_bytes = 4U << 20U;
+  options.limits.max_file_bytes = 256U << 20U;
+  options.limits.max_total_bytes = 512U << 20U;
+  // Discover the selected inventory id, then bind the final retained reads to
+  // the caller's exact manifest. No model is loaded through an unchecked path.
+  {
+    const auto discovered = interop::read_model_bundle_snapshot(
+        directory, digest, {}, options, 4U << 20U);
+    const auto& models = discovered.verification.manifest.models;
+    const auto found = std::find_if(
+        models.begin(), models.end(),
+        [&](const auto& model) { return model.id == result.model_id; });
+    if (found == models.end() ||
+        found->format != interop::BundleModelFormat::onnx)
+      throw CompatibilityError("Select an existing single-file ONNX variant");
+    result.file_id = found->file_ids.front();
+  }
+  const std::array<std::string_view, 1> selected{result.file_id};
+  result.bundle = interop::read_model_bundle_snapshot(
+      directory, digest, selected, options, model_bytes + (4U << 20U));
+  return result;
 }
 
 struct OwnedTensor {
@@ -120,16 +196,16 @@ std::filesystem::path TraceDirectory() {
 Result onnx_verify_command(const Arguments& arguments) {
   arguments.allow({"path", "report", "report-sha256", "cases", "cases-sha256",
                    "tensors", "tensors-sha256", "provider", "provider-option",
-                   "timeout-ms", "root", "id", "reference"});
+                   "timeout-ms", "root", "id", "reference", "bundle",
+                   "bundle-sha256", "model-id"});
   const auto export_json =
       CheckedFile(arguments, "report", "report-sha256", 4U << 20U);
   const auto export_report =
       onnx_export::deserialize_export_report(export_json);
   if (export_report.model_size_bytes > (256U << 20U))
     throw ResourceExhausted("ONNX verification model exceeds 256 MiB");
-  const auto model =
-      read_text(arguments.require("path"),
-                static_cast<std::size_t>(export_report.model_size_bytes));
+  const auto model_owner = Model(arguments, export_report.model_size_bytes);
+  const auto model = model_owner.bytes();
   onnx_export::verify_export_report_model(export_report, Bytes(model));
   const auto case_json =
       CheckedFile(arguments, "cases", "cases-sha256", 4U << 20U);
@@ -250,7 +326,8 @@ Result onnx_verify_command(const Arguments& arguments) {
         "ORT trace does not exclusively observe the requested provider");
   const Json document{
       {"format", "jyppx.liuding.onnx_verification_evidence"},
-      {"schema_version", 1},
+      {"schema_version", 2},
+      {"input_bundle", model_owner.document()},
       {"source", Json::parse(export_json).at("source")},
       {"export_report_sha256", sha256_hex(Bytes(export_json))},
       {"cases_sha256", sha256_hex(Bytes(case_json))},
@@ -282,6 +359,9 @@ Result onnx_verify_command(const Arguments& arguments) {
                {"onnx_sha256", export_report.model_digest.hex},
                {"numerical", passed ? "passed" : "failed"}}};
   metadata.updated_at_unix_ms = metadata.created_at_unix_ms;
+  if (model_owner.bundle)
+    metadata.tags.emplace("input_bundle_sha256",
+                          model_owner.bundle->verification.manifest_digest.hex);
   (void)store.start(metadata);
   std::vector<experiment::RunArtifactUpload> uploads;
   const auto append = [&](std::string suffix, std::string role,
@@ -305,6 +385,9 @@ Result onnx_verify_command(const Arguments& arguments) {
   append("verification", "onnx.verification_report", "application/json",
          encoded);
   append("profile", "onnx.runtime_profile", "application/json", profile_json);
+  if (model_owner.bundle)
+    append("bundle", "onnx.input_bundle_manifest", "application/json",
+           TextBytes(model_owner.bundle->manifest_bytes));
   const auto receipts = store.put_artifacts(id, uploads);
   (void)store.transition(
       id,
@@ -323,6 +406,7 @@ Result onnx_verify_command(const Arguments& arguments) {
                {"numerical", passed ? "passed" : "failed"},
                {"requested_provider_observed", true},
                {"source_authenticated", false},
+               {"input_bundle", model_owner.document()},
                {"artifacts", artifacts},
                {"report", document}},
           passed ? 0 : 4};

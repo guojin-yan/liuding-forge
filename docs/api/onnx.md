@@ -103,3 +103,13 @@ liuding-forge model onnx verify \
 ```
 
 命令核对模型和原训练来源，要求实际 trace 中的 kernel 全部属于显式 Provider，不允许静默 CPU 回退。需要参数时重复使用 `--provider-option key=value`；`--timeout-ms` 默认 60000，属于协作式执行期限。每次验证使用新的 run ID，六个制品（模型、导出报告、样例 JSON、样例 Tensor、验证报告、原始 trace）成批登记到独立 run；数值通过后 completed，数值失败后 failed 并返回退出码 4，输入或后端错误返回 2。原训练保持原状态。验证制品含实际样本和预期值；字节摘要、调用方参考和 run lineage 均不认证生产者，完整 bundle 发布、真实签名及其他设备/Provider 的资格仍需单独验收。
+
+模型已在 [bundle](model_bundle.md) 中时，用下面三个参数替换 `--path model.onnx`，其余报告、样例、Provider 和 run 参数相同：
+
+```sh
+--bundle ./model-bundle --bundle-sha256 ORIGINAL_MANIFEST_SHA256 --model-id primary
+```
+
+命令完整校验 bundle，按显式模型 ID 选择单文件 ONNX，使用原生句柄读取并保留已校验的同一份模型字节，再进行官方 checker 与实际数值验证。manifest SHA-256 对应原始 `manifest.json` 的完整字节；大小限制为 manifest 4 MiB、单文件 256 MiB、数据文件合计 512 MiB。不得同时传 `--path`，其他模型、未声明文件或任何文件摘要错误均明确拒绝。
+
+验证证据封装 `jyppx.liuding.onnx_verification_evidence` 使用 v2，新增 `input_bundle`：普通文件输入时为 null，bundle 输入时记录原始 manifest 摘要、bundle/model/file ID 和签名状态；内部执行报告仍使用原有 v1。bundle 模式额外将原始 manifest 字节登记为第七个制品，数值失败也保留关联。该模式使用调用方提供的原始 FP32 case，不解释包中的预处理、后处理和任务描述符，不校验声明的完整 runtime requirements；这些未检查项在报告中明确为 false。实际执行只授予选中模型和样例的证据，不授予包内其他模型或全部部署环境资格。完整证据打包、CLI 导出编排与可信签名仍需另行完成。

@@ -323,6 +323,22 @@ inline void Bundle(const std::filesystem::path& root,
     rejected = true;
   }
   Require(rejected, "unsigned-bundle-cannot-become-trusted");
+  const std::array<std::string_view, 2U> selected{"input", "evaluation"};
+  const auto snapshot = interop::read_model_bundle_snapshot(
+      root / "bundle", verified.manifest_digest, selected);
+  Require(snapshot.files.size() == 2U &&
+              Digest(snapshot.manifest_bytes) == verified.manifest_digest &&
+              snapshot.verification.manifest_digest == verified.manifest_digest,
+          "installed-owned-bundle-snapshot");
+  for (const auto id : selected) {
+    const auto file = std::find_if(
+        verified.manifest.files.begin(), verified.manifest.files.end(),
+        [&](const auto& entry) { return entry.id == id; });
+    Require(
+        file != verified.manifest.files.end() &&
+            Digest(snapshot.files.at(std::string(id))) == file->artifact.digest,
+        "installed-snapshot-selected-digest");
+  }
 }
 
 inline void BackendProtocol() {

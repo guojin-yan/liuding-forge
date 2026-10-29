@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加有界模型包快照读取，直接返回同次完整校验中的模型字节；ONNX 验证命令可按模型 ID 消费 bundle，并保留原始 manifest 与实际执行证据的关联。
 - 增加原生 C++ ONNX Runtime 数值验证、实际 Provider/kernel trace 汇总及 CLI 验证制品关联；数值失败保留失败报告与 run，不声明任务质量或性能资格。
 
 ### Fixed

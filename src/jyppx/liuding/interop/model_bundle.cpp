@@ -854,7 +854,7 @@ class Directory final {
       }
       const std::string name(entry->d_name);
       if (name == "." || name == "..") continue;
-      struct stat info {};
+      struct stat info{};
       if (::fstatat(get(), name.c_str(), &info, AT_SYMLINK_NOFOLLOW) != 0 ||
           (!S_ISDIR(info.st_mode) && !S_ISREG(info.st_mode)))
         Io("directory.entry.no_follow");
@@ -918,7 +918,7 @@ class Input final {
   }
   void stable() const {
 #ifndef _WIN32
-    struct stat after {};
+    struct stat after{};
     if (::fstat(handle_.get(), &after) != 0 ||
         before_.st_size != after.st_size ||
         before_.st_nlink != after.st_nlink ||
@@ -934,7 +934,7 @@ class Input final {
   Handle handle_;
   std::uint64_t size_ = 0U;
 #ifndef _WIN32
-  struct stat before_ {};
+  struct stat before_{};
 #endif
 };
 
@@ -1080,17 +1080,45 @@ void Inventory(const Directory& root, const ModelBundleManifest& manifest,
               "all declared files and directories present");
 }
 
+struct SnapshotRequest {
+  const ArtifactDigest& expected_manifest;
+  const std::set<std::string_view>& file_ids;
+  std::uint64_t maximum_bytes;
+  ModelBundleSnapshot& result;
+};
+
 ModelBundleVerification Verify(const Directory& directory,
-                               const ModelBundleVerifyOptions& options) {
+                               const ModelBundleVerifyOptions& options,
+                               SnapshotRequest* snapshot = nullptr) {
   Input manifest_input(directory, std::string(kModelBundleManifest));
-  auto manifest_bytes =
-      Consume(manifest_input, options.limits.max_manifest_bytes, true);
+  const auto manifest_limit =
+      snapshot
+          ? (std::min)(
+                snapshot->maximum_bytes,
+                static_cast<std::uint64_t>(options.limits.max_manifest_bytes))
+          : options.limits.max_manifest_bytes;
+  auto manifest_bytes = Consume(manifest_input, manifest_limit, true);
+  if (snapshot && !(manifest_bytes.digest == snapshot->expected_manifest))
+    Malformed("manifest.digest", "the expected original manifest SHA-256");
   const auto json = std::string_view(
       reinterpret_cast<const char*>(manifest_bytes.bytes.data()),
       manifest_bytes.bytes.size());
   ModelBundleVerification result;
   result.manifest = deserialize_model_bundle_manifest(json, options.limits);
   result.manifest_digest = std::move(manifest_bytes.digest);
+  if (snapshot) {
+    std::uint64_t retained = manifest_bytes.bytes.size();
+    std::size_t found = 0U;
+    for (const auto& file : result.manifest.files) {
+      if (snapshot->file_ids.contains(file.id)) {
+        Add(retained, file.artifact.size_bytes, snapshot->maximum_bytes,
+            "snapshot.bytes");
+        ++found;
+      }
+    }
+    if (found != snapshot->file_ids.size())
+      Invalid("snapshot.file_ids", "existing manifest file ids");
+  }
   result.signature_status = Signatures(result.manifest, options);
   Inventory(directory, result.manifest, options.limits);
   std::map<std::string, std::map<std::string, const BundleTensor*>> expected;
@@ -1105,8 +1133,9 @@ ModelBundleVerification Verify(const Directory& directory,
     Input input(parent, path.filename());
     if (input.size() != file.artifact.size_bytes)
       Malformed("file.size", "the declared exact file size");
+    const bool selected = snapshot && snapshot->file_ids.contains(file.id);
     auto content = Consume(input, options.limits.max_file_bytes,
-                           file.role == BundleFileRole::weights);
+                           selected || file.role == BundleFileRole::weights);
     if (!(content.digest == file.artifact.digest))
       Malformed("file.digest", "the declared full-file SHA-256 digest");
     Add(result.verified_file_bytes, input.size(),
@@ -1127,10 +1156,14 @@ ModelBundleVerification Verify(const Directory& directory,
       }
       result.verified_tensors += actual.size();
     }
+    if (selected)
+      snapshot->result.files.emplace(file.id, std::move(content.bytes));
   }
   // Check membership again after all reads. This detects ordinary concurrent
   // namespace edits, while the API still promises only a verification snapshot.
   Inventory(directory, result.manifest, options.limits);
+  if (snapshot)
+    snapshot->result.manifest_bytes = std::move(manifest_bytes.bytes);
   return result;
 }
 
@@ -1245,6 +1278,34 @@ ModelBundleVerification verify_model_bundle_directory(
     Limits(options.limits);
     const Directory root(directory);
     return Verify(root, options);
+  });
+}
+
+ModelBundleSnapshot read_model_bundle_snapshot(
+    const std::filesystem::path& directory,
+    const ArtifactDigest& expected_manifest,
+    std::span<const std::string_view> file_ids,
+    const ModelBundleVerifyOptions& options, std::uint64_t max_snapshot_bytes) {
+  return Boundary([&] {
+    Limits(options.limits);
+    validate_artifact_digest(expected_manifest);
+    if (max_snapshot_bytes == 0U ||
+        max_snapshot_bytes > static_cast<std::uint64_t>(
+                                 (std::numeric_limits<std::size_t>::max)()))
+      Invalid("snapshot.bytes", "a positive platform-sized byte bound");
+    Count(file_ids.size(), options.limits.max_files, "snapshot.file_ids");
+    std::set<std::string_view> selected;
+    for (const auto id : file_ids) {
+      Token(id, options.limits);
+      if (!selected.insert(id).second)
+        Invalid("snapshot.file_ids", "unique manifest file ids");
+    }
+    ModelBundleSnapshot result;
+    SnapshotRequest request{expected_manifest, selected, max_snapshot_bytes,
+                            result};
+    const Directory root(directory);
+    result.verification = Verify(root, options, &request);
+    return result;
   });
 }
 

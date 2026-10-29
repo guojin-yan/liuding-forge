@@ -57,9 +57,11 @@ class OnnxVerificationCliTest(unittest.TestCase):
         }), encoding="utf-8")
 
     def verify(self, identity: str = "verification-1", expected: int = 0,
-               provider: str = "CPUExecutionProvider") -> dict:
+               provider: str = "CPUExecutionProvider",
+               model_arguments: tuple | None = None) -> dict:
+        model_arguments = model_arguments or ("--path", self.model_path)
         return self.invoke(
-            "model", "onnx", "verify", "--path", self.model_path,
+            "model", "onnx", "verify", *model_arguments,
             "--report", self.report_path, "--report-sha256", hashlib.sha256(self.report).hexdigest(),
             "--cases", self.case_path, "--cases-sha256", hashlib.sha256(self.case_path.read_bytes()).hexdigest(),
             "--tensors", self.tensor_path, "--tensors-sha256", hashlib.sha256(self.tensor_path.read_bytes()).hexdigest(),
@@ -72,6 +74,96 @@ class OnnxVerificationCliTest(unittest.TestCase):
         data = (self.root / "artifacts/objects" / digest[:2] / digest[2:]).read_bytes()
         self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
         return data
+
+    def bundle(self) -> tuple:
+        self.bundle_path = self.directory / "bundle 测试"
+        self.bundle_path.mkdir()
+        files = []
+
+        def add(name: str, role: int, data: bytes, path: str,
+                media: str = "application/json") -> None:
+            target = self.bundle_path / path
+            target.parent.mkdir(exist_ok=True)
+            target.write_bytes(data)
+            files.append({"id": name, "path": path, "role": role, "artifact": {
+                "digest": {"algorithm": "sha256", "hex": hashlib.sha256(data).hexdigest()},
+                "size_bytes": len(data), "logical_name": name, "media_type": media,
+                "producer": "independent.bundle.fixture",
+            }})
+
+        manifest = {
+            "format": "jyppx.model_bundle", "schema_version": 1, "bundle_id": "onnx.cli.fixture",
+            "build": self.invoke("--version")["data"]["build"],
+            "compression": "none", "encryption": "none", "files": files,
+            "models": [{"id": "primary", "format": "onnx", "file_ids": ["model"], "tensors": []},
+                       {"id": "opaque", "format": "onnx", "file_ids": ["opaque"], "tensors": []}],
+            "labels": None, "weight_import_reports": [], "signatures": [],
+            "runtime": {"backend_id": "fixture.declaration", "backend_version": "1.0.0",
+                        "environment_lock": {"algorithm": "sha256", "hex": "a" * 64},
+                        "dependencies": [], "devices": ["cpu"], "dtypes": ["float32"],
+                        "os_arch": ["fixture.arch"], "dynamic_shapes": True},
+        }
+        add("model", 2, self.model, "models/model.onnx", "application/onnx")
+        add("opaque", 2, b"not an ONNX graph", "models/opaque.onnx", "application/onnx")
+        for name, role in (("input_schema", 3), ("output_schema", 3), ("preprocessing", 4),
+                           ("postprocessing", 4), ("evaluation", 6), ("sbom", 7), ("provenance", 8)):
+            add(name, role, json.dumps({"fixture": name, "schema_version": 1}).encode(),
+                f"metadata/{name}.json")
+            manifest[name] = {"schema_id": f"fixture.{name}", "schema_version": 1, "file_id": name}
+        # Original noncanonical whitespace must survive in the recorded artifact.
+        self.manifest_bytes = (json.dumps(manifest, indent=2) + "\n\n").encode()
+        (self.bundle_path / "manifest.json").write_bytes(self.manifest_bytes)
+        return ("--bundle", self.bundle_path, "--bundle-sha256",
+                hashlib.sha256(self.manifest_bytes).hexdigest(), "--model-id", "primary")
+
+    def test_bundle_model_executes_and_binds_original_manifest_for_pass_and_failure(self) -> None:
+        self.suite()
+        arguments = self.bundle()
+        result = self.verify(model_arguments=arguments)["data"]
+        self.assertEqual(result["numerical"], "passed")
+        self.assertEqual(len(result["artifacts"]), 7)
+        bundle = result["input_bundle"]
+        self.assertEqual(bundle["model_id"], "primary")
+        self.assertEqual(bundle["manifest_sha256"], hashlib.sha256(self.manifest_bytes).hexdigest())
+        self.assertFalse(bundle["authenticated"])
+        self.assertFalse(bundle["descriptor_payloads_validated"])
+        self.assertFalse(bundle["runtime_requirements_checked"])
+        self.assertEqual(result["report"]["schema_version"], 2)
+        self.assertEqual(result["report"]["input_bundle"], bundle)
+        artifacts = {item["role"]: self.artifact(item) for item in result["artifacts"]}
+        self.assertEqual(artifacts["onnx.input_bundle_manifest"], self.manifest_bytes)
+        self.assertEqual(artifacts["onnx.model"], self.model)
+        self.suite(wrong=True)
+        failed = self.verify(identity="bundle-failed", expected=4, model_arguments=arguments)["data"]
+        self.assertEqual(failed["numerical"], "failed")
+        self.assertEqual(failed["input_bundle"], bundle)
+        self.assertEqual(len(failed["artifacts"]), 7)
+        self.invoke("run", "verify", "--root", self.root)
+
+    def test_bundle_identity_selection_and_input_modes_fail_before_attempt(self) -> None:
+        self.suite()
+        arguments = self.bundle()
+        self.verify(model_arguments=(*arguments, "--path", self.model_path), expected=2)
+        self.verify(model_arguments=("--path", self.model_path, "--model-id", "primary"), expected=2)
+        bad_digest = list(arguments)
+        bad_digest[3] = "e" * 64
+        self.verify(model_arguments=tuple(bad_digest), expected=2)
+        for variant in ("missing", "opaque"):
+            self.verify(model_arguments=(*arguments[:-1], variant), expected=2)
+        self.assertEqual(len(self.runs()), 1)
+
+    def test_bundle_rejects_tampered_selected_or_unselected_files(self) -> None:
+        self.suite()
+        arguments = self.bundle()
+        model = self.bundle_path / "models/model.onnx"
+        model.write_bytes(self.model[:-1] + bytes([self.model[-1] ^ 1]))
+        self.verify(model_arguments=arguments, expected=2)
+        model.write_bytes(self.model)
+        unselected = self.bundle_path / "metadata/evaluation.json"
+        data = unselected.read_bytes()
+        unselected.write_bytes(data[:-1] + b" ")
+        self.verify(model_arguments=arguments, expected=2)
+        self.assertEqual(len(self.runs()), 1)
 
     def test_real_cpu_numerics_profile_and_complete_evidence_are_durable(self) -> None:
         self.suite()

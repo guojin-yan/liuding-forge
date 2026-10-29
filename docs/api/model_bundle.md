@@ -1,155 +1,68 @@
-# Immutable model bundles
+# 模型包
 
-`jyppx::liuding::interop::ModelBundleManifest` describes a local, immutable directory of
-model data. `verify_model_bundle_directory` verifies actual file bytes and every
-safetensors tensor association. `publish_model_bundle` copies declared sources to
-private staging, verifies them, flushes them, and atomically publishes a **new**
-directory. These APIs belong to `jyppx::liuding::interop` and require foundation; they do
-not depend on core, nn, training, experiment, Python, or a model runtime.
+头文件：`<jyppx/liuding/interop/model_bundle.hpp>`。`jyppx::liuding::interop` 提供数据型 bundle v1 的清单、完整性校验、快照读取、签名策略和原子发布，不执行包内代码。部署执行见 [ONNX](onnx.md)。
 
-The public header is `jyppx/interop/model_bundle.hpp`. The reserved manifest file
-is `manifest.json`. Schema version 1 is the first documented bundle format.
-Other versions, unknown fields, duplicate decoded JSON keys, and unsupported
-compression/encryption fail. There is no invented legacy/N−1 migration: a future
-documented migration needs fixtures for the actual older format.
+## 内容与格式
 
-## What a bundle contains
+模型包目录包含 `manifest.json` 和完整文件清单。每个文件具有唯一 ID、可移植相对路径、角色、长度和完整 SHA-256，必须恰好被一个模型或描述符引用；未声明的文件、目录和未引用项均拒绝。描述符由所属模块定义独立 schema，interop 只校验外层结构和字节身份。
 
-Every data file appears once in the exhaustive `files` inventory. Its entry has a
-unique id, relative path, closed data role, and foundation `ArtifactRef` containing
-the full SHA-256 digest, exact size, media type, logical name, and producer.
-References use file ids; an `ArtifactRef` remains storage neutral and never
-contains a local storage path. Every file has exactly one manifest owner. A
-present but unreferenced file fails validation.
+清单必须声明构建身份、模型、输入/输出 schema、预处理/后处理、evaluation、SBOM、provenance 和 runtime requirements；labels 与权重导入报告可选。依赖使用固定版本，不接受通配符。预处理为 identity 时也须显式声明。压缩与加密目前均为 `none`。
 
-| Field | Contract |
-|---|---|
-| `format`, `schema_version` | Exactly `jyppx.model_bundle`, integer `1` |
-| `bundle_id`, `build` | Producer identity and the complete producer `BuildFingerprint`; reading never samples the reader's build |
-| `compression`, `encryption` | Exactly `none`; no decompression or custom cryptography |
-| `models` | Explicit variants with complete file lists; formats are safetensors or single-file ONNX |
-| safetensors `tensors` | Unique name, exact dtype/shape, device intent, and owning shard id for **every** tensor |
-| input/output schemas | Required owner-versioned descriptor references |
-| preprocessing/postprocessing | Required owner-versioned declarative descriptor references, including an explicit identity descriptor where applicable |
-| labels | Owner-versioned descriptor reference, or explicit JSON `null` |
-| evaluation, SBOM, provenance | Required owner-versioned evidence/data references |
-| weight import reports | Optional versioned full/partial-import report references |
-| runtime | Explicit backend/version, environment-lock digest, exact dependency versions, device/dtype/OS matrices, and dynamic-shape declaration |
-| signatures | Bounded detached signature metadata; the empty array means unsigned |
+| 模型格式 | 校验范围 |
+| --- | --- |
+| safetensors | 校验每个 shard 的完整摘要及全部 Tensor 名称、dtype、shape 和 shard 关联；同一模型中的 Tensor 名称唯一 |
+| ONNX | 仅支持一个自包含模型文件，media type 为 `application/onnx`；不接受 external data。interop 只校验字节完整性，`integrity_only_models` 明确计数；官方 checker、图支持和数值另由部署模块验证 |
 
-A descriptor reference contains its owner's `schema_id`, positive
-`schema_version`, and `file_id`. The referenced file is verified by size and
-digest. The schema owner must parse its own data before invocation; bundle verification does not pretend that an unknown owner's schema is understood. The same applies to evaluation evidence: including a report does not imply that evaluation passed, or that it meets a particular deployment policy.
+`shard_safetensors_for_bundle()` 将完整 Tensor 按编码后字节上限分组，不拆分 Tensor，不改变类型。返回值同时拥有编码字节、文件清单和 Tensor 关联；调用方保存源文件后参与发布。编码会分配完整输出，属于有界内存编码器，不能当作流式写入器。
 
-Runtime requirements are declarations. Verification never claims that the backend is installed, an accelerator is available, or numerical results agree. Use backend preflight and official runtime verification for those decisions.
-
-## Safetensors sharding
-
-`shard_safetensors_for_bundle(tensors, maximum_bytes, prefix, device_intent)`
-validates names, shapes, dtypes, byte order, and exact payload sizes before
-returning encoded shards. It sorts tensor names and greedily groups **whole**
-tensors. A conservative JSON-header bound includes offsets, escaping, padding,
-and framing. Every produced file fits the requested maximum including its
-header; some space may remain unused. A single tensor that cannot fit fails
-explicitly. No tensor is silently split or converted. Empty tensor sets produce
-one valid empty safetensors file.
-
-Each `EncodedBundleShard` owns its complete bytes, populated inventory entry,
-and complete tensor associations. Add `file.id` to the model's `file_ids`, its
-`tensors` to the model's tensor list, and its `file` to the manifest inventory.
-The caller writes the bytes to a local source file for publication. All source spans must remain alive and unchanged while sharding runs. Output is buffered in memory and bounded by `max_total_bytes`; it is not a streaming filesystem writer.
-
-Directory verification parses every actual safetensors shard after matching its full-file digest. Actual names, dtypes, and shapes must match the manifest exactly. Missing tensors, extra tensors, tensors assigned to another shard, and duplicate names across shards of one model all fail. Zero dimensions and scalars retain the safetensors codec's exact semantics. `device_intent` is `cpu`, `cuda`, or `any` and never causes device allocation.
-
-ONNX support in this envelope is **file integrity only**. It accepts one opaque model file with media type `application/onnx`, without a safetensors tensor list. It does not parse protobuf, follow ONNX external-data references, call a checker, or run ONNX Runtime. `ModelBundleVerification::integrity_only_models` explicitly counts these variants. A deployment adapter must use the official parser/checker and numerical verification contract. Multi-file ONNX/external-data packaging is not supported by this schema-v1 implementation. An ONNX bundle verification result must not be presented as official model/runtime validation.
-
-## Verify and publish
+## 校验与读取
 
 ```cpp
 #include <jyppx/liuding/interop/model_bundle.hpp>
+#include <array>
 
 namespace io = jyppx::liuding::interop;
+auto checked = io::verify_model_bundle_directory("artifacts/model-v1");
 
-auto verified = io::verify_model_bundle_directory("artifacts/model-v1");
-// verified.manifest is a validated snapshot; verified.manifest_digest is the
-// SHA-256 of the original manifest bytes, not a re-encoded approximation.
-// verified.signature_status distinguishes integrity from authentication.
-
-// Construct manifest with all owner descriptors and actual inventory hashes.
-// Supply exactly one immutable local source file per declared file id.
-io::ModelBundleManifest manifest = verified.manifest;
-std::vector<io::BundlePublishSource> sources;
-for (const auto& file : manifest.files) {
-  sources.push_back({.file_id = file.id,
-                     .source_path = std::filesystem::path("artifacts/model-v1") /
-                                    file.relative_path});
-}
-auto published = io::publish_model_bundle("artifacts/model-v2", manifest, sources);
+// 使用调用方独立持有的原始 manifest SHA-256；不能用重编码结果代替。
+jyppx::liuding::ArtifactDigest expected{.hex = "完整的64位小写SHA256"};
+const std::array<std::string_view, 1> selected{"primary-model"};
+auto snapshot = io::read_model_bundle_snapshot(
+    "artifacts/model-v1", expected, selected, {}, 256ULL << 20U);
+// snapshot.files.at("primary-model") 是已校验的同一份字节，随后直接交给运行端。
+// snapshot.manifest_bytes 保留原始编码和空白；不会按路径重新加载模型。
 ```
 
-Publication requires an existing local parent directory. It exclusively creates a sibling staging directory, opens each source without following links, copies and hashes it, writes the canonical manifest, verifies the complete staging directory, and flushes every file. Linux additionally fsyncs the child directories and parent. Windows uses `FlushFileBuffers` and `MOVEFILE_WRITE_THROUGH`.
+`verify_model_bundle_directory()` 返回已校验的元数据和原始 manifest 摘要，不授予随后重新打开路径的保证。需要加载内容时使用 `read_model_bundle_snapshot()`：传入预期 manifest 摘要和唯一文件 ID，完整校验包内所有文件，只保留选中内容和原始 manifest。空选择仅保留 manifest；未知或重复 ID 拒绝。返回结果独立拥有字节，后续文件被替换不会改变结果，任何失败均不返回部分快照。
 
-The final operation is atomic **no-replace** rename: Linux `renameat2` with
-`RENAME_NOREPLACE`, or Windows `MoveFileExW` without replace flags. An existing or
-racing destination is never modified, including an existing empty directory.
-An OS/filesystem without the required primitive fails closed. Directory
-publication is supported on Windows local drive paths and Linux; UNC/device
-paths and fallback non-atomic copy publication are unsupported. The local
-filesystem must provide the documented rename/flush semantics.
+`max_snapshot_bytes` 限制原始 manifest 与全部选中 payload 的合计字节，默认 512 MiB；在读取选中数据前预检声明的合计大小。该上限不包含解析元数据、allocator 开销和一个未选中的 safetensors 临时 shard，也不是 RSS 上限。普通目录校验只暂存一个 safetensors shard，其他数据流式校验。
 
-On a precommit failure, cleanup of private staging is attempted and any older
-valid bundle remains intact. A crash or cleanup I/O failure may leave a private
-staging directory. The function never recursively clears a destination. If the
-rename succeeds but the later parent-directory flush fails, the function may
-throw while the complete new directory is already visible. Verify that target
-before retrying. Atomic visibility is distinct from the platform/filesystem's
-power-loss guarantees. Crash-left staging directories are not adopted or
-automatically deleted during verification.
+## 发布
 
-Immutable names are deliberate: publish the next version under a new name and
-let the owning application select its active artifact reference. This API does
-not claim atomic replacement of a populated directory or manage application
-release pointers.
+`publish_model_bundle(destination, manifest, sources, options)` 要求父目录已存在，并为每个清单文件提供一个只读源路径。实现独占创建同级暂存目录，复制、校验、写入 canonical manifest、检查完整目录并 flush，然后以 no-replace rename 发布。既有目标（含空目录）及竞争创建的目标都不会被覆盖；下一版本应使用新目录名。
 
-## Paths and resources
+支持 Windows 本地盘与 Linux；不支持 UNC/device 路径或非原子复制降级。Linux 使用 `renameat2(RENAME_NOREPLACE)` 并 fsync 子目录和父目录；Windows 使用 `FlushFileBuffers` 与 `MOVEFILE_WRITE_THROUGH`。文件系统必须提供对应语义。rename 之前失败会尝试清理私有暂存，既有包保持完整；rename 成功后的持久化错误可能留下完整目标，应先核验再重试。崩溃遗留的暂存目录不会自动收养或删除，目录发布不管理应用的活动版本指针。
 
-All manifest paths use lowercase ASCII letters, digits, `_`, `-`, `.`, and `/`.
-Components are nonempty, at most 128 bytes, have no trailing dot, and cannot be
-`.`/`..` or Windows device names. There are at most 16 components. Absolute,
-drive, backslash, alternate stream, traversal, case-alias, duplicate, reserved manifest, and file/directory-prefix collisions fail. The trusted **outer** local directory and source paths may contain Unicode and spaces.
+## 路径与资源
 
-Native directory handles traverse every ancestor without following symlinks or Windows reparse points. Native file handles supply size and all hashed/read bytes; files with multiple hard links are rejected. Windows denies write/delete sharing during reads. Linux checks inode size, link count, modification time, and change time before/after reading. Bundle membership is checked before and after file reads, and undeclared files or empty directories fail.
+包内路径仅使用小写 ASCII 字母、数字、`_`、`-`、`.`、`/`；每段最多 128 字节、最多 16 段。拒绝空段、`.`/`..`、Windows 设备名、尾随点、绝对路径、盘符、反斜杠、alternate stream、大小写别名及文件/目录前缀冲突。外层可信本地目录和源路径可含中文、空格。
 
-The owner must keep the outer source/destination namespace and source content stable, with trusted parent-directory permissions. Verification returns a snapshot, not a filesystem lease. It does not authorize reopening an untrusted path later without checking it again or loading different bytes. This is not an OS security sandbox and makes no claim against privileged concurrent mutation, mount replacement, or compromised filesystem/kernel behavior.
+原生句柄逐级拒绝 symlink/reparse point，文件须为单硬链接的普通文件。Windows 读取时拒绝写入/删除共享；Linux 比对读前后的大小、链接数、mtime/ctime。读取前后都核对目录清单。调用方须保证可信父目录权限与操作期间的命名空间稳定；这些机制不构成 OS 沙箱，也不防护特权修改、挂载替换或受损内核。
 
-The default limits are 16 MiB of manifest bytes, 1,024 files, 32 model variants, 65,536 tensors, rank 32, dimension/element count up to 2³², 512 MiB per file, and 4 GiB aggregate data files. `max_total_bytes` excludes the separately bounded manifest. Decoded strings are at most 4,096 bytes; paths default to 1,024 bytes. Signature limits are 16 entries and 2,048 decoded bytes per signature. All limits are explicit positive values and can be reduced for the application.
+默认上限为 manifest 16 MiB、1,024 文件、32 模型、65,536 Tensor、rank 32、单维/元素数 2³²、单文件 512 MiB、数据文件合计 4 GiB；`max_total_bytes` 不含单独计费的 manifest。字符串最多 4,096 字节，路径默认 1,024 字节，最多 16 签名、单个签名字节最多 2,048。JSON 深度、节点数和 Tensor 展开量也独立受限。资源超限抛 `ResourceExhausted`，编码错误抛 `SerializationError`，不支持的版本/编码抛 `CompatibilityError`，文件系统或 no-follow 错误抛 `IoError`。
 
-JSON depth and nodes are bounded independently of declared array counts. File sizes are read from the opened native handle and checked before buffering. Only one safetensors shard is buffered during directory verification; descriptor and opaque model bytes are streamed. Encoded byte/count limits are not a process RSS guarantee. Resource exhaustion uses `ResourceExhausted`; malformed encoded contracts use `SerializationError`; unsupported versions/encodings use
-`CompatibilityError`; filesystem/no-follow failures use `IoError`.
+## 签名与信任
 
-## Signature trust and data-only policy
+`model_bundle_signing_payload()` 返回域前缀 `JYPPX-MODEL-BUNDLE-SIGNATURE-V1`、一个换行字节和去掉整个 signatures 字段后的 canonical JSON。清单中的摘要、大小、构建、模型/Tensor 关联、描述符和 runtime requirements 全部被覆盖；键和基于身份的数组确定性排序。
 
-`model_bundle_signing_payload` returns the exact bytes to sign:
+调用方通过 `ModelBundleVerifyOptions::signature_verifier` 提供成熟密码实现与可信 key 策略。回调收到实际完整签名字节，必须验证每个声明的签名；拒绝会失败，抛错会转换为 `BackendError`。库不发现私钥、不内置伪造签名算法。
 
-```text
-JYPPX-MODEL-BUNDLE-SIGNATURE-V1\n
-<canonical compact JSON with the entire signatures field omitted>
-```
+| 策略与输入 | 结果 |
+| --- | --- |
+| 无签名、默认策略 | `unsigned_bundle` |
+| 有签名、未提供 verifier | `present_unverified` |
+| 所有签名经显式 verifier 接受 | `trusted` |
+| 要求可信签名但缺签名或 verifier | 拒绝 |
+| verifier 拒绝或抛错 | 拒绝 |
 
-The displayed `\n` is one newline byte. There is no extra newline before JSON. All inventory digests/sizes, producer build, model/tensor mappings, descriptors, and runtime requirements are covered. Canonicalization sorts object keys and identity-based arrays; semantically identical inventory ordering yields the same payload. Detached signature metadata uses an algorithm token, trusted key id, and nonempty lowercase hex. No private key or implicit key discovery is stored.
-
-The caller supplies `ModelBundleVerifyOptions::signature_verifier`. Its callback receives each signature and the **actual full canonical payload** and must use a mature cryptographic implementation plus the application's trusted-key policy. Every declared signature must be accepted. Returning false fails verification; throwing produces a redacted `BackendError`. No algorithm is implemented by inventing a hash-based signature substitute.
-
-| Situation | Result |
-|---|---|
-| No signatures, default policy | `unsigned_bundle` |
-| Signatures present, no verifier, default policy | `present_unverified` |
-| Every signature accepted by explicit verifier | `trusted` |
-| `require_trusted_signature=true` with no signatures/verifier | Reject |
-| Any supplied verifier rejects or throws | Reject |
-
-SHA-256 identity alone does not authenticate a producer. Applications accepting untrusted distributions should require a trusted signature or independently trusted manifest digest. Signature presence alone is never called valid.
-
-The v1 role/format set has no executable/plugin entry. Known script, dynamic library, executable, pickle, Torch archive, and zip filenames are rejected; common executable/shebang magic is rejected even under a data filename. These checks are intentionally not a universal malware classifier. No bundle file is ever imported, loaded as a library, unpickled, or executed. Owner descriptor parsers and downstream runtimes must maintain that policy and apply their own untrusted-data checks.
-
-Unit coverage includes canonical round trips, version/unknown/duplicate keys, resource bounds, path aliases/traversal, file/tensor coverage, real hashes/sizes, no-follow and hard-link checks, stage cleanup, preservation of existing bundles, and explicit signature-policy callbacks. Synthetic callbacks in tests verify the trust interface only and are not cryptographic signing implementations.
+完整 SHA-256 仅证明内容身份；签名存在也不代表已认证。快照读取沿用同一信任策略。v1 没有插件或可执行角色，会拒绝常见脚本、动态库、可执行文件、pickle、Torch archive 和 zip 名称及常见可执行魔数；这不是通用恶意文件识别器，包内文件不会被自动导入、反序列化为对象或执行。

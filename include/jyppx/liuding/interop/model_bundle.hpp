@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -203,6 +204,14 @@ struct ModelBundleVerification {
       BundleSignatureStatus::unsigned_bundle;  ///< Explicit trust result.
 };
 
+/** @brief Owned original bytes from the same reads used for verification. */
+struct ModelBundleSnapshot {
+  ModelBundleVerification verification;   ///< Complete integrity/trust result.
+  std::vector<std::byte> manifest_bytes;  ///< Exact original manifest encoding.
+  std::map<std::string, std::vector<std::byte>> files;
+  ///< Only requested file ids; values are complete verified file bytes.
+};
+
 /** @brief One source for publication; caller retains immutable source content.
  */
 struct BundlePublishSource {
@@ -268,6 +277,29 @@ std::string model_bundle_signing_payload(const ModelBundleManifest& manifest,
 ModelBundleVerification verify_model_bundle_directory(
     const std::filesystem::path& directory,
     const ModelBundleVerifyOptions& options = {});
+
+/** @brief Verifies the complete bundle and retains selected checked payloads.
+ * @param directory Local bundle directory; all no-follow rules still apply.
+ * @param expected_manifest Exact independently supplied original manifest SHA.
+ * @param file_ids Unique manifest file ids to retain, never relative paths;
+ * empty selects only the manifest. Unknown ids fail before data-file reads.
+ * @param options Complete integrity, signature and metadata limits.
+ * @param max_snapshot_bytes Positive bound on original manifest plus all
+ * selected payloads; preflight checks declared sizes before retaining files.
+ * @return Owned bytes hashed from the same native handles as verification;
+ * later path edits cannot change this result. No file is reopened to load it.
+ * @throws Error Digest, selection, trust, filesystem or resource failure;
+ * no partial result escapes on failure.
+ * @note The bound excludes parsed metadata, allocator overhead and one
+ * temporary unselected safetensors shard. It is not an RSS ceiling or a
+ * filesystem lease. Identity is not authentication without a trust policy.
+ */
+ModelBundleSnapshot read_model_bundle_snapshot(
+    const std::filesystem::path& directory,
+    const ArtifactDigest& expected_manifest,
+    std::span<const std::string_view> file_ids,
+    const ModelBundleVerifyOptions& options = {},
+    std::uint64_t max_snapshot_bytes = 512ULL << 20U);
 
 /** @brief Stages, hashes, validates, flushes and atomically publishes a new
  * dir.

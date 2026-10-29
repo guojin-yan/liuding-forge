@@ -768,6 +768,89 @@ TEST(ModelBundleSharding,
                jyppx::liuding::InvalidArgument);
 }
 
+TEST_F(ModelBundleTest, SnapshotRetainsExactCheckedBytesAfterFilesChange) {
+  const auto published = Publish();
+  const auto shard = manifest_.models.front().file_ids.front();
+  const std::array<std::string_view, 2> selected{shard, "input"};
+  const auto snapshot = interop::read_model_bundle_snapshot(
+      target_, published.manifest_digest, selected);
+  EXPECT_EQ(snapshot.verification.manifest_digest, published.manifest_digest);
+  EXPECT_EQ(Digest(snapshot.manifest_bytes), published.manifest_digest);
+  ASSERT_EQ(snapshot.files.size(), 2U);
+  const auto source = Read(Source(shard));
+  EXPECT_EQ(snapshot.files.at(shard),
+            std::vector<std::byte>(Bytes(source).begin(), Bytes(source).end()));
+  const auto retained = snapshot.files.at("input");
+  Write(target_ / File("input").relative_path, Bytes("changed"));
+  Write(target_ / "manifest.json", Bytes("changed manifest"));
+  EXPECT_EQ(snapshot.files.at("input"), retained);
+  EXPECT_EQ(Digest(snapshot.manifest_bytes), published.manifest_digest);
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, published.manifest_digest, selected),
+               jyppx::liuding::SerializationError);
+}
+
+TEST_F(ModelBundleTest, SnapshotPreflightsManifestAndSelectedAggregateBudget) {
+  const auto published = Publish();
+  const auto manifest_bytes = Read(target_ / "manifest.json").size();
+  const std::array<std::string_view, 2> selected{"input", "output"};
+  const auto exact = manifest_bytes + File("input").artifact.size_bytes +
+                     File("output").artifact.size_bytes;
+  const auto snapshot = interop::read_model_bundle_snapshot(
+      target_, published.manifest_digest, selected, {}, exact);
+  EXPECT_EQ(snapshot.manifest_bytes.size() + snapshot.files.at("input").size() +
+                snapshot.files.at("output").size(),
+            exact);
+  EXPECT_THROW(
+      interop::read_model_bundle_snapshot(target_, published.manifest_digest,
+                                          selected, {}, exact - 1U),
+      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(
+      interop::read_model_bundle_snapshot(target_, published.manifest_digest,
+                                          {}, {}, manifest_bytes - 1U),
+      jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, published.manifest_digest, {}, {}, 0U),
+               jyppx::liuding::InvalidArgument);
+  const auto metadata = interop::read_model_bundle_snapshot(
+      target_, published.manifest_digest, {}, {}, manifest_bytes);
+  EXPECT_TRUE(metadata.files.empty());
+  EXPECT_EQ(Digest(metadata.manifest_bytes), published.manifest_digest);
+}
+
+TEST_F(ModelBundleTest, SnapshotRejectsWrongIdentityUnknownAndDuplicateIds) {
+  const auto published = Publish();
+  const std::array<std::string_view, 1> one{"input"};
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, Digest(Bytes("another manifest")), one),
+               jyppx::liuding::SerializationError);
+  const std::array<std::string_view, 1> unknown{"not-present"};
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, published.manifest_digest, unknown),
+               jyppx::liuding::InvalidArgument);
+  const std::array<std::string_view, 2> duplicate{"input", "input"};
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, published.manifest_digest, duplicate),
+               jyppx::liuding::InvalidArgument);
+}
+
+TEST_F(ModelBundleTest, SnapshotStillChecksUnselectedFilesAndTrustPolicy) {
+  const auto published = Publish();
+  const std::array<std::string_view, 1> selected{"input"};
+  interop::ModelBundleVerifyOptions trusted;
+  trusted.require_trusted_signature = true;
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, published.manifest_digest, selected, trusted),
+               jyppx::liuding::CompatibilityError);
+  const auto original = Read(target_ / File("output").relative_path);
+  auto changed = original;
+  changed.back() = changed.back() == ' ' ? 'x' : ' ';
+  Write(target_ / File("output").relative_path, Bytes(changed));
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, published.manifest_digest, selected),
+               jyppx::liuding::SerializationError);
+}
+
 TEST(ModelBundleSharding, HandlesEmptyTensorSetZeroDimensionsAndScalars) {
   const auto empty = interop::shard_safetensors_for_bundle({}, 16U);
   ASSERT_EQ(empty.size(), 1U);
