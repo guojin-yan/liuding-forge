@@ -6,6 +6,9 @@ if(@JYPPX_LIUDING_BUILD_EXPERIMENT@ OR @JYPPX_LIUDING_BUILD_SERVING@)
     find_dependency(Threads REQUIRED)
 endif()
 
+if(@JYPPX_LIUDING_BUILD_ONNX_RUNTIME@)
+    include("${CMAKE_CURRENT_LIST_DIR}/jyppxOnnxRuntime.cmake")
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/jyppxTargets.cmake")
 
 set(_jyppx_known_components
@@ -16,6 +19,8 @@ set(_jyppx_known_components
     data_image
     vision_render
     nn
+    onnx_export
+    onnx_runtime
     training
     optim
     experiment
@@ -49,7 +54,8 @@ endforeach()
 foreach(_jyppx_exported_target IN ITEMS
         jyppx::liuding::foundation jyppx::liuding::core jyppx::liuding::interop jyppx::liuding::data jyppx::liuding::data_image jyppx::liuding::nn
         jyppx::liuding::training jyppx::liuding::optim jyppx::liuding::experiment
-        jyppx::liuding::models jyppx::liuding::quantization jyppx::liuding::serving
+        jyppx::liuding::models jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime
+        jyppx::liuding::quantization jyppx::liuding::serving
         jyppx::liuding::vision_render jyppx::liuding::all jyppx::liuding::sdk)
     if(TARGET ${_jyppx_exported_target})
         set_property(TARGET ${_jyppx_exported_target} APPEND

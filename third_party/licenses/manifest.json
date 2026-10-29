@@ -1,5 +1,5 @@
 {
-  "audit_date": "2026-10-24",
+  "audit_date": "2026-10-29",
   "dependency_notice_states": {
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
@@ -10,7 +10,9 @@
     "sqlite": "recorded",
     "tinyxml2": "recorded",
     "yaml-cpp": "recorded",
-    "stb_image": "recorded"
+    "stb_image": "recorded",
+    "onnxruntime-windows-x64": "recorded",
+    "onnxruntime-linux-x64": "recorded"
   },
   "files": [
     {
@@ -407,12 +409,61 @@
       "path": "stb_image-2.30-LICENSE.txt",
       "sha256": "eb5436c0b87a6e8b2b64c8bb8f75be118873b713dcae053634f0bea8b5621bf2",
       "size_bytes": 1743
+    },
+    {
+      "dependency_id": "onnxruntime-windows-x64",
+      "origin": {
+        "artifact_sha256": "0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd",
+        "entry": "onnxruntime-win-x64-1.23.2/LICENSE",
+        "kind": "archive-entry",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip"
+      },
+      "path": "onnxruntime-1.23.2-windows-x64-LICENSE.txt",
+      "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
+      "size_bytes": 1094
+    },
+    {
+      "dependency_id": "onnxruntime-windows-x64",
+      "origin": {
+        "artifact_sha256": "0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd",
+        "entry": "onnxruntime-win-x64-1.23.2/ThirdPartyNotices.txt",
+        "kind": "archive-entry",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip"
+      },
+      "path": "onnxruntime-1.23.2-windows-x64-ThirdPartyNotices.txt",
+      "sha256": "e00f828e0a33de591a355ae6606d2625f5758da7d2c844db7821c9dd3e3647b6",
+      "size_bytes": 333022
+    },
+    {
+      "dependency_id": "onnxruntime-linux-x64",
+      "origin": {
+        "artifact_sha256": "1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b",
+        "entry": "onnxruntime-linux-x64-1.23.2/LICENSE",
+        "kind": "archive-entry",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz"
+      },
+      "path": "onnxruntime-1.23.2-linux-x64-LICENSE.txt",
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+      "size_bytes": 1073
+    },
+    {
+      "dependency_id": "onnxruntime-linux-x64",
+      "origin": {
+        "artifact_sha256": "1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b",
+        "entry": "onnxruntime-linux-x64-1.23.2/ThirdPartyNotices.txt",
+        "kind": "archive-entry",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz"
+      },
+      "path": "onnxruntime-1.23.2-linux-x64-ThirdPartyNotices.txt",
+      "sha256": "e9e90971a8e75a9a8ac0c6412e29c1202d079998389915aa485f46c816c3b4cc",
+      "size_bytes": 326866
     }
   ],
   "hash_algorithm": "sha256",
   "limitations": [
     "PyTorch source root licenses do not satisfy the missing bundled LibTorch binary notice audit.",
-    "Optional remediation wheel notices are retained and both platform sidecar acceptance gates passed; full transitive review remains pending."
+    "Optional remediation wheel notices are retained and both platform sidecar acceptance gates passed; full transitive review remains pending.",
+    "ONNX Runtime entries retain the exact CPU SDK LICENSE and ThirdPartyNotices for each archive; this is not a CVE audit, a transitive license completeness claim, or GPU/provider execution qualification."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"

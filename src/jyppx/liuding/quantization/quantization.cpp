@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/quantization/quantization.hpp>
 
 #include <algorithm>
@@ -1225,6 +1226,181 @@ QuantizedLinearArtifact deserialize_linear_artifact(
     serialization("artifact.canonical", "canonical bytes", "different bytes",
                   "Regenerate the artifact using the v1 canonical encoder.");
   return artifact;
+}
+
+StaticInt8LinearPreparation prepare_static_int8_linear(
+    const QuantizedLinearArtifact& artifact, QuantizationLimits limits) {
+  validate_linear_artifact(artifact, limits);
+  // At most 65536 * 128 * 127 = 1065353216 in absolute int32 accumulation.
+  constexpr std::size_t kMaximumInt8Features = 65536U;
+  if (artifact.in_features > kMaximumInt8Features ||
+      artifact.out_features > kMaximumInt8Features)
+    invalid("static_int8.dimensions", "dimensions in [1,65536]",
+            std::to_string(artifact.in_features) + "x" +
+                std::to_string(artifact.out_features),
+            "Use the explicit CPU Linear static PTQ profile.");
+
+  // Round a positive finite double to normal FP32 by integer bit operations.
+  // A cast would depend on caller fesetround and can flush a subnormal scale.
+  const auto normal_scale = [](double value, std::string_view operation) {
+    const auto bits = std::bit_cast<std::uint64_t>(value);
+    const auto exponent = static_cast<int>((bits >> 52U) & 0x7ffU);
+    if ((bits >> 63U) != 0U || exponent == 0 || exponent == 0x7ff)
+      numerical(std::string(operation), "finite positive normal FP32 scale",
+                "unrepresentable scale", "Rescale the calibration or model.");
+    auto float_exponent = exponent - 1023 + 127;
+    const auto significand = (bits & 0xfffffffffffffULL) | (1ULL << 52U);
+    auto rounded = significand >> 29U;
+    constexpr auto kRemainderMask = (1ULL << 29U) - 1ULL;
+    const auto remainder = significand & kRemainderMask;
+    if (remainder > (1ULL << 28U) ||
+        (remainder == (1ULL << 28U) && (rounded & 1ULL) != 0U))
+      ++rounded;
+    if (rounded == (1ULL << 24U)) {
+      rounded >>= 1U;
+      ++float_exponent;
+    }
+    if (float_exponent <= 0 || float_exponent >= 255)
+      numerical(std::string(operation), "finite positive normal FP32 scale",
+                "underflow or overflow", "Rescale the calibration or model.");
+    return std::bit_cast<float>(
+        (static_cast<std::uint32_t>(float_exponent) << 23U) |
+        (static_cast<std::uint32_t>(rounded) & 0x7fffffU));
+  };
+
+  StaticInt8LinearPreparation result;
+  result.in_features = artifact.in_features;
+  result.out_features = artifact.out_features;
+  result.activation_scale =
+      normal_scale(artifact.calibration.activation_params.scale,
+                   "static_int8.activation_scale");
+  result.weight_scale =
+      normal_scale(artifact.weight_params.scale, "static_int8.weight_scale");
+  // The exact product of two 24-bit significands fits in an IEEE double.
+  result.product_scale = normal_scale(
+      static_cast<double>(result.activation_scale) * result.weight_scale,
+      "static_int8.product_scale");
+  for (std::size_t out = 0U; out < artifact.out_features; ++out) {
+    std::uint64_t magnitude_sum = 0U;
+    for (std::size_t in = 0U; in < artifact.in_features; ++in) {
+      const auto value = static_cast<int>(
+          artifact.quantized_weights[out * artifact.in_features + in]);
+      magnitude_sum += static_cast<std::uint64_t>(std::abs(value));
+    }
+    const auto maximum =
+        static_cast<double>(magnitude_sum * 128U) * result.product_scale +
+        (artifact.bias.empty()
+             ? 0.0
+             : std::abs(static_cast<double>(artifact.bias[out])));
+    if (!std::isfinite(maximum) || maximum > std::numeric_limits<float>::max())
+      numerical(
+          "static_int8.output_bound", "finite saturated-input FP32 output",
+          "possible output overflow", "Rescale weights, activation or bias.");
+  }
+  const auto source_bytes = serialize_linear_artifact(artifact, limits);
+  result.source_artifact_digest = {.hex = sha256_hex(source_bytes)};
+  result.weights.resize(artifact.quantized_weights.size());
+  for (std::size_t in = 0U; in < artifact.in_features; ++in)
+    for (std::size_t out = 0U; out < artifact.out_features; ++out)
+      result.weights[in * artifact.out_features + out] =
+          static_cast<std::uint8_t>(
+              static_cast<int>(
+                  artifact.quantized_weights[out * artifact.in_features + in]) +
+              128);
+  result.bias = artifact.bias;
+  return result;
+}
+
+std::string static_int8_linear_export_json(
+    const QuantizedLinearArtifact& artifact, QuantizationLimits limits) {
+  const auto prepared = prepare_static_int8_linear(artifact, limits);
+  std::string output;
+  const auto append = [&output, &limits](std::string_view value) {
+    if (output.size() > limits.max_artifact_bytes ||
+        value.size() > limits.max_artifact_bytes - output.size())
+      resource(
+          "static_int8.export_json", limits.max_artifact_bytes,
+          limits.max_artifact_bytes == std::numeric_limits<std::size_t>::max()
+              ? limits.max_artifact_bytes
+              : limits.max_artifact_bytes + 1U,
+          "Increase the bounded preparation limit.");
+    output.append(value);
+  };
+  const auto text = [&append](std::string_view value) {
+    append("\"");
+    append(json_escape(value));
+    append("\"");
+  };
+  const auto base64 = [&append](std::span<const std::byte> bytes) {
+    constexpr std::string_view alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    append("\"");
+    for (std::size_t i = 0U; i < bytes.size(); i += 3U) {
+      const auto remaining = bytes.size() - i;
+      const auto bits =
+          (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[i]))
+           << 16U) |
+          (remaining > 1U ? static_cast<std::uint32_t>(
+                                std::to_integer<std::uint8_t>(bytes[i + 1U]))
+                                << 8U
+                          : 0U) |
+          (remaining > 2U ? std::to_integer<std::uint8_t>(bytes[i + 2U]) : 0U);
+      const std::array<char, 4U> encoded{
+          alphabet[(bits >> 18U) & 63U], alphabet[(bits >> 12U) & 63U],
+          remaining > 1U ? alphabet[(bits >> 6U) & 63U] : '=',
+          remaining > 2U ? alphabet[bits & 63U] : '='};
+      append(std::string_view(encoded.data(), encoded.size()));
+    }
+    append("\"");
+  };
+  append("{\"schema_version\":1,\"profile_id\":");
+  text(prepared.profile_id);
+  append(",\"runtime_version\":");
+  text(prepared.runtime_version);
+  append(
+      ",\"onnx_opset\":17,\"compute_quantized\":false,"
+      "\"qat\":false,\"in_features\":");
+  append(std::to_string(prepared.in_features));
+  append(",\"out_features\":");
+  append(std::to_string(prepared.out_features));
+  append(",\"activation_scale_bits\":");
+  append(
+      std::to_string(std::bit_cast<std::uint32_t>(prepared.activation_scale)));
+  append(",\"weight_scale_bits\":");
+  append(std::to_string(std::bit_cast<std::uint32_t>(prepared.weight_scale)));
+  append(",\"product_scale_bits\":");
+  append(std::to_string(std::bit_cast<std::uint32_t>(prepared.product_scale)));
+  append(
+      ",\"activation_zero_point\":128,\"weight_zero_point\":128,\"source_"
+      "artifact_sha256\":");
+  text(prepared.source_artifact_digest.hex);
+  append(",\"weights_u8_k_n_base64\":");
+  base64(std::as_bytes(std::span(prepared.weights)));
+  std::vector<std::byte> bias_bytes;
+  bias_bytes.reserve(prepared.bias.size() * sizeof(float));
+  for (const auto value : prepared.bias) {
+    const auto bits =
+        std::bit_cast<std::uint32_t>(value == 0.0F ? 0.0F : value);
+    for (unsigned shift = 0U; shift < 32U; shift += 8U)
+      bias_bytes.push_back(static_cast<std::byte>((bits >> shift) & 0xffU));
+  }
+  append(",\"bias_f32le_base64\":");
+  base64(bias_bytes);
+  append(",\"calibration\":{\"dataset_version\":");
+  text(artifact.calibration.lineage.dataset_version);
+  append(",\"dataset_sha256\":");
+  text(artifact.calibration.lineage.dataset_digest.hex);
+  append(",\"preprocessing_fingerprint\":");
+  text(artifact.calibration.lineage.preprocessing_fingerprint);
+  append(",\"seed\":");
+  append(std::to_string(artifact.calibration.lineage.seed));
+  append(",\"sample_ids\":[");
+  for (std::size_t i = 0U; i < artifact.calibration.sample_ids.size(); ++i) {
+    if (i != 0U) append(",");
+    text(artifact.calibration.sample_ids[i]);
+  }
+  append("]}}");
+  return output;
 }
 
 StorageQuantizedLinearRuntime::StorageQuantizedLinearRuntime(

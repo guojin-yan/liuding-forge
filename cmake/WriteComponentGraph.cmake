@@ -20,6 +20,10 @@ function(jyppx_public_headers header_root output_variable)
         list(REMOVE_ITEM public_headers
             "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/training/file_checkpoint_store.hpp")
     endif()
+    if(header_root STREQUAL "deployment/onnx_export" AND NOT JYPPX_LIUDING_BUILD_QUANTIZATION)
+        list(REMOVE_ITEM public_headers
+            "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/deployment/onnx_export/static_int8_linear.hpp")
+    endif()
     set(${output_variable} "${public_headers}" PARENT_SCOPE)
 endfunction()
 
@@ -33,6 +37,8 @@ function(jyppx_write_component_graph output_path)
         interop
         models
         nn
+        onnx_export
+        onnx_runtime
         optim
         quantization
         serving
@@ -56,6 +62,8 @@ function(jyppx_write_component_graph output_path)
             list(APPEND header_roots utils)
         elseif(component STREQUAL "vision_render")
             set(header_roots visualization)
+        elseif(component STREQUAL "onnx_export" OR component STREQUAL "onnx_runtime")
+            set(header_roots "deployment/${component}")
         endif()
         foreach(header_root IN LISTS header_roots)
             jyppx_public_headers("${header_root}" component_headers)

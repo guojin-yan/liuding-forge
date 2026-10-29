@@ -139,6 +139,20 @@
       ],
       "optional_dependencies": []
     },
+    "onnx_export": {
+      "header_roots": ["deployment/onnx_export"],
+      "source_roots": ["deployment/onnx_export"],
+      "required_dependencies": ["foundation"],
+      "required_public_dependencies": ["foundation"],
+      "optional_dependencies": ["quantization"]
+    },
+    "onnx_runtime": {
+      "header_roots": ["deployment/onnx_runtime"],
+      "source_roots": ["deployment/onnx_runtime"],
+      "required_dependencies": ["foundation"],
+      "required_public_dependencies": ["foundation"],
+      "optional_dependencies": []
+    },
     "optim": {
       "header_roots": [
         "optim"

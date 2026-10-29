@@ -467,7 +467,7 @@ CapabilityManifest make_current_capability_manifest(
 }
 
 CapabilityManifest current_capability_manifest() {
-  const std::array<std::pair<const char*, bool>, 13U> components{{
+  const std::array<std::pair<const char*, bool>, 15U> components{{
       {"foundation", true},
       {"core", JYPPX_LIUDING_COMPONENT_CORE_ENABLED != 0},
       {"interop", JYPPX_LIUDING_COMPONENT_INTEROP_ENABLED != 0},
@@ -479,6 +479,8 @@ CapabilityManifest current_capability_manifest() {
       {"training", JYPPX_LIUDING_COMPONENT_TRAINING_ENABLED != 0},
       {"experiment", JYPPX_LIUDING_COMPONENT_EXPERIMENT_ENABLED != 0},
       {"models", JYPPX_LIUDING_COMPONENT_MODELS_ENABLED != 0},
+      {"onnx_export", JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED != 0},
+      {"onnx_runtime", JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED != 0},
       {"quantization", JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED != 0},
       {"serving", JYPPX_LIUDING_COMPONENT_SERVING_ENABLED != 0},
   }};
@@ -488,7 +490,8 @@ CapabilityManifest current_capability_manifest() {
     const auto name = std::string_view(component);
     const bool preview = name == "models" || name == "quantization" ||
                          name == "serving" || name == "data_image" ||
-                         name == "vision_render";
+                         name == "vision_render" || name == "onnx_export" ||
+                         name == "onnx_runtime";
     features.push_back(component_descriptor(component, enabled, preview));
   }
   return make_current_capability_manifest(std::move(features));

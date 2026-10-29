@@ -24,6 +24,17 @@ JYPPX package.
   it must also redistribute the exact license and notice files supplied with
   that LibTorch build. This summary does not replace those files.
 
+### ONNX Runtime（可选）
+
+`jyppx::liuding::onnx_runtime` 使用 Microsoft 官方 ONNX Runtime 1.23.2 CPU SDK，许可证为 MIT；公共头文件不暴露 ORT 类型。原生 `onnx_export` 使用 LibTorch 自带的官方 C++ ONNX 序列化器，不引入 Python 或独立 protobuf SDK。上游项目为 <https://github.com/microsoft/onnxruntime>。
+
+- Windows x64 官方归档：`onnxruntime-win-x64-1.23.2.zip`，SHA-256 `0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd`。
+- Linux x64 官方归档：`onnxruntime-linux-x64-1.23.2.tgz`，SHA-256 `1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b`。
+
+两个归档均已完整复核摘要，并逐字节保留各自的 `LICENSE` 与 `ThirdPartyNotices.txt`，文件位于 `third_party/licenses/onnxruntime-1.23.2-{windows,linux}-x64-*`，来源、文件摘要和长度记录在许可证清单中。分发相应 ORT 二进制时必须同时保留该构建的完整许可与第三方声明。上述摘要来自本地完整归档复核；许可文件留存不代表依赖安全审查完成。
+
+当前下载锁只选择 CPU SDK。Provider 查询或显式选择接口不代表 GPU 执行资格；CUDA、TensorRT、OpenVINO 等需要各自匹配的官方 SDK、依赖和实际执行验证。请求的 Provider 缺失或尚无接入实现时会明确失败；CPU 分区回退由调用者显式决定。
+
 ### SQLite
 
 - Project: https://sqlite.org/

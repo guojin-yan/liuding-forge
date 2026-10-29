@@ -7,6 +7,8 @@ description: Configure, build, test, or validate Liuding Forge on Windows or Lin
 
 ## Establish the profile
 
+Implement every shipped product feature in C++. Python is limited to development tooling and independent reference/checker tests; never use it as an exporter, converter, preparation tool, installed runtime or user API. Existing Python product paths require native migration and do not justify new exceptions.
+
 Read `compatibility.json`, `CONTRIBUTING.md`, the affected `CMakeLists.txt`, and `component-dependencies.json` before changing build options. Use an exact declared LibTorch/compiler/CUDA combination; do not infer support from a version range.
 
 Reuse a compatible build tree under `out/build/`. Prefer incremental configuration and builds, preserve its generator and dependency paths, and use at most two compile jobs unless the user provides a different resource budget. Configure a new tree only when no compatible cache exists or a build-system change invalidates it.

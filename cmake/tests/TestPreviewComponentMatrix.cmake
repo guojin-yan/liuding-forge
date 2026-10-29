@@ -61,7 +61,7 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
 endif()
 
 set(optional_components core interop data nn optim training experiment
-    models quantization serving data_image vision_render)
+    models quantization serving data_image vision_render onnx_export onnx_runtime)
 set(preview_components models quantization serving vision_render)
 set(common_options
     -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF
@@ -203,6 +203,8 @@ foreach(profile IN ITEMS core_before quantization models serving vision_render a
         set(component_header_root "${component}")
         if(component STREQUAL "vision_render")
             set(component_header_root visualization)
+        elseif(component STREQUAL "onnx_export" OR component STREQUAL "onnx_runtime")
+            set(component_header_root "deployment/${component}")
         endif()
         file(GLOB component_libraries
             "${install_dir}/lib/*jyppx_liuding_${component}*"

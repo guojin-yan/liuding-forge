@@ -25,7 +25,7 @@
 
 - 训练基础：[数据](api/data.md)、[图像数据](api/data_image.md)、[优化器与调度器](api/optim.md)、[训练器](api/training.md)、[模型适配](api/model_adapter.md)
 - 恢复与实验：[检查点参与者](api/checkpoint_participant.md)、[持久化检查点](api/durable_checkpoint.md)、[本地运行存储](api/local_run_storage.md)、[训练遥测](api/training_telemetry.md)、[评估](api/evaluation.md)
-- 模型交付：[模型](api/models.md)、[权重导入](api/model_weight_import.md)、[模型包](api/model_bundle.md)、[互操作后端](api/interop_backends.md)
+- 模型交付：[模型](api/models.md)、[权重导入](api/model_weight_import.md)、[模型包](api/model_bundle.md)、[ONNX 导出与推理](api/onnx.md)、[互操作后端](api/interop_backends.md)
 - 可选预览：[量化](api/quantization.md)、[Serving](api/serving.md)
 - 图像输出：[绘制](api/vision_render.md)
 

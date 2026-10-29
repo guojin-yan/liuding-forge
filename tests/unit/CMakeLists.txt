@@ -545,6 +545,76 @@ endforeach()
     endif()
 endif()
 
+if(TARGET jyppx::liuding::onnx_export)
+    jyppx_add_gtest(jyppx_test_onnx_export
+        LINK_TARGET jyppx::liuding::onnx_export
+        deployment/onnx_export/test_exporter.cpp
+        deployment/onnx_export/test_generic_contracts.cpp)
+    target_link_libraries(jyppx_test_onnx_export PRIVATE nlohmann_json::nlohmann_json)
+    if(TARGET jyppx::liuding::models)
+        target_link_libraries(jyppx_test_onnx_export PRIVATE jyppx::liuding::models)
+        target_compile_definitions(jyppx_test_onnx_export PRIVATE
+            JYPPX_LIUDING_TEST_ONNX_MODELS=1)
+    endif()
+    if(TARGET jyppx::liuding::quantization)
+        target_sources(jyppx_test_onnx_export PRIVATE
+            deployment/onnx_export/test_static_int8_linear.cpp)
+    endif()
+    if(TARGET jyppx::liuding::onnx_runtime)
+        target_link_libraries(jyppx_test_onnx_export PRIVATE
+            jyppx::liuding::onnx_runtime ONNXRuntime::onnxruntime)
+        target_compile_definitions(jyppx_test_onnx_export PRIVATE
+            JYPPX_LIUDING_TEST_ONNX_RUNTIME=1 JYPPX_LIUDING_HAS_ONNX_RUNTIME=1
+            JYPPX_LIUDING_TEST_GENERIC_ONNX_RUNTIME=1)
+        jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_export)
+    endif()
+endif()
+
+if(JYPPX_LIUDING_ONNX_REFERENCE_PYTHON)
+    if(NOT EXISTS "${JYPPX_LIUDING_ONNX_REFERENCE_PYTHON}")
+        message(FATAL_ERROR "JYPPX_LIUDING_ONNX_REFERENCE_PYTHON must name the locked test interpreter")
+    endif()
+    if(TARGET jyppx::liuding::onnx_export AND TARGET jyppx::liuding::onnx_runtime
+       AND TARGET jyppx::liuding::models)
+        add_test(NAME OfficialNativeOnnxExport
+            COMMAND "${JYPPX_LIUDING_ONNX_REFERENCE_PYTHON}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/deployment/onnx_export/verify_native_export.py"
+                --cpp-executable $<TARGET_FILE:jyppx_test_onnx_export>
+                --work-dir "${CMAKE_BINARY_DIR}/evidence/native-onnx-$<CONFIG>"
+                --jyppx-commit "${JYPPX_GIT_COMMIT}" --require-cpp-ort)
+        set_tests_properties(OfficialNativeOnnxExport PROPERTIES
+            LABELS "deployment;onnx_export;official" TIMEOUT 600)
+    endif()
+    if(TARGET jyppx::liuding::onnx_runtime AND TARGET jyppx::liuding::models
+       AND TARGET jyppx::liuding::interop)
+        add_executable(jyppx_test_onnx_runtime_reference
+            deployment/onnx_runtime/test_session.cpp)
+        target_link_libraries(jyppx_test_onnx_runtime_reference PRIVATE
+            jyppx::liuding::onnx_runtime jyppx::liuding::models
+            jyppx::liuding::interop nlohmann_json::nlohmann_json GTest::gtest_main)
+        jyppx_apply_instrumentation(jyppx_test_onnx_runtime_reference)
+        jyppx_add_torch_runtime_dependency(jyppx_test_onnx_runtime_reference)
+        jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_runtime_reference)
+        add_test(NAME OfficialOnnxRuntimeInterchange
+            COMMAND "${JYPPX_LIUDING_ONNX_REFERENCE_PYTHON}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/deployment/onnx_runtime/verify_onnx.py"
+                --cpp-executable $<TARGET_FILE:jyppx_test_onnx_runtime_reference>
+                --work-dir "${CMAKE_BINARY_DIR}/evidence/onnx-runtime-$<CONFIG>"
+                --jyppx-commit "${JYPPX_GIT_COMMIT}")
+        set_tests_properties(OfficialOnnxRuntimeInterchange PROPERTIES
+            LABELS "deployment;onnx_runtime;official" TIMEOUT 900)
+    endif()
+    if(TARGET jyppx_int8_prepare AND TARGET jyppx_int8_export)
+        add_test(NAME OfficialNativeInt8Tools
+            COMMAND "${JYPPX_LIUDING_ONNX_REFERENCE_PYTHON}"
+                "${PROJECT_SOURCE_DIR}/tests/quantization/test_native_int8_export.py"
+                --prepare-tool $<TARGET_FILE:jyppx_int8_prepare>
+                --export-tool $<TARGET_FILE:jyppx_int8_export>)
+        set_tests_properties(OfficialNativeInt8Tools PROPERTIES
+            LABELS "deployment;quantization;official" TIMEOUT 180)
+    endif()
+endif()
+
 if(TARGET jyppx::liuding::quantization)
     jyppx_add_gtest(jyppx_test_quantization
         LINK_TARGET jyppx::liuding::quantization

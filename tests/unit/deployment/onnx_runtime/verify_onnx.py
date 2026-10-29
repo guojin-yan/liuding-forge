@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+# Product: 六丁炼算 (Liuding Forge)
+# Project alias: JYPPX Training Framework
+"""Build independent official ONNX fixtures for the optional C++ runtime gate.
+
+This file is test-only. Production ONNX export is implemented in the native
+onnx_export C++ component. These official reference graphs exercise runtime
+acceptance/rejection independently of that exporter.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.metadata
+import json
+import os
+import pathlib
+import platform
+import subprocess
+import sys
+import tempfile
+import traceback
+import xml.etree.ElementTree as ET
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
+def encoded(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def artifact(root, payload, name, media="application/octet-stream"):
+    identity = hashlib.sha256(payload).hexdigest()
+    path = root / "artifacts" / identity
+    if path.exists() and path.read_bytes() != payload:
+        raise ValueError("test artifact collision")
+    path.write_bytes(payload)
+    return {"digest": {"algorithm": "sha256", "hex": identity},
+            "size_bytes": len(payload), "logical_name": name,
+            "media_type": media, "producer": "independent-runtime-test"}
+
+
+def official_negative_graphs(root):
+    import numpy as np
+    import onnx
+    from onnx import TensorProto as T, helper as h, numpy_helper as nh
+
+    def model(name, nodes, inputs, outputs, initializers=(), custom=False):
+        graph = h.make_graph(nodes, name, inputs, outputs, list(initializers))
+        ops = [h.make_opsetid("", 18)]
+        if custom:
+            ops.append(h.make_opsetid("ai.liuding.test", 1))
+        result = h.make_model(graph, opset_imports=ops, ir_version=10,
+                              producer_name="liuding-independent-test")
+        if name != "external_data":
+            onnx.checker.check_model(result, full_check=True)
+        return artifact(root, result.SerializeToString(), name, "application/onnx")
+
+    def info(name, dtype=T.FLOAT, shape=("batch", 3)):
+        return h.make_tensor_value_info(name, dtype, shape)
+
+    negative = {"malformed": artifact(root, b"not ONNX", "malformed")}
+    negative["missing_operator"] = model("missing_operator", [h.make_node("MissingOperator", ["input"], ["output"], domain="ai.liuding.test")], [info("input")], [info("output")], custom=True)
+    negative["float64"] = model("float64", [h.make_node("Identity", ["input"], ["output"])], [info("input", T.DOUBLE)], [info("output", T.DOUBLE)])
+    negative["two_inputs"] = model("two_inputs", [h.make_node("Add", ["input", "second"], ["output"])], [info("input"), info("second")], [info("output")])
+    negative["dynamic_width"] = model("dynamic_width", [h.make_node("Identity", ["input"], ["output"])], [info("input", shape=("batch", "width"))], [info("output", shape=("batch", "width"))])
+    negative["nonfinite_output"] = model("nonfinite_output", [h.make_node("Div", ["input", "zero"], ["output"])], [info("input")], [info("output")], [nh.from_array(np.array(0, dtype=np.float32), name="zero")])
+    external = h.make_tensor("external", T.FLOAT, (3,), [], raw=False)
+    external.data_location = T.EXTERNAL
+    item = external.external_data.add()
+    item.key, item.value = "location", "missing-external-data.bin"
+    negative["external_data"] = model("external_data", [h.make_node("Add", ["input", "external"], ["output"])], [info("input")], [info("output")], [external])
+    nodes = [h.make_node("MatMul", ["input" if index == 0 else f"hidden{index - 1}", "weight"], ["output" if index == 31 else f"hidden{index}"]) for index in range(32)]
+    slow = model("slow-cancellable-cpu", nodes, [info("input", shape=("batch", 512))], [info("output", shape=("batch", 512))], [nh.from_array(np.eye(512, dtype=np.float32), name="weight")])
+    return negative, slow
+
+
+def official_models(root):
+    import numpy as np
+    import onnx
+    import onnxruntime as ort
+    import safetensors.torch
+    import torch
+    import torchvision
+
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+    models = {}
+    for index, name in enumerate(("linear", "resnet18")):
+        torch.manual_seed(1729 + index)
+        model = torch.nn.Linear(8, 3) if name == "linear" else torchvision.models.resnet18(weights=None, num_classes=7)
+        model.eval()
+        dimensions = [8] if name == "linear" else [3, 224, 224]
+        state = safetensors.torch.save({key: value.detach().contiguous()
+                                       for key, value in model.state_dict().items()})
+        state_ref = artifact(root, state, name + "-reference-state", "application/safetensors")
+        cases, tensors = [], []
+        for batch in (2, 5):
+            values = torch.randn([batch, *dimensions])
+            with torch.no_grad():
+                output = model(values).contiguous()
+            tensors.append((values, output))
+            cases.append(artifact(root, safetensors.torch.save({"input": values, "output": output}), name + f"-batch-{batch}", "application/safetensors"))
+        program = torch.export.export(model, (tensors[0][0],),
+                                      dynamic_shapes=({0: torch.export.Dim("batch", min=1, max=8)},), strict=True)
+        path = root / (name + "-official-reference.onnx")
+        torch.onnx.export(program, f=path, opset_version=18, dynamo=True, external_data=False,
+                          input_names=["input"], output_names=["output"])
+        payload = path.read_bytes()
+        graph = onnx.load_model_from_string(payload)
+        onnx.checker.check_model(graph, full_check=True)
+        onnx.shape_inference.infer_shapes(graph, strict_mode=True, data_prop=True)
+        session = ort.InferenceSession(payload, providers=["CPUExecutionProvider"])
+        for values, expected in tensors:
+            actual = session.run(None, {session.get_inputs()[0].name: values.numpy()})[0]
+            np.testing.assert_allclose(actual, expected.numpy(), atol=1e-5, rtol=1e-4)
+        models[name] = {"artifact": artifact(root, payload, name + "-official-reference", "application/onnx"),
+                        "state": state_ref, "cases": cases}
+        print(name + " independent reference/checker/ORT passed", flush=True)
+    return models
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cpp-executable", type=pathlib.Path)
+    parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--work-dir", required=True, type=pathlib.Path)
+    parser.add_argument("--environment-lock", type=pathlib.Path,
+                        help="Optional independent environment lock to identify in evidence")
+    parser.add_argument("--jyppx-commit", required=True)
+    args = parser.parse_args()
+    if not args.prepare_only and args.cpp_executable is None:
+        parser.error("C++ executable is required unless --prepare-only")
+    args.work_dir.mkdir(parents=True, exist_ok=True)
+    root = pathlib.Path(tempfile.mkdtemp(prefix="onnx-runtime-reference-", dir=args.work_dir.resolve()))
+    (root / "artifacts").mkdir()
+    report = {"schema_version": 1, "source_commit": args.jyppx_commit,
+              "platform": platform.platform(), "python": platform.python_version(),
+              "environment_lock_sha256": (hashlib.sha256(args.environment_lock.read_bytes()).hexdigest()
+                                          if args.environment_lock else None),
+              "versions": {name: importlib.metadata.version(name)
+                           for name in ("torch", "torchvision", "onnx", "onnxruntime", "safetensors")},
+              "production_exporter_claimed": False, "cpp_gate": "not-run"}
+    try:
+        models = official_models(root)
+        negative, slow = official_negative_graphs(root)
+        (root / "manifest.json").write_bytes(encoded({"schema_version": 1, "models": models,
+                                                      "negative": negative, "slow": slow}))
+        if not args.prepare_only:
+            env = dict(os.environ)
+            env["JYPPX_LIUDING_ONNX_FIXTURE_ROOT"] = str(root)
+            result = subprocess.run([str(args.cpp_executable.resolve()), "--gtest_output=xml:" + str(root / "cpp-results.xml")], env=env, capture_output=True, timeout=600, check=False)
+            (root / "cpp.stdout").write_bytes(result.stdout)
+            (root / "cpp.stderr").write_bytes(result.stderr)
+            report["cpp_exit_code"] = result.returncode
+            if result.returncode:
+                raise RuntimeError("independent C++ runtime gate failed")
+            xml = ET.parse(root / "cpp-results.xml").getroot()
+            report["cpp_tests"] = {key: int(xml.attrib.get(key, "0")) for key in ("tests", "failures", "disabled", "errors")}
+            if report["cpp_tests"]["tests"] < 14 or any(report["cpp_tests"][key] for key in ("failures", "disabled", "errors")) or xml.findall(".//skipped"):
+                raise RuntimeError("independent runtime tests failed, were skipped or omitted")
+            report["cpp_gate"] = "passed"
+        report["status"] = "prepared-cpp-not-run" if args.prepare_only else "passed"
+        (root / "validation.json").write_bytes(encoded(report))
+        print(json.dumps({"status": report["status"], "work_dir": str(root)}), flush=True)
+        return 0
+    except Exception:
+        report["status"] = "failed"
+        (root / "validation.json").write_bytes(encoded(report))
+        (root / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
+        raise
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -120,7 +120,7 @@ def official_smoke(root: pathlib.Path) -> dict[str, Any]:
     output = root / "official-smoke.onnx"
     # No fallback to legacy tracing or handmade graph/wire generation.
     torch.onnx.export(
-        exported, args=(), f=str(output), dynamo=True, fallback=False,
+        exported, args=(), f=str(output), dynamo=True,
         opset_version=18, external_data=False,
     )
     if not output.is_file() or not 0 < output.stat().st_size <= MAX_SMOKE_ARTIFACT_BYTES:

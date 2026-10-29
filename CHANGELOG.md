@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 在 `deployment/` 下增加独立可选的原生 C++ ONNX 导出与 ONNX Runtime 组件：通用导出接受用户模型和 callable，经追踪、可扩展算子转换与 LibTorch serializer 生成 opset 17 自包含图，支持多输入输出、动态 batch、制品摘要与资源边界；提供校准 Q0 INT8 Linear 导出。Runtime 显式选择 Execution Provider，非 CPU 默认禁止 CPU fallback，Python 仅用于独立验证。
 - 增加工具层私有的本地进程运行器：直接传递参数、显式子环境、双管道有界输出、原生退出状态及取消/超时后的进程树清理；持久 attempt、重试与搜索入口尚未提供。
 - 增加显式本地预训练 ResNet50/DINOv2-S 的迁移学习配方，复用 Trainer、任务评估和检查点；支持冻结骨干或完整微调、独立 BN/dropout 策略、权重/预处理身份校验以及含来源的模型包。
 - 增加双输入分类/回归 C++ 配方及有界离线数据准备：支持双输出损失与任务评估、完整训练状态的独立进程恢复、配置/内容身份校验和纯数据模型包。

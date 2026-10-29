@@ -50,8 +50,8 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **交付工具：性能观测与资源基线** | BuildFingerprint、设备/工作负载身份、数据管线资源观测和基线协议 | 已具备 | 持续完善 | 对应 PyTorch Profiler、CUDA 观测和 benchmark 工具；性能结果必须绑定精确环境，不能跨环境直接比较。 |
 | **交付工具：质量、恢复与发布门槛** | 当前训练生命周期的质量/恢复验证、coverage、sanitizer、fuzz、资源矩阵和发布回退 | 部分具备 | 持续完善 | 对应 PyTorch testing、benchmark 和发布验证生态；完整覆盖率、依赖安全、发布回退和签名交付仍在完善。 |
 | **扩展能力：图像输入与标注工作流** | 图像/标注读取、像素语义、坐标追踪、mask、联合变换、批处理和绘图输出 | 部分具备 | 无损 PNG 标签、CPU 联合几何与逐样本随机性、stack/pad/ragged 组批、CPU/CUDA 数值与像素批量几何、提交前恢复、CPU 标注绘制及有界 PNG/JPEG 编码与本地写出已有切片；CUDA rich annotation、异步输出和完整任务贯通仍在开发 | 对应 torchvision datasets、transforms、mask/annotation 和视觉数据管线；当前用法见[图像数据 API](docs/api/data_image.md)和[图像绘制 API](docs/api/vision_render.md)。 |
-| **扩展能力：量化** | storage quantization 与 FP32 fallback 的独立预览边界 | 部分具备 | 开发中（预览） | 对应 PyTorch `torch.ao.quantization`；当前不是 compute quantization，也不承诺量化感知训练（QAT）。 |
-| **扩展能力：导出、Serving 与部署** | 有界 model bundle、互操作后端和本地 serving preview | 部分具备 | 开发中（预览） | 对应 TorchScript、`torch.export`、TorchServe 和部署生态；不宣称完整部署平台或一一等价映射。 |
+| **扩展能力：量化** | Q0 权重存储、FP32 fallback 和受限 CPU 静态 Linear PTQ | 部分具备 | 开发中（预览） | 对应 PyTorch `torch.ao.quantization`；提供原生 INT8 图导出，实际任务质量与性能仍在验证，尚不支持 QAT。见[量化 API](docs/api/quantization.md)。 |
+| **扩展能力：导出、Serving 与部署** | 通用 C++ ONNX 导出、ONNX Runtime 和本地 Serving | 部分具备 | 开发中（预览） | 对应 `torch.onnx`、TorchScript 和部署生态；ONNX 导出按算子覆盖，Runtime 显式选择后端，各设备分别验证。见[ONNX 导出与推理](docs/api/onnx.md)。 |
 | **当前范围外：分布式训练** | 多进程、多后端和跨节点训练控制面 | 暂不具备 | 当前范围外 | 对应 PyTorch `torch.distributed`、DDP 和多后端通信；不属于当前 v1.0 代码仓库交付范围。 |
 | **当前范围外：远程平台与控制面** | Web、团队服务、RBAC、多租户和远程运行控制 | 暂不具备 | 当前范围外 | PyTorch 本身不提供完整的远程控制面；相关能力属于平台和 MLOps 生态。 |
 

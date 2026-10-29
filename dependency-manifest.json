@@ -267,6 +267,58 @@
       ],
       "linkage": "static-private-implementation",
       "support_status": "development-candidate"
+    },
+    {
+      "id": "onnxruntime-windows-x64",
+      "scope": "optional-onnx-runtime",
+      "version": "1.23.2",
+      "source": {
+        "type": "official-binary",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip",
+        "cache_file": "out/deps/onnx-1.23.2-agent/onnxruntime-win-x64-1.23.2.zip"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd",
+        "size_bytes": 78127794
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-private-sdk",
+      "support_status": "optional-cpu-development-candidate"
+    },
+    {
+      "id": "onnxruntime-linux-x64",
+      "scope": "optional-onnx-runtime",
+      "version": "1.23.2",
+      "source": {
+        "type": "official-binary",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz",
+        "cache_file": "out/deps/onnx-1.23.2-agent/onnxruntime-linux-x64-1.23.2.tgz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b",
+        "size_bytes": 8309231
+      },
+      "license": {
+        "spdx": [
+          "MIT"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "linkage": "dynamic-private-sdk",
+      "support_status": "optional-cpu-development-candidate"
     }
   ]
 }

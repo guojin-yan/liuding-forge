@@ -101,6 +101,38 @@ def _require_string_list(value: Any, location: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _relative_path_parts(value: str) -> tuple[str, ...] | None:
+    """Accept canonical relative POSIX paths without Windows path aliases."""
+    path = pathlib.PurePosixPath(value)
+    if (
+        not value
+        or any(character in value for character in '\\:<>"|?*')
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or path.is_absolute()
+        or not path.parts
+        or path.as_posix() != value
+        or any(part in {".", ".."} or part.endswith((".", " ")) for part in path.parts)
+    ):
+        return None
+    return path.parts
+
+
+def _ownership_root(relative_path: str, owners: dict[str, str]) -> str | None:
+    """Resolve an exact ownership root or its descendants on path boundaries."""
+    if _relative_path_parts(relative_path) is None:
+        return None
+    for root in owners:
+        if relative_path == root or relative_path.startswith(root + "/"):
+            return root
+    return None
+
+
+def _path_owner(relative_path: str, owners: dict[str, str]) -> str | None:
+    """Resolve one canonical path to its unique logical component."""
+    root = _ownership_root(relative_path, owners)
+    return owners[root] if root is not None else None
+
+
 def _find_cycle(nodes: Iterable[str], edges: Iterable[Edge]) -> list[str] | None:
     """Return one deterministic dependency cycle, if present."""
     adjacency = {node: [] for node in sorted(nodes)}
@@ -197,25 +229,31 @@ def load_manifest(path: pathlib.Path) -> Manifest:
             ),
         )
 
-    owners: dict[str, str] = {}
+    ownership: dict[str, dict[str, str]] = {"header": {}, "source": {}}
     required_edges: set[Edge] = set()
     allowed_edges: set[Edge] = set()
     for name, policy in components.items():
-        for root in policy.header_roots + policy.source_roots:
-            if not COMPONENT_NAME.fullmatch(root):
-                raise ComponentGraphError(f"invalid ownership root: {root!r}")
-        for root in policy.header_roots:
-            previous = owners.setdefault(f"header:{root}", name)
-            if previous != name:
-                raise ComponentGraphError(
-                    f"header root {root!r} is owned by both {previous} and {name}"
-                )
-        for root in policy.source_roots:
-            previous = owners.setdefault(f"source:{root}", name)
-            if previous != name:
-                raise ComponentGraphError(
-                    f"source root {root!r} is owned by both {previous} and {name}"
-                )
+        for kind, roots in (
+            ("header", policy.header_roots), ("source", policy.source_roots)
+        ):
+            owners = ownership[kind]
+            for root in roots:
+                parts = _relative_path_parts(root)
+                if parts is None or not all(
+                    COMPONENT_NAME.fullmatch(part) for part in parts
+                ):
+                    raise ComponentGraphError(f"invalid ownership root: {root!r}")
+                for previous_root, previous_owner in owners.items():
+                    if (
+                        root == previous_root
+                        or root.startswith(previous_root + "/")
+                        or previous_root.startswith(root + "/")
+                    ):
+                        raise ComponentGraphError(
+                            f"{kind} root {root!r} owned by {name} overlaps ownership "
+                            f"root {previous_root!r} owned by {previous_owner}"
+                        )
+                owners[root] = name
         required = set(policy.required_dependencies)
         public = set(policy.required_public_dependencies)
         optional = set(policy.optional_dependencies)
@@ -248,7 +286,8 @@ def load_manifest(path: pathlib.Path) -> Manifest:
         document["aggregate_headers"], "aggregate_headers"
     )
     for header in aggregate_headers:
-        if pathlib.PurePosixPath(header).name != header or header in {".", ".."}:
+        parts = _relative_path_parts(header)
+        if parts is None or len(parts) != 1:
             raise ComponentGraphError(f"invalid aggregate header path: {header!r}")
 
     raw_assertions = document["ownership_assertions"]
@@ -258,15 +297,17 @@ def load_manifest(path: pathlib.Path) -> Manifest:
         raise ComponentGraphError("ownership_assertion keys must be sorted")
     ownership_assertions: dict[str, str] = {}
     for asserted_path, owner in raw_assertions.items():
+        parts = _relative_path_parts(asserted_path)
         if (
-            not isinstance(asserted_path, str)
-            or not asserted_path.startswith(("include/jyppx/liuding/", "src/jyppx/liuding/"))
-            or ".." in pathlib.PurePosixPath(asserted_path).parts
+            parts is None
+            or len(parts) < 4
+            or parts[:3] not in {("include", "jyppx", "liuding"),
+                                 ("src", "jyppx", "liuding")}
         ):
             raise ComponentGraphError(
                 f"invalid ownership assertion path: {asserted_path!r}"
             )
-        if owner not in components:
+        if not isinstance(owner, str) or owner not in components:
             raise ComponentGraphError(
                 f"ownership assertion has unknown owner {owner!r}: {asserted_path}"
             )
@@ -307,13 +348,12 @@ def _record_includes(
     relative = path.relative_to(repository_root).as_posix()
     for match in INCLUDE_PATTERN.finditer(text):
         include_path = match.group(1)
-        provider_root = include_path.split("/", 1)[0]
-        provider = header_owners.get(provider_root)
+        provider = _path_owner(include_path, header_owners)
         if provider is None:
             line = text.count("\n", 0, match.start()) + 1
             raise ComponentGraphError(
-                f"{relative}:{line} includes unknown JYPPX header root "
-                f"{provider_root!r}"
+                f"{relative}:{line} includes unowned or invalid JYPPX header path "
+                f"{include_path!r}"
             )
         if provider != consumer:
             line = text.count("\n", 0, match.start()) + 1
@@ -331,6 +371,34 @@ def _owned_code_files(root: pathlib.Path) -> list[pathlib.Path]:
     )
 
 
+def _component_code_files(
+    root: pathlib.Path,
+    owners: dict[str, str],
+    kind: str,
+    aggregate_headers: tuple[str, ...] = (),
+) -> list[tuple[pathlib.Path, str]]:
+    """Assign every code file once and require each declared root to be populated."""
+    files: list[tuple[pathlib.Path, str]] = []
+    seen_roots: set[str] = set()
+    unknown: list[str] = []
+    for path in _owned_code_files(root):
+        relative = path.relative_to(root).as_posix()
+        if relative in aggregate_headers:
+            continue
+        owned_root = _ownership_root(relative, owners)
+        if owned_root is None:
+            unknown.append(relative)
+        else:
+            seen_roots.add(owned_root)
+            files.append((path, owners[owned_root]))
+    missing = sorted(set(owners) - seen_roots)
+    if missing or unknown:
+        raise ComponentGraphError(
+            f"{kind} ownership mismatch; missing={missing}, unknown={unknown}"
+        )
+    return files
+
+
 def scan_repository(manifest: Manifest, repository_root: pathlib.Path) -> IncludeGraphs:
     """Scan public headers and production sources into include graphs."""
     repository_root = repository_root.resolve()
@@ -343,28 +411,12 @@ def scan_repository(manifest: Manifest, repository_root: pathlib.Path) -> Includ
         )
     header_owners, source_owners = _ownership_maps(manifest)
 
-    actual_header_roots = {
-        path.name
-        for path in public_root.iterdir()
-        if path.is_dir() and _owned_code_files(path)
-    }
-    if actual_header_roots != set(header_owners):
-        missing = sorted(set(header_owners) - actual_header_roots)
-        unknown = sorted(actual_header_roots - set(header_owners))
-        raise ComponentGraphError(
-            f"public header ownership mismatch; missing={missing}, unknown={unknown}"
-        )
-    actual_source_roots = {
-        path.name
-        for path in source_root.iterdir()
-        if path.is_dir() and _owned_code_files(path)
-    }
-    if actual_source_roots != set(source_owners):
-        missing = sorted(set(source_owners) - actual_source_roots)
-        unknown = sorted(actual_source_roots - set(source_owners))
-        raise ComponentGraphError(
-            f"production source ownership mismatch; missing={missing}, unknown={unknown}"
-        )
+    header_files = _component_code_files(
+        public_root, header_owners, "public header", manifest.aggregate_headers
+    )
+    source_files = _component_code_files(
+        source_root, source_owners, "production source"
+    )
 
     actual_aggregate_headers = sorted(
         path.name
@@ -382,10 +434,11 @@ def scan_repository(manifest: Manifest, repository_root: pathlib.Path) -> Includ
         if not full_path.exists():
             raise ComponentGraphError(f"asserted owned path does not exist: {asserted_path}")
         parts = pathlib.PurePosixPath(asserted_path).parts
+        relative = "/".join(parts[3:])
         if parts[:3] == ("include", "jyppx", "liuding") and len(parts) >= 4:
-            actual_owner = header_owners.get(parts[3])
+            actual_owner = _path_owner(relative, header_owners)
         elif parts[:3] == ("src", "jyppx", "liuding") and len(parts) >= 4:
-            actual_owner = source_owners.get(parts[3])
+            actual_owner = _path_owner(relative, source_owners)
         else:
             actual_owner = None
         if actual_owner != expected_owner:
@@ -397,16 +450,14 @@ def scan_repository(manifest: Manifest, repository_root: pathlib.Path) -> Includ
     public_edges: dict[Edge, set[str]] = {}
     source_edges: dict[Edge, set[str]] = {}
     aggregate_edges: dict[Edge, set[str]] = {}
-    for root, consumer in sorted(header_owners.items()):
-        for path in _owned_code_files(public_root / root):
-            _record_includes(
-                path, repository_root, consumer, header_owners, public_edges
-            )
-    for root, consumer in sorted(source_owners.items()):
-        for path in _owned_code_files(source_root / root):
-            _record_includes(
-                path, repository_root, consumer, header_owners, source_edges
-            )
+    for path, consumer in header_files:
+        _record_includes(
+            path, repository_root, consumer, header_owners, public_edges
+        )
+    for path, consumer in source_files:
+        _record_includes(
+            path, repository_root, consumer, header_owners, source_edges
+        )
     for aggregate_header in manifest.aggregate_headers:
         _record_includes(
             public_root / aggregate_header,
@@ -444,17 +495,14 @@ def load_target_graph(path: pathlib.Path, manifest: Manifest) -> TargetGraphs:
             )
         if kind in {"source", "header"}:
             member_path = pathlib.PurePosixPath(dependency)
-            parts = member_path.parts
+            parts = _relative_path_parts(dependency)
             owners = source_owners if kind == "source" else header_owners
             root = "src" if kind == "source" else "include"
             if (
-                member_path.is_absolute()
-                or ".." in parts
-                or "\\" in dependency
-                or member_path.as_posix() != dependency
+                parts is None
                 or len(parts) < 5
                 or parts[:3] != (root, "jyppx", "liuding")
-                or owners.get(parts[3]) != component
+                or _path_owner("/".join(parts[3:]), owners) != component
                 or member_path.suffix.lower() not in CODE_SUFFIXES
             ):
                 raise ComponentGraphError(f"invalid active {kind} ownership/path")
@@ -498,11 +546,13 @@ def load_target_graph(path: pathlib.Path, manifest: Manifest) -> TargetGraphs:
         )
     enabled = frozenset(component for component, present in states.items() if present)
     for source in sources:
-        owner = source_owners[pathlib.PurePosixPath(source).parts[3]]
+        relative = "/".join(pathlib.PurePosixPath(source).parts[3:])
+        owner = _path_owner(relative, source_owners)
         if owner not in enabled:
             raise ComponentGraphError(f"disabled component has an active source: {owner}")
     for header in headers:
-        owner = header_owners[pathlib.PurePosixPath(header).parts[3]]
+        relative = "/".join(pathlib.PurePosixPath(header).parts[3:])
+        owner = _path_owner(relative, header_owners)
         if owner not in enabled:
             raise ComponentGraphError(f"disabled component has an active header: {owner}")
     for edge in target_edges | interface_edges:

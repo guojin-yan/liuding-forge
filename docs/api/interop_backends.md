@@ -1,45 +1,31 @@
-# State formats and explicit backend boundaries
+# 状态格式与后端边界
 
-Target: `jyppx::liuding::interop`. The foundation artifact types identify exact bytes; format adapters define their own bounded versioned contracts.
+`jyppx::liuding::interop` 负责权重、状态和模型制品的格式契约。制品摘要用于确认字节身份，格式描述、能力声明和执行验证分别检查。
 
-| Surface | Current operation |
-| --- | --- |
-| `safetensors.hpp` | Strict bounded raw tensor reader/writer for 13 byte-addressable types, scalar/empty tensors and string metadata. |
-| `weight_import_report.hpp` | Pure metadata strict/explicit-partial mapping plan and complete versioned diagnostics. |
-| `model_weight_import.hpp` | Optional nn adapter verifying and applying staged model weights on CPU/CUDA. |
-| `torchscript_compatibility.hpp` | Optional nn adapter loading explicitly trusted existing JIT bytes and executing a validated inference boundary. |
-| `model_bundle.hpp` | Immutable, bounded model bundle publication and complete local inventory verification. |
-| `checkpoint_manifest.hpp`, `file_state_archive.hpp` | Versioned participant manifest and integrity-checked atomic file storage. |
-| `export_backend.hpp` | Explicit registry, capability descriptors, real-probe preflight and strict sidecar metadata codecs. |
+| 公共接口 | 用途 |
+|---|---|
+| `safetensors.hpp` | 有界读写 13 种按字节寻址的 tensor 类型、标量、空 tensor 和字符串元数据。 |
+| `weight_import_report.hpp` | 生成 strict 或显式 partial 权重映射计划与版本化诊断。 |
+| `model_weight_import.hpp` | 可选 nn 适配器，验证候选权重后应用到 CPU/CUDA 模型。 |
+| `model_bundle.hpp` | 发布不可变模型包，校验完整文件、tensor 清单、路径、大小与摘要。 |
+| `checkpoint_manifest.hpp`、`file_state_archive.hpp` | 版本化 participant manifest 与完整性校验、原子文件存储。 |
+| `torchscript_compatibility.hpp` | 可选 nn 适配器，加载显式受信的已有 JIT 制品并执行受限推理。 |
+| `export_backend.hpp` | 显式后端注册、能力描述、preflight 与既有协议元数据编解码。 |
 
-The safetensors format contains no checksum or device identity. Use an independently trusted ArtifactRef/digest to check the complete file. The codec preserves opaque little-endian bits; it does not construct a Module, infer a forward graph, interpret labels or execute code. Unsupported FP8, sub-byte, complex and future dtype tokens fail explicitly. It rejects duplicate fields, unknown tensor keys, invalid UTF-8, overflowing shapes, sparse/overlapping offsets, gaps, trailing bytes and configured resource bounds.
+safetensors 不包含文件校验和或设备身份，应使用独立可信的 `ArtifactRef`/摘要校验完整文件。读写器保留原始小端位表示，不创建模型、推断 forward 图或执行代码；不支持的 FP8、亚字节和复数类型会明确失败。重复字段、未知 tensor 字段、非法 UTF-8、形状溢出、重叠或有空隙的数据区、尾随数据与资源超限均会拒绝。
 
-`BackendRegistry` registration is explicit. A descriptor is declared capability,
-not evidence that a package or executable exists. A missing real environment
-probe remains `conditional`; a request outside its source/format/operation,
-dtype/device/options matrix is `unsupported`. Request-bound model preflight,
-verified evidence bytes and process/environment binding are runner duties.
-Deserializing a probe cannot make an untrusted statement into execution evidence.
+model bundle 默认保存数据与描述，不从包中执行任意脚本或动态库。完整清单、来源和签名要求必须分别验证；签名字段或测试 verifier 不能代替真实可信签名。strict 权重导入拒绝缺失、多余、重复、shape/dtype 不匹配的条目；partial 必须显式请求并保留映射报告。
 
-`TorchScriptCompatibilityRuntime` is a real compatibility runtime using official
-`torch::jit::load` and `forward`. It snapshots and hashes the exact archive bytes
-before loading and requires `trust_source=true`; a digest establishes byte
-identity and does not authenticate an executable producer. Inspection also
-requires that trusted load. It accepts a fixed positional prefix and exact JIT
-keyword names; omitted arguments must have actual validated defaults in the
-artifact. The optional `interop -> nn` adapter reuses `nn::Invocation` and
-`ValueSchema`, and is absent from an nn-disabled install.
+`BackendRegistry` 需要显式注册。descriptor 只声明能力，不能证明依赖已安装或模型执行成功；缺少实际环境 probe 时为 `conditional`，超出 source/format/operation、dtype/device/options 范围时为 `unsupported`。旧 sidecar 的 request/probe/candidate 元数据契约仍可解析，候选校验要求请求、制品、环境与独立证据精确绑定；JSON 成功与协议测试不能证明当前导出能力，也不代表继续提供 Python 生产导出入口。
 
-Its boundary is restricted to dense supported-dtype CPU/explicit `cuda:N` tensors, exact scalars, fixed unnamed tuples, typed homogeneous lists, closed string-keyed dictionaries and Optional/None. It rejects Any/classes, extra keywords, unsupported devices/dtypes, active ambient autocast and implicit fallback. Inputs/defaults/outputs are independent snapshots and do not preserve cross-field storage aliasing. Calls serialize, and any failure after entering forward closes the instance without claiming state rollback. Byte/traversal limits and stop/deadline checks are cooperative boundaries; they cannot bound host/operator allocations or preempt JIT/CUDA kernels. See [the runtime contract](torchscript_compatibility.md) for the exact matrix and failure/lifecycle/resource semantics.
+`onnx_export` 提供类似 `torch.onnx.export` 的通用 C++ 入口：传入用户自定义模型或 callable、example inputs、输入输出名称和动态 batch 声明，由原生 trace 前端捕获图，经算子级 registry/lowering 转为 ONNX，再交给 LibTorch 2.14.1 官方 serializer。接口支持多输入输出；新增网络只要组合已支持的标准算子，就复用同一导出器，无需逐模型手写整图。自定义或尚不支持的算子可注册 C++ lowering 扩展，缺少转换规则时返回明确的算子与失败原因。Linear、ResNet18 是首批 FP32/opset 17/自包含制品的验收模型，不构成模型白名单。
 
-TorchScript remains deprecated compatibility for existing artifacts. The runtime does not trace or export models, change the data-only bundle format, imply a generic C++ graph exporter, or make a descriptor/probe into execution evidence. The separate metadata descriptor advertises declared operations only; the linked LibTorch lane, actual loaded artifact, cases, device and dtype still determine runtime results.
+`onnx_export` 与 `onnx_runtime` 独立可选、默认 OFF。运行显式选择 execution provider，非 CPU provider 默认禁止 CPU fallback；CPU 是首批执行证据门槛，其他 provider 的可用性、算子执行与数值结果分别验收。trace 会实际执行 example forward，只覆盖捕获路径，调用方须遵守状态与副作用约束；不承诺 PyTorch 全算子或将任意 `.pt` 文件直接转换为 ONNX。构建选项、接口与限制见 [ONNX 导出与运行](onnx.md)。
 
-ONNX export from a Python factory or ExportedProgram belongs to an optional, separately locked official `torch.export`/ONNX/onnxscript/ORT environment. Native C++ state has no common forward graph and cannot be exported by inference from a Module type or filename. A model-specific graph adapter is required. The current C++ code checks requests/probes/candidate metadata; it is not an ONNX exporter or independent ONNX numerical verifier. ONNX remains a v1.1+ backend under the development plan. The environment probe in `scripts/interop/` also remains outside the installed product runtime and does not qualify a model.
+ONNX 产品导出、用户 API、安装与运行路径不依赖 Python；独立 Python checker 或参考数据差分仅用于验收。仓库内存量遥测、数据准备和 Hugging Face 转换工具的 Python 产品路径仍待原生迁移，不能据此宣称全功能 C++ 闭环已经完成。
 
-The candidate metadata verifier requires exact request/artifact/environment binding, official schema/checker/shape inference and real runtime/numerical case evidence. Those booleans still require independent verification of their referenced evidence before publication; JSON success alone never proves export.
+`TorchScriptCompatibilityRuntime` 使用官方 `torch::jit::load`/`forward`，加载前快照并校验精确字节，且必须显式设置 `trust_source=true`。摘要不认证可执行制品的生产者，inspect 同样需要受信加载。调用接受连续的位置参数前缀与精确关键字名，省略参数须有制品内经校验的默认值。运行复用 `nn::Invocation`/`ValueSchema`；nn 关闭时不提供该适配器。
 
-Official safetensors interchange and the new C++ chapter are awaiting the consolidated Windows and Ubuntu/CUDA qualification. Optional Python test locks live in `scripts/interop/`; they do not add a core runtime dependency.
+JIT 边界只接受声明支持的 CPU/显式 `cuda:N` dense tensor、标量、固定 tuple、同类型 list、闭合字符串键 dictionary 与 Optional/None；拒绝 Any/classes、额外关键字、隐式设备回退与环境 autocast。输入、默认值和输出采用独立快照，不保留跨字段存储别名；调用串行执行，进入 forward 后失败会关闭实例。字节/遍历限制、取消与 deadline 是协作边界，不约束所有算子分配，也不能抢占 JIT/CUDA kernel。完整契约见 [TorchScript 兼容运行时](torchscript_compatibility.md)。
 
-The install-only `tests/install/interop_consumer` uses installed public headers and `jyppx::liuding::interop` to read/write safetensors, plan strict mappings, shard whole tensors, serialize every required/optional descriptor association, publish a complete data-only bundle and reverify its exhaustive file/tensor inventory. It checks domain-separated signing bytes and rejects an unsigned bundle when trusted signatures are required; it does not invent a cryptographic algorithm or treat fixture SBOM/evaluation data as validated release evidence. It also round-trips request/probe/candidate metadata and proves unexecuted ONNX metadata cannot pass the candidate gate. No Python/exporter/ORT is run in that path.
-
-When the installed build enables nn, the same consumer really applies verified safetensors to module state, saves an official C++ JIT fixture, checks default trust rejection and runs trusted CPU forward. With nn disabled its preprocessor branch excludes both optional headers and fails compilation if either leaked into the package. These consumers must run against each qualified install; their source is not a substitute for a recorded successful run. The independent optional Python JIT fixture workflow requires its own locked PyTorch environment and records success only after actual Python/C++ execution, with no dependency installation into a telemetry environment.
+TorchScript 仅兼容已有制品。通用 C++ ONNX 前端的图捕获与算子转换独立验收，不把已有 JIT 制品可加载当作通用导出成功。

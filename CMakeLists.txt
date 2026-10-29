@@ -33,6 +33,8 @@ option(JYPPX_LIUDING_BUILD_EXPERIMENT "Build local experiment configuration" ON)
 option(JYPPX_LIUDING_BUILD_MODELS "Build the independent models Preview" OFF)
 option(JYPPX_LIUDING_BUILD_QUANTIZATION "Build the independent storage quantization Preview" OFF)
 option(JYPPX_LIUDING_BUILD_SERVING "Build the independent in-process serving Preview" OFF)
+option(JYPPX_LIUDING_BUILD_ONNX_EXPORT "Build the optional native C++ ONNX exporter" OFF)
+option(JYPPX_LIUDING_BUILD_ONNX_RUNTIME "Build the optional ONNX Runtime adapter with explicit providers" OFF)
 set(JYPPX_LIUDING_MODELS_REFERENCE_DIR "" CACHE PATH
     "Pre-generated official models reference fixtures; enables the optional differential test")
 set(JYPPX_TOOLS_DEFAULT OFF)
@@ -48,6 +50,7 @@ option(JYPPX_LIUDING_TEST_CLI_CUDA "Run product CLI workflows on a real CUDA dev
 set(JYPPX_TELEMETRY_PYTHON "" CACHE FILEPATH "Locked CPython 3.11 interpreter for optional telemetry acceptance")
 set(JYPPX_OTELCOL_EXECUTABLE "" CACHE FILEPATH "Pinned otelcol-contrib executable for acceptance")
 set(JYPPX_SAFETENSORS_PYTHON "" CACHE FILEPATH "Locked CPython 3.11 interpreter for official safetensors interchange")
+set(JYPPX_LIUDING_ONNX_REFERENCE_PYTHON "" CACHE FILEPATH "Locked test-only interpreter for independent ONNX validation")
 option(JYPPX_LIUDING_ENABLE_COVERAGE "Enable code coverage" OFF)
 option(JYPPX_LIUDING_ENABLE_ASAN "Enable Address Sanitizer" OFF)
 option(JYPPX_LIUDING_ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
@@ -189,6 +192,13 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
     include(cmake/DataImageDependencies.cmake)
 endif()
 
+if(JYPPX_LIUDING_BUILD_ONNX_EXPORT AND NOT Torch_VERSION STREQUAL "2.14.1")
+    message(FATAL_ERROR "The native ONNX serializer requires the declared LibTorch 2.14.1 baseline")
+endif()
+if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
+    find_package(ONNXRuntime 1.23.2 EXACT REQUIRED MODULE)
+endif()
+
 if(JYPPX_LIUDING_BUILD_SERVING)
     find_package(Threads REQUIRED)
 endif()
@@ -311,6 +321,8 @@ set(JYPPX_LIUDING_COMPONENT_EXPERIMENT_ENABLED ${JYPPX_LIUDING_BUILD_EXPERIMENT}
 set(JYPPX_LIUDING_COMPONENT_MODELS_ENABLED ${JYPPX_LIUDING_BUILD_MODELS})
 set(JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED ${JYPPX_LIUDING_BUILD_QUANTIZATION})
 set(JYPPX_LIUDING_COMPONENT_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_SERVING})
+set(JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_RUNTIME})
+set(JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_EXPORT})
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppx_build_config.hpp.in"
     "${JYPPX_GENERATED_INCLUDE_DIR}/jyppx/liuding/foundation/build_config.hpp"
@@ -740,6 +752,23 @@ if(JYPPX_LIUDING_BUILD_MODELS)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS models)
 endif()
 
+if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
+    add_library(jyppx_liuding_onnx_runtime STATIC
+        src/jyppx/liuding/deployment/onnx_runtime/session.cpp)
+    add_library(jyppx::liuding::onnx_runtime ALIAS jyppx_liuding_onnx_runtime)
+    set_target_properties(jyppx_liuding_onnx_runtime PROPERTIES
+        OUTPUT_NAME liuding-forge-onnx-runtime EXPORT_NAME onnx_runtime)
+    target_include_directories(jyppx_liuding_onnx_runtime PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(jyppx_liuding_onnx_runtime
+        PUBLIC jyppx_liuding_foundation
+        PRIVATE ONNXRuntime::onnxruntime)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_onnx_runtime)
+    list(APPEND JYPPX_ENABLED_COMPONENTS onnx_runtime)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/onnx_runtime)
+endif()
+
 if(JYPPX_LIUDING_BUILD_QUANTIZATION)
     add_library(jyppx_liuding_quantization STATIC
         src/jyppx/liuding/quantization/quantization.cpp)
@@ -772,6 +801,36 @@ if(JYPPX_LIUDING_BUILD_SERVING)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_serving)
     list(APPEND JYPPX_ENABLED_COMPONENTS serving)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS serving)
+endif()
+
+if(JYPPX_LIUDING_BUILD_ONNX_EXPORT)
+    add_library(jyppx_liuding_onnx_export STATIC
+        src/jyppx/liuding/deployment/onnx_export/exporter.cpp
+        src/jyppx/liuding/deployment/onnx_export/generic_lowering.cpp)
+    add_library(jyppx::liuding::onnx_export ALIAS jyppx_liuding_onnx_export)
+    set_target_properties(jyppx_liuding_onnx_export PROPERTIES
+        OUTPUT_NAME liuding-forge-onnx-export EXPORT_NAME onnx_export)
+    target_include_directories(jyppx_liuding_onnx_export PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
+        target_include_directories(jyppx_liuding_onnx_export SYSTEM PUBLIC
+            $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>)
+    endforeach()
+    # LibTorch's public ONNX headers use ONNX_NAMESPACE while the bundled
+    # binary exports the generated protobuf types in onnx_torch.
+    target_compile_definitions(jyppx_liuding_onnx_export PUBLIC
+        ONNX_NAMESPACE=onnx_torch)
+    target_link_libraries(jyppx_liuding_onnx_export
+        PUBLIC jyppx_liuding_foundation ${TORCH_LIBRARIES})
+    if(JYPPX_LIUDING_BUILD_QUANTIZATION)
+        target_sources(jyppx_liuding_onnx_export PRIVATE
+            src/jyppx/liuding/deployment/onnx_export/static_int8_linear.cpp)
+        target_link_libraries(jyppx_liuding_onnx_export PUBLIC jyppx_liuding_quantization)
+    endif()
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_onnx_export)
+    list(APPEND JYPPX_ENABLED_COMPONENTS onnx_export)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/onnx_export)
 endif()
 
 add_library(jyppx_liuding_all INTERFACE)
@@ -882,6 +941,9 @@ if(JYPPX_LIUDING_BUILD_TOOLS)
 elseif(JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR)
     message(FATAL_ERROR "JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR=ON requires JYPPX_LIUDING_BUILD_TOOLS=ON")
 endif()
+if(JYPPX_LIUDING_BUILD_QUANTIZATION)
+    add_subdirectory(tools/quantization)
+endif()
 include(cmake/CompilerOptions.cmake)
 
 # ============================================
@@ -956,6 +1018,14 @@ install(EXPORT jyppxTargetsExport
 # Package Configuration
 # ============================================
 include(CMakePackageConfigHelpers)
+
+if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
+    jyppx_install_onnx_runtime()
+    configure_file(cmake/jyppxOnnxRuntime.cmake.in
+        "${CMAKE_CURRENT_BINARY_DIR}/jyppxOnnxRuntime.cmake" @ONLY)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/jyppxOnnxRuntime.cmake"
+        DESTINATION lib/cmake/jyppx)
+endif()
 
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppxConfig.cmake.in

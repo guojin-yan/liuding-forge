@@ -1,81 +1,39 @@
-# Quantization: storage-only int8 reference path
+# Linear 量化
 
-The `jyppx::liuding::quantization` component exposes the versioned
-`jyppx.qint8.symmetric.per_tensor/v1` format. It stores one Linear weight matrix
-as symmetric per-tensor int8 values, preserves finite FP32 bias, and records
-calibration lineage. The runtime dequantizes the matrix once, then computes
-ordinary FP32 Linear output. Reports therefore set `compute_quantized=false`
-and `qat=false`, with `execution_claim="storage-quantized"`.
+`jyppx::liuding::quantization` 提供有界校准、对称 int8 参考运算和版本化 Linear 权重制品；该组件默认关闭，仅依赖 `foundation`。静态 PTQ 可以准备交给独立 ONNX Runtime adapter 执行的 U8U8/int32 图。制品存储、转换成功、实际整数执行和性能收益分别验证。
 
-The format changes persistent representation. It does not provide a quantized
-compute kernel, backend packing, fake-quant gradients, QAT, hardware acceleration,
-or a performance improvement guarantee. `fallback_modules=1` identifies the
-Linear executed through FP32 fallback; unsupported-module count is zero because
-this API accepts exactly one Linear and does not traverse an arbitrary graph.
+| 路径 | 运算与边界 |
+| --- | --- |
+| Q0 便携制品 | `jyppx.qint8.symmetric.per_tensor/v1`；有符号 int8 权重、每张量单一 scale、零点 0、范围 `[-127,127]`、可选 FP32 bias及完整校准身份 |
+| `StorageQuantizedLinearRuntime` | 构造时反量化权重，随后执行 FP32 Linear；`compute_quantized=false`、`qat=false`，报告一个浮点 fallback 模块 |
+| `prepare_static_int8_linear` | 将 Q0 的 `[out,in]` 权重无损转为 `[in,out]` 并加 128；生成独立的 `jyppx.linear.ptq.ort.u8u8/v1` 准备信息，不改变 Q0 格式或宣称已执行内核 |
+| ORT 静态 PTQ 图 | 固定 ORT 1.23.2、ONNX opset 17，IR 版本由官方序列化器决定；FP32 输入经 `QuantizeLinear` 转 U8，U8U8 `MatMulInteger` 累加为 int32，随后 FP32 缩放及可选 bias；CPU 资格须由真实执行 trace 证明 |
 
-## Reference formula
+当前路径不提供 QAT、INT4、GPU 量化或任意整图自动转换。U8S8 的 AVX2 路径可能出现中间饱和，本受限配方使用 U8U8，CPU 后端自己完成机器相关的 packing；便携制品不保存机器布局。
 
-For finite values, `scale=max(abs(x))/127`; an all-zero finite range uses
-`scale=1`. Zero point is always zero and the canonical range is `[-127,127]`.
-Quantization rounds `x/scale` to nearest with ties to even and clamps to the canonical range. Dequantization computes `q*scale` and returns FP32 values. The scalar rounding implementation does not consult the floating-point rounding mode. Empty and all-nonfinite inputs cannot derive qparams and raise `NotReady`. The quantizer rejects nonfinite values with `NumericalError`.
+## 校准与格式
 
-`MinMaxObserver` counts each observe call and every input value while skipping
-NaN and infinity when updating extrema. Empty/all-nonfinite observations retain
-an empty finite range. `merge` combines counters and extrema without changing
-sample order. The observer is an exact `CheckpointParticipant` with a bounded,
-versioned 40-byte state blob; restore validates the manifest, policy, field
-lengths, booleans, counters and extrema before committing state.
+参考量化使用 `scale=max(abs(x))/127`；全零有限范围使用 scale 1，四舍六入、正中取偶，然后截到 `[-127,127]`。参考舍入不受调用方浮点舍入模式影响。空范围或全非有限范围不能生成 qparams；量化输入含 NaN/Inf 时拒绝。
 
-## Calibration and conversion
+`CalibrationSession` 保存数据集版本及 SHA-256、预处理 fingerprint、seed 和有序唯一 sample IDs。`MinMaxObserver` 统计全部调用和值，求极值时跳过 NaN/Inf；其 exact checkpoint 仅包含数值状态，恢复整个校准会话时还须保留同一批样本身份与 lineage。
 
-```cpp
-#include <jyppx/liuding/quantization/quantization.hpp> #include <array>
+Q0 二进制以 `JYPPXQ1\0` 开头，使用规范小端编码并拒绝未知版本、非法元数据、截断、非规范或尾随字节。默认限制为制品 16 MiB、每维 65,536、校准 sample IDs 1,000,000 个、每个 ID 256 字节、每个 lineage 字段 1,024 字节；维度与元数据同时受完整制品字节上限约束。
 
-namespace q = jyppx::liuding::quantization; q::CalibrationSession calibration({
-    .dataset_version = "dataset/v1",
-    .dataset_digest = {.hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-    .preprocessing_fingerprint = "normalize/v1",
-    .seed = 731U});
-const std::array<float, 2> sample{1.0F, -1.0F}; calibration.observe("sample-0", sample); const std::array<float, 2> weights{1.0F, -1.0F}; const std::array<float, 1> bias{0.25F}; const auto artifact = q::quantize_linear(
-    {.in_features = 2U, .out_features = 1U,
-     .weights = weights, .bias = bias}, calibration.finalize());
-const auto bytes = q::serialize_linear_artifact(artifact); q::StorageQuantizedLinearRuntime runtime(q::deserialize_linear_artifact(bytes)); const auto output = runtime.forward(sample); const auto report = q::quantization_report_json(runtime.report(weights));
+## 准备 CPU 静态 PTQ
+
+先用 `quantize_linear` 和 `serialize_linear_artifact` 保存 Q0；完整流程见[静态 INT8 Linear 教程](../tutorials/static_int8_linear_ptq.md)。已安装的 `liuding-forge-int8-prepare` 会重新进行原生 Q0 校验并向标准输出写出有界 JSON。ONNX 图必须由 C++ `jyppx::liuding::onnx_export::export_static_int8_linear` 生成：
+
+```sh
+liuding-forge-int8-prepare linear.qint8 > linear.preparation.json
+liuding-forge-int8-export linear.qint8 linear.int8.onnx
 ```
 
-Calibration retains the dataset version, canonical SHA-256 digest,
-preprocessing fingerprint, seed and ordered unique sample IDs. IDs and metadata
-must be valid UTF-8 and satisfy explicit resource limits. `finalize` requires at
-least one sample and a finite observer range. Calibration metadata is stored
-with each artifact; changing the dataset, preprocessing or seed changes the
-serialized evidence. The observer participant saves numeric state only; callers
-resuming a whole calibration session must preserve the matching sample IDs and
-lineage as part of their recipe state.
+原生 API 使用 LibTorch 官方 C++ ONNX 序列化器，先核对调用方提供的 Q0 SHA-256，再校验规范格式和完整校准 lineage。CLI 将本次读取的文件作为源，跨文件流转时的来源身份须由调用方另行核对。输出文件完整发布且拒绝覆盖；导出成功只代表图制品生成，实际执行可使用单独的 `jyppx::liuding::onnx_runtime` adapter 显式选择 CPU。生产流程无需 Python。
 
-## Artifact and execution contracts
+静态配方将激活按校准范围取偶舍入并饱和到 `[0,255]`，不在运行时重新校准；超出校准范围的输入可能损失任务质量。每维固定不超过 65,536，int32 点积最坏绝对值不超过 1,065,353,216；scale 及其乘积须是正常、有限的 FP32 数，保守饱和输入输出界须能用有限 FP32 表示，否则准备失败。这个逻辑界限不是进程 RSS 上限。
 
-The binary v1 artifact begins with `JYPPXQ1\0` and uses little-endian integer
-and IEEE-754 scalar encoding. It includes the artifact version, immutable format
-descriptor, dimensions, weight qparams, row-major int8 weights, optional FP32
-bias, calibration lineage, sample IDs, observer state and activation qparams.
-Reserved fields are zero and signed floating-point zero is canonicalized to
-positive zero. Decoding validates resource budgets before allocation and
-re-encodes the result to reject noncanonical or trailing bytes. Unknown artifact
-versions raise `CompatibilityError`; truncated or structurally malformed data
-raises `SerializationError`. Invalid semantic values raise the corresponding
-JYPPX argument or numerical error.
+## 证据与错误
 
-`QuantizationLimits` defaults to 16 MiB per artifact, 65,536 features per
-dimension, 1,000,000 calibration sample IDs, 256 bytes per ID and 1,024 bytes per lineage text field. These are independent ceilings: a large shape still must fit the exact artifact-byte budget. Serialization enforces the complete byte count, including metadata. Raising limits is a caller decision and never changes the capability claim.
+`compare_reference` 报告 RMSE、MAE、最大绝对/相对误差、SQNR、cosine similarity 和非有限对数。相对误差分母为 `max(abs(reference),1e-12)`；JSON 将无穷 SQNR 表示为 `null`。存储误差不能代替真实任务准确率。
 
-`StorageQuantizedLinearRuntime::forward` accepts contiguous FP32 rows with a
-declared batch size and rejects shape mismatches, nonfinite input or numerical
-overflow. The runtime returns row-major `[batch,out_features]` FP32 output.
-Calibration qparams provide evidence only; the runtime does not quantize
-activations.
-
-## Quality report and acceptance evidence
-
-`compare_reference` reports RMSE, MAE, maximum absolute/relative error, SQNR and
-cosine similarity over finite pairs, and counts excluded nonfinite pairs. Relative error divides by `max(abs(reference),1e-12)`. An exact nonzero match has infinite SQNR, represented by JSON `null`; an exact zero match has SQNR zero. The report preserves the execution claims, artifact byte count, fallback count, unsupported count and calibration lineage. It makes no task-quality claim; applications must select acceptable error/accuracy thresholds.
-
-The chapter's unit suite covers qparam and quant/dequant golden vectors, round-to-nearest-even, nonfinite/zero handling, error metrics, observer merge and atomic restore, calibration lineage and duplicate/budget rejection, canonical artifact roundtrip, exact and one-byte-short budgets, truncated prefixes, malformed headers, explicit capability claims and FP32 Linear reference output. The install consumer links only the exported `jyppx::liuding::quantization` target and exercises conversion, serialization, inference and machine-readable reporting. Both suites must pass in the chapter's Windows CPU and Ubuntu+CUDA release validation before this component can be considered delivered. This document describes the storage path and does not imply successful validation by itself.
+CPU 计算量化验收须核对同一 ONNX SHA-256 的实际 CPU `MatMulInteger` 或其整数融合算子 trace、独立整数累加参考及任务门槛。冷加载、首次推理、无 profiling 的热时延、进程工作集和制品体积分别测量；整数执行本身不意味着加速。缺少 ORT、版本不符、shape 不支持或数值无效均明确失败，不隐式切换浮点 Linear。现有显式存储 fallback 的语义保持独立。

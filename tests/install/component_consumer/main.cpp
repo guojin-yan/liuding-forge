@@ -45,6 +45,13 @@
 #include <jyppx/liuding/experiment/config.hpp>
 #elif defined(JYPPX_CONSUMER_MODELS)
 #include <jyppx/liuding/models/registry.hpp>
+#elif defined(JYPPX_CONSUMER_ONNX_EXPORT)
+#include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
+
+#include <torch/nn/modules/linear.h>
+#elif defined(JYPPX_CONSUMER_ONNX_RUNTIME)
+#include <jyppx/liuding/deployment/onnx_runtime/session.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 #elif defined(JYPPX_CONSUMER_QUANTIZATION)
 #include <jyppx/liuding/quantization/quantization.hpp>
 #elif defined(JYPPX_CONSUMER_SERVING)
@@ -103,7 +110,7 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
 #endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
-  constexpr std::array<std::pair<std::string_view, bool>, 13U> kExpected{{
+  constexpr std::array<std::pair<std::string_view, bool>, 15U> kExpected{{
       {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
       {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
       {"data_image", JYPPX_EXPECT_COMPONENT_DATA_IMAGE != 0},
@@ -112,6 +119,8 @@ bool BuildCapabilityInventoryMatchesPackage() {
       {"interop", JYPPX_EXPECT_COMPONENT_INTEROP != 0},
       {"models", JYPPX_EXPECT_COMPONENT_MODELS != 0},
       {"nn", JYPPX_EXPECT_COMPONENT_NN != 0},
+      {"onnx_export", JYPPX_EXPECT_COMPONENT_ONNX_EXPORT != 0},
+      {"onnx_runtime", JYPPX_EXPECT_COMPONENT_ONNX_RUNTIME != 0},
       {"optim", JYPPX_EXPECT_COMPONENT_OPTIM != 0},
       {"quantization", JYPPX_EXPECT_COMPONENT_QUANTIZATION != 0},
       {"serving", JYPPX_EXPECT_COMPONENT_SERVING != 0},
@@ -125,7 +134,9 @@ bool BuildCapabilityInventoryMatchesPackage() {
     const auto& feature = manifest.features[index];
     const bool preview = component == "models" || component == "quantization" ||
                          component == "serving" || component == "data_image" ||
-                         component == "vision_render";
+                         component == "vision_render" ||
+                         component == "onnx_export" ||
+                         component == "onnx_runtime";
     const auto expected_status =
         enabled ? (preview ? jyppx::liuding::CapabilityStatus::experimental
                            : jyppx::liuding::CapabilityStatus::available)
@@ -548,6 +559,23 @@ int main() {
              : 1;
 #elif defined(JYPPX_CONSUMER_MODELS)
   return jyppx::liuding::models::list_models().empty() ? 1 : 0;
+#elif defined(JYPPX_CONSUMER_ONNX_EXPORT)
+  torch::nn::Linear linear(3, 2);
+  const std::array<std::int64_t, 2> shape{1, 3};
+  const auto exported =
+      jyppx::liuding::onnx_export::export_linear(linear, shape);
+  if (exported.onnx.empty() || exported.digest.hex.size() != 64U ||
+      exported.opset != 17U)
+    return 1;
+  return 0;
+#elif defined(JYPPX_CONSUMER_ONNX_RUNTIME)
+  try {
+    jyppx::liuding::onnx_runtime::Session invalid(
+        {}, {.hex = std::string(64, '0')});
+    return 1;
+  } catch (const jyppx::liuding::InvalidArgument&) {
+    return 0;
+  }
 #elif defined(JYPPX_CONSUMER_QUANTIZATION)
   jyppx::liuding::quantization::validate_format_descriptor({});
   return 0;

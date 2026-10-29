@@ -351,6 +351,72 @@ std::vector<std::byte> serialize_linear_artifact(
 QuantizedLinearArtifact deserialize_linear_artifact(
     std::span<const std::byte> bytes, QuantizationLimits limits = {});
 
+/**
+ * @brief Explicit static PTQ preparation for the separate ORT CPU adapter.
+ *
+ * Portable Q0 storage stays symmetric int8 and makes no kernel claim. This
+ * derived representation transposes [out,in] to [in,out] and adds 128 to each
+ * weight without changing its integer value relative to zero point 128. ORT
+ * owns machine-specific packing. Preparation alone does not prove execution,
+ * quality, speedup, ISA availability, or backend installation. No ORT types or
+ * runtime dependency enter the foundation-only quantization component.
+ */
+struct StaticInt8LinearPreparation {
+  std::string profile_id =
+      "jyppx.linear.ptq.ort.u8u8/v1";      ///< Exact derived recipe identity.
+  std::string runtime_version = "1.23.2";  ///< Required ORT CPU version.
+  std::uint32_t onnx_opset = 17U;  ///< Official ONNX operator-set version.
+  std::size_t in_features = 0U;    ///< Positive input width, at most 65536.
+  std::size_t out_features = 0U;   ///< Positive output width, at most 65536.
+  float activation_scale = 1.0F;   ///< Positive normal FP32 static input scale.
+  float weight_scale = 1.0F;   ///< Positive normal FP32 reconstruction scale.
+  float product_scale = 1.0F;  ///< Nearest-even FP32 product of both scales.
+  std::uint8_t activation_zero_point = 128U;  ///< Unsigned input zero point.
+  std::uint8_t weight_zero_point = 128U;  ///< Unsigned repacked weight zero.
+  std::vector<std::uint8_t> weights;      ///< Owned row-major [in,out] bytes.
+  std::vector<float> bias;  ///< Optional owned finite FP32 output bias.
+  ArtifactDigest source_artifact_digest;  ///< Complete canonical Q0 identity.
+};
+
+/**
+ * @brief Prepares one calibrated Linear for unsigned INT8/int32 computation.
+ *
+ * Inputs are not retained or changed. The returned representation owns its
+ * storage and can be read concurrently. Static activation QuantizeLinear uses
+ * nearest-even rounding and saturation to [0,255]; integer dot products
+ * accumulate into int32, followed by FP32 rescaling and optional FP32 bias.
+ * This function performs no model inference and never sets compute-quantized.
+ *
+ * @param artifact Validated portable source with complete calibration lineage.
+ * @param limits Independent source, feature and preparation payload ceilings.
+ * @return Owned versioned recipe, canonical source SHA-256 and repacked data.
+ * @throws InvalidArgument If dimensions or source metadata are unsupported.
+ * @throws NumericalError If FP32 scales, their product, or a conservative
+ * saturated-input output bound are not representable as finite normal scales
+ * and finite FP32 output. Scale conversion ignores ambient rounding mode.
+ * @throws ResourceExhausted If a declared source or payload budget is exceeded.
+ */
+StaticInt8LinearPreparation prepare_static_int8_linear(
+    const QuantizedLinearArtifact& artifact, QuantizationLimits limits = {});
+
+/**
+ * @brief Encodes a bounded diagnostic view of static INT8 preparation.
+ *
+ * The JSON binds repacked bytes to the canonical Q0 source and its complete
+ * calibration identity. Scales are encoded as exact FP32 bit patterns and
+ * payloads as canonical base64. This describes derived conversion state, not a new
+ * portable weight format or runtime execution report. The separate C++
+ * native exporter consumes the original Q0 artifact directly; this optional
+ * JSON is a diagnostic/interchange view and is not its source of authority.
+ *
+ * @param artifact Complete immutable canonical Q0 source.
+ * @param limits Source and complete UTF-8 JSON byte ceilings.
+ * @return Owned diagnostic JSON describing exactly one validated preparation.
+ * @throws ResourceExhausted If the complete JSON exceeds max_artifact_bytes.
+ */
+std::string static_int8_linear_export_json(
+    const QuantizedLinearArtifact& artifact, QuantizationLimits limits = {});
+
 /** @brief Machine-readable execution and quality evidence for one artifact. */
 struct QuantizationReport {
   std::uint32_t schema_version =

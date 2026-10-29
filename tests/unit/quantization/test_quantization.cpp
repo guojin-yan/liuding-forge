@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/quantization/quantization.hpp>
 
 #include <algorithm>
@@ -574,6 +575,130 @@ TEST(QuantizationArtifact, RejectsNoncanonicalSignedZero) {
   bytes[bias_offset + 3U] = std::byte{0x80U};
   EXPECT_THROW(q::deserialize_linear_artifact(bytes),
                jyppx::liuding::SerializationError);
+}
+
+TEST(QuantizationStaticInt8, RepackIsUnsignedAndPreservesCanonicalSource) {
+  const auto source = artifact();
+  const auto before = q::serialize_linear_artifact(source);
+  const auto prepared = q::prepare_static_int8_linear(source);
+  EXPECT_EQ(prepared.profile_id, "jyppx.linear.ptq.ort.u8u8/v1");
+  EXPECT_EQ(prepared.runtime_version, "1.23.2");
+  EXPECT_EQ(prepared.onnx_opset, 17U);
+  EXPECT_EQ(prepared.in_features, 3U);
+  EXPECT_EQ(prepared.out_features, 2U);
+  EXPECT_EQ(prepared.activation_zero_point, 128U);
+  EXPECT_EQ(prepared.weight_zero_point, 128U);
+  EXPECT_EQ(prepared.weights,
+            (std::vector<std::uint8_t>{192U, 144U, 1U, 160U, 128U, 64U}));
+  EXPECT_EQ(prepared.bias, source.bias);
+  EXPECT_EQ(prepared.source_artifact_digest.hex,
+            jyppx::liuding::sha256_hex(before));
+  EXPECT_EQ(q::serialize_linear_artifact(source), before);
+  EXPECT_FALSE(source.format.compute_quantized);
+}
+
+TEST(QuantizationStaticInt8, ScaleBitsAndPreparationIgnoreAmbientRounding) {
+  const int original = std::fegetround();
+  ASSERT_NE(original, -1);
+  RestoreRounding restore{original};
+  const auto source = artifact();
+  const auto json = q::static_int8_linear_export_json(source);
+  for (const int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+    ASSERT_EQ(std::fesetround(mode), 0);
+    const auto prepared = q::prepare_static_int8_linear(source);
+    EXPECT_EQ(std::bit_cast<std::uint32_t>(prepared.activation_scale),
+              0x3d010204U);
+    EXPECT_EQ(std::bit_cast<std::uint32_t>(prepared.weight_scale), 0x3c810204U);
+    EXPECT_EQ(std::bit_cast<std::uint32_t>(prepared.product_scale),
+              0x3a020610U);
+    EXPECT_EQ(q::static_int8_linear_export_json(source), json);
+    EXPECT_EQ(std::fegetround(), mode);
+  }
+}
+
+TEST(QuantizationStaticInt8, PreparationJsonIsBoundedAndPreservesLineage) {
+  const auto source = artifact();
+  const auto json = q::static_int8_linear_export_json(source);
+  EXPECT_NE(json.find("\"weights_u8_k_n_base64\":\"wJABoIBA\""),
+            std::string::npos);
+  EXPECT_NE(json.find("\"bias_f32le_base64\":\"AACAPgAAAL8=\""),
+            std::string::npos);
+  EXPECT_NE(json.find("\"compute_quantized\":false"), std::string::npos);
+  EXPECT_EQ(json.find("\"onnx_ir_version\""), std::string::npos);
+  EXPECT_NE(json.find("\"qat\":false"), std::string::npos);
+  EXPECT_NE(json.find("\"sample_ids\":[\"sample-a\",\"sample-b\"]"),
+            std::string::npos);
+  EXPECT_NE(json.find("\"seed\":731"), std::string::npos);
+  q::QuantizationLimits limits;
+  limits.max_artifact_bytes = json.size();
+  EXPECT_EQ(q::static_int8_linear_export_json(source, limits), json);
+  --limits.max_artifact_bytes;
+  EXPECT_THROW(q::static_int8_linear_export_json(source, limits),
+               jyppx::liuding::ResourceExhausted);
+}
+
+TEST(QuantizationStaticInt8, ExactDoubleHalfStepsRoundToEvenFp32Scales) {
+  auto source = artifact();
+  const int original = std::fegetround();
+  ASSERT_NE(original, -1);
+  RestoreRounding restore{original};
+  const std::array<std::pair<std::uint64_t, std::uint32_t>, 4U> cases{{
+      {0x3ff0000010000000ULL, 0x3f800000U},
+      {0x3ff0000030000000ULL, 0x3f800002U},
+      {0x3ff000000fffffffULL, 0x3f800000U},
+      {0x3ff0000010000001ULL, 0x3f800001U},
+  }};
+  for (const int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+    ASSERT_EQ(std::fesetround(mode), 0);
+    for (const auto& [bits, expected] : cases) {
+      source.weight_params.scale = std::bit_cast<double>(bits);
+      EXPECT_EQ(std::bit_cast<std::uint32_t>(
+                    q::prepare_static_int8_linear(source).weight_scale),
+                expected);
+    }
+    EXPECT_EQ(std::fegetround(), mode);
+  }
+}
+
+TEST(QuantizationStaticInt8,
+     ExplicitDimensionCeilingProtectsInt32Accumulation) {
+  auto source = artifact();
+  source.in_features = 65536U;
+  source.out_features = 1U;
+  source.bias.clear();
+  source.quantized_weights.assign(source.in_features, 127);
+  source.weight_params.scale = 1.0;
+  const auto prepared = q::prepare_static_int8_linear(source);
+  EXPECT_EQ(prepared.weights.size(), 65536U);
+  EXPECT_EQ(prepared.weights.front(), 255U);
+  EXPECT_LT(
+      65536ULL * 128ULL * 127ULL,
+      static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()));
+  source.in_features = 65537U;
+  source.quantized_weights.push_back(127);
+  q::QuantizationLimits limits;
+  limits.max_features = 65537U;
+  EXPECT_THROW(q::prepare_static_int8_linear(source, limits),
+               jyppx::liuding::InvalidArgument);
+}
+
+TEST(QuantizationStaticInt8,
+     RejectsUnrepresentableScalesAndOutputBeforeRepack) {
+  auto source = artifact();
+  source.weight_params.scale = std::numeric_limits<double>::denorm_min();
+  EXPECT_THROW(q::prepare_static_int8_linear(source),
+               jyppx::liuding::NumericalError);
+  source = artifact();
+  source.weight_params.scale = std::numeric_limits<float>::max() / 127.0;
+  EXPECT_THROW(q::prepare_static_int8_linear(source),
+               jyppx::liuding::NumericalError);
+  q::CalibrationSession tiny_calibration(lineage());
+  const std::array<float, 1U> tiny{std::numeric_limits<float>::denorm_min()};
+  tiny_calibration.observe("tiny", tiny);
+  source = artifact();
+  source.calibration = tiny_calibration.finalize();
+  EXPECT_THROW(q::prepare_static_int8_linear(source),
+               jyppx::liuding::NumericalError);
 }
 
 TEST(QuantizationRuntime, DequantizesAndExecutesFp32LinearWithExplicitReport) {

@@ -59,7 +59,7 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
     set(ENV{PATH} "${JYPPX_TORCH_RUNTIME_DIR};$ENV{PATH}")
 endif()
 
-set(optional_components core interop data data_image vision_render nn optim training experiment models quantization serving)
+set(optional_components core interop data data_image vision_render nn optim training experiment models onnx_export onnx_runtime quantization serving)
 set(profiles foundation core interop data data_image vision_render nn optim training experiment)
 if(JYPPX_MATRIX_PROFILES)
     foreach(profile IN LISTS JYPPX_MATRIX_PROFILES)
@@ -161,6 +161,8 @@ foreach(profile IN LISTS profiles)
             set(component_header_root "${component}")
             if(component STREQUAL "vision_render")
                 set(component_header_root visualization)
+            elseif(component STREQUAL "onnx_export" OR component STREQUAL "onnx_runtime")
+                set(component_header_root "deployment/${component}")
             endif()
             if(EXISTS "${install_dir}/include/jyppx/liuding/${component_header_root}")
                 message(FATAL_ERROR
@@ -257,6 +259,8 @@ foreach(invalid_case IN LISTS invalid_cases)
         -DJYPPX_LIUDING_BUILD_TRAINING=OFF
         -DJYPPX_LIUDING_BUILD_EXPERIMENT=OFF
         -DJYPPX_LIUDING_BUILD_MODELS=OFF
+        -DJYPPX_LIUDING_BUILD_ONNX_EXPORT=OFF
+        -DJYPPX_LIUDING_BUILD_ONNX_RUNTIME=OFF
         -DJYPPX_LIUDING_BUILD_QUANTIZATION=OFF
         -DJYPPX_LIUDING_BUILD_SERVING=OFF
         -DJYPPX_LIUDING_MODELS_REFERENCE_DIR=

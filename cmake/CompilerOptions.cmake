@@ -18,12 +18,16 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_optim
     jyppx_liuding_experiment
     jyppx_liuding_models
+    jyppx_liuding_onnx_export
+    jyppx_liuding_onnx_runtime
     jyppx_liuding_quantization
     jyppx_liuding_serving
     jyppx_cli_transport
     jyppx_cli_objects
     jyppx_cli
     jyppx_cli_recipe_gate
+    jyppx_int8_prepare
+    jyppx_int8_export
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(NOT TARGET ${JYPPX_TARGET})

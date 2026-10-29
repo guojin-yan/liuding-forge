@@ -478,6 +478,31 @@ foreach(preview_component IN ITEMS sdk data_image vision_render models quantizat
     endif()
 endforeach()
 
+if(TARGET jyppx::liuding::onnx_export AND TARGET jyppx::liuding::onnx_runtime)
+    add_test(
+        NAME DeploymentInstallConsumer
+        COMMAND ${CMAKE_COMMAND}
+            -DJYPPX_LIUDING_BUILD_DIR=${CMAKE_BINARY_DIR}
+            -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/deployment_consumer
+            -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/deployment/$<CONFIG>
+            -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+            ${JYPPX_CONSUMER_GENERATOR_ARGS}
+            -DJYPPX_TORCH_DIR=${Torch_DIR}
+            -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
+            -DJYPPX_CUDA_STANDARD=${JYPPX_CONSUMER_CUDA_STANDARD}
+            -DJYPPX_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}
+            -DJYPPX_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}
+            -DJYPPX_CUDA_TOOLKIT_ROOT=${CUDAToolkit_ROOT}
+            -DJYPPX_TORCH_CUDA_ARCH_LIST=$ENV{TORCH_CUDA_ARCH_LIST}
+            -P ${CMAKE_SOURCE_DIR}/cmake/TestInstalledTargets.cmake
+    )
+    set_tests_properties(DeploymentInstallConsumer PROPERTIES
+        LABELS "onnx_export;onnx_runtime;deployment;preview;packaging"
+        RESOURCE_LOCK jyppx_install_consumer
+        TIMEOUT 900
+    )
+endif()
+
 if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_QUANTIZATION OR
    JYPPX_LIUDING_BUILD_SERVING OR JYPPX_LIUDING_BUILD_VISION_RENDER)
     add_test(
