@@ -118,13 +118,157 @@ class OnnxVerificationCliTest(unittest.TestCase):
                 ("tensors", self.tensor_path.read_bytes(), "evidence/cases.safetensors", "application/safetensors"),
             ):
                 add(name, 10, data, path, media)
-                manifest["evidence"].append({"schema_id": f"fixture.{name}",
+                schema = {"export-report": "jyppx.liuding.onnx_export_report",
+                          "cases": "jyppx.liuding.onnx_verification_cases",
+                          "tensors": "jyppx.liuding.onnx_verification_tensors"}[name]
+                manifest["evidence"].append({"schema_id": schema,
                                               "schema_version": 1, "file_id": name})
         # Original noncanonical whitespace must survive in the recorded artifact.
         self.manifest_bytes = (json.dumps(manifest, indent=2) + "\n\n").encode()
         (self.bundle_path / "manifest.json").write_bytes(self.manifest_bytes)
         return ("--bundle", self.bundle_path, "--bundle-sha256",
                 hashlib.sha256(self.manifest_bytes).hexdigest(), "--model-id", "primary")
+
+    def contained(self) -> tuple:
+        self.suite()
+        return (*self.bundle(version=2), "--report-id", "export-report",
+                "--cases-id", "cases", "--tensors-id", "tensors")
+
+    def refresh_bundle(self, arguments: tuple, payload: tuple[str, bytes] | None = None) -> tuple:
+        document = json.loads((self.bundle_path / "manifest.json").read_bytes())
+        if payload:
+            identity, data = payload
+            entry = next(item for item in document["files"] if item["id"] == identity)
+            (self.bundle_path / entry["path"]).write_bytes(data)
+            entry["artifact"]["digest"]["hex"] = hashlib.sha256(data).hexdigest()
+            entry["artifact"]["size_bytes"] = len(data)
+        self.manifest_bytes = (json.dumps(document, indent=2) + "\n").encode()
+        (self.bundle_path / "manifest.json").write_bytes(self.manifest_bytes)
+        updated = list(arguments)
+        updated[3] = hashlib.sha256(self.manifest_bytes).hexdigest()
+        return tuple(updated)
+
+    def smoke(self, arguments: tuple, expected: int = 0, provider: str = "CPUExecutionProvider") -> dict:
+        return self.invoke("model", "onnx", "smoke", *arguments, "--provider", provider, expected=expected)
+
+    def verify_contained(self, arguments: tuple, expected: int = 0) -> dict:
+        return self.invoke("model", "onnx", "verify", *arguments,
+                           "--provider", "CPUExecutionProvider", "--root", self.root,
+                           "--id", "contained-verify", "--reference", "deployment", expected=expected)
+
+    def test_contained_smoke_executes_without_training_store_or_external_inputs(self) -> None:
+        arguments = self.contained()
+        self.root.rename(self.directory / "unavailable-training-store")
+        for path in (self.model_path, self.report_path, self.case_path, self.tensor_path):
+            path.unlink()
+        data = self.smoke(arguments)["data"]
+        self.assertEqual(data["operation"], "model.onnx.smoke")
+        self.assertEqual(data["numerical"], "passed")
+        self.assertTrue(data["runtime_executed"])
+        self.assertFalse(data["source_authenticated"])
+        self.assertFalse(data["source_run_lineage_verified"])
+        report = data["report"]
+        self.assertEqual(report["schema_version"], 3)
+        self.assertFalse(report["source_run_lineage_verified"])
+        self.assertEqual(report["verification_inputs"]["report_file_id"], "export-report")
+        self.assertTrue(report["verification_inputs"]["tensor_inventory_validated"])
+        self.assertFalse(data["input_bundle"]["descriptor_payloads_validated"])
+        profile = data["runtime_profile"].encode()
+        self.assertEqual(hashlib.sha256(profile).hexdigest(), report["execution"]["profile"]["sha256"])
+        self.assertGreater(report["execution"]["profile"]["kernel_events"]["CPUExecutionProvider"]["Gemm"], 0)
+        self.assertFalse(self.root.exists())
+
+    def test_contained_verify_persists_same_snapshot_inputs_and_original_manifest(self) -> None:
+        arguments = self.contained()
+        data = self.verify_contained(arguments)["data"]
+        self.assertEqual(data["numerical"], "passed")
+        report = data["report"]
+        self.assertEqual(report["schema_version"], 3)
+        self.assertTrue(report["source_run_lineage_verified"])
+        artifacts = {row["role"]: self.artifact(row) for row in data["artifacts"]}
+        self.assertEqual(len(artifacts), 7)
+        self.assertEqual(artifacts["onnx.input_bundle_manifest"], self.manifest_bytes)
+        self.assertEqual(artifacts["onnx.export_report"], self.report)
+        self.assertEqual(artifacts["onnx.verification_cases"], self.case_path.read_bytes())
+        self.assertEqual(artifacts["onnx.verification_tensors"], self.tensor_path.read_bytes())
+        self.assertEqual(json.loads(artifacts["onnx.verification_report"]), report)
+        self.invoke("run", "verify", "--root", self.root)
+
+    def test_contained_numerical_failure_is_observed_and_durably_recorded(self) -> None:
+        arguments = self.contained()
+        self.suite(wrong=True)
+        arguments = self.refresh_bundle(arguments, ("tensors", self.tensor_path.read_bytes()))
+        smoke = self.smoke(arguments, expected=4)["data"]
+        self.assertEqual(smoke["numerical"], "failed")
+        self.assertGreater(smoke["report"]["execution"]["verification"]["mismatched_elements"], 0)
+        data = self.verify_contained(arguments, expected=4)["data"]
+        self.assertEqual(len(data["artifacts"]), 7)
+        self.assertEqual(next(row for row in self.runs() if row["run_id"] == "contained-verify")["status"], "failed")
+
+    def test_contained_ids_external_inputs_and_missing_ids_are_rejected(self) -> None:
+        arguments = self.contained()
+        for mixed in (("--report", self.report_path), ("--cases-sha256", "a" * 64),
+                      ("--path", self.model_path), ("--tensors", self.tensor_path)):
+            with self.subTest(mixed=mixed):
+                self.verify_contained((*arguments, *mixed), expected=2)
+        for invalid in (arguments[:-2], arguments[:6],
+                        (*arguments[:-1], "missing"),
+                        (*arguments[:-3], "export-report", "--tensors-id", "tensors")):
+            with self.subTest(invalid=invalid):
+                self.smoke(invalid, expected=2)
+        self.assertEqual(len(self.runs()), 1)
+
+    def test_smoke_rejects_run_store_options_and_unavailable_provider(self) -> None:
+        arguments = self.contained()
+        self.smoke((*arguments, "--root", self.root), expected=2)
+        self.smoke(arguments, expected=2, provider="UnavailableExecutionProvider")
+        self.smoke((*arguments, "--timeout-ms", "0"), expected=2)
+        self.assertEqual(len(self.runs()), 1)
+
+    def test_contained_owner_schema_version_and_evidence_membership_are_enforced(self) -> None:
+        arguments = self.contained()
+        original = (self.bundle_path / "manifest.json").read_bytes()
+        for change in ("schema", "version", "wrong_owner", "v1"):
+            with self.subTest(change=change):
+                document = json.loads(original)
+                if change == "schema":
+                    document["evidence"][0]["schema_id"] = "fixture.arbitrary"
+                elif change == "version":
+                    document["evidence"][0]["schema_version"] = 2
+                elif change == "wrong_owner":
+                    next(row for row in document["files"] if row["id"] == "export-report")["role"] = 9
+                    document["weight_import_reports"] = [document["evidence"].pop(0)]
+                else:
+                    document["schema_version"] = 1
+                (self.bundle_path / "manifest.json").write_text(json.dumps(document), encoding="utf-8")
+                updated = self.refresh_bundle(arguments)
+                self.smoke(updated, expected=2)
+        self.assertEqual(len(self.runs()), 1)
+
+    def test_contained_semantically_wrong_cases_fail_despite_valid_outer_digests(self) -> None:
+        arguments = self.contained()
+        cases = json.loads(self.case_path.read_bytes())
+        cases["future"] = 1
+        arguments = self.refresh_bundle(arguments, ("cases", json.dumps(cases).encode()))
+        self.smoke(arguments, expected=2)
+        del cases["future"]
+        cases["cases"][0]["inputs"][0]["tensor"] = "missing"
+        arguments = self.refresh_bundle(arguments, ("cases", json.dumps(cases).encode()))
+        self.smoke(arguments, expected=2)
+        self.assertEqual(len(self.runs()), 1)
+
+    def test_contained_wrong_model_binding_and_tampered_evidence_are_rejected(self) -> None:
+        arguments = self.contained()
+        report = json.loads(self.report)
+        report["model"]["digest"]["hex"] = "d" * 64
+        arguments = self.refresh_bundle(arguments, ("export-report", json.dumps(report).encode()))
+        self.smoke(arguments, expected=2)
+        arguments = self.refresh_bundle(arguments, ("export-report", self.report))
+        path = self.bundle_path / "evidence/cases.safetensors"
+        data = path.read_bytes()
+        path.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+        self.smoke(arguments, expected=2)
+        self.assertEqual(len(self.runs()), 1)
 
     def test_bundle_model_executes_and_binds_original_manifest_for_pass_and_failure(self) -> None:
         self.suite()

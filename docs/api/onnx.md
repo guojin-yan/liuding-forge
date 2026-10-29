@@ -112,4 +112,29 @@ liuding-forge model onnx verify \
 
 命令完整校验 bundle，按显式模型 ID 选择单文件 ONNX，使用原生句柄读取并保留已校验的同一份模型字节，再进行官方 checker 与实际数值验证。manifest SHA-256 对应原始 `manifest.json` 的完整字节；大小限制为 manifest 4 MiB、单文件 256 MiB、数据文件合计 512 MiB。不得同时传 `--path`，其他模型、未声明文件或任何文件摘要错误均明确拒绝。
 
-验证证据封装 `jyppx.liuding.onnx_verification_evidence` 使用 v2，新增 `input_bundle`：普通文件输入时为 null，bundle 输入时记录原始 manifest 摘要、bundle/model/file ID 和签名状态；内部执行报告仍使用原有 v1。bundle 模式额外将原始 manifest 字节登记为第七个制品，数值失败也保留关联。该模式使用调用方提供的原始 FP32 case，不解释包中的预处理、后处理和任务描述符，不校验声明的完整 runtime requirements；这些未检查项在报告中明确为 false。实际执行只授予选中模型和样例的证据，不授予包内其他模型或全部部署环境资格。完整证据打包、CLI 导出编排与可信签名仍需另行完成。
+使用包外样例时，验证证据封装 `jyppx.liuding.onnx_verification_evidence` 使用 v2，包含 `input_bundle`：普通文件输入时为 null，bundle 输入时记录原始 manifest 摘要、bundle/model/file ID 和签名状态；内部执行报告仍使用原有 v1。bundle 模式额外将原始 manifest 字节登记为第七个制品，数值失败也保留关联。该模式使用调用方提供的原始 FP32 case，不解释包中的预处理、后处理和任务描述符，不校验声明的完整 runtime requirements；这些未检查项在报告中明确为 false。实际执行只授予选中模型和样例的证据，不授予包内其他模型或全部部署环境资格。自动证据组包、CLI 导出编排与可信签名仍需另行完成。
+
+## 包内证据复验
+
+bundle v2 可同时提供模型、导出报告、case JSON 和 safetensors。后三者在 manifest 的 `evidence` 中各有独立文件 ID，owner schema 和版本必须符合下表；实际内容还会严格解析并与模型及本次输入绑定。
+
+| 参数 | owner schema ID | 版本 | 内容上限 |
+| --- | --- | --- | --- |
+| `--report-id` | `jyppx.liuding.onnx_export_report` | 1 | 4 MiB |
+| `--cases-id` | `jyppx.liuding.onnx_verification_cases` | 1 | 4 MiB |
+| `--tensors-id` | `jyppx.liuding.onnx_verification_tensors` | 1 | 64 MiB，FP32 safetensors |
+
+```sh
+liuding-forge model onnx smoke \
+  --bundle ./model-bundle --bundle-sha256 ORIGINAL_MANIFEST_SHA256 --model-id primary \
+  --report-id export-report --cases-id cases --tensors-id tensors \
+  --provider CPUExecutionProvider --format json
+```
+
+`smoke` 不需要原训练 run 数据库或包外模型/样例文件。它完整校验目录，保留同一次校验读取的模型和三件输入，重新运行官方 checker、严格解析全部 case/Tensor 关联，再执行 ORT 并比较全部具名输出。模型、manifest 和目录总额沿用上述限制；快照只保留选中的四文件，合计已知字节预算最多 332 MiB，不是 RSS 上限，发现文件 ID 与保留最终字节时仍会各做一次完整校验。
+
+数值通过返回 0，数值不一致返回 4；输入/后端错误返回 2，I/O 错误返回 3。JSON 输出包含新执行报告和原始 `runtime_profile` 字符串，后者的 UTF-8 字节摘要与报告中的 profile SHA-256 相同；原始 trace 最多 16 MiB。命令不修改模型包、不创建 run；需要留存时保存完整输出。包内预期值和导出来源仍是声明，不认证生产者，也不证明任务准确率、完整 runtime requirements、其他模型或性能资格。
+
+需要把本次复验登记到已有原训练 lineage 时，将同一组参数用于 `model onnx verify`，另加 `--root`、`--id`、`--reference`。不要混用包内 ID 与包外 `--path`、`--report`、`--cases`、`--tensors` 或其摘要。成功和数值失败均登记原始 manifest 与六件执行制品；仍须能在指定 run store 中找到报告声明的训练来源。
+
+包内输入模式生成验证证据封装 v3，增加 `verification_inputs` 的文件 ID 与逐项语义检查结果，以及 `source_run_lineage_verified`：`smoke` 为 false，核对原训练的 `verify` 为 true。外部输入模式继续输出 v2，内部 Runtime 执行报告仍为 v1。`descriptor_payloads_validated=false` 表示未解析包内全部通用描述符；已校验的三件验证输入在 `verification_inputs` 单独列明。预后处理、SBOM/provenance、完整 runtime 声明、自动组包与真实签名继续单独完成。

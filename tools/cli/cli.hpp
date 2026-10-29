@@ -66,6 +66,7 @@ Result checkpoint_command(const Arguments& arguments);
 Result model_command(const Arguments& arguments);
 Result onnx_command(const Arguments& arguments);
 Result onnx_verify_command(const Arguments& arguments);
+Result onnx_smoke_command(const Arguments& arguments);
 Result benchmark_command(const Arguments& arguments);
 Result offline_command(const Arguments& arguments);
 Result recipe_command(const Arguments& arguments);

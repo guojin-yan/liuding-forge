@@ -268,6 +268,9 @@ Result execute(const Arguments& arguments) {
                    "model bundle inspect|verify --path DIRECTORY",
                    "model bundle pack --manifest PATH --manifest-sha256 SHA256 "
                    "--source DIRECTORY --output NEW_DIRECTORY",
+                   "model onnx smoke --bundle DIRECTORY --bundle-sha256 SHA256 "
+                   "--model-id MODEL --report-id REPORT --cases-id CASES "
+                   "--tensors-id TENSORS --provider NAME",
                    "model onnx register --path MODEL --report REPORT "
                    "--report-sha256 SHA256 --root RUN_STORE --id RUN "
                    "--reference NAME",

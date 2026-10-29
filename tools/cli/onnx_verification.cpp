@@ -42,15 +42,35 @@ std::string_view TextBytes(std::span<const std::byte> bytes) {
   return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
 }
 
-struct VerificationModel {
+struct VerificationInputs {
   std::string standalone;
+  std::string external_report;
+  std::string external_cases;
+  std::string external_tensors;
   std::optional<interop::ModelBundleSnapshot> bundle;
   std::string model_id;
   std::string file_id;
+  std::string report_id;
+  std::string cases_id;
+  std::string tensors_id;
 
   std::string_view bytes() const {
     return bundle ? TextBytes(bundle->files.at(file_id)) : standalone;
   }
+  std::string_view report() const {
+    return report_id.empty() ? external_report
+                             : TextBytes(bundle->files.at(report_id));
+  }
+  std::string_view cases() const {
+    return cases_id.empty() ? external_cases
+                            : TextBytes(bundle->files.at(cases_id));
+  }
+  std::string_view tensors() const {
+    return tensors_id.empty() ? external_tensors
+                              : TextBytes(bundle->files.at(tensors_id));
+  }
+
+  bool contained() const { return !report_id.empty(); }
 
   Json document() const {
     if (!bundle) return nullptr;
@@ -70,21 +90,25 @@ struct VerificationModel {
         {"descriptor_payloads_validated", false},
         {"runtime_requirements_checked", false}};
   }
+
+  Json evidence() const {
+    if (!contained()) return nullptr;
+    return {{"source", "verified_bundle_snapshot"},
+            {"report_file_id", report_id},
+            {"cases_file_id", cases_id},
+            {"tensors_file_id", tensors_id},
+            {"export_report_schema_validated", true},
+            {"export_report_model_identity_verified", true},
+            {"official_onnx_checker", "passed"},
+            {"case_schema_validated", true},
+            {"tensor_inventory_validated", true},
+            {"case_bindings_executed", true}};
+  }
 };
 
-VerificationModel Model(const Arguments& arguments, std::uint64_t model_bytes) {
-  VerificationModel result;
-  const auto bundle = arguments.optional("bundle");
-  if (!bundle) {
-    if (arguments.optional("bundle-sha256") || arguments.optional("model-id"))
-      throw InvalidArgument("Bundle identity options require --bundle");
-    result.standalone = read_text(arguments.require("path"),
-                                  static_cast<std::size_t>(model_bytes));
-    return result;
-  }
-  if (arguments.optional("path"))
-    throw InvalidArgument("Choose exactly one ONNX --path or --bundle");
-  const auto directory = std::filesystem::u8path(*bundle);
+void ReadBundle(const Arguments& arguments, VerificationInputs& result,
+                std::uint64_t model_bytes) {
+  const auto directory = std::filesystem::u8path(arguments.require("bundle"));
   const ArtifactDigest digest{.hex = arguments.require("bundle-sha256")};
   validate_artifact_digest(digest);
   result.model_id = arguments.require("model-id");
@@ -92,23 +116,111 @@ VerificationModel Model(const Arguments& arguments, std::uint64_t model_bytes) {
   options.limits.max_manifest_bytes = 4U << 20U;
   options.limits.max_file_bytes = 256U << 20U;
   options.limits.max_total_bytes = 512U << 20U;
-  // Discover the selected inventory id, then bind the final retained reads to
-  // the caller's exact manifest. No model is loaded through an unchecked path.
+  std::uint64_t retained_limit = model_bytes + (4U << 20U);
+  // Discovery validates the whole bundle. Final retained bytes are read and
+  // hashed together, again bound to the caller's original manifest digest.
   {
     const auto discovered = interop::read_model_bundle_snapshot(
         directory, digest, {}, options, 4U << 20U);
-    const auto& models = discovered.verification.manifest.models;
+    const auto& manifest = discovered.verification.manifest;
     const auto found = std::find_if(
-        models.begin(), models.end(),
+        manifest.models.begin(), manifest.models.end(),
         [&](const auto& model) { return model.id == result.model_id; });
-    if (found == models.end() ||
+    if (found == manifest.models.end() ||
         found->format != interop::BundleModelFormat::onnx)
       throw CompatibilityError("Select an existing single-file ONNX variant");
     result.file_id = found->file_ids.front();
+    const auto size = [&](const std::string& id, std::uint64_t maximum) {
+      const auto file =
+          std::find_if(manifest.files.begin(), manifest.files.end(),
+                       [&](const auto& entry) { return entry.id == id; });
+      if (file == manifest.files.end())
+        throw InvalidArgument("Unknown ONNX bundle file id");
+      if (file->artifact.size_bytes > maximum)
+        throw ResourceExhausted(
+            "ONNX bundle verification input exceeds its byte limit");
+      return file->artifact.size_bytes;
+    };
+    static_cast<void>(size(result.file_id, model_bytes));
+    if (result.contained()) {
+      if (manifest.schema_version != 2U)
+        throw CompatibilityError(
+            "Bundle-contained ONNX evidence requires schema v2");
+      const auto evidence = [&](const std::string& id, std::string_view schema,
+                                std::uint64_t maximum) {
+        const auto ref = std::find_if(
+            manifest.evidence.begin(), manifest.evidence.end(),
+            [&](const auto& entry) { return entry.file_id == id; });
+        if (ref == manifest.evidence.end() || ref->schema_id != schema ||
+            ref->schema_version != 1U)
+          throw CompatibilityError(
+              "ONNX evidence needs an explicit supported owner schema and "
+              "version");
+        retained_limit += size(id, maximum);
+      };
+      evidence(result.report_id, "jyppx.liuding.onnx_export_report", 4U << 20U);
+      evidence(result.cases_id, "jyppx.liuding.onnx_verification_cases",
+               4U << 20U);
+      evidence(result.tensors_id, "jyppx.liuding.onnx_verification_tensors",
+               64U << 20U);
+    }
   }
-  const std::array<std::string_view, 1> selected{result.file_id};
+  std::vector<std::string_view> selected{result.file_id};
+  if (result.contained()) {
+    selected.insert(selected.end(),
+                    {result.report_id, result.cases_id, result.tensors_id});
+  }
   result.bundle = interop::read_model_bundle_snapshot(
-      directory, digest, selected, options, model_bytes + (4U << 20U));
+      directory, digest, selected, options, retained_limit);
+}
+
+VerificationInputs Inputs(const Arguments& arguments, bool smoke) {
+  VerificationInputs result;
+  const bool contained = arguments.optional("report-id").has_value() ||
+                         arguments.optional("cases-id").has_value() ||
+                         arguments.optional("tensors-id").has_value();
+  if (smoke && !contained)
+    throw InvalidArgument(
+        "ONNX smoke requires bundle-contained report, cases and tensors ids");
+  if (contained) {
+    if (!arguments.optional("bundle"))
+      throw InvalidArgument("ONNX evidence file ids require --bundle");
+    for (const auto* option : {"path", "report", "report-sha256", "cases",
+                               "cases-sha256", "tensors", "tensors-sha256"})
+      if (arguments.optional(option))
+        throw InvalidArgument(
+            "Do not mix bundle evidence ids and external ONNX verification "
+            "inputs");
+    result.report_id = arguments.require("report-id");
+    result.cases_id = arguments.require("cases-id");
+    result.tensors_id = arguments.require("tensors-id");
+    if (result.report_id.empty() || result.cases_id.empty() ||
+        result.tensors_id.empty())
+      throw InvalidArgument("ONNX evidence ids must be nonempty");
+    ReadBundle(arguments, result, 256U << 20U);
+  } else {
+    result.external_report =
+        CheckedFile(arguments, "report", "report-sha256", 4U << 20U);
+    const auto report =
+        onnx_export::deserialize_export_report(result.external_report);
+    if (report.model_size_bytes > (256U << 20U))
+      throw ResourceExhausted("ONNX verification model exceeds 256 MiB");
+    if (arguments.optional("bundle")) {
+      if (arguments.optional("path"))
+        throw InvalidArgument("Choose exactly one ONNX --path or --bundle");
+      ReadBundle(arguments, result, report.model_size_bytes);
+    } else {
+      if (arguments.optional("bundle-sha256") || arguments.optional("model-id"))
+        throw InvalidArgument("Bundle identity options require --bundle");
+      result.standalone =
+          read_text(arguments.require("path"),
+                    static_cast<std::size_t>(report.model_size_bytes));
+    }
+    result.external_cases =
+        CheckedFile(arguments, "cases", "cases-sha256", 4U << 20U);
+    result.external_tensors =
+        CheckedFile(arguments, "tensors", "tensors-sha256", 64U << 20U);
+  }
   return result;
 }
 
@@ -191,26 +303,23 @@ std::filesystem::path TraceDirectory() {
   }
   throw IoError("Cannot allocate unique ONNX verification profile directory");
 }
-}  // namespace
+struct PreparedVerification {
+  VerificationInputs inputs;
+  onnx_export::ExportReport export_report;
+  onnx_runtime::VerificationOptions policy;
+  std::vector<OwnedCase> owned;
+  std::vector<onnx_runtime::VerificationCase> cases;
+};
 
-Result onnx_verify_command(const Arguments& arguments) {
-  arguments.allow({"path", "report", "report-sha256", "cases", "cases-sha256",
-                   "tensors", "tensors-sha256", "provider", "provider-option",
-                   "timeout-ms", "root", "id", "reference", "bundle",
-                   "bundle-sha256", "model-id"});
-  const auto export_json =
-      CheckedFile(arguments, "report", "report-sha256", 4U << 20U);
-  const auto export_report =
-      onnx_export::deserialize_export_report(export_json);
-  if (export_report.model_size_bytes > (256U << 20U))
-    throw ResourceExhausted("ONNX verification model exceeds 256 MiB");
-  const auto model_owner = Model(arguments, export_report.model_size_bytes);
-  const auto model = model_owner.bytes();
-  onnx_export::verify_export_report_model(export_report, Bytes(model));
-  const auto case_json =
-      CheckedFile(arguments, "cases", "cases-sha256", 4U << 20U);
-  const auto tensor_bytes =
-      CheckedFile(arguments, "tensors", "tensors-sha256", 64U << 20U);
+PreparedVerification Prepare(const Arguments& arguments, bool smoke) {
+  PreparedVerification result;
+  result.inputs = Inputs(arguments, smoke);
+  result.export_report =
+      onnx_export::deserialize_export_report(result.inputs.report());
+  onnx_export::verify_export_report_model(result.export_report,
+                                          Bytes(result.inputs.bytes()));
+  const auto case_json = result.inputs.cases();
+  const auto tensor_bytes = result.inputs.tensors();
   interop::SafeTensorsLimits tensor_limits;
   tensor_limits.max_file_bytes = 64U << 20U;
   tensor_limits.max_payload_bytes = 64U << 20U;
@@ -226,7 +335,7 @@ Result onnx_verify_command(const Arguments& arguments) {
       !suite.at("absolute_tolerance").is_number() ||
       !suite.at("relative_tolerance").is_number())
     throw SerializationError("Invalid ONNX verification suite schema");
-  onnx_runtime::VerificationOptions policy;
+  auto& policy = result.policy;
   policy.reference = suite.at("reference").get<std::string>();
   policy.absolute_tolerance = suite.at("absolute_tolerance").get<double>();
   policy.relative_tolerance = suite.at("relative_tolerance").get<double>();
@@ -234,7 +343,7 @@ Result onnx_verify_command(const Arguments& arguments) {
   const auto& case_array = suite.at("cases");
   if (!case_array.is_array() || case_array.empty() || case_array.size() > 64U)
     throw ResourceExhausted("ONNX verification suite requires 1-64 cases");
-  std::vector<OwnedCase> owned;
+  auto& owned = result.owned;
   owned.reserve(case_array.size());
   std::set<std::string> used;
   std::uint64_t remaining = 64U << 20U;
@@ -252,7 +361,7 @@ Result onnx_verify_command(const Arguments& arguments) {
   if (used.size() != tensors.directory().tensors.size())
     throw InvalidArgument(
         "ONNX verification tensor file has undeclared tensors");
-  std::vector<onnx_runtime::VerificationCase> cases;
+  auto& cases = result.cases;
   cases.reserve(owned.size());
   for (auto& item : owned) {
     for (const auto& tensor : item.inputs)
@@ -267,26 +376,22 @@ Result onnx_verify_command(const Arguments& arguments) {
                      .inputs = item.input_views,
                      .expected = item.expected_views});
   }
-  const auto root = std::filesystem::u8path(arguments.require("root"));
-  if (!std::filesystem::is_regular_file(root / "runs.sqlite3"))
-    throw IoError("ONNX verification requires an existing run store");
-  experiment::SQLiteRunStore store(root);
-  const auto id = arguments.require("id");
-  const auto reference = arguments.require("reference");
-  if (reference.empty() || reference.size() > 220U ||
-      !export_report.source.run_id || id == *export_report.source.run_id)
-    throw InvalidArgument(
-        "Use a distinct verification run and a reference of 1-220 bytes");
-  const auto source = store.find(*export_report.source.run_id);
-  if (!source ||
-      source->lineage.source_digest != export_report.source.source_digest ||
-      source->lineage.config_digest != export_report.source.config_digest ||
-      source->lineage.data_manifest_digest !=
-          export_report.source.data_manifest_digest)
-    throw CompatibilityError("ONNX verification source run lineage mismatch");
-  if (store.find(id))
-    throw InvalidArgument(
-        "ONNX verification run ID is already reserved; use a new attempt ID");
+  return result;
+}
+
+struct ExecutedVerification {
+  onnx_runtime::VerificationReport report;
+  std::string profile_json;
+  Json document;
+  std::string encoded;
+  bool passed = false;
+};
+
+ExecutedVerification Execute(const Arguments& arguments,
+                             const PreparedVerification& prepared, bool smoke) {
+  const auto& export_report = prepared.export_report;
+  const auto& owner = prepared.inputs;
+  const auto& cases = prepared.cases;
   onnx_runtime::SessionOptions options;
   options.provider.name = arguments.require("provider");
   options.max_batch_size =
@@ -313,10 +418,10 @@ Result onnx_verify_command(const Arguments& arguments) {
       std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout);
   const TraceCleanup temporary{TraceDirectory()};
   options.profile_prefix = temporary.directory / "actual";
-  onnx_runtime::Session session(Bytes(model), export_report.model_digest,
-                                options);
-  auto report =
-      onnx_runtime::verify_session(session, cases, policy, {}, deadline);
+  onnx_runtime::Session session(Bytes(owner.bytes()),
+                                export_report.model_digest, options);
+  auto report = onnx_runtime::verify_session(session, cases, prepared.policy,
+                                             {}, deadline);
   const auto profile_path = session.end_profiling();
   const auto profile_json = read_text(profile_path, 16U << 20U);
   report.profile = onnx_runtime::inspect_profile(profile_json);
@@ -324,20 +429,89 @@ Result onnx_verify_command(const Arguments& arguments) {
       !report.profile->kernels.contains(options.provider.name))
     throw CompatibilityError(
         "ORT trace does not exclusively observe the requested provider");
-  const Json document{
+  Json document{
       {"format", "jyppx.liuding.onnx_verification_evidence"},
-      {"schema_version", 2},
-      {"input_bundle", model_owner.document()},
-      {"source", Json::parse(export_json).at("source")},
-      {"export_report_sha256", sha256_hex(Bytes(export_json))},
-      {"cases_sha256", sha256_hex(Bytes(case_json))},
-      {"tensors_sha256", sha256_hex(Bytes(tensor_bytes))},
+      {"schema_version", owner.contained() ? 3 : 2},
+      {"input_bundle", owner.document()},
+      {"source", Json::parse(owner.report()).at("source")},
+      {"export_report_sha256", sha256_hex(Bytes(owner.report()))},
+      {"cases_sha256", sha256_hex(Bytes(owner.cases()))},
+      {"tensors_sha256", sha256_hex(Bytes(owner.tensors()))},
       {"execution",
        Json::parse(onnx_runtime::serialize_verification_report(report))}};
+  if (owner.contained()) {
+    document["verification_inputs"] = owner.evidence();
+    document["source_run_lineage_verified"] = !smoke;
+  }
   const auto encoded = document.dump();
   if (encoded.size() > (4U << 20U))
     throw ResourceExhausted("ONNX validation evidence exceeds 4 MiB");
   const bool passed = onnx_runtime::verification_passed(report);
+  return {.report = std::move(report),
+          .profile_json = profile_json,
+          .document = std::move(document),
+          .encoded = encoded,
+          .passed = passed};
+}
+}  // namespace
+
+Result onnx_smoke_command(const Arguments& arguments) {
+  arguments.allow({"bundle", "bundle-sha256", "model-id", "report-id",
+                   "cases-id", "tensors-id", "provider", "provider-option",
+                   "timeout-ms"});
+  const auto prepared = Prepare(arguments, true);
+  const auto executed = Execute(arguments, prepared, true);
+  return {Json{{"operation", "model.onnx.smoke"},
+               {"runtime_executed", true},
+               {"numerical", executed.passed ? "passed" : "failed"},
+               {"requested_provider_observed", true},
+               {"source_authenticated", false},
+               {"source_run_lineage_verified", false},
+               {"input_bundle", prepared.inputs.document()},
+               {"report", executed.document},
+               {"runtime_profile", executed.profile_json}},
+          executed.passed ? 0 : 4};
+}
+
+Result onnx_verify_command(const Arguments& arguments) {
+  arguments.allow({"path", "report", "report-sha256", "cases", "cases-sha256",
+                   "tensors", "tensors-sha256", "provider", "provider-option",
+                   "timeout-ms", "root", "id", "reference", "bundle",
+                   "bundle-sha256", "model-id", "report-id", "cases-id",
+                   "tensors-id"});
+  const auto prepared = Prepare(arguments, false);
+  const auto& model_owner = prepared.inputs;
+  const auto model = model_owner.bytes();
+  const auto export_json = model_owner.report();
+  const auto case_json = model_owner.cases();
+  const auto tensor_bytes = model_owner.tensors();
+  const auto& export_report = prepared.export_report;
+  const auto root = std::filesystem::u8path(arguments.require("root"));
+  if (!std::filesystem::is_regular_file(root / "runs.sqlite3"))
+    throw IoError("ONNX verification requires an existing run store");
+  experiment::SQLiteRunStore store(root);
+  const auto id = arguments.require("id");
+  const auto reference = arguments.require("reference");
+  if (reference.empty() || reference.size() > 220U ||
+      !export_report.source.run_id || id == *export_report.source.run_id)
+    throw InvalidArgument(
+        "Use a distinct verification run and a reference of 1-220 bytes");
+  const auto source = store.find(*export_report.source.run_id);
+  if (!source ||
+      source->lineage.source_digest != export_report.source.source_digest ||
+      source->lineage.config_digest != export_report.source.config_digest ||
+      source->lineage.data_manifest_digest !=
+          export_report.source.data_manifest_digest)
+    throw CompatibilityError("ONNX verification source run lineage mismatch");
+  if (store.find(id))
+    throw InvalidArgument(
+        "ONNX verification run ID is already reserved; use a new attempt ID");
+  const auto executed = Execute(arguments, prepared, false);
+  const auto& report = executed.report;
+  const auto& document = executed.document;
+  const auto& encoded = executed.encoded;
+  const auto& profile_json = executed.profile_json;
+  const bool passed = executed.passed;
   const auto time = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
@@ -414,6 +588,11 @@ Result onnx_verify_command(const Arguments& arguments) {
 }  // namespace jyppx::liuding::cli
 #else
 namespace jyppx::liuding::cli {
+Result onnx_smoke_command(const Arguments&) {
+  throw CompatibilityError("ONNX smoke components are disabled",
+                           "Enable JYPPX_LIUDING_BUILD_ONNX_EXPORT and "
+                           "JYPPX_LIUDING_BUILD_ONNX_RUNTIME.");
+}
 Result onnx_verify_command(const Arguments&) {
   throw CompatibilityError("ONNX verification components are disabled",
                            "Enable JYPPX_LIUDING_BUILD_ONNX_EXPORT and "
