@@ -67,6 +67,19 @@ def exclusive_lock(path: Path):
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
+def copytree_windows_safe(source: Path, destination: Path) -> None:
+    """Include descendants in long-path handling, even with a short tree root."""
+    def extended(path: Path) -> str:
+        absolute = os.path.abspath(os.fspath(path))
+        if os.name != "nt" or absolute.startswith("\\\\?\\"):
+            return absolute
+        if absolute.startswith("\\\\"):
+            return "\\\\?\\UNC\\" + absolute[2:]
+        return "\\\\?\\" + absolute
+
+    shutil.copytree(extended(source), extended(destination))
+
+
 class PairedRecipe(unittest.TestCase):
     cli: Path
     device: str
@@ -152,7 +165,7 @@ class PairedRecipe(unittest.TestCase):
                 shutil.copy2(cls.roots["paused"] / name, cls.evidence / name)
             shutil.copy2(cls.roots["paused"] / "bundle/manifest.json", cls.evidence / "bundle-manifest.json")
             for name, root in cls.roots.items():
-                shutil.copytree(root, cls.evidence / ("run-" + name))
+                copytree_windows_safe(root, cls.evidence / ("run-" + name))
 
     def test_01_frozen_full_task_quality_and_complete_recovery(self) -> None:
         self.assertEqual(self.preflight["total_steps"], 1280)

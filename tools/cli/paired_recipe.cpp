@@ -671,7 +671,9 @@ Result execute(const Arguments& arguments, bool resume) {
   tr::Trainer trainer({.trainer_id = "recipe.trainer",
                        .run_id = std::string(kRun),
                        .trace_id = "recipe.paired-affine",
-                       .max_epochs = config.at("epochs").get<std::uint64_t>()});
+                       .max_epochs = config.at("epochs").get<std::uint64_t>(),
+                       .gradient_clip_norm = {},
+                       .checkpoint = {}});
   trainer.prepare(
       {.model = model,
        .optimizers =
@@ -690,17 +692,21 @@ Result execute(const Arguments& arguments, bool resume) {
        .validation_step = step,
        .strategy = std::make_shared<tr::SingleDeviceStrategy>(
            tr::SingleDeviceStrategyOptions{.device = device}),
+       .gradient_scaler = {},
+       .gradient_scaler_checkpoint = {},
        .callbacks = std::make_shared<tr::CallbackDispatcher>(
            std::vector<std::shared_ptr<tr::CallbackHandler>>{
                std::make_shared<Checkpoints>(
                    config.at("checkpoint_every").get<std::uint64_t>(),
                    inputs.total_steps)}),
+       .event_outbox = {},
        .model_checkpoint =
            std::make_shared<nn::ModelCheckpointParticipant>(*model),
        .rng_checkpoint = std::make_shared<core::RngCheckpointParticipant>(
            core::RngCheckpointParticipantOptions{.include_cuda =
                                                      device.is_cuda()}),
        .diagnostics = diagnostics,
+       .additional_participants = {},
        .checkpoint_action = [&](const tr::CheckpointCoordinator& coordinator) {
          tr::FileCheckpointStore checkpoint(root / "latest.jyck");
          coordinator.save(checkpoint);
@@ -752,9 +758,12 @@ Result execute(const Arguments& arguments, bool resume) {
         if (!batch) return std::nullopt;
         return tr::ClassificationEvaluationBatch{
             .invocation = mapper(*batch),
-            .targets = batch->value.toTuple()->elements().at(2).toTensor()};
+            .targets = batch->value.toTuple()->elements().at(2).toTensor(),
+            .source_indices = {}};
       },
       {.num_classes = 2,
+       .ignore_index = {},
+       .sources = {},
        .max_samples = config.at("max_samples").get<std::uint64_t>()});
   double squared_error = 0;
   std::uint64_t regression_samples = 0;
@@ -798,7 +807,9 @@ Result execute(const Arguments& arguments, bool resume) {
                                      "mean of squared float64 differences"}},
                      .context_keys = {"split"}},
       .step = {.kind = TelemetryStepKind::sample, .value = regression_samples},
-      .observation = {.status = TelemetryValueStatus::finite, .value = mse},
+      .observation = {.status = TelemetryValueStatus::finite,
+                      .value = mse,
+                      .reason = {}},
       .context = {{"split", "validation"}},
       .sample_count = regression_samples};
   ex::EvaluationSuite suite{
@@ -812,13 +823,17 @@ Result execute(const Arguments& arguments, bool resume) {
                  .context = accuracy->context,
                  .minimum_samples = scores.overall.samples,
                  .minimum = config.at("minimum_accuracy").get<double>(),
-                 .maximum = 1.0},
+                 .maximum = 1.0,
+                 .max_absolute_regression = {},
+                 .max_relative_regression = {}},
                 {.rule_id = "validation-mse",
                  .definition = mse_point.definition,
                  .context = mse_point.context,
                  .minimum_samples = regression_samples,
                  .minimum = 0.0,
-                 .maximum = config.at("maximum_mse").get<double>()}}};
+                 .maximum = config.at("maximum_mse").get<double>(),
+                 .max_absolute_regression = {},
+                 .max_relative_regression = {}}}};
   const auto report = ex::evaluate_observations(
       suite,
       {.evaluation_id = "evaluation.paired-affine",
