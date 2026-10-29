@@ -14,6 +14,7 @@ add_library(jyppx_cli_objects OBJECT
     doctor_config.cpp
     evaluation_data.cpp
     model_checkpoint.cpp
+    bundle_signing.cpp
     onnx_delivery.cpp
     onnx_verification.cpp
     onnx_reconstruction.cpp
@@ -32,6 +33,11 @@ target_link_libraries(jyppx_cli_objects PUBLIC
     jyppx::liuding::sdk jyppx_cli_transport nlohmann_json::nlohmann_json Threads::Threads)
 target_link_libraries(jyppx_cli PRIVATE jyppx_cli_objects)
 jyppx_add_torch_runtime_dependency(jyppx_cli)
+if(TARGET jyppx::liuding::bundle_signing)
+    target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::bundle_signing)
+    set_property(SOURCE bundle_signing.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_BUNDLE_SIGNING=1)
+endif()
 if(TARGET jyppx::liuding::onnx_export)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::onnx_export)
     target_compile_definitions(jyppx_cli_objects PRIVATE JYPPX_LIUDING_CLI_ONNX_EXPORT=1)

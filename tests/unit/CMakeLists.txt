@@ -661,3 +661,11 @@ if(TARGET jyppx::liuding::onnx_serving AND TARGET jyppx::liuding::onnx_export)
         jyppx::liuding::onnx_export nlohmann_json::nlohmann_json)
     jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_serving)
 endif()
+
+if(TARGET jyppx::liuding::bundle_signing)
+    jyppx_add_gtest(jyppx_test_bundle_signing
+        LINK_TARGET jyppx::liuding::bundle_signing
+        deployment/bundle_signing/test_provider.cpp)
+    target_link_libraries(jyppx_test_bundle_signing PRIVATE
+        nlohmann_json::nlohmann_json OpenSSL::Crypto Threads::Threads)
+endif()

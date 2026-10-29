@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "bundle_signing.hpp"
 #include "cli.hpp"
 #include "local_attempt.hpp"
 
@@ -272,12 +273,22 @@ Result execute(const Arguments& arguments) {
                    "checkpoint inspect|verify --path PATH",
                    "checkpoint diff --baseline PATH --candidate PATH",
                    "model inspect|verify --path PATH",
-                   "model bundle inspect|verify --path DIRECTORY",
+                   "model bundle inspect|verify --path DIRECTORY "
+                   "[--trust-policy POLICY --trust-policy-sha256 SHA256] "
+                   "[--require-trusted true|false]",
                    "model bundle pack --manifest PATH --manifest-sha256 SHA256 "
-                   "--source DIRECTORY --output NEW_DIRECTORY",
+                   "--source DIRECTORY --output NEW_DIRECTORY "
+                   "[--trust-policy POLICY --trust-policy-sha256 SHA256] "
+                   "[--require-trusted true|false]",
+                   "model bundle sign --source DIRECTORY "
+                   "--manifest-sha256 SHA256 --output NEW_DIRECTORY "
+                   "--private-key-file UNENCRYPTED_PKCS8_PEM "
+                   "--trust-policy POLICY --trust-policy-sha256 SHA256",
                    "model onnx smoke --bundle DIRECTORY --bundle-sha256 SHA256 "
                    "--model-id MODEL --report-id REPORT --cases-id CASES "
-                   "--tensors-id TENSORS --provider NAME",
+                   "--tensors-id TENSORS --provider NAME "
+                   "[--trust-policy POLICY --trust-policy-sha256 SHA256] "
+                   "[--require-trusted true|false]",
                    "model onnx export --root RUN_STORE --source-run RUN "
                    "--checkpoint-reference CHECKPOINT --definition-reference "
                    "DEFINITION --inputs INPUTS --inputs-sha256 SHA256 "
@@ -300,12 +311,15 @@ Result execute(const Arguments& arguments) {
                    "--provider NAME --root RUN_STORE --id RUN --reference NAME",
                    "model onnx verify --bundle DIR --bundle-sha256 SHA256 "
                    "--model-id VARIANT (replaces --path; remaining verify "
-                   "options are required)",
+                   "options are required) "
+                   "[--trust-policy POLICY --trust-policy-sha256 SHA256] "
+                   "[--require-trusted true|false]",
                    "benchmark tensor --device cpu|cuda [options]",
                    "offline run --root PATH [options]",
                    "recipe schema [--name paired-affine|transfer]",
                    "recipe check|run|resume --file PATH [--root PATH] "
-                   "[--pause-after N]"})}},
+                   "[--pause-after N]"})},
+             {"model_bundle_signing", bundle_signing_capabilities()}},
         0};
   }
   if (words.front() == "doctor" && words.size() == 1U) return doctor(arguments);

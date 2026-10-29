@@ -64,6 +64,7 @@ Result evaluation_command(const Arguments& arguments);
 Result data_command(const Arguments& arguments);
 Result checkpoint_command(const Arguments& arguments);
 Result model_command(const Arguments& arguments);
+Result bundle_sign_command(const Arguments& arguments);
 Result onnx_command(const Arguments& arguments);
 Result onnx_verify_command(const Arguments& arguments);
 Result onnx_smoke_command(const Arguments& arguments);

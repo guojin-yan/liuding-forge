@@ -561,6 +561,7 @@ function(jyppx_add_gtest test_name)
 endfunction()
 
 add_subdirectory(unit)
+add_subdirectory(diagnostics)
 if(TARGET jyppx_cli)
     add_subdirectory(cli)
 endif()

@@ -4,6 +4,13 @@
     "liuding.hpp"
   ],
   "components": {
+    "bundle_signing": {
+      "header_roots": ["deployment/bundle_signing"],
+      "source_roots": ["deployment/bundle_signing"],
+      "required_dependencies": ["foundation", "interop"],
+      "required_public_dependencies": ["foundation", "interop"],
+      "optional_dependencies": []
+    },
     "core": {
       "header_roots": [
         "core",

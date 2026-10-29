@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加可选原生 C++ Ed25519 模型包签名，提供绑定原始 SHA-256 的外部信任策略、PKCS#8 私钥导入、全部声明签名校验、ONNX bundle 推理前验签，以及 CLI 与学习示例。
 - 增加有界、默认串行的 grid/random 搜索，冻结候选配置、seed 与执行身份，复用持久本地任务；按真实 run 指标与 CAS 产物选择 best，并导出带完整搜索历史的存储备份。
 - 增加独立可选 `onnx_serving` 组件与公共 ORT 环境锁校验，接入具名多输入输出、候选 warmup、完整图边界比较和版本 lease；Provider 显式选择，外部 Tensor 使用 CPU FP32。
 - 增加原生 C++ 搜索训练与 ONNX Serving 示例，展示实际训练、最佳模型快照核对、多动态 batch 推理与旧版本排空。

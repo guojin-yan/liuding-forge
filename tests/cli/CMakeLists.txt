@@ -25,6 +25,26 @@ add_test(NAME Cli_local_search
 set_tests_properties(Cli_local_search PROPERTIES
     LABELS "cli;experiment;integration" TIMEOUT 600)
 
+set(bundle_signing_test_mode off)
+if(TARGET jyppx::liuding::bundle_signing)
+    set(bundle_signing_test_mode on)
+endif()
+add_test(NAME Cli_bundle_signing
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_bundle_signing.py"
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+        --bundle-signing ${bundle_signing_test_mode})
+set_tests_properties(Cli_bundle_signing PROPERTIES
+    LABELS "cli;deployment;signing;integration" TIMEOUT 180)
+if(TARGET jyppx::liuding::bundle_signing AND TARGET jyppx::liuding::onnx_export
+   AND TARGET jyppx::liuding::onnx_runtime)
+    add_test(NAME Cli_bundle_signing_onnx
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_bundle_signing_onnx.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+            --exporter $<TARGET_FILE:jyppx_test_onnx_export>)
+    set_tests_properties(Cli_bundle_signing_onnx PROPERTIES
+        LABELS "cli;deployment;signing;onnx_runtime;integration" TIMEOUT 300)
+endif()
+
 foreach(contract IN ITEMS model_checkpoint model_bundle evaluation_data offline_workflow run_telemetry migration)
     add_test(NAME Cli_${contract}
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_${contract}.py"

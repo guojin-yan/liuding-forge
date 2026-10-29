@@ -130,3 +130,19 @@ if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::nn
             LABELS "examples;experiment;training;cli" TIMEOUT 240)
     endif()
 endif()
+
+if(TARGET jyppx::liuding::bundle_signing)
+    add_executable(jyppx_liuding_bundle_signing_example deployment/bundle_signing.cpp)
+    set_target_properties(jyppx_liuding_bundle_signing_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-bundle-signing)
+    target_link_libraries(jyppx_liuding_bundle_signing_example PRIVATE
+        jyppx::liuding::bundle_signing)
+    jyppx_apply_instrumentation(jyppx_liuding_bundle_signing_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_bundle_signing_example)
+    if(JYPPX_LIUDING_BUILD_TESTS)
+        add_test(NAME BundleSigningExample
+            COMMAND jyppx_liuding_bundle_signing_example)
+        set_tests_properties(BundleSigningExample PROPERTIES
+            LABELS "examples;deployment;signing" TIMEOUT 60)
+    endif()
+endif()

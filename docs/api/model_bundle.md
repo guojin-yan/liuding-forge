@@ -50,7 +50,7 @@ liuding-forge model bundle pack --manifest manifest.json --manifest-sha256 SHA25
 liuding-forge model bundle verify --path ./model-v2
 ```
 
-`--manifest-sha256` 是调用方独立持有的原始清单摘要。源目录按清单相对路径提供文件，命令只复制声明的文件；逐文件校验大小、摘要和结构，并以 no-follow、私有暂存和不覆盖目标的原子发布完成交付。父目录须已存在，目标须为新目录。输出清单使用 canonical 编码，`source_manifest_sha256` 与发布后的 `manifest_sha256` 分别报告，可能不同。`pack` 不执行模型或证据内容；CLI 未配置可信 verifier，`--require-trusted true` 会拒绝未认证包。
+`--manifest-sha256` 是调用方独立持有的原始清单摘要。源目录按清单相对路径提供文件，命令只复制声明的文件；逐文件校验大小、摘要和结构，并以 no-follow、私有暂存和不覆盖目标的原子发布完成交付。父目录须已存在，目标须为新目录。输出清单使用 canonical 编码，`source_manifest_sha256` 与发布后的 `manifest_sha256` 分别报告，可能不同。`pack` 不执行模型或证据内容；默认只报告完整性与签名存在状态。启用原生签名组件后，可传入 `--trust-policy` 与 `--trust-policy-sha256` 验证已有签名，见[签名指南](../user-guide/bundle-signing.md)。
 
 `publish_model_bundle(destination, manifest, sources, options)` 要求父目录已存在，并为每个清单文件提供一个只读源路径。实现独占创建同级暂存目录，复制、校验、写入 canonical manifest、检查完整目录并 flush，然后以 no-replace rename 发布。既有目标（含空目录）及竞争创建的目标都不会被覆盖；下一版本应使用新目录名。
 
@@ -68,7 +68,7 @@ liuding-forge model bundle verify --path ./model-v2
 
 `model_bundle_signing_payload()` 根据清单版本返回域前缀 `JYPPX-MODEL-BUNDLE-SIGNATURE-V1` 或 `JYPPX-MODEL-BUNDLE-SIGNATURE-V2`、一个换行字节和去掉整个 signatures 字段后的 canonical JSON。清单中的摘要、大小、构建、模型/Tensor 关联、描述符、evidence 和 runtime requirements 全部被覆盖；键和基于身份的数组确定性排序。版本变化需要重新签名，不能跨版本沿用签名字节。
 
-调用方通过 `ModelBundleVerifyOptions::signature_verifier` 提供成熟密码实现与可信 key 策略。回调收到实际完整签名字节，必须验证每个声明的签名；拒绝会失败，抛错会转换为 `BackendError`。库不发现私钥、不内置伪造签名算法。
+调用方可通过 `ModelBundleVerifyOptions::signature_verifier` 提供密码实现与可信 key 策略。回调收到实际完整签名字节，必须验证每个声明的签名；拒绝会失败，抛错会转换为 `BackendError`。默认关闭的 `bundle_signing` 组件提供基于 OpenSSL EVP 的原生 Ed25519 实现，头文件为 `<jyppx/liuding/deployment/bundle_signing/provider.hpp>`，链接 `jyppx::liuding::bundle_signing`。`Ed25519Signer` 显式导入 PKCS#8，`Ed25519TrustPolicy` 绑定独立授权的原始策略摘要，`trusted_ed25519_options()` 将策略接入同一校验流程；签名、CLI 与学习示例见[签名指南](../user-guide/bundle-signing.md)。
 
 | 策略与输入 | 结果 |
 | --- | --- |

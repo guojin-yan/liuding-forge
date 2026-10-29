@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "bundle_signing.hpp"
 #include "cli.hpp"
 
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -173,15 +174,6 @@ void changes_between(const Json& baseline, const Json& candidate,
                      {"candidate", candidate}});
 }
 
-interop::ModelBundleVerifyOptions bundle_options(const Arguments& arguments) {
-  const auto trust = arguments.optional("require-trusted").value_or("false");
-  if (trust != "true" && trust != "false")
-    usage("model.bundle", "--require-trusted accepts true or false.");
-  interop::ModelBundleVerifyOptions options;
-  options.require_trusted_signature = trust == "true";
-  return options;
-}
-
 Json bundle_summary(std::string_view operation, const std::string& path,
                     const interop::ModelBundleVerification& verified) {
   const auto signature =
@@ -211,9 +203,10 @@ Json bundle_summary(std::string_view operation, const std::string& path,
 }
 
 Result pack_bundle(const Arguments& arguments) {
-  arguments.allow(
-      {"manifest", "manifest-sha256", "source", "output", "require-trusted"});
-  const auto options = bundle_options(arguments);
+  arguments.allow({"manifest", "manifest-sha256", "source", "output",
+                   "require-trusted", "trust-policy", "trust-policy-sha256"});
+  const auto trust = bundle_trust_options(arguments);
+  const auto& options = trust.options;
   const ArtifactDigest expected{.hex = arguments.require("manifest-sha256")};
   validate_artifact_digest(expected);
   const auto json = read_text(arguments.require("manifest"),
@@ -233,6 +226,8 @@ Result pack_bundle(const Arguments& arguments) {
       std::filesystem::u8path(output), manifest, sources, options);
   auto result = bundle_summary("pack", output, verified);
   result["source_manifest_sha256"] = expected.hex;
+  if (!trust.key_id.empty())
+    result["trust_policy"] = bundle_trust_document(trust);
   return {std::move(result), 0};
 }
 
@@ -244,14 +239,21 @@ Result model_command(const Arguments& arguments) {
     return onnx_command(arguments);
   if (words.size() == 3U && words[0] == "model" && words[1] == "bundle") {
     if (words[2] == "pack") return pack_bundle(arguments);
+    if (words[2] == "sign") return bundle_sign_command(arguments);
     if (words[2] != "inspect" && words[2] != "verify")
       usage("model.bundle",
-            "Choose pack, inspect or verify for a model bundle directory.");
-    arguments.allow({"path", "require-trusted"});
+            "Choose pack, sign, inspect or verify for a model bundle "
+            "directory.");
+    arguments.allow(
+        {"path", "require-trusted", "trust-policy", "trust-policy-sha256"});
+    const auto trust = bundle_trust_options(arguments);
     const auto name = arguments.require("path");
     const auto verified = interop::verify_model_bundle_directory(
-        std::filesystem::u8path(name), bundle_options(arguments));
-    return {bundle_summary(words[2], name, verified), 0};
+        std::filesystem::u8path(name), trust.options);
+    auto result = bundle_summary(words[2], name, verified);
+    if (!trust.key_id.empty())
+      result["trust_policy"] = bundle_trust_document(trust);
+    return {std::move(result), 0};
   }
   const auto action = action_for(arguments, "model");
   if (action != "inspect" && action != "verify") {

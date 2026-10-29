@@ -46,10 +46,10 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **实验与评估：本地实验与制品** | run/artifact、SQLite/CAS、遥测、环境身份和离线工作流 | 已具备 | 已完成 | 对应 PyTorch TensorBoard、`torch.profiler`、实验跟踪和制品管理生态；不替代远程 tracking 或多租户平台。 |
 | **实验与评估：本地任务与参数搜索** | 持久本地进程、grid/random、指标排序与最佳产物 | 部分具备 | 已实现有界串行搜索、精确指标匹配与实验备份；完整训练任务恢复和资源准入继续开发 | 对应训练脚本启动与调参生态；用法见[原生 C++ 搜索示例](examples/experiment/README.md)。 |
 | **实验与评估：评估与数据质量** | 分类、语义分割 IoU/Dice、轴对齐框 AP 实际推理，类别/来源切片、三类评估的检查点恢复与质量报告 | 已具备三类限定评估 | 持续开发 | 对应 PyTorch 评估循环与 torchmetrics；已具备小规模真实图像分割任务验证；独立检测模型任务与完整任务资格仍在开发。 |
-| **交付工具：模型 Bundle 与互操作** | 有界 model bundle、interop backend、权重导入和安装后消费 | 部分具备 | 持续完善 | 对应 PyTorch 的 `state_dict`、TorchScript、`torch.export` 和权重导入能力；不接受任意导出物或 pickle。 |
+| **交付工具：模型 Bundle 与互操作** | 有界 model bundle、interop backend、权重导入和安装后消费 | 部分具备 | 已接入原生 Ed25519 签名、外部策略验签与部署前核对；完整交付流程持续完善 | 对应 PyTorch 的 `state_dict`、TorchScript、`torch.export` 和权重导入能力；不接受任意导出物或 pickle。见[模型包签名](docs/user-guide/bundle-signing.md)。 |
 | **交付工具：C++ CLI 与交付工具链** | liuding-forge CLI、迁移、评估、检查、打包和安装消费者工具 | 已具备 | 已完成 | 对应 PyTorch 的 LibTorch C++ frontend、`torchrun` 周边和扩展构建工具；本项目侧重原生 C++ 和离线交付。 |
 | **交付工具：性能观测与资源基线** | BuildFingerprint、设备/工作负载身份、数据管线资源观测和基线协议 | 已具备 | 持续完善 | 对应 PyTorch Profiler、CUDA 观测和 benchmark 工具；性能结果必须绑定精确环境，不能跨环境直接比较。 |
-| **交付工具：质量、恢复与发布门槛** | 当前训练生命周期的质量/恢复验证、coverage、sanitizer、fuzz、资源矩阵和发布回退 | 部分具备 | 持续完善 | 对应 PyTorch testing、benchmark 和发布验证生态；完整覆盖率、依赖安全、发布回退和签名交付仍在完善。 |
+| **交付工具：质量、恢复与发布门槛** | 当前训练生命周期的质量/恢复验证、coverage、sanitizer、fuzz、资源矩阵和发布回退 | 部分具备 | 持续完善 | 对应 PyTorch testing、benchmark 和发布验证生态；完整覆盖率、依赖安全与发布回退仍在完善。 |
 | **扩展能力：图像输入与标注工作流** | 图像/标注读取、像素语义、坐标追踪、mask、联合变换、批处理和绘图输出 | 部分具备 | 无损 PNG 标签、CPU 联合几何与逐样本随机性、stack/pad/ragged 组批、CPU/CUDA 数值与像素批量几何、提交前恢复、CPU 标注绘制及有界 PNG/JPEG 编码与本地写出已有切片；CUDA rich annotation、异步输出和完整任务贯通仍在开发 | 对应 torchvision datasets、transforms、mask/annotation 和视觉数据管线；当前用法见[图像数据 API](docs/api/data_image.md)和[图像绘制 API](docs/api/vision_render.md)。 |
 | **扩展能力：量化** | Q0 权重存储、FP32 fallback 和受限 CPU 静态 Linear PTQ | 部分具备 | 开发中（预览） | 对应 PyTorch `torch.ao.quantization`；提供原生 INT8 图导出，实际任务质量与性能仍在验证，尚不支持 QAT。见[量化 API](docs/api/quantization.md)。 |
 | **扩展能力：导出、Serving 与部署** | 通用 C++ ONNX 导出、ONNX Runtime 和本地 Serving | 部分具备 | 已接入 ONNX Serving、环境锁、已知输入核对和受控版本切换；完整负载与发布资格继续开发 | 对应 `torch.onnx`、TorchScript 和部署生态；ONNX 导出按算子覆盖，Runtime 显式选择后端，各设备分别验证。见[ONNX 导出与推理](docs/api/onnx.md)和[Serving 示例](examples/serving/README.md)。 |

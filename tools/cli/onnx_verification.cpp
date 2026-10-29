@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "bundle_signing.hpp"
 #include "cli.hpp"
 
 #if defined(JYPPX_LIUDING_CLI_ONNX_EXPORT) && \
@@ -119,10 +120,12 @@ void ReadBundle(const Arguments& arguments, VerificationInputs& result,
   const ArtifactDigest digest{.hex = arguments.require("bundle-sha256")};
   validate_artifact_digest(digest);
   result.model_id = arguments.require("model-id");
-  interop::ModelBundleVerifyOptions options;
-  options.limits.max_manifest_bytes = 4U << 20U;
-  options.limits.max_file_bytes = 256U << 20U;
-  options.limits.max_total_bytes = 512U << 20U;
+  interop::ModelBundleLimits limits;
+  limits.max_manifest_bytes = 4U << 20U;
+  limits.max_file_bytes = 256U << 20U;
+  limits.max_total_bytes = 512U << 20U;
+  const auto trust = bundle_trust_options(arguments, limits);
+  const auto& options = trust.options;
   std::uint64_t retained_limit = model_bytes + (4U << 20U);
   // Discovery validates the whole bundle. Final retained bytes are read and
   // hashed together, again bound to the caller's original manifest digest.
@@ -203,6 +206,11 @@ void ReadBundle(const Arguments& arguments, VerificationInputs& result,
 
 VerificationInputs Inputs(const Arguments& arguments, bool smoke) {
   VerificationInputs result;
+  if (!arguments.optional("bundle") &&
+      (arguments.optional("trust-policy") ||
+       arguments.optional("trust-policy-sha256") ||
+       arguments.optional("require-trusted")))
+    throw InvalidArgument("Bundle trust options require --bundle");
   const bool contained = arguments.optional("report-id").has_value() ||
                          arguments.optional("cases-id").has_value() ||
                          arguments.optional("tensors-id").has_value();
@@ -833,7 +841,8 @@ Result onnx_pack_reconstructed(const Arguments& arguments,
 Result onnx_smoke_command(const Arguments& arguments) {
   arguments.allow({"bundle", "bundle-sha256", "model-id", "report-id",
                    "cases-id", "tensors-id", "provider", "provider-option",
-                   "timeout-ms"});
+                   "timeout-ms", "require-trusted", "trust-policy",
+                   "trust-policy-sha256"});
   const auto prepared = Prepare(arguments, true);
   const auto executed = Execute(arguments, prepared, true);
   return {
@@ -850,11 +859,28 @@ Result onnx_smoke_command(const Arguments& arguments) {
 }
 
 Result onnx_verify_command(const Arguments& arguments) {
-  arguments.allow({"path", "report", "report-sha256", "cases", "cases-sha256",
-                   "tensors", "tensors-sha256", "provider", "provider-option",
-                   "timeout-ms", "root", "id", "reference", "bundle",
-                   "bundle-sha256", "model-id", "report-id", "cases-id",
-                   "tensors-id"});
+  arguments.allow({"path",
+                   "report",
+                   "report-sha256",
+                   "cases",
+                   "cases-sha256",
+                   "tensors",
+                   "tensors-sha256",
+                   "provider",
+                   "provider-option",
+                   "timeout-ms",
+                   "root",
+                   "id",
+                   "reference",
+                   "bundle",
+                   "bundle-sha256",
+                   "model-id",
+                   "report-id",
+                   "cases-id",
+                   "tensors-id",
+                   "require-trusted",
+                   "trust-policy",
+                   "trust-policy-sha256"});
   const auto prepared = Prepare(arguments, false);
   const auto& model_owner = prepared.inputs;
   const auto model = model_owner.bytes();

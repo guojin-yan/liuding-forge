@@ -467,7 +467,8 @@ CapabilityManifest make_current_capability_manifest(
 }
 
 CapabilityManifest current_capability_manifest() {
-  const std::array<std::pair<const char*, bool>, 16U> components{{
+  const std::array<std::pair<const char*, bool>, 17U> components{{
+      {"bundle_signing", JYPPX_LIUDING_COMPONENT_BUNDLE_SIGNING_ENABLED != 0},
       {"foundation", true},
       {"core", JYPPX_LIUDING_COMPONENT_CORE_ENABLED != 0},
       {"interop", JYPPX_LIUDING_COMPONENT_INTEROP_ENABLED != 0},
@@ -492,7 +493,8 @@ CapabilityManifest current_capability_manifest() {
     const bool preview = name == "models" || name == "quantization" ||
                          name == "serving" || name == "data_image" ||
                          name == "vision_render" || name == "onnx_export" ||
-                         name == "onnx_runtime" || name == "onnx_serving";
+                         name == "onnx_runtime" || name == "onnx_serving" ||
+                         name == "bundle_signing";
     features.push_back(component_descriptor(component, enabled, preview));
   }
   return make_current_capability_manifest(std::move(features));

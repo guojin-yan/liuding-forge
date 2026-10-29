@@ -7,6 +7,8 @@
 
 #if defined(JYPPX_CONSUMER_FOUNDATION)
 #include <jyppx/liuding/foundation/version.hpp>
+#elif defined(JYPPX_CONSUMER_BUNDLE_SIGNING)
+#include <jyppx/liuding/deployment/bundle_signing/provider.hpp>
 #elif defined(JYPPX_CONSUMER_CORE)
 #include <jyppx/liuding/core/device.hpp>
 #elif defined(JYPPX_CONSUMER_INTEROP)
@@ -112,7 +114,8 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
 #endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
-  constexpr std::array<std::pair<std::string_view, bool>, 16U> kExpected{{
+  constexpr std::array<std::pair<std::string_view, bool>, 17U> kExpected{{
+      {"bundle_signing", JYPPX_EXPECT_COMPONENT_BUNDLE_SIGNING != 0},
       {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
       {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
       {"data_image", JYPPX_EXPECT_COMPONENT_DATA_IMAGE != 0},
@@ -139,7 +142,8 @@ bool BuildCapabilityInventoryMatchesPackage() {
         component == "models" || component == "quantization" ||
         component == "serving" || component == "data_image" ||
         component == "vision_render" || component == "onnx_export" ||
-        component == "onnx_runtime" || component == "onnx_serving";
+        component == "onnx_runtime" || component == "onnx_serving" ||
+        component == "bundle_signing";
     const auto expected_status =
         enabled ? (preview ? jyppx::liuding::CapabilityStatus::experimental
                            : jyppx::liuding::CapabilityStatus::available)
@@ -164,6 +168,10 @@ int main() {
                  !fingerprint.git_commit.empty()
              ? 0
              : 1;
+#elif defined(JYPPX_CONSUMER_BUNDLE_SIGNING)
+  const auto signer = jyppx::liuding::bundle_signing::Ed25519Signer::generate();
+  const auto signature = signer.sign_payload({});
+  return signature.signature_hex.size() == 128U ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_CORE)
   return jyppx::liuding::parse_device("cpu").is_cpu() ? 0 : 1;
 #elif defined(JYPPX_CONSUMER_INTEROP)

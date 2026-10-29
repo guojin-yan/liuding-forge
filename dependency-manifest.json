@@ -319,6 +319,32 @@
       ],
       "linkage": "dynamic-private-sdk",
       "support_status": "optional-cpu-development-candidate"
+    },
+    {
+      "id": "openssl-bundle-signing",
+      "scope": "bundle-signing-private-crypto",
+      "version": "3.5.9",
+      "source": {
+        "type": "official-release-archive",
+        "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+        "cache_file": "third_party/downloads/openssl-3.5.9.tar.gz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+      },
+      "license": {
+        "spdx": [
+          "Apache-2.0"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64"
+      ],
+      "linkage": "static-private-implementation",
+      "support_status": "optional-preview"
     }
   ]
 }

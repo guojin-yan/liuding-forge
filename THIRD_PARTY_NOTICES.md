@@ -122,6 +122,11 @@ JYPPX package.
   formats that need a different scalar contract remain outside this profile;
   callers receive a structured decode error rather than an implicit conversion.
 
+### OpenSSL
+
+- Project: https://openssl-library.org/; version: 3.5.9; license: Apache-2.0.
+- Role: private static EVP Ed25519 backend for the optional `jyppx::liuding::bundle_signing` component. Source archive integrity is pinned in `dependency-manifest.json`; original terms are retained in `third_party/licenses/openssl-3.5.9-LICENSE.txt` and installed with the enabled component. Public headers expose no OpenSSL types. Retaining the license does not establish a complete vulnerability audit or FIPS qualification.
+
 ## Optional Python Sidecar
 
 The optional sidecar runtime is separately deployed and is not installed by the
