@@ -18,6 +18,7 @@
 #include <mutex>
 #include <new>
 #include <onnxruntime_cxx_api.h>
+#include <set>
 #include <shared_mutex>
 #include <thread>
 #include <utility>
@@ -67,6 +68,7 @@ void ValidateOptions(const SessionOptions& options) {
   if (options.cpu_threads == 0U || options.cpu_threads > 64U ||
       options.max_model_bytes == 0U || options.max_input_bytes == 0U ||
       options.max_output_bytes == 0U || options.max_batch_size == 0U ||
+      options.max_io_tensors < 2U || options.max_io_tensors > 4096U ||
       options.max_batch_size >
           static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
     throw InvalidArgument("Invalid ONNX Runtime session limits",
@@ -176,10 +178,36 @@ std::size_t Elements(std::span<const std::int64_t> shape,
   return static_cast<std::size_t>(elements);
 }
 
-TensorSignature Signature(const Ort::Session& session, bool input) {
+void ValidateInput(const TensorInput& input, const TensorSignature& signature,
+                   const SessionOptions& options, std::uint64_t& remaining) {
+  if (input.shape.size() != signature.shape.size())
+    throw InvalidArgument("ONNX Runtime input rank mismatch", Details("run"));
+  for (std::size_t index = 0; index < input.shape.size(); ++index) {
+    if (input.shape[index] <= 0 ||
+        (signature.shape[index] != -1 &&
+         input.shape[index] != signature.shape[index]))
+      throw InvalidArgument("ONNX Runtime input shape mismatch",
+                            Details("run"));
+  }
+  if (static_cast<std::uint64_t>(input.shape.front()) > options.max_batch_size)
+    throw ResourceExhausted("ONNX Runtime batch exceeds its bound",
+                            Details("run"));
+  const auto count = Elements(input.shape, remaining);
+  if (count != input.values.size())
+    throw InvalidArgument("ONNX Runtime input element count mismatch",
+                          Details("run"));
+  remaining -= count * sizeof(float);
+  if (!std::all_of(input.values.begin(), input.values.end(),
+                   [](float value) { return std::isfinite(value); }))
+    throw InvalidArgument("ONNX Runtime input contains nonfinite values",
+                          Details("run"));
+}
+
+TensorSignature Signature(const Ort::Session& session, bool input,
+                          std::size_t position) {
   Ort::AllocatorWithDefaultOptions allocator;
-  auto type =
-      input ? session.GetInputTypeInfo(0U) : session.GetOutputTypeInfo(0U);
+  auto type = input ? session.GetInputTypeInfo(position)
+                    : session.GetOutputTypeInfo(position);
   if (type.GetONNXType() != ONNX_TYPE_TENSOR)
     throw CompatibilityError("ONNX Runtime requires dense tensor I/O",
                              Details("signature"));
@@ -187,8 +215,8 @@ TensorSignature Signature(const Ort::Session& session, bool input) {
   if (tensor.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT)
     throw CompatibilityError("ONNX Runtime requires FP32 input and output",
                              Details("signature"));
-  auto name = input ? session.GetInputNameAllocated(0U, allocator)
-                    : session.GetOutputNameAllocated(0U, allocator);
+  auto name = input ? session.GetInputNameAllocated(position, allocator)
+                    : session.GetOutputNameAllocated(position, allocator);
   TensorSignature result{
       .name = name.get(), .shape = tensor.GetShape(), .batch_symbol = {}};
   if (result.name.empty() || result.name.size() > 4096U ||
@@ -285,27 +313,80 @@ class Session::Impl {
     if (!options.profile_prefix.empty())
       settings.EnableProfiling(options.profile_prefix.c_str());
     session = Ort::Session(environment, bytes.data(), bytes.size(), settings);
-    if (session.GetInputCount() != 1U || session.GetOutputCount() != 1U ||
+    const auto input_count = session.GetInputCount();
+    const auto output_count = session.GetOutputCount();
+    if (input_count == 0U || output_count == 0U ||
         session.GetOverridableInitializerCount() != 0U)
       throw CompatibilityError(
-          "ONNX Runtime requires exactly one input and output",
+          "ONNX Runtime requires inputs/outputs and immutable initializers",
           Details("signature"));
-    input = Signature(session, true);
-    output = Signature(session, false);
-    if (input.shape.front() != output.shape.front() ||
-        input.batch_symbol != output.batch_symbol)
-      throw CompatibilityError("ONNX Runtime output batch must match its input",
-                               Details("signature"));
-    auto input_minimum = input.shape;
-    auto output_minimum = output.shape;
-    if (input_minimum.front() == -1) input_minimum.front() = 1;
-    if (output_minimum.front() == -1) output_minimum.front() = 1;
-    (void)Elements(input_minimum, options.max_input_bytes);
-    (void)Elements(output_minimum, options.max_output_bytes);
-    if (static_cast<std::uint64_t>(input_minimum.front()) >
-        options.max_batch_size)
-      throw ResourceExhausted("ONNX Runtime static batch exceeds its bound",
+    if (input_count > options.max_io_tensors ||
+        output_count > options.max_io_tensors - input_count)
+      throw ResourceExhausted("ONNX Runtime I/O count exceeds its bound",
                               Details("signature"));
+    inputs.reserve(input_count);
+    outputs.reserve(output_count);
+    std::set<std::string> input_symbols;
+    for (const bool is_input : {true, false}) {
+      auto& signatures = is_input ? inputs : outputs;
+      auto remaining =
+          is_input ? options.max_input_bytes : options.max_output_bytes;
+      const auto count = is_input ? input_count : output_count;
+      std::set<std::string> names;
+      for (std::size_t index = 0; index < count; ++index) {
+        auto signature = Signature(session, is_input, index);
+        if (!names.insert(signature.name).second)
+          throw CompatibilityError("ONNX Runtime has duplicate I/O names",
+                                   Details("signature"));
+        if (!signature.batch_symbol.empty()) {
+          if (is_input) {
+            input_symbols.insert(signature.batch_symbol);
+          } else if (!input_symbols.contains(signature.batch_symbol)) {
+            throw CompatibilityError(
+                "ONNX Runtime output batch symbol has no input binding",
+                Details("signature"));
+          }
+        }
+        auto minimum = signature.shape;
+        if (minimum.front() == -1) minimum.front() = 1;
+        remaining -= Elements(minimum, remaining) * sizeof(float);
+        if (is_input && static_cast<std::uint64_t>(minimum.front()) >
+                            options.max_batch_size)
+          throw ResourceExhausted("ONNX Runtime static batch exceeds its bound",
+                                  Details("signature"));
+        signatures.push_back(std::move(signature));
+      }
+    }
+    for (const auto& input : inputs) input_names.push_back(input.name.c_str());
+    for (const auto& output : outputs)
+      output_names.push_back(output.name.c_str());
+  }
+
+  void Execute(std::span<const Ort::Value> input_tensors,
+               std::span<Ort::Value> output_tensors,
+               std::span<const TensorOutput> results, std::stop_token stop,
+               std::optional<std::chrono::steady_clock::time_point> deadline) {
+    CheckOperation(stop, deadline);
+    std::shared_lock lock(activity);
+    CheckOperation(stop, deadline);
+    Ort::RunOptions run_options;
+    RunInterrupt interrupt(run_options, stop, deadline);
+    try {
+      session.Run(run_options, input_names.data(), input_tensors.data(),
+                  input_tensors.size(), output_names.data(),
+                  output_tensors.data(), output_tensors.size());
+    } catch (const Ort::Exception&) {
+      CheckOperation(stop, deadline);
+      throw;
+    }
+    CheckOperation(stop, deadline);
+    for (const auto& result : results) {
+      if (!std::all_of(result.values.begin(), result.values.end(),
+                       [](float value) { return std::isfinite(value); }))
+        throw NumericalError("ONNX Runtime output contains nonfinite values",
+                             Details("run"));
+    }
+    CheckOperation(stop, deadline);
   }
 
   SessionOptions options;
@@ -313,8 +394,10 @@ class Session::Impl {
   std::string version;
   Ort::Env environment;
   Ort::Session session{nullptr};
-  TensorSignature input;
-  TensorSignature output;
+  std::vector<TensorSignature> inputs;
+  std::vector<TensorSignature> outputs;
+  std::vector<const char*> input_names;
+  std::vector<const char*> output_names;
   mutable std::shared_mutex activity;
   std::optional<std::filesystem::path> profile;
 };
@@ -339,9 +422,23 @@ Session::Session(std::span<const std::byte> model,
 }
 
 Session::~Session() = default;
-const TensorSignature& Session::input() const noexcept { return impl_->input; }
-const TensorSignature& Session::output() const noexcept {
-  return impl_->output;
+std::span<const TensorSignature> Session::inputs() const noexcept {
+  return impl_->inputs;
+}
+std::span<const TensorSignature> Session::outputs() const noexcept {
+  return impl_->outputs;
+}
+const TensorSignature& Session::input() const {
+  if (impl_->inputs.size() != 1U)
+    throw InvalidArgument("Use inputs() for multiple ONNX Runtime inputs",
+                          Details("signature"));
+  return impl_->inputs.front();
+}
+const TensorSignature& Session::output() const {
+  if (impl_->outputs.size() != 1U)
+    throw InvalidArgument("Use outputs() for multiple ONNX Runtime outputs",
+                          Details("signature"));
+  return impl_->outputs.front();
 }
 const std::string& Session::runtime_version() const noexcept {
   return impl_->version;
@@ -362,58 +459,106 @@ TensorOutput Session::run(
     std::optional<std::chrono::steady_clock::time_point> deadline) const {
   return Boundary("run", [&] {
     CheckOperation(stop, deadline);
-    std::shared_lock lock(impl_->activity);
-    CheckOperation(stop, deadline);
-    if (shape.size() != impl_->input.shape.size())
-      throw InvalidArgument("ONNX Runtime input rank mismatch", Details("run"));
-    for (std::size_t index = 0U; index < shape.size(); ++index) {
-      if (shape[index] <= 0 || (impl_->input.shape[index] != -1 &&
-                                shape[index] != impl_->input.shape[index]))
-        throw InvalidArgument("ONNX Runtime input shape mismatch",
-                              Details("run"));
-    }
-    if (static_cast<std::uint64_t>(shape.front()) >
-        impl_->options.max_batch_size)
-      throw ResourceExhausted("ONNX Runtime batch exceeds its bound",
-                              Details("run"));
-    const auto count = Elements(shape, impl_->options.max_input_bytes);
-    if (count != values.size())
-      throw InvalidArgument("ONNX Runtime input element count mismatch",
-                            Details("run"));
-    if (!std::all_of(values.begin(), values.end(),
-                     [](float value) { return std::isfinite(value); }))
-      throw InvalidArgument("ONNX Runtime input contains nonfinite values",
-                            Details("run"));
-    TensorOutput result{.shape = impl_->output.shape, .values = {}};
-    if (result.shape.front() == -1) result.shape.front() = shape.front();
+    if (impl_->inputs.size() != 1U || impl_->outputs.size() != 1U)
+      throw InvalidArgument(
+          "Use named inputs for a multi-I/O ONNX Runtime graph",
+          Details("run"));
+    const auto& signature = impl_->inputs.front();
+    auto remaining = impl_->options.max_input_bytes;
+    ValidateInput({.name = signature.name, .values = values, .shape = shape},
+                  signature, impl_->options, remaining);
+    const auto& output = impl_->outputs.front();
+    TensorOutput result{
+        .shape = output.shape, .values = {}, .name = output.name};
+    if (!output.batch_symbol.empty()) result.shape.front() = shape.front();
     result.values.resize(
         Elements(result.shape, impl_->options.max_output_bytes));
     auto memory =
         Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-    // ORT's C API is not const-correct for inputs; graph inputs are read-only.
+    // ORT borrows input storage read-only despite its non-const C signature.
     auto input_tensor = Ort::Value::CreateTensor<float>(
         memory, const_cast<float*>(values.data()), values.size(), shape.data(),
         shape.size());
     auto output_tensor = Ort::Value::CreateTensor<float>(
         memory, result.values.data(), result.values.size(), result.shape.data(),
         result.shape.size());
-    const char* input_names[] = {impl_->input.name.c_str()};
-    const char* output_names[] = {impl_->output.name.c_str()};
-    Ort::RunOptions options;
-    RunInterrupt interrupt(options, stop, deadline);
-    try {
-      impl_->session.Run(options, input_names, &input_tensor, 1U, output_names,
-                         &output_tensor, 1U);
-    } catch (const Ort::Exception&) {
-      CheckOperation(stop, deadline);
-      throw;
-    }
-    CheckOperation(stop, deadline);
-    if (!std::all_of(result.values.begin(), result.values.end(),
-                     [](float value) { return std::isfinite(value); }))
-      throw NumericalError("ONNX Runtime output contains nonfinite values",
-                           Details("run"));
+    impl_->Execute(std::span(&input_tensor, 1U), std::span(&output_tensor, 1U),
+                   std::span(&result, 1U), stop, deadline);
     return result;
+  });
+}
+
+std::vector<TensorOutput> Session::run(
+    std::span<const TensorInput> inputs, std::stop_token stop,
+    std::optional<std::chrono::steady_clock::time_point> deadline) const {
+  return Boundary("run", [&] {
+    CheckOperation(stop, deadline);
+    if (inputs.size() != impl_->inputs.size())
+      throw InvalidArgument("ONNX Runtime requires every named input once",
+                            Details("run"));
+    std::vector<const TensorInput*> ordered(inputs.size(), nullptr);
+    std::map<std::string_view, std::int64_t> bindings;
+    auto input_remaining = impl_->options.max_input_bytes;
+    for (const auto& input : inputs) {
+      const auto found = std::find_if(
+          impl_->inputs.begin(), impl_->inputs.end(),
+          [&](const auto& signature) { return signature.name == input.name; });
+      if (found == impl_->inputs.end())
+        throw InvalidArgument("ONNX Runtime input name is unknown",
+                              Details("run"));
+      const auto position =
+          static_cast<std::size_t>(found - impl_->inputs.begin());
+      if (ordered[position] != nullptr)
+        throw InvalidArgument("ONNX Runtime input name is duplicated",
+                              Details("run"));
+      ordered[position] = &input;
+      ValidateInput(input, *found, impl_->options, input_remaining);
+      if (!found->batch_symbol.empty()) {
+        const auto [binding, inserted] =
+            bindings.emplace(found->batch_symbol, input.shape.front());
+        if (!inserted && binding->second != input.shape.front())
+          throw InvalidArgument("ONNX Runtime input batch symbol sizes differ",
+                                Details("run"));
+      }
+    }
+    std::vector<TensorOutput> results;
+    std::vector<std::size_t> output_counts;
+    results.reserve(impl_->outputs.size());
+    output_counts.reserve(impl_->outputs.size());
+    auto output_remaining = impl_->options.max_output_bytes;
+    for (const auto& signature : impl_->outputs) {
+      TensorOutput result{
+          .shape = signature.shape, .values = {}, .name = signature.name};
+      if (!signature.batch_symbol.empty())
+        result.shape.front() = bindings.at(signature.batch_symbol);
+      const auto count = Elements(result.shape, output_remaining);
+      output_remaining -= count * sizeof(float);
+      output_counts.push_back(count);
+      results.push_back(std::move(result));
+    }
+    // Check every output before allocating any FP32 output payload.
+    for (std::size_t index = 0; index < results.size(); ++index)
+      results[index].values.resize(output_counts[index]);
+    auto memory =
+        Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    // ORT's C API is not const-correct for inputs; graph inputs are read-only.
+    std::vector<Ort::Value> input_tensors;
+    std::vector<Ort::Value> output_tensors;
+    input_tensors.reserve(ordered.size());
+    output_tensors.reserve(results.size());
+    for (std::size_t index = 0; index < ordered.size(); ++index) {
+      const auto& input = *ordered[index];
+      input_tensors.push_back(Ort::Value::CreateTensor<float>(
+          memory, const_cast<float*>(input.values.data()), input.values.size(),
+          input.shape.data(), input.shape.size()));
+    }
+    for (auto& result : results) {
+      output_tensors.push_back(Ort::Value::CreateTensor<float>(
+          memory, result.values.data(), result.values.size(),
+          result.shape.data(), result.shape.size()));
+    }
+    impl_->Execute(input_tensors, output_tensors, results, stop, deadline);
+    return results;
   });
 }
 

@@ -62,10 +62,12 @@ const auto output = session.run(input, shape);
 
 ## Runtime 与后端选择
 
-当前 Runtime adapter 的用户接口接收单个 FP32 稠密输入并返回单个 FP32 输出，秩为 1–8，只允许共享的前导 batch 符号维；导出器的多输入输出能力另有独立 ORT 验证，不代表该 adapter 已开放多输入输出接口。I/O 位于主机内存，设备传输由所选 Provider 处理。
+Runtime 接收一个或多个具名 FP32 稠密输入，返回独立持有数据的具名输出，秩为 1–8。`inputs()`、`outputs()` 返回图声明顺序的签名；多输入调用 `run(std::span<const TensorInput>)`，每个 `TensorInput` 提供 `name`、`values` 和 `shape`，输入顺序可变，输出按声明顺序返回。名称必须完整、唯一且与图一致。单输入输出模型仍可使用上面的 `run(values, shape)`；该简便入口遇到多输入或多输出时明确报错。
+
+只有前导 batch 维可以动态变化。同名 batch 符号必须取相同大小，不同输入的独立符号可取不同大小；输出的动态符号必须由输入绑定，其他维度固定。I/O 位于主机内存，输入数据由调用方持有且在调用期间保持不变，adapter 不复制 FP32 输入数据；设备传输由所选 Provider 处理。
 
 `available_providers()` 查询实际加载的 ORT 库，`provider_append_supported(name)` 查询 adapter 是否接入对应的追加 API。CPU、CUDA、TensorRT、OpenVINO 及通用 Provider 均显式指定名称和参数；实际可用性取决于 ORT 构建、驱动与 SDK。列出 Provider 或创建 session 成功，均不代表已验证模型实际使用该后端执行。
 
 非 CPU 请求默认 `allow_cpu_fallback=false`，缺失后端或不支持的图明确失败；调用方显式允许后才接受 CPU 分区回退。`profile_prefix` 启用 ORT profiling，`end_profiling()` 返回可核对实际 Provider 与算子的文件。各后端的数值、kernel 与资源资格分别验证，CPU 结果不代表 GPU 结果。
 
-Runtime 在解析前检查完整字节 SHA-256 和大小，执行前检查形状、batch、输入大小与有限数值，输出独立拥有；取消与 deadline 为协作式中断。I/O 上限不覆盖图中间量与设备分配，哈希不代表来源可信；不可信模型须额外隔离。
+Runtime 在解析前检查完整字节 SHA-256 和大小，执行前检查形状、batch、输入大小与有限数值，输出独立拥有；取消与 deadline 为协作式中断。`max_io_tensors` 限制输入与输出的总个数，`max_input_bytes`、`max_output_bytes` 分别限制一次调用的全部输入、全部输出字节数，所有输出大小在分配输出数据前统一检查。I/O 上限不覆盖元数据、图中间量与设备分配，哈希不代表来源可信；不可信模型须额外隔离。

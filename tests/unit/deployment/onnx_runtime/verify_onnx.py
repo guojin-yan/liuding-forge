@@ -66,9 +66,12 @@ def official_negative_graphs(root):
     negative = {"malformed": artifact(root, b"not ONNX", "malformed")}
     negative["missing_operator"] = model("missing_operator", [h.make_node("MissingOperator", ["input"], ["output"], domain="ai.liuding.test")], [info("input")], [info("output")], custom=True)
     negative["float64"] = model("float64", [h.make_node("Identity", ["input"], ["output"])], [info("input", T.DOUBLE)], [info("output", T.DOUBLE)])
-    negative["two_inputs"] = model("two_inputs", [h.make_node("Add", ["input", "second"], ["output"])], [info("input"), info("second")], [info("output")])
+    negative["mixed_output_dtypes"] = model("mixed_output_dtypes", [h.make_node("Identity", ["input"], ["output"]), h.make_node("Cast", ["input"], ["double_output"], to=T.DOUBLE)], [info("input")], [info("output"), info("double_output", T.DOUBLE)])
+    negative["unbound_output_batch"] = model("unbound_output_batch", [h.make_node("Unique", ["input"], ["output"])], [info("input", shape=("batch",))], [info("output", shape=("unique_count",))])
+    negative["zero_inputs"] = model("zero_inputs", [h.make_node("Constant", [], ["output"], value=nh.from_array(np.ones((1, 3), dtype=np.float32)))], [], [info("output", shape=(1, 3))])
     negative["dynamic_width"] = model("dynamic_width", [h.make_node("Identity", ["input"], ["output"])], [info("input", shape=("batch", "width"))], [info("output", shape=("batch", "width"))])
     negative["nonfinite_output"] = model("nonfinite_output", [h.make_node("Div", ["input", "zero"], ["output"])], [info("input")], [info("output")], [nh.from_array(np.array(0, dtype=np.float32), name="zero")])
+    negative["multi_nonfinite_output"] = model("multi_nonfinite_output", [h.make_node("Identity", ["input"], ["finite"]), h.make_node("Div", ["input", "zero"], ["nonfinite"])], [info("input")], [info("finite"), info("nonfinite")], [nh.from_array(np.array(0, dtype=np.float32), name="zero")])
     external = h.make_tensor("external", T.FLOAT, (3,), [], raw=False)
     external.data_location = T.EXTERNAL
     item = external.external_data.add()
@@ -77,6 +80,56 @@ def official_negative_graphs(root):
     nodes = [h.make_node("MatMul", ["input" if index == 0 else f"hidden{index - 1}", "weight"], ["output" if index == 31 else f"hidden{index}"]) for index in range(32)]
     slow = model("slow-cancellable-cpu", nodes, [info("input", shape=("batch", 512))], [info("output", shape=("batch", 512))], [nh.from_array(np.eye(512, dtype=np.float32), name="weight")])
     return negative, slow
+
+
+def official_multi_io_models(root):
+    import numpy as np
+    import onnx
+    import onnxruntime as ort
+    import safetensors.numpy
+    from onnx import TensorProto as T, helper as h
+
+    def info(name, symbol, width):
+        return h.make_tensor_value_info(name, T.FLOAT, [symbol, width])
+
+    def reference(name, nodes, inputs, outputs, cases):
+        graph = h.make_graph(nodes, name, inputs, outputs)
+        model = h.make_model(graph, opset_imports=[h.make_opsetid("", 18)],
+                             ir_version=10, producer_name="liuding-independent-test")
+        onnx.checker.check_model(model, full_check=True)
+        onnx.shape_inference.infer_shapes(model, strict_mode=True, data_prop=True)
+        payload = model.SerializeToString()
+        session = ort.InferenceSession(payload, providers=["CPUExecutionProvider"])
+        refs = []
+        for index, case in enumerate(cases):
+            actual = session.run(None, {value.name: case[value.name]
+                                        for value in inputs})
+            for output, result in zip(outputs, actual, strict=True):
+                np.testing.assert_array_equal(result, case[output.name])
+            refs.append(artifact(root, safetensors.numpy.save(case),
+                                 name + f"-case-{index}", "application/safetensors"))
+        return {"artifact": artifact(root, payload, name, "application/onnx"),
+                "cases": refs}
+
+    cases = []
+    for batch in (1, 2, 5):
+        left = (np.arange(batch * 3, dtype=np.float32).reshape(batch, 3) - 3) / 4
+        right = np.arange(batch, dtype=np.float32).reshape(batch, 1) + 2
+        cases.append({"left": left, "right": right,
+                      "sum": left + right, "product": left * right})
+    shared = reference("multi_io", [h.make_node("Add", ["left", "right"], ["sum"]),
+                                     h.make_node("Mul", ["left", "right"], ["product"])],
+                       [info("left", "batch", 3), info("right", "batch", 1)],
+                       [info("sum", "batch", 3), info("product", "batch", 3)], cases)
+    left = np.arange(6, dtype=np.float32).reshape(2, 3)
+    right = np.arange(5, dtype=np.float32).reshape(5, 1) - 7
+    independent = reference("independent_batches", [h.make_node("Identity", ["left"], ["left_output"]),
+                                                    h.make_node("Identity", ["right"], ["right_output"])],
+                            [info("left", "left_batch", 3), info("right", "right_batch", 1)],
+                            [info("left_output", "left_batch", 3), info("right_output", "right_batch", 1)],
+                            [{"left": left, "right": right,
+                              "left_output": left, "right_output": right}])
+    return {"multi_io": shared, "independent_batches": independent}
 
 
 def official_models(root):
@@ -128,6 +181,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cpp-executable", type=pathlib.Path)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--require-native-models", action="store_true",
+                        help="Require both same-state native Linear/ResNet18 comparisons")
     parser.add_argument("--work-dir", required=True, type=pathlib.Path)
     parser.add_argument("--environment-lock", type=pathlib.Path,
                         help="Optional independent environment lock to identify in evidence")
@@ -147,6 +202,7 @@ def main():
               "production_exporter_claimed": False, "cpp_gate": "not-run"}
     try:
         models = official_models(root)
+        models.update(official_multi_io_models(root))
         negative, slow = official_negative_graphs(root)
         (root / "manifest.json").write_bytes(encoded({"schema_version": 1, "models": models,
                                                       "negative": negative, "slow": slow}))
@@ -161,7 +217,13 @@ def main():
                 raise RuntimeError("independent C++ runtime gate failed")
             xml = ET.parse(root / "cpp-results.xml").getroot()
             report["cpp_tests"] = {key: int(xml.attrib.get(key, "0")) for key in ("tests", "failures", "disabled", "errors")}
-            if report["cpp_tests"]["tests"] < 14 or any(report["cpp_tests"][key] for key in ("failures", "disabled", "errors")) or xml.findall(".//skipped"):
+            required_suites = {"OnnxRuntimeSession": 13, "OnnxRuntimeMultiIo": 8}
+            if args.require_native_models:
+                required_suites["OnnxRuntimeInterchange"] = 2
+            suites = {suite.attrib["name"]: int(suite.attrib["tests"])
+                      for suite in xml.findall("testsuite")}
+            report["required_suites"] = required_suites
+            if any(suites.get(name, 0) < count for name, count in required_suites.items()) or any(report["cpp_tests"][key] for key in ("failures", "disabled", "errors")) or xml.findall(".//skipped"):
                 raise RuntimeError("independent runtime tests failed, were skipped or omitted")
             report["cpp_gate"] = "passed"
         report["status"] = "prepared-cpp-not-run" if args.prepare_only else "passed"

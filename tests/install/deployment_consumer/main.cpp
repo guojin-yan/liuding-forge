@@ -9,6 +9,7 @@
 
 #include <torch/torch.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -132,8 +133,54 @@ int main() {
                       std::span(input.sizes().data(), input.sizes().size()));
       Compare(actual, expected);
     }
-    std::cout
-        << "Native deployment consumer: dynamic batches 1,2,5 match on CPU\n";
+    export_options.input_names = {"features", "offset"};
+    export_options.output_names = {"shifted", "scaled"};
+    export_options.dynamic_axes = {{"features", {{0, "batch"}}},
+                                   {"offset", {{0, "batch"}}},
+                                   {"shifted", {{0, "batch"}}},
+                                   {"scaled", {{0, "batch"}}}};
+    const std::vector<torch::Tensor> examples{Input(2), torch::ones({2, 3})};
+    const auto multi_artifact = exporter::export_module(
+        *model,
+        [&](std::span<const torch::Tensor> inputs) {
+          const auto logits = model->forward(inputs[0]);
+          return std::vector<torch::Tensor>{logits + inputs[1],
+                                            logits * inputs[1]};
+        },
+        examples, export_options);
+    runtime::Session multi(multi_artifact.onnx, multi_artifact.digest,
+                           session_options);
+    Require(multi.inputs().size() == 2U && multi.outputs().size() == 2U,
+            "installed multi-I/O metadata");
+    for (const auto batch : {1, 2, 5}) {
+      const auto features = Input(batch);
+      const auto offset =
+          (torch::arange(batch * 3, torch::kFloat32).reshape({batch, 3}) /
+               4.0F +
+           1.0F)
+              .contiguous();
+      const auto logits = model->forward(features);
+      const std::array<runtime::TensorInput, 2> inputs{
+          runtime::TensorInput{
+              .name = "offset",
+              .values = std::span(offset.const_data_ptr<float>(),
+                                  static_cast<std::size_t>(offset.numel())),
+              .shape = std::span(offset.sizes().data(), offset.sizes().size())},
+          runtime::TensorInput{
+              .name = "features",
+              .values = std::span(features.const_data_ptr<float>(),
+                                  static_cast<std::size_t>(features.numel())),
+              .shape =
+                  std::span(features.sizes().data(), features.sizes().size())}};
+      const auto outputs = multi.run(inputs);
+      Require(outputs.size() == 2U && outputs[0].name == "shifted" &&
+                  outputs[1].name == "scaled",
+              "installed multi-I/O output identity");
+      Compare(outputs[0], (logits + offset).contiguous());
+      Compare(outputs[1], (logits * offset).contiguous());
+    }
+    std::cout << "Native deployment consumer: single/multi-I/O dynamic batches "
+                 "1,2,5 match on CPU\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Deployment install consumer failed: " << error.what() << '\n';

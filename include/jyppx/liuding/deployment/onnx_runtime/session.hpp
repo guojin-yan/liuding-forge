@@ -60,19 +60,33 @@ struct SessionOptions {
   std::uint32_t cpu_threads =
       1U;  ///< Intra-op threads; inter-op is always one.
   std::uint64_t max_model_bytes = 256U << 20U;  ///< Bound before parsing bytes.
-  std::uint64_t max_input_bytes = 64U << 20U;  ///< One call's FP32 input bound.
-  std::uint64_t max_output_bytes = 64U << 20U;  ///< Preallocated output bound.
-  std::uint64_t max_batch_size = 1024U;  ///< Positive leading dimension bound.
+  std::uint64_t max_input_bytes = 64U << 20U;  ///< All inputs' FP32 byte bound.
+  std::uint64_t max_output_bytes = 64U
+                                   << 20U;  ///< All outputs' FP32 byte bound.
+  std::uint64_t max_batch_size =
+      1024U;  ///< Each input's leading dimension bound.
+  std::uint32_t max_io_tensors =
+      64U;  ///< Combined input/output count, 2..4096.
   bool disable_graph_optimizations =
       false;                             ///< Diagnostic option, not fallback.
   std::filesystem::path profile_prefix;  ///< Empty disables ORT profiling.
 };
 
-/** @brief Declared single dense FP32 tensor signature, not a task contract. */
+/** @brief Declared dense FP32 tensor signature, not a task contract. */
 struct TensorSignature {
   std::string name;  ///< Exact nonempty graph input or output name.
   std::vector<std::int64_t> shape;  ///< Positive dimensions; -1 only for batch.
   std::string batch_symbol;  ///< Equal nonempty symbols bind a dynamic batch.
+};
+
+/** @brief Borrowed named contiguous FP32 input; storage must outlive the call.
+ * @note Input order is arbitrary. Names bind tensors to the graph signature.
+ * Values, dimensions and name must remain unchanged throughout execution.
+ */
+struct TensorInput {
+  std::string_view name;  ///< Exact graph input name; no positional fallback.
+  std::span<const float> values;  ///< Read-only contiguous row-major values.
+  std::span<const std::int64_t> shape;  ///< Complete positive runtime shape.
 };
 
 /** @brief Owned contiguous row-major FP32 result independent of runtime memory.
@@ -80,6 +94,7 @@ struct TensorSignature {
 struct TensorOutput {
   std::vector<std::int64_t> shape;  ///< Complete positive runtime shape.
   std::vector<float> values;        ///< Exactly the shape's element count.
+  std::string name;  ///< Exact graph output name, including single-output runs.
 };
 
 /**
@@ -90,9 +105,12 @@ struct TensorOutput {
  * discovery or custom-op library is loaded by this adapter. The requested
  * provider must be compiled into that library and have a wired official append
  * API. Non-CPU requests prohibit CPU partition fallback unless explicitly
- * permitted. The graph has one FP32 input and one FP32 output of rank 1..8.
- * Only a shared named leading batch dimension may be dynamic; other dimensions
- * are positive constants. Quantized internal nodes are allowed without
+ * permitted. The graph has one or more FP32 inputs and outputs of rank 1..8,
+ * bounded by max_io_tensors. Only named leading batch dimensions may be
+ * dynamic; other dimensions are positive constants. Equal symbols bind equal
+ * sizes across inputs; every dynamic output symbol must occur in an input.
+ * Independent input batch symbols may have different sizes. Quantized internal
+ * nodes are allowed without
  * asserting INT8 execution: that requires separate real provider/kernel
  * evidence.
  *
@@ -131,14 +149,25 @@ class Session final {
   Session(Session&&) = delete;  ///< Stable identity for concurrent callers.
   Session& operator=(Session&&) = delete;  ///< Moving is not supported.
 
-  /** @brief Returns the verified graph input signature.
-   * @return Reference valid for this session's lifetime; concurrently readable.
+  /** @brief Returns all verified input signatures in graph declaration order.
+   * @return Immutable borrowed metadata valid for this session's lifetime.
    */
-  const TensorSignature& input() const noexcept;
-  /** @brief Returns the verified graph output signature.
-   * @return Reference valid for this session's lifetime; concurrently readable.
+  std::span<const TensorSignature> inputs() const noexcept;
+  /** @brief Returns all verified output signatures in graph declaration order.
+   * @return Immutable borrowed metadata valid for this session's lifetime.
    */
-  const TensorSignature& output() const noexcept;
+  std::span<const TensorSignature> outputs() const noexcept;
+
+  /** @brief Returns the signature of a graph with exactly one input.
+   * @return Reference valid for this session's lifetime; concurrently readable.
+   * @throws InvalidArgument If the graph has multiple inputs; use inputs().
+   */
+  const TensorSignature& input() const;
+  /** @brief Returns the signature of a graph with exactly one output.
+   * @return Reference valid for this session's lifetime; concurrently readable.
+   * @throws InvalidArgument If the graph has multiple outputs; use outputs().
+   */
+  const TensorSignature& output() const;
   /** @brief Returns the exact loaded ORT version, not the exporter version.
    * @return Reference valid for this session's lifetime; concurrently readable.
    */
@@ -158,6 +187,29 @@ class Session final {
    */
   bool cpu_fallback_allowed() const noexcept;
 
+  /** @brief Executes all graph inputs and returns all outputs in graph order.
+   * @param inputs Every named input exactly once, in any order; spans are
+   * borrowed and no FP32 input payload is copied by the adapter.
+   * @param stop Cancellation forwarded to this call's ORT run options only.
+   * @param deadline Optional absolute steady-clock execution deadline.
+   * @return Independently owned named finite results in output signature order.
+   * @throws InvalidArgument For missing, duplicate or unknown names, invalid
+   * shape/count/value, or inconsistent sizes for one dynamic batch symbol.
+   * @throws ResourceExhausted If the combined input or output payload exceeds
+   * its call-level bound; output bounds are checked before payload allocation.
+   * @throws Cancelled If stop is observed before result publication.
+   * @throws DeadlineExceeded If the deadline is reached before publication.
+   * @throws NumericalError For any nonfinite graph result.
+   * @throws Error For runtime/operator execution failures.
+   * @note Concurrent calls have independent run options, symbol bindings and
+   * output storage. Cancellation is cooperative. Destruction must not race a
+   * call. I/O limits exclude metadata and graph/intermediate/provider memory.
+   */
+  std::vector<TensorOutput> run(
+      std::span<const TensorInput> inputs, std::stop_token stop = {},
+      std::optional<std::chrono::steady_clock::time_point> deadline =
+          std::nullopt) const;
+
   /** @brief Executes the graph using caller-owned host input and owned output.
    * @param values Stable contiguous FP32 values retained unchanged for the
    * call.
@@ -165,7 +217,8 @@ class Session final {
    * @param stop Cancellation forwarded to this call's ORT run options only.
    * @param deadline Optional absolute steady-clock execution deadline.
    * @return Owned finite values and shape; no ORT-owned tensor escapes.
-   * @throws InvalidArgument For shape, element-count or nonfinite input errors.
+   * @throws InvalidArgument If the graph has multiple inputs or outputs, or
+   * for shape, element-count or nonfinite input errors.
    * @throws ResourceExhausted If I/O limits or allocation bounds are exceeded.
    * @throws Cancelled If stop is observed before result publication.
    * @throws DeadlineExceeded If the deadline is reached before publication.

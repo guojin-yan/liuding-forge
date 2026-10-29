@@ -585,13 +585,20 @@ if(JYPPX_LIUDING_ONNX_REFERENCE_PYTHON)
         set_tests_properties(OfficialNativeOnnxExport PROPERTIES
             LABELS "deployment;onnx_export;official" TIMEOUT 600)
     endif()
-    if(TARGET jyppx::liuding::onnx_runtime AND TARGET jyppx::liuding::models
-       AND TARGET jyppx::liuding::interop)
+    if(TARGET jyppx::liuding::onnx_runtime AND TARGET jyppx::liuding::interop)
         add_executable(jyppx_test_onnx_runtime_reference
             deployment/onnx_runtime/test_session.cpp)
         target_link_libraries(jyppx_test_onnx_runtime_reference PRIVATE
-            jyppx::liuding::onnx_runtime jyppx::liuding::models
+            jyppx::liuding::onnx_runtime
             jyppx::liuding::interop nlohmann_json::nlohmann_json GTest::gtest_main)
+        set(JYPPX_ORT_REFERENCE_MODEL_ARGS)
+        if(TARGET jyppx::liuding::models)
+            target_link_libraries(jyppx_test_onnx_runtime_reference PRIVATE
+                jyppx::liuding::models)
+            target_compile_definitions(jyppx_test_onnx_runtime_reference PRIVATE
+                JYPPX_LIUDING_TEST_ONNX_RUNTIME_MODELS=1)
+            list(APPEND JYPPX_ORT_REFERENCE_MODEL_ARGS --require-native-models)
+        endif()
         jyppx_apply_instrumentation(jyppx_test_onnx_runtime_reference)
         jyppx_add_torch_runtime_dependency(jyppx_test_onnx_runtime_reference)
         jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_runtime_reference)
@@ -600,7 +607,8 @@ if(JYPPX_LIUDING_ONNX_REFERENCE_PYTHON)
                 "${CMAKE_CURRENT_SOURCE_DIR}/deployment/onnx_runtime/verify_onnx.py"
                 --cpp-executable $<TARGET_FILE:jyppx_test_onnx_runtime_reference>
                 --work-dir "${CMAKE_BINARY_DIR}/evidence/onnx-runtime-$<CONFIG>"
-                --jyppx-commit "${JYPPX_GIT_COMMIT}")
+                --jyppx-commit "${JYPPX_GIT_COMMIT}"
+                ${JYPPX_ORT_REFERENCE_MODEL_ARGS})
         set_tests_properties(OfficialOnnxRuntimeInterchange PROPERTIES
             LABELS "deployment;onnx_runtime;official" TIMEOUT 900)
     endif()

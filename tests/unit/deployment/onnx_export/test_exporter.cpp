@@ -462,6 +462,47 @@ TEST(NativeOnnxRuntime, LinearExecutesRealCpuAndDynamicBatches) {
   }
 }
 
+TEST(NativeOnnxRuntime, NativeMultipleIoUsesThePublicNamedRuntimeAdapter) {
+  torch::NoGradGuard guard;
+  torch::nn::Module owner;
+  exporter::ExportOptions options;
+  options.input_names = {"left", "right"};
+  options.output_names = {"sum", "product"};
+  const std::vector<torch::Tensor> examples{torch::ones({2, 3}),
+                                            torch::ones({2, 1})};
+  const auto artifact = exporter::export_module(
+      owner,
+      [](std::span<const torch::Tensor> inputs) {
+        return std::vector<torch::Tensor>{inputs[0] + inputs[1],
+                                          inputs[0] * inputs[1]};
+      },
+      examples, options);
+  runtime::Session session(artifact.onnx, artifact.digest);
+  for (const auto batch : {1, 2, 5}) {
+    const auto left =
+        torch::arange(batch * 3, torch::kFloat32).reshape({batch, 3});
+    const auto right =
+        torch::arange(batch, torch::kFloat32).reshape({batch, 1}) + 2;
+    const std::array<runtime::TensorInput, 2> inputs{
+        runtime::TensorInput{
+            .name = "right",
+            .values = std::span(right.const_data_ptr<float>(),
+                                static_cast<std::size_t>(right.numel())),
+            .shape = std::span(right.sizes().data(), right.sizes().size())},
+        runtime::TensorInput{
+            .name = "left",
+            .values = std::span(left.const_data_ptr<float>(),
+                                static_cast<std::size_t>(left.numel())),
+            .shape = std::span(left.sizes().data(), left.sizes().size())}};
+    const auto outputs = session.run(inputs);
+    ASSERT_EQ(outputs.size(), 2U);
+    EXPECT_EQ(outputs[0].name, "sum");
+    EXPECT_EQ(outputs[1].name, "product");
+    Near(outputs[0], (left + right).contiguous());
+    Near(outputs[1], (left * right).contiguous());
+  }
+}
+
 TEST(NativeOnnxRuntime,
      UnknownUserModelAndCustomOperatorExecuteWithoutModelWhitelist) {
   at::set_num_threads(1);

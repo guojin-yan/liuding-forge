@@ -7,10 +7,13 @@
 #include <jyppx/liuding/deployment/onnx_runtime/session.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
-#include <jyppx/liuding/interop/model_weight_import.hpp>
 #include <jyppx/liuding/interop/safetensors.hpp>
+
+#ifdef JYPPX_LIUDING_TEST_ONNX_RUNTIME_MODELS
+#include <jyppx/liuding/interop/model_weight_import.hpp>
 #include <jyppx/liuding/models/vision.hpp>
 #include <jyppx/liuding/nn/model_adapter.hpp>
+#endif
 
 #include <torch/torch.h>
 
@@ -116,6 +119,7 @@ void Near(std::span<const float> actual, const torch::Tensor& expected) {
   }
 }
 
+#ifdef JYPPX_LIUDING_TEST_ONNX_RUNTIME_MODELS
 template <typename Holder>
 void CheckSameState(const char* name, Holder holder) {
   at::set_num_threads(1);
@@ -154,6 +158,7 @@ void CheckSameState(const char* name, Holder holder) {
   }
   ASSERT_EQ(batches, (std::vector<std::int64_t>{2, 5}));
 }
+#endif
 
 struct LinearFixture {
   Json specification = Manifest().at("models").at("linear");
@@ -163,6 +168,7 @@ struct LinearFixture {
       Tensor(Artifact(specification.at("cases").at(0)), "input");
 };
 
+#ifdef JYPPX_LIUDING_TEST_ONNX_RUNTIME_MODELS
 TEST(OnnxRuntimeInterchange, LinearSameStateNativeAndOfficialOutputs) {
   CheckSameState("linear", torch::nn::Linear(8, 3));
 }
@@ -170,6 +176,7 @@ TEST(OnnxRuntimeInterchange, LinearSameStateNativeAndOfficialOutputs) {
 TEST(OnnxRuntimeInterchange, ResNet18SameStateNativeAndOfficialOutputs) {
   CheckSameState("resnet18", models::resnet18({.num_classes = 7}));
 }
+#endif
 
 TEST(OnnxRuntimeSession, RejectsUntrustedDigestAndOversizedModelBeforeParsing) {
   LinearFixture fixture;
@@ -194,9 +201,10 @@ TEST(OnnxRuntimeSession, RejectsMalformedBytesAndMissingOperators) {
   }
 }
 
-TEST(OnnxRuntimeSession, RejectsUnsupportedDtypeArityAndNonbatchDynamicAxes) {
+TEST(OnnxRuntimeSession, RejectsUnsupportedDtypesAndUnboundDynamicDimensions) {
   const auto manifest = Manifest();
-  for (const auto name : {"float64", "two_inputs", "dynamic_width"}) {
+  for (const auto name : {"float64", "mixed_output_dtypes", "dynamic_width",
+                          "unbound_output_batch", "zero_inputs"}) {
     const auto ref = manifest.at("negative").at(name);
     const auto bytes = Artifact(ref);
     EXPECT_THROW(runtime::Session(bytes, Digest(ref.at("digest"))),
@@ -217,6 +225,12 @@ TEST(OnnxRuntimeSession, RejectsInvalidOptions) {
   options.max_output_bytes = 0U;
   EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
                InvalidArgument);
+  for (const auto count : {0U, 1U, 4097U}) {
+    options = {};
+    options.max_io_tensors = count;
+    EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
+                 InvalidArgument);
+  }
 }
 
 TEST(OnnxRuntimeSession,
@@ -317,6 +331,12 @@ TEST(OnnxRuntimeSession, RejectsNonfiniteGraphOutput) {
   const std::array<float, 6> values{1, 2, 3, 4, 5, 6};
   const std::array<std::int64_t, 2> shape{2, 3};
   EXPECT_THROW(session.run(values, shape), NumericalError);
+  const auto multi_ref = Manifest().at("negative").at("multi_nonfinite_output");
+  const auto multi_bytes = Artifact(multi_ref);
+  runtime::Session multi(multi_bytes, Digest(multi_ref.at("digest")));
+  const std::array<runtime::TensorInput, 1> inputs{
+      runtime::TensorInput{.name = "input", .values = values, .shape = shape}};
+  EXPECT_THROW(multi.run(inputs), NumericalError);
 }
 
 TEST(OnnxRuntimeSession, HonorsPrecancelledAndExpiredCallsThenRemainsUsable) {
@@ -391,6 +411,203 @@ TEST(OnnxRuntimeSession, ProfilingRecordsActualCpuNodesAndClosesIdempotently) {
   EXPECT_FALSE(RunSession(session, fixture.input).values.empty());
   runtime::Session disabled(fixture.bytes, fixture.identity);
   EXPECT_THROW(disabled.end_profiling(), InvalidArgument);
+}
+
+runtime::TensorInput Named(std::string_view name, const torch::Tensor& value) {
+  return {.name = name,
+          .values = std::span(value.const_data_ptr<float>(),
+                              static_cast<std::size_t>(value.numel())),
+          .shape = std::span(value.sizes().data(), value.sizes().size())};
+}
+
+struct MultiIoFixture {
+  explicit MultiIoFixture(const char* name = "multi_io", std::size_t index = 1U)
+      : specification(Manifest().at("models").at(name)),
+        bytes(Artifact(specification.at("artifact"))),
+        identity(Digest(specification.at("artifact").at("digest"))),
+        tensors(Artifact(specification.at("cases").at(index))),
+        left(Tensor(tensors, "left")),
+        right(Tensor(tensors, "right")) {}
+
+  std::array<runtime::TensorInput, 2> inputs() const {
+    // Reverse graph declaration order to detect accidental positional binding.
+    return {Named("right", right), Named("left", left)};
+  }
+
+  Json specification;
+  std::vector<std::byte> bytes;
+  ArtifactDigest identity;
+  std::vector<std::byte> tensors;
+  torch::Tensor left;
+  torch::Tensor right;
+};
+
+TEST(OnnxRuntimeMultiIo, NamedInputsAndOutputsMatchIndependentOracle) {
+  for (const auto index : {0U, 1U, 2U}) {
+    MultiIoFixture fixture("multi_io", index);
+    runtime::Session session(fixture.bytes, fixture.identity);
+    ASSERT_EQ(session.inputs().size(), 2U);
+    ASSERT_EQ(session.outputs().size(), 2U);
+    EXPECT_EQ(session.inputs()[0].name, "left");
+    EXPECT_EQ(session.inputs()[1].name, "right");
+    const auto saved_left = fixture.left.clone();
+    const auto saved_right = fixture.right.clone();
+    const auto results = session.run(fixture.inputs());
+    ASSERT_EQ(results.size(), 2U);
+    EXPECT_EQ(results[0].name, "sum");
+    EXPECT_EQ(results[1].name, "product");
+    for (std::size_t position = 0; position < results.size(); ++position) {
+      const auto expected =
+          Tensor(fixture.tensors, results[position].name.c_str());
+      EXPECT_EQ(results[position].shape,
+                std::vector<std::int64_t>(expected.sizes().begin(),
+                                          expected.sizes().end()));
+      Near(results[position].values, expected);
+    }
+    EXPECT_TRUE(torch::equal(fixture.left, saved_left));
+    EXPECT_TRUE(torch::equal(fixture.right, saved_right));
+  }
+}
+
+TEST(OnnxRuntimeMultiIo, RejectsMissingDuplicateAndUnknownNames) {
+  MultiIoFixture fixture;
+  runtime::Session session(fixture.bytes, fixture.identity);
+  auto inputs = fixture.inputs();
+  EXPECT_THROW(session.run(std::span<const runtime::TensorInput>{}),
+               InvalidArgument);
+  EXPECT_THROW(session.run(std::span(inputs).first(1U)), InvalidArgument);
+  inputs[0].name = "left";
+  EXPECT_THROW(session.run(inputs), InvalidArgument);
+  inputs[0].name = "unknown";
+  EXPECT_THROW(session.run(inputs), InvalidArgument);
+  inputs[0].name = std::string_view("right\0tail", 10U);
+  EXPECT_THROW(session.run(inputs), InvalidArgument);
+  EXPECT_EQ(session.run(fixture.inputs()).size(), 2U);
+}
+
+TEST(OnnxRuntimeMultiIo, RejectsInconsistentBatchAndInvalidSecondInput) {
+  MultiIoFixture fixture;
+  runtime::Session session(fixture.bytes, fixture.identity);
+  auto inputs = fixture.inputs();
+  const std::array<std::int64_t, 2> different_batch{1, 1};
+  inputs[0].shape = different_batch;
+  inputs[0].values = inputs[0].values.first(1U);
+  EXPECT_THROW(session.run(inputs), InvalidArgument);
+  inputs = fixture.inputs();
+  inputs[0].values = inputs[0].values.first(1U);
+  EXPECT_THROW(session.run(inputs), InvalidArgument);
+  inputs = fixture.inputs();
+  const std::array<std::int64_t, 2> wrong_width{2, 2};
+  inputs[0].shape = wrong_width;
+  EXPECT_THROW(session.run(inputs), InvalidArgument);
+  inputs = fixture.inputs();
+  const std::array<float, 2> nonfinite{1.0F,
+                                       std::numeric_limits<float>::infinity()};
+  inputs[0].values = nonfinite;
+  EXPECT_THROW(session.run(inputs), InvalidArgument);
+  EXPECT_EQ(session.run(fixture.inputs()).size(), 2U);
+}
+
+TEST(OnnxRuntimeMultiIo,
+     AggregateByteAndTensorCountBoundsApplyBeforeExecution) {
+  MultiIoFixture fixture;
+  runtime::SessionOptions options;
+  options.max_input_bytes = 31U;
+  runtime::Session input_bounded(fixture.bytes, fixture.identity, options);
+  EXPECT_THROW(input_bounded.run(fixture.inputs()), ResourceExhausted);
+  options = {};
+  options.max_output_bytes = 47U;
+  runtime::Session output_bounded(fixture.bytes, fixture.identity, options);
+  EXPECT_THROW(output_bounded.run(fixture.inputs()), ResourceExhausted);
+  options.max_input_bytes = 32U;
+  options.max_output_bytes = 48U;
+  options.max_io_tensors = 4U;
+  runtime::Session exact(fixture.bytes, fixture.identity, options);
+  EXPECT_EQ(exact.run(fixture.inputs()).size(), 2U);
+  options.max_io_tensors = 3U;
+  EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
+               ResourceExhausted);
+  options = {};
+  options.max_input_bytes = 15U;
+  EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
+               ResourceExhausted);
+  options = {};
+  options.max_output_bytes = 23U;
+  EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
+               ResourceExhausted);
+}
+
+TEST(OnnxRuntimeMultiIo, IndependentBatchSymbolsHaveIndependentOutputShapes) {
+  MultiIoFixture fixture("independent_batches", 0U);
+  runtime::Session session(fixture.bytes, fixture.identity);
+  const auto results = session.run(fixture.inputs());
+  ASSERT_EQ(results.size(), 2U);
+  EXPECT_EQ(results[0].name, "left_output");
+  EXPECT_EQ(results[0].shape, (std::vector<std::int64_t>{2, 3}));
+  EXPECT_EQ(results[1].name, "right_output");
+  EXPECT_EQ(results[1].shape, (std::vector<std::int64_t>{5, 1}));
+  Near(results[0].values, Tensor(fixture.tensors, "left_output"));
+  Near(results[1].values, Tensor(fixture.tensors, "right_output"));
+  runtime::SessionOptions options;
+  options.max_batch_size = 4U;
+  runtime::Session bounded(fixture.bytes, fixture.identity, options);
+  EXPECT_THROW(bounded.run(fixture.inputs()), ResourceExhausted);
+}
+
+TEST(OnnxRuntimeMultiIo,
+     SingleTensorConvenienceCannotSilentlySelectFirstTensor) {
+  MultiIoFixture fixture;
+  runtime::Session session(fixture.bytes, fixture.identity);
+  EXPECT_THROW(session.input(), InvalidArgument);
+  EXPECT_THROW(session.output(), InvalidArgument);
+  EXPECT_THROW(
+      session.run(fixture.inputs()[1].values, fixture.inputs()[1].shape),
+      InvalidArgument);
+  LinearFixture linear;
+  runtime::Session single(linear.bytes, linear.identity);
+  const std::array<runtime::TensorInput, 1> inputs{
+      Named(single.input().name, linear.input)};
+  const auto results = single.run(inputs);
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results.front().name, single.output().name);
+  EXPECT_EQ(results.front().values, RunSession(single, linear.input).values);
+}
+
+TEST(OnnxRuntimeMultiIo, CancelledAndExpiredCallsDoNotPoisonNamedExecution) {
+  MultiIoFixture fixture;
+  runtime::Session session(fixture.bytes, fixture.identity);
+  std::stop_source stop;
+  stop.request_stop();
+  EXPECT_THROW(session.run(fixture.inputs(), stop.get_token()), Cancelled);
+  EXPECT_THROW(
+      session.run(fixture.inputs(), {}, std::chrono::steady_clock::now()),
+      DeadlineExceeded);
+  EXPECT_EQ(session.run(fixture.inputs()).size(), 2U);
+}
+
+TEST(OnnxRuntimeMultiIo, ConcurrentCallsAndResultsHaveIndependentOwnedStorage) {
+  MultiIoFixture first("multi_io", 0U);
+  MultiIoFixture second("multi_io", 2U);
+  std::vector<runtime::TensorOutput> a;
+  std::vector<runtime::TensorOutput> b;
+  {
+    runtime::Session session(first.bytes, first.identity);
+    auto pending = std::async(std::launch::async,
+                              [&] { return session.run(first.inputs()); });
+    b = session.run(second.inputs());
+    a = pending.get();
+  }
+  ASSERT_EQ(a.size(), 2U);
+  ASSERT_EQ(b.size(), 2U);
+  EXPECT_EQ(a[0].shape.front(), 1);
+  EXPECT_EQ(b[0].shape.front(), 5);
+  Near(a[0].values, Tensor(first.tensors, "sum"));
+  Near(b[1].values, Tensor(second.tensors, "product"));
+  const auto saved = b[0].values;
+  a[0].values[0] = 1000.0F;
+  a[1].values[0] = -1000.0F;
+  EXPECT_EQ(b[0].values, saved);
+  EXPECT_EQ(b[0].name, "sum");
 }
 
 }  // namespace
