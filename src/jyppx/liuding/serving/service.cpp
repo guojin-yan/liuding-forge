@@ -7,6 +7,7 @@
 #include <jyppx/liuding/serving/service.hpp>
 
 #include <chrono>
+#include <optional>
 #include <utility>
 namespace jyppx::liuding::serving {
 namespace {
@@ -38,6 +39,16 @@ ServiceReply Reply(ServiceStatus status, std::string id) {
           .body = {},
           .timing = {}};
 }
+void ValidateProtocol(const ProtocolAdapter& protocol,
+                      const ServiceOptions& options) {
+  detail::Text(protocol.protocol_id, true);
+  if (!protocol.schema_version || !protocol.decode || !protocol.encode ||
+      !protocol.authorize || !options.max_request_bytes ||
+      !options.max_response_bytes)
+    detail::Invalid(
+        "service.adapter",
+        "explicit versioned codecs/authorization and positive sizes");
+}
 }  // namespace
 std::string_view service_status_name(ServiceStatus status) noexcept {
   switch (status) {
@@ -68,15 +79,20 @@ InferenceServiceAdapter::InferenceServiceAdapter(
       protocol_(std::move(protocol)),
       options_(options),
       batcher_(std::move(batcher)) {
-  detail::Text(protocol_.protocol_id, true);
-  if (!predictor_ || !protocol_.schema_version || !protocol_.decode ||
-      !protocol_.encode || !protocol_.authorize ||
-      !options_.max_request_bytes || !options_.max_response_bytes)
-    detail::Invalid("service.adapter",
-                    "owning predictor, explicit versioned codecs/authorization "
-                    "and positive sizes");
+  ValidateProtocol(protocol_, options_);
+  if (!predictor_) detail::Invalid("service.adapter", "an owning predictor");
   if (batcher_ && batcher_->predictor() != predictor_)
     detail::Invalid("service.scheduler", "scheduler owning the same predictor");
+}
+InferenceServiceAdapter::InferenceServiceAdapter(
+    std::shared_ptr<ReloadablePredictor> predictor, ProtocolAdapter protocol,
+    ServiceOptions options)
+    : versioned_(std::move(predictor)),
+      protocol_(std::move(protocol)),
+      options_(options) {
+  ValidateProtocol(protocol_, options_);
+  if (!versioned_)
+    detail::Invalid("service.adapter", "an owning versioned predictor");
 }
 ServiceReply InferenceServiceAdapter::handle(std::span<const std::byte> body,
                                              const TransportContext& context,
@@ -94,7 +110,9 @@ ServiceReply InferenceServiceAdapter::handle(std::span<const std::byte> body,
   try {
     detail::Text(context.correlation.request_id, true);
     id = context.correlation.request_id;
-    detail::Context(context.correlation, predictor_->info().model_version);
+    // Do not choose a model until host authorization succeeds. The lease is
+    // retained across all subsequent decoding, execution and response encoding.
+    detail::Context(context.correlation, context.correlation.model_version);
     if (!context.authenticated) return reply(ServiceStatus::unauthenticated);
     if (context.correlation.principal_id.empty() ||
         context.correlation.project_id.empty())
@@ -104,10 +122,18 @@ ServiceReply InferenceServiceAdapter::handle(std::span<const std::byte> body,
     detail::Boundary(stop, context.deadline);
     if (body.size() > options_.max_request_bytes)
       return reply(ServiceStatus::resource_exhausted);
-    if (!health().ready) return reply(ServiceStatus::unavailable);
+    std::optional<PredictionLease> lease;
+    auto correlation = context.correlation;
+    if (versioned_) {
+      lease.emplace(versioned_->acquire(correlation.model_version));
+      correlation.model_version = lease->info().model_version;
+    } else {
+      detail::Context(correlation, predictor_->info().model_version);
+      if (!health().ready) return reply(ServiceStatus::unavailable);
+    }
     auto stage = std::chrono::steady_clock::now();
     PredictRequest request{.input = protocol_.decode(body),
-                           .context = context.correlation,
+                           .context = correlation,
                            .deadline = context.deadline};
     timing.decode = detail::Seconds(std::chrono::steady_clock::now() - stage);
     detail::Boundary(stop, context.deadline);
@@ -118,7 +144,9 @@ ServiceReply InferenceServiceAdapter::handle(std::span<const std::byte> body,
              std::future_status::ready)
         detail::Boundary(stop, context.deadline);
       result = future.get();
-    } else
+    } else if (lease)
+      result = lease->predict(request, stop);
+    else
       result = predictor_->predict(request, stop);
     const auto decode = timing.decode;
     timing = result.timing;
@@ -142,8 +170,9 @@ ServiceReply InferenceServiceAdapter::handle(std::span<const std::byte> body,
   }
 }
 ServiceHealth InferenceServiceAdapter::health() const {
-  auto model = predictor_->info();
+  auto model = versioned_ ? versioned_->info() : predictor_->info();
   const auto ready = model.health == HealthStatus::ready &&
+                     (!versioned_ || versioned_->statistics().accepting) &&
                      (!batcher_ || batcher_->statistics().accepting);
   return {.live = true,
           .ready = ready,
@@ -151,6 +180,7 @@ ServiceHealth InferenceServiceAdapter::health() const {
           .model = std::move(model)};
 }
 bool InferenceServiceAdapter::close(Deadline deadline, std::stop_token stop) {
+  if (versioned_) return versioned_->close(deadline, stop);
   if (batcher_ && !batcher_->close(deadline, stop)) return false;
   return predictor_->close(deadline, stop);
 }

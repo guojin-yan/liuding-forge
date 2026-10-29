@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "cli.hpp"
+#include "local_attempt.hpp"
 
 #include <jyppx/liuding/foundation/build_config.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
@@ -239,6 +240,8 @@ Result execute(const Arguments& arguments) {
              {"commands",
               Json::array(
                   {"doctor [--device cpu|cuda] [--expected-libtorch VERSION]",
+                   "local execute --root DIRECTORY --id ID --spec PATH",
+                   "local show|recover|cancel --root DIRECTORY --id ID",
                    "config lint|render|explain --schema PATH [--file PATH] "
                    "[--set /path=JSON] [--path POINTER]",
                    "config migrate --input PATH --plan PATH --to-version N "
@@ -271,6 +274,12 @@ Result execute(const Arguments& arguments) {
                    "model onnx smoke --bundle DIRECTORY --bundle-sha256 SHA256 "
                    "--model-id MODEL --report-id REPORT --cases-id CASES "
                    "--tensors-id TENSORS --provider NAME",
+                   "model onnx export --root RUN_STORE --source-run RUN "
+                   "--checkpoint-reference CHECKPOINT --definition-reference "
+                   "DEFINITION --inputs INPUTS --inputs-sha256 SHA256 "
+                   "--tensors SAFETENSORS --tensors-sha256 SHA256 "
+                   "--metadata METADATA --metadata-sha256 SHA256 "
+                   "--provider NAME --output NEW_DIRECTORY",
                    "model onnx pack --path MODEL --report REPORT "
                    "--report-sha256 SHA256 "
                    "--cases CASES --cases-sha256 SHA256 --tensors SAFETENSORS "
@@ -308,6 +317,7 @@ Result execute(const Arguments& arguments) {
   if (words.front() == "benchmark") return benchmark_command(arguments);
   if (words.front() == "offline") return offline_command(arguments);
   if (words.front() == "recipe") return recipe_command(arguments);
+  if (words.front() == "local") return local_attempt_command(arguments);
   usage("command", "Use --help to list supported commands.");
 }
 

@@ -709,6 +709,25 @@ Result execute(const Arguments& arguments, bool resume) {
     attach(store, root / (std::string(id) + ".json"), id, id, time,
            ex::RunArtifactKind::artifact,
            config.at("recipe").get<std::string>());
+  if (!transfer) {
+    const Json definition{{"format", "jyppx.liuding.onnx_model_definition"},
+                          {"schema_version", 1},
+                          {"participant_id", "model.main"},
+                          {"factory",
+                           {{"id", "jyppx.liuding.models"},
+                            {"name", "resnet18"},
+                            {"num_classes", inputs.train.categories().size()},
+                            {"input_channels", 3}}}};
+    const auto path = root / "model-definition.json";
+    if (std::filesystem::exists(path))
+      require_recipe(parse_json(read_text(path)) == definition,
+                     "Recipe native model definition differs");
+    else
+      write_json(path, definition);
+    attach(store, path, "model-definition", "model.definition", time,
+           ex::RunArtifactKind::artifact,
+           config.at("recipe").get<std::string>());
+  }
   if (transfer)
     attach(store, root / "weight-input.json", "weight-input",
            "source_weight_contract", time, ex::RunArtifactKind::artifact,

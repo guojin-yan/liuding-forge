@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加本地任务 `local execute/show/recover/cancel`，用现有 run/CAS 保存冻结 spec、隔离 attempt 和双流结果，按显式退出码有限重试，无法确认进程归属时拒绝重复启动。
+- 增加同 runtime、设备与 schema 的 Serving 候选校验、warmup 和原子切换，支持请求版本 lease、旧版本 drain、失败保留活动实例及双实例逻辑预算。
+- 增加纯 C++ 部署和 Serving 切换学习示例，展示检查点恢复、通用 ONNX 导出、动态 batch、多输入输出核对与请求版本固定。
+- 增加原生 C++ `model onnx export`：从原 run 的模型定义和检查点引用严格恢复状态，经通用导出与实际 ORT 数值/profile 验证后原子组包，保存可独立复验的输入、参考输出和来源关联；同时提供自动组包与环境锁检查。
 - 增加有界模型包快照读取，直接返回同次完整校验中的模型字节；ONNX 验证命令可按模型 ID 消费 bundle，并保留原始 manifest 与实际执行证据的关联。
 - 增加原生 C++ ONNX Runtime 数值验证、实际 Provider/kernel trace 汇总及 CLI 验证制品关联；数值失败保留失败报告与 run，不声明任务质量或性能资格。
 

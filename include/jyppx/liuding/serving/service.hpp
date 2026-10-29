@@ -6,6 +6,7 @@
 #define JYPPX_LIUDING_SERVING_SERVICE_HPP
 /** @file service.hpp @brief Unary transport-neutral protocol adapter. */
 #include <jyppx/liuding/serving/batcher.hpp>
+#include <jyppx/liuding/serving/reload.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -97,6 +98,17 @@ class InferenceServiceAdapter final {
   InferenceServiceAdapter(std::shared_ptr<Predictor> predictor,
                           ProtocolAdapter protocol, ServiceOptions options = {},
                           std::shared_ptr<DynamicBatcher> batcher = {});
+  /** @brief Binds a versioned owner; each call pins its version through
+   * encoding.
+   * @param predictor Retained two-slot versioned inference owner.
+   * @param protocol Trusted immutable host codecs and authorization hook.
+   * @param options Encoded request and response limits.
+   * @note Versioned calls use direct inference; a fixed-version DynamicBatcher
+   * cannot be shared across versions. Protocol callbacks must be thread-safe.
+   */
+  InferenceServiceAdapter(std::shared_ptr<ReloadablePredictor> predictor,
+                          ProtocolAdapter protocol,
+                          ServiceOptions options = {});
   /** @brief Authenticates/authorizes, decodes, predicts and encodes one call.
    * @param body Encoded request checked before decoding.
    * @param context Host-verified caller and deadline metadata.
@@ -119,6 +131,8 @@ class InferenceServiceAdapter final {
 
  private:
   std::shared_ptr<Predictor> predictor_;  ///< Retained serialized model owner.
+  std::shared_ptr<ReloadablePredictor>
+      versioned_;  ///< Optional versioned owner.
   ProtocolAdapter
       protocol_;  ///< Immutable trusted host codec/authorization hooks.
   ServiceOptions options_;  ///< Immutable encoded-size limits.

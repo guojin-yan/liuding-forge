@@ -822,6 +822,6 @@ std::string serving_platform_id() {
   return result;
 }
 std::string serving_preview_manifest_json() {
-  return R"({"schema_id":"jyppx.serving.preview","schema_version":1,"default_enabled":false,"preview":true,"native_state":"safetensors","torchscript":"explicit-trust-compatibility","onnx_runtime":"unavailable","threading":"one-serialized-instance","batching":"single-positional-tensor-single-tensor-result","network_server":false,"reload":false,"qualification":"requires-recorded-build-test-reference-performance-evidence"})";
+  return R"({"schema_id":"jyppx.serving.preview","schema_version":1,"default_enabled":false,"preview":true,"native_state":"safetensors","torchscript":"explicit-trust-compatibility","onnx_runtime":"unavailable","threading":"serialized-per-instance","batching":"single-positional-tensor-single-tensor-result","network_server":false,"reload":"same-runtime-device-schema-two-slot-native-bundle","qualification":"requires-recorded-build-test-reference-performance-evidence"})";
 }
 }  // namespace jyppx::liuding::serving

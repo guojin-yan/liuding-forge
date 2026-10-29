@@ -14,6 +14,12 @@ target_compile_definitions(jyppx_test_local_process PRIVATE
     JYPPX_LOCAL_PROCESS_PYTHON="${Python3_EXECUTABLE}"
     JYPPX_LOCAL_PROCESS_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/local_process_fixture.py")
 
+add_test(NAME Cli_local_attempt
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_attempt.py"
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+set_tests_properties(Cli_local_attempt PROPERTIES
+    LABELS "cli;experiment;integration" TIMEOUT 240)
+
 foreach(contract IN ITEMS model_checkpoint model_bundle evaluation_data offline_workflow run_telemetry migration)
     add_test(NAME Cli_${contract}
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_${contract}.py"
@@ -37,6 +43,17 @@ if(TARGET jyppx::liuding::onnx_export AND TARGET jyppx::liuding::onnx_runtime)
             --exporter $<TARGET_FILE:jyppx_test_onnx_export>)
     set_tests_properties(Cli_onnx_verification PROPERTIES
         LABELS "cli;deployment;onnx_runtime;integration" TIMEOUT 300)
+    set(onnx_reconstruction_arguments)
+    if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
+        list(APPEND onnx_reconstruction_arguments --image-recipe)
+    endif()
+    add_test(NAME Cli_onnx_reconstruction
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_onnx_reconstruction.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+            --exporter $<TARGET_FILE:jyppx_test_onnx_export>
+            ${onnx_reconstruction_arguments})
+    set_tests_properties(Cli_onnx_reconstruction PROPERTIES
+        LABELS "cli;deployment;onnx_export;onnx_runtime;integration" TIMEOUT 600)
 endif()
 
 if(JYPPX_LIUDING_TEST_CLI_CUDA)

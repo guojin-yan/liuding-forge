@@ -12,6 +12,7 @@
 6. [图像分类：ResNet18、CIFAR-10 与 Fashion-MNIST](tutorials/image_classification_recipe.md)
 7. [训练双输入、分类与回归模型](tutorials/multi_io_recipe.md)
 8. [使用预训练 ResNet50 与 DINOv2 迁移学习](tutorials/transfer_learning_recipe.md)
+9. [C++ 检查点、ONNX 导出与推理](../examples/deployment/README.md)
 
 ## 用户指南
 
@@ -20,6 +21,7 @@
 - [性能调优](user-guide/performance_tuning.md)
 - [故障排查](user-guide/troubleshooting.md)
 - [离线工作流示例](examples/offline_workflow.md)
+- [本地 Serving 与模型版本切换示例](../examples/serving/README.md)
 
 ## API
 

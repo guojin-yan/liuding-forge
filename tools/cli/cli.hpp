@@ -68,6 +68,12 @@ Result onnx_command(const Arguments& arguments);
 Result onnx_verify_command(const Arguments& arguments);
 Result onnx_smoke_command(const Arguments& arguments);
 Result onnx_pack_command(const Arguments& arguments);
+Result onnx_export_command(const Arguments& arguments);
+Result onnx_pack_reconstructed(const Arguments& arguments,
+                               const Json& reconstruction,
+                               const std::filesystem::path& definition,
+                               const std::filesystem::path& inputs,
+                               const std::filesystem::path& tensors);
 Result benchmark_command(const Arguments& arguments);
 Result offline_command(const Arguments& arguments);
 Result recipe_command(const Arguments& arguments);

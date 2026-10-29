@@ -1,147 +1,65 @@
-# Serving Preview
+# 本地推理与版本切换
 
-`jyppx::liuding::serving` is an opt-in Preview component. It depends on foundation,
-core, interop and nn. It has no dependency on data, training or the models
-catalog. The component is absent from the default build and default umbrella.
-Its versioned capability manifest explicitly excludes HTTP/gRPC listeners, TLS,
-ONNX Runtime, streaming, reload, deployment control planes and GA qualification.
+`jyppx::liuding::serving` 是默认关闭的 Preview 组件，通过 `<jyppx/liuding/serving/serving.hpp>` 使用。它提供经过验证的 native safetensors 模型加载、显式可信的 TorchScript 兼容路径、单进程预测、有界动态批处理和传输无关的服务适配器。当前 Serving 后端未接入 ONNX Runtime；HTTP/gRPC/TLS、流式服务、实例池和部署控制面由宿主或后续版本负责。
 
-The native path uses actual safetensors state and an explicit C++ model factory.
-The optional compatibility path really loads and invokes an explicitly trusted
-TorchScript archive through the existing interop runtime. A digest establishes
-integrity; authentication requires the configured bundle signature policy or the
-separate explicit JIT source-trust decision.
+## 加载与请求
 
-## Loading and immutable ownership
+`NativeStateBackend::load` 校验 bundle 文件清单、大小、摘要、可选签名策略、精确 backend/version、环境锁、依赖版本、设备、dtype、动态形状和平台声明，再快照文件并严格导入 safetensors。目录在整个加载期间必须由可信文件系统所有者保持不可变；重新打开路径不等同于抵抗恶意并发修改的文件系统快照。`serving_platform_id()` 返回当前构建的 OS/架构标识。环境锁由调用方认证，本库不运行包管理器重建环境。
 
-`NativeStateBackend::load` verifies the complete model bundle inventory, paths,
-sizes, hashes, safetensors mappings and configured signature policy. It compares the exact backend ID/version, environment-lock digest, dependency list, CPU/CUDA family, dtypes, dynamic-shape requirement and current platform token. The LibTorch dependency must match the linked build version.
-`serving_platform_id()` supplies the lowercased configure-time OS/architecture
-token expected in the bundle matrix. The caller attests the environment-lock
-identity; this code does not run a package manager or reconstruct an environment.
+模型工厂必须返回全新的 C++ `ModelAdapter` 和 `Pipeline`，自行解析并绑定已验证的 input/output/pre/post 描述符，持有返回后仍需使用的数据。bundle 不选择类、插件或可执行代码。描述符摘要用于确认身份，具体预处理语义仍由可信工厂实现。native 模型使用 eval/inference 模式；拒绝所选设备的环境 autocast。
 
-The backend snapshots every verified data file and rechecks its size and digest.
-The directory must remain immutable and under trusted filesystem ownership for
-the entire load: reopening these paths is not a hostile concurrent filesystem
-snapshot guarantee. Inventory snapshots plus the merged encoded state share one
-logical snapshot-byte budget. The merge uses the official safetensors codec with
-the remaining output size checked before allocation. Strict interop import
-requires complete matching state keys, shapes and dtypes; partial or renamed
-state is rejected. The factory must create a fresh module, supply the exact
-selected device, exclude external state readers/writers and decode the actual
-owner descriptors. No class, operator plugin or executable is discovered from
-bundle data. Factory callbacks must own/copy data retained after the factory
-returns, including data taken from the borrowed VerifiedBundle argument.
+至少一个调用方提供的独立已知向量必须通过完整 pre/invoke/post、输出 schema、资源和数值检查，加载才返回 ready predictor。`load_torchscript_predictor` 实际加载和调用显式可信的 JIT 归档，独立固定归档摘要与环境锁，继承兼容运行时的设备和失败语义；它不把可执行归档混入数据型 bundle，也不支持本组件的批处理或 OOM 拆批重试。
 
-The owner `Pipeline` binds input, output, preprocessing and postprocessing to
-the exact verified descriptor schema ID, version and digest. Its callbacks are
-trusted synchronous application code. Empty callbacks mean an explicitly bound
-identity stage. The owner is responsible for interpreting descriptor semantics;
-hash equality alone cannot implement an arbitrary schema or preprocessing
-language. Callbacks must be bounded, serialize with the instance, avoid retaining
-mutable request references and never reenter the same instance.
+`PredictRequest` 复用 `nn::Invocation`，支持 CPU/CUDA 稠密 Tensor、精确标量、None、tuple、同质 list 和字符串键 dict。输入与输出分别检查逻辑字节、Tensor 数、rank、维度、形状乘积、递归节点/深度、字符串、有限数及可选数值区间；schema/dtype/device 必须精确匹配，不自动转换或回退。直接 `Predictor` 调用需要在 `context.model_version` 填写精确版本；版本化 owner 和 lease 允许空值并绑定当前或已持有版本。
 
-At least one caller-supplied known vector is mandatory. Actual pre/invoke/post
-output must pass the output schema, resource bounds and recursive numerical
-comparison before a pointer is returned as ready. Load/warmup cancellation and
-deadlines are cooperative around stages. Failed loading never publishes a ready
-instance. Native state is switched to eval mode and forward runs in inference
-mode. Ambient autocast on the chosen runtime device is rejected.
+`Predictor` 串行执行；`max_active_requests` 包括等待串行执行的准入请求。快照期间输入必须保持静止。输入队列与结果使用独立连续 Tensor 快照，不保留值间 storage alias；结果可在实例关闭后使用。CUDA 成功返回前会同步所选设备，因此也可能等待该设备上的其他任务。
 
-`load_torchscript_predictor` accepts archive bytes, their independently trusted
-digest, exact input/output schemas, explicit trust options and a separate pinned
-`RuntimeDescriptor`. It inherits the real compatibility runtime's supported
-boundary, explicit device, defaults, serialization and post-forward failure
-behavior. It does not put executable JIT archives inside data-only bundles.
-Its environment lock is separate from the archive hash. Batching and OOM retry
-are refused for this compatibility adapter.
+上述限制覆盖声明的边界、状态和快照 payload，不是进程 RSS/显存硬限制，不能约束后端 workspace、可信回调分配或 kernel 时长。deadline/cancel 在阶段边界协作检查，不能抢占同步工厂、codec 或 kernel；需要硬隔离时由外部进程监督器提供。
 
-## Requests, budgets and results
+## 同 runtime 的受控切换
 
-`PredictRequest` contains the existing `nn::Invocation`, a model-version-bound
-request context and an absolute steady-clock deadline. It introduces no second tensor container. Supported values are dense CPU/CUDA tensors, exact scalars, None, unnamed tuples, homogeneous lists and string-keyed dictionaries. The request/output budgets independently bound logical tensor bytes, tensor count, rank, dimension, shape product, traversal nodes/depth and total strings. Finite and optional numerical range checks occur before tensor cloning. Input schema, dtype and device checks are exact; no automatic cast, transfer or fallback occurs.
+`ReloadablePredictor` 在旁路调用现有 `RuntimeBackend::load`，完成 bundle 校验、导入和已知向量 warmup，再比较完整输入输出 schema，原子发布新版本。backend ID/version、格式、环境锁、依赖、精确设备、dtype 和执行能力必须与初始实例一致。仅支持 native bundle 的同 runtime/设备切换；不支持跨后端迁移、跨设备 placement 或版本化 `DynamicBatcher`。
 
-Admission has a hard `max_active_requests` limit including serialization waiters. Inputs must remain quiescent during snapshotting. Outputs and queued inputs own independent contiguous tensor snapshots; storage aliases between values are not preserved. A result can outlive close. CUDA success includes device synchronization, which can also wait for unrelated work on the device.
+```cpp
+using namespace jyppx::liuding::serving;
+LoadOptions load;
+load.max_state_bytes = 64ULL << 20U;
+load.max_snapshot_bytes = 128ULL << 20U;
+const auto reservation = 2 * load.max_state_bytes + load.max_snapshot_bytes;
+ReloadablePredictor current(std::move(initial),
+    {.initial_reservation_bytes = reservation,
+     .max_resident_bytes = 2 * reservation});
+auto old_request = current.acquire();
+const auto change = current.reload(backend, new_bundle, verify, known_vectors,
+                                  load, {.drain_timeout = std::chrono::milliseconds(0)});
+// old_request.predict(...) 始终使用原版本；current.predict(...) 绑定新版本。
+// 释放旧 lease 后调用 drain_previous(deadline)，完成原实例回收。
+```
 
-These bounds constrain declared boundary/state/staging bytes, not total process RSS, backend workspaces, native callback allocations or a kernel's duration. Codec expansion is owned by the trusted codec. Hard CPU/GPU memory or execution time limits require an external host/process supervisor. No such isolation is implied by this in-process Preview.
+`PredictionLease` 为 move-only，准入时固定版本，覆盖 decode、predict、encode 的整个请求生命周期。新请求只绑定当前版本；显式指定旧版本的新请求被拒绝。单个 lease 的调用需要外部串行化。`max_active_leases` 同时限制当前及退役版本的请求持有者，避免无限堆积尚未进入模型的请求。
 
-## Dynamic batching
+最多同时保留两槽：一个当前版本和一个候选或退役版本。加载前预留 `2 * max_state_bytes + max_snapshot_bytes`，覆盖声明的候选状态、导入 staging 与快照 payload；初始预留由拥有者明确声明。两槽总预留超过 `max_resident_bytes`，或已有候选/退役版本时，拒绝下一次加载。`statistics()` 的 resident/peak/reserved 反映槽和声明预算，不等同于实测 RSS/显存，工厂的实际峰值仍须独立测量。
 
-`DynamicBatcher` has one worker and deliberately supports one positional tensor
-with leading dimension one, zero kwargs and one tensor result with a matching
-leading batch dimension. Input and output schemas must declare fixed ranks and
-shapes with a dynamic leading dimension. The backend must explicitly assert
-independent row semantics and batch-preserving preprocessing/postprocessing.
-Other structured boundaries remain available through direct `Predictor` calls.
+候选的验证、warmup、schema 或协作 deadline 失败不会替换旧版本。发布后的 drain 超时返回 `previous_drained=false`，新版本仍已发布，旧实例及预留继续保留；释放旧 lease 后重试 `drain_previous`。候选超时必须为正，默认 30 秒；旧版本 drain 默认 5 秒，可设 0 进行即时检查，两者上限 24 小时。超时不能抢占可信同步代码，失败清理同样可能超过预算。
 
-A queue key contains the fixed predictor/model/pipeline/schema identity,
-dtype, exact device, rank/trailing dimensions, priority class, deadline class,
-project, principal and deployment. Only a compatible queue prefix is coalesced,
-preserving FIFO scheduling between incompatible groups. There is no result cache.
-Capacity is reserved before snapshotting. Queue count includes submitting
-reservations; the tensor-byte budget includes queued and active work until
-completion. Merged inputs also respect the predictor input-byte budget.
+`close(deadline, stop)` 停止新准入，等待候选及所有 lease，再释放两槽；返回 false 时仍保留正在使用的实例。析构仅停止准入，已有 lease 延长相关实例寿命，最后一个持有者释放时关闭模型，避免同线程持有 lease 再析构 owner 的死锁。应用必须主动释放 lease 才能确定性回收资源。不要通过保留的原 predictor 别名继续调用或关闭模型，也不要让 owner 析构与其成员调用并发。
 
-`max_batch_size` and coalescing `max_wait` are bounded. The wait limit applies
-after the oldest compatible request is queued; it cannot bound time behind an active compute call. Expired/cancelled members are removed before a new batch. A merged compute does not inherit one member's stop token or deadline. Each member is checked again before independent result delivery, so cancelling one member never aborts peers. Kernels remain cooperative and cannot be preempted.
+## 批处理与关闭
 
-Only a confirmed allocation failure from an explicitly retry-safe native forward raises `RetryableOutOfMemory`. Ordinary resource-budget violations, pre/post stage errors, output errors and non-allocation backend failures do not trigger retries. Splitting is iterative with one finite retry budget for the whole original batch and at most eight retries. A singleton is never retried. JIT models refuse this policy because trusted code can mutate private state.
+`DynamicBatcher` 为单 worker、有界队列，支持一个 leading dimension 为 1 的位置 Tensor 输入和一个 batch 维一致的 Tensor 输出。schema 必须声明固定 rank/尾部形状与动态首维，后端必须明确声明逐行独立且 pre/post 保持 batch。其他结构化输入输出使用直接 predictor 调用。
 
-## Leases, close and health
+队列按模型/pipeline/schema、dtype/精确设备/形状、优先级/deadline class、project/principal/deployment 分组，只合并兼容前缀。容量在快照前预留，字节预算覆盖排队和活动请求；`max_batch_size` 与 `max_wait` 有界，但等待上限不能抢占前一个 compute。过期/取消成员在新 batch 前移除，每个结果交付时再检查；一个成员取消不终止其他成员。未提供结果缓存。
 
-A predictor serializes execution and retains a shared active lease through input ownership, execution, synchronization and result snapshotting.
-`close` first refuses new work, then waits for active leases before unloading.
-A timed/cancelled close returns false and leaves ownership retained in draining
-state; it never unloads a running session. Destruction waits safely, and can block
-indefinitely on stuck trusted native code. Exclude concurrent destruction.
+只有显式 retry-safe native forward 中确认的分配失败产生 `RetryableOutOfMemory`，按整个原始 batch 的有限预算迭代拆分，最多 8 次，不重试 singleton。普通资源/schema/pre/post/输出错误不触发重试；JIT 不允许此策略。
 
-A batcher closes admission, resolves queued requests as cancelled and waits for
-active compute and snapshot reservations. The caller then closes the predictor.
-The service adapter performs this order. The scheduler never detaches its worker.
-A post-forward failure degrades the instance conservatively, except confirmed
-OOM in a declared retry-safe native backend. Subsequent admission fails.
-Pre-forward schema/resource/cancel/deadline rejections keep the model usable.
-Readiness is false while draining, degraded or closed; liveness means the local
-adapter process is responsive. Streaming is explicitly false.
+predictor 关闭先拒绝新请求，再等待活动 lease；超时返回 false，保持 draining，不卸载运行中的 session。batcher 先停止准入、取消队列并等待 compute/快照，再关闭 predictor；不 detach worker。进入 forward 后的失败会保守地将实例降级，显式 retry-safe OOM 除外；forward 前的 schema/资源/cancel/deadline 拒绝不损害模型。readiness 在 draining/degraded/closed 时为 false。
 
-## Transport and observation
+## 服务适配与观测
 
-`InferenceServiceAdapter` accepts a versioned trusted protocol decoder/encoder
-and authorizer. A mature host owns TLS/authentication and derives the principal, project, model version, deployment, request/trace IDs and deadline. Missing authentication or missing principal/project is rejected; authorization runs before decoding. Request bytes are bounded before decode and response bytes after encode. Protocol callbacks must enforce allocation/expansion bounds. A supplied batcher must own the same predictor object.
+`InferenceServiceAdapter` 使用可信、有版本的 decoder/encoder/authorizer，宿主负责 TLS、身份认证及请求上下文。未认证或缺少 project/principal 时拒绝，授权先于解码。请求字节在 decode 前限制，响应在 encode 后限制；codec 本身必须控制展开分配。绑定 `ReloadablePredictor` 的构造函数在授权后、decode 前获取 lease，并持有至 encode 完成；此路径直接预测，不共享固定版本 batcher。并发服务使用的协议回调必须线程安全。
 
-The adapter maps typed framework failures to stable public statuses: invalid_argument, unauthenticated, permission_denied, resource_exhausted, cancelled, deadline_exceeded, unavailable and internal. Public replies contain fixed status text, never private backend exceptions, input values or bearer tokens. Direct C++ exceptions can retain nested backend causes for authorized local diagnostics; do not dump them into public responses or production logs.
+公共响应仅返回固定状态：`invalid_argument`、`unauthenticated`、`permission_denied`、`resource_exhausted`、`cancelled`、`deadline_exceeded`、`unavailable`、`internal`。私有 backend 异常、输入值或 token 不进入公共回复。直接 C++ 异常可保留嵌套原因，供受权本地诊断。
 
-`ObservationHook` receives redacted foundation log/correlation/attribute records
-with request, trace, project, deployment, model, backend and device identities.
-The application can publish these using its foundation telemetry envelope owner.
-The callback must be bounded/nonblocking and nonreentrant. Exceptions increment
-observation failures without replacing inference results. Per-request IDs belong
-in logs/traces rather than unbounded metric labels. Responses provide queue,
-preprocess, compute, postprocess and total timings; service replies add actual
-decode/encode measurements and service total time. Scheduler counters provide
-accepted/completed/failed, residency, active depth and OOM retry counts. This
-Preview does not claim unmeasured p99, RSS or hardware throughput baselines.
+`ObservationHook` 接收已删减的 foundation log/correlation/attributes，由应用接入遥测。回调须有界、非阻塞且不重入；异常只增加失败计数。请求/trace 等高基数身份放 logs/traces，避免直接作为 metric label。响应包含各阶段实际计时，调度统计提供请求数、活动深度、驻留逻辑字节和 OOM 重试数。
 
-The local JSONL example uses the official nlohmann JSON parser and a fixed
-generated two-feature arithmetic model. It provides bounded stdin/stdout unary
-requests, health and manifest modes, explicit CUDA selection and no network
-listener. See [example usage](../../examples/serving/README.md). It is a local
-application protocol, not an HTTP/OpenAPI/Protobuf replacement.
-
-## Validation and limits
-
-The chapter supplies tests for real native bundle load/import/warmup/forward,
-hash/trust/runtime/schema/resource failures, numerical output, independent
-snapshots, multiple inputs/tuple/dict, active leases, timed drain, queue limits,
-deadlines, cancellation isolation, finite OOM splitting, sanitized service status,
-authorization and response limits. CPU and available CUDA exercise actual
-native and TorchScript numerical paths. The installed consumer exercises the
-exported target with real bundle import, forward, batch and close.
-
-These are supplied tests, not execution evidence. Before chapter acceptance,
-run them in the unified Windows CPU and remote Ubuntu/CUDA build directories,
-exercise the JSONL host and installed consumer, and record actual platform
-results. Hardware latency/throughput/memory/soak baselines and external host
-security are not implied by passing unit tests. ONNX Runtime, streaming, reload,
-instance pools, networking, online rollbacks, deployment policy and multi-tenant
-control planes remain outside this Preview capability manifest.
+参见[本地 JSONL 与切换示例](../../examples/serving/README.md)。示例不启动网络监听器，不下载预训练权重。单元与安装消费者覆盖真实 bundle 导入、数值预测、版本 lease、并发切换和关闭；具体平台支持、延迟、吞吐、RSS/显存峰值与长时负载资格以实际验收结果为准。

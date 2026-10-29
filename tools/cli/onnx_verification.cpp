@@ -329,7 +329,19 @@ std::filesystem::path TraceDirectory() {
         root / ("liuding-onnx-verify-" + std::to_string(tick) + "-" +
                 std::to_string(attempt));
     std::error_code error;
-    if (std::filesystem::create_directory(directory, error)) return directory;
+    if (std::filesystem::create_directory(directory, error)) {
+#if !defined(_WIN32)
+      std::filesystem::permissions(directory, std::filesystem::perms::owner_all,
+                                   std::filesystem::perm_options::replace,
+                                   error);
+      if (error) {
+        std::error_code ignored;
+        std::filesystem::remove(directory, ignored);
+        throw IoError("Cannot restrict ONNX profile directory permissions");
+      }
+#endif
+      return directory;
+    }
     if (error)
       throw IoError("Cannot create ONNX verification profile directory");
   }
@@ -649,7 +661,10 @@ Json DeliveryMetadata(std::string_view encoded) {
   return metadata;
 }
 
-Result Pack(const Arguments& arguments) {
+Result Pack(const Arguments& arguments, const Json* reconstruction = nullptr,
+            const std::filesystem::path& definition = {},
+            const std::filesystem::path& inputs = {},
+            const std::filesystem::path& tensors = {}) {
   arguments.allow({"path", "report", "report-sha256", "cases", "cases-sha256",
                    "tensors", "tensors-sha256", "provider", "provider-option",
                    "timeout-ms", "bundle", "bundle-sha256", "model-id",
@@ -658,6 +673,13 @@ Result Pack(const Arguments& arguments) {
   const auto metadata_bytes =
       CheckedFile(arguments, "metadata", "metadata-sha256", 4U << 20U);
   const auto metadata = DeliveryMetadata(metadata_bytes);
+  if (reconstruction && (metadata.at("checkpoint").at("sha256") !=
+                             reconstruction->at("checkpoint").at("sha256") ||
+                         metadata.at("checkpoint").at("size_bytes") !=
+                             reconstruction->at("checkpoint").at("size_bytes")))
+    throw CompatibilityError(
+        "Delivery checkpoint differs from the restored original run "
+        "checkpoint");
   const auto output = std::filesystem::u8path(arguments.require("output"));
   std::error_code error;
   if (std::filesystem::symlink_status(output, error).type() !=
@@ -752,8 +774,9 @@ Result Pack(const Arguments& arguments) {
        {"schema_version", 1},
        {"source", executed.document.at("source")},
        {"checkpoint", metadata.at("checkpoint")},
-       {"checkpoint_association", "caller_declared"},
-       {"source_run_lineage_verified", false},
+       {"checkpoint_association",
+        reconstruction ? "run_reference_verified" : "caller_declared"},
+       {"source_run_lineage_verified", reconstruction != nullptr},
        {"source_authenticated", false},
        {"delivery_metadata_sha256", sha256_hex(Bytes(metadata_bytes))},
        {"export_report_sha256", sha256_hex(Bytes(prepared.inputs.report()))},
@@ -785,6 +808,41 @@ Result Pack(const Arguments& arguments) {
            "evidence/runtime-lock.json", lock_bytes);
   evidence("delivery-metadata", "jyppx.liuding.onnx_delivery_metadata", 1U,
            "evidence/delivery-metadata.json", metadata_bytes);
+  if (reconstruction) {
+    const auto proof = reconstruction->dump();
+    evidence("source-reconstruction",
+             "jyppx.liuding.onnx_source_reconstruction", 1U,
+             "evidence/source-reconstruction.json", proof);
+    const auto definition_bytes = read_text(definition, 4U << 20U);
+    const auto input_bytes = read_text(inputs, 4U << 20U);
+    const auto tensor_bytes = read_text(tensors, 64U << 20U);
+    if (reconstruction->at("source") !=
+            Json::parse(prepared.inputs.report()).at("source") ||
+        reconstruction->at("definition").at("sha256") !=
+            sha256_hex(Bytes(definition_bytes)) ||
+        reconstruction->at("definition").at("size_bytes") !=
+            definition_bytes.size() ||
+        reconstruction->at("input_spec_sha256") !=
+            sha256_hex(Bytes(input_bytes)) ||
+        reconstruction->at("input_tensors_sha256") !=
+            sha256_hex(Bytes(tensor_bytes)) ||
+        reconstruction->at("export_report_sha256") !=
+            sha256_hex(Bytes(prepared.inputs.report())) ||
+        reconstruction->at("cases_sha256") !=
+            sha256_hex(Bytes(prepared.inputs.cases())) ||
+        reconstruction->at("tensors_sha256") !=
+            sha256_hex(Bytes(prepared.inputs.tensors())) ||
+        reconstruction->at("source_case_count") != prepared.cases.size())
+      throw SerializationError(
+          "ONNX reconstruction proof differs from the retained source bytes");
+    evidence("model-definition", "jyppx.liuding.onnx_model_definition", 1U,
+             "evidence/model-definition.json", definition_bytes);
+    evidence("source-inputs", "jyppx.liuding.onnx_export_inputs", 1U,
+             "evidence/source-inputs.json", input_bytes);
+    evidence("source-tensors", "jyppx.liuding.onnx_export_input_tensors", 1U,
+             "evidence/source-inputs.safetensors", tensor_bytes,
+             "application/safetensors");
+  }
   if (prepared.inputs.bundle)
     evidence("input-manifest", "jyppx.model_bundle.manifest",
              prepared.inputs.bundle->verification.manifest.schema_version,
@@ -809,7 +867,7 @@ Result Pack(const Arguments& arguments) {
                {"numerical", "passed"},
                {"runtime_requirements_checked", true},
                {"descriptor_payloads_validated", false},
-               {"source_run_lineage_verified", false},
+               {"source_run_lineage_verified", reconstruction != nullptr},
                {"source_authenticated", false},
                {"task_quality_qualified", false},
                {"signature_status", "unsigned"}},
@@ -818,6 +876,14 @@ Result Pack(const Arguments& arguments) {
 }  // namespace
 
 Result onnx_pack_command(const Arguments& arguments) { return Pack(arguments); }
+
+Result onnx_pack_reconstructed(const Arguments& arguments,
+                               const Json& reconstruction,
+                               const std::filesystem::path& definition,
+                               const std::filesystem::path& inputs,
+                               const std::filesystem::path& tensors) {
+  return Pack(arguments, &reconstruction, definition, inputs, tensors);
+}
 
 Result onnx_smoke_command(const Arguments& arguments) {
   arguments.allow({"bundle", "bundle-sha256", "model-id", "report-id",

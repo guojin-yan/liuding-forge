@@ -791,6 +791,7 @@ endif()
 if(JYPPX_LIUDING_BUILD_SERVING)
     add_library(jyppx_liuding_serving STATIC
         src/jyppx/liuding/serving/runtime.cpp
+        src/jyppx/liuding/serving/reload.cpp
         src/jyppx/liuding/serving/batcher.cpp
         src/jyppx/liuding/serving/service.cpp)
     add_library(jyppx::liuding::serving ALIAS jyppx_liuding_serving)

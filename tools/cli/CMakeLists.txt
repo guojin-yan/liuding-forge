@@ -16,6 +16,8 @@ add_library(jyppx_cli_objects OBJECT
     model_checkpoint.cpp
     onnx_delivery.cpp
     onnx_verification.cpp
+    onnx_reconstruction.cpp
+    local_attempt.cpp
     offline_workflow.cpp
     image_recipe.cpp
     transfer_recipe.cpp
@@ -35,9 +37,14 @@ if(TARGET jyppx::liuding::onnx_export)
 endif()
 if(TARGET jyppx::liuding::onnx_runtime)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::onnx_runtime)
-    set_property(SOURCE onnx_verification.cpp APPEND PROPERTY
+    set_property(SOURCE onnx_verification.cpp onnx_reconstruction.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_ONNX_RUNTIME=1)
     jyppx_add_onnx_runtime_dependency(jyppx_cli)
+endif()
+if(TARGET jyppx::liuding::models)
+    target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::models)
+    set_property(SOURCE onnx_reconstruction.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_ONNX_MODELS=1)
 endif()
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::models jyppx::liuding::data_image)

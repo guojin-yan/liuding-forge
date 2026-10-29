@@ -2,6 +2,8 @@
 
 部署功能集中在 `deployment/`：`onnx_export` 将原生 C++ 模型导出为 ONNX，`onnx_runtime` 加载 ONNX 并执行推理。两个组件分别启用、默认关闭，安装后的导出与推理均无需 Python。
 
+完整的原生检查点恢复、双输入双输出导出和动态 batch 数值核对，见 [C++ 部署示例](../../examples/deployment/README.md)。
+
 | 组件 | 用途 | 公共头文件 | CMake target |
 | --- | --- | --- | --- |
 | ONNX 导出 | 执行样例 forward，捕获计算图，按算子转换并序列化 | `<jyppx/liuding/deployment/onnx_export/exporter.hpp>` | `jyppx::liuding::onnx_export` |
@@ -88,6 +90,40 @@ liuding-forge model onnx register \
 
 `register` 要求启用 `onnx_export`，核对报告、模型与原 run lineage 后创建独立的导出 run，其 `parent_run_id` 指向原训练。模型和报告通过同一事务登记到 CAS，成功后导出 run 进入 completed；同一参数可安全重试，失败不留下半对模型/报告引用。原训练 run 可以已经完成。导出 run ID 应独立保留给本次交付，报告 SHA-256 只确认字节身份。`register` 只登记原生导出结果；它不从权重推断用户 C++ forward，也不执行 ORT。实际执行使用下面的 `verify`；自动组包使用本页的 `model onnx pack`，已有完整清单则可用通用 [`model bundle pack`](model_bundle.md#发布)。
 
+## 从训练检查点导出并组包
+
+`model onnx export` 从原训练 run 的 CAS 引用读取模型定义与 `.jyck` 检查点，核对完整字节摘要和引用类型，按定义构造 CPU 模型并严格恢复指定 participant，然后调用同一个通用 `export_module()`。命令由恢复后的原生模型计算全部参考输出，执行 checker、ORT 数值比较和 Provider trace，通过后发布可独立 `smoke` 的 bundle；失败不发布，已有目录拒绝覆盖。
+
+```sh
+liuding-forge model onnx export \
+  --root ./runs --source-run training-001 \
+  --checkpoint-reference final-checkpoint --definition-reference model-definition \
+  --inputs inputs.json --inputs-sha256 INPUTS_SHA256 \
+  --tensors inputs.safetensors --tensors-sha256 TENSORS_SHA256 \
+  --metadata delivery.json --metadata-sha256 DELIVERY_SHA256 \
+  --provider CPUExecutionProvider --output ./deployment-bundle --format json
+```
+
+训练生产者通过 `SQLiteRunStore` 保存类型为 `checkpoint` 的检查点引用，以及 role 为 `model.definition` 的普通制品引用。模型定义使用 `jyppx.liuding.onnx_model_definition` v1，必须包含 `participant_id`，例如：
+
+```json
+{"format":"jyppx.liuding.onnx_model_definition","schema_version":1,"participant_id":"model.main","factory":{"id":"torch.nn.Linear","in_features":3,"out_features":2,"bias":true}}
+```
+
+新建的 ResNet18 ImageFolder 训练配方自动保存 `model-definition` 和 `final-checkpoint` 引用；迁移学习配方和历史已完成 run 不自动补写定义。导出不创建新训练 run，不更改原 run 状态或制品引用，也不隐式迁移旧版数据库；打开现有 SQLite/CAS 仍需可写存储，不支持只读介质。
+
+启用 `models` 后也可使用 `{"id":"jyppx.liuding.models","name":"resnet18","num_classes":2,"input_channels":3}`；名称由现有模型注册表解析，其余构造选项采用该模型的原生默认值。这个声明必须符合训练模型的实际构造；命令不猜测任意权重的 forward，也不从同名网络推导算子支持。自定义模型、不同构造选项或多输出调用继续使用通用 C++ API，并由调用方恢复自身状态。CLI 对注册表的大模型有构造前保守检查，并在恢复时再次限制状态字节；超限明确拒绝。
+
+`inputs.json` 使用 `jyppx.liuding.onnx_export_inputs` v1，声明全部名称、batch 范围、是否动态、数值容差和 1–64 个样例。每个输入按名称引用 `inputs.safetensors` 中的 FP32 Tensor；文件不得含未引用的 Tensor。参考输出由 C++ 生成，无需调用方填写，例如：
+
+```json
+{"format":"jyppx.liuding.onnx_export_inputs","schema_version":1,"input_names":["input"],"output_names":["output"],"minimum_batch":1,"maximum_batch":8,"dynamic_batch":true,"absolute_tolerance":0.00001,"relative_tolerance":0.0001,"cases":[{"id":"batch-2","inputs":[{"name":"input","tensor":"example"}]}]}
+```
+
+模型定义和输入 JSON 分别最多 4 MiB，检查点最多 256 MiB，输入与生成参考输出的合计 payload 最多 64 MiB；生成的 safetensors 文件也受 64 MiB 限制。这些是逻辑字节限制，不是 RSS 上界；命令在创建 ORT Session 前释放原模型、检查点快照和参考 Tensor。`delivery.json` 的检查点摘要和大小必须与实际恢复的原 run 引用一致；其他交付字段见下文。`timeout-ms` 限定 ORT 验证阶段，不构成模型构造和 trace 的进程级超时。
+
+输出保存原始模型定义、输入 JSON/Tensor、恢复关联证据及自动生成的模型、报告、参考输出、环境锁和执行证据。恢复证据确认该次执行从指定 run 引用恢复了模型状态；它不认证原代码、生产者或原配置语义，也不证明任务准确率。后续独立 `smoke` 重验模型、验证输入和环境锁，不重新加载原检查点或认证恢复声明；可信签名和独立安装环境的验收仍需完成。
+
 ## 实际数值验证与执行证据
 
 `<jyppx/liuding/deployment/onnx_runtime/verification.hpp>` 提供 `verify_session()`：传入现有 Session、具名输入和预期输出，按 `|actual - expected| <= absolute_tolerance + relative_tolerance * |expected|` 比较全部元素。返回的报告包含每个样例的输入/预期/实际输出摘要、误差、失败数和调用耗时，不保留 Tensor 或样本原文；数值不一致返回失败观测，输入/schema/资源错误抛出异常。`inspect_profile()` 解析 `end_profiling()` 生成的原始 ORT trace，统计实际 kernel 的 Provider/算子；仅设置 Provider 或建立 Session 不构成执行证据。耗时属于观测值，不是吞吐、任务准确率或内存资格。
@@ -112,7 +148,7 @@ liuding-forge model onnx verify \
 
 命令完整校验 bundle，按显式模型 ID 选择单文件 ONNX，使用原生句柄读取并保留已校验的同一份模型字节，再进行官方 checker 与实际数值验证。manifest SHA-256 对应原始 `manifest.json` 的完整字节；大小限制为 manifest 4 MiB、单文件 256 MiB、数据文件合计 512 MiB。不得同时传 `--path`，其他模型、未声明文件或任何文件摘要错误均明确拒绝。
 
-使用包外样例且没有下述环境锁时，验证证据封装 `jyppx.liuding.onnx_verification_evidence` 使用 v2，包含 `input_bundle`：普通文件输入时为 null，bundle 输入时记录原始 manifest 摘要、bundle/model/file ID 和签名状态；内部执行报告仍使用原有 v1。bundle 模式额外将原始 manifest 字节登记为第七个制品，数值失败也保留关联。该模式使用调用方提供的原始 FP32 case，不解释包中的预处理、后处理和任务描述符；未检查项在报告中明确为 false。实际执行只授予选中模型和样例的证据，不授予包内其他模型或全部部署环境资格。从权重重建的 CLI 导出与可信签名仍需另行完成。
+使用包外样例且没有下述环境锁时，验证证据封装 `jyppx.liuding.onnx_verification_evidence` 使用 v2，包含 `input_bundle`：普通文件输入时为 null，bundle 输入时记录原始 manifest 摘要、bundle/model/file ID 和签名状态；内部执行报告仍使用原有 v1。bundle 模式额外将原始 manifest 字节登记为第七个制品，数值失败也保留关联。该模式使用调用方提供的原始 FP32 case，不解释包中的预处理、后处理和任务描述符；未检查项在报告中明确为 false。实际执行只授予选中模型和样例的证据，不授予包内其他模型或全部部署环境资格。原生 CLI 检查点导出见上一节；可信签名仍需另行完成。
 
 ## 包内证据复验
 

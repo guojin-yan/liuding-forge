@@ -51,6 +51,17 @@ endforeach()
 endif()
 
 if(TARGET jyppx::liuding::serving)
+    add_executable(jyppx_liuding_serving_reload serving/reload.cpp)
+    set_target_properties(jyppx_liuding_serving_reload PROPERTIES
+        OUTPUT_NAME liuding-forge-example-serving-reload)
+    target_link_libraries(jyppx_liuding_serving_reload PRIVATE jyppx::liuding::serving)
+    jyppx_apply_instrumentation(jyppx_liuding_serving_reload)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_serving_reload)
+    if(JYPPX_LIUDING_BUILD_TESTS)
+        add_test(NAME ServingReloadExample COMMAND jyppx_liuding_serving_reload)
+        set_tests_properties(ServingReloadExample PROPERTIES
+            LABELS "examples;serving" TIMEOUT 60)
+    endif()
     add_executable(jyppx_liuding_serving_jsonl serving/jsonl_host.cpp)
     set_target_properties(jyppx_liuding_serving_jsonl PROPERTIES
         OUTPUT_NAME liuding-forge-example-serving-jsonl)
@@ -58,4 +69,25 @@ if(TARGET jyppx::liuding::serving)
         jyppx::liuding::serving nlohmann_json::nlohmann_json)
     jyppx_apply_instrumentation(jyppx_liuding_serving_jsonl)
     jyppx_add_torch_runtime_dependency(jyppx_liuding_serving_jsonl)
+endif()
+
+if(TARGET jyppx::liuding::nn AND TARGET jyppx::liuding::interop
+   AND TARGET jyppx::liuding::onnx_export AND TARGET jyppx::liuding::onnx_runtime)
+    add_executable(jyppx_liuding_deployment_checkpoint deployment/checkpoint_onnx.cpp)
+    set_target_properties(jyppx_liuding_deployment_checkpoint PROPERTIES
+        OUTPUT_NAME liuding-forge-example-checkpoint-onnx)
+    target_link_libraries(jyppx_liuding_deployment_checkpoint PRIVATE
+        jyppx::liuding::nn jyppx::liuding::interop
+        jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime)
+    jyppx_apply_instrumentation(jyppx_liuding_deployment_checkpoint)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_deployment_checkpoint)
+    jyppx_add_onnx_runtime_dependency(jyppx_liuding_deployment_checkpoint)
+    if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND)
+        add_test(NAME DeploymentCheckpointOnnxExample
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_deployment_example.py"
+                --binary $<TARGET_FILE:jyppx_liuding_deployment_checkpoint>)
+        set_tests_properties(DeploymentCheckpointOnnxExample PROPERTIES
+            LABELS "examples;deployment;onnx_export;onnx_runtime" TIMEOUT 180)
+    endif()
 endif()

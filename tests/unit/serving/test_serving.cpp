@@ -333,6 +333,259 @@ TEST_F(ServingTest, ConcurrentLeaseBoundTimedDrainAndNoPrematureUnload) {
                            torch::tensor({{2.0F, -3.0F}})));
   EXPECT_TRUE(predictor->close());
 }
+// Build a second real safetensors version with different state. This exercises
+// backend verification/import/warmup instead of mocking a candidate pointer.
+void SetVersion(example::BundleFixture& bundle, std::string version,
+                const std::array<float, 2>& values) {
+  bundle.manifest.bundle_id = std::move(version);
+  const interop::SafeTensorSource source{
+      .name = "weight",
+      .dtype = interop::SafeTensorDtype::f32,
+      .shape = {2},
+      .data = std::as_bytes(std::span(values)),
+      .byte_order = interop::SafeTensorByteOrder::little};
+  const auto shards =
+      interop::shard_safetensors_for_bundle(std::span(&source, 1), 4096);
+  ASSERT_EQ(shards.size(), 1U);
+  auto file = std::find_if(
+      bundle.manifest.files.begin(), bundle.manifest.files.end(),
+      [](const auto& f) { return f.role == interop::BundleFileRole::weights; });
+  ASSERT_NE(file, bundle.manifest.files.end());
+  const auto input =
+      std::find_if(bundle.sources.begin(), bundle.sources.end(),
+                   [&](const auto& f) { return f.file_id == file->id; });
+  ASSERT_NE(input, bundle.sources.end());
+  example::Write(input->source_path, shards.front().bytes);
+  *file = shards.front().file;
+  bundle.manifest.models.front().file_ids = {file->id};
+  bundle.manifest.models.front().tensors = shards.front().tensors;
+}
+std::array<WarmupCase, 1> VersionWarmup(const std::array<float, 2>& values) {
+  auto known = example::KnownVector(Device(Cpu));
+  known.expected = torch::tensor({{values[0], values[1]}});
+  return {std::move(known)};
+}
+LoadOptions ReloadLoad() {
+  LoadOptions options;
+  options.max_state_bytes = 1024;
+  options.max_snapshot_bytes = 65536;
+  return options;
+}
+constexpr std::uint64_t ReloadReservation = 2U * 1024U + 65536U;
+TEST_F(ServingTest,
+       ReloadPinsRealOldStateAndRejectsThirdInstanceUntilLeaseDrain) {
+  auto original = Load();
+  ReloadablePredictor owner(original,
+                            {.initial_reservation_bytes = ReloadReservation,
+                             .max_resident_bytes = 2U * ReloadReservation,
+                             .max_active_leases = 2});
+  example::BundleFixture next;
+  SetVersion(next, "example-linear-v2", {5.0F, 7.0F});
+  next.Publish();
+  NativeStateBackend backend(next.descriptor, example::Factory());
+  auto old =
+      std::make_unique<PredictionLease>(owner.acquire("example-linear-v1"));
+  const auto result =
+      owner.reload(backend, next.directory, {}, VersionWarmup({5.0F, 7.0F}),
+                   ReloadLoad(), {.drain_timeout = 0ms});
+  EXPECT_EQ(result.previous_version, "example-linear-v1");
+  EXPECT_EQ(result.current_version, "example-linear-v2");
+  EXPECT_FALSE(result.previous_drained);
+  auto request = Request();
+  request.context.model_version.clear();
+  const auto current = owner.predict(request);
+  EXPECT_EQ(current.runtime.model_version, "example-linear-v2");
+  EXPECT_TRUE(torch::equal(current.output.value.toTensor(),
+                           torch::tensor({{5.0F, 7.0F}})));
+  const auto pinned = old->predict(request);
+  EXPECT_EQ(pinned.runtime.model_version, "example-linear-v1");
+  EXPECT_TRUE(torch::equal(pinned.output.value.toTensor(),
+                           torch::tensor({{2.0F, -3.0F}})));
+  EXPECT_THROW(owner.acquire("example-linear-v1"), InvalidArgument);
+  auto second = std::make_unique<PredictionLease>(owner.acquire());
+  EXPECT_THROW(owner.acquire(), ResourceExhausted);
+  second.reset();
+  EXPECT_FALSE(owner.drain_previous(std::chrono::steady_clock::now() + 1ms));
+  EXPECT_THROW(owner.reload(backend, next.directory, {},
+                            VersionWarmup({5.0F, 7.0F}), ReloadLoad()),
+               NotReady);
+  EXPECT_EQ(owner.statistics().resident_instances, 2U);
+  EXPECT_EQ(owner.statistics().reserved_bytes, 2U * ReloadReservation);
+  EXPECT_EQ(owner.statistics().peak_reserved_bytes, 2U * ReloadReservation);
+  old.reset();
+  EXPECT_TRUE(owner.drain_previous());
+  EXPECT_EQ(original->info().health, HealthStatus::closed);
+  EXPECT_EQ(owner.statistics().resident_instances, 1U);
+  EXPECT_EQ(owner.statistics().reserved_bytes, ReloadReservation);
+  EXPECT_EQ(owner.statistics().publications, 1U);
+  EXPECT_TRUE(owner.close());
+  EXPECT_EQ(owner.info().health, HealthStatus::closed);
+  EXPECT_EQ(owner.statistics().reserved_bytes, 0U);
+}
+TEST_F(ServingTest,
+       ReloadPreservesReadyVersionOnWarmupRuntimeBudgetAndSchemaFailure) {
+  auto original = Load();
+  ReloadablePredictor owner(original,
+                            {.initial_reservation_bytes = ReloadReservation,
+                             .max_resident_bytes = 2U * ReloadReservation});
+  example::BundleFixture next;
+  SetVersion(next, "example-linear-v2", {5.0F, 7.0F});
+  next.Publish();
+  NativeStateBackend backend(next.descriptor, example::Factory());
+  EXPECT_THROW(owner.reload(backend, next.directory, {},
+                            VersionWarmup({0.0F, 0.0F}), ReloadLoad()),
+               NumericalError);
+  EXPECT_EQ(owner.info().model_version, "example-linear-v1");
+  EXPECT_EQ(owner.statistics().resident_instances, 1U);
+  EXPECT_EQ(owner.statistics().publications, 0U);
+  auto different = next.descriptor;
+  different.backend_version = "2";
+  NativeStateBackend other(different, example::Factory());
+  EXPECT_THROW(owner.reload(other, next.directory, {},
+                            VersionWarmup({5.0F, 7.0F}), ReloadLoad()),
+               CompatibilityError);
+  auto too_large = ReloadLoad();
+  ++too_large.max_snapshot_bytes;
+  EXPECT_THROW(owner.reload(backend, next.directory, {},
+                            VersionWarmup({5.0F, 7.0F}), too_large),
+               ResourceExhausted);
+  NativeStateBackend incompatible(
+      next.descriptor, [](const auto& bundle, const auto& descriptor) {
+        auto model = example::Factory()(bundle, descriptor);
+        model.pipeline.response_schema.semantic_tag = "changed-output-meaning";
+        return model;
+      });
+  EXPECT_THROW(owner.reload(incompatible, next.directory, {},
+                            VersionWarmup({5.0F, 7.0F}), ReloadLoad()),
+               CompatibilityError);
+  LoadOptions cancelled = ReloadLoad();
+  std::stop_source stop;
+  stop.request_stop();
+  cancelled.stop = stop.get_token();
+  EXPECT_THROW(owner.reload(backend, next.directory, {},
+                            VersionWarmup({5.0F, 7.0F}), cancelled),
+               Cancelled);
+  EXPECT_EQ(owner.info().health, HealthStatus::ready);
+  EXPECT_TRUE(torch::equal(owner.predict(Request()).output.value.toTensor(),
+                           torch::tensor({{2.0F, -3.0F}})));
+  EXPECT_TRUE(owner.close());
+}
+TEST_F(ServingTest,
+       ConcurrentReloadKeepsOldForwardAliveAndAllowsNewNumericVersion) {
+  auto gate = std::make_shared<Gate>();
+  auto enabled = std::make_shared<std::atomic<bool>>(false);
+  auto original = Load([gate, enabled](const Tensor& input) {
+    if (enabled->load()) gate->Wait(input);
+  });
+  ReloadablePredictor owner(original,
+                            {.initial_reservation_bytes = ReloadReservation,
+                             .max_resident_bytes = 2U * ReloadReservation});
+  example::BundleFixture next;
+  SetVersion(next, "example-linear-v2", {5.0F, 7.0F});
+  next.Publish();
+  NativeStateBackend backend(next.descriptor, example::Factory());
+  enabled->store(true);
+  auto old =
+      std::async(std::launch::async, [&] { return owner.predict(Request()); });
+  EXPECT_TRUE(gate->Entered());
+  const auto publication =
+      owner.reload(backend, next.directory, {}, VersionWarmup({5.0F, 7.0F}),
+                   ReloadLoad(), {.drain_timeout = 0ms});
+  EXPECT_FALSE(publication.previous_drained);
+  EXPECT_EQ(original->info().health, HealthStatus::ready);
+  auto request = Request("new-version");
+  request.context.model_version.clear();
+  EXPECT_TRUE(torch::equal(owner.predict(request).output.value.toTensor(),
+                           torch::tensor({{5.0F, 7.0F}})));
+  EXPECT_FALSE(owner.close(std::chrono::steady_clock::now() + 1ms));
+  EXPECT_THROW(owner.acquire(), NotReady);
+  gate->Release();
+  const auto response = old.get();
+  EXPECT_EQ(response.runtime.model_version, "example-linear-v1");
+  EXPECT_TRUE(torch::equal(response.output.value.toTensor(),
+                           torch::tensor({{2.0F, -3.0F}})));
+  EXPECT_TRUE(owner.close());
+}
+TEST_F(ServingTest,
+       CloseDuringCandidateWarmupRefusesPublicationAndRetainsOwners) {
+  auto original = Load();
+  ReloadablePredictor owner(original,
+                            {.initial_reservation_bytes = ReloadReservation,
+                             .max_resident_bytes = 2U * ReloadReservation});
+  example::BundleFixture next;
+  SetVersion(next, "example-linear-v2", {5.0F, 7.0F});
+  next.Publish();
+  auto gate = std::make_shared<Gate>();
+  NativeStateBackend backend(
+      next.descriptor,
+      example::Factory([gate](const Tensor& x) { gate->Wait(x); }));
+  auto loading = std::async(std::launch::async, [&] {
+    return owner.reload(backend, next.directory, {},
+                        VersionWarmup({5.0F, 7.0F}), ReloadLoad());
+  });
+  EXPECT_TRUE(gate->Entered());
+  EXPECT_TRUE(owner.statistics().loading);
+  EXPECT_EQ(owner.statistics().resident_instances, 2U);
+  EXPECT_TRUE(torch::equal(owner.predict(Request()).output.value.toTensor(),
+                           torch::tensor({{2.0F, -3.0F}})));
+  EXPECT_THROW(owner.reload(backend, next.directory, {},
+                            VersionWarmup({5.0F, 7.0F}), ReloadLoad()),
+               NotReady);
+  EXPECT_FALSE(owner.close(std::chrono::steady_clock::now() + 1ms));
+  EXPECT_EQ(original->info().health, HealthStatus::ready);
+  gate->Release();
+  EXPECT_THROW(loading.get(), NotReady);
+  EXPECT_EQ(owner.statistics().publications, 0U);
+  EXPECT_EQ(owner.info().model_version, "example-linear-v1");
+  EXPECT_TRUE(owner.close());
+}
+TEST_F(ServingTest, CandidateDeadlineDuringWarmupNeverReplacesOldVersion) {
+  ReloadablePredictor owner(Load(),
+                            {.initial_reservation_bytes = ReloadReservation,
+                             .max_resident_bytes = 2U * ReloadReservation});
+  example::BundleFixture next;
+  SetVersion(next, "example-linear-v2", {5.0F, 7.0F});
+  next.Publish();
+  auto gate = std::make_shared<Gate>();
+  auto deadline = std::make_shared<Deadline>();
+  NativeStateBackend backend(
+      next.descriptor, example::Factory([gate, deadline](const Tensor& x) {
+        gate->Wait(x);
+        std::this_thread::sleep_until(**deadline + 1ms);
+      }));
+  *deadline = std::chrono::steady_clock::now() + 2s;
+  auto options = ReloadLoad();
+  options.deadline = *deadline;
+  auto loading = std::async(std::launch::async, [&] {
+    return owner.reload(backend, next.directory, {},
+                        VersionWarmup({5.0F, 7.0F}), options);
+  });
+  EXPECT_TRUE(gate->Entered());
+  gate->Release();
+  EXPECT_THROW(loading.get(), DeadlineExceeded);
+  EXPECT_EQ(owner.statistics().resident_instances, 1U);
+  EXPECT_EQ(owner.statistics().publications, 0U);
+  EXPECT_EQ(owner.info().model_version, "example-linear-v1");
+  EXPECT_TRUE(owner.close());
+}
+TEST_F(ServingTest,
+       LeaseOutlivesOwnerWithoutDestructionDeadlockOrPrematureClose) {
+  auto original = Load();
+  auto owner = std::make_unique<ReloadablePredictor>(
+      original, ReloadPolicy{.initial_reservation_bytes = ReloadReservation,
+                             .max_resident_bytes = 2U * ReloadReservation});
+  auto lease = std::make_unique<PredictionLease>(owner->acquire());
+  owner.reset();
+  EXPECT_EQ(original->info().health, HealthStatus::ready);
+  EXPECT_TRUE(torch::equal(lease->predict(Request()).output.value.toTensor(),
+                           torch::tensor({{2.0F, -3.0F}})));
+  auto moved = std::make_unique<PredictionLease>(std::move(*lease));
+  EXPECT_THROW(lease->info(), NotReady);
+  lease.reset();
+  EXPECT_EQ(original->info().health, HealthStatus::ready);
+  moved.reset();
+  EXPECT_EQ(original->info().health, HealthStatus::closed);
+}
 TEST_F(ServingTest,
        PostForwardFailureDegradesAndObservationsAreRedactedAndIsolated) {
   auto enabled = std::make_shared<std::atomic<bool>>(false);
@@ -564,6 +817,62 @@ ProtocolAdapter Protocol() {
                 return c.project_id == "project-example";
               }};
 }
+TEST_F(ServingTest,
+       VersionedServicePinsDecodeThroughEncodingAcrossPublication) {
+  auto original = Load();
+  auto owner = std::make_shared<ReloadablePredictor>(
+      original, ReloadPolicy{.initial_reservation_bytes = ReloadReservation,
+                             .max_resident_bytes = 2U * ReloadReservation});
+  auto decode = std::make_shared<Gate>();
+  auto encode = std::make_shared<Gate>();
+  auto protocol = Protocol();
+  const auto decoder = protocol.decode;
+  const auto encoder = protocol.encode;
+  protocol.decode = [decode, decoder](std::span<const std::byte> bytes) {
+    decode->Wait(Tensor{});
+    return decoder(bytes);
+  };
+  protocol.encode = [encode, encoder](const nn::InvocationResult& result) {
+    encode->Wait(Tensor{});
+    return encoder(result);
+  };
+  InferenceServiceAdapter service(owner, protocol);
+  const std::array<float, 2> values{1.0F, 2.0F};
+  TransportContext context{
+      .correlation = Request().context, .authenticated = true, .deadline = {}};
+  context.correlation.model_version.clear();
+  auto pending = std::async(std::launch::async, [&] {
+    return service.handle(std::as_bytes(std::span(values)), context);
+  });
+  EXPECT_TRUE(decode->Entered());
+  example::BundleFixture next;
+  SetVersion(next, "example-linear-v2", {5.0F, 7.0F});
+  next.Publish();
+  NativeStateBackend backend(next.descriptor, example::Factory());
+  const auto publication =
+      owner->reload(backend, next.directory, {}, VersionWarmup({5.0F, 7.0F}),
+                    ReloadLoad(), {.drain_timeout = 0ms});
+  EXPECT_FALSE(publication.previous_drained);
+  decode->Release();
+  EXPECT_TRUE(encode->Entered());
+  EXPECT_FALSE(owner->drain_previous(std::chrono::steady_clock::now() + 1ms));
+  EXPECT_EQ(original->info().health, HealthStatus::ready);
+  encode->Release();
+  const auto reply = pending.get();
+  EXPECT_EQ(reply.status, ServiceStatus::ok);
+  std::array<float, 2> actual{};
+  ASSERT_EQ(reply.body.size(), sizeof(actual));
+  std::memcpy(actual.data(), reply.body.data(), reply.body.size());
+  EXPECT_EQ(actual, (std::array<float, 2>{2.0F, -6.0F}));
+  EXPECT_TRUE(owner->drain_previous());
+  EXPECT_EQ(original->info().health, HealthStatus::closed);
+  const auto current =
+      service.handle(std::as_bytes(std::span(values)), context);
+  ASSERT_EQ(current.body.size(), sizeof(actual));
+  std::memcpy(actual.data(), current.body.data(), current.body.size());
+  EXPECT_EQ(actual, (std::array<float, 2>{5.0F, 14.0F}));
+  EXPECT_TRUE(service.close());
+}
 TEST_F(ServingTest, TransportAuthenticationScopeSizeMappingAndReadiness) {
   auto predictor = Load();
   InferenceServiceAdapter service(
@@ -785,12 +1094,15 @@ TEST(ServingCuda, ExplicitCudaNativeBundleNumericalForwardAndDrain) {
   EXPECT_EQ(response.runtime.runtime.device, device);
   EXPECT_TRUE(predictor->close());
 }
-TEST(ServingPreview, ManifestDoesNotClaimNetworkOrtReloadOrGaQualification) {
+TEST(ServingPreview,
+     ManifestScopesLocalReloadAndDoesNotClaimNetworkOrtOrGaQualification) {
   const auto manifest = serving_preview_manifest_json();
   EXPECT_NE(manifest.find("\"default_enabled\":false"), std::string::npos);
   EXPECT_NE(manifest.find("\"network_server\":false"), std::string::npos);
   EXPECT_NE(manifest.find("\"onnx_runtime\":\"unavailable\""),
             std::string::npos);
   EXPECT_NE(manifest.find("requires-recorded-"), std::string::npos);
+  EXPECT_NE(manifest.find("same-runtime-device-schema-two-slot-native-bundle"),
+            std::string::npos);
 }
 }  // namespace

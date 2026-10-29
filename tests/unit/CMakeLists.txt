@@ -556,6 +556,12 @@ if(TARGET jyppx::liuding::onnx_export)
             deployment/onnx_runtime/test_verification.cpp)
     endif()
     target_link_libraries(jyppx_test_onnx_export PRIVATE nlohmann_json::nlohmann_json)
+    if(TARGET jyppx::liuding::nn AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::experiment)
+        target_sources(jyppx_test_onnx_export PRIVATE
+            deployment/onnx_export/test_source_checkpoint.cpp)
+        target_link_libraries(jyppx_test_onnx_export PRIVATE
+            jyppx::liuding::nn jyppx::liuding::interop jyppx::liuding::experiment)
+    endif()
     if(TARGET jyppx::liuding::models)
         target_link_libraries(jyppx_test_onnx_export PRIVATE jyppx::liuding::models)
         target_compile_definitions(jyppx_test_onnx_export PRIVATE

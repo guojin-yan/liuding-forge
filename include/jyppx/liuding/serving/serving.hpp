@@ -6,6 +6,7 @@
 #define JYPPX_LIUDING_SERVING_SERVING_HPP
 /** @file serving.hpp @brief Opt-in serving Preview umbrella. */
 #include <jyppx/liuding/serving/batcher.hpp>
+#include <jyppx/liuding/serving/reload.hpp>
 #include <jyppx/liuding/serving/runtime.hpp>
 #include <jyppx/liuding/serving/service.hpp>
 #endif
