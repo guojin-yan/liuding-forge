@@ -27,6 +27,7 @@
 extern char** environ;
 #endif
 
+#include "local_process.hpp"
 #include "sidecar_process.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
@@ -202,8 +203,11 @@ struct PumpResult {
   std::size_t output_size = 0U;
   std::size_t diagnostic_size = 0U;
   bool stdout_eof = false;
+  bool stderr_eof = false;
   bool process_exited = false;
   bool progressed = false;
+  std::optional<std::uint32_t> exit_code;
+  std::optional<int> signal;
 };
 
 #ifdef _WIN32
@@ -567,6 +571,7 @@ class NativeProcess {
       result.output_size = output_.collect_read(result.output);
       result.diagnostic_size = diagnostic_.collect_read(result.diagnostic);
       result.stdout_eof = output_.eof;
+      result.stderr_eof = diagnostic_.eof;
       if (input_.pending) {
         DWORD count = 0U;
         if (GetOverlappedResult(input_.server.get(), &input_.operation, &count,
@@ -583,12 +588,17 @@ class NativeProcess {
       const auto process_state = WaitForSingleObject(process_.get(), 0U);
       if (process_state == WAIT_FAILED) io_failure("process.poll");
       result.process_exited = process_state == WAIT_OBJECT_0;
+      if (result.process_exited) {
+        DWORD code = 0U;
+        if (!GetExitCodeProcess(process_.get(), &code))
+          io_failure("process.exit_code");
+        result.exit_code = static_cast<std::uint32_t>(code);
+      }
       result.progressed = result.progressed || result.output_size != 0U ||
                           result.diagnostic_size != 0U;
     };
     collect();
-    if (!result.progressed && !result.stdout_eof && !result.process_exited &&
-        timeout_ms > 0) {
+    if (!result.progressed && !result.process_exited && timeout_ms > 0) {
       std::array<HANDLE, 4U> waiting{};
       DWORD count = 0U;
       if (output_.pending) waiting[count++] = output_.event.get();
@@ -605,12 +615,22 @@ class NativeProcess {
     return result;
   }
 
-  void terminate() noexcept {
-    const auto deadline = Clock::now() + cleanup_timeout_;
+  std::uint64_t process_id() const noexcept {
+    return static_cast<std::uint64_t>(GetProcessId(process_.get()));
+  }
+
+  void close_input() noexcept { input_.cancel(); }
+
+  void stop_tree() noexcept {
     if (job_ && assigned_)
       TerminateJobObject(job_.get(), 1U);
     else if (process_)
       TerminateProcess(process_.get(), 1U);
+  }
+
+  void terminate() noexcept {
+    const auto deadline = Clock::now() + cleanup_timeout_;
+    stop_tree();
     // Cancel/drain pending kernel I/O before freeing its OVERLAPPED buffers.
     // Process termination ensures no writer is waiting for the child to read.
     if (input_.pending && input_.server)
@@ -947,15 +967,34 @@ class NativeProcess {
                                  WEXITED | WNOHANG | WNOWAIT);
     if (observed < 0 && errno != EINTR) io_failure("process.poll");
     result.process_exited = observed == 0 && status.si_pid == pid_;
+    if (result.process_exited) {
+      if (status.si_code == CLD_EXITED)
+        result.exit_code = static_cast<std::uint32_t>(status.si_status);
+      else
+        result.signal = status.si_status;
+    }
     result.stdout_eof = !output_;
+    result.stderr_eof = !diagnostic_;
     return result;
+  }
+
+  std::uint64_t process_id() const noexcept {
+    return static_cast<std::uint64_t>(pid_);
+  }
+
+  void close_input() noexcept { input_.reset(); }
+
+  void stop_tree() noexcept {
+    if (pid_ > 0) {
+      ::kill(-pid_, SIGKILL);
+      if (!reaped_) ::kill(pid_, SIGKILL);
+    }
   }
 
   void terminate() noexcept {
     if (pid_ > 0) {
       // Kill the whole original group even if its leader has already exited.
-      ::kill(-pid_, SIGKILL);
-      if (!reaped_) ::kill(pid_, SIGKILL);
+      stop_tree();
       const auto deadline = Clock::now() + cleanup_timeout_;
       while (!reaped_ && Clock::now() < deadline) {
         int status = 0;
@@ -1123,6 +1162,97 @@ bool SidecarProcessTransport::poisoned() const noexcept {
 }
 SidecarProcessStats SidecarProcessTransport::stats() const noexcept {
   return impl_->counters;
+}
+
+LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
+                                           std::stop_token stop) const {
+  const auto started = Clock::now();
+  constexpr auto kMaximumCapture = std::size_t{1U} << 30U;
+  if (options.timeout <= Milliseconds::zero() ||
+      options.timeout > std::chrono::hours(24 * 7) ||
+      options.max_stdout_bytes == 0U ||
+      options.max_stdout_bytes > kMaximumCapture ||
+      options.max_stderr_bytes == 0U ||
+      options.max_stderr_bytes > kMaximumCapture) {
+    throw InvalidArgument("Invalid local process execution bounds",
+                          details("local_process.options"));
+  }
+  SidecarProcessOptions launch;
+  launch.executable = options.executable;
+  launch.arguments = options.arguments;
+  launch.working_directory = options.working_directory;
+  launch.environment = options.environment;
+  launch.inherit_environment = options.inherit_environment;
+  launch.max_launch_bytes = options.max_launch_bytes;
+  launch.startup_timeout = options.startup_timeout;
+  launch.cleanup_timeout = options.cleanup_timeout;
+  validate_options(launch);
+  LocalProcessResult result;
+  std::unique_ptr<NativeProcess> native;
+  const auto finish = [&] {
+    if (native) native->terminate();
+    result.elapsed =
+        std::chrono::duration_cast<Milliseconds>(Clock::now() - started);
+    return std::move(result);
+  };
+  const auto deadline = started + options.timeout;
+  try {
+    check_telemetry_operation(stop, deadline);
+    native = std::make_unique<NativeProcess>(
+        launch, stop,
+        std::min(deadline, Clock::now() + options.startup_timeout));
+    result.process_id = native->process_id();
+    native->close_input();
+    bool leader_exited = false;
+    std::size_t unused_input = 0U;
+    const auto capture = [](const auto& bytes, std::size_t count,
+                            std::string& destination, std::uint64_t& total,
+                            std::size_t limit) {
+      total += static_cast<std::uint64_t>(count);
+      const auto remaining = limit - destination.size();
+      destination.append(bytes.data(), std::min(count, remaining));
+      return total <= limit;
+    };
+    while (true) {
+      check_telemetry_operation(stop, deadline);
+      const auto activity =
+          native->pump({}, unused_input, poll_milliseconds(deadline));
+      const bool output_ok =
+          capture(activity.output, activity.output_size, result.stdout_capture,
+                  result.stdout_bytes, options.max_stdout_bytes);
+      const bool diagnostic_ok = capture(
+          activity.diagnostic, activity.diagnostic_size, result.stderr_capture,
+          result.stderr_bytes, options.max_stderr_bytes);
+      if (!output_ok || !diagnostic_ok) {
+        result.status = LocalProcessStatus::output_limit;
+        result.exit_code.reset();
+        result.signal.reset();
+        return finish();
+      }
+      if (activity.process_exited && !leader_exited) {
+        result.exit_code = activity.exit_code;
+        result.signal = activity.signal;
+        result.status = result.signal ? LocalProcessStatus::signalled
+                                      : LocalProcessStatus::exited;
+        leader_exited = true;
+        // The leader's native identity stays owned until group cleanup. Stop
+        // descendants even if they inherited or closed the standard streams.
+        native->stop_tree();
+      }
+      if (leader_exited && activity.stdout_eof && activity.stderr_eof)
+        return finish();
+    }
+  } catch (const Cancelled&) {
+    result.status = LocalProcessStatus::cancelled;
+    result.exit_code.reset();
+    result.signal.reset();
+    return finish();
+  } catch (const DeadlineExceeded&) {
+    result.status = LocalProcessStatus::timed_out;
+    result.exit_code.reset();
+    result.signal.reset();
+    return finish();
+  }
 }
 
 }  // namespace jyppx::liuding::cli

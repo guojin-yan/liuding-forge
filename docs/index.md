@@ -35,6 +35,7 @@
 - [组件依赖](development/component_dependencies.md)
 - [仓库卫生](development/repository_hygiene.md)
 - [构建元数据](development/build_metadata.md)
+- [本地进程运行器](development/local_process_runner.md)
 - [发布流程](development/releasing.md)
 - [Benchmark 操作](benchmarks/README.md)
 
