@@ -253,6 +253,20 @@ std::string DtypeName(Dtype d) {
 }
 }  // namespace
 namespace detail {
+void ValidateRuntime(const RuntimeDescriptor& runtime) { Descriptor(runtime); }
+void ValidateLoad(const LoadOptions& options) {
+  Limits(options.request_limits);
+  Limits(options.output_limits);
+  if (!options.max_active_requests || !options.max_warmup_cases ||
+      !options.max_snapshot_bytes)
+    Invalid("load.limits",
+            "positive lifecycle, snapshot and bounded request/output limits");
+}
+void ValidateBinding(const DescriptorBinding& binding,
+                     const interop::BundleDescriptorRef& reference,
+                     const VerifiedBundle& bundle) {
+  Binding(binding, reference, bundle);
+}
 void Context(const RequestContext& c, std::string_view version) {
   for (const auto* value : {&c.request_id, &c.trace_id, &c.project_id,
                             &c.principal_id, &c.deployment_id, &c.model_version,
@@ -356,12 +370,13 @@ class Predictor::Impl {
   std::timed_mutex execute;
   ModelRuntimeInfo metadata;
   Pipeline pipeline;
+  std::string execution_contract;
   LoadOptions options;
   std::function<nn::InvocationResult(const nn::Invocation&, std::stop_token,
                                      const Deadline&)>
       invoke;
   std::function<void()> release;
-  bool accepting = true, releasing = false;
+  bool accepting = true, releasing = false, isolated_interrupts = false;
   ModelRuntimeInfo Info() const {
     std::lock_guard lock(mutex);
     return metadata;
@@ -419,6 +434,41 @@ class Predictor::Impl {
   }
 };
 Predictor::Predictor(std::shared_ptr<Impl> impl) : impl_(std::move(impl)) {}
+std::shared_ptr<Predictor> detail::PredictorFactory::Create(
+    RuntimeDescriptor runtime, std::string model_version, Pipeline pipeline,
+    std::function<nn::InvocationResult(const nn::Invocation&, std::stop_token,
+                                       const Deadline&)>
+        invoke,
+    std::function<void()> release, std::span<const WarmupCase> warmup,
+    const LoadOptions& options, bool isolated_interrupts,
+    std::string execution_contract) {
+  Descriptor(runtime);
+  detail::Text(model_version, true);
+  detail::Text(pipeline.version, true);
+  Limits(options.request_limits);
+  Limits(options.output_limits);
+  nn::validate_invocation_schema(pipeline.request_schema);
+  validate_value_schema(pipeline.response_schema);
+  if (!invoke || !options.max_active_requests || !options.max_warmup_cases)
+    detail::Invalid("load.session",
+                    "owning invocation and positive lifecycle limits");
+  detail::Boundary(options.stop, options.deadline);
+  auto impl = std::make_shared<Predictor::Impl>();
+  impl->options = options;
+  impl->isolated_interrupts = isolated_interrupts;
+  impl->execution_contract = std::move(execution_contract);
+  impl->pipeline = std::move(pipeline);
+  impl->metadata = {.model_version = std::move(model_version),
+                    .pipeline_version = impl->pipeline.version,
+                    .runtime = std::move(runtime),
+                    .health = HealthStatus::ready};
+  impl->invoke = std::move(invoke);
+  impl->release = std::move(release);
+  auto predictor = std::shared_ptr<Predictor>(new Predictor(impl));
+  impl->Warmup(*predictor, warmup);
+  detail::Boundary(options.stop, options.deadline);
+  return predictor;
+}
 Predictor::~Predictor() {
   try {
     close();
@@ -431,6 +481,9 @@ nn::InvocationSchema Predictor::input_schema() const {
 }
 ValueSchema Predictor::output_schema() const {
   return impl_->pipeline.response_schema;
+}
+std::string Predictor::execution_schema_contract() const {
+  return impl_->execution_contract;
 }
 RequestLimits Predictor::request_limits() const {
   return impl_->options.request_limits;
@@ -479,7 +532,8 @@ PredictResponse Predictor::predict(const PredictRequest& request,
       impl->cv.notify_all();
     });
     const auto start = std::chrono::steady_clock::now();
-    bool entered = false, invoke_failed = false, retryable = false;
+    bool entered = false, invoke_failed = false, retryable = false,
+         isolated_interrupt = false;
     std::unique_lock lock(impl->execute, std::defer_lock);
     try {
       auto snapshot = snapshot_request(request);
@@ -552,18 +606,31 @@ PredictResponse Predictor::predict(const PredictRequest& request,
                              .runtime = impl->Info(),
                              .timing = timing};
     } catch (...) {
+      // An ORT call has independent run options. A cooperative interrupt at
+      // any publication boundary is a failed request, not a poisoned session.
+      if (impl->isolated_interrupts) {
+        try {
+          throw;
+        } catch (const Cancelled&) {
+          isolated_interrupt = true;
+        } catch (const DeadlineExceeded&) {
+          isolated_interrupt = true;
+        } catch (...) {
+        }
+      }
       // Finish device work before a lease can release request/module storage.
       if (entered) {
         try {
           Sync(impl->metadata.runtime.device);
         } catch (...) {
           retryable = false;
+          isolated_interrupt = false;
         }
       }
       {
         std::lock_guard lifecycle(impl->mutex);
         ++impl->metadata.failed;
-        if (entered && !(invoke_failed && retryable)) {
+        if (entered && !(isolated_interrupt || (invoke_failed && retryable))) {
           impl->metadata.health = HealthStatus::degraded;
           impl->accepting = false;
         }
@@ -616,11 +683,21 @@ NativeStateBackend::NativeStateBackend(RuntimeDescriptor descriptor,
       model_id_(std::move(model_id)) {
   Descriptor(descriptor_);
   detail::Text(model_id_, true);
-  if (!factory_ || descriptor_.format != "safetensors")
+  if (!factory_ || descriptor_.format != "safetensors" ||
+      !descriptor_.execution_provider.empty() ||
+      !descriptor_.provider_options.empty() || descriptor_.allow_cpu_fallback)
     detail::Invalid("native.backend",
                     "explicit safetensors descriptor and factory");
 }
 RuntimeDescriptor NativeStateBackend::descriptor() const { return descriptor_; }
+std::uint64_t RuntimeBackend::load_reservation_bytes(
+    const LoadOptions& options) const {
+  constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
+  if (!options.max_state_bytes || !options.max_snapshot_bytes ||
+      options.max_state_bytes > (maximum - options.max_snapshot_bytes) / 2)
+    detail::Resource("reload.reservation");
+  return options.max_state_bytes * 2 + options.max_snapshot_bytes;
+}
 std::shared_ptr<Predictor> NativeStateBackend::load(
     const std::filesystem::path& directory,
     const interop::ModelBundleVerifyOptions& verify,
@@ -789,7 +866,9 @@ std::shared_ptr<Predictor> load_torchscript_predictor(
       descriptor.device != runtime_options.device ||
       descriptor.tensor_batching || descriptor.oom_retry_safe ||
       descriptor.backend_id != "jyppx.torchscript.compatibility" ||
-      descriptor.backend_version != "1" || descriptor.format != "torchscript")
+      descriptor.backend_version != "1" || descriptor.format != "torchscript" ||
+      !descriptor.execution_provider.empty() ||
+      !descriptor.provider_options.empty() || descriptor.allow_cpu_fallback)
     detail::Invalid("jit.descriptor",
                     "explicit nonbatching compatibility backend, exact device "
                     "and no retry");

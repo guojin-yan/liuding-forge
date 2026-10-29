@@ -153,6 +153,13 @@
       "required_public_dependencies": ["foundation"],
       "optional_dependencies": []
     },
+    "onnx_serving": {
+      "header_roots": ["deployment/onnx_serving"],
+      "source_roots": ["deployment/onnx_serving"],
+      "required_dependencies": ["core", "foundation", "interop", "nn", "onnx_runtime", "serving"],
+      "required_public_dependencies": ["onnx_runtime", "serving"],
+      "optional_dependencies": []
+    },
     "optim": {
       "header_roots": [
         "optim"

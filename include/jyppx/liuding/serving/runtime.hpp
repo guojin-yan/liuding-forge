@@ -29,6 +29,10 @@
  * adapters.
  */
 namespace jyppx::liuding::serving {
+namespace detail {
+/** @brief Internal common lifecycle publisher for optional runtime adapters. */
+class PredictorFactory;
+}  // namespace detail
 /** @brief Optional monotonic deadline; absence means no caller time bound. */
 using Deadline = std::optional<std::chrono::steady_clock::time_point>;
 /** @brief Correlation and caller security scope, never raw bearer tokens. */
@@ -77,9 +81,16 @@ struct RuntimeDescriptor {
   bool dynamic_shapes = true;  ///< Declared schema supports dynamic extents.
   bool tensor_batching =
       false;  ///< Owner asserts independent rows and batch-preserving stages.
-  std::size_t max_batch_size = 1U;  ///< Owner-approved inference batch ceiling.
+  std::size_t max_batch_size =
+      1U;  ///< Owner-approved automatic-batching ceiling; one when disabled.
   bool oom_retry_safe =
       false;  ///< Only a declared pure native model may opt in.
+  std::string execution_provider{};  ///< Explicit optional provider; empty for
+                                     ///< native/JIT.
+  std::map<std::string, std::string>
+      provider_options{};  ///< Exact provider configuration.
+  bool allow_cpu_fallback =
+      false;  ///< Explicit provider partition fallback policy.
 };
 /** @brief One call uses the existing nn Invocation, not another tensor map. */
 struct PredictRequest {
@@ -250,6 +261,11 @@ class Predictor final {
    * @return Schema of the published prediction values.
    */
   ValueSchema output_schema() const;
+  /** @brief Exact backend schema additions used for version compatibility.
+   * @return Owned canonical contract; empty for native/JIT, graph names/shapes/
+   * batch-symbol bindings for ONNX. Compare complete bytes, never a short hash.
+   */
+  std::string execution_schema_contract() const;
   /** @brief Immutable logical input budget used by schedulers.
    * @return Frozen logical tensor and byte limits.
    */
@@ -278,6 +294,9 @@ class Predictor final {
   explicit Predictor(std::shared_ptr<Impl> impl);
   /** @brief Native backend may publish a verified session. */
   friend class NativeStateBackend;
+  /** @brief Optional adapters share the validated lifecycle without SDK
+   * coupling. */
+  friend class detail::PredictorFactory;
   /** @brief Trusted JIT adapter may publish a validated session. */
   friend std::shared_ptr<Predictor> load_torchscript_predictor(
       std::span<const std::byte> archive, const ArtifactDigest& expected,
@@ -296,6 +315,16 @@ class RuntimeBackend {
    * @return Frozen backend execution contract.
    */
   virtual RuntimeDescriptor descriptor() const = 0;
+  /** @brief Declares known overlapping load payload for a reload reservation.
+   * @param options Limits used by the subsequent load operation.
+   * @return Logical reserved bytes; the native default is two state copies plus
+   * snapshots.
+   * @note Backends override this for their actual loading path. Unknown
+   * allocator, graph or provider workspace is excluded; this is not an RSS/VRAM
+   * limit.
+   */
+  virtual std::uint64_t load_reservation_bytes(
+      const LoadOptions& options) const;
   /** @brief Verifies, loads and warms a session before returning it as ready.
    * @param directory Data-only bundle directory.
    * @param verify Integrity and resource verification policy.

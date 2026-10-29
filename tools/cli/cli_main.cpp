@@ -242,6 +242,10 @@ Result execute(const Arguments& arguments) {
                   {"doctor [--device cpu|cuda] [--expected-libtorch VERSION]",
                    "local execute --root DIRECTORY --id ID --spec PATH",
                    "local show|recover|cancel --root DIRECTORY --id ID",
+                   "search execute --root DIRECTORY --id ID --spec PATH",
+                   "search show|recover|cancel --root DIRECTORY --id ID",
+                   "search export --root DIRECTORY --id ID --output "
+                   "NEW_DIRECTORY",
                    "config lint|render|explain --schema PATH [--file PATH] "
                    "[--set /path=JSON] [--path POINTER]",
                    "config migrate --input PATH --plan PATH --to-version N "
@@ -318,6 +322,7 @@ Result execute(const Arguments& arguments) {
   if (words.front() == "offline") return offline_command(arguments);
   if (words.front() == "recipe") return recipe_command(arguments);
   if (words.front() == "local") return local_attempt_command(arguments);
+  if (words.front() == "search") return local_search_command(arguments);
   usage("command", "Use --help to list supported commands.");
 }
 

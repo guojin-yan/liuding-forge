@@ -13,6 +13,7 @@
 7. [训练双输入、分类与回归模型](tutorials/multi_io_recipe.md)
 8. [使用预训练 ResNet50 与 DINOv2 迁移学习](tutorials/transfer_learning_recipe.md)
 9. [C++ 检查点、ONNX 导出与推理](../examples/deployment/README.md)
+10. [本地搜索：训练、指标排序与最佳模型快照](../examples/experiment/README.md)
 
 ## 用户指南
 

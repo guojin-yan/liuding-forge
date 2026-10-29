@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加有界、默认串行的 grid/random 搜索，冻结候选配置、seed 与执行身份，复用持久本地任务；按真实 run 指标与 CAS 产物选择 best，并导出带完整搜索历史的存储备份。
+- 增加独立可选 `onnx_serving` 组件与公共 ORT 环境锁校验，接入具名多输入输出、候选 warmup、完整图边界比较和版本 lease；Provider 显式选择，外部 Tensor 使用 CPU FP32。
+- 增加原生 C++ 搜索训练与 ONNX Serving 示例，展示实际训练、最佳模型快照核对、多动态 batch 推理与旧版本排空。
 - 增加本地任务 `local execute/show/recover/cancel`，用现有 run/CAS 保存冻结 spec、隔离 attempt 和双流结果，按显式退出码有限重试，无法确认进程归属时拒绝重复启动。
 - 增加同 runtime、设备与 schema 的 Serving 候选校验、warmup 和原子切换，支持请求版本 lease、旧版本 drain、失败保留活动实例及双实例逻辑预算。
 - 增加纯 C++ 部署和 Serving 切换学习示例，展示检查点恢复、通用 ONNX 导出、动态 batch、多输入输出核对与请求版本固定。

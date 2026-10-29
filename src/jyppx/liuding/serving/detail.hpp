@@ -89,5 +89,21 @@ nn::Invocation Snapshot(const nn::Invocation& value);
 void Context(const RequestContext& context, std::string_view version);
 bool Equal(const c10::IValue& actual, const c10::IValue& expected, double rtol,
            double atol);
+void ValidateRuntime(const RuntimeDescriptor& runtime);
+void ValidateLoad(const LoadOptions& options);
+void ValidateBinding(const DescriptorBinding& binding,
+                     const interop::BundleDescriptorRef& reference,
+                     const VerifiedBundle& bundle);
+class PredictorFactory {
+ public:
+  static std::shared_ptr<Predictor> Create(
+      RuntimeDescriptor runtime, std::string model_version, Pipeline pipeline,
+      std::function<nn::InvocationResult(const nn::Invocation&, std::stop_token,
+                                         const Deadline&)>
+          invoke,
+      std::function<void()> release, std::span<const WarmupCase> warmup,
+      const LoadOptions& options, bool isolated_interrupts = false,
+      std::string execution_contract = {});
+};
 }  // namespace jyppx::liuding::serving::detail
 #endif

@@ -23,7 +23,10 @@ bool SameRuntime(const RuntimeDescriptor& a, const RuntimeDescriptor& b) {
       a.device != b.device || a.dynamic_shapes != b.dynamic_shapes ||
       a.tensor_batching != b.tensor_batching ||
       a.max_batch_size != b.max_batch_size ||
-      a.oom_retry_safe != b.oom_retry_safe)
+      a.oom_retry_safe != b.oom_retry_safe ||
+      a.execution_provider != b.execution_provider ||
+      a.provider_options != b.provider_options ||
+      a.allow_cpu_fallback != b.allow_cpu_fallback)
     return false;
   auto ad = a.dtypes, bd = b.dtypes;
   std::sort(ad.begin(), ad.end());
@@ -56,13 +59,6 @@ bool SameInput(const nn::InvocationSchema& a, const nn::InvocationSchema& b) {
       return false;
   return true;
 }
-std::uint64_t Reservation(const LoadOptions& options) {
-  constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
-  if (!options.max_state_bytes || !options.max_snapshot_bytes ||
-      options.max_state_bytes > (maximum - options.max_snapshot_bytes) / 2)
-    detail::Resource("reload.reservation");
-  return options.max_state_bytes * 2 + options.max_snapshot_bytes;
-}
 }  // namespace
 namespace detail {
 class ReloadState {
@@ -84,6 +80,7 @@ class ReloadState {
   RuntimeDescriptor runtime;
   nn::InvocationSchema input;
   ValueSchema output;
+  std::string execution_contract;
   ModelRuntimeInfo last;
   ReloadPolicy policy;
   bool accepting = true, loading = false, reloading = false,
@@ -145,6 +142,7 @@ ReloadablePredictor::ReloadablePredictor(std::shared_ptr<Predictor> initial,
   state_->runtime = info.runtime;
   state_->input = initial->input_schema();
   state_->output = initial->output_schema();
+  state_->execution_contract = initial->execution_schema_contract();
   state_->last = info;
   state_->policy = policy;
   state_->peak_bytes = policy.initial_reservation_bytes;
@@ -203,7 +201,8 @@ ReloadResult ReloadablePredictor::reload(
   if (!SameRuntime(state_->runtime, backend.descriptor()))
     throw CompatibilityError(
         "Reload requires the same exact runtime and device");
-  const auto reservation = Reservation(bounded);
+  const auto reservation = backend.load_reservation_bytes(bounded);
+  if (!reservation) detail::Resource("reload.reservation");
   {
     std::lock_guard lock(state_->mutex);
     if (!state_->accepting || !state_->current)
@@ -242,7 +241,8 @@ ReloadResult ReloadablePredictor::reload(
       !SameRuntime(state_->runtime, metadata.runtime) ||
       !SameInput(state_->input, candidate->input_schema()) ||
       canonical_value_schema(state_->output) !=
-          canonical_value_schema(candidate->output_schema()))
+          canonical_value_schema(candidate->output_schema()) ||
+      state_->execution_contract != candidate->execution_schema_contract())
     throw CompatibilityError(
         "Reload candidate runtime or invocation schema is incompatible");
   auto entry = std::make_shared<detail::ReloadState::Entry>();

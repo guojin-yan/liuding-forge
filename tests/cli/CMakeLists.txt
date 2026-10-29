@@ -19,6 +19,11 @@ add_test(NAME Cli_local_attempt
         --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
 set_tests_properties(Cli_local_attempt PROPERTIES
     LABELS "cli;experiment;integration" TIMEOUT 240)
+add_test(NAME Cli_local_search
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_search.py"
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+set_tests_properties(Cli_local_search PROPERTIES
+    LABELS "cli;experiment;integration" TIMEOUT 600)
 
 foreach(contract IN ITEMS model_checkpoint model_bundle evaluation_data offline_workflow run_telemetry migration)
     add_test(NAME Cli_${contract}

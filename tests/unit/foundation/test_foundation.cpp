@@ -255,11 +255,11 @@ TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
 
 TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
   const auto manifest = jyppx::liuding::current_capability_manifest();
-  ASSERT_EQ(manifest.features.size(), 15U);
+  ASSERT_EQ(manifest.features.size(), 16U);
   EXPECT_EQ(manifest.build.jyppx_version, jyppx::liuding::version());
   EXPECT_EQ(manifest.features.front().feature_id, "jyppx.component.core");
 
-  const std::array<std::pair<std::string_view, bool>, 15U> expected_components{{
+  const std::array<std::pair<std::string_view, bool>, 16U> expected_components{{
       {"core", JYPPX_LIUDING_COMPONENT_CORE_ENABLED != 0},
       {"data", JYPPX_LIUDING_COMPONENT_DATA_ENABLED != 0},
       {"data_image", JYPPX_LIUDING_COMPONENT_DATA_IMAGE_ENABLED != 0},
@@ -270,6 +270,7 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
       {"nn", JYPPX_LIUDING_COMPONENT_NN_ENABLED != 0},
       {"onnx_export", JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED != 0},
       {"onnx_runtime", JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED != 0},
+      {"onnx_serving", JYPPX_LIUDING_COMPONENT_ONNX_SERVING_ENABLED != 0},
       {"optim", JYPPX_LIUDING_COMPONENT_OPTIM_ENABLED != 0},
       {"quantization", JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED != 0},
       {"serving", JYPPX_LIUDING_COMPONENT_SERVING_ENABLED != 0},
@@ -280,11 +281,11 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
     const auto& [component, enabled] = expected_components[index];
     const auto& feature = manifest.features[index];
     EXPECT_EQ(feature.feature_id, "jyppx.component." + std::string(component));
-    const bool preview = component == "models" || component == "quantization" ||
-                         component == "serving" || component == "data_image" ||
-                         component == "vision_render" ||
-                         component == "onnx_export" ||
-                         component == "onnx_runtime";
+    const bool preview =
+        component == "models" || component == "quantization" ||
+        component == "serving" || component == "data_image" ||
+        component == "vision_render" || component == "onnx_export" ||
+        component == "onnx_runtime" || component == "onnx_serving";
     EXPECT_EQ(feature.status,
               enabled
                   ? (preview ? jyppx::liuding::CapabilityStatus::experimental

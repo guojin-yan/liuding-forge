@@ -39,6 +39,7 @@ function(jyppx_write_component_graph output_path)
         nn
         onnx_export
         onnx_runtime
+        onnx_serving
         optim
         quantization
         serving
@@ -62,7 +63,8 @@ function(jyppx_write_component_graph output_path)
             list(APPEND header_roots utils)
         elseif(component STREQUAL "vision_render")
             set(header_roots visualization)
-        elseif(component STREQUAL "onnx_export" OR component STREQUAL "onnx_runtime")
+        elseif(component STREQUAL "onnx_export" OR component STREQUAL "onnx_runtime"
+               OR component STREQUAL "onnx_serving")
             set(header_roots "deployment/${component}")
         endif()
         foreach(header_root IN LISTS header_roots)

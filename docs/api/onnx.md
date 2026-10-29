@@ -200,6 +200,12 @@ liuding-forge model onnx pack \
 
 输出固定选择 ID 为 `primary`、`export-report`、`cases`、`tensors`，可直接用于上一节的 `smoke`。包内保存原模型、报告、case、Tensor 和元数据的精确字节，以及本次验证报告与 ORT trace。预后处理、任务报告和 SBOM 按调用方 schema 保存，通用组包命令不替它们授予任务质量、完整 SBOM 或来源认证资格。生成的 provenance 关联 run/code/config/data/checkpoint、元数据和导出/执行证据；检查点与原 run 的关联仍须在来源重建流程中独立证明。
 
-环境锁使用 `jyppx.liuding.onnx_runtime_lock` v1，作为独立 evidence 保存，最多 64 KiB；manifest 的 `environment_lock` 是其原始字节摘要。它绑定框架与 LibTorch 构建版本、实际加载的 ORT 版本、平台、FP32 I/O、实际图的动态 batch、显式 Provider 名称/参数和无 CPU 回退策略。执行域在 CPU EP 下为 `cpu`，CUDA/TensorRT EP 下为 `cuda`，其他 EP 使用完整 Provider 名称的小写形式；它不表达硬件型号或驱动资格。
+环境锁使用 `jyppx.liuding.onnx_runtime_lock` v1，作为独立 evidence 保存，最多 64 KiB；manifest 的 `environment_lock` 是其原始字节摘要。它绑定框架与 LibTorch 构建版本、实际加载的 ORT 版本、平台、FP32 I/O、实际图的动态 batch、显式 Provider 名称/参数与 CPU 回退策略。执行域在 CPU EP 下为 `cpu`，CUDA/TensorRT EP 下为 `cuda`，其他 EP 使用完整 Provider 名称的小写形式；它不表达硬件型号或驱动资格。
 
 当 backend ID 为 `jyppx.liuding.onnx_runtime` 时，`smoke`/`verify` 要求恰好一件受支持的锁，在同次完整校验中保留，执行前检查其与 manifest 及本次 Runtime 观察完全一致。版本、平台、依赖、dtype、动态声明或 Provider 参数不匹配均拒绝；未知依赖不被忽略。这类复验生成证据封装 v4，并明确记录 `runtime_requirements_checked=true`、锁 ID 和摘要；`verify` 共登记八件制品。其他 owner 的声明继续明确未检查，不获得兼容资格。锁只覆盖上述执行点，驱动/ABI 的完整支持矩阵、设备资源和性能、其他平台与真实签名仍需分别验收。
+
+## 公共环境锁与 Serving
+
+`<jyppx/liuding/deployment/onnx_runtime/environment.hpp>` 提供 `EnvironmentLock` 与 `EnvironmentRequirements`：`observe_environment(session)` 观察实际执行环境，`serialize_environment_lock()`、`parse_environment_lock()` 保存和严格解析上述 v1 格式，`verify_environment_lock()` 核对原始字节摘要、声明及实际 Session 的版本、平台、依赖和 Provider/options/fallback。该 API 属于 `onnx_runtime`，可独立于导出器与 bundle 模块使用；环境匹配不替代来源认证或数值验收。
+
+需要 bundle 加载、已知向量 warmup 与受控版本切换时，使用独立可选的 [`onnx_serving`](serving.md) 组件；完整应用见 [C++ ONNX Serving 示例](../../examples/serving/README.md#onnx-bundle-与多输入输出)。

@@ -167,6 +167,7 @@ struct Spec {
   LocalProcessOptions process;
   std::uint64_t maximum_attempts = 1;
   std::uint64_t retry_delay_ms = 0;
+  std::optional<std::uint64_t> deadline_unix_ms;
   std::set<std::uint32_t> retry_exit_codes;
 };
 
@@ -176,7 +177,8 @@ Spec read_spec(const Json& value) {
       {"format", "schema_version", "project_id", "experiment_id", "executable",
        "executable_sha256", "arguments", "working_directory", "environment",
        "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
-      {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes"});
+      {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
+       "deadline_unix_ms"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -228,6 +230,9 @@ Spec read_spec(const Json& value) {
       positive(value.at("max_attempts"), kMaximumAttempts);
   result.retry_delay_ms =
       unsigned_number(value.value("retry_delay_ms", Json(0)), 60000);
+  if (value.contains("deadline_unix_ms"))
+    result.deadline_unix_ms = positive(
+        value.at("deadline_unix_ms"), std::numeric_limits<std::int64_t>::max());
   require(value.at("retry_exit_codes").is_array() &&
               value.at("retry_exit_codes").size() <= 64,
           "Declare at most 64 retryable native exit codes");
@@ -524,7 +529,16 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
       options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX"] =
           std::to_string(index);
       if (cancelled(store, job.run_id)) cancellation.request_stop();
-      native = LocalProcessRunner{}.run(options, cancellation.get_token());
+      const auto wall = now_ms();
+      if (spec.deadline_unix_ms && wall >= *spec.deadline_unix_ms) {
+        native.status = LocalProcessStatus::timed_out;
+      } else {
+        if (spec.deadline_unix_ms)
+          options.timeout = std::min(
+              options.timeout,
+              std::chrono::milliseconds(*spec.deadline_unix_ms - wall));
+        native = LocalProcessRunner{}.run(options, cancellation.get_token());
+      }
       status = std::string(native_status(native.status));
     } catch (const Error& error) {
       status = "launch_error";
@@ -711,34 +725,25 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
   }
   throw InvalidArgument("Local execution exhausted its bounded attempt state");
 }
-}  // namespace
-
-Result local_attempt_command(const Arguments& arguments) {
-  const auto action = arguments.words()[1];
-  if (action != "execute" && action != "show" && action != "recover" &&
-      action != "cancel" && action != "worker")
-    usage("local", "Use execute/show/recover/cancel.");
-  if (action == "execute")
-    arguments.allow({"root", "id", "spec"});
-  else if (action != "worker")
-    arguments.allow({"root", "id"});
-  const auto id = arguments.require("id");
+Result operate(std::string_view action, const fs::path& selected_root,
+               std::string id, std::optional<Spec> requested,
+               std::optional<std::string> parent_run_id,
+               const Arguments* arguments = nullptr) {
   identifier(id);
-  const auto root =
-      fs::absolute(fs::u8path(arguments.require("root"))).lexically_normal();
+  const auto root = fs::absolute(selected_root).lexically_normal();
   if (action != "execute")
     require(fs::is_regular_file(root / "runs.sqlite3"),
             "Local execution storage does not exist");
-  // Validate an execute request before initializing a run store or job.
-  std::optional<Spec> requested;
-  if (action == "execute") {
-    requested = read_spec(parse_json(
-        read_text(fs::u8path(arguments.require("spec")), kSpecBytes)));
-    preflight(*requested);
-  }
+  if (requested) preflight(*requested);
   SQLiteRunStore store(root);
   ordinary_path(root);
   if (action == "execute") {
+    require(requested.has_value(), "Local execution requires a frozen spec");
+    if (parent_run_id) {
+      identifier(*parent_run_id);
+      require(store.find(*parent_run_id).has_value(),
+              "Local execution parent run does not exist");
+    }
     OwnerLock dispatch(root, id, false);
     if (!dispatch.held())
       throw IoError("Another caller owns this local job dispatch");
@@ -752,7 +757,7 @@ Result local_attempt_command(const Arguments& arguments) {
                    .status = RunStatus::running,
                    .created_at_unix_ms = timestamp,
                    .updated_at_unix_ms = timestamp,
-                   .lineage = {.parent_run_id = std::nullopt,
+                   .lineage = {.parent_run_id = parent_run_id,
                                .source_digest = requested->executable_sha256,
                                .build_fingerprint =
                                    digest(build_fingerprint_json()).hex,
@@ -765,6 +770,8 @@ Result local_attempt_command(const Arguments& arguments) {
       const auto job = job_metadata(store, id);
       require(job.lineage.config_digest == requested->sha256,
               "Existing local job has a different frozen spec");
+      require(job.lineage.parent_run_id == parent_run_id,
+              "Existing local job has a different parent run");
       // Repair the crash between identical job creation and first spec attach;
       // no attempt can be admitted before this immutable reference exists.
       if (!store.find_reference(id, "local.spec"))
@@ -774,7 +781,10 @@ Result local_attempt_command(const Arguments& arguments) {
   }
   const auto job = job_metadata(store, id);
   const auto spec = frozen_spec(store, job);
-  if (action == "worker") return worker(store, root, job, spec, arguments);
+  if (action == "worker") {
+    require(arguments != nullptr, "Local worker requires CLI arguments");
+    return worker(store, root, job, spec, *arguments);
+  }
   if (action == "show") {
     OwnerLock owner(root, id, true);
     return {describe(store, job, spec, !owner.held()), 0};
@@ -790,6 +800,44 @@ Result local_attempt_command(const Arguments& arguments) {
     return {describe(store, job, spec), 0};
   }
   return drive(store, root, job, spec);
+}
+}  // namespace
+
+void validate_local_execution_spec(const Json& spec, bool inspect_files) {
+  const auto parsed = read_spec(spec);
+  if (inspect_files) preflight(parsed);
+}
+
+Result execute_local_job(const fs::path& root, std::string_view job_id,
+                         const Json& spec,
+                         std::optional<std::string> parent_run_id) {
+  return operate("execute", root, std::string(job_id), read_spec(spec),
+                 std::move(parent_run_id));
+}
+
+Result control_local_job(std::string_view action, const fs::path& root,
+                         std::string_view job_id) {
+  require(action == "show" || action == "recover" || action == "cancel",
+          "Local control requires show/recover/cancel");
+  return operate(action, root, std::string(job_id), std::nullopt, std::nullopt);
+}
+
+Result local_attempt_command(const Arguments& arguments) {
+  const auto action = arguments.words()[1];
+  if (action != "execute" && action != "show" && action != "recover" &&
+      action != "cancel" && action != "worker")
+    usage("local", "Use execute/show/recover/cancel.");
+  if (action == "execute")
+    arguments.allow({"root", "id", "spec"});
+  else if (action != "worker")
+    arguments.allow({"root", "id"});
+  std::optional<Spec> requested;
+  if (action == "execute")
+    requested = read_spec(parse_json(
+        read_text(fs::u8path(arguments.require("spec")), kSpecBytes)));
+  return operate(action, fs::u8path(arguments.require("root")),
+                 arguments.require("id"), std::move(requested), std::nullopt,
+                 &arguments);
 }
 
 }  // namespace jyppx::liuding::cli

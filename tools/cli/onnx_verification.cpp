@@ -9,6 +9,7 @@
 #if defined(JYPPX_LIUDING_CLI_ONNX_EXPORT) && \
     defined(JYPPX_LIUDING_CLI_ONNX_RUNTIME)
 #include <jyppx/liuding/deployment/onnx_export/report.hpp>
+#include <jyppx/liuding/deployment/onnx_runtime/environment.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/verification.hpp>
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
@@ -26,14 +27,8 @@
 
 namespace jyppx::liuding::cli {
 namespace {
-constexpr std::string_view kRuntimeBackend = "jyppx.liuding.onnx_runtime";
-constexpr std::string_view kRuntimeLock = "jyppx.liuding.onnx_runtime_lock";
-
-std::string Lower(std::string value) {
-  for (auto& byte : value)
-    if (byte >= 'A' && byte <= 'Z') byte = static_cast<char>(byte - 'A' + 'a');
-  return value;
-}
+constexpr auto kRuntimeBackend = onnx_runtime::kEnvironmentBackendId;
+constexpr auto kRuntimeLock = onnx_runtime::kEnvironmentLockSchemaId;
 
 std::span<const std::byte> Bytes(std::string_view value) {
   return std::as_bytes(std::span(value.data(), value.size()));
@@ -423,21 +418,20 @@ PreparedVerification Prepare(const Arguments& arguments, bool smoke) {
   return result;
 }
 
-Json RuntimeDeclaration(
+onnx_runtime::EnvironmentRequirements RuntimeDeclaration(
     const interop::BundleRuntimeRequirements& requirements) {
-  Json dependencies = Json::array();
-  auto sorted = requirements.dependencies;
-  std::sort(sorted.begin(), sorted.end(),
-            [](const auto& a, const auto& b) { return a.name < b.name; });
-  for (const auto& entry : sorted)
-    dependencies.push_back({{"name", entry.name}, {"version", entry.version}});
-  return {{"backend_id", requirements.backend_id},
-          {"backend_version", requirements.backend_version},
-          {"dependencies", std::move(dependencies)},
-          {"devices", requirements.devices},
-          {"dtypes", requirements.dtypes},
-          {"os_arch", requirements.os_arch},
-          {"dynamic_shapes", requirements.dynamic_shapes}};
+  onnx_runtime::EnvironmentRequirements result{
+      .backend_id = requirements.backend_id,
+      .backend_version = requirements.backend_version,
+      .dependencies = {},
+      .devices = requirements.devices,
+      .dtypes = requirements.dtypes,
+      .os_arch = requirements.os_arch,
+      .dynamic_shapes = requirements.dynamic_shapes};
+  for (const auto& entry : requirements.dependencies)
+    result.dependencies.push_back(
+        {.name = entry.name, .version = entry.version});
+  return result;
 }
 
 Json TensorSchema(std::span<const onnx_runtime::TensorSignature> signatures,
@@ -455,73 +449,19 @@ Json TensorSchema(std::span<const onnx_runtime::TensorSignature> signatures,
           {"maximum_batch", report.maximum_batch}};
 }
 
-Json ObserveEnvironment(const onnx_runtime::Session& session,
-                        const BuildFingerprint& build) {
-  const auto& provider = session.execution_provider();
-  const auto domain = provider.name == "CPUExecutionProvider" ? "cpu"
-                      : provider.name == "CUDAExecutionProvider" ||
-                              provider.name == "TensorrtExecutionProvider"
-                          ? "cuda"
-                          : Lower(provider.name);
-  const auto dynamic = [](auto signatures) {
-    return std::any_of(
-        signatures.begin(), signatures.end(),
-        [](const auto& tensor) { return !tensor.batch_symbol.empty(); });
-  };
-  return {{"format", kRuntimeLock},
-          {"schema_version", 1},
-          {"backend_id", kRuntimeBackend},
-          {"backend_version", build.jyppx_version},
-          {"dependencies",
-           Json::array(
-               {{{"name", "libtorch"}, {"version", build.libtorch_version}},
-                {{"name", "liuding-forge"}, {"version", build.jyppx_version}},
-                {{"name", "onnxruntime"},
-                 {"version", session.runtime_version()}}})},
-          {"devices", Json::array({domain})},
-          {"dtypes", Json::array({"float32"})},
-          {"os_arch", Json::array({Lower(build.os_arch)})},
-          {"dynamic_shapes",
-           dynamic(session.inputs()) || dynamic(session.outputs())},
-          {"provider",
-           {{"name", provider.name},
-            {"options", provider.options},
-            {"allow_cpu_fallback", session.cpu_fallback_allowed()}}}};
-}
-
-void CheckEnvironment(const interop::BundleRuntimeRequirements& requirements,
-                      std::string_view encoded, const Json& observed) {
-  if (sha256_hex(Bytes(encoded)) != requirements.environment_lock.hex)
-    throw CompatibilityError("ONNX runtime environment lock digest mismatch");
-  auto lock = parse_json(encoded);
-  fields(lock, {"format", "schema_version", "backend_id", "backend_version",
-                "dependencies", "devices", "dtypes", "os_arch",
-                "dynamic_shapes", "provider"});
-  if (lock != observed)
-    throw CompatibilityError(
-        "ONNX runtime environment does not match this execution point");
-  lock.erase("format");
-  lock.erase("schema_version");
-  lock.erase("provider");
-  if (lock != RuntimeDeclaration(requirements))
-    throw CompatibilityError(
-        "ONNX bundle runtime declaration differs from its checked lock");
-}
-
-interop::BundleRuntimeRequirements Requirements(const Json& lock,
-                                                std::string_view encoded) {
+interop::BundleRuntimeRequirements Requirements(
+    const onnx_runtime::EnvironmentLock& lock, std::string_view encoded) {
   interop::BundleRuntimeRequirements result;
-  result.backend_id = lock.at("backend_id").get<std::string>();
-  result.backend_version = lock.at("backend_version").get<std::string>();
+  result.backend_id = lock.runtime.backend_id;
+  result.backend_version = lock.runtime.backend_version;
   result.environment_lock.hex = sha256_hex(Bytes(encoded));
-  for (const auto& dependency : lock.at("dependencies"))
+  for (const auto& dependency : lock.runtime.dependencies)
     result.dependencies.push_back(
-        {dependency.at("name").get<std::string>(),
-         dependency.at("version").get<std::string>()});
-  result.devices = lock.at("devices").get<std::vector<std::string>>();
-  result.dtypes = lock.at("dtypes").get<std::vector<std::string>>();
-  result.os_arch = lock.at("os_arch").get<std::vector<std::string>>();
-  result.dynamic_shapes = lock.at("dynamic_shapes").get<bool>();
+        {.name = dependency.name, .version = dependency.version});
+  result.devices = lock.runtime.devices;
+  result.dtypes = lock.runtime.dtypes;
+  result.os_arch = lock.runtime.os_arch;
+  result.dynamic_shapes = lock.runtime.dynamic_shapes;
   return result;
 }
 
@@ -532,7 +472,7 @@ struct ExecutedVerification {
   std::string encoded;
   bool passed = false;
   bool runtime_checked = false;
-  Json environment;
+  std::optional<onnx_runtime::EnvironmentLock> environment;
   Json input_schema;
   Json output_schema;
 };
@@ -571,14 +511,16 @@ ExecutedVerification Execute(const Arguments& arguments,
   options.profile_prefix = temporary.directory / "actual";
   onnx_runtime::Session session(Bytes(owner.bytes()),
                                 export_report.model_digest, options);
-  Json environment = nullptr;
+  std::optional<onnx_runtime::EnvironmentLock> environment;
   const bool runtime_checked = !owner.runtime_id.empty();
-  if (runtime_checked || capture_environment)
-    environment = ObserveEnvironment(session, current_build_fingerprint());
-  if (runtime_checked)
-    CheckEnvironment(owner.bundle->verification.manifest.runtime,
-                     TextBytes(owner.bundle->files.at(owner.runtime_id)),
-                     environment);
+  if (runtime_checked) {
+    const auto& requirements = owner.bundle->verification.manifest.runtime;
+    environment = onnx_runtime::verify_environment_lock(
+        session, TextBytes(owner.bundle->files.at(owner.runtime_id)),
+        requirements.environment_lock, RuntimeDeclaration(requirements));
+  } else if (capture_environment) {
+    environment = onnx_runtime::observe_environment(session);
+  }
   const auto input_schema = TensorSchema(session.inputs(), export_report);
   const auto output_schema = TensorSchema(session.outputs(), export_report);
   auto report = onnx_runtime::verify_session(session, cases, prepared.policy,
@@ -702,14 +644,17 @@ Result Pack(const Arguments& arguments, const Json* reconstruction = nullptr,
                  {"report", executed.document},
                  {"runtime_profile", executed.profile_json}},
             4};
-  const auto lock_bytes = executed.environment.dump();
+  if (!executed.environment)
+    throw SerializationError(
+        "ONNX packaging requires an observed runtime lock");
+  const auto lock_bytes =
+      onnx_runtime::serialize_environment_lock(*executed.environment);
   if (lock_bytes.size() > (64U << 10U))
     throw ResourceExhausted("ONNX runtime lock exceeds 64 KiB");
   interop::ModelBundleManifest manifest;
   manifest.bundle_id = metadata.at("bundle_id").get<std::string>();
   manifest.build = executed.report.build;
-  manifest.runtime = Requirements(executed.environment, lock_bytes);
-  CheckEnvironment(manifest.runtime, lock_bytes, executed.environment);
+  manifest.runtime = Requirements(*executed.environment, lock_bytes);
   const TraceCleanup temporary{TraceDirectory()};
   std::vector<interop::BundlePublishSource> sources;
   const auto add = [&](const std::string& id, interop::BundleFileRole role,

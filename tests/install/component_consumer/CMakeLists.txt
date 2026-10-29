@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(JYPPX_SUPPORTED_COMPONENTS
-    foundation core interop data data_image vision_render nn optim training experiment models onnx_export onnx_runtime quantization serving all sdk
+    foundation core interop data data_image vision_render nn optim training experiment models onnx_export onnx_runtime onnx_serving quantization serving all sdk
 )
 if(NOT JYPPX_CONSUMER_COMPONENT IN_LIST JYPPX_SUPPORTED_COMPONENTS)
     message(FATAL_ERROR
@@ -67,7 +67,7 @@ target_compile_definitions(jyppx_component_consumer
     PRIVATE JYPPX_CONSUMER_${JYPPX_LIUDING_COMPONENT_MACRO}=1
 )
 foreach(JYPPX_ENTITY_COMPONENT IN ITEMS
-        foundation core interop data data_image vision_render nn optim training experiment models onnx_export onnx_runtime quantization serving)
+        foundation core interop data data_image vision_render nn optim training experiment models onnx_export onnx_runtime onnx_serving quantization serving)
     string(TOUPPER "${JYPPX_ENTITY_COMPONENT}" JYPPX_ENTITY_COMPONENT_UPPER)
     if(TARGET jyppx::liuding::${JYPPX_ENTITY_COMPONENT})
         target_compile_definitions(jyppx_component_consumer PRIVATE
@@ -120,7 +120,7 @@ if(WIN32)
     endif()
 endif()
 
-if(WIN32 AND JYPPX_CONSUMER_COMPONENT STREQUAL "onnx_runtime")
+if(WIN32 AND JYPPX_CONSUMER_COMPONENT MATCHES "^onnx_(runtime|serving)$")
     get_filename_component(runtime_prefix "${jyppx_DIR}/../../.." ABSOLUTE)
     file(GLOB runtime_dlls "${runtime_prefix}/bin/onnxruntime*.dll")
     if(NOT EXISTS "${runtime_prefix}/bin/onnxruntime.dll")

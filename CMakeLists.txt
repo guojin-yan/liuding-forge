@@ -35,6 +35,7 @@ option(JYPPX_LIUDING_BUILD_QUANTIZATION "Build the independent storage quantizat
 option(JYPPX_LIUDING_BUILD_SERVING "Build the independent in-process serving Preview" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_EXPORT "Build the optional native C++ ONNX exporter" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_RUNTIME "Build the optional ONNX Runtime adapter with explicit providers" OFF)
+option(JYPPX_LIUDING_BUILD_ONNX_SERVING "Build the optional ONNX Runtime serving bridge" OFF)
 set(JYPPX_LIUDING_MODELS_REFERENCE_DIR "" CACHE PATH
     "Pre-generated official models reference fixtures; enables the optional differential test")
 set(JYPPX_TOOLS_DEFAULT OFF)
@@ -93,6 +94,11 @@ foreach(JYPPX_PREVIEW_COMPONENT IN ITEMS MODELS SERVING)
         endif()
     endforeach()
 endforeach()
+if(JYPPX_LIUDING_BUILD_ONNX_SERVING AND
+   (NOT JYPPX_LIUDING_BUILD_SERVING OR NOT JYPPX_LIUDING_BUILD_ONNX_RUNTIME))
+    message(FATAL_ERROR
+        "JYPPX_LIUDING_BUILD_ONNX_SERVING=ON requires SERVING and ONNX_RUNTIME components")
+endif()
 if(JYPPX_LIUDING_MODELS_REFERENCE_DIR AND
    (NOT JYPPX_LIUDING_BUILD_MODELS OR NOT JYPPX_LIUDING_BUILD_TESTS))
     message(FATAL_ERROR
@@ -325,6 +331,7 @@ set(JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED ${JYPPX_LIUDING_BUILD_QUANTIZAT
 set(JYPPX_LIUDING_COMPONENT_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_SERVING})
 set(JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_RUNTIME})
 set(JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_EXPORT})
+set(JYPPX_LIUDING_COMPONENT_ONNX_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_SERVING})
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/jyppx_build_config.hpp.in"
     "${JYPPX_GENERATED_INCLUDE_DIR}/jyppx/liuding/foundation/build_config.hpp"
@@ -757,6 +764,7 @@ endif()
 if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     add_library(jyppx_liuding_onnx_runtime STATIC
         src/jyppx/liuding/deployment/onnx_runtime/session.cpp
+        src/jyppx/liuding/deployment/onnx_runtime/environment.cpp
         src/jyppx/liuding/deployment/onnx_runtime/verification.cpp)
     add_library(jyppx::liuding::onnx_runtime ALIAS jyppx_liuding_onnx_runtime)
     set_target_properties(jyppx_liuding_onnx_runtime PROPERTIES
@@ -806,6 +814,24 @@ if(JYPPX_LIUDING_BUILD_SERVING)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_serving)
     list(APPEND JYPPX_ENABLED_COMPONENTS serving)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS serving)
+endif()
+
+if(JYPPX_LIUDING_BUILD_ONNX_SERVING)
+    add_library(jyppx_liuding_onnx_serving STATIC
+        src/jyppx/liuding/deployment/onnx_serving/backend.cpp)
+    add_library(jyppx::liuding::onnx_serving ALIAS jyppx_liuding_onnx_serving)
+    set_target_properties(jyppx_liuding_onnx_serving PROPERTIES
+        OUTPUT_NAME liuding-forge-onnx-serving EXPORT_NAME onnx_serving)
+    target_include_directories(jyppx_liuding_onnx_serving PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(jyppx_liuding_onnx_serving
+        PUBLIC jyppx_liuding_onnx_runtime jyppx_liuding_serving
+        PRIVATE jyppx_liuding_core jyppx_liuding_foundation
+                jyppx_liuding_interop jyppx_liuding_nn)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_onnx_serving)
+    list(APPEND JYPPX_ENABLED_COMPONENTS onnx_serving)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/onnx_serving)
 endif()
 
 if(JYPPX_LIUDING_BUILD_ONNX_EXPORT)

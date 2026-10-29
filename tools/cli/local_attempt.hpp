@@ -17,6 +17,20 @@ namespace jyppx::liuding::cli {
  */
 Result local_attempt_command(const Arguments& arguments);
 
+/** @brief Validates a frozen request, optionally checking executable and cwd.
+ */
+void validate_local_execution_spec(const Json& spec, bool inspect_files = true);
+
+/** @brief Executes/replays one frozen job with an optional run parent. */
+Result execute_local_job(
+    const std::filesystem::path& root, std::string_view job_id,
+    const Json& spec, std::optional<std::string> parent_run_id = std::nullopt);
+
+/** @brief Reads, recovers or cancels a job without parsing CLI output. */
+Result control_local_job(std::string_view action,
+                         const std::filesystem::path& root,
+                         std::string_view job_id);
+
 }  // namespace jyppx::liuding::cli
 
 #endif  // JYPPX_LIUDING_TOOLS_CLI_LOCAL_ATTEMPT_HPP

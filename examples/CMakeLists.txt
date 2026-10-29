@@ -91,3 +91,42 @@ if(TARGET jyppx::liuding::nn AND TARGET jyppx::liuding::interop
             LABELS "examples;deployment;onnx_export;onnx_runtime" TIMEOUT 180)
     endif()
 endif()
+
+if(TARGET jyppx::liuding::onnx_serving AND TARGET jyppx::liuding::onnx_export)
+    add_executable(jyppx_liuding_serving_onnx serving/onnx.cpp)
+    set_target_properties(jyppx_liuding_serving_onnx PROPERTIES
+        OUTPUT_NAME liuding-forge-example-serving-onnx)
+    target_link_libraries(jyppx_liuding_serving_onnx PRIVATE
+        jyppx::liuding::onnx_serving jyppx::liuding::onnx_export
+        jyppx::liuding::foundation)
+    jyppx_apply_instrumentation(jyppx_liuding_serving_onnx)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_serving_onnx)
+    jyppx_add_onnx_runtime_dependency(jyppx_liuding_serving_onnx)
+    if(JYPPX_LIUDING_BUILD_TESTS)
+        add_test(NAME ServingOnnxExample COMMAND jyppx_liuding_serving_onnx)
+        set_tests_properties(ServingOnnxExample PROPERTIES
+            LABELS "examples;serving;deployment;onnx_runtime" TIMEOUT 120)
+    endif()
+endif()
+
+if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::nn
+   AND TARGET jyppx::liuding::interop)
+    add_executable(jyppx_liuding_search_trial experiment/search_trial.cpp)
+    set_target_properties(jyppx_liuding_search_trial PROPERTIES
+        OUTPUT_NAME liuding-forge-example-search-trial)
+    target_link_libraries(jyppx_liuding_search_trial PRIVATE
+        jyppx::liuding::experiment jyppx::liuding::nn
+        jyppx::liuding::interop nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_liuding_search_trial)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_search_trial)
+    if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND
+       AND TARGET jyppx_cli_recipe_gate)
+        add_test(NAME LocalSearchTrainingExample
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_search_training_example.py"
+                --worker $<TARGET_FILE:jyppx_liuding_search_trial>
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+        set_tests_properties(LocalSearchTrainingExample PROPERTIES
+            LABELS "examples;experiment;training;cli" TIMEOUT 240)
+    endif()
+endif()

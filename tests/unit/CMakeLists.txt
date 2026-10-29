@@ -553,7 +553,8 @@ if(TARGET jyppx::liuding::onnx_export)
         deployment/onnx_export/test_generic_contracts.cpp)
     if(TARGET jyppx::liuding::onnx_runtime)
         target_sources(jyppx_test_onnx_export PRIVATE
-            deployment/onnx_runtime/test_verification.cpp)
+            deployment/onnx_runtime/test_verification.cpp
+            deployment/onnx_runtime/test_environment.cpp)
     endif()
     target_link_libraries(jyppx_test_onnx_export PRIVATE nlohmann_json::nlohmann_json)
     if(TARGET jyppx::liuding::nn AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::experiment)
@@ -650,4 +651,13 @@ if(TARGET jyppx::liuding::serving)
         LINK_TARGET jyppx::liuding::serving
         serving/test_serving_torchscript.cpp
     )
+endif()
+
+if(TARGET jyppx::liuding::onnx_serving AND TARGET jyppx::liuding::onnx_export)
+    jyppx_add_gtest(jyppx_test_onnx_serving
+        LINK_TARGET jyppx::liuding::onnx_serving
+        deployment/onnx_serving/test_backend.cpp)
+    target_link_libraries(jyppx_test_onnx_serving PRIVATE
+        jyppx::liuding::onnx_export nlohmann_json::nlohmann_json)
+    jyppx_add_onnx_runtime_dependency(jyppx_test_onnx_serving)
 endif()
