@@ -35,25 +35,25 @@ namespace jyppx::liuding::data::image {
 
 /** @brief Image container family detected from encoded bytes. */
 enum class ImageFormat : std::uint8_t {
-  auto_detect,
-  jpeg,
-  png,
-  bmp,
-  gif,
-  tga,
-  pnm,
-  hdr,
-  pic,
-  unknown,
+  auto_detect,  ///< Detect the format without asserting a container family.
+  jpeg,         ///< JPEG still-image container.
+  png,          ///< PNG still-image container, including 16-bit sources.
+  bmp,          ///< BMP bitmap container.
+  gif,          ///< GIF container; decoding publishes its first frame.
+  tga,          ///< Targa still-image container.
+  pnm,          ///< Portable anymap container accepted by the decoder.
+  hdr,          ///< Radiance HDR container.
+  pic,          ///< Softimage PIC container.
+  unknown,      ///< No supported container family has been identified.
 };
 
 /** @brief Requested channel conversion policy. */
 enum class ImageChannels : std::uint8_t {
-  source,  ///< Preserve the encoded channel count (one through four).
-  gray,    ///< Decode or convert to one luminance channel.
-  gray_alpha,
-  rgb,
-  rgba,
+  source,      ///< Preserve the encoded channel count (one through four).
+  gray,        ///< Decode or convert to one luminance channel.
+  gray_alpha,  ///< Decode or convert to luminance and alpha channels.
+  rgb,         ///< Decode or convert to red, green and blue channels.
+  rgba,        ///< Decode or convert to red, green, blue and alpha channels.
 };
 
 /** @brief Scalar representation of the published tensor. */

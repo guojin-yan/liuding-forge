@@ -211,7 +211,7 @@ struct LoadOptions {
  */
 class RetryableOutOfMemory : public ResourceExhausted {
  public:
-  /** @brief Inherits the structured resource-error constructors. */
+  // Retain both base constructors and their respective parameter contracts.
   using ResourceExhausted::ResourceExhausted;
 };
 

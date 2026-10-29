@@ -27,11 +27,11 @@ namespace jyppx::liuding::data::image {
 
 /** @brief Axis-aligned operation applied identically to all aligned targets. */
 enum class ImageGeometryKind : std::uint8_t {
-  resize,
-  crop,
-  pad,
-  horizontal_flip,
-  vertical_flip
+  resize,  ///< Resample to an explicit positive output extent.
+  crop,  ///< Select a positive rectangle inside the current canvas.
+  pad,  ///< Extend the canvas with explicitly declared fill values.
+  horizontal_flip,  ///< Reflect about the current vertical center line.
+  vertical_flip  ///< Reflect about the current horizontal center line.
 };
 
 /** @brief One explicit step; inactive fields must remain zero. */
@@ -94,6 +94,7 @@ struct JointTransformOptions {
   double min_region_visibility =
       0;  ///< Surviving source region fraction [0,1].
   OrientedBoxCrop oriented_box_crop = OrientedBoxCrop::to_polygon;
+  ///< Policy for an oriented box that is only partially retained by a crop.
   bool drop_empty_pose =
       false;  ///< Drop pose objects with no remaining points.
   std::vector<std::vector<std::size_t>> horizontal_keypoint_permutations;

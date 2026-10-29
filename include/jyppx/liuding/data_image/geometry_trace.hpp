@@ -26,15 +26,16 @@ namespace jyppx::liuding::data::image {
 
 /** @brief A positive integer image extent. */
 struct ImageExtent {
-  std::uint32_t width = 0;
-  std::uint32_t height = 0;
+  std::uint32_t width = 0;   ///< Horizontal pixels; zero is an unset value.
+  std::uint32_t height = 0;  ///< Vertical pixels; zero is an unset value.
 };
 
 /** @brief Bounded, data-only snapshot of an axis-aligned geometry trace. */
 struct GeometryTraceState {
-  ImageExtent source;
-  ImageExtent output;
+  ImageExtent source;  ///< Positive original canvas extent.
+  ImageExtent output;  ///< Positive current canvas extent, including padding.
   std::optional<ImageBox> source_region;
+  ///< Surviving original content in source coordinates; absent if all was cut.
   std::array<double, 4> coefficients = {1, 1, 0, 0};  ///< sx, sy, tx, ty.
   std::uint16_t operations = 0;  ///< Consumed composition budget.
 };
@@ -46,6 +47,8 @@ struct GeometryTraceState {
  * At most 128 operations can be composed. Affine coefficients and surviving
  * source bounds are retained; no per-pixel storage or unbounded history is
  * used.
+ * Const operations may run concurrently while the value is not reassigned;
+ * snapshots and returned traces own their bounded metadata independently.
  */
 class GeometryTrace {
  public:
@@ -124,24 +127,34 @@ class GeometryTrace {
    */
   std::optional<ImageBox> inverse_box(ImageBox box) const;
 
-  /** @brief Returns the original decoder-space extent. */
+  /** @brief Returns the original decoder-space extent.
+   * @return Positive source width and height in pixels.
+   */
   ImageExtent source_extent() const noexcept;
-  /** @brief Returns the current canvas extent, including padding. */
+  /** @brief Returns the current canvas extent, including padding.
+   * @return Positive output width and height in pixels.
+   */
   ImageExtent output_extent() const noexcept;
   /** @brief Returns the surviving source rectangle, or nullopt if all was cut.
+   * @return Independent source-coordinate bounds, excluding discarded regions.
    */
   std::optional<ImageBox> source_region() const noexcept;
   /** @brief Returns current real-content bounds, excluding synthetic padding.
+   * @return Output-coordinate source content, or nullopt if none survives.
    */
   std::optional<ImageBox> output_region() const noexcept;
-  /** @brief Reports whether any original region was discarded. */
+  /** @brief Reports whether any original region was discarded.
+   * @return True only when the entire original source rectangle survives.
+   */
   bool retains_full_source() const noexcept;
   /** @brief Returns the row-major 3x3 source-to-output boundary transform.
    * @return Mathematical mapping; use point/box APIs to enforce valid regions.
    */
   std::array<double, 9> matrix() const noexcept;
 
-  /** @brief Returns all state needed for a bounded batch/checkpoint value. */
+  /** @brief Returns all state needed for a bounded batch/checkpoint value.
+   * @return Independent snapshot, including the consumed operation budget.
+   */
   GeometryTraceState state() const noexcept;
 
   /** @brief Restores a snapshot after checking extents, bounds and mapping.
@@ -153,17 +166,24 @@ class GeometryTrace {
   static GeometryTrace from_state(const GeometryTraceState& state);
 
  private:
+  /** @brief Copies this trace and consumes one operation from its budget.
+   * @return New trace before the next operation updates its mapping.
+   * @throws ResourceExhausted More than 128 operations are requested.
+   */
   GeometryTrace next() const;
+  /** @brief Checks finite, invertible affine coefficients.
+   * @throws InvalidArgument Scale is zero or a coefficient is nonfinite.
+   */
   void validate_mapping() const;
 
-  ImageExtent source_;
-  ImageExtent output_;
-  std::optional<ImageBox> source_region_;
-  double scale_x_ = 1;
-  double scale_y_ = 1;
-  double offset_x_ = 0;
-  double offset_y_ = 0;
-  std::uint16_t operations_ = 0;
+  ImageExtent source_;                     ///< Original decoder-space extent.
+  ImageExtent output_;                     ///< Current canvas extent.
+  std::optional<ImageBox> source_region_;  ///< Surviving source rectangle.
+  double scale_x_ = 1;  ///< Source-to-output horizontal scale, including flips.
+  double scale_y_ = 1;  ///< Source-to-output vertical scale, including flips.
+  double offset_x_ = 0;  ///< Horizontal output-boundary translation in pixels.
+  double offset_y_ = 0;  ///< Vertical output-boundary translation in pixels.
+  std::uint16_t operations_ = 0;  ///< Consumed composition budget, at most 128.
 };
 
 }  // namespace jyppx::liuding::data::image

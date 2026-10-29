@@ -195,12 +195,13 @@ struct TensorImageRecord {
 /** @brief Limits checked against each caller-owned Tensor before publication.
  */
 struct TensorImageDatasetLimits {
-  std::size_t max_records = 1'000'000;
-  std::uint32_t max_dimension = 65'536;
-  std::uint64_t max_pixels = 268'435'456;
+  std::size_t max_records = 1'000'000;   ///< Positive source-record count cap.
+  std::uint32_t max_dimension = 65'536;  ///< Positive cap for any canvas side.
+  std::uint64_t max_pixels = 268'435'456;  ///< Positive pixels-per-image cap.
   std::uint64_t max_sample_bytes = 1ULL << 30U;  ///< All logical pixel fields.
-  std::size_t max_id_bytes = 4096;
-  std::size_t max_labels_per_sample = 4096;
+  std::size_t max_id_bytes =
+      4096;  ///< Positive source/target identity-byte cap.
+  std::size_t max_labels_per_sample = 4096;  ///< Positive per-record label cap.
 };
 
 /**
@@ -216,10 +217,12 @@ struct TensorImageDatasetLimits {
  * and collation account for their own new allocations. An optional geometry
  * trace must end at the supplied Tensor canvas; otherwise get() starts an
  * identity trace there.
+ * Concurrent reads are allowed while the source storage is not mutated.
  */
 class TensorImageDataset final : public Dataset<VisionSample> {
  public:
   /**
+   * @brief Adopts a finite record list after validating Tensor contracts.
    * @param records Finite source order; Tensor handles remain valid after the
    * caller releases its handles.
    * @param categories Classification map required for non-empty labels.
@@ -231,16 +234,30 @@ class TensorImageDataset final : public Dataset<VisionSample> {
                               std::vector<VisionCategory> categories = {},
                               TensorImageDatasetLimits limits = {});
 
-  /** @brief Returns a shared Tensor handle and copied bounded metadata. */
+  /** @brief Returns a shared Tensor handle and copied bounded metadata.
+   * @param index Zero-based source index less than size().
+   * @return Shared pixels/targets, copied labels and source-to-canvas trace.
+   * @throws InvalidArgument Index is outside this dataset.
+   */
   VisionSample get(std::size_t index) const override;
-  /** @brief Returns one sample with cooperative cancellation. */
+  /** @brief Returns one sample with cooperative cancellation.
+   * @param index Zero-based source index less than size().
+   * @param stop Cancellation checked before and after constructing metadata.
+   * @return Shared pixels/targets, copied labels and source-to-canvas trace.
+   * @throws InvalidArgument Index is outside this dataset.
+   * @throws Cancelled Cancellation requested before publication.
+   */
   VisionSample get(std::size_t index, std::stop_token stop) const;
-  /** @brief Returns the immutable number of source records. */
+  /** @brief Returns the immutable number of source records.
+   * @return Source-record count without copying pixels.
+   */
   std::size_t size() const override;
 
  private:
-  std::vector<TensorImageRecord> records_;
+  std::vector<TensorImageRecord>
+      records_;  ///< Owned metadata and Tensor handles.
   std::shared_ptr<const std::vector<VisionCategory>> categories_;
+  ///< Immutable classification map shared by every returned sample.
 };
 
 }  // namespace jyppx::liuding::data::image

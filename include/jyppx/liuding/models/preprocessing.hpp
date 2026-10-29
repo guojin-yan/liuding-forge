@@ -33,7 +33,11 @@ enum class PreprocessInterpolation : std::uint8_t {
 };
 
 /** @brief Channel order expected before channel-wise normalization. */
-enum class PreprocessColor : std::uint8_t { gray = 1, rgb = 2, bgr = 3 };
+enum class PreprocessColor : std::uint8_t {
+  gray = 1,  ///< One luminance channel.
+  rgb = 2,   ///< Red, green and blue channels in that order.
+  bgr = 3    ///< Blue, green and red channels in that order.
+};
 
 /** @brief Explicit unit-intensity image evaluation recipe.
  * Geometry precedes conversion to unit intensities and then (pixel-mean)/std.

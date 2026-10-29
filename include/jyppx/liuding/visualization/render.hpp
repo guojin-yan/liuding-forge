@@ -27,38 +27,41 @@ namespace jyppx::liuding::visualization {
 
 /** @brief RGB color used for compositing and annotation outlines. */
 struct RgbColor {
-  std::uint8_t red = 255;
-  std::uint8_t green = 0;
-  std::uint8_t blue = 0;
+  std::uint8_t red = 255;  ///< Red intensity in [0, 255].
+  std::uint8_t green = 0;  ///< Green intensity in [0, 255].
+  std::uint8_t blue = 0;   ///< Blue intensity in [0, 255].
 };
 
 /** @brief Independent resource and drawing policy for one CPU render. */
 struct RenderOptions {
-  RgbColor background{0, 0, 0};
-  std::uint32_t line_width = 2;
-  std::uint32_t point_radius = 3;
-  std::uint8_t mask_alpha = 112;
-  std::uint8_t heatmap_alpha = 176;
-  bool draw_boxes = true;
-  bool draw_oriented_boxes = true;
-  bool draw_polygons = true;
-  bool draw_keypoints = true;
-  bool draw_instance_rle = true;
-  std::optional<std::int64_t> mask_ignore_id;
-  std::uint64_t max_pixels = 67'108'864;
-  std::size_t max_output_bytes = 512U << 20U;
-  std::size_t max_objects = 100'000;
+  RgbColor background{0, 0, 0};    ///< Background for input alpha compositing.
+  std::uint32_t line_width = 2;    ///< Outline width in pixels, in [1, 128].
+  std::uint32_t point_radius = 3;  ///< Keypoint radius in pixels, in [0, 512].
+  std::uint8_t mask_alpha = 112;   ///< Mask opacity; 0 transparent, 255 opaque.
+  std::uint8_t heatmap_alpha = 176;  ///< Maximum heatmap opacity in [0, 255].
+  bool draw_boxes = true;            ///< Draw axis-aligned box outlines.
+  bool draw_oriented_boxes = true;   ///< Draw oriented-box outlines.
+  bool draw_polygons = true;         ///< Draw polygon outlines.
+  bool draw_keypoints = true;  ///< Draw visible keypoints and skeleton links.
+  bool draw_instance_rle = true;  ///< Composite instance RLE masks.
+  std::optional<std::int64_t>
+      mask_ignore_id;                     ///< Dense mask ID left unpainted.
+  std::uint64_t max_pixels = 67'108'864;  ///< Positive output-canvas pixel cap.
+  std::size_t max_output_bytes = 512U << 20U;  ///< Positive RGB8 payload cap.
+  std::size_t max_objects = 100'000;  ///< Positive annotation-object count cap.
   std::size_t max_points =
       5'000'000;  ///< Vertices, keypoints, links and RLE runs.
-  std::uint64_t max_raster_ops = 250'000'000;
+  std::uint64_t max_raster_ops = 250'000'000;  ///< Positive pixel-write budget.
   std::shared_ptr<data::image::ImageResourceBudget> resource_budget;
+  ///< Optional shared accounting for pixels, temporary work and output bytes.
 };
 
 /** @brief Owning HWC RGB8 render result with explicit pixel semantics. */
 struct RenderedImage {
-  Tensor pixels;
-  data::image::PixelSpec spec;
-  /** @brief Holds the aggregate decoded-byte lease while pixels are retained. */
+  Tensor pixels;                ///< Owned contiguous CPU uint8 [H,W,3] output.
+  data::image::PixelSpec spec;  ///< HWC RGB unsigned-full-scale semantics.
+  /** @brief Holds the aggregate decoded-byte lease while pixels are retained.
+   */
   data::image::ImageResourceLease output_lease;
 };
 

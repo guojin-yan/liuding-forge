@@ -24,19 +24,21 @@ enum class BatchPixelScale : std::uint8_t {
 /** @brief One photo-field transform, shared by all samples in the batch. */
 struct BatchPixelTransform {
   Dtype dtype = torch::kFloat32;  ///< float16, bfloat16, float32 or float64.
-  BatchPixelScale scale = BatchPixelScale::to_unit;
-  bool swap_red_blue = false;  ///< RGB <-> BGR, preserving optional alpha.
-  std::vector<double> mean;    ///< Empty disables normalization; otherwise C.
-  std::vector<double> std;     ///< Same length as mean; finite and positive.
+  BatchPixelScale scale =
+      BatchPixelScale::to_unit;  ///< Explicit value scaling.
+  bool swap_red_blue = false;    ///< RGB <-> BGR, preserving optional alpha.
+  std::vector<double> mean;      ///< Empty disables normalization; otherwise C.
+  std::vector<double> std;       ///< Same length as mean; finite and positive.
 };
 
 /** @brief Independent input/paired-photo policy and per-call limits. */
 struct ImageBatchTransformOptions {
-  BatchPixelTransform image;
+  BatchPixelTransform image;  ///< Required main-photo conversion policy.
   std::optional<BatchPixelTransform>
-      paired;  ///< Absent preserves paired pixels.
-  ImageBatchLimits limits;
+      paired;               ///< Absent preserves paired pixels.
+  ImageBatchLimits limits;  ///< Independent per-call tensor and metadata caps.
   std::shared_ptr<ImageResourceBudget> resource_budget;
+  ///< Optional shared accounting for new output and working allocations.
 };
 
 /**

@@ -20,13 +20,15 @@ namespace jyppx::liuding::data::image {
 
 /** @brief Joint geometry policy and aggregate batch resource limits. */
 struct ImageBatchGeometryOptions {
-  JointTransformOptions joint;
-  ImageBatchLimits limits;
+  JointTransformOptions joint;  ///< Per-sample pixel and annotation policy.
+  ImageBatchLimits limits;      ///< Aggregate output and metadata limits.
   std::optional<ImageExtent> output_padded_extent;
-  std::uint32_t output_size_divisor = 1;
+  ///< Explicit pad-layout canvas; absent uses the largest transformed sample.
+  std::uint32_t output_size_divisor = 1;  ///< Positive pad-canvas side divisor.
   /// Authorizes one bounded CUDA-to-host segment summary per panoptic sample.
   bool allow_cuda_panoptic_summary_transfer = false;
   std::shared_ptr<ImageResourceBudget> resource_budget;
+  ///< Optional shared accounting for new output and working allocations.
 };
 
 /**
@@ -34,11 +36,14 @@ struct ImageBatchGeometryOptions {
  * @param batch Batch metadata supplies sample ID, occurrence, view and extent.
  * @param dataset_id Frozen source/configuration identity.
  * @param random Fixed resize, optional random crop and flip probabilities.
- * @param joint Pixel, annotation and per-sample resource policies.
- * @param limits Aggregate batch resource limits included in the identity.
- * @param seed Experiment seed; epoch is an explicit logical coordinate.
+ * @param options Joint, aggregate and output-canvas policies bound to identity.
+ * @param seed Experiment seed, independent of global LibTorch RNG.
+ * @param epoch Explicit logical epoch selected by the coordinator.
  * @return One deterministic step sequence per item, independent of worker
  * count and batch ordering.
+ * @throws InvalidArgument Invalid batch, sample identity or geometry policy.
+ * @throws ResourceExhausted Batch validation or bounded sampling exceeds
+ * limits.
  */
 std::vector<std::vector<ImageGeometryStep>> sample_image_batch_geometry(
     const ImageBatch& batch, std::string_view dataset_id,
@@ -46,7 +51,12 @@ std::vector<std::vector<ImageGeometryStep>> sample_image_batch_geometry(
     const ImageBatchGeometryOptions& options = {}, std::uint64_t seed = 0,
     std::uint64_t epoch = 0);
 
-/** @brief SHA-256 identity of random, joint and aggregate geometry policies. */
+/** @brief Hashes random, joint and aggregate geometry policies.
+ * @param random Frozen sampler configuration.
+ * @param options Joint limits, output canvas and explicit transfer policy.
+ * @return Versioned lowercase SHA-256; excludes the runtime budget instance.
+ * @throws InvalidArgument Invalid sampler, joint or output policy.
+ */
 std::string image_batch_geometry_identity(
     const RandomGeometryOptions& random,
     const ImageBatchGeometryOptions& options = {});

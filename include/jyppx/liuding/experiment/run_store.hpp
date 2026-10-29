@@ -260,8 +260,18 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
   /**
    * @brief Streams a published file into CAS and attaches it under one writer
    * transaction without retaining the entire file in memory.
+   * @param run_id Existing run identity.
+   * @param reference_id Stable run-local idempotency identity.
+   * @param kind Artifact or checkpoint relationship kind.
+   * @param role Semantic relationship role.
    * @param path Existing ordinary file; its path is not persisted.
+   * @param descriptor Producer metadata and optional exact file size assertion.
+   * @param attached_at_unix_ms Stable relationship timestamp.
    * @param expected_digest Producer assertion for the exact published bytes.
+   * @param stop Cooperative cancellation during streaming and publication.
+   * @param deadline Absolute steady-clock operation deadline.
+   * @return Durable immutable relationship to the verified file content.
+   * @throws Error Invalid identity, changed file, failed digest, quota or I/O.
    * @note Pass an image sink completion's path, size in descriptor, and SHA-256
    * only after the completion succeeds. A later telemetry artifact event may
    * reference the returned immutable artifact independently.
@@ -275,6 +285,11 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
 
   /**
    * @brief Registers a published file and appends its artifact observation.
+   * @param request Immutable relationship, published file and event identity.
+   * @param stop Cooperative cancellation, including event/database waits.
+   * @param deadline Absolute steady-clock deadline shared by both operations.
+   * @return Durable relationship, its replay flag and durable event receipts.
+   * @throws Error Invalid request, publication or event transaction failure.
    * @note Registration and event append are separate durable transactions. If
    * append fails, retry the same request without `path`; the already-registered
    * relationship is checked by ID without reading the original file. The event
@@ -310,7 +325,15 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
    */
   std::vector<RunArtifactReference> references(std::string_view run_id) const;
 
-  /** @brief Finds one relationship using its run-local primary key. */
+  /** @brief Finds one relationship using its run-local primary key.
+   * @param run_id Existing run identity.
+   * @param reference_id Run-local relationship identity to query.
+   * @param stop Cooperative cancellation, including database/handle waits.
+   * @param deadline Absolute steady-clock operation deadline.
+   * @return Detached relationship, or nullopt when absent from the existing
+   * run.
+   * @throws Error Invalid identity, missing run or database failure.
+   */
   std::optional<RunArtifactReference> find_reference(
       std::string_view run_id, std::string_view reference_id,
       std::stop_token stop = {},

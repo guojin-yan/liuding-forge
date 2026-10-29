@@ -30,16 +30,20 @@ enum class ImageLayout : std::uint8_t {
 
 /** @brief Explicit order and meaning of the published channels. */
 enum class PixelColorModel : std::uint8_t {
-  gray,
-  gray_alpha,
-  rgb,
-  rgba,
-  bgr,
-  bgra,
+  gray,        ///< One luminance channel.
+  gray_alpha,  ///< Luminance followed by alpha.
+  rgb,         ///< Red, green and blue channels in that order.
+  rgba,        ///< Red, green, blue and alpha channels in that order.
+  bgr,         ///< Blue, green and red channels in that order.
+  bgra,        ///< Blue, green, red and alpha channels in that order.
 };
 
 /** @brief Alpha association; absence and premultiplication are distinct. */
-enum class PixelAlphaMode : std::uint8_t { none, straight, premultiplied };
+enum class PixelAlphaMode : std::uint8_t {
+  none,          ///< The color model has no alpha channel.
+  straight,      ///< Color channels are independent of the alpha value.
+  premultiplied  ///< Color channels are multiplied by the alpha value.
+};
 
 /** @brief Encoding range, independent of the values present in an image. */
 enum class PixelValueRange : std::uint8_t {

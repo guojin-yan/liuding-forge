@@ -26,34 +26,35 @@ namespace jyppx::liuding::data::image {
 
 /** @brief Encoded still-image formats supported by the built-in writer. */
 enum class ImageEncodeFormat : std::uint8_t {
-  png,
-  jpeg,
+  png,   ///< Lossless uint8 PNG with one through four channels.
+  jpeg,  ///< Quality-controlled uint8 grayscale or RGB JPEG without alpha.
 };
 
 /** @brief Independent limits applied before allocation and during encoding. */
 struct ImageEncodeLimits {
-  std::size_t max_input_bytes = 1U << 30U;     ///< Tensor storage bound.
-  std::uint32_t max_dimension = 65'536;        ///< Width and height bound.
-  std::uint64_t max_pixels = 268'435'456;      ///< Width times height bound.
+  std::size_t max_input_bytes = 1U << 30U;  ///< Logical input pixel-byte bound.
+  std::uint32_t max_dimension = 65'536;     ///< Width and height bound.
+  std::uint64_t max_pixels = 268'435'456;   ///< Width times height bound.
   std::size_t max_output_bytes = 512U << 20U;  ///< Encoded byte bound.
   std::size_t max_working_bytes = 1U << 30U;   ///< Tensor staging/writer bound.
 };
 
 /** @brief Explicit output format, quality and resource policy. */
 struct ImageEncodeOptions {
-  ImageEncodeLimits limits = {};
-  ImageEncodeFormat format = ImageEncodeFormat::png;
+  ImageEncodeLimits limits = {};  ///< Positive independent per-call limits.
+  ImageEncodeFormat format = ImageEncodeFormat::png;  ///< Explicit byte format.
   int jpeg_quality = 90;  ///< Inclusive range 1..100; ignored for PNG.
   std::shared_ptr<ImageResourceBudget> resource_budget;
+  ///< Optional shared accounting for input, workspace and retained output.
 };
 
-/** @brief Owning encoded image and dimensions used by the writer. */
+/** @brief Move-only encoded image and dimensions used by the writer. */
 struct EncodedImage {
-  std::vector<std::byte> bytes;
-  ImageFormat format = ImageFormat::unknown;
-  std::uint32_t width = 0;
-  std::uint32_t height = 0;
-  std::uint8_t channels = 0;
+  std::vector<std::byte> bytes;  ///< Owned complete encoded file payload.
+  ImageFormat format = ImageFormat::unknown;  ///< PNG or JPEG after encoding.
+  std::uint32_t width = 0;    ///< Encoded horizontal pixel count.
+  std::uint32_t height = 0;   ///< Encoded vertical pixel count.
+  std::uint8_t channels = 0;  ///< Encoded channel count, including PNG alpha.
   /** @brief Holds the aggregate encoded-byte lease until bytes are consumed. */
   ImageResourceLease output_lease;
 };
@@ -86,11 +87,14 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
  * @brief Encodes and writes one local image file.
  * @param path Destination path; parent directories are not created.
  * @param pixels CPU uint8 image tensor and explicit pixel semantics.
+ * @param pixel_spec Explicit layout, color and unsigned full-scale semantics.
  * @param options Encoding and resource policy.
  * @param stop Cooperative cancellation checked during the operation.
  * @throws IoError Destination open/write/flush failure.
  * @throws InvalidArgument, ResourceExhausted, SerializationError, DeviceError
  *         or Cancelled as documented by encode_image().
+ * @note Existing files are truncated after encoding succeeds; a failed write
+ * can leave partial output. Use ImageOutputSink for staged publication.
  */
 void write_image_file(const std::filesystem::path& path, const Tensor& pixels,
                       const PixelSpec& pixel_spec,

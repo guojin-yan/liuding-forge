@@ -38,6 +38,7 @@ struct SampleRandomKey {
  * the key digest with a separate domain, draw index and rejection counter;
  * the first eight digest bytes are a big-endian uint64. This is a reproducible
  * sampling primitive, not a secret-key or authentication API.
+ * Concurrent draws share no mutable cursor or global RNG state.
  */
 class SampleRandom final {
  public:
@@ -49,12 +50,14 @@ class SampleRandom final {
 
   /** @brief Returns a reproducible full-width unsigned draw.
    * @param draw Logical draw index; repeated requests return the same value.
+   * @return Unsigned 64-bit sample for rejection counter zero.
    */
   std::uint64_t bits(std::uint64_t draw) const;
 
   /** @brief Samples [0, upper_exclusive) using unbiased rejection sampling.
    * @param upper_exclusive Positive upper bound, including UINT64_MAX.
    * @param draw Logical draw index, independent of other draws' rejections.
+   * @return Uniform integer strictly below upper_exclusive.
    * @throws InvalidArgument The bound is zero.
    * @throws ResourceExhausted All 128 bounded rejection attempts fail.
    */
@@ -63,6 +66,7 @@ class SampleRandom final {
 
   /** @brief Returns the upper 53 bits scaled by 2^-53, in [0,1).
    * @param draw Logical draw index.
+   * @return Reproducible double in the half-open unit interval.
    */
   double unit(std::uint64_t draw) const;
 
@@ -72,6 +76,11 @@ class SampleRandom final {
   std::string identity() const;
 
  private:
+  /** @brief Hashes one draw and rejection coordinate without cursor mutation.
+   * @param draw Logical draw index.
+   * @param retry Rejection counter belonging only to this draw.
+   * @return First eight digest bytes interpreted as a big-endian uint64.
+   */
   std::uint64_t attempt(std::uint64_t draw, std::uint64_t retry) const;
   Sha256Digest key_;  ///< Frozen key digest; no mutable sampling cursor.
 };
