@@ -16,6 +16,7 @@
 
 #include <ATen/core/grad_mode.h>
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -32,6 +33,55 @@ namespace jyppx::liuding::onnx_export {
 namespace {
 ErrorDetails Details(std::string operation) {
   return {.component = "onnx_export.native", .operation = std::move(operation)};
+}
+
+ExportTensorRecord TensorRecord(const at::Tensor& tensor, std::string name,
+                                std::string role) {
+  static_assert(std::endian::native == std::endian::little);
+  std::string dtype;
+  switch (tensor.scalar_type()) {
+    case at::kBool:
+      dtype = "bool";
+      break;
+    case at::kByte:
+      dtype = "uint8";
+      break;
+    case at::kChar:
+      dtype = "int8";
+      break;
+    case at::kShort:
+      dtype = "int16";
+      break;
+    case at::kInt:
+      dtype = "int32";
+      break;
+    case at::kLong:
+      dtype = "int64";
+      break;
+    case at::kHalf:
+      dtype = "float16";
+      break;
+    case at::kBFloat16:
+      dtype = "bfloat16";
+      break;
+    case at::kFloat:
+      dtype = "float32";
+      break;
+    case at::kDouble:
+      dtype = "float64";
+      break;
+    default:
+      throw CompatibilityError("Unsupported export report tensor dtype");
+  }
+  const auto size = static_cast<std::size_t>(tensor.nbytes());
+  return {.name = std::move(name),
+          .dtype = std::move(dtype),
+          .shape = {tensor.sizes().begin(), tensor.sizes().end()},
+          .digest = {.hex = sha256_hex(std::span(
+                         static_cast<const std::byte*>(tensor.const_data_ptr()),
+                         size))},
+          .size_bytes = size,
+          .role = std::move(role)};
 }
 
 void ValidateOptions(const ExportOptions& options) {
@@ -351,6 +401,7 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
         "Native ONNX needs a nonnested tensor forward function",
         Details("trace"));
   ExportResult result;
+  result.report.emplace();
   result.input_names = Names(options.input_names, examples.size(), "input");
   torch::jit::Stack arguments;
   std::set<const c10::TensorImpl*> identities;
@@ -370,6 +421,8 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
           "Native ONNX inputs exceed bounds or alias one tensor",
           Details("inputs"));
     input_bytes += bytes;
+    result.report->inputs.push_back(
+        TensorRecord(examples[index], result.input_names[index], "input"));
     arguments.emplace_back(examples[index]);
   }
   const auto example_identities = identities;
@@ -377,11 +430,12 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
   std::vector<std::string> state_names;
   std::vector<at::Tensor> state_tensors;
   std::uint64_t state_bytes = 0;
-  const auto lift = [&](const auto& entries) {
+  const auto lift = [&](const auto& entries, const char* role) {
     for (const auto& entry : entries) {
       const auto& tensor = entry.value();
       const auto name = "state." + entry.key();
       ValidateTensor(tensor, options, name);
+      result.report->state.push_back(TensorRecord(tensor, name, role));
       if (example_identities.contains(tensor.unsafeGetTensorImpl()))
         throw InvalidArgument(
             "Native ONNX example aliases registered module state: " + name,
@@ -398,8 +452,8 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
       initializers.emplace(name, tensor.detach());
     }
   };
-  lift(module.named_parameters());
-  lift(module.named_buffers());
+  lift(module.named_parameters(), "parameter");
+  lift(module.named_buffers(), "buffer");
   at::NoGradGuard no_grad;
   const auto traced = torch::jit::tracer::trace(
       std::move(arguments),
@@ -430,6 +484,9 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
         Details("trace"));
   result.output_names =
       Names(options.output_names, result.output_shapes.size(), "output");
+  for (std::size_t index = 0; index < traced.second.size(); ++index)
+    result.report->outputs.push_back(TensorRecord(
+        traced.second[index].toTensor(), result.output_names[index], "output"));
   std::set<std::string> names(result.input_names.begin(),
                               result.input_names.end());
   for (const auto& name : result.output_names)
@@ -587,6 +644,18 @@ ExportResult Export(torch::nn::Module& module, const ForwardFunction& forward,
   result.operators.assign(operators.begin(), operators.end());
   result.input_shape = result.input_shapes.front();
   result.output_shape = result.output_shapes.front();
+  result.report->model_digest = result.digest;
+  result.report->model_size_bytes = result.onnx.size();
+  result.report->build = current_build_fingerprint();
+  result.report->opset = result.opset;
+  result.report->minimum_batch = options.minimum_batch;
+  result.report->maximum_batch = options.maximum_batch;
+  result.report->dynamic_axes = axes;
+  result.report->operators = result.operators;
+  std::sort(result.report->state.begin(), result.report->state.end(),
+            [](const auto& left, const auto& right) {
+              return left.name < right.name;
+            });
   return result;
 }
 }  // namespace

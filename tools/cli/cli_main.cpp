@@ -266,6 +266,9 @@ Result execute(const Arguments& arguments) {
                    "checkpoint diff --baseline PATH --candidate PATH",
                    "model inspect|verify --path PATH",
                    "model bundle inspect|verify --path DIRECTORY",
+                   "model onnx register --path MODEL --report REPORT "
+                   "--report-sha256 SHA256 --root RUN_STORE --id RUN "
+                   "--reference NAME",
                    "benchmark tensor --device cpu|cuda [options]",
                    "offline run --root PATH [options]",
                    "recipe schema [--name paired-affine|transfer]",

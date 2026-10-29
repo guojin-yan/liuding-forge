@@ -177,6 +177,8 @@ void changes_between(const Json& baseline, const Json& candidate,
 
 Result model_command(const Arguments& arguments) {
   const auto& words = arguments.words();
+  if (words.size() == 3U && words[0] == "model" && words[1] == "onnx")
+    return onnx_command(arguments);
   if (words.size() == 3U && words[0] == "model" && words[1] == "bundle") {
     if (words[2] != "inspect" && words[2] != "verify")
       usage("model.bundle",

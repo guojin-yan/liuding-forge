@@ -1307,6 +1307,31 @@ RunArtifactReference SQLiteRunStore::put_artifact(
   return reference;
 }
 
+std::vector<RunArtifactReference> SQLiteRunStore::put_artifacts(
+    std::string_view run_id, std::span<const RunArtifactUpload> uploads) {
+  impl_->validate_run_id(run_id);
+  if (uploads.empty()) invalid("put_artifacts", "a nonempty batch", "empty");
+  if (uploads.size() > impl_->options_.max_references_per_run)
+    exhausted("put_artifacts", "configured reference batch bound", "oversized");
+  std::lock_guard lock(impl_->mutex_);
+  Transaction transaction(impl_->database_);
+  (void)impl_->require_run(run_id);
+  std::vector<RunArtifactReference> references;
+  references.reserve(uploads.size());
+  for (const auto& upload : uploads) {
+    references.push_back(
+        {.reference_id = upload.reference_id,
+         .kind = upload.kind,
+         .role = upload.role,
+         .artifact = impl_->artifacts_.put(upload.bytes, upload.descriptor,
+                                           upload.expected_digest),
+         .attached_at_unix_ms = upload.attached_at_unix_ms});
+  }
+  impl_->attach_unlocked(run_id, references);
+  transaction.commit();
+  return references;
+}
+
 RunArtifactReference SQLiteRunStore::put_artifact_file(
     std::string_view run_id, std::string reference_id, RunArtifactKind kind,
     std::string role, const std::filesystem::path& path,

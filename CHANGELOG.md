@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- 通用 C++ ONNX 导出生成版本化报告，记录输入输出、参数/buffer 字节摘要、构建身份和动态 batch；CLI 校验模型/报告与训练来源后，以独立关联 run 原子登记模型和报告，支持幂等重试。
 - ONNX Runtime 支持按名称绑定多个 FP32 输入并返回多个具名输出，验证共享或独立 batch 符号；一次调用统一执行输入/输出总字节门禁，保留单输入输出简便接口。
 - 增加 Fashion-MNIST 离线 ImageFolder 准备工具：固定来源与许可，支持完整数据和每类前 100 张子集，流式生成精确 RGB PNG，保留原始索引及内容摘要。
 - 增加官方 CIFAR-10 binary 压缩包的离线校验与逐样本无损 ImageFolder 准备工具，以及完整 split 的 ResNet18 配置模板。

@@ -10,6 +10,7 @@
  * @brief Native C++ tracing, extensible ONNX lowering and serialization.
  */
 
+#include <jyppx/liuding/deployment/onnx_export/report.hpp>
 #include <jyppx/liuding/foundation/artifact.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
@@ -20,6 +21,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -84,6 +86,8 @@ struct ExportResult {
   std::vector<std::string> output_names;  ///< Public graph output names.
   std::uint32_t opset = 0U;    ///< Actual ONNX opset encoded in the bytes.
   bool external_data = false;  ///< Always false for this bounded first slice.
+  std::optional<ExportReport> report;  ///< Present for generic traces; Q0 uses
+                                       ///< its own source-artifact association.
 };
 
 /** @brief Calls trusted native forward code with positional tensor inputs. */

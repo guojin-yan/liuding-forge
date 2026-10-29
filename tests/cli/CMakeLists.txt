@@ -21,6 +21,15 @@ foreach(contract IN ITEMS model_checkpoint model_bundle evaluation_data offline_
     set_tests_properties(Cli_${contract} PROPERTIES LABELS "cli;integration" TIMEOUT 180)
 endforeach()
 
+if(TARGET jyppx::liuding::onnx_export)
+    add_test(NAME Cli_onnx_delivery
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_onnx_delivery.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+            --exporter $<TARGET_FILE:jyppx_test_onnx_export>)
+    set_tests_properties(Cli_onnx_delivery PROPERTIES
+        LABELS "cli;deployment;onnx_export;integration" TIMEOUT 300)
+endif()
+
 if(JYPPX_LIUDING_TEST_CLI_CUDA)
     foreach(contract IN ITEMS model_checkpoint offline_workflow)
         add_test(NAME Cli_${contract}_CUDA

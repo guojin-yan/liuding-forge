@@ -99,6 +99,13 @@ int main() {
                                    {"logits", {{0, "batch"}}}};
     const auto artifact =
         exporter::export_model(model, Input(2), export_options);
+    const auto report = exporter::deserialize_export_report(
+        exporter::serialize_export_report(artifact.report.value()));
+    exporter::verify_export_report_model(report, artifact.onnx);
+    Require(report.inputs.front().name == "features" &&
+                report.outputs.front().name == "logits" &&
+                report.dynamic_axes.at("features").at(0) == "batch",
+            "installed native export report");
     Require(!artifact.onnx.empty() &&
                 artifact.model == exporter::ModelKind::generic &&
                 !artifact.external_data,

@@ -71,3 +71,19 @@ Runtime 接收一个或多个具名 FP32 稠密输入，返回独立持有数据
 非 CPU 请求默认 `allow_cpu_fallback=false`，缺失后端或不支持的图明确失败；调用方显式允许后才接受 CPU 分区回退。`profile_prefix` 启用 ORT profiling，`end_profiling()` 返回可核对实际 Provider 与算子的文件。各后端的数值、kernel 与资源资格分别验证，CPU 结果不代表 GPU 结果。
 
 Runtime 在解析前检查完整字节 SHA-256 和大小，执行前检查形状、batch、输入大小与有限数值，输出独立拥有；取消与 deadline 为协作式中断。`max_io_tensors` 限制输入与输出的总个数，`max_input_bytes`、`max_output_bytes` 分别限制一次调用的全部输入、全部输出字节数，所有输出大小在分配输出数据前统一检查。I/O 上限不覆盖元数据、图中间量与设备分配，哈希不代表来源可信；不可信模型须额外隔离。
+
+## 导出报告与训练来源
+
+通用导出的 `ExportResult::report` 保存模型 SHA-256、构建身份、实际输入输出、参数与 buffer 的名称/类型/形状/字节摘要、算子和已解析的动态 batch。报告不保存样本或参数原文；计算摘要会额外读取这些已有 Tensor，不复制完整参数。Q0 INT8 转换使用自己的源制品关联，不提供 trace 报告。
+
+使用 `<jyppx/liuding/deployment/onnx_export/report.hpp>` 的 `serialize_export_report()` 保存报告，`deserialize_export_report()` 严格读取 schema v1，`verify_export_report_model()` 核对完整模型字节并重新调用 LibTorch 官方 checker。报告明确标记 Runtime 和数值验证为 `not_checked`，不能代替实际 ORT 测试或来源认证。
+
+调用方可在保存前填写 `report->source`：`run_id` 是原训练 run，其他三项从其 lineage 原样复制。源码身份可为 Git commit，配置与数据身份使用完整 SHA-256。将 ONNX 和报告保存为两个文件，并记录报告文件的 SHA-256 后，可以登记到已有 run store：
+
+```sh
+liuding-forge model onnx register \
+  --path model.onnx --report export-report.json --report-sha256 REPORT_SHA256 \
+  --root ./runs --id export-001 --reference deployment
+```
+
+命令要求启用 `onnx_export`，核对报告、模型与原 run lineage 后创建独立的导出 run，其 `parent_run_id` 指向原训练。模型和报告通过同一事务登记到 CAS，成功后导出 run 进入 completed；同一参数可安全重试，失败不留下半对模型/报告引用。原训练 run 可以已经完成。导出 run ID 应独立保留给本次交付，报告 SHA-256 只确认字节身份。CLI 当前仅登记原生导出结果；它不从权重推断用户 C++ forward，也不执行 ORT。bundle 发布和实际推理证据关联另行接入。

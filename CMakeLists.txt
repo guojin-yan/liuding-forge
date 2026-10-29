@@ -806,6 +806,7 @@ endif()
 if(JYPPX_LIUDING_BUILD_ONNX_EXPORT)
     add_library(jyppx_liuding_onnx_export STATIC
         src/jyppx/liuding/deployment/onnx_export/exporter.cpp
+        src/jyppx/liuding/deployment/onnx_export/report.cpp
         src/jyppx/liuding/deployment/onnx_export/generic_lowering.cpp)
     add_library(jyppx::liuding::onnx_export ALIAS jyppx_liuding_onnx_export)
     set_target_properties(jyppx_liuding_onnx_export PROPERTIES
@@ -822,7 +823,8 @@ if(JYPPX_LIUDING_BUILD_ONNX_EXPORT)
     target_compile_definitions(jyppx_liuding_onnx_export PUBLIC
         ONNX_NAMESPACE=onnx_torch)
     target_link_libraries(jyppx_liuding_onnx_export
-        PUBLIC jyppx_liuding_foundation ${TORCH_LIBRARIES})
+        PUBLIC jyppx_liuding_foundation ${TORCH_LIBRARIES}
+        PRIVATE $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
     if(JYPPX_LIUDING_BUILD_QUANTIZATION)
         target_sources(jyppx_liuding_onnx_export PRIVATE
             src/jyppx/liuding/deployment/onnx_export/static_int8_linear.cpp)

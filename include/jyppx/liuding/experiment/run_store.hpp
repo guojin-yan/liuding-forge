@@ -51,6 +51,18 @@ struct RunArtifactReference {
   std::uint64_t attached_at_unix_ms = 0;  ///< Relationship timestamp.
 };
 
+/** @brief Borrowed bytes for one item in an atomic run relationship batch. */
+struct RunArtifactUpload {
+  std::string reference_id;  ///< Stable run-local idempotency key.
+  RunArtifactKind kind = RunArtifactKind::artifact;  ///< Relationship kind.
+  std::string role;                                  ///< Semantic content role.
+  std::span<const std::byte> bytes;  ///< Immutable until put_artifacts returns.
+  ArtifactDescriptor descriptor;  ///< Producer fields and optional exact size.
+  std::optional<ArtifactDigest> expected_digest =
+      std::nullopt;                        ///< Byte assertion.
+  std::uint64_t attached_at_unix_ms = 0U;  ///< Stable retry timestamp.
+};
+
 /** @brief One published file and its durable artifact observation. */
 struct PublishedFileEvidenceRequest {
   std::string run_id;        ///< Existing run identity.
@@ -256,6 +268,18 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
       std::string role, std::span<const std::byte> bytes,
       const ArtifactDescriptor& descriptor, std::uint64_t attached_at_unix_ms,
       std::optional<ArtifactDigest> expected_digest = std::nullopt);
+
+  /** @brief Publishes blobs and commits every relationship in one transaction.
+   * @param run_id Existing run to associate with the complete batch.
+   * @param uploads Immutable borrowed payloads and stable relationship fields.
+   * @return Durable receipts in upload order; identical retries are idempotent.
+   * @throws Error Invalid input, quota, identity conflict or I/O failure.
+   * @note Failure leaves no new relationships. Already-published unreferenced
+   * CAS blobs may remain for GC. The writer lock spans publication and commit;
+   * model/report pairs cannot become partially visible through this method.
+   */
+  std::vector<RunArtifactReference> put_artifacts(
+      std::string_view run_id, std::span<const RunArtifactUpload> uploads);
 
   /**
    * @brief Streams a published file into CAS and attaches it under one writer

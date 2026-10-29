@@ -372,6 +372,98 @@ TEST(SQLiteRunStoreTest, ReplaysOriginalStartAndRelationshipIdsAfterFinalize) {
                jyppx::liuding::InvalidArgument);
 }
 
+TEST(SQLiteRunStoreBatchUpload,
+     CommitsModelAndReportTogetherAndReplaysAfterFinalize) {
+  TempRunRoot root;
+  SQLiteRunStore store(root.path());
+  store.start(make_run());
+  const auto upload = [](std::string id, std::string_view content) {
+    return jyppx::liuding::experiment::RunArtifactUpload{
+        .reference_id = std::move(id),
+        .role = "deployment",
+        .bytes = bytes_of(content),
+        .descriptor = make_descriptor(content.size()),
+        .expected_digest =
+            jyppx::liuding::ArtifactDigest{
+                .hex = jyppx::liuding::sha256_hex(bytes_of(content))},
+        .attached_at_unix_ms = 110U};
+  };
+  const std::array batch{upload("model", "onnx-model"),
+                         upload("report", "export-report")};
+  const auto receipts = store.put_artifacts("run-1", batch);
+  ASSERT_EQ(receipts.size(), 2U);
+  EXPECT_EQ(receipts[0].reference_id, "model");
+  EXPECT_EQ(receipts[1].reference_id, "report");
+  EXPECT_EQ(store.references("run-1").size(), 2U);
+  EXPECT_TRUE(store.integrity_check().ok());
+  store.transition("run-1", RunStatus::completed, 120U);
+  EXPECT_NO_THROW(store.put_artifacts("run-1", batch));
+  EXPECT_EQ(store.references("run-1").size(), 2U);
+  auto conflict = batch;
+  conflict[1] = upload("report", "conflicting-report");
+  EXPECT_THROW(store.put_artifacts("run-1", conflict),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_EQ(store.references("run-1")[1].artifact.digest,
+            receipts[1].artifact.digest);
+}
+
+TEST(SQLiteRunStoreBatchUpload,
+     FailedSecondDigestLeavesNoPartialRelationships) {
+  TempRunRoot root;
+  SQLiteRunStore store(root.path());
+  store.start(make_run());
+  using jyppx::liuding::experiment::RunArtifactUpload;
+  std::array batch{RunArtifactUpload{.reference_id = "model",
+                                     .role = "onnx",
+                                     .bytes = bytes_of("valid-model"),
+                                     .descriptor = make_descriptor(11U),
+                                     .attached_at_unix_ms = 110U},
+                   RunArtifactUpload{.reference_id = "report",
+                                     .role = "report",
+                                     .bytes = bytes_of("valid-report"),
+                                     .descriptor = make_descriptor(12U),
+                                     .expected_digest =
+                                         jyppx::liuding::ArtifactDigest{
+                                             .hex = std::string(64, '0')},
+                                     .attached_at_unix_ms = 110U}};
+  EXPECT_THROW(store.put_artifacts("run-1", batch), jyppx::liuding::Error);
+  EXPECT_TRUE(store.references("run-1").empty());
+  EXPECT_EQ(store.find("run-1")->updated_at_unix_ms, 100U);
+  EXPECT_TRUE(store.integrity_check().ok());
+  batch[1].expected_digest.reset();
+  EXPECT_EQ(store.put_artifacts("run-1", batch).size(), 2U);
+}
+
+TEST(SQLiteRunStoreBatchUpload,
+     QuotaConflictAndEmptyBatchNeverPartiallyCommit) {
+  TempRunRoot root;
+  SQLiteRunStoreOptions options;
+  options.max_run_artifact_bytes = 7U;
+  SQLiteRunStore store(root.path(), options);
+  store.start(make_run());
+  using jyppx::liuding::experiment::RunArtifactUpload;
+  std::array batch{RunArtifactUpload{.reference_id = "a",
+                                     .role = "model",
+                                     .bytes = bytes_of("four"),
+                                     .descriptor = make_descriptor(4U),
+                                     .attached_at_unix_ms = 110U},
+                   RunArtifactUpload{.reference_id = "b",
+                                     .role = "report",
+                                     .bytes = bytes_of("more"),
+                                     .descriptor = make_descriptor(4U),
+                                     .attached_at_unix_ms = 110U}};
+  EXPECT_THROW(store.put_artifacts("run-1", batch),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_TRUE(store.references("run-1").empty());
+  batch[1].reference_id = "a";
+  EXPECT_THROW(store.put_artifacts("run-1", batch),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_TRUE(store.references("run-1").empty());
+  EXPECT_THROW(store.put_artifacts("run-1", {}),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_TRUE(store.integrity_check().ok());
+}
+
 TEST(SQLiteRunStoreTest,
      RollsBackWholeReferenceBatchWhenACommittedBlobIsMissing) {
   TempRunRoot root;
