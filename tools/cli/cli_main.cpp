@@ -269,6 +269,11 @@ Result execute(const Arguments& arguments) {
                    "model onnx register --path MODEL --report REPORT "
                    "--report-sha256 SHA256 --root RUN_STORE --id RUN "
                    "--reference NAME",
+                   "model onnx verify --path MODEL --report REPORT "
+                   "--report-sha256 SHA256 "
+                   "--cases CASES --cases-sha256 SHA256 --tensors SAFETENSORS "
+                   "--tensors-sha256 SHA256 "
+                   "--provider NAME --root RUN_STORE --id RUN --reference NAME",
                    "benchmark tensor --device cpu|cuda [options]",
                    "offline run --root PATH [options]",
                    "recipe schema [--name paired-affine|transfer]",

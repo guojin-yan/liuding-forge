@@ -6,6 +6,7 @@
 
 #include <jyppx/liuding/deployment/onnx_export/exporter.hpp>
 #include <jyppx/liuding/deployment/onnx_runtime/session.hpp>
+#include <jyppx/liuding/deployment/onnx_runtime/verification.hpp>
 
 #include <torch/torch.h>
 
@@ -139,6 +140,26 @@ int main() {
                                 static_cast<std::size_t>(input.numel())),
                       std::span(input.sizes().data(), input.sizes().size()));
       Compare(actual, expected);
+      const std::array verification_inputs{runtime::TensorInput{
+          .name = "features",
+          .values = std::span(input.const_data_ptr<float>(),
+                              static_cast<std::size_t>(input.numel())),
+          .shape = std::span(input.sizes().data(), input.sizes().size())}};
+      const std::array verification_outputs{runtime::TensorInput{
+          .name = "logits",
+          .values = std::span(expected.const_data_ptr<float>(),
+                              static_cast<std::size_t>(expected.numel())),
+          .shape =
+              std::span(expected.sizes().data(), expected.sizes().size())}};
+      const std::array cases{
+          runtime::VerificationCase{.id = "consumer",
+                                    .inputs = verification_inputs,
+                                    .expected = verification_outputs}};
+      const auto verification = runtime::verify_session(
+          session, cases, {.reference = "installed-user-network-forward"});
+      Require(runtime::verification_passed(verification) &&
+                  !runtime::serialize_verification_report(verification).empty(),
+              "installed numerical verification report");
     }
     export_options.input_names = {"features", "offset"};
     export_options.output_names = {"shifted", "scaled"};

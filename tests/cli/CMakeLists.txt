@@ -30,6 +30,15 @@ if(TARGET jyppx::liuding::onnx_export)
         LABELS "cli;deployment;onnx_export;integration" TIMEOUT 300)
 endif()
 
+if(TARGET jyppx::liuding::onnx_export AND TARGET jyppx::liuding::onnx_runtime)
+    add_test(NAME Cli_onnx_verification
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_onnx_verification.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+            --exporter $<TARGET_FILE:jyppx_test_onnx_export>)
+    set_tests_properties(Cli_onnx_verification PROPERTIES
+        LABELS "cli;deployment;onnx_runtime;integration" TIMEOUT 300)
+endif()
+
 if(JYPPX_LIUDING_TEST_CLI_CUDA)
     foreach(contract IN ITEMS model_checkpoint offline_workflow)
         add_test(NAME Cli_${contract}_CUDA

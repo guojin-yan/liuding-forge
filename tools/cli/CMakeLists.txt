@@ -15,6 +15,7 @@ add_library(jyppx_cli_objects OBJECT
     evaluation_data.cpp
     model_checkpoint.cpp
     onnx_delivery.cpp
+    onnx_verification.cpp
     offline_workflow.cpp
     image_recipe.cpp
     transfer_recipe.cpp
@@ -31,6 +32,12 @@ jyppx_add_torch_runtime_dependency(jyppx_cli)
 if(TARGET jyppx::liuding::onnx_export)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::onnx_export)
     target_compile_definitions(jyppx_cli_objects PRIVATE JYPPX_LIUDING_CLI_ONNX_EXPORT=1)
+endif()
+if(TARGET jyppx::liuding::onnx_runtime)
+    target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::onnx_runtime)
+    set_property(SOURCE onnx_verification.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_ONNX_RUNTIME=1)
+    jyppx_add_onnx_runtime_dependency(jyppx_cli)
 endif()
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::models jyppx::liuding::data_image)
@@ -51,6 +58,9 @@ if(JYPPX_LIUDING_BUILD_TESTS)
     set_target_properties(jyppx_cli_recipe_gate PROPERTIES OUTPUT_NAME liuding-forge-recipe-gate)
     target_link_libraries(jyppx_cli_recipe_gate PRIVATE jyppx_cli_objects)
     jyppx_add_torch_runtime_dependency(jyppx_cli_recipe_gate)
+    if(TARGET jyppx::liuding::onnx_runtime)
+        jyppx_add_onnx_runtime_dependency(jyppx_cli_recipe_gate)
+    endif()
 endif()
 install(FILES "${PROJECT_SOURCE_DIR}/recipes/multi-io/paired-affine.json"
     DESTINATION share/jyppx/recipes/multi-io)

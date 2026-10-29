@@ -163,7 +163,9 @@ include(cmake/CopyTorchRuntime.cmake)
 # ============================================
 # Bounded JSON Parser Implementation Dependency
 # ============================================
-if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR JYPPX_LIUDING_BUILD_DATA_IMAGE)
+if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR
+   JYPPX_LIUDING_BUILD_DATA_IMAGE OR JYPPX_LIUDING_BUILD_ONNX_EXPORT OR
+   JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     include(FetchContent)
     if(POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
@@ -754,7 +756,8 @@ endif()
 
 if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     add_library(jyppx_liuding_onnx_runtime STATIC
-        src/jyppx/liuding/deployment/onnx_runtime/session.cpp)
+        src/jyppx/liuding/deployment/onnx_runtime/session.cpp
+        src/jyppx/liuding/deployment/onnx_runtime/verification.cpp)
     add_library(jyppx::liuding::onnx_runtime ALIAS jyppx_liuding_onnx_runtime)
     set_target_properties(jyppx_liuding_onnx_runtime PROPERTIES
         OUTPUT_NAME liuding-forge-onnx-runtime EXPORT_NAME onnx_runtime)
@@ -763,7 +766,8 @@ if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
         $<INSTALL_INTERFACE:include>)
     target_link_libraries(jyppx_liuding_onnx_runtime
         PUBLIC jyppx_liuding_foundation
-        PRIVATE ONNXRuntime::onnxruntime)
+        PRIVATE ONNXRuntime::onnxruntime
+        $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_onnx_runtime)
     list(APPEND JYPPX_ENABLED_COMPONENTS onnx_runtime)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/onnx_runtime)
@@ -1054,7 +1058,9 @@ install(FILES
     DESTINATION share/doc/jyppx
     COMPONENT licenses
 )
-if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR JYPPX_LIUDING_BUILD_DATA_IMAGE)
+if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR
+   JYPPX_LIUDING_BUILD_DATA_IMAGE OR JYPPX_LIUDING_BUILD_ONNX_EXPORT OR
+   JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     # nlohmann/json is compiled into these archives. Its original MIT notice
     # must accompany the binary SDK as well as the repository summary.
     install(FILES third_party/licenses/nlohmann-json-3.12.0-LICENSE.MIT

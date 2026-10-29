@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- 增加原生 C++ ONNX Runtime 数值验证、实际 Provider/kernel trace 汇总及 CLI 验证制品关联；数值失败保留失败报告与 run，不声明任务质量或性能资格。
+
 ### Fixed
 
 - 修复配方在非周期步暂停后额外增加检查点与回调计数的问题；Trainer 增加可续训的 `fit_until()` 安全边界，暂停后由调用方显式保存完整状态。

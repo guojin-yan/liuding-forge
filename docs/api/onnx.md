@@ -86,4 +86,20 @@ liuding-forge model onnx register \
   --root ./runs --id export-001 --reference deployment
 ```
 
-命令要求启用 `onnx_export`，核对报告、模型与原 run lineage 后创建独立的导出 run，其 `parent_run_id` 指向原训练。模型和报告通过同一事务登记到 CAS，成功后导出 run 进入 completed；同一参数可安全重试，失败不留下半对模型/报告引用。原训练 run 可以已经完成。导出 run ID 应独立保留给本次交付，报告 SHA-256 只确认字节身份。CLI 当前仅登记原生导出结果；它不从权重推断用户 C++ forward，也不执行 ORT。bundle 发布和实际推理证据关联另行接入。
+`register` 要求启用 `onnx_export`，核对报告、模型与原 run lineage 后创建独立的导出 run，其 `parent_run_id` 指向原训练。模型和报告通过同一事务登记到 CAS，成功后导出 run 进入 completed；同一参数可安全重试，失败不留下半对模型/报告引用。原训练 run 可以已经完成。导出 run ID 应独立保留给本次交付，报告 SHA-256 只确认字节身份。`register` 只登记原生导出结果；它不从权重推断用户 C++ forward，也不执行 ORT。实际执行使用下面的 `verify`，bundle 发布另行接入。
+
+## 实际数值验证与执行证据
+
+`<jyppx/liuding/deployment/onnx_runtime/verification.hpp>` 提供 `verify_session()`：传入现有 Session、具名输入和预期输出，按 `|actual - expected| <= absolute_tolerance + relative_tolerance * |expected|` 比较全部元素。返回的报告包含每个样例的输入/预期/实际输出摘要、误差、失败数和调用耗时，不保留 Tensor 或样本原文；数值不一致返回失败观测，输入/schema/资源错误抛出异常。`inspect_profile()` 解析 `end_profiling()` 生成的原始 ORT trace，统计实际 kernel 的 Provider/算子；仅设置 Provider 或建立 Session 不构成执行证据。耗时属于观测值，不是吞吐、任务准确率或内存资格。
+
+启用导出与 Runtime 后，CLI 可执行并登记验证。样例 JSON 使用 `jyppx.liuding.onnx_verification_cases` v1，字段为 `format`、`schema_version`、`reference`、`absolute_tolerance`、`relative_tolerance`、`cases`；每个 case 含 `id`、`inputs`、`expected`，输入及预期输出以 `{"name":"图中名称","tensor":"safetensors 中的键"}` 绑定。使用库的 safetensors 编码接口保存连续 FP32 数据；`reference` 由调用方注明预期值的计算来源，不能用模型自己的同次输出冒充独立参考。最多 64 个 case，样例数据及展开后的全部 payload 分别限制为 64 MiB。
+
+```sh
+liuding-forge model onnx verify \
+  --path model.onnx --report export-report.json --report-sha256 REPORT_SHA256 \
+  --cases cases.json --cases-sha256 CASES_SHA256 \
+  --tensors cases.safetensors --tensors-sha256 TENSORS_SHA256 \
+  --provider CPUExecutionProvider --root ./runs --id verify-001 --reference deployment
+```
+
+命令核对模型和原训练来源，要求实际 trace 中的 kernel 全部属于显式 Provider，不允许静默 CPU 回退。需要参数时重复使用 `--provider-option key=value`；`--timeout-ms` 默认 60000，属于协作式执行期限。每次验证使用新的 run ID，六个制品（模型、导出报告、样例 JSON、样例 Tensor、验证报告、原始 trace）成批登记到独立 run；数值通过后 completed，数值失败后 failed 并返回退出码 4，输入或后端错误返回 2。原训练保持原状态。验证制品含实际样本和预期值；字节摘要、调用方参考和 run lineage 均不认证生产者，完整 bundle 发布、真实签名及其他设备/Provider 的资格仍需单独验收。
