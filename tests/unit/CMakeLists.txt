@@ -454,6 +454,19 @@ if(TARGET jyppx::liuding::models)
         LINK_TARGET jyppx::liuding::models
         models/test_models_pretrained.cpp
     )
+    if(TARGET jyppx::liuding::optim)
+        jyppx_add_gtest(jyppx_test_dinov2_pretrained_backward
+            LINK_TARGET jyppx::liuding::models
+            models/test_dinov2_pretrained_backward.cpp
+            ENVIRONMENT "CUBLAS_WORKSPACE_CONFIG=:4096:8"
+        )
+        target_link_libraries(jyppx_test_dinov2_pretrained_backward PRIVATE
+            jyppx::liuding::optim)
+        if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+            target_compile_definitions(jyppx_test_dinov2_pretrained_backward PRIVATE
+                JYPPX_LIUDING_PRETRAINED_CUDA_TESTS=1)
+        endif()
+    endif()
     if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
         target_compile_definitions(jyppx_test_models_pretrained PRIVATE
             JYPPX_LIUDING_PRETRAINED_CUDA_TESTS=1)
