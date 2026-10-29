@@ -45,7 +45,6 @@ namespace {
 namespace md = metadata_detail;
 using Json = md::Json;
 constexpr std::string_view kComponent = "interop.model_bundle";
-constexpr std::string_view kSigningPrefix = "JYPPX-MODEL-BUNDLE-SIGNATURE-V1\n";
 
 [[noreturn]] void Invalid(std::string_view operation,
                           std::string_view expected) {
@@ -79,10 +78,10 @@ auto Boundary(Function&& function, bool encoded = false) {
   try {
     return std::forward<Function>(function)();
   } catch (const InvalidArgument&) {
-    if (encoded) Malformed("metadata", "valid schema-v1 metadata");
+    if (encoded) Malformed("metadata", "valid schema-v1 or schema-v2 metadata");
     throw;
   } catch (const Json::exception&) {
-    Malformed("json", "strict bounded schema-v1 JSON");
+    Malformed("json", "strict bounded schema-v1 or schema-v2 JSON");
   } catch (const std::bad_alloc&) {
     Resource("allocation", 0U);
   } catch (const std::length_error&) {
@@ -211,10 +210,12 @@ void Version(std::string_view version, const ModelBundleLimits& limits) {
 void Validate(const ModelBundleManifest& manifest,
               const ModelBundleLimits& limits) {
   Limits(limits);
-  if (manifest.schema_version != ModelBundleManifest::format_version)
-    Unsupported("schema_version", "model bundle schema 1");
+  if (manifest.schema_version != 1U && manifest.schema_version != 2U)
+    Unsupported("schema_version", "model bundle schema 1 or 2");
+  if (manifest.schema_version == 1U && !manifest.evidence.empty())
+    Unsupported("evidence.version", "schema 2 for evidence references");
   if (manifest.compression != "none" || manifest.encryption != "none")
-    Unsupported("encoding", "uncompressed, unencrypted v1 data");
+    Unsupported("encoding", "uncompressed, unencrypted data");
   Text(manifest.bundle_id, limits);
   const auto& build = manifest.build;
   for (const auto* field :
@@ -241,8 +242,8 @@ void Validate(const ModelBundleManifest& manifest,
       Invalid("files.identity",
               "unique file ids and paths outside manifest.json");
     const auto role = static_cast<unsigned>(file.role);
-    if (role < 1U || role > 9U)
-      Unsupported("file.role", "a declared v1 data role");
+    if (role < 1U || role > (manifest.schema_version == 1U ? 9U : 10U))
+      Unsupported("file.role", "a declared data role for this schema version");
     md::Artifact(file.artifact, kComponent, limits.max_file_bytes);
     Text(file.artifact.logical_name, limits, true);
     Text(file.artifact.media_type, limits);
@@ -291,6 +292,9 @@ void Validate(const ModelBundleManifest& manifest,
         "reports.count");
   for (const auto& report : manifest.weight_import_reports)
     descriptor(report, BundleFileRole::weight_import_report);
+  Count(manifest.evidence.size(), limits.max_files, "evidence.count");
+  for (const auto& evidence : manifest.evidence)
+    descriptor(evidence, BundleFileRole::evidence);
   std::set<std::string> models;
   std::uint64_t tensors = 0U;
   for (const auto& model : manifest.models) {
@@ -457,6 +461,12 @@ Json ManifestJson(const ModelBundleManifest& manifest, bool signatures) {
                 {"dtypes", SortedStrings(runtime.dtypes)},
                 {"os_arch", SortedStrings(runtime.os_arch)},
                 {"dynamic_shapes", runtime.dynamic_shapes}}}};
+  if (manifest.schema_version == 2U) {
+    result["evidence"] = Json::array();
+    for (const auto* evidence :
+         Sorted(manifest.evidence, [](const auto& e) { return e.file_id; }))
+      result["evidence"].push_back(DescriptorJson(*evidence));
+  }
   if (signatures) {
     result["signatures"] = Json::array();
     for (const auto* signature : Sorted(manifest.signatures, [](const auto& s) {
@@ -530,18 +540,46 @@ std::vector<std::string> ReadStrings(const Json& value, std::size_t maximum) {
 
 ModelBundleManifest ReadManifest(const Json& value,
                                  const ModelBundleLimits& limits) {
-  md::Fields(value,
-             {"format", "schema_version", "bundle_id", "build", "compression",
-              "encryption", "files", "models", "input_schema", "output_schema",
-              "preprocessing", "postprocessing", "labels", "evaluation", "sbom",
-              "provenance", "weight_import_reports", "runtime", "signatures"},
-             kComponent);
-  if (String(value.at("format")) != "jyppx.model_bundle")
-    Unsupported("format", "jyppx.model_bundle");
+  if (!value.is_object() || !value.contains("schema_version"))
+    Malformed("schema_version", "an explicit integer wire version");
   ModelBundleManifest result;
   result.schema_version = Uint32(value.at("schema_version"));
-  if (result.schema_version != ModelBundleManifest::format_version)
-    Unsupported("schema_version", "model bundle schema 1");
+  if (result.schema_version != 1U && result.schema_version != 2U)
+    Unsupported("schema_version", "model bundle schema 1 or 2");
+  if (result.schema_version == 1U) {
+    md::Fields(
+        value,
+        {"format", "schema_version", "bundle_id", "build", "compression",
+         "encryption", "files", "models", "input_schema", "output_schema",
+         "preprocessing", "postprocessing", "labels", "evaluation", "sbom",
+         "provenance", "weight_import_reports", "runtime", "signatures"},
+        kComponent);
+  } else {
+    md::Fields(value,
+               {"format",
+                "schema_version",
+                "bundle_id",
+                "build",
+                "compression",
+                "encryption",
+                "files",
+                "models",
+                "input_schema",
+                "output_schema",
+                "preprocessing",
+                "postprocessing",
+                "labels",
+                "evaluation",
+                "sbom",
+                "provenance",
+                "weight_import_reports",
+                "evidence",
+                "runtime",
+                "signatures"},
+               kComponent);
+  }
+  if (String(value.at("format")) != "jyppx.model_bundle")
+    Unsupported("format", "jyppx.model_bundle");
   result.bundle_id = String(value.at("bundle_id"));
   result.compression = String(value.at("compression"));
   result.encryption = String(value.at("encryption"));
@@ -565,7 +603,8 @@ ModelBundleManifest ReadManifest(const Json& value,
   for (const auto& file : Array(value.at("files"), limits.max_files)) {
     md::Fields(file, {"id", "path", "role", "artifact"}, kComponent);
     const auto role = md::Uint(file.at("role"), kComponent);
-    if (role < 1U || role > 9U) Unsupported("file.role", "a v1 data role");
+    if (role < 1U || role > (result.schema_version == 1U ? 9U : 10U))
+      Unsupported("file.role", "a declared data role for this schema version");
     result.files.push_back(
         {.id = String(file.at("id")),
          .relative_path = String(file.at("path")),
@@ -613,6 +652,10 @@ ModelBundleManifest ReadManifest(const Json& value,
   for (const auto& report :
        Array(value.at("weight_import_reports"), limits.max_files))
     result.weight_import_reports.push_back(ReadDescriptor(report));
+  if (result.schema_version == 2U) {
+    for (const auto& evidence : Array(value.at("evidence"), limits.max_files))
+      result.evidence.push_back(ReadDescriptor(evidence));
+  }
   const auto& runtime = value.at("runtime");
   md::Fields(runtime,
              {"backend_id", "backend_version", "environment_lock",
@@ -1267,7 +1310,10 @@ std::string model_bundle_signing_payload(const ModelBundleManifest& manifest,
     Validate(manifest, limits);
     auto json = ManifestJson(manifest, false).dump();
     Count(json.size(), limits.max_manifest_bytes, "manifest.bytes");
-    return std::string(kSigningPrefix) + json;
+    const auto prefix = manifest.schema_version == 1U
+                            ? "JYPPX-MODEL-BUNDLE-SIGNATURE-V1\n"
+                            : "JYPPX-MODEL-BUNDLE-SIGNATURE-V2\n";
+    return std::string(prefix) + json;
   });
 }
 

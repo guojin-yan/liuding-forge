@@ -173,6 +173,69 @@ void changes_between(const Json& baseline, const Json& candidate,
                      {"candidate", candidate}});
 }
 
+interop::ModelBundleVerifyOptions bundle_options(const Arguments& arguments) {
+  const auto trust = arguments.optional("require-trusted").value_or("false");
+  if (trust != "true" && trust != "false")
+    usage("model.bundle", "--require-trusted accepts true or false.");
+  interop::ModelBundleVerifyOptions options;
+  options.require_trusted_signature = trust == "true";
+  return options;
+}
+
+Json bundle_summary(std::string_view operation, const std::string& path,
+                    const interop::ModelBundleVerification& verified) {
+  const auto signature =
+      verified.signature_status ==
+              interop::BundleSignatureStatus::unsigned_bundle
+          ? "unsigned"
+      : verified.signature_status == interop::BundleSignatureStatus::trusted
+          ? "trusted"
+          : "present_unverified";
+  return Json{{"operation", operation},
+              {"path", path},
+              {"format", "jyppx.model_bundle/v" +
+                             std::to_string(verified.manifest.schema_version)},
+              {"valid", true},
+              {"manifest_sha256", verified.manifest_digest.hex},
+              {"verified_file_bytes", verified.verified_file_bytes},
+              {"verified_tensors", verified.verified_tensors},
+              {"integrity_only_models", verified.integrity_only_models},
+              {"signature_status", signature},
+              {"authenticated", verified.signature_status ==
+                                    interop::BundleSignatureStatus::trusted},
+              {"runtime_executed", false},
+              {"descriptor_payloads_validated", false},
+              {"runtime_requirements_checked", false},
+              {"manifest", Json::parse(interop::serialize_model_bundle_manifest(
+                               verified.manifest))}};
+}
+
+Result pack_bundle(const Arguments& arguments) {
+  arguments.allow(
+      {"manifest", "manifest-sha256", "source", "output", "require-trusted"});
+  const auto options = bundle_options(arguments);
+  const ArtifactDigest expected{.hex = arguments.require("manifest-sha256")};
+  validate_artifact_digest(expected);
+  const auto json = read_text(arguments.require("manifest"),
+                              options.limits.max_manifest_bytes);
+  if (sha256_hex(bytes_of(json)) != expected.hex)
+    throw SerializationError("Bundle source manifest digest mismatch");
+  const auto manifest =
+      interop::deserialize_model_bundle_manifest(json, options.limits);
+  const auto source = std::filesystem::u8path(arguments.require("source"));
+  const auto output = arguments.require("output");
+  std::vector<interop::BundlePublishSource> sources;
+  sources.reserve(manifest.files.size());
+  for (const auto& file : manifest.files)
+    sources.push_back(
+        {.file_id = file.id, .source_path = source / file.relative_path});
+  const auto verified = interop::publish_model_bundle(
+      std::filesystem::u8path(output), manifest, sources, options);
+  auto result = bundle_summary("pack", output, verified);
+  result["source_manifest_sha256"] = expected.hex;
+  return {std::move(result), 0};
+}
+
 }  // namespace
 
 Result model_command(const Arguments& arguments) {
@@ -180,42 +243,15 @@ Result model_command(const Arguments& arguments) {
   if (words.size() == 3U && words[0] == "model" && words[1] == "onnx")
     return onnx_command(arguments);
   if (words.size() == 3U && words[0] == "model" && words[1] == "bundle") {
+    if (words[2] == "pack") return pack_bundle(arguments);
     if (words[2] != "inspect" && words[2] != "verify")
       usage("model.bundle",
-            "Choose inspect or verify for a model bundle directory.");
+            "Choose pack, inspect or verify for a model bundle directory.");
     arguments.allow({"path", "require-trusted"});
     const auto name = arguments.require("path");
-    const auto trust = arguments.optional("require-trusted").value_or("false");
-    if (trust != "true" && trust != "false")
-      usage("model.bundle", "--require-trusted accepts true or false.");
-    interop::ModelBundleVerifyOptions options;
-    options.require_trusted_signature = trust == "true";
     const auto verified = interop::verify_model_bundle_directory(
-        std::filesystem::u8path(name), options);
-    const auto signature =
-        verified.signature_status ==
-                interop::BundleSignatureStatus::unsigned_bundle
-            ? "unsigned"
-        : verified.signature_status == interop::BundleSignatureStatus::trusted
-            ? "trusted"
-            : "present_unverified";
-    return {
-        Json{{"operation", words[2]},
-             {"path", name},
-             {"format", "jyppx.model_bundle/v1"},
-             {"valid", true},
-             {"manifest_sha256", verified.manifest_digest.hex},
-             {"verified_file_bytes", verified.verified_file_bytes},
-             {"verified_tensors", verified.verified_tensors},
-             {"integrity_only_models", verified.integrity_only_models},
-             {"signature_status", signature},
-             {"authenticated", verified.signature_status ==
-                                   interop::BundleSignatureStatus::trusted},
-             {"runtime_executed", false},
-             {"descriptor_payloads_validated", false},
-             {"manifest", Json::parse(interop::serialize_model_bundle_manifest(
-                              verified.manifest))}},
-        0};
+        std::filesystem::u8path(name), bundle_options(arguments));
+    return {bundle_summary(words[2], name, verified), 0};
   }
   const auto action = action_for(arguments, "model");
   if (action != "inspect" && action != "verify") {

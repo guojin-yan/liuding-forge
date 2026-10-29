@@ -100,6 +100,8 @@ class ModelBundleTest : public ::testing::Test {
     base_ /= std::filesystem::path(u8"bundle 测试");
     std::filesystem::create_directories(base_ / "sources");
     target_ = base_ / "published";
+    // Keep the complete v1 regression suite as an explicit N-1 fixture.
+    manifest_.schema_version = 1U;
     manifest_.bundle_id = "unit-model-v1";
     manifest_.build = {.jyppx_version = "1.0.0",
                        .git_commit = "fixture-commit",
@@ -268,7 +270,7 @@ TEST_F(ModelBundleTest,
                jyppx::liuding::SerializationError);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    Replace(encoded, "\"schema_version\":1,\"signatures\"",
-                           "\"schema_version\":2,\"signatures\"")),
+                           "\"schema_version\":3,\"signatures\"")),
                jyppx::liuding::CompatibilityError);
   EXPECT_THROW(interop::deserialize_model_bundle_manifest(
                    Replace(encoded, "\"schema_version\":1,\"signatures\"",
@@ -278,6 +280,184 @@ TEST_F(ModelBundleTest,
       interop::deserialize_model_bundle_manifest(Replace(
           encoded, "\"compression\":\"none\"", "\"compression\":\"gzip\"")),
       jyppx::liuding::CompatibilityError);
+}
+
+TEST_F(ModelBundleTest, DefaultsToV2WhileExplicitV1KeepsItsWireEncoding) {
+  EXPECT_EQ(interop::ModelBundleManifest{}.schema_version, 2U);
+  const auto v1 = interop::serialize_model_bundle_manifest(manifest_);
+  EXPECT_EQ(v1.find("\"evidence\""), std::string::npos);
+  EXPECT_EQ(interop::deserialize_model_bundle_manifest(v1).schema_version, 1U);
+  manifest_.schema_version = 2U;
+  const auto v2 = interop::serialize_model_bundle_manifest(manifest_);
+  EXPECT_NE(v2.find("\"evidence\":[]"), std::string::npos);
+  EXPECT_EQ(interop::deserialize_model_bundle_manifest(v2).schema_version, 2U);
+  manifest_.schema_version = 1U;
+  EXPECT_EQ(interop::serialize_model_bundle_manifest(manifest_), v1);
+}
+
+TEST_F(ModelBundleTest, V2EvidenceRoundTripsInCanonicalFileIdOrder) {
+  manifest_.schema_version = 2U;
+  manifest_.evidence = {
+      Descriptor("trace", interop::BundleFileRole::evidence),
+      Descriptor("export-report", interop::BundleFileRole::evidence),
+      Descriptor("cases", interop::BundleFileRole::evidence)};
+  manifest_.evidence[0U].schema_version = 7U;
+  const auto encoded = interop::serialize_model_bundle_manifest(manifest_);
+  std::reverse(manifest_.files.begin(), manifest_.files.end());
+  std::reverse(manifest_.evidence.begin(), manifest_.evidence.end());
+  EXPECT_EQ(encoded, interop::serialize_model_bundle_manifest(manifest_));
+  const auto decoded = interop::deserialize_model_bundle_manifest(encoded);
+  ASSERT_EQ(decoded.evidence.size(), 3U);
+  EXPECT_EQ(decoded.evidence[0U].file_id, "cases");
+  EXPECT_EQ(decoded.evidence[1U].schema_id, "fixture.export-report");
+  EXPECT_EQ(decoded.evidence[2U].schema_version, 7U);
+  EXPECT_EQ(interop::serialize_model_bundle_manifest(decoded), encoded);
+}
+
+TEST_F(ModelBundleTest, V2RequiresAnExplicitStrictEvidenceArray) {
+  manifest_.schema_version = 2U;
+  const auto encoded = interop::serialize_model_bundle_manifest(manifest_);
+  EXPECT_THROW(interop::deserialize_model_bundle_manifest(
+                   Replace(encoded, "\"evidence\":[],", "")),
+               jyppx::liuding::SerializationError);
+  EXPECT_THROW(interop::deserialize_model_bundle_manifest(
+                   Replace(encoded, "\"evidence\":[]", "\"evidence\":null")),
+               jyppx::liuding::SerializationError);
+  EXPECT_THROW(interop::deserialize_model_bundle_manifest("{\"future\":[]," +
+                                                          encoded.substr(1U)),
+               jyppx::liuding::SerializationError);
+  EXPECT_THROW(interop::deserialize_model_bundle_manifest(
+                   "{\"evid\\u0065nce\":[]," + encoded.substr(1U)),
+               jyppx::liuding::SerializationError);
+}
+
+TEST_F(ModelBundleTest, V1RejectsEvidenceFieldsReferencesAndNewRole) {
+  const auto v1 = interop::serialize_model_bundle_manifest(manifest_);
+  EXPECT_THROW(interop::deserialize_model_bundle_manifest("{\"evidence\":[]," +
+                                                          v1.substr(1U)),
+               jyppx::liuding::SerializationError);
+  manifest_.evidence = {Descriptor("trace", interop::BundleFileRole::evidence)};
+  EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
+               jyppx::liuding::CompatibilityError);
+  manifest_.evidence.clear();
+  EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
+               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(interop::deserialize_model_bundle_manifest(
+                   Replace(v1, "\"role\":3", "\"role\":10")),
+               jyppx::liuding::CompatibilityError);
+}
+
+TEST_F(ModelBundleTest, V2EvidenceRequiresUniqueOwnerRoleAndPositiveCodec) {
+  manifest_.schema_version = 2U;
+  const auto ref = Descriptor("trace", interop::BundleFileRole::evidence);
+  manifest_.evidence = {ref};
+  const auto valid = manifest_;
+  manifest_.evidence.push_back(ref);
+  EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
+               jyppx::liuding::InvalidArgument);
+  manifest_ = valid;
+  manifest_.evidence.clear();
+  EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
+               jyppx::liuding::InvalidArgument);
+  manifest_ = valid;
+  File("trace").role = interop::BundleFileRole::weight_import_report;
+  EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
+               jyppx::liuding::InvalidArgument);
+  manifest_ = valid;
+  manifest_.evidence[0U].file_id = "missing";
+  EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_),
+               jyppx::liuding::InvalidArgument);
+  manifest_ = valid;
+  const auto encoded = interop::serialize_model_bundle_manifest(manifest_);
+  EXPECT_THROW(
+      interop::deserialize_model_bundle_manifest(Replace(
+          encoded, "\"schema_id\":\"fixture.trace\",\"schema_version\":1",
+          "\"schema_id\":\"fixture.trace\",\"schema_version\":0")),
+      jyppx::liuding::SerializationError);
+  EXPECT_THROW(interop::deserialize_model_bundle_manifest(
+                   Replace(encoded, "\"role\":10", "\"role\":11")),
+               jyppx::liuding::CompatibilityError);
+  EXPECT_THROW(
+      interop::deserialize_model_bundle_manifest(Replace(
+          encoded, "\"schema_id\":\"fixture.trace\",\"schema_version\":1",
+          "\"schema_id\":\"fixture.trace\",\"schema_version\":4294967296")),
+      jyppx::liuding::SerializationError);
+}
+
+TEST_F(ModelBundleTest, V2EvidenceCountsAreBoundedBeforeDescriptorExpansion) {
+  manifest_.schema_version = 2U;
+  const auto ref = Descriptor("trace", interop::BundleFileRole::evidence);
+  manifest_.evidence = {ref};
+  interop::ModelBundleLimits limits;
+  limits.max_files = manifest_.files.size();
+  manifest_.evidence.assign(limits.max_files + 1U, ref);
+  EXPECT_THROW(interop::validate_model_bundle_manifest(manifest_, limits),
+               jyppx::liuding::ResourceExhausted);
+  manifest_.evidence = {ref};
+  const auto encoded = interop::serialize_model_bundle_manifest(manifest_);
+  const auto entry =
+      "{\"file_id\":\"trace\",\"schema_id\":\"fixture.trace\",\"schema_"
+      "version\":1}";
+  std::string entries = entry;
+  for (std::size_t index = 0; index < limits.max_files; ++index)
+    entries += "," + std::string(entry);
+  EXPECT_THROW(interop::deserialize_model_bundle_manifest(
+                   Replace(encoded, "\"evidence\":[" + std::string(entry) + "]",
+                           "\"evidence\":[" + entries + "]"),
+                   limits),
+               jyppx::liuding::ResourceExhausted);
+}
+
+TEST_F(ModelBundleTest, V2SigningDomainCoversEvidenceAndCannotReuseV1Trust) {
+  manifest_.schema_version = 2U;
+  const auto empty_payload = interop::model_bundle_signing_payload(manifest_);
+  manifest_.evidence = {Descriptor("trace", interop::BundleFileRole::evidence)};
+  const auto payload = interop::model_bundle_signing_payload(manifest_);
+  EXPECT_TRUE(payload.starts_with("JYPPX-MODEL-BUNDLE-SIGNATURE-V2\n{"));
+  EXPECT_NE(payload, empty_payload);
+  EXPECT_NE(payload.find("\"evidence\":["), std::string::npos);
+  manifest_.signatures = {{.algorithm = "fixture-test-only",
+                           .key_id = "fixture-key",
+                           .signature_hex = "01"}};
+  interop::ModelBundleVerifyOptions options;
+  options.require_trusted_signature = true;
+  const auto legacy_domain_payload =
+      Replace(payload, "JYPPX-MODEL-BUNDLE-SIGNATURE-V2\n",
+              "JYPPX-MODEL-BUNDLE-SIGNATURE-V1\n");
+  options.signature_verifier = [&](const auto&, auto bytes) {
+    return std::equal(bytes.begin(), bytes.end(),
+                      Bytes(legacy_domain_payload).begin(),
+                      Bytes(legacy_domain_payload).end());
+  };
+  EXPECT_THROW(Publish(options), jyppx::liuding::SerializationError);
+  EXPECT_FALSE(std::filesystem::exists(target_));
+  options.signature_verifier = [&](const auto&, auto bytes) {
+    return std::equal(bytes.begin(), bytes.end(), Bytes(payload).begin(),
+                      Bytes(payload).end());
+  };
+  EXPECT_EQ(Publish(options).signature_status,
+            interop::BundleSignatureStatus::trusted);
+  manifest_.evidence[0U].schema_version = 2U;
+  SavePublishedManifest();
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_, options),
+               jyppx::liuding::SerializationError);
+}
+
+TEST_F(ModelBundleTest, V2SnapshotOwnsEvidenceAndChecksUnselectedEvidence) {
+  manifest_.schema_version = 2U;
+  manifest_.evidence = {Descriptor("trace", interop::BundleFileRole::evidence),
+                        Descriptor("cases", interop::BundleFileRole::evidence)};
+  const auto published = Publish();
+  const std::array<std::string_view, 1U> selected{"cases"};
+  const auto snapshot = interop::read_model_bundle_snapshot(
+      target_, published.manifest_digest, selected);
+  ASSERT_EQ(snapshot.files.size(), 1U);
+  EXPECT_EQ(Digest(snapshot.files.at("cases")), File("cases").artifact.digest);
+  EXPECT_EQ(snapshot.verification.manifest.evidence.size(), 2U);
+  Write(target_ / File("trace").relative_path, Bytes("tampered evidence"));
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, published.manifest_digest, selected),
+               jyppx::liuding::SerializationError);
 }
 
 TEST_F(ModelBundleTest, RejectsMalformedIntegersUtf8DepthAndDigestSyntax) {

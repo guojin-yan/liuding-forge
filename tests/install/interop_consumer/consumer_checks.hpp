@@ -288,13 +288,17 @@ inline void Bundle(const std::filesystem::path& root,
   manifest.weight_import_reports = {
       descriptor("weight-import", interop::BundleFileRole::weight_import_report,
                  weight_report)};
+  manifest.evidence = {descriptor(
+      "export-report", interop::BundleFileRole::evidence,
+      R"({"schema_id":"consumer.export-report","schema_version":1,"status":"fixture-only"})")};
   interop::validate_model_bundle_manifest(manifest);
   const auto json = interop::serialize_model_bundle_manifest(manifest);
   const auto restored = interop::deserialize_model_bundle_manifest(json);
   Require(interop::serialize_model_bundle_manifest(restored) == json,
           "complete-bundle-manifest-roundtrip");
   const auto payload = interop::model_bundle_signing_payload(restored);
-  Require(payload.starts_with("JYPPX-MODEL-BUNDLE-SIGNATURE-V1\n") &&
+  Require(restored.schema_version == 2U && restored.evidence.size() == 1U &&
+              payload.starts_with("JYPPX-MODEL-BUNDLE-SIGNATURE-V2\n") &&
               payload.find("\"signatures\"") == std::string::npos,
           "domain-separated-signing-payload");
   const auto published =
@@ -310,7 +314,7 @@ inline void Bundle(const std::filesystem::path& root,
           verified.integrity_only_models == 0U &&
           verified.signature_status ==
               interop::BundleSignatureStatus::unsigned_bundle &&
-          verified.manifest.files.size() == 11U &&
+          verified.manifest.files.size() == 12U &&
           interop::serialize_model_bundle_manifest(verified.manifest) == json,
       "published-exhaustive-bundle-verification");
   interop::ModelBundleVerifyOptions options;
@@ -323,10 +327,11 @@ inline void Bundle(const std::filesystem::path& root,
     rejected = true;
   }
   Require(rejected, "unsigned-bundle-cannot-become-trusted");
-  const std::array<std::string_view, 2U> selected{"input", "evaluation"};
+  const std::array<std::string_view, 3U> selected{"input", "evaluation",
+                                                  "export-report"};
   const auto snapshot = interop::read_model_bundle_snapshot(
       root / "bundle", verified.manifest_digest, selected);
-  Require(snapshot.files.size() == 2U &&
+  Require(snapshot.files.size() == 3U &&
               Digest(snapshot.manifest_bytes) == verified.manifest_digest &&
               snapshot.verification.manifest_digest == verified.manifest_digest,
           "installed-owned-bundle-snapshot");

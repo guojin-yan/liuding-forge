@@ -75,7 +75,7 @@ class OnnxVerificationCliTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
         return data
 
-    def bundle(self) -> tuple:
+    def bundle(self, version: int = 1) -> tuple:
         self.bundle_path = self.directory / "bundle 测试"
         self.bundle_path.mkdir()
         files = []
@@ -92,7 +92,7 @@ class OnnxVerificationCliTest(unittest.TestCase):
             }})
 
         manifest = {
-            "format": "jyppx.model_bundle", "schema_version": 1, "bundle_id": "onnx.cli.fixture",
+            "format": "jyppx.model_bundle", "schema_version": version, "bundle_id": "onnx.cli.fixture",
             "build": self.invoke("--version")["data"]["build"],
             "compression": "none", "encryption": "none", "files": files,
             "models": [{"id": "primary", "format": "onnx", "file_ids": ["model"], "tensors": []},
@@ -110,6 +110,16 @@ class OnnxVerificationCliTest(unittest.TestCase):
             add(name, role, json.dumps({"fixture": name, "schema_version": 1}).encode(),
                 f"metadata/{name}.json")
             manifest[name] = {"schema_id": f"fixture.{name}", "schema_version": 1, "file_id": name}
+        if version == 2:
+            manifest["evidence"] = []
+            for name, data, path, media in (
+                ("export-report", self.report, "evidence/export-report.json", "application/json"),
+                ("cases", self.case_path.read_bytes(), "evidence/cases.json", "application/json"),
+                ("tensors", self.tensor_path.read_bytes(), "evidence/cases.safetensors", "application/safetensors"),
+            ):
+                add(name, 10, data, path, media)
+                manifest["evidence"].append({"schema_id": f"fixture.{name}",
+                                              "schema_version": 1, "file_id": name})
         # Original noncanonical whitespace must survive in the recorded artifact.
         self.manifest_bytes = (json.dumps(manifest, indent=2) + "\n\n").encode()
         (self.bundle_path / "manifest.json").write_bytes(self.manifest_bytes)
@@ -151,6 +161,30 @@ class OnnxVerificationCliTest(unittest.TestCase):
         for variant in ("missing", "opaque"):
             self.verify(model_arguments=(*arguments[:-1], variant), expected=2)
         self.assertEqual(len(self.runs()), 1)
+
+    def test_packed_v2_bundle_executes_and_rejects_tampered_evidence(self) -> None:
+        self.suite()
+        self.bundle(version=2)
+        output = self.directory / "published v2"
+        packed = self.invoke("model", "bundle", "pack", "--manifest", self.bundle_path / "manifest.json",
+                             "--manifest-sha256", hashlib.sha256(self.manifest_bytes).hexdigest(),
+                             "--source", self.bundle_path, "--output", output)["data"]
+        self.assertEqual(packed["format"], "jyppx.model_bundle/v2")
+        self.assertEqual(len(packed["manifest"]["evidence"]), 3)
+        arguments = ("--bundle", output, "--bundle-sha256", packed["manifest_sha256"],
+                     "--model-id", "primary")
+        result = self.verify(model_arguments=arguments)["data"]
+        self.assertEqual(result["numerical"], "passed")
+        self.assertTrue(result["runtime_executed"])
+        self.assertFalse(result["input_bundle"]["descriptor_payloads_validated"])
+        artifacts = {item["role"]: self.artifact(item) for item in result["artifacts"]}
+        self.assertEqual(artifacts["onnx.input_bundle_manifest"], (output / "manifest.json").read_bytes())
+        self.assertEqual((output / "evidence/cases.safetensors").read_bytes(), self.tensor_path.read_bytes())
+        evidence = output / "evidence/export-report.json"
+        data = evidence.read_bytes()
+        evidence.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+        self.verify(identity="tampered-evidence", model_arguments=arguments, expected=2)
+        self.assertEqual(len(self.runs()), 2)
 
     def test_bundle_rejects_tampered_selected_or_unselected_files(self) -> None:
         self.suite()

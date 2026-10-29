@@ -86,7 +86,7 @@ liuding-forge model onnx register \
   --root ./runs --id export-001 --reference deployment
 ```
 
-`register` 要求启用 `onnx_export`，核对报告、模型与原 run lineage 后创建独立的导出 run，其 `parent_run_id` 指向原训练。模型和报告通过同一事务登记到 CAS，成功后导出 run 进入 completed；同一参数可安全重试，失败不留下半对模型/报告引用。原训练 run 可以已经完成。导出 run ID 应独立保留给本次交付，报告 SHA-256 只确认字节身份。`register` 只登记原生导出结果；它不从权重推断用户 C++ forward，也不执行 ORT。实际执行使用下面的 `verify`，bundle 发布另行接入。
+`register` 要求启用 `onnx_export`，核对报告、模型与原 run lineage 后创建独立的导出 run，其 `parent_run_id` 指向原训练。模型和报告通过同一事务登记到 CAS，成功后导出 run 进入 completed；同一参数可安全重试，失败不留下半对模型/报告引用。原训练 run 可以已经完成。导出 run ID 应独立保留给本次交付，报告 SHA-256 只确认字节身份。`register` 只登记原生导出结果；它不从权重推断用户 C++ forward，也不执行 ORT。实际执行使用下面的 `verify`；数据包发布可使用 [`model bundle pack`](model_bundle.md#发布)，自动组包与包内证据语义联验继续完善。
 
 ## 实际数值验证与执行证据
 

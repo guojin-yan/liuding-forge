@@ -266,6 +266,8 @@ Result execute(const Arguments& arguments) {
                    "checkpoint diff --baseline PATH --candidate PATH",
                    "model inspect|verify --path PATH",
                    "model bundle inspect|verify --path DIRECTORY",
+                   "model bundle pack --manifest PATH --manifest-sha256 SHA256 "
+                   "--source DIRECTORY --output NEW_DIRECTORY",
                    "model onnx register --path MODEL --report REPORT "
                    "--report-sha256 SHA256 --root RUN_STORE --id RUN "
                    "--reference NAME",

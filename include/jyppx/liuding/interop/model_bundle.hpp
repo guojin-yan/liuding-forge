@@ -47,9 +47,10 @@ enum class BundleFileRole : std::uint8_t {
   sbom = 7,                  ///< Software bill of materials data.
   provenance = 8,            ///< Code/config/dataset/run lineage data.
   weight_import_report = 9,  ///< Explicit full/partial weight-import evidence.
+  evidence = 10,             ///< Owner-versioned data evidence; schema v2 only.
 };
 
-/** @brief Formats admitted by the data-only v1 envelope. */
+/** @brief Formats admitted by the data-only v1 and v2 envelopes. */
 enum class BundleModelFormat : std::uint8_t {
   safetensors =
       1,     ///< Structurally verified including every tensor association.
@@ -116,15 +117,16 @@ struct BundleSignature {
   std::string signature_hex;  ///< Nonempty lowercase hex, bounded before use.
 };
 
-/** @brief Strict schema-v1 metadata; every inventory file has exactly one
+/** @brief Strict versioned metadata; every inventory file has exactly one
  * owner.
  *
- * Compression and encryption are explicitly none in v1. Future versions or
- * unknown fields fail; no undocumented historical schema is accepted. Identity
+ * Schema v2 adds an explicit evidence collection. Schema v1 remains readable
+ * and writable with no evidence field or role. Both require compression and
+ * encryption to be none and reject unknown fields/versions. Identity
  * pre/postprocessing still has an explicit declarative descriptor artifact.
  */
 struct ModelBundleManifest {
-  static constexpr std::uint32_t format_version = 1U;  ///< Current wire schema.
+  static constexpr std::uint32_t format_version = 2U;  ///< Current wire schema.
   std::uint32_t schema_version = format_version;       ///< Exact wire version.
   std::string bundle_id;                               ///< Producer identity.
   BuildFingerprint build;                              ///< Producer build.
@@ -141,9 +143,10 @@ struct ModelBundleManifest {
   BundleDescriptorRef sbom;                   ///< Required SBOM data.
   BundleDescriptorRef provenance;             ///< Required lineage data.
   std::vector<BundleDescriptorRef>
-      weight_import_reports;                ///< Optional evidence.
-  BundleRuntimeRequirements runtime;        ///< Required metadata.
-  std::vector<BundleSignature> signatures;  ///< May be empty.
+      weight_import_reports;                  ///< Optional evidence.
+  std::vector<BundleDescriptorRef> evidence;  ///< Schema-v2 data evidence only.
+  BundleRuntimeRequirements runtime;          ///< Required metadata.
+  std::vector<BundleSignature> signatures;    ///< May be empty.
 };
 
 /** @brief Independent positive limits applied before allocations and reads.
@@ -226,7 +229,8 @@ struct EncodedBundleShard {
   std::vector<std::byte> bytes;       ///< Complete official safetensors file.
 };
 
-/** @brief Validates strict v1 metadata and all cross references, without I/O.
+/** @brief Validates strict v1/v2 metadata and all cross references, without
+ * I/O.
  * @param manifest Metadata and tensor/shard references to validate.
  * @param limits Resource limits applied before expansion.
  * @throws InvalidArgument For invalid metadata; CompatibilityError for
@@ -244,7 +248,7 @@ void validate_model_bundle_manifest(const ModelBundleManifest& manifest,
 std::string serialize_model_bundle_manifest(const ModelBundleManifest& manifest,
                                             ModelBundleLimits limits = {});
 
-/** @brief Rejects duplicate/unknown fields, malformed UTF-8 and unsupported v1.
+/** @brief Parses strict v1/v2 JSON; rejects unknown fields and versions.
  * @param json Canonical model bundle manifest JSON.
  * @param limits Parsing resource limits.
  * @return Parsed and validated manifest.
@@ -258,8 +262,9 @@ ModelBundleManifest deserialize_model_bundle_manifest(
  * @param limits Serialization resource limits.
  * @return Signature payload bytes represented as UTF-8 text.
  *
- * Prefix is exactly "JYPPX-MODEL-BUNDLE-SIGNATURE-V1\n". The complete payload,
- * not just a user-declared digest, is passed to every signature trust callback.
+ * Prefix is exactly "JYPPX-MODEL-BUNDLE-SIGNATURE-V1\n" for schema v1 or
+ * "JYPPX-MODEL-BUNDLE-SIGNATURE-V2\n" for schema v2. The complete payload,
+ * including every evidence reference, is passed to each signature callback.
  */
 std::string model_bundle_signing_payload(const ModelBundleManifest& manifest,
                                          ModelBundleLimits limits = {});
