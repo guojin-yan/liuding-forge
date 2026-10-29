@@ -30,9 +30,12 @@ Result onnx_command(const Arguments& arguments) {
     return onnx_verify_command(arguments);
   if (words.size() == 3U && words[2] == "smoke")
     return onnx_smoke_command(arguments);
+  if (words.size() == 3U && words[2] == "pack")
+    return onnx_pack_command(arguments);
   if (words.size() != 3U || words[2] != "register")
-    usage("model.onnx",
-          "Choose register, verify or smoke with a native export report.");
+    usage(
+        "model.onnx",
+        "Choose register, verify, smoke or pack with a native export report.");
   arguments.allow(
       {"path", "report", "report-sha256", "root", "id", "reference"});
 #ifndef JYPPX_LIUDING_CLI_ONNX_EXPORT

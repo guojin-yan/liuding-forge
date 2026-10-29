@@ -75,6 +75,264 @@ class OnnxVerificationCliTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
         return data
 
+    def delivery_metadata(self) -> None:
+        def descriptor(name: str, content: dict) -> dict:
+            return {"schema_id": f"independent.delivery.{name}", "schema_version": 1,
+                    "content": content}
+        self.metadata = {
+            "format": "jyppx.liuding.onnx_delivery_metadata", "schema_version": 1,
+            "bundle_id": "automatic-native-model",
+            "checkpoint": {"sha256": hashlib.sha256(b"declared-checkpoint").hexdigest(), "size_bytes": 19},
+            "preprocessing": descriptor("preprocess", {"operation": "identity"}),
+            "postprocessing": descriptor("postprocess", {"operation": "identity"}),
+            "labels": None,
+            "evaluation": descriptor("evaluation", {"task_qualified": False, "reference": "fixture"}),
+            "sbom": descriptor("sbom", {"complete": False, "scope": "test declarations"}),
+        }
+        self.metadata_path = self.directory / "delivery metadata.json"
+        self.metadata_path.write_text(json.dumps(self.metadata), encoding="utf-8")
+
+    def pack(self, expected: int = 0, extra: tuple = (), provider: str = "CPUExecutionProvider",
+             metadata_sha256: str | None = None) -> dict:
+        self.bundle_path = self.directory / "auto bundle 中文"
+        return self.invoke(
+            "model", "onnx", "pack", "--path", self.model_path,
+            "--report", self.report_path, "--report-sha256", hashlib.sha256(self.report_path.read_bytes()).hexdigest(),
+            "--cases", self.case_path, "--cases-sha256", hashlib.sha256(self.case_path.read_bytes()).hexdigest(),
+            "--tensors", self.tensor_path, "--tensors-sha256", hashlib.sha256(self.tensor_path.read_bytes()).hexdigest(),
+            "--metadata", self.metadata_path, "--metadata-sha256", metadata_sha256 or hashlib.sha256(self.metadata_path.read_bytes()).hexdigest(),
+            "--provider", provider, "--output", self.bundle_path, *extra, expected=expected)
+
+    def packed_arguments(self) -> tuple:
+        self.manifest_bytes = (self.bundle_path / "manifest.json").read_bytes()
+        return ("--bundle", self.bundle_path, "--bundle-sha256", hashlib.sha256(self.manifest_bytes).hexdigest(),
+                "--model-id", "primary", "--report-id", "export-report", "--cases-id", "cases", "--tensors-id", "tensors")
+
+    def test_auto_pack_generates_inventory_actual_schemas_and_exact_evidence(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        data = self.pack()["data"]
+        self.assertTrue(data["published"])
+        self.assertTrue(data["runtime_requirements_checked"])
+        self.assertFalse(data["task_quality_qualified"])
+        self.assertFalse(data["source_run_lineage_verified"])
+        self.assertFalse(data["source_authenticated"])
+        self.assertEqual(data["signature_status"], "unsigned")
+        manifest = json.loads((self.bundle_path / "manifest.json").read_bytes())
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["models"], [{"id": "primary", "format": "onnx", "file_ids": ["model"], "tensors": []}])
+        self.assertEqual(len(manifest["evidence"]), 7)
+        by_id = {row["id"]: row for row in manifest["files"]}
+        for name, path in (("model", self.model_path), ("export-report", self.report_path),
+                           ("cases", self.case_path), ("tensors", self.tensor_path), ("delivery-metadata", self.metadata_path)):
+            self.assertEqual((self.bundle_path / by_id[name]["path"]).read_bytes(), path.read_bytes())
+        for row in manifest["files"]:
+            payload = (self.bundle_path / row["path"]).read_bytes()
+            self.assertEqual(hashlib.sha256(payload).hexdigest(), row["artifact"]["digest"]["hex"])
+        lock = (self.bundle_path / by_id["runtime-lock"]["path"]).read_bytes()
+        self.assertEqual(hashlib.sha256(lock).hexdigest(), manifest["runtime"]["environment_lock"]["hex"])
+        declared = json.loads(lock)
+        self.assertEqual(declared["provider"], {"name": "CPUExecutionProvider", "options": {}, "allow_cpu_fallback": False})
+        self.assertEqual(declared["devices"], ["cpu"])
+        self.assertEqual({row["name"] for row in declared["dependencies"]}, {"libtorch", "liuding-forge", "onnxruntime"})
+        schema = json.loads((self.bundle_path / "metadata/input.json").read_bytes())
+        self.assertEqual(schema["tensors"], [{"name": "input", "shape": [-1, 3], "batch_symbol": "batch", "dtype": "float32"}])
+        provenance = json.loads((self.bundle_path / "metadata/provenance.json").read_bytes())
+        self.assertEqual(provenance["source"], json.loads(self.report)["source"])
+        self.assertEqual(provenance["checkpoint"], self.metadata["checkpoint"])
+        self.assertEqual(provenance["checkpoint_association"], "caller_declared")
+        self.assertEqual(json.loads((self.bundle_path / "metadata/sbom.json").read_bytes()), self.metadata["sbom"]["content"])
+        self.invoke("model", "bundle", "verify", "--path", self.bundle_path)
+
+    def test_auto_package_smoke_is_independent_and_checks_environment(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        self.pack()
+        arguments = self.packed_arguments()
+        self.root.rename(self.directory / "unavailable-run-store")
+        for path in (self.model_path, self.report_path, self.case_path, self.tensor_path, self.metadata_path):
+            path.unlink()
+        data = self.smoke(arguments)["data"]
+        self.assertEqual(data["numerical"], "passed")
+        self.assertTrue(data["input_bundle"]["runtime_requirements_checked"])
+        self.assertFalse(data["input_bundle"]["descriptor_payloads_validated"])
+        self.assertEqual(data["report"]["schema_version"], 4)
+        self.assertTrue(data["report"]["runtime_requirements"]["checked"])
+        self.assertEqual(data["report"]["runtime_requirements"]["file_id"], "runtime-lock")
+        self.assertFalse(data["report"]["runtime_requirements"]["hardware_resource_qualification"])
+        self.assertFalse(data["report"]["source_run_lineage_verified"])
+        self.assertFalse(self.root.exists())
+
+    def test_auto_pack_numeric_failure_never_publishes(self) -> None:
+        self.suite(wrong=True)
+        self.delivery_metadata()
+        data = self.pack(expected=4)["data"]
+        self.assertFalse(data["published"])
+        self.assertEqual(data["numerical"], "failed")
+        self.assertGreater(data["report"]["execution"]["verification"]["mismatched_elements"], 0)
+        self.assertEqual(hashlib.sha256(data["runtime_profile"].encode()).hexdigest(), data["report"]["execution"]["profile"]["sha256"])
+        self.assertFalse(self.bundle_path.exists())
+        self.assertEqual(len(self.runs()), 1)
+
+    def test_auto_pack_rejects_metadata_drift_and_missing_owner_content(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        original = json.dumps(self.metadata)
+        for change in ("unknown", "version", "checkpoint", "descriptor", "content"):
+            with self.subTest(change=change):
+                metadata = json.loads(original)
+                if change == "unknown": metadata["future"] = 1
+                elif change == "version": metadata["schema_version"] = 2
+                elif change == "checkpoint": metadata["checkpoint"]["sha256"] = "invalid"
+                elif change == "descriptor": metadata["sbom"]["schema_version"] = 0
+                else: del metadata["evaluation"]["content"]
+                self.metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+                self.pack(expected=2)
+                self.assertFalse(self.bundle_path.exists())
+
+    def test_auto_pack_checks_metadata_digest_source_and_output_identity(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        self.pack(expected=2, metadata_sha256="a" * 64)
+        report = json.loads(self.report)
+        report["source"] = dict.fromkeys(report["source"], None)
+        self.report_path.write_text(json.dumps(report), encoding="utf-8")
+        self.pack(expected=2)
+        self.report_path.write_bytes(self.report)
+        self.bundle_path.mkdir()
+        marker = self.bundle_path / "keep.txt"
+        marker.write_bytes(b"do not overwrite")
+        self.pack(expected=3)
+        self.assertEqual(marker.read_bytes(), b"do not overwrite")
+
+    def test_auto_pack_preserves_supplied_labels_and_rejects_missing_backend(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        self.pack(expected=2, provider="UnavailableExecutionProvider")
+        self.assertFalse(self.bundle_path.exists())
+        self.metadata["labels"] = {"schema_id": "independent.labels", "schema_version": 1, "content": {"classes": ["A", "B"]}}
+        # The checkpoint is an external reference; it must not inherit a buffered-file cap.
+        self.metadata["checkpoint"]["size_bytes"] = (1 << 64) - 1
+        self.metadata_path.write_text(json.dumps(self.metadata), encoding="utf-8")
+        self.pack()
+        manifest = json.loads((self.bundle_path / "manifest.json").read_bytes())
+        self.assertEqual(manifest["labels"]["file_id"], "labels")
+        self.assertEqual(json.loads((self.bundle_path / "metadata/labels.json").read_bytes()), {"classes": ["A", "B"]})
+        self.assertEqual(json.loads((self.bundle_path / "metadata/provenance.json").read_bytes())["checkpoint"]["size_bytes"], (1 << 64) - 1)
+
+    def test_runtime_declaration_drift_fails_even_with_new_valid_manifest_digest(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        self.pack()
+        arguments = self.packed_arguments()
+        original = json.loads(self.manifest_bytes)
+        for field in ("backend_version", "devices", "dtypes", "os_arch", "dynamic_shapes", "environment_lock", "dependency", "unknown_dependency"):
+            with self.subTest(field=field):
+                manifest = json.loads(json.dumps(original))
+                runtime = manifest["runtime"]
+                if field == "backend_version": runtime[field] = "999.0.0"
+                elif field == "devices": runtime[field] = ["cuda"]
+                elif field == "dtypes": runtime[field] = ["float16"]
+                elif field == "os_arch": runtime[field] = ["other-platform"]
+                elif field == "dynamic_shapes": runtime[field] = False
+                elif field == "environment_lock": runtime[field]["hex"] = "0" * 64
+                elif field == "dependency": runtime["dependencies"][0]["version"] = "999.0.0"
+                else: runtime["dependencies"].append({"name": "unverified", "version": "1.0.0"})
+                (self.bundle_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                self.smoke(self.refresh_bundle(arguments), expected=2)
+
+    def test_runtime_lock_owner_version_membership_and_backend_are_required(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        self.pack()
+        arguments = self.packed_arguments()
+        original = json.loads(self.manifest_bytes)
+        for change in ("owner", "version", "backend"):
+            with self.subTest(change=change):
+                manifest = json.loads(json.dumps(original))
+                ref = next(row for row in manifest["evidence"] if row["file_id"] == "runtime-lock")
+                if change == "owner": ref["schema_id"] = "unrecognized.runtime.lock"
+                elif change == "version": ref["schema_version"] = 2
+                else: manifest["runtime"]["backend_id"] = "unrecognized.backend"
+                (self.bundle_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                self.smoke(self.refresh_bundle(arguments), expected=2)
+
+    def test_self_consistent_forged_runtime_lock_still_fails_observation(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        self.pack()
+        arguments = self.packed_arguments()
+        manifest = json.loads(self.manifest_bytes)
+        path = self.bundle_path / "evidence/runtime-lock.json"
+        lock = json.loads(path.read_bytes())
+        lock["dependencies"][0]["version"] = "999.0.0"
+        manifest["runtime"]["dependencies"][0]["version"] = "999.0.0"
+        data = json.dumps(lock).encode()
+        manifest["runtime"]["environment_lock"]["hex"] = hashlib.sha256(data).hexdigest()
+        (self.bundle_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.smoke(self.refresh_bundle(arguments, ("runtime-lock", data)), expected=2)
+
+    def test_runtime_lock_provider_options_and_unknown_fields_are_rejected(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        self.pack()
+        arguments = self.packed_arguments()
+        original = json.loads(self.manifest_bytes)
+        lock_original = (self.bundle_path / "evidence/runtime-lock.json").read_bytes()
+        for change in ("provider", "unknown"):
+            with self.subTest(change=change):
+                lock = json.loads(lock_original)
+                if change == "provider": lock["provider"]["options"]["unexpected"] = "1"
+                else: lock["future"] = True
+                data = json.dumps(lock).encode()
+                manifest = json.loads(json.dumps(original))
+                manifest["runtime"]["environment_lock"]["hex"] = hashlib.sha256(data).hexdigest()
+                (self.bundle_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                self.smoke(self.refresh_bundle(arguments, ("runtime-lock", data)), expected=2)
+
+    def test_auto_package_verify_records_checked_lock_and_original_manifest(self) -> None:
+        self.suite()
+        self.delivery_metadata()
+        self.pack()
+        data = self.verify_contained(self.packed_arguments())["data"]
+        self.assertTrue(data["input_bundle"]["runtime_requirements_checked"])
+        self.assertTrue(data["report"]["source_run_lineage_verified"])
+        self.assertEqual(data["report"]["schema_version"], 4)
+        self.assertEqual(len(data["artifacts"]), 8)
+        artifacts = {row["role"]: self.artifact(row) for row in data["artifacts"]}
+        self.assertEqual(artifacts["onnx.runtime_lock"], (self.bundle_path / "evidence/runtime-lock.json").read_bytes())
+        self.assertEqual(artifacts["onnx.input_bundle_manifest"], self.manifest_bytes)
+
+    def test_auto_pack_supports_native_multi_input_output_without_model_whitelist(self) -> None:
+        self.model_path.write_bytes((self.fixture / "pair.onnx").read_bytes())
+        self.report_path.write_bytes((self.fixture / "pair-report.json").read_bytes())
+        self.suite()
+        tensors, payload, cases = {}, bytearray(), []
+        for batch in (1, 2, 5):
+            left = [float(index - 2) / 4 for index in range(batch * 3)]
+            right = [float(index + 1) / 8 for index in range(batch * 3)]
+            arrays = {"left": left, "right": right, "sum": [a + b for a, b in zip(left, right)], "difference": [a - b for a, b in zip(left, right)]}
+            for name, values in arrays.items():
+                start = len(payload)
+                payload += struct.pack(f"<{len(values)}f", *values)
+                tensors[f"b{batch}.{name}"] = {"dtype": "F32", "shape": [batch, 3], "data_offsets": [start, len(payload)]}
+            cases.append({"id": f"pair-{batch}", "inputs": [{"name": name, "tensor": f"b{batch}.{name}"} for name in ("right", "left")],
+                          "expected": [{"name": name, "tensor": f"b{batch}.{name}"} for name in ("difference", "sum")]})
+        header = json.dumps(tensors).encode()
+        header += b" " * (-len(header) % 8)
+        self.tensor_path.write_bytes(struct.pack("<Q", len(header)) + header + payload)
+        document = json.loads(self.case_path.read_bytes())
+        document["reference"] = "independent-scalar-sum-difference"
+        document["cases"] = cases
+        self.case_path.write_text(json.dumps(document), encoding="utf-8")
+        self.delivery_metadata()
+        self.pack()
+        schema = json.loads((self.bundle_path / "metadata/input.json").read_bytes())
+        self.assertEqual([row["name"] for row in schema["tensors"]], ["left", "right"])
+        data = self.smoke(self.packed_arguments())["data"]
+        self.assertEqual(data["numerical"], "passed")
+        self.assertEqual(len(data["report"]["execution"]["cases"]), 3)
+
     def bundle(self, version: int = 1) -> tuple:
         self.bundle_path = self.directory / "bundle 测试"
         self.bundle_path.mkdir()

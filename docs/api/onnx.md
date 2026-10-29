@@ -86,7 +86,7 @@ liuding-forge model onnx register \
   --root ./runs --id export-001 --reference deployment
 ```
 
-`register` 要求启用 `onnx_export`，核对报告、模型与原 run lineage 后创建独立的导出 run，其 `parent_run_id` 指向原训练。模型和报告通过同一事务登记到 CAS，成功后导出 run 进入 completed；同一参数可安全重试，失败不留下半对模型/报告引用。原训练 run 可以已经完成。导出 run ID 应独立保留给本次交付，报告 SHA-256 只确认字节身份。`register` 只登记原生导出结果；它不从权重推断用户 C++ forward，也不执行 ORT。实际执行使用下面的 `verify`；数据包发布可使用 [`model bundle pack`](model_bundle.md#发布)，自动组包与包内证据语义联验继续完善。
+`register` 要求启用 `onnx_export`，核对报告、模型与原 run lineage 后创建独立的导出 run，其 `parent_run_id` 指向原训练。模型和报告通过同一事务登记到 CAS，成功后导出 run 进入 completed；同一参数可安全重试，失败不留下半对模型/报告引用。原训练 run 可以已经完成。导出 run ID 应独立保留给本次交付，报告 SHA-256 只确认字节身份。`register` 只登记原生导出结果；它不从权重推断用户 C++ forward，也不执行 ORT。实际执行使用下面的 `verify`；自动组包使用本页的 `model onnx pack`，已有完整清单则可用通用 [`model bundle pack`](model_bundle.md#发布)。
 
 ## 实际数值验证与执行证据
 
@@ -112,7 +112,7 @@ liuding-forge model onnx verify \
 
 命令完整校验 bundle，按显式模型 ID 选择单文件 ONNX，使用原生句柄读取并保留已校验的同一份模型字节，再进行官方 checker 与实际数值验证。manifest SHA-256 对应原始 `manifest.json` 的完整字节；大小限制为 manifest 4 MiB、单文件 256 MiB、数据文件合计 512 MiB。不得同时传 `--path`，其他模型、未声明文件或任何文件摘要错误均明确拒绝。
 
-使用包外样例时，验证证据封装 `jyppx.liuding.onnx_verification_evidence` 使用 v2，包含 `input_bundle`：普通文件输入时为 null，bundle 输入时记录原始 manifest 摘要、bundle/model/file ID 和签名状态；内部执行报告仍使用原有 v1。bundle 模式额外将原始 manifest 字节登记为第七个制品，数值失败也保留关联。该模式使用调用方提供的原始 FP32 case，不解释包中的预处理、后处理和任务描述符，不校验声明的完整 runtime requirements；这些未检查项在报告中明确为 false。实际执行只授予选中模型和样例的证据，不授予包内其他模型或全部部署环境资格。自动证据组包、CLI 导出编排与可信签名仍需另行完成。
+使用包外样例且没有下述环境锁时，验证证据封装 `jyppx.liuding.onnx_verification_evidence` 使用 v2，包含 `input_bundle`：普通文件输入时为 null，bundle 输入时记录原始 manifest 摘要、bundle/model/file ID 和签名状态；内部执行报告仍使用原有 v1。bundle 模式额外将原始 manifest 字节登记为第七个制品，数值失败也保留关联。该模式使用调用方提供的原始 FP32 case，不解释包中的预处理、后处理和任务描述符；未检查项在报告中明确为 false。实际执行只授予选中模型和样例的证据，不授予包内其他模型或全部部署环境资格。从权重重建的 CLI 导出与可信签名仍需另行完成。
 
 ## 包内证据复验
 
@@ -131,10 +131,39 @@ liuding-forge model onnx smoke \
   --provider CPUExecutionProvider --format json
 ```
 
-`smoke` 不需要原训练 run 数据库或包外模型/样例文件。它完整校验目录，保留同一次校验读取的模型和三件输入，重新运行官方 checker、严格解析全部 case/Tensor 关联，再执行 ORT 并比较全部具名输出。模型、manifest 和目录总额沿用上述限制；快照只保留选中的四文件，合计已知字节预算最多 332 MiB，不是 RSS 上限，发现文件 ID 与保留最终字节时仍会各做一次完整校验。
+`smoke` 不需要原训练 run 数据库或包外模型/样例文件。它完整校验目录，保留同一次校验读取的模型和三件输入，重新运行官方 checker、严格解析全部 case/Tensor 关联，再执行 ORT 并比较全部具名输出。模型、manifest 和目录总额沿用上述限制；快照保留选中的四文件，已知字节预算最多 332 MiB；新环境锁另计至多 64 KiB。这不是 RSS 上限，发现文件 ID 与保留最终字节时仍会各做一次完整校验。
 
 数值通过返回 0，数值不一致返回 4；输入/后端错误返回 2，I/O 错误返回 3。JSON 输出包含新执行报告和原始 `runtime_profile` 字符串，后者的 UTF-8 字节摘要与报告中的 profile SHA-256 相同；原始 trace 最多 16 MiB。命令不修改模型包、不创建 run；需要留存时保存完整输出。包内预期值和导出来源仍是声明，不认证生产者，也不证明任务准确率、完整 runtime requirements、其他模型或性能资格。
 
-需要把本次复验登记到已有原训练 lineage 时，将同一组参数用于 `model onnx verify`，另加 `--root`、`--id`、`--reference`。不要混用包内 ID 与包外 `--path`、`--report`、`--cases`、`--tensors` 或其摘要。成功和数值失败均登记原始 manifest 与六件执行制品；仍须能在指定 run store 中找到报告声明的训练来源。
+需要把本次复验登记到已有原训练 lineage 时，将同一组参数用于 `model onnx verify`，另加 `--root`、`--id`、`--reference`。不要混用包内 ID 与包外 `--path`、`--report`、`--cases`、`--tensors` 或其摘要。成功和数值失败均登记原始 manifest 与六件执行制品，有环境锁时另登记其精确字节；仍须能在指定 run store 中找到报告声明的训练来源。
 
-包内输入模式生成验证证据封装 v3，增加 `verification_inputs` 的文件 ID 与逐项语义检查结果，以及 `source_run_lineage_verified`：`smoke` 为 false，核对原训练的 `verify` 为 true。外部输入模式继续输出 v2，内部 Runtime 执行报告仍为 v1。`descriptor_payloads_validated=false` 表示未解析包内全部通用描述符；已校验的三件验证输入在 `verification_inputs` 单独列明。预后处理、SBOM/provenance、完整 runtime 声明、自动组包与真实签名继续单独完成。
+包内输入且没有新环境锁时生成验证证据封装 v3，增加 `verification_inputs` 的文件 ID 与逐项语义检查结果，以及 `source_run_lineage_verified`：`smoke` 为 false，核对原训练的 `verify` 为 true。外部输入模式保持 v2，内部 Runtime 执行报告保持 v1。`descriptor_payloads_validated=false` 表示未解析包内全部通用描述符；已校验的验证输入单独列明。预后处理、任务评估、SBOM 内容与真实签名仍须按各自契约验收。
+
+## 自动组包与环境锁
+
+`model onnx pack` 接受与 `verify` 相同的模型、报告、样例和 Provider 输入，额外提供交付元数据与新输出目录。它重新执行 checker 和全部数值比较，通过后自动生成 bundle v2 的文件清单、实际图 I/O 描述、provenance、环境锁及新执行证据，原子发布到新目录；数值失败返回 4 并在输出中保留报告和原始 trace，不发布目录。已有输出始终拒绝覆盖。整个流程由 C++ 完成。
+
+```sh
+liuding-forge model onnx pack \
+  --path model.onnx --report export-report.json --report-sha256 REPORT_SHA256 \
+  --cases cases.json --cases-sha256 CASES_SHA256 \
+  --tensors cases.safetensors --tensors-sha256 TENSORS_SHA256 \
+  --metadata delivery.json --metadata-sha256 DELIVERY_SHA256 \
+  --provider CPUExecutionProvider --output ./deployment-bundle --format json
+```
+
+`delivery.json` 使用 `jyppx.liuding.onnx_delivery_metadata` v1，最多 4 MiB，拒绝未知字段。模型的导出报告须显式包含原训练 run/code/config/data 引用。交付元数据字段如下，调用方提供实际内容，无需编写 manifest、文件列表、摘要或 Runtime 声明。
+
+| 字段 | 内容 |
+| --- | --- |
+| `format`、`schema_version` | 上述格式 ID 与整数 1 |
+| `bundle_id` | 本次模型包身份 |
+| `checkpoint` | 原检查点的 `sha256` 与正整数 `size_bytes`；这是调用方声明的关联，不内嵌检查点 |
+| `preprocessing`、`postprocessing`、`evaluation`、`sbom` | 各为 `schema_id`、正整数 `schema_version`、JSON 对象 `content`；填写所属 schema 的真实内容 |
+| `labels` | 同样的 owner 描述，或显式 null |
+
+输出固定选择 ID 为 `primary`、`export-report`、`cases`、`tensors`，可直接用于上一节的 `smoke`。包内保存原模型、报告、case、Tensor 和元数据的精确字节，以及本次验证报告与 ORT trace。预后处理、任务报告和 SBOM 按调用方 schema 保存，通用组包命令不替它们授予任务质量、完整 SBOM 或来源认证资格。生成的 provenance 关联 run/code/config/data/checkpoint、元数据和导出/执行证据；检查点与原 run 的关联仍须在来源重建流程中独立证明。
+
+环境锁使用 `jyppx.liuding.onnx_runtime_lock` v1，作为独立 evidence 保存，最多 64 KiB；manifest 的 `environment_lock` 是其原始字节摘要。它绑定框架与 LibTorch 构建版本、实际加载的 ORT 版本、平台、FP32 I/O、实际图的动态 batch、显式 Provider 名称/参数和无 CPU 回退策略。执行域在 CPU EP 下为 `cpu`，CUDA/TensorRT EP 下为 `cuda`，其他 EP 使用完整 Provider 名称的小写形式；它不表达硬件型号或驱动资格。
+
+当 backend ID 为 `jyppx.liuding.onnx_runtime` 时，`smoke`/`verify` 要求恰好一件受支持的锁，在同次完整校验中保留，执行前检查其与 manifest 及本次 Runtime 观察完全一致。版本、平台、依赖、dtype、动态声明或 Provider 参数不匹配均拒绝；未知依赖不被忽略。这类复验生成证据封装 v4，并明确记录 `runtime_requirements_checked=true`、锁 ID 和摘要；`verify` 共登记八件制品。其他 owner 的声明继续明确未检查，不获得兼容资格。锁只覆盖上述执行点，驱动/ABI 的完整支持矩阵、设备资源和性能、其他平台与真实签名仍需分别验收。

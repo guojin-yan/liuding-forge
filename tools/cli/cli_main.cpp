@@ -271,6 +271,12 @@ Result execute(const Arguments& arguments) {
                    "model onnx smoke --bundle DIRECTORY --bundle-sha256 SHA256 "
                    "--model-id MODEL --report-id REPORT --cases-id CASES "
                    "--tensors-id TENSORS --provider NAME",
+                   "model onnx pack --path MODEL --report REPORT "
+                   "--report-sha256 SHA256 "
+                   "--cases CASES --cases-sha256 SHA256 --tensors SAFETENSORS "
+                   "--tensors-sha256 SHA256 "
+                   "--metadata METADATA --metadata-sha256 SHA256 --provider "
+                   "NAME --output NEW_DIRECTORY",
                    "model onnx register --path MODEL --report REPORT "
                    "--report-sha256 SHA256 --root RUN_STORE --id RUN "
                    "--reference NAME",

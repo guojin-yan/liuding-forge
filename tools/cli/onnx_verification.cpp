@@ -20,10 +20,21 @@
 #include <bit>
 #include <chrono>
 #include <cstring>
+#include <fstream>
+#include <limits>
 #include <set>
 
 namespace jyppx::liuding::cli {
 namespace {
+constexpr std::string_view kRuntimeBackend = "jyppx.liuding.onnx_runtime";
+constexpr std::string_view kRuntimeLock = "jyppx.liuding.onnx_runtime_lock";
+
+std::string Lower(std::string value) {
+  for (auto& byte : value)
+    if (byte >= 'A' && byte <= 'Z') byte = static_cast<char>(byte - 'A' + 'a');
+  return value;
+}
+
 std::span<const std::byte> Bytes(std::string_view value) {
   return std::as_bytes(std::span(value.data(), value.size()));
 }
@@ -53,6 +64,7 @@ struct VerificationInputs {
   std::string report_id;
   std::string cases_id;
   std::string tensors_id;
+  std::string runtime_id;
 
   std::string_view bytes() const {
     return bundle ? TextBytes(bundle->files.at(file_id)) : standalone;
@@ -72,7 +84,7 @@ struct VerificationInputs {
 
   bool contained() const { return !report_id.empty(); }
 
-  Json document() const {
+  Json document(bool runtime_checked = false) const {
     if (!bundle) return nullptr;
     const auto& verified = bundle->verification;
     const auto status = verified.signature_status;
@@ -88,7 +100,7 @@ struct VerificationInputs {
              : "present_unverified"},
         {"authenticated", status == interop::BundleSignatureStatus::trusted},
         {"descriptor_payloads_validated", false},
-        {"runtime_requirements_checked", false}};
+        {"runtime_requirements_checked", runtime_checked}};
   }
 
   Json evidence() const {
@@ -164,12 +176,32 @@ void ReadBundle(const Arguments& arguments, VerificationInputs& result,
       evidence(result.tensors_id, "jyppx.liuding.onnx_verification_tensors",
                64U << 20U);
     }
+    const bool owns_runtime_lock = std::any_of(
+        manifest.evidence.begin(), manifest.evidence.end(),
+        [](const auto& ref) { return ref.schema_id == kRuntimeLock; });
+    if (owns_runtime_lock && manifest.runtime.backend_id != kRuntimeBackend)
+      throw CompatibilityError(
+          "ONNX runtime lock requires its declared backend");
+    if (manifest.runtime.backend_id == kRuntimeBackend) {
+      for (const auto& ref : manifest.evidence) {
+        if (ref.schema_id != kRuntimeLock) continue;
+        if (!result.runtime_id.empty() || ref.schema_version != 1U)
+          throw CompatibilityError(
+              "Select exactly one supported ONNX runtime lock");
+        result.runtime_id = ref.file_id;
+      }
+      if (result.runtime_id.empty())
+        throw CompatibilityError(
+            "ONNX runtime declaration requires its environment lock evidence");
+      retained_limit += size(result.runtime_id, 64U << 10U);
+    }
   }
   std::vector<std::string_view> selected{result.file_id};
   if (result.contained()) {
     selected.insert(selected.end(),
                     {result.report_id, result.cases_id, result.tensors_id});
   }
+  if (!result.runtime_id.empty()) selected.push_back(result.runtime_id);
   result.bundle = interop::read_model_bundle_snapshot(
       directory, digest, selected, options, retained_limit);
 }
@@ -379,16 +411,123 @@ PreparedVerification Prepare(const Arguments& arguments, bool smoke) {
   return result;
 }
 
+Json RuntimeDeclaration(
+    const interop::BundleRuntimeRequirements& requirements) {
+  Json dependencies = Json::array();
+  auto sorted = requirements.dependencies;
+  std::sort(sorted.begin(), sorted.end(),
+            [](const auto& a, const auto& b) { return a.name < b.name; });
+  for (const auto& entry : sorted)
+    dependencies.push_back({{"name", entry.name}, {"version", entry.version}});
+  return {{"backend_id", requirements.backend_id},
+          {"backend_version", requirements.backend_version},
+          {"dependencies", std::move(dependencies)},
+          {"devices", requirements.devices},
+          {"dtypes", requirements.dtypes},
+          {"os_arch", requirements.os_arch},
+          {"dynamic_shapes", requirements.dynamic_shapes}};
+}
+
+Json TensorSchema(std::span<const onnx_runtime::TensorSignature> signatures,
+                  const onnx_export::ExportReport& report) {
+  Json tensors = Json::array();
+  for (const auto& tensor : signatures)
+    tensors.push_back({{"name", tensor.name},
+                       {"shape", tensor.shape},
+                       {"batch_symbol", tensor.batch_symbol},
+                       {"dtype", "float32"}});
+  return {{"format", "jyppx.liuding.onnx_tensor_schema"},
+          {"schema_version", 1},
+          {"tensors", std::move(tensors)},
+          {"minimum_batch", report.minimum_batch},
+          {"maximum_batch", report.maximum_batch}};
+}
+
+Json ObserveEnvironment(const onnx_runtime::Session& session,
+                        const BuildFingerprint& build) {
+  const auto& provider = session.execution_provider();
+  const auto domain = provider.name == "CPUExecutionProvider" ? "cpu"
+                      : provider.name == "CUDAExecutionProvider" ||
+                              provider.name == "TensorrtExecutionProvider"
+                          ? "cuda"
+                          : Lower(provider.name);
+  const auto dynamic = [](auto signatures) {
+    return std::any_of(
+        signatures.begin(), signatures.end(),
+        [](const auto& tensor) { return !tensor.batch_symbol.empty(); });
+  };
+  return {{"format", kRuntimeLock},
+          {"schema_version", 1},
+          {"backend_id", kRuntimeBackend},
+          {"backend_version", build.jyppx_version},
+          {"dependencies",
+           Json::array(
+               {{{"name", "libtorch"}, {"version", build.libtorch_version}},
+                {{"name", "liuding-forge"}, {"version", build.jyppx_version}},
+                {{"name", "onnxruntime"},
+                 {"version", session.runtime_version()}}})},
+          {"devices", Json::array({domain})},
+          {"dtypes", Json::array({"float32"})},
+          {"os_arch", Json::array({Lower(build.os_arch)})},
+          {"dynamic_shapes",
+           dynamic(session.inputs()) || dynamic(session.outputs())},
+          {"provider",
+           {{"name", provider.name},
+            {"options", provider.options},
+            {"allow_cpu_fallback", session.cpu_fallback_allowed()}}}};
+}
+
+void CheckEnvironment(const interop::BundleRuntimeRequirements& requirements,
+                      std::string_view encoded, const Json& observed) {
+  if (sha256_hex(Bytes(encoded)) != requirements.environment_lock.hex)
+    throw CompatibilityError("ONNX runtime environment lock digest mismatch");
+  auto lock = parse_json(encoded);
+  fields(lock, {"format", "schema_version", "backend_id", "backend_version",
+                "dependencies", "devices", "dtypes", "os_arch",
+                "dynamic_shapes", "provider"});
+  if (lock != observed)
+    throw CompatibilityError(
+        "ONNX runtime environment does not match this execution point");
+  lock.erase("format");
+  lock.erase("schema_version");
+  lock.erase("provider");
+  if (lock != RuntimeDeclaration(requirements))
+    throw CompatibilityError(
+        "ONNX bundle runtime declaration differs from its checked lock");
+}
+
+interop::BundleRuntimeRequirements Requirements(const Json& lock,
+                                                std::string_view encoded) {
+  interop::BundleRuntimeRequirements result;
+  result.backend_id = lock.at("backend_id").get<std::string>();
+  result.backend_version = lock.at("backend_version").get<std::string>();
+  result.environment_lock.hex = sha256_hex(Bytes(encoded));
+  for (const auto& dependency : lock.at("dependencies"))
+    result.dependencies.push_back(
+        {dependency.at("name").get<std::string>(),
+         dependency.at("version").get<std::string>()});
+  result.devices = lock.at("devices").get<std::vector<std::string>>();
+  result.dtypes = lock.at("dtypes").get<std::vector<std::string>>();
+  result.os_arch = lock.at("os_arch").get<std::vector<std::string>>();
+  result.dynamic_shapes = lock.at("dynamic_shapes").get<bool>();
+  return result;
+}
+
 struct ExecutedVerification {
   onnx_runtime::VerificationReport report;
   std::string profile_json;
   Json document;
   std::string encoded;
   bool passed = false;
+  bool runtime_checked = false;
+  Json environment;
+  Json input_schema;
+  Json output_schema;
 };
 
 ExecutedVerification Execute(const Arguments& arguments,
-                             const PreparedVerification& prepared, bool smoke) {
+                             const PreparedVerification& prepared, bool smoke,
+                             bool capture_environment = false) {
   const auto& export_report = prepared.export_report;
   const auto& owner = prepared.inputs;
   const auto& cases = prepared.cases;
@@ -420,10 +559,20 @@ ExecutedVerification Execute(const Arguments& arguments,
   options.profile_prefix = temporary.directory / "actual";
   onnx_runtime::Session session(Bytes(owner.bytes()),
                                 export_report.model_digest, options);
+  Json environment = nullptr;
+  const bool runtime_checked = !owner.runtime_id.empty();
+  if (runtime_checked || capture_environment)
+    environment = ObserveEnvironment(session, current_build_fingerprint());
+  if (runtime_checked)
+    CheckEnvironment(owner.bundle->verification.manifest.runtime,
+                     TextBytes(owner.bundle->files.at(owner.runtime_id)),
+                     environment);
+  const auto input_schema = TensorSchema(session.inputs(), export_report);
+  const auto output_schema = TensorSchema(session.outputs(), export_report);
   auto report = onnx_runtime::verify_session(session, cases, prepared.policy,
                                              {}, deadline);
   const auto profile_path = session.end_profiling();
-  const auto profile_json = read_text(profile_path, 16U << 20U);
+  auto profile_json = read_text(profile_path, 16U << 20U);
   report.profile = onnx_runtime::inspect_profile(profile_json);
   if (report.profile->kernels.size() != 1U ||
       !report.profile->kernels.contains(options.provider.name))
@@ -431,8 +580,10 @@ ExecutedVerification Execute(const Arguments& arguments,
         "ORT trace does not exclusively observe the requested provider");
   Json document{
       {"format", "jyppx.liuding.onnx_verification_evidence"},
-      {"schema_version", owner.contained() ? 3 : 2},
-      {"input_bundle", owner.document()},
+      {"schema_version", runtime_checked     ? 4
+                         : owner.contained() ? 3
+                                             : 2},
+      {"input_bundle", owner.document(runtime_checked)},
       {"source", Json::parse(owner.report()).at("source")},
       {"export_report_sha256", sha256_hex(Bytes(owner.report()))},
       {"cases_sha256", sha256_hex(Bytes(owner.cases()))},
@@ -443,17 +594,230 @@ ExecutedVerification Execute(const Arguments& arguments,
     document["verification_inputs"] = owner.evidence();
     document["source_run_lineage_verified"] = !smoke;
   }
-  const auto encoded = document.dump();
+  if (runtime_checked) {
+    document["source_run_lineage_verified"] = !smoke;
+    document["runtime_requirements"] = {
+        {"checked", true},
+        {"file_id", owner.runtime_id},
+        {"environment_lock_sha256",
+         owner.bundle->verification.manifest.runtime.environment_lock.hex},
+        {"hardware_resource_qualification", false}};
+  }
+  auto encoded = document.dump();
   if (encoded.size() > (4U << 20U))
     throw ResourceExhausted("ONNX validation evidence exceeds 4 MiB");
   const bool passed = onnx_runtime::verification_passed(report);
   return {.report = std::move(report),
-          .profile_json = profile_json,
+          .profile_json = std::move(profile_json),
           .document = std::move(document),
-          .encoded = encoded,
-          .passed = passed};
+          .encoded = std::move(encoded),
+          .passed = passed,
+          .runtime_checked = runtime_checked,
+          .environment = std::move(environment),
+          .input_schema = input_schema,
+          .output_schema = output_schema};
+}
+
+Json DeliveryMetadata(std::string_view encoded) {
+  auto metadata = parse_json(encoded);
+  fields(metadata,
+         {"format", "schema_version", "bundle_id", "checkpoint",
+          "preprocessing", "postprocessing", "labels", "evaluation", "sbom"});
+  if (metadata.at("format") != "jyppx.liuding.onnx_delivery_metadata" ||
+      unsigned_number(metadata.at("schema_version"), 4294967295ULL) != 1U ||
+      !metadata.at("bundle_id").is_string())
+    throw SerializationError("Invalid ONNX delivery metadata schema");
+  const auto& checkpoint = metadata.at("checkpoint");
+  fields(checkpoint, {"sha256", "size_bytes"});
+  if (!checkpoint.at("sha256").is_string() ||
+      unsigned_number(checkpoint.at("size_bytes"),
+                      (std::numeric_limits<std::uint64_t>::max)()) == 0U)
+    throw SerializationError(
+        "Declare a nonempty source checkpoint content reference");
+  validate_artifact_digest({.hex = checkpoint.at("sha256").get<std::string>()});
+  for (const auto key :
+       {"preprocessing", "postprocessing", "labels", "evaluation", "sbom"}) {
+    const auto& descriptor = metadata.at(key);
+    if (std::string_view(key) == "labels" && descriptor.is_null()) continue;
+    fields(descriptor, {"schema_id", "schema_version", "content"});
+    if (!descriptor.at("schema_id").is_string() ||
+        unsigned_number(descriptor.at("schema_version"), 4294967295ULL) == 0U ||
+        !descriptor.at("content").is_object())
+      throw SerializationError(
+          "Use explicit owner-versioned JSON delivery descriptors");
+  }
+  return metadata;
+}
+
+Result Pack(const Arguments& arguments) {
+  arguments.allow({"path", "report", "report-sha256", "cases", "cases-sha256",
+                   "tensors", "tensors-sha256", "provider", "provider-option",
+                   "timeout-ms", "bundle", "bundle-sha256", "model-id",
+                   "report-id", "cases-id", "tensors-id", "metadata",
+                   "metadata-sha256", "output"});
+  const auto metadata_bytes =
+      CheckedFile(arguments, "metadata", "metadata-sha256", 4U << 20U);
+  const auto metadata = DeliveryMetadata(metadata_bytes);
+  const auto output = std::filesystem::u8path(arguments.require("output"));
+  std::error_code error;
+  if (std::filesystem::symlink_status(output, error).type() !=
+      std::filesystem::file_type::not_found)
+    throw IoError("ONNX package output must be a new directory");
+  const auto prepared = Prepare(arguments, false);
+  const auto& source = prepared.export_report.source;
+  if (!source.run_id || !source.source_digest || !source.config_digest ||
+      !source.data_manifest_digest)
+    throw InvalidArgument(
+        "ONNX delivery requires explicit training run/code/config/data source "
+        "references");
+  const auto executed = Execute(arguments, prepared, true, true);
+  if (!executed.passed)
+    return {Json{{"operation", "model.onnx.pack"},
+                 {"published", false},
+                 {"numerical", "failed"},
+                 {"runtime_executed", true},
+                 {"source_authenticated", false},
+                 {"report", executed.document},
+                 {"runtime_profile", executed.profile_json}},
+            4};
+  const auto lock_bytes = executed.environment.dump();
+  if (lock_bytes.size() > (64U << 10U))
+    throw ResourceExhausted("ONNX runtime lock exceeds 64 KiB");
+  interop::ModelBundleManifest manifest;
+  manifest.bundle_id = metadata.at("bundle_id").get<std::string>();
+  manifest.build = executed.report.build;
+  manifest.runtime = Requirements(executed.environment, lock_bytes);
+  CheckEnvironment(manifest.runtime, lock_bytes, executed.environment);
+  const TraceCleanup temporary{TraceDirectory()};
+  std::vector<interop::BundlePublishSource> sources;
+  const auto add = [&](const std::string& id, interop::BundleFileRole role,
+                       std::string path, std::string_view data,
+                       std::string media) {
+    const auto local = temporary.directory / id;
+    std::ofstream file(local, std::ios::binary);
+    file.write(data.data(), static_cast<std::streamsize>(data.size()));
+    file.close();
+    if (!file) throw IoError("Cannot stage ONNX bundle data");
+    manifest.files.push_back(
+        {.id = id,
+         .relative_path = std::move(path),
+         .role = role,
+         .artifact = {.digest = {.hex = sha256_hex(Bytes(data))},
+                      .size_bytes = data.size(),
+                      .logical_name = id,
+                      .media_type = std::move(media),
+                      .producer = "onnx.delivery.native"}});
+    sources.push_back({.file_id = id, .source_path = local});
+  };
+  const auto descriptor = [&](const std::string& id,
+                              interop::BundleFileRole role, std::string schema,
+                              std::uint32_t version, const Json& content) {
+    add(id, role, "metadata/" + id + ".json", content.dump(),
+        "application/json");
+    return interop::BundleDescriptorRef{.schema_id = std::move(schema),
+                                        .schema_version = version,
+                                        .file_id = id};
+  };
+  const auto supplied = [&](const char* key, interop::BundleFileRole role) {
+    const auto& item = metadata.at(key);
+    return descriptor(key, role, item.at("schema_id").get<std::string>(),
+                      item.at("schema_version").get<std::uint32_t>(),
+                      item.at("content"));
+  };
+  add("model", interop::BundleFileRole::model, "models/model.onnx",
+      prepared.inputs.bytes(), "application/onnx");
+  manifest.models.push_back({.id = "primary",
+                             .format = interop::BundleModelFormat::onnx,
+                             .file_ids = {"model"},
+                             .tensors = {}});
+  manifest.input_schema =
+      descriptor("input", interop::BundleFileRole::schema,
+                 "jyppx.liuding.onnx_tensor_schema", 1U, executed.input_schema);
+  manifest.output_schema = descriptor("output", interop::BundleFileRole::schema,
+                                      "jyppx.liuding.onnx_tensor_schema", 1U,
+                                      executed.output_schema);
+  manifest.preprocessing =
+      supplied("preprocessing", interop::BundleFileRole::prepost);
+  manifest.postprocessing =
+      supplied("postprocessing", interop::BundleFileRole::prepost);
+  if (!metadata.at("labels").is_null())
+    manifest.labels = supplied("labels", interop::BundleFileRole::labels);
+  manifest.evaluation =
+      supplied("evaluation", interop::BundleFileRole::evaluation);
+  manifest.sbom = supplied("sbom", interop::BundleFileRole::sbom);
+  manifest.provenance = descriptor(
+      "provenance", interop::BundleFileRole::provenance,
+      "jyppx.liuding.onnx_delivery_provenance", 1U,
+      {{"format", "jyppx.liuding.onnx_delivery_provenance"},
+       {"schema_version", 1},
+       {"source", executed.document.at("source")},
+       {"checkpoint", metadata.at("checkpoint")},
+       {"checkpoint_association", "caller_declared"},
+       {"source_run_lineage_verified", false},
+       {"source_authenticated", false},
+       {"delivery_metadata_sha256", sha256_hex(Bytes(metadata_bytes))},
+       {"export_report_sha256", sha256_hex(Bytes(prepared.inputs.report()))},
+       {"verification_report_sha256", sha256_hex(Bytes(executed.encoded))},
+       {"runtime_profile_sha256", sha256_hex(Bytes(executed.profile_json))}});
+  const auto evidence = [&](std::string id, std::string schema,
+                            std::uint32_t version, std::string path,
+                            std::string_view data,
+                            std::string media = "application/json") {
+    add(id, interop::BundleFileRole::evidence, std::move(path), data,
+        std::move(media));
+    manifest.evidence.push_back({.schema_id = std::move(schema),
+                                 .schema_version = version,
+                                 .file_id = std::move(id)});
+  };
+  evidence("export-report", "jyppx.liuding.onnx_export_report", 1U,
+           "evidence/export-report.json", prepared.inputs.report());
+  evidence("cases", "jyppx.liuding.onnx_verification_cases", 1U,
+           "evidence/cases.json", prepared.inputs.cases());
+  evidence("tensors", "jyppx.liuding.onnx_verification_tensors", 1U,
+           "evidence/cases.safetensors", prepared.inputs.tensors(),
+           "application/safetensors");
+  evidence("verification", "jyppx.liuding.onnx_verification_evidence",
+           executed.document.at("schema_version").get<std::uint32_t>(),
+           "evidence/verification.json", executed.encoded);
+  evidence("profile", "jyppx.liuding.onnx_runtime_profile", 1U,
+           "evidence/profile.json", executed.profile_json);
+  evidence("runtime-lock", std::string(kRuntimeLock), 1U,
+           "evidence/runtime-lock.json", lock_bytes);
+  evidence("delivery-metadata", "jyppx.liuding.onnx_delivery_metadata", 1U,
+           "evidence/delivery-metadata.json", metadata_bytes);
+  if (prepared.inputs.bundle)
+    evidence("input-manifest", "jyppx.model_bundle.manifest",
+             prepared.inputs.bundle->verification.manifest.schema_version,
+             "evidence/input-manifest.json",
+             TextBytes(prepared.inputs.bundle->manifest_bytes));
+  interop::ModelBundleVerifyOptions policy;
+  policy.limits.max_manifest_bytes = 4U << 20U;
+  policy.limits.max_file_bytes = 256U << 20U;
+  policy.limits.max_total_bytes = 512U << 20U;
+  const auto verified =
+      interop::publish_model_bundle(output, manifest, sources, policy);
+  return {Json{{"operation", "model.onnx.pack"},
+               {"published", true},
+               {"manifest_sha256", verified.manifest_digest.hex},
+               {"bundle_id", manifest.bundle_id},
+               {"model_id", "primary"},
+               {"report_id", "export-report"},
+               {"cases_id", "cases"},
+               {"tensors_id", "tensors"},
+               {"runtime_lock_id", "runtime-lock"},
+               {"runtime_executed", true},
+               {"numerical", "passed"},
+               {"runtime_requirements_checked", true},
+               {"descriptor_payloads_validated", false},
+               {"source_run_lineage_verified", false},
+               {"source_authenticated", false},
+               {"task_quality_qualified", false},
+               {"signature_status", "unsigned"}},
+          0};
 }
 }  // namespace
+
+Result onnx_pack_command(const Arguments& arguments) { return Pack(arguments); }
 
 Result onnx_smoke_command(const Arguments& arguments) {
   arguments.allow({"bundle", "bundle-sha256", "model-id", "report-id",
@@ -461,16 +825,17 @@ Result onnx_smoke_command(const Arguments& arguments) {
                    "timeout-ms"});
   const auto prepared = Prepare(arguments, true);
   const auto executed = Execute(arguments, prepared, true);
-  return {Json{{"operation", "model.onnx.smoke"},
-               {"runtime_executed", true},
-               {"numerical", executed.passed ? "passed" : "failed"},
-               {"requested_provider_observed", true},
-               {"source_authenticated", false},
-               {"source_run_lineage_verified", false},
-               {"input_bundle", prepared.inputs.document()},
-               {"report", executed.document},
-               {"runtime_profile", executed.profile_json}},
-          executed.passed ? 0 : 4};
+  return {
+      Json{{"operation", "model.onnx.smoke"},
+           {"runtime_executed", true},
+           {"numerical", executed.passed ? "passed" : "failed"},
+           {"requested_provider_observed", true},
+           {"source_authenticated", false},
+           {"source_run_lineage_verified", false},
+           {"input_bundle", prepared.inputs.document(executed.runtime_checked)},
+           {"report", executed.document},
+           {"runtime_profile", executed.profile_json}},
+      executed.passed ? 0 : 4};
 }
 
 Result onnx_verify_command(const Arguments& arguments) {
@@ -562,6 +927,9 @@ Result onnx_verify_command(const Arguments& arguments) {
   if (model_owner.bundle)
     append("bundle", "onnx.input_bundle_manifest", "application/json",
            TextBytes(model_owner.bundle->manifest_bytes));
+  if (!model_owner.runtime_id.empty())
+    append("runtime_lock", "onnx.runtime_lock", "application/json",
+           TextBytes(model_owner.bundle->files.at(model_owner.runtime_id)));
   const auto receipts = store.put_artifacts(id, uploads);
   (void)store.transition(
       id,
@@ -580,7 +948,7 @@ Result onnx_verify_command(const Arguments& arguments) {
                {"numerical", passed ? "passed" : "failed"},
                {"requested_provider_observed", true},
                {"source_authenticated", false},
-               {"input_bundle", model_owner.document()},
+               {"input_bundle", model_owner.document(executed.runtime_checked)},
                {"artifacts", artifacts},
                {"report", document}},
           passed ? 0 : 4};
@@ -588,6 +956,11 @@ Result onnx_verify_command(const Arguments& arguments) {
 }  // namespace jyppx::liuding::cli
 #else
 namespace jyppx::liuding::cli {
+Result onnx_pack_command(const Arguments&) {
+  throw CompatibilityError("ONNX packing components are disabled",
+                           "Enable JYPPX_LIUDING_BUILD_ONNX_EXPORT and "
+                           "JYPPX_LIUDING_BUILD_ONNX_RUNTIME.");
+}
 Result onnx_smoke_command(const Arguments&) {
   throw CompatibilityError("ONNX smoke components are disabled",
                            "Enable JYPPX_LIUDING_BUILD_ONNX_EXPORT and "

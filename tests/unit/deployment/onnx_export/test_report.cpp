@@ -9,6 +9,7 @@
 
 #include <torch/torch.h>
 
+#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -80,6 +81,29 @@ TEST(NativeOnnxReport,
     std::ofstream report_file(root / "report.json", std::ios::binary);
     report_file << exporter::serialize_export_report(fixture);
     ASSERT_TRUE(model_file && report_file);
+    torch::nn::Module pair;
+    pair.eval();
+    exporter::ExportOptions named;
+    named.maximum_batch = 8;
+    named.input_names = {"left", "right"};
+    named.output_names = {"sum", "difference"};
+    const std::array examples{at::ones({2, 3}), at::zeros({2, 3})};
+    const auto multiple = exporter::export_module(
+        pair,
+        [](std::span<const at::Tensor> inputs) {
+          return std::vector<at::Tensor>{inputs[0] + inputs[1],
+                                         inputs[0] - inputs[1]};
+        },
+        examples, named);
+    ASSERT_TRUE(multiple.report);
+    auto multiple_report = *multiple.report;
+    multiple_report.source = fixture.source;
+    std::ofstream pair_model(root / "pair.onnx", std::ios::binary);
+    pair_model.write(reinterpret_cast<const char*>(multiple.onnx.data()),
+                     static_cast<std::streamsize>(multiple.onnx.size()));
+    std::ofstream pair_report(root / "pair-report.json", std::ios::binary);
+    pair_report << exporter::serialize_export_report(multiple_report);
+    ASSERT_TRUE(pair_model && pair_report);
   }
 }
 
