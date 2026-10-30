@@ -296,9 +296,13 @@ TelemetryEnvelope decode_native_telemetry_projection(
 }
 
 NativeTelemetryProtocol::NativeTelemetryProtocol(TelemetrySink& sink,
-                                                 TelemetryLimits limits)
+                                                 TelemetryLimits limits,
+                                                 std::string_view backend)
     : sink_(sink), limits_(limits) {
   validate_telemetry_limits(limits_);
+  if (backend != "opentelemetry" && backend != "tensorboard")
+    throw InvalidArgument("Unsupported native telemetry worker backend");
+  backend_ = backend == "tensorboard" ? "tensorboard" : "opentelemetry";
 }
 
 nlohmann::json NativeTelemetryProtocol::exchange(const nlohmann::json& request,
@@ -311,7 +315,7 @@ nlohmann::json NativeTelemetryProtocol::exchange(const nlohmann::json& request,
     if (!request.contains("protocol_version") ||
         number(request.at("protocol_version"), 1U) != 1U ||
         !request.contains("backend") ||
-        text(request.at("backend"), 32U) != "opentelemetry" ||
+        text(request.at("backend"), 32U) != backend_ ||
         !request.contains("operation"))
       invalid();
     const auto operation = text(request.at("operation"), 8U);
@@ -364,11 +368,15 @@ nlohmann::json NativeTelemetryProtocol::exchange(const nlohmann::json& request,
     // or stale counters. A later identical request consults the sink's seen.
     response.erase("receipts");
     response.erase("counters");
-    response["error"] = "native_otlp.operation_rejected";
+    response["error"] = backend_ == "tensorboard"
+                            ? "native_tensorboard.operation_rejected"
+                            : "native_otlp.operation_rejected";
   } catch (const Json::exception&) {
     response.erase("receipts");
     response.erase("counters");
-    response["error"] = "native_otlp.invalid_request";
+    response["error"] = backend_ == "tensorboard"
+                            ? "native_tensorboard.invalid_request"
+                            : "native_otlp.invalid_request";
   }
   return response;
 }

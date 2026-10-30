@@ -72,7 +72,26 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 
 运行器在创建 attempt 前验证并批量绑定 `local.training.configuration`、`local.training.data_manifest`、可选 `local.training.resume`，拥有执行权的 worker 启动程序前再次复核内容。训练程序通过 `JYPPX_LIUDING_LOCAL_STORE_ROOT`、`JYPPX_LIUDING_LOCAL_SPEC_SHA256` 及已有 job/attempt 环境读取冻结计划；输入绑定采用流式 CAS 验证，不解码模型张量。模型标识和输入摘要用于固定身份，实际模型支持、数据含义、checkpoint 完整性与恢复由 C++ 训练程序检查。示例使用原生 checkpoint coordinator 恢复模型、SGD momentum 和更新计数，再在新 job 中继续训练。
 
-有限 retry 始终重用同一冻结输入，在新的 attempt 中重新开始该请求，不自动选择失败 attempt 的 checkpoint。已有未确认 attempt 仍返回 `recovery_required`；存在 checkpoint 不能证明旧进程树已经清理。完整输出 schema、系统级资源硬限制与自动训练恢复继续开放；输入限额不代表 RSS/显存上限或训练提速。
+默认 retry 重用最初的冻结输入，在新的 attempt 中重新开始该请求。需要从已确认失败的 checkpoint 续训时，显式启用下一节的策略。已有未确认 attempt 仍返回 `recovery_required`；存在 checkpoint 不能证明旧进程树已经清理。完整输出 schema、系统级资源硬限制、未知 attempt 的外部确认和真实任务恢复联验仍开放；输入限额不代表 RSS/显存上限或训练提速。
+
+## 已确认失败的 checkpoint 续训
+
+`training.retry_resume` 可选。它要求 `max_attempts > 1`、非空 `retry_exit_codes`，并明确指定每个失败 attempt 必须发布的 checkpoint 引用：
+
+```json
+{
+  "retry_resume": {
+    "checkpoint_reference_id": "checkpoint.last",
+    "restore_policy": "exact_only"
+  }
+}
+```
+
+运行器只从上一个已确认、普通非零退出且属于 `retry_exit_codes` 的 attempt 选择该引用；结果、双流、原始 intent、worker 归属和 `process_tree_cleanup_confirmed: true` 都须通过检查。checkpoint 必须属于该 attempt、类型为 checkpoint、大小不超过 1 GiB，且 CAS 内容有效。缺少引用、类型或来源错误、额度越界、清理未确认时停止推进；不会改为 fresh 重训、选择其他 checkpoint 或推断旧进程已结束。取消、超时、信号和启动失败继续遵守原有不重试规则。
+
+启用后，每个 attempt 启动前在 job 保存 `local.training.inputs.N` 清单，固定 job/attempt/index、原始 spec 摘要、上一结果摘要、模型、原配置、原数据和本次 checkpoint 完整身份；原始 `local.spec` 保持不变。配置、数据和可选恢复内容批量绑定为 `local.training.configuration.N`、`local.training.data_manifest.N`、`local.training.resume.N`。清单已提交但尚未创建 attempt 时，恢复只修复相同内容的绑定；attempt 已存在而结果未确认时仍隔离。资源预约继续先于 attempt/intent，前一个预约仍须满足原清理与结果合同才能释放。
+
+worker 在 attempt 上绑定 `local.training.inputs`，把其摘要写入 intent/result，并通过 `JYPPX_LIUDING_LOCAL_TRAINING_SHA256` 告知 C++ 训练程序。确认结果、终态重放和跨 job 释放资源时，运行器仍在 64 KiB 上限内读取并校验该清单的 CAS、规范内容和有效输入身份；引用摘要相同不能替代内容校验，缺失或损坏会停止推进。应用应按该摘要读取 attempt 清单，按 `.N` 的 job 引用加载输入，再用自己的 checkpoint coordinator 执行 `exact_only` 恢复。运行器只做身份、CAS 和生命周期校验；把任意字节标为 checkpoint 不能替代应用对模型、优化器、RNG 等完整状态的检查。[原生学习例](../../examples/experiment/README.md#失败后自动从-checkpoint-续训)演示 20 步 checkpoint、声明退出码和后续 40 步原生 SGD。
 
 ## 搜索的训练输入
 

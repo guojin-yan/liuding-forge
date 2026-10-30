@@ -145,8 +145,18 @@ if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::nn
             COMMAND ${Python3_EXECUTABLE}
                 "${PROJECT_SOURCE_DIR}/tests/scripts/test_search_training_example.py"
                 --worker $<TARGET_FILE:jyppx_liuding_search_trial>
-                --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+                SearchTrainingExampleTests LocalTrainingExampleTests
+                TypedSearchTrainingExampleTests)
         set_tests_properties(LocalSearchTrainingExample PROPERTIES
+            LABELS "examples;experiment;training;cli" TIMEOUT 240)
+        add_test(NAME LocalCheckpointRetryTrainingExample
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_search_training_example.py"
+                --worker $<TARGET_FILE:jyppx_liuding_search_trial>
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+                RetryCheckpointTrainingExampleTests)
+        set_tests_properties(LocalCheckpointRetryTrainingExample PROPERTIES
             LABELS "examples;experiment;training;cli" TIMEOUT 240)
     endif()
 endif()

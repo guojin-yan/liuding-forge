@@ -470,6 +470,368 @@ class LocalTrainingExampleTests(unittest.TestCase):
         self.rejected("unconfirmed-source-resume", spec)
 
 
+class RetryCheckpointTrainingExampleTests(unittest.TestCase):
+    """Audit real C++ continuation and independent durable-boundary fixtures."""
+    setUp = SearchTrainingExampleTests.setUp
+    invoke = SearchTrainingExampleTests.invoke
+    cli = SearchTrainingExampleTests.cli
+    show_run = SearchTrainingExampleTests.show_run
+    blob = SearchTrainingExampleTests.blob
+    prepare = LocalTrainingExampleTests.prepare
+    execute = LocalTrainingExampleTests.execute
+    archive = LocalTrainingExampleTests.archive
+    seed_checkpoint = LocalTrainingExampleTests.seed_checkpoint
+
+    def auto_spec(self, name: str = "retry") -> tuple[Path, dict]:
+        path = self.directory / (name + ".json")
+        self.invoke(WORKER, "--write-local-spec", path, "--store", self.root,
+                    "--until-step", 60, "--checkpoint-retry-after", 20)
+        return path, json.loads(path.read_text(encoding="utf-8"))
+
+    def raw_local(self, action: str, name: str, path: Path | None = None) -> subprocess.CompletedProcess:
+        options = ["--spec", str(path)] if path else []
+        return subprocess.run([str(CLI), "local", action, "--root", str(self.root),
+            "--id", name, *options, "--format", "json"], cwd=self.directory,
+            capture_output=True, text=True, encoding="utf-8", timeout=60,
+            env=dict(os.environ, OMP_NUM_THREADS="2", MKL_NUM_THREADS="2"))
+
+    def refs(self, run: str) -> dict:
+        return {item["reference_id"]: item for item in self.show_run(run)["references"]}
+
+    def seed_json(self, run: str, reference: str, value: dict, *, replace: bool = False) -> str:
+        content = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        identity = digest(content)
+        target = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
+        target.parent.mkdir(exist_ok=True)
+        target.write_bytes(content)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("PRAGMA foreign_keys=ON")
+            database.execute("INSERT OR IGNORE INTO jyppx_blobs(digest,algorithm,size_bytes) VALUES(?,1,?)",
+                             (identity, len(content)))
+            if replace:
+                self.assertEqual(database.execute("UPDATE jyppx_run_artifacts SET digest=? "
+                    "WHERE run_id=? AND reference_id=?", (identity, run, reference)).rowcount, 1)
+            else:
+                stamp = database.execute("SELECT created_at_ms FROM jyppx_runs WHERE run_id=?", (run,)).fetchone()[0]
+                database.execute("INSERT INTO jyppx_run_artifacts(run_id,reference_id,kind,role,digest,"
+                    "logical_name,media_type,producer,attached_at_ms) VALUES(?,?,1,?,?,?,'application/json',"
+                    "'independent-crash-fixture',?)", (run, reference, reference, identity, reference + ".json", stamp))
+        return identity
+
+    def alias_checkpoint(self, source: str, *, kind: int = 2) -> None:
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("INSERT INTO jyppx_run_artifacts(run_id,reference_id,kind,role,digest,"
+                "logical_name,media_type,producer,attached_at_ms) SELECT run_id,'checkpoint.retry',?,'last',"
+                "digest,logical_name,media_type,producer,attached_at_ms FROM jyppx_run_artifacts "
+                "WHERE run_id=? AND reference_id='checkpoint.last'", (kind, source))
+
+    def failed_boundary(self) -> tuple[dict, str, dict]:
+        # An intentionally absent selected output leaves the real first C++
+        # attempt confirmed and failed, before any second attempt is admitted.
+        path, spec = self.auto_spec()
+        spec["training"]["retry_resume"]["checkpoint_reference_id"] = "checkpoint.retry"
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        process = self.raw_local("execute", "retry-job", path)
+        self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+        state = self.cli("local", "show", "--root", self.root, "--id", "retry-job")
+        self.assertEqual(len(state["attempts"]), 1)
+        attempt = state["attempts"][0]
+        self.assertEqual(attempt["result"]["exit_code"], 23)
+        self.assertTrue(attempt["result"]["process_tree_cleanup_confirmed"])
+        source = attempt["attempt_id"]
+        refs = self.refs(source)
+        summary = json.loads(self.blob(refs["training.result"]))
+        self.assertEqual((summary["initial_step"], summary["completed_steps"]), (0, 20))
+        self.assertNotIn("local.training.inputs.2", self.refs("retry-job"))
+        return spec, source, refs
+
+    def assert_no_second_attempt(self) -> None:
+        state = self.cli("local", "show", "--root", self.root, "--id", "retry-job")
+        self.assertEqual(len(state["attempts"]), 1)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+            self.assertEqual(database.execute("SELECT count(*) FROM jyppx_runs WHERE parent_run_id=?",
+                                             ("retry-job",)).fetchone(), (1,))
+
+    def second_manifest(self, spec: dict, source: str) -> dict:
+        job_refs = self.refs("retry-job")
+        first = json.loads(self.blob(job_refs["local.training.inputs.1"]))
+        selected = self.refs(source)["checkpoint.retry"]["artifact"]
+        training = copy.deepcopy(spec["training"])
+        del training["retry_resume"]
+        training["resume"] = {"restore_policy": "exact_only", "checkpoint": {
+            "run_id": source, "reference_id": "checkpoint.retry",
+            "sha256": selected["sha256"], "size_bytes": selected["size_bytes"]}}
+        return {"format": "jyppx.liuding.local_training_inputs", "schema_version": 1,
+            "job_id": "retry-job", "attempt_id": source.rsplit("-", 1)[0] + "-2", "index": 2,
+            "spec_sha256": first["spec_sha256"],
+            "previous_result_sha256": self.refs(source)["local.result"]["artifact"]["sha256"],
+            "training": training}
+
+    def test_automatic_twenty_plus_forty_restores_all_native_state_and_resource_receipts(self) -> None:
+        path, spec = self.auto_spec()
+        spec["resources"] = {"capacity": {"cpu_slots": 2, "memory_bytes": 4096, "gpus": {}},
+                             "request": {"cpu_slots": 1, "memory_bytes": 1024, "gpu": None}}
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        state = self.cli("local", "execute", "--root", self.root, "--id", "retry-job", "--spec", path)
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(len(state["attempts"]), 2)
+        first, second = state["attempts"]
+        self.assertEqual((first["result"]["exit_code"], second["result"]["exit_code"]), (23, 0))
+        self.assertEqual((first["run_status"], second["run_status"]), ("failed", "completed"))
+        self.assertTrue(all(item["resource_reserved"] and item["resource_released"] for item in state["attempts"]))
+        first_refs, second_refs = self.refs(first["attempt_id"]), self.refs(second["attempt_id"])
+        a = json.loads(self.blob(first_refs["training.result"]))
+        b = json.loads(self.blob(second_refs["training.result"]))
+        self.assertEqual((a["initial_step"], a["completed_steps"], a["resumed"]), (0, 20, False))
+        self.assertEqual((b["initial_step"], b["completed_steps"], b["resumed"]), (20, 60, True))
+        job_refs = self.refs("retry-job")
+        self.assertEqual(json.loads(self.blob(job_refs["local.spec"])), spec)
+        self.assertIsNone(spec["training"]["resume"])
+        frozen = json.loads(self.blob(job_refs["local.training.inputs.2"]))
+        self.assertEqual(frozen["previous_result_sha256"], first_refs["local.result"]["artifact"]["sha256"])
+        selected = frozen["training"]["resume"]["checkpoint"]
+        self.assertEqual((selected["run_id"], selected["reference_id"], selected["sha256"]),
+                         (first["attempt_id"], "checkpoint.last", first_refs["checkpoint.last"]["artifact"]["sha256"]))
+        for item, refs in ((first, first_refs), (second, second_refs)):
+            expected = job_refs["local.training.inputs." + str(item["index"])]["artifact"]["sha256"]
+            self.assertEqual(refs["local.training.inputs"]["artifact"]["sha256"], expected)
+            self.assertEqual(item["result"]["training_sha256"], expected)
+            self.assertEqual(json.loads(self.blob(refs["local.intent"]))["training_sha256"], expected)
+        for name in ("model_id", "configuration", "data_manifest"):
+            self.assertEqual(frozen["training"][name], spec["training"][name])
+        continuous_path, _ = self.prepare("continuous", 60)
+        # The resource pool now requires explicit requests, including the
+        # independent control job. The declared bytes are logical accounting.
+        continuous_spec = json.loads(continuous_path.read_text(encoding="utf-8"))
+        continuous_spec["resources"] = spec["resources"]
+        continuous_path.write_text(json.dumps(continuous_spec), encoding="utf-8")
+        _, control_refs, control = self.execute("continuous-job", continuous_path)
+        _, actual_fields = self.archive(self.blob(second_refs["checkpoint.last"]))
+        _, expected_fields = self.archive(self.blob(control_refs["checkpoint.last"]))
+        self.assertEqual(actual_fields, expected_fields)
+        self.assertEqual({owner for owner, _ in actual_fields}, {"model.main", "optimizer.main", "run.inputs"})
+        self.assertEqual((b["weight"], b["bias"]), (control["weight"], control["bias"]))
+        replay = self.cli("local", "recover", "--root", self.root, "--id", "retry-job")
+        self.assertEqual(replay["attempts"], state["attempts"])
+        self.assertTrue(self.cli("run", "verify", "--root", self.root)["valid"])
+
+    def test_missing_selected_checkpoint_never_falls_back_to_restart(self) -> None:
+        self.failed_boundary()
+        process = self.raw_local("recover", "retry-job")
+        self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assert_no_second_attempt()
+        self.assertNotIn("local.training.inputs.2", self.refs("retry-job"))
+
+    def test_checkpoint_kind_and_metadata_quota_reject_before_next_admission(self) -> None:
+        _, source, refs = self.failed_boundary()
+        self.alias_checkpoint(source, kind=1)
+        process = self.raw_local("recover", "retry-job")
+        self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assert_no_second_attempt()
+        identity = refs["checkpoint.last"]["artifact"]["sha256"]
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("UPDATE jyppx_run_artifacts SET kind=2 WHERE run_id=? AND reference_id='checkpoint.retry'", (source,))
+            database.execute("UPDATE jyppx_blobs SET size_bytes=? WHERE digest=?", ((1 << 30) + 1, identity))
+        process = self.raw_local("recover", "retry-job")
+        self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assert_no_second_attempt()
+        self.assertNotIn("local.training.inputs.2", self.refs("retry-job"))
+
+    def test_checkpoint_label_with_fake_bytes_fails_native_exact_restore(self) -> None:
+        _, source, _ = self.failed_boundary()
+        self.seed_checkpoint(source, "checkpoint.retry", b"not-a-native-checkpoint")
+        process = self.raw_local("recover", "retry-job")
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        state = json.loads(process.stdout)["data"]
+        self.assertEqual((state["status"], len(state["attempts"])), ("failed", 2))
+        second = self.refs(state["attempts"][1]["attempt_id"])
+        self.assertNotIn("checkpoint.last", second)
+        self.assertNotIn("training.result", second)
+        self.assertNotEqual(state["attempts"][1]["result"]["exit_code"], 0)
+
+    def test_unconfirmed_cleanup_or_missing_result_never_starts_next_attempt(self) -> None:
+        _, source, refs = self.failed_boundary()
+        self.alias_checkpoint(source)
+        result = json.loads(self.blob(refs["local.result"]))
+        result["process_tree_cleanup_confirmed"] = False
+        self.seed_json(source, "local.result", result, replace=True)
+        process = self.raw_local("recover", "retry-job")
+        self.assertEqual(process.returncode, 7, process.stdout + process.stderr)
+        self.assertEqual(json.loads(process.stdout)["data"]["status"], "resource_cleanup_unconfirmed")
+        self.assert_no_second_attempt()
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id IN "
+                             "('local.result','local.stdout','local.stderr')", (source,))
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id=?", (source,))
+        process = self.raw_local("recover", "retry-job")
+        self.assertEqual(process.returncode, 7, process.stdout + process.stderr)
+        self.assertEqual(json.loads(process.stdout)["data"]["status"], "recovery_required")
+        self.assert_no_second_attempt()
+
+    def test_source_ownership_and_foreign_frozen_checkpoint_are_rejected(self) -> None:
+        spec, source, _ = self.failed_boundary()
+        self.alias_checkpoint(source)
+        original = self.second_manifest(spec, source)
+        mutations = []
+        bad = copy.deepcopy(original); bad["training"]["resume"]["checkpoint"]["run_id"] = "foreign-attempt"; mutations.append(bad)
+        bad = copy.deepcopy(original); bad["training"]["model_id"] = "foreign-model"; mutations.append(bad)
+        bad = copy.deepcopy(original); bad["training"]["configuration"]["sha256"] = "0" * 64; mutations.append(bad)
+        bad = copy.deepcopy(original); bad["training"]["data_manifest"]["sha256"] = "0" * 64; mutations.append(bad)
+        bad = copy.deepcopy(original); bad["previous_result_sha256"] = "0" * 64; mutations.append(bad)
+        for index, frozen in enumerate(mutations):
+            with self.subTest(identity=index):
+                self.seed_json("retry-job", "local.training.inputs.2", frozen, replace=index != 0)
+                process = self.raw_local("recover", "retry-job")
+                self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+                self.assert_no_second_attempt()
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='retry-job' AND reference_id='local.training.inputs.2'")
+            database.execute("UPDATE jyppx_runs SET project_id='foreign-project' WHERE run_id=?", (source,))
+        process = self.raw_local("recover", "retry-job")
+        self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assert_no_second_attempt()
+
+    def test_manifest_before_atomic_pins_recovers_same_identity_and_actual_checkpoint(self) -> None:
+        spec, source, _ = self.failed_boundary()
+        self.alias_checkpoint(source)
+        frozen = self.second_manifest(spec, source)
+        identity = self.seed_json("retry-job", "local.training.inputs.2", frozen)
+        state = self.cli("local", "recover", "--root", self.root, "--id", "retry-job")
+        self.assertEqual((state["status"], len(state["attempts"])), ("completed", 2))
+        self.assertEqual(self.refs("retry-job")["local.training.inputs.2"]["artifact"]["sha256"], identity)
+        second = self.refs(state["attempts"][1]["attempt_id"])
+        summary = json.loads(self.blob(second["training.result"]))
+        self.assertEqual((summary["initial_step"], summary["completed_steps"], summary["resumed"]), (20, 60, True))
+
+    def test_atomic_pins_before_attempt_creation_are_reused_without_reselection(self) -> None:
+        spec, source, _ = self.failed_boundary()
+        self.alias_checkpoint(source)
+        frozen = self.second_manifest(spec, source)
+        identity = self.seed_json("retry-job", "local.training.inputs.2", frozen)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            stamp = database.execute("SELECT created_at_ms FROM jyppx_runs WHERE run_id='retry-job'").fetchone()[0]
+            for origin_run, origin_ref, target in (
+                ("retry-job", "local.training.configuration", "local.training.configuration.2"),
+                ("retry-job", "local.training.data_manifest", "local.training.data_manifest.2"),
+                (source, "checkpoint.retry", "local.training.resume.2")):
+                database.execute("INSERT INTO jyppx_run_artifacts(run_id,reference_id,kind,role,digest,logical_name,"
+                    "media_type,producer,attached_at_ms) SELECT 'retry-job',?,kind,?,digest,logical_name,media_type,producer,? "
+                    "FROM jyppx_run_artifacts WHERE run_id=? AND reference_id=?", (target, target, stamp, origin_run, origin_ref))
+        state = self.cli("local", "recover", "--root", self.root, "--id", "retry-job")
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(self.refs("retry-job")["local.training.inputs.2"]["artifact"]["sha256"], identity)
+
+    def test_existing_next_attempt_without_result_is_fenced_after_input_commit(self) -> None:
+        path, _ = self.auto_spec()
+        state = self.cli("local", "execute", "--root", self.root, "--id", "retry-job", "--spec", path)
+        second = state["attempts"][1]["attempt_id"]
+        original_refs = self.refs(second)
+        original_checkpoint = self.blob(original_refs["checkpoint.last"])
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id IN "
+                             "('local.result','local.stdout','local.stderr')", (second,))
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN (?, 'retry-job')", (second,))
+        process = self.raw_local("recover", "retry-job")
+        self.assertEqual(process.returncode, 7, process.stdout + process.stderr)
+        current = json.loads(process.stdout)["data"]
+        self.assertEqual((current["status"], len(current["attempts"])), ("recovery_required", 2))
+        self.assertEqual(self.blob(self.refs(second)["checkpoint.last"]), original_checkpoint)
+        self.assertNotIn("local.result", self.refs(second))
+
+    def test_retry_policy_requires_explicit_exact_bounded_configuration(self) -> None:
+        _, spec = self.auto_spec()
+        for name, mutate in (
+            ("one-attempt", lambda value: value.update(max_attempts=1)),
+            ("no-retry-codes", lambda value: value.update(retry_exit_codes=[])),
+            ("best-effort", lambda value: value["training"]["retry_resume"].update(restore_policy="allow_best_effort")),
+            ("unknown-field", lambda value: value["training"]["retry_resume"].update(latest=True)),
+        ):
+            with self.subTest(case=name):
+                invalid = copy.deepcopy(spec)
+                mutate(invalid)
+                path = self.directory / (name + ".json")
+                path.write_text(json.dumps(invalid), encoding="utf-8")
+                process = self.raw_local("execute", name, path)
+                self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                    self.assertEqual(database.execute("SELECT count(*) FROM jyppx_runs WHERE run_id=? OR parent_run_id=?",
+                                                     (name, name)).fetchone(), (0,))
+
+
+    def test_terminal_recover_rejects_missing_or_same_size_corrupt_effective_manifest(self) -> None:
+        for failure in ("missing", "same-size-corrupt"):
+            with self.subTest(failure=failure):
+                self.root = self.directory / ("terminal-manifest-" + failure)
+                path, _ = self.auto_spec("terminal-manifest-" + failure)
+                state = self.cli("local", "execute", "--root", self.root,
+                                 "--id", "retry-job", "--spec", path)
+                self.assertEqual((state["status"], len(state["attempts"])), ("completed", 2))
+                reference = self.refs("retry-job")["local.training.inputs.2"]
+                identity = reference["artifact"]["sha256"]
+                target = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
+                original = target.read_bytes()
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                    before = database.execute("SELECT run_id,status,updated_at_ms FROM jyppx_runs ORDER BY run_id").fetchall()
+                if failure == "missing":
+                    target.unlink()
+                else:
+                    target.write_bytes(b"x" * len(original))
+                    self.assertEqual(target.stat().st_size, len(original))
+                try:
+                    process = self.raw_local("recover", "retry-job")
+                    self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+                    diagnostic = "Artifact does not exist" if failure == "missing" else "Artifact failed content-address validation"
+                    self.assertIn(diagnostic, process.stdout + process.stderr)
+                    with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                        self.assertEqual(database.execute("SELECT run_id,status,updated_at_ms FROM jyppx_runs ORDER BY run_id").fetchall(), before)
+                finally:
+                    target.write_bytes(original)
+
+    def test_cross_job_cleanup_rejects_missing_or_same_size_corrupt_effective_manifest(self) -> None:
+        resources = {"capacity": {"cpu_slots": 2, "memory_bytes": 4096, "gpus": {}},
+                     "request": {"cpu_slots": 1, "memory_bytes": 1024, "gpu": None}}
+        for failure in ("missing", "same-size-corrupt"):
+            with self.subTest(failure=failure):
+                self.root = self.directory / ("cleanup-manifest-" + failure)
+                path, spec = self.auto_spec("cleanup-manifest-" + failure)
+                spec["resources"] = resources
+                path.write_text(json.dumps(spec), encoding="utf-8")
+                state = self.cli("local", "execute", "--root", self.root,
+                                 "--id", "retry-job", "--spec", path)
+                self.assertEqual((state["status"], len(state["attempts"])), ("completed", 2))
+                second = state["attempts"][1]["attempt_id"]
+                admitted_path, admitted_spec = self.prepare("new-admission-" + failure, 60)
+                admitted_spec["resources"] = resources
+                admitted_path.write_text(json.dumps(admitted_spec), encoding="utf-8")
+                reference = self.refs("retry-job")["local.training.inputs.2"]
+                identity = reference["artifact"]["sha256"]
+                target = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
+                original = target.read_bytes()
+                # Reconstruct the reachable crash boundary after attempt 2's
+                # atomic result, before its release receipt and lifecycle.
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                    database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='retry-job' AND reference_id='local.resource.release.2'")
+                    database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN ('retry-job',?)", (second,))
+                    confirmed = database.execute("SELECT reference_id,digest FROM jyppx_run_artifacts WHERE run_id=? ORDER BY reference_id", (second,)).fetchall()
+                if failure == "missing":
+                    target.unlink()
+                else:
+                    target.write_bytes(b"x" * len(original))
+                    self.assertEqual(target.stat().st_size, len(original))
+                try:
+                    process = self.raw_local("execute", "new-admission", admitted_path)
+                    self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+                    diagnostic = "Artifact does not exist" if failure == "missing" else "Artifact failed content-address validation"
+                    self.assertIn(diagnostic, process.stdout + process.stderr)
+                    with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                        self.assertEqual(database.execute("SELECT count(*) FROM jyppx_run_artifacts WHERE run_id='retry-job' AND reference_id='local.resource.release.2'").fetchone(), (0,))
+                        self.assertEqual(database.execute("SELECT count(*) FROM jyppx_runs WHERE parent_run_id='new-admission'").fetchone(), (0,))
+                        self.assertEqual(database.execute("SELECT count(*) FROM jyppx_run_artifacts WHERE run_id='new-admission' AND reference_id='local.resource.lease.1'").fetchone(), (0,))
+                        self.assertEqual(database.execute("SELECT reference_id,digest FROM jyppx_run_artifacts WHERE run_id=? ORDER BY reference_id", (second,)).fetchall(), confirmed)
+                finally:
+                    target.write_bytes(original)
+
+
 class TypedSearchTrainingExampleTests(unittest.TestCase):
     """Native typed search and explicit continuation, audited without torch."""
     setUp = SearchTrainingExampleTests.setUp

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地任务可显式启用失败 checkpoint 自动续训；恢复前核验训练输入、检查点和原进程清理证据，并提供模型、SGD 动量与步数一致的 C++ 学习流程。
+
+- TensorBoard CLI 增加可选原生 C++ 隔离 worker，复用现有事件 writer 和进程 transport；配置模式与直接输出互斥，检查存储外输出、配置身份和协议容量，并提供完整学习步骤。
+
 - DINOv2/DINOv3 ViT 支持选择中间 block，按请求顺序返回 CLS、patch、grid 或完整 tokens；复用骨干状态和 autograd，在最后选定层后停止，提供纯 C++ 多层特征示例。
 
 - 本地执行可声明同机同存储的 CPU/GPU 逻辑容量与请求，在启动前持久准入；只有原生清理与结果双流均确认后释放，未知状态保留占用，系统级内存和显存硬限额继续开发。

@@ -276,4 +276,65 @@ TEST(NativeTelemetryProtocol, RequestIdCacheCannotHideSignedZeroConflict) {
   EXPECT_EQ(sink.counters_.exported_events, 1U);
 }
 
+TEST(NativeTelemetryProtocol, DefaultBackendAndErrorsRemainOtlp) {
+  PrefixSink sink;
+  cli::NativeTelemetryProtocol protocol(sink);
+  auto batch = request({event()});
+  batch["backend"] = "tensorboard";
+  const auto rejected = protocol.exchange(batch);
+  EXPECT_EQ(rejected.at("error"), "native_otlp.operation_rejected");
+  EXPECT_FALSE(rejected.contains("receipts"));
+  EXPECT_FALSE(rejected.contains("counters"));
+  EXPECT_EQ(sink.calls, 0U);
+  batch["backend"] = "opentelemetry";
+  EXPECT_FALSE(protocol.exchange(batch).contains("error"));
+  EXPECT_EQ(sink.calls, 1U);
+}
+
+TEST(NativeTelemetryProtocol, TensorBoardBackendKeepsReplayAndCloseContract) {
+  PrefixSink sink;
+  const std::string backend = "tensorboard";
+  cli::NativeTelemetryProtocol protocol(sink, {}, backend);
+  auto batch = request({event()});
+  const auto wrong_backend = protocol.exchange(batch);
+  EXPECT_EQ(wrong_backend.at("error"), "native_tensorboard.operation_rejected");
+  EXPECT_EQ(sink.calls, 0U);
+  batch["backend"] = "tensorboard";
+  EXPECT_EQ(protocol.exchange(batch).at("receipts"), Json::array({1U}));
+  EXPECT_EQ(protocol.exchange(batch).at("receipts"), Json::array({2U}));
+  const Json close{{"protocol_version", 1U},
+                   {"backend", "tensorboard"},
+                   {"request_id", "close"},
+                   {"operation", "close"}};
+  const auto closed = protocol.exchange(close);
+  EXPECT_EQ(closed.at("counters").at("exported_events"), 1U);
+  EXPECT_EQ(protocol.exchange(close), closed);
+  const auto late = protocol.exchange(batch);
+  EXPECT_EQ(late.at("error"), "native_tensorboard.operation_rejected");
+  EXPECT_FALSE(late.contains("receipts"));
+  EXPECT_FALSE(late.contains("counters"));
+  EXPECT_EQ(sink.calls, 2U);
+}
+
+TEST(NativeTelemetryProtocol, TensorBoardFailureDoesNotAcknowledgePrefix) {
+  PrefixSink sink;
+  sink.fail_after_prefix = true;
+  cli::NativeTelemetryProtocol protocol(sink, {}, "tensorboard");
+  auto batch = request({event(1U), event(2U)});
+  batch["backend"] = "tensorboard";
+  const auto failed = protocol.exchange(batch);
+  EXPECT_EQ(failed.at("error"), "native_tensorboard.operation_rejected");
+  EXPECT_FALSE(failed.contains("receipts"));
+  EXPECT_FALSE(failed.contains("counters"));
+  EXPECT_EQ(sink.counters_.exported_events, 1U);
+  EXPECT_EQ(protocol.exchange(batch).at("receipts"), Json::array({2U, 1U}));
+}
+
+TEST(NativeTelemetryProtocol, UnknownBackendIsRejectedBeforeSinkUse) {
+  PrefixSink sink;
+  EXPECT_THROW(cli::NativeTelemetryProtocol(sink, {}, "future"),
+               jy::InvalidArgument);
+  EXPECT_EQ(sink.calls, 0U);
+}
+
 }  // namespace

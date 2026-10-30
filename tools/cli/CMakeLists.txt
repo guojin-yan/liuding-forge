@@ -30,6 +30,7 @@ add_library(jyppx_cli_objects OBJECT
     run_commands.cpp
     telemetry_commands.cpp
     native_otlp_worker.cpp
+    native_tensorboard_worker.cpp
 )
 add_executable(jyppx_cli)
 set_target_properties(jyppx_cli PROPERTIES OUTPUT_NAME liuding-forge)

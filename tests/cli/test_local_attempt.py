@@ -419,7 +419,7 @@ class LocalAttemptTest(unittest.TestCase):
         for rejected in (recovered, blocked):
             self.assertEqual(rejected["status"], "error")
             self.assertEqual(rejected["error"]["name"], "invalid_argument")
-            self.assertIn("Resource release evidence disappeared",
+            self.assertIn("Local attempt output identity mismatch",
                           rejected["error"]["message"])
             self.assertNotIn("data", rejected)
         self.assertNotIn("local.resource.release.1", self.references("job-one"))

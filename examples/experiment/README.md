@@ -103,7 +103,26 @@ $resumeSpec = Join-Path $work 'resume-local.json'
 
 每个 attempt 的 `checkpoint.last` 保存三个原生参与者：`model.main`、`optimizer.main`、`run.inputs`；`training.result` 记录实际起止步数和验证均方误差。恢复要求相同模型拓扑、优化器选项和输入摘要，使用 `CheckpointCoordinator` 的 `exact_only`；只含模型参数的搜索快照不足以恢复这个训练过程。此示例没有随机批次、scheduler 或 AMP；接入这些能力时必须把它们的状态也加入 checkpoint。
 
-应用检查和恢复 checkpoint，运行器校验 CAS 身份并管理进程生命周期。`local recover` 只修复已确认的执行状态；未知归属保持隔离，不会自动续训。真实训练过程、配置/数据准备及恢复均由 C++ 实现；Python 仅用于独立测试读取和参考计算。示例规模不能用来证明训练速度或资源优势。
+应用检查和恢复 checkpoint，运行器校验 CAS 身份并管理进程生命周期。默认 `local recover` 修复已确认的执行状态；未知归属保持隔离。真实训练过程、配置/数据准备及恢复均由 C++ 实现；Python 仅用于独立测试读取和参考计算。示例规模不能用来证明训练速度或资源优势。
+
+## 失败后自动从 checkpoint 续训
+
+同一个 C++ 示例还可以展示已确认失败后的 checkpoint 续训。`--checkpoint-retry-after 20` 让首个 attempt 完成 20 步、提交完整 checkpoint 和训练摘要，再以声明的退出码 `23` 结束；运行器确认结果和进程树清理后，固定该 checkpoint 的 CAS 身份，启动第二个 attempt，使用相同配置和数据从第 20 步继续到第 60 步。这里的失败边界专为学习设置，实际异常不会自动变成可恢复状态。
+
+```powershell
+$retryStore = Join-Path $work 'checkpoint-retry-store'
+$retrySpec = Join-Path $work 'checkpoint-retry.json'
+& $worker --write-local-spec $retrySpec --store $retryStore --until-step 60 --checkpoint-retry-after 20
+& $cli local execute --root $retryStore --id checkpoint-retry --spec $retrySpec --format json
+$continued = (& $cli local show --root $retryStore --id checkpoint-retry --format json | ConvertFrom-Json).data
+$continued.attempts | Select-Object index, run_status, training_sha256, result
+& $cli run show --root $retryStore --id $continued.attempts[1].attempt_id --format json
+& $cli local recover --root $retryStore --id checkpoint-retry --format json
+```
+
+预期 job 为 `completed`，两个 attempt 分别保留 `failed/23` 和 `completed/0` 的结果。第二个 attempt 的 `training.result` 应记录 `initial_step: 20`、`completed_steps: 60`、`resumed: true`；`checkpoint.last` 包含实际模型、SGD momentum、更新计数和输入身份。`local.training.inputs` 与 intent/result 中的 `training_sha256` 对应同一恢复清单，job 的 `local.training.inputs.2` 还记录首个结果摘要和 checkpoint 来源；原始配置中的 `resume` 仍为 `null`。重复 `recover` 查询相同结果，不再运行训练。
+
+接入自己的 C++ 程序时，在 `training` 中显式声明 `retry_resume`，从 attempt 的清单和 job 的 `.N` 引用读取有效输入，然后执行完整 `exact_only` 恢复。保留原模型、配置和数据身份，确保退出前 checkpoint 已提交；运行器不会为应用推断 RNG、scheduler 或 AMP 状态。缺少 checkpoint、伪造或不完整的内容、身份变化、未知结果和未确认清理都不能转为 fresh 重试；详细约定见[本地运行器](../../docs/development/local_process_runner.md#已确认失败的-checkpoint-续训)。此策略仅用于 local job；typed grid/random 仍使用一次 attempt 和显式 checkpoint。
 
 ## 训练输入与搜索衔接
 
@@ -134,6 +153,32 @@ $continuedSpec = Join-Path $work 'typed-continued.json'
 ## 原生 TensorBoard
 
 启用可选 `telemetry_native` 组件后，构建 `jyppx_liuding_native_tensorboard_example` 并运行 `liuding-forge-example-native-tensorboard exports/learning-run`（父目录需已存在）。[示例源码](tensorboard.cpp) 使用四个样本的预测值和目标值计算平均绝对误差，并导出生命周期、指标和数组缓冲区大小；重复提交相同事件可观察去重结果。[使用与限制](../../docs/api/native_tensorboard.md) 说明安装、映射、容量和失败处理。该示例演示遥测接入，不把数组大小当成训练进程的内存峰值。
+
+### 查看真实训练指标
+
+也可以将前面搜索得到的 `$bestRun` 导入 TensorBoard。一次导出直接使用 `--output`；需要由 CLI 监督独立 C++ worker 时，使用显式 `--native-config`。两种方式共用相同 writer 和映射规则，分别选择新目录：
+
+```powershell
+$tbDirect = Join-Path $work 'tensorboard-direct'
+& $cli run export --root $store --id $bestRun --backend tensorboard-native --output $tbDirect --format json
+
+$tbWorker = Join-Path $work 'tensorboard-worker'
+New-Item -ItemType Directory -Path $tbWorker | Out-Null
+$tbOutput = Join-Path $work 'tensorboard-isolated'
+$tbConfig = Join-Path $work 'tensorboard.json'
+$tbSettings = [ordered]@{
+    schema_version = 1
+    directory = $tbOutput
+    working_directory = $tbWorker
+    operation_timeout_ms = 10000
+    cleanup_timeout_ms = 2000
+}
+[IO.File]::WriteAllText($tbConfig, ($tbSettings | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+& $cli run export --root $store --id $bestRun --backend tensorboard-native --native-config $tbConfig --timeout-ms 60000 --format json
+tensorboard --logdir $tbOutput
+```
+
+沿用前文的绝对 `$work` 路径，工作目录需要先创建，两个输出目录均不得预建或位于 `$store` 内；查看器单独安装。`--output` 与 `--native-config` 不能同时使用，也不接受 `--resume`。检查 `scan_completed`、`fully_represented` 和接受/不支持计数；制品引用、日志等仍保存在原始实验存储，不会伪装成 TensorBoard 标量。隔离导出失败后保留 `$store`，改写配置中的输出目录并重试。运行时全部由 C++ 完成；等待与清理预算、配置和帧容量见[原生 TensorBoard API](../../docs/api/native_tensorboard.md#使用受监督的隔离进程)。
 
 ## 离线 OTLP 协议准备
 

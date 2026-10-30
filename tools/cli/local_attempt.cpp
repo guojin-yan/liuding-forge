@@ -170,6 +170,7 @@ struct TrainingSpec {
   TrainingInput configuration;
   TrainingInput data_manifest;
   std::optional<TrainingInput> resume;
+  std::optional<std::string> retry_checkpoint;
 };
 
 TrainingInput training_input(const Json& value, std::uint64_t limit) {
@@ -186,7 +187,8 @@ TrainingInput training_input(const Json& value, std::uint64_t limit) {
 }
 
 TrainingSpec training_spec(const Json& value) {
-  fields(value, {"model_id", "configuration", "data_manifest", "resume"});
+  fields(value, {"model_id", "configuration", "data_manifest", "resume"},
+         {"retry_resume"});
   TrainingSpec result;
   result.model = text(value.at("model_id"));
   identifier(result.model);
@@ -198,6 +200,14 @@ TrainingSpec training_spec(const Json& value) {
     require(text(resume.at("restore_policy")) == "exact_only",
             "Local training currently requires explicit exact_only restore");
     result.resume = training_input(resume.at("checkpoint"), 1ULL << 30U);
+  }
+  if (value.contains("retry_resume")) {
+    const auto& retry = value.at("retry_resume");
+    fields(retry, {"checkpoint_reference_id", "restore_policy"});
+    require(text(retry.at("restore_policy")) == "exact_only",
+            "Retry checkpoint continuation requires exact_only restore");
+    result.retry_checkpoint = text(retry.at("checkpoint_reference_id"));
+    identifier(*result.retry_checkpoint);
   }
   return result;
 }
@@ -338,6 +348,9 @@ Spec read_spec(const Json& value) {
   }
   if (value.contains("training"))
     result.training = training_spec(value.at("training"));
+  if (result.training && result.training->retry_checkpoint)
+    require(result.maximum_attempts > 1 && !result.retry_exit_codes.empty(),
+            "Checkpoint continuation requires a bounded retry policy");
   if (value.contains("resources"))
     result.resources = resource_spec(value.at("resources"));
   return result;
@@ -384,19 +397,22 @@ void training_source(SQLiteRunStore& store, std::string_view project,
 std::vector<RunArtifactReference> training_references(
     SQLiteRunStore& store, const Spec& spec,
     std::optional<std::string_view> pinned_job = std::nullopt,
-    std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt) {
+    std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt,
+    std::string_view role_suffix = {}) {
   std::vector<RunArtifactReference> result;
   if (!spec.training) return result;
   FileArtifactStore cas(store.artifact_root());
   const auto add = [&](const TrainingInput& input, std::string role,
                        RunArtifactKind kind) {
     if (!pinned_job) training_source(store, spec.project, input);
+    const auto pinned_role = role + std::string(role_suffix);
     const auto reference = store.find_reference(
         pinned_job ? *pinned_job : std::string_view(input.run),
-        pinned_job ? std::string_view(role) : std::string_view(input.reference),
+        pinned_job ? std::string_view(pinned_role)
+                   : std::string_view(input.reference),
         stop, deadline);
     require(reference && reference->kind == kind &&
-                (!pinned_job || reference->role == role) &&
+                (!pinned_job || reference->role == pinned_role) &&
                 reference->artifact.digest == input.digest &&
                 reference->artifact.size_bytes == input.size,
             "Training input differs from its committed run/CAS identity");
@@ -541,6 +557,58 @@ RunStatus terminal_status(const Json& result) {
              : RunStatus::failed;
 }
 
+bool checkpoint_retry(const Spec& spec) {
+  return spec.training && spec.training->retry_checkpoint.has_value();
+}
+
+std::string training_inputs_reference(std::uint64_t index) {
+  return "local.training.inputs." + std::to_string(index);
+}
+
+// Build only immutable identities here. Do not call outcome(): confirmed
+// result validation uses this helper without recursive result revalidation.
+Json expected_training_inputs(SQLiteRunStore& store, std::string_view job,
+                              const Spec& spec, std::uint64_t index) {
+  require(
+      checkpoint_retry(spec) && index != 0 && index <= spec.maximum_attempts,
+      "Attempt training inputs require the frozen continuation policy");
+  auto training = spec.json.at("training");
+  training.erase("retry_resume");
+  Json previous_result_sha256 = nullptr;
+  if (index > 1) {
+    const auto previous_id = attempt_id(job, index - 1);
+    const auto checkpoint =
+        store.find_reference(previous_id, *spec.training->retry_checkpoint);
+    require(checkpoint && checkpoint->kind == RunArtifactKind::checkpoint,
+            "Retry checkpoint reference is missing or has another kind");
+    const Json binding{{"run_id", previous_id},
+                       {"reference_id", checkpoint->reference_id},
+                       {"sha256", checkpoint->artifact.digest.hex},
+                       {"size_bytes", checkpoint->artifact.size_bytes}};
+    static_cast<void>(training_input(binding, 1ULL << 30U));
+    training["resume"] = {{"checkpoint", binding},
+                          {"restore_policy", "exact_only"}};
+    const auto previous_result =
+        store.find_reference(previous_id, "local.result");
+    require(previous_result &&
+                previous_result->kind == RunArtifactKind::artifact &&
+                previous_result->role == "local.result",
+            "Frozen training inputs require the preceding committed result");
+    previous_result_sha256 = previous_result->artifact.digest.hex;
+  }
+  const Json expected{{"format", "jyppx.liuding.local_training_inputs"},
+                      {"schema_version", 1},
+                      {"job_id", job},
+                      {"attempt_id", attempt_id(job, index)},
+                      {"index", index},
+                      {"spec_sha256", spec.sha256},
+                      {"previous_result_sha256", previous_result_sha256},
+                      {"training", std::move(training)}};
+  require(expected.dump().size() <= kSpecBytes,
+          "Frozen attempt training inputs exceed 64 KiB");
+  return expected;
+}
+
 Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
              std::uint64_t index) {
   const auto id = attempt_id(job, index);
@@ -550,7 +618,7 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
           "spec_sha256", "status", "exit_code", "signal", "process_id",
           "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
           "stdout_sha256", "stderr_sha256", "failure_reason"},
-         {"process_tree_cleanup_confirmed"});
+         {"process_tree_cleanup_confirmed", "training_sha256"});
   schema(value, "jyppx.liuding.local_attempt_result");
   require(value.at("job_id").get<std::string>() == job &&
               value.at("attempt_id").get<std::string>() == id &&
@@ -568,6 +636,31 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
   else
     require(value.at("exit_code").is_null(),
             "Non-exit local result has exit code");
+  require(value.contains("training_sha256") == checkpoint_retry(spec),
+          "Local attempt result has a different training input policy");
+  if (checkpoint_retry(spec)) {
+    const auto frozen =
+        store.find_reference(job, training_inputs_reference(index));
+    const auto pinned = store.find_reference(id, "local.training.inputs");
+    require(
+        frozen && pinned && frozen->kind == RunArtifactKind::artifact &&
+            pinned->kind == RunArtifactKind::artifact &&
+            frozen->role == training_inputs_reference(index) &&
+            pinned->role == "local.training.inputs" &&
+            frozen->artifact.digest == pinned->artifact.digest &&
+            frozen->artifact.size_bytes == pinned->artifact.size_bytes &&
+            frozen->artifact.digest.hex == text(value.at("training_sha256")),
+        "Local attempt result differs from its frozen training inputs");
+    // The matching database references alone do not prove that their shared
+    // CAS object is still readable. Keep terminal replay and resource release
+    // subject to the same bounded content and effective-identity check.
+    const auto manifest =
+        reference_json(store, job, training_inputs_reference(index),
+                       training_inputs_reference(index), kSpecBytes);
+    require(manifest == expected_training_inputs(store, job, spec, index) &&
+                frozen->artifact.digest == digest(manifest.dump()),
+            "Confirmed attempt has different frozen training inputs");
+  }
   for (const auto name : {"stdout", "stderr"}) {
     const auto ref = store.find_reference(id, std::string("local.") + name);
     require(
@@ -581,6 +674,116 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
     static_cast<void>(cas.open(ref->artifact.digest));
   }
   return value;
+}
+
+bool retryable_result(const Json& result, const Spec& spec) {
+  return result.at("status").get<std::string>() == "exited" &&
+         spec.retry_exit_codes.contains(
+             result.at("exit_code").get<std::uint32_t>());
+}
+
+// Only the explicitly enabled policy creates these per-attempt manifests.
+// The job spec stays immutable; no mutable path or unconfirmed attempt can
+// become an automatic recovery source. The bounded chain is at most 16 deep.
+RunArtifactReference frozen_training_inputs(SQLiteRunStore& store,
+                                            const RunMetadata& job,
+                                            const Spec& spec,
+                                            std::uint64_t index,
+                                            bool allow_create) {
+  require(
+      checkpoint_retry(spec) && index != 0 && index <= spec.maximum_attempts,
+      "Attempt training inputs require the frozen continuation policy");
+  if (index > 1) {
+    const auto previous_id = attempt_id(job.run_id, index - 1);
+    const auto previous = store.find(previous_id);
+    require(previous && previous->status == RunStatus::failed &&
+                previous->project_id == spec.project &&
+                previous->experiment_id == spec.experiment &&
+                previous->lineage.parent_run_id == job.run_id &&
+                previous->lineage.config_digest == spec.sha256 &&
+                previous->lineage.source_digest == job.lineage.source_digest &&
+                previous->lineage.build_fingerprint ==
+                    job.lineage.build_fingerprint &&
+                previous->tags.contains("liuding.local.kind") &&
+                previous->tags.at("liuding.local.kind") == "attempt" &&
+                previous->tags.contains("liuding.local.index") &&
+                previous->tags.at("liuding.local.index") ==
+                    std::to_string(index - 1),
+            "Retry checkpoint source differs from its frozen attempt");
+    const auto confirmed = outcome(store, job.run_id, spec, index - 1);
+    require(retryable_result(confirmed, spec) &&
+                confirmed.value("process_tree_cleanup_confirmed", false),
+            "Retry checkpoint requires a retryable exit and confirmed cleanup");
+    const auto previous_inputs =
+        frozen_training_inputs(store, job, spec, index - 1, false);
+    const auto previous_intent =
+        reference_json(store, previous_id, "local.intent", "local.intent");
+    require(previous_intent ==
+                Json{{"format", "jyppx.liuding.local_attempt_intent"},
+                     {"schema_version", 1},
+                     {"job_id", job.run_id},
+                     {"attempt_id", previous_id},
+                     {"index", index - 1},
+                     {"spec_sha256", spec.sha256},
+                     {"training_sha256", previous_inputs.artifact.digest.hex}},
+            "Retry checkpoint source intent has different training inputs");
+    const auto owner =
+        reference_json(store, previous_id, "local.owner", "local.owner");
+    fields(owner, {"format", "schema_version", "job_id", "attempt_id", "index",
+                   "spec_sha256", "worker_process_id"});
+    schema(owner, "jyppx.liuding.local_attempt_owner");
+    require(text(owner.at("job_id")) == job.run_id &&
+                text(owner.at("attempt_id")) == previous_id &&
+                text(owner.at("spec_sha256")) == spec.sha256 &&
+                positive(owner.at("index"), kMaximumAttempts) == index - 1 &&
+                positive(owner.at("worker_process_id"),
+                         std::numeric_limits<std::uint64_t>::max()) != 0,
+            "Retry checkpoint source has a different worker owner");
+  }
+  const auto expected =
+      expected_training_inputs(store, job.run_id, spec, index);
+  const auto role = training_inputs_reference(index);
+  if (const auto existing = store.find_reference(job.run_id, role)) {
+    require(reference_json(store, job.run_id, role, role) == expected &&
+                existing->artifact.digest == digest(expected.dump()),
+            "Frozen attempt training inputs differ from their source");
+    return *existing;
+  }
+  require(allow_create,
+          "Retry checkpoint source has no frozen attempt training inputs");
+  return put_json(store, job.run_id, role, role, expected,
+                  job.created_at_unix_ms);
+}
+
+struct AttemptTraining {
+  RunArtifactReference manifest;
+  Spec effective;
+};
+
+AttemptTraining attempt_training(SQLiteRunStore& store, const RunMetadata& job,
+                                 const Spec& spec, std::uint64_t index,
+                                 bool allow_create) {
+  auto manifest = frozen_training_inputs(store, job, spec, index, allow_create);
+  const auto role = training_inputs_reference(index);
+  const auto value = reference_json(store, job.run_id, role, role);
+  auto effective = spec;
+  effective.training = training_spec(value.at("training"));
+  return {std::move(manifest), std::move(effective)};
+}
+
+void pin_attempt_training(SQLiteRunStore& store, const RunMetadata& job,
+                          const AttemptTraining& training,
+                          std::uint64_t index) {
+  auto references = training_references(store, training.effective);
+  const auto suffix = "." + std::to_string(index);
+  for (auto& reference : references) {
+    reference.reference_id += suffix;
+    reference.role += suffix;
+    reference.attached_at_unix_ms = job.created_at_unix_ms;
+  }
+  // The manifest may survive a crash before this atomic pin batch. No attempt
+  // or intent exists yet, so recovery can repair only these same identities.
+  store.attach(job.run_id, references);
 }
 
 constexpr std::string_view kResourcePool = "local-resource-pool-v1";
@@ -629,12 +832,15 @@ bool release_resources(SQLiteRunStore& store, const RunMetadata& job,
               attempt->lineage.config_digest == spec.sha256,
           "Resource release attempt lineage mismatch");
   const auto intent = reference_json(store, id, "local.intent", "local.intent");
-  require(intent == Json{{"format", "jyppx.liuding.local_attempt_intent"},
-                         {"schema_version", 1},
-                         {"job_id", job.run_id},
-                         {"attempt_id", id},
-                         {"index", index},
-                         {"spec_sha256", spec.sha256}},
+  Json expected_intent{{"format", "jyppx.liuding.local_attempt_intent"},
+                       {"schema_version", 1},
+                       {"job_id", job.run_id},
+                       {"attempt_id", id},
+                       {"index", index},
+                       {"spec_sha256", spec.sha256}};
+  if (checkpoint_retry(spec))
+    expected_intent["training_sha256"] = result.at("training_sha256");
+  require(intent == expected_intent,
           "Resource release requires the original immutable intent");
   const auto owner = reference_json(store, id, "local.owner", "local.owner");
   fields(owner, {"format", "schema_version", "job_id", "attempt_id", "index",
@@ -803,6 +1009,13 @@ Json describe(SQLiteRunStore& store, const RunMetadata& job, const Spec& spec,
       item["result"] = outcome(store, job.run_id, spec, index);
     else
       item["result"] = nullptr;
+    if (checkpoint_retry(spec)) {
+      const auto frozen =
+          store.find_reference(job.run_id, training_inputs_reference(index));
+      require(frozen.has_value(),
+              "Continuation attempt has no frozen training inputs");
+      item["training_sha256"] = frozen->artifact.digest.hex;
+    }
     if (spec.resources) {
       item["resource_reserved"] =
           store.find_reference(job.run_id, resource_reference(index))
@@ -856,8 +1069,10 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
           "Worker intent digest does not match the admitted attempt");
   const auto intent_value =
       reference_json(store, id, "local.intent", "local.intent");
-  fields(intent_value, {"format", "schema_version", "job_id", "attempt_id",
-                        "index", "spec_sha256"});
+  fields(intent_value,
+         {"format", "schema_version", "job_id", "attempt_id", "index",
+          "spec_sha256"},
+         {"training_sha256"});
   schema(intent_value, "jyppx.liuding.local_attempt_intent");
   require(
       intent_value.at("job_id").get<std::string>() == job.run_id &&
@@ -865,6 +1080,20 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
           intent_value.at("spec_sha256").get<std::string>() == spec.sha256 &&
           unsigned_number(intent_value.at("index"), kMaximumAttempts) == index,
       "Worker intent identity mismatch");
+  std::optional<AttemptTraining> frozen_training;
+  require(intent_value.contains("training_sha256") == checkpoint_retry(spec),
+          "Worker intent has a different training input policy");
+  if (checkpoint_retry(spec)) {
+    frozen_training = attempt_training(store, job, spec, index, false);
+    require(text(intent_value.at("training_sha256")) ==
+                frozen_training->manifest.artifact.digest.hex,
+            "Worker intent differs from its frozen training inputs");
+    auto manifest = frozen_training->manifest;
+    manifest.reference_id = "local.training.inputs";
+    manifest.role = "local.training.inputs";
+    manifest.attached_at_unix_ms = metadata->created_at_unix_ms;
+    store.attach(id, std::span(&manifest, 1));
+  }
   if (spec.resources) {
     const auto lease_id = resource_reference(index);
     require(
@@ -928,10 +1157,19 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
         }
         if (spec.training) {
           static_cast<void>(training_references(
-              store, spec, job.run_id, cancellation.get_token(), deadline));
+              store, frozen_training ? frozen_training->effective : spec,
+              job.run_id, cancellation.get_token(), deadline,
+              frozen_training ? "." + std::to_string(index) : ""));
           options.environment["JYPPX_LIUDING_LOCAL_STORE_ROOT"] =
               path_text(root);
           options.environment["JYPPX_LIUDING_LOCAL_SPEC_SHA256"] = spec.sha256;
+          if (frozen_training) {
+            options.environment["JYPPX_LIUDING_LOCAL_TRAINING_SHA256"] =
+                frozen_training->manifest.artifact.digest.hex;
+          } else {
+            // An inherited opt-in marker must not change a default retry.
+            options.environment["JYPPX_LIUDING_LOCAL_TRAINING_SHA256"] = "";
+          }
           const auto remaining = deadline - std::chrono::steady_clock::now();
           if (remaining <= std::chrono::steady_clock::duration::zero())
             throw DeadlineExceeded(
@@ -1015,6 +1253,8 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
        failure_reason.empty() ? Json(nullptr) : Json(failure_reason)},
       {"stdout_sha256", digest(native.stdout_capture).hex},
       {"stderr_sha256", digest(native.stderr_capture).hex}};
+  if (frozen_training)
+    result["training_sha256"] = frozen_training->manifest.artifact.digest.hex;
   const auto result_text = result.dump();
   const auto upload = [&](std::string name, std::string_view content,
                           std::string media) {
@@ -1072,10 +1312,7 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
         finish_run(store, job.run_id, RunStatus::completed);
         return {describe(store, job, spec), 0};
       }
-      const bool retryable =
-          result.at("status").get<std::string>() == "exited" &&
-          spec.retry_exit_codes.contains(
-              result.at("exit_code").get<std::uint32_t>());
+      const bool retryable = retryable_result(result, spec);
       if (cancelled(store, job.run_id) ||
           result.at("status").get<std::string>() == "cancelled") {
         finish_run(store, job.run_id, RunStatus::cancelled);
@@ -1085,6 +1322,11 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
         finish_run(store, job.run_id, RunStatus::failed);
         return {describe(store, job, spec), 1};
       }
+      if (checkpoint_retry(spec) &&
+          !result.value("process_tree_cleanup_confirmed", false))
+        return {
+            describe(store, job, spec, false, "resource_cleanup_unconfirmed"),
+            7};
       continue;
     }
     // Never infer a dead process tree from a free lock, PID or elapsed time.
@@ -1122,6 +1364,11 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
       // relationship batch atomically. Avoid a second pre-attachment hash.
       store.attach(job.run_id, references);
     }
+    std::optional<AttemptTraining> frozen_training;
+    if (checkpoint_retry(spec)) {
+      frozen_training = attempt_training(store, job, spec, index, true);
+      pin_attempt_training(store, job, *frozen_training, index);
+    }
     RunArtifactReference intent;
     {
       OwnerLock resources(root, kResourceLock, false);
@@ -1144,13 +1391,16 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
                    {"liuding.local.index", std::to_string(index)}}};
       metadata.lineage.parent_run_id = job.run_id;
       store.start(metadata);
-      intent = put_json(store, id, "local.intent", "local.intent",
-                        {{"format", "jyppx.liuding.local_attempt_intent"},
-                         {"schema_version", 1},
-                         {"job_id", job.run_id},
-                         {"attempt_id", id},
-                         {"index", index},
-                         {"spec_sha256", spec.sha256}},
+      Json intent_value{{"format", "jyppx.liuding.local_attempt_intent"},
+                        {"schema_version", 1},
+                        {"job_id", job.run_id},
+                        {"attempt_id", id},
+                        {"index", index},
+                        {"spec_sha256", spec.sha256}};
+      if (frozen_training)
+        intent_value["training_sha256"] =
+            frozen_training->manifest.artifact.digest.hex;
+      intent = put_json(store, id, "local.intent", "local.intent", intent_value,
                         timestamp);
     }
     LocalProcessOptions bootstrap;

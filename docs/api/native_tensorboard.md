@@ -36,7 +36,35 @@ liuding-forge run export --root local-runs --id run-001 --backend tensorboard-na
 tensorboard --logdir exports
 ```
 
-输出目录必须是新目录，并位于实验存储目录之外。原生后端不接受 `--sidecar-config` 或 `--resume`；需要重新导出时，选择另一个新目录。`--after` 与 `--snapshot` 可选定原始存储快照中的一段事件。JSON 响应分别返回接受、重复和不支持的数量；扫描完成但含未表示事件时，退出码为 `1`，详情见 `fully_represented`。
+`--output` 在当前 CLI 进程内直接写文件。输出目录必须是新目录，并位于实验存储目录之外。原生后端不接受 `--sidecar-config` 或 `--resume`；需要重新导出时，选择另一个新目录。`--after` 与 `--snapshot` 可选定原始存储快照中的一段事件。JSON 响应分别返回接受、重复和不支持的数量；扫描完成但含未表示事件时，退出码为 `1`，详情见 `fully_represented`。
+
+### 使用受监督的隔离进程
+
+需要由 CLI 管理导出进程的等待和清理预算时，改用 `--native-config`；它与 `--output` 互斥。先创建输出父目录和独立工作目录，再保存以下 UTF-8 JSON。路径均须绝对，`directory` 本身不得预先创建。
+
+```json
+{
+  "schema_version": 1,
+  "directory": "/absolute/path/exports/run-001",
+  "working_directory": "/absolute/path/worker"
+}
+```
+
+```sh
+liuding-forge run export --root local-runs --id run-001 --backend tensorboard-native --native-config /absolute/path/tensorboard.json --timeout-ms 60000 --format json
+```
+
+隔离模式启动当前 CLI 自身，使用同一个 C++ writer，不调用 Python；配置和事件不能选择其他可执行文件。配置文件上限为 64 KiB，启动前后核对 SHA-256，拒绝未知字段、重复 JSON 键、无效版本和越界容量。请求帧上限为 16 MiB，响应帧上限为 128 KiB，均不含结尾换行；协议输出不混入普通 CLI 文本。JSON 结果中的 `transport` 给出已完成请求和传输字节数，直接模式中该字段为 `null`。
+
+| 可选配置 | 默认值与上限 |
+| --- | --- |
+| `operation_timeout_ms`、`startup_timeout_ms` | 各 10,000 ms，最大 600,000 ms |
+| `cleanup_timeout_ms` | 2,000 ms，最大 10,000 ms |
+| `max_file_bytes`、`max_record_bytes`、`max_batch_encoded_bytes` | 默认且最大分别为 1 GiB、4 MiB、32 MiB；批次预算至少 16 字节 |
+| `max_seen`、`max_seen_bytes` | 默认且最大分别为 100,000 个身份、32 MiB 逻辑索引内容 |
+| `inherit_environment`、`environment` | 默认不继承；可显式继承或提供最多 128 个子进程环境覆盖项 |
+
+数字配置必须为正整数。选定快照的事件数超过 `max_seen` 时，启动 worker 前即拒绝；字节预算仍在实际编码和写入前检查。CLI 检查输出位于 SQLite/CAS 存储之外，worker 启动时再次检查；调用方仍须独占工作和输出目录。父进程以请求等待和清理预算监督 worker；这些预算不构成对任意操作系统调用或调度的绝对墙钟保证。失败后保留原始运行存储，并改用新目录重新导出，不恢复旧事件文件。可运行的 PowerShell 步骤见[搜索与遥测示例](../../examples/experiment/README.md#原生-tensorboard)。
 
 ## 表示范围
 
@@ -54,11 +82,11 @@ tensorboard --logdir exports
 
 ## 容量与失败处理
 
-通过 options 限制事件大小、批次编码大小、文件大小和重放索引。默认事件上限为 4 MiB，单批编码上限为 32 MiB，事件文件上限为 1 GiB。索引容量按唯一事件计算，包括不支持的输入；已知输入重试不再占新名额。字节预算限制逻辑内容，不承诺进程 RSS 上限。
+通过 options 限制记录大小、批次编码大小、文件大小和重放索引。默认单条 Event 记录上限为 4 MiB，单批编码上限为 32 MiB，事件文件上限为 1 GiB。索引容量按唯一事件计算，包括不支持的输入；已知输入重试不再占新名额。字节预算限制逻辑内容，不承诺进程 RSS 上限。
 
 批次在写入前完成验证和容量检查。同一实例识别相同内容的重试，拒绝冲突的 operation、event 或 sequence；重启后的新实例使用新目录，不恢复原索引。写入失败或开始写入后的取消/超时会使实例不可继续使用，应保留持久事件并重放到新目录。同步系统文件调用可能晚于 deadline 返回，原生后端会检查这一情况并报错。
 
-这是观察输出，不提供文件系统 `fsync`、崩溃恢复或外部效果恰好一次保证；持久运行事件仍由 SQLite/CAS 管理。OTLP 暂时沿用现有后端，本接口不代表 OTLP 已完成原生迁移。
+这是观察输出，不提供文件系统 `fsync`、崩溃恢复或外部效果恰好一次保证；持久运行事件仍由 SQLite/CAS 管理。原生 OTLP 的独立支持范围见[HTTP 导出教程](../tutorials/native-otlp-http.md)。
 
 ## 学习示例
 

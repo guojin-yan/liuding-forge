@@ -215,10 +215,14 @@ Json LocalBinding(std::string_view run,
 
 void WriteLocalSpec(const fs::path& executable, const fs::path& output,
                     const fs::path& root, std::uint64_t until,
-                    const std::string& resume_run) {
+                    const std::string& resume_run,
+                    std::uint64_t checkpoint_retry_after = 0) {
   if (!output.is_absolute() || fs::exists(output) || !root.is_absolute())
     throw std::runtime_error(
         "Use an unused absolute spec file and absolute store");
+  if (checkpoint_retry_after >= until)
+    throw std::runtime_error(
+        "The retry demonstration must stop before its total update budget");
   experiment::SQLiteRunStore store(root);
   const auto inputs =
       "local-example-inputs." + forge::sha256_hex(Bytes(Utf8(output)));
@@ -261,7 +265,7 @@ void WriteLocalSpec(const fs::path& executable, const fs::path& output,
               {"restore_policy", "exact_only"}};
   }
   const auto worker = fs::canonical(executable);
-  const Json spec{
+  Json spec{
       {"format", "jyppx.liuding.local_run_spec"},
       {"schema_version", 1},
       {"project_id", kLocalProject},
@@ -282,6 +286,15 @@ void WriteLocalSpec(const fs::path& executable, const fs::path& output,
         {"configuration", LocalBinding(inputs, configuration)},
         {"data_manifest", LocalBinding(inputs, data)},
         {"resume", std::move(resume)}}}};
+  if (checkpoint_retry_after != 0) {
+    spec["arguments"].push_back("--checkpoint-retry-after");
+    spec["arguments"].push_back(std::to_string(checkpoint_retry_after));
+    spec["max_attempts"] = 2;
+    spec["retry_exit_codes"] = {23};
+    spec["training"]["retry_resume"] = {
+        {"checkpoint_reference_id", "checkpoint.last"},
+        {"restore_policy", "exact_only"}};
+  }
   std::ofstream stream(output, std::ios::binary);
   stream << spec.dump(2) << '\n';
   stream.close();
@@ -505,6 +518,10 @@ void PublishTypedSearchTraining(
         result.at("validation_mse").get<double>());
     metric.sample_count = 10U;
     forge::TelemetryEnvelope event;
+    event.time.wall_time_unix_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
     event.identity = {.stream_id = run_id + ".training",
                       .event_id = run_id + ".validation-final",
                       .idempotency_key = "validation-final",
@@ -521,8 +538,9 @@ void PublishTypedSearchTraining(
   }
 }
 
-void LocalTrain(std::uint64_t until,
-                const std::map<std::string, std::string>* search = nullptr) {
+int LocalTrain(std::uint64_t until,
+               const std::map<std::string, std::string>* search = nullptr,
+               std::uint64_t checkpoint_retry_after = 0) {
   const auto root =
       fs::u8path(LocalEnvironment("JYPPX_LIUDING_LOCAL_STORE_ROOT"));
   const auto job = LocalEnvironment("JYPPX_LIUDING_LOCAL_JOB_ID");
@@ -537,7 +555,33 @@ void LocalTrain(std::uint64_t until,
         "Local example requires its owned running attempt");
   const auto spec =
       Json::parse(ReadLocalArtifact(store, job, "local.spec", 65536, spec_sha));
-  const auto& training = spec.at("training");
+  auto training = spec.at("training");
+  std::string input_suffix;
+  std::string training_sha;
+  if (training.contains("retry_resume")) {
+    training_sha = LocalEnvironment("JYPPX_LIUDING_LOCAL_TRAINING_SHA256");
+    const auto index = LocalEnvironment("JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX");
+    const auto frozen = Json::parse(ReadLocalArtifact(
+        store, attempt, "local.training.inputs", 65536, training_sha));
+    if (frozen.at("format") != "jyppx.liuding.local_training_inputs" ||
+        frozen.at("schema_version") != 1 || frozen.at("job_id") != job ||
+        frozen.at("attempt_id") != attempt ||
+        frozen.at("spec_sha256") != spec_sha ||
+        std::to_string(frozen.at("index").get<std::uint64_t>()) != index)
+      throw std::runtime_error("Frozen attempt training identity differs");
+    for (const auto name : {"model_id", "configuration", "data_manifest"})
+      if (frozen.at("training").at(name) != training.at(name))
+        throw std::runtime_error("Retry changed an immutable training input");
+    training = frozen.at("training");
+    input_suffix = "." + index;
+  }
+  const bool first_retry_segment =
+      checkpoint_retry_after != 0 &&
+      LocalEnvironment("JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX") == "1";
+  if (checkpoint_retry_after != 0 &&
+      (search || input_suffix.empty() || checkpoint_retry_after >= until))
+    throw std::runtime_error("Invalid owned checkpoint retry demonstration");
+  const auto target = first_retry_segment ? checkpoint_retry_after : until;
   if (training.at("model_id").get<std::string>() != kLocalModel)
     throw std::runtime_error("This example implements example.affine.v1 only");
   const auto config_sha =
@@ -545,9 +589,11 @@ void LocalTrain(std::uint64_t until,
   const auto data_sha =
       training.at("data_manifest").at("sha256").get<std::string>();
   const auto config = Json::parse(ReadLocalArtifact(
-      store, job, "local.training.configuration", 4096, config_sha));
+      store, job, "local.training.configuration" + input_suffix, 4096,
+      config_sha));
   const auto data = Json::parse(ReadLocalArtifact(
-      store, job, "local.training.data_manifest", 4096, data_sha));
+      store, job, "local.training.data_manifest" + input_suffix, 4096,
+      data_sha));
   auto expected_config = LocalConfiguration();
   if (search && config.is_object() && config.contains("learning_rate"))
     expected_config["learning_rate"] = config.at("learning_rate");
@@ -610,7 +656,7 @@ void LocalTrain(std::uint64_t until,
     if (resume.at("restore_policy") != "exact_only")
       throw std::runtime_error("The example requires exact_only restore");
     const auto checkpoint = ReadLocalArtifact(
-        store, job, "local.training.resume", 65536,
+        store, job, "local.training.resume" + input_suffix, 65536,
         resume.at("checkpoint").at("sha256").get<std::string>());
     const auto path = work / "resume.jyck";
     std::ofstream stream(path, std::ios::binary);
@@ -623,12 +669,12 @@ void LocalTrain(std::uint64_t until,
     coordinator.restore(source, forge::RestorePolicy::exact_only);
   }
   const auto initial_step = optimizer->completed_steps();
-  if (initial_step >= until)
+  if (initial_step >= target)
     throw std::runtime_error(
         "Select a new budget beyond the restored update count");
   const auto train_x = torch::linspace(-1.0, 1.0, 32).reshape({32, 1});
   const auto train_y = train_x * 3.0 + 0.5;
-  for (auto step = initial_step; step < until; ++step) {
+  for (auto step = initial_step; step < target; ++step) {
     optimizer->zero_grad();
     torch::mse_loss(model->forward(train_x), train_y).backward();
     optimizer->step();
@@ -653,17 +699,18 @@ void LocalTrain(std::uint64_t until,
       torch::mse_loss(model->forward(x), x * 3.0 + 0.5).item<double>();
   if (!std::isfinite(mse))
     throw std::runtime_error("Nonfinite local training metric");
-  const Json result{{"model_id", kLocalModel},
-                    {"configuration_sha256", config_sha},
-                    {"data_manifest_sha256", data_sha},
-                    {"initial_step", initial_step},
-                    {"completed_steps", optimizer->completed_steps()},
-                    {"restore_policy", "exact_only"},
-                    {"resumed", !resume.is_null()},
-                    {"validation_mse", mse},
-                    {"weight", model->weight.item<double>()},
-                    {"bias", model->bias.item<double>()},
-                    {"checkpoint_sha256", published.artifact.digest.hex}};
+  Json result{{"model_id", kLocalModel},
+              {"configuration_sha256", config_sha},
+              {"data_manifest_sha256", data_sha},
+              {"initial_step", initial_step},
+              {"completed_steps", optimizer->completed_steps()},
+              {"restore_policy", "exact_only"},
+              {"resumed", !resume.is_null()},
+              {"validation_mse", mse},
+              {"weight", model->weight.item<double>()},
+              {"bias", model->bias.item<double>()},
+              {"checkpoint_sha256", published.artifact.digest.hex}};
+  if (!training_sha.empty()) result["training_sha256"] = training_sha;
   const auto content = result.dump();
   store.put_artifact(attempt, "training.result",
                      experiment::RunArtifactKind::artifact, "training.result",
@@ -675,7 +722,13 @@ void LocalTrain(std::uint64_t until,
                      stamp);
   if (search)
     PublishTypedSearchTraining(store, job, attempt, training, result, *search);
+  if (first_retry_segment) {
+    std::cout << "Checkpoint committed at the learning boundary; exiting 23 "
+                 "for the declared exact continuation.\n";
+    return 23;
+  }
   std::cout << "Native model, SGD momentum and committed update count saved.\n";
+  return 0;
 }
 
 void Train(const std::map<std::string, std::string>& arguments) {
@@ -759,6 +812,10 @@ void Train(const std::map<std::string, std::string>& arguments) {
     metric.observation = forge::make_telemetry_metric_value(loss);
     metric.sample_count = 10U;
     forge::TelemetryEnvelope event;
+    event.time.wall_time_unix_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
     event.identity = {.stream_id = run_id + ".training",
                       .event_id = run_id + ".validation-final",
                       .idempotency_key = "validation-final",
@@ -833,8 +890,9 @@ int main(int argc, char** argv) {
              "Worker: --store ROOT --trial ID --run ID --config FILE "
              "--config-sha256 SHA256 --seed UINT64\n"
              "Local: --write-local-spec FILE --store ROOT --until-step 20 "
-             "[--resume-run SOURCE_ATTEMPT]\n"
-             "Local worker: --local-training UNTIL_STEP (owned runner only)\n";
+             "[--resume-run SOURCE_ATTEMPT] [--checkpoint-retry-after STEP]\n"
+             "Local worker: --local-training UNTIL_STEP "
+             "[--checkpoint-retry-after STEP] (owned runner only)\n";
       std::cout << "Typed search: --write-typed-search-spec FILE --store ROOT "
                    "[--strategy grid|random] [--resume-run SOURCE_ATTEMPT]\n";
       return 0;
@@ -865,10 +923,13 @@ int main(int argc, char** argv) {
     } else if (arguments.contains("--typed-search-training")) {
       if (arguments.size() != 5U)
         throw std::runtime_error("Expected the typed search worker options");
-      LocalTrain(LocalStep(arguments.at("--typed-search-training")),
-                 &arguments);
+      return LocalTrain(LocalStep(arguments.at("--typed-search-training")),
+                        &arguments);
     } else if (arguments.contains("--write-local-spec")) {
-      if (arguments.size() != (arguments.contains("--resume-run") ? 4U : 3U))
+      const auto expected_size =
+          3U + (arguments.contains("--resume-run") ? 1U : 0U) +
+          (arguments.contains("--checkpoint-retry-after") ? 1U : 0U);
+      if (arguments.size() != expected_size)
         throw std::runtime_error(
             "Unknown local specification option; see --help");
       WriteLocalSpec(
@@ -876,11 +937,19 @@ int main(int argc, char** argv) {
           fs::u8path(arguments.at("--store")),
           LocalStep(arguments.at("--until-step")),
           arguments.contains("--resume-run") ? arguments.at("--resume-run")
-                                             : "");
+                                             : "",
+          arguments.contains("--checkpoint-retry-after")
+              ? LocalStep(arguments.at("--checkpoint-retry-after"))
+              : 0);
     } else if (arguments.contains("--local-training")) {
-      if (arguments.size() != 1U)
+      if (arguments.size() !=
+          (arguments.contains("--checkpoint-retry-after") ? 2U : 1U))
         throw std::runtime_error("Unknown local worker option; see --help");
-      LocalTrain(LocalStep(arguments.at("--local-training")));
+      return LocalTrain(
+          LocalStep(arguments.at("--local-training")), nullptr,
+          arguments.contains("--checkpoint-retry-after")
+              ? LocalStep(arguments.at("--checkpoint-retry-after"))
+              : 0);
     } else if (arguments.contains("--write-spec")) {
       if (arguments.size() != (arguments.contains("--strategy") ? 2U : 1U))
         throw std::runtime_error("Unknown specification option");

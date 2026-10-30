@@ -6,6 +6,7 @@
 
 #include "cli.hpp"
 #include "native_otlp_worker.hpp"
+#include "native_tensorboard_worker.hpp"
 #include "sidecar_process.hpp"
 
 #include <jyppx/liuding/experiment/run_store.hpp>
@@ -470,15 +471,18 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
   const bool jsonl = backend == "jsonl";
   const bool native_tensorboard = backend == "tensorboard-native";
   const bool native_otlp = backend == "opentelemetry-native";
-  const bool local = jsonl || native_tensorboard;
-  if (!local && !native_otlp && backend != "tensorboard" &&
+  const bool tensorboard_worker =
+      native_tensorboard && arguments.optional("native-config").has_value();
+  const bool native_worker = native_otlp || tensorboard_worker;
+  const bool local = jsonl || (native_tensorboard && !tensorboard_worker);
+  if (!local && !native_worker && backend != "tensorboard" &&
       backend != "opentelemetry")
     usage("run.backend",
           "Choose jsonl/tensorboard-native/tensorboard/opentelemetry/"
           "opentelemetry-native.");
-  if ((native_otlp && (arguments.optional("sidecar-config") ||
-                       !arguments.optional("native-config"))) ||
-      (!native_otlp && arguments.optional("native-config")) ||
+  if ((native_worker && (arguments.optional("sidecar-config") ||
+                         !arguments.optional("native-config"))) ||
+      (!native_worker && arguments.optional("native-config")) ||
       (local && arguments.optional("sidecar-config")) ||
       (!local &&
        (arguments.optional("output") || arguments.optional("resume"))) ||
@@ -486,8 +490,9 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
     usage(
         "run.export",
         "JSONL uses --output/--resume; tensorboard-native uses a new --output "
-        "directory; sidecar backends use --sidecar-config; "
-        "opentelemetry-native uses --native-config.");
+        "directory OR --native-config for an isolated worker, never both; "
+        "sidecar backends use --sidecar-config; opentelemetry-native uses "
+        "--native-config.");
   RunEventPageRequest request;
   request.after_sequence = arguments.number("after", 0U, kMaximumCoordinate);
   const auto initial_after = request.after_sequence;
@@ -515,7 +520,7 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
     recovery = {{"complete_records", recovered.complete_records},
                 {"truncated_tail_bytes", recovered.truncated_tail_bytes}};
     sink = std::move(observer);
-  } else if (native_tensorboard) {
+  } else if (native_tensorboard && !tensorboard_worker) {
 #ifdef JYPPX_LIUDING_CLI_NATIVE_TELEMETRY
     TensorBoardTelemetryOptions options;
     options.directory = telemetry_output_path(arguments, store);
@@ -528,7 +533,11 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
     throw NotImplemented("Native TensorBoard is disabled in this build");
 #endif
   } else {
-    auto options = native_otlp
+    auto options = tensorboard_worker
+                       ? native_tensorboard_worker_options(
+                             arguments, page.snapshot_through - initial_after,
+                             store.database_path().parent_path())
+                   : native_otlp
                        ? native_otlp_worker_options(
                              arguments, page.snapshot_through - initial_after)
                        : sidecar_options(arguments, backend);
@@ -538,7 +547,7 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
     process = std::make_shared<SidecarProcessTransport>(
         std::move(options), std::stop_token{}, deadline);
     OfficialTelemetryOptions official;
-    official.backend = backend == "tensorboard"
+    official.backend = (backend == "tensorboard" || tensorboard_worker)
                            ? OfficialTelemetryBackend::tensorboard
                            : OfficialTelemetryBackend::opentelemetry;
     official.sink_id = "cli.export." + backend;

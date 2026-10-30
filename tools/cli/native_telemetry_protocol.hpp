@@ -25,13 +25,16 @@ TelemetryEnvelope decode_native_telemetry_projection(
 class NativeTelemetryProtocol final {
  public:
   explicit NativeTelemetryProtocol(TelemetrySink& sink,
-                                   TelemetryLimits limits = {});
+                                   TelemetryLimits limits = {},
+                                   std::string_view backend = "opentelemetry");
   nlohmann::json exchange(const nlohmann::json& request,
                           TelemetryDeadline deadline = std::nullopt);
 
  private:
   TelemetrySink& sink_;
   TelemetryLimits limits_;
+  // Validated literal; never borrowed from configuration or a request.
+  std::string_view backend_;
   TelemetryFlushResult counters_;
   bool closed_ = false;
 };
