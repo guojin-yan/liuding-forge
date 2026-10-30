@@ -35,6 +35,14 @@ std::vector<float> ReadFloats(const std::filesystem::path& path,
   return result;
 }
 
+// Normalize only the line terminator. The frozen content and all other
+// characters remain unchanged so calibration lineage is platform independent.
+bool ReadPortableLine(std::istream& input, std::string& line) {
+  if (!std::getline(input, line)) return false;
+  if (!line.empty() && line.back() == '\r') line.pop_back();
+  return true;
+}
+
 void WriteBytes(const std::filesystem::path& path,
                 std::span<const std::byte> bytes) {
   jyppx::liuding::quantization::tools_detail::PublishExclusive(path, bytes);
@@ -47,13 +55,16 @@ int wmain(int argc, wchar_t** argv) {
 #else
 int main(int argc, char** argv) {
 #endif
-  if (argc != 2) {
-    std::cerr << "Usage: liuding-forge-int8-fashion-fixture TASK_DIRECTORY\n";
+  const bool per_output_channel =
+      argc == 3 && std::filesystem::path(argv[1]) == "--per-output-channel";
+  if (argc != 2 && !per_output_channel) {
+    std::cerr << "Usage: liuding-forge-int8-fashion-fixture "
+                 "[--per-output-channel] TASK_DIRECTORY\n";
     return 2;
   }
   try {
     namespace q = jyppx::liuding::quantization;
-    const std::filesystem::path root(argv[1]);
+    const std::filesystem::path root(argv[per_output_channel ? 2 : 1]);
     constexpr std::size_t kInputFeatures = 784U;
     constexpr std::size_t kOutputFeatures = 10U;
     constexpr std::size_t kCalibrationSamples = 160U;
@@ -62,9 +73,9 @@ int main(int argc, char** argv) {
     const auto bias = ReadFloats(root / "bias.f32", kOutputFeatures);
     const auto calibration = ReadFloats(root / "calibration.f32",
                                         kCalibrationSamples * kInputFeatures);
-    std::ifstream digest_input(root / "dataset.sha256");
+    std::ifstream digest_input(root / "dataset.sha256", std::ios::binary);
     std::string dataset_digest;
-    if (!std::getline(digest_input, dataset_digest) ||
+    if (!ReadPortableLine(digest_input, dataset_digest) ||
         dataset_digest.size() != 64U)
       throw std::runtime_error("Missing calibration dataset content identity");
     q::CalibrationSession session(
@@ -73,19 +84,36 @@ int main(int argc, char** argv) {
          .preprocessing_fingerprint =
              "uint8-grayscale-to-fp32-div255-row-major/v1",
          .seed = 20261029U});
-    std::ifstream identities(root / "calibration.ids");
+    std::ifstream identities(root / "calibration.ids", std::ios::binary);
     std::string identity;
     for (std::size_t i = 0U; i < kCalibrationSamples; ++i) {
-      if (!std::getline(identities, identity) || identity.empty() ||
+      if (!ReadPortableLine(identities, identity) || identity.empty() ||
           identity.size() > 256U)
         throw std::runtime_error("Missing bounded calibration sample identity");
       session.observe(
           identity,
           std::span(calibration).subspan(i * kInputFeatures, kInputFeatures));
     }
-    if (std::getline(identities, identity))
+    if (ReadPortableLine(identities, identity))
       throw std::runtime_error(
           "Unexpected trailing calibration sample identity");
+    if (per_output_channel) {
+      const auto artifact = q::quantize_linear_per_output_channel(
+          {.in_features = kInputFeatures,
+           .out_features = kOutputFeatures,
+           .weights = weights,
+           .bias = bias},
+          session.finalize());
+      const auto bytes =
+          q::serialize_per_output_channel_linear_artifact(artifact);
+      WriteBytes(root / "source.per-output-channel.qint8", bytes);
+      std::cout << "{\"source_artifact_sha256\":\""
+                << jyppx::liuding::sha256_hex(bytes)
+                << "\",\"calibration_samples\":160,\"in_features\":784,\"out_"
+                   "features\":10,"
+                   "\"weight_granularity\":\"per-output-channel\"}\n";
+      return 0;
+    }
     const auto artifact = q::quantize_linear({.in_features = kInputFeatures,
                                               .out_features = kOutputFeatures,
                                               .weights = weights,

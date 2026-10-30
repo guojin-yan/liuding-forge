@@ -71,6 +71,10 @@ constexpr std::string_view kRun = "run.image-classification";
 
 using namespace recipe_support;
 
+bool is_group_rate(std::string_view name) {
+  return name == "backbone_learning_rate" || name == "head_learning_rate";
+}
+
 const std::map<std::string, ValueKind>& field_kinds(bool transfer = false) {
   static const std::map<std::string, ValueKind> fields{
       {"schema_version", ValueKind::integer},
@@ -101,6 +105,8 @@ const std::map<std::string, ValueKind>& field_kinds(bool transfer = false) {
     for (const auto* name : {"model", "weights_file", "weights_metadata",
                              "backbone_mode", "batch_norm"})
       result.emplace(name, ValueKind::string);
+    for (const auto* name : {"backbone_learning_rate", "head_learning_rate"})
+      result.emplace(name, ValueKind::floating);
     return result;
   }();
   return transfer_fields;
@@ -113,14 +119,17 @@ ex::config::ConfigSchema config_schema(bool transfer) {
     ValueSchema field;
     field.kind = kind;
     field.name = name;
+    field.required = !is_group_rate(name);
     result.root.fields.emplace(name, std::move(field));
   }
   return result;
 }
 Json schema_json(bool transfer = false) {
   Json fields = Json::object();
-  for (const auto& [name, kind] : field_kinds(transfer))
+  for (const auto& [name, kind] : field_kinds(transfer)) {
     fields[name] = {{"kind", value_kind_name(kind)}};
+    if (is_group_rate(name)) fields[name]["required"] = false;
+  }
   return {{"schema_version", 1},
           {"schema_id", transfer ? kTransferRecipe : kRecipe},
           {"version", 1},
@@ -180,6 +189,12 @@ Json resolve_config(const std::filesystem::path& path) {
   require_recipe(config.at("train_root") != config.at("validation_root"),
                  "Training and validation directories must differ");
   if (transfer) {
+    for (const auto* name : {"backbone_learning_rate", "head_learning_rate"}) {
+      if (!config.contains(name)) continue;
+      const auto rate = resolved.floating(std::string("/") + name);
+      require_recipe(std::isfinite(rate) && rate > 0.0 && rate <= 1.0,
+                     std::string(name) + " must be finite and in (0,1]");
+    }
     require_recipe(config.at("backbone_mode") == "frozen" ||
                        config.at("backbone_mode") == "finetune",
                    "backbone_mode must be frozen or finetune");
@@ -189,6 +204,9 @@ Json resolve_config(const std::filesystem::path& path) {
     require_recipe(config.at("backbone_mode") != "frozen" ||
                        config.at("batch_norm") == "eval",
                    "Frozen backbones require batch_norm=eval");
+    require_recipe(config.at("backbone_mode") != "frozen" ||
+                       !config.contains("backbone_learning_rate"),
+                   "backbone_learning_rate requires backbone_mode=finetune");
     for (const auto* key : {"weights_file", "weights_metadata"}) {
       const auto name = config.at(key).get<std::string>();
       require_recipe(!name.empty(), "Weight paths must not be empty");
@@ -199,6 +217,83 @@ Json resolve_config(const std::filesystem::path& path) {
     }
   }
   return config;
+}
+
+bool uses_group_rates(const Json& config) {
+  return is_transfer_recipe(config) &&
+         (config.contains("backbone_learning_rate") ||
+          config.contains("head_learning_rate"));
+}
+
+Json sgd_group_plan(const Json& config) {
+  const auto shared = config.at("learning_rate").get<double>();
+  if (!uses_group_rates(config))
+    return Json::array({{{"group_id", "main"}, {"learning_rate", shared}}});
+  Json groups = Json::array();
+  for (const auto* id : {"backbone", "head"}) {
+    if (std::string_view(id) == "backbone" &&
+        config.at("backbone_mode") == "frozen")
+      continue;
+    groups.push_back(
+        {{"group_id", id},
+         {"learning_rate",
+          config.value(std::string(id) + "_learning_rate", shared)}});
+  }
+  return groups;
+}
+
+std::shared_ptr<optim::SgdOptimizerAdapter> make_sgd(
+    const Json& config, const nn::ModelAdapter& model) {
+  std::vector<optim::SgdParameterGroup> groups;
+  const auto plan = sgd_group_plan(config);
+  for (const auto& entry : plan)
+    groups.push_back(
+        {.group_id = entry.at("group_id").get<std::string>(),
+         .parameters = {},
+         .options = {.learning_rate = entry.at("learning_rate").get<double>(),
+                     .momentum = config.at("momentum").get<double>(),
+                     .weight_decay = config.at("weight_decay").get<double>()}});
+  const bool shared = groups.front().group_id == "main";
+  for (const auto& parameter : model.state().named_parameters()) {
+    if (!parameter.value().requires_grad()) continue;
+    const auto id = shared                                     ? "main"
+                    : parameter.key().starts_with("backbone.") ? "backbone"
+                    : parameter.key().starts_with("head.")     ? "head"
+                                                               : "";
+    const auto group =
+        std::find_if(groups.begin(), groups.end(),
+                     [&](const auto& value) { return value.group_id == id; });
+    require_recipe(group != groups.end(),
+                   "Trainable parameter has no declared SGD group");
+    group->parameters.push_back({parameter.key(), parameter.value()});
+  }
+  return std::make_shared<optim::SgdOptimizerAdapter>("recipe.sgd",
+                                                      std::move(groups));
+}
+
+Json describe_optimization(const optim::SgdOptimizerAdapter& optimizer,
+                           const optim::StepLrScheduler& scheduler,
+                           const Json& config) {
+  Json groups = Json::array();
+  const auto rates = optimizer.learning_rates();
+  std::size_t index = 0;
+  for (const auto& group : optimizer.groups()) {
+    Json names = Json::array();
+    for (const auto& parameter : group.parameters)
+      names.push_back(parameter.parameter_id);
+    groups.push_back({{"group_id", group.group_id},
+                      {"parameter_ids", std::move(names)},
+                      {"initial_learning_rate", group.options.learning_rate},
+                      {"final_learning_rate", rates.at(index++)}});
+  }
+  return {{"optimizer_id", optimizer.optimizer_id()},
+          {"groups", std::move(groups)},
+          {"scheduler",
+           {{"scheduler_id", "recipe.lr"},
+            {"kind", "step_lr"},
+            {"step_size", 1},
+            {"gamma", config.at("lr_gamma")},
+            {"completed_steps", scheduler.completed_steps()}}}};
 }
 
 struct Inputs {
@@ -467,7 +562,8 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
                     const Json& data, const Json& contract,
                     const Json& evaluation, const Json& diagnostic,
                     const BuildFingerprint& build,
-                    std::span<const std::byte> weights, const Json& lineage) {
+                    std::span<const std::byte> weights, const Json& lineage,
+                    const Json& optimization) {
   interop::ModelBundleManifest manifest;
   const bool transfer = is_transfer_recipe(config);
   const auto architecture = contract.at("architecture").get<std::string>();
@@ -551,16 +647,18 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
        {"components",
         {{{"name", "liuding-forge"}, {"version", build.jyppx_version}},
          {{"name", "libtorch"}, {"version", build.libtorch_version}}}}});
+  Json provenance{
+      {"lineage", lineage},
+      {"config", config},
+      {"dataset", data},
+      {"model", contract},
+      {"initialization",
+       transfer ? "strict local pretrained backbone; seeded new linear head"
+                : "random; no pretrained weights"},
+      {"diagnostics", diagnostic}};
+  if (!optimization.is_null()) provenance["optimization"] = optimization;
   manifest.provenance = descriptor(
-      "provenance", interop::BundleFileRole::provenance,
-      {{"lineage", lineage},
-       {"config", config},
-       {"dataset", data},
-       {"model", contract},
-       {"initialization",
-        transfer ? "strict local pretrained backbone; seeded new linear head"
-                 : "random; no pretrained weights"},
-       {"diagnostics", diagnostic}});
+      "provenance", interop::BundleFileRole::provenance, std::move(provenance));
   auto os_arch = build.os_arch;
   for (auto& value : os_arch)
     if (value >= 'A' && value <= 'Z')
@@ -639,6 +737,8 @@ Result execute(const Arguments& arguments, bool resume) {
         {"position_antialias", transfer->descriptor.at("position_antialias")},
         {"head", "seeded linear with bias"},
         {"dropout", "eval when frozen; follows mode when finetuning"}};
+    if (uses_group_rates(config))
+      contract["transfer"]["optimizer_groups"] = sgd_group_plan(config);
   }
   const Json lineage{{"config_sha256", config_hash.hex},
                      {"dataset_sha256", inputs.identity.hex},
@@ -771,19 +871,7 @@ Result execute(const Arguments& arguments, bool resume) {
                         : std::make_shared<nn::ModelAdapter>(
                               models::create_model("resnet18", model_options));
   const auto initial_state = transfer ? transfer_state(*model) : Json{};
-  std::vector<optim::OptimizerParameterBinding> bindings;
-  for (const auto& parameter : model->state().named_parameters())
-    if (parameter.value().requires_grad())
-      bindings.push_back({parameter.key(), parameter.value()});
-  auto optimizer = std::make_shared<optim::SgdOptimizerAdapter>(
-      "recipe.sgd",
-      std::vector<optim::SgdParameterGroup>{
-          {.group_id = "main",
-           .parameters = std::move(bindings),
-           .options = {
-               .learning_rate = config.at("learning_rate").get<double>(),
-               .momentum = config.at("momentum").get<double>(),
-               .weight_decay = config.at("weight_decay").get<double>()}}});
+  auto optimizer = make_sgd(config, *model);
   auto scheduler = std::make_shared<optim::StepLrScheduler>(
       optimizer, optim::StepLrSchedulerOptions{
                      .scheduler_id = "recipe.lr",
@@ -871,13 +959,16 @@ Result execute(const Arguments& arguments, bool resume) {
     // A pause ends this process, not the logical run. Terminal run-store states
     // are immutable and cannot be reused as a resumable process marker.
     store.heartbeat(kRun, now_ms());
+    Json paused{{"schema_version", 1},
+                {"status", "paused"},
+                {"global_step", fit.global_step},
+                {"checkpoint_sha256", file_digest(root / "latest.jyck").hex},
+                {"lineage", lineage}};
+    if (uses_group_rates(config))
+      paused["optimization"] =
+          describe_optimization(*optimizer, *scheduler, config);
     trainer.close();
-    return {Json{{"schema_version", 1},
-                 {"status", "paused"},
-                 {"global_step", fit.global_step},
-                 {"checkpoint_sha256", file_digest(root / "latest.jyck").hex},
-                 {"lineage", lineage}},
-            0};
+    return {std::move(paused), 0};
   }
   require_recipe(fit.status == tr::FitStatus::completed &&
                      fit.global_step == inputs.total_steps,
@@ -972,9 +1063,13 @@ Result execute(const Arguments& arguments, bool resume) {
     require_recipe(
         inspect_transfer_input(config).descriptor == transfer->descriptor,
         "Weight descriptor changed while training");
+  const auto optimization =
+      uses_group_rates(config)
+          ? describe_optimization(*optimizer, *scheduler, config)
+          : Json{};
   const auto bundle =
       publish_bundle(root, config, inputs.manifest, contract, quality,
-                     diagnostic, build, weights, lineage);
+                     diagnostic, build, weights, lineage, optimization);
   const auto next_rng = torch::rand({16}, torch::TensorOptions().device(device))
                             .to(torch::kCPU)
                             .contiguous();
@@ -1023,6 +1118,7 @@ Result execute(const Arguments& arguments, bool resume) {
                           {"backbone_mode", config.at("backbone_mode")},
                           {"batch_norm", config.at("batch_norm")},
                           {"weight_input_sha256", transfer->input_identity}};
+    if (uses_group_rates(config)) result["optimization"] = optimization;
   }
   write_json(root / "result.json", result);
   for (const auto* id :

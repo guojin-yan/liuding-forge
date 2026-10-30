@@ -15,13 +15,13 @@ cmake --build out/build/release --config Release --target jyppx_cli --parallel 2
 
 ## 2. 准备数据
 
-在源码根目录执行下面的命令，将数据根目录替换为仓库外的路径。工具只需要 Python 标准库，不下载数据，也不覆盖已有输出。
+构建 CLI 后执行下面的命令，将数据根目录替换为仓库外的路径。工具由原生 C++20 实现，不需要 Python 运行环境，不下载数据，也不覆盖已有输出。也可以省略 `--data-root`，使用 `JYPPX_LIUDING_DATA_ROOT`；显式参数优先。
 
 ```sh
-python scripts/datasets/prepare_paired_affine.py --data-root /path/to/datasets
+liuding-forge data prepare --name paired-affine --data-root /path/to/datasets --format json
 ```
 
-生成的 `paired-affine-v1/` 包含 1,024 条训练样本、256 条验证样本及 `preparation.json` 内容清单，许可为 Apache-2.0。两个 split 的输入互不重复，数据、种子和摘要固定；详见[数据合同](../../recipes/multi-io/paired-affine.dataset.json)。这些合成样本用于学习多输入、多输出训练流程，不能证明真实业务任务质量或训练性能优势。
+生成的 `paired-affine-v1/` 包含 1,024 条训练样本、256 条验证样本及 `preparation.json` 内容清单，许可为 Apache-2.0。两个 split 的输入互不重复，数据、种子和摘要固定；详见[数据合同](../../recipes/multi-io/paired-affine.dataset.json)。直接调用 C++ 准备实现并查看样本字段见[数据示例](../../examples/data/README.md)。这些合成样本用于学习多输入、多输出训练流程，不能证明真实业务任务质量或训练性能优势。
 
 | 字段 | 模型中的用途 |
 | --- | --- |

@@ -201,6 +201,163 @@ void CheckBackward(bool cuda) {
 TEST(ModelsPretrainedBackward, DinoV2SmallCpuGradientsAndGroupedSgd) {
   CheckBackward(false);
 }
+
+Tensor RealBatchTensor(const std::filesystem::path& path,
+                       const std::vector<std::int64_t>& shape,
+                       const char* digest,
+                       torch::ScalarType dtype = torch::kFloat32) {
+  auto result = torch::empty(shape, torch::TensorOptions().dtype(dtype));
+  const models::test::MappedReference encoded(path, result.nbytes());
+  if (sha256_hex(encoded) != digest)
+    throw std::runtime_error("Fixed real-batch tensor digest differs");
+  const std::span<const std::byte> bytes = encoded;
+  std::memcpy(result.data_ptr(), bytes.data(), bytes.size());
+  return result;
+}
+
+// This is the eight-image regression that fails with the C++ frontend's
+// separate matmul/bias path. References remain the original independent HF
+// eager results; neither their values nor the numerical tolerances change.
+TEST(ModelsPretrainedBackward, DinoV2SmallRealFirstBatchCpuGradientsAndSgd) {
+  const auto* fixture = std::getenv("JYPPX_LIUDING_DINOV2_REAL_FIRST_STEP_DIR");
+  const auto* weight_root =
+      std::getenv("JYPPX_LIUDING_PRETRAINED_REFERENCE_DIR");
+  if (!fixture || !*fixture || !weight_root || !*weight_root)
+    GTEST_SKIP() << "Explicit fixed real first-step capture/reference required";
+  torch::set_num_threads(1);
+  at::globalContext().setDeterministicAlgorithms(true, false);
+  at::globalContext().setFloat32MatmulPrecision("highest");
+  const auto root = std::filesystem::path(fixture);
+  const auto capture = root / "capture";
+  const auto reference = root / "reference";
+  const models::test::MappedReference encoded(
+      std::filesystem::path(weight_root) / "dinov2-small.liuding.safetensors",
+      88240512U);
+  ASSERT_EQ(sha256_hex(encoded),
+            "f3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5");
+  auto backbone = models::dinov2_vits14({.position_antialias = false});
+  backbone->train();
+  {
+    const interop::SafeTensorsView weights(encoded);
+    ASSERT_EQ(weights.directory().tensors.size(), 174U);
+    torch::NoGradGuard guard;
+    for (const auto& parameter : backbone->named_parameters()) {
+      const auto value = ReferenceTensor(encoded, parameter.key());
+      ASSERT_EQ(value.sizes(), parameter.value().sizes());
+      parameter.value().copy_(value);
+    }
+  }
+  auto head = torch::nn::Linear(384, 10);
+  {
+    torch::NoGradGuard guard;
+    head->weight.copy_(RealBatchTensor(
+        capture / "head-weight.f32", {10, 384},
+        "d5f72ca217166a0d09336fdd6bd3a2968fbb6888e00b2566a648d00c54c60993"));
+    head->bias.copy_(RealBatchTensor(
+        capture / "head-bias.f32", {10},
+        "f0f311719a1285d5b40205d2fed9e9adb034ef9d8dc8332497ebfe7c659943aa"));
+  }
+  std::map<std::string, Tensor> parameters;
+  std::vector<optim::SgdParameterGroup> groups(2);
+  for (std::size_t index = 0; index < groups.size(); ++index) {
+    groups[index].group_id = index == 0 ? "backbone" : "head";
+    groups[index].options.learning_rate = index == 0 ? 0.0001 : 0.01;
+    groups[index].options.momentum = 0.9;
+    groups[index].options.weight_decay = 0.0001;
+  }
+  for (const auto& entry : backbone->named_parameters()) {
+    const auto name = "backbone." + entry.key();
+    parameters.emplace(name, entry.value());
+    groups[0].parameters.push_back({name, entry.value()});
+  }
+  for (const auto& entry : head->named_parameters()) {
+    const auto name = "head." + entry.key();
+    parameters.emplace(name, entry.value());
+    groups[1].parameters.push_back({name, entry.value()});
+  }
+  ASSERT_EQ(parameters.size(), 176U);
+  optim::SgdOptimizerAdapter optimizer("real-first-step.sgd",
+                                       std::move(groups));
+  const auto input = RealBatchTensor(
+      capture / "input.f32", {8, 3, 224, 224},
+      "5b26501aaf619fe2548bfca1a4364ad948769f32b7c488bc90fa85fd738207c0");
+  const auto labels = RealBatchTensor(
+      capture / "labels.i64", {8},
+      "94cf11a79244e63b1de366b6887293ddd6c42b867fbdcb53b164ac3cbc235e45",
+      torch::kInt64);
+  optimizer.zero_grad();
+  const auto logits = head->forward(backbone->forward(input));
+  const auto loss = torch::nn::functional::cross_entropy(logits, labels);
+  Compare(
+      logits,
+      RealBatchTensor(
+          reference / "logits.f32", {8, 10},
+          "5153455bb1840520eb1590b8f0041fd9d6c2bf6c38f7f66f2df4b92c8f1c537e"),
+      "real-first-step.logits", 3e-4, 3e-4);
+  Compare(
+      loss.reshape({1}),
+      RealBatchTensor(
+          reference / "loss.f32", {1},
+          "34ae934d033ab4331240d43eccb8574605dc3a78dfa723f1654d3f2a0b99d2ea"),
+      "real-first-step.loss", 3e-4, 3e-4);
+  loss.backward();
+  struct Check {
+    const char* name;
+    const char* index;
+    std::vector<std::int64_t> shape;
+    const char* gradient_digest;
+    const char* updated_digest;
+  };
+  const std::array<Check, 6> checks{{
+      {"backbone.blocks.0.attn.qkv.weight",
+       "003",
+       {1152, 384},
+       "11861a38d51f42f500547243028ce87ee87c9148f1f831f8502723e48ac754a0",
+       "d37785e98670b62c7bc7a5e60aaa730f87518c2a196243c39377b828bebb3520"},
+      {"backbone.blocks.11.mlp.fc2.weight",
+       "051",
+       {384, 1536},
+       "810c360da5787ee5aa23959cf23fc0cf41d741855da89ea76e2468ef43f05e1f",
+       "2ee28dd3a2ee55314b95f2394363da32f40d58817a1e5dfd4b9c58588b2941a3"},
+      {"backbone.norm.weight",
+       "170",
+       {384},
+       "48f800ad6d7b6ce5b3f750fd4e28bbea942117637b0bf390aa4767a514cfca62",
+       "1e188926e85ae4cebf1292e2cd1d9e47db8f5466c034ba472c738ca536f7a3d4"},
+      {"backbone.patch_embed.proj.weight",
+       "172",
+       {384, 3, 14, 14},
+       "614ed7933029634c84066b02492e84283be27a1843e93a66d644a7c5bc9cf8c4",
+       "450d0105a2561cc43fef3d4d27bfab62b514d53032da8ba9d07eb79a6d0d066a"},
+      {"head.bias",
+       "174",
+       {10},
+       "95ddc9a30f5b3bc5883153a8eb94cfce93e75cf0962dc1700b372f199b8f2bd2",
+       "752c10c1bda7a4c78c6234ae328e5eeec94daf7be724c47b070e56936f0decbe"},
+      {"head.weight",
+       "175",
+       {10, 384},
+       "c54d97b95ce128514d36c7262c4e04f570b6217421659e1a152e5229888f800a",
+       "6fcc08e1fa9a0f2efca73fc2ae46a1bf038ac3cd93145b841bed82364dc8b2bf"},
+  }};
+  for (const auto& check : checks) {
+    const auto gradient = parameters.at(check.name).grad();
+    ASSERT_TRUE(gradient.defined()) << check.name;
+    Compare(gradient,
+            RealBatchTensor(
+                reference / "gradient" / (std::string(check.index) + ".f32"),
+                check.shape, check.gradient_digest),
+            std::string("real-first-step.gradient.") + check.name, 3e-3, 3e-5);
+  }
+  optimizer.step();
+  EXPECT_EQ(optimizer.completed_steps(), 1U);
+  for (const auto& check : checks)
+    Compare(parameters.at(check.name),
+            RealBatchTensor(
+                reference / "updated" / (std::string(check.index) + ".f32"),
+                check.shape, check.updated_digest),
+            std::string("real-first-step.updated.") + check.name, 3e-4, 3e-5);
+}
 #if defined(JYPPX_LIUDING_PRETRAINED_CUDA_TESTS)
 TEST(ModelsPretrainedBackward, DinoV2SmallCudaGradientsAndGroupedSgd) {
   CheckBackward(true);

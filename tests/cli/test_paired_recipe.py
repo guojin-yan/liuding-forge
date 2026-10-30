@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -105,12 +104,9 @@ class PairedRecipe(unittest.TestCase):
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.base = Path(cls.temporary.name) / "双输入 recipe"
         cls.base.mkdir()
-        spec = importlib.util.spec_from_file_location(
-            "paired_data_preparation", ROOT / "scripts/datasets/prepare_paired_affine.py")
-        preparation = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(preparation)
-        contract = json.loads((ROOT / "recipes/multi-io/paired-affine.dataset.json").read_text(encoding="utf-8"))
-        cls.data = preparation.prepare(cls.base / "datasets", contract)
+        prepared = cls.invoke("data", "prepare", "--name", "paired-affine",
+                              "--data-root", cls.base / "datasets")["data"]
+        cls.data = Path(prepared["destination"])
         cls.config = json.loads((ROOT / "recipes/multi-io/paired-affine.json").read_text(encoding="utf-8"))
         cls.config.update(train_file=str(cls.data / "train.jsonl"),
                           validation_file=str(cls.data / "validation.jsonl"), device=cls.device)

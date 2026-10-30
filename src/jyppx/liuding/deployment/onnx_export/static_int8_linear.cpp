@@ -37,38 +37,30 @@ at::Tensor ZeroPoint(std::uint8_t value) {
   return result;
 }
 
-}  // namespace
-
-StaticInt8LinearExportResult export_static_int8_linear(
-    std::span<const std::byte> source_artifact,
-    const ArtifactDigest& expected_source_digest,
+StaticInt8LinearExportResult ExportPreparedLinear(
+    const quantization::StaticInt8LinearPreparation& prepared,
     std::span<const std::int64_t> shape, const ExportOptions& options,
-    quantization::QuantizationLimits limits) {
-  validate_artifact_digest(expected_source_digest);
-  if (source_artifact.size() > limits.max_artifact_bytes)
-    throw ResourceExhausted("Q0 source exceeds its byte bound",
-                            Details("source"));
-  if (sha256_hex(source_artifact) != expected_source_digest.hex)
-    throw CompatibilityError("Q0 source digest mismatch", Details("identity"));
+    std::span<const float> product_scales = {}) {
   if (options.opset != 17U || options.minimum_batch <= 0 ||
       options.maximum_batch < options.minimum_batch ||
       options.maximum_batch > 65536 || options.max_output_bytes == 0U ||
       options.max_output_bytes > (1ULL << 32U))
     throw InvalidArgument("Invalid static INT8 ONNX options",
                           Details("options"));
-  const auto source =
-      quantization::deserialize_linear_artifact(source_artifact, limits);
   if (shape.size() != 2U || shape[0] <= 0 || shape[0] > options.maximum_batch ||
       (options.dynamic_batch && shape[0] < options.minimum_batch) ||
-      shape[1] != static_cast<std::int64_t>(source.in_features))
+      shape[1] != static_cast<std::int64_t>(prepared.in_features))
     throw InvalidArgument("Invalid static INT8 Linear shape", Details("shape"));
-  const auto prepared =
-      quantization::prepare_static_int8_linear(source, limits);
-  if (prepared.source_artifact_digest != expected_source_digest)
-    throw CompatibilityError("Canonical Q0 identity mismatch",
-                             Details("identity"));
-  if (prepared.weights.size() > options.max_output_bytes ||
-      prepared.bias.size() > options.max_output_bytes / sizeof(float))
+  auto remaining_payload_bytes = options.max_output_bytes;
+  if (prepared.weights.size() > remaining_payload_bytes)
+    throw ResourceExhausted("INT8 graph payload exceeds its byte bound",
+                            Details("graph"));
+  remaining_payload_bytes -= prepared.weights.size();
+  if (prepared.bias.size() > remaining_payload_bytes / sizeof(float))
+    throw ResourceExhausted("INT8 graph payload exceeds its byte bound",
+                            Details("graph"));
+  remaining_payload_bytes -= prepared.bias.size() * sizeof(float);
+  if (product_scales.size() > remaining_payload_bytes / sizeof(float))
     throw ResourceExhausted("INT8 graph payload exceeds its byte bound",
                             Details("graph"));
 
@@ -110,8 +102,15 @@ StaticInt8LinearExportResult export_static_int8_linear(
   auto* weight = initializer("weight_u8", std::move(weights));
   auto* weight_zero =
       initializer("weight_zero_point", ZeroPoint(prepared.weight_zero_point));
-  auto* scale_product =
-      initializer("scale_product", Scalar(prepared.product_scale));
+  auto products =
+      product_scales.empty()
+          ? Scalar(prepared.product_scale)
+          : at::empty({static_cast<std::int64_t>(product_scales.size())},
+                      at::TensorOptions().dtype(at::kFloat));
+  if (!product_scales.empty())
+    std::memcpy(products.data_ptr<float>(), product_scales.data(),
+                product_scales.size_bytes());
+  auto* scale_product = initializer("scale_product", std::move(products));
   auto* quantized =
       node("QuantizeLinear", {input, activation_scale, activation_zero},
            at::kByte, input_shape);
@@ -170,6 +169,74 @@ StaticInt8LinearExportResult export_static_int8_linear(
     std::throw_with_nested(CompatibilityError(
         "Native INT8 ONNX serialization failed", Details("serialize")));
   }
+}
+
+}  // namespace
+
+StaticInt8LinearExportResult export_static_int8_linear(
+    std::span<const std::byte> source_artifact,
+    const ArtifactDigest& expected_source_digest,
+    std::span<const std::int64_t> shape, const ExportOptions& options,
+    quantization::QuantizationLimits limits) {
+  validate_artifact_digest(expected_source_digest);
+  if (source_artifact.size() > limits.max_artifact_bytes)
+    throw ResourceExhausted("Q0 source exceeds its byte bound",
+                            Details("source"));
+  if (sha256_hex(source_artifact) != expected_source_digest.hex)
+    throw CompatibilityError("Q0 source digest mismatch", Details("identity"));
+  const auto source =
+      quantization::deserialize_linear_artifact(source_artifact, limits);
+  const auto prepared =
+      quantization::prepare_static_int8_linear(source, limits);
+  if (prepared.source_artifact_digest != expected_source_digest)
+    throw CompatibilityError("Canonical Q0 identity mismatch",
+                             Details("identity"));
+  return ExportPreparedLinear(prepared, shape, options);
+}
+
+StaticInt8LinearExportResult export_static_int8_linear_per_output_channel(
+    std::span<const std::byte> source_artifact,
+    const ArtifactDigest& expected_source_digest,
+    std::span<const std::int64_t> shape, const ExportOptions& options,
+    quantization::QuantizationLimits limits) {
+  validate_artifact_digest(expected_source_digest);
+  if (source_artifact.size() > limits.max_artifact_bytes)
+    throw ResourceExhausted("Per-output-channel source exceeds its byte bound",
+                            Details("source"));
+  if (sha256_hex(source_artifact) != expected_source_digest.hex)
+    throw CompatibilityError("Per-output-channel source digest mismatch",
+                             Details("identity"));
+  const auto source =
+      quantization::deserialize_per_output_channel_linear_artifact(
+          source_artifact, limits);
+  if (source.in_features > 65536U || source.out_features > 65536U ||
+      source.in_features > limits.max_artifact_bytes / source.out_features)
+    throw ResourceExhausted(
+        "Per-output-channel INT8 dimensions exceed profile bounds",
+        Details("shape"));
+  quantization::StaticInt8LinearPreparation merged;
+  merged.profile_id = "jyppx.linear.ptq.ort.u8u8.per_output_channel/v1";
+  merged.in_features = source.in_features;
+  merged.out_features = source.out_features;
+  merged.source_artifact_digest = expected_source_digest;
+  merged.weights.resize(source.in_features * source.out_features);
+  std::vector<float> products;
+  products.reserve(source.out_features);
+  if (!source.channels.front().bias.empty())
+    merged.bias.reserve(source.out_features);
+  for (std::size_t out = 0U; out < source.out_features; ++out) {
+    const auto channel =
+        quantization::prepare_static_int8_linear(source.channels[out], limits);
+    if (out == 0U) {
+      merged.activation_scale = channel.activation_scale;
+      merged.activation_zero_point = channel.activation_zero_point;
+    }
+    products.push_back(channel.product_scale);
+    if (!channel.bias.empty()) merged.bias.push_back(channel.bias.front());
+    for (std::size_t in = 0U; in < source.in_features; ++in)
+      merged.weights[in * source.out_features + out] = channel.weights[in];
+  }
+  return ExportPreparedLinear(merged, shape, options, products);
 }
 
 }  // namespace jyppx::liuding::onnx_export

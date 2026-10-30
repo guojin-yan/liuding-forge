@@ -13,6 +13,7 @@ add_library(jyppx_cli_objects OBJECT
     config_migration.cpp
     doctor_config.cpp
     evaluation_data.cpp
+    data_preparation.cpp
     model_checkpoint.cpp
     bundle_signing.cpp
     onnx_delivery.cpp
@@ -30,7 +31,8 @@ add_library(jyppx_cli_objects OBJECT
 add_executable(jyppx_cli)
 set_target_properties(jyppx_cli PROPERTIES OUTPUT_NAME liuding-forge)
 target_link_libraries(jyppx_cli_objects PUBLIC
-    jyppx::liuding::sdk jyppx_cli_transport nlohmann_json::nlohmann_json Threads::Threads)
+    jyppx::liuding::sdk jyppx_cli_transport jyppx_dataset_preparation
+    nlohmann_json::nlohmann_json Threads::Threads)
 target_link_libraries(jyppx_cli PRIVATE jyppx_cli_objects)
 jyppx_add_torch_runtime_dependency(jyppx_cli)
 if(TARGET jyppx::liuding::bundle_signing)

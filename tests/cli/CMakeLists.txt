@@ -101,11 +101,23 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
             --cli $<TARGET_FILE:jyppx_cli>)
     set_tests_properties(Cli_transfer_recipe PROPERTIES
         LABELS "cli;integration;recipe;external-weights" TIMEOUT 1200 SKIP_RETURN_CODE 77)
+    add_test(NAME Cli_transfer_recipe_group_rates
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_transfer_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --group-rates)
+    set_tests_properties(Cli_transfer_recipe_group_rates PROPERTIES
+        LABELS "cli;integration;recipe;external-weights" TIMEOUT 1200 SKIP_RETURN_CODE 77)
     if(JYPPX_LIUDING_TEST_CLI_CUDA)
         add_test(NAME Cli_transfer_recipe_CUDA
             COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_transfer_recipe.py"
                 --cli $<TARGET_FILE:jyppx_cli> --device cuda)
         set_tests_properties(Cli_transfer_recipe_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;external-weights;cuda" TIMEOUT 1200 SKIP_RETURN_CODE 77)
+    endif()
+    if(JYPPX_LIUDING_TEST_CLI_CUDA)
+        add_test(NAME Cli_transfer_recipe_group_rates_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_transfer_recipe.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda --group-rates)
+        set_tests_properties(Cli_transfer_recipe_group_rates_CUDA PROPERTIES
             LABELS "cli;integration;recipe;external-weights;cuda" TIMEOUT 1200 SKIP_RETURN_CODE 77)
     endif()
     add_test(NAME Cli_image_recipe
@@ -120,14 +132,27 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
     endif()
 endif()
 
+set(paired_preparation_example_arguments)
+if(JYPPX_LIUDING_BUILD_EXAMPLES)
+    list(APPEND paired_preparation_example_arguments
+        --example $<TARGET_FILE:jyppx_paired_affine_data>)
+endif()
+add_test(NAME NativePairedAffineDataPreparation
+    COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_paired_data_preparation.py"
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+        ${paired_preparation_example_arguments})
+set_tests_properties(NativePairedAffineDataPreparation PROPERTIES
+    LABELS "data;recipe;cli;examples" TIMEOUT 180)
+
 add_test(NAME Cli_paired_recipe
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_paired_recipe.py"
-        --cli $<TARGET_FILE:jyppx_cli>)
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
 set_tests_properties(Cli_paired_recipe PROPERTIES LABELS "cli;integration;recipe" TIMEOUT 600)
 if(JYPPX_LIUDING_TEST_CLI_CUDA)
     add_test(NAME Cli_paired_recipe_CUDA
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_paired_recipe.py"
-            --cli $<TARGET_FILE:jyppx_cli> --device cuda)
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
     set_tests_properties(Cli_paired_recipe_CUDA PROPERTIES LABELS "cli;integration;recipe;cuda" TIMEOUT 600)
 endif()
 

@@ -8,6 +8,7 @@
 | `StorageQuantizedLinearRuntime` | 构造时反量化权重，随后执行 FP32 Linear；`compute_quantized=false`、`qat=false`，报告一个浮点 fallback 模块 |
 | `prepare_static_int8_linear` | 将 Q0 的 `[out,in]` 权重无损转为 `[in,out]` 并加 128；生成独立的 `jyppx.linear.ptq.ort.u8u8/v1` 准备信息，不改变 Q0 格式或宣称已执行内核 |
 | ORT 静态 PTQ 图 | 固定 ORT 1.23.2、ONNX opset 17，IR 版本由官方序列化器决定；FP32 输入经 `QuantizeLinear` 转 U8，U8U8 `MatMulInteger` 累加为 int32，随后 FP32 缩放及可选 bias；CPU 资格须由真实执行 trace 证明 |
+| 按输出通道权重 | `quantize_linear_per_output_channel` 对 `[out,in]` 的每行独立取对称权重 scale；`export_static_int8_linear_per_output_channel` 导出一个 U8U8 `MatMulInteger` 加 `[out]` scale 向量，不执行浮点点积 |
 
 当前路径不提供 QAT、INT4、GPU 量化或任意整图自动转换。U8S8 的 AVX2 路径可能出现中间饱和，本受限配方使用 U8U8，CPU 后端自己完成机器相关的 packing；便携制品不保存机器布局。
 
@@ -29,6 +30,14 @@ liuding-forge-int8-export linear.qint8 linear.int8.onnx
 ```
 
 原生 API 使用 LibTorch 官方 C++ ONNX 序列化器，先核对调用方提供的 Q0 SHA-256，再校验规范格式和完整校准 lineage。CLI 将本次读取的文件作为源，跨文件流转时的来源身份须由调用方另行核对。输出文件完整发布且拒绝覆盖；导出成功只代表图制品生成，实际执行可使用单独的 `jyppx::liuding::onnx_runtime` adapter 显式选择 CPU。生产流程无需 Python。
+
+输出行的权重幅度差异较大时，可用 `PerOutputChannelLinearArtifact` 和 `serialize_per_output_channel_linear_artifact` 保存新聚合格式 `JYPPXQC1`。它按输出顺序封装每行一个 canonical Q0/v1，校验完整通道数、显式索引、输入宽度、统一 bias 存在策略和逐字节一致的校准 lineage/sample IDs/observer/qparams。`max_features` 限制输入宽度与通道数，`max_artifact_bytes` 限制包含重复校准元数据的完整聚合。完整聚合 SHA-256 绑定顺序、bias 和全部通道；重新编码的合法不同模型仍须通过独立期望摘要识别。旧 Q0/v1 语义不变。激活仍使用共同的对称 scale 和 zero point 128，新 profile 为 `jyppx.linear.ptq.ort.u8u8.per_output_channel/v1`。
+
+```sh
+liuding-forge-int8-export --per-output-channel model.per-output-channel.qint8 model.int8.onnx
+```
+
+完整 C++ 学习程序见 [examples/quantization](../../examples/quantization/README.md)。新路径仍需独立的真实 kernel trace、任务精度和性能资格，不能由通道数值单测推导通过。
 
 静态配方将激活按校准范围取偶舍入并饱和到 `[0,255]`，不在运行时重新校准；超出校准范围的输入可能损失任务质量。每维固定不超过 65,536，int32 点积最坏绝对值不超过 1,065,353,216；scale 及其乘积须是正常、有限的 FP32 数，保守饱和输入输出界须能用有限 FP32 表示，否则准备失败。这个逻辑界限不是进程 RSS 上限。
 

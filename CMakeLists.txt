@@ -175,7 +175,8 @@ include(cmake/CopyTorchRuntime.cmake)
 # ============================================
 if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR
    JYPPX_LIUDING_BUILD_DATA_IMAGE OR JYPPX_LIUDING_BUILD_ONNX_EXPORT OR
-   JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
+   JYPPX_LIUDING_BUILD_ONNX_RUNTIME OR JYPPX_LIUDING_BUILD_TOOLS OR
+   JYPPX_LIUDING_BUILD_EXAMPLES)
     include(FetchContent)
     if(POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
@@ -992,6 +993,9 @@ endif()
 message(STATUS "${JYPPX_LIUDING_COMPONENT_GRAPH_OUTPUT}")
 
 # Compiler options must be applied after the target has been created.
+if(JYPPX_LIUDING_BUILD_TOOLS OR JYPPX_LIUDING_BUILD_EXAMPLES)
+    add_subdirectory(tools/datasets)
+endif()
 if(JYPPX_LIUDING_BUILD_TOOLS)
     if(NOT TARGET jyppx::liuding::sdk)
         message(FATAL_ERROR "JYPPX_LIUDING_BUILD_TOOLS=ON requires the complete jyppx::liuding::sdk component closure")

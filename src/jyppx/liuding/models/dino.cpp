@@ -12,6 +12,7 @@
 #include <torch/nn/init.h>
 #include <torch/torch.h>
 
+#include <ATen/ops/linear.h>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -85,7 +86,10 @@ class DinoV2Attention final : public torch::nn::Module {
     const auto batch = input.size(0);
     const auto tokens = input.size(1);
     const auto head_dimension = dimension_ / heads_;
-    auto qkv = qkv_->forward(input).chunk(3, -1);
+    // Match the ATen Linear operator used by the independent model reference.
+    // The C++ nn::Linear frontend otherwise splits bias addition for 3-D
+    // tokens, changing FP32 rounding before attention and its backward pass.
+    auto qkv = at::linear(input, qkv_->weight, qkv_->bias).chunk(3, -1);
     auto query =
         qkv[0].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
     auto key =
@@ -100,7 +104,7 @@ class DinoV2Attention final : public torch::nn::Module {
                         .transpose(1, 2)
                         .contiguous()
                         .view({batch, tokens, dimension_});
-    return projection_->forward(attended);
+    return at::linear(attended, projection_->weight, projection_->bias);
   }
 
  private:
@@ -119,14 +123,14 @@ class DinoV2Mlp final : public torch::nn::Module {
   }
 
   Tensor forward(const Tensor& input) {
-    auto feedforward = fc1_->forward(input);
+    auto feedforward = at::linear(input, fc1_->weight, fc1_->bias);
     if (swiglu_) {
       auto gates = feedforward.chunk(2, -1);
       feedforward = torch::silu(gates[0]) * gates[1];
     } else {
       feedforward = torch::gelu(feedforward);
     }
-    return fc2_->forward(feedforward);
+    return at::linear(feedforward, fc2_->weight, fc2_->bias);
   }
 
   void initialize_swiglu() {

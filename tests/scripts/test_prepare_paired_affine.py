@@ -10,9 +10,7 @@ from fractions import Fraction
 import hashlib
 import importlib.util
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -20,10 +18,16 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts/datasets/prepare_paired_affine.py"
+SCRIPT = ROOT / "tests/reference/paired_affine.py"
 SPEC = importlib.util.spec_from_file_location("prepare_paired_affine", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+_previous_bytecode_setting = sys.dont_write_bytecode
+try:
+    sys.dont_write_bytecode = True
+    SPEC.loader.exec_module(MODULE)
+finally:
+    sys.dont_write_bytecode = _previous_bytecode_setting
+del _previous_bytecode_setting
 
 
 class PreparePairedAffineTests(unittest.TestCase):
@@ -114,16 +118,6 @@ class PreparePairedAffineTests(unittest.TestCase):
             MODULE.prepare(ROOT / "paired-affine-forbidden-output", self.contract)
         self.assertFalse((ROOT / "paired-affine-forbidden-output").exists())
 
-    def test_cli_environment_root_and_explicit_root_precedence(self):
-        environment = dict(os.environ, JYPPX_LIUDING_DATA_ROOT=str(self.root / "environment"))
-        result = subprocess.run([sys.executable, str(SCRIPT)], env=environment,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.root / "environment/paired-affine-v1/preparation.json").is_file())
-        result = subprocess.run([sys.executable, str(SCRIPT), "--data-root", str(self.root / "explicit")],
-                                env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.root / "explicit/paired-affine-v1/preparation.json").is_file())
 
 
 if __name__ == "__main__":

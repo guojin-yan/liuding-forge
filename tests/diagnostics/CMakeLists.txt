@@ -10,6 +10,8 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
         tools/cli/recipe_support.hpp
         tools/cli/cli.hpp
         tests/unit/models/reference_file.hpp
+        src/jyppx/liuding/models/dino.cpp
+        include/jyppx/liuding/models/dino.hpp
         scripts/models/convert_dinov2_hf.py
     )
     # The extracted fragments are compiled; their containing production files

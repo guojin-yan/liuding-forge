@@ -62,6 +62,7 @@ Result api_command(const Arguments& arguments);
 Result run_command(const Arguments& arguments);
 Result evaluation_command(const Arguments& arguments);
 Result data_command(const Arguments& arguments);
+Result data_prepare_command(const Arguments& arguments);
 Result checkpoint_command(const Arguments& arguments);
 Result model_command(const Arguments& arguments);
 Result bundle_sign_command(const Arguments& arguments);

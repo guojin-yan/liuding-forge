@@ -42,3 +42,23 @@ if(JYPPX_LIUDING_BUILD_TESTS)
         jyppx_add_onnx_runtime_dependency(jyppx_int8_task)
     endif()
 endif()
+
+# Test-only native FP32/INT8 comparison; the external driver owns full sampling.
+if(JYPPX_LIUDING_BUILD_TESTS AND TARGET jyppx::liuding::onnx_export
+   AND TARGET jyppx::liuding::onnx_runtime)
+    add_executable(jyppx_int8_frozen_compare
+        "${PROJECT_SOURCE_DIR}/tests/quantization/benchmark_frozen_linear.cpp")
+    set_target_properties(jyppx_int8_frozen_compare PROPERTIES
+        OUTPUT_NAME liuding-forge-int8-frozen-compare)
+    target_compile_features(jyppx_int8_frozen_compare PRIVATE cxx_std_20)
+    target_include_directories(jyppx_int8_frozen_compare PRIVATE
+        "${PROJECT_SOURCE_DIR}/tools/quantization")
+    target_link_libraries(jyppx_int8_frozen_compare PRIVATE
+        jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime
+        nlohmann_json::nlohmann_json)
+    if(WIN32)
+        target_link_libraries(jyppx_int8_frozen_compare PRIVATE Psapi)
+    endif()
+    jyppx_add_torch_runtime_dependency(jyppx_int8_frozen_compare)
+    jyppx_add_onnx_runtime_dependency(jyppx_int8_frozen_compare)
+endif()

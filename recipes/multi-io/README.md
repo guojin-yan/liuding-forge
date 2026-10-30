@@ -1,11 +1,11 @@
 # 双输入、分类与回归数据
 
-`paired-affine-v1` 是项目自行生成的离线示例数据，包含两个特征输入、一个二分类目标和一个回归目标，用于学习自定义多输入、多输出模型。它采用 Apache-2.0 许可，训练集 1,024 条、验证集 256 条，无需下载或 Python 第三方包。
+`paired-affine-v1` 是项目自行生成的离线示例数据，包含两个特征输入、一个二分类目标和一个回归目标，用于学习自定义多输入、多输出模型。它采用 Apache-2.0 许可，训练集 1,024 条、验证集 256 条，无需下载或 Python 运行环境。
 
-在源码根目录执行下面的命令，将输出位置替换为仓库外的数据目录；也可以省略 `--data-root`，使用 `JYPPX_LIUDING_DATA_ROOT`。
+构建 CLI 后执行下面的命令，将输出位置替换为仓库外的数据目录；也可以省略 `--data-root`，使用 `JYPPX_LIUDING_DATA_ROOT`。
 
 ```sh
-python scripts/datasets/prepare_paired_affine.py --data-root /path/to/datasets
+liuding-forge data prepare --name paired-affine --data-root /path/to/datasets --format json
 ```
 
 输出目录为 `paired-affine-v1/`，包含 `train.jsonl`、`validation.jsonl` 和 `preparation.json`。已有目标目录会被拒绝，准备失败只清理工具本次创建的暂存目录。调用者应保持输出父目录稳定；路径不能经过符号链接或 Windows reparse point。
@@ -20,4 +20,4 @@ python scripts/datasets/prepare_paired_affine.py --data-root /path/to/datasets
 | `class_id` | int64 标量 | `left[0] + left[1]/2 + right[0] - right[1]/4 >= 0` |
 | `regression` | float32 `[1]` | `(4*left[0] - 2*left[1] + 3*right[0] + right[1] + 0.5)/8` |
 
-两份数据文件合计 173,375 字节，每条记录不超过 512 字节；[数据合同](paired-affine.dataset.json)固定版本、种子、样本数、类别计数和文件 SHA-256。准备工具逐条生成并核对完整文件身份，不缓存整个数据集。准备完成后，按[双输入训练教程](../../docs/tutorials/multi_io_recipe.md)配置 C++ 训练、分类与回归评估、检查点和独立进程恢复。这些合成数据不能证明真实任务质量或性能优势。
+两份数据文件合计 173,375 字节，每条记录不超过 512 字节；[数据合同](paired-affine.dataset.json)固定版本、种子、样本数、类别计数和文件 SHA-256。原生 C++ 准备工具逐条生成并核对完整文件身份，不缓存整个数据集；安装后的命令不读取源码中的合同文件。直接调用 C++ 实现并查看输入/目标拆分见[数据示例](../../examples/data/README.md)。准备完成后，按[双输入训练教程](../../docs/tutorials/multi_io_recipe.md)配置 C++ 训练、分类与回归评估、检查点和独立进程恢复。这些合成数据不能证明真实任务质量或性能优势。

@@ -14,6 +14,8 @@
 8. [使用预训练 ResNet50 与 DINOv2 迁移学习](tutorials/transfer_learning_recipe.md)
 9. [C++ 检查点、ONNX 导出与推理](../examples/deployment/README.md)
 10. [本地搜索：训练、指标排序与最佳模型快照](../examples/experiment/README.md)
+11. [使用 C++ 准备与读取双输入数据](../examples/data/README.md)
+12. [按输出通道量化、导出与执行 Linear](../examples/quantization/README.md)
 
 ## 用户指南
 

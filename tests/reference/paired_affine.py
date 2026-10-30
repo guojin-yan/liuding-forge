@@ -3,15 +3,14 @@
 # Product: 六丁炼算 (Liuding Forge)
 # Project alias: JYPPX Training Framework
 # Licensed under the Apache License, Version 2.0.
-"""Prepare deterministic paired-input classification/regression JSONL data.
+"""Independent Python reference for native paired-affine preparation tests.
 
-Uses only the Python standard library, generates one record at a time, and
-publishes a new external dataset after verifying its frozen content digests.
+Development-only oracle; this module has no command-line or installed runtime
+entry point. User-facing preparation is implemented in C++20.
 """
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import os
@@ -119,25 +118,3 @@ def prepare(data_root: Path, contract: dict) -> Path:
             assert staging.name.startswith(".paired-affine-preparing-")
             shutil.rmtree(staging)
     return destination
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-root", type=Path,
-                        help="external output root; defaults to JYPPX_LIUDING_DATA_ROOT")
-    args = parser.parse_args()
-    data_root = args.data_root or (Path(os.environ["JYPPX_LIUDING_DATA_ROOT"])
-                                  if os.environ.get("JYPPX_LIUDING_DATA_ROOT") else None)
-    if data_root is None:
-        parser.error("supply --data-root or set JYPPX_LIUDING_DATA_ROOT")
-    try:
-        contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
-        destination = prepare(data_root, contract)
-        print(f"verified paired-affine dataset: {destination}", flush=True)
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        parser.exit(1, f"paired-affine preparation failed: {error}\n")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

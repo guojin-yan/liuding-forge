@@ -46,6 +46,26 @@ int main() {
     const auto report = q::quantization_report_json(runtime.report(weights));
     Require(report.find("\"compute_quantized\":false") != std::string::npos,
             "installed-quantization-report-claims");
+    const std::array<float, 4U> channel_weights{127.0F, -127.0F, 0.125F,
+                                                -0.25F};
+    const std::array<float, 2U> channel_bias{0.25F, -0.5F};
+    const auto channels =
+        q::quantize_linear_per_output_channel({.in_features = 2U,
+                                               .out_features = 2U,
+                                               .weights = channel_weights,
+                                               .bias = channel_bias},
+                                              session.finalize());
+    const auto channel_bytes =
+        q::serialize_per_output_channel_linear_artifact(channels);
+    const auto restored_channels =
+        q::deserialize_per_output_channel_linear_artifact(channel_bytes);
+    Require(
+        q::serialize_per_output_channel_linear_artifact(restored_channels) ==
+                channel_bytes &&
+            restored_channels.channels.size() == 2U &&
+            restored_channels.channels[0].weight_params.scale == 1.0 &&
+            restored_channels.channels[1].weight_params.scale == 0.25 / 127.0,
+        "installed-per-output-channel-canonical-scales");
     std::cout << report << '\n';
     return 0;
   } catch (const std::exception& error) {

@@ -27,6 +27,7 @@ namespace {
 constexpr std::string_view kComponent = "quantization";
 constexpr std::string_view kFormatId = "jyppx.qint8.symmetric.per_tensor/v1";
 constexpr std::string_view kMagic{"JYPPXQ1\0", 8U};
+constexpr std::string_view kChannelMagic{"JYPPXQC1", 8U};
 constexpr std::uint32_t kSchemaVersion = 1U;
 constexpr std::size_t kObserverStateBytes = 40U;
 constexpr std::size_t kMaxJsonNumberBytes = 128U;
@@ -244,10 +245,10 @@ void add_to_artifact_budget(std::size_t& total, std::size_t bytes,
   total += bytes;
 }
 
-void validate_linear_payload_budget(std::size_t weight_count,
-                                    std::size_t bias_count,
-                                    const CalibrationResult& calibration,
-                                    const QuantizationLimits& limits) {
+std::size_t validate_linear_payload_budget(std::size_t weight_count,
+                                           std::size_t bias_count,
+                                           const CalibrationResult& calibration,
+                                           const QuantizationLimits& limits) {
   validate_size_limit(kFormatId.size(), limits.max_lineage_text_bytes,
                       "format_id");
   if (calibration.sample_ids.size() > limits.max_samples)
@@ -273,6 +274,7 @@ void validate_linear_payload_budget(std::size_t weight_count,
     add_to_artifact_budget(encoded_size, sample_id.size(),
                            limits.max_artifact_bytes);
   }
+  return encoded_size;
 }
 
 int compare_binary_magnitudes(std::uint64_t lhs, int lhs_exponent,
@@ -1226,6 +1228,191 @@ QuantizedLinearArtifact deserialize_linear_artifact(
     serialization("artifact.canonical", "canonical bytes", "different bytes",
                   "Regenerate the artifact using the v1 canonical encoder.");
   return artifact;
+}
+
+void validate_per_output_channel_linear_artifact(
+    const PerOutputChannelLinearArtifact& artifact, QuantizationLimits limits) {
+  validate_limits(limits);
+  if (artifact.artifact_version != 1U)
+    compatibility("per_output_channel.version", "1",
+                  std::to_string(artifact.artifact_version),
+                  "Use an explicit aggregate version migration.");
+  if (artifact.in_features == 0U ||
+      artifact.in_features > limits.max_features ||
+      artifact.out_features == 0U ||
+      artifact.out_features > limits.max_features ||
+      artifact.channels.size() != artifact.out_features)
+    invalid("per_output_channel.dimensions", "bounded nonempty exact channels",
+            "inconsistent dimensions or channel count",
+            "Provide one ordered Q0 row per output feature.");
+  std::size_t encoded_size = 36U;
+  std::vector<std::byte> common_calibration;
+  bool biased = false;
+  for (std::size_t i = 0U; i < artifact.channels.size(); ++i) {
+    const auto& channel = artifact.channels[i];
+    validate_linear_artifact(channel, limits);
+    if (channel.in_features != artifact.in_features ||
+        channel.out_features != 1U)
+      invalid("per_output_channel.shape", "one matching input row per channel",
+              "wrong channel shape",
+              "Keep output channel order and dimensions.");
+    Encoder calibration_encoder(limits.max_artifact_bytes);
+    encode_calibration(calibration_encoder, channel.calibration, limits);
+    auto calibration_bytes = std::move(calibration_encoder).finish();
+    if (i == 0U) {
+      common_calibration = std::move(calibration_bytes);
+      biased = !channel.bias.empty();
+    } else if (calibration_bytes != common_calibration ||
+               biased != !channel.bias.empty()) {
+      invalid("per_output_channel.calibration",
+              "identical calibration and bias presence",
+              "mixed lineage, samples, qparams or bias presence",
+              "Quantize all rows from one calibration and model.");
+    }
+    const auto bytes = serialize_linear_artifact(channel, limits);
+    add_to_artifact_budget(encoded_size, 16U, limits.max_artifact_bytes);
+    add_to_artifact_budget(encoded_size, bytes.size(),
+                           limits.max_artifact_bytes);
+  }
+}
+
+PerOutputChannelLinearArtifact quantize_linear_per_output_channel(
+    const FloatLinearModel& model, const CalibrationResult& calibration,
+    QuantizationLimits limits) {
+  validate_limits(limits);
+  std::size_t count = 0U;
+  if (model.in_features == 0U || model.out_features == 0U ||
+      model.in_features > limits.max_features ||
+      model.out_features > limits.max_features ||
+      !checked_mul(model.in_features, model.out_features, &count) ||
+      count != model.weights.size() ||
+      (!model.bias.empty() && model.bias.size() != model.out_features))
+    invalid("per_output_channel.source",
+            "bounded row-major [out,in] and optional [out] bias",
+            "invalid source shape", "Provide all channels in output order.");
+  if (count > limits.max_artifact_bytes)
+    resource("per_output_channel.weights", limits.max_artifact_bytes, count,
+             "Reduce the Linear dimensions.");
+  // Preflight the complete aggregate before copying calibration into even the
+  // first row. Repeated sample IDs/lineage can dominate the weight payload.
+  const auto row_bytes = validate_linear_payload_budget(
+      model.in_features, model.bias.empty() ? 0U : 1U, calibration, limits);
+  std::size_t framed_row_bytes = row_bytes;
+  add_to_artifact_budget(framed_row_bytes, 16U, limits.max_artifact_bytes);
+  std::size_t payload_bytes = 0U;
+  if (!checked_mul(framed_row_bytes, model.out_features, &payload_bytes))
+    throw ResourceExhausted("Per-output-channel aggregate byte count overflow");
+  add_to_artifact_budget(payload_bytes, 36U, limits.max_artifact_bytes);
+  validate_calibration(calibration, limits);
+  PerOutputChannelLinearArtifact result{.artifact_version = 1U,
+                                        .in_features = model.in_features,
+                                        .out_features = model.out_features,
+                                        .channels = {}};
+  std::size_t encoded_size = 36U;
+  for (std::size_t i = 0U; i < model.out_features; ++i) {
+    auto channel = quantize_linear(
+        {.in_features = model.in_features,
+         .out_features = 1U,
+         .weights =
+             model.weights.subspan(i * model.in_features, model.in_features),
+         .bias = model.bias.empty() ? std::span<const float>{}
+                                    : model.bias.subspan(i, 1U)},
+        calibration, limits);
+    const auto bytes = serialize_linear_artifact(channel, limits);
+    add_to_artifact_budget(encoded_size, 16U, limits.max_artifact_bytes);
+    add_to_artifact_budget(encoded_size, bytes.size(),
+                           limits.max_artifact_bytes);
+    result.channels.push_back(std::move(channel));
+  }
+  validate_per_output_channel_linear_artifact(result, limits);
+  return result;
+}
+
+std::vector<std::byte> serialize_per_output_channel_linear_artifact(
+    const PerOutputChannelLinearArtifact& artifact, QuantizationLimits limits) {
+  validate_per_output_channel_linear_artifact(artifact, limits);
+  Encoder encoder(limits.max_artifact_bytes);
+  encoder.raw(
+      std::as_bytes(std::span(kChannelMagic.data(), kChannelMagic.size())));
+  encoder.u32(artifact.artifact_version);
+  encoder.u64(static_cast<std::uint64_t>(artifact.in_features));
+  encoder.u64(static_cast<std::uint64_t>(artifact.out_features));
+  encoder.u64(static_cast<std::uint64_t>(artifact.channels.size()));
+  for (std::size_t i = 0U; i < artifact.channels.size(); ++i) {
+    const auto bytes = serialize_linear_artifact(artifact.channels[i], limits);
+    encoder.u64(static_cast<std::uint64_t>(i));
+    encoder.u64(static_cast<std::uint64_t>(bytes.size()));
+    encoder.raw(bytes);
+  }
+  return std::move(encoder).finish();
+}
+
+PerOutputChannelLinearArtifact deserialize_per_output_channel_linear_artifact(
+    std::span<const std::byte> bytes, QuantizationLimits limits) {
+  validate_limits(limits);
+  validate_size_limit(bytes.size(), limits.max_artifact_bytes,
+                      "per_output_channel.artifact");
+  Reader reader(bytes);
+  const auto magic =
+      reader.raw(kChannelMagic.size(), "per_output_channel.magic");
+  if (!std::equal(
+          magic.begin(), magic.end(),
+          std::as_bytes(std::span(kChannelMagic.data(), kChannelMagic.size()))
+              .begin()))
+    serialization("per_output_channel.magic", "JYPPXQC1", "unknown header",
+                  "Use the per-output-channel aggregate codec.");
+  PerOutputChannelLinearArtifact result;
+  result.artifact_version = reader.u32("per_output_channel.version");
+  if (result.artifact_version != 1U)
+    compatibility("per_output_channel.version", "1",
+                  std::to_string(result.artifact_version),
+                  "Use an explicit aggregate version migration.");
+  result.in_features = reader.size(reader.u64("in_features"),
+                                   limits.max_features, "in_features");
+  result.out_features = reader.size(reader.u64("out_features"),
+                                    limits.max_features, "out_features");
+  const auto channels = reader.u64("channels.count");
+  if (result.in_features == 0U || result.out_features == 0U ||
+      channels != result.out_features || channels > reader.remaining() / 16U)
+    serialization("per_output_channel.channels", "complete exact channel count",
+                  "invalid count",
+                  "Reject missing or truncated channels before allocation.");
+  // Check every framing/index/length against the complete source before any
+  // Q0 metadata is materialized. No reserve based on an unchecked count.
+  auto scan = reader;
+  for (std::size_t i = 0U; i < result.out_features; ++i) {
+    if (scan.u64("channel.index") != i)
+      serialization("per_output_channel.order", "sequential channel indices",
+                    "reordered channel",
+                    "Preserve canonical output row order.");
+    const auto length = scan.size(scan.u64("channel.bytes"),
+                                  limits.max_artifact_bytes, "channel.bytes");
+    static_cast<void>(scan.raw(length, "channel"));
+  }
+  if (!scan.empty())
+    serialization("per_output_channel.trailing", "no trailing bytes", "present",
+                  "Reject ambiguous aggregate extensions.");
+  for (std::size_t i = 0U; i < result.out_features; ++i) {
+    if (reader.u64("channel.index") != i)
+      serialization("per_output_channel.order", "sequential channel indices",
+                    "reordered channel",
+                    "Preserve canonical output row order.");
+    const auto length = reader.size(reader.u64("channel.bytes"),
+                                    limits.max_artifact_bytes, "channel.bytes");
+    result.channels.push_back(
+        deserialize_linear_artifact(reader.raw(length, "channel"), limits));
+  }
+  if (!reader.empty())
+    serialization("per_output_channel.trailing", "no trailing bytes", "present",
+                  "Reject ambiguous aggregate extensions.");
+  validate_per_output_channel_linear_artifact(result, limits);
+  const auto canonical =
+      serialize_per_output_channel_linear_artifact(result, limits);
+  if (!std::equal(canonical.begin(), canonical.end(), bytes.begin(),
+                  bytes.end()))
+    serialization("per_output_channel.canonical", "canonical aggregate bytes",
+                  "different bytes", "Regenerate with the aggregate codec.");
+  return result;
 }
 
 StaticInt8LinearPreparation prepare_static_int8_linear(

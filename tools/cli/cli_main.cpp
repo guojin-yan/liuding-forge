@@ -270,6 +270,7 @@ Result execute(const Arguments& arguments) {
                    "evaluation compare --baseline PATH --candidate PATH",
                    "evaluation show --report PATH",
                    "data inspect|verify --input PATH",
+                   "data prepare --name paired-affine [--data-root DIRECTORY]",
                    "checkpoint inspect|verify --path PATH",
                    "checkpoint diff --baseline PATH --candidate PATH",
                    "model inspect|verify --path PATH",

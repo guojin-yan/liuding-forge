@@ -28,6 +28,7 @@ liuding-forge checkpoint verify --path checkpoint.jyck --format json
 ## 训练与恢复
 
 ```sh
+liuding-forge data prepare --name paired-affine --data-root /path/to/datasets --format json
 liuding-forge recipe schema --name paired-affine --format json
 liuding-forge recipe check --file paired-affine.local.json --format json
 liuding-forge recipe run --file paired-affine.local.json --root runs/example --pause-after 256 --format json
@@ -40,7 +41,7 @@ liuding-forge recipe resume --file paired-affine.local.json --root runs/example 
 
 原生 C++ 的 `model onnx export` 可从训练检查点恢复模型，经通用导出与实际 ORT 数值验证后发布 bundle；已有 ONNX 使用 `model onnx pack`，包内数值复验使用 `model onnx smoke`。所需组件、输入格式和支持边界见 [ONNX 导出与推理](../api/onnx.md)。
 
-`model bundle inspect|verify` 有界检查目录、文件大小、摘要和 safetensors 映射，分别报告内容完整性、签名信任及运行时兼容性。CLI 尚未配置密码学信任提供者：无签名报告 `unsigned`，已有签名报告 `present_unverified`，`--require-trusted true` 拒绝未受信任的包。应用可以提供库的签名验证回调；schema 的实际解释和推理仍由对应运行时负责。
+`model bundle inspect|verify` 有界检查目录、文件大小、摘要和 safetensors 映射，分别报告内容完整性、签名信任及运行时兼容性。启用 `bundle_signing` 组件后，CLI 提供原生 `model bundle sign`，验签通过 `--trust-policy` 和 `--trust-policy-sha256` 绑定信任策略；关闭该组件时不提供受信验签。使用方法见[模型包签名与信任策略](bundle-signing.md)；schema 的实际解释和推理仍由对应运行时负责。
 
 启用 `JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR=ON` 可单独安装遥测 sidecar 源码与锁定依赖声明；CMake 不安装 Python 包，调用方显式提供解释器和配置，见[进程传输](../api/telemetry_sidecar_process.md)。更完整的本地组合示例见[离线工作流](../examples/offline_workflow.md)。
 

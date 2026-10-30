@@ -17,6 +17,7 @@
 #include <iostream>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -31,6 +32,9 @@ std::vector<std::byte> ReadSource(const std::filesystem::path& path) {
   if (!input.read(reinterpret_cast<char*>(bytes.data()),
                   static_cast<std::streamsize>(bytes.size())))
     throw std::runtime_error("Cannot read Q0 source artifact");
+  if (input.peek() != std::char_traits<char>::eof() || input.bad() ||
+      std::filesystem::file_size(path) != count)
+    throw std::runtime_error("Q0 source byte count changed during read");
   return bytes;
 }
 
@@ -41,21 +45,33 @@ int wmain(int argc, wchar_t** argv) {
 #else
 int main(int argc, char** argv) {
 #endif
-  if (argc != 3) {
-    std::cerr << "Usage: liuding-forge-int8-export SOURCE.qint8 OUTPUT.onnx\n";
+  const bool per_output_channel =
+      argc == 4 && std::filesystem::path(argv[1]) == "--per-output-channel";
+  if (argc != 3 && !per_output_channel) {
+    std::cerr << "Usage: liuding-forge-int8-export [--per-output-channel] "
+                 "SOURCE.qint8 OUTPUT.onnx\n";
     return 2;
   }
   try {
     namespace ex = jyppx::liuding::onnx_export;
     namespace q = jyppx::liuding::quantization;
-    const std::filesystem::path source(argv[1]);
-    const std::filesystem::path destination(argv[2]);
+    const std::filesystem::path source(argv[per_output_channel ? 2 : 1]);
+    const std::filesystem::path destination(argv[per_output_channel ? 3 : 2]);
     const auto bytes = ReadSource(source);
-    const auto canonical = q::deserialize_linear_artifact(bytes);
+    const auto in_features =
+        per_output_channel
+            ? q::deserialize_per_output_channel_linear_artifact(bytes)
+                  .in_features
+            : q::deserialize_linear_artifact(bytes).in_features;
     const std::array<std::int64_t, 2U> shape{
-        1, static_cast<std::int64_t>(canonical.in_features)};
-    const auto exported = ex::export_static_int8_linear(
-        bytes, {.hex = jyppx::liuding::sha256_hex(bytes)}, shape);
+        1, static_cast<std::int64_t>(in_features)};
+    const jyppx::liuding::ArtifactDigest digest{
+        .hex = jyppx::liuding::sha256_hex(bytes)};
+    const auto exported =
+        per_output_channel
+            ? ex::export_static_int8_linear_per_output_channel(bytes, digest,
+                                                               shape)
+            : ex::export_static_int8_linear(bytes, digest, shape);
     q::tools_detail::PublishExclusive(destination, exported.artifact.onnx);
     std::cout
         << "{\"schema_version\":1,\"source_artifact_sha256\":\""

@@ -571,6 +571,10 @@ if(TARGET jyppx::liuding::onnx_export)
     if(TARGET jyppx::liuding::quantization)
         target_sources(jyppx_test_onnx_export PRIVATE
             deployment/onnx_export/test_static_int8_linear.cpp)
+        if(TARGET jyppx::liuding::onnx_runtime)
+            target_sources(jyppx_test_onnx_export PRIVATE
+                "${PROJECT_SOURCE_DIR}/tests/quantization/test_per_output_channel_linear.cpp")
+        endif()
     endif()
     if(TARGET jyppx::liuding::onnx_runtime)
         target_link_libraries(jyppx_test_onnx_export PRIVATE
@@ -668,4 +672,13 @@ if(TARGET jyppx::liuding::bundle_signing)
         deployment/bundle_signing/test_provider.cpp)
     target_link_libraries(jyppx_test_bundle_signing PRIVATE
         nlohmann_json::nlohmann_json OpenSSL::Crypto Threads::Threads)
+endif()
+
+if(TARGET jyppx_int8_fashion_fixture)
+    add_test(NAME NativeInt8FixtureTextIdentity
+        COMMAND ${Python3_EXECUTABLE}
+            "${PROJECT_SOURCE_DIR}/tests/quantization/test_fashion_fixture_text.py"
+            --tool $<TARGET_FILE:jyppx_int8_fashion_fixture>)
+    set_tests_properties(NativeInt8FixtureTextIdentity PROPERTIES
+        LABELS "quantization;integration" TIMEOUT 60)
 endif()

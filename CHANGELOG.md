@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加按输出通道权重量化的有界 Linear 制品及原生 ONNX 导出，使用单个 U8U8 `MatMulInteger` 和通道缩放向量；附带校准、导出、ORT 推理的 C++ 教学示例。
+- 迁移学习配方增加可选的骨干和分类头独立学习率，沿用现有 SGD、调度器与完整检查点恢复，并将参数分组写入结果与模型包来源。
 - 增加可选原生 C++ Ed25519 模型包签名，提供绑定原始 SHA-256 的外部信任策略、PKCS#8 私钥导入、全部声明签名校验、ONNX bundle 推理前验签，以及 CLI 与学习示例。
 - 增加有界、默认串行的 grid/random 搜索，冻结候选配置、seed 与执行身份，复用持久本地任务；按真实 run 指标与 CAS 产物选择 best，并导出带完整搜索历史的存储备份。
 - 增加独立可选 `onnx_serving` 组件与公共 ORT 环境锁校验，接入具名多输入输出、候选 warmup、完整图边界比较和版本 lease；Provider 显式选择，外部 Tensor 使用 CPU FP32。
@@ -21,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- DINOv2 的 token 投影使用 ATen 融合 Linear，修正三维输入在 C++ 与独立 PyTorch 参考之间的梯度累加路径差异，保留原有参数与配置。
 - 修复配方在非周期步暂停后额外增加检查点与回调计数的问题；Trainer 增加可续训的 `fit_until()` 安全边界，暂停后由调用方显式保存完整状态。
 - DINOv2 在 CUDA 严格确定性模式下使用可求导的分离矩阵运算缩放位置编码，支持非原生分辨率的反向传播，保留参数梯度与 state 布局。
 - CIFAR-10 离线准备接受官方类别表末尾的空行，继续严格核对十个类别及其顺序。
@@ -29,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- 双输入示例数据通过原生 C++ `data prepare --name paired-affine` 离线生成，保留固定样本内容和摘要；增加可直接运行的数据准备示例。
 - 通用 C++ ONNX 导出生成版本化报告，记录输入输出、参数/buffer 字节摘要、构建身份和动态 batch；CLI 校验模型/报告与训练来源后，以独立关联 run 原子登记模型和报告，支持幂等重试。
 - ONNX Runtime 支持按名称绑定多个 FP32 输入并返回多个具名输出，验证共享或独立 batch 符号；一次调用统一执行输入/输出总字节门禁，保留单输入输出简便接口。
 - 增加 Fashion-MNIST 离线 ImageFolder 准备工具：固定来源与许可，支持完整数据和每类前 100 张子集，流式生成精确 RGB PNG，保留原始索引及内容摘要。

@@ -222,8 +222,9 @@ Result evaluation_command(const Arguments& arguments) {
 
 Result data_command(const Arguments& arguments) {
   const auto action = arguments.words()[1];
+  if (action == "prepare") return data_prepare_command(arguments);
   if (action != "inspect" && action != "verify")
-    usage("data", "Choose inspect or verify.");
+    usage("data", "Choose prepare, inspect or verify.");
   arguments.allow({"input", "output"});
   const auto input = parse_json(read_text(path(arguments.require("input"))));
   fields(input, {"schema_version", "schema", "rows"});

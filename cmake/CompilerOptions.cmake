@@ -24,6 +24,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_bundle_signing
     jyppx_liuding_quantization
     jyppx_liuding_serving
+    jyppx_dataset_preparation
     jyppx_cli_transport
     jyppx_cli_objects
     jyppx_cli
@@ -202,7 +203,13 @@ function(jyppx_apply_instrumentation target_name)
     endif()
 endfunction()
 
-foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
+# Test tools created before this module need instrumentation without entering
+# the framework-only warning and static-analysis target lists.
+set(JYPPX_INSTRUMENTATION_TARGETS
+    ${JYPPX_COMPILED_TARGETS}
+    jyppx_int8_frozen_compare
+)
+foreach(JYPPX_TARGET IN LISTS JYPPX_INSTRUMENTATION_TARGETS)
     if(NOT TARGET ${JYPPX_TARGET})
         continue()
     endif()

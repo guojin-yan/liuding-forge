@@ -351,6 +351,62 @@ std::vector<std::byte> serialize_linear_artifact(
 QuantizedLinearArtifact deserialize_linear_artifact(
     std::span<const std::byte> bytes, QuantizationLimits limits = {});
 
+/** @brief Ordered per-output-channel Linear weights composed of canonical Q0.
+ *
+ * Channel i is output row i and has exactly one output and an optional scalar
+ * bias. Every channel has identical calibration bytes and input width. The
+ * aggregate codec binds dimensions, channel indices, weights, biases and
+ * calibration to one canonical byte sequence; its SHA-256 is the complete
+ * model identity. Q0 v1 and its storage-only capability claims stay unchanged.
+ */
+struct PerOutputChannelLinearArtifact {
+  std::uint32_t artifact_version = 1U;  ///< Aggregate schema version.
+  std::size_t in_features = 0U;         ///< Shared positive input width.
+  std::size_t out_features = 0U;        ///< Exact ordered channel count.
+  std::vector<QuantizedLinearArtifact> channels;  ///< Output rows in order.
+};
+
+/** @brief Quantizes each output row with its own symmetric weight scale.
+ * @param model Borrowed row-major [out,in] FP32 weights and optional bias.
+ * @param calibration Complete common activation calibration evidence.
+ * @param limits Feature/channel, metadata and complete aggregate byte bounds.
+ * @return Owned ordered Q0 rows; no inference, fallback or kernel claim.
+ * @throws Error For invalid, nonfinite or out-of-budget source data.
+ */
+PerOutputChannelLinearArtifact quantize_linear_per_output_channel(
+    const FloatLinearModel& model, const CalibrationResult& calibration,
+    QuantizationLimits limits = {});
+
+/** @brief Validates exact dimensions, channel count and shared calibration.
+ * @param artifact Owned aggregate to inspect without mutation.
+ * @param limits Channel/feature and complete canonical byte ceilings.
+ * @throws Error For inconsistent channels, bias presence, lineage or budgets.
+ */
+void validate_per_output_channel_linear_artifact(
+    const PerOutputChannelLinearArtifact& artifact,
+    QuantizationLimits limits = {});
+
+/** @brief Encodes canonical little-endian ordered per-output-channel bytes.
+ * @param artifact Complete aggregate; channel i is output i.
+ * @param limits Complete aggregate byte, feature and calibration ceilings.
+ * @return Owned bytes binding all channel indices, Q0 payloads and biases.
+ * @throws Error For invalid fields or an exceeded complete byte ceiling.
+ */
+std::vector<std::byte> serialize_per_output_channel_linear_artifact(
+    const PerOutputChannelLinearArtifact& artifact,
+    QuantizationLimits limits = {});
+
+/** @brief Decodes one complete canonical per-output-channel aggregate.
+ * @param bytes Immutable source bytes; no caller storage is retained.
+ * @param limits Aggregate byte, channel, feature and calibration ceilings.
+ * @return Owned aggregate with identical calibration on every channel.
+ * @throws Error For malformed, reordered, truncated or out-of-budget bytes.
+ * @note Verify the complete aggregate SHA-256 against an independent identity
+ * to detect a valid model whose rows or biases have intentionally changed.
+ */
+PerOutputChannelLinearArtifact deserialize_per_output_channel_linear_artifact(
+    std::span<const std::byte> bytes, QuantizationLimits limits = {});
+
 /**
  * @brief Explicit static PTQ preparation for the separate ORT CPU adapter.
  *
@@ -404,8 +460,8 @@ StaticInt8LinearPreparation prepare_static_int8_linear(
  *
  * The JSON binds repacked bytes to the canonical Q0 source and its complete
  * calibration identity. Scales are encoded as exact FP32 bit patterns and
- * payloads as canonical base64. This describes derived conversion state, not a new
- * portable weight format or runtime execution report. The separate C++
+ * payloads as canonical base64. This describes derived conversion state, not a
+ * new portable weight format or runtime execution report. The separate C++
  * native exporter consumes the original Q0 artifact directly; this optional
  * JSON is a diagnostic/interchange view and is not its source of authority.
  *

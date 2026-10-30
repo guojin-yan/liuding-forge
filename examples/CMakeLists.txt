@@ -50,6 +50,16 @@ endforeach()
 
 endif()
 
+if(TARGET jyppx_dataset_preparation)
+    add_executable(jyppx_paired_affine_data data/paired_affine.cpp)
+    set_target_properties(jyppx_paired_affine_data PROPERTIES
+        OUTPUT_NAME liuding-forge-example-paired-affine-data)
+    target_link_libraries(jyppx_paired_affine_data PRIVATE
+        jyppx_dataset_preparation nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_paired_affine_data)
+    jyppx_add_torch_runtime_dependency(jyppx_paired_affine_data)
+endif()
+
 if(TARGET jyppx::liuding::serving)
     add_executable(jyppx_liuding_serving_reload serving/reload.cpp)
     set_target_properties(jyppx_liuding_serving_reload PROPERTIES
@@ -145,4 +155,36 @@ if(TARGET jyppx::liuding::bundle_signing)
         set_tests_properties(BundleSigningExample PROPERTIES
             LABELS "examples;deployment;signing" TIMEOUT 60)
     endif()
+endif()
+
+if(TARGET jyppx::liuding::quantization AND TARGET jyppx::liuding::onnx_export
+   AND TARGET jyppx::liuding::onnx_runtime)
+    add_executable(jyppx_liuding_quantization_per_output_channel_example
+        quantization/per_output_channel.cpp)
+    set_target_properties(jyppx_liuding_quantization_per_output_channel_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-int8-per-output-channel)
+    target_link_libraries(jyppx_liuding_quantization_per_output_channel_example PRIVATE
+        jyppx::liuding::quantization jyppx::liuding::onnx_export
+        jyppx::liuding::onnx_runtime)
+    jyppx_apply_instrumentation(jyppx_liuding_quantization_per_output_channel_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_quantization_per_output_channel_example)
+    jyppx_add_onnx_runtime_dependency(jyppx_liuding_quantization_per_output_channel_example)
+    if(JYPPX_LIUDING_BUILD_TESTS)
+        add_test(NAME PerOutputChannelInt8Example
+            COMMAND jyppx_liuding_quantization_per_output_channel_example)
+        set_tests_properties(PerOutputChannelInt8Example PROPERTIES
+            LABELS "examples;quantization;deployment;onnx_runtime" TIMEOUT 120)
+    endif()
+endif()
+
+# Public models/optimizer lesson; local weights are explicit at runtime.
+if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::optim)
+    add_executable(jyppx_transfer_group_rates EXCLUDE_FROM_ALL
+        transfer_learning/group_rates.cpp)
+    set_target_properties(jyppx_transfer_group_rates PROPERTIES
+        OUTPUT_NAME liuding-forge-example-transfer-group-rates)
+    target_link_libraries(jyppx_transfer_group_rates PRIVATE
+        jyppx::liuding::models jyppx::liuding::optim)
+    jyppx_apply_instrumentation(jyppx_transfer_group_rates)
+    jyppx_add_torch_runtime_dependency(jyppx_transfer_group_rates)
 endif()
