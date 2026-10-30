@@ -39,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- DINOv2 中间层提取按请求顺序创建所选输出的归一化与视图节点，保持层选择、共享状态和提前停止语义。
 - Linux 私有静态签名加密库隐藏其归档符号，避免与系统 TLS 库发生符号冲突；安装消费者支持显式启用同进程签名与 TLS 回归。
 - Windows 本地 CAS 统一处理长路径，覆盖目录创建、对象发布与读取、核验、临时恢复及垃圾回收，保留公开根路径身份。
 - DINOv2 的 token 投影使用 ATen 融合 Linear，修正三维输入在 C++ 与独立 PyTorch 参考之间的梯度累加路径差异，保留原有参数与配置。

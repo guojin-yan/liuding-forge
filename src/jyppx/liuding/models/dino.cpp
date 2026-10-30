@@ -505,15 +505,19 @@ std::vector<Tensor> DinoV2Impl::forward_intermediates(
     tokens = tokens + PositionForGrid(position_embedding_, height, width,
                                       embedding_dimension_,
                                       options_.position_antialias);
+    // Create selected-output graph nodes in request order after traversal.
+    // Retain tensor handles only for selected blocks.
+    std::vector<Tensor> selected_tokens(selection.block_indices.size());
     for (std::size_t index = 0; index <= validated.last; ++index) {
       tokens = blocks_[index]->as<DinoV2Block>()->forward(tokens);
       const auto slot = validated.slots[index];
-      if (slot >= 0) {
-        const auto selected =
-            selection.normalize ? final_norm_->forward(tokens) : tokens;
-        RetainIntermediate(outputs, selected, selection,
-                           static_cast<std::size_t>(slot), height, width, 1);
-      }
+      if (slot >= 0)
+        selected_tokens[static_cast<std::size_t>(slot)] = tokens;
+    }
+    for (std::size_t slot = 0; slot < selected_tokens.size(); ++slot) {
+      auto selected = std::move(selected_tokens[slot]);
+      if (selection.normalize) selected = final_norm_->forward(selected);
+      RetainIntermediate(outputs, selected, selection, slot, height, width, 1);
     }
     return outputs;
   });
