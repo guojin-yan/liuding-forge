@@ -124,6 +124,36 @@ int main() {
                       torch::IntArrayRef({2, 384, 2, 3}),
               "installed-selected-features");
     }
+    for (const auto* name : {"vit_small_patch14_dinov2", "dinov3_vits16"}) {
+      using namespace jyppx::liuding::models;
+      auto model = create_model(name);
+      model.state().eval();
+      const DinoIntermediateOptions selection{.block_indices = {8, 2},
+                                              .out_indices = {0, 2}};
+      const auto spec = model_intermediate_feature_spec(model, selection);
+      auto extractor = create_intermediate_feature_extractor(model, selection);
+      Require(
+          extractor.state().shared_module() == model.state().shared_module() &&
+              !extractor.state().is_training() && spec.outputs.size() == 4U &&
+              spec.outputs[0].name == "block_8_cls" &&
+              spec.outputs[3].name == "block_2_patch_grid",
+          "installed-shared-dino-intermediate-metadata");
+      const auto v2 = std::string(name) == "vit_small_patch14_dinov2";
+      torch::NoGradGuard no_grad;
+      const auto outputs =
+          extractor
+              .invoke({.positional = {torch::zeros(
+                           {1, 3, v2 ? 28 : 35, v2 ? 42 : 50})}})
+              .value.toTuple();
+      Require(outputs->elements().size() == 4U &&
+                  outputs->elements()[0].toTensor().sizes() ==
+                      torch::IntArrayRef({1, 384}) &&
+                  outputs->elements()[1].toTensor().sizes() ==
+                      torch::IntArrayRef({1, 384, 2, 3}) &&
+                  outputs->elements()[3].toTensor().sizes() ==
+                      torch::IntArrayRef({1, 384, 2, 3}),
+              "installed-dino-intermediate-forward");
+    }
     for (const auto* name : {"convnext_tiny", "convnext_small"}) {
       auto convnext = jyppx::liuding::models::create_model(
           name, {.convnext = {.num_classes = 4}});

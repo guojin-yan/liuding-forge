@@ -70,6 +70,7 @@ struct LocalProcessResult {
   std::string stdout_capture;      ///< Raw bytes; at most max_stdout_bytes.
   std::string stderr_capture;      ///< Raw bytes; at most max_stderr_bytes.
   std::chrono::milliseconds elapsed{};  ///< Includes launch, drain and cleanup.
+  bool process_tree_cleanup_confirmed = false;  ///< Conservative native proof.
 };
 
 /**

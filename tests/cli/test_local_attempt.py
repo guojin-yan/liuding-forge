@@ -74,6 +74,12 @@ def fixture(mode: str, root: Path, arguments: list[str]) -> None:
     index = int(os.environ["JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX"])
     with (root / "launches.txt").open("a", encoding="utf-8") as stream:
         stream.write(str(index) + "\n")
+    if mode == "lease_hold":
+        # A single cooperative leader isolates resource-admission behavior
+        # from the separate platform-specific descendant cleanup contracts.
+        (root / "ready.json").write_text(json.dumps({"leader": os.getpid()}), encoding="ascii")
+        while True:
+            time.sleep(0.01)
     if mode in ("hold", "flood"):
         subprocess.Popen([sys.executable, "-I", "-u", str(Path(__file__).resolve()),
                           "--fixture", "child", str(root)], stdin=subprocess.DEVNULL)
@@ -93,6 +99,9 @@ def fixture(mode: str, root: Path, arguments: list[str]) -> None:
         "job_id": os.environ["JYPPX_LIUDING_LOCAL_JOB_ID"],
         "attempt_id": os.environ["JYPPX_LIUDING_LOCAL_ATTEMPT_ID"],
         "token": os.environ.get("LOCAL_ATTEMPT_FIXTURE"),
+        "cpu_slots": os.environ.get("JYPPX_LIUDING_LOCAL_CPU_SLOTS"),
+        "memory_bytes": os.environ.get("JYPPX_LIUDING_LOCAL_MEMORY_BYTES"),
+        "gpu_id": os.environ.get("JYPPX_LIUDING_LOCAL_GPU_ID"),
         "stdin_eof": sys.stdin.buffer.read() == b""}
     os.write(1, json.dumps(payload, ensure_ascii=True).encode("ascii"))
     os.write(2, b"diagnostic\x00\xfe")
@@ -196,6 +205,277 @@ class LocalAttemptTest(unittest.TestCase):
     def assert_stopped(self, pids: dict) -> None:
         for pid in pids.values():
             self.assertTrue(wait_for(lambda: not alive(pid)), f"Fixture PID {pid} survived")
+
+
+    @staticmethod
+    def resource_request(*, gpu: bool = True, slots: int = 1, memory: int = 1024) -> dict:
+        # Logical admission fixtures require no CUDA runtime or actual GPU;
+        # these values are not RSS/VRAM measurements or enforced hard limits.
+        return {"capacity": {"cpu_slots": 2, "memory_bytes": 4096,
+                             "gpus": {"gpu0": 8192}},
+                "request": {"cpu_slots": slots, "memory_bytes": memory,
+                            "gpu": {"id": "gpu0", "memory_bytes": 2048} if gpu else None}}
+
+    def execute_named(self, identifier: str, spec: dict, *, expected: int = 0) -> dict:
+        path = self.directory / (identifier + ".json")
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        return self.invoke("local", "execute", "--root", self.root,
+                           "--id", identifier, "--spec", path, expected=expected)
+
+    def test_unmetered_jobs_use_the_same_nonblocking_admission_lock(self) -> None:
+        # Seed an ordinary STORE without enabling any declared resource pool.
+        self.local("execute")
+        lock_key = hashlib.sha256(b"jyppx.liuding/local-resources/v1").hexdigest()
+        lock_path = self.root / ".local-attempt-locks" / (lock_key + ".dispatch")
+        self.assertTrue(lock_path.is_file())
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+            kernel.CreateFileW.restype = wintypes.HANDLE
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            handle = kernel.CreateFileW(str(lock_path), 0xC0000000, 0, None, 3, 0x80, None)
+            self.assertNotEqual(handle, ctypes.c_void_p(-1).value)
+            release = lambda: kernel.CloseHandle(handle)
+        else:
+            import fcntl
+            handle = os.open(lock_path, os.O_RDWR | os.O_CLOEXEC)
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            release = lambda: os.close(handle)
+        try:
+            denied = self.execute_named("unmetered-lock-race", self.spec, expected=7)["data"]
+            self.assertEqual(denied["status"], "resource_busy")
+            self.assertEqual(denied["attempts"], [])
+            self.assertEqual(self.launch_count(), 1)
+            with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                self.assertEqual(database.execute("SELECT COUNT(*) FROM jyppx_runs "
+                    "WHERE run_id='local-resource-pool-v1'").fetchone()[0], 0)
+        finally:
+            release()
+        recovered = self.invoke("local", "recover", "--root", self.root,
+                                "--id", "unmetered-lock-race")["data"]
+        self.assertEqual(recovered["status"], "completed")
+        self.assertEqual(len(recovered["attempts"]), 1)
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_exclusive_gpu_denies_before_attempt_and_releases_after_confirmed_cancel(self) -> None:
+        self.spec["resources"] = self.resource_request()
+        self.spec["timeout_ms"] = 30000
+        self.write_spec("lease_hold")
+        process = self.start()
+        pids = self.await_ready()
+        second = json.loads(json.dumps(self.spec))
+        second["arguments"][4] = "inspect"
+        blocked = self.execute_named("job-two", second, expected=7)["data"]
+        self.assertEqual(blocked["status"], "resource_unavailable")
+        self.assertEqual(blocked["attempts"], [])
+        self.assertNotIn("local.resource.lease.1", self.references("job-two"))
+        self.assertEqual(self.local("recover", expected=7)["status"], "active")
+        self.assertEqual(self.launch_count(), 1)
+
+        changed = json.loads(json.dumps(second))
+        changed["resources"]["capacity"]["cpu_slots"] = 3
+        self.assertEqual(self.execute_named("changed-pool", changed, expected=2)["status"], "error")
+        unmetered = json.loads(json.dumps(second))
+        del unmetered["resources"]
+        self.assertEqual(self.execute_named("unmetered", unmetered, expected=7)["data"]["status"],
+                         "resource_request_required")
+        self.assertEqual(self.launch_count(), 1)
+
+        self.local("cancel")
+        stdout, stderr = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 130, stdout + stderr)
+        first = json.loads(stdout)["data"]["attempts"][0]
+        self.assertTrue(first["result"]["process_tree_cleanup_confirmed"])
+        self.assertTrue(first["resource_released"])
+        self.assert_stopped(pids)
+        refs = self.references("job-one")
+        receipt = json.loads(self.blob(refs["local.resource.release.1"]))
+        evidence = self.references(first["attempt_id"])
+        for role in ("intent", "owner", "result", "stdout", "stderr"):
+            self.assertEqual(receipt[role + "_sha256"], evidence["local." + role]["artifact"]["sha256"])
+        admitted = self.invoke("local", "recover", "--root", self.root, "--id", "job-two")["data"]
+        self.assertEqual(admitted["status"], "completed")
+        self.assertTrue(admitted["attempts"][0]["resource_released"])
+        payload = json.loads(self.blob(self.references(admitted["attempts"][0]["attempt_id"])["local.stdout"]))
+        self.assertEqual((payload["cpu_slots"], payload["memory_bytes"], payload["gpu_id"]),
+                         ("1", "1024", "gpu0"))
+        self.invoke("local", "recover", "--root", self.root, "--id", "job-two")
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_cpu_and_memory_shortage_are_checked_before_spawn(self) -> None:
+        self.spec["resources"] = self.resource_request(gpu=False, slots=1, memory=2048)
+        self.spec["timeout_ms"] = 30000
+        self.write_spec("lease_hold")
+        process = self.start()
+        self.await_ready()
+        for label, slots, memory in (("cpu", 2, 1), ("memory", 1, 4096)):
+            other = json.loads(json.dumps(self.spec))
+            other["arguments"][4] = "inspect"
+            other["resources"]["request"].update(cpu_slots=slots, memory_bytes=memory)
+            denied = self.execute_named("insufficient-" + label, other, expected=7)["data"]
+            self.assertEqual(denied["status"], "resource_unavailable")
+            self.assertEqual(denied["attempts"], [])
+        self.assertEqual(self.launch_count(), 1)
+        self.local("cancel")
+        stdout, stderr = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 130, stdout + stderr)
+
+    def test_unknown_attempt_retains_its_lease_without_an_os_owner(self) -> None:
+        self.spec["resources"] = self.resource_request()
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id IN "
+                             "('local.stdout','local.stderr','local.result')", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN (?,?)", ("job-one", attempt))
+        for _ in range(2):
+            recovered = self.local("recover", expected=7)
+            self.assertEqual(recovered["status"], "recovery_required")
+            self.assertFalse(recovered["owner_active"])
+        denied = self.execute_named("blocked-by-unknown", self.spec, expected=7)["data"]
+        self.assertEqual(denied["status"], "resource_unavailable")
+        self.assertEqual(denied["attempts"], [])
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_reservation_before_attempt_recovers_without_double_charging(self) -> None:
+        self.spec["resources"] = self.resource_request(slots=2, memory=4096)
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        identity = self.references("job-one")["local.resource.lease.1"]["artifact"]["sha256"]
+        # Recreate the durable boundary AFTER lease commit and BEFORE creating
+        # its attempt. No native fixture remains running at this boundary.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("PRAGMA foreign_keys=ON")
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_runs WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        denied = self.execute_named("reserved-competitor", self.spec, expected=7)["data"]
+        self.assertEqual(denied["status"], "resource_unavailable")
+        recovered = self.local("recover")
+        self.assertEqual(recovered["status"], "completed")
+        self.assertEqual(self.references("job-one")["local.resource.lease.1"]["artifact"]["sha256"], identity)
+        self.assertTrue(recovered["attempts"][0]["resource_released"])
+        self.local("recover")
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_cancel_after_lease_before_attempt_releases_without_launching_user_program(self) -> None:
+        self.spec["resources"] = self.resource_request(slots=2, memory=4096)
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        lease = self.references("job-one")["local.resource.lease.1"]["artifact"]["sha256"]
+        # Recreate the lease-only durable boundary, then commit cancellation
+        # before recovery can construct its native worker/attempt.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("PRAGMA foreign_keys=ON")
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_runs WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        self.assertTrue(self.local("cancel")["cancel_requested"])
+        recovered = self.local("recover", expected=130)
+        self.assertEqual(recovered["status"], "cancelled")
+        self.assertEqual(len(recovered["attempts"]), 1)
+        result = recovered["attempts"][0]
+        self.assertEqual(result["result"]["status"], "cancelled")
+        self.assertEqual(result["result"]["process_id"], 0)
+        self.assertTrue(result["result"]["process_tree_cleanup_confirmed"])
+        self.assertTrue(result["resource_reserved"])
+        self.assertTrue(result["resource_released"])
+        refs = self.references(result["attempt_id"])
+        self.assertEqual(self.blob(refs["local.stdout"]), b"")
+        self.assertEqual(self.blob(refs["local.stderr"]), b"")
+        self.assertEqual(self.references("job-one")["local.resource.lease.1"]["artifact"]["sha256"], lease)
+        self.assertEqual(self.local("recover", expected=130)["attempts"], recovered["attempts"])
+        self.assertEqual(self.launch_count(), 1)
+        # The confirmed no-user-child cancellation freed the exact pool once.
+        self.assertEqual(self.execute_named("after-lease-cancel", self.spec)["data"]["status"], "completed")
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_result_without_committed_output_does_not_release_resources(self) -> None:
+        self.spec["resources"] = self.resource_request()
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id='local.stdout'", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        # Corrupt evidence returns the CLI error envelope, not local data.
+        recovered = self.invoke("local", "recover", "--root", self.root,
+                                "--id", "job-one", expected=2)
+        blocked = self.execute_named("must-not-release", self.spec, expected=2)
+        for rejected in (recovered, blocked):
+            self.assertEqual(rejected["status"], "error")
+            self.assertEqual(rejected["error"]["name"], "invalid_argument")
+            self.assertIn("Resource release evidence disappeared",
+                          rejected["error"]["message"])
+            self.assertNotIn("data", rejected)
+        self.assertNotIn("local.resource.release.1", self.references("job-one"))
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_native_cleanup_false_retains_capacity_despite_a_complete_result(self) -> None:
+        self.spec["resources"] = self.resource_request()
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        reference = self.references(attempt)["local.result"]
+        result = json.loads(self.blob(reference))
+        result["process_tree_cleanup_confirmed"] = False
+        content = json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        identity = hashlib.sha256(content).hexdigest()
+        destination = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
+        destination.parent.mkdir(exist_ok=True)
+        destination.write_bytes(content)
+        # Recreate the fully committed result/output boundary with a negative
+        # native cleanup proof, before any lease or job lifecycle release.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("INSERT INTO jyppx_blobs(digest,algorithm,size_bytes) VALUES(?,1,?)",
+                             (identity, len(content)))
+            database.execute("UPDATE jyppx_run_artifacts SET digest=? "
+                             "WHERE run_id=? AND reference_id='local.result'", (identity, attempt))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        recovered = self.local("recover", expected=7)
+        self.assertEqual(recovered["status"], "resource_cleanup_unconfirmed")
+        self.assertFalse(recovered["attempts"][0]["resource_released"])
+        denied = self.execute_named("cleanup-unconfirmed", self.spec, expected=7)["data"]
+        self.assertEqual(denied["status"], "resource_unavailable")
+        self.assertEqual(denied["attempts"], [])
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_unmetered_live_attempt_blocks_initial_pool_activation(self) -> None:
+        self.spec["timeout_ms"] = 30000
+        self.write_spec("lease_hold")
+        process = self.start()
+        self.await_ready()
+        managed = json.loads(json.dumps(self.spec))
+        managed["arguments"][4] = "inspect"
+        managed["resources"] = self.resource_request()
+        denied = self.execute_named("new-pool", managed, expected=7)["data"]
+        self.assertEqual(denied["status"], "resource_unmanaged_attempt")
+        self.assertEqual(denied["attempts"], [])
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+            self.assertEqual(database.execute("SELECT COUNT(*) FROM jyppx_runs "
+                "WHERE run_id='local-resource-pool-v1'").fetchone()[0], 0)
+        self.local("cancel")
+        stdout, stderr = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 130, stdout + stderr)
+        recovered = self.invoke("local", "recover", "--root", self.root, "--id", "new-pool")["data"]
+        self.assertEqual(recovered["status"], "completed")
+        self.assertEqual(self.launch_count(), 2)
 
     def test_success_literal_argv_raw_cas_and_terminal_replay(self) -> None:
         extra = ["", "with space", "引号\"和\\", "literal & | ; $(x) `x`", "line\nbreak"]

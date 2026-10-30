@@ -12,13 +12,15 @@
 6. [图像分类：ResNet18、CIFAR-10 与 Fashion-MNIST](tutorials/image_classification_recipe.md)
 7. [训练双输入、分类与回归模型](tutorials/multi_io_recipe.md)
 8. [使用预训练 ResNet50 与 DINOv2 迁移学习](tutorials/transfer_learning_recipe.md)
-9. [C++ 检查点、ONNX 导出与推理](../examples/deployment/README.md)
-10. [本地搜索：训练、指标排序与最佳模型快照](../examples/experiment/README.md)
-11. [使用 C++ 准备与读取多种数据集](../examples/data/README.md)
-12. [按输出通道量化、导出与执行 Linear](../examples/quantization/README.md)
-13. [原生 TensorBoard：记录评估指标](../examples/experiment/README.md#原生-tensorboard)
-14. [离线 OTLP：准备标准遥测请求](../examples/experiment/README.md#离线-otlp-协议准备)
-15. [原生 OTLP HTTP：发送指标与审计日志](tutorials/native-otlp-http.md)
+9. [冻结 DINO 骨干与 CPU 缓存线性探测](../examples/transfer_learning/README.md)
+10. [DINOv2/DINOv3 中间层特征（C++）](../examples/transfer_learning/intermediate_features.md)
+11. [C++ 检查点、ONNX 导出与推理](../examples/deployment/README.md)
+12. [本地搜索：训练、指标排序与最佳模型快照](../examples/experiment/README.md)
+13. [使用 C++ 准备与读取多种数据集](../examples/data/README.md)
+14. [按输出通道量化、导出与执行 Linear](../examples/quantization/README.md)
+15. [原生 TensorBoard：记录评估指标](../examples/experiment/README.md#原生-tensorboard)
+16. [离线 OTLP：准备标准遥测请求](../examples/experiment/README.md#离线-otlp-协议准备)
+17. [原生 OTLP HTTP：发送指标与审计日志](tutorials/native-otlp-http.md)
 
 ## 用户指南
 

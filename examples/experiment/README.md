@@ -37,6 +37,24 @@ try {
 
 正常完成时，`status` 为 `completed`，`trials` 包含三个 `eligible: true` 的试验，`best` 指向学习率 `0.2` 的试验。每个试验的模型由 `ModelCheckpointParticipant` 和 `FileStateArchive` 保存为 `model-best.jyck`，随后在新模型实例中以 `exact_only` 恢复并逐值比较预测结果；只有通过该检查才发布 `checkpoint.best`。检查点保存参数状态，恢复时仍须构造相同 C++ 模型拓扑。
 
+## 可选：为训练试验声明资源预算
+
+在首次执行前，也可以给生成的配置增加 `execution.resources`，学习同一机器、同一存储中的资源准入。下面沿用 `$spec`，另用独立存储；模型训练仍由同一个 C++ 工作进程执行。
+
+```powershell
+$plan = Get-Content -LiteralPath $spec -Raw | ConvertFrom-Json
+$resources = [ordered]@{
+    capacity = [ordered]@{ cpu_slots = 2; memory_bytes = 8589934592; gpus = @{} }
+    request = [ordered]@{ cpu_slots = 2; memory_bytes = 1073741824; gpu = $null }
+}
+$plan.execution | Add-Member -MemberType NoteProperty -Name resources -Value $resources
+[IO.File]::WriteAllText($spec, ($plan | ConvertTo-Json -Depth 30), [Text.UTF8Encoding]::new($false))
+$resourceStore = Join-Path $work 'resource-runs'
+& $cli search execute --root $resourceStore --id linear-resource-grid --spec $spec --format json
+```
+
+这里声明 2 个 CPU slots 和 1 GiB 主存请求；数值用于调度记账，不是测得的实际开销，也不限制 RSS。搜索仍依次执行三个试验；每次启动前保存占用，清理和双流结果均确认后保存释放记录。`local show --root $resourceStore --id TRIAL_ID` 的 attempt 中可查看 `resource_reserved` 和 `resource_released`。同一存储的容量固定，后续试验须重复相同容量；预算不足或未知清理状态返回退出码 7，不能据此强制重启。GPU 设备身份和边界见[资源准入说明](../../docs/development/local_process_runner.md#cpugpu-逻辑资源准入)。
+
 ## 随机搜索、查询与备份
 
 生成另一份配置并使用新的搜索 ID 即可运行随机搜索。这里使用固定随机种子 `71`，从有限候选中不重复选择，三个试验仍会覆盖全部学习率；随机顺序不代表模型质量提升。

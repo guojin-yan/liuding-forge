@@ -13,6 +13,7 @@
  * separately qualified `WeightRecord` and are never downloaded implicitly.
  */
 
+#include <jyppx/liuding/models/features.hpp>
 #include <jyppx/liuding/nn/model_adapter.hpp>
 
 #include <torch/nn/modules/conv.h>
@@ -20,10 +21,25 @@
 #include <torch/nn/modules/normalization.h>
 #include <torch/nn/pimpl.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace jyppx::liuding::models {
+
+/** @brief Explicit ordered block and view selection for DINO ViT encoders.
+ * @note Block indices are zero-based and refer to outputs after a block.
+ * Empty, duplicate or out-of-range block/view selections are invalid.
+ */
+struct DinoIntermediateOptions {
+  std::vector<std::size_t> block_indices;
+  ///< Required unique block indices, retained in the caller's order.
+  std::vector<std::size_t> out_indices = {2};
+  ///< Unique views: 0 CLS, 1 patch tokens, 2 NCHW grid, 3 complete tokens.
+  bool normalize = true;
+  ///< Apply the family's existing final LayerNorm to each selected layer.
+};
 
 /** @brief Fixed DINOv2 ViT/14 capacities in the v1.0 model matrix. */
 enum class DinoV2Variant : std::uint8_t {
@@ -61,6 +77,27 @@ class DinoV2Impl final : public torch::nn::Module {
    * `position_antialias` must match the selected weight implementation.
    */
   Tensor forward_features(const Tensor& input);
+
+  /** @brief Resolves ordered block/view output metadata without a forward.
+   * @param selection Explicit zero-based blocks and views.
+   * @return Block-major features in requested block and view order.
+   * @throws InvalidArgument If a selection is empty, duplicated or invalid.
+   * @note Does not allocate tensors, alter state/mode or consume LibTorch RNG.
+   */
+  FeatureSpec intermediate_feature_spec(
+      const DinoIntermediateOptions& selection) const;
+
+  /** @brief Extracts selected block outputs with normal LibTorch autograd.
+   * @param input Image batch satisfying forward_features().
+   * @param selection Blocks, views and per-layer final-normalization choice.
+   * @return Tensors matching intermediate_feature_spec(), retaining views.
+   * @throws InvalidArgument If the selection or image contract is invalid.
+   * @note Stops after the maximum selected block. Later blocks/head receive
+   * no gradients; RNG consumption can differ from a complete forward. The
+   * full original module/state is retained, without cloning or detaching.
+   */
+  std::vector<Tensor> forward_intermediates(
+      const Tensor& input, const DinoIntermediateOptions& selection);
 
   /**
    * @brief Returns CLS embeddings or classifier logits.
@@ -176,6 +213,27 @@ class DinoV3Impl final : public torch::nn::Module {
    */
   Tensor forward_features(const Tensor& input);
 
+  /** @brief Resolves ordered block/view output metadata without a forward.
+   * @param selection Explicit zero-based blocks and views.
+   * @return Block-major features in requested block and view order.
+   * @throws InvalidArgument If a selection is empty, duplicated or invalid.
+   * @note Does not allocate tensors, alter state/mode or consume LibTorch RNG.
+   */
+  FeatureSpec intermediate_feature_spec(
+      const DinoIntermediateOptions& selection) const;
+
+  /** @brief Extracts selected block outputs with normal LibTorch autograd.
+   * @param input Image batch satisfying forward_features().
+   * @param selection Blocks, views and per-layer final-normalization choice.
+   * @return Tensors matching intermediate_feature_spec(), retaining views.
+   * @throws InvalidArgument If the selection or image contract is invalid.
+   * @note Stops after the maximum selected block. Later blocks/head receive
+   * no gradients; RNG consumption can differ from a complete forward. The
+   * full original module/state is retained, without cloning or detaching.
+   */
+  std::vector<Tensor> forward_intermediates(
+      const Tensor& input, const DinoIntermediateOptions& selection);
+
   /** @brief Returns CLS embeddings or classifier logits.
    * @param input Dense floating NCHW input matching this encoder.
    * @return CLS embedding or classification logits.
@@ -260,6 +318,29 @@ DinoV3 dinov3_vit7b16(DinoV3Options options = {});
  * @return Owning adapter sharing this encoder.
  */
 nn::ModelAdapter adapt(DinoV3 model);
+
+/** @brief Queries DINO intermediate metadata through an existing adapter.
+ * @param model Adapter retaining a concrete DINOv2 or DINOv3 ViT module.
+ * @param selection Explicit block/view selection; does not construct models.
+ * @return Ordered named feature metadata, without allocating tensors.
+ * @throws NotImplemented If the retained module has no DINO ViT contract.
+ * @throws InvalidArgument If the block/view selection is invalid.
+ */
+FeatureSpec model_intermediate_feature_spec(
+    const nn::ModelAdapter& model, const DinoIntermediateOptions& selection);
+
+/** @brief Shares an existing DINO module through a selected-feature adapter.
+ * @param model Existing adapter, for example returned by create_model().
+ * @param selection Explicit ordered blocks/views and normalization choice.
+ * @return Owning adapter with one image input and a flat block-major tuple.
+ * @throws NotImplemented If the module is not a concrete DINOv2/v3 ViT.
+ * @throws InvalidArgument If the selection is invalid.
+ * @note Preserves the complete state, train/eval, device/dtype and parameter
+ * identity. It does not register, copy, freeze or detach any parameter.
+ * Stop concurrent state mutation before invoking either shared adapter.
+ */
+nn::ModelAdapter create_intermediate_feature_extractor(
+    const nn::ModelAdapter& model, DinoIntermediateOptions selection);
 
 }  // namespace jyppx::liuding::models
 

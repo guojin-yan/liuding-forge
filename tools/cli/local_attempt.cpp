@@ -202,6 +202,53 @@ TrainingSpec training_spec(const Json& value) {
   return result;
 }
 
+struct ResourceRequest {
+  std::uint64_t cpu_slots = 0;
+  std::uint64_t memory_bytes = 0;
+  std::optional<std::string> gpu;
+  std::uint64_t gpu_memory_bytes = 0;
+};
+
+struct Resources {
+  Json capacity;
+  ResourceRequest request;
+};
+
+Resources resource_spec(const Json& value) {
+  fields(value, {"capacity", "request"});
+  Resources result;
+  result.capacity = value.at("capacity");
+  fields(result.capacity, {"cpu_slots", "memory_bytes", "gpus"});
+  const auto slots = positive(result.capacity.at("cpu_slots"), 65536);
+  const auto memory = positive(result.capacity.at("memory_bytes"),
+                               std::numeric_limits<std::int64_t>::max());
+  const auto& gpus = result.capacity.at("gpus");
+  require(gpus.is_object() && gpus.size() <= 16,
+          "Resource capacity allows at most 16 explicit GPU identities");
+  for (const auto& [id, bytes] : gpus.items()) {
+    identifier(id);
+    static_cast<void>(
+        positive(bytes, std::numeric_limits<std::int64_t>::max()));
+  }
+  const auto& request = value.at("request");
+  fields(request, {"cpu_slots", "memory_bytes", "gpu"});
+  result.request.cpu_slots = positive(request.at("cpu_slots"), slots);
+  result.request.memory_bytes = positive(request.at("memory_bytes"), memory);
+  if (!request.at("gpu").is_null()) {
+    const auto& gpu = request.at("gpu");
+    fields(gpu, {"id", "memory_bytes"});
+    result.request.gpu = text(gpu.at("id"));
+    identifier(*result.request.gpu);
+    require(gpus.contains(*result.request.gpu),
+            "Requested GPU identity is absent from the fixed capacity");
+    result.request.gpu_memory_bytes =
+        positive(gpu.at("memory_bytes"),
+                 positive(gpus.at(*result.request.gpu),
+                          std::numeric_limits<std::int64_t>::max()));
+  }
+  return result;
+}
+
 struct Spec {
   Json json;
   std::string canonical;
@@ -215,6 +262,7 @@ struct Spec {
   std::optional<std::uint64_t> deadline_unix_ms;
   std::set<std::uint32_t> retry_exit_codes;
   std::optional<TrainingSpec> training;
+  std::optional<Resources> resources;
 };
 
 Spec read_spec(const Json& value) {
@@ -224,7 +272,7 @@ Spec read_spec(const Json& value) {
        "executable_sha256", "arguments", "working_directory", "environment",
        "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
-       "deadline_unix_ms", "training"});
+       "deadline_unix_ms", "training", "resources"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -290,6 +338,8 @@ Spec read_spec(const Json& value) {
   }
   if (value.contains("training"))
     result.training = training_spec(value.at("training"));
+  if (value.contains("resources"))
+    result.resources = resource_spec(value.at("resources"));
   return result;
 }
 
@@ -323,6 +373,9 @@ void training_source(SQLiteRunStore& store, std::string_view project,
                 source->experiment_id == source_spec.experiment,
             "Local training source differs from its frozen attempt identity");
     const auto confirmed = outcome(store, parent.run_id, source_spec, index);
+    require(confirmed.value("process_tree_cleanup_confirmed",
+                            !source_spec.resources),
+            "Local training source has unconfirmed native process cleanup");
     require(terminal_status(confirmed) == source->status,
             "Local training source requires its confirmed attempt result");
   }
@@ -496,7 +549,8 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
          {"format", "schema_version", "job_id", "attempt_id", "index",
           "spec_sha256", "status", "exit_code", "signal", "process_id",
           "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
-          "stdout_sha256", "stderr_sha256", "failure_reason"});
+          "stdout_sha256", "stderr_sha256", "failure_reason"},
+         {"process_tree_cleanup_confirmed"});
   schema(value, "jyppx.liuding.local_attempt_result");
   require(value.at("job_id").get<std::string>() == job &&
               value.at("attempt_id").get<std::string>() == id &&
@@ -529,6 +583,202 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
   return value;
 }
 
+constexpr std::string_view kResourcePool = "local-resource-pool-v1";
+// This name cannot collide with a valid public job ID (which excludes '/').
+constexpr std::string_view kResourceLock = "jyppx.liuding/local-resources/v1";
+
+std::string resource_reference(std::uint64_t index, bool released = false) {
+  return std::string(released ? "local.resource.release."
+                              : "local.resource.lease.") +
+         std::to_string(index);
+}
+
+Json resource_lease(const RunMetadata& job, const Spec& spec,
+                    std::uint64_t index) {
+  require(spec.resources.has_value(),
+          "Resource lease requires a frozen request");
+  return {{"format", "jyppx.liuding.local_resource_lease"},
+          {"schema_version", 1},
+          {"job_id", job.run_id},
+          {"attempt_id", attempt_id(job.run_id, index)},
+          {"index", index},
+          {"spec_sha256", spec.sha256},
+          {"capacity_sha256", digest(spec.resources->capacity.dump()).hex},
+          {"request", spec.json.at("resources").at("request")}};
+}
+
+// A release is a durable receipt for native cleanup AND the atomically
+// committed result/output identities. Free locks, terminal metadata and PIDs
+// alone never release a lease. Concurrent identical receipts are idempotent.
+bool release_resources(SQLiteRunStore& store, const RunMetadata& job,
+                       const Spec& spec, std::uint64_t index) {
+  if (!spec.resources) return true;
+  const auto lease_id = resource_reference(index);
+  const auto lease = store.find_reference(job.run_id, lease_id);
+  require(lease && reference_json(store, job.run_id, lease_id, lease_id) ==
+                       resource_lease(job, spec, index),
+          "Resource reservation differs from its frozen attempt request");
+  const auto id = attempt_id(job.run_id, index);
+  const auto attempt = store.find(id);
+  if (!attempt) return false;
+  const auto result_ref = store.find_reference(id, "local.result");
+  if (!result_ref) return false;
+  const auto result = outcome(store, job.run_id, spec, index);
+  if (!result.value("process_tree_cleanup_confirmed", false)) return false;
+  require(attempt && attempt->lineage.parent_run_id == job.run_id &&
+              attempt->lineage.config_digest == spec.sha256,
+          "Resource release attempt lineage mismatch");
+  const auto intent = reference_json(store, id, "local.intent", "local.intent");
+  require(intent == Json{{"format", "jyppx.liuding.local_attempt_intent"},
+                         {"schema_version", 1},
+                         {"job_id", job.run_id},
+                         {"attempt_id", id},
+                         {"index", index},
+                         {"spec_sha256", spec.sha256}},
+          "Resource release requires the original immutable intent");
+  const auto owner = reference_json(store, id, "local.owner", "local.owner");
+  fields(owner, {"format", "schema_version", "job_id", "attempt_id", "index",
+                 "spec_sha256", "worker_process_id"});
+  schema(owner, "jyppx.liuding.local_attempt_owner");
+  require(text(owner.at("job_id")) == job.run_id &&
+              text(owner.at("attempt_id")) == id &&
+              text(owner.at("spec_sha256")) == spec.sha256 &&
+              positive(owner.at("index"), kMaximumAttempts) == index &&
+              positive(owner.at("worker_process_id"),
+                       std::numeric_limits<std::uint64_t>::max()) != 0,
+          "Resource release worker identity mismatch");
+  const auto reference_digest = [&](std::string_view name) {
+    const auto reference = store.find_reference(id, name);
+    require(reference.has_value(), "Resource release evidence disappeared");
+    return reference->artifact.digest.hex;
+  };
+  const auto release_id = resource_reference(index, true);
+  const Json receipt{{"format", "jyppx.liuding.local_resource_release"},
+                     {"schema_version", 1},
+                     {"job_id", job.run_id},
+                     {"attempt_id", id},
+                     {"index", index},
+                     {"spec_sha256", spec.sha256},
+                     {"lease_sha256", lease->artifact.digest.hex},
+                     {"intent_sha256", reference_digest("local.intent")},
+                     {"owner_sha256", reference_digest("local.owner")},
+                     {"result_sha256", result_ref->artifact.digest.hex},
+                     {"stdout_sha256", reference_digest("local.stdout")},
+                     {"stderr_sha256", reference_digest("local.stderr")},
+                     {"process_tree_cleanup_confirmed", true}};
+  put_json(store, job.run_id, release_id, release_id, receipt,
+           job.created_at_unix_ms);
+  return true;
+}
+
+// Caller holds the STORE-wide, non-inherited resource lock until the attempt
+// and intent have also committed. The reservation is durable BEFORE either:
+// a crash can retain capacity, but cannot start an unaccounted attempt.
+std::string reserve_resources(SQLiteRunStore& store, const RunMetadata& job,
+                              const Spec& spec, std::uint64_t index) {
+  const auto pool = store.find(kResourcePool);
+  if (!spec.resources) return pool ? "resource_request_required" : "";
+  const Json pool_value{{"format", "jyppx.liuding.local_resource_capacity"},
+                        {"schema_version", 1},
+                        {"capacity", spec.resources->capacity}};
+  const auto pool_digest = digest(pool_value.dump()).hex;
+  if (pool) {
+    require(pool->tags.contains("liuding.local.kind") &&
+                pool->tags.at("liuding.local.kind") == "resource_pool" &&
+                pool->lineage.config_digest == pool_digest,
+            "STORE resource capacity is immutable; use its exact capacity");
+    if (store.find_reference(kResourcePool, "local.resource.capacity"))
+      require(reference_json(store, kResourcePool, "local.resource.capacity",
+                             "local.resource.capacity") == pool_value,
+              "STORE resource capacity identity mismatch");
+  }
+  auto remaining_slots =
+      spec.resources->capacity.at("cpu_slots").get<std::uint64_t>();
+  auto remaining_memory =
+      spec.resources->capacity.at("memory_bytes").get<std::uint64_t>();
+  std::set<std::string> occupied_gpus;
+  bool own_reservation = false;
+  RunListRequest page;
+  page.limit = 256;
+  while (true) {
+    const auto rows = store.list(page);
+    if (rows.empty()) break;
+    page.after_run_id = rows.back().run_id;
+    for (const auto& other : rows) {
+      if (!other.tags.contains("liuding.local.kind") ||
+          other.tags.at("liuding.local.kind") != "job" ||
+          !store.find_reference(other.run_id, "local.spec"))
+        continue;
+      const auto frozen = frozen_spec(store, other);
+      for (std::uint64_t number = 1; number <= frozen.maximum_attempts;
+           ++number) {
+        const auto id = attempt_id(other.run_id, number);
+        const auto lease_id = resource_reference(number);
+        const auto lease = store.find_reference(other.run_id, lease_id);
+        const auto attempt = store.find(id);
+        if (!lease) {
+          if (!attempt) break;
+          if (frozen.resources)
+            throw CompatibilityError(
+                "Managed attempt has no prior reservation");
+          if (!store.find_reference(id, "local.result"))
+            return "resource_unmanaged_attempt";
+          // Older unmetered attempts cannot be ignored merely because their
+          // metadata is terminal. Confirm their committed output identities.
+          const auto result = outcome(store, other.run_id, frozen, number);
+          if (!result.value("process_tree_cleanup_confirmed", false))
+            return "resource_unmanaged_attempt";
+          continue;
+        }
+        require(frozen.resources &&
+                    frozen.resources->capacity == spec.resources->capacity,
+                "Existing resource reservation has a different STORE capacity");
+        if (release_resources(store, other, frozen, number)) continue;
+        const auto& request = frozen.resources->request;
+        require(request.cpu_slots <= remaining_slots &&
+                    request.memory_bytes <= remaining_memory,
+                "Committed resource reservations exceed their fixed capacity");
+        remaining_slots -= request.cpu_slots;
+        remaining_memory -= request.memory_bytes;
+        if (request.gpu)
+          require(occupied_gpus.insert(*request.gpu).second,
+                  "Committed resource reservations overlap one exclusive GPU");
+        if (other.run_id == job.run_id && number == index)
+          own_reservation = true;
+      }
+    }
+  }
+  if (!own_reservation) {
+    const auto& request = spec.resources->request;
+    if (request.cpu_slots > remaining_slots ||
+        request.memory_bytes > remaining_memory ||
+        (request.gpu && occupied_gpus.contains(*request.gpu)))
+      return "resource_unavailable";
+  }
+  const auto timestamp = pool ? pool->created_at_unix_ms : now_ms();
+  if (!pool)
+    store.start({.run_id = std::string(kResourcePool),
+                 .project_id = "liuding.local.resources",
+                 .experiment_id = "capacity",
+                 .display_name = "Local resource capacity",
+                 .status = RunStatus::running,
+                 .created_at_unix_ms = timestamp,
+                 .updated_at_unix_ms = timestamp,
+                 .lineage = {.parent_run_id = std::nullopt,
+                             .source_digest = std::nullopt,
+                             .build_fingerprint = std::nullopt,
+                             .config_digest = pool_digest,
+                             .data_manifest_digest = std::nullopt},
+                 .tags = {{"liuding.local.kind", "resource_pool"}}});
+  // Repair a crash between pool metadata creation and its first CAS attach.
+  put_json(store, kResourcePool, "local.resource.capacity",
+           "local.resource.capacity", pool_value, timestamp);
+  const auto lease_id = resource_reference(index);
+  put_json(store, job.run_id, lease_id, lease_id,
+           resource_lease(job, spec, index), job.created_at_unix_ms);
+  return "";
+}
+
 void finish_run(SQLiteRunStore& store, std::string_view id, RunStatus state) {
   const auto current = store.find(id);
   require(current.has_value(), "Local execution run disappeared");
@@ -553,6 +803,14 @@ Json describe(SQLiteRunStore& store, const RunMetadata& job, const Spec& spec,
       item["result"] = outcome(store, job.run_id, spec, index);
     else
       item["result"] = nullptr;
+    if (spec.resources) {
+      item["resource_reserved"] =
+          store.find_reference(job.run_id, resource_reference(index))
+              .has_value();
+      item["resource_released"] =
+          store.find_reference(job.run_id, resource_reference(index, true))
+              .has_value();
+    }
     attempts.push_back(std::move(item));
   }
   const auto current = job_metadata(store, job.run_id);
@@ -607,6 +865,14 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
           intent_value.at("spec_sha256").get<std::string>() == spec.sha256 &&
           unsigned_number(intent_value.at("index"), kMaximumAttempts) == index,
       "Worker intent identity mismatch");
+  if (spec.resources) {
+    const auto lease_id = resource_reference(index);
+    require(
+        reference_json(store, job.run_id, lease_id, lease_id) ==
+                resource_lease(job, spec, index) &&
+            !store.find_reference(job.run_id, resource_reference(index, true)),
+        "Worker requires its unreleased, frozen resource reservation");
+  }
   require(!store.find_reference(id, "local.owner") &&
               !store.find_reference(id, "local.result"),
           "This immutable local attempt has already been claimed");
@@ -624,6 +890,7 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
   std::string status;
   std::string failure_reason;
   std::atomic<bool> monitor_error{false};
+  bool runner_entered = false;
   std::stop_source cancellation;
   {
     // Database failure during cancellation monitoring is fail-closed. The
@@ -644,49 +911,69 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
       }
     });
     try {
-      preflight(spec);
-      auto options = spec.process;
-      const auto started = std::chrono::steady_clock::now();
-      auto deadline = started + options.timeout;
-      if (spec.deadline_unix_ms) {
-        const auto wall = now_ms();
-        const auto left =
-            wall < *spec.deadline_unix_ms ? *spec.deadline_unix_ms - wall : 0;
-        deadline =
-            std::min(deadline, started + std::chrono::milliseconds(left));
-      }
-      if (spec.training) {
-        static_cast<void>(training_references(
-            store, spec, job.run_id, cancellation.get_token(), deadline));
-        options.environment["JYPPX_LIUDING_LOCAL_STORE_ROOT"] = path_text(root);
-        options.environment["JYPPX_LIUDING_LOCAL_SPEC_SHA256"] = spec.sha256;
-        const auto remaining = deadline - std::chrono::steady_clock::now();
-        if (remaining <= std::chrono::steady_clock::duration::zero())
-          throw DeadlineExceeded(
-              "Training input verification exhausted the attempt deadline");
-        options.timeout =
-            std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
-        if (options.timeout.count() <= 0)
-          throw DeadlineExceeded(
-              "Training input verification exhausted the attempt deadline");
-      }
-      options.environment["JYPPX_LIUDING_LOCAL_JOB_ID"] = job.run_id;
-      options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_ID"] = id;
-      options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX"] =
-          std::to_string(index);
-      if (cancelled(store, job.run_id)) cancellation.request_stop();
-      const auto wall = now_ms();
-      if (spec.deadline_unix_ms && wall >= *spec.deadline_unix_ms) {
-        native.status = LocalProcessStatus::timed_out;
+      if (cancelled(store, job.run_id)) {
+        native.status = LocalProcessStatus::cancelled;
+        native.process_tree_cleanup_confirmed = true;
       } else {
-        if (spec.deadline_unix_ms)
-          options.timeout = std::min(
-              options.timeout,
-              std::chrono::milliseconds(*spec.deadline_unix_ms - wall));
-        native = LocalProcessRunner{}.run(options, cancellation.get_token());
+        preflight(spec);
+        auto options = spec.process;
+        const auto started = std::chrono::steady_clock::now();
+        auto deadline = started + options.timeout;
+        if (spec.deadline_unix_ms) {
+          const auto wall = now_ms();
+          const auto left =
+              wall < *spec.deadline_unix_ms ? *spec.deadline_unix_ms - wall : 0;
+          deadline =
+              std::min(deadline, started + std::chrono::milliseconds(left));
+        }
+        if (spec.training) {
+          static_cast<void>(training_references(
+              store, spec, job.run_id, cancellation.get_token(), deadline));
+          options.environment["JYPPX_LIUDING_LOCAL_STORE_ROOT"] =
+              path_text(root);
+          options.environment["JYPPX_LIUDING_LOCAL_SPEC_SHA256"] = spec.sha256;
+          const auto remaining = deadline - std::chrono::steady_clock::now();
+          if (remaining <= std::chrono::steady_clock::duration::zero())
+            throw DeadlineExceeded(
+                "Training input verification exhausted the attempt deadline");
+          options.timeout =
+              std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
+          if (options.timeout.count() <= 0)
+            throw DeadlineExceeded(
+                "Training input verification exhausted the attempt deadline");
+        }
+        options.environment["JYPPX_LIUDING_LOCAL_JOB_ID"] = job.run_id;
+        options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_ID"] = id;
+        options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX"] =
+            std::to_string(index);
+        if (cancelled(store, job.run_id)) cancellation.request_stop();
+        const auto wall = now_ms();
+        if (spec.deadline_unix_ms && wall >= *spec.deadline_unix_ms) {
+          native.status = LocalProcessStatus::timed_out;
+          native.process_tree_cleanup_confirmed = true;
+        } else {
+          if (spec.deadline_unix_ms)
+            options.timeout = std::min(
+                options.timeout,
+                std::chrono::milliseconds(*spec.deadline_unix_ms - wall));
+          if (spec.resources) {
+            const auto& request = spec.resources->request;
+            options.environment["JYPPX_LIUDING_LOCAL_CPU_SLOTS"] =
+                std::to_string(request.cpu_slots);
+            options.environment["JYPPX_LIUDING_LOCAL_MEMORY_BYTES"] =
+                std::to_string(request.memory_bytes);
+            options.environment["JYPPX_LIUDING_LOCAL_GPU_ID"] =
+                request.gpu.value_or("");
+            options.environment["JYPPX_LIUDING_LOCAL_GPU_MEMORY_BYTES"] =
+                std::to_string(request.gpu_memory_bytes);
+          }
+          runner_entered = true;
+          native = LocalProcessRunner{}.run(options, cancellation.get_token());
+        }
       }
       status = std::string(native_status(native.status));
     } catch (const Error& error) {
+      native.process_tree_cleanup_confirmed = !runner_entered;
       status = "launch_error";
       if (spec.training && error.code() == ErrorCode::cancelled)
         status = "cancelled";
@@ -723,6 +1010,7 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
       {"stderr_bytes", native.stderr_bytes},
       {"elapsed_ms", native.elapsed.count()},
       {"finished_at_unix_ms", timestamp},
+      {"process_tree_cleanup_confirmed", native.process_tree_cleanup_confirmed},
       {"failure_reason",
        failure_reason.empty() ? Json(nullptr) : Json(failure_reason)},
       {"stdout_sha256", digest(native.stdout_capture).hex},
@@ -749,6 +1037,7 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
   // A complete result and both raw output references commit atomically. A
   // crash before/after the following lifecycle transition is replayable.
   store.put_artifacts(id, uploads);
+  static_cast<void>(release_resources(store, job, spec, index));
   finish_run(store, id, terminal_status(result));
   return {{{"attempt_id", id}, {"result_committed", true}}, 0};
 }
@@ -774,6 +1063,10 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
     auto attempt = store.find(id);
     if (attempt && store.find_reference(id, "local.result")) {
       const auto result = outcome(store, job.run_id, spec, index);
+      if (!release_resources(store, job, spec, index))
+        return {
+            describe(store, job, spec, false, "resource_cleanup_unconfirmed"),
+            7};
       finish_run(store, id, terminal_status(result));
       if (succeeded(result)) {
         finish_run(store, job.run_id, RunStatus::completed);
@@ -799,11 +1092,14 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
     // when no worker currently holds the lock. Keep it fenced indefinitely.
     if (attempt)
       return {describe(store, job, spec, false, "recovery_required"), 7};
-    if (cancelled(store, job.run_id)) {
+    const bool reserved =
+        spec.resources &&
+        store.find_reference(job.run_id, resource_reference(index));
+    if (cancelled(store, job.run_id) && !reserved) {
       finish_run(store, job.run_id, RunStatus::cancelled);
       return {describe(store, job, spec), 130};
     }
-    if (index > 1 && spec.retry_delay_ms != 0) {
+    if (!reserved && index > 1 && spec.retry_delay_ms != 0) {
       const auto until = std::chrono::steady_clock::now() +
                          std::chrono::milliseconds(spec.retry_delay_ms);
       while (std::chrono::steady_clock::now() < until) {
@@ -814,8 +1110,8 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
       }
     }
-    preflight(spec);
-    if (spec.training) {
+    if (!reserved) preflight(spec);
+    if (spec.training && !reserved) {
       // Repair a crash before attachment using the same frozen identities.
       // No attempt/intent exists yet; an ambiguous existing attempt is fenced
       // above before any repair or relaunch is considered.
@@ -826,29 +1122,37 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
       // relationship batch atomically. Avoid a second pre-attachment hash.
       store.attach(job.run_id, references);
     }
-    const auto timestamp = now_ms();
-    RunMetadata metadata{
-        .run_id = id,
-        .project_id = spec.project,
-        .experiment_id = spec.experiment,
-        .display_name = "Local attempt " + std::to_string(index),
-        .status = RunStatus::running,
-        .created_at_unix_ms = timestamp,
-        .updated_at_unix_ms = timestamp,
-        .lineage = job.lineage,
-        .tags = {{"liuding.local.kind", "attempt"},
-                 {"liuding.local.index", std::to_string(index)}}};
-    metadata.lineage.parent_run_id = job.run_id;
-    store.start(metadata);
-    const auto intent =
-        put_json(store, id, "local.intent", "local.intent",
-                 {{"format", "jyppx.liuding.local_attempt_intent"},
-                  {"schema_version", 1},
-                  {"job_id", job.run_id},
-                  {"attempt_id", id},
-                  {"index", index},
-                  {"spec_sha256", spec.sha256}},
-                 timestamp);
+    RunArtifactReference intent;
+    {
+      OwnerLock resources(root, kResourceLock, false);
+      if (!resources.held())
+        return {describe(store, job, spec, false, "resource_busy"), 7};
+      const auto admission = reserve_resources(store, job, spec, index);
+      if (!admission.empty())
+        return {describe(store, job, spec, false, admission), 7};
+      const auto timestamp = now_ms();
+      RunMetadata metadata{
+          .run_id = id,
+          .project_id = spec.project,
+          .experiment_id = spec.experiment,
+          .display_name = "Local attempt " + std::to_string(index),
+          .status = RunStatus::running,
+          .created_at_unix_ms = timestamp,
+          .updated_at_unix_ms = timestamp,
+          .lineage = job.lineage,
+          .tags = {{"liuding.local.kind", "attempt"},
+                   {"liuding.local.index", std::to_string(index)}}};
+      metadata.lineage.parent_run_id = job.run_id;
+      store.start(metadata);
+      intent = put_json(store, id, "local.intent", "local.intent",
+                        {{"format", "jyppx.liuding.local_attempt_intent"},
+                         {"schema_version", 1},
+                         {"job_id", job.run_id},
+                         {"attempt_id", id},
+                         {"index", index},
+                         {"spec_sha256", spec.sha256}},
+                        timestamp);
+    }
     LocalProcessOptions bootstrap;
     bootstrap.executable = this_executable();
     bootstrap.arguments = {"local",
@@ -891,6 +1195,7 @@ Result operate(std::string_view action, const fs::path& selected_root,
                std::optional<std::string> parent_run_id,
                const Arguments* arguments = nullptr) {
   identifier(id);
+  require(id != kResourcePool, "Local resource capacity ID is reserved");
   const auto root = fs::absolute(selected_root).lexically_normal();
   if (action != "execute")
     require(fs::is_regular_file(root / "runs.sqlite3"),

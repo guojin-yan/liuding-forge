@@ -45,7 +45,7 @@ PyTorch 以 Python 生态和研究效率见长，LibTorch 提供了 C++ tensor �
 | **训练系统：训练诊断** | loss NaN/Inf、非有限梯度、AMP 跳步、可选梯度范数与数据等待，支持采样恢复和关联运行/输入身份的 JSON 报告 | 已具备限定诊断与报告 | 持续完善 | 对应 PyTorch 训练检查与 profiling hooks；默认关闭额外扫描和计时，完整 profiling 与自动根因分析仍待扩展。 |
 | **实验与评估：本地实验与制品** | run/artifact、SQLite/CAS、遥测、环境身份和离线工作流 | 已具备 | 已完成 | 对应 PyTorch TensorBoard、`torch.profiler`、实验跟踪和制品管理生态；不替代远程 tracking 或多租户平台。 |
 | **实验与评估：原生遥测** | C++ TensorBoard 事件文件、OTLP 三信号协议编码与 HTTP 发送 | 部分具备 | TensorBoard、离线 OTLP 和同步 HTTP 均为默认关闭的可选组件；进程级强取消与完整 HTTPS Collector 资格继续开发 | 对应 `torch.utils.tensorboard` 与 OpenTelemetry 遥测生态；见[TensorBoard 示例](examples/experiment/README.md#原生-tensorboard)和[OTLP HTTP 教程](docs/tutorials/native-otlp-http.md)。 |
-| **实验与评估：本地任务与参数搜索** | 持久本地进程、grid/random、指标排序与最佳产物 | 部分具备 | 已实现有界串行搜索、实验备份及冻结输入的显式训练续训；自动恢复、完整任务契约和资源准入继续开发 | 对应训练脚本启动与调参生态；用法见[原生 C++ 搜索与续训示例](examples/experiment/README.md)。 |
+| **实验与评估：本地任务与参数搜索** | 持久本地进程、grid/random、指标排序、最佳产物与本地资源准入 | 部分具备 | 已实现有界串行搜索、实验备份、冻结输入的显式训练续训，以及同机同 STORE 的 CPU slots、主存/显存预约量和 GPU ID 独占准入；自动恢复、完整任务契约和发布资格仍在开发 | 对应训练脚本启动与调参生态；资源准入仅做逻辑预留，不提供 RSS/显存硬上限或物理 GPU 绑定。用法见[原生 C++ 搜索与续训示例](examples/experiment/README.md)。 |
 | **实验与评估：评估与数据质量** | 分类、语义分割 IoU/Dice、轴对齐框 AP 实际推理，类别/来源切片、三类评估的检查点恢复与质量报告 | 已具备三类限定评估 | 持续开发 | 对应 PyTorch 评估循环与 torchmetrics；已具备小规模真实图像分割任务验证；独立检测模型任务与完整任务资格仍在开发。 |
 | **交付工具：模型 Bundle 与互操作** | 有界 model bundle、interop backend、权重导入和安装后消费 | 部分具备 | 已接入原生 Ed25519 签名、外部策略验签与部署前核对；完整交付流程持续完善 | 对应 PyTorch 的 `state_dict`、TorchScript、`torch.export` 和权重导入能力；不接受任意导出物或 pickle。见[模型包签名](docs/user-guide/bundle-signing.md)。 |
 | **交付工具：C++ CLI 与交付工具链** | liuding-forge CLI、迁移、评估、检查、打包和安装消费者工具 | 已具备 | 已完成 | 对应 PyTorch 的 LibTorch C++ frontend、`torchrun` 周边和扩展构建工具；本项目侧重原生 C++ 和离线交付。 |

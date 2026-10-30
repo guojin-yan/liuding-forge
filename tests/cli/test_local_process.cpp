@@ -143,6 +143,7 @@ TEST(LocalProcessTest, PreservesLiteralArgvUnicodeCwdEnvironmentAndStdinEof) {
   ASSERT_EQ(result.status, cli::LocalProcessStatus::exited);
   EXPECT_EQ(result.exit_code, 0U);
   EXPECT_FALSE(result.signal);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
   const auto payload = Json::parse(result.stdout_capture);
   EXPECT_EQ(payload.at("arguments").get<std::vector<std::string>>(), arguments);
   EXPECT_EQ(fs::u8path(payload.at("cwd").get<std::string>()), directory.root);
@@ -161,6 +162,7 @@ TEST(LocalProcessTest, NonzeroExitPreservesRawBinaryOutputAndNativeCode) {
   const auto result = cli::LocalProcessRunner{}.run(options);
   EXPECT_EQ(result.status, cli::LocalProcessStatus::exited);
   EXPECT_EQ(result.exit_code, 37U);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
   EXPECT_EQ(result.stdout_capture, std::string("ordinary-output\0\xff", 17));
   EXPECT_EQ(result.stderr_capture, std::string("ordinary-error\0\xfe", 16));
   EXPECT_EQ(result.stdout_bytes, result.stdout_capture.size());
@@ -227,6 +229,7 @@ TEST(LocalProcessTest, PrecancelledInvocationDoesNotLaunch) {
                                                     stop.get_token());
   EXPECT_EQ(result.status, cli::LocalProcessStatus::cancelled);
   EXPECT_EQ(result.process_id, 0U);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
   EXPECT_FALSE(result.exit_code);
   EXPECT_FALSE(fs::exists(directory.root / "ready"));
 }

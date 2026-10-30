@@ -105,6 +105,28 @@ auto grid = outputs->elements().at(1).toTensor();
 
 提取器执行一次完整特征前向，保留所选 Tensor 的 autograd、device 和 dtype；选择输出不减少主干计算。ViT 的 token/grid 输出共享存储，可能不连续；需要连续布局时由调用方显式转换。状态与模式操作仍通过 `ModelAdapter::state()`，不会自动冻结参数。DINOv2 要求输入高宽为 14 的倍数，DINOv3 ViT/ConvNeXt 分别将底部和右侧裁到 16/32 的倍数；调用方应将该裁剪纳入自己的几何记录。
 
+## DINO 中间层特征
+
+`DinoV2Impl` 与 `DinoV3Impl` 的 `forward_intermediates()` 可选择指定 block 的输出；`intermediate_feature_spec()` 只查询元数据。已有 `ModelAdapter` 可用 `model_intermediate_feature_spec()` 查询，并以 `create_intermediate_feature_extractor()` 创建共享同一完整骨干的提取器，不会重新初始化、注册或复制模型。
+
+```cpp
+auto model = models::create_model("dinov3_vits16");
+model.state().eval();
+models::DinoIntermediateOptions selection{
+    .block_indices = {8, 2}, .out_indices = {0, 2}, .normalize = true};
+auto spec = models::model_intermediate_feature_spec(model, selection);
+auto extractor = models::create_intermediate_feature_extractor(model, selection);
+torch::NoGradGuard no_grad;
+auto outputs = extractor.invoke({.positional = {images}}).value.toTuple();
+// block_8_cls, block_8_patch_grid, block_2_cls, block_2_patch_grid
+```
+
+block 使用零基索引，`{8, 2}` 表示第九和第三个 block 之后，按请求顺序返回；每个 block 内再按 `out_indices` 的顺序返回上述四种视图，默认只选 `{2}` 的 patch grid。两种选择都必须非空、唯一且不越界，错误选择在图像计算前拒绝。`normalize=true` 将家族既有的最终 LayerNorm 分别用于每个选定层，不改变继续传入后续 block 的原始 token；设为 `false` 返回该层未经最终归一化的视图。
+
+前向在最大请求层后停止，后续 block 和分类头不参与本次计算，也不会从该输出获得梯度；计算与 RNG 消耗可能不同于完整前向。同层视图保留 autograd、device 和 dtype，共享 token 存储且可能不连续。提取器保留完整 state，模式、参数与设备变更会作用于所有共享 adapter；调用方负责同步和是否冻结参数。DINOv2 仍要求 14 倍数，DINOv3 ViT 仍裁到 16 倍数；其他家族（含 DINOv3 ConvNeXt）明确返回 `NotImplemented`。容量、设备和任务资格须分别验证，接口可用不代表全部模型通过验收。
+
+完整的随机权重 C++ 演示见[中间层特征示例](../../examples/transfer_learning/intermediate_features.md)。
+
 ## 训练状态恢复
 
 启用 `models` 与 `training` 后，可将模型适配器交给 `Trainer`，通过 [`FileCheckpointStore`](durable_checkpoint.md) 保存和恢复完整训练状态。重建时必须保持模型、分类头、优化器、精度和数据管线拓扑一致，并登记模型、优化器、调度器、RNG、数据游标、回调及 CUDA FP16 所需的 GradScaler 状态；只保存模型权重不能恢复训练进度。

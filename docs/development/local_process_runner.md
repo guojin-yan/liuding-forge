@@ -47,13 +47,32 @@ Windows 将示例中的程序和工作目录改成真实绝对路径，JSON 中�
 
 已发起的 attempt 若缺少确认结果，即使文件锁已释放，也返回 `recovery_required`（退出码 7），不会单凭 PID、心跳或超时自动重试。强杀 worker 后，POSIX 子孙进程可能仍在运行；该状态必须由应用/操作者检查并处理，当前入口不提供强制解锁重启。正常取消与单次超时由 worker 的原生运行器清理子树后提交结果。[学习率搜索示例](../../examples/experiment/README.md)演示已实现的有界 grid/random、best trial 和实验备份。
 
+## CPU/GPU 逻辑资源准入
+
+`local_run_spec` 与搜索的 `execution` 可增加下面的 `resources`。首次准入会将同一机器、同一 STORE 的容量固定到 run/CAS；后续请求必须原样使用该容量。`gpu0` 是调用者约定的设备身份，运行器不探测硬件、不设置 CUDA 可见设备；训练程序负责将该身份映射到实际设备。
+
+```json
+{
+"resources": {
+  "capacity": {"cpu_slots": 8, "memory_bytes": 17179869184, "gpus": {"gpu0": 8589934592}},
+  "request": {"cpu_slots": 4, "memory_bytes": 4294967296, "gpu": {"id": "gpu0", "memory_bytes": 6442450944}}
+}
+}
+```
+
+CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`。CPU slots、主存与显存都是声明预算；请求必须为正且不超过容量。GPU 每次只接受一个未释放的 trial，即使其显存预算尚有余量；grid/random 保持串行。程序可从 `JYPPX_LIUDING_LOCAL_CPU_SLOTS`、`JYPPX_LIUDING_LOCAL_MEMORY_BYTES`、`JYPPX_LIUDING_LOCAL_GPU_ID`、`JYPPX_LIUDING_LOCAL_GPU_MEMORY_BYTES` 读取请求，但这些值不会限制线程数、RSS 或实际显存分配。
+
+跨 job 的检查与准入用同一非继承文件锁串行化；占用先于 attempt/intent 持久化。预算不足返回 `resource_unavailable`（退出码 7），尚未创建 attempt 或启动程序；锁繁忙返回 `resource_busy`，可稍后用 `local recover` 继续。即使没有声明 `resources`、容量池尚未启用，同一 STORE 的新增 attempt 也参与该短临界区，避免首次启用容量时遗漏同时启动的任务；竞争失败不会创建 attempt 或启动程序，也不会静默等待或自动重试。恢复复用原占用身份，父调用者崩溃或未知 attempt 不释放容量。启用容量后，未声明资源的新增 attempt 返回 `resource_request_required`；启用前仍未确认的旧 attempt 返回 `resource_unmanaged_attempt`。旧结果没有原生清理确认时，请使用独立 STORE，不能据终态或空锁推断资源可释放。
+
+释放记录同时绑定 lease、intent、worker、result 与双流摘要，并要求原生清理确认。Windows 要求 leader 已退出且 Job 活跃进程为零；Ubuntu 要求直接子进程已回收且原进程组不存在。组内尚未回收的僵尸也会保守保留占用；清理未确认返回 `resource_cleanup_unconfirmed`（退出码 7），不会强制解锁、重启或扩大容量。跨机器共享 STORE、其他 STORE、外部程序及逃离 POSIX 原进程组的进程不在该准入范围。系统级 RSS/显存硬限额与真实 GPU 资源资格仍待完成。
+
 ## 训练输入与显式恢复
 
 `local_run_spec` 可选 `training` 对象，要求 `model_id`、`configuration`、`data_manifest` 和 `resume`。两个输入使用 `{ "run_id": "SOURCE", "reference_id": "REF", "sha256": "...", "size_bytes": 123 }` 引用同一存储中已提交的 CAS 内容；来源 run 必须同项目且为 completed/failed/cancelled。本地 attempt 来源还须通过既有的冻结计划、结果与双流引用检查，不能仅靠修改状态来证明已清理。配置和数据清单各限 1 MiB；`resume` 为 `null` 或 `{ "checkpoint": { ...同样的引用字段... }, "restore_policy": "exact_only" }`，checkpoint 引用必须为 checkpoint 类型、最多 1 GiB。
 
 运行器在创建 attempt 前验证并批量绑定 `local.training.configuration`、`local.training.data_manifest`、可选 `local.training.resume`，拥有执行权的 worker 启动程序前再次复核内容。训练程序通过 `JYPPX_LIUDING_LOCAL_STORE_ROOT`、`JYPPX_LIUDING_LOCAL_SPEC_SHA256` 及已有 job/attempt 环境读取冻结计划；输入绑定采用流式 CAS 验证，不解码模型张量。模型标识和输入摘要用于固定身份，实际模型支持、数据含义、checkpoint 完整性与恢复由 C++ 训练程序检查。示例使用原生 checkpoint coordinator 恢复模型、SGD momentum 和更新计数，再在新 job 中继续训练。
 
-有限 retry 始终重用同一冻结输入，在新的 attempt 中重新开始该请求，不自动选择失败 attempt 的 checkpoint。已有未确认 attempt 仍返回 `recovery_required`；存在 checkpoint 不能证明旧进程树已经清理。完整输出 schema、资源准入与自动训练恢复继续开放；输入限额不代表 RSS/显存上限或训练提速。
+有限 retry 始终重用同一冻结输入，在新的 attempt 中重新开始该请求，不自动选择失败 attempt 的 checkpoint。已有未确认 attempt 仍返回 `recovery_required`；存在 checkpoint 不能证明旧进程树已经清理。完整输出 schema、系统级资源硬限制与自动训练恢复继续开放；输入限额不代表 RSS/显存上限或训练提速。
 
 ## 搜索的训练输入
 

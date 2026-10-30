@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include "detail.hpp"
+#include "feature_adapters.hpp"
 #include "position_interpolation.hpp"
 
 #include <jyppx/liuding/models/dino.hpp>
@@ -13,6 +14,8 @@
 #include <torch/torch.h>
 
 #include <ATen/ops/linear.h>
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -23,6 +26,121 @@
 
 namespace jyppx::liuding::models {
 namespace {
+
+struct IntermediateSelection {
+  std::array<std::ptrdiff_t, 40> slots;
+  std::size_t last = 0;
+};
+
+IntermediateSelection ValidateIntermediates(
+    std::int64_t blocks, const DinoIntermediateOptions& selection) {
+  if (blocks <= 0 || blocks > 40 || selection.block_indices.empty() ||
+      selection.block_indices.size() > static_cast<std::size_t>(blocks) ||
+      selection.out_indices.empty() || selection.out_indices.size() > 4U)
+    detail::Invalid("dino.intermediates", "explicit unique blocks and views");
+  IntermediateSelection result;
+  result.slots.fill(-1);
+  std::array<bool, 4> seen_views{};
+  for (std::size_t slot = 0; slot < selection.block_indices.size(); ++slot) {
+    const auto index = selection.block_indices[slot];
+    if (index >= static_cast<std::size_t>(blocks) || result.slots[index] >= 0)
+      detail::Invalid("dino.intermediates.blocks",
+                      "unique zero-based block indices within this encoder");
+    result.slots[index] = static_cast<std::ptrdiff_t>(slot);
+    result.last = std::max(result.last, index);
+  }
+  for (const auto index : selection.out_indices) {
+    if (index >= seen_views.size() || seen_views[index])
+      detail::Invalid("dino.intermediates.views", "unique view indices 0..3");
+    seen_views[index] = true;
+  }
+  return result;
+}
+
+FeatureSpec IntermediateSpec(std::int64_t blocks, std::int64_t channels,
+                             std::int64_t patch, std::int64_t prefix,
+                             const DinoIntermediateOptions& selection) {
+  static_cast<void>(ValidateIntermediates(blocks, selection));
+  const auto views = detail::TokenFeatureInfo(channels, patch, prefix);
+  FeatureSpec result;
+  result.input.spatial_multiple = patch;
+  result.input.crop_to_multiple = prefix > 1;
+  result.input.minimum_spatial = patch;
+  for (const auto block : selection.block_indices)
+    for (const auto view : selection.out_indices) {
+      auto info = views[view];
+      info.name = "block_" + std::to_string(block) + "_" + info.name;
+      result.outputs.push_back(std::move(info));
+    }
+  return result;
+}
+
+void RetainIntermediate(std::vector<Tensor>& outputs, const Tensor& tokens,
+                        const DinoIntermediateOptions& selection,
+                        std::size_t slot, std::int64_t height,
+                        std::int64_t width, std::int64_t prefix) {
+  for (std::size_t view = 0; view < selection.out_indices.size(); ++view) {
+    auto& output = outputs[slot * selection.out_indices.size() + view];
+    switch (selection.out_indices[view]) {
+      case 0:
+        output = tokens.select(1, 0);
+        break;
+      case 1:
+        output = tokens.slice(1, prefix);
+        break;
+      case 2:
+        output = tokens.slice(1, prefix)
+                     .view({tokens.size(0), height, width, tokens.size(2)})
+                     .permute({0, 3, 1, 2});
+        break;
+      case 3:
+        output = tokens;
+        break;
+    }
+  }
+}
+
+template <class Module>
+nn::ModelAdapter AdaptIntermediates(std::shared_ptr<Module> module,
+                                    DinoIntermediateOptions selection) {
+  const auto spec = module->intermediate_feature_spec(selection);
+  TensorSchema input;
+  input.rank = 4;
+  input.shape = {{std::nullopt, module->options().input_channels, std::nullopt,
+                  std::nullopt}};
+  std::vector<ValueSchema> outputs;
+  for (const auto& info : spec.outputs) {
+    TensorSchema tensor;
+    if (info.layout == FeatureLayout::nc) {
+      tensor.rank = 2;
+      tensor.shape = {{std::nullopt, info.channels}};
+    } else if (info.layout == FeatureLayout::ntc) {
+      tensor.rank = 3;
+      tensor.shape = {{std::nullopt, std::nullopt, info.channels}};
+    } else {
+      tensor.rank = 4;
+      tensor.shape = {
+          {std::nullopt, info.channels, std::nullopt, std::nullopt}};
+    }
+    outputs.push_back(
+        ValueSchema::tensor(std::move(tensor), info.name, "dino_intermediate"));
+  }
+  return nn::adapt_module(
+      module,
+      [module, selection = std::move(selection)](
+          const nn::Invocation& invocation) -> c10::IValue {
+        std::vector<c10::IValue> values;
+        for (auto& tensor : module->forward_intermediates(
+                 invocation.positional.front().toTensor(), selection))
+          values.emplace_back(std::move(tensor));
+        return c10::ivalue::Tuple::create(std::move(values));
+      },
+      {.positional = {ValueSchema::tensor(std::move(input), "images")},
+       .keyword = {},
+       .allow_extra_keywords = false},
+      ValueSchema::tuple(std::move(outputs), "intermediates",
+                         "image_features"));
+}
 
 struct VariantConfig {
   std::int64_t dimension;
@@ -357,6 +475,47 @@ Tensor DinoV2Impl::forward_features(const Tensor& input) {
                                       embedding_dimension_,
                                       options_.position_antialias);
     return final_norm_->forward(blocks_->forward(tokens));
+  });
+}
+
+FeatureSpec DinoV2Impl::intermediate_feature_spec(
+    const DinoIntermediateOptions& selection) const {
+  const auto config = Config(variant_);
+  return IntermediateSpec(config.blocks, config.dimension, 14, 1, selection);
+}
+
+std::vector<Tensor> DinoV2Impl::forward_intermediates(
+    const Tensor& input, const DinoIntermediateOptions& selection) {
+  return detail::Backend("dinov2.forward_intermediates", [&] {
+    const auto validated = ValidateIntermediates(block_count_, selection);
+    std::vector<Tensor> outputs(selection.block_indices.size() *
+                                selection.out_indices.size());
+    detail::FloatingInput(input, PatchEmbed(patch_embed_).weight(), 4);
+    if (input.size(1) != options_.input_channels || input.size(2) <= 0 ||
+        input.size(3) <= 0 || input.size(2) % 14 != 0 ||
+        input.size(3) % 14 != 0)
+      detail::Invalid("dinov2.input",
+                      "NCHW floating images with H/W divisible by 14");
+    auto patches = PatchEmbed(patch_embed_).forward(input);
+    const auto height = patches.size(2);
+    const auto width = patches.size(3);
+    auto tokens = patches.flatten(2).transpose(1, 2);
+    auto cls = cls_token_.expand({input.size(0), -1, -1});
+    tokens = torch::cat({cls, tokens}, 1);
+    tokens = tokens + PositionForGrid(position_embedding_, height, width,
+                                      embedding_dimension_,
+                                      options_.position_antialias);
+    for (std::size_t index = 0; index <= validated.last; ++index) {
+      tokens = blocks_[index]->as<DinoV2Block>()->forward(tokens);
+      const auto slot = validated.slots[index];
+      if (slot >= 0) {
+        const auto selected =
+            selection.normalize ? final_norm_->forward(tokens) : tokens;
+        RetainIntermediate(outputs, selected, selection,
+                           static_cast<std::size_t>(slot), height, width, 1);
+      }
+    }
+    return outputs;
   });
 }
 
@@ -797,6 +956,50 @@ Tensor DinoV3Impl::forward_features(const Tensor& input) {
   });
 }
 
+FeatureSpec DinoV3Impl::intermediate_feature_spec(
+    const DinoIntermediateOptions& selection) const {
+  const auto config = Config(variant_);
+  return IntermediateSpec(config.blocks, config.dimension, 16, 5, selection);
+}
+
+std::vector<Tensor> DinoV3Impl::forward_intermediates(
+    const Tensor& input, const DinoIntermediateOptions& selection) {
+  return detail::Backend("dinov3.forward_intermediates", [&] {
+    const auto validated = ValidateIntermediates(block_count_, selection);
+    std::vector<Tensor> outputs(selection.block_indices.size() *
+                                selection.out_indices.size());
+    detail::FloatingInput(input, PatchEmbedV3(patch_embed_).weight(), 4);
+    if (input.size(1) != options_.input_channels || input.size(2) < 16 ||
+        input.size(3) < 16)
+      detail::Invalid("dinov3.input",
+                      "NCHW floating images with positive dimensions >= 16");
+    const auto height = (input.size(2) / 16) * 16;
+    const auto width = (input.size(3) / 16) * 16;
+    auto cropped = input.narrow(2, 0, height).narrow(3, 0, width);
+    auto patches = PatchEmbedV3(patch_embed_).forward(cropped);
+    const auto grid_height = patches.size(2);
+    const auto grid_width = patches.size(3);
+    const auto rope = std::dynamic_pointer_cast<DinoV3Rope>(rope_embed_)
+                          ->forward(grid_height, grid_width);
+    auto tokens = patches.flatten(2).transpose(1, 2);
+    auto cls = cls_token_.expand({input.size(0), -1, -1});
+    auto storage = storage_tokens_.expand({input.size(0), -1, -1});
+    tokens = torch::cat({cls, storage, tokens}, 1);
+    for (std::size_t index = 0; index <= validated.last; ++index) {
+      tokens = blocks_[index]->as<DinoV3Block>()->forward(tokens, rope);
+      const auto slot = validated.slots[index];
+      if (slot >= 0) {
+        const auto selected =
+            selection.normalize ? final_norm_->forward(tokens) : tokens;
+        RetainIntermediate(outputs, selected, selection,
+                           static_cast<std::size_t>(slot), grid_height,
+                           grid_width, 5);
+      }
+    }
+    return outputs;
+  });
+}
+
 Tensor DinoV3Impl::forward(const Tensor& input) {
   return detail::Backend("dinov3.forward", [&] {
     auto tokens = forward_features(input);
@@ -880,6 +1083,30 @@ nn::ModelAdapter adapt(DinoV3 model) {
        .keyword = {},
        .allow_extra_keywords = false},
       ValueSchema::tensor(output, "output", "dino_v3_logits_or_cls"));
+}
+
+FeatureSpec model_intermediate_feature_spec(
+    const nn::ModelAdapter& model, const DinoIntermediateOptions& selection) {
+  const auto& module = model.state().shared_module();
+  if (const auto v2 = std::dynamic_pointer_cast<DinoV2Impl>(module))
+    return v2->intermediate_feature_spec(selection);
+  if (const auto v3 = std::dynamic_pointer_cast<DinoV3Impl>(module))
+    return v3->intermediate_feature_spec(selection);
+  throw NotImplemented("Module has no DINO ViT intermediate contract",
+                       detail::Details("dino.intermediates.module",
+                                       "a concrete DINOv2 or DINOv3 ViT"));
+}
+
+nn::ModelAdapter create_intermediate_feature_extractor(
+    const nn::ModelAdapter& model, DinoIntermediateOptions selection) {
+  const auto& module = model.state().shared_module();
+  if (const auto v2 = std::dynamic_pointer_cast<DinoV2Impl>(module))
+    return AdaptIntermediates(v2, std::move(selection));
+  if (const auto v3 = std::dynamic_pointer_cast<DinoV3Impl>(module))
+    return AdaptIntermediates(v3, std::move(selection));
+  throw NotImplemented("Module has no DINO ViT intermediate contract",
+                       detail::Details("dino.intermediates.module",
+                                       "a concrete DINOv2 or DINOv3 ViT"));
 }
 
 }  // namespace jyppx::liuding::models

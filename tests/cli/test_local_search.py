@@ -268,6 +268,24 @@ class LocalSearchTests(unittest.TestCase):
         self.assertEqual(len(content), reference["artifact"]["size_bytes"])
         return content
 
+    def test_declared_resource_pool_keeps_grid_serial_and_releases_each_trial(self) -> None:
+        # Logical GPU identity only; this fixture does not execute CUDA work.
+        self.spec["execution"]["resources"] = {
+            "capacity": {"cpu_slots": 1, "memory_bytes": 4096, "gpus": {"gpu0": 8192}},
+            "request": {"cpu_slots": 1, "memory_bytes": 2048,
+                        "gpu": {"id": "gpu0", "memory_bytes": 4096}}}
+        result = self.search("execute")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["parallel_trials"], 1)
+        self.assertEqual(result["confirmed_trials"], 3)
+        for row in result["trials"]:
+            job = self.invoke("local", "show", "--root", self.root, "--id", row["trial_id"])["data"]
+            self.assertEqual(len(job["attempts"]), 1)
+            self.assertTrue(job["attempts"][0]["resource_released"])
+            self.assertTrue(job["attempts"][0]["result"]["process_tree_cleanup_confirmed"])
+        self.assertEqual(self.search("recover")["best"], result["best"])
+        self.assertEqual(len(self.launches()), 3)
+
     def test_grid_is_serial_uses_committed_metrics_and_replays_without_launch(self) -> None:
         result = self.search("execute")
         self.assertEqual(result["status"], "completed")

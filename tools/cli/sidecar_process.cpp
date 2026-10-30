@@ -595,6 +595,8 @@ class NativeProcess {
     return static_cast<std::uint64_t>(GetProcessId(process_.get()));
   }
 
+  bool cleanup_confirmed() const noexcept { return cleanup_confirmed_; }
+
   void close_input() noexcept { input_.cancel(); }
 
   void stop_tree() noexcept {
@@ -632,6 +634,16 @@ class NativeProcess {
         Sleep(1U);
       }
     }
+    if (process_) {
+      JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
+      cleanup_confirmed_ =
+          assigned_ && job_ &&
+          WaitForSingleObject(process_.get(), 0U) == WAIT_OBJECT_0 &&
+          QueryInformationJobObject(job_.get(),
+                                    JobObjectBasicAccountingInformation,
+                                    &accounting, sizeof(accounting), nullptr) &&
+          accounting.ActiveProcesses == 0U;
+    }
     job_.reset();
     process_.reset();
     assigned_ = false;
@@ -645,6 +657,7 @@ class NativeProcess {
   WinPipe output_;
   WinPipe diagnostic_;
   bool assigned_ = false;
+  bool cleanup_confirmed_ = false;
   bool termination_requested_ = false;
   std::optional<Clock::time_point> cleanup_deadline_;
 };
@@ -956,6 +969,8 @@ class NativeProcess {
     return static_cast<std::uint64_t>(pid_);
   }
 
+  bool cleanup_confirmed() const noexcept { return cleanup_confirmed_; }
+
   void close_input() noexcept { input_.reset(); }
 
   void stop_tree() noexcept {
@@ -983,6 +998,10 @@ class NativeProcess {
       // POSIX descendants are reaped by their actual parent or the system
       // reaper. Do not change the application's global subreaper/SIGCHLD
       // policy.
+      // A successful kill request alone does not prove resource release.
+      // Conservatively retain occupancy while any original group member
+      // (including a not-yet-reaped zombie) remains observable.
+      cleanup_confirmed_ = reaped_ && ::kill(-pid_, 0) < 0 && errno == ESRCH;
       pid_ = -1;
     }
     input_.reset();
@@ -994,6 +1013,7 @@ class NativeProcess {
   Milliseconds cleanup_timeout_;
   pid_t pid_ = -1;
   bool reaped_ = false;
+  bool cleanup_confirmed_ = false;
   Descriptor input_;
   Descriptor output_;
   Descriptor diagnostic_;
@@ -1161,9 +1181,17 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
   launch.cleanup_timeout = options.cleanup_timeout;
   validate_options(launch);
   LocalProcessResult result;
+  bool launch_entered = false;
   std::unique_ptr<NativeProcess> native;
   const auto finish = [&] {
-    if (native) native->terminate();
+    if (native) {
+      native->terminate();
+      result.process_tree_cleanup_confirmed = native->cleanup_confirmed();
+    } else {
+      // A constructor that crossed its launch boundary may have failed during
+      // cleanup. Only cancellation before entering it proves no child existed.
+      result.process_tree_cleanup_confirmed = !launch_entered;
+    }
     result.elapsed =
         std::chrono::duration_cast<Milliseconds>(Clock::now() - started);
     return std::move(result);
@@ -1171,6 +1199,7 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
   const auto deadline = started + options.timeout;
   try {
     check_telemetry_operation(stop, deadline);
+    launch_entered = true;
     native = std::make_unique<NativeProcess>(
         launch, stop,
         std::min(deadline, Clock::now() + options.startup_timeout));

@@ -419,6 +419,15 @@ endif()
 
 
 if(TARGET jyppx::liuding::models)
+    jyppx_add_gtest(jyppx_test_models_intermediates
+        LINK_TARGET jyppx::liuding::models
+        models/test_models_intermediates.cpp)
+    add_executable(jyppx_test_dino_intermediates_reference EXCLUDE_FROM_ALL
+        models/dino_intermediates_reference.cpp)
+    target_link_libraries(jyppx_test_dino_intermediates_reference PRIVATE
+        jyppx::liuding::models)
+    jyppx_apply_instrumentation(jyppx_test_dino_intermediates_reference)
+    jyppx_add_torch_runtime_dependency(jyppx_test_dino_intermediates_reference)
     set(models_test_environment)
     if(JYPPX_LIUDING_MODELS_REFERENCE_DIR)
         if(JYPPX_LIUDING_MODELS_REFERENCE_DIR MATCHES ";")

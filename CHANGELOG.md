@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- DINOv2/DINOv3 ViT 支持选择中间 block，按请求顺序返回 CLS、patch、grid 或完整 tokens；复用骨干状态和 autograd，在最后选定层后停止，提供纯 C++ 多层特征示例。
+
+- 本地执行可声明同机同存储的 CPU/GPU 逻辑容量与请求，在启动前持久准入；只有原生清理与结果双流均确认后释放，未知状态保留占用，系统级内存和显存硬限额继续开发。
+
 - 扩展本地执行与遥测预览：grid/random 搜索固定每个 trial 的训练输入并支持显式恢复，增加原生 C++ OTLP CLI；Windows 进程管道采用同步非阻塞 I/O，提供冻结骨干、有界 CPU 特征缓存及分类头 SGD 更新的纯 C++ 学习示例。
 
 - 增加可选原生 C++ OTLP HTTP 发送后端，使用系统 WinHTTP 或共享 curl，校验完整协议响应后记录进程内去重；提供指标与审计日志教学示例，强制进程终止及完整 HTTPS Collector 资格继续开发。

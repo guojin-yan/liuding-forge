@@ -284,3 +284,15 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::optim)
     jyppx_apply_instrumentation(jyppx_transfer_linear_probe)
     jyppx_add_torch_runtime_dependency(jyppx_transfer_linear_probe)
 endif()
+
+# Select shared DINO intermediate layers without retaining later activations.
+if(TARGET jyppx::liuding::models)
+    add_executable(jyppx_dino_intermediate_features EXCLUDE_FROM_ALL
+        transfer_learning/intermediate_features.cpp)
+    set_target_properties(jyppx_dino_intermediate_features PROPERTIES
+        OUTPUT_NAME liuding-forge-example-dino-intermediate-features)
+    target_link_libraries(jyppx_dino_intermediate_features PRIVATE
+        jyppx::liuding::models)
+    jyppx_apply_instrumentation(jyppx_dino_intermediate_features)
+    jyppx_add_torch_runtime_dependency(jyppx_dino_intermediate_features)
+endif()
