@@ -26,7 +26,7 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
-    "prepare_fashion_mnist", ROOT / "scripts/datasets/prepare_fashion_mnist.py")
+    "prepare_fashion_mnist", ROOT / "tests/reference/fashion_mnist.py")
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 

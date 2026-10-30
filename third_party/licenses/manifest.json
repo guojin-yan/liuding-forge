@@ -13,6 +13,7 @@
     "stb_image": "recorded",
     "onnxruntime-windows-x64": "recorded",
     "onnxruntime-linux-x64": "recorded",
+    "dataset-zlib-codec": "pending",
     "openssl-bundle-signing": "recorded"
   },
   "files": [

@@ -20,7 +20,7 @@ import zlib
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("prepare_cifar10", ROOT / "scripts/datasets/prepare_cifar10.py")
+SPEC = importlib.util.spec_from_file_location("prepare_cifar10", ROOT / "tests/reference/cifar10.py")
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 

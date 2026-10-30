@@ -86,7 +86,7 @@ output = {'input1': images, 'input2': images.roll((1, 2), (2, 3)).contiguous(),
 
 # Use only the already reviewed name mapping, not the production architecture.
 import importlib.util
-mapping_file = repo / 'scripts/models/convert_dinov2_hf.py'
+mapping_file = repo / 'tests/unit/models/reference/convert_dinov2_hf_reference.py'
 spec = importlib.util.spec_from_file_location('reviewed_dinov2_mapping', mapping_file)
 mapping_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mapping_module)

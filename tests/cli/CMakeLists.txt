@@ -165,3 +165,42 @@ add_test(NAME CliInstalledConsumer
         --runtime-stager "${PROJECT_SOURCE_DIR}/cmake/StageTorchRuntime.cmake")
 set_tests_properties(CliInstalledConsumer PROPERTIES LABELS "cli;packaging"
     RESOURCE_LOCK jyppx_install_consumer TIMEOUT 180)
+
+if(JYPPX_LIUDING_PREPARE_FASHION_MNIST AND TARGET jyppx_test_fashion_mnist_harness)
+    add_test(NAME NativeFashionMnistCliIdentity
+        COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/datasets/test_native_fashion_mnist.py"
+            --harness $<TARGET_FILE:jyppx_test_fashion_mnist_harness>
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+            NativeFashion.test_product_cli_rejects_synthetic_official_identity)
+    set_tests_properties(NativeFashionMnistCliIdentity PROPERTIES
+        LABELS "data;recipe;cli;native" TIMEOUT 180)
+endif()
+
+# Native fixed-weight converter; Python is only a process/reference checker.
+if(TARGET jyppx_convert_dinov2_hf)
+    jyppx_add_gtest(jyppx_test_dinov2_conversion
+        LINK_TARGET jyppx_dinov2_conversion test_dinov2_conversion.cpp)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME NativeDinoV2ConversionCli
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_dinov2_converter.py"
+                --binary $<TARGET_FILE:jyppx_convert_dinov2_hf>)
+        set_tests_properties(NativeDinoV2ConversionCli PROPERTIES
+            LABELS "tools;models;interop;integration" TIMEOUT 180)
+        set(JYPPX_LIUDING_TEST_DINOV2_CONVERSION_SOURCE "" CACHE FILEPATH
+            "Explicit pinned official DINOv2-S safetensors; no downloads")
+        if(JYPPX_LIUDING_TEST_DINOV2_CONVERSION_SOURCE)
+            if(NOT EXISTS "${JYPPX_LIUDING_TEST_DINOV2_CONVERSION_SOURCE}")
+                message(FATAL_ERROR "Configured DINOv2 conversion source is missing")
+            endif()
+            add_test(NAME NativeDinoV2ConversionCanonical
+                COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_dinov2_converter.py"
+                    --binary $<TARGET_FILE:jyppx_convert_dinov2_hf>
+                    --source "${JYPPX_LIUDING_TEST_DINOV2_CONVERSION_SOURCE}"
+                    --reference "${PROJECT_SOURCE_DIR}/tests/unit/models/reference/convert_dinov2_hf_reference.py")
+            set_tests_properties(NativeDinoV2ConversionCanonical PROPERTIES
+                LABELS "tools;models;interop;external-weights;reference" TIMEOUT 600
+                RUN_SERIAL TRUE)
+        endif()
+    endif()
+endif()

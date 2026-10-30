@@ -682,3 +682,72 @@ if(TARGET jyppx_int8_fashion_fixture)
     set_tests_properties(NativeInt8FixtureTextIdentity PROPERTIES
         LABELS "quantization;integration" TIMEOUT 60)
 endif()
+
+if(JYPPX_LIUDING_PREPARE_FASHION_MNIST AND TARGET jyppx_dataset_preparation)
+    # The private synthetic-contract adapter is never installed or linked into
+    # the CLI; tests call the production converter unchanged.
+    add_executable(jyppx_test_fashion_mnist_harness
+        "${PROJECT_SOURCE_DIR}/tests/datasets/fashion_mnist_harness.cpp")
+    target_link_libraries(jyppx_test_fashion_mnist_harness PRIVATE
+        jyppx_dataset_preparation nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_test_fashion_mnist_harness)
+    jyppx_add_torch_runtime_dependency(jyppx_test_fashion_mnist_harness)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME NativeFashionMnistContract
+            COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/datasets/test_native_fashion_mnist.py"
+                --harness $<TARGET_FILE:jyppx_test_fashion_mnist_harness>)
+        set_tests_properties(NativeFashionMnistContract PROPERTIES
+            LABELS "data;recipe;native;reference" TIMEOUT 600)
+    endif()
+endif()
+
+if(JYPPX_LIUDING_PREPARE_CIFAR10 AND TARGET jyppx_dataset_preparation)
+    jyppx_add_gtest(jyppx_test_cifar10_native
+        LINK_TARGET jyppx_dataset_preparation
+        "${PROJECT_SOURCE_DIR}/tests/datasets/test_cifar10_native.cpp")
+    target_link_libraries(jyppx_test_cifar10_native PRIVATE nlohmann_json::nlohmann_json)
+    target_compile_definitions(jyppx_test_cifar10_native PRIVATE
+        JYPPX_LIUDING_CIFAR10_CONTRACT_FILE="${PROJECT_SOURCE_DIR}/recipes/image-classification/cifar10.dataset.json")
+    add_executable(jyppx_test_cifar10_harness
+        "${PROJECT_SOURCE_DIR}/tests/datasets/cifar10_harness.cpp")
+    target_link_libraries(jyppx_test_cifar10_harness PRIVATE
+        jyppx_dataset_preparation nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_test_cifar10_harness)
+    jyppx_add_torch_runtime_dependency(jyppx_test_cifar10_harness)
+    if(Python3_Interpreter_FOUND)
+        set(_cifar10_check_arguments
+            --harness $<TARGET_FILE:jyppx_test_cifar10_harness>
+            --reference "${PROJECT_SOURCE_DIR}/tests/reference/cifar10.py"
+            --repository "${PROJECT_SOURCE_DIR}")
+        if(TARGET jyppx_cli_recipe_gate)
+            list(APPEND _cifar10_check_arguments --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+        elseif(TARGET jyppx_cli)
+            list(APPEND _cifar10_check_arguments --cli $<TARGET_FILE:jyppx_cli>)
+        endif()
+        if(JYPPX_LIUDING_BUILD_EXAMPLES)
+            list(APPEND _cifar10_check_arguments --example $<TARGET_FILE:jyppx_cifar10_data>)
+        endif()
+        add_test(NAME NativeCifar10Preparation
+            COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/datasets/test_native_cifar10.py"
+                ${_cifar10_check_arguments})
+        set_tests_properties(NativeCifar10Preparation PROPERTIES
+            LABELS "data;recipe;native;reference" TIMEOUT 600 RUN_SERIAL TRUE)
+        set(JYPPX_LIUDING_TEST_CIFAR10_ARCHIVE "" CACHE FILEPATH
+            "Existing pinned official CIFAR-10 binary archive; opt-in full 60000 PNG comparison")
+        if(JYPPX_LIUDING_TEST_CIFAR10_ARCHIVE)
+            if(NOT EXISTS "${JYPPX_LIUDING_TEST_CIFAR10_ARCHIVE}")
+                message(FATAL_ERROR "Configured official CIFAR-10 archive is missing")
+            endif()
+            add_test(NAME NativeCifar10Official
+                COMMAND "${Python3_EXECUTABLE}"
+                    "${PROJECT_SOURCE_DIR}/tests/datasets/test_native_cifar10.py"
+                    ${_cifar10_check_arguments}
+                    --official-archive "${JYPPX_LIUDING_TEST_CIFAR10_ARCHIVE}" --official-only)
+            set_tests_properties(NativeCifar10Official PROPERTIES
+                LABELS "data;recipe;native;external-data;reference"
+                TIMEOUT 7200 RUN_SERIAL TRUE)
+        endif()
+    endif()
+endif()

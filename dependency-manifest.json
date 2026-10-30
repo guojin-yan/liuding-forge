@@ -321,6 +321,27 @@
       "support_status": "optional-cpu-development-candidate"
     },
     {
+      "id": "dataset-zlib-codec",
+      "scope": "optional-native-dataset-tools-codec-only-z-solo",
+      "version": "1.3.2",
+      "source": {
+        "type": "official-release-archive",
+        "url": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
+      },
+      "license": {
+        "spdx": ["Zlib"],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": ["windows-x86_64", "linux-x86_64"],
+      "linkage": "static-private-codec-subset",
+      "support_status": "optional-preview"
+    },
+    {
       "id": "openssl-bundle-signing",
       "scope": "bundle-signing-private-crypto",
       "version": "3.5.9",

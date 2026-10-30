@@ -30,10 +30,10 @@ dataset/
 从固定来源自行取得文件，保存在仓库外。DINOv2 的原始 HF 文件需要使用已有转换工具显式合并 Q/K/V、映射 state 键并省略无掩码图像编码器不使用的 mask token；原始文件不能直接冒充转换结果。
 
 ```sh
-python scripts/models/convert_dinov2_hf.py --source /weights/dinov2-small.facebook.safetensors --destination /weights/dinov2-small.liuding.safetensors --report /weights/dinov2-small.conversion.json
+liuding-forge-convert-dinov2-hf --source /weights/dinov2-small.facebook.safetensors --destination /weights/dinov2-small.liuding.safetensors --report /weights/dinov2-small.conversion.json
 ```
 
-工具只接受对应固定来源，离线运行，拒绝覆盖既有输出。描述文件中的 `sha256` 对应最终载入的 safetensors，`source_revision` 和 `state_mapping_version` 则保留来源与映射身份。`source_num_classes` 用于先按原始拓扑严格加载；随后删除原 head，按当前数据集类别数创建新的带偏置 Linear。迁移后的列顺序由数据集决定，不使用原始 ImageNet 类别表。
+先按[工具说明](../../tools/models/README.md)构建 `jyppx_convert_dinov2_hf`。转换离线运行并拒绝覆盖模型与报告；使用前同时核对完整报告和目标摘要，中断后的处理也见工具说明。描述文件中的 `sha256` 对应最终载入的 safetensors，`source_revision` 和 `state_mapping_version` 则保留来源与映射身份。`source_num_classes` 用于先按原始拓扑严格加载；随后删除原 head，按当前数据集类别数创建新的带偏置 Linear。迁移后的列顺序由数据集决定，不使用原始 ImageNet 类别表。
 
 ## 3. 配置与预处理
 

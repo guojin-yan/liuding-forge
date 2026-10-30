@@ -271,6 +271,11 @@ Result execute(const Arguments& arguments) {
                    "evaluation show --report PATH",
                    "data inspect|verify --input PATH",
                    "data prepare --name paired-affine [--data-root DIRECTORY]",
+                   "data prepare --name fashion-mnist --source-dir DIRECTORY "
+                   "[--selection first100-per-class|full] [--data-root "
+                   "DIRECTORY]",
+                   "data prepare --name cifar10 --archive CIFAR_BINARY_TAR_GZ "
+                   "[--data-root DIRECTORY]",
                    "checkpoint inspect|verify --path PATH",
                    "checkpoint diff --baseline PATH --candidate PATH",
                    "model inspect|verify --path PATH",

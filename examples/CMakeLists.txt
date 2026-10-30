@@ -60,6 +60,17 @@ if(TARGET jyppx_dataset_preparation)
     jyppx_add_torch_runtime_dependency(jyppx_paired_affine_data)
 endif()
 
+if(JYPPX_LIUDING_PREPARE_FASHION_MNIST AND TARGET jyppx_dataset_preparation
+   AND TARGET jyppx::liuding::data_image)
+    add_executable(jyppx_fashion_mnist_data data/fashion_mnist.cpp)
+    set_target_properties(jyppx_fashion_mnist_data PROPERTIES
+        OUTPUT_NAME liuding-forge-example-fashion-mnist-data)
+    target_link_libraries(jyppx_fashion_mnist_data PRIVATE
+        jyppx_dataset_preparation jyppx::liuding::data_image nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_fashion_mnist_data)
+    jyppx_add_torch_runtime_dependency(jyppx_fashion_mnist_data)
+endif()
+
 if(TARGET jyppx::liuding::serving)
     add_executable(jyppx_liuding_serving_reload serving/reload.cpp)
     set_target_properties(jyppx_liuding_serving_reload PROPERTIES
@@ -187,4 +198,14 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::optim)
         jyppx::liuding::models jyppx::liuding::optim)
     jyppx_apply_instrumentation(jyppx_transfer_group_rates)
     jyppx_add_torch_runtime_dependency(jyppx_transfer_group_rates)
+endif()
+
+if(JYPPX_LIUDING_PREPARE_CIFAR10 AND TARGET jyppx_dataset_preparation)
+    add_executable(jyppx_cifar10_data data/cifar10.cpp)
+    set_target_properties(jyppx_cifar10_data PROPERTIES
+        OUTPUT_NAME liuding-forge-example-cifar10-data)
+    target_link_libraries(jyppx_cifar10_data PRIVATE
+        jyppx_dataset_preparation nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_cifar10_data)
+    jyppx_add_torch_runtime_dependency(jyppx_cifar10_data)
 endif()

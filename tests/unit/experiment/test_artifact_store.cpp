@@ -18,12 +18,22 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <iterator>
 #include <random>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#include "../../../src/jyppx/liuding/experiment/detail/artifact_publish.hpp"
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#endif
 
 namespace {
 
@@ -36,6 +46,26 @@ using jyppx::liuding::experiment::FileArtifactStore;
 std::span<const std::byte> bytes_of(std::string_view text) {
   return {reinterpret_cast<const std::byte*>(text.data()), text.size()};
 }
+
+#ifdef _WIN32
+std::filesystem::path native_artifact_test_path(
+    const std::filesystem::path& path) {
+  std::error_code error;
+  auto native =
+      jyppx::liuding::experiment::detail::windows_artifact_path(path, error);
+  if (error)
+    throw std::filesystem::filesystem_error("test native path", path, error);
+  return std::filesystem::path(std::move(native));
+}
+
+std::filesystem::path long_artifact_test_root(
+    const std::filesystem::path& root) {
+  auto path = root;
+  while (path.native().size() <= static_cast<std::size_t>(MAX_PATH) + 32U)
+    path /= "artifact-long-path-segment";
+  return path;
+}
+#endif
 
 class TempArtifactRoot {
  public:
@@ -59,7 +89,15 @@ class TempArtifactRoot {
 
   ~TempArtifactRoot() {
     std::error_code error;
+#ifdef _WIN32
+    try {
+      std::filesystem::remove_all(native_artifact_test_path(path_), error);
+    } catch (...) {
+      // Best-effort test cleanup must not terminate stack unwinding.
+    }
+#else
     std::filesystem::remove_all(path_, error);
+#endif
   }
 
   TempArtifactRoot(const TempArtifactRoot&) = delete;
@@ -236,6 +274,228 @@ TEST(ArtifactStoreTest, VerifyDetectsMutationAndGcRespectsLiveDigestAndGrace) {
   EXPECT_TRUE(store.exists(live.digest));
   EXPECT_FALSE(store.exists(dead.digest));
 }
+
+#ifdef _WIN32
+TEST(ArtifactStoreWindowsPathTest, ResolvesDriveUncAndRelativePaths) {
+  namespace detail = jyppx::liuding::experiment::detail;
+  std::error_code error = std::make_error_code(std::errc::io_error);
+  EXPECT_EQ(detail::windows_artifact_path(
+                LR"(C:/artifact-root/./incoming/../objects/blob)", error),
+            LR"(\\?\C:\artifact-root\objects\blob)");
+  EXPECT_FALSE(error);
+  EXPECT_EQ(detail::windows_artifact_path(
+                LR"(\\example.invalid\artifact-share\incoming\..\objects\blob)",
+                error),
+            LR"(\\?\UNC\example.invalid\artifact-share\objects\blob)");
+  EXPECT_FALSE(error);
+
+  // No SMB share is opened: these checks resolve path syntax only.
+  const auto directory = std::filesystem::current_path();
+  const auto relative = std::filesystem::path("unused") / ".." / "blob";
+  auto expected = directory / "blob";
+  auto expected_native = expected.native();
+  if (!expected_native.starts_with(LR"(\\?\)")) {
+    expected_native = expected_native.starts_with(LR"(\\)")
+                          ? LR"(\\?\UNC\)" + expected_native.substr(2U)
+                          : LR"(\\?\)" + expected_native;
+  }
+  EXPECT_EQ(detail::windows_artifact_path(relative, error), expected_native);
+  EXPECT_FALSE(error);
+}
+
+TEST(ArtifactStoreWindowsPathTest, PreservesQualifiedNamespacesExactly) {
+  namespace detail = jyppx::liuding::experiment::detail;
+  const std::array<std::filesystem::path, 3> paths{
+      LR"(\\?\C:\artifact-root\literal\..\blob)",
+      LR"(\\?\UNC\example.invalid\artifact-share\objects\blob)",
+      LR"(\\.\C:\artifact-root\objects\blob)"};
+  for (const auto& path : paths) {
+    std::error_code error;
+    EXPECT_EQ(detail::windows_artifact_path(path, error), path.native());
+    EXPECT_FALSE(error);
+  }
+}
+
+TEST(ArtifactStoreWindowsPathTest, RetainsNativePublicationErrorCode) {
+  TempArtifactRoot root;
+  const std::array<std::filesystem::path, 2> sources{
+      root.path() / "missing.part",
+      root.path() / "missing-directory" / "missing.part"};
+  const auto destination = root.path() / "not-published";
+  for (const auto& source : sources) {
+    const auto moved =
+        MoveFileExW(source.c_str(), destination.c_str(),
+                    MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING);
+    const auto native_error = GetLastError();
+    ASSERT_FALSE(moved);
+    const auto expected =
+        std::error_code(static_cast<int>(native_error), std::system_category());
+    const auto actual =
+        jyppx::liuding::experiment::detail::native_publish_artifact_file(
+            source, destination);
+    EXPECT_EQ(actual, expected);
+    EXPECT_EQ(actual.category(), std::system_category());
+  }
+  EXPECT_FALSE(std::filesystem::exists(destination));
+}
+
+TEST(ArtifactStoreWindowsPathTest,
+     StreamsReadsReopensAndDeduplicatesBeyondMaxPath) {
+  TempArtifactRoot root;
+  const auto store_root = long_artifact_test_root(root.path());
+  ASSERT_GT(store_root.native().size(), static_cast<std::size_t>(MAX_PATH));
+  ASSERT_FALSE(store_root.native().starts_with(LR"(\\?\)"));
+
+  constexpr std::string_view payload = "immutable long-path artifact";
+  FileArtifactStore store(store_root);
+  EXPECT_EQ(store.root(), std::filesystem::weakly_canonical(root.path()) /
+                              store_root.lexically_relative(root.path()));
+  EXPECT_FALSE(store.root().native().starts_with(LR"(\\?\)"));
+  auto upload = store.begin(descriptor(payload.size()));
+  upload->write(bytes_of(payload.substr(0U, 9U)));
+  upload->write(bytes_of(payload.substr(9U)));
+  const auto temporary = store.root() / "tmp";
+  const auto pending =
+      std::filesystem::directory_iterator(native_artifact_test_path(temporary));
+  ASSERT_NE(pending, std::filesystem::directory_iterator{});
+  EXPECT_GT(pending->path().native().size(),
+            static_cast<std::size_t>(MAX_PATH));
+
+  const auto reference = store.commit(*upload);
+  EXPECT_TRUE(upload->closed());
+  EXPECT_EQ(reference.digest.hex,
+            jyppx::liuding::sha256_hex(bytes_of(payload)));
+  EXPECT_EQ(reference.size_bytes, payload.size());
+  EXPECT_TRUE(store.exists(reference.digest));
+  const auto object = store.root() / "objects" /
+                      reference.digest.hex.substr(0U, 2U) /
+                      reference.digest.hex.substr(2U);
+  EXPECT_GT(object.native().size(), static_cast<std::size_t>(MAX_PATH));
+  EXPECT_TRUE(std::filesystem::is_empty(native_artifact_test_path(temporary)));
+
+  {
+    auto reader = store.open(reference.digest);
+    EXPECT_EQ(reader->size_bytes(), payload.size());
+    std::array<std::byte, 7> buffer{};
+    std::string actual;
+    while (const auto count = reader->read(buffer))
+      actual.append(reinterpret_cast<const char*>(buffer.data()), count);
+    EXPECT_EQ(actual, payload);
+    EXPECT_EQ(reader->read(buffer), 0U);
+  }
+  const auto duplicate = store.put(
+      bytes_of(payload), descriptor(payload.size()), reference.digest);
+  EXPECT_EQ(duplicate.digest, reference.digest);
+  EXPECT_TRUE(std::filesystem::is_empty(native_artifact_test_path(temporary)));
+
+  FileArtifactStore reopened(store_root);
+  auto reader = reopened.open(reference.digest);
+  std::array<std::byte, 64> buffer{};
+  const auto count = reader->read(buffer);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(buffer.data()), count),
+            payload);
+  EXPECT_EQ(reader->read(buffer), 0U);
+  const auto verified = reopened.verify();
+  EXPECT_TRUE(verified.ok());
+  EXPECT_EQ(verified.checked_files, 1U);
+  EXPECT_EQ(verified.checked_bytes, payload.size());
+}
+
+TEST(ArtifactStoreWindowsPathTest,
+     MaintainsRecoversVerifiesAndCollectsBeyondMaxPath) {
+  TempArtifactRoot root;
+  const auto store_root = long_artifact_test_root(root.path());
+  ArtifactStoreLimits limits;
+  limits.max_artifact_bytes = 8U;
+  limits.max_total_bytes = 16U;
+  limits.max_object_files = 2U;
+  limits.stale_temp_age = std::chrono::seconds(60);
+  FileArtifactStore store(store_root, limits);
+  const auto live = store.put(bytes_of("keep"), descriptor(4U));
+  const auto dead = store.put(bytes_of("delete"), descriptor(6U));
+  EXPECT_THROW(store.put(bytes_of("third"), descriptor(5U)),
+               jyppx::liuding::ResourceExhausted);
+
+  const auto temporary = store.root() / "tmp";
+  {
+    auto upload = store.begin(descriptor(4U));
+    upload->write(bytes_of("data"));
+    upload->abort();
+    EXPECT_TRUE(upload->closed());
+  }
+  EXPECT_TRUE(std::filesystem::is_empty(native_artifact_test_path(temporary)));
+  const auto stale = temporary / ".upload-stale.part";
+  const auto fresh = temporary / ".upload-fresh.part";
+  std::ofstream(native_artifact_test_path(stale), std::ios::binary) << "stale";
+  std::ofstream(native_artifact_test_path(fresh), std::ios::binary) << "fresh";
+  const auto old_time =
+      std::filesystem::file_time_type::clock::now() - std::chrono::hours(2);
+  std::error_code error;
+  std::filesystem::last_write_time(native_artifact_test_path(stale), old_time,
+                                   error);
+  ASSERT_FALSE(error);
+  const auto recovery = store.recover();
+  EXPECT_EQ(recovery.removed_files, 1U);
+  EXPECT_EQ(recovery.removed_bytes, 5U);
+  EXPECT_EQ(recovery.retained_files, 1U);
+  EXPECT_FALSE(std::filesystem::exists(native_artifact_test_path(stale)));
+  EXPECT_TRUE(std::filesystem::exists(native_artifact_test_path(fresh)));
+
+  const auto dead_path = store.root() / "objects" /
+                         dead.digest.hex.substr(0U, 2U) /
+                         dead.digest.hex.substr(2U);
+  std::ofstream(native_artifact_test_path(dead_path),
+                std::ios::binary | std::ios::trunc)
+      << "mutated";
+  const auto unexpected = store.root() / "objects" / "unexpected.bin";
+  std::ofstream(native_artifact_test_path(unexpected), std::ios::binary)
+      << "unexpected";
+  const auto verification = store.verify();
+  EXPECT_FALSE(verification.ok());
+  EXPECT_EQ(verification.checked_files, 2U);
+  ASSERT_EQ(verification.corrupt_files.size(), 1U);
+  EXPECT_EQ(verification.corrupt_files.front(), dead_path);
+  ASSERT_EQ(verification.unexpected_files.size(), 1U);
+  EXPECT_EQ(verification.unexpected_files.front(), unexpected);
+  EXPECT_FALSE(store.exists(dead.digest));
+  EXPECT_THROW(store.open(dead.digest), jyppx::liuding::SerializationError);
+  EXPECT_THROW(store.put(bytes_of("delete"), descriptor(6U)),
+               jyppx::liuding::SerializationError);
+  EXPECT_TRUE(std::filesystem::exists(native_artifact_test_path(dead_path)));
+
+  std::ofstream(native_artifact_test_path(dead_path),
+                std::ios::binary | std::ios::trunc)
+      << "delete";
+  std::filesystem::remove(native_artifact_test_path(unexpected), error);
+  ASSERT_FALSE(error);
+  const std::array<ArtifactDigest, 1> live_set{live.digest};
+  const auto gc = store.collect_garbage(live_set, std::chrono::seconds::zero());
+  EXPECT_EQ(gc.removed_files, 1U);
+  EXPECT_EQ(gc.removed_bytes, 6U);
+  EXPECT_EQ(gc.retained_files, 1U);
+  EXPECT_TRUE(store.exists(live.digest));
+  EXPECT_FALSE(store.exists(dead.digest));
+  EXPECT_TRUE(store.verify().ok());
+  FileArtifactStore reopened(store_root, limits);
+  EXPECT_EQ(reopened.root(), store.root());
+  EXPECT_TRUE(reopened.exists(live.digest));
+}
+
+TEST(ArtifactStoreWindowsPathTest,
+     RejectsBlockingObjectFileBeyondMaxPathWithoutReplacingIt) {
+  TempArtifactRoot root;
+  const auto store_root = long_artifact_test_root(root.path());
+  std::filesystem::create_directories(native_artifact_test_path(store_root));
+  const auto blocked = store_root / "objects";
+  std::ofstream(native_artifact_test_path(blocked), std::ios::binary) << "keep";
+  EXPECT_THROW(static_cast<void>(FileArtifactStore{store_root}),
+               jyppx::liuding::IoError);
+  std::ifstream input(native_artifact_test_path(blocked), std::ios::binary);
+  const std::string bytes((std::istreambuf_iterator<char>(input)),
+                          std::istreambuf_iterator<char>());
+  EXPECT_EQ(bytes, "keep");
+}
+#endif
 
 TEST(RunMetadataTest, ValidatesLifecycleAndLineageBounds) {
   jyppx::liuding::experiment::RunMetadata metadata{

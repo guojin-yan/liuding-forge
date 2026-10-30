@@ -13,6 +13,31 @@ cmake --build out/build/release --config Release --target jyppx_cli --parallel 2
 
 以下命令使用可在 PATH 中找到的 `liuding-forge`。Windows 构建产物位于 `out/build/release/tools/cli/Release/liuding-forge.exe`，单配置 Linux 构建位于 `out/build/release/tools/cli/liuding-forge`。省略任一可选组件时，该配方会返回明确的不支持错误。
 
+### 1.1 启用离线数据准备
+
+Fashion-MNIST 与 CIFAR-10 共用 zlib 1.3.2 的静态 codec SDK，需要匹配构建平台与编译器；Windows 使用 x64、Release、`/MD`。当前 SDK 由维护者提供，不会自动下载。它只包含准备器需要的 codec 子集，不能用系统 zlib、zlib-ng 或任意完整 zlib 库替代。
+
+SDK 目录必须包含以下文件；Linux 的库名为 `lib/libz.a`，Windows 为 `lib/zlibstatic.lib`。
+
+```text
+dataset-codec-sdk/
+├── include/zlib.h
+├── include/zconf.h
+├── lib/libz.a
+├── source/zlib-1.3.2.tar.gz
+├── share/licenses/zlib/LICENSE
+└── provenance.json
+```
+
+在第 1 节已配置好的构建目录上启用准备器。将 SDK 根路径和 `REPLACE_WITH_REVIEWED_LIBRARY_SHA256` 替换为所用平台 SDK 的绝对路径及经审查的静态库摘要；两个开关可以分别开启。源码包与许可证摘要如下固定，静态库摘要随平台和编译器变化。
+
+```sh
+cmake -S . -B out/build/release -DJYPPX_LIUDING_PREPARE_FASHION_MNIST=ON -DJYPPX_LIUDING_PREPARE_CIFAR10=ON -DJYPPX_LIUDING_DATASET_ZLIB_ROOT=/absolute/path/to/dataset-codec-sdk -DJYPPX_LIUDING_DATASET_ZLIB_SOURCE_SHA256=bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16 -DJYPPX_LIUDING_DATASET_ZLIB_LIBRARY_SHA256=REPLACE_WITH_REVIEWED_LIBRARY_SHA256 -DJYPPX_LIUDING_DATASET_ZLIB_LICENSE_SHA256=e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2
+cmake --build out/build/release --config Release --target jyppx_cli --parallel 2
+```
+
+配置会核对两个头文件、实际源码包、静态库和原始许可证，缺失或摘要不符立即失败。安装后的数据准备命令由 C++ 执行，不需要 Python。
+
 ## 2. 准备数据
 
 训练集和验证集分别放在两个目录中。每个子目录是一类，子目录名称和类别集合必须完全一致。支持 `.jpg`、`.jpeg`、`.png`，每张图只有一个分类标签。目录必须保持稳定，不得在训练或续训期间改写图片。
@@ -102,27 +127,29 @@ liuding-forge run verify --root runs/my-run/run-store --format json
 从 [CIFAR-10 官方页面](https://www.cs.toronto.edu/~kriz/cifar.html)自行下载 **binary version** 的 `cifar-10-binary.tar.gz`，保存到仓库外。数据集适用原始条款，本项目的 Apache-2.0 许可证不覆盖这些图片；[数据身份清单](../../recipes/image-classification/cifar10.dataset.json)固定压缩包大小、SHA-256、官方 MD5、类别和完整 split 数量。
 
 ```sh
-python scripts/datasets/prepare_cifar10.py --archive /datasets/cifar-10-binary.tar.gz --data-root /datasets
+liuding-forge data prepare --name cifar10 --archive /datasets/cifar-10-binary.tar.gz --data-root /datasets
 ```
 
 也可以设置 `JYPPX_LIUDING_DATA_ROOT` 并省略 `--data-root`。
 
-准备脚本仅用 Python 标准库，离线核对压缩包、逐条读取 binary record，再按精确的 RGB uint8 像素生成无损 PNG；不会加载 pickle、联网或将整套图片缓存到内存。输出 `/datasets/cifar10-imagefolder-v1/` 包含完整 50,000 张训练图、10,000 张官方 test 图及 `preparation.json`。官方 test 在输出中名为 `validation`，每类 train 5,000 张、validation 1,000 张；它会参与每个 epoch 的验证，不是额外保留且从未观察的测试集。准备失败不发布目标目录，已有目标目录始终拒绝覆盖。
+按[构建步骤](#11-启用离线数据准备)启用 `JYPPX_LIUDING_PREPARE_CIFAR10=ON`；未启用时命令返回不支持。准备由 C++ 实现，离线核对完整 SHA-256 与官方 MD5，受限读取 gzip/tar 后逐条转换 3,073 字节的 binary record，生成相同像素和格式的无损 PNG；不会加载 pickle、联网或将整套图片缓存到内存。输出 `/datasets/cifar10-imagefolder-v1/` 包含完整 50,000 张训练图、10,000 张官方 test 图及 `preparation.json`。官方 test 在输出中名为 `validation`，每类 train 5,000 张、validation 1,000 张；它会参与每个 epoch 的验证，不是额外保留且从未观察的测试集。准备失败不发布本次目标并尝试清理本次暂存，已有目标目录始终拒绝覆盖。解压内容上限沿用数据清单的 185,000,000 字节，tar 结构另有 64 KiB 上限；PNG 单文件最多 8 KiB，实际 RSS 和耗时需要在本机测量。进程被终止可能留下 `.cifar10-preparing-*` 暂存目录，确认归属后再清理；准备过程中应保持源和输出父目录稳定。原生调用与报告读取示例见 [cifar10.cpp](../../examples/data/cifar10.cpp)。
 
 复制 [CIFAR-10 ResNet18 模板](../../recipes/image-classification/cifar10-resnet18.json)，把 `train_root`、`validation_root` 改为准备结果的实际路径，再执行 `recipe check` 和 `recipe run`。模板使用完整 split、32×32 RGB `[0,1]`、随机初始化 ResNet18、50 epochs、batch 128、seed `20261028`、SGD momentum 和 StepLR，共 19,550 次更新，预先声明 accuracy ≥0.65。它是限定训练配方，不表示与采用数据增强、不同 stem 或更长预算的其他 CIFAR-10 实现达到相同准确率。CPU 与 CUDA 的使用和恢复方式沿用前文，CUDA 需显式修改 `device` 并设置工作空间环境变量。
 
 ## 7. 准备 Fashion-MNIST
 
+按[构建步骤](#11-启用离线数据准备)启用 `JYPPX_LIUDING_PREPARE_FASHION_MNIST=ON`，并提供匹配平台的 codec SDK。数据准备由原生 C++ 完成，安装后的工具不需要 Python。
+
 从 [Fashion-MNIST 固定版本的数据目录](https://github.com/zalandoresearch/fashion-mnist/tree/b2617bb6d3ffa2e429640350f613e3291e10b141/data/fashion)下载 `train-images-idx3-ubyte.gz`、`train-labels-idx1-ubyte.gz`、`t10k-images-idx3-ubyte.gz`、`t10k-labels-idx1-ubyte.gz`，原样放入仓库外的同一个目录。它与普通 MNIST 是不同的数据集；[数据身份清单](../../recipes/image-classification/fashion-mnist.dataset.json)固定四个文件的大小、SHA-256、官方 MD5 和类别映射，数据适用原始 MIT 许可证。
 
 ```sh
-python scripts/datasets/prepare_fashion_mnist.py --source-dir /datasets/fashion-mnist-source --data-root /datasets
+liuding-forge data prepare --name fashion-mnist --source-dir /datasets/fashion-mnist-source --data-root /datasets
 ```
 
 默认输出 `/datasets/fashion-mnist-first100-per-class-imagefolder-v1/`，在原始 train/test 中各按源顺序选取每类最早 100 张，共 1,000 张训练图和 1,000 张验证图。需要完整数据时增加 `--selection full`，输出独立的 `fashion-mnist-full-imagefolder-v1/`，包含 60,000 张训练图和 10,000 张验证图。两种选择均检查全部源记录、类别数量、IDX 长度和 gzip CRC，不会只检查被选中的部分。也可以设置 `JYPPX_LIUDING_DATA_ROOT` 并省略 `--data-root`。
 
 每张原始 28×28 uint8 灰度图逐像素复制为 RGB 无损 PNG，不缩放、不归一化，也不将整套数据加载到内存。`train/` 和 `validation/` 使用带数字前缀的类别目录，例如 `00-t-shirt-top`，按目录名称排序得到的类别 ID 与原始标签 0–9 一致。官方 test 在此命名为 `validation`，不是额外保留的最终测试集。
 
-`index/train.jsonl` 和 `index/validation.jsonl` 记录原始索引、类别 ID、相对图片路径、灰度像素 SHA-256 与 PNG 文件 SHA-256；`preparation.json` 保存来源、选择规则、类别计数和内容身份，`fashion-mnist.LICENSE` 保留原始许可文本。内容身份基于原始索引、标签和灰度字节，不依赖 PNG 压缩实现。脚本仅使用 Python 标准库，离线运行，拒绝覆盖已有输出，失败时清理本次私有暂存目录。
+`index/train.jsonl` 和 `index/validation.jsonl` 记录原始索引、类别 ID、相对图片路径、灰度像素 SHA-256 与 PNG 文件 SHA-256；`preparation.json` 保存来源、选择规则、类别计数和内容身份，`fashion-mnist.LICENSE` 保留原始许可文本。内容身份基于原始索引、标签和灰度字节，不依赖 PNG 压缩实现。准备命令离线运行，拒绝覆盖已有输出，失败时清理本次私有暂存目录。逐图读取与解码示例见[数据准备示例](../../examples/data/README.md#fashion-mnist-图像接入)。
 
 上述工具提供数据接入，不会自动加载预训练权重。使用现有随机初始化 ResNet18 配方时，将数据路径指向对应的两个 split，并为 Fashion-MNIST 单独设置配置与质量阈值；模型所需的缩放、裁剪及 mean/std 由图像管线显式完成，不能沿用 CIFAR-10 的任务阈值来宣称该任务已经通过。预训练 ResNet50 和 DINOv2-S 的冻结骨干、完整微调与恢复步骤见[迁移学习教程](transfer_learning_recipe.md)。

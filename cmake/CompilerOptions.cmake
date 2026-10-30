@@ -25,6 +25,8 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_quantization
     jyppx_liuding_serving
     jyppx_dataset_preparation
+    jyppx_dinov2_conversion
+    jyppx_convert_dinov2_hf
     jyppx_cli_transport
     jyppx_cli_objects
     jyppx_cli
@@ -105,7 +107,7 @@ if(JYPPX_LIUDING_ENABLE_FORMAT_CHECK)
             "JYPPX_LIUDING_ENABLE_FORMAT_CHECK=ON requires a clang-format executable")
     endif()
     set(JYPPX_FORMAT_FILES)
-    foreach(JYPPX_FORMAT_ROOT IN ITEMS include src tests examples tools/cli)
+    foreach(JYPPX_FORMAT_ROOT IN ITEMS include src tests examples tools/cli tools/datasets tools/models)
         file(GLOB_RECURSE JYPPX_FORMAT_ROOT_FILES CONFIGURE_DEPENDS
             "${PROJECT_SOURCE_DIR}/${JYPPX_FORMAT_ROOT}/*.c"
             "${PROJECT_SOURCE_DIR}/${JYPPX_FORMAT_ROOT}/*.cc"

@@ -29,11 +29,15 @@ liuding-forge checkpoint verify --path checkpoint.jyck --format json
 
 ```sh
 liuding-forge data prepare --name paired-affine --data-root /path/to/datasets --format json
+liuding-forge data prepare --name fashion-mnist --source-dir /path/to/fashion-mnist-source --data-root /path/to/datasets --selection first100-per-class --format json
+liuding-forge data prepare --name cifar10 --archive /path/to/cifar-10-binary.tar.gz --data-root /path/to/datasets --format json
 liuding-forge recipe schema --name paired-affine --format json
 liuding-forge recipe check --file paired-affine.local.json --format json
 liuding-forge recipe run --file paired-affine.local.json --root runs/example --pause-after 256 --format json
 liuding-forge recipe resume --file paired-affine.local.json --root runs/example --format json
 ```
+
+Fashion-MNIST 和 CIFAR-10 的离线准备分别需要启用 `JYPPX_LIUDING_PREPARE_FASHION_MNIST`、`JYPPX_LIUDING_PREPARE_CIFAR10`，并提供构建配置指定的静态 codec SDK；关闭时对应命令返回不支持。源文件与完整 split 规则见[图像分类教程](../tutorials/image_classification_recipe.md)。
 
 双输入分类/回归配方使用核心 SDK；[完整教程](../tutorials/multi_io_recipe.md)包括离线数据、配置、两类损失、评估及新进程恢复。图像分类配方额外需要 `models` 和 `data_image`，省略 `--name` 的 `recipe schema` 返回其配置 schema，详见[ResNet18 教程](../tutorials/image_classification_recipe.md)。配方命令按配置中的 `recipe` 标识选择入口，不会根据数据文件名猜测任务。
 

@@ -146,10 +146,10 @@ auto grid = outputs->elements().at(1).toTensor();
 | 官方 DINOv2-S 原始 `model.safetensors` | 88249960 | `ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1` |
 | DINOv2-S 转换结果 | 88240512 | `f3ef1ae01fd4af3cd15926a0d5e631fa0caea50ca68b29db8a68c8c84c9810e5` |
 
-[`convert_dinov2_hf.py`](../../scripts/models/convert_dinov2_hf.py) 仅接受表中官方固定文件，使用 Python 标准库流式转换，不联网、不执行 pickle、不依赖 Torch。它保留参数位模式，按 Q/K/V 顺序合并 attention 参数，登记无掩码图像编码器不使用的 `mask_token`，并拒绝覆盖已有输出。
+原生 C++ 工具 [`liuding-forge-convert-dinov2-hf`](../../tools/models/README.md) 仅接受表中官方固定文件，离线运行，按 Q/K/V 顺序合并 attention 参数，保留位模式并登记省略的 `mask_token`。源与目标均须通过完整大小和 SHA-256 校验；构建和错误恢复方法见工具说明。
 
 ```powershell
-python scripts/models/convert_dinov2_hf.py --source D:/weights/dinov2-small.facebook.safetensors --destination D:/weights/dinov2-small.liuding.safetensors --report D:/weights/dinov2-small.conversion.json
+liuding-forge-convert-dinov2-hf --source D:/weights/dinov2-small.facebook.safetensors --destination D:/weights/dinov2-small.liuding.safetensors --report D:/weights/dinov2-small.conversion.json
 ```
 
 在 `WeightRecord` 中登记转换结果的完整摘要/大小，保留官方来源 revision、许可证链接和映射版本 `jyppx.liuding.dinov2-hf-small.unmasked.v1`，再调用 `load_weights()`。转换报告保留原始权重身份和全部参数映射；转换只确认数据布局，不证明任务准确率。该入口不支持掩码训练、其他容量或其他 revision 的自动转换。

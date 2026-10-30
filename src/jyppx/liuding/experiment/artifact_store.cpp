@@ -18,6 +18,7 @@
 #include <fstream>
 #include <limits>
 #include <random>
+#include <string_view>
 #include <system_error>
 #include <unordered_set>
 #include <utility>
@@ -60,6 +61,41 @@ std::string path_text(const std::filesystem::path& path) {
           .actual = path_text(path) + ": " + error.message(),
           .hint = "Check the artifact root, permissions, and free space."});
 }
+
+#ifdef _WIN32
+// Every filesystem entry point uses the same native spelling, including
+// metadata, directory traversal and canonicalization before any file is opened.
+std::filesystem::path artifact_filesystem_path(
+    const std::filesystem::path& path, std::string_view operation) {
+  std::error_code error;
+  auto native_path = detail::windows_artifact_path(path, error);
+  if (error) throw_io(std::string(operation), path, error);
+  return std::filesystem::path(std::move(native_path));
+}
+
+std::filesystem::path artifact_logical_root(
+    const std::filesystem::path& canonical,
+    const std::filesystem::path& supplied) {
+  // A caller-supplied namespace keeps its established spelling. Ordinary paths
+  // retain ordinary public root()/diagnostic identities after native I/O.
+  const auto& original = supplied.native();
+  if (original.starts_with(LR"(\\?\)") || original.starts_with(LR"(\\.\)"))
+    return canonical;
+  const auto& native = canonical.native();
+  if (native.starts_with(LR"(\\?\UNC\)"))
+    return std::filesystem::path(LR"(\\)" + native.substr(8U));
+  if (native.starts_with(LR"(\\?\)") && native.size() >= 7U &&
+      native[5U] == L':' && native[6U] == L'\\')
+    return std::filesystem::path(native.substr(4U));
+  return canonical;
+}
+#else
+const std::filesystem::path& artifact_filesystem_path(
+    const std::filesystem::path& path, std::string_view operation) noexcept {
+  (void)operation;
+  return path;
+}
+#endif
 
 [[noreturn]] void throw_invalid(std::string operation, std::string expected,
                                 std::string actual, std::string hint) {
@@ -183,14 +219,16 @@ ArtifactDigest digest_from_relative_path(
 
 std::uint64_t checked_file_size(const std::filesystem::path& path) {
   std::error_code error;
-  const auto size = std::filesystem::file_size(path, error);
+  const auto size = std::filesystem::file_size(
+      artifact_filesystem_path(path, "file_size"), error);
   if (error) throw_io("file_size", path, error);
   return size;
 }
 
 void require_unlinked_directory(const std::filesystem::path& path) {
   std::error_code error;
-  const auto status = std::filesystem::symlink_status(path, error);
+  const auto status = std::filesystem::symlink_status(
+      artifact_filesystem_path(path, "inspect_path"), error);
   if (error) throw_io("inspect_directory", path, error);
   if (std::filesystem::is_symlink(status) ||
       !std::filesystem::is_directory(status)) {
@@ -201,7 +239,8 @@ void require_unlinked_directory(const std::filesystem::path& path) {
 
 bool is_unlinked_regular_file(const std::filesystem::path& path) {
   std::error_code error;
-  const auto status = std::filesystem::symlink_status(path, error);
+  const auto status = std::filesystem::symlink_status(
+      artifact_filesystem_path(path, "inspect_path"), error);
   if (error) throw_io("inspect_file", path, error);
   return !std::filesystem::is_symlink(status) &&
          std::filesystem::is_regular_file(status);
@@ -209,7 +248,10 @@ bool is_unlinked_regular_file(const std::filesystem::path& path) {
 
 void sync_file(const std::filesystem::path& path) {
 #ifdef _WIN32
-  HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+  std::error_code path_error;
+  const auto native_path = detail::windows_artifact_path(path, path_error);
+  if (path_error) throw_io("open_for_flush", path, path_error);
+  HANDLE handle = CreateFileW(native_path.c_str(), GENERIC_READ | GENERIC_WRITE,
                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (handle == INVALID_HANDLE_VALUE) {
@@ -280,12 +322,14 @@ void create_durable_directories(const std::filesystem::path& leaf) {
   std::error_code error;
   std::vector<std::filesystem::path> missing;
   for (auto path = leaf; !path.empty(); path = path.parent_path()) {
-    const bool present = std::filesystem::exists(path, error);
+    const bool present = std::filesystem::exists(
+        artifact_filesystem_path(path, "exists"), error);
     if (error) throw_io("create_directory.exists", path, error);
     if (present) break;
     missing.push_back(path);
   }
-  std::filesystem::create_directories(leaf, error);
+  std::filesystem::create_directories(
+      artifact_filesystem_path(leaf, "create_directory"), error);
   if (error) throw_io("create_directory", leaf, error);
   for (const auto& path : missing) {
     require_unlinked_directory(path);
@@ -300,8 +344,11 @@ class VerifiedInput final {
  public:
   explicit VerifiedInput(const std::filesystem::path& path) : path_(path) {
 #ifdef _WIN32
+    std::error_code path_error;
+    const auto native_path = detail::windows_artifact_path(path, path_error);
+    if (path_error) throw_io("reader.open", path_, path_error);
     handle_ = CreateFileW(
-        path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+        native_path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING,
         FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
     if (handle_ == INVALID_HANDLE_VALUE)
@@ -331,7 +378,7 @@ class VerifiedInput final {
     if (descriptor_ < 0)
       throw_io("reader.open", path_, {errno, std::generic_category()});
     try {
-      struct stat information {};
+      struct stat information{};
       if (::fstat(descriptor_, &information) != 0)
         throw_io("reader.inspect", path_, {errno, std::generic_category()});
       if (!S_ISREG(information.st_mode) || information.st_size < 0)
@@ -407,7 +454,12 @@ std::string sha256_file(const std::filesystem::path& path,
                         std::uint64_t expected_size, std::uint64_t max_size,
                         std::stop_token stop = {},
                         TelemetryDeadline deadline = std::nullopt) {
+#ifdef _WIN32
+  std::ifstream input(artifact_filesystem_path(path, "hash_file"),
+                      std::ios::binary);
+#else
   std::ifstream input(path, std::ios::binary);
+#endif
   if (!input) {
     throw IoError(
         "Could not open artifact for hashing",
@@ -468,13 +520,14 @@ ObjectUsage object_usage(const std::filesystem::path& root,
                          TelemetryDeadline deadline = std::nullopt) {
   std::error_code error;
   const auto object_root = root / "objects";
-  const bool present = std::filesystem::exists(object_root, error);
+  const bool present = std::filesystem::exists(
+      artifact_filesystem_path(object_root, "exists"), error);
   if (error) throw_io("exists", object_root, error);
   if (!present) return {};
   require_unlinked_directory(object_root);
   ObjectUsage usage;
-  for (std::filesystem::recursive_directory_iterator
-           iterator(object_root, error),
+  for (std::filesystem::recursive_directory_iterator iterator(
+           artifact_filesystem_path(object_root, "scan_objects"), error),
        end;
        iterator != end; iterator.increment(error)) {
     check_telemetry_operation(stop, deadline);
@@ -482,7 +535,8 @@ ObjectUsage object_usage(const std::filesystem::path& root,
     if (!is_unlinked_regular_file(iterator->path())) {
       continue;
     }
-    const auto size = std::filesystem::file_size(iterator->path(), error);
+    const auto size = std::filesystem::file_size(
+        artifact_filesystem_path(iterator->path(), "file_size"), error);
     if (error) throw_io("file_size", iterator->path(), error);
     if (size > std::numeric_limits<std::uint64_t>::max() - usage.bytes) {
       throw_limit("store", "representable total bytes", "integer overflow");
@@ -496,7 +550,8 @@ ObjectUsage object_usage(const std::filesystem::path& root,
 
 std::uint64_t file_age_seconds(const std::filesystem::path& path) {
   std::error_code error;
-  const auto timestamp = std::filesystem::last_write_time(path, error);
+  const auto timestamp = std::filesystem::last_write_time(
+      artifact_filesystem_path(path, "last_write_time"), error);
   if (error) throw_io("last_write_time", path, error);
   const auto now = std::filesystem::file_time_type::clock::now();
   if (timestamp >= now) return 0U;
@@ -521,7 +576,13 @@ class FileArtifactStore::FileUploadSession final
       : owner_(owner),
         descriptor_(std::move(descriptor)),
         temporary_(std::move(temporary)),
+#ifdef _WIN32
+        native_temporary_(
+            artifact_filesystem_path(temporary_, "create_upload")),
+        output_(native_temporary_, std::ios::binary | std::ios::trunc) {
+#else
         output_(temporary_, std::ios::binary | std::ios::trunc) {
+#endif
     if (!output_) {
       std::error_code error(errno, std::generic_category());
       throw_io("create_upload", temporary_, error);
@@ -584,7 +645,12 @@ class FileArtifactStore::FileUploadSession final
     closed_ = true;
     if (output_.is_open()) output_.close();
     std::error_code error;
+#ifdef _WIN32
+    // Cached while begin() could report errors; abort() remains noexcept.
+    std::filesystem::remove(native_temporary_, error);
+#else
     std::filesystem::remove(temporary_, error);
+#endif
   }
 
  private:
@@ -622,6 +688,9 @@ class FileArtifactStore::FileUploadSession final
   FileArtifactStore* owner_;
   ArtifactDescriptor descriptor_;
   std::filesystem::path temporary_;
+#ifdef _WIN32
+  std::filesystem::path native_temporary_;
+#endif
   std::ofstream output_;
   std::uint64_t bytes_written_ = 0U;
   bool closed_ = false;
@@ -684,10 +753,17 @@ FileArtifactStore::FileArtifactStore(std::filesystem::path root,
                   "Choose a dedicated local artifact directory.");
   }
   std::error_code error;
+#ifdef _WIN32
+  const auto canonical = std::filesystem::weakly_canonical(
+      artifact_filesystem_path(root, "absolute"), error);
+  if (error) throw_io("canonicalize", root, error);
+  root_ = artifact_logical_root(canonical, root);
+#else
   root_ = std::filesystem::absolute(root, error);
   if (error) throw_io("absolute", root_, error);
   root_ = std::filesystem::weakly_canonical(root_, error);
   if (error) throw_io("canonicalize", root_, error);
+#endif
   if (root_.string().size() > limits_.max_root_path_bytes) {
     throw_limit(
         "root",
@@ -699,7 +775,9 @@ FileArtifactStore::FileArtifactStore(std::filesystem::path root,
   require_unlinked_directory(root_ / "objects");
   require_unlinked_directory(root_ / "tmp");
   sync_directory(root_);
-  if (!std::filesystem::is_directory(root_, error) || error) {
+  if (!std::filesystem::is_directory(
+          artifact_filesystem_path(root_, "inspect_root"), error) ||
+      error) {
     if (error) throw_io("inspect_root", root_, error);
     throw_io("inspect_root", root_,
              std::make_error_code(std::errc::not_a_directory));
@@ -780,13 +858,18 @@ ArtifactRef FileArtifactStore::commit(
     const auto destination = object_path(root_, digest);
     std::error_code error;
     require_unlinked_directory(root_ / "objects");
-    std::filesystem::create_directories(destination.parent_path(), error);
+    std::filesystem::create_directories(
+        artifact_filesystem_path(destination.parent_path(),
+                                 "create_object_directory"),
+        error);
     if (error)
       throw_io("create_object_directory", destination.parent_path(), error);
     require_unlinked_directory(destination.parent_path());
     sync_directory(root_ / "objects");
 
-    const bool destination_exists = std::filesystem::exists(destination, error);
+    const bool destination_exists = std::filesystem::exists(
+        artifact_filesystem_path(destination, "inspect_existing_object"),
+        error);
     if (error) throw_io("inspect_existing_object", destination, error);
     if (!destination_exists) {
       const auto usage = object_usage(root_, stop, deadline);
@@ -859,11 +942,15 @@ std::unique_ptr<ArtifactReader> FileArtifactStore::open(
   const auto path = object_path(root_, digest);
   std::error_code error;
   require_unlinked_directory(root_ / "objects");
-  if (std::filesystem::exists(path.parent_path(), error)) {
+  if (std::filesystem::exists(
+          artifact_filesystem_path(path.parent_path(),
+                                   "inspect_object_directory"),
+          error)) {
     require_unlinked_directory(path.parent_path());
   }
   if (error) throw_io("inspect_object_directory", path.parent_path(), error);
-  if (!std::filesystem::exists(path, error)) {
+  if (!std::filesystem::exists(artifact_filesystem_path(path, "exists"),
+                               error)) {
     if (error) throw_io("exists", path, error);
     throw IoError(
         "Artifact does not exist",
@@ -886,11 +973,15 @@ bool FileArtifactStore::exists(const ArtifactDigest& digest) const {
   validate_artifact_digest(digest);
   const auto path = object_path(root_, digest);
   std::error_code error;
-  if (!std::filesystem::exists(path, error) || error) return false;
+  if (!std::filesystem::exists(artifact_filesystem_path(path, "exists"),
+                               error) ||
+      error)
+    return false;
   require_unlinked_directory(root_ / "objects");
   require_unlinked_directory(path.parent_path());
   if (!is_unlinked_regular_file(path)) return false;
-  const auto size = std::filesystem::file_size(path, error);
+  const auto size = std::filesystem::file_size(
+      artifact_filesystem_path(path, "file_size"), error);
   if (error || size > limits_.max_artifact_bytes) return false;
   try {
     return sha256_file(path, size, limits_.max_artifact_bytes) == digest.hex;
@@ -903,11 +994,14 @@ ArtifactRecoveryReport FileArtifactStore::recover() {
   ArtifactRecoveryReport report;
   const auto temporary_root = root_ / "tmp";
   std::error_code error;
-  const bool present = std::filesystem::exists(temporary_root, error);
+  const bool present = std::filesystem::exists(
+      artifact_filesystem_path(temporary_root, "exists"), error);
   if (error) throw_io("exists", temporary_root, error);
   if (!present) return report;
   require_unlinked_directory(temporary_root);
-  for (std::filesystem::directory_iterator iterator(temporary_root, error), end;
+  for (std::filesystem::directory_iterator iterator(
+           artifact_filesystem_path(temporary_root, "scan_tmp"), error),
+       end;
        iterator != end; iterator.increment(error)) {
     if (error) throw_io("scan_tmp", temporary_root, error);
     if (!is_unlinked_regular_file(iterator->path())) {
@@ -918,7 +1012,8 @@ ArtifactRecoveryReport FileArtifactStore::recover() {
     const auto age = file_age_seconds(iterator->path());
     if (age >= duration_seconds(limits_.stale_temp_age)) {
       const auto size = checked_file_size(iterator->path());
-      std::filesystem::remove(iterator->path(), error);
+      std::filesystem::remove(
+          artifact_filesystem_path(iterator->path(), "remove"), error);
       if (error) throw_io("remove_stale_tmp", iterator->path(), error);
       ++report.removed_files;
       report.removed_bytes += size;
@@ -934,23 +1029,30 @@ ArtifactVerificationReport FileArtifactStore::verify() const {
   ArtifactVerificationReport report;
   const auto object_root = root_ / "objects";
   std::error_code error;
-  const bool present = std::filesystem::exists(object_root, error);
+  const bool present = std::filesystem::exists(
+      artifact_filesystem_path(object_root, "exists"), error);
   if (error) throw_io("exists", object_root, error);
   if (!present) return report;
   require_unlinked_directory(object_root);
-  for (std::filesystem::recursive_directory_iterator
-           iterator(object_root, error),
+  for (std::filesystem::recursive_directory_iterator iterator(
+           artifact_filesystem_path(object_root, "scan_objects"), error),
        end;
        iterator != end; iterator.increment(error)) {
     if (error) throw_io("scan_objects", object_root, error);
     if (!is_unlinked_regular_file(iterator->path())) {
       continue;
     }
-    const auto relative =
-        std::filesystem::relative(iterator->path(), root_, error);
+    const auto relative = std::filesystem::relative(
+        iterator->path(),
+        artifact_filesystem_path(root_, "relative_object_path"), error);
     if (error) throw_io("relative_object_path", iterator->path(), error);
+#ifdef _WIN32
+    const auto report_path = root_ / relative;
+#else
+    const auto& report_path = iterator->path();
+#endif
     if (!is_object_relative_path(relative)) {
-      report.unexpected_files.push_back(iterator->path());
+      report.unexpected_files.push_back(report_path);
       continue;
     }
     ++report.checked_files;
@@ -961,10 +1063,10 @@ ArtifactVerificationReport FileArtifactStore::verify() const {
       if (size > limits_.max_artifact_bytes ||
           sha256_file(iterator->path(), size, limits_.max_artifact_bytes) !=
               digest.hex) {
-        report.corrupt_files.push_back(iterator->path());
+        report.corrupt_files.push_back(report_path);
       }
     } catch (const Error&) {
-      report.corrupt_files.push_back(iterator->path());
+      report.corrupt_files.push_back(report_path);
     }
   }
   if (error) throw_io("scan_objects", object_root, error);
@@ -987,20 +1089,22 @@ ArtifactGcReport FileArtifactStore::collect_garbage(
   ArtifactGcReport report;
   const auto object_root = root_ / "objects";
   std::error_code error;
-  const bool present = std::filesystem::exists(object_root, error);
+  const bool present = std::filesystem::exists(
+      artifact_filesystem_path(object_root, "exists"), error);
   if (error) throw_io("exists", object_root, error);
   if (!present) return report;
   require_unlinked_directory(object_root);
-  for (std::filesystem::recursive_directory_iterator
-           iterator(object_root, error),
+  for (std::filesystem::recursive_directory_iterator iterator(
+           artifact_filesystem_path(object_root, "scan_objects"), error),
        end;
        iterator != end; iterator.increment(error)) {
     if (error) throw_io("scan_objects", object_root, error);
     if (!is_unlinked_regular_file(iterator->path())) {
       continue;
     }
-    const auto relative =
-        std::filesystem::relative(iterator->path(), root_, error);
+    const auto relative = std::filesystem::relative(
+        iterator->path(),
+        artifact_filesystem_path(root_, "relative_object_path"), error);
     if (error) throw_io("relative_object_path", iterator->path(), error);
     if (!is_object_relative_path(relative)) {
       ++report.retained_files;
@@ -1013,7 +1117,8 @@ ArtifactGcReport FileArtifactStore::collect_garbage(
       continue;
     }
     const auto size = checked_file_size(iterator->path());
-    std::filesystem::remove(iterator->path(), error);
+    std::filesystem::remove(
+        artifact_filesystem_path(iterator->path(), "remove"), error);
     if (error) throw_io("gc_remove", iterator->path(), error);
     ++report.removed_files;
     report.removed_bytes += size;

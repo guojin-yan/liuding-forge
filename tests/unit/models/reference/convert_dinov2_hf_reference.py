@@ -3,7 +3,10 @@
 # Product: 六丁炼算 (Liuding Forge)
 # Project alias: JYPPX Training Framework
 # Licensed under the Apache License, Version 2.0.
-"""Convert the pinned official DINOv2-S/14 safetensors, offline and without torch.
+"""TEST-ONLY independent legacy reference for pinned DINOv2-S conversion.
+
+Not installed, supported as a user converter, or invoked by product code.
+The native liuding-forge-convert-dinov2-hf tool is the product entry point.
 
 Only the reviewed facebook/dinov2-small revision is accepted. Tensor payloads
 are streamed unchanged; Q/K/V are concatenated in that order. The mask token
