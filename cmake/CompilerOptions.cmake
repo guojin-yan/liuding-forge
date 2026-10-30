@@ -18,6 +18,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_optim
     jyppx_liuding_experiment
     jyppx_liuding_telemetry_native
+    jyppx_liuding_telemetry_http
     jyppx_liuding_models
     jyppx_liuding_onnx_export
     jyppx_liuding_onnx_runtime

@@ -166,3 +166,7 @@ Linux 使用调用者显式选择的共享系统 libcurl >= 7.81.0 SDK，适用 
 ### 原生 OTLP 协议
 
 同一可选组件使用 OpenTelemetry proto 1.7.0 的官方 schema 生成私有描述符（Apache-2.0；Copyright 2019, OpenTelemetry Authors；Copyright 2020, OpenTelemetry Authors），复用 nanopb 0.4.9.2 运行库；不链接 OpenTelemetry C++ SDK 或 Python SDK。完整许可证位于 `third_party/licenses/opentelemetry-proto-v1.7.0-LICENSE`，各 schema 与开发期生成工具的来源摘要见 `scripts/telemetry/native_schema.lock.json`。离线协议准备不包含 HTTP/TLS 传输。依赖与原始许可证摘要均纳入正式清单；许可证留存不表示已完成依赖安全或发布审计。
+
+### 可选原生 OTLP HTTP
+
+独立可选 `telemetry_http` 使用系统 WinHTTP（Windows）或显式选择的共享系统 libcurl >= 7.81（Linux），不复制或分发网络库、TLS 库及 CA 证书。Linux curl 适用 [curl license](https://curl.se/docs/copyright.html)，其 TLS、DNS 和其他依赖各自适用对应条款；Windows 系统 SDK/runtime 适用 Microsoft 相应条款。安装消费者也需显式选择自己的系统 curl SDK。该系统链接策略不代表已完成所选发行版包的 CVE、许可证或发布资格审查。

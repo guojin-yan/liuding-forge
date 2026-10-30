@@ -12,10 +12,12 @@
 
 namespace jyppx::liuding::experiment::detail {
 
-// Internal seam only. No product HTTP implementation is supplied by this
-// mapping slice. Future adapters must return only a complete bounded HTTP 200
-// body, suppress proxies/redirect/auth/cookies and enforce strong cancellation
-// and the absolute deadline through cleanup. This is not a user callback API.
+// Internal seam only, not a public callback API. Senders return only a complete
+// bounded HTTP 200 body and suppress proxies/redirect/auth/cookies. The native
+// synchronous HTTP adapter implements TelemetrySink cooperative stop/deadline
+// checks, including cleanup before success. It does not satisfy the separate
+// process-isolated hard-termination gate required to replace the old CLI
+// sidecar.
 class OtlpRequestSender {
  public:
   virtual ~OtlpRequestSender() = default;

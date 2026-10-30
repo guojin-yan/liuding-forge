@@ -38,6 +38,7 @@ option(JYPPX_LIUDING_BUILD_ONNX_RUNTIME "Build the optional ONNX Runtime adapter
 option(JYPPX_LIUDING_BUILD_ONNX_SERVING "Build the optional ONNX Runtime serving bridge" OFF)
 option(JYPPX_LIUDING_BUILD_BUNDLE_SIGNING "Build native Ed25519 model bundle signing" OFF)
 option(JYPPX_LIUDING_BUILD_TELEMETRY_NATIVE "Build optional native TensorBoard and offline OTLP protobuf support" OFF)
+option(JYPPX_LIUDING_BUILD_TELEMETRY_HTTP "Build optional native synchronous OTLP HTTP sender" OFF)
 set(JYPPX_LIUDING_MODELS_REFERENCE_DIR "" CACHE PATH
     "Pre-generated official models reference fixtures; enables the optional differential test")
 set(JYPPX_TOOLS_DEFAULT OFF)
@@ -896,6 +897,9 @@ endif()
 
 if(JYPPX_LIUDING_BUILD_TELEMETRY_NATIVE)
     include(cmake/TelemetryNative.cmake)
+endif()
+if(JYPPX_LIUDING_BUILD_TELEMETRY_HTTP)
+    include(cmake/TelemetryHttp.cmake)
 endif()
 
 add_library(jyppx_liuding_all INTERFACE)

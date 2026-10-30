@@ -334,6 +334,9 @@ Plan read_plan(const Json& value) {
   probe.payload = TelemetryMetricBatch{{std::move(objective_probe)}};
   validate_telemetry_envelope(probe);
   const auto& execution = value.at("execution");
+  require(!execution.contains("training"),
+          "Typed training inputs currently use local execute; search owns "
+          "its per-trial configuration and does not rebind training inputs");
   require(
       execution.at("project_id").get<std::string>() == result.project &&
           execution.at("experiment_id").get<std::string>() == result.experiment,

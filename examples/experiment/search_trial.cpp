@@ -4,30 +4,37 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-/** @file search_trial.cpp @brief Offline native training worker for local
- * search. */
+/** @file search_trial.cpp @brief Native training for bounded local search and
+ * explicit checkpoint resume. */
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
 #include <jyppx/liuding/interop/file_state_archive.hpp>
 #include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
+#include <jyppx/liuding/optim/sgd_adapter.hpp>
+#include <jyppx/liuding/training/checkpoint_coordinator.hpp>
+#include <jyppx/liuding/training/file_checkpoint_store.hpp>
 
 #include <torch/torch.h>
 
 #include <ATen/Parallel.h>
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 namespace forge = jyppx::liuding;
@@ -145,6 +152,348 @@ void WriteSpec(const fs::path& executable, const fs::path& output,
   stream.close();
   if (!stream) throw std::runtime_error("Cannot write search specification");
   std::cout << "Search specification written; executable SHA-256 pinned.\n";
+}
+
+// This local mode uses the same executable as search, with a separate frozen
+// training-input contract. It has no random batches, scheduler or AMP state.
+constexpr std::string_view kLocalProject = "local-training-example";
+constexpr std::string_view kLocalModel = "example.affine.v1";
+
+Json LocalConfiguration() {
+  return {{"learning_rate", 0.05}, {"momentum", 0.9}, {"total_steps", 60}};
+}
+
+Json LocalData() {
+  return {{"format", "affine-generated/v1"},
+          {"train_count", 32},
+          {"validation_count", 10},
+          {"slope", 3.0},
+          {"intercept", 0.5}};
+}
+
+std::string LocalEnvironment(std::string_view name) {
+#if defined(_WIN32)
+  const std::wstring key(name.begin(), name.end());
+  const auto* value = _wgetenv(key.c_str());
+  if (!value || !*value)
+    throw std::runtime_error("Missing local worker identity");
+  return Utf8(fs::path(value));
+#else
+  const auto* value = std::getenv(std::string(name).c_str());
+  if (!value || !*value)
+    throw std::runtime_error("Missing local worker identity");
+  return value;
+#endif
+}
+
+std::uint64_t LocalStep(std::string_view text) {
+  std::uint64_t value = 0;
+  const auto parsed =
+      std::from_chars(text.data(), text.data() + text.size(), value);
+  if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
+      value == 0 || value > 60)
+    throw std::runtime_error("The local example requires 1-60 updates");
+  return value;
+}
+
+Json LocalBinding(std::string_view run,
+                  const experiment::RunArtifactReference& reference) {
+  return {{"run_id", run},
+          {"reference_id", reference.reference_id},
+          {"sha256", reference.artifact.digest.hex},
+          {"size_bytes", reference.artifact.size_bytes}};
+}
+
+void WriteLocalSpec(const fs::path& executable, const fs::path& output,
+                    const fs::path& root, std::uint64_t until,
+                    const std::string& resume_run) {
+  if (!output.is_absolute() || fs::exists(output) || !root.is_absolute())
+    throw std::runtime_error(
+        "Use an unused absolute spec file and absolute store");
+  experiment::SQLiteRunStore store(root);
+  const auto inputs =
+      "local-example-inputs." + forge::sha256_hex(Bytes(Utf8(output)));
+  if (store.find(inputs))
+    throw std::runtime_error(
+        "Example input identity already exists; select a new spec file");
+  const auto stamp = Now();
+  store.start({.run_id = inputs,
+               .project_id = std::string(kLocalProject),
+               .experiment_id = "linear-regression",
+               .display_name = "Frozen local example inputs",
+               .status = experiment::RunStatus::running,
+               .created_at_unix_ms = stamp,
+               .updated_at_unix_ms = stamp});
+  const auto publish = [&](std::string name, const Json& content) {
+    const auto encoded = content.dump();
+    return store.put_artifact(inputs, name,
+                              experiment::RunArtifactKind::artifact, name,
+                              Bytes(encoded),
+                              {.logical_name = name + ".json",
+                               .media_type = "application/json",
+                               .producer = "liuding-forge-example-search-trial",
+                               .expected_size_bytes = encoded.size()},
+                              stamp);
+  };
+  const auto configuration = publish("configuration", LocalConfiguration());
+  const auto data = publish("data_manifest", LocalData());
+  store.transition(inputs, experiment::RunStatus::completed, Now());
+  Json resume = nullptr;
+  if (!resume_run.empty()) {
+    const auto source = store.find(resume_run);
+    const auto checkpoint = store.find_reference(resume_run, "checkpoint.last");
+    if (!source || source->project_id != kLocalProject ||
+        !experiment::is_terminal_run_status(source->status) ||
+        source->status == experiment::RunStatus::interrupted || !checkpoint ||
+        checkpoint->kind != experiment::RunArtifactKind::checkpoint)
+      throw std::runtime_error(
+          "Select a terminal example attempt with checkpoint.last");
+    resume = {{"checkpoint", LocalBinding(resume_run, *checkpoint)},
+              {"restore_policy", "exact_only"}};
+  }
+  const auto worker = fs::canonical(executable);
+  const Json spec{
+      {"format", "jyppx.liuding.local_run_spec"},
+      {"schema_version", 1},
+      {"project_id", kLocalProject},
+      {"experiment_id", "linear-regression"},
+      {"executable", Utf8(worker)},
+      {"executable_sha256", FileDigest(worker)},
+      {"arguments", {"--local-training", std::to_string(until)}},
+      {"working_directory", Utf8(fs::current_path())},
+      {"environment", {{"OMP_NUM_THREADS", "2"}, {"MKL_NUM_THREADS", "2"}}},
+      {"inherit_environment", true},
+      {"timeout_ms", 30000},
+      {"max_attempts", 1},
+      {"retry_exit_codes", Json::array()},
+      {"max_stdout_bytes", 65536},
+      {"max_stderr_bytes", 65536},
+      {"training",
+       {{"model_id", kLocalModel},
+        {"configuration", LocalBinding(inputs, configuration)},
+        {"data_manifest", LocalBinding(inputs, data)},
+        {"resume", std::move(resume)}}}};
+  std::ofstream stream(output, std::ios::binary);
+  stream << spec.dump(2) << '\n';
+  stream.close();
+  if (!stream)
+    throw std::runtime_error("Cannot write local training specification");
+  std::cout << "Local training specification written; inputs and executable "
+               "pinned.\n";
+}
+
+// Immutable participant refuses a checkpoint captured with another model,
+// configuration or dataset. Update count and momentum belong to native SGD.
+class LocalInputIdentity final : public forge::CheckpointParticipant {
+ public:
+  explicit LocalInputIdentity(std::string identity)
+      : identity_(std::move(identity)) {}
+  std::string participant_id() const override { return "run.inputs"; }
+  forge::StateManifest describe_state() const override {
+    return {.participant_id = participant_id(),
+            .schema_version = 1,
+            .restore_level = forge::RestoreLevel::exact,
+            .fields = {{.name = "identity",
+                        .media_type = "application/json",
+                        .max_bytes = 1024,
+                        .required = true}}};
+  }
+  void save_state(forge::StateWriter& writer) const override {
+    writer.write_blob("identity", Bytes(identity_));
+  }
+  void load_state(const forge::StateReader& reader,
+                  forge::RestorePolicy policy) override {
+    const auto expected = describe_state();
+    const auto& actual = reader.manifest();
+    forge::validate_state_manifest(actual);
+    if (!forge::restore_policy_accepts(policy, actual.restore_level) ||
+        actual.participant_id != expected.participant_id ||
+        actual.schema_version != expected.schema_version ||
+        actual.restore_level != forge::RestoreLevel::exact ||
+        !forge::state_fields_equal(actual.fields, expected.fields))
+      throw forge::CompatibilityError("Local training input manifest differs");
+    const auto value = reader.read_blob("identity", 1024);
+    if (!std::equal(value.begin(), value.end(), Bytes(identity_).begin(),
+                    Bytes(identity_).end()))
+      throw forge::CompatibilityError(
+          "Checkpoint model/configuration/data identity differs");
+  }
+
+ private:
+  std::string identity_;
+};
+
+std::string ReadLocalArtifact(experiment::SQLiteRunStore& store,
+                              std::string_view run, std::string_view id,
+                              std::uint64_t limit,
+                              std::string_view expected_digest) {
+  const auto reference = store.find_reference(run, id);
+  if (!reference || reference->artifact.size_bytes > limit ||
+      reference->artifact.digest.hex != expected_digest)
+    throw std::runtime_error("Pinned local input reference differs");
+  experiment::FileArtifactStore cas(store.artifact_root());
+  auto reader = cas.open(reference->artifact.digest);
+  if (reader->size_bytes() != reference->artifact.size_bytes)
+    throw std::runtime_error("Pinned local input size differs");
+  std::string content(static_cast<std::size_t>(reader->size_bytes()), '\0');
+  std::size_t offset = 0;
+  while (offset < content.size()) {
+    const auto count = reader->read(std::as_writable_bytes(
+        std::span(content.data() + offset, content.size() - offset)));
+    if (!count) throw std::runtime_error("Truncated local input");
+    offset += count;
+  }
+  if (forge::sha256_hex(Bytes(content)) != expected_digest)
+    throw std::runtime_error("Pinned local input bytes differ");
+  return content;
+}
+
+void LocalTrain(std::uint64_t until) {
+  const auto root =
+      fs::u8path(LocalEnvironment("JYPPX_LIUDING_LOCAL_STORE_ROOT"));
+  const auto job = LocalEnvironment("JYPPX_LIUDING_LOCAL_JOB_ID");
+  const auto attempt = LocalEnvironment("JYPPX_LIUDING_LOCAL_ATTEMPT_ID");
+  const auto spec_sha = LocalEnvironment("JYPPX_LIUDING_LOCAL_SPEC_SHA256");
+  experiment::SQLiteRunStore store(root);
+  const auto metadata = store.find(attempt);
+  if (!metadata || metadata->status != experiment::RunStatus::running ||
+      metadata->lineage.parent_run_id != job ||
+      metadata->lineage.config_digest != spec_sha)
+    throw std::runtime_error(
+        "Local example requires its owned running attempt");
+  const auto spec =
+      Json::parse(ReadLocalArtifact(store, job, "local.spec", 65536, spec_sha));
+  const auto& training = spec.at("training");
+  if (training.at("model_id").get<std::string>() != kLocalModel)
+    throw std::runtime_error("This example implements example.affine.v1 only");
+  const auto config_sha =
+      training.at("configuration").at("sha256").get<std::string>();
+  const auto data_sha =
+      training.at("data_manifest").at("sha256").get<std::string>();
+  const auto config = Json::parse(ReadLocalArtifact(
+      store, job, "local.training.configuration", 4096, config_sha));
+  const auto data = Json::parse(ReadLocalArtifact(
+      store, job, "local.training.data_manifest", 4096, data_sha));
+  if (config != LocalConfiguration() || data != LocalData())
+    throw std::runtime_error(
+        "The learning example requires its frozen affine recipe");
+  const auto work_parent = root / "local-training-example";
+  fs::create_directories(work_parent);
+  const auto work = work_parent / attempt;
+  if (!fs::create_directory(work))
+    throw std::runtime_error(
+        "Attempt workspace already exists; do not relaunch it");
+  at::set_num_threads(2);
+  auto model = std::make_shared<torch::nn::LinearImpl>(1, 1);
+  {
+    const torch::NoGradGuard guard;
+    model->weight.zero_();
+    model->bias.zero_();
+  }
+  auto optimizer = std::make_shared<forge::optim::SgdOptimizerAdapter>(
+      "optimizer.main",
+      std::vector<forge::optim::SgdParameterGroup>{
+          {.group_id = "main",
+           .parameters = {{.parameter_id = "weight",
+                           .parameter = model->weight},
+                          {.parameter_id = "bias", .parameter = model->bias}},
+           .options = {.learning_rate = 0.05, .momentum = 0.9}}});
+  forge::training::CheckpointParticipantRegistry registry;
+  registry.register_participant(
+      std::make_shared<forge::nn::ModelCheckpointParticipant>(
+          std::make_shared<forge::nn::ModelStateView>(model),
+          forge::nn::ModelCheckpointParticipantOptions{
+              .max_tensors = 2,
+              .max_topology_bytes = 4096,
+              .max_tensor_bytes = 64,
+              .max_total_bytes = 8192}));
+  registry.register_participant(
+      std::make_shared<forge::optim::SgdOptimizerCheckpointParticipant>(
+          optimizer, forge::optim::SgdOptimizerCheckpointOptions{
+                         .max_groups = 1,
+                         .max_parameters = 2,
+                         .max_topology_bytes = 4096,
+                         .max_producer_bytes = 4096,
+                         .max_control_bytes = 4096,
+                         .max_tensor_bytes = 64,
+                         .max_total_bytes = 16384}));
+  registry.register_participant(std::make_shared<LocalInputIdentity>(Json{
+      {"model_id", kLocalModel},
+      {"configuration_sha256", config_sha},
+      {"data_manifest_sha256", data_sha}}.dump()));
+  forge::training::CheckpointCoordinator coordinator(
+      registry, {.max_participants = 3, .max_rollback_bytes = 65536});
+  const forge::training::FileCheckpointStoreOptions limits{
+      .max_artifact_bytes = 65536, .max_field_bytes = 16384};
+  const auto& resume = training.at("resume");
+  if (!resume.is_null()) {
+    if (resume.at("restore_policy") != "exact_only")
+      throw std::runtime_error("The example requires exact_only restore");
+    const auto checkpoint = ReadLocalArtifact(
+        store, job, "local.training.resume", 65536,
+        resume.at("checkpoint").at("sha256").get<std::string>());
+    const auto path = work / "resume.jyck";
+    std::ofstream stream(path, std::ios::binary);
+    stream.write(checkpoint.data(),
+                 static_cast<std::streamsize>(checkpoint.size()));
+    stream.close();
+    if (!stream)
+      throw std::runtime_error("Cannot stage the bounded example checkpoint");
+    forge::training::FileCheckpointStore source(path, limits);
+    coordinator.restore(source, forge::RestorePolicy::exact_only);
+  }
+  const auto initial_step = optimizer->completed_steps();
+  if (initial_step >= until)
+    throw std::runtime_error(
+        "Select a new budget beyond the restored update count");
+  const auto train_x = torch::linspace(-1.0, 1.0, 32).reshape({32, 1});
+  const auto train_y = train_x * 3.0 + 0.5;
+  for (auto step = initial_step; step < until; ++step) {
+    optimizer->zero_grad();
+    torch::mse_loss(model->forward(train_x), train_y).backward();
+    optimizer->step();
+  }
+  const auto checkpoint = work / "checkpoint-last.jyck";
+  {
+    forge::training::FileCheckpointStore sink(checkpoint, limits);
+    coordinator.save(sink);
+  }
+  const auto stamp = Now();
+  const auto published = store.put_artifact_file(
+      attempt, "checkpoint.last", experiment::RunArtifactKind::checkpoint,
+      "last", checkpoint,
+      {.logical_name = "checkpoint-last.jyck",
+       .media_type = "application/octet-stream",
+       .producer = "liuding-forge-example-search-trial",
+       .expected_size_bytes = fs::file_size(checkpoint)},
+      stamp, {.hex = FileDigest(checkpoint)});
+  const torch::NoGradGuard guard;
+  const auto x = torch::linspace(-0.9, 0.9, 10).reshape({10, 1});
+  const auto mse =
+      torch::mse_loss(model->forward(x), x * 3.0 + 0.5).item<double>();
+  if (!std::isfinite(mse))
+    throw std::runtime_error("Nonfinite local training metric");
+  const Json result{{"model_id", kLocalModel},
+                    {"configuration_sha256", config_sha},
+                    {"data_manifest_sha256", data_sha},
+                    {"initial_step", initial_step},
+                    {"completed_steps", optimizer->completed_steps()},
+                    {"restore_policy", "exact_only"},
+                    {"resumed", !resume.is_null()},
+                    {"validation_mse", mse},
+                    {"weight", model->weight.item<double>()},
+                    {"bias", model->bias.item<double>()},
+                    {"checkpoint_sha256", published.artifact.digest.hex}};
+  const auto content = result.dump();
+  store.put_artifact(attempt, "training.result",
+                     experiment::RunArtifactKind::artifact, "training.result",
+                     Bytes(content),
+                     {.logical_name = "training-result.json",
+                      .media_type = "application/json",
+                      .producer = "liuding-forge-example-search-trial",
+                      .expected_size_bytes = content.size()},
+                     stamp);
+  std::cout << "Native model, SGD momentum and committed update count saved.\n";
 }
 
 void Train(const std::map<std::string, std::string>& arguments) {
@@ -296,10 +645,14 @@ int main(int argc, char** argv) {
 #endif
   try {
     if (argc == 2 && Utf8(fs::path(argv[1])) == "--help") {
-      std::cout << "Usage: liuding-forge-example-search-trial --write-spec "
-                   "ABSOLUTE_FILE [--strategy grid|random]\n"
-                   "Worker: --store ROOT --trial ID --run ID --config FILE "
-                   "--config-sha256 SHA256 --seed UINT64\n";
+      std::cout
+          << "Usage: liuding-forge-example-search-trial --write-spec "
+             "ABSOLUTE_FILE [--strategy grid|random]\n"
+             "Worker: --store ROOT --trial ID --run ID --config FILE "
+             "--config-sha256 SHA256 --seed UINT64\n"
+             "Local: --write-local-spec FILE --store ROOT --until-step 20 "
+             "[--resume-run SOURCE_ATTEMPT]\n"
+             "Local worker: --local-training UNTIL_STEP (owned runner only)\n";
       return 0;
     }
     std::map<std::string, std::string> arguments;
@@ -311,7 +664,21 @@ int main(int argc, char** argv) {
         throw std::runtime_error(
             "Expected distinct option/value pairs; see --help");
     }
-    if (arguments.contains("--write-spec")) {
+    if (arguments.contains("--write-local-spec")) {
+      if (arguments.size() != (arguments.contains("--resume-run") ? 4U : 3U))
+        throw std::runtime_error(
+            "Unknown local specification option; see --help");
+      WriteLocalSpec(
+          fs::path(argv[0]), fs::u8path(arguments.at("--write-local-spec")),
+          fs::u8path(arguments.at("--store")),
+          LocalStep(arguments.at("--until-step")),
+          arguments.contains("--resume-run") ? arguments.at("--resume-run")
+                                             : "");
+    } else if (arguments.contains("--local-training")) {
+      if (arguments.size() != 1U)
+        throw std::runtime_error("Unknown local worker option; see --help");
+      LocalTrain(LocalStep(arguments.at("--local-training")));
+    } else if (arguments.contains("--write-spec")) {
       if (arguments.size() != (arguments.contains("--strategy") ? 2U : 1U))
         throw std::runtime_error("Unknown specification option");
       WriteSpec(fs::path(argv[0]), fs::u8path(arguments.at("--write-spec")),

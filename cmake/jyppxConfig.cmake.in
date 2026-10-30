@@ -12,6 +12,14 @@ endif()
 if(@JYPPX_LIUDING_BUILD_BUNDLE_SIGNING@)
     include("${CMAKE_CURRENT_LIST_DIR}/jyppxBundleCrypto.cmake")
 endif()
+if(@JYPPX_LIUDING_BUILD_TELEMETRY_HTTP@ AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Explicit SDK/offline consumers never discover an unused network SDK.
+    if(NOT jyppx_FIND_COMPONENTS OR "telemetry_http" IN_LIST jyppx_FIND_COMPONENTS
+       OR "all" IN_LIST jyppx_FIND_COMPONENTS)
+        include("${CMAKE_CURRENT_LIST_DIR}/jyppxTelemetryHttpDependency.cmake")
+        jyppx_require_telemetry_http_curl()
+    endif()
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/jyppxTargets.cmake")
 
 set(_jyppx_known_components
@@ -29,6 +37,7 @@ set(_jyppx_known_components
     training
     optim
     experiment
+    telemetry_http
     telemetry_native
     models
     quantization
@@ -59,7 +68,7 @@ endforeach()
 
 foreach(_jyppx_exported_target IN ITEMS
         jyppx::liuding::foundation jyppx::liuding::core jyppx::liuding::interop jyppx::liuding::data jyppx::liuding::data_image jyppx::liuding::nn
-        jyppx::liuding::training jyppx::liuding::optim jyppx::liuding::experiment jyppx::liuding::telemetry_native
+        jyppx::liuding::training jyppx::liuding::optim jyppx::liuding::experiment jyppx::liuding::telemetry_native jyppx::liuding::telemetry_http
         jyppx::liuding::models jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime
         jyppx::liuding::onnx_serving jyppx::liuding::bundle_signing
         jyppx::liuding::quantization jyppx::liuding::serving

@@ -128,13 +128,15 @@ if(TARGET jyppx::liuding::onnx_serving AND TARGET jyppx::liuding::onnx_export)
 endif()
 
 if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::nn
-   AND TARGET jyppx::liuding::interop)
+   AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::training
+   AND TARGET jyppx::liuding::optim)
     add_executable(jyppx_liuding_search_trial experiment/search_trial.cpp)
     set_target_properties(jyppx_liuding_search_trial PROPERTIES
         OUTPUT_NAME liuding-forge-example-search-trial)
     target_link_libraries(jyppx_liuding_search_trial PRIVATE
         jyppx::liuding::experiment jyppx::liuding::nn
-        jyppx::liuding::interop nlohmann_json::nlohmann_json)
+        jyppx::liuding::interop jyppx::liuding::training jyppx::liuding::optim
+        nlohmann_json::nlohmann_json)
     jyppx_apply_instrumentation(jyppx_liuding_search_trial)
     jyppx_add_torch_runtime_dependency(jyppx_liuding_search_trial)
     if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND
@@ -259,4 +261,14 @@ if(TARGET jyppx::liuding::telemetry_native)
     elseif(JYPPX_LIUDING_BUILD_TESTS AND JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
         message(FATAL_ERROR "Official native OTLP acceptance requires JYPPX_TELEMETRY_PYTHON")
     endif()
+endif()
+
+if(TARGET jyppx::liuding::telemetry_http)
+    add_executable(jyppx_liuding_otlp_http_example experiment/otlp_http.cpp)
+    set_target_properties(jyppx_liuding_otlp_http_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-otlp-http)
+    target_link_libraries(jyppx_liuding_otlp_http_example PRIVATE
+        jyppx::liuding::telemetry_http)
+    jyppx_apply_instrumentation(jyppx_liuding_otlp_http_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_otlp_http_example)
 endif()

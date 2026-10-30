@@ -863,3 +863,26 @@ if(TARGET jyppx::liuding::telemetry_native)
     target_include_directories(jyppx_test_otlp_projection PRIVATE
         "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/telemetry_native/detail")
 endif()
+
+if(TARGET jyppx::liuding::telemetry_http)
+    jyppx_add_gtest(jyppx_test_otlp_http
+        LINK_TARGET jyppx::liuding::telemetry_http
+        experiment/test_otlp_http.cpp)
+    add_executable(jyppx_test_otlp_http_harness
+        "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_http/harness.cpp")
+    target_link_libraries(jyppx_test_otlp_http_harness PRIVATE
+        jyppx::liuding::telemetry_http Threads::Threads)
+    jyppx_apply_instrumentation(jyppx_test_otlp_http_harness)
+    jyppx_add_torch_runtime_dependency(jyppx_test_otlp_http_harness)
+    if(JYPPX_TELEMETRY_PYTHON)
+        add_test(NAME NativeOtlpHttpWireContract
+            COMMAND "${JYPPX_TELEMETRY_PYTHON}" -I -B
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_http.py"
+                --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>)
+        set_tests_properties(NativeOtlpHttpWireContract PROPERTIES
+            LABELS "experiment;telemetry;otlp;native;reference;loopback"
+            TIMEOUT 180 RUN_SERIAL TRUE)
+    elseif(JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
+        message(FATAL_ERROR "Native HTTP wire acceptance requires the locked independent JYPPX_TELEMETRY_PYTHON checker")
+    endif()
+endif()

@@ -20,7 +20,10 @@
     "mnist-https-winhttp-windows": "pending",
     "nanopb-native-telemetry": "recorded",
     "tensorboard-native-schema": "recorded",
-    "opentelemetry-native-schema": "recorded"
+    "opentelemetry-native-schema": "recorded",
+    "telemetry-http-libcurl-linux-runtime": "pending",
+    "telemetry-http-libcurl-linux-headers": "pending",
+    "telemetry-http-winhttp-windows": "pending"
   },
   "files": [
     {
@@ -521,7 +524,8 @@
     "Optional remediation wheel notices are retained and both platform sidecar acceptance gates passed; full transitive review remains pending.",
     "ONNX Runtime entries retain the exact CPU SDK LICENSE and ThirdPartyNotices for each archive; this is not a CVE audit, a transitive license completeness claim, or GPU/provider execution qualification.",
     "MNIST optional HTTPS uses external system WinHTTP on Windows or matched libcurl4/libcurl4-openssl-dev packages from the curl source package on Ubuntu. Verified curl package digests identify only the retained original .deb bytes; curl is the primary upstream license identity, not a completed distro-package or transitive notice audit. WinHTTP SDK/runtime identity and terms, exact selected-build notice review, transitive dependencies, CA trust assets, CVE/patch review and release qualification remain pending. No OS SDK, system curl/TLS library or CA bundle is copied or authorized for redistribution; these external tool inputs do not qualify other versions, distributions or providers.",
-    "Native telemetry records retain exact nanopb, TensorBoard schema and OpenTelemetry schema upstream licenses for the selected immutable archives. Integrity and license retention are separate from runtime, wire-interoperability, vulnerability, transport, redistribution and release qualification. Generated schema source hashes and toolchain provenance are locked in scripts/telemetry/native_schema.lock.json; no Python SDK is a native product runtime dependency."
+    "Native telemetry records retain exact nanopb, TensorBoard schema and OpenTelemetry schema upstream licenses for the selected immutable archives. Integrity and license retention are separate from runtime, wire-interoperability, vulnerability, transport, redistribution and release qualification. Generated schema source hashes and toolchain provenance are locked in scripts/telemetry/native_schema.lock.json; no Python SDK is a native product runtime dependency.",
+    "Optional native OTLP HTTP records the same external WinHTTP and matched Ubuntu curl runtime/header package identities separately from the MNIST tool. Their notice states remain pending: retained package digests and system linking do not complete exact selected-build license/notice, transitive, TLS/CA, SDK terms, vulnerability or redistribution review. No additional license evidence or release qualification is asserted."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"

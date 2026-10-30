@@ -522,7 +522,8 @@ class LocalSearchTests(unittest.TestCase):
             lambda value: value["objective"]["context"].update(split="x" * 4097),
             lambda value: value["execution"].update(arguments=["--unknown=${param.learning_rate}"]),
             lambda value: value["space"][0].update(values=[1.0, 1.0]),
-            lambda value: value["execution"].update(executable_sha256="0" * 64)]
+            lambda value: value["execution"].update(executable_sha256="0" * 64),
+            lambda value: value["execution"].update(training={})]
         original = copy.deepcopy(self.spec)
         for index, mutate in enumerate(mutations):
             with self.subTest(case=index):

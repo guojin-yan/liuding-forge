@@ -44,6 +44,7 @@ function(jyppx_write_component_graph output_path)
         optim
         quantization
         serving
+        telemetry_http
         telemetry_native
         training
         vision_render

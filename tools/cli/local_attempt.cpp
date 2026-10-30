@@ -20,6 +20,7 @@
 #include <memory>
 #include <set>
 #include <thread>
+#include <vector>
 
 namespace jyppx::liuding::cli {
 namespace {
@@ -157,6 +158,50 @@ class OwnerLock final {
 #endif
 };
 
+struct TrainingInput {
+  std::string run;
+  std::string reference;
+  ArtifactDigest digest;
+  std::uint64_t size = 0;
+};
+
+struct TrainingSpec {
+  std::string model;
+  TrainingInput configuration;
+  TrainingInput data_manifest;
+  std::optional<TrainingInput> resume;
+};
+
+TrainingInput training_input(const Json& value, std::uint64_t limit) {
+  fields(value, {"run_id", "reference_id", "sha256", "size_bytes"});
+  TrainingInput result;
+  result.run = text(value.at("run_id"));
+  result.reference = text(value.at("reference_id"));
+  identifier(result.run);
+  identifier(result.reference);
+  result.digest.hex = text(value.at("sha256"));
+  validate_artifact_digest(result.digest);
+  result.size = positive(value.at("size_bytes"), limit);
+  return result;
+}
+
+TrainingSpec training_spec(const Json& value) {
+  fields(value, {"model_id", "configuration", "data_manifest", "resume"});
+  TrainingSpec result;
+  result.model = text(value.at("model_id"));
+  identifier(result.model);
+  result.configuration = training_input(value.at("configuration"), 1U << 20U);
+  result.data_manifest = training_input(value.at("data_manifest"), 1U << 20U);
+  if (!value.at("resume").is_null()) {
+    const auto& resume = value.at("resume");
+    fields(resume, {"checkpoint", "restore_policy"});
+    require(text(resume.at("restore_policy")) == "exact_only",
+            "Local training currently requires explicit exact_only restore");
+    result.resume = training_input(resume.at("checkpoint"), 1ULL << 30U);
+  }
+  return result;
+}
+
 struct Spec {
   Json json;
   std::string canonical;
@@ -169,6 +214,7 @@ struct Spec {
   std::uint64_t retry_delay_ms = 0;
   std::optional<std::uint64_t> deadline_unix_ms;
   std::set<std::uint32_t> retry_exit_codes;
+  std::optional<TrainingSpec> training;
 };
 
 Spec read_spec(const Json& value) {
@@ -178,7 +224,7 @@ Spec read_spec(const Json& value) {
        "executable_sha256", "arguments", "working_directory", "environment",
        "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
-       "deadline_unix_ms"});
+       "deadline_unix_ms", "training"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -242,6 +288,82 @@ Spec read_spec(const Json& value) {
     require(result.retry_exit_codes.insert(code).second,
             "Retry exit codes must be unique and nonzero");
   }
+  if (value.contains("training"))
+    result.training = training_spec(value.at("training"));
+  return result;
+}
+
+// Bind to committed run/CAS identities, not mutable external paths. The
+// consumer owns model/data interpretation and the actual native restore.
+RunMetadata job_metadata(SQLiteRunStore& store, std::string_view job);
+Spec frozen_spec(SQLiteRunStore& store, const RunMetadata& job);
+Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
+             std::uint64_t index);
+RunStatus terminal_status(const Json& result);
+std::string attempt_id(std::string_view job, std::uint64_t index);
+
+std::vector<RunArtifactReference> training_references(
+    SQLiteRunStore& store, const Spec& spec,
+    std::optional<std::string_view> pinned_job = std::nullopt,
+    std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt) {
+  std::vector<RunArtifactReference> result;
+  if (!spec.training) return result;
+  FileArtifactStore cas(store.artifact_root());
+  const auto add = [&](const TrainingInput& input, std::string role,
+                       RunArtifactKind kind) {
+    if (!pinned_job) {
+      const auto source = store.find(input.run);
+      require(source && source->project_id == spec.project &&
+                  is_terminal_run_status(source->status) &&
+                  source->status != RunStatus::interrupted,
+              "Training inputs require a terminal source run in this project");
+      const auto kind_tag = source->tags.find("liuding.local.kind");
+      if (kind_tag != source->tags.end() && kind_tag->second == "attempt") {
+        require(source->lineage.parent_run_id &&
+                    source->tags.contains("liuding.local.index"),
+                "Local training source has incomplete attempt ownership");
+        const auto parent = job_metadata(store, *source->lineage.parent_run_id);
+        const auto source_spec = frozen_spec(store, parent);
+        const auto index =
+            positive(parse_json(source->tags.at("liuding.local.index")),
+                     kMaximumAttempts);
+        require(
+            source->run_id == attempt_id(parent.run_id, index) &&
+                source->lineage.config_digest == source_spec.sha256 &&
+                source->experiment_id == source_spec.experiment,
+            "Local training source differs from its frozen attempt identity");
+        const auto confirmed =
+            outcome(store, parent.run_id, source_spec, index);
+        require(terminal_status(confirmed) == source->status,
+                "Local training source requires its confirmed attempt result");
+      }
+    }
+    const auto reference = store.find_reference(
+        pinned_job ? *pinned_job : std::string_view(input.run),
+        pinned_job ? std::string_view(role) : std::string_view(input.reference),
+        stop, deadline);
+    require(reference && reference->kind == kind &&
+                (!pinned_job || reference->role == role) &&
+                reference->artifact.digest == input.digest &&
+                reference->artifact.size_bytes == input.size,
+            "Training input differs from its committed run/CAS identity");
+    if (pinned_job) {
+      const auto reader = cas.open(input.digest, stop, deadline);
+      require(reader->size_bytes() == input.size,
+              "Training input content size differs from the frozen spec");
+    }
+    auto bound = *reference;
+    bound.reference_id = role;
+    bound.role = std::move(role);
+    result.push_back(std::move(bound));
+  };
+  add(spec.training->configuration, "local.training.configuration",
+      RunArtifactKind::artifact);
+  add(spec.training->data_manifest, "local.training.data_manifest",
+      RunArtifactKind::artifact);
+  if (spec.training->resume)
+    add(*spec.training->resume, "local.training.resume",
+        RunArtifactKind::checkpoint);
   return result;
 }
 
@@ -524,6 +646,30 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
     try {
       preflight(spec);
       auto options = spec.process;
+      const auto started = std::chrono::steady_clock::now();
+      auto deadline = started + options.timeout;
+      if (spec.deadline_unix_ms) {
+        const auto wall = now_ms();
+        const auto left =
+            wall < *spec.deadline_unix_ms ? *spec.deadline_unix_ms - wall : 0;
+        deadline =
+            std::min(deadline, started + std::chrono::milliseconds(left));
+      }
+      if (spec.training) {
+        static_cast<void>(training_references(
+            store, spec, job.run_id, cancellation.get_token(), deadline));
+        options.environment["JYPPX_LIUDING_LOCAL_STORE_ROOT"] = path_text(root);
+        options.environment["JYPPX_LIUDING_LOCAL_SPEC_SHA256"] = spec.sha256;
+        const auto remaining = deadline - std::chrono::steady_clock::now();
+        if (remaining <= std::chrono::steady_clock::duration::zero())
+          throw DeadlineExceeded(
+              "Training input verification exhausted the attempt deadline");
+        options.timeout =
+            std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
+        if (options.timeout.count() <= 0)
+          throw DeadlineExceeded(
+              "Training input verification exhausted the attempt deadline");
+      }
       options.environment["JYPPX_LIUDING_LOCAL_JOB_ID"] = job.run_id;
       options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_ID"] = id;
       options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX"] =
@@ -542,6 +688,10 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
       status = std::string(native_status(native.status));
     } catch (const Error& error) {
       status = "launch_error";
+      if (spec.training && error.code() == ErrorCode::cancelled)
+        status = "cancelled";
+      if (spec.training && error.code() == ErrorCode::deadline_exceeded)
+        status = "timed_out";
       failure_reason = error.what();
       if (failure_reason.size() > 2048)
         failure_reason =
@@ -665,6 +815,17 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
       }
     }
     preflight(spec);
+    if (spec.training) {
+      // Repair a crash before attachment using the same frozen identities.
+      // No attempt/intent exists yet; an ambiguous existing attempt is fenced
+      // above before any repair or relaunch is considered.
+      auto references = training_references(store, spec);
+      for (auto& reference : references)
+        reference.attached_at_unix_ms = job.created_at_unix_ms;
+      // attach() verifies committed CAS content and records the complete
+      // relationship batch atomically. Avoid a second pre-attachment hash.
+      store.attach(job.run_id, references);
+    }
     const auto timestamp = now_ms();
     RunMetadata metadata{
         .run_id = id,

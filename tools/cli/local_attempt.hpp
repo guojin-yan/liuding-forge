@@ -18,6 +18,8 @@ namespace jyppx::liuding::cli {
 Result local_attempt_command(const Arguments& arguments);
 
 /** @brief Validates a frozen request, optionally checking executable and cwd.
+ * Optional typed training inputs are structurally checked here; their run/CAS
+ * bindings are checked by execute before admission and by the owned worker.
  */
 void validate_local_execution_spec(const Json& spec, bool inspect_files = true);
 

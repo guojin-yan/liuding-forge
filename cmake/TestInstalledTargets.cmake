@@ -38,6 +38,20 @@ if(JYPPX_LIUDING_TEST_CONFIG)
     list(APPEND install_args --config "${JYPPX_LIUDING_TEST_CONFIG}")
     list(APPEND test_args -C "${JYPPX_LIUDING_TEST_CONFIG}")
 endif()
+# Propagate the caller's explicitly selected system HTTP SDK to this local
+# installed-consumer test. Installed packages themselves never record it.
+if(DEFINED JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT)
+    set(_jyppx_consumer_http_root "${JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT}")
+else()
+    load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_consumer_source_
+        JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT)
+    set(_jyppx_consumer_http_root
+        "${_jyppx_consumer_source_JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT}")
+endif()
+if(_jyppx_consumer_http_root)
+    list(APPEND config_args
+        "-DJYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT=${_jyppx_consumer_http_root}")
+endif()
 if(JYPPX_CUDA_STANDARD)
     list(APPEND config_args "-DCMAKE_CUDA_STANDARD=${JYPPX_CUDA_STANDARD}")
 endif()

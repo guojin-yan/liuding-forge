@@ -1,9 +1,11 @@
+file(TO_CMAKE_PATH "${Python3_EXECUTABLE}" jyppx_cli_test_python)
+
 jyppx_add_gtest(jyppx_test_sidecar_transport
     LINK_TARGET jyppx_cli_transport
     test_sidecar_transport.cpp)
 target_link_libraries(jyppx_test_sidecar_transport PRIVATE nlohmann_json::nlohmann_json)
 target_compile_definitions(jyppx_test_sidecar_transport PRIVATE
-    JYPPX_SIDECAR_TEST_PYTHON="${Python3_EXECUTABLE}"
+    JYPPX_SIDECAR_TEST_PYTHON="${jyppx_cli_test_python}"
     JYPPX_SIDECAR_TEST_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/sidecar_fixture.py")
 
 jyppx_add_gtest(jyppx_test_local_process
@@ -11,7 +13,7 @@ jyppx_add_gtest(jyppx_test_local_process
     test_local_process.cpp)
 target_link_libraries(jyppx_test_local_process PRIVATE nlohmann_json::nlohmann_json)
 target_compile_definitions(jyppx_test_local_process PRIVATE
-    JYPPX_LOCAL_PROCESS_PYTHON="${Python3_EXECUTABLE}"
+    JYPPX_LOCAL_PROCESS_PYTHON="${jyppx_cli_test_python}"
     JYPPX_LOCAL_PROCESS_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/local_process_fixture.py")
 
 add_test(NAME Cli_local_attempt

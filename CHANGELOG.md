@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
-- 增加可选原生 C++ TensorBoard 事件文件后端与 OTLP 三信号离线编码、响应校验及教学示例；原生网络发送继续开发。
+- 增加可选原生 C++ OTLP HTTP 发送后端，使用系统 WinHTTP 或共享 curl，校验完整协议响应后记录进程内去重；提供指标与审计日志教学示例，强制进程终止及完整 HTTPS Collector 资格继续开发。
+- 本地任务可冻结模型、配置、数据清单和显式 checkpoint 引用；扩展 C++ 教学示例，在新任务中恢复模型、SGD 动量、更新步数和输入身份后继续训练。
+- 增加可选原生 C++ TensorBoard 事件文件后端与 OTLP 三信号离线编码、响应校验及教学示例。
 - 增加原生 C++ MNIST 本地 gzip 准备与显式 HTTPS 下载，校验固定来源、大小、摘要和 IDX 内容；提供数据准备示例，训练示例使用本地 IDX。
 - 增加可选的原生 C++ Fashion-MNIST/CIFAR-10 离线准备入口及教学示例，按固定来源和资源配额流式生成 PNG、索引与内容摘要；构建时显式配置静态 codec SDK。
 - 增加固定 HF DINOv2-S 权重的原生 C++ 转换工具与 CLI，严格验证参数布局和来源摘要，生成权重及转换报告。

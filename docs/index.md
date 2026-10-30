@@ -18,6 +18,7 @@
 12. [按输出通道量化、导出与执行 Linear](../examples/quantization/README.md)
 13. [原生 TensorBoard：记录评估指标](../examples/experiment/README.md#原生-tensorboard)
 14. [离线 OTLP：准备标准遥测请求](../examples/experiment/README.md#离线-otlp-协议准备)
+15. [原生 OTLP HTTP：发送指标与审计日志](tutorials/native-otlp-http.md)
 
 ## 用户指南
 

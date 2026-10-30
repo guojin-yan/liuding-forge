@@ -529,6 +529,83 @@
       ],
       "linkage": "generated-private-schema-no-opentelemetry-cpp-sdk",
       "support_status": "preview-static-candidate-not-runtime-qualified"
+    },
+    {
+      "id": "telemetry-http-libcurl-linux-runtime",
+      "scope": "optional-native-otlp-http-system-runtime",
+      "version": "7.81.0-1ubuntu1.30",
+      "source": {
+        "type": "official-distribution-binary-package-system-sdk",
+        "url": "https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4_7.81.0-1ubuntu1.30_amd64.deb",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "2fc35b8056aebaa6cfe9a5672a8e06339c3e690657fbebc6c5d6b50d9f9626fb",
+        "size_bytes": 293156
+      },
+      "license": {
+        "spdx": [
+          "curl"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "linkage": "dynamic-system-private-product-no-bundling",
+      "support_status": "optional-preview-candidate-not-runtime-qualified-license-and-security-review-pending"
+    },
+    {
+      "id": "telemetry-http-libcurl-linux-headers",
+      "scope": "optional-native-otlp-http-system-build-input",
+      "version": "7.81.0-1ubuntu1.30",
+      "source": {
+        "type": "official-distribution-binary-package-system-sdk",
+        "url": "https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4-openssl-dev_7.81.0-1ubuntu1.30_amd64.deb",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "37567efb750a9cb1d685d38aa9cd3662466ea1258be0de561a6eaf1122347b13",
+        "size_bytes": 387428
+      },
+      "license": {
+        "spdx": [
+          "curl"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "linkage": "headers-and-shared-link-sdk-no-static-or-bundling",
+      "support_status": "optional-preview-candidate-not-runtime-qualified-license-and-security-review-pending"
+    },
+    {
+      "id": "telemetry-http-winhttp-windows",
+      "scope": "optional-native-otlp-http-os-sdk-and-runtime",
+      "version": "unresolved-windows-sdk-and-system-runtime",
+      "source": {
+        "type": "external-system-platform-sdk-unresolved",
+        "url": "https://learn.microsoft.com/windows/win32/winhttp/about-winhttp",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "pending",
+        "sha256": null
+      },
+      "license": {
+        "spdx": [
+          "NOASSERTION"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-os-library-private-product-no-bundling",
+      "support_status": "optional-preview-candidate-not-runtime-qualified-license-and-security-review-pending"
     }
   ]
 }
