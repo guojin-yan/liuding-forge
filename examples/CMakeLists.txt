@@ -14,14 +14,11 @@ set_target_properties(jyppx_mnist PROPERTIES
     OUTPUT_NAME liuding-forge-example-mnist)
 target_link_libraries(jyppx_mnist PRIVATE jyppx::liuding::sdk)
 if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND)
-    add_test(NAME MnistDataPreparation
-        COMMAND ${Python3_EXECUTABLE}
-            "${PROJECT_SOURCE_DIR}/tests/scripts/test_prepare_mnist.py")
     add_test(NAME MnistExampleOffline
         COMMAND ${Python3_EXECUTABLE}
             "${PROJECT_SOURCE_DIR}/tests/scripts/test_mnist_example.py"
             --binary $<TARGET_FILE:jyppx_mnist>)
-    set_tests_properties(MnistDataPreparation MnistExampleOffline PROPERTIES
+    set_tests_properties(MnistExampleOffline PROPERTIES
         LABELS "examples;data;training" TIMEOUT 180)
     if(JYPPX_LIUDING_TEST_CLI_CUDA)
         add_test(NAME MnistExampleOfflineCUDA
@@ -208,4 +205,58 @@ if(JYPPX_LIUDING_PREPARE_CIFAR10 AND TARGET jyppx_dataset_preparation)
         jyppx_dataset_preparation nlohmann_json::nlohmann_json)
     jyppx_apply_instrumentation(jyppx_cifar10_data)
     jyppx_add_torch_runtime_dependency(jyppx_cifar10_data)
+endif()
+
+if(JYPPX_LIUDING_PREPARE_MNIST AND TARGET jyppx_dataset_preparation)
+    add_executable(jyppx_mnist_data data/mnist.cpp)
+    set_target_properties(jyppx_mnist_data PROPERTIES
+        OUTPUT_NAME liuding-forge-example-mnist-data)
+    target_link_libraries(jyppx_mnist_data PRIVATE
+        jyppx_dataset_preparation nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_mnist_data)
+    jyppx_add_torch_runtime_dependency(jyppx_mnist_data)
+endif()
+
+
+if(TARGET jyppx::liuding::telemetry_native)
+    add_executable(jyppx_liuding_native_tensorboard_example experiment/tensorboard.cpp)
+    set_target_properties(jyppx_liuding_native_tensorboard_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-native-tensorboard)
+    target_link_libraries(jyppx_liuding_native_tensorboard_example PRIVATE
+        jyppx::liuding::telemetry_native jyppx::liuding::experiment)
+    jyppx_apply_instrumentation(jyppx_liuding_native_tensorboard_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_native_tensorboard_example)
+    if(JYPPX_LIUDING_BUILD_TESTS AND JYPPX_TELEMETRY_PYTHON)
+        add_test(NAME NativeTensorBoardExample
+            COMMAND "${JYPPX_TELEMETRY_PYTHON}"
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_tensorboard.py"
+                --example $<TARGET_FILE:jyppx_liuding_native_tensorboard_example>
+                --sidecar "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py")
+        set_tests_properties(NativeTensorBoardExample PROPERTIES
+            LABELS "examples;experiment;telemetry;tensorboard;official" TIMEOUT 180)
+    elseif(JYPPX_LIUDING_BUILD_TESTS AND JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
+        message(FATAL_ERROR "Official native telemetry acceptance requires JYPPX_TELEMETRY_PYTHON")
+    endif()
+endif()
+
+if(TARGET jyppx::liuding::telemetry_native)
+    add_executable(jyppx_liuding_otlp_projection_example experiment/otlp_projection.cpp)
+    set_target_properties(jyppx_liuding_otlp_projection_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-otlp-projection)
+    target_link_libraries(jyppx_liuding_otlp_projection_example PRIVATE
+        jyppx::liuding::telemetry_native jyppx::liuding::experiment
+        nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_liuding_otlp_projection_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_otlp_projection_example)
+    if(JYPPX_LIUDING_BUILD_TESTS AND JYPPX_TELEMETRY_PYTHON)
+        add_test(NAME NativeOtlpProjectionExample
+            COMMAND "${JYPPX_TELEMETRY_PYTHON}"
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_projection.py"
+                --example $<TARGET_FILE:jyppx_liuding_otlp_projection_example>
+                --sidecar "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py")
+        set_tests_properties(NativeOtlpProjectionExample PROPERTIES
+            LABELS "examples;experiment;telemetry;otlp;official" TIMEOUT 180)
+    elseif(JYPPX_LIUDING_BUILD_TESTS AND JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
+        message(FATAL_ERROR "Official native OTLP acceptance requires JYPPX_TELEMETRY_PYTHON")
+    endif()
 endif()

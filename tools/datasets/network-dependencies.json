@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "scope": "optional-native-mnist-https-tools-only",
+  "enabled_by": "JYPPX_LIUDING_DOWNLOAD_MNIST",
+  "default_enabled": false,
+  "configure_downloads": false,
+  "dependencies": [
+    {
+      "name": "Windows WinHTTP",
+      "selection": "existing Windows SDK and system runtime",
+      "platform": "windows",
+      "role": "HTTPS GET with system certificate verification",
+      "license": "Microsoft Windows/SDK terms; not Apache-licensed",
+      "source": "https://learn.microsoft.com/windows/win32/winhttp/about-winhttp",
+      "redistributed_by_project": false,
+      "redistribution_rule": "Do not copy winhttp.dll or Windows SDK files into project artifacts."
+    },
+    {
+      "name": "libcurl",
+      "selection": "explicit system shared SDK prefix; headers/runtime >= 7.81.0, TLS and asynchronous DNS required",
+      "platform": "linux",
+      "role": "HTTPS GET with SDK default trust store and peer/hostname verification",
+      "license": "curl license",
+      "license_reference": "https://curl.se/docs/copyright.html",
+      "source": "https://github.com/curl/curl",
+      "redistributed_by_project": false,
+      "transitive_dependencies": "SDK TLS/resolver/compression libraries remain separately licensed system packages",
+      "redistribution_rule": "Project does not vendor/install curl, its CA bundle, or transitive libraries; any future bundling must retain exact licenses/notices and complete security/dependency review.",
+      "provenance": "CMake records selected curlver.h and resolved shared-library SHA-256; no generic SDK version is claimed as release-qualified."
+    }
+  ]
+}

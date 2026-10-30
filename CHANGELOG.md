@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加可选原生 C++ TensorBoard 事件文件后端与 OTLP 三信号离线编码、响应校验及教学示例；原生网络发送继续开发。
+- 增加原生 C++ MNIST 本地 gzip 准备与显式 HTTPS 下载，校验固定来源、大小、摘要和 IDX 内容；提供数据准备示例，训练示例使用本地 IDX。
 - 增加可选的原生 C++ Fashion-MNIST/CIFAR-10 离线准备入口及教学示例，按固定来源和资源配额流式生成 PNG、索引与内容摘要；构建时显式配置静态 codec SDK。
 - 增加固定 HF DINOv2-S 权重的原生 C++ 转换工具与 CLI，严格验证参数布局和来源摘要，生成权重及转换报告。
 - 增加按输出通道权重量化的有界 Linear 制品及原生 ONNX 导出，使用单个 U8U8 `MatMulInteger` 和通道缩放向量；附带校准、导出、ORT 推理的 C++ 教学示例。
@@ -25,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- Linux 私有静态签名加密库隐藏其归档符号，避免与系统 TLS 库发生符号冲突；安装消费者支持显式启用同进程签名与 TLS 回归。
 - Windows 本地 CAS 统一处理长路径，覆盖目录创建、对象发布与读取、核验、临时恢复及垃圾回收，保留公开根路径身份。
 - DINOv2 的 token 投影使用 ATen 融合 Linear，修正三维输入在 C++ 与独立 PyTorch 参考之间的梯度累加路径差异，保留原有参数与配置。
 - 修复配方在非周期步暂停后额外增加检查点与回调计数的问题；Trainer 增加可续训的 `fit_until()` 安全边界，暂停后由调用方显式保存完整状态。

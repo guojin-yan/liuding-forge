@@ -7,8 +7,8 @@
 
 #pragma once
 
-// Example-only, bounded reader for prepared MNIST IDX files. Downloading,
-// SHA-256 verification and gzip decompression belong to prepare_mnist.py.
+// Example-only, bounded reader for prepared local MNIST IDX files.
+// The separate native data.prepare command verifies the source gzip files.
 #include <torch/torch.h>
 
 #include <cstdint>

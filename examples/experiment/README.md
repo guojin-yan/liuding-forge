@@ -63,3 +63,12 @@ $bestRun = $result.best.training_run_id
 搜索配置给出三个试验、120 秒总时长、一次失败和每个原生进程 30 秒的上限。中断后先用 `search recover --root ... --id ...` 恢复已有搜索状态；`search cancel` 请求取消。已有终态搜索可以重新查询，使用同一搜索 ID 执行另一份配置会被拒绝。配置中的二进制哈希、进程限制和制品校验用于确认试验身份与结果，不代表训练吞吐或内存性能结论。
 
 接入自己的训练程序时，保留模板参数接收、冻结配置校验、父试验 lineage、明确的验证指标语义和完成后的模型制品发布，再替换数据、模型、优化器与搜索空间。训练程序须在成功发布指标和检查点后将训练 run 标为完成；搜索只会把满足这些条件的试验纳入最佳结果。
+
+
+## 原生 TensorBoard
+
+启用可选 `telemetry_native` 组件后，构建 `jyppx_liuding_native_tensorboard_example` 并运行 `liuding-forge-example-native-tensorboard exports/learning-run`（父目录需已存在）。[示例源码](tensorboard.cpp) 使用四个样本的预测值和目标值计算平均绝对误差，并导出生命周期、指标和数组缓冲区大小；重复提交相同事件可观察去重结果。[使用与限制](../../docs/api/native_tensorboard.md) 说明安装、映射、容量和失败处理。该示例演示遥测接入，不把数组大小当成训练进程的内存峰值。
+
+## 离线 OTLP 协议准备
+
+构建 `jyppx_liuding_otlp_projection_example`，运行 `liuding-forge-example-otlp-projection exports/otlp-learning`（父目录需已存在，目标目录须尚不存在）。[示例源码](otlp_projection.cpp) 将同一组评估事件保存为 JSONL 和官方 OTLP metrics、logs、traces 请求，并生成请求索引，便于学习中立事件到标准协议的映射。指标与完整审计日志成对准备，span 使用显式时钟锚点；无有效时钟或负时间的事件按支持边界处理。[API 与限制](../../docs/api/otlp_projection.md) 说明数据、容量及响应校验。该示例只写本地文件，不连接 collector，不表示网络导出已经完成。

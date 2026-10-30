@@ -9,6 +9,9 @@
 
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/experiment/telemetry_exporters.hpp>
+#ifdef JYPPX_LIUDING_CLI_NATIVE_TELEMETRY
+#include <jyppx/liuding/telemetry_native/tensorboard.hpp>
+#endif
 #include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <chrono>
@@ -352,8 +355,8 @@ bool boolean_option(const Arguments& arguments, std::string_view name) {
   usage("run.export", "Boolean options require true or false.");
 }
 
-std::filesystem::path jsonl_output(const Arguments& arguments,
-                                   const SQLiteRunStore& store) {
+std::filesystem::path telemetry_output_path(const Arguments& arguments,
+                                            const SQLiteRunStore& store) {
   const auto path = std::filesystem::u8path(arguments.require("output"));
   std::error_code error;
   const auto absolute = std::filesystem::absolute(path, error);
@@ -374,7 +377,13 @@ std::filesystem::path jsonl_output(const Arguments& arguments,
     if (parent == ancestor) break;
     ancestor = parent;
   }
-  error.clear();
+  return path;
+}
+
+std::filesystem::path jsonl_output(const Arguments& arguments,
+                                   const SQLiteRunStore& store) {
+  const auto path = telemetry_output_path(arguments, store);
+  std::error_code error;
   const auto status = std::filesystem::symlink_status(path, error);
   if (error && error != std::errc::no_such_file_or_directory)
     throw IoError("Could not inspect the telemetry output path");
@@ -458,16 +467,19 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
                       std::string_view run_id, TelemetryDeadline deadline) {
   const auto backend = arguments.require("backend");
   const bool jsonl = backend == "jsonl";
-  if (!jsonl && backend != "tensorboard" && backend != "opentelemetry") {
-    usage("run.backend", "Choose jsonl/tensorboard/opentelemetry.");
-  }
-  if ((jsonl && arguments.optional("sidecar-config")) ||
-      (!jsonl &&
-       (arguments.optional("output") || arguments.optional("resume")))) {
-    usage("run.export",
-          "JSONL uses --output/--resume; official backends use "
-          "--sidecar-config.");
-  }
+  const bool native_tensorboard = backend == "tensorboard-native";
+  const bool local = jsonl || native_tensorboard;
+  if (!local && backend != "tensorboard" && backend != "opentelemetry")
+    usage("run.backend",
+          "Choose jsonl/tensorboard-native/tensorboard/opentelemetry.");
+  if ((local && arguments.optional("sidecar-config")) ||
+      (!local &&
+       (arguments.optional("output") || arguments.optional("resume"))) ||
+      (native_tensorboard && arguments.optional("resume")))
+    usage(
+        "run.export",
+        "JSONL uses --output/--resume; tensorboard-native uses a new --output "
+        "directory; sidecar backends use --sidecar-config.");
   RunEventPageRequest request;
   request.after_sequence = arguments.number("after", 0U, kMaximumCoordinate);
   const auto initial_after = request.after_sequence;
@@ -495,6 +507,18 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
     recovery = {{"complete_records", recovered.complete_records},
                 {"truncated_tail_bytes", recovered.truncated_tail_bytes}};
     sink = std::move(observer);
+  } else if (native_tensorboard) {
+#ifdef JYPPX_LIUDING_CLI_NATIVE_TELEMETRY
+    TensorBoardTelemetryOptions options;
+    options.directory = telemetry_output_path(arguments, store);
+    options.sink_id = "cli.export.tensorboard-native";
+    options.destination_id = "local.tensorboard-native";
+    options.limits = store.event_limits().telemetry;
+    options.max_seen = static_cast<std::size_t>(max_events);
+    sink = std::make_unique<TensorBoardTelemetrySink>(std::move(options));
+#else
+    throw NotImplemented("Native TensorBoard is disabled in this build");
+#endif
   } else {
     auto options = sidecar_options(arguments, backend);
     request_bytes = options.max_request_bytes;

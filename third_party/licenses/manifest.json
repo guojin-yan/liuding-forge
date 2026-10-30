@@ -14,7 +14,13 @@
     "onnxruntime-windows-x64": "recorded",
     "onnxruntime-linux-x64": "recorded",
     "dataset-zlib-codec": "pending",
-    "openssl-bundle-signing": "recorded"
+    "openssl-bundle-signing": "recorded",
+    "mnist-https-libcurl-linux-runtime": "pending",
+    "mnist-https-libcurl-linux-headers": "pending",
+    "mnist-https-winhttp-windows": "pending",
+    "nanopb-native-telemetry": "recorded",
+    "tensorboard-native-schema": "recorded",
+    "opentelemetry-native-schema": "recorded"
   },
   "files": [
     {
@@ -471,13 +477,51 @@
       "path": "openssl-3.5.9-LICENSE.txt",
       "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
       "size_bytes": 10175
+    },
+    {
+      "dependency_id": "nanopb-native-telemetry",
+      "path": "nanopb-0.4.9.2-LICENSE.txt",
+      "size_bytes": 898,
+      "sha256": "e2f2fc8fe3faa7dcb09dbe995db48c6ec5c1f72705db915101e4a83fed44f66d",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/nanopb/nanopb/tar.gz/160d4f09e5fabb2b66aa2dea32d4f38ace2c4b3f",
+        "artifact_sha256": "3916241f10ae420ad1504246cfb98ab26c41a877e0c3a2f5dde6a99f610942e1",
+        "entry": "nanopb-160d4f09e5fabb2b66aa2dea32d4f38ace2c4b3f/LICENSE.txt"
+      }
+    },
+    {
+      "dependency_id": "tensorboard-native-schema",
+      "path": "tensorboard-2.20.0-LICENSE",
+      "size_bytes": 11416,
+      "sha256": "d7c9068d896188264b60827b8cd1e25fdb9f5b5cad0b1589e90b96c87729c404",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/tensorflow/tensorboard/tar.gz/474d3eeff366a4217899be2814e9b25dc9067083",
+        "artifact_sha256": "c79bf991e9b976cd85686ec25e37801a4ac10eba23ff473e8abfb6d4c26c1d74",
+        "entry": "tensorboard-474d3eeff366a4217899be2814e9b25dc9067083/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "opentelemetry-native-schema",
+      "path": "opentelemetry-proto-v1.7.0-LICENSE",
+      "size_bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/open-telemetry/opentelemetry-proto/tar.gz/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0",
+        "artifact_sha256": "f77747042dd43b0a76d129f0dd4fb6faa2b864ca52c70f2d44866dec7ef8a405",
+        "entry": "opentelemetry-proto-8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/LICENSE"
+      }
     }
   ],
   "hash_algorithm": "sha256",
   "limitations": [
     "PyTorch source root licenses do not satisfy the missing bundled LibTorch binary notice audit.",
     "Optional remediation wheel notices are retained and both platform sidecar acceptance gates passed; full transitive review remains pending.",
-    "ONNX Runtime entries retain the exact CPU SDK LICENSE and ThirdPartyNotices for each archive; this is not a CVE audit, a transitive license completeness claim, or GPU/provider execution qualification."
+    "ONNX Runtime entries retain the exact CPU SDK LICENSE and ThirdPartyNotices for each archive; this is not a CVE audit, a transitive license completeness claim, or GPU/provider execution qualification.",
+    "MNIST optional HTTPS uses external system WinHTTP on Windows or matched libcurl4/libcurl4-openssl-dev packages from the curl source package on Ubuntu. Verified curl package digests identify only the retained original .deb bytes; curl is the primary upstream license identity, not a completed distro-package or transitive notice audit. WinHTTP SDK/runtime identity and terms, exact selected-build notice review, transitive dependencies, CA trust assets, CVE/patch review and release qualification remain pending. No OS SDK, system curl/TLS library or CA bundle is copied or authorized for redistribution; these external tool inputs do not qualify other versions, distributions or providers.",
+    "Native telemetry records retain exact nanopb, TensorBoard schema and OpenTelemetry schema upstream licenses for the selected immutable archives. Integrity and license retention are separate from runtime, wire-interoperability, vulnerability, transport, redistribution and release qualification. Generated schema source hashes and toolchain provenance are locked in scripts/telemetry/native_schema.lock.json; no Python SDK is a native product runtime dependency."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"

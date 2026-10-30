@@ -276,6 +276,9 @@ Result execute(const Arguments& arguments) {
                    "DIRECTORY]",
                    "data prepare --name cifar10 --archive CIFAR_BINARY_TAR_GZ "
                    "[--data-root DIRECTORY]",
+                   "data prepare --name mnist (--source-dir DIRECTORY | "
+                   "--download true) "
+                   "[--data-root DIRECTORY]",
                    "checkpoint inspect|verify --path PATH",
                    "checkpoint diff --baseline PATH --candidate PATH",
                    "model inspect|verify --path PATH",

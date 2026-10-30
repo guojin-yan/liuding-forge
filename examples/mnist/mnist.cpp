@@ -78,7 +78,8 @@ std::filesystem::path resolve_data_directory(
 #endif
   throw std::invalid_argument(
       "set JYPPX_DATA_ROOT or pass a prepared MNIST data directory; "
-      "see scripts/datasets/prepare_mnist.py --help");
+      "see liuding-forge data prepare --name mnist --source-dir "
+      "LOCAL_GZIP_DIRECTORY");
 }
 
 /** @brief Parses a complete positive epoch count, rejecting signed suffixes. */
@@ -147,7 +148,8 @@ int main(int argc, char** argv) {
                      "[--epochs N] [--device cpu|cuda[:index]] [--offline]\n"
                      "Default data: $JYPPX_DATA_ROOT/mnist. Reads local IDX "
                      "files only. Prepare data with "
-                     "scripts/datasets/prepare_mnist.py.\n";
+                     "liuding-forge data prepare --name mnist --source-dir "
+                     "LOCAL_GZIP_DIRECTORY.\n";
         return 0;
       } else if (argument == "--offline") {
         // All training runs are offline; preparation is a separate command.
@@ -186,7 +188,8 @@ int main(int argc, char** argv) {
         throw std::runtime_error(
             "missing local MNIST IDX file: " + (data_dir / file).string() +
             "; prepare the external cache with "
-            "scripts/datasets/prepare_mnist.py");
+            "liuding-forge data prepare --name mnist --source-dir "
+            "LOCAL_GZIP_DIRECTORY");
       }
     }
 

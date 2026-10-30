@@ -204,3 +204,15 @@ if(TARGET jyppx_convert_dinov2_hf)
         endif()
     endif()
 endif()
+
+
+if(TARGET jyppx::liuding::telemetry_native AND JYPPX_TELEMETRY_PYTHON)
+    add_test(NAME Cli_native_tensorboard
+        COMMAND "${JYPPX_TELEMETRY_PYTHON}"
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_tensorboard.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+            --cli-fixture "${CMAKE_CURRENT_SOURCE_DIR}/test_run_telemetry.py"
+            --sidecar "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py")
+    set_tests_properties(Cli_native_tensorboard PROPERTIES
+        LABELS "cli;experiment;telemetry;tensorboard;official;integration" TIMEOUT 240)
+endif()

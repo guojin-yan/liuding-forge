@@ -29,6 +29,7 @@ set(_jyppx_known_components
     training
     optim
     experiment
+    telemetry_native
     models
     quantization
     serving
@@ -58,7 +59,7 @@ endforeach()
 
 foreach(_jyppx_exported_target IN ITEMS
         jyppx::liuding::foundation jyppx::liuding::core jyppx::liuding::interop jyppx::liuding::data jyppx::liuding::data_image jyppx::liuding::nn
-        jyppx::liuding::training jyppx::liuding::optim jyppx::liuding::experiment
+        jyppx::liuding::training jyppx::liuding::optim jyppx::liuding::experiment jyppx::liuding::telemetry_native
         jyppx::liuding::models jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime
         jyppx::liuding::onnx_serving jyppx::liuding::bundle_signing
         jyppx::liuding::quantization jyppx::liuding::serving

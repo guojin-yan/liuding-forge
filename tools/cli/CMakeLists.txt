@@ -35,6 +35,10 @@ target_link_libraries(jyppx_cli_objects PUBLIC
     nlohmann_json::nlohmann_json Threads::Threads)
 target_link_libraries(jyppx_cli PRIVATE jyppx_cli_objects)
 jyppx_add_torch_runtime_dependency(jyppx_cli)
+if(TARGET jyppx::liuding::telemetry_native)
+    target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::telemetry_native)
+    target_compile_definitions(jyppx_cli_objects PRIVATE JYPPX_LIUDING_CLI_NATIVE_TELEMETRY=1)
+endif()
 if(TARGET jyppx::liuding::bundle_signing)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::bundle_signing)
     set_property(SOURCE bundle_signing.cpp APPEND PROPERTY

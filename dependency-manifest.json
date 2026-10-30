@@ -334,10 +334,15 @@
         "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
       },
       "license": {
-        "spdx": ["Zlib"],
+        "spdx": [
+          "Zlib"
+        ],
         "third_party_notice_audit": "pending"
       },
-      "platforms": ["windows-x86_64", "linux-x86_64"],
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64"
+      ],
       "linkage": "static-private-codec-subset",
       "support_status": "optional-preview"
     },
@@ -366,6 +371,164 @@
       ],
       "linkage": "static-private-implementation",
       "support_status": "optional-preview"
+    },
+    {
+      "id": "mnist-https-libcurl-linux-runtime",
+      "scope": "optional-native-mnist-https-tool-system-runtime",
+      "version": "7.81.0-1ubuntu1.30",
+      "source": {
+        "type": "official-distribution-binary-package-system-sdk",
+        "url": "https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4_7.81.0-1ubuntu1.30_amd64.deb",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "2fc35b8056aebaa6cfe9a5672a8e06339c3e690657fbebc6c5d6b50d9f9626fb",
+        "size_bytes": 293156
+      },
+      "license": {
+        "spdx": [
+          "curl"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "linkage": "dynamic-system-private-tool-no-bundling",
+      "support_status": "optional-preview-license-and-cve-review-pending"
+    },
+    {
+      "id": "mnist-https-libcurl-linux-headers",
+      "scope": "optional-native-mnist-https-tool-system-build-input",
+      "version": "7.81.0-1ubuntu1.30",
+      "source": {
+        "type": "official-distribution-binary-package-system-sdk",
+        "url": "https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4-openssl-dev_7.81.0-1ubuntu1.30_amd64.deb",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "37567efb750a9cb1d685d38aa9cd3662466ea1258be0de561a6eaf1122347b13",
+        "size_bytes": 387428
+      },
+      "license": {
+        "spdx": [
+          "curl"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "linkage": "headers-and-shared-link-sdk-no-static-or-bundling",
+      "support_status": "optional-preview-license-and-cve-review-pending"
+    },
+    {
+      "id": "mnist-https-winhttp-windows",
+      "scope": "optional-native-mnist-https-tool-os-sdk-and-runtime",
+      "version": "unresolved-windows-sdk-and-system-runtime",
+      "source": {
+        "type": "external-system-platform-sdk-unresolved",
+        "url": "https://learn.microsoft.com/windows/win32/winhttp/about-winhttp",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "pending",
+        "sha256": null
+      },
+      "license": {
+        "spdx": [
+          "NOASSERTION"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows-x86_64"
+      ],
+      "linkage": "dynamic-os-library-private-tool-no-bundling",
+      "support_status": "optional-preview-sdk-license-and-security-review-pending"
+    },
+    {
+      "id": "nanopb-native-telemetry",
+      "scope": "optional-native-telemetry",
+      "version": "0.4.9.2",
+      "source": {
+        "type": "source-archive",
+        "url": "https://codeload.github.com/nanopb/nanopb/tar.gz/160d4f09e5fabb2b66aa2dea32d4f38ace2c4b3f",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "3916241f10ae420ad1504246cfb98ab26c41a877e0c3a2f5dde6a99f610942e1",
+        "size_bytes": 1197872
+      },
+      "license": {
+        "spdx": [
+          "Zlib"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "private-static-runtime-and-maintenance-generator",
+      "support_status": "preview-static-candidate-not-runtime-qualified"
+    },
+    {
+      "id": "tensorboard-native-schema",
+      "scope": "optional-native-telemetry",
+      "version": "2.20.0",
+      "source": {
+        "type": "source-archive",
+        "url": "https://codeload.github.com/tensorflow/tensorboard/tar.gz/474d3eeff366a4217899be2814e9b25dc9067083",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "c79bf991e9b976cd85686ec25e37801a4ac10eba23ff473e8abfb6d4c26c1d74",
+        "size_bytes": 15304576
+      },
+      "license": {
+        "spdx": [
+          "Apache-2.0"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "generated-private-schema-no-python-runtime",
+      "support_status": "preview-static-candidate-not-runtime-qualified"
+    },
+    {
+      "id": "opentelemetry-native-schema",
+      "scope": "optional-native-telemetry",
+      "version": "1.7.0",
+      "source": {
+        "type": "source-archive",
+        "url": "https://codeload.github.com/open-telemetry/opentelemetry-proto/tar.gz/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "f77747042dd43b0a76d129f0dd4fb6faa2b864ca52c70f2d44866dec7ef8a405",
+        "size_bytes": 127083
+      },
+      "license": {
+        "spdx": [
+          "Apache-2.0"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "generated-private-schema-no-opentelemetry-cpp-sdk",
+      "support_status": "preview-static-candidate-not-runtime-qualified"
     }
   ]
 }

@@ -1,0 +1,230 @@
+{
+  "schema": "jyppx.native-telemetry-maintenance-schema-lock/v2",
+  "scope": "Offline development-time generation only; never a product runtime dependency",
+  "tools": {
+    "protoc": "33.5",
+    "python_protobuf": "6.33.5",
+    "protoc_archives": [
+      {
+        "name": "protoc-33.5-linux-aarch_64.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-linux-aarch_64.zip",
+        "sha256": "2b0fcf9b2c32cbadccc0eb7a88b841fffecd4a06fc80acdba2b5be45e815c38a"
+      },
+      {
+        "name": "protoc-33.5-linux-ppcle_64.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-linux-ppcle_64.zip",
+        "sha256": "eef750b2119fc03bda049c24322777ade4a0215bd3996a04f915d1eb6a283328"
+      },
+      {
+        "name": "protoc-33.5-linux-s390_64.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-linux-s390_64.zip",
+        "sha256": "8adc51c28761b52cc0a924bc6f78815a43bcb88fbff2500dbb0401aab637199b"
+      },
+      {
+        "name": "protoc-33.5-linux-x86_32.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-linux-x86_32.zip",
+        "sha256": "69d85e7c7d858081e7374ff7ee1a75c806f091333001a36009e55608ae448143"
+      },
+      {
+        "name": "protoc-33.5-linux-x86_64.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-linux-x86_64.zip",
+        "sha256": "24e58fb231d50306ee28491f33a170301e99540f7e29ca461e0e80fd1239f8d1"
+      },
+      {
+        "name": "protoc-33.5-osx-aarch_64.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-osx-aarch_64.zip",
+        "sha256": "7084c6482e3bb416a33fe2162ba566711773b842e6953bf6cb181647b9ef57c0"
+      },
+      {
+        "name": "protoc-33.5-osx-universal_binary.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-osx-universal_binary.zip",
+        "sha256": "f998ba34b5a4e3c1d0657ad615f5e73e492eff2b186525303e84e6b6f7bbd2b1"
+      },
+      {
+        "name": "protoc-33.5-osx-x86_64.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-osx-x86_64.zip",
+        "sha256": "7f31625f8bec4929082ae9209e101c1c03692624457cc6332f83736db495ee92"
+      },
+      {
+        "name": "protoc-33.5-win32.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-win32.zip",
+        "sha256": "6bf9a1d83289664cbbc9a95fc3889c971b9f028c0e6f617ba800bac401c36be1"
+      },
+      {
+        "name": "protoc-33.5-win64.zip",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-win64.zip",
+        "sha256": "7e3468cd1fbd1ae9361a5304d4ac28fbd593aa1a425b5464bd9d4da5fca224b4"
+      }
+    ]
+  },
+  "nanopb": {
+    "version": "0.4.9.2",
+    "commit": "160d4f09e5fabb2b66aa2dea32d4f38ace2c4b3f",
+    "repository": "https://github.com/nanopb/nanopb",
+    "archive_sha256": "3916241f10ae420ad1504246cfb98ab26c41a877e0c3a2f5dde6a99f610942e1"
+  },
+  "nanopb_source_files": [
+    {
+      "path": "LICENSE.txt",
+      "sha256": "e2f2fc8fe3faa7dcb09dbe995db48c6ec5c1f72705db915101e4a83fed44f66d"
+    },
+    {
+      "path": "generator/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "generator/nanopb_generator.py",
+      "sha256": "67d3c5e6de1e5dbd9f45bb4e5b7055d888d1afd6d6e1690791ab8607b6c6b738"
+    },
+    {
+      "path": "generator/platformio_generator.py",
+      "sha256": "3dd541f77affb32d0a6515ce472612e364a9042024f2d2f79a8e66da43b68312"
+    },
+    {
+      "path": "generator/proto/__init__.py",
+      "sha256": "b387c9a6a553ed2184cf8c67243bb26b27bd46baf44465f0d5ffeb139c365105"
+    },
+    {
+      "path": "generator/proto/_utils.py",
+      "sha256": "6d091e256cdda09002c357da4901d259078fe1ef53a010392a251dd1107d6313"
+    },
+    {
+      "path": "generator/proto/google/protobuf/descriptor.proto",
+      "sha256": "aee16e1d7f264200cb5c4eacc657a40347350a698faaa700d2585557f4daed11"
+    },
+    {
+      "path": "generator/proto/nanopb.proto",
+      "sha256": "1a50d0822c5ba4395297755b11864af952053be3e0dc44c860f988b1b73c3c55"
+    },
+    {
+      "path": "pb.h",
+      "sha256": "e0db84a27e0d41a2d2d347b8c879e30ceb856d36dc192cce0f1124f833c67bc2"
+    },
+    {
+      "path": "pb_common.c",
+      "sha256": "8d2ec28baaaf2b7a5e90e4cb2fa9700d21cef7f826f051a637c30b7a1e6a0516"
+    },
+    {
+      "path": "pb_common.h",
+      "sha256": "6495a691aca68d6973f2274b5dd54b74fbb57f6b019c45fff255a857fe1abcfd"
+    },
+    {
+      "path": "pb_decode.c",
+      "sha256": "f5b425beaa207251e531c8ce2c86c9b6867e2920ed59cc1b125332af0c147632"
+    },
+    {
+      "path": "pb_decode.h",
+      "sha256": "fcac5f7680fe6e870157e4bcf34d5162bdd4fff0d7db3cad1122f2ad24a6da87"
+    },
+    {
+      "path": "pb_encode.c",
+      "sha256": "debb0714dff8d1515b9724eae45531cad912f12028a0311fc3e2c694689e1fed"
+    },
+    {
+      "path": "pb_encode.h",
+      "sha256": "9aa00fee4ff08adf0da16e33a55be08810ea657800a648dc78f82e89c60c10cf"
+    }
+  ],
+  "families": [
+    {
+      "name": "tensorboard",
+      "repository": "tensorflow/tensorboard",
+      "commit": "474d3eeff366a4217899be2814e9b25dc9067083",
+      "tag": "2.20.0",
+      "license": "Apache-2.0",
+      "license_sha256": "d7c9068d896188264b60827b8cd1e25fdb9f5b5cad0b1589e90b96c87729c404",
+      "files": [
+        {
+          "path": "tensorboard/compat/proto/event.proto",
+          "sha256": "226068552f58f9ed3e61ebafd2e7a39da59d95a90b03e4b6314e2410c484ae1f",
+          "url": "https://raw.githubusercontent.com/tensorflow/tensorboard/474d3eeff366a4217899be2814e9b25dc9067083/tensorboard/compat/proto/event.proto"
+        },
+        {
+          "path": "tensorboard/plugins/text/plugin_data.proto",
+          "sha256": "9956a7d287dffa6a017788f516e45294dc1847a4b8017ac3d8f5dc4cf512766d",
+          "url": "https://raw.githubusercontent.com/tensorflow/tensorboard/474d3eeff366a4217899be2814e9b25dc9067083/tensorboard/plugins/text/plugin_data.proto"
+        },
+        {
+          "path": "tensorboard/compat/proto/summary.proto",
+          "sha256": "deaddc945cb5630e5e8a0bea4726b77891cd896e0593cfcf031f8f4642fbf45d",
+          "url": "https://raw.githubusercontent.com/tensorflow/tensorboard/474d3eeff366a4217899be2814e9b25dc9067083/tensorboard/compat/proto/summary.proto"
+        },
+        {
+          "path": "tensorboard/compat/proto/histogram.proto",
+          "sha256": "5b12ececaa18209869d62c59de2e432516d506678171b9426b648037fa93cd8d",
+          "url": "https://raw.githubusercontent.com/tensorflow/tensorboard/474d3eeff366a4217899be2814e9b25dc9067083/tensorboard/compat/proto/histogram.proto"
+        },
+        {
+          "path": "tensorboard/compat/proto/tensor.proto",
+          "sha256": "bc24bfe8fedc06b0467392250cc1d186e5af3cd9402ac2b9d5145d79a76eff7c",
+          "url": "https://raw.githubusercontent.com/tensorflow/tensorboard/474d3eeff366a4217899be2814e9b25dc9067083/tensorboard/compat/proto/tensor.proto"
+        },
+        {
+          "path": "tensorboard/compat/proto/resource_handle.proto",
+          "sha256": "ff41a4eb556ca6921682f77181d915c8b99787cdddb69cd83d4304dda39778e0",
+          "url": "https://raw.githubusercontent.com/tensorflow/tensorboard/474d3eeff366a4217899be2814e9b25dc9067083/tensorboard/compat/proto/resource_handle.proto"
+        },
+        {
+          "path": "tensorboard/compat/proto/tensor_shape.proto",
+          "sha256": "cb18f109b8fef8362cf3d8b01980767555c801f533311626d92e6715e3671dc3",
+          "url": "https://raw.githubusercontent.com/tensorflow/tensorboard/474d3eeff366a4217899be2814e9b25dc9067083/tensorboard/compat/proto/tensor_shape.proto"
+        },
+        {
+          "path": "tensorboard/compat/proto/types.proto",
+          "sha256": "c5273c5ad214fa60be82b2d45d7140612506512a52b19be5f354c98b6bc02903",
+          "url": "https://raw.githubusercontent.com/tensorflow/tensorboard/474d3eeff366a4217899be2814e9b25dc9067083/tensorboard/compat/proto/types.proto"
+        }
+      ]
+    },
+    {
+      "name": "otlp",
+      "repository": "open-telemetry/opentelemetry-proto",
+      "commit": "8654ab7a5a43ca25fe8046e59dcd6935c3f76de0",
+      "tag": "v1.7.0",
+      "license": "Apache-2.0",
+      "license_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "files": [
+        {
+          "path": "opentelemetry/proto/collector/metrics/v1/metrics_service.proto",
+          "sha256": "2bb3c6adee5f7609c8a32c5e4b1ec57057320015e298e9cf136699a42abc24d7",
+          "url": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/opentelemetry/proto/collector/metrics/v1/metrics_service.proto"
+        },
+        {
+          "path": "opentelemetry/proto/collector/logs/v1/logs_service.proto",
+          "sha256": "0252687fc8f59d139ced709d383e83678e9bd4957bdbe76077242f1c32363fa5",
+          "url": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/opentelemetry/proto/collector/logs/v1/logs_service.proto"
+        },
+        {
+          "path": "opentelemetry/proto/collector/trace/v1/trace_service.proto",
+          "sha256": "03c8cc4e3e101087d884392d6eda32152ad5cd696e6344f50deaa59804a75c7a",
+          "url": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/opentelemetry/proto/collector/trace/v1/trace_service.proto"
+        },
+        {
+          "path": "opentelemetry/proto/metrics/v1/metrics.proto",
+          "sha256": "f54b7bdc4effc6c8cc9b01dff316e3aca19341479bec42cb72adc53e23e3663a",
+          "url": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/opentelemetry/proto/metrics/v1/metrics.proto"
+        },
+        {
+          "path": "opentelemetry/proto/logs/v1/logs.proto",
+          "sha256": "91e42ca14a09f7de338a7870583319445fcf5b9d9e7090effa4a52958f603ca8",
+          "url": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/opentelemetry/proto/logs/v1/logs.proto"
+        },
+        {
+          "path": "opentelemetry/proto/trace/v1/trace.proto",
+          "sha256": "94b0201460115874b71a0316ea7f9329f222a1afec9f811251f3a98c25bb5b45",
+          "url": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/opentelemetry/proto/trace/v1/trace.proto"
+        },
+        {
+          "path": "opentelemetry/proto/common/v1/common.proto",
+          "sha256": "f9eba928880a84964aedf178c34d0ac6245eb4a520d7cab383f932b4bcbca4ad",
+          "url": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/opentelemetry/proto/common/v1/common.proto"
+        },
+        {
+          "path": "opentelemetry/proto/resource/v1/resource.proto",
+          "sha256": "be315021ab29992f38555a42fd4e0b15a761b13359c5f8d54c918eec55586715",
+          "url": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/8654ab7a5a43ca25fe8046e59dcd6935c3f76de0/opentelemetry/proto/resource/v1/resource.proto"
+        }
+      ]
+    }
+  ]
+}

@@ -17,6 +17,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_training
     jyppx_liuding_optim
     jyppx_liuding_experiment
+    jyppx_liuding_telemetry_native
     jyppx_liuding_models
     jyppx_liuding_onnx_export
     jyppx_liuding_onnx_runtime
@@ -210,6 +211,7 @@ endfunction()
 set(JYPPX_INSTRUMENTATION_TARGETS
     ${JYPPX_COMPILED_TARGETS}
     jyppx_int8_frozen_compare
+    jyppx_native_telemetry_codec
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_INSTRUMENTATION_TARGETS)
     if(NOT TARGET ${JYPPX_TARGET})

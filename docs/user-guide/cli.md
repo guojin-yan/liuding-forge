@@ -31,6 +31,7 @@ liuding-forge checkpoint verify --path checkpoint.jyck --format json
 liuding-forge data prepare --name paired-affine --data-root /path/to/datasets --format json
 liuding-forge data prepare --name fashion-mnist --source-dir /path/to/fashion-mnist-source --data-root /path/to/datasets --selection first100-per-class --format json
 liuding-forge data prepare --name cifar10 --archive /path/to/cifar-10-binary.tar.gz --data-root /path/to/datasets --format json
+liuding-forge data prepare --name mnist --source-dir /path/to/mnist-source --data-root /path/to/new-datasets --format json
 liuding-forge recipe schema --name paired-affine --format json
 liuding-forge recipe check --file paired-affine.local.json --format json
 liuding-forge recipe run --file paired-affine.local.json --root runs/example --pause-after 256 --format json
@@ -39,7 +40,19 @@ liuding-forge recipe resume --file paired-affine.local.json --root runs/example 
 
 Fashion-MNIST 和 CIFAR-10 的离线准备分别需要启用 `JYPPX_LIUDING_PREPARE_FASHION_MNIST`、`JYPPX_LIUDING_PREPARE_CIFAR10`，并提供构建配置指定的静态 codec SDK；关闭时对应命令返回不支持。源文件与完整 split 规则见[图像分类教程](../tutorials/image_classification_recipe.md)。
 
+MNIST 另需启用 `JYPPX_LIUDING_PREPARE_MNIST` 和指定的私有 codec SDK；四个本地官方 gzip 输出到新根的 mnist/，拒绝覆盖已有目录。省略 `--data-root` 时，本命令与 MNIST 训练示例共同使用 `JYPPX_DATA_ROOT`；其他数据准备命令沿用 `JYPPX_LIUDING_DATA_ROOT`。来源、完整数量和步骤见 [MNIST 示例](../../examples/mnist/README.md)。
+
 双输入分类/回归配方使用核心 SDK；[完整教程](../tutorials/multi_io_recipe.md)包括离线数据、配置、两类损失、评估及新进程恢复。图像分类配方额外需要 `models` 和 `data_image`，省略 `--name` 的 `recipe schema` 返回其配置 schema，详见[ResNet18 教程](../tutorials/image_classification_recipe.md)。配方命令按配置中的 `recipe` 标识选择入口，不会根据数据文件名猜测任务。
+
+### 显式下载 MNIST
+
+没有本地官方 gzip 时，构建时额外启用 `JYPPX_LIUDING_DOWNLOAD_MNIST=ON`，再明确请求下载；此选项默认关闭，并要求原生 MNIST 准备器已经启用。
+
+~~~sh
+liuding-forge data prepare --name mnist --download true --data-root /external/new-root
+~~~
+
+`--download true` 与 `--source-dir` 互斥，仅供 MNIST 使用；没有该选项时不会联网。默认数据根仍为 `JYPPX_DATA_ROOT`。下载只使用固定 HTTPS 来源，校验全部压缩大小与摘要，之后发布完整原字节 IDX；已有目标拒绝覆盖，临时 gzip 不持久缓存。Windows/Linux 的系统 TLS SDK 前提、教学程序和失败处理见[MNIST 数据准备示例](../../examples/data/README.md#显式下载-mnist)。
 
 ## 模型包与可选运行时
 

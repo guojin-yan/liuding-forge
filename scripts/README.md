@@ -10,7 +10,8 @@
 | `benchmarks/` | Windows/CUDA 采样编排与同环境基线比较，方法见[资源基线](benchmarks/RESOURCE_BASELINE.md) |
 | `interop/` | 官方 safetensors/ONNX 独立验证、测试依赖锁和来源记录 |
 | `release/` | 离线候选准备、安装清单、依赖与证据关联及独立验证 |
-| `datasets/` | 存量 MNIST 数据准备脚本；paired-affine、Fashion-MNIST、CIFAR-10 使用 `liuding-forge data prepare`，独立参考位于 `tests/reference/` |
+
+数据准备使用原生 `liuding-forge data prepare`，本地接入和显式下载见[数据准备示例](../examples/data/README.md)；独立数据参考保留在 `tests/reference/`。
 
 ```sh
 python scripts/validation/compatibility.py --file compatibility.json --validate

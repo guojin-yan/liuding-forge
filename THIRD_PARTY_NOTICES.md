@@ -148,3 +148,21 @@ are research inputs, not JYPPX dependencies or redistributed source. Their
 licenses do not change the JYPPX project license. Any future source reuse,
 linking or binary redistribution requires a separate provenance and license
 review before integration.
+
+
+## MNIST 可选 HTTPS 下载
+
+默认关闭的 `JYPPX_LIUDING_DOWNLOAD_MNIST` 仅为产品工具增加显式 HTTPS 下载，离线准备及安装后的公共库不依赖网络 SDK。Windows 通过现有 Windows SDK 链接系统 WinHTTP，使用 Windows 系统证书验证；WinHTTP 与 SDK 适用 Microsoft 的相应条款，本项目不复制或分发 winhttp.dll。
+
+Linux 使用调用者显式选择的共享系统 libcurl >= 7.81.0 SDK，适用 [curl license](https://curl.se/docs/copyright.html)，上游为 <https://github.com/curl/curl>。SDK 使用的 OpenSSL、GnuTLS、解析器和其他传递依赖分别适用各自条款；本项目不下载、嵌入或安装这些库及 CA 证书。如果后续制品要捆绑任何对应二进制，须先留存所选构建的完整许可证、版权和第三方声明并完成依赖审查，不能用系统链接的说明代替再分发义务。
+
+工具声明位于 [network-dependencies.json](tools/datasets/network-dependencies.json)；Linux 配置记录所选 curlver.h 与解析后共享库的 SHA-256。该可选系统 SDK 接口不代表任意发行版、TLS 后端或版本已经取得发布资格。
+
+
+### 可选原生 TensorBoard
+
+启用 `JYPPX_LIUDING_BUILD_TELEMETRY_NATIVE` 时，使用 nanopb 0.4.9.2（Zlib 许可证）的官方运行库和 TensorBoard 2.20.0（Apache-2.0）的官方 schema 生成代码。运行库的符号使用项目私有前缀，原始依赖源码不修改。安装包附带对应许可证；nanopb 生成器、protoc 和独立 Python reader 仅用于开发，不属于产品运行时依赖。
+
+### 原生 OTLP 协议
+
+同一可选组件使用 OpenTelemetry proto 1.7.0 的官方 schema 生成私有描述符（Apache-2.0；Copyright 2019, OpenTelemetry Authors；Copyright 2020, OpenTelemetry Authors），复用 nanopb 0.4.9.2 运行库；不链接 OpenTelemetry C++ SDK 或 Python SDK。完整许可证位于 `third_party/licenses/opentelemetry-proto-v1.7.0-LICENSE`，各 schema 与开发期生成工具的来源摘要见 `scripts/telemetry/native_schema.lock.json`。离线协议准备不包含 HTTP/TLS 传输。依赖与原始许可证摘要均纳入正式清单；许可证留存不表示已完成依赖安全或发布审计。

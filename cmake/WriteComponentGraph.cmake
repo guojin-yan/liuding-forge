@@ -44,6 +44,7 @@ function(jyppx_write_component_graph output_path)
         optim
         quantization
         serving
+        telemetry_native
         training
         vision_render
     )
@@ -80,6 +81,10 @@ function(jyppx_write_component_graph output_path)
         endforeach()
 
         get_target_property(component_sources "${target_name}" SOURCES)
+        if(component STREQUAL "telemetry_native")
+            get_target_property(codec_sources jyppx_native_telemetry_codec SOURCES)
+            list(APPEND component_sources ${codec_sources})
+        endif()
         foreach(component_source IN LISTS component_sources)
             if(NOT component_source MATCHES "^\\$<")
                 get_filename_component(source_absolute "${component_source}"

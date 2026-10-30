@@ -20,6 +20,13 @@ if(NOT TARGET jyppx::liuding::_bundle_crypto)
         set_property(TARGET jyppx::liuding::_bundle_crypto PROPERTY
             INTERFACE_LINK_LIBRARIES "Threads::Threads;${CMAKE_DL_LIBS}")
     endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Preserve the private backend's ELF symbol isolation after relocation;
+        # consumers may also load a system TLS library with its own Crypto ABI.
+        set_property(TARGET jyppx::liuding::_bundle_crypto APPEND PROPERTY
+            INTERFACE_LINK_OPTIONS
+            "LINKER:--exclude-libs,@JYPPX_BUNDLE_CRYPTO_FILENAME@")
+    endif()
 else()
     get_target_property(_jyppx_existing_crypto jyppx::liuding::_bundle_crypto IMPORTED_LOCATION)
     if(NOT _jyppx_existing_crypto STREQUAL _jyppx_crypto_archive)

@@ -219,6 +219,13 @@
       ],
       "optional_dependencies": []
     },
+    "telemetry_native": {
+      "header_roots": ["telemetry_native"],
+      "source_roots": ["telemetry_native"],
+      "required_dependencies": ["experiment", "foundation"],
+      "required_public_dependencies": ["foundation"],
+      "optional_dependencies": []
+    },
     "training": {
       "header_roots": [
         "training"

@@ -62,6 +62,13 @@ else()
     set_property(TARGET OpenSSL::Crypto PROPERTY INTERFACE_LINK_LIBRARIES
         "Threads::Threads;${CMAKE_DL_LIBS}")
 endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Keep this private static backend out of the final ELF dynamic symbol
+    # table so a shared system TLS library cannot bind to a different Crypto ABI.
+    # Propagate through static dependents to the final executable/shared library.
+    set_property(TARGET OpenSSL::Crypto APPEND PROPERTY INTERFACE_LINK_OPTIONS
+        "LINKER:--exclude-libs,${_jyppx_crypto_archive_name}")
+endif()
 file(SHA256 "${JYPPX_BUNDLE_CRYPTO_LIBRARY}" JYPPX_BUNDLE_CRYPTO_SHA256)
 set(JYPPX_BUNDLE_CRYPTO_FILENAME "${_jyppx_crypto_archive_name}")
 configure_file("${PROJECT_SOURCE_DIR}/cmake/jyppxBundleCrypto.cmake.in"

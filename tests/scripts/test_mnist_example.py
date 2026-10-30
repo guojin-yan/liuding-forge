@@ -78,7 +78,7 @@ class MnistExampleTests(unittest.TestCase):
         missing = self.root / "missing-cache"
         result = self.run_example("--offline", "--epochs", 1, root=missing)
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("prepare_mnist.py", result.stdout)
+        self.assertIn("data prepare --name mnist", result.stdout)
         self.assertFalse(missing.exists())
 
     def test_invalid_arguments_fail_before_reading_files(self):

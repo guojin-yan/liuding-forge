@@ -66,9 +66,12 @@ in the order listed above. IDs and complete definition digests distinguish incom
 
 ## Export from authoritative evidence
 
+`tensorboard-native` 直接用 C++ 写 TensorBoard 事件文件，使用新的 `--output` 目录，不接受 `--resume` 或 `--sidecar-config`。映射范围、容量和重放限制见[原生 TensorBoard 事件导出](native_tensorboard.md)。
+
 ```text
 liuding-forge run export --root local-runs --id run-001 --backend jsonl --output exported.jsonl --format json
 liuding-forge run export --root local-runs --id run-001 --backend jsonl --output exported.jsonl --resume true --snapshot 600 --format json
+liuding-forge run export --root local-runs --id run-001 --backend tensorboard-native --output exports/run-001 --format json
 liuding-forge run export --root local-runs --id run-001 --backend tensorboard --sidecar-config tensorboard.json --format json
 liuding-forge run export --root local-runs --id run-001 --backend opentelemetry --sidecar-config otel.json --format json
 ```

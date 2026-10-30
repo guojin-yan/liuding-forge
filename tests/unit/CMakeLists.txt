@@ -751,3 +751,115 @@ if(JYPPX_LIUDING_PREPARE_CIFAR10 AND TARGET jyppx_dataset_preparation)
         endif()
     endif()
 endif()
+
+if(JYPPX_LIUDING_PREPARE_MNIST AND TARGET jyppx_dataset_preparation)
+    jyppx_add_gtest(jyppx_test_mnist_native
+        LINK_TARGET jyppx_dataset_preparation
+        "${PROJECT_SOURCE_DIR}/tests/datasets/test_mnist_native.cpp")
+    target_link_libraries(jyppx_test_mnist_native PRIVATE nlohmann_json::nlohmann_json)
+    target_compile_definitions(jyppx_test_mnist_native PRIVATE
+        JYPPX_LIUDING_MNIST_MANIFEST="${PROJECT_SOURCE_DIR}/examples/mnist/dataset-manifest.json")
+    add_executable(jyppx_test_mnist_harness
+        "${PROJECT_SOURCE_DIR}/tests/datasets/mnist_harness.cpp")
+    target_link_libraries(jyppx_test_mnist_harness PRIVATE
+        jyppx_dataset_preparation nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_test_mnist_harness)
+    jyppx_add_torch_runtime_dependency(jyppx_test_mnist_harness)
+    if(Python3_Interpreter_FOUND)
+        set(_mnist_native_arguments --harness $<TARGET_FILE:jyppx_test_mnist_harness>
+            --repository "${PROJECT_SOURCE_DIR}")
+        if(TARGET jyppx_cli_recipe_gate)
+            list(APPEND _mnist_native_arguments --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+        elseif(TARGET jyppx_cli)
+            list(APPEND _mnist_native_arguments --cli $<TARGET_FILE:jyppx_cli>)
+        endif()
+        if(JYPPX_LIUDING_BUILD_EXAMPLES)
+            list(APPEND _mnist_native_arguments --example $<TARGET_FILE:jyppx_mnist_data>)
+        endif()
+        add_test(NAME NativeMnistPreparation
+            COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/datasets/test_native_mnist.py"
+                ${_mnist_native_arguments})
+        set_tests_properties(NativeMnistPreparation PROPERTIES
+            LABELS "data;native;examples;reference" TIMEOUT 600 RUN_SERIAL TRUE)
+        set(JYPPX_LIUDING_TEST_MNIST_SOURCE "" CACHE PATH
+            "Existing local pinned four-gzip MNIST source; opt-in full IDX reference")
+        if(JYPPX_LIUDING_TEST_MNIST_SOURCE)
+            if(NOT IS_DIRECTORY "${JYPPX_LIUDING_TEST_MNIST_SOURCE}")
+                message(FATAL_ERROR "Configured official MNIST source directory is missing")
+            endif()
+            add_test(NAME NativeMnistOfficial
+                COMMAND "${Python3_EXECUTABLE}"
+                    "${PROJECT_SOURCE_DIR}/tests/datasets/test_native_mnist.py"
+                    ${_mnist_native_arguments} --official-only
+                    --official-source "${JYPPX_LIUDING_TEST_MNIST_SOURCE}")
+            set_tests_properties(NativeMnistOfficial PROPERTIES
+                LABELS "data;native;external-data;reference" TIMEOUT 600 RUN_SERIAL TRUE)
+        endif()
+    endif()
+endif()
+
+option(JYPPX_LIUDING_TEST_MNIST_NETWORK
+    "Explicitly allow a real HTTPS MNIST CLI acceptance download" OFF)
+if(JYPPX_LIUDING_TEST_MNIST_NETWORK AND
+   (NOT JYPPX_LIUDING_DOWNLOAD_MNIST OR NOT Python3_Interpreter_FOUND OR
+    (NOT TARGET jyppx_cli_recipe_gate AND NOT TARGET jyppx_cli)))
+    message(FATAL_ERROR "MNIST network acceptance needs DOWNLOAD_MNIST, a test-only Python checker and a CLI target")
+endif()
+if(JYPPX_LIUDING_DOWNLOAD_MNIST AND TARGET jyppx_dataset_preparation)
+    jyppx_add_gtest(jyppx_test_mnist_download
+        LINK_TARGET jyppx_dataset_preparation
+        "${PROJECT_SOURCE_DIR}/tests/datasets/test_mnist_download.cpp")
+    add_executable(jyppx_test_mnist_download_harness
+        "${PROJECT_SOURCE_DIR}/tests/datasets/mnist_download_harness.cpp")
+    target_link_libraries(jyppx_test_mnist_download_harness PRIVATE
+        jyppx_dataset_preparation nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_test_mnist_download_harness)
+    jyppx_add_torch_runtime_dependency(jyppx_test_mnist_download_harness)
+endif()
+if(TARGET jyppx_dataset_preparation AND Python3_Interpreter_FOUND AND
+   (JYPPX_LIUDING_DOWNLOAD_MNIST OR TARGET jyppx_cli_recipe_gate OR TARGET jyppx_cli))
+    set(_mnist_download_arguments --repository "${PROJECT_SOURCE_DIR}")
+    if(TARGET jyppx_cli_recipe_gate)
+        list(APPEND _mnist_download_arguments --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+    elseif(TARGET jyppx_cli)
+        list(APPEND _mnist_download_arguments --cli $<TARGET_FILE:jyppx_cli>)
+    endif()
+    if(JYPPX_LIUDING_DOWNLOAD_MNIST)
+        list(APPEND _mnist_download_arguments --network-enabled
+            --harness $<TARGET_FILE:jyppx_test_mnist_download_harness>)
+    endif()
+    if(JYPPX_LIUDING_BUILD_EXAMPLES AND TARGET jyppx_mnist_data)
+        list(APPEND _mnist_download_arguments --example $<TARGET_FILE:jyppx_mnist_data>)
+    endif()
+    add_test(NAME NativeMnistDownloadContract
+        COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/datasets/test_mnist_download.py"
+            ${_mnist_download_arguments})
+    set_tests_properties(NativeMnistDownloadContract PROPERTIES
+        LABELS "data;native;reference;offline" TIMEOUT 600 RUN_SERIAL TRUE)
+    if(JYPPX_LIUDING_TEST_MNIST_NETWORK)
+        add_test(NAME NativeMnistHttpsOfficial
+            COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/datasets/test_mnist_download.py"
+                ${_mnist_download_arguments} --network-only)
+        set_tests_properties(NativeMnistHttpsOfficial PROPERTIES
+            LABELS "data;native;network;external-data;reference"
+            TIMEOUT 900 RUN_SERIAL TRUE)
+    endif()
+endif()
+
+
+if(TARGET jyppx::liuding::telemetry_native)
+    jyppx_add_gtest(jyppx_test_native_tensorboard
+        LINK_TARGET jyppx::liuding::telemetry_native
+        experiment/test_tensorboard.cpp)
+endif()
+
+if(TARGET jyppx::liuding::telemetry_native)
+    jyppx_add_gtest(jyppx_test_otlp_projection
+        LINK_TARGET jyppx::liuding::telemetry_native
+        experiment/test_otlp_projection.cpp)
+    target_include_directories(jyppx_test_otlp_projection PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/telemetry_native/detail")
+endif()

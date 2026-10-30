@@ -5,3 +5,7 @@
 *.hpp text eol=lf
 *.inc text eol=lf
 recipes/image-classification/fashion-mnist.LICENSE -text
+
+/src/jyppx/liuding/telemetry_native/detail/telemetry_proto/**/*.pb.c text eol=lf whitespace=-blank-at-eof
+/src/jyppx/liuding/telemetry_native/detail/telemetry_proto/**/*.pb.h text eol=lf
+/src/jyppx/liuding/telemetry_native/detail/telemetry_proto/generated.sha256 text eol=lf

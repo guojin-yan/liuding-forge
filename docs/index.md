@@ -14,8 +14,10 @@
 8. [使用预训练 ResNet50 与 DINOv2 迁移学习](tutorials/transfer_learning_recipe.md)
 9. [C++ 检查点、ONNX 导出与推理](../examples/deployment/README.md)
 10. [本地搜索：训练、指标排序与最佳模型快照](../examples/experiment/README.md)
-11. [使用 C++ 准备与读取双输入数据](../examples/data/README.md)
+11. [使用 C++ 准备与读取多种数据集](../examples/data/README.md)
 12. [按输出通道量化、导出与执行 Linear](../examples/quantization/README.md)
+13. [原生 TensorBoard：记录评估指标](../examples/experiment/README.md#原生-tensorboard)
+14. [离线 OTLP：准备标准遥测请求](../examples/experiment/README.md#离线-otlp-协议准备)
 
 ## 用户指南
 
@@ -32,7 +34,7 @@
 - 训练基础：[数据](api/data.md)、[图像数据](api/data_image.md)、[优化器与调度器](api/optim.md)、[训练器](api/training.md)、[模型适配](api/model_adapter.md)
 - 恢复与实验：[检查点参与者](api/checkpoint_participant.md)、[持久化检查点](api/durable_checkpoint.md)、[本地运行存储](api/local_run_storage.md)、[训练遥测](api/training_telemetry.md)、[评估](api/evaluation.md)
 - 模型交付：[模型](api/models.md)、[权重导入](api/model_weight_import.md)、[模型包](api/model_bundle.md)、[ONNX 导出与推理](api/onnx.md)、[互操作后端](api/interop_backends.md)
-- 可选预览：[量化](api/quantization.md)、[Serving](api/serving.md)
+- 可选预览：[量化](api/quantization.md)、[Serving](api/serving.md)、[原生 TensorBoard](api/native_tensorboard.md)、[离线 OTLP 协议准备](api/otlp_projection.md)
 - 图像输出：[绘制](api/vision_render.md)
 
 ## 开发维护
