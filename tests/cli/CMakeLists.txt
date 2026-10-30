@@ -8,6 +8,28 @@ target_compile_definitions(jyppx_test_sidecar_transport PRIVATE
     JYPPX_SIDECAR_TEST_PYTHON="${jyppx_cli_test_python}"
     JYPPX_SIDECAR_TEST_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/sidecar_fixture.py")
 
+jyppx_add_gtest(jyppx_test_native_telemetry_protocol
+    LINK_TARGET jyppx_cli_transport
+    test_native_telemetry_protocol.cpp)
+target_link_libraries(jyppx_test_native_telemetry_protocol PRIVATE
+    nlohmann_json::nlohmann_json)
+
+if(TARGET jyppx::liuding::telemetry_http)
+    add_test(NAME Cli_native_otlp_worker
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_native_otlp_worker.py"
+            --cli $<TARGET_FILE:jyppx_cli>)
+    set_tests_properties(Cli_native_otlp_worker PROPERTIES
+        LABELS "cli;telemetry_http;integration" TIMEOUT 180)
+else()
+    add_test(NAME Cli_native_otlp_disabled
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_native_otlp_worker.py"
+            --cli $<TARGET_FILE:jyppx_cli> --disabled)
+    set_tests_properties(Cli_native_otlp_disabled PROPERTIES
+        LABELS "cli;telemetry_http;integration" TIMEOUT 180)
+endif()
+
 jyppx_add_gtest(jyppx_test_local_process
     LINK_TARGET jyppx_cli_transport
     test_local_process.cpp)

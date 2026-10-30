@@ -18,8 +18,13 @@
 
 #include "../../tools/cli/sidecar_process.hpp"
 
+#ifdef _WIN32
+#include "windows_handle_diagnostics.hpp"
+#endif
+
 #include <jyppx/liuding/foundation/error.hpp>
 
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -28,6 +33,7 @@
 #include <fstream>
 #include <functional>
 #include <gtest/gtest.h>
+#include <iostream>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
@@ -165,6 +171,27 @@ TEST(SidecarProcessTest, RealPersistentChildEchoesMultipleBoundedRequests) {
   EXPECT_GT(transport.stats().stdout_bytes, 0U);
 }
 
+TEST(SidecarProcessTest, FragmentedFramesLargerThanPipeCapacityRemainExact) {
+  ProcessDirectory directory;
+  auto options = directory.options("fragmented_echo");
+  options.operation_timeout = 10000ms;
+  options.max_request_bytes = 2U * 1024U * 1024U;
+  options.max_reply_bytes = options.max_request_bytes;
+  cli::SidecarProcessTransport transport(options);
+  std::uint64_t expected_bytes = 0U;
+  for (const auto size : {65536U + 17U, 1024U * 1024U + 37U}) {
+    std::string text(size, 'x');
+    for (std::size_t offset = 0U; offset < text.size(); offset += 32749U)
+      text[offset] = static_cast<char>('a' + offset % 26U);
+    const auto request = Json{{"bytes", text}, {"size", size}}.dump();
+    expected_bytes += request.size() + 1U;
+    EXPECT_EQ(transport.transact(request), request);
+  }
+  EXPECT_FALSE(transport.poisoned());
+  EXPECT_EQ(transport.stats().completed_requests, 2U);
+  EXPECT_EQ(transport.stats().stdout_bytes, expected_bytes);
+}
+
 TEST(SidecarProcessTest, ArgvQuotingUnicodeCwdAndChildOnlyEnvironmentAreExact) {
   ProcessDirectory directory;
   auto options = directory.options("inspect");
@@ -243,6 +270,132 @@ TEST(SidecarProcessTest, BlockedStdinWriteHasTheSameAbsoluteDeadline) {
       jy::DeadlineExceeded);
   EXPECT_TRUE(transport.poisoned());
 }
+
+TEST(SidecarProcessTest,
+     CancellationDuringBlockedWriteStopsMultipleDescendantLevels) {
+  ProcessDirectory directory;
+  auto options = directory.options("no_read_tree");
+  options.operation_timeout = 10000ms;
+  options.max_request_bytes = 2U * 1024U * 1024U;
+  const auto prefix = directory.root / "blocked-write";
+  options.arguments.insert(options.arguments.end(),
+                           {"--marker-prefix", utf8(prefix), "--levels", "2"});
+  cli::SidecarProcessTransport transport(options);
+  std::atomic<jy::ErrorCode> error{jy::ErrorCode::internal};
+  const auto request = Json{{"large", std::string(1024U * 1024U, 'x')}}.dump();
+  std::jthread exchange([&](std::stop_token token) {
+    try {
+      transport.transact(request, token);
+    } catch (const jy::Error& failure) {
+      error.store(failure.code());
+    }
+  });
+  const std::vector<fs::path> paths{fs::u8path(utf8(prefix) + ".parent.pid"),
+                                    fs::u8path(utf8(prefix) + ".2.pid"),
+                                    fs::u8path(utf8(prefix) + ".1.pid"),
+                                    fs::u8path(utf8(prefix) + ".0.pid")};
+  const bool ready = await([&] {
+    for (const auto& path : paths)
+      if (!pid_file(path)) return false;
+    return true;
+  });
+  const auto cancelled_at = std::chrono::steady_clock::now();
+  exchange.request_stop();
+  exchange.join();
+  EXPECT_LT(std::chrono::steady_clock::now() - cancelled_at, 2500ms);
+  ASSERT_TRUE(ready);
+  EXPECT_EQ(error.load(), jy::ErrorCode::cancelled);
+  EXPECT_TRUE(transport.poisoned());
+  for (const auto& path : paths) {
+    const auto pid = pid_file(path);
+    ASSERT_TRUE(pid);
+    EXPECT_TRUE(await([&] { return !alive(*pid); }));
+  }
+}
+
+#ifdef _WIN32
+TEST(SidecarProcessTest,
+     RepeatedSuccessAndBlockedWritesReleaseAllOwnedHandles) {
+  ProcessDirectory directory;
+  const auto invalid_executable = directory.root / "invalid-native.bin";
+  {
+    std::ofstream output(invalid_executable, std::ios::binary);
+    output << "not an executable";
+  }
+  // Initialize the runtime and fixture before taking a stable process baseline.
+  {
+    cli::SidecarProcessTransport warmup(directory.options("echo"));
+    ASSERT_EQ(warmup.transact("{}"), "{}");
+  }
+  jyppx::liuding::test::WindowsHandleSnapshot before_framework;
+  ASSERT_NO_THROW(before_framework =
+                      jyppx::liuding::test::CaptureWindowsSelfHandles());
+  {
+    // Measure GoogleTest's first trace-stack/ThreadLocal initialization apart
+    // from product operations. This performs no additional process warmup.
+    SCOPED_TRACE("initialize the measurement framework before its baseline");
+  }
+  jyppx::liuding::test::WindowsHandleSnapshot baseline_metadata;
+  ASSERT_NO_THROW(baseline_metadata =
+                      jyppx::liuding::test::CaptureWindowsSelfHandles());
+  const DWORD baseline = baseline_metadata.count;
+  std::vector<jyppx::liuding::test::WindowsHandleSnapshot> round_metadata;
+  round_metadata.reserve(8U);
+  std::vector<std::array<DWORD, 3>> stage_counts;
+  stage_counts.reserve(8U);
+  for (unsigned index = 0U; index < 8U; ++index) {
+    SCOPED_TRACE(index);
+    std::array<DWORD, 3> stages{};
+    {
+      cli::SidecarProcessTransport healthy(directory.options("echo"));
+      EXPECT_EQ(healthy.transact("{}"), "{}");
+      healthy.terminate();
+      healthy.terminate();
+    }
+    ASSERT_TRUE(GetProcessHandleCount(GetCurrentProcess(), &stages[0]));
+    {
+      auto options = directory.options("no_read");
+      options.max_request_bytes = 1024U * 1024U;
+      cli::SidecarProcessTransport blocked(options);
+      const auto request =
+          Json{{"large", std::string(512U * 1024U, 'x')}}.dump();
+      EXPECT_THROW(blocked.transact(request, {},
+                                    std::chrono::steady_clock::now() + 50ms),
+                   jy::DeadlineExceeded);
+      blocked.terminate();
+    }
+    ASSERT_TRUE(GetProcessHandleCount(GetCurrentProcess(), &stages[1]));
+    {
+      auto options = directory.options("echo");
+      options.executable = invalid_executable;
+      EXPECT_THROW(cli::SidecarProcessTransport{options}, jy::BackendError);
+    }
+    ASSERT_TRUE(GetProcessHandleCount(GetCurrentProcess(), &stages[2]));
+    stage_counts.push_back(stages);
+    jyppx::liuding::test::WindowsHandleSnapshot current;
+    ASSERT_NO_THROW(current =
+                        jyppx::liuding::test::CaptureWindowsSelfHandles());
+    const DWORD observed = current.count;
+    EXPECT_EQ(observed, baseline)
+        << jyppx::liuding::test::WindowsHandleDifference(baseline_metadata,
+                                                         current);
+    round_metadata.push_back(std::move(current));
+  }
+  std::cout << "GoogleTest trace initialization: "
+            << jyppx::liuding::test::WindowsHandleDifference(before_framework,
+                                                             baseline_metadata)
+            << '\n';
+  if (::testing::Test::HasFailure())
+    for (std::size_t index = 0; index < round_metadata.size(); ++index)
+      std::cout << "handle round=" << index
+                << " healthy=" << stage_counts[index][0]
+                << " blocked=" << stage_counts[index][1]
+                << " invalid_launch=" << stage_counts[index][2] << ' '
+                << jyppx::liuding::test::WindowsHandleDifference(
+                       baseline_metadata, round_metadata[index])
+                << '\n';
+}
+#endif
 
 TEST(SidecarProcessTest, EofPartialFrameCrashAndExtraLinesFailAndPoison) {
   ProcessDirectory directory;
@@ -446,7 +599,7 @@ TEST(SidecarProcessTest, ArbitraryParentHandlesAreNotInherited) {
   const auto descriptor = ::open(parent_file.c_str(), O_RDONLY);
   ASSERT_GE(descriptor, 0);
   ASSERT_EQ(fcntl(descriptor, F_SETFD, 0), 0);
-  struct stat identity {};
+  struct stat identity{};
   ASSERT_EQ(fstat(descriptor, &identity), 0);
   const auto file_identity =
       std::to_string(identity.st_dev) + ":" + std::to_string(identity.st_ino);

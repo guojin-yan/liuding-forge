@@ -78,6 +78,18 @@ def seed_reference(root: Path, run: str, reference: str, kind: int, role: str, c
     return identity
 
 
+def committed_reference(root: Path, run: str, name: str) -> tuple[bytes, int]:
+    """Independent fixture reader, never a product input resolver."""
+    with closing(sqlite3.connect(root / "runs.sqlite3")) as database:
+        row = database.execute("SELECT a.digest,b.size_bytes,a.kind FROM jyppx_run_artifacts a "
+            "JOIN jyppx_blobs b USING(digest) WHERE a.run_id=? AND a.reference_id=?", (run, name)).fetchone()
+    assert row is not None
+    identity, size, kind = row
+    content = (root / "artifacts" / "objects" / identity[:2] / identity[2:]).read_bytes()
+    assert (digest(content), len(content)) == (identity, size)
+    return content, kind
+
+
 def child(directory: Path) -> None:
     ATTEMPTS.fixture("child", directory, [])
 
@@ -92,6 +104,16 @@ def fixture(arguments: argparse.Namespace) -> None:
     launch = {"trial": arguments.trial, "run": arguments.run, "seed": arguments.seed,
         "configuration": configuration, "config_sha256": arguments.config_sha256,
         "literal": arguments.literal, "environment": os.environ.get("SEARCH_PARAMETER"), "cwd": str(Path.cwd())}
+    training = None
+    if "JYPPX_LIUDING_LOCAL_SPEC_SHA256" in os.environ:
+        job = os.environ["JYPPX_LIUDING_LOCAL_JOB_ID"]
+        frozen_bytes, _ = committed_reference(root, job, "local.spec")
+        assert digest(frozen_bytes) == os.environ["JYPPX_LIUDING_LOCAL_SPEC_SHA256"]
+        training = json.loads(frozen_bytes)["training"]
+        pinned, _ = committed_reference(root, job, "local.training.configuration")
+        assert pinned == content
+        assert training["configuration"]["sha256"] == digest(pinned)
+        launch["training"] = training
     descriptor = os.open(directory / "launches.jsonl", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
     try:
         os.write(descriptor, (json.dumps(launch, ensure_ascii=True) + "\n").encode("ascii"))
@@ -120,11 +142,29 @@ def fixture(arguments: argparse.Namespace) -> None:
             "parent_run_id": "wrong-parent" if mode == "lineage" else arguments.trial,
             "config_digest": arguments.config_sha256, "source_digest": "fixture-source-v1",
             "build_fingerprint": "independent-test-fixture-v1"}, "tags": {"kind": "test-fixture"}}
+    if training:
+        metadata["lineage"]["data_manifest_digest"] = training["data_manifest"]["sha256"]
+        metadata["tags"]["liuding.training.model_id"] = training["model_id"]
+        if mode == "typed_missing_model":
+            del metadata["tags"]["liuding.training.model_id"]
+        if mode == "typed_lineage_mismatch":
+            metadata["lineage"]["data_manifest_digest"] = "0" * 64
     if mode == "missing_source":
         del metadata["lineage"]["source_digest"]
     metadata_path = arguments.config.parent / "run.json"
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     cli(arguments.cli, "run", "start", "--root", root, "--metadata", metadata_path)
+    if training:
+        job = os.environ["JYPPX_LIUDING_LOCAL_JOB_ID"]
+        names = ["configuration", "data_manifest"]
+        if training["resume"] is not None:
+            names.append("resume")
+        for name in names:
+            pinned, kind = committed_reference(root, job, "local.training." + name)
+            if mode == "typed_input_mismatch" and name == "data_manifest":
+                pinned = b"another immutable dataset"
+            seed_reference(root, arguments.run, "search.training." + name,
+                           kind, "search.training." + name, pinned)
     if mode != "missing_output":
         seed_reference(root, arguments.run, "checkpoint.best", 1 if mode == "output_kind" else 2,
                        "wrong-role" if mode == "output_role" else "best", b"fixture-model:" + content)
@@ -538,6 +578,206 @@ class LocalSearchTests(unittest.TestCase):
         self.assertEqual(self.launches(), [])
 
 
+class TypedLocalSearchTests(unittest.TestCase):
+    """Typed admission contracts use controlled workers; no Python training."""
+    invoke = LocalSearchTests.invoke
+    write = LocalSearchTests.write
+    search = LocalSearchTests.search
+    launches = LocalSearchTests.launches
+    single = LocalSearchTests.single
+    blob = LocalSearchTests.blob
+
+    def setUp(self) -> None:
+        LocalSearchTests.setUp(self)
+        source = {"schema_version": 1, "run_id": "typed-data", "project_id": PROJECT,
+            "experiment_id": EXPERIMENT, "display_name": "Immutable typed input fixture",
+            "status": "running", "created_at_unix_ms": int(time.time() * 1000)}
+        path = self.directory / "typed-data.json"
+        path.write_text(json.dumps(source), encoding="utf-8")
+        self.invoke("run", "start", "--root", self.root, "--metadata", path)
+        content = b"immutable independent typed data manifest"
+        identity = seed_reference(self.root, "typed-data", "data", 1, "data", content)
+        self.invoke("run", "transition", "--root", self.root, "--id", "typed-data", "--status", "completed")
+        self.spec["execution"]["training"] = {"model_id": "fixture.model.v1",
+            "configuration": "${trial_configuration}", "data_manifest": {"run_id": "typed-data",
+            "reference_id": "data", "sha256": identity, "size_bytes": len(content)}, "resume": None}
+
+    def forget_rows(self) -> None:
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND "
+                "reference_id IN ('search.result.1','search.result','search.best')", (self.search_id,))
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id=?", (self.search_id,))
+
+    def assert_not_admitted(self, name: str, spec: dict) -> None:
+        path = self.directory / (name + ".json")
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        result = self.invoke("search", "execute", "--root", self.root, "--id", name,
+                             "--spec", path, expected=2)
+        self.assertEqual(result["status"], "error")
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+            self.assertEqual(database.execute("SELECT count(*) FROM jyppx_runs WHERE run_id=? "
+                "OR parent_run_id=?", (name, name)).fetchone(), (0,))
+
+    def test_typed_grid_freezes_real_configs_and_exports_input_lineage(self) -> None:
+        result = self.search("execute")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["parallel_trials"], 1)
+        for row in result["trials"]:
+            inputs = row["training_inputs"]
+            self.assertEqual(inputs["model_id"], "fixture.model.v1")
+            self.assertEqual(inputs["data_manifest"], self.spec["execution"]["training"]["data_manifest"])
+            self.assertIsNone(inputs["resume"])
+            source = self.invoke("run", "show", "--root", self.root,
+                                 "--id", inputs["configuration"]["run_id"])["data"]
+            metadata = source["run"]
+            self.assertEqual(metadata["status"], "completed")
+            self.assertEqual(metadata["lineage"]["parent_run_id"], self.search_id)
+            self.assertEqual(metadata["lineage"]["config_digest"], row["config_sha256"])
+            self.assertEqual(metadata["tags"], {"liuding.search.kind": "inputs",
+                "liuding.search.role": "trial.configuration", "liuding.search.index": str(row["index"]),
+                "liuding.search.spec_sha256": result["search_spec_sha256"]})
+            reference = next(ref for ref in source["references"] if ref["reference_id"] == "configuration")
+            content = self.blob(self.root, reference)
+            self.assertEqual((digest(content), len(content)),
+                             (inputs["configuration"]["sha256"], inputs["configuration"]["size_bytes"]))
+            self.assertEqual(json.loads(content)["learning_rate"], row["parameters"]["learning_rate"])
+            launched = self.launches()[row["index"] - 1]
+            self.assertEqual(launched["training"], inputs)
+        backup = self.directory / "typed-backup"
+        self.assertEqual(self.search("export", output=backup)["best"], result["best"])
+        restored = self.directory / "restored"
+        self.invoke("run", "restore", "--root", restored, "--backup", backup)
+        shown = self.invoke("search", "show", "--root", restored, "--id", self.search_id)["data"]
+        self.assertEqual(shown["trials"], result["trials"])
+        self.assertEqual(self.search("recover")["trials"], result["trials"])
+        self.assertEqual(len(self.launches()), 3)
+
+    def test_typed_inputs_reject_shape_identity_lifecycle_and_corrupt_cas_before_admission(self) -> None:
+        original = copy.deepcopy(self.spec)
+        mutations = [lambda v: v["execution"]["training"].update(configuration={}),
+            lambda v: v["execution"]["training"].update(unknown=True),
+            lambda v: v["execution"]["training"]["data_manifest"].update(size_bytes=1),
+            lambda v: v["execution"]["training"]["data_manifest"].update(sha256="0" * 64),
+            lambda v: v["execution"]["training"].update(resume={"checkpoint":
+                v["execution"]["training"]["data_manifest"], "restore_policy": "allow_best_effort"})]
+        for index, mutate in enumerate(mutations):
+            with self.subTest(case=index):
+                spec = copy.deepcopy(original)
+                mutate(spec)
+                self.assert_not_admitted("bad-typed-" + str(index), spec)
+        for status in (2, 6):
+            with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                database.execute("UPDATE jyppx_runs SET status=? WHERE run_id='typed-data'", (status,))
+            self.assert_not_admitted("bad-source-" + str(status), original)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("UPDATE jyppx_runs SET status=3,project_id='foreign' WHERE run_id='typed-data'")
+        self.assert_not_admitted("foreign-source", original)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("UPDATE jyppx_runs SET project_id=? WHERE run_id='typed-data'", (PROJECT,))
+        identity = original["execution"]["training"]["data_manifest"]["sha256"]
+        path = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
+        content = path.read_bytes()
+        try:
+            path.write_bytes(b"x" * len(content))
+            self.assert_not_admitted("corrupt-data", original)
+        finally:
+            path.write_bytes(content)
+        self.assertEqual(self.launches(), [])
+
+    def test_sealed_inputs_replay_but_conflicts_and_unsealed_owned_inputs_do_not(self) -> None:
+        self.single("ok")
+        original = self.search("execute")
+        self.forget_rows()
+        self.assertEqual(self.search("recover")["trials"], original["trials"])
+        self.assertEqual(len(self.launches()), 1)
+        input_run = original["trials"][0]["training_inputs"]["configuration"]["run_id"]
+        self.forget_rows()
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("UPDATE jyppx_run_tags SET value='conflicting-role' "
+                "WHERE run_id=? AND name='liuding.search.role'", (input_run,))
+        self.invoke("search", "recover", "--root", self.root, "--id", self.search_id, expected=2)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("UPDATE jyppx_run_tags SET value='trial.configuration' "
+                "WHERE run_id=? AND name='liuding.search.role'", (input_run,))
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id=?", (input_run,))
+        self.invoke("search", "recover", "--root", self.root, "--id", self.search_id, expected=2)
+        self.assertEqual(len(self.launches()), 1)
+
+    def test_input_publication_recovers_start_and_content_boundaries_before_dispatch(self) -> None:
+        self.single("ok")
+        result = self.search("execute")
+        row = result["trials"][0]
+        input_run = row["training_inputs"]["configuration"]["run_id"]
+        for index, remove_content in enumerate((True, False), 1):
+            # Reconstruct only durable pre-dispatch boundaries from a worker
+            # whose complete result already proved native tree cleanup.
+            local = self.invoke("local", "show", "--root", self.root, "--id", row["trial_id"])["data"]
+            self.assertEqual(local["status"], "completed")
+            attempt = local["attempts"][0]["attempt_id"]
+            self.forget_rows()
+            with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                database.execute("PRAGMA foreign_keys=ON")
+                for owner in (row["training_run_id"], attempt, row["trial_id"]):
+                    for table in ("jyppx_metric_points", "jyppx_event_batch_items", "jyppx_event_batches",
+                                  "jyppx_events", "jyppx_event_streams", "jyppx_run_event_state"):
+                        database.execute("DELETE FROM " + table + " WHERE run_id=?", (owner,))
+                    database.execute("DELETE FROM jyppx_runs WHERE run_id=?", (owner,))
+                database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id=?", (input_run,))
+                if remove_content:
+                    database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id='configuration'",
+                                     (input_run,))
+                self.assertEqual(database.execute("PRAGMA foreign_key_check").fetchall(), [])
+            repaired = self.search("recover")
+            self.assertEqual(repaired["trials"], result["trials"])
+            self.assertEqual(len(self.launches()), index + 1)
+            source = self.invoke("run", "show", "--root", self.root, "--id", input_run)["data"]
+            self.assertEqual(source["run"]["status"], "completed")
+            reference = next(ref for ref in source["references"] if ref["reference_id"] == "configuration")
+            self.assertEqual(digest(self.blob(self.root, reference)), row["config_sha256"])
+
+    def test_typed_training_result_must_bind_same_model_and_data(self) -> None:
+        for mode in ("typed_missing_model", "typed_lineage_mismatch", "typed_input_mismatch"):
+            with self.subTest(case=mode):
+                self.search_id = mode
+                self.single(mode)
+                result = self.search("execute", expected=1)
+                self.assertIsNone(result["best"])
+                self.assertEqual(result["trials"][0]["reason"], "training_input_mismatch")
+
+    def test_explicit_checkpoint_from_unconfirmed_source_is_fenced_before_new_search(self) -> None:
+        self.single("ok")
+        completed = self.search("execute")
+        job = completed["trials"][0]["trial_id"]
+        source = self.invoke("local", "show", "--root", self.root, "--id", job)["data"]["attempts"][0]["attempt_id"]
+        checkpoint = b"valid immutable checkpoint fixture"
+        identity = seed_reference(self.root, source, "checkpoint.last", 2, "last", checkpoint)
+        self.spec["execution"]["training"]["resume"] = {"checkpoint": {"run_id": source,
+            "reference_id": "checkpoint.last", "sha256": identity, "size_bytes": len(checkpoint)},
+            "restore_policy": "exact_only"}
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND "
+                "reference_id IN ('local.result','local.stdout','local.stderr')", (source,))
+        # Even a manually terminal source with valid CAS bytes lacks cleanup proof.
+        self.assert_not_admitted("unconfirmed-resume", self.spec)
+        self.assertEqual(len(self.launches()), 1)
+
+    def test_typed_unknown_owned_attempt_stays_fenced_with_frozen_inputs(self) -> None:
+        self.single("ok")
+        self.search("execute")
+        self.forget_rows()
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE reference_id IN "
+                             "('local.result','local.stdout','local.stderr')")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN "
+                             "(SELECT run_id FROM jyppx_run_tags WHERE name='liuding.local.kind')")
+        result = self.search("recover", expected=7)
+        self.assertEqual(result["status"], "recovery_required")
+        self.assertEqual(result["trials"], [])
+        self.search("cancel")
+        self.search("recover", expected=7)
+        self.assertEqual(len(self.launches()), 1)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--child":
         child(Path(sys.argv[2]))
@@ -558,4 +798,5 @@ if __name__ == "__main__":
         parser.add_argument("--cli", type=Path, required=True)
         arguments, rest = parser.parse_known_args()
         LocalSearchTests.cli = arguments.cli.resolve()
+        TypedLocalSearchTests.cli = arguments.cli.resolve()
         unittest.main(argv=[__file__, *rest])

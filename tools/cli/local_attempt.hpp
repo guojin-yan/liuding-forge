@@ -9,6 +9,8 @@
 
 #include "cli.hpp"
 
+#include <jyppx/liuding/experiment/run_store.hpp>
+
 namespace jyppx::liuding::cli {
 
 /** @brief Durable bounded local execution composed over run/CAS and OS locks.
@@ -22,6 +24,14 @@ Result local_attempt_command(const Arguments& arguments);
  * bindings are checked by execute before admission and by the owned worker.
  */
 void validate_local_execution_spec(const Json& spec, bool inspect_files = true);
+
+/** @brief Checks one committed typed input using the same source/attempt fence
+ * as local execution. Does not create a run or choose a checkpoint.
+ */
+void validate_local_training_source(experiment::SQLiteRunStore& store,
+                                    std::string_view project_id,
+                                    const Json& binding,
+                                    experiment::RunArtifactKind kind);
 
 /** @brief Executes/replays one frozen job with an optional run parent. */
 Result execute_local_job(

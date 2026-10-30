@@ -1,6 +1,8 @@
 # Product tools are composed here, outside the library component graph.
 find_package(Threads REQUIRED)
-add_library(jyppx_cli_transport STATIC sidecar_process.cpp)
+add_library(jyppx_cli_transport STATIC
+    sidecar_process.cpp
+    native_telemetry_protocol.cpp)
 set_target_properties(jyppx_cli_transport PROPERTIES
     OUTPUT_NAME liuding-forge-cli-transport)
 target_include_directories(jyppx_cli_transport PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -27,6 +29,7 @@ add_library(jyppx_cli_objects OBJECT
     paired_recipe.cpp
     run_commands.cpp
     telemetry_commands.cpp
+    native_otlp_worker.cpp
 )
 add_executable(jyppx_cli)
 set_target_properties(jyppx_cli PROPERTIES OUTPUT_NAME liuding-forge)
@@ -38,6 +41,11 @@ jyppx_add_torch_runtime_dependency(jyppx_cli)
 if(TARGET jyppx::liuding::telemetry_native)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::telemetry_native)
     target_compile_definitions(jyppx_cli_objects PRIVATE JYPPX_LIUDING_CLI_NATIVE_TELEMETRY=1)
+endif()
+if(TARGET jyppx::liuding::telemetry_http)
+    target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::telemetry_http)
+    set_property(SOURCE native_otlp_worker.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_NATIVE_OTLP_HTTP=1)
 endif()
 if(TARGET jyppx::liuding::bundle_signing)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::bundle_signing)

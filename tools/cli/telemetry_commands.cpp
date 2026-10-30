@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "cli.hpp"
+#include "native_otlp_worker.hpp"
 #include "sidecar_process.hpp"
 
 #include <jyppx/liuding/experiment/run_store.hpp>
@@ -468,18 +469,25 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
   const auto backend = arguments.require("backend");
   const bool jsonl = backend == "jsonl";
   const bool native_tensorboard = backend == "tensorboard-native";
+  const bool native_otlp = backend == "opentelemetry-native";
   const bool local = jsonl || native_tensorboard;
-  if (!local && backend != "tensorboard" && backend != "opentelemetry")
+  if (!local && !native_otlp && backend != "tensorboard" &&
+      backend != "opentelemetry")
     usage("run.backend",
-          "Choose jsonl/tensorboard-native/tensorboard/opentelemetry.");
-  if ((local && arguments.optional("sidecar-config")) ||
+          "Choose jsonl/tensorboard-native/tensorboard/opentelemetry/"
+          "opentelemetry-native.");
+  if ((native_otlp && (arguments.optional("sidecar-config") ||
+                       !arguments.optional("native-config"))) ||
+      (!native_otlp && arguments.optional("native-config")) ||
+      (local && arguments.optional("sidecar-config")) ||
       (!local &&
        (arguments.optional("output") || arguments.optional("resume"))) ||
       (native_tensorboard && arguments.optional("resume")))
     usage(
         "run.export",
         "JSONL uses --output/--resume; tensorboard-native uses a new --output "
-        "directory; sidecar backends use --sidecar-config.");
+        "directory; sidecar backends use --sidecar-config; "
+        "opentelemetry-native uses --native-config.");
   RunEventPageRequest request;
   request.after_sequence = arguments.number("after", 0U, kMaximumCoordinate);
   const auto initial_after = request.after_sequence;
@@ -520,7 +528,10 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
     throw NotImplemented("Native TensorBoard is disabled in this build");
 #endif
   } else {
-    auto options = sidecar_options(arguments, backend);
+    auto options = native_otlp
+                       ? native_otlp_worker_options(
+                             arguments, page.snapshot_through - initial_after)
+                       : sidecar_options(arguments, backend);
     request_bytes = options.max_request_bytes;
     const auto reply_bytes = options.max_reply_bytes;
     check_telemetry_operation({}, deadline);
@@ -644,8 +655,8 @@ Result run_telemetry_command(const Arguments& arguments) {
                      "page-bytes", "timeout-ms"});
   } else if (action == "export") {
     arguments.allow({"root", "id", "backend", "output", "resume",
-                     "sidecar-config", "after", "snapshot", "page-size",
-                     "page-bytes", "max-events", "timeout-ms"});
+                     "sidecar-config", "native-config", "after", "snapshot",
+                     "page-size", "page-bytes", "max-events", "timeout-ms"});
   } else {
     usage("run.telemetry", "Choose events/metrics/export.");
   }

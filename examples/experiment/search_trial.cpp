@@ -85,13 +85,10 @@ forge::TelemetryMetricDefinition Definition() {
   return value;
 }
 
-void WriteSpec(const fs::path& executable, const fs::path& output,
-               std::string_view strategy) {
+Json SearchSpecification(const fs::path& executable,
+                         std::string_view strategy) {
   if (strategy != "grid" && strategy != "random")
     throw std::runtime_error("Strategy must be grid or random");
-  if (!output.is_absolute() || fs::exists(output))
-    throw std::runtime_error(
-        "Spec output must be an unused absolute file path");
   const auto worker = fs::canonical(executable);
   Json execution{
       {"format", "jyppx.liuding.local_run_spec"},
@@ -147,10 +144,22 @@ void WriteSpec(const fs::path& executable, const fs::path& output,
                {"kind", "checkpoint"},
                {"role", "best"}}}},
             {"inputs", Json::array()}};
+  return spec;
+}
+
+void WriteSpecification(const fs::path& output, const Json& spec) {
+  if (!output.is_absolute() || fs::exists(output))
+    throw std::runtime_error(
+        "Spec output must be an unused absolute file path");
   std::ofstream stream(output, std::ios::binary);
   stream << spec.dump(2) << '\n';
   stream.close();
   if (!stream) throw std::runtime_error("Cannot write search specification");
+}
+
+void WriteSpec(const fs::path& executable, const fs::path& output,
+               std::string_view strategy) {
+  WriteSpecification(output, SearchSpecification(executable, strategy));
   std::cout << "Search specification written; executable SHA-256 pinned.\n";
 }
 
@@ -282,6 +291,85 @@ void WriteLocalSpec(const fs::path& executable, const fs::path& output,
                "pinned.\n";
 }
 
+void WriteTypedSearchSpec(const fs::path& executable, const fs::path& output,
+                          const fs::path& root, std::string_view strategy,
+                          const std::string& resume_run) {
+  if (!output.is_absolute() || fs::exists(output) || !root.is_absolute())
+    throw std::runtime_error(
+        "Use an unused absolute spec file and absolute store");
+  auto spec = SearchSpecification(executable, strategy);
+  experiment::SQLiteRunStore store(root);
+  Json resume = nullptr;
+  if (!resume_run.empty()) {
+    const auto source = store.find(resume_run);
+    const auto checkpoint = store.find_reference(resume_run, "checkpoint.last");
+    if (!source || source->project_id != kLocalProject ||
+        !experiment::is_terminal_run_status(source->status) ||
+        source->status == experiment::RunStatus::interrupted ||
+        !source->tags.contains("liuding.local.kind") ||
+        source->tags.at("liuding.local.kind") != "attempt" || !checkpoint ||
+        checkpoint->kind != experiment::RunArtifactKind::checkpoint)
+      throw std::runtime_error(
+          "Select an explicit terminal local attempt with checkpoint.last");
+    // Admission rechecks confirmed native ownership. Merely generating this
+    // request does not prove that a source process tree has been cleaned up.
+    resume = {{"checkpoint", LocalBinding(resume_run, *checkpoint)},
+              {"restore_policy", "exact_only"}};
+    spec["space"][0]["values"] = {0.05};
+    spec["max_trials"] = 1;
+  }
+  const auto inputs =
+      "typed-search-inputs." + forge::sha256_hex(Bytes(Utf8(output)));
+  if (store.find(inputs))
+    throw std::runtime_error("Select a new typed search specification file");
+  const auto stamp = Now();
+  store.start({.run_id = inputs,
+               .project_id = std::string(kLocalProject),
+               .experiment_id = std::string(kExperiment),
+               .display_name = "Frozen affine data for typed search",
+               .status = experiment::RunStatus::running,
+               .created_at_unix_ms = stamp,
+               .updated_at_unix_ms = stamp});
+  const auto encoded = LocalData().dump();
+  const auto data = store.put_artifact(
+      inputs, "data_manifest", experiment::RunArtifactKind::artifact,
+      "data_manifest", Bytes(encoded),
+      {.logical_name = "data-manifest.json",
+       .media_type = "application/json",
+       .producer = "liuding-forge-example-search-trial",
+       .expected_size_bytes = encoded.size()},
+      stamp);
+  store.transition(inputs, experiment::RunStatus::completed, Now());
+  spec["project_id"] = kLocalProject;
+  spec["configuration"] = LocalConfiguration();
+  auto& execution = spec["execution"];
+  execution["project_id"] = kLocalProject;
+  execution["arguments"] = {"--typed-search-training",
+                            "60",
+                            "--trial",
+                            "${trial_id}",
+                            "--run",
+                            "${training_run_id}",
+                            "--config-sha256",
+                            "${config_sha256}",
+                            "--seed",
+                            "${trial_seed}"};
+  execution["working_directory"] = "${trial_directory}";
+  execution["training"] = {{"model_id", kLocalModel},
+                           {"configuration", "${trial_configuration}"},
+                           {"data_manifest", LocalBinding(inputs, data)},
+                           {"resume", std::move(resume)}};
+  spec["outputs"] = {{{"reference_id", "checkpoint.last"},
+                      {"kind", "checkpoint"},
+                      {"role", "last"}},
+                     {{"reference_id", "training.result"},
+                      {"kind", "artifact"},
+                      {"role", "training.result"}}};
+  WriteSpecification(output, spec);
+  std::cout << "Typed search written; every trial owns its configuration and "
+               "shares explicit model/data/checkpoint inputs.\n";
+}
+
 // Immutable participant refuses a checkpoint captured with another model,
 // configuration or dataset. Update count and momentum belong to native SGD.
 class LocalInputIdentity final : public forge::CheckpointParticipant {
@@ -348,7 +436,93 @@ std::string ReadLocalArtifact(experiment::SQLiteRunStore& store,
   return content;
 }
 
-void LocalTrain(std::uint64_t until) {
+void PublishTypedSearchTraining(
+    experiment::SQLiteRunStore& store, const std::string& job,
+    const std::string& attempt, const Json& training, const Json& result,
+    const std::map<std::string, std::string>& arguments) {
+  const auto& run_id = arguments.at("--run");
+  const auto& seed = arguments.at("--seed");
+  const auto config_sha =
+      training.at("configuration").at("sha256").get<std::string>();
+  if (arguments.at("--trial") != job || run_id != job + ".training" ||
+      arguments.at("--config-sha256") != config_sha)
+    throw std::runtime_error("Typed search worker identity differs");
+  std::uint64_t parsed_seed = 0;
+  const auto parsed =
+      std::from_chars(seed.data(), seed.data() + seed.size(), parsed_seed);
+  if (parsed.ec != std::errc{} || parsed.ptr != seed.data() + seed.size())
+    throw std::runtime_error("Seed must be an unsigned 64-bit integer");
+  static_cast<void>(parsed_seed);  // This full-batch recipe consumes no RNG.
+  const auto fingerprint = forge::current_build_fingerprint();
+  const auto stamp = Now();
+  experiment::RunMetadata run;
+  run.run_id = run_id;
+  run.project_id = kLocalProject;
+  run.experiment_id = kExperiment;
+  run.display_name = "Native typed search training";
+  run.status = experiment::RunStatus::running;
+  run.created_at_unix_ms = stamp;
+  run.updated_at_unix_ms = stamp;
+  run.lineage.parent_run_id = job;
+  run.lineage.config_digest = config_sha;
+  run.lineage.source_digest = fingerprint.git_commit;
+  run.lineage.build_fingerprint = forge::build_fingerprint_json(fingerprint);
+  run.lineage.data_manifest_digest =
+      training.at("data_manifest").at("sha256").get<std::string>();
+  run.tags = {{"seed", seed},
+              {"example", "typed-search"},
+              {"liuding.training.model_id", std::string(kLocalModel)},
+              {"liuding.training.owner_attempt", attempt}};
+  store.start(run);
+  try {
+    std::vector<experiment::RunArtifactReference> references;
+    const auto pin = [&](std::string_view owner, std::string_view from,
+                         std::string to) {
+      const auto reference = store.find_reference(owner, from);
+      if (!reference)
+        throw std::runtime_error(
+            "Typed search publication lacks an input/output");
+      auto copy = *reference;
+      copy.reference_id = to;
+      copy.role = to == "checkpoint.last" ? "last" : to;
+      copy.attached_at_unix_ms = stamp;
+      references.push_back(std::move(copy));
+    };
+    pin(job, "local.training.configuration", "search.training.configuration");
+    pin(job, "local.training.data_manifest", "search.training.data_manifest");
+    if (!training.at("resume").is_null())
+      pin(job, "local.training.resume", "search.training.resume");
+    pin(attempt, "checkpoint.last", "checkpoint.last");
+    pin(attempt, "training.result", "training.result");
+    store.attach(run_id, references);
+    forge::TelemetryMetricPoint metric;
+    metric.definition = Definition();
+    metric.context = {{"dataset", "affine-validation-v1"},
+                      {"split", "validation"}};
+    metric.step = {.kind = forge::TelemetryStepKind::global_step,
+                   .value = result.at("completed_steps").get<std::uint64_t>()};
+    metric.observation = forge::make_telemetry_metric_value(
+        result.at("validation_mse").get<double>());
+    metric.sample_count = 10U;
+    forge::TelemetryEnvelope event;
+    event.identity = {.stream_id = run_id + ".training",
+                      .event_id = run_id + ".validation-final",
+                      .idempotency_key = "validation-final",
+                      .sequence = 1};
+    event.correlation.project_id = kLocalProject;
+    event.correlation.run_id = run_id;
+    event.correlation.attempt_id = job;
+    event.payload = forge::TelemetryMetricBatch{{std::move(metric)}};
+    store.append(run_id, "validation-final", std::span(&event, 1U));
+    store.transition(run_id, experiment::RunStatus::completed, Now());
+  } catch (...) {
+    store.transition(run_id, experiment::RunStatus::failed, Now());
+    throw;
+  }
+}
+
+void LocalTrain(std::uint64_t until,
+                const std::map<std::string, std::string>* search = nullptr) {
   const auto root =
       fs::u8path(LocalEnvironment("JYPPX_LIUDING_LOCAL_STORE_ROOT"));
   const auto job = LocalEnvironment("JYPPX_LIUDING_LOCAL_JOB_ID");
@@ -374,9 +548,15 @@ void LocalTrain(std::uint64_t until) {
       store, job, "local.training.configuration", 4096, config_sha));
   const auto data = Json::parse(ReadLocalArtifact(
       store, job, "local.training.data_manifest", 4096, data_sha));
-  if (config != LocalConfiguration() || data != LocalData())
+  auto expected_config = LocalConfiguration();
+  if (search && config.is_object() && config.contains("learning_rate"))
+    expected_config["learning_rate"] = config.at("learning_rate");
+  if (config != expected_config || data != LocalData())
     throw std::runtime_error(
         "The learning example requires its frozen affine recipe");
+  const auto rate = config.at("learning_rate").get<double>();
+  if (!std::isfinite(rate) || rate <= 0.0 || rate > 1.0)
+    throw std::runtime_error("Learning rate exceeds the example bounds");
   const auto work_parent = root / "local-training-example";
   fs::create_directories(work_parent);
   const auto work = work_parent / attempt;
@@ -397,7 +577,7 @@ void LocalTrain(std::uint64_t until) {
            .parameters = {{.parameter_id = "weight",
                            .parameter = model->weight},
                           {.parameter_id = "bias", .parameter = model->bias}},
-           .options = {.learning_rate = 0.05, .momentum = 0.9}}});
+           .options = {.learning_rate = rate, .momentum = 0.9}}});
   forge::training::CheckpointParticipantRegistry registry;
   registry.register_participant(
       std::make_shared<forge::nn::ModelCheckpointParticipant>(
@@ -493,6 +673,8 @@ void LocalTrain(std::uint64_t until) {
                       .producer = "liuding-forge-example-search-trial",
                       .expected_size_bytes = content.size()},
                      stamp);
+  if (search)
+    PublishTypedSearchTraining(store, job, attempt, training, result, *search);
   std::cout << "Native model, SGD momentum and committed update count saved.\n";
 }
 
@@ -653,6 +835,8 @@ int main(int argc, char** argv) {
              "Local: --write-local-spec FILE --store ROOT --until-step 20 "
              "[--resume-run SOURCE_ATTEMPT]\n"
              "Local worker: --local-training UNTIL_STEP (owned runner only)\n";
+      std::cout << "Typed search: --write-typed-search-spec FILE --store ROOT "
+                   "[--strategy grid|random] [--resume-run SOURCE_ATTEMPT]\n";
       return 0;
     }
     std::map<std::string, std::string> arguments;
@@ -664,7 +848,26 @@ int main(int argc, char** argv) {
         throw std::runtime_error(
             "Expected distinct option/value pairs; see --help");
     }
-    if (arguments.contains("--write-local-spec")) {
+    if (arguments.contains("--write-typed-search-spec")) {
+      const auto expected_size = 2U +
+                                 (arguments.contains("--strategy") ? 1U : 0U) +
+                                 (arguments.contains("--resume-run") ? 1U : 0U);
+      if (arguments.size() != expected_size)
+        throw std::runtime_error("Unknown typed search option; see --help");
+      WriteTypedSearchSpec(
+          fs::path(argv[0]),
+          fs::u8path(arguments.at("--write-typed-search-spec")),
+          fs::u8path(arguments.at("--store")),
+          arguments.contains("--strategy") ? arguments.at("--strategy")
+                                           : "grid",
+          arguments.contains("--resume-run") ? arguments.at("--resume-run")
+                                             : "");
+    } else if (arguments.contains("--typed-search-training")) {
+      if (arguments.size() != 5U)
+        throw std::runtime_error("Expected the typed search worker options");
+      LocalTrain(LocalStep(arguments.at("--typed-search-training")),
+                 &arguments);
+    } else if (arguments.contains("--write-local-spec")) {
       if (arguments.size() != (arguments.contains("--resume-run") ? 4U : 3U))
         throw std::runtime_error(
             "Unknown local specification option; see --help");

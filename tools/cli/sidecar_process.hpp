@@ -76,14 +76,20 @@ struct SidecarProcessStats {
  * structure and request/reply identity above this byte transport.
  *
  * Windows starts suspended, assigns a non-breakaway kill-on-close Job Object,
- * and only then resumes. POSIX starts a distinct process group; its members are
+ * and only then resumes. Its parent pipe handles use synchronous PIPE_NOWAIT
+ * polling; child standard handles retain blocking mode. No pending asynchronous
+ * I/O or background thread survives cleanup. POSIX starts a distinct process
+ * group; its members are
  * killed on failure/destruction. POSIX process groups contain cooperative
  * official sidecars, not a sandbox for hostile children that call setsid().
  * Any failed transact poisons and terminates the child tree. Reuse then throws
  * NotReady. Restart requires constructing a fresh transport and replaying the
  * original durable envelopes according to at-least-once delivery semantics.
- * Cleanup can extend a reached operation deadline by cleanup_timeout; it never
- * performs a protocol flush or other fallible exporter finalization.
+ * Cleanup can extend a reached operation deadline by one cleanup_timeout;
+ * Windows post-exit draining and repeated cleanup share that first budget.
+ * It never performs a protocol flush or other fallible exporter finalization.
+ * These are application wait bounds, not an absolute wall-clock guarantee for
+ * arbitrary Win32 kernel calls or OS scheduling.
  */
 class SidecarProcessTransport final
     : public experiment::TelemetrySidecarTransport {

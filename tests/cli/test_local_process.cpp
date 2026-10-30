@@ -16,6 +16,10 @@
 
 #include "../../tools/cli/local_process.hpp"
 
+#ifdef _WIN32
+#include "windows_handle_diagnostics.hpp"
+#endif
+
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <atomic>
@@ -25,6 +29,7 @@
 #include <fstream>
 #include <functional>
 #include <gtest/gtest.h>
+#include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
@@ -171,6 +176,24 @@ TEST(LocalProcessTest, DrainsBothLargeStreamsAndFinalTailWithoutDeadlock) {
   EXPECT_EQ(result.exit_code, 0U);
   EXPECT_EQ(result.stdout_capture, std::string(110000, 'o') + "last-stdout");
   EXPECT_EQ(result.stderr_capture, std::string(90000, 'e') + "last-stderr");
+}
+
+TEST(LocalProcessTest,
+     LargeFinalStreamsDrainAfterLeaderExitWithLiveDescendants) {
+  ProcessDirectory directory;
+  auto options = directory.options("volume-leader-exits");
+  options.max_stdout_bytes = 3U * 1024U * 1024U;
+  options.max_stderr_bytes = 3U * 1024U * 1024U;
+  const auto result = cli::LocalProcessRunner{}.run(options);
+  ASSERT_EQ(result.status, cli::LocalProcessStatus::exited);
+  EXPECT_EQ(result.exit_code, 23U);
+  EXPECT_EQ(result.stdout_capture,
+            std::string(2U * 1024U * 1024U + 29U, 'o') + "final-stdout");
+  EXPECT_EQ(result.stderr_capture,
+            std::string(2U * 1024U * 1024U + 43U, 'e') + "final-stderr");
+  EXPECT_EQ(result.stdout_bytes, result.stdout_capture.size());
+  EXPECT_EQ(result.stderr_bytes, result.stderr_capture.size());
+  directory.expect_tree_stopped(result.process_id);
 }
 
 TEST(LocalProcessTest, ClosedStdoutDoesNotDiscardLaterStderrOrExit) {
@@ -332,6 +355,54 @@ TEST(LocalProcessTest, RunnerCanExecuteAgainAfterCompletedAndCancelledCalls) {
 }
 
 #ifdef _WIN32
+TEST(LocalProcessTest, RepeatedCompletionReleasesProcessJobAndPipeHandles) {
+  ProcessDirectory directory;
+  auto options = directory.options("exit");
+  options.arguments.push_back("37");
+  ASSERT_EQ(cli::LocalProcessRunner{}.run(options).exit_code, 37U);
+  jyppx::liuding::test::WindowsHandleSnapshot before_framework;
+  ASSERT_NO_THROW(before_framework =
+                      jyppx::liuding::test::CaptureWindowsSelfHandles());
+  {
+    // Measure GoogleTest's first trace-stack/ThreadLocal initialization apart
+    // from product operations. This performs no additional process warmup.
+    SCOPED_TRACE("initialize the measurement framework before its baseline");
+  }
+  jyppx::liuding::test::WindowsHandleSnapshot baseline_metadata;
+  ASSERT_NO_THROW(baseline_metadata =
+                      jyppx::liuding::test::CaptureWindowsSelfHandles());
+  const DWORD baseline = baseline_metadata.count;
+  std::vector<jyppx::liuding::test::WindowsHandleSnapshot> round_metadata;
+  round_metadata.reserve(8U);
+  for (unsigned index = 0U; index < 8U; ++index) {
+    SCOPED_TRACE(index);
+    const auto result = cli::LocalProcessRunner{}.run(options);
+    EXPECT_EQ(result.status, cli::LocalProcessStatus::exited);
+    EXPECT_EQ(result.exit_code, 37U);
+    EXPECT_FALSE(alive(result.process_id));
+    jyppx::liuding::test::WindowsHandleSnapshot current;
+    ASSERT_NO_THROW(current =
+                        jyppx::liuding::test::CaptureWindowsSelfHandles());
+    const DWORD observed = current.count;
+    EXPECT_EQ(observed, baseline)
+        << jyppx::liuding::test::WindowsHandleDifference(baseline_metadata,
+                                                         current);
+    round_metadata.push_back(std::move(current));
+  }
+  // Print after all measurements, so output/reporting cannot initialize a
+  // handle between the baseline and a successful measured product operation.
+  std::cout << "GoogleTest trace initialization: "
+            << jyppx::liuding::test::WindowsHandleDifference(before_framework,
+                                                             baseline_metadata)
+            << '\n';
+  if (::testing::Test::HasFailure())
+    for (std::size_t index = 0; index < round_metadata.size(); ++index)
+      std::cout << "handle round=" << index << ' '
+                << jyppx::liuding::test::WindowsHandleDifference(
+                       baseline_metadata, round_metadata[index])
+                << '\n';
+}
+
 TEST(LocalProcessTest, ExitCode259IsAnExitRatherThanStillRunning) {
   ProcessDirectory directory;
   auto options = directory.options("exit");

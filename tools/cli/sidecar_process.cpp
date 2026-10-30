@@ -333,13 +333,11 @@ std::vector<wchar_t> child_environment(const SidecarProcessOptions& options) {
 struct WinPipe {
   Handle server;
   Handle child;
-  Handle event;
-  OVERLAPPED operation{};
-  std::array<char, kChunkBytes> buffer{};
-  bool pending = false;
   bool eof = false;
 
-  void create(bool parent_reads) {
+  void create(bool parent_reads, std::stop_token stop,
+              Clock::time_point deadline) {
+    check_telemetry_operation(stop, deadline);
     static std::atomic<unsigned long long> serial{0U};
     std::random_device random;
     const auto name = L"\\\\.\\pipe\\jyppx.telemetry." +
@@ -349,89 +347,90 @@ struct WinPipe {
                       std::to_wstring(random());
     const auto access =
         (parent_reads ? PIPE_ACCESS_INBOUND : PIPE_ACCESS_OUTBOUND) |
-        FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE;
+        FILE_FLAG_FIRST_PIPE_INSTANCE;
+    // Only this server handle is nonblocking. CreateFile gives the child's
+    // separate synchronous handle its default PIPE_WAIT mode.
     server.reset(CreateNamedPipeW(name.c_str(), access,
                                   PIPE_TYPE_BYTE | PIPE_READMODE_BYTE |
-                                      PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                                      PIPE_NOWAIT | PIPE_REJECT_REMOTE_CLIENTS,
                                   1U, 65536U, 65536U, 0U, nullptr));
     if (!server) launch_failure("launch.pipe.server");
-    event.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-    if (!event) launch_failure("launch.pipe.event");
-    operation.hEvent = event.get();
-    if (!ConnectNamedPipe(server.get(), &operation)) {
+    // In PIPE_NOWAIT mode a successful first connect means listening, not
+    // connected. The client can also win the race and report PIPE_CONNECTED.
+    if (!ConnectNamedPipe(server.get(), nullptr)) {
       const auto error = GetLastError();
-      if (error == ERROR_IO_PENDING)
-        pending = true;
-      else if (error != ERROR_PIPE_CONNECTED)
-        launch_failure("launch.pipe.connect");
+      if (error != ERROR_PIPE_LISTENING && error != ERROR_PIPE_CONNECTED)
+        launch_failure(error == ERROR_NO_DATA ? "launch.pipe.closed"
+                                              : "launch.pipe.listen");
     }
+    check_telemetry_operation(stop, deadline);
     SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
     child.reset(CreateFileW(
         name.c_str(), parent_reads ? GENERIC_WRITE : GENERIC_READ, 0U,
         &security, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!child) launch_failure("launch.pipe.client");
-    if (pending) {
-      DWORD ignored = 0U;
-      if (!GetOverlappedResult(server.get(), &operation, &ignored, TRUE)) {
-        launch_failure("launch.pipe.connect.complete");
+    while (true) {
+      check_telemetry_operation(stop, deadline);
+      if (!ConnectNamedPipe(server.get(), nullptr)) {
+        const auto error = GetLastError();
+        if (error == ERROR_PIPE_CONNECTED) break;
+        if (error != ERROR_PIPE_LISTENING)
+          launch_failure(error == ERROR_NO_DATA ? "launch.pipe.closed"
+                                                : "launch.pipe.connect");
       }
-      pending = false;
+      // A nonzero return can still mean only listening. Never spin on that
+      // state, and never turn this local handshake into an unbounded wait.
+      const auto wait = poll_milliseconds(deadline);
+      if (wait > 0) Sleep(static_cast<DWORD>(wait));
     }
-    ResetEvent(event.get());
+    check_telemetry_operation(stop, deadline);
   }
 
-  void begin_read() {
-    if (pending || eof) return;
-    operation = {};
-    operation.hEvent = event.get();
-    ResetEvent(event.get());
+  std::size_t read(std::array<char, kChunkBytes>& destination) {
+    if (eof) return 0U;
     DWORD count = 0U;
-    const auto success =
-        ReadFile(server.get(), buffer.data(), static_cast<DWORD>(buffer.size()),
-                 &count, &operation);
-    if (!success) {
+    if (!ReadFile(server.get(), destination.data(),
+                  static_cast<DWORD>(destination.size()), &count, nullptr)) {
       const auto error = GetLastError();
-      if (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED) {
-        eof = true;
-        return;
-      }
-      if (error != ERROR_IO_PENDING) io_failure("pipe.read.begin");
-    }
-    pending = true;
-  }
-
-  std::size_t collect_read(std::array<char, kChunkBytes>& destination) {
-    if (!pending) return 0U;
-    DWORD count = 0U;
-    if (!GetOverlappedResult(server.get(), &operation, &count, FALSE)) {
-      const auto error = GetLastError();
-      if (error == ERROR_IO_INCOMPLETE) return 0U;
-      pending = false;
+      // Empty nonblocking byte pipes report NO_DATA; this is not EOF. A
+      // disconnected writer reports BROKEN_PIPE after its buffered tail drains.
+      if (error == ERROR_NO_DATA || error == ERROR_PIPE_LISTENING) return 0U;
       if (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED) {
         eof = true;
         return 0U;
       }
-      io_failure("pipe.read.complete");
+      io_failure("pipe.read");
     }
-    pending = false;
-    if (count == 0U) {
-      eof = true;
-      return 0U;
+    // A successful zero-byte read does not establish EOF either.
+    return static_cast<std::size_t>(count);
+  }
+
+  std::size_t write(std::string_view input) {
+    if (!server || eof) io_failure("pipe.write.closed");
+    const auto chunk = std::min(input.size(), std::size_t{65536U});
+    DWORD count = 0U;
+    if (!WriteFile(server.get(), input.data(), static_cast<DWORD>(chunk),
+                   &count, nullptr)) {
+      const auto error = GetLastError();
+      // Unlike an empty read, NO_DATA on write means the peer is closing.
+      if (error == ERROR_NO_DATA || error == ERROR_BROKEN_PIPE ||
+          error == ERROR_PIPE_NOT_CONNECTED || error == ERROR_PIPE_LISTENING) {
+        eof = true;
+        io_failure("pipe.write.closed");
+      }
+      io_failure("pipe.write");
     }
-    std::copy_n(buffer.begin(), count, destination.begin());
+    // Byte pipes can accept zero bytes or a proper prefix when full. The
+    // caller advances only this count and polls cancellation before retrying.
     return static_cast<std::size_t>(count);
   }
 
   void cancel() noexcept {
-    if (pending && server) {
-      CancelIoEx(server.get(), &operation);
-      DWORD ignored = 0U;
-      GetOverlappedResult(server.get(), &operation, &ignored, TRUE);
-      pending = false;
-    }
+    // There is no pending kernel I/O, OVERLAPPED storage or completion wait.
+    // Do not FlushFileBuffers: a blocked child need not consume this stream.
     child.reset();
     server.reset();
-    event.reset();
+    eof = true;
   }
 };
 
@@ -484,9 +483,9 @@ class NativeProcess {
       charge(launch_bytes, command_bytes, options.max_launch_bytes);
       charge(launch_bytes, environment.size() * sizeof(wchar_t),
              options.max_launch_bytes);
-      input_.create(false);
-      output_.create(true);
-      diagnostic_.create(true);
+      input_.create(false, stop, deadline);
+      output_.create(true, stop, deadline);
+      diagnostic_.create(true, stop, deadline);
       job_.reset(CreateJobObjectW(nullptr, nullptr));
       if (!job_) launch_failure("launch.job.create");
       JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
@@ -526,9 +525,8 @@ class NativeProcess {
       process_.reset(process.hProcess);
       Handle thread(process.hThread);
       if (!AssignProcessToJobObject(job_.get(), process_.get())) {
-        TerminateProcess(process_.get(), 1U);
-        WaitForSingleObject(process_.get(),
-                            static_cast<DWORD>(cleanup_timeout_.count()));
+        // The catch path owns the one cleanup budget, including this
+        // suspended, not-yet-assigned child.
         launch_failure("launch.job.assign");
       }
       assigned_ = true;
@@ -538,8 +536,6 @@ class NativeProcess {
       input_.child.reset();
       output_.child.reset();
       diagnostic_.child.reset();
-      output_.begin_read();
-      diagnostic_.begin_read();
       check_telemetry_operation(stop, deadline);
     } catch (...) {
       terminate();
@@ -551,39 +547,17 @@ class NativeProcess {
 
   PumpResult pump(std::string_view input, std::size_t& position,
                   int timeout_ms) {
+    if (cleanup_deadline_) check_telemetry_operation({}, *cleanup_deadline_);
     PumpResult result;
-    output_.begin_read();
-    diagnostic_.begin_read();
-    if (!input_.pending && position < input.size()) {
-      const auto chunk = std::min(input.size() - position, std::size_t{65536U});
-      input_.operation = {};
-      input_.operation.hEvent = input_.event.get();
-      ResetEvent(input_.event.get());
-      DWORD count = 0U;
-      if (!WriteFile(input_.server.get(), input.data() + position,
-                     static_cast<DWORD>(chunk), &count, &input_.operation) &&
-          GetLastError() != ERROR_IO_PENDING) {
-        io_failure("pipe.write.begin");
-      }
-      input_.pending = true;
-    }
     const auto collect = [&] {
-      result.output_size = output_.collect_read(result.output);
-      result.diagnostic_size = diagnostic_.collect_read(result.diagnostic);
+      result.output_size = output_.read(result.output);
+      result.diagnostic_size = diagnostic_.read(result.diagnostic);
       result.stdout_eof = output_.eof;
       result.stderr_eof = diagnostic_.eof;
-      if (input_.pending) {
-        DWORD count = 0U;
-        if (GetOverlappedResult(input_.server.get(), &input_.operation, &count,
-                                FALSE)) {
-          input_.pending = false;
-          if (count == 0U) io_failure("pipe.write.zero");
-          position += static_cast<std::size_t>(count);
-          result.progressed = true;
-        } else if (GetLastError() != ERROR_IO_INCOMPLETE) {
-          input_.pending = false;
-          io_failure("pipe.write.complete");
-        }
+      if (position < input.size()) {
+        const auto count = input_.write(input.substr(position));
+        position += count;
+        result.progressed = count != 0U;
       }
       const auto process_state = WaitForSingleObject(process_.get(), 0U);
       if (process_state == WAIT_FAILED) io_failure("process.poll");
@@ -598,16 +572,18 @@ class NativeProcess {
                           result.diagnostic_size != 0U;
     };
     collect();
-    if (!result.progressed && !result.process_exited && timeout_ms > 0) {
-      std::array<HANDLE, 4U> waiting{};
-      DWORD count = 0U;
-      if (output_.pending) waiting[count++] = output_.event.get();
-      if (diagnostic_.pending) waiting[count++] = diagnostic_.event.get();
-      if (input_.pending) waiting[count++] = input_.event.get();
-      waiting[count++] = process_.get();
-      if (WaitForMultipleObjects(count, waiting.data(), FALSE,
-                                 static_cast<DWORD>(timeout_ms)) ==
-          WAIT_FAILED) {
+    auto wait =
+        std::clamp(timeout_ms, 0, static_cast<int>(kPollInterval.count()));
+    if (cleanup_deadline_)
+      wait = std::min(wait, poll_milliseconds(*cleanup_deadline_));
+    if (!result.progressed && wait > 0 &&
+        !(result.process_exited && result.stdout_eof && result.stderr_eof)) {
+      if (result.process_exited) {
+        // The leader's signaled handle cannot pace draining descendants. The
+        // caller stops the tree, then both pipes still need their final reads.
+        Sleep(static_cast<DWORD>(wait));
+      } else if (WaitForSingleObject(process_.get(),
+                                     static_cast<DWORD>(wait)) == WAIT_FAILED) {
         io_failure("pipe.wait");
       }
       collect();
@@ -622,6 +598,9 @@ class NativeProcess {
   void close_input() noexcept { input_.cancel(); }
 
   void stop_tree() noexcept {
+    if (!cleanup_deadline_) cleanup_deadline_ = Clock::now() + cleanup_timeout_;
+    if (termination_requested_) return;
+    termination_requested_ = true;
     if (job_ && assigned_)
       TerminateJobObject(job_.get(), 1U);
     else if (process_)
@@ -629,16 +608,10 @@ class NativeProcess {
   }
 
   void terminate() noexcept {
-    const auto deadline = Clock::now() + cleanup_timeout_;
+    // stop_tree, post-exit drain, this cleanup and a later destructor share
+    // the earliest deadline; none may renew a full cleanup_timeout.
     stop_tree();
-    // Cancel/drain pending kernel I/O before freeing its OVERLAPPED buffers.
-    // Process termination ensures no writer is waiting for the child to read.
-    if (input_.pending && input_.server)
-      CancelIoEx(input_.server.get(), &input_.operation);
-    if (output_.pending && output_.server)
-      CancelIoEx(output_.server.get(), &output_.operation);
-    if (diagnostic_.pending && diagnostic_.server)
-      CancelIoEx(diagnostic_.server.get(), &diagnostic_.operation);
+    const auto deadline = *cleanup_deadline_;
     input_.cancel();
     output_.cancel();
     diagnostic_.cancel();
@@ -672,8 +645,9 @@ class NativeProcess {
   WinPipe output_;
   WinPipe diagnostic_;
   bool assigned_ = false;
+  bool termination_requested_ = false;
+  std::optional<Clock::time_point> cleanup_deadline_;
 };
-
 #else
 
 class Descriptor {
@@ -813,7 +787,7 @@ class NativeProcess {
       const auto status_reader_descriptor = status_reader.get();
       const auto input_parent = input_.get(), output_parent = output_.get(),
                  diagnostic_parent = diagnostic_.get();
-      struct sigaction child_policy {};
+      struct sigaction child_policy{};
       if (sigaction(SIGCHLD, nullptr, &child_policy) != 0) {
         launch_failure("launch.sigchld_policy");
       }
@@ -1066,8 +1040,7 @@ class SidecarProcessTransport::Impl {
   }
 
   SidecarProcessOptions options;
-  // Windows overlapped writes reference this storage until completion/cancel.
-  // It outlives native handles even when an exception unwinds transact locals.
+  // Own the bounded frame across serial pump calls and exception cleanup.
   std::string input_frame;
   std::unique_ptr<NativeProcess> native;
   SidecarProcessStats counters;

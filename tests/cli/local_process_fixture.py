@@ -67,12 +67,20 @@ def main():
         (root / "descendant.pid").write_text(str(os.getpid()), encoding="ascii")
         while True:
             time.sleep(0.01)
-    elif mode in ("tree", "leader-exits", "tree-flood"):
+    elif mode in ("tree", "leader-exits", "tree-flood", "volume-leader-exits"):
         subprocess.Popen([sys.executable, "-I", "-u", __file__, "descendant", str(root)])
         await_file(root / "descendant.pid")
         (root / "ready").write_text("ready", encoding="ascii")
         if mode == "leader-exits":
             write_all(1, b"leader-done")
+            os._exit(23)
+        if mode == "volume-leader-exits":
+            # More than pipe capacity on both streams, with descendants still
+            # retaining their inherited write ends after the leader exits.
+            write_all(2, b"e" * (2 * 1024 * 1024 + 43))
+            write_all(1, b"o" * (2 * 1024 * 1024 + 29))
+            write_all(2, b"final-stderr")
+            write_all(1, b"final-stdout")
             os._exit(23)
         if mode == "tree-flood":
             while True:

@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 扩展本地执行与遥测预览：grid/random 搜索固定每个 trial 的训练输入并支持显式恢复，增加原生 C++ OTLP CLI；Windows 进程管道采用同步非阻塞 I/O，提供冻结骨干、有界 CPU 特征缓存及分类头 SGD 更新的纯 C++ 学习示例。
+
 - 增加可选原生 C++ OTLP HTTP 发送后端，使用系统 WinHTTP 或共享 curl，校验完整协议响应后记录进程内去重；提供指标与审计日志教学示例，强制进程终止及完整 HTTPS Collector 资格继续开发。
 - 本地任务可冻结模型、配置、数据清单和显式 checkpoint 引用；扩展 C++ 教学示例，在新任务中恢复模型、SGD 动量、更新步数和输入身份后继续训练。
 - 增加可选原生 C++ TensorBoard 事件文件后端与 OTLP 三信号离线编码、响应校验及教学示例。

@@ -272,3 +272,15 @@ if(TARGET jyppx::liuding::telemetry_http)
     jyppx_apply_instrumentation(jyppx_liuding_otlp_http_example)
     jyppx_add_torch_runtime_dependency(jyppx_liuding_otlp_http_example)
 endif()
+
+# Frozen representation learning lesson; no external inputs by default.
+if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::optim)
+    add_executable(jyppx_transfer_linear_probe EXCLUDE_FROM_ALL
+        transfer_learning/linear_probe.cpp)
+    set_target_properties(jyppx_transfer_linear_probe PROPERTIES
+        OUTPUT_NAME liuding-forge-example-transfer-linear-probe)
+    target_link_libraries(jyppx_transfer_linear_probe PRIVATE
+        jyppx::liuding::models jyppx::liuding::optim)
+    jyppx_apply_instrumentation(jyppx_transfer_linear_probe)
+    jyppx_add_torch_runtime_dependency(jyppx_transfer_linear_probe)
+endif()

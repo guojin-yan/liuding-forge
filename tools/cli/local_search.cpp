@@ -334,9 +334,13 @@ Plan read_plan(const Json& value) {
   probe.payload = TelemetryMetricBatch{{std::move(objective_probe)}};
   validate_telemetry_envelope(probe);
   const auto& execution = value.at("execution");
-  require(!execution.contains("training"),
-          "Typed training inputs currently use local execute; search owns "
-          "its per-trial configuration and does not rebind training inputs");
+  if (execution.contains("training")) {
+    const auto& training = execution.at("training");
+    fields(training, {"model_id", "configuration", "data_manifest", "resume"});
+    require(training.at("configuration").is_string() &&
+                text(training.at("configuration")) == "${trial_configuration}",
+            "Typed search owns configuration; use ${trial_configuration}");
+  }
   require(
       execution.at("project_id").get<std::string>() == result.project &&
           execution.at("experiment_id").get<std::string>() == result.experiment,
@@ -344,8 +348,8 @@ Plan read_plan(const Json& value) {
   require(unsigned_number(execution.at("max_attempts"), 16) == 1 &&
               execution.at("retry_exit_codes").is_array() &&
               execution.at("retry_exit_codes").empty(),
-          "Search trials execute once; resume training only with explicit "
-          "checkpoint arguments in a new run");
+          "Search trials execute once; checkpoint continuation requires a "
+          "new search with explicit frozen inputs");
   require(!execution.contains("deadline_unix_ms"),
           "Search owns its frozen absolute execution deadline");
   const auto validate_bindings = [&](const Json& bindings, bool output) {
@@ -466,6 +470,17 @@ void validate_inputs(SQLiteRunStore& store, const Plan& plan) {
         "Declared search input differs from the committed run/CAS artifact");
     verify_content(store, *reference);
   }
+  const auto& execution = plan.json.at("execution");
+  if (execution.contains("training")) {
+    const auto& training = execution.at("training");
+    validate_local_training_source(store, plan.project,
+                                   training.at("data_manifest"),
+                                   RunArtifactKind::artifact);
+    if (!training.at("resume").is_null())
+      validate_local_training_source(store, plan.project,
+                                     training.at("resume").at("checkpoint"),
+                                     RunArtifactKind::checkpoint);
+  }
 }
 
 RunMetadata search_metadata(SQLiteRunStore& store, std::string_view id) {
@@ -565,6 +580,16 @@ Trial trial(const Plan& plan, std::string_view search, const fs::path& root,
   result.execution["working_directory"] =
       expand(result.execution.at("working_directory"));
   result.execution["deadline_unix_ms"] = deadline;
+  if (result.execution.contains("training")) {
+    // The input run is sealed before native dispatch. A running search is not
+    // itself a terminal typed-input source, and completion here means input
+    // publication only, never completion of a training trial.
+    result.execution["training"]["configuration"] = {
+        {"run_id", result.id + ".inputs"},
+        {"reference_id", "configuration"},
+        {"sha256", result.config_sha256},
+        {"size_bytes", result.configuration.dump().size()}};
+  }
   return result;
 }
 
@@ -609,6 +634,49 @@ Json admission(const Trial& value, std::uint64_t index, const Plan& plan) {
       {"execution", value.execution}};
 }
 
+void seal_trial_inputs(SQLiteRunStore& store, const RunMetadata& search,
+                       const Plan& plan, const Trial& value,
+                       std::uint64_t index, bool child_exists) {
+  if (!value.execution.contains("training")) return;
+  const auto id = value.id + ".inputs";
+  const auto existing = store.find(id);
+  require(
+      !child_exists || (existing && existing->status == RunStatus::completed),
+      "Admitted native execution requires its already sealed input run");
+  require(!existing || existing->status == RunStatus::running ||
+              existing->status == RunStatus::completed,
+          "Trial input run is not in its publication lifecycle");
+  RunMetadata metadata;
+  metadata.run_id = id;
+  metadata.project_id = plan.project;
+  metadata.experiment_id = plan.experiment;
+  metadata.display_name = "Committed inputs for trial " + std::to_string(index);
+  metadata.status = RunStatus::running;
+  metadata.created_at_unix_ms = search.created_at_unix_ms;
+  metadata.updated_at_unix_ms = search.created_at_unix_ms;
+  metadata.lineage.parent_run_id = search.run_id;
+  metadata.lineage.source_digest = plan.sha256;
+  metadata.lineage.build_fingerprint = search.lineage.build_fingerprint;
+  metadata.lineage.config_digest = value.config_sha256;
+  metadata.lineage.data_manifest_digest =
+      text(value.execution.at("training").at("data_manifest").at("sha256"));
+  metadata.tags = {{"liuding.search.kind", "inputs"},
+                   {"liuding.search.role", "trial.configuration"},
+                   {"liuding.search.index", std::to_string(index)},
+                   {"liuding.search.spec_sha256", plan.sha256}};
+  // start()/put_artifact()/transition() are independently idempotent. A crash
+  // between them is repaired from the exact admission; conflicting identities
+  // are rejected by the existing store rather than silently adopted.
+  store.start(metadata);
+  const auto reference =
+      put_json(store, id, "configuration", "configuration", value.configuration,
+               search.created_at_unix_ms);
+  require(reference.artifact.digest.hex == value.config_sha256,
+          "Trial input configuration differs from its admission");
+  verify_content(store, reference);
+  store.transition(id, RunStatus::completed, search.created_at_unix_ms);
+}
+
 Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
               std::uint64_t index, const Json& local) {
   Json result{{"format", "jyppx.liuding.local_search_trial_result"},
@@ -625,6 +693,8 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
               {"training_lineage", nullptr},
               {"metric", nullptr},
               {"outputs", Json::array()}};
+  if (value.execution.contains("training"))
+    result["training_inputs"] = value.execution.at("training");
   if (local.at("status").get<std::string>() != "completed") return result;
   const auto training = store.find(value.training);
   if (!training || training->status != RunStatus::completed) {
@@ -651,6 +721,38 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
        training->lineage.data_manifest_digest
            ? Json(*training->lineage.data_manifest_digest)
            : Json(nullptr)}};
+  if (value.execution.contains("training")) {
+    const auto& inputs = value.execution.at("training");
+    if (training->lineage.data_manifest_digest !=
+            text(inputs.at("data_manifest").at("sha256")) ||
+        !training->tags.contains("liuding.training.model_id") ||
+        training->tags.at("liuding.training.model_id") !=
+            text(inputs.at("model_id"))) {
+      result["reason"] = "training_input_mismatch";
+      return result;
+    }
+    const auto matches = [&](const Json& binding, std::string_view role,
+                             RunArtifactKind kind) {
+      const auto reference = store.find_reference(value.training, role);
+      if (!reference || reference->kind != kind || reference->role != role ||
+          reference->artifact.digest.hex != text(binding.at("sha256")) ||
+          reference->artifact.size_bytes !=
+              unsigned_number(binding.at("size_bytes"), 1ULL << 30U))
+        return false;
+      verify_content(store, *reference);
+      return true;
+    };
+    if (!matches(inputs.at("configuration"), "search.training.configuration",
+                 RunArtifactKind::artifact) ||
+        !matches(inputs.at("data_manifest"), "search.training.data_manifest",
+                 RunArtifactKind::artifact) ||
+        (!inputs.at("resume").is_null() &&
+         !matches(inputs.at("resume").at("checkpoint"),
+                  "search.training.resume", RunArtifactKind::checkpoint))) {
+      result["reason"] = "training_input_mismatch";
+      return result;
+    }
+  }
   for (const auto& input : plan.json.at("inputs")) {
     const auto name = "search.input." + text(input.at("name"));
     const auto reference = store.find_reference(value.training, name);
@@ -764,7 +866,14 @@ std::vector<Json> results(SQLiteRunStore& store, const RunMetadata& search,
     fields(row,
            {"format", "schema_version", "index", "trial_id", "training_run_id",
             "search_spec_sha256", "config_sha256", "parameters", "trial_seed",
-            "eligible", "reason", "training_lineage", "metric", "outputs"});
+            "eligible", "reason", "training_lineage", "metric", "outputs"},
+           {"training_inputs"});
+    require(row.contains("training_inputs") ==
+                expected.execution.contains("training"),
+            "Confirmed typed input presence differs from its admission");
+    if (row.contains("training_inputs"))
+      require(row.at("training_inputs") == expected.execution.at("training"),
+              "Confirmed typed training inputs differ from their admission");
     require(
         text(row.at("format")) == "jyppx.liuding.local_search_trial_result" &&
             positive(row.at("schema_version"), 1) == 1 &&
@@ -977,6 +1086,7 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
     const auto config_id = "search.config." + std::to_string(index);
     put_json(store, search.run_id, config_id, config_id, value.configuration,
              search.created_at_unix_ms);
+    seal_trial_inputs(store, search, plan, value, index, child.has_value());
     if (child) {
       require(child->project_id == plan.project &&
                   child->experiment_id == plan.experiment &&

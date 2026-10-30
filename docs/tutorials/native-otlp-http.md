@@ -37,3 +37,35 @@ liuding-forge-example-otlp-http collector.example.com 4318 https training-worker
 HTTP 非 200、缺失或错误的 `Content-Type`、不支持的内容编码、部分成功响应、损坏或过大的 protobuf、证书错误都会使调用失败。响应应使用 `application/x-protobuf`，允许合法媒体类型参数，内容编码只接受未编码或 `identity`。先检查 Collector 接收器与证书配置，再原样重试；不要修改已发送事件的幂等标识或内容。
 
 每次请求默认有 30 秒预算，并受调用方的更早绝对截止时间约束。取消是协作式的，Windows 同步系统调用可能在返回后才发现取消或超时；这不是进程级强制终止能力。需要这种隔离的调用方应保留独立进程边界。编码字节与索引字段限制不等于 RSS 或网络库的内部内存上限。
+
+## 导出已有训练 run（预览）
+
+同时启用 `JYPPX_LIUDING_BUILD_TOOLS=ON` 并构建 `jyppx_cli`，可以显式选择 `opentelemetry-native`，由 C++ CLI 把 SQLite 中的原始事件交给独立 C++ worker，再调用同一个公共 HTTP sink。用户运行时不需要 Python。这个预览入口的进程终止、清理以及真实 Collector/TLS 互操作仍需完成独立验收，不能据此声明强取消已经受支持。
+
+先运行[学习率搜索示例](../../examples/experiment/README.md#运行网格搜索)，沿用其中的 `$cli`、`$work`、`$store` 和查询得到的 `$bestRun`，再自行启动接收 OTLP HTTP/protobuf 的 Collector。创建独占工作目录和 UTF-8 配置，然后导出这个真实训练 run：
+
+```powershell
+$otlpWork = Join-Path $work 'otlp-worker'
+New-Item -ItemType Directory -Path $otlpWork | Out-Null
+$otlpConfig = Join-Path $work 'otlp-native.json'
+$config = @{
+    schema_version = 1
+    endpoint = @{ host = '127.0.0.1'; port = 4318; tls = $false }
+    resource_instance_id = 'linear-grid-export'
+    working_directory = $otlpWork
+    inherit_environment = $true
+    operation_timeout_ms = 10000
+    request_timeout_ms = 10000
+    cleanup_timeout_ms = 2000
+} | ConvertTo-Json -Depth 6
+[IO.File]::WriteAllText($otlpConfig, $config, [Text.UTF8Encoding]::new($false))
+& $cli run export --root $store --id $bestRun --backend opentelemetry-native --native-config $otlpConfig --timeout-ms 60000 --format json
+```
+
+`working_directory` 必须是已存在的独占绝对路径。示例显式继承环境以加载当前 LibTorch 动态库；默认不继承，也可以通过 `environment` 显式提供子进程环境。配置不接受可执行文件、额外启动参数或请求头；CLI 固定启动自身，并校验 worker 读取的配置字节与父进程一致。HTTPS 使用 `endpoint.tls: true`，沿用前述证书与主机约束。
+
+成功结果的 `scan_completed` 表示快照已完整扫描，`fully_represented` 表示没有采样或不支持事件；应同时检查进程退出码和各类事件计数。没有匹配显式时钟锚点的 span 可能返回 `unsupported`；如需导出 span，在配置的 `clock_mappings` 中按生产者 `clock_id` 填入已捕获的 `monotonic_ns` 与 `unix_ns`，不要在导出时推测历史时钟。
+
+每个 exchange 使用 `operation_timeout_ms`，整个命令还受 `--timeout-ms` 的更早截止约束。到达截止后，父进程请求终止 worker；`cleanup_timeout_ms`（默认 2000、最多 10000）约束首次清理开始后的排空和退出等待，不用于无限延长 flush。Windows 父端使用同步非阻塞管道，在清理时没有待完成的异步 I/O 或应用主动建立的无限完成等待；操作系统调用和调度仍不提供绝对墙钟上界，强取消资格仍需独立验收。Windows 使用 Job Object；Linux 使用进程组，后者不是针对自行脱组恶意进程的沙箱，也不能据此声称所有后代与内核资源已按时回收。
+
+命令失败时返回非零，不自动重试。批次中的指标与审计日志成对确认；部分请求失败可能已在 Collector 形成数据，再执行导出可能重复。去重只属于当前 worker，重新执行命令会创建新 worker；始终保留 run store 作为证据来源，交付语义为至少一次。一次快照默认最多 100000 个事件，`max_seen` 可缩小这个上限，不会通过静默淘汰索引扩容；还会检查索引字节与批次准备字节上限。

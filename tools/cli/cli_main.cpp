@@ -7,6 +7,7 @@
 #include "bundle_signing.hpp"
 #include "cli.hpp"
 #include "local_attempt.hpp"
+#include "native_otlp_worker.hpp"
 
 #include <jyppx/liuding/foundation/build_config.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
@@ -359,6 +360,8 @@ int error_exit(ErrorCode code) noexcept {
 }
 
 int main_entry(std::span<const std::string_view> values) {
+  if (!values.empty() && values.front() == "__liuding_otlp_worker")
+    return native_otlp_worker_entry(values);
   bool requested_json = false;
   for (std::size_t i = 0U; i < values.size(); ++i) {
     if (values[i].starts_with("--format="))

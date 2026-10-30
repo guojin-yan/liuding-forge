@@ -95,9 +95,28 @@ def main() -> int:
             spawn_leaf(args.marker_prefix, args.levels - 1)
         time.sleep(60)
         return 0
-    if args.mode == "no_read":
+    if args.mode in ("no_read", "no_read_tree"):
+        if args.mode == "no_read_tree":
+            spawn_leaf(args.marker_prefix, args.levels)
         time.sleep(60)
         return 0
+    if args.mode == "fragmented_echo":
+        # Child handles remain blocking; odd reads and short delays expose
+        # parent byte-pipe backpressure and partial writes without a thread.
+        pending = bytearray()
+        while True:
+            block = os.read(0, 4093)
+            if not block:
+                return 0
+            pending.extend(block)
+            time.sleep(0.001)
+            while b"\n" in pending:
+                newline = pending.index(b"\n") + 1
+                line = bytes(pending[:newline])
+                del pending[:newline]
+                for offset in range(0, len(line), 8191):
+                    write_all(1, line[offset:offset + 8191])
+                    time.sleep(0.001)
     for line in sys.stdin.buffer:
         if args.mode == "echo":
             write_all(1, line)

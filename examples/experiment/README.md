@@ -87,6 +87,32 @@ $resumeSpec = Join-Path $work 'resume-local.json'
 
 应用检查和恢复 checkpoint，运行器校验 CAS 身份并管理进程生命周期。`local recover` 只修复已确认的执行状态；未知归属保持隔离，不会自动续训。真实训练过程、配置/数据准备及恢复均由 C++ 实现；Python 仅用于独立测试读取和参考计算。示例规模不能用来证明训练速度或资源优势。
 
+## 训练输入与搜索衔接
+
+`--write-typed-search-spec` 演示搜索与 typed local 输入衔接。它使用带 momentum 的原生 SGD，三个学习率从相同零权重开始训练 60 步；模型标识和数据清单在整次搜索固定，每个 trial 的配置拥有独立、可校验的 CAS 身份。这是单独的搜索模式，前面的基础搜索仍展示只保存模型参数的流程。
+
+```powershell
+$typedStore = Join-Path $work 'typed-search-store'
+$typedSpec = Join-Path $work 'typed-grid.json'
+& $worker --write-typed-search-spec $typedSpec --store $typedStore --strategy grid
+& $cli search execute --root $typedStore --id typed-grid --spec $typedSpec --format json
+$typed = (& $cli search show --root $typedStore --id typed-grid --format json | ConvertFrom-Json).data
+$typed.trials | Select-Object index, parameters, training_inputs, metric
+& $cli run show --root $typedStore --id $typed.best.training_run_id --format json
+```
+
+将 `--strategy` 改为 `random` 并使用新的配置文件、搜索 ID，即可按固定种子无重复抽取候选。每个 trial 的 `training_inputs` 记录模型标识、真实配置、同源数据清单和可选 checkpoint；配置来源 `TRIAL.inputs` 的终态只表示输入已提交。训练 run 的 `checkpoint.last` 包含模型、SGD momentum、更新计数和输入身份，`training.result` 记录实际结果；两者与已确认的原生 attempt、验证指标和 best trial 一起保留在实验备份中。
+
+需要继续一个已知 checkpoint 时，先在同一 `$typedStore` 中用 `--write-local-spec ... --until-step 20` 完成一次本地训练，再从 `local show` 的 `attempts[0].attempt_id` 明确取得 `$selectedAttempt`，生成新的搜索请求：
+
+```powershell
+$continuedSpec = Join-Path $work 'typed-continued.json'
+& $worker --write-typed-search-spec $continuedSpec --store $typedStore --resume-run $selectedAttempt
+& $cli search execute --root $typedStore --id typed-continued --spec $continuedSpec --format json
+```
+
+这个续训请求固定原学习率 `0.05`，只运行一次从 20 到 60 步的试验。`exact_only` 要求模型、优化器选项和配置/数据摘要一致；改变学习率会被拒绝。这里展示显式 checkpoint 与搜索结果追溯的接线，学习率调优从前一个 fresh 搜索模式开始。运行器不会自动选择 best 或失败 attempt 的 checkpoint；源 attempt 若没有已确认结果，即使 CAS 中已有 checkpoint，仍拒绝作为新的恢复来源。
+
 ## 原生 TensorBoard
 
 启用可选 `telemetry_native` 组件后，构建 `jyppx_liuding_native_tensorboard_example` 并运行 `liuding-forge-example-native-tensorboard exports/learning-run`（父目录需已存在）。[示例源码](tensorboard.cpp) 使用四个样本的预测值和目标值计算平均绝对误差，并导出生命周期、指标和数组缓冲区大小；重复提交相同事件可观察去重结果。[使用与限制](../../docs/api/native_tensorboard.md) 说明安装、映射、容量和失败处理。该示例演示遥测接入，不把数组大小当成训练进程的内存峰值。
@@ -98,3 +124,13 @@ $resumeSpec = Join-Path $work 'resume-local.json'
 ## 原生 OTLP HTTP
 
 启用独立可选 `telemetry_http` 组件后，构建 `jyppx_liuding_otlp_http_example`，运行 `liuding-forge-example-otlp-http 127.0.0.1 4318 http local-demo-1`，向自行启动的 Collector 发送一个指标及审计日志，并演示进程内重放去重。[完整教程](../../docs/tutorials/native-otlp-http.md) 说明显式依赖、HTTPS、取消与重试边界；[示例源码](otlp_http.cpp) 可直接用于学习公共 C++ sink 的接入。示例只在显式运行时联网，不作为默认自动网络测试。
+
+## 将搜索结果导出到 Collector
+
+上述搜索会产生真实训练指标和 checkpoint 引用。启用 `telemetry_http` 并构建 CLI 后，沿用 `$store`、`$bestRun`，按照[原生导出教程](../../docs/tutorials/native-otlp-http.md#导出已有训练-run预览)创建独占 worker 目录与固定 Collector 配置，然后显式运行：
+
+```powershell
+& $cli run export --root $store --id $bestRun --backend opentelemetry-native --native-config $otlpConfig --timeout-ms 60000 --format json
+```
+
+这条学习路径将 C++ 训练、持久化 run 查询和原生 OTLP 导出串起来。检查 `scan_completed`、`fully_represented` 和事件计数；网络失败后保留训练存储并按至少一次语义重试。原生入口属于预览，截止终止和清理边界见教程；运行时不调用 Python，也不会替用户启动 Collector。

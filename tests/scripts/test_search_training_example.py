@@ -470,6 +470,122 @@ class LocalTrainingExampleTests(unittest.TestCase):
         self.rejected("unconfirmed-source-resume", spec)
 
 
+class TypedSearchTrainingExampleTests(unittest.TestCase):
+    """Native typed search and explicit continuation, audited without torch."""
+    setUp = SearchTrainingExampleTests.setUp
+    invoke = SearchTrainingExampleTests.invoke
+    cli = SearchTrainingExampleTests.cli
+    show_run = SearchTrainingExampleTests.show_run
+    blob = SearchTrainingExampleTests.blob
+    archive = LocalTrainingExampleTests.archive
+    prepare = LocalTrainingExampleTests.prepare
+    execute = LocalTrainingExampleTests.execute
+
+    def typed(self, name: str, strategy: str = "grid", resume: str | None = None) -> tuple[Path, dict]:
+        path = self.directory / (name + ".json")
+        options = ["--resume-run", resume] if resume else []
+        self.invoke(WORKER, "--write-typed-search-spec", path, "--store", self.root,
+                    "--strategy", strategy, *options)
+        return path, json.loads(path.read_text(encoding="utf-8"))
+
+    def test_grid_and_random_bind_native_training_to_identical_model_and_data(self) -> None:
+        orders = {}
+        for strategy in ("grid", "random"):
+            with self.subTest(strategy=strategy):
+                self.root = self.directory / ("typed-" + strategy)
+                path, spec = self.typed(strategy, strategy)
+                self.assertEqual(spec["execution"]["training"]["configuration"], "${trial_configuration}")
+                result = self.cli("search", "execute", "--root", self.root, "--id", strategy, "--spec", path)
+                self.assertEqual((result["status"], result["confirmed_trials"], result["parallel_trials"]),
+                                 ("completed", 3, 1))
+                orders[strategy] = [row["parameters"]["learning_rate"] for row in result["trials"]]
+                self.assertEqual(sorted(orders[strategy]), [0.005, 0.05, 0.2])
+                for row in result["trials"]:
+                    self.assertTrue(row["eligible"])
+                    inputs = row["training_inputs"]
+                    self.assertEqual(inputs["model_id"], "example.affine.v1")
+                    self.assertEqual(inputs["data_manifest"], spec["execution"]["training"]["data_manifest"])
+                    self.assertEqual(inputs["configuration"]["sha256"], row["config_sha256"])
+                    training = self.show_run(row["training_run_id"])
+                    refs = {ref["reference_id"]: ref for ref in training["references"]}
+                    summary = json.loads(self.blob(refs["training.result"]))
+                    self.assertEqual((summary["initial_step"], summary["completed_steps"], summary["resumed"]),
+                                     (0, 60, False))
+                    self.assertEqual(summary["model_id"], inputs["model_id"])
+                    self.assertEqual(summary["configuration_sha256"], row["config_sha256"])
+                    self.assertEqual(summary["data_manifest_sha256"], inputs["data_manifest"]["sha256"])
+                    self.assertEqual(summary["checkpoint_sha256"], refs["checkpoint.last"]["artifact"]["sha256"])
+                    self.assertEqual(summary["validation_mse"], row["metric"]["value"])
+                    self.assertEqual(set(refs), {"search.training.configuration", "search.training.data_manifest",
+                                                 "checkpoint.last", "training.result"})
+                    configuration = self.blob(refs["search.training.configuration"])
+                    self.assertEqual((digest(configuration), len(configuration)),
+                                     (row["config_sha256"], inputs["configuration"]["size_bytes"]))
+                    self.assertEqual(json.loads(configuration)["learning_rate"], row["parameters"]["learning_rate"])
+                    manifest, fields = self.archive(self.blob(refs["checkpoint.last"]))
+                    self.assertEqual({p["state"]["participant_id"] for p in manifest["participants"]},
+                                     {"model.main", "optimizer.main", "run.inputs"})
+                    identity = json.loads(fields["run.inputs", "identity"])
+                    self.assertEqual(identity, {"model_id": inputs["model_id"],
+                        "configuration_sha256": row["config_sha256"],
+                        "data_manifest_sha256": inputs["data_manifest"]["sha256"]})
+                    # Independent scalar recurrence checks actual native momentum SGD.
+                    rate = row["parameters"]["learning_rate"]
+                    weight, bias, vw, vb = 0.0, 0.0, 0.0, 0.0
+                    for _ in range(60):
+                        vw = 0.9 * vw + 2 * (weight - 3) * 11 / 31
+                        vb = 0.9 * vb + 2 * (bias - 0.5)
+                        weight -= rate * vw
+                        bias -= rate * vb
+                    self.assertAlmostEqual(summary["weight"], weight, delta=4e-5)
+                    self.assertAlmostEqual(summary["bias"], bias, delta=4e-5)
+                    expected_mse = (weight - 3) ** 2 * 0.33 + (bias - 0.5) ** 2
+                    self.assertAlmostEqual(summary["validation_mse"], expected_mse, delta=5e-6)
+                best = min(result["trials"], key=lambda row: row["metric"]["value"])
+                self.assertEqual(result["best"], best)
+                replay = self.cli("search", "recover", "--root", self.root, "--id", strategy)
+                self.assertEqual(replay["trials"], result["trials"])
+                self.assertTrue(self.cli("run", "verify", "--root", self.root)["valid"])
+        self.assertEqual(orders["grid"], [0.005, 0.05, 0.2])
+
+    def test_explicit_checkpoint_continuation_is_exact_and_changed_config_is_rejected(self) -> None:
+        path, _ = self.prepare("partial", 20)
+        partial, partial_refs, _ = self.execute("partial-job", path)
+        source = partial["attempts"][0]["attempt_id"]
+        path, spec = self.typed("continued-search", resume=source)
+        self.assertEqual(spec["space"][0]["values"], [0.05])
+        self.assertEqual(spec["execution"]["training"]["resume"]["checkpoint"]["run_id"], source)
+        result = self.cli("search", "execute", "--root", self.root, "--id", "continued", "--spec", path)
+        row = result["trials"][0]
+        self.assertTrue(row["eligible"])
+        refs = {ref["reference_id"]: ref for ref in self.show_run(row["training_run_id"])["references"]}
+        summary = json.loads(self.blob(refs["training.result"]))
+        self.assertEqual((summary["initial_step"], summary["completed_steps"], summary["resumed"]), (20, 60, True))
+        self.assertEqual(refs["search.training.resume"]["artifact"]["sha256"],
+                         partial_refs["checkpoint.last"]["artifact"]["sha256"])
+        path, _ = self.prepare("continuous", 60)
+        _, continuous_refs, _ = self.execute("continuous-job", path)
+        _, resumed_fields = self.archive(self.blob(refs["checkpoint.last"]))
+        _, continuous_fields = self.archive(self.blob(continuous_refs["checkpoint.last"]))
+        self.assertEqual(resumed_fields, continuous_fields)
+        path, spec = self.typed("changed-config", resume=source)
+        spec["space"][0]["values"] = [0.2]
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        process = subprocess.run([str(CLI), "search", "execute", "--root", str(self.root),
+            "--id", "changed-config", "--spec", str(path), "--format", "json"], cwd=self.directory,
+            capture_output=True, text=True, encoding="utf-8", timeout=45,
+            env=dict(os.environ, OMP_NUM_THREADS="2", MKL_NUM_THREADS="2"))
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        rejected = json.loads(process.stdout)["data"]
+        self.assertIsNone(rejected["best"])
+        self.assertEqual(rejected["trials"][0]["reason"], "execution_failed")
+        failed_job = rejected["trials"][0]["trial_id"]
+        attempt = self.cli("local", "show", "--root", self.root, "--id", failed_job)["attempts"][0]["attempt_id"]
+        failed_refs = {ref["reference_id"] for ref in self.show_run(attempt)["references"]}
+        self.assertNotIn("checkpoint.last", failed_refs)
+        self.assertNotIn("training.result", failed_refs)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", type=Path, required=True)

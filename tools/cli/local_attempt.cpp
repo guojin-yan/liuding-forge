@@ -302,6 +302,32 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
 RunStatus terminal_status(const Json& result);
 std::string attempt_id(std::string_view job, std::uint64_t index);
 
+void training_source(SQLiteRunStore& store, std::string_view project,
+                     const TrainingInput& input) {
+  const auto source = store.find(input.run);
+  require(source && source->project_id == project &&
+              is_terminal_run_status(source->status) &&
+              source->status != RunStatus::interrupted,
+          "Training inputs require a terminal source run in this project");
+  const auto kind_tag = source->tags.find("liuding.local.kind");
+  if (kind_tag != source->tags.end() && kind_tag->second == "attempt") {
+    require(source->lineage.parent_run_id &&
+                source->tags.contains("liuding.local.index"),
+            "Local training source has incomplete attempt ownership");
+    const auto parent = job_metadata(store, *source->lineage.parent_run_id);
+    const auto source_spec = frozen_spec(store, parent);
+    const auto index = positive(
+        parse_json(source->tags.at("liuding.local.index")), kMaximumAttempts);
+    require(source->run_id == attempt_id(parent.run_id, index) &&
+                source->lineage.config_digest == source_spec.sha256 &&
+                source->experiment_id == source_spec.experiment,
+            "Local training source differs from its frozen attempt identity");
+    const auto confirmed = outcome(store, parent.run_id, source_spec, index);
+    require(terminal_status(confirmed) == source->status,
+            "Local training source requires its confirmed attempt result");
+  }
+}
+
 std::vector<RunArtifactReference> training_references(
     SQLiteRunStore& store, const Spec& spec,
     std::optional<std::string_view> pinned_job = std::nullopt,
@@ -311,33 +337,7 @@ std::vector<RunArtifactReference> training_references(
   FileArtifactStore cas(store.artifact_root());
   const auto add = [&](const TrainingInput& input, std::string role,
                        RunArtifactKind kind) {
-    if (!pinned_job) {
-      const auto source = store.find(input.run);
-      require(source && source->project_id == spec.project &&
-                  is_terminal_run_status(source->status) &&
-                  source->status != RunStatus::interrupted,
-              "Training inputs require a terminal source run in this project");
-      const auto kind_tag = source->tags.find("liuding.local.kind");
-      if (kind_tag != source->tags.end() && kind_tag->second == "attempt") {
-        require(source->lineage.parent_run_id &&
-                    source->tags.contains("liuding.local.index"),
-                "Local training source has incomplete attempt ownership");
-        const auto parent = job_metadata(store, *source->lineage.parent_run_id);
-        const auto source_spec = frozen_spec(store, parent);
-        const auto index =
-            positive(parse_json(source->tags.at("liuding.local.index")),
-                     kMaximumAttempts);
-        require(
-            source->run_id == attempt_id(parent.run_id, index) &&
-                source->lineage.config_digest == source_spec.sha256 &&
-                source->experiment_id == source_spec.experiment,
-            "Local training source differs from its frozen attempt identity");
-        const auto confirmed =
-            outcome(store, parent.run_id, source_spec, index);
-        require(terminal_status(confirmed) == source->status,
-                "Local training source requires its confirmed attempt result");
-      }
-    }
+    if (!pinned_job) training_source(store, spec.project, input);
     const auto reference = store.find_reference(
         pinned_job ? *pinned_job : std::string_view(input.run),
         pinned_job ? std::string_view(role) : std::string_view(input.reference),
@@ -967,6 +967,26 @@ Result operate(std::string_view action, const fs::path& selected_root,
 void validate_local_execution_spec(const Json& spec, bool inspect_files) {
   const auto parsed = read_spec(spec);
   if (inspect_files) preflight(parsed);
+}
+
+void validate_local_training_source(SQLiteRunStore& store,
+                                    std::string_view project_id,
+                                    const Json& binding, RunArtifactKind kind) {
+  require(
+      kind == RunArtifactKind::artifact || kind == RunArtifactKind::checkpoint,
+      "Typed training inputs require an artifact or checkpoint kind");
+  const auto input = training_input(
+      binding, kind == RunArtifactKind::checkpoint ? 1ULL << 30U : 1U << 20U);
+  training_source(store, project_id, input);
+  const auto reference = store.find_reference(input.run, input.reference);
+  require(reference && reference->kind == kind &&
+              reference->artifact.digest == input.digest &&
+              reference->artifact.size_bytes == input.size,
+          "Training input differs from its committed run/CAS identity");
+  FileArtifactStore cas(store.artifact_root());
+  const auto reader = cas.open(input.digest);
+  require(reader->size_bytes() == input.size,
+          "Training input content size differs from the frozen spec");
 }
 
 Result execute_local_job(const fs::path& root, std::string_view job_id,
