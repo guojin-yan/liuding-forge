@@ -217,7 +217,7 @@ def main():
                 raise RuntimeError("independent C++ runtime gate failed")
             xml = ET.parse(root / "cpp-results.xml").getroot()
             report["cpp_tests"] = {key: int(xml.attrib.get(key, "0")) for key in ("tests", "failures", "disabled", "errors")}
-            required_suites = {"OnnxRuntimeSession": 13, "OnnxRuntimeMultiIo": 8}
+            required_suites = {"OnnxRuntimeSession": 16, "OnnxRuntimeMultiIo": 8}
             if args.require_native_models:
                 required_suites["OnnxRuntimeInterchange"] = 2
             suites = {suite.attrib["name"]: int(suite.attrib["tests"])

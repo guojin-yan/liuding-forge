@@ -246,9 +246,13 @@ class RunInterrupt final {
                std::optional<std::chrono::steady_clock::time_point> deadline)
       : options_(options), cancellation_(stop, [this] { Terminate(); }) {
     if (deadline) {
+      // condition_variable_any owns a shared mutex on MSVC.  A normal run
+      // has no deadline, so do not construct that wait state unless a timer
+      // is actually needed.
+      condition_.emplace();
       timer_ = std::jthread([this, at = *deadline](std::stop_token token) {
         std::unique_lock lock(mutex_);
-        condition_.wait_until(lock, token, at, [] { return false; });
+        condition_->wait_until(lock, token, at, [] { return false; });
         if (!token.stop_requested()) Terminate();
       });
     }
@@ -257,7 +261,7 @@ class RunInterrupt final {
   ~RunInterrupt() {
     if (timer_.joinable()) {
       timer_.request_stop();
-      condition_.notify_all();
+      condition_->notify_all();
       timer_.join();
     }
   }
@@ -270,7 +274,7 @@ class RunInterrupt final {
   }
   Ort::RunOptions& options_;
   std::mutex mutex_;
-  std::condition_variable_any condition_;
+  std::optional<std::condition_variable_any> condition_;
   std::jthread timer_;
   std::stop_callback<std::function<void()>> cancellation_;
 };

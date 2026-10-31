@@ -22,6 +22,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -35,6 +36,7 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -418,6 +420,102 @@ runtime::TensorInput Named(std::string_view name, const torch::Tensor& value) {
           .values = std::span(value.const_data_ptr<float>(),
                               static_cast<std::size_t>(value.numel())),
           .shape = std::span(value.sizes().data(), value.sizes().size())};
+}
+
+template <typename Result>
+Result AwaitRun(std::future<Result>& pending, const char* operation) {
+  // This is a hang guard, not a latency benchmark. A failed std::async future
+  // must not block its destructor while a broken timer still holds the call.
+  if (pending.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+    ADD_FAILURE() << operation << " did not finish within the lifecycle guard";
+    std::fprintf(stderr, "ONNX Runtime lifecycle guard timed out: %s\n",
+                 operation);
+    std::fflush(stderr);
+    std::_Exit(EXIT_FAILURE);
+  }
+  return pending.get();
+}
+
+TEST(OnnxRuntimeSession, SuccessfulFutureDeadlineCallsTearDownTheirTimers) {
+  LinearFixture fixture;
+  runtime::Session session(fixture.bytes, fixture.identity);
+  const auto expected =
+      Tensor(Artifact(fixture.specification.at("cases").at(0)), "output");
+  const auto input = Named(session.input().name, fixture.input);
+  for (const bool use_named : {false, true}) {
+    SCOPED_TRACE(use_named ? "named" : "single tensor");
+    auto pending = std::async(std::launch::async, [&, use_named] {
+      const auto deadline =
+          std::chrono::steady_clock::now() + std::chrono::minutes(1);
+      if (use_named) {
+        const std::array inputs{input};
+        auto results = session.run(inputs, {}, deadline);
+        return std::move(results.at(0));
+      }
+      return session.run(input.values, input.shape, {}, deadline);
+    });
+    const auto result = AwaitRun(pending, "successful future-deadline run");
+    EXPECT_EQ(result.shape,
+              (std::vector<std::int64_t>(expected.sizes().begin(),
+                                         expected.sizes().end())));
+    Near(result.values, expected);
+  }
+}
+
+TEST(OnnxRuntimeSession, StopPrecedesFutureDeadlineThenSessionRemainsUsable) {
+  const auto ref = Manifest().at("slow");
+  const auto bytes = Artifact(ref);
+  runtime::SessionOptions options;
+  options.disable_graph_optimizations = true;
+  runtime::Session session(bytes, Digest(ref.at("digest")), options);
+  const std::array<std::int64_t, 2> shape{128, 512};
+  const std::vector<float> values(128U * 512U, 1.0F);
+  std::stop_source stop;
+  std::promise<void> entering;
+  auto entered = entering.get_future();
+  auto pending = std::async(std::launch::async, [&] {
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::minutes(1);
+    entering.set_value();
+    return session.run(values, shape, stop.get_token(), deadline);
+  });
+  AwaitRun(entered, "entering stop-and-deadline run");
+  // Reuse the existing real-execution fixture and stop delay; the distant
+  // deadline must neither win nor hold timer teardown after cancellation.
+  std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  stop.request_stop();
+  EXPECT_THROW(AwaitRun(pending, "stop before future deadline"), Cancelled);
+  const std::array<std::int64_t, 2> short_shape{1, 512};
+  const auto result = session.run(std::span(values).first(512U), short_shape);
+  EXPECT_EQ(result.shape, (std::vector<std::int64_t>{1, 512}));
+  Near(result.values, torch::ones({1, 512}, torch::kFloat32));
+}
+
+TEST(OnnxRuntimeSession, UnrequestedStoppableCallsSucceedWithoutDeadline) {
+  LinearFixture fixture;
+  runtime::Session session(fixture.bytes, fixture.identity);
+  const auto expected =
+      Tensor(Artifact(fixture.specification.at("cases").at(0)), "output");
+  const auto input = Named(session.input().name, fixture.input);
+  std::stop_source stop;
+  ASSERT_TRUE(stop.stop_possible());
+  for (const bool use_named : {false, true}) {
+    SCOPED_TRACE(use_named ? "named" : "single tensor");
+    auto pending = std::async(std::launch::async, [&, use_named] {
+      if (use_named) {
+        const std::array inputs{input};
+        auto results = session.run(inputs, stop.get_token());
+        return std::move(results.at(0));
+      }
+      return session.run(input.values, input.shape, stop.get_token());
+    });
+    const auto result = AwaitRun(pending, "unrequested stoppable run");
+    EXPECT_FALSE(stop.stop_requested());
+    EXPECT_EQ(result.shape,
+              (std::vector<std::int64_t>(expected.sizes().begin(),
+                                         expected.sizes().end())));
+    Near(result.values, expected);
+  }
 }
 
 struct MultiIoFixture {

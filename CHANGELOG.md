@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- ONNX Runtime 的普通推理和仅带取消令牌的调用省去未使用的截止计时等待对象；带截止时间的调用仍独立回收计时线程。
+
 - 原生 OTLP HTTP 请求的停滞等待可被取消令牌或绝对截止时间中断，覆盖响应头、部分正文与 TLS 握手等待；未确认事件仍可原样重试。
 
 - ImageFolder ResNet18 与迁移学习配方可显式选择逐成功优化器更新的线性预热与衰减，保持参数组学习率比例，并与模型、优化器及训练进度一起完整恢复；原逐 epoch StepLR 默认行为保留。
