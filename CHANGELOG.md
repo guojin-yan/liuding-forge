@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 原生 OTLP HTTP 请求的停滞等待可被取消令牌或绝对截止时间中断，覆盖响应头、部分正文与 TLS 握手等待；未确认事件仍可原样重试。
+
 - ImageFolder ResNet18 与迁移学习配方可显式选择逐成功优化器更新的线性预热与衰减，保持参数组学习率比例，并与模型、优化器及训练进度一起完整恢复；原逐 epoch StepLR 默认行为保留。
 
 - OTLP C++ 教学例补齐指标、日志和实际计算 span，可先写入 SQLite run 再发送，并通过原生 CLI 重放；增加固定官方 Collector 与 protobuf reader 的独立 API/CLI 互操作验收入口。

@@ -6,6 +6,7 @@
 
 #include <jyppx/liuding/foundation/error.hpp>
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <curl/curl.h>
 #include <exception>
@@ -30,6 +31,59 @@ void check(CURLcode result) {
     throw IoError(std::string("OTLP system libcurl operation failed: ") +
                   curl_easy_strerror(result));
 }
+void check_multi(CURLMcode result) {
+  if (result != CURLM_OK)
+    throw IoError(std::string("OTLP system libcurl multi operation failed: ") +
+                  curl_multi_strerror(result));
+}
+
+class Transfer final {
+ public:
+  explicit Transfer(CURL* easy) : multi_(curl_multi_init()), easy_(easy) {
+    if (!multi_) throw IoError("Could not create OTLP system curl event loop");
+    const auto added = curl_multi_add_handle(multi_, easy_);
+    if (added != CURLM_OK) {
+      curl_multi_cleanup(multi_);
+      check_multi(added);
+    }
+  }
+  ~Transfer() {
+    // Removing an active easy handle cancels it before its request storage
+    // dies.
+    curl_multi_remove_handle(multi_, easy_);
+    curl_multi_cleanup(multi_);
+  }
+  Transfer(const Transfer&) = delete;
+  Transfer& operator=(const Transfer&) = delete;
+
+  CURLcode perform(std::stop_token stop,
+                   std::chrono::steady_clock::time_point deadline) {
+    // A stop request also interrupts a poll with no socket activity. The
+    // callback is destroyed before this Transfer can release the multi handle.
+    const std::stop_callback wake(
+        stop, [this] { static_cast<void>(curl_multi_wakeup(multi_)); });
+    int running = 0;
+    for (;;) {
+      check_telemetry_operation(stop, deadline);
+      check_multi(curl_multi_perform(multi_, &running));
+      int pending = 0;
+      while (const auto* message = curl_multi_info_read(multi_, &pending)) {
+        if (message->msg == CURLMSG_DONE && message->easy_handle == easy_)
+          return message->data.result;
+      }
+      if (running == 0) throw IoError("OTLP curl transfer has no result");
+      int descriptors = 0;
+      check_multi(curl_multi_poll(
+          multi_, nullptr, 0,
+          std::min(50, http_remaining_milliseconds(stop, deadline)),
+          &descriptors));
+    }
+  }
+
+ private:
+  CURLM* multi_;
+  CURL* easy_;
+};
 struct Receiver {
   std::stop_token stop;
   std::chrono::steady_clock::time_point deadline;
@@ -224,9 +278,18 @@ class Sender final : public OtlpRequestSender {
       check(
           curl_easy_setopt(handle.get(), CURLOPT_XFERINFOFUNCTION, &progress));
       check(curl_easy_setopt(handle.get(), CURLOPT_XFERINFODATA, &receiver));
-      const auto result = curl_easy_perform(handle.get());
+      CURLcode result;
+      {
+        Transfer transfer(handle.get());
+        result = transfer.perform(stop, deadline);
+      }
       if (receiver.error) std::rethrow_exception(receiver.error);
       check_telemetry_operation(stop, deadline);
+      // Both native timers use the remaining request budget. A native timeout
+      // must retain the public deadline category even when it is reported
+      // before the next steady-clock comparison observes expiration.
+      if (result == CURLE_OPERATION_TIMEDOUT)
+        throw DeadlineExceeded("OTLP HTTP request deadline exceeded");
       check(result);
       long status = 0L;
       check(curl_easy_getinfo(handle.get(), CURLINFO_RESPONSE_CODE, &status));

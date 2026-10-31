@@ -883,6 +883,19 @@ if(TARGET jyppx::liuding::telemetry_http)
         jyppx::liuding::telemetry_http Threads::Threads)
     jyppx_apply_instrumentation(jyppx_test_otlp_http_harness)
     jyppx_add_torch_runtime_dependency(jyppx_test_otlp_http_harness)
+    add_executable(jyppx_test_otlp_http_cancellation
+        "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_http/cancellation.cpp")
+    target_link_libraries(jyppx_test_otlp_http_cancellation PRIVATE
+        jyppx::liuding::telemetry_http Threads::Threads)
+    jyppx_apply_instrumentation(jyppx_test_otlp_http_cancellation)
+    jyppx_add_torch_runtime_dependency(jyppx_test_otlp_http_cancellation)
+    add_test(NAME NativeOtlpHttpCancellation
+        COMMAND "${Python3_EXECUTABLE}" -I -B
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_http_cancellation.py"
+            --harness $<TARGET_FILE:jyppx_test_otlp_http_cancellation>)
+    set_tests_properties(NativeOtlpHttpCancellation PROPERTIES
+        LABELS "experiment;telemetry;otlp;native;cancellation;loopback"
+        TIMEOUT 180 RUN_SERIAL TRUE)
     if(JYPPX_TELEMETRY_PYTHON)
         add_test(NAME NativeOtlpHttpWireContract
             COMMAND "${JYPPX_TELEMETRY_PYTHON}" -I -B

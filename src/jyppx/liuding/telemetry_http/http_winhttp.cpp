@@ -12,7 +12,11 @@
 
 #include <jyppx/liuding/foundation/error.hpp>
 
+#include <algorithm>
 #include <array>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <utility>
 #include <windows.h>
 #include <winhttp.h>
@@ -45,6 +49,111 @@ void check(BOOL result, std::stop_token stop,
     throw IoError("OTLP WinHTTP operation failed; OS code " +
                   std::to_string(code));
 }
+
+struct Completion final {
+  std::mutex mutex;
+  std::condition_variable_any ready;
+  DWORD status = 0U;
+  DWORD error = ERROR_SUCCESS;
+  DWORD bytes = 0U;
+  // WinHTTP can still reference an async read/write buffer until
+  // HANDLE_CLOSING. Keep a bounded chunk alive with the callback, never the
+  // caller's payload.
+  std::array<char, 16U * 1024U> chunk{};
+};
+
+using CallbackOwner = std::shared_ptr<Completion>;
+
+void CALLBACK completed(HINTERNET, DWORD_PTR context, DWORD status,
+                        void* information, DWORD length) noexcept {
+  if (context == 0U) return;
+  auto* owner = reinterpret_cast<CallbackOwner*>(context);
+  const auto state = *owner;
+  if (status == WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING) {
+    // The last notification releases the native callback's ownership even if
+    // cancellation has already returned to the caller. No stack pointer
+    // escapes.
+    delete owner;
+    return;
+  }
+  {
+    const std::lock_guard lock(state->mutex);
+    if (status == WINHTTP_CALLBACK_STATUS_REQUEST_ERROR) {
+      state->error =
+          information && length == sizeof(WINHTTP_ASYNC_RESULT)
+              ? static_cast<WINHTTP_ASYNC_RESULT*>(information)->dwError
+              : ERROR_INVALID_DATA;
+    } else if (status == WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE ||
+               status == WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE ||
+               status == WINHTTP_CALLBACK_STATUS_READ_COMPLETE ||
+               status == WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE) {
+      state->status = status;
+      if (status == WINHTTP_CALLBACK_STATUS_READ_COMPLETE) {
+        state->bytes = length;
+      } else if (status == WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE) {
+        if (information && length == sizeof(DWORD))
+          state->bytes = *static_cast<DWORD*>(information);
+        else
+          state->error = ERROR_INVALID_DATA;
+      }
+    }
+  }
+  state->ready.notify_all();
+}
+
+class Request final {
+ public:
+  explicit Request(HINTERNET handle)
+      : handle_(handle), state_(std::make_shared<Completion>()) {
+    auto owner = std::make_unique<CallbackOwner>(state_);
+    context_ = reinterpret_cast<DWORD_PTR>(owner.get());
+    if (!WinHttpSetOption(handle_.get(), WINHTTP_OPTION_CONTEXT_VALUE,
+                          &context_, sizeof(context_)))
+      throw IoError("Could not set OTLP asynchronous request context");
+    if (WinHttpSetStatusCallback(handle_.get(), &completed,
+                                 WINHTTP_CALLBACK_FLAG_ALL_COMPLETIONS |
+                                     WINHTTP_CALLBACK_FLAG_HANDLES,
+                                 0U) == WINHTTP_INVALID_STATUS_CALLBACK)
+      throw IoError("Could not install OTLP asynchronous completion callback");
+    owner.release();  // HANDLE_CLOSING now owns this one reference.
+  }
+  HINTERNET get() const noexcept { return handle_.get(); }
+  DWORD_PTR context() const noexcept { return context_; }
+  Completion& state() noexcept { return *state_; }
+  void begin() {
+    const std::lock_guard lock(state_->mutex);
+    state_->status = 0U;
+    state_->error = ERROR_SUCCESS;
+    state_->bytes = 0U;
+  }
+  DWORD wait(BOOL started, DWORD expected, std::stop_token stop,
+             std::chrono::steady_clock::time_point deadline) {
+    const auto error = started ? ERROR_SUCCESS : GetLastError();
+    check_telemetry_operation(stop, deadline);
+    if (error == ERROR_WINHTTP_TIMEOUT)
+      throw DeadlineExceeded("OTLP HTTP request deadline exceeded");
+    if (error != ERROR_SUCCESS && error != ERROR_IO_PENDING)
+      throw IoError("OTLP asynchronous WinHTTP operation failed; OS code " +
+                    std::to_string(error));
+    std::unique_lock lock(state_->mutex);
+    state_->ready.wait_until(lock, stop, deadline, [&] {
+      return state_->status != 0U || state_->error != ERROR_SUCCESS;
+    });
+    check_telemetry_operation(stop, deadline);
+    if (state_->error == ERROR_WINHTTP_TIMEOUT)
+      throw DeadlineExceeded("OTLP HTTP request deadline exceeded");
+    if (state_->error != ERROR_SUCCESS || state_->status != expected)
+      throw IoError("OTLP asynchronous WinHTTP completion failed; OS code " +
+                    std::to_string(state_->error));
+    return state_->bytes;
+  }
+
+ private:
+  // The callback independently owns state until the last HANDLE_CLOSING notice.
+  Handle handle_;
+  CallbackOwner state_;
+  DWORD_PTR context_ = 0U;
+};
 
 template <typename Validate>
 std::size_t validate_response_headers(
@@ -97,11 +206,25 @@ class Sender final : public OtlpRequestSender {
     validate_http_request(prepared, reply_limit);
     const auto deadline =
         http_request_deadline(stop, caller_deadline, timeout_);
+    // Keep WinHTTP's process runtime initialized across isolated sessions.
+    // This anchor never connects or sends; every request still owns a separate
+    // session so a stalled TLS handshake can be closed on cancellation.
+    static const Handle runtime(WinHttpOpen(
+        L"Liuding-Forge/OTLP-runtime", WINHTTP_ACCESS_TYPE_NO_PROXY,
+        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC));
+    static_cast<void>(runtime);
     std::string reply;
     {
-      const Handle session(
-          WinHttpOpen(L"Liuding-Forge/OTLP", WINHTTP_ACCESS_TYPE_NO_PROXY,
-                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0U));
+      const Handle session(WinHttpOpen(
+          L"Liuding-Forge/OTLP", WINHTTP_ACCESS_TYPE_NO_PROXY,
+          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC));
+      // Keep pending handshakes owned by this request's session, rather than
+      // letting a global connection pool outlive cooperative cancellation.
+      BOOL isolated = TRUE;
+      check(
+          WinHttpSetOption(session.get(), WINHTTP_OPTION_DISABLE_GLOBAL_POOLING,
+                           &isolated, sizeof(isolated)),
+          stop, deadline);
       DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
       check(WinHttpSetOption(session.get(), WINHTTP_OPTION_SECURE_PROTOCOLS,
                              &protocols, sizeof(protocols)),
@@ -115,7 +238,7 @@ class Sender final : public OtlpRequestSender {
       const auto path = OtlpProjectionEncoder::signal_path(prepared.signal);
       const std::wstring wide_path(path.begin(), path.end());
       const wchar_t* accept[] = {L"application/x-protobuf", nullptr};
-      const Handle request(
+      Request request(
           WinHttpOpenRequest(connection.get(), L"POST", wide_path.c_str(),
                              L"HTTP/1.1", WINHTTP_NO_REFERER, accept,
                              endpoint_.tls ? WINHTTP_FLAG_SECURE : 0U));
@@ -144,17 +267,36 @@ class Sender final : public OtlpRequestSender {
       };
       // Trust/hostname validation remains at WinHTTP's secure defaults.
       set_timeout();
-      check(
+      request.begin();
+      static_cast<void>(request.wait(
           WinHttpSendRequest(
               request.get(),
               L"Content-Type: application/x-protobuf\r\nAccept-Encoding: "
               L"identity\r\n",
-              static_cast<DWORD>(-1L), const_cast<char*>(prepared.body.data()),
-              static_cast<DWORD>(prepared.body.size()),
-              static_cast<DWORD>(prepared.body.size()), 0U),
-          stop, deadline);
+              static_cast<DWORD>(-1L), WINHTTP_NO_REQUEST_DATA, 0U,
+              static_cast<DWORD>(prepared.body.size()), request.context()),
+          WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE, stop, deadline));
+      std::size_t offset = 0U;
+      while (offset < prepared.body.size()) {
+        set_timeout();
+        auto& chunk = request.state().chunk;
+        const auto count =
+            std::min(chunk.size(), prepared.body.size() - offset);
+        std::copy_n(prepared.body.data() + offset, count, chunk.data());
+        request.begin();
+        const auto written = request.wait(
+            WinHttpWriteData(request.get(), chunk.data(),
+                             static_cast<DWORD>(count), nullptr),
+            WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE, stop, deadline);
+        if (written == 0U || written > count)
+          throw IoError("Invalid asynchronous OTLP write completion");
+        offset += written;
+      }
       set_timeout();
-      check(WinHttpReceiveResponse(request.get(), nullptr), stop, deadline);
+      request.begin();
+      static_cast<void>(request.wait(
+          WinHttpReceiveResponse(request.get(), nullptr),
+          WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, stop, deadline));
       DWORD status = 0U;
       DWORD size = sizeof(status);
       check(WinHttpQueryHeaders(
@@ -196,13 +338,14 @@ class Sender final : public OtlpRequestSender {
       } else if (GetLastError() != ERROR_WINHTTP_HEADER_NOT_FOUND) {
         throw IoError("Could not read OTLP response length");
       }
-      std::array<char, 16U * 1024U> chunk{};
       for (;;) {
         set_timeout();
-        DWORD count = 0U;
-        check(WinHttpReadData(request.get(), chunk.data(),
-                              static_cast<DWORD>(chunk.size()), &count),
-              stop, deadline);
+        auto& chunk = request.state().chunk;
+        request.begin();
+        const auto count = request.wait(
+            WinHttpReadData(request.get(), chunk.data(),
+                            static_cast<DWORD>(chunk.size()), nullptr),
+            WINHTTP_CALLBACK_STATUS_READ_COMPLETE, stop, deadline);
         if (count == 0U) break;
         if (count > reply_limit - reply.size())
           throw ResourceExhausted(

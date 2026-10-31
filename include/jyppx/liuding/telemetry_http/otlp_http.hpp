@@ -57,11 +57,13 @@ struct OtlpHttpOptions {
  * system trust store. Calls are serialized by the owner. Destruction performs
  * no network I/O. Flush has no pending network work.
  *
- * Stop/deadline checks bracket blocking steps and native-handle cleanup. The
- * per-request timeout is narrowed by the caller's absolute deadline. Windows
- * synchronous WinHTTP phase timeouts do not impose a hard wall-clock limit;
- * cancellation can be delayed until a blocking call returns. A late operation
- * never reports success. This API does not provide process-level termination.
+ * The caller waits synchronously over asynchronous system I/O. Stop requests
+ * wake an idle request wait; the earlier caller deadline/request timeout bounds
+ * that wait. Cancellation closes the request without accepting a late reply.
+ * On Windows a private 16 KiB read/write chunk remains owned by native
+ * callbacks until the final handle-close notification; caller buffers never
+ * escape. System cleanup, DNS and OS scheduling do not provide an absolute
+ * wall-clock guarantee. This API does not provide process-level termination.
  * Limits bound encoded and logical fields, not total RSS or TLS stack memory.
  */
 class OtlpHttpTelemetrySink final : public TelemetrySink {
