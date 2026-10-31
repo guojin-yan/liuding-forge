@@ -94,6 +94,16 @@ const auto json = training::training_diagnostics_report_json(report, 65536);
 
 可将 JSON 字节用现有 `SQLiteRunStore::put_artifact()` 关联至报告的 `run_id`，复用不可变 CAS、物理重开、同 reference ID 重试和冲突拒绝；检查点提交与报告发布仍是独立操作。恢复 participant 后可重新捕获报告，已记录统计保持不变，构建身份反映执行捕获的二进制。当前报告覆盖上述诊断统计，不包含完整 GPU profiler、调用栈或自动根因判断。
 
+## 训练后 BatchNorm 校准
+
+`<jyppx/liuding/training/batch_norm_calibration.hpp>` 提供 `training::calibrate_batch_norm(model, source, options)`。当前支持 CPU FP32 模型中的 tracked BatchNorm2d；仅重估 `running_mean`、`running_var` 和 `num_batches_tracked`，不执行反向传播或优化器更新。其他模块保持 eval，结束后恢复原模块模式、BN momentum 和 CPU RNG。
+
+`source(stop_token)` 返回 `BatchNormCalibrationBatch` 或 EOF。每批提供已预处理的 CPU FP32 NCHW 图像、固定训练来源摘要和可选资源 owner；仅使用训练数据。`options` 必须显式给出相同来源、精确批次与样本数、单批输入字节和完整模型快照字节上限。超限、来源不符、非法数值或与受保护状态共享存储的统计 buffer 会被拒绝。
+
+校准重置旧统计并使用 `momentum=None` 按批累计；尾批大小不同时，它不等于对全数据逐样本加权的精确均值和方差。取消、读取、前向或校验失败会回滚完整模型。回滚可能同时保留约三份编码模型大小的额外数据，输入、激活和后端 workspace 另计；快照限额不是进程 RSS 上限。
+
+可选提交回调在模式、momentum 和 RNG 恢复后发布协调检查点。调用方应同时保存模型与自己的校准阶段；半遍统计不是恢复边界，未完成阶段重放完整训练流。原子发布后的目录同步错误可能留下完整的新检查点，须结束当前尝试，再重新打开并验证持久状态。执行期间应独占模型和默认 CPU RNG，源与回调不得修改外部训练状态。CLI 配置与恢复步骤见[图像分类教程](../tutorials/image_classification_recipe.md#34-训练后重估-batchnorm-统计)。
+
 ## 分类数据集评估
 
 `<jyppx/liuding/training/classification_evaluation.hpp>` 提供 `training::evaluate_classification(model, source, options)`。`source` 每次返回一批模型参数和一维整数标签，完整读取后返回 `std::nullopt`；模型返回形状为 `N × C` 的有限浮点 logits。数据读取、预处理和设备放置由调用方明确完成，评估器不联网。

@@ -312,6 +312,12 @@ if(TARGET jyppx::liuding::experiment)
         JYPPX_LIUDING_EVALUATION_REPORT_TEST=1)
 endif()
 
+jyppx_add_gtest(jyppx_test_training_batch_norm_calibration
+    LINK_TARGET jyppx::liuding::training
+    training/test_batch_norm_calibration.cpp)
+target_link_libraries(jyppx_test_training_batch_norm_calibration PRIVATE
+    nlohmann_json::nlohmann_json)
+
 jyppx_add_gtest(jyppx_test_training_classification_evaluation
     LINK_TARGET jyppx::liuding::training
     training/test_classification_evaluation.cpp

@@ -10,6 +10,11 @@
 #include "transfer_recipe.hpp"
 
 #if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
+#include "recipe_bn_calibration.hpp"
+#if defined(JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS)
+#include "recipe_bn_calibration_test_gate.hpp"
+#endif
+
 #include <jyppx/liuding/core/device.hpp>
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
@@ -30,6 +35,7 @@
 #include <jyppx/liuding/optim/linear_lr_scheduler.hpp>
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #include <jyppx/liuding/optim/step_lr_scheduler.hpp>
+#include <jyppx/liuding/training/batch_norm_calibration.hpp>
 #include <jyppx/liuding/training/classification_evaluation.hpp>
 #include <jyppx/liuding/training/diagnostics.hpp>
 #include <jyppx/liuding/training/file_checkpoint_store.hpp>
@@ -39,6 +45,7 @@
 
 #include <torch/cuda.h>
 #include <torch/nn/functional/loss.h>
+#include <torch/nn/modules/batchnorm.h>
 
 #include <ATen/Context.h>
 #include <ATen/Parallel.h>
@@ -95,6 +102,30 @@ bool is_initial_state_field(std::string_view name) {
   return name == "initial_state_file" || name == "initial_state_sha256";
 }
 
+bool is_calibration_field(std::string_view name) {
+  return name == "batch_norm_calibration" ||
+         name == "calibration_max_snapshot_bytes";
+}
+bool uses_bn_calibration(const Json& config) {
+  return config.value("batch_norm_calibration", "off") ==
+         "train_cumulative_once";
+}
+Json calibration_controls(const nn::ModelAdapter& model) {
+  Json norms = Json::array();
+  for (const auto& entry : model.state().module().named_modules()) {
+    if (const auto norm = std::dynamic_pointer_cast<torch::nn::BatchNorm2dImpl>(
+            entry.value()))
+      norms.push_back(
+          {{"name", entry.key()},
+           {"momentum", norm->options.momentum()
+                            ? Json(*norm->options.momentum())
+                            : Json(nullptr)},
+           {"epsilon", norm->options.eps()},
+           {"track_running_stats", norm->options.track_running_stats()}});
+  }
+  return {{"checkpoint_module_mode", "all_eval"}, {"batch_norm", norms}};
+}
+
 bool uses_adamw(const Json& config) {
   return config.value("optimizer", "sgd") == "adamw";
 }
@@ -146,7 +177,9 @@ const std::map<std::string, ValueKind>& field_kinds(bool transfer = false) {
       {"max_image_bytes", ValueKind::integer},
       {"max_data_bytes", ValueKind::integer},
       {"max_samples", ValueKind::integer},
-      {"image_budget_bytes", ValueKind::integer}};
+      {"image_budget_bytes", ValueKind::integer},
+      {"batch_norm_calibration", ValueKind::string},
+      {"calibration_max_snapshot_bytes", ValueKind::integer}};
   if (!transfer) return fields;
   static const auto transfer_fields = [] {
     auto result = field_kinds(false);
@@ -168,7 +201,9 @@ ex::config::ConfigSchema config_schema(bool transfer) {
     field.kind = kind;
     field.name = name;
     field.required = !is_group_rate(name) && !is_schedule_field(name) &&
-                     !is_optimizer_field(name) && !is_initial_state_field(name);
+                     !is_optimizer_field(name) &&
+                     !is_initial_state_field(name) &&
+                     !is_calibration_field(name);
     result.root.fields.emplace(name, std::move(field));
   }
   return result;
@@ -178,7 +213,8 @@ Json schema_json(bool transfer = false) {
   for (const auto& [name, kind] : field_kinds(transfer)) {
     fields[name] = {{"kind", value_kind_name(kind)}};
     if (is_group_rate(name) || is_schedule_field(name) ||
-        is_optimizer_field(name) || is_initial_state_field(name))
+        is_optimizer_field(name) || is_initial_state_field(name) ||
+        is_calibration_field(name))
       fields[name]["required"] = false;
   }
   return {{"schema_version", 1},
@@ -204,6 +240,18 @@ Json resolve_config(const std::filesystem::path& path) {
                  "Unsupported recipe identity");
   require_recipe(config.at("device") == "cpu" || config.at("device") == "cuda",
                  "Recipe device must be cpu or cuda");
+  const auto calibration = config.value("batch_norm_calibration", "off");
+  require_recipe(calibration == "off" || calibration == "train_cumulative_once",
+                 "batch_norm_calibration must be off or train_cumulative_once");
+  require_recipe(config.contains("calibration_max_snapshot_bytes") ==
+                     uses_bn_calibration(config),
+                 "calibration_max_snapshot_bytes is required exactly when "
+                 "BatchNorm calibration is enabled");
+  if (uses_bn_calibration(config)) {
+    require_recipe(!transfer && config.at("device") == "cpu",
+                   "This calibration slice supports the CPU ResNet18 recipe");
+    integer("calibration_max_snapshot_bytes", 1LL << 20, 1LL << 30);
+  }
   integer("seed", 0, 2147483647);
   integer("epochs", 1, 1000);
   integer("batch_size", 2, 1024);
@@ -647,7 +695,9 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
     const Json& config, image::ManifestIndex index, bool validation,
     const ArtifactDigest& identity, const Device& device,
     const std::shared_ptr<image::ImageResourceBudget>& budget,
-    const TransferInput* transfer) {
+    const TransferInput* transfer, bool calibration = false) {
+  require_recipe(!calibration || (!validation && !transfer && device.is_cpu()),
+                 "Calibration must use CPU training inputs exclusively");
   image::ImageDatasetOptions source_options;
   source_options.resource_budget = budget;
   source_options.image.channels = image::ImageChannels::rgb;
@@ -723,11 +773,14 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
     return image::image_batch_value(batch, collate.limits);
   };
   data::DataPipelineOptions options;
-  options.pipeline_id = validation ? "recipe.validation" : "recipe.training";
+  options.pipeline_id = calibration  ? "recipe.calibration"
+                        : validation ? "recipe.validation"
+                                     : "recipe.training";
   options.dataset_version = identity.hex;
   options.dataset_size = source->size();
   options.batch_factory_id = config.at("recipe").get<std::string>();
   if (transfer) options.batch_factory_id += "/" + transfer->input_identity;
+  if (calibration) options.batch_factory_id += "/bn-train-cumulative-once/v1";
   options.batch_size = config.at("batch_size").get<std::size_t>();
   options.num_workers = config.at("workers").get<std::size_t>();
   options.prefetch_batches = config.at("prefetch_batches").get<std::size_t>();
@@ -1042,6 +1095,19 @@ Result execute(const Arguments& arguments, bool resume) {
   require_recipe(!device.is_cuda() || torch::cuda::is_available(),
                  "CUDA was requested but is unavailable");
   const auto pause = arguments.number("pause-after", 0, inputs.total_steps);
+  const auto calibration_batches =
+      (inputs.train.records().size() +
+       config.at("batch_size").get<std::size_t>() - 1) /
+      config.at("batch_size").get<std::size_t>();
+  const auto calibration_pause =
+      arguments.number("pause-calibration-after", 0, calibration_batches);
+  require_recipe(
+      calibration_pause == 0 || (uses_bn_calibration(config) &&
+                                 calibration_pause < calibration_batches),
+      "pause-calibration-after requires an enabled calibration "
+      "and a boundary before its final batch");
+  require_recipe(pause == 0 || calibration_pause == 0,
+                 "Choose a training pause or a calibration pause per process");
   require_recipe(pause == 0 || pause < inputs.total_steps,
                  "pause-after must precede the final optimizer update");
   const auto root = std::filesystem::absolute(
@@ -1054,6 +1120,14 @@ Result execute(const Arguments& arguments, bool resume) {
     require_recipe(
         !std::filesystem::exists(root),
         "Recipe run requires a new directory; use recipe resume to continue");
+#if defined(JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS)
+  auto calibration_test = RecipeCalibrationTestGate::from_environment();
+  require_recipe(!calibration_test ||
+                     (uses_bn_calibration(config) && calibration_pause == 0 &&
+                      pause == 0 && device.is_cpu()),
+                 "Calibration test handshake requires an enabled CPU stage "
+                 "and no cooperative pause");
+#endif
   configure_recipe_numerics();
   core::RngGuard rng(config.at("seed").get<std::uint64_t>(), device.is_cuda());
   auto model = make_recipe_model(
@@ -1111,6 +1185,29 @@ Result execute(const Arguments& arguments, bool resume) {
         {"dropout", "eval when frozen; follows mode when finetuning"}};
     if (uses_group_rates(config))
       contract["transfer"]["optimizer_groups"] = optimizer_group_plan(config);
+  }
+  Json calibration_contract;
+  if (uses_bn_calibration(config)) {
+    calibration_contract = {
+        {"method", "jyppx.liuding.bn2d.train-cumulative-once/v1"},
+        {"train", inputs.manifest.at("train")},
+        {"classes", inputs.manifest.at("classes")},
+        {"sampler", sampling.at("train_sampler")},
+        {"sampler_algorithm", sampling.at("algorithm")},
+        {"seed", config.at("seed")},
+        {"epoch", 0},
+        {"passes", 1},
+        {"batch_size", config.at("batch_size")},
+        {"image_size", config.at("image_size")},
+        {"image_dtype", "float32-normalized"},
+        {"interpolation", "bilinear"},
+        {"workers", 0},
+        {"prefetch_batches", 1},
+        {"controls", calibration_controls(*model)},
+        {"max_model_snapshot_bytes",
+         config.at("calibration_max_snapshot_bytes")},
+        {"recovery", "READY replays the entire pass; COMPLETED skips it"}};
+    contract["batch_norm_calibration"] = calibration_contract;
   }
   const Json lineage{{"config_sha256", config_hash.hex},
                      {"dataset_sha256", inputs.identity.hex},
@@ -1235,6 +1332,12 @@ Result execute(const Arguments& arguments, bool resume) {
   auto scheduler =
       make_scheduler(optimizer.adapter, config, inputs.total_steps);
   auto diagnostics = std::make_shared<tr::TrainingDiagnostics>();
+  auto calibration = uses_bn_calibration(config)
+                         ? std::make_shared<RecipeBatchNormCalibration>(
+                               calibration_contract.dump())
+                         : nullptr;
+  std::vector<std::shared_ptr<CheckpointParticipant>> stage_participants;
+  if (calibration) stage_participants.push_back(calibration);
   tr::Trainer trainer(
       {.trainer_id = "recipe.trainer",
        .run_id = std::string(kRun),
@@ -1297,7 +1400,7 @@ Result execute(const Arguments& arguments, bool resume) {
            core::RngCheckpointParticipantOptions{.include_cuda =
                                                      device.is_cuda()}),
        .diagnostics = diagnostics,
-       .additional_participants = {},
+       .additional_participants = std::move(stage_participants),
        .checkpoint_action = [&](const tr::CheckpointCoordinator& coordinator) {
          tr::FileCheckpointStore checkpoint(root / "latest.jyck");
          coordinator.save(checkpoint);
@@ -1309,7 +1412,43 @@ Result execute(const Arguments& arguments, bool resume) {
                    "pause-after must exceed the restored optimizer step");
     store.heartbeat(kRun, now_ms());
   }
-  const auto fit = trainer.fit_until(pause);
+  tr::FitResult fit;
+  if (calibration &&
+      calibration->phase() != RecipeBatchNormCalibration::Phase::training) {
+    require_recipe(
+        trainer.phase() == tr::TrainerPhase::completed &&
+            trainer.global_step() == inputs.total_steps &&
+            calibration->optimizer_updates() == trainer.global_step(),
+        "Calibration checkpoint lacks matching completed training");
+    require_recipe(
+        calibration_controls(*model) == calibration_contract.at("controls"),
+        "Restored calibration controls differ");
+    // Model participant stores tensors, not modes/momentum. The stage contract
+    // explicitly defines all-eval boundaries and frozen constructor momentum.
+    model->state().eval();
+    const auto state_sha = sha256_hex(
+        encode_model(*model, config.at("recipe").get<std::string>()));
+    require_recipe(
+        state_sha ==
+            (calibration->phase() == RecipeBatchNormCalibration::Phase::ready
+                 ? calibration->source_model_sha256()
+                 : calibration->calibrated_model_sha256()),
+        "Calibration checkpoint has a different complete model");
+    if (calibration->phase() == RecipeBatchNormCalibration::Phase::completed)
+      require_recipe(
+          calibration->report().at("batches") == calibration_batches &&
+              calibration->report().at("samples") ==
+                  inputs.train.records().size(),
+          "COMPLETED calibration pass counts differ");
+    fit = {.status = tr::FitStatus::completed,
+           .completed_epochs = trainer.completed_epochs(),
+           .global_step = trainer.global_step(),
+           .training_metrics = trainer.training_metrics(),
+           .validation_metrics = trainer.validation_metrics(),
+           .reason = "Restored completed training; no fit replay"};
+  } else {
+    fit = trainer.fit_until(pause);
+  }
   if (fit.status == tr::FitStatus::paused) {
     require_recipe(fit.global_step == pause,
                    "Recipe did not pause at its durable boundary");
@@ -1333,6 +1472,111 @@ Result execute(const Arguments& arguments, bool resume) {
   require_recipe(fit.status == tr::FitStatus::completed &&
                      fit.global_step == inputs.total_steps,
                  "Recipe did not complete its configured training budget");
+  if (calibration &&
+      calibration->phase() == RecipeBatchNormCalibration::Phase::training) {
+    require_recipe(
+        calibration_controls(*model) == calibration_contract.at("controls"),
+        "Training changed the declared calibration controls");
+    model->state().eval();
+    calibration->ready(sha256_hex(encode_model(
+                           *model, config.at("recipe").get<std::string>())),
+                       trainer.global_step());
+    // Durable full-domain READY contains the uncalibrated final model and the
+    // exact optimizer/scheduler/pipeline/callback/outbox/strategy/RNG state.
+    tr::FileCheckpointStore ready(root / "latest.jyck");
+    trainer.save_checkpoint(ready);
+  }
+  if (calibration &&
+      calibration->phase() == RecipeBatchNormCalibration::Phase::ready) {
+    const auto source_id = digest(calibration_contract.dump());
+    auto source_config = config;
+    source_config["workers"] = 0;
+    source_config["prefetch_batches"] = 1;
+    auto calibration_data =
+        make_pipeline(source_config, inputs.train, false, source_id, device,
+                      budget, nullptr, true);
+    calibration_data->set_epoch(0);
+    std::stop_source calibration_stop;
+    std::uint64_t supplied = 0, supplied_samples = 0;
+    try {
+      tr::calibrate_batch_norm(
+          *model,
+          [&](std::stop_token stop)
+              -> std::optional<tr::BatchNormCalibrationBatch> {
+#if defined(JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS)
+            if (calibration_test)
+              calibration_test->observe("batch", root, *calibration, *model,
+                                        supplied, supplied_samples,
+                                        trainer.global_step(), stop);
+#endif
+            if (calibration_pause && supplied == calibration_pause) {
+              calibration_stop.request_stop();
+              return std::nullopt;
+            }
+            auto next = calibration_data->next(stop);
+            if (!next) return std::nullopt;
+            auto owner =
+                std::make_shared<data::BatchEnvelope>(std::move(*next));
+            ++supplied;
+            const auto images =
+                image::image_batch_from_value(owner->value).images;
+            supplied_samples += static_cast<std::uint64_t>(images.size(0));
+            return tr::BatchNormCalibrationBatch{.images = images,
+                                                 .training_source = source_id,
+                                                 .owner = std::move(owner)};
+          },
+          {.training_source = source_id,
+           .expected_batches = calibration_batches,
+           .expected_samples = inputs.train.records().size(),
+           .max_input_bytes =
+               config.at("image_budget_bytes").get<std::uint64_t>(),
+           .max_model_snapshot_bytes =
+               config.at("calibration_max_snapshot_bytes")
+                   .get<std::uint64_t>()},
+          calibration_stop.get_token(),
+          [&](const tr::BatchNormCalibrationResult& result) {
+            require_recipe(
+                inspect_inputs(config).identity.hex == inputs.identity.hex,
+                "Dataset changed during BatchNorm calibration");
+            calibration->completed(
+                sha256_hex(encode_model(
+                    *model, config.at("recipe").get<std::string>())),
+                result.batches, result.samples);
+            try {
+              tr::FileCheckpointStore completed(root / "latest.jyck");
+              // Final throwing action: model + existing whole domain + phase
+              // become durable together. Core restores controls before entry.
+              trainer.save_checkpoint(completed);
+            } catch (...) {
+              calibration->discard_completion();
+              throw;
+            }
+          });
+    } catch (const Cancelled&) {
+      if (!calibration_stop.stop_requested()) throw;
+      calibration_data->close();
+      store.heartbeat(kRun, now_ms());
+      Json paused{{"schema_version", 1},
+                  {"status", "paused"},
+                  {"stage", "batch_norm_calibration"},
+                  {"global_step", trainer.global_step()},
+                  {"checkpoint_sha256", file_digest(root / "latest.jyck").hex},
+                  {"calibration", calibration->report()},
+                  {"lineage", lineage}};
+      trainer.close();
+      return {std::move(paused), 0};
+    }
+    calibration_data->close();
+  }
+#if defined(JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS)
+  if (calibration_test && calibration &&
+      calibration->phase() == RecipeBatchNormCalibration::Phase::completed)
+    calibration_test->observe(
+        "completed", root, *calibration, *model,
+        calibration->report().at("batches").get<std::uint64_t>(),
+        calibration->report().at("samples").get<std::uint64_t>(),
+        trainer.global_step(), {});
+#endif
   tr::FileCheckpointStore final_checkpoint(root / "final.jyck");
   trainer.save_checkpoint(final_checkpoint);
   const auto final_transfer_state = transfer ? transfer_state(*model) : Json{};
@@ -1487,6 +1731,7 @@ Result execute(const Arguments& arguments, bool resume) {
                           {"batch_norm", config.at("batch_norm")},
                           {"weight_input_sha256", transfer->input_identity}};
   }
+  if (calibration) result["calibration"] = calibration->report();
   if (!optimization.is_null()) result["optimization"] = optimization;
   write_json(root / "result.json", result);
   for (const auto* id :
@@ -1511,10 +1756,15 @@ Result execute(const Arguments& arguments, bool resume) {
 #endif
 
 Result recipe_command(const Arguments& arguments) {
-  arguments.allow({"file", "root", "pause-after", "name"});
+  arguments.allow(
+      {"file", "root", "pause-after", "pause-calibration-after", "name"});
   if (arguments.words().size() != 2U)
     usage("recipe", "Supply exactly one recipe subcommand.");
   const auto& action = arguments.words()[1];
+  recipe_support::require_recipe(
+      !arguments.optional("pause-calibration-after") || action == "run" ||
+          action == "resume",
+      "pause-calibration-after is available only for run/resume");
   if (action == "schema" && arguments.optional("name") == "paired-affine")
     return paired_recipe_command(arguments);
   const bool transfer_schema =

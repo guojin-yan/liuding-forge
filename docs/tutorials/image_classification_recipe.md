@@ -146,6 +146,24 @@ liuding-forge recipe initialize --file my-resnet18.json --root initial-model --f
 
 加入上述字段后，再执行 `recipe initialize` 到另一个新目录；即使改变 `seed`，重新导出的模型文件仍与输入逐字节一致。seed 仍控制采样及训练期 RNG，固定初始参数不保证不同设备的浮点运算或训练结果逐位相同。正常 `recipe run` 会将初始化来源和实际模型身份写入运行证据及 bundle；`resume` 会拒绝更换文件内容、摘要、配置或类别。该文件只提供零步模型状态，完整续训仍使用训练检查点。
 
+### 3.4 训练后重估 BatchNorm 统计
+
+小数据或短训练后，可显式选择用训练集重新估计 BatchNorm 的运行统计。当前配方只在 CPU FP32 ResNet18 分类中支持此功能，默认关闭；迁移学习和 CUDA 配方会拒绝启用。将下列片段合并到完整配置，并重新运行 `recipe check`：
+
+```json
+{
+  "device": "cpu",
+  "batch_norm_calibration": "train_cumulative_once",
+  "calibration_max_snapshot_bytes": 134217728
+}
+```
+
+`calibration_max_snapshot_bytes` 限制完整编码模型快照，允许 1 MiB 至 1 GiB；示例为 128 MiB。只有启用校准时才提供该字段，关闭时应一并删除。实际快照不足以容纳时明确失败，回滚和最终模型编码还会使用额外内存；它不是整个进程的内存限额。
+
+训练完成后，配方以独立单 worker 管线遍历训练集一遍，固定 epoch 0 的可移植顺序和原预处理，不推进原训练游标、不更新权重或优化器，也不使用验证数据选择统计。仅 BatchNorm2d 临时处于 train 模式，关闭梯度并以 `momentum=None` 累计每批统计；尾批不等长时不承诺精确逐样本加权。最终仍使用正常 eval 模式评估完整验证集，结果及质量报告采用这次评估；启用本功能不保证提升准确率。
+
+校准开始前和完成后均保存协调检查点。中途退出时，`resume` 从校准前的完整状态重放整遍，不重复训练；已完成校准则直接继续最终评估与交付。不能在原运行上改配置后续训，启用或关闭应建立新运行。
+
 ## 4. 训练和评估
 
 输出目录必须是新目录，其父目录需预先创建。使用 CUDA 时，先将配置中的 `device` 改为 `cuda`，并在启动每个进程前设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`；PowerShell 可执行 `$env:CUBLAS_WORKSPACE_CONFIG = ':4096:8'`，Linux 可执行 `export CUBLAS_WORKSPACE_CONFIG=:4096:8`。CUDA 不可用时会拒绝运行，不自动回退到 CPU。
@@ -186,6 +204,13 @@ liuding-forge recipe resume --file my-resnet18.json --root runs/resumable --form
 恢复覆盖模型参数和 buffer、所选优化器的状态、完整学习率调度器树、Trainer、训练与验证数据游标、采样器、CPU/选定 CUDA RNG、回调游标和诊断统计。当前学习率、SGD momentum 或 AdamW 一阶/二阶矩与步数、预热或衰减阶段及调度计数一起恢复，不会重新预热或多推进一步。新的 `pause-after` 可以继续分段运行。异常终止后，已有 `latest.jyck` 时也可从该检查点重做尚未持久化的工作；尚未发布首个检查点时不能恢复。
 
 配方使用可移植、带版本的 `RandomSampler`，并在结果的 `sampling` 和模型包来源中保存算法、seed 与训练/验证 sampler 身份。同一数据顺序、seed 和 epoch 在 Windows/Linux 上使用相同排列；跨平台比较还需冻结完整初始参数、预处理和数值策略，不能仅凭相同 seed 推断训练结果相同。旧 `std::shuffle` v1 采样状态不接受为当前算法续训，已有运行应使用原版本恢复。算法及状态契约见[数据 API](../api/data.md#samplers)。
+
+启用 [BatchNorm 校准](#34-训练后重估-batchnorm-统计)时，可用 `--pause-calibration-after N` 在处理 N 批后有序暂停；N 必须大于零且小于校准总批数，不能与 `--pause-after` 同时提供。该暂停会丢弃本遍局部统计并保留校准前检查点，新进程会重放完整校准，不增加训练更新。例如训练集至少有三批时：
+
+```sh
+liuding-forge recipe run --file my-resnet18.json --root runs/calibrated --pause-calibration-after 2 --format json
+liuding-forge recipe resume --file my-resnet18.json --root runs/calibrated --format json
+```
 
 恢复要求有效配置、类别表、全部图片内容和构建身份一致，包括 seed、设备、线程策略、训练预算及全部学习率调度字段。若需要改配置，创建新的输出目录重新训练。暂停的 CLI 结果为 `paused`，run-store 中仍保留同一条 `running` 的未完成逻辑运行；不要在计划续训时将它标为终态。已经通过 `run recover` 等命令标为 `interrupted` 的终态不接受原运行续训。完成后的同配置 `resume` 校验结果与 bundle 后返回既有结果，不重复训练；`run` 始终拒绝覆盖既有目录。同一输出目录同时只允许一个配方进程，操作系统会在进程退出时释放锁。
 

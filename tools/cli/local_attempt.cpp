@@ -219,6 +219,9 @@ struct ResourceRequest {
   std::uint64_t gpu_memory_bytes = 0;
 };
 
+// nlohmann/json's noexcept null constructor has an exception-analysis false
+// positive; preserve the aggregate's inferred exception contract.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 struct Resources {
   Json capacity;
   ResourceRequest request;

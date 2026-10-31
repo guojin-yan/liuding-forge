@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加有界原生 C++ BatchNorm2d 训练后校准，以及 CPU ResNet18 配方的显式开关、完整检查点阶段恢复和最终正常评估；只读取训练数据，不增加优化器更新。
+
+- 静态 INT8 Linear 导出增加显式 ORT 整数融合图，默认标准 ONNX 图保持；ORT Session 增加带类型的 CUDA Provider 配置与明确的不支持错误，设备执行资格仍需独立验证。
+
 - ImageFolder 分类与迁移配方增加原生 C++ 零步完整模型导出，以及绑定 SHA-256、架构和有序类别的严格初始化；全部参数和缓冲区在优化器创建前导入，运行、续训与模型包保留相同来源。
 
 - `RandomSampler` 改用版本明确的可移植整数排列算法，固定 seed/epoch 时不再受 Windows/Linux 标准库差异影响；ImageFolder 与迁移配方记录采样来源，检查点明确拒绝旧算法状态。
