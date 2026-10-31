@@ -1,6 +1,6 @@
 # 用自己的图像训练 ResNet18
 
-本教程使用 ImageFolder 目录、JSON 配置和 `liuding-forge recipe` 命令完成 ResNet18 分类训练、验证集评估、保存检查点及独立进程续训。模型从随机参数开始，支持单设备 CPU 或显式 CUDA、FP32、SGD momentum 和逐 epoch StepLR；当前入口不加载预训练权重。
+本教程使用 ImageFolder 目录、JSON 配置和 `liuding-forge recipe` 命令完成 ResNet18 分类训练、验证集评估、保存检查点及独立进程续训。模型从随机参数开始，支持单设备 CPU 或显式 CUDA、FP32、SGD momentum，以及逐 epoch StepLR 或逐成功更新的线性预热与衰减；当前入口不加载预训练权重。
 
 ## 1. 构建工具
 
@@ -69,9 +69,37 @@ liuding-forge recipe schema --format json
 liuding-forge recipe check --file my-resnet18.json --format json
 ```
 
-`schema` 的 JSON 响应中，`data` 是可交给 `config lint` 使用的闭合配置 schema；保存时提取这个字段。所有字段都必须提供，未知字段、重复键、错误类型和越界值会被拒绝。`check` 校验两个类别表，流式读取全部图片字节，输出内容 SHA256、样本数、有效配置和总更新数；它不训练模型。配置上限包括单图字节、两个 split 的总字节、每个 split 的样本数和最多一百万次优化器更新。
+`schema` 的 JSON 响应中，`data` 是可交给 `config lint` 使用的闭合配置 schema；保存时提取这个字段。模板中的必填字段必须提供，可选学习率调度字段按下一节选择；未知字段、重复键、错误类型和越界值会被拒绝。`check` 校验两个类别表，流式读取全部图片字节，输出内容 SHA256、样本数、有效配置和总更新数；它不训练模型。配置上限包括单图字节、两个 split 的总字节、每个 split 的样本数和最多一百万次优化器更新。
 
 `image_budget_bytes` 限制合作图像阶段的已知 decoded、scratch、pinned、GPU payload 和在途 batch 逻辑字节；worker、prefetch 和单图限制共同约束数据准备。它不是整个进程 RSS 或 CUDA allocator 的严格上界，也不包含模型、优化器及检查点缓冲。图像逐样本解码，不全量缓存到内存。
+
+### 3.1 选择学习率调度
+
+省略 `lr_schedule` 或设为 `"epoch_step"` 时，沿用原有行为：每轮成功完成训练后，将当前学习率乘以 `lr_gamma`。此模式不接受 `warmup_updates`、`warmup_start_factor` 或 `lr_end_factor`。
+
+若需按优化器更新预热和衰减，将下列片段合并到完整配置，再运行 `recipe check`：
+
+```json
+{
+  "learning_rate": 0.001,
+  "lr_schedule": "warmup_linear",
+  "lr_gamma": 1.0,
+  "warmup_updates": 20,
+  "warmup_start_factor": 0.1,
+  "lr_end_factor": 0.01
+}
+```
+
+设总优化器更新数为 `T = ceil(训练样本数 / batch_size) × epochs`，`warmup_updates` 为整数 `W`，必须满足 `1 ≤ W < T`；两个 factor 都必须是 `(0,1]` 内的有限数。此模式要求 `lr_gamma = 1`，避免同时配置不会执行的轮末衰减。模式、字段组合和范围错误会在创建 run 目录前拒绝。示例要求 `T > 20`；数值只说明调度关系，需根据任务自行确定。
+
+对初始学习率 `B`，调度在每次成功的优化器更新后推进，当前学习率为 `B × f(k)`，其中 `k` 是已完成的成功更新数：
+
+| 阶段 | 倍率 `f(k)` |
+| --- | --- |
+| 更新前及预热阶段，`0 ≤ k ≤ W` | `warmup_start_factor + (1 - warmup_start_factor) × k / W` |
+| 线性衰减阶段，`W ≤ k ≤ T` | `1 + (lr_end_factor - 1) × (k - W) / (T - W)` |
+
+首次实际更新使用 `B × warmup_start_factor`，完成第 `W` 次更新后达到 `B`；第 `T` 次更新使用 `B × f(T-1)`，完成后达到 `B × lr_end_factor`。这里的逐 batch 调度以成功的优化器更新计数，样本数和微批次数不推进计数。`warmup_linear` 的暂停输出和最终 `result.json` 中，`optimization.groups` 给出各组初始及当前学习率，`optimization.scheduler.completed_steps` 给出已成功更新数；选择调度方式本身不保证任务准确率或训练加速。
 
 ## 4. 训练和评估
 
@@ -110,9 +138,9 @@ liuding-forge recipe run --file my-resnet18.json --root runs/resumable --pause-a
 liuding-forge recipe resume --file my-resnet18.json --root runs/resumable --format json
 ```
 
-恢复覆盖模型参数和 buffer、SGD 状态、StepLR、Trainer、训练与验证数据游标、采样器、CPU/选定 CUDA RNG、回调游标和诊断统计。新的 `pause-after` 可以继续分段运行。异常终止后，已有 `latest.jyck` 时也可从该检查点重做尚未持久化的工作；尚未发布首个检查点时不能恢复。
+恢复覆盖模型参数和 buffer、SGD 状态、完整学习率调度器树、Trainer、训练与验证数据游标、采样器、CPU/选定 CUDA RNG、回调游标和诊断统计。当前学习率、预热或衰减阶段及调度计数一起恢复，不会重新预热或多推进一步。新的 `pause-after` 可以继续分段运行。异常终止后，已有 `latest.jyck` 时也可从该检查点重做尚未持久化的工作；尚未发布首个检查点时不能恢复。
 
-恢复要求有效配置、类别表、全部图片内容和构建身份一致，包括 seed、设备、线程策略和训练预算。若需要改配置，创建新的输出目录重新训练。暂停的 CLI 结果为 `paused`，run-store 中仍保留同一条 `running` 的未完成逻辑运行；不要在计划续训时将它标为终态。已经通过 `run recover` 等命令标为 `interrupted` 的终态不接受原运行续训。完成后的同配置 `resume` 校验结果与 bundle 后返回既有结果，不重复训练；`run` 始终拒绝覆盖既有目录。同一输出目录同时只允许一个配方进程，操作系统会在进程退出时释放锁。
+恢复要求有效配置、类别表、全部图片内容和构建身份一致，包括 seed、设备、线程策略、训练预算及全部学习率调度字段。若需要改配置，创建新的输出目录重新训练。暂停的 CLI 结果为 `paused`，run-store 中仍保留同一条 `running` 的未完成逻辑运行；不要在计划续训时将它标为终态。已经通过 `run recover` 等命令标为 `interrupted` 的终态不接受原运行续训。完成后的同配置 `resume` 校验结果与 bundle 后返回既有结果，不重复训练；`run` 始终拒绝覆盖既有目录。同一输出目录同时只允许一个配方进程，操作系统会在进程退出时释放锁。
 
 ```sh
 liuding-forge checkpoint verify --path runs/my-run/final.jyck --format json

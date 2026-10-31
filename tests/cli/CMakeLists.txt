@@ -164,11 +164,31 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_image_recipe.py"
             --cli $<TARGET_FILE:jyppx_cli>)
     set_tests_properties(Cli_image_recipe PROPERTIES LABELS "cli;integration;recipe" TIMEOUT 600)
+    add_test(NAME Cli_update_recipe
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_update_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+    set_tests_properties(Cli_update_recipe PROPERTIES
+        LABELS "cli;integration;recipe;scheduler" TIMEOUT 1200)
+    add_test(NAME Cli_transfer_update_recipe
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_update_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --transfer-update)
+    set_tests_properties(Cli_transfer_update_recipe PROPERTIES
+        LABELS "cli;integration;recipe;scheduler;external-weights" TIMEOUT 1200 SKIP_RETURN_CODE 77)
     if(JYPPX_LIUDING_TEST_CLI_CUDA)
         add_test(NAME Cli_image_recipe_CUDA
             COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_image_recipe.py"
                 --cli $<TARGET_FILE:jyppx_cli> --device cuda)
         set_tests_properties(Cli_image_recipe_CUDA PROPERTIES LABELS "cli;integration;recipe;cuda" TIMEOUT 600)
+        add_test(NAME Cli_update_recipe_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_update_recipe.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
+        set_tests_properties(Cli_update_recipe_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;scheduler;cuda" TIMEOUT 1200)
+        add_test(NAME Cli_transfer_update_recipe_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_update_recipe.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda --transfer-update)
+        set_tests_properties(Cli_transfer_update_recipe_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;scheduler;external-weights;cuda" TIMEOUT 1200 SKIP_RETURN_CODE 77)
     endif()
 endif()
 

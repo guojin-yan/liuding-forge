@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- ImageFolder ResNet18 与迁移学习配方可显式选择逐成功优化器更新的线性预热与衰减，保持参数组学习率比例，并与模型、优化器及训练进度一起完整恢复；原逐 epoch StepLR 默认行为保留。
+
 - OTLP C++ 教学例补齐指标、日志和实际计算 span，可先写入 SQLite run 再发送，并通过原生 CLI 重放；增加固定官方 Collector 与 protobuf reader 的独立 API/CLI 互操作验收入口。
 
 - 线性、预热、常量和多项式学习率调度器可显式按成功的优化器更新推进，支持组合与精确恢复；基础训练示例展示纯 C++ 逐更新预热。

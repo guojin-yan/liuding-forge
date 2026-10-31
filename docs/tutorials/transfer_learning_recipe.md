@@ -61,7 +61,9 @@ liuding-forge recipe run --file my-transfer.json --root runs/transfer --format j
 
 先把冻结骨干作为基线：数据量较小、类别与预训练特征接近、显存有限时，可以先只训练新分类头，观察数据、类别顺序和预处理是否适合当前任务。若冻结特征无法满足任务，再考虑完整微调，让骨干适应新的图像分布。完整微调增加内存和训练成本，也可能破坏已有特征；它不保证优于冻结。冻结任务的准确率不能证明完整微调已收敛。
 
-优化器使用带 `momentum` 和 `weight_decay` 的 SGD，每轮更新完成后把各组当前学习率乘以 `lr_gamma`。`learning_rate` 保持必填；新增可选的 `backbone_learning_rate` 与 `head_learning_rate`，只适用于 transfer 配方：
+### 4.1 设置骨干与分类头学习率
+
+优化器使用带 `momentum` 和 `weight_decay` 的 SGD。`learning_rate` 保持必填；可选的 `backbone_learning_rate` 与 `head_learning_rate` 只适用于 transfer 配方：
 
 | 配置 | 实际 SGD 分组及初始学习率 |
 | --- | --- |
@@ -82,7 +84,25 @@ liuding-forge recipe run --file my-transfer.json --root runs/transfer --format j
 }
 ```
 
-这是需要合并到完整模板的配置片段。首轮两组分别使用 `0.0001` 和 `0.01`；轮末变成 `0.00009` 和 `0.009`，比例保持不变。骨干较小的学习率用于减少已有表示的改动，新头的学习率可以独立选择。学习率、epochs、batch 和质量阈值仍需针对任务确定；不要因为分组能够执行，就把未达标的微调写成合格任务。
+这是需要合并到完整模板的配置片段。省略 `lr_schedule` 时沿用逐 epoch StepLR：首轮两组分别使用 `0.0001` 和 `0.01`，轮末变成 `0.00009` 和 `0.009`，比例保持不变；也可以显式设置 `"lr_schedule": "epoch_step"`。骨干较小的学习率用于减少已有表示的改动，新头的学习率可以独立选择。学习率、epochs、batch 和质量阈值仍需针对任务确定；不要因为分组能够执行，就把未达标的微调写成合格任务。
+
+### 4.2 按成功更新预热与衰减
+
+ResNet50 与 DINOv2-S 的冻结和完整微调均可显式选择 `warmup_linear`。在完整模板中设置以下字段；需要分组时，保留第 4.1 节的 `backbone_learning_rate` 和 `head_learning_rate`：
+
+```json
+{
+  "lr_schedule": "warmup_linear",
+  "lr_gamma": 1.0,
+  "warmup_updates": 20,
+  "warmup_start_factor": 0.1,
+  "lr_end_factor": 0.01
+}
+```
+
+`warmup_updates` 必须是大于等于 1 且小于总优化器更新数的整数，两个 factor 必须是 `(0,1]` 内的有限数，此模式要求 `lr_gamma = 1`。逐 epoch 模式则禁止这三个预热/衰减字段；不合法组合在创建 run 目录前拒绝。模板默认值保持原有逐 epoch 行为，选择新模式须显式修改配置并创建新运行。
+
+调度按成功的优化器更新推进，首次实际更新使用各组初始学习率乘以 `warmup_start_factor`，预热结束后达到各组初始学习率，随后线性衰减；完成全部更新后达到各组初始学习率乘以 `lr_end_factor`。各组使用同一倍率，骨干和 head 的比例保持不变；样本数与微批次数不推进调度。完整公式和更新边界见[图像分类调度说明](image_classification_recipe.md#31-选择学习率调度)。这些字段提供显式训练策略，不代表 DINO 微调已达到任务质量门槛，也不保证准确率或速度提升。
 
 冻结前向可以减少 autograd 内存，但仍逐批执行骨干，不隐式缓存整个数据集的特征。单图、prefetch、数据总量及图像逻辑字节受配置限制；256 MiB 的单制品上限覆盖本教程的两种骨干。逻辑预算不等同于进程 RSS 或显存 allocator 的严格上界。
 
@@ -93,11 +113,11 @@ liuding-forge recipe run --file my-transfer.json --root runs/resumable-transfer 
 liuding-forge recipe resume --file my-transfer.json --root runs/resumable-transfer --format json
 ```
 
-暂停点是绝对优化器更新次数，必须小于总次数；完整模型、head、optimizer、scheduler、RNG、数据游标和 Trainer 状态一起保存。恢复要求权重字节、完整描述、冻结/BN 策略、配置、图片内容、类别和构建身份一致；骨干/head 初始学习率、分组参数身份和顺序也绑定到同一运行。改动这些内容时创建新运行。恢复从检查点读取已衰减的当前学习率、SGD momentum 和调度器计数，不用配置的初始学习率覆盖它们，也不多调用一次调度器。已完成运行的同配置 `resume` 返回已验证结果，不重新训练。
+暂停点是绝对优化器更新次数，必须小于总次数；完整模型、head、optimizer、scheduler 树、RNG、数据游标和 Trainer 状态一起保存。恢复要求权重字节、完整描述、冻结/BN 策略、配置、图片内容、类别和构建身份一致；骨干/head 初始学习率、分组参数身份和顺序、全部调度字段也绑定到同一运行。改动这些内容时创建新运行。恢复从检查点读取当前学习率、SGD momentum、预热或衰减阶段和调度器计数，不用配置的初始学习率覆盖它们，也不重新预热或多调用一次调度器。已完成运行的同配置 `resume` 返回已验证结果，不重新训练。
 
 暂停点不必与 `checkpoint_every` 对齐。CLI 在 Trainer 安全边界显式保存，不额外推进周期检查点或回调计数；新进程恢复后继续原调度。
 
-输出布局与[分类配方](image_classification_recipe.md#4-训练和评估)相同。`result.json` 额外记录初始/最终骨干与 head 摘要、可训练/冻结参数数目以及权重输入身份；显式启用分组学习率时还记录 `optimization.groups` 的参数名、初始/最终学习率和调度器计数，并在模型包 provenance 中保留相同信息；冻结配方在发布模型前核对全部骨干参数和 buffer 未变化。模型包保留实际缩放/裁剪/mean/std、权重来源、模型选项、冻结策略及当前数据集类别，state 名称使用 `parameter.backbone.*`、`parameter.head.*` 和 `buffer.backbone.*`。
+输出布局与[分类配方](image_classification_recipe.md#4-训练和评估)相同。`result.json` 额外记录初始/最终骨干与 head 摘要、可训练/冻结参数数目以及权重输入身份；显式启用分组学习率或 `warmup_linear` 时还记录 `optimization.groups` 的参数名、初始/最终学习率和调度器计数，并在模型包 provenance 中保留相同信息。`warmup_linear` 的暂停结果也包含这些信息，`optimization.scheduler.completed_steps` 按成功优化器更新计数。冻结配方在发布模型前核对全部骨干参数和 buffer 未变化。模型包保留实际缩放/裁剪/mean/std、权重来源、模型选项、冻结策略及当前数据集类别，state 名称使用 `parameter.backbone.*`、`parameter.head.*` 和 `buffer.backbone.*`。
 
 CPU 与 CUDA 需要分别验收。显式使用 `device: "cuda"` 时还需可用的 LibTorch CUDA 环境，并设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8`；没有设备时明确拒绝，不自动转 CPU。本配方为 FP32，TF32 关闭，不隐式启用 AMP。模型包当前无密码学签名，传递 SBOM、完整任务矩阵和发布资格仍需独立验证。
 
