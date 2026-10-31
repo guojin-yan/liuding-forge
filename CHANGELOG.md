@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
-- 增加默认关闭的官方 LibTorch CPU 静态 INT8 Linear adapter，直接使用官方 packing/整数算子，支持原 Q0 与按输出通道 QC1；完整输出校准由原 quantization 组件独立保存读取，加载同时绑定两份 SHA-256，并提供 C++ 落盘重载学习示例。
+- 增加默认关闭的官方 LibTorch CPU 静态 INT8 Linear adapter，直接使用官方 packing/整数算子，支持原 Q0 与按输出通道 QC1；完整输出校准由原 quantization 组件独立保存读取，加载同时绑定两份 SHA-256，并提供 C++ 落盘重载学习示例。Windows AVX2/oneDNN 的完整范围 U8S8 配方尚未通过数值验收，适用边界见[量化 API](docs/api/quantization.md)。
 
 - 增加有界原生 C++ BatchNorm2d 训练后校准，以及 CPU ResNet18 配方的显式开关、完整检查点阶段恢复和最终正常评估；只读取训练数据，不增加优化器更新。
 

@@ -34,6 +34,8 @@ Q0 二进制以 `JYPPXQ1\0` 开头，使用规范小端编码并拒绝未知版�
 
 加载时默认捕获并冻结当前 engine，只接受本轮对应的 `ONEDNN` 或 `X86`，同时检查 SDK 支持列表和官方内核注册；`StaticLinearOptions::expected_engine` 可选地约束当前值，其不一致时拒绝，其他 engine 明确返回不支持。adapter 不设置或临时切换全局 engine。应用须在并发前固定 engine，同一 runtime 串行保护 packed cache；外部并发修改全局 engine 不在其锁的保护范围内。packed state 仅驻留内存，加载时重建。非 nearest-even 模式、错配摘要/校准、shape/dtype/预算和非有限数均明确失败；输入预缩放绝对值和保守输出 requantization 界限不超过 `2^30`，不满足安全域时拒绝。量化计算、任务精度、速度和 RSS 分别验收，编译或小夹具结果不代表其他平台、engine 或真实任务资格。当前接口对应 LibTorch 2.14.1 的官方量化算子，量化 Tensor 创建 API 已有弃用提示，升级 SDK 须重新验证该组件。完整保存/重新读取示例见 [examples/quantization](../../examples/quantization/README.md)。
 
+Windows AVX2/oneDNN 的完整范围 U8S8 配方尚未通过数值验收：所选 GEMM 可能先将两个乘积累加到 int16 并饱和。当前 LibTorch 入口不能逐对象选择其内部非饱和参考实现，adapter 也尚未实现对该风险的自动拒绝；该组合暂不属于可用部署范围。更换引擎名或指定 int32 最终累加类型不能证明问题已解决。
+
 ## 准备 CPU 静态 PTQ
 
 先用 `quantize_linear` 和 `serialize_linear_artifact` 保存 Q0；完整流程见[静态 INT8 Linear 教程](../tutorials/static_int8_linear_ptq.md)。已安装的 `liuding-forge-int8-prepare` 会重新进行原生 Q0 校验并向标准输出写出有界 JSON。ONNX 图必须由 C++ `jyppx::liuding::onnx_export::export_static_int8_linear` 生成：
