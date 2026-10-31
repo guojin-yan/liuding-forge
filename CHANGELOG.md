@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 官方 LibTorch 静态 INT8 Linear 在加载时保守检查 `ONEDNN` / `X86` 的 int16 成对累加饱和风险，受影响权重在 prepack 前明确拒绝；不修改校准或启用浮点回退。
+
 ### Added
 
 - 增加默认关闭的官方 LibTorch CPU 静态 INT8 Linear adapter，直接使用官方 packing/整数算子，支持原 Q0 与按输出通道 QC1；完整输出校准由原 quantization 组件独立保存读取，加载同时绑定两份 SHA-256，并提供 C++ 落盘重载学习示例。Windows AVX2/oneDNN 的完整范围 U8S8 配方尚未通过数值验收，适用边界见[量化 API](docs/api/quantization.md)。

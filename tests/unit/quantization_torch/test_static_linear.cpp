@@ -464,11 +464,9 @@ TEST_F(OfficialStaticLinear,
   EXPECT_EQ(at::globalContext().qEngine(), current);
 }
 
-TEST_F(OfficialStaticLinear, NonPowerOfTwoScalesHaveBoundedOutputLsbError) {
+FixtureData non_binary_fixture(std::span<const float> weights) {
   const auto lineage = fixture().tensor.calibration.lineage;
   q::CalibrationSession inputs(lineage), outputs(lineage);
-  const std::array<float, 8U> weights{1.1F,  0.1F,  -0.9F,  0.3F,
-                                      0.03F, 0.25F, -0.17F, -0.2F};
   const std::array<float, 2U> bias{0.13F, -0.27F};
   const std::array<std::array<float, 4U>, 3U> training{
       {{-4.F, 3.F, 2.F, -1.F}, {1.F, -2.F, 3.F, 4.F}, {4.F, 2.F, -4.F, -2.F}}};
@@ -489,26 +487,139 @@ TEST_F(OfficialStaticLinear, NonPowerOfTwoScalesHaveBoundedOutputLsbError) {
   data.channel = q::quantize_linear_per_output_channel(model, calibration);
   data.output = outputs.finalize();
   data.output_bytes = q::serialize_calibration_result(data.output);
+  return data;
+}
+
+qt::StaticLinear load_fixture(const FixtureData& data, bool per_channel) {
+  const auto bytes =
+      per_channel
+          ? q::serialize_per_output_channel_linear_artifact(data.channel)
+          : q::serialize_linear_artifact(data.tensor);
+  return per_channel ? qt::StaticLinear::load_per_output_channel(
+                           bytes, digest(bytes), data.output_bytes,
+                           digest(data.output_bytes))
+                     : qt::StaticLinear::load_per_tensor(
+                           bytes, digest(bytes), data.output_bytes,
+                           digest(data.output_bytes));
+}
+
+FixtureData weight_fixture(std::span<const std::int8_t> weights,
+                           std::size_t width) {
+  auto data = fixture(false, false);
+  data.tensor.in_features = width;
+  data.tensor.out_features = weights.size() / width;
+  data.tensor.quantized_weights.assign(weights.begin(), weights.end());
+  data.channel.in_features = width;
+  data.channel.out_features = data.tensor.out_features;
+  data.channel.channels.clear();
+  for (std::size_t row = 0U; row < data.tensor.out_features; ++row) {
+    auto channel = data.tensor;
+    channel.out_features = 1U;
+    channel.quantized_weights.assign(weights.begin() + row * width,
+                                     weights.begin() + (row + 1U) * width);
+    data.channel.channels.push_back(std::move(channel));
+  }
+  return data;
+}
+
+TEST_F(OfficialStaticLinear, UnsafeWeightPairsAreRejectedForBothFormats) {
+  struct Case {
+    std::vector<std::int8_t> weights;
+    std::size_t width;
+    std::size_t rejected_row;
+  };
+  const std::vector<Case> cases{
+      {{64, 65}, 2U, 0U},
+      {{-64, -65}, 2U, 0U},
+      {{65, 65}, 2U, 0U},
+      {{-65, -65}, 2U, 0U},
+      {{127, -1, 2}, 3U, 0U},
+      {{-127, 1, -2}, 3U, 0U},
+      // The original failing task's negative pair, retained at full range.
+      {{8, 0, -8, 0, -88, 0, -127, 0}, 4U, 1U}};
+  const auto engine = at::globalContext().qEngine();
+  for (const auto& item : cases) {
+    const auto data = weight_fixture(item.weights, item.width);
+    for (const bool per_channel : {false, true}) {
+      SCOPED_TRACE(per_channel ? "per-channel" : "per-tensor");
+      try {
+        static_cast<void>(load_fixture(data, per_channel));
+        FAIL() << "Unsafe row loaded: " << item.rejected_row;
+      } catch (const j::CompatibilityError& error) {
+        EXPECT_EQ(error.details().operation, "weight_pair_bound");
+        EXPECT_NE(error.details().actual.find(
+                      "row=" + std::to_string(item.rejected_row) + ","),
+                  std::string::npos);
+        EXPECT_NE(error.details().actual.find(c10::toString(engine)),
+                  std::string::npos);
+        EXPECT_FALSE(error.details().hint.empty());
+      }
+      EXPECT_EQ(at::globalContext().qEngine(), engine);
+    }
+  }
+  EXPECT_NO_THROW(load_fixture(fixture(), false));
+}
+
+TEST_F(OfficialStaticLinear, SafePairBoundariesOddWidthsAndRowsMatchOracle) {
+  struct Case {
+    std::vector<std::int8_t> weights;
+    std::size_t width;
+  };
+  const std::vector<Case> cases{
+      {{64, 64, -64, -64}, 2U},
+      {{127, 1, -127, -1}, 2U},
+      {{127, -127}, 2U},
+      {{127, -127}, 1U},  // Distinct rows; each has only one weight.
+      {{127, 127}, 1U},   // Same sign across rows must not be combined.
+      {{-127, -127}, 1U},
+      {{127, 0, 1, -127, -1, 0}, 3U},
+      {{0, 0, 0}, 3U}};
+  for (const auto& item : cases) {
+    const auto data = weight_fixture(item.weights, item.width);
+    std::vector<float> values;
+    for (const float value : {-16.F, 15.875F, 0.F, 0.125F})
+      for (std::size_t col = 0U; col < item.width; ++col)
+        values.push_back(value);
+    for (const bool per_channel : {false, true}) {
+      auto runtime = load_fixture(data, per_channel);
+      const auto input = at::tensor(values).reshape(
+          {4, static_cast<std::int64_t>(item.width)});
+      const auto actual =
+          runtime.forward_quantized(runtime.quantize_input(input))
+              .int_repr()
+              .contiguous();
+      const auto expected = oracle(values, 4U, data, runtime.info());
+      ASSERT_EQ(actual.numel(), static_cast<std::int64_t>(expected.size()));
+      for (std::size_t i = 0U; i < expected.size(); ++i)
+        EXPECT_EQ(actual.data_ptr<std::uint8_t>()[i], expected[i]);
+    }
+  }
+}
+
+TEST_F(OfficialStaticLinear, OriginalNonPowerOfTwoFixtureRejectsUnsafePairs) {
+  const std::array<float, 8U> weights{1.1F,  0.1F,  -0.9F,  0.3F,
+                                      0.03F, 0.25F, -0.17F, -0.2F};
+  const auto data = non_binary_fixture(weights);
+  EXPECT_THROW(load_fixture(data, false), j::CompatibilityError);
+  EXPECT_THROW(load_fixture(data, true), j::CompatibilityError);
+}
+
+TEST_F(OfficialStaticLinear, NonPowerOfTwoScalesHaveBoundedOutputLsbError) {
+  const std::array<float, 8U> weights{1.1F, 0.F,   -0.9F, 0.F,
+                                      0.F,  0.25F, 0.F,   -0.2F};
+  const auto data = non_binary_fixture(weights);
   const std::vector<float> values{0.1F, -0.2F, 0.3F,  0.7F,   -8.4F,  3.2F,
                                   1.5F, -2.F,  200.F, -200.F, -200.F, 200.F};
   for (const bool per_channel : {false, true}) {
-    const auto bytes =
-        per_channel
-            ? q::serialize_per_output_channel_linear_artifact(data.channel)
-            : q::serialize_linear_artifact(data.tensor);
-    auto runtime = per_channel ? qt::StaticLinear::load_per_output_channel(
-                                     bytes, digest(bytes), data.output_bytes,
-                                     digest(data.output_bytes))
-                               : qt::StaticLinear::load_per_tensor(
-                                     bytes, digest(bytes), data.output_bytes,
-                                     digest(data.output_bytes));
+    auto runtime = load_fixture(data, per_channel);
     const auto actual = runtime
                             .forward_quantized(runtime.quantize_input(
                                 at::tensor(values).reshape({3, 4})))
                             .int_repr()
                             .contiguous();
-    EXPECT_FLOAT_EQ(runtime.info().input_scale,
-                    static_cast<float>(calibration.activation_params.scale));
+    EXPECT_FLOAT_EQ(
+        runtime.info().input_scale,
+        static_cast<float>(data.tensor.calibration.activation_params.scale));
     EXPECT_FLOAT_EQ(runtime.info().output_scale,
                     static_cast<float>(data.output.activation_params.scale));
     const auto expected = oracle(values, 3U, data, runtime.info());

@@ -34,7 +34,9 @@ Q0 二进制以 `JYPPXQ1\0` 开头，使用规范小端编码并拒绝未知版�
 
 加载时默认捕获并冻结当前 engine，只接受本轮对应的 `ONEDNN` 或 `X86`，同时检查 SDK 支持列表和官方内核注册；`StaticLinearOptions::expected_engine` 可选地约束当前值，其不一致时拒绝，其他 engine 明确返回不支持。adapter 不设置或临时切换全局 engine。应用须在并发前固定 engine，同一 runtime 串行保护 packed cache；外部并发修改全局 engine 不在其锁的保护范围内。packed state 仅驻留内存，加载时重建。非 nearest-even 模式、错配摘要/校准、shape/dtype/预算和非有限数均明确失败；输入预缩放绝对值和保守输出 requantization 界限不超过 `2^30`，不满足安全域时拒绝。量化计算、任务精度、速度和 RSS 分别验收，编译或小夹具结果不代表其他平台、engine 或真实任务资格。当前接口对应 LibTorch 2.14.1 的官方量化算子，量化 Tensor 创建 API 已有弃用提示，升级 SDK 须重新验证该组件。完整保存/重新读取示例见 [examples/quantization](../../examples/quantization/README.md)。
 
-Windows AVX2/oneDNN 的完整范围 U8S8 配方尚未通过数值验收：所选 GEMM 可能先将两个乘积累加到 int16 并饱和。当前 LibTorch 入口不能逐对象选择其内部非饱和参考实现，adapter 也尚未实现对该风险的自动拒绝；该组合暂不属于可用部署范围。更换引擎名或指定 int32 最终累加类型不能证明问题已解决。
+`ONEDNN` 和 `X86` 的 U8S8 内核可能在 int32 累加前先将两个乘积累加到 int16 并饱和。adapter 在两种加载入口、官方 prepack 之前逐行检查权重：每行两个最大正值之和及两个最大负值绝对值之和均须不超过 128，缺项视为 0；不满足时抛出 `CompatibilityError`，诊断操作为 `weight_pair_bound`，包含引擎、输出行和两个界限。检查仅在加载时执行，不改变权重、校准范围或运行时输入。这个保守条件覆盖任意 U8 输入及行内重新配对，可能拒绝在特定机器或样本上计算正确的制品。
+
+通过加载检查只表示排除了这类中间饱和，输出舍入、任务质量和性能仍须分别验证。Windows 完整范围固定任务尚未通过原数值门槛；降低到 SSE4.1 也未解决。当前 LibTorch 入口不能逐对象选择其内部非饱和参考实现，更换引擎名或指定 int32 最终累加类型也不能获得豁免。
 
 ## 准备 CPU 静态 PTQ
 

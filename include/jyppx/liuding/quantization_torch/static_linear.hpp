@@ -74,6 +74,10 @@ struct StaticLinearInfo {
  * the application must freeze global engine configuration before concurrent
  * work. External concurrent setQEngine is outside this local mutex contract.
  * Packed objects are not portable artifacts and are rebuilt at load.
+ * Loading conservatively rejects rows whose two largest positive weights or
+ * two largest negative magnitudes sum above 128, before official prepacking.
+ * This excludes int16 pair saturation for raw U8 inputs under either engine;
+ * it does not certify task accuracy, output rounding or performance.
  */
 class StaticLinear final {
  public:

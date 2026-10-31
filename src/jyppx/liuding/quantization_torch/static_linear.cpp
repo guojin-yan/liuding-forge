@@ -16,6 +16,7 @@
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <ATen/core/stack.h>
 #include <algorithm>
+#include <array>
 #include <cfenv>
 #include <cmath>
 #include <cstring>
@@ -194,9 +195,39 @@ void check_numeric_bounds(const PreparedLinear& prepared) {
     static_cast<void>(q::static_int8_scale(product));
     static_cast<void>(q::static_int8_scale(product / info.output_scale));
     std::uint64_t magnitude = 0U;
-    for (std::size_t column = 0U; column < info.in_features; ++column)
-      magnitude += static_cast<std::uint64_t>(std::abs(
-          static_cast<int>(prepared.weights[row * info.in_features + column])));
+    std::array<int, 2U> positive{}, negative{};
+    for (std::size_t column = 0U; column < info.in_features; ++column) {
+      const int weight = prepared.weights[row * info.in_features + column];
+      const int absolute = std::abs(weight);
+      magnitude += static_cast<std::uint64_t>(absolute);
+      auto& largest = weight > 0 ? positive : negative;
+      if (absolute > largest[0]) {
+        largest[1] = largest[0];
+        largest[0] = absolute;
+      } else {
+        largest[1] = std::max(largest[1], absolute);
+      }
+    }
+    // Both accepted engines may use a raw U8*S8 multiply with saturating
+    // int16 pair sums before int32 accumulation and zero-point compensation.
+    // Packing may rearrange K, so certify every pair of distinct weights in
+    // this output row, with absent/odd-K padding weights treated as zero.
+    // 255*128 fits int16; 255*129 does not. Mixed signs cannot overflow a pair.
+    // Engine names, CPU features and ISA caps do not identify a safe kernel.
+    const int positive_pair = positive[0] + positive[1];
+    const int negative_pair = negative[0] + negative[1];
+    if (positive_pair > 128 || negative_pair > 128) {
+      auto error = details("weight_pair_bound");
+      error.expected = "positive and negative weight pair sums <= 128";
+      error.actual = "engine=" + info.engine + ", row=" + std::to_string(row) +
+                     ", positive_pair_sum=" + std::to_string(positive_pair) +
+                     ", negative_pair_sum=" + std::to_string(negative_pair);
+      error.hint =
+          "These weights require an independently qualified "
+          "non-saturating official execution path.";
+      throw CompatibilityError("Static INT8 weights risk int16 pair saturation",
+                               std::move(error));
+    }
     const double bound =
         static_cast<double>(magnitude * 128U) * product +
         (prepared.bias.empty()
