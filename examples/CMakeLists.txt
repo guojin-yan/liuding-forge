@@ -306,3 +306,14 @@ if(TARGET jyppx::liuding::models)
     jyppx_apply_instrumentation(jyppx_dino_intermediate_features)
     jyppx_add_torch_runtime_dependency(jyppx_dino_intermediate_features)
 endif()
+
+if(TARGET jyppx::liuding::quantization_torch)
+    add_executable(jyppx_liuding_libtorch_static_linear_example
+        quantization/libtorch_static_linear.cpp)
+    set_target_properties(jyppx_liuding_libtorch_static_linear_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-libtorch-static-int8)
+    target_link_libraries(jyppx_liuding_libtorch_static_linear_example PRIVATE
+        jyppx::liuding::quantization_torch)
+    jyppx_apply_instrumentation(jyppx_liuding_libtorch_static_linear_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_libtorch_static_linear_example)
+endif()

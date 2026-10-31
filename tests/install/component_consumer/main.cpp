@@ -57,6 +57,8 @@
 #include <jyppx/liuding/foundation/error.hpp>
 #elif defined(JYPPX_CONSUMER_ONNX_SERVING)
 #include <jyppx/liuding/deployment/onnx_serving/backend.hpp>
+#elif defined(JYPPX_CONSUMER_QUANTIZATION_TORCH)
+#include <jyppx/liuding/quantization_torch/static_linear.hpp>
 #elif defined(JYPPX_CONSUMER_QUANTIZATION)
 #include <jyppx/liuding/quantization/quantization.hpp>
 #elif defined(JYPPX_CONSUMER_SERVING)
@@ -115,7 +117,7 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
 #endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
-  constexpr std::array<std::pair<std::string_view, bool>, 17U> kExpected{{
+  constexpr std::array<std::pair<std::string_view, bool>, 18U> kExpected{{
       {"bundle_signing", JYPPX_EXPECT_COMPONENT_BUNDLE_SIGNING != 0},
       {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
       {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
@@ -130,6 +132,7 @@ bool BuildCapabilityInventoryMatchesPackage() {
       {"onnx_serving", JYPPX_EXPECT_COMPONENT_ONNX_SERVING != 0},
       {"optim", JYPPX_EXPECT_COMPONENT_OPTIM != 0},
       {"quantization", JYPPX_EXPECT_COMPONENT_QUANTIZATION != 0},
+      {"quantization_torch", JYPPX_EXPECT_COMPONENT_QUANTIZATION_TORCH != 0},
       {"serving", JYPPX_EXPECT_COMPONENT_SERVING != 0},
       {"training", JYPPX_EXPECT_COMPONENT_TRAINING != 0},
       {"vision_render", JYPPX_EXPECT_COMPONENT_VISION_RENDER != 0},
@@ -141,10 +144,10 @@ bool BuildCapabilityInventoryMatchesPackage() {
     const auto& feature = manifest.features[index];
     const bool preview =
         component == "models" || component == "quantization" ||
-        component == "serving" || component == "data_image" ||
-        component == "vision_render" || component == "onnx_export" ||
-        component == "onnx_runtime" || component == "onnx_serving" ||
-        component == "bundle_signing";
+        component == "quantization_torch" || component == "serving" ||
+        component == "data_image" || component == "vision_render" ||
+        component == "onnx_export" || component == "onnx_runtime" ||
+        component == "onnx_serving" || component == "bundle_signing";
     const auto expected_status =
         enabled ? (preview ? jyppx::liuding::CapabilityStatus::experimental
                            : jyppx::liuding::CapabilityStatus::available)
@@ -597,6 +600,11 @@ int main() {
   } catch (const jyppx::liuding::InvalidArgument&) {
     return 0;
   }
+#elif defined(JYPPX_CONSUMER_QUANTIZATION_TORCH)
+  return jyppx::liuding::quantization_torch::quantized_cpu_capabilities()
+                 .libtorch_version.empty()
+             ? 1
+             : 0;
 #elif defined(JYPPX_CONSUMER_QUANTIZATION)
   jyppx::liuding::quantization::validate_format_descriptor({});
   return 0;

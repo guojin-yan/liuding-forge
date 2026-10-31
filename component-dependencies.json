@@ -199,6 +199,13 @@
       ],
       "optional_dependencies": []
     },
+    "quantization_torch": {
+      "header_roots": ["quantization_torch"],
+      "source_roots": ["quantization_torch"],
+      "required_dependencies": ["core", "foundation", "quantization"],
+      "required_public_dependencies": ["core", "foundation", "quantization"],
+      "optional_dependencies": []
+    },
     "serving": {
       "header_roots": [
         "serving"

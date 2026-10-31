@@ -733,4 +733,149 @@ TEST(QuantizationRuntime, DequantizesAndExecutesFp32LinearWithExplicitReport) {
   EXPECT_THROW(runtime.forward({}), jyppx::liuding::InvalidArgument);
 }
 
+TEST(QuantizationCalibrationCodec, RejectsUnfinishedAndNonfiniteOnlyEvidence) {
+  q::CalibrationResult unfinished;
+  unfinished.lineage = lineage();
+  EXPECT_THROW(q::validate_calibration_result(unfinished),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(q::serialize_calibration_result(unfinished),
+               jyppx::liuding::InvalidArgument);
+
+  unfinished.sample_ids = {"nonfinite-only"};
+  unfinished.activation_state.sample_count = 1U;
+  unfinished.activation_state.value_count = 2U;
+  EXPECT_THROW(q::validate_calibration_result(unfinished),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(q::serialize_calibration_result(unfinished),
+               jyppx::liuding::InvalidArgument);
+
+  // No finite observations is distinct from observing only finite zeros.
+  q::CalibrationSession session(lineage());
+  const std::array<float, 2U> zeros{0.0F, 0.0F};
+  session.observe("finite-zeros", zeros);
+  const auto result = session.finalize();
+  EXPECT_NO_THROW(q::validate_calibration_result(result));
+  EXPECT_NO_THROW(q::deserialize_calibration_result(
+      q::serialize_calibration_result(result)));
+  auto no_finite_bytes = q::serialize_calibration_result(result);
+  // CA1 ends with the 40-byte observer and 16-byte qparams; the observer
+  // presence flag follows its 24-byte magic/version/counter prefix.
+  ASSERT_GE(no_finite_bytes.size(), 56U);
+  no_finite_bytes[no_finite_bytes.size() - 32U] = std::byte{0U};
+  EXPECT_THROW(q::deserialize_calibration_result(no_finite_bytes),
+               jyppx::liuding::InvalidArgument);
+}
+
+TEST(QuantizationCalibrationCodec, PreservesCompleteEvidenceAndExactBudget) {
+  const auto source = calibration();
+  const auto bytes = q::serialize_calibration_result(source);
+  ASSERT_GT(bytes.size(), 165U);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(bytes.data()), 8U),
+            "JYPPXCA1");
+  const auto decoded = q::deserialize_calibration_result(bytes);
+  EXPECT_EQ(decoded.lineage.dataset_version, source.lineage.dataset_version);
+  EXPECT_EQ(decoded.lineage.dataset_digest, source.lineage.dataset_digest);
+  EXPECT_EQ(decoded.lineage.preprocessing_fingerprint,
+            source.lineage.preprocessing_fingerprint);
+  EXPECT_EQ(decoded.lineage.seed, source.lineage.seed);
+  EXPECT_EQ(decoded.sample_ids, source.sample_ids);
+  expect_same_state(decoded.activation_state, source.activation_state);
+  EXPECT_DOUBLE_EQ(decoded.activation_params.scale,
+                   source.activation_params.scale);
+  EXPECT_EQ(q::serialize_calibration_result(decoded), bytes);
+  q::QuantizationLimits limits;
+  limits.max_artifact_bytes = bytes.size();
+  EXPECT_EQ(q::serialize_calibration_result(source, limits), bytes);
+  EXPECT_NO_THROW(q::validate_calibration_result(decoded, limits));
+  --limits.max_artifact_bytes;
+  EXPECT_THROW(q::serialize_calibration_result(source, limits),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(q::deserialize_calibration_result(bytes, limits),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(q::validate_calibration_result(source, limits),
+               jyppx::liuding::ResourceExhausted);
+}
+
+TEST(QuantizationCalibrationCodec, RejectsTruncationVersionsAndExtensions) {
+  const auto bytes = q::serialize_calibration_result(calibration());
+  for (std::size_t size = 0U; size < bytes.size(); ++size)
+    EXPECT_THROW(q::deserialize_calibration_result(
+                     std::span<const std::byte>(bytes.data(), size)),
+                 jyppx::liuding::Error);
+  auto malformed = bytes;
+  malformed[0U] ^= std::byte{1U};
+  EXPECT_THROW(q::deserialize_calibration_result(malformed),
+               jyppx::liuding::SerializationError);
+  malformed = bytes;
+  malformed[8U] = std::byte{2U};
+  EXPECT_THROW(q::deserialize_calibration_result(malformed),
+               jyppx::liuding::CompatibilityError);
+  malformed = bytes;
+  malformed[12U] = std::byte{1U};
+  EXPECT_THROW(q::deserialize_calibration_result(malformed),
+               jyppx::liuding::SerializationError);
+  malformed = bytes;
+  malformed.push_back(std::byte{0U});
+  EXPECT_THROW(q::deserialize_calibration_result(malformed),
+               jyppx::liuding::SerializationError);
+}
+
+TEST(QuantizationCalibrationCodec, RejectsInconsistentEvidenceAndCountBounds) {
+  auto source = calibration();
+  source.sample_ids[1U] = source.sample_ids[0U];
+  EXPECT_THROW(q::serialize_calibration_result(source),
+               jyppx::liuding::InvalidArgument);
+  source = calibration();
+  source.activation_state.sample_count = 1U;
+  EXPECT_THROW(q::validate_calibration_result(source),
+               jyppx::liuding::InvalidArgument);
+  source = calibration();
+  source.activation_params.scale = 1.0;
+  EXPECT_THROW(q::serialize_calibration_result(source),
+               jyppx::liuding::InvalidArgument);
+  const auto bytes = q::serialize_calibration_result(calibration());
+  q::QuantizationLimits limits;
+  limits.max_samples = 1U;
+  EXPECT_THROW(q::deserialize_calibration_result(bytes, limits),
+               jyppx::liuding::ResourceExhausted);
+  limits = {};
+  limits.max_sample_id_bytes = 2U;
+  EXPECT_THROW(q::deserialize_calibration_result(bytes, limits),
+               jyppx::liuding::ResourceExhausted);
+}
+
+TEST(QuantizationCalibrationCodec, RejectsNoncanonicalSignedZero) {
+  q::CalibrationSession session(lineage());
+  const std::array<float, 1U> zero{0.0F};
+  session.observe("zero", zero);
+  auto bytes = q::serialize_calibration_result(session.finalize());
+  // The final observer min/max (8 bytes) precede the 16-byte qparams.
+  // Flip just the minimum's sign: numerically zero, different canonical bytes.
+  ASSERT_GE(bytes.size(), 24U);
+  bytes[bytes.size() - 21U] = std::byte{0x80U};
+  EXPECT_THROW(q::deserialize_calibration_result(bytes),
+               jyppx::liuding::SerializationError);
+}
+
+TEST(QuantizationStaticInt8,
+     PublicScaleRoundingAndRejectionAreEnvironmentFree) {
+  const int original_mode = std::fegetround();
+  const RestoreRounding restore{original_mode};
+  const double midpoint = 1.0 + 0x1p-24;
+  const double second_midpoint = 1.0 + 3.0 * 0x1p-24;
+  for (const int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+    if (std::fesetround(mode) != 0) continue;
+    EXPECT_EQ(q::static_int8_scale(midpoint), 1.0F);
+    EXPECT_EQ(q::static_int8_scale(second_midpoint), 1.0F + 0x1p-22F);
+    EXPECT_EQ(std::fegetround(), mode);
+  }
+  for (const double value :
+       {0.0, -0.0, -1.0, std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::denorm_min(),
+        static_cast<double>(std::numeric_limits<float>::denorm_min()),
+        std::numeric_limits<double>::max()})
+    EXPECT_THROW(q::static_int8_scale(value), jyppx::liuding::NumericalError);
+}
+
 }  // namespace

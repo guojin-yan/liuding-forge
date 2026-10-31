@@ -32,6 +32,7 @@ option(JYPPX_LIUDING_BUILD_TRAINING "Build the training engine" ON)
 option(JYPPX_LIUDING_BUILD_EXPERIMENT "Build local experiment configuration" ON)
 option(JYPPX_LIUDING_BUILD_MODELS "Build the independent models Preview" OFF)
 option(JYPPX_LIUDING_BUILD_QUANTIZATION "Build the independent storage quantization Preview" OFF)
+option(JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH "Build the optional official LibTorch CPU static INT8 adapter" OFF)
 option(JYPPX_LIUDING_BUILD_SERVING "Build the independent in-process serving Preview" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_EXPORT "Build the optional native C++ ONNX exporter" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_RUNTIME "Build the optional ONNX Runtime adapter with explicit providers" OFF)
@@ -86,6 +87,14 @@ endif()
 if(JYPPX_LIUDING_BUILD_VISION_RENDER AND NOT JYPPX_LIUDING_BUILD_DATA_IMAGE)
     message(FATAL_ERROR "JYPPX_LIUDING_BUILD_VISION_RENDER=ON requires JYPPX_LIUDING_BUILD_DATA_IMAGE=ON")
 endif()
+
+foreach(JYPPX_QUANTIZED_DEPENDENCY IN ITEMS CORE QUANTIZATION)
+    if(JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH AND
+       NOT JYPPX_LIUDING_BUILD_${JYPPX_QUANTIZED_DEPENDENCY})
+        message(FATAL_ERROR
+            "JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH=ON requires JYPPX_LIUDING_BUILD_${JYPPX_QUANTIZED_DEPENDENCY}=ON")
+    endif()
+endforeach()
 
 # Preview model/serving adapters require the explicit lower component closure.
 # Quantization is tensor-neutral and deliberately needs foundation only.
@@ -215,7 +224,7 @@ if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     find_package(ONNXRuntime 1.23.2 EXACT REQUIRED MODULE)
 endif()
 
-if(JYPPX_LIUDING_BUILD_SERVING)
+if(JYPPX_LIUDING_BUILD_SERVING OR JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH)
     find_package(Threads REQUIRED)
 endif()
 
@@ -336,6 +345,7 @@ set(JYPPX_LIUDING_COMPONENT_TRAINING_ENABLED ${JYPPX_LIUDING_BUILD_TRAINING})
 set(JYPPX_LIUDING_COMPONENT_EXPERIMENT_ENABLED ${JYPPX_LIUDING_BUILD_EXPERIMENT})
 set(JYPPX_LIUDING_COMPONENT_MODELS_ENABLED ${JYPPX_LIUDING_BUILD_MODELS})
 set(JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED ${JYPPX_LIUDING_BUILD_QUANTIZATION})
+set(JYPPX_LIUDING_COMPONENT_QUANTIZATION_TORCH_ENABLED ${JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH})
 set(JYPPX_LIUDING_COMPONENT_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_SERVING})
 set(JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_RUNTIME})
 set(JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_EXPORT})
@@ -804,6 +814,30 @@ if(JYPPX_LIUDING_BUILD_QUANTIZATION)
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_quantization)
     list(APPEND JYPPX_ENABLED_COMPONENTS quantization)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS quantization)
+endif()
+
+if(JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH)
+    add_library(jyppx_liuding_quantization_torch STATIC
+        src/jyppx/liuding/quantization_torch/static_linear.cpp)
+    add_library(jyppx::liuding::quantization_torch ALIAS jyppx_liuding_quantization_torch)
+    set_target_properties(jyppx_liuding_quantization_torch PROPERTIES
+        OUTPUT_NAME liuding-forge-quantization-torch EXPORT_NAME quantization_torch)
+    target_include_directories(jyppx_liuding_quantization_torch PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
+        target_include_directories(jyppx_liuding_quantization_torch SYSTEM PUBLIC
+            $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>)
+    endforeach()
+    # core owns the existing public Tensor alias; the artifact owner stays
+    # tensor-neutral. Packed state is rebuilt through official operators.
+    target_link_libraries(jyppx_liuding_quantization_torch
+        PUBLIC jyppx_liuding_core jyppx_liuding_quantization
+               jyppx_liuding_foundation ${TORCH_LIBRARIES}
+        PRIVATE Threads::Threads)
+    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_quantization_torch)
+    list(APPEND JYPPX_ENABLED_COMPONENTS quantization_torch)
+    list(APPEND JYPPX_ENABLED_HEADER_DIRS quantization_torch)
 endif()
 
 if(JYPPX_LIUDING_BUILD_SERVING)

@@ -255,10 +255,10 @@ TEST(FoundationCapabilityTest, KeepsSchemaEnumNamesStable) {
 
 TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
   const auto manifest = jyppx::liuding::current_capability_manifest();
-  ASSERT_EQ(manifest.features.size(), 17U);
+  ASSERT_EQ(manifest.features.size(), 18U);
   EXPECT_EQ(manifest.build.jyppx_version, jyppx::liuding::version());
 
-  const std::array<std::pair<std::string_view, bool>, 17U> expected_components{{
+  const std::array<std::pair<std::string_view, bool>, 18U> expected_components{{
       {"bundle_signing", JYPPX_LIUDING_COMPONENT_BUNDLE_SIGNING_ENABLED != 0},
       {"core", JYPPX_LIUDING_COMPONENT_CORE_ENABLED != 0},
       {"data", JYPPX_LIUDING_COMPONENT_DATA_ENABLED != 0},
@@ -273,6 +273,8 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
       {"onnx_serving", JYPPX_LIUDING_COMPONENT_ONNX_SERVING_ENABLED != 0},
       {"optim", JYPPX_LIUDING_COMPONENT_OPTIM_ENABLED != 0},
       {"quantization", JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED != 0},
+      {"quantization_torch",
+       JYPPX_LIUDING_COMPONENT_QUANTIZATION_TORCH_ENABLED != 0},
       {"serving", JYPPX_LIUDING_COMPONENT_SERVING_ENABLED != 0},
       {"training", JYPPX_LIUDING_COMPONENT_TRAINING_ENABLED != 0},
       {"vision_render", JYPPX_LIUDING_COMPONENT_VISION_RENDER_ENABLED != 0},
@@ -283,10 +285,10 @@ TEST(FoundationCapabilityTest, QueriesCurrentComponentBuildInventory) {
     EXPECT_EQ(feature.feature_id, "jyppx.component." + std::string(component));
     const bool preview =
         component == "models" || component == "quantization" ||
-        component == "serving" || component == "data_image" ||
-        component == "vision_render" || component == "onnx_export" ||
-        component == "onnx_runtime" || component == "onnx_serving" ||
-        component == "bundle_signing";
+        component == "quantization_torch" || component == "serving" ||
+        component == "data_image" || component == "vision_render" ||
+        component == "onnx_export" || component == "onnx_runtime" ||
+        component == "onnx_serving" || component == "bundle_signing";
     EXPECT_EQ(feature.status,
               enabled
                   ? (preview ? jyppx::liuding::CapabilityStatus::experimental

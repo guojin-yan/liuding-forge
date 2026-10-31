@@ -43,6 +43,7 @@ function(jyppx_write_component_graph output_path)
         onnx_serving
         optim
         quantization
+        quantization_torch
         serving
         telemetry_http
         telemetry_native

@@ -467,7 +467,7 @@ CapabilityManifest make_current_capability_manifest(
 }
 
 CapabilityManifest current_capability_manifest() {
-  const std::array<std::pair<const char*, bool>, 17U> components{{
+  const std::array<std::pair<const char*, bool>, 18U> components{{
       {"bundle_signing", JYPPX_LIUDING_COMPONENT_BUNDLE_SIGNING_ENABLED != 0},
       {"foundation", true},
       {"core", JYPPX_LIUDING_COMPONENT_CORE_ENABLED != 0},
@@ -484,6 +484,8 @@ CapabilityManifest current_capability_manifest() {
       {"onnx_runtime", JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED != 0},
       {"onnx_serving", JYPPX_LIUDING_COMPONENT_ONNX_SERVING_ENABLED != 0},
       {"quantization", JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED != 0},
+      {"quantization_torch",
+       JYPPX_LIUDING_COMPONENT_QUANTIZATION_TORCH_ENABLED != 0},
       {"serving", JYPPX_LIUDING_COMPONENT_SERVING_ENABLED != 0},
   }};
   std::vector<CapabilityDescriptor> features;
@@ -491,10 +493,10 @@ CapabilityManifest current_capability_manifest() {
   for (const auto& [component, enabled] : components) {
     const auto name = std::string_view(component);
     const bool preview = name == "models" || name == "quantization" ||
-                         name == "serving" || name == "data_image" ||
-                         name == "vision_render" || name == "onnx_export" ||
-                         name == "onnx_runtime" || name == "onnx_serving" ||
-                         name == "bundle_signing";
+                         name == "quantization_torch" || name == "serving" ||
+                         name == "data_image" || name == "vision_render" ||
+                         name == "onnx_export" || name == "onnx_runtime" ||
+                         name == "onnx_serving" || name == "bundle_signing";
     features.push_back(component_descriptor(component, enabled, preview));
   }
   return make_current_capability_manifest(std::move(features));

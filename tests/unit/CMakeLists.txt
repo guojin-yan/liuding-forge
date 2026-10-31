@@ -661,6 +661,13 @@ if(TARGET jyppx::liuding::quantization)
     )
 endif()
 
+if(TARGET jyppx::liuding::quantization_torch)
+    jyppx_add_gtest(jyppx_test_quantization_torch
+        LINK_TARGET jyppx::liuding::quantization_torch
+        quantization_torch/test_static_linear.cpp)
+    target_link_libraries(jyppx_test_quantization_torch PRIVATE Threads::Threads)
+endif()
+
 if(TARGET jyppx::liuding::serving)
     jyppx_add_gtest(jyppx_test_serving
         LINK_TARGET jyppx::liuding::serving

@@ -238,7 +238,7 @@ struct CalibrationResult {
   MinMaxObserverState
       activation_state;  ///< Exact numeric observation evidence.
   QuantizationParams activation_params;  ///< Validated activation range;
-                                         ///< execution remains FP32.
+                                         ///< backend execution is separate.
 };
 
 /**
@@ -287,6 +287,50 @@ class CalibrationSession final {
   std::unordered_set<std::string>
       sample_id_index_;  ///< Duplicate-identity lookup index.
 };
+
+/**
+ * @brief Validates calibration evidence and complete serialized byte bounds.
+ * @param calibration Borrowed lineage, ordered IDs, observer and qparams.
+ * @param limits Independent metadata and complete artifact byte ceilings.
+ * @throws Error For inconsistent evidence, invalid fields or exceeded limits.
+ * @note Structural validation does not grant task, kernel or finite-data
+ * readiness. No caller state is modified; independent calls share no state.
+ */
+void validate_calibration_result(const CalibrationResult& calibration,
+                                 QuantizationLimits limits = {});
+
+/**
+ * @brief Saves complete calibration evidence in a canonical versioned frame.
+ * @param calibration Finalized nonempty finite evidence, borrowed during call.
+ * @param limits Independent metadata and complete serialized byte ceilings.
+ * @return Owned JYPPXCA1/v1 bytes, independent of any execution backend.
+ * @throws Error For invalid evidence or a complete byte limit violation.
+ * @note The payload uses the same codec as Q0 and QC1. A digest supplied
+ * separately by the caller is required to establish expected identity.
+ */
+std::vector<std::byte> serialize_calibration_result(
+    const CalibrationResult& calibration, QuantizationLimits limits = {});
+
+/**
+ * @brief Restores canonical calibration bytes without retaining source storage.
+ * @param bytes Borrowed immutable complete JYPPXCA1/v1 artifact.
+ * @param limits Independent encoded, sample-count and text byte ceilings.
+ * @return Owned lineage, ordered sample IDs, observer state and qparams.
+ * @throws Error For malformed, unsupported, noncanonical or oversized bytes.
+ * @note Parsing validates the full source and never mutates caller state.
+ * Byte ceilings bound encoded data, not total allocator or process RSS.
+ */
+CalibrationResult deserialize_calibration_result(
+    std::span<const std::byte> bytes, QuantizationLimits limits = {});
+
+/**
+ * @brief Rounds a positive scale to normal FP32, nearest with ties to even.
+ * @param value Borrowed FP64 scale to represent in static INT8 preparation.
+ * @return Finite positive normal FP32 scale, independent of caller rounding.
+ * @throws NumericalError For nonpositive, nonfinite, underflow or overflow.
+ * @note No floating environment is changed and no runtime is selected.
+ */
+float static_int8_scale(double value);
 
 /** @brief Float Linear source owned by the caller until conversion returns. */
 struct FloatLinearModel {

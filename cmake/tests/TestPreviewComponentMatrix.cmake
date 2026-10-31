@@ -61,8 +61,8 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
 endif()
 
 set(optional_components core interop data nn optim training experiment
-    models quantization serving data_image vision_render onnx_export onnx_runtime onnx_serving bundle_signing)
-set(preview_components models quantization serving vision_render)
+    models quantization quantization_torch serving data_image vision_render onnx_export onnx_runtime onnx_serving bundle_signing)
+set(preview_components models quantization quantization_torch serving vision_render)
 set(common_options
     -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF
     -DJYPPX_LIUDING_BUILD_TOOLS=OFF -DJYPPX_LIUDING_BUILD_BENCHMARKS=OFF
@@ -144,7 +144,7 @@ function(check_preview_symbols profile)
 endfunction()
 
 # Begin and end with the same core-only profile to exercise ON -> OFF cleanup.
-foreach(profile IN ITEMS core_before quantization models serving vision_render all_previews core_after)
+foreach(profile IN ITEMS core_before quantization quantization_torch models serving vision_render all_previews core_after)
     set(profile_components)
     set(consumer_components foundation all)
     if(profile MATCHES "^core_")
@@ -153,6 +153,9 @@ foreach(profile IN ITEMS core_before quantization models serving vision_render a
     elseif(profile STREQUAL "quantization")
         set(profile_components quantization)
         list(APPEND consumer_components quantization)
+    elseif(profile STREQUAL "quantization_torch")
+        set(profile_components core quantization quantization_torch)
+        list(APPEND consumer_components quantization_torch)
     elseif(profile STREQUAL "models" OR profile STREQUAL "serving")
         set(profile_components core interop nn ${profile})
         list(APPEND consumer_components ${profile})
@@ -160,9 +163,9 @@ foreach(profile IN ITEMS core_before quantization models serving vision_render a
         set(profile_components core data data_image vision_render)
         list(APPEND consumer_components vision_render)
     elseif(profile STREQUAL "all_previews")
-        set(profile_components core interop nn models quantization serving
+        set(profile_components core interop nn models quantization quantization_torch serving
             data data_image vision_render)
-        list(APPEND consumer_components models quantization serving vision_render)
+        list(APPEND consumer_components models quantization quantization_torch serving vision_render)
     endif()
     set(component_options)
     set(absent_components sdk)
@@ -326,5 +329,28 @@ foreach(component IN ITEMS MODELS SERVING)
                 "Dependency rejection failed: ${expected_error}; ${invalid_log}")
         endif()
     endforeach()
+endforeach()
+foreach(missing IN ITEMS CORE QUANTIZATION)
+    set(invalid_options ${common_options})
+    foreach(optional IN LISTS optional_components)
+        string(TOUPPER "${optional}" optional_upper)
+        if(optional STREQUAL "core" OR optional STREQUAL "quantization" OR optional STREQUAL "quantization_torch")
+            list(APPEND invalid_options "-DJYPPX_LIUDING_BUILD_${optional_upper}=ON")
+        else()
+            list(APPEND invalid_options "-DJYPPX_LIUDING_BUILD_${optional_upper}=OFF")
+        endif()
+    endforeach()
+    list(APPEND invalid_options "-DJYPPX_LIUDING_BUILD_${missing}=OFF")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -S "${source_dir}"
+        -B "${test_root}/invalid" ${generator_args} "-DTorch_DIR=${JYPPX_TORCH_DIR}"
+        ${invalid_options} ${config_args}
+        RESULT_VARIABLE invalid_result OUTPUT_VARIABLE invalid_output ERROR_VARIABLE invalid_error)
+    set(expected_error "JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH=ON requires JYPPX_LIUDING_BUILD_${missing}=ON")
+    string(CONCAT invalid_log "${invalid_output}" "${invalid_error}")
+    string(REGEX REPLACE "[ \t\r\n]+" " " invalid_log "${invalid_log}")
+    string(FIND "${invalid_log}" "${expected_error}" expected_position)
+    if(invalid_result EQUAL 0 OR expected_position EQUAL -1)
+        message(FATAL_ERROR "Quantization Torch dependency rejection failed: ${expected_error}; ${invalid_log}")
+    endif()
 endforeach()
 message(STATUS "Preview matrix passed with one persistent framework build directory")

@@ -28,6 +28,7 @@ constexpr std::string_view kComponent = "quantization";
 constexpr std::string_view kFormatId = "jyppx.qint8.symmetric.per_tensor/v1";
 constexpr std::string_view kMagic{"JYPPXQ1\0", 8U};
 constexpr std::string_view kChannelMagic{"JYPPXQC1", 8U};
+constexpr std::string_view kCalibrationMagic{"JYPPXCA1", 8U};
 constexpr std::uint32_t kSchemaVersion = 1U;
 constexpr std::size_t kObserverStateBytes = 40U;
 constexpr std::size_t kMaxJsonNumberBytes = 128U;
@@ -708,7 +709,113 @@ std::string number(double value) {
   return result;
 }
 
+std::size_t calibration_frame_size(const CalibrationResult& calibration,
+                                   const QuantizationLimits& limits) {
+  if (calibration.sample_ids.size() > limits.max_samples)
+    resource("calibration.sample_ids", limits.max_samples,
+             calibration.sample_ids.size(), "Reduce calibration samples.");
+  // Header 16, lineage prefixes/algorithm/seed 21, sample count 8,
+  // observer 40 and qparams 16. Text and each ID's u32 length follow.
+  std::size_t total = 101U;
+  for (const auto size : {calibration.lineage.dataset_version.size(),
+                          calibration.lineage.dataset_digest.hex.size(),
+                          calibration.lineage.preprocessing_fingerprint.size()})
+    add_to_artifact_budget(total, size, limits.max_artifact_bytes);
+  for (const auto& id : calibration.sample_ids) {
+    add_to_artifact_budget(total, 4U, limits.max_artifact_bytes);
+    add_to_artifact_budget(total, id.size(), limits.max_artifact_bytes);
+  }
+  return total;
+}
+
+// Round by integer operations, independent of caller fesetround/FTZ.
+float normal_static_int8_scale(double value, std::string_view operation) {
+  const auto bits = std::bit_cast<std::uint64_t>(value);
+  const auto exponent = static_cast<int>((bits >> 52U) & 0x7ffU);
+  if ((bits >> 63U) != 0U || exponent == 0 || exponent == 0x7ff)
+    numerical(std::string(operation), "finite positive normal FP32 scale",
+              "unrepresentable scale", "Rescale the calibration or model.");
+  auto float_exponent = exponent - 1023 + 127;
+  const auto significand = (bits & 0xfffffffffffffULL) | (1ULL << 52U);
+  auto rounded = significand >> 29U;
+  constexpr auto kRemainderMask = (1ULL << 29U) - 1ULL;
+  const auto remainder = significand & kRemainderMask;
+  if (remainder > (1ULL << 28U) ||
+      (remainder == (1ULL << 28U) && (rounded & 1ULL) != 0U))
+    ++rounded;
+  if (rounded == (1ULL << 24U)) {
+    rounded >>= 1U;
+    ++float_exponent;
+  }
+  if (float_exponent <= 0 || float_exponent >= 255)
+    numerical(std::string(operation), "finite positive normal FP32 scale",
+              "underflow or overflow", "Rescale the calibration or model.");
+  return std::bit_cast<float>(
+      (static_cast<std::uint32_t>(float_exponent) << 23U) |
+      (static_cast<std::uint32_t>(rounded) & 0x7fffffU));
+}
+
 }  // namespace
+
+void validate_calibration_result(const CalibrationResult& calibration,
+                                 QuantizationLimits limits) {
+  validate_limits(limits);
+  static_cast<void>(calibration_frame_size(calibration, limits));
+  if (calibration.sample_ids.empty() ||
+      !calibration.activation_state.has_finite_value)
+    invalid("calibration.complete", "nonempty finalized finite calibration",
+            "empty or no finite observation",
+            "Finalize a session after observing finite calibration values.");
+  validate_calibration(calibration, limits);
+}
+
+std::vector<std::byte> serialize_calibration_result(
+    const CalibrationResult& calibration, QuantizationLimits limits) {
+  validate_calibration_result(calibration, limits);
+  Encoder encoder(limits.max_artifact_bytes);
+  encoder.raw(std::as_bytes(
+      std::span(kCalibrationMagic.data(), kCalibrationMagic.size())));
+  encoder.u32(kSchemaVersion);
+  encoder.u32(0U);
+  encode_calibration(encoder, calibration, limits);
+  return std::move(encoder).finish();
+}
+
+CalibrationResult deserialize_calibration_result(
+    std::span<const std::byte> bytes, QuantizationLimits limits) {
+  validate_limits(limits);
+  validate_size_limit(bytes.size(), limits.max_artifact_bytes,
+                      "calibration.artifact");
+  Reader reader(bytes);
+  const auto magic = reader.raw(kCalibrationMagic.size(), "calibration.magic");
+  if (!std::equal(magic.begin(), magic.end(),
+                  std::as_bytes(std::span(kCalibrationMagic.data(),
+                                          kCalibrationMagic.size()))
+                      .begin()))
+    serialization("calibration.magic", "JYPPXCA1", "unknown header",
+                  "Use the canonical calibration codec.");
+  const auto version = reader.u32("calibration.version");
+  if (version != kSchemaVersion)
+    compatibility("calibration.version", "1", std::to_string(version),
+                  "Use an explicit calibration version migration.");
+  if (reader.u32("calibration.reserved") != 0U)
+    serialization("calibration.reserved", "zero", "non-zero",
+                  "Reject unknown calibration extensions.");
+  auto result = decode_calibration(reader, limits);
+  if (!reader.empty())
+    serialization("calibration.trailing", "no trailing bytes", "present",
+                  "Reject ambiguous calibration extensions.");
+  const auto canonical = serialize_calibration_result(result, limits);
+  if (!std::equal(canonical.begin(), canonical.end(), bytes.begin(),
+                  bytes.end()))
+    serialization("calibration.canonical", "canonical calibration bytes",
+                  "different bytes", "Regenerate using the calibration codec.");
+  return result;
+}
+
+float static_int8_scale(double value) {
+  return normal_static_int8_scale(value, "static_int8.scale");
+}
 
 void validate_format_descriptor(
     const QuantizationFormatDescriptor& descriptor) {
@@ -1427,44 +1534,16 @@ StaticInt8LinearPreparation prepare_static_int8_linear(
                 std::to_string(artifact.out_features),
             "Use the explicit CPU Linear static PTQ profile.");
 
-  // Round a positive finite double to normal FP32 by integer bit operations.
-  // A cast would depend on caller fesetround and can flush a subnormal scale.
-  const auto normal_scale = [](double value, std::string_view operation) {
-    const auto bits = std::bit_cast<std::uint64_t>(value);
-    const auto exponent = static_cast<int>((bits >> 52U) & 0x7ffU);
-    if ((bits >> 63U) != 0U || exponent == 0 || exponent == 0x7ff)
-      numerical(std::string(operation), "finite positive normal FP32 scale",
-                "unrepresentable scale", "Rescale the calibration or model.");
-    auto float_exponent = exponent - 1023 + 127;
-    const auto significand = (bits & 0xfffffffffffffULL) | (1ULL << 52U);
-    auto rounded = significand >> 29U;
-    constexpr auto kRemainderMask = (1ULL << 29U) - 1ULL;
-    const auto remainder = significand & kRemainderMask;
-    if (remainder > (1ULL << 28U) ||
-        (remainder == (1ULL << 28U) && (rounded & 1ULL) != 0U))
-      ++rounded;
-    if (rounded == (1ULL << 24U)) {
-      rounded >>= 1U;
-      ++float_exponent;
-    }
-    if (float_exponent <= 0 || float_exponent >= 255)
-      numerical(std::string(operation), "finite positive normal FP32 scale",
-                "underflow or overflow", "Rescale the calibration or model.");
-    return std::bit_cast<float>(
-        (static_cast<std::uint32_t>(float_exponent) << 23U) |
-        (static_cast<std::uint32_t>(rounded) & 0x7fffffU));
-  };
-
   StaticInt8LinearPreparation result;
   result.in_features = artifact.in_features;
   result.out_features = artifact.out_features;
   result.activation_scale =
-      normal_scale(artifact.calibration.activation_params.scale,
-                   "static_int8.activation_scale");
-  result.weight_scale =
-      normal_scale(artifact.weight_params.scale, "static_int8.weight_scale");
+      normal_static_int8_scale(artifact.calibration.activation_params.scale,
+                               "static_int8.activation_scale");
+  result.weight_scale = normal_static_int8_scale(artifact.weight_params.scale,
+                                                 "static_int8.weight_scale");
   // The exact product of two 24-bit significands fits in an IEEE double.
-  result.product_scale = normal_scale(
+  result.product_scale = normal_static_int8_scale(
       static_cast<double>(result.activation_scale) * result.weight_scale,
       "static_int8.product_scale");
   for (std::size_t out = 0U; out < artifact.out_features; ++out) {

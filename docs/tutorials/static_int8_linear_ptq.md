@@ -2,6 +2,8 @@
 
 本教程将一个已知权重的 Linear 转为 Q0 便携制品，直接调用 C++ 原生 ONNX 导出 API，再交给独立 ONNX Runtime adapter 显式使用 CPU。整个生产流程不调用 Python。示例用于解释接口和数值契约；实际任务还须独立验证校准覆盖、准确率、资源和性能。
 
+如果希望直接使用 LibTorch 官方 CPU 静态 INT8 Linear，可参考 [C++ 保存与重新加载示例](../../examples/quantization/README.md)。该路径同时保存 Q0/QC1 和独立输出校准，通过 `quantized::linear` 返回量化输出；它与本教程的 ONNX/ORT 路径分别配置和验收。
+
 ## 准备构建
 
 准备与项目支持矩阵匹配的 LibTorch、编译器，以及官方 ONNX Runtime 1.23.2 SDK。ONNX 图序列化使用 LibTorch 自带的官方 C++ exporter/schema；运行时使用单独的 ORT SDK。配置阶段不下载依赖。复用你的兼容构建目录，显式启用以下组件：
