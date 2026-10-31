@@ -47,6 +47,8 @@ liuding-forge recipe run --file my-transfer.json --root runs/transfer --format j
 
 `check` 检查闭合配置、类别和完整图片身份、权重描述及文件大小/SHA-256；`run` 还要严格验证并导入实际模型的全部 state 键。字段拼写错误、错误类型、重复 JSON 键、摘要不符和不匹配的源 head 都会报错，不会回退到随机权重。
 
+需要固定预训练骨干与新分类头的完整起点时，可先运行 `recipe initialize --file my-transfer.json --root transfer-initial`，再按[完整初始化步骤](image_classification_recipe.md#33-固定完整初始模型)配置 `initial_state_file` 和 `initial_state_sha256`。完整状态优先覆盖所有参数和缓冲区，避免重复载入预训练张量；原 `weights_file` 与 `weights_metadata` 仍必填，并核对来源、拓扑及预处理合同。报告会明确标记完整导入，不将其中的分类头描述为新随机初始化。冻结/微调及 BN 策略仍由当前配置决定；它不提供优化器和训练进度恢复。
+
 当前输入配方是 RGB float32 `[0,1]`，按短边做 antialiased bicubic 缩放，再使用 nearest-even 中心偏移裁剪到 224×224，最后执行 `(pixel-mean)/std`。ResNet50 短边 235，DINOv2-S 短边 256；两者使用描述文件中的 ImageNet mean/std。该配方保留原图到当前画布的 GeometryTrace，不声称与 PIL 插值逐位相同。图像抗锯齿与 DINO 的位置编码插值是两项独立设置；后者由 `position_antialias` 显式指定。
 
 ## 4. 冻结与完整微调

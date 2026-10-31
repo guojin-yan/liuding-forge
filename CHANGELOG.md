@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- ImageFolder 分类与迁移配方增加原生 C++ 零步完整模型导出，以及绑定 SHA-256、架构和有序类别的严格初始化；全部参数和缓冲区在优化器创建前导入，运行、续训与模型包保留相同来源。
+
 - `RandomSampler` 改用版本明确的可移植整数排列算法，固定 seed/epoch 时不再受 Windows/Linux 标准库差异影响；ImageFolder 与迁移配方记录采样来源，检查点明确拒绝旧算法状态。
 
 - ImageFolder 分类与迁移学习配方增加显式 AdamW、可选全局 L2 梯度裁剪和按成功更新线性降至零的学习率调度；优化器、参数组与调度状态随完整检查点恢复。

@@ -131,6 +131,18 @@ if(JYPPX_LIUDING_TEST_CLI_CUDA)
 endif()
 
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
+    add_test(NAME Cli_initial_state_recipe
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_initial_state_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+    set_tests_properties(Cli_initial_state_recipe PROPERTIES
+        LABELS "cli;integration;recipe;initialization" TIMEOUT 600)
+    if(JYPPX_LIUDING_TEST_CLI_CUDA)
+        add_test(NAME Cli_initial_state_recipe_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_initial_state_recipe.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
+        set_tests_properties(Cli_initial_state_recipe_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;initialization;cuda" TIMEOUT 600)
+    endif()
     add_test(NAME Cli_transfer_configuration
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_transfer_recipe.py"
             --cli $<TARGET_FILE:jyppx_cli> --contracts-only)

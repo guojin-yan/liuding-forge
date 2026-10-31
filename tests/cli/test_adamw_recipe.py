@@ -189,6 +189,14 @@ class Recovery(Case):
         cls.config = adamw_config(cls.config) | {"learning_rate": 0.001}
         cls.file = cls.base / "config.json"
         cls.file.write_text(json.dumps(cls.config), encoding="utf-8")
+        initial_root = cls.base / "zero-step"
+        cls.initialization = cls.invoke("recipe", "initialize", "--file", cls.file,
+            "--root", initial_root)["data"]
+        initial_file = initial_root / "initial-state.safetensors"
+        cls.config |= {"initial_state_file": str(initial_file),
+                       "initial_state_sha256": fixture.file_sha256(initial_file)}
+        cls.file.write_text(json.dumps(cls.config), encoding="utf-8")
+        save("zero-step-initialization", cls.initialization)
         save("configuration", cls.config)
         cls.results, cls.saved = {}, {}
         cls.roots = {name: cls.base / name for name in ("continuous", "resumed", "killed")}
@@ -235,7 +243,7 @@ class Recovery(Case):
         participants = (set(fixture.PARTICIPANTS) - {"recipe.sgd"}) | {"recipe.adamw"}
         fields = ("model_sha256", "next_rng_sha256", "next_cpu_rng_sha256", "training_metrics",
             "validation_metrics", "accuracy", "confusion", "global_step", "optimizer_steps",
-            "scheduler_steps", "completed_epochs", "optimization", "sampling")
+            "scheduler_steps", "completed_epochs", "optimization", "sampling", "initialization")
         for name in self.roots:
             result = self.results[name]
             self.assertTrue(result["quality_passed"])
@@ -282,6 +290,10 @@ class Recovery(Case):
             self.invoke(*args)
         provenance = json.loads((root / "bundle/metadata/provenance.json").read_text(encoding="utf-8"))
         self.assertEqual(provenance["optimization"], self.results["resumed"]["optimization"])
+        self.assertEqual(provenance["initialization"], self.results["resumed"]["initialization"])
+        self.assertEqual(provenance["model"]["initialization"], provenance["initialization"])
+        self.assertEqual(provenance["initialization"]["model"],
+                         self.initialization["initialization"]["model"])
         save("bundle-provenance", provenance)
         checkpoint_sha = fixture.file_sha256(root / "final.jyck")
         path = self.base / "changed.json"
@@ -333,6 +345,23 @@ class TransferRecovery(Case):
                 config["backbone_learning_rate"] = 0.00005
             file = cls.base / f"{mode}.json"
             file.write_text(json.dumps(config), encoding="utf-8")
+            initial_root = cls.base / f"{mode}-zero-step"
+            initial = cls.invoke("recipe", "initialize", "--file", file,
+                "--root", initial_root)["data"]
+            initial_file = initial_root / "initial-state.safetensors"
+            config |= {"initial_state_file": str(initial_file),
+                       "initial_state_sha256": fixture.file_sha256(initial_file)}
+            file.write_text(json.dumps(config), encoding="utf-8")
+            if mode == "frozen":
+                alternate = cls.base / "reexport-different-seed.json"
+                alternate.write_text(json.dumps(config | {"seed": config["seed"] + 17}), encoding="utf-8")
+                reexport = cls.base / "reexport-different-seed"
+                exported = cls.invoke("recipe", "initialize", "--file", alternate,
+                    "--root", reexport)["data"]
+                assert fixture.file_sha256(reexport / "initial-state.safetensors") == config["initial_state_sha256"]
+                assert not exported["transfer"]["pretrained_values_applied"]
+                save("transfer-reexport-different-seed", exported)
+            save(mode + "-zero-step-initialization", initial)
             roots = {name: cls.base / f"{mode}-{name}" for name in ("continuous", "resumed")}
             results, saved = {}, {}
             cls.invoke("recipe", "check", "--file", file)
@@ -350,7 +379,7 @@ class TransferRecovery(Case):
                 saved[name] = checkpoint(root / "final.jyck")
                 save(f"{mode}-{name}", {"result": results[name], "checkpoint": saved[name]})
             cls.cases[mode] = {"config": config, "file": file, "roots": roots,
-                               "results": results, "saved": saved}
+                               "results": results, "saved": saved, "initialization": initial}
             save(mode + "-configuration", config)
 
     def test_01_actual_group_rates_and_adamw_states(self) -> None:
@@ -402,7 +431,7 @@ class TransferRecovery(Case):
                 continuous, resumed = case["results"]["continuous"], case["results"]["resumed"]
                 for field in ("model_sha256", "next_rng_sha256", "next_cpu_rng_sha256", "accuracy",
                               "confusion", "training_metrics", "validation_metrics", "optimization",
-                              "global_step", "optimizer_steps", "scheduler_steps", "completed_epochs", "transfer", "sampling"):
+                              "global_step", "optimizer_steps", "scheduler_steps", "completed_epochs", "transfer", "sampling", "initialization"):
                     self.assertEqual(continuous[field], resumed[field], field)
                 baseline = case["saved"]["continuous"]["manifest"]["participants"]
                 self.assertEqual({item["state"]["participant_id"] for item in baseline}, participants)
@@ -419,6 +448,10 @@ class TransferRecovery(Case):
                 provenance = json.loads((root / "bundle/metadata/provenance.json").read_text(encoding="utf-8"))
                 self.assertEqual(provenance["optimization"], resumed["optimization"])
                 self.assertEqual(provenance["model"]["sampling"], resumed["sampling"])
+                self.assertEqual(provenance["initialization"], resumed["initialization"])
+                self.assertEqual(provenance["model"]["initialization"], resumed["initialization"])
+                self.assertEqual(resumed["initialization"]["model"],
+                                 case["initialization"]["initialization"]["model"])
                 save(mode + "-provenance", provenance)
 
 

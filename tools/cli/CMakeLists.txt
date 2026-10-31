@@ -25,6 +25,7 @@ add_library(jyppx_cli_objects OBJECT
     local_search.cpp
     offline_workflow.cpp
     image_recipe.cpp
+    recipe_initial_state.cpp
     transfer_recipe.cpp
     paired_recipe.cpp
     run_commands.cpp

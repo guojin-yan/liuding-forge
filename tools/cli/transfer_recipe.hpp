@@ -27,7 +27,8 @@ struct TransferInput {
 bool is_transfer_recipe(const Json& config);
 TransferInput inspect_transfer_input(const Json& config);
 std::shared_ptr<nn::ModelAdapter> make_transfer_model(
-    const TransferInput& input, const Json& config, std::int64_t classes);
+    const TransferInput& input, const Json& config, std::int64_t classes,
+    bool load_pretrained = true);
 Json transfer_state(const nn::ModelAdapter& model);
 }  // namespace jyppx::liuding::cli
 #endif

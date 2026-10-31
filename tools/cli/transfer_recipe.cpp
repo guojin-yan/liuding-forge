@@ -182,14 +182,15 @@ TransferInput inspect_transfer_input(const Json& config) {
 }
 
 std::shared_ptr<nn::ModelAdapter> make_transfer_model(
-    const TransferInput& input, const Json& config, std::int64_t classes) {
+    const TransferInput& input, const Json& config, std::int64_t classes,
+    bool load_pretrained) {
   models::ModelOptions options;
   options.resnet.num_classes = input.source_classes;
   options.dinov2.num_classes = input.source_classes;
   options.dinov2.position_antialias =
       input.descriptor.at("position_antialias").get<bool>();
   auto backbone = models::create_model(input.record.model_name, options);
-  {
+  if (load_pretrained) {
     std::vector<std::byte> encoded(input.record.artifact->size_bytes);
     std::ifstream stream(input.path, std::ios::binary);
     stream.read(reinterpret_cast<char*>(encoded.data()),

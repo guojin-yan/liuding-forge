@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "cli.hpp"
+#include "recipe_initial_state.hpp"
 #include "recipe_support.hpp"
 #include "transfer_recipe.hpp"
 
@@ -90,6 +91,10 @@ bool is_optimizer_field(std::string_view name) {
          name == "gradient_clip_norm";
 }
 
+bool is_initial_state_field(std::string_view name) {
+  return name == "initial_state_file" || name == "initial_state_sha256";
+}
+
 bool uses_adamw(const Json& config) {
   return config.value("optimizer", "sgd") == "adamw";
 }
@@ -114,6 +119,8 @@ const std::map<std::string, ValueKind>& field_kinds(bool transfer = false) {
       {"train_root", ValueKind::string},
       {"validation_root", ValueKind::string},
       {"data_license", ValueKind::string},
+      {"initial_state_file", ValueKind::string},
+      {"initial_state_sha256", ValueKind::string},
       {"device", ValueKind::string},
       {"seed", ValueKind::integer},
       {"epochs", ValueKind::integer},
@@ -161,7 +168,7 @@ ex::config::ConfigSchema config_schema(bool transfer) {
     field.kind = kind;
     field.name = name;
     field.required = !is_group_rate(name) && !is_schedule_field(name) &&
-                     !is_optimizer_field(name);
+                     !is_optimizer_field(name) && !is_initial_state_field(name);
     result.root.fields.emplace(name, std::move(field));
   }
   return result;
@@ -171,7 +178,7 @@ Json schema_json(bool transfer = false) {
   for (const auto& [name, kind] : field_kinds(transfer)) {
     fields[name] = {{"kind", value_kind_name(kind)}};
     if (is_group_rate(name) || is_schedule_field(name) ||
-        is_optimizer_field(name))
+        is_optimizer_field(name) || is_initial_state_field(name))
       fields[name]["required"] = false;
   }
   return {{"schema_version", 1},
@@ -285,6 +292,20 @@ Json resolve_config(const std::filesystem::path& path) {
   }
   require_recipe(config.at("train_root") != config.at("validation_root"),
                  "Training and validation directories must differ");
+  require_recipe(
+      config.contains("initial_state_file") ==
+          config.contains("initial_state_sha256"),
+      "initial_state_file and initial_state_sha256 must be supplied together");
+  if (config.contains("initial_state_file")) {
+    const auto name = config.at("initial_state_file").get<std::string>();
+    require_recipe(!name.empty(), "Initial state path must not be empty");
+    validate_artifact_digest(ArtifactDigest{
+        .hex = config.at("initial_state_sha256").get<std::string>()});
+    auto input = std::filesystem::u8path(name);
+    if (input.is_relative()) input = path.parent_path() / input;
+    config["initial_state_file"] =
+        path_text(std::filesystem::absolute(input).lexically_normal());
+  }
   if (transfer) {
     for (const auto* name : {"backbone_learning_rate", "head_learning_rate"}) {
       if (!config.contains(name)) continue;
@@ -325,6 +346,31 @@ Json resolve_config(const std::filesystem::path& path) {
     }
   }
   return config;
+}
+
+void configure_recipe_numerics() {
+  at::set_num_threads(1);
+  at::set_num_interop_threads(1);
+  at::globalContext().setDeterministicAlgorithms(true, false);
+  at::globalContext().setDeterministicCuDNN(true);
+  at::globalContext().setBenchmarkCuDNN(false);
+  at::globalContext().setAllowTF32CuDNN(false);
+  at::globalContext().setAllowTF32CuBLAS(false);
+  at::globalContext().setFloat32MatmulPrecision("highest");
+  require_recipe(!at::globalContext().allowTF32CuDNN() &&
+                     !at::globalContext().allowTF32CuBLAS(),
+                 "Recipe requires TF32 disabled for cuDNN and cuBLAS");
+}
+
+std::shared_ptr<nn::ModelAdapter> make_recipe_model(
+    const Json& config, const std::optional<TransferInput>& transfer,
+    std::int64_t classes, bool load_pretrained) {
+  if (transfer)
+    return make_transfer_model(*transfer, config, classes, load_pretrained);
+  models::ModelOptions options;
+  options.resnet.num_classes = classes;
+  return std::make_shared<nn::ModelAdapter>(
+      models::create_model("resnet18", options));
 }
 
 bool uses_group_rates(const Json& config) {
@@ -878,6 +924,8 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
        transfer ? "strict local pretrained backbone; seeded new linear head"
                 : "random; no pretrained weights"},
       {"diagnostics", diagnostic}};
+  if (contract.contains("initialization"))
+    provenance["initialization"] = contract.at("initialization");
   if (!optimization.is_null()) provenance["optimization"] = optimization;
   manifest.provenance = descriptor(
       "provenance", interop::BundleFileRole::provenance, std::move(provenance));
@@ -909,6 +957,78 @@ Json publish_bundle(const std::filesystem::path& root, const Json& config,
       {"transitive_sbom_complete", false}};
 }
 
+Result initialize(const Arguments& arguments) {
+  require_recipe(!arguments.optional("pause-after"),
+                 "recipe initialize accepts only --file and --root");
+  const auto config = resolve_config(std::filesystem::absolute(
+      std::filesystem::u8path(arguments.require("file"))));
+  const auto inputs = inspect_inputs(config);
+  const auto transfer = is_transfer_recipe(config)
+                            ? std::optional(inspect_transfer_input(config))
+                            : std::nullopt;
+  auto initial_input =
+      inspect_recipe_initial_state(config, inputs.manifest.at("classes"));
+  const auto root = std::filesystem::absolute(
+                        std::filesystem::u8path(arguments.require("root")))
+                        .lexically_normal();
+  require_recipe(!std::filesystem::exists(root),
+                 "recipe initialize requires a new output directory");
+  const Device device(config.at("device") == "cuda" ? "cuda:0" : "cpu");
+  require_recipe(!device.is_cuda() || torch::cuda::is_available(),
+                 "CUDA was requested but is unavailable");
+  configure_recipe_numerics();
+  core::RngGuard rng(config.at("seed").get<std::uint64_t>(), device.is_cuda());
+  const auto model = make_recipe_model(
+      config, transfer,
+      static_cast<std::int64_t>(inputs.train.categories().size()),
+      !initial_input);
+  const auto initialization =
+      initial_input
+          ? apply_recipe_initial_state(*model, *initial_input)
+          : Json{{"method", transfer ? "pretrained_backbone_seeded_head"
+                                     : "seeded_model"},
+                 {"model", recipe_model_state_identity(*model)}};
+  const auto encoded = encode_recipe_initial_state(
+      *model, config, inputs.manifest.at("classes"));
+  require_recipe(inspect_inputs(config).identity.hex == inputs.identity.hex,
+                 "Dataset changed while initializing the model");
+  if (transfer)
+    require_recipe(
+        inspect_transfer_input(config).descriptor == transfer->descriptor,
+        "Weight descriptor changed while initializing the model");
+  if (initial_input)
+    require_recipe(
+        file_digest(initial_input->path).hex == initial_input->digest.hex,
+        "Complete initial state changed while initializing the model");
+  Json report{{"schema_version", 1},
+              {"status", "initialized"},
+              {"global_step", 0},
+              {"optimizer_steps", 0},
+              {"recipe", config.at("recipe")},
+              {"architecture", config.value("model", "resnet18")},
+              {"classes", inputs.manifest.at("classes")},
+              {"config", config},
+              {"config_sha256", digest(config.dump()).hex},
+              {"dataset_sha256", inputs.identity.hex},
+              {"build",
+               parse_json(build_fingerprint_json(current_build_fingerprint()))},
+              {"initialization", initialization},
+              {"artifact",
+               {{"file", "initial-state.safetensors"},
+                {"sha256", sha256_hex(encoded)},
+                {"size_bytes", encoded.size()}}}};
+  if (transfer)
+    report["transfer"] = {{"descriptor", transfer->descriptor},
+                          {"pretrained_values_applied", !initial_input}};
+  require_recipe(
+      std::filesystem::create_directory(root),
+      "Initialization output directory was created by another process");
+  RunLock lock(root);
+  write_file(root / "initial-state.safetensors", encoded);
+  write_json(root / "initialization.json", report);
+  return {std::move(report), 0};
+}
+
 Result execute(const Arguments& arguments, bool resume) {
   const auto config = resolve_config(std::filesystem::absolute(
       std::filesystem::u8path(arguments.require("file"))));
@@ -916,6 +1036,8 @@ Result execute(const Arguments& arguments, bool resume) {
   const auto transfer = is_transfer_recipe(config)
                             ? std::optional(inspect_transfer_input(config))
                             : std::nullopt;
+  auto initial_input =
+      inspect_recipe_initial_state(config, inputs.manifest.at("classes"));
   const Device device(config.at("device") == "cuda" ? "cuda:0" : "cpu");
   require_recipe(!device.is_cuda() || torch::cuda::is_available(),
                  "CUDA was requested but is unavailable");
@@ -930,8 +1052,21 @@ Result execute(const Arguments& arguments, bool resume) {
                    "Resume requires an existing recipe directory");
   else
     require_recipe(
-        std::filesystem::create_directory(root),
+        !std::filesystem::exists(root),
         "Recipe run requires a new directory; use recipe resume to continue");
+  configure_recipe_numerics();
+  core::RngGuard rng(config.at("seed").get<std::uint64_t>(), device.is_cuda());
+  auto model = make_recipe_model(
+      config, transfer,
+      static_cast<std::int64_t>(inputs.train.categories().size()),
+      !initial_input);
+  const auto initialization =
+      initial_input ? apply_recipe_initial_state(*model, *initial_input)
+                    : Json{};
+  const auto initial_state = transfer ? transfer_state(*model) : Json{};
+  if (!resume)
+    require_recipe(std::filesystem::create_directory(root),
+                   "Recipe run directory was created by another process");
   RunLock lock(root);
   const auto build = current_build_fingerprint();
   const auto build_json = parse_json(build_fingerprint_json(build));
@@ -963,6 +1098,7 @@ Result execute(const Arguments& arguments, bool resume) {
       {"numerics", numerics},
       {"sampling", sampling},
       {"recipe", config.at("recipe")}};
+  if (initial_input) contract["initialization"] = initialization;
   if (transfer) {
     contract["transfer"] = {
         {"descriptor", transfer->descriptor},
@@ -970,7 +1106,8 @@ Result execute(const Arguments& arguments, bool resume) {
         {"backbone_mode", config.at("backbone_mode")},
         {"batch_norm", config.at("batch_norm")},
         {"position_antialias", transfer->descriptor.at("position_antialias")},
-        {"head", "seeded linear with bias"},
+        {"head",
+         initial_input ? "complete initial state" : "seeded linear with bias"},
         {"dropout", "eval when frozen; follows mode when finetuning"}};
     if (uses_group_rates(config))
       contract["transfer"]["optimizer_groups"] = optimizer_group_plan(config);
@@ -991,12 +1128,17 @@ Result execute(const Arguments& arguments, bool resume) {
       require_recipe(parse_json(read_text(root / "weight-input.json")) ==
                          transfer->descriptor,
                      "Saved source weight descriptor has changed");
+    if (initial_input)
+      require_recipe(
+          parse_json(read_text(root / "initialization.json")) == initialization,
+          "Saved complete initialization evidence has changed");
   } else {
     write_json(root / "lineage.json", lineage);
     write_json(root / "config.json", config);
     write_json(root / "dataset.json", inputs.manifest);
     write_json(root / "build.json", build_json);
     if (transfer) write_json(root / "weight-input.json", transfer->descriptor);
+    if (initial_input) write_json(root / "initialization.json", initialization);
   }
   ex::SQLiteRunStore store(root / "run-store");
   if (!resume) {
@@ -1067,19 +1209,10 @@ Result execute(const Arguments& arguments, bool resume) {
     attach(store, root / "weight-input.json", "weight-input",
            "source_weight_contract", time, ex::RunArtifactKind::artifact,
            config.at("recipe").get<std::string>());
-
-  at::set_num_threads(1);
-  at::set_num_interop_threads(1);
-  at::globalContext().setDeterministicAlgorithms(true, false);
-  at::globalContext().setDeterministicCuDNN(true);
-  at::globalContext().setBenchmarkCuDNN(false);
-  at::globalContext().setAllowTF32CuDNN(false);
-  at::globalContext().setAllowTF32CuBLAS(false);
-  at::globalContext().setFloat32MatmulPrecision("highest");
-  require_recipe(!at::globalContext().allowTF32CuDNN() &&
-                     !at::globalContext().allowTF32CuBLAS(),
-                 "Recipe requires TF32 disabled for cuDNN and cuBLAS");
-  core::RngGuard rng(config.at("seed").get<std::uint64_t>(), device.is_cuda());
+  if (initial_input)
+    attach(store, root / "initialization.json", "initialization",
+           "complete_initial_state", time, ex::RunArtifactKind::artifact,
+           config.at("recipe").get<std::string>());
   image::ImageResourceBudgetLimits limits;
   const auto budget_bytes =
       config.at("image_budget_bytes").get<std::uint64_t>();
@@ -1098,14 +1231,6 @@ Result execute(const Arguments& arguments, bool resume) {
   auto validation_data =
       make_pipeline(config, inputs.validation, true, inputs.identity, device,
                     budget, transfer ? &*transfer : nullptr);
-  models::ModelOptions model_options;
-  model_options.resnet.num_classes =
-      static_cast<std::int64_t>(inputs.train.categories().size());
-  auto model = transfer ? make_transfer_model(*transfer, config,
-                                              model_options.resnet.num_classes)
-                        : std::make_shared<nn::ModelAdapter>(
-                              models::create_model("resnet18", model_options));
-  const auto initial_state = transfer ? transfer_state(*model) : Json{};
   auto optimizer = make_optimizer(config, *model);
   auto scheduler =
       make_scheduler(optimizer.adapter, config, inputs.total_steps);
@@ -1298,6 +1423,10 @@ Result execute(const Arguments& arguments, bool resume) {
     require_recipe(
         inspect_transfer_input(config).descriptor == transfer->descriptor,
         "Weight descriptor changed while training");
+  if (initial_input)
+    require_recipe(
+        file_digest(initial_input->path).hex == initial_input->digest.hex,
+        "Complete initial state changed while training");
   const auto optimization =
       uses_group_rates(config) || uses_update_schedule(config) ||
               has_optimization_details(config)
@@ -1350,6 +1479,7 @@ Result execute(const Arguments& arguments, bool resume) {
        sha256_hex({static_cast<const std::byte*>(next_cpu_rng.const_data_ptr()),
                    next_cpu_rng.nbytes()})},
       {"image_resource_payload", resources}};
+  if (initial_input) result["initialization"] = initialization;
   if (transfer) {
     result["transfer"] = {{"initial", initial_state},
                           {"final", final_transfer_state},
@@ -1392,11 +1522,16 @@ Result recipe_command(const Arguments& arguments) {
   recipe_support::require_recipe(
       !arguments.optional("name") || transfer_schema,
       "recipe schema accepts --name paired-affine or --name transfer");
-  if (action == "check" || action == "run" || action == "resume") {
+  if (action == "check" || action == "initialize" || action == "run" ||
+      action == "resume") {
     const auto config = parse_json(read_text(arguments.require("file")));
     if (config.is_object() &&
-        config.value("recipe", Json{}) == "jyppx.liuding.paired-affine/v1")
+        config.value("recipe", Json{}) == "jyppx.liuding.paired-affine/v1") {
+      if (action == "initialize")
+        throw NotImplemented(
+            "recipe initialize supports image and transfer recipes");
       return paired_recipe_command(arguments);
+    }
   }
 #if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
   if (action == "schema") {
@@ -1423,11 +1558,19 @@ Result recipe_command(const Arguments& arguments) {
       result["transfer"] = {{"descriptor", transfer.descriptor},
                             {"weight_input_sha256", transfer.input_identity}};
     }
+    if (const auto initial = inspect_recipe_initial_state(
+            config, inputs.manifest.at("classes"))) {
+      result["initial_state"] = initial->descriptor;
+      result["initial_state"]["validation"] =
+          "bytes and metadata only; initialize or run validates complete model "
+          "topology";
+    }
     return {result, 0};
   }
+  if (action == "initialize") return initialize(arguments);
   if (action == "run" || action == "resume")
     return execute(arguments, action == "resume");
-  usage("recipe", "Choose schema, check, run or resume.");
+  usage("recipe", "Choose schema, check, initialize, run or resume.");
 #else
   throw NotImplemented(
       "Image classification recipes require the models and data_image "

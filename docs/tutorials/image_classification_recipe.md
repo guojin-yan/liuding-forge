@@ -1,6 +1,6 @@
 # 用自己的图像训练 ResNet18
 
-本教程使用 ImageFolder 目录、JSON 配置和 `liuding-forge recipe` 命令完成 ResNet18 分类训练、验证集评估、保存检查点及独立进程续训。模型从随机参数开始，支持单设备 CPU 或显式 CUDA、FP32、SGD momentum 或 AdamW、可选梯度裁剪，以及逐 epoch StepLR 或逐成功更新的线性衰减；当前入口不加载预训练权重。
+本教程使用 ImageFolder 目录、JSON 配置和 `liuding-forge recipe` 命令完成 ResNet18 分类训练、验证集评估、保存检查点及独立进程续训。模型默认从随机参数开始，也可导出并严格复用完整初始状态，支持单设备 CPU 或显式 CUDA、FP32、SGD momentum 或 AdamW、可选梯度裁剪，以及逐 epoch StepLR 或逐成功更新的线性衰减。预训练骨干换头见[迁移学习教程](transfer_learning_recipe.md)。
 
 ## 1. 构建工具
 
@@ -122,6 +122,29 @@ liuding-forge recipe check --file my-resnet18.json --format json
 ```
 
 `adam_beta1` 和 `adam_beta2` 必须是 `[0,1)` 内的有限数，`adam_epsilon` 必须是有限正数；AdamW 使用解耦权重衰减且不启用 AMSGrad。`gradient_clip_norm` 对两种优化器均可选，必须是有限正数，按全体可训练参数的 L2 范数在更新前裁剪；省略时不裁剪。优化器种类、参数、裁剪阈值和调度方式参与恢复身份校验，修改后应创建新运行。显式选择优化器或裁剪时，暂停结果、`result.json` 和 bundle provenance 的 `optimization` 记录相同配置与实际学习率。示例数值仅说明配置方法，不保证任务质量或性能。
+
+### 3.3 固定完整初始模型
+
+需要让不同运行使用完全相同的参数和缓冲区时，先从完整配置导出零步初始模型。输出目录的父目录必须存在，目标目录必须尚未存在：
+
+```sh
+liuding-forge recipe initialize --file my-resnet18.json --root initial-model --format json
+```
+
+命令在 C++ 中构造 CPU 模型，输出 `initial-model/initial-state.safetensors` 与 `initial-model/initialization.json`，不创建优化器、训练检查点或 run-store，不执行前向、反向和训练更新。报告包含实际完整模型身份、类别顺序、构建身份、文件大小与 SHA-256；`global_step` 和 `optimizer_steps` 均为零。即使配置目标为 CUDA，初始文件仍是 CPU 上的 FP32 参数和 FP32/int64 缓冲区。
+
+从命令响应的 `data.artifact.sha256` 或输出报告的 `artifact.sha256` 取得完整摘要，将以下字段一起加入原配置；路径相对于配置文件解析，摘要必须是 64 位小写十六进制：
+
+```json
+{
+  "initial_state_file": "initial-model/initial-state.safetensors",
+  "initial_state_sha256": "REPLACE_WITH_INITIALIZATION_REPORT_SHA256"
+}
+```
+
+`recipe check` 预检文件字节和格式、配方、架构及有序类别元数据；`initialize`、`run` 和 `resume` 还会严格匹配模型的全部参数与缓冲区，不接受缺失键、多余键、形状变化、类型转换或部分导入。导入发生在优化器创建之前，完整输入缓冲随后释放。单文件仍受配方的 256 MiB 制品上限约束；这不是高容量模型的放宽入口。
+
+加入上述字段后，再执行 `recipe initialize` 到另一个新目录；即使改变 `seed`，重新导出的模型文件仍与输入逐字节一致。seed 仍控制采样及训练期 RNG，固定初始参数不保证不同设备的浮点运算或训练结果逐位相同。正常 `recipe run` 会将初始化来源和实际模型身份写入运行证据及 bundle；`resume` 会拒绝更换文件内容、摘要、配置或类别。该文件只提供零步模型状态，完整续训仍使用训练检查点。
 
 ## 4. 训练和评估
 

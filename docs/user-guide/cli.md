@@ -27,6 +27,8 @@ liuding-forge checkpoint verify --path checkpoint.jyck --format json
 
 ## 训练与恢复
 
+图像分类与迁移配方还支持 `recipe initialize --file image.local.json --root initial-model`，导出零步完整参数和缓冲区；输出目录必须是新目录。复用配置字段、摘要校验和训练恢复边界见[固定完整初始模型](../tutorials/image_classification_recipe.md#33-固定完整初始模型)，双输入配方暂不提供此命令。
+
 ```sh
 liuding-forge data prepare --name paired-affine --data-root /path/to/datasets --format json
 liuding-forge data prepare --name fashion-mnist --source-dir /path/to/fashion-mnist-source --data-root /path/to/datasets --selection first100-per-class --format json
