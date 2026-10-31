@@ -943,12 +943,25 @@ Result execute(const Arguments& arguments, bool resume) {
                       {"float32_matmul_precision", "highest"},
                       {"intraop_threads", 1},
                       {"interop_threads", 1}};
+  const auto sampler_seed = config.at("seed").get<std::int64_t>();
+  const Json sampling{
+      {"algorithm", data::samplers::RandomSampler::algorithm_id()},
+      {"seed", sampler_seed},
+      {"epoch_state", "uint64(seed + epoch) modulo 2^64"},
+      {"train_sampler", data::samplers::RandomSampler(
+                            inputs.train.records().size(), sampler_seed)
+                            .configuration_identity()},
+      {"validation_sampler",
+       data::samplers::RandomSampler(inputs.validation.records().size(),
+                                     sampler_seed)
+           .configuration_identity()}};
   Json contract{
       {"architecture", transfer ? config.at("model") : Json("resnet18")},
       {"num_classes", inputs.train.categories().size()},
       {"state_names", "parameter.<name>,buffer.<name>"},
       {"dtype", "float32"},
       {"numerics", numerics},
+      {"sampling", sampling},
       {"recipe", config.at("recipe")}};
   if (transfer) {
     contract["transfer"] = {
@@ -1327,6 +1340,7 @@ Result execute(const Arguments& arguments, bool resume) {
       {"quality_passed", passed},
       {"model_sha256", model_hash.hex},
       {"numerics", numerics},
+      {"sampling", sampling},
       {"lineage", lineage},
       {"bundle", bundle},
       {"next_rng_sha256",

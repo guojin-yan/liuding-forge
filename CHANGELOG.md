@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- `RandomSampler` 改用版本明确的可移植整数排列算法，固定 seed/epoch 时不再受 Windows/Linux 标准库差异影响；ImageFolder 与迁移配方记录采样来源，检查点明确拒绝旧算法状态。
+
 - ImageFolder 分类与迁移学习配方增加显式 AdamW、可选全局 L2 梯度裁剪和按成功更新线性降至零的学习率调度；优化器、参数组与调度状态随完整检查点恢复。
 
 - ONNX Runtime 的普通推理和仅带取消令牌的调用省去未使用的截止计时等待对象；带截止时间的调用仍独立回收计时线程。

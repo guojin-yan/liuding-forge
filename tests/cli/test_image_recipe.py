@@ -156,6 +156,13 @@ class ImageRecipe(unittest.TestCase):
             self.assertEqual(result["validation_samples"], 8)
             self.assertGreaterEqual(result["accuracy"], 0.875)
             self.assertTrue(result["quality_passed"])
+            self.assertEqual(result["sampling"], {
+                "algorithm": "splitmix64-fisher-yates-rejection/v1",
+                "seed": self.config["seed"],
+                "epoch_state": "uint64(seed + epoch) modulo 2^64",
+                "train_sampler": "jyppx.sampler.random/v2:algorithm=splitmix64-fisher-yates-rejection/v1:size=16",
+                "validation_sampler": "jyppx.sampler.random/v2:algorithm=splitmix64-fisher-yates-rejection/v1:size=8",
+            })
             self.assertEqual(result["numerics"], {
                 "deterministic_algorithms": True, "cudnn_benchmark": False,
                 "tf32_cudnn": False, "tf32_cublas": False,
@@ -163,7 +170,7 @@ class ImageRecipe(unittest.TestCase):
                 "intraop_threads": 1, "interop_threads": 1,
             })
         for name in ("model_sha256", "next_rng_sha256", "next_cpu_rng_sha256",
-                     "training_metrics", "validation_metrics", "accuracy", "confusion"):
+                     "training_metrics", "validation_metrics", "accuracy", "confusion", "sampling"):
             self.assertEqual(self.continuous[name], self.resumed[name], name)
         for name in ("model.safetensors",):
             self.assertEqual((self.baseline / name).read_bytes(), (self.recovered / name).read_bytes())
@@ -171,7 +178,7 @@ class ImageRecipe(unittest.TestCase):
             (self.recovered / "model.safetensors").read_bytes()).hexdigest())
         for name in ("model_sha256", "next_rng_sha256", "next_cpu_rng_sha256",
                      "training_metrics", "validation_metrics", "accuracy", "confusion",
-                     "global_step", "optimizer_steps", "scheduler_steps", "completed_epochs"):
+                     "global_step", "optimizer_steps", "scheduler_steps", "completed_epochs", "sampling"):
             self.assertEqual(self.continuous[name], self.after_crash[name], "process kill: " + name)
         snapshots = {}
         for name, manifest in self.checkpoints.items():
@@ -200,6 +207,8 @@ class ImageRecipe(unittest.TestCase):
             content = (self.recovered / "bundle" / item["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(content).hexdigest(), item["artifact"]["digest"]["hex"])
         self.assertFalse(self.resumed["bundle"]["transitive_sbom_complete"])
+        provenance = json.loads((self.recovered / "bundle/metadata/provenance.json").read_text(encoding="utf-8"))
+        self.assertEqual(provenance["model"]["sampling"], self.resumed["sampling"])
 
     def test_03_schema_is_shared_with_config_resolver_and_unknown_fields_fail(self) -> None:
         for arguments in (("recipe",), ("recipe", "schema", "extra"), ("recipe", "unknown")):

@@ -232,7 +232,9 @@ class Sampler { public:
 class SequentialSampler : public Sampler;                       // 0..n-1 class RandomSampler : public Sampler;                           // seeded permutation class BatchSampler : public Sampler;                            // flattens + counts batches class WeightedRandomSampler : public Sampler;                   // weights, replacement opt. class SubsetRandomSampler : public Sampler;                     // permuted index subset class DistributedSampler : public Sampler;                      // rank/world_size sharding
 ```
 
-`RandomSampler(size, seed)` produces a fresh permutation each call (deterministic across loaders when a seed is given). `BatchSampler(base, batch_size, drop_last)` reports the number of batches via `size()`.
+`RandomSampler(size, seed)` 每次返回覆盖全部索引的随机排列。默认算法为 `splitmix64-fisher-yates-rejection/v1`：64 位无符号 SplitMix64、从后向前的 Fisher–Yates，以及拒绝取模偏差的有界采样；不依赖标准库的 `std::shuffle` 或 distribution。同一 population、seed、epoch 和调用顺序在不同标准库上产生相同索引；`set_epoch(e)` 将状态重置为 `uint64(seed) + e`，按 2⁶⁴ 取模。未传 seed 时使用系统随机源，并在状态中保存实际 base seed。该保证不包含不同设备或平台上的浮点训练结果。
+
+`RandomSampler::algorithm_id()` 返回算法版本，`configuration_identity()` 同时包含算法和 population。`save_state()` 使用 `JYPPX-RANDOM-SAMPLER/v2`、population、base seed 和当前 64 位状态四行 ASCII（LF 分隔，无结尾换行）；`load_state()` 在完整验证后才修改实例，拒绝不同 population、非规范数值和旧 `std::shuffle` v1 状态。旧运行需要原版本继续恢复，新算法使用新的运行目录。该可移植保证仅适用于 `RandomSampler`，不自动扩展到 weighted、subset 或 distributed sampler。`BatchSampler(base, batch_size, drop_last)` 通过 `size()` 返回批次数。
 
 `WeightedRandomSampler(weights, num_samples, replacement, seed)` draws indices with probability proportional to `weights`. `DistributedSampler(size, rank, world_size, shuffle, seed, drop_last)` shards the epoch across ranks (padding to even counts unless `drop_last`); call `set_epoch()` once per epoch to reshuffle. Pass `rank` and `world_size` explicitly from the external launcher or job configuration. v1.0 does not publish a process-group API.
 

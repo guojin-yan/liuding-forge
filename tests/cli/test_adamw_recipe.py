@@ -235,7 +235,7 @@ class Recovery(Case):
         participants = (set(fixture.PARTICIPANTS) - {"recipe.sgd"}) | {"recipe.adamw"}
         fields = ("model_sha256", "next_rng_sha256", "next_cpu_rng_sha256", "training_metrics",
             "validation_metrics", "accuracy", "confusion", "global_step", "optimizer_steps",
-            "scheduler_steps", "completed_epochs", "optimization")
+            "scheduler_steps", "completed_epochs", "optimization", "sampling")
         for name in self.roots:
             result = self.results[name]
             self.assertTrue(result["quality_passed"])
@@ -402,7 +402,7 @@ class TransferRecovery(Case):
                 continuous, resumed = case["results"]["continuous"], case["results"]["resumed"]
                 for field in ("model_sha256", "next_rng_sha256", "next_cpu_rng_sha256", "accuracy",
                               "confusion", "training_metrics", "validation_metrics", "optimization",
-                              "global_step", "optimizer_steps", "scheduler_steps", "completed_epochs", "transfer"):
+                              "global_step", "optimizer_steps", "scheduler_steps", "completed_epochs", "transfer", "sampling"):
                     self.assertEqual(continuous[field], resumed[field], field)
                 baseline = case["saved"]["continuous"]["manifest"]["participants"]
                 self.assertEqual({item["state"]["participant_id"] for item in baseline}, participants)
@@ -418,6 +418,7 @@ class TransferRecovery(Case):
                 self.invoke("model", "bundle", "verify", "--path", root / "bundle")
                 provenance = json.loads((root / "bundle/metadata/provenance.json").read_text(encoding="utf-8"))
                 self.assertEqual(provenance["optimization"], resumed["optimization"])
+                self.assertEqual(provenance["model"]["sampling"], resumed["sampling"])
                 save(mode + "-provenance", provenance)
 
 

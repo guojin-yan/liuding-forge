@@ -13,6 +13,7 @@
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #include <jyppx/liuding/data/samplers/weighted_random_sampler.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -69,6 +70,110 @@ TEST(RandomSamplerTest, UnseededCallsVary) {
   const auto second = sampler.indices();
   // Two draws from an unseeded generator are virtually never identical.
   EXPECT_NE(first, second);
+}
+
+TEST(RandomSamplerTest, MatchesIndependentPortableGoldenVectors) {
+  // Frozen independent integer reference; these are identical on
+  // MSVC/libstdc++.
+  samplers::RandomSampler sampler(10, 7);
+  EXPECT_EQ(samplers::RandomSampler::algorithm_id(),
+            "splitmix64-fisher-yates-rejection/v1");
+  EXPECT_EQ(sampler.configuration_identity(),
+            "jyppx.sampler.random/v2:algorithm="
+            "splitmix64-fisher-yates-rejection/v1:size=10");
+  EXPECT_EQ(sampler.indices(),
+            (std::vector<size_t>{8, 1, 5, 9, 0, 4, 3, 2, 6, 7}));
+  EXPECT_EQ(sampler.save_state(),
+            "JYPPX-RANDOM-SAMPLER/v2\n10\n7\n10372713005361028292");
+  EXPECT_EQ(sampler.indices(),
+            (std::vector<size_t>{3, 2, 8, 9, 0, 7, 6, 4, 1, 5}));
+  sampler.set_epoch(1);
+  EXPECT_EQ(sampler.indices(),
+            (std::vector<size_t>{5, 7, 0, 3, 6, 4, 8, 1, 9, 2}));
+  sampler.set_epoch(std::numeric_limits<std::uint64_t>::max());
+  EXPECT_EQ(sampler.indices(),
+            (std::vector<size_t>{9, 7, 8, 4, 0, 3, 1, 6, 5, 2}));
+}
+
+TEST(RandomSamplerTest, DefinesSignedSeedAndEpochWrap) {
+  samplers::RandomSampler sampler(10, -1);
+  EXPECT_EQ(sampler.indices(),
+            (std::vector<size_t>{3, 4, 2, 7, 5, 0, 8, 1, 9, 6}));
+  sampler.set_epoch(1);
+  EXPECT_EQ(sampler.indices(),
+            (std::vector<size_t>{6, 3, 2, 9, 8, 1, 4, 7, 0, 5}));
+  sampler.set_epoch(1);
+  EXPECT_EQ(sampler.indices(), samplers::RandomSampler(10, 0).indices());
+}
+
+TEST(RandomSamplerTest, MatchesFullEpochOrderReferenceDigests) {
+  // SHA-256 of decimal indices joined with commas, independently frozen.
+  const std::string expected[] = {
+      "65382656f547a74b06eb3ba45d2fd03fd38c9409721ca9c233141006f19a1874",
+      "076656a26406241031176feb473cdbd6892842b9dbafe52bdaba8d599036c2d3",
+      "c0d083b5d8b5195a49e151178b8b2f02641e091e1522867d70468e16d9adf413"};
+  samplers::RandomSampler sampler(1000, 20261029);
+  for (std::uint64_t epoch = 0; epoch < 3; ++epoch) {
+    sampler.set_epoch(epoch);
+    std::string csv;
+    for (const auto index : sampler.indices()) {
+      if (!csv.empty()) csv += ',';
+      csv += std::to_string(index);
+    }
+    EXPECT_EQ(jyppx::liuding::sha256_hex(
+                  {reinterpret_cast<const std::byte*>(csv.data()), csv.size()}),
+              expected[epoch]);
+  }
+}
+
+TEST(RandomSamplerTest, RejectsBiasedWordBeforeBoundedSelection) {
+  // This seed's first output is zero. Bound 3 must reject it (2^64 mod 3 = 1).
+  const samplers::RandomSampler sampler(3, INT64_C(7046029254386353131));
+  EXPECT_EQ(sampler.indices(), (std::vector<size_t>{2, 0, 1}));
+  EXPECT_EQ(
+      sampler.save_state(),
+      "JYPPX-RANDOM-SAMPLER/v2\n3\n7046029254386353131\n4354685564936845354");
+}
+
+TEST(RandomSamplerTest, RestoresPortableStateAndFutureEpochSeed) {
+  samplers::RandomSampler sampler(10, 999);
+  // This canonical byte string is equally consumable on both platforms.
+  sampler.load_state("JYPPX-RANDOM-SAMPLER/v2\n10\n7\n10372713005361028292");
+  EXPECT_EQ(sampler.indices(),
+            (std::vector<size_t>{3, 2, 8, 9, 0, 7, 6, 4, 1, 5}));
+  sampler.set_epoch(1);
+  EXPECT_EQ(sampler.indices(),
+            (std::vector<size_t>{5, 7, 0, 3, 6, 4, 8, 1, 9, 2}));
+}
+
+TEST(RandomSamplerTest, RejectsInvalidOrRetiredStateWithoutMutation) {
+  samplers::RandomSampler sampler(10, 7);
+  (void)sampler.indices();
+  const auto initial_state = sampler.save_state();
+  for (const std::string state :
+       {"", "JYPPX-RANDOM-SAMPLER/v1\n7\n0",
+        "JYPPX-RANDOM-SAMPLER/v3\n10\n7\n0",
+        "JYPPX-RANDOM-SAMPLER/v2\n11\n7\n0",
+        "JYPPX-RANDOM-SAMPLER/v2\n10\n-1\n0",
+        "JYPPX-RANDOM-SAMPLER/v2\n10\n+7\n0",
+        "JYPPX-RANDOM-SAMPLER/v2\n010\n7\n0",
+        "JYPPX-RANDOM-SAMPLER/v2\n10\n7\n18446744073709551616",
+        "JYPPX-RANDOM-SAMPLER/v2\n10\n7\n",
+        "JYPPX-RANDOM-SAMPLER/v2\n10\n7\n0\n",
+        "JYPPX-RANDOM-SAMPLER/v2\n10\n7\n0 trailing",
+        "JYPPX-RANDOM-SAMPLER/v2\n10\r\n7\n0"}) {
+    SCOPED_TRACE(state);
+    EXPECT_THROW(sampler.load_state(state), jyppx::liuding::SerializationError);
+    EXPECT_EQ(sampler.save_state(), initial_state);
+  }
+}
+
+TEST(RandomSamplerTest, SingletonConsumesNoRandomWordsAndEmptyIsRejected) {
+  const samplers::RandomSampler sampler(1, 7);
+  const auto state = sampler.save_state();
+  EXPECT_EQ(sampler.indices(), (std::vector<size_t>{0}));
+  EXPECT_EQ(sampler.save_state(), state);
+  EXPECT_THROW(samplers::RandomSampler(0, 7), jyppx::liuding::InvalidArgument);
 }
 
 TEST(BatchSamplerTest, SplitsIntoFullBatchesAndRemainder) {

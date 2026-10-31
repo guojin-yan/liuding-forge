@@ -162,6 +162,8 @@ liuding-forge recipe resume --file my-resnet18.json --root runs/resumable --form
 
 恢复覆盖模型参数和 buffer、所选优化器的状态、完整学习率调度器树、Trainer、训练与验证数据游标、采样器、CPU/选定 CUDA RNG、回调游标和诊断统计。当前学习率、SGD momentum 或 AdamW 一阶/二阶矩与步数、预热或衰减阶段及调度计数一起恢复，不会重新预热或多推进一步。新的 `pause-after` 可以继续分段运行。异常终止后，已有 `latest.jyck` 时也可从该检查点重做尚未持久化的工作；尚未发布首个检查点时不能恢复。
 
+配方使用可移植、带版本的 `RandomSampler`，并在结果的 `sampling` 和模型包来源中保存算法、seed 与训练/验证 sampler 身份。同一数据顺序、seed 和 epoch 在 Windows/Linux 上使用相同排列；跨平台比较还需冻结完整初始参数、预处理和数值策略，不能仅凭相同 seed 推断训练结果相同。旧 `std::shuffle` v1 采样状态不接受为当前算法续训，已有运行应使用原版本恢复。算法及状态契约见[数据 API](../api/data.md#samplers)。
+
 恢复要求有效配置、类别表、全部图片内容和构建身份一致，包括 seed、设备、线程策略、训练预算及全部学习率调度字段。若需要改配置，创建新的输出目录重新训练。暂停的 CLI 结果为 `paused`，run-store 中仍保留同一条 `running` 的未完成逻辑运行；不要在计划续训时将它标为终态。已经通过 `run recover` 等命令标为 `interrupted` 的终态不接受原运行续训。完成后的同配置 `resume` 校验结果与 bundle 后返回既有结果，不重复训练；`run` 始终拒绝覆盖既有目录。同一输出目录同时只允许一个配方进程，操作系统会在进程退出时释放锁。
 
 ```sh

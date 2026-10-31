@@ -14,6 +14,7 @@
 #elif defined(JYPPX_CONSUMER_INTEROP)
 #include <jyppx/liuding/interop/checkpoint_manifest.hpp>
 #elif defined(JYPPX_CONSUMER_DATA)
+#include <jyppx/liuding/data/samplers/random_sampler.hpp>
 #include <jyppx/liuding/data/samplers/sequential_sampler.hpp>
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
 #include <jyppx/liuding/data/data_pipeline.hpp>
@@ -186,7 +187,16 @@ int main() {
 #elif defined(JYPPX_CONSUMER_DATA)
   const auto indices =
       jyppx::liuding::data::samplers::SequentialSampler(3).indices();
-  return indices == std::vector<std::size_t>({0, 1, 2}) ? 0 : 1;
+  using jyppx::liuding::data::samplers::RandomSampler;
+  RandomSampler sampler(10, 999);
+  sampler.load_state("JYPPX-RANDOM-SAMPLER/v2\n10\n7\n10372713005361028292");
+  return indices == std::vector<std::size_t>({0, 1, 2}) &&
+                 RandomSampler::algorithm_id() ==
+                     "splitmix64-fisher-yates-rejection/v1" &&
+                 sampler.indices() ==
+                     std::vector<std::size_t>({3, 2, 8, 9, 0, 7, 6, 4, 1, 5})
+             ? 0
+             : 1;
 #elif defined(JYPPX_CONSUMER_DATA_IMAGE)
   const auto metadata =
       jyppx::liuding::data::image::parse_yolo_dataset_yaml("names: [cat]");
