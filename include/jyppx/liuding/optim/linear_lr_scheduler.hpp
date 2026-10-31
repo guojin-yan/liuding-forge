@@ -31,6 +31,9 @@ struct LinearLrSchedulerOptions {
   double end_factor = 1.0;  ///< Positive factor reached at total_iters.
   std::uint64_t total_iters =
       5;  ///< Number of events before the end factor is held.
+  SchedulerStepMode step_mode =
+      SchedulerStepMode::epoch;  ///< Epoch or successful optimizer update
+                                 ///< (batch).
 };
 
 /**
@@ -100,6 +103,9 @@ struct ConstantLrSchedulerOptions {
   double factor = 1.0 / 3.0;  ///< Positive factor used during the prefix.
   std::uint64_t total_iters =
       5;  ///< Number of events before restoring the base rates.
+  SchedulerStepMode step_mode =
+      SchedulerStepMode::epoch;  ///< Epoch or successful optimizer update
+                                 ///< (batch).
 };
 
 /**
@@ -168,6 +174,9 @@ struct PolynomialLrSchedulerOptions {
   std::uint64_t total_iters =
       5;               ///< Positive number of events in the decay interval.
   double power = 1.0;  ///< Finite non-negative polynomial exponent.
+  SchedulerStepMode step_mode =
+      SchedulerStepMode::epoch;  ///< Epoch or successful optimizer update
+                                 ///< (batch).
 };
 
 /**
@@ -238,6 +247,9 @@ struct WarmupLrSchedulerOptions {
   std::uint64_t warmup_iters =
       1;  ///< Positive number of events reaching the base rates.
   double start_factor = 0.001;  ///< Positive construction-time warmup factor.
+  SchedulerStepMode step_mode =
+      SchedulerStepMode::epoch;  ///< Epoch or successful optimizer update
+                                 ///< (batch).
 };
 
 /**

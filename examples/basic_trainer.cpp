@@ -62,6 +62,12 @@ jyppx::liuding::training::FitRequest make_request(
       std::make_shared<jyppx::liuding::nn::ModelCheckpointParticipant>(*model);
   auto optimizer_checkpoint = std::make_shared<
       jyppx::liuding::optim::SgdOptimizerCheckpointParticipant>(optimizer);
+  auto warmup = std::make_shared<jyppx::liuding::optim::WarmupLrScheduler>(
+      optimizer,
+      jyppx::liuding::optim::WarmupLrSchedulerOptions{
+          .warmup_iters = 2,
+          .start_factor = 0.2,
+          .step_mode = jyppx::liuding::optim::SchedulerStepMode::batch});
   auto rng_checkpoint =
       std::make_shared<jyppx::liuding::core::RngCheckpointParticipant>(
           jyppx::liuding::core::RngCheckpointParticipantOptions{.include_cuda =
@@ -82,20 +88,23 @@ jyppx::liuding::training::FitRequest make_request(
         .loss = (prediction - target).pow(2).mean(),
         .sample_count = input.batch.sample_ids.size()};
   };
-  return {.model = model,
-          .optimizers = {{.optimizer = optimizer,
-                          .checkpoint = std::move(optimizer_checkpoint)}},
-          .training_data = training_data,
-          .training_batch_mapper = mapper,
-          .training_target_mapper = targets,
-          .training_step = step,
-          .validation_data = validation_data,
-          .validation_batch_mapper = mapper,
-          .validation_target_mapper = targets,
-          .validation_step = step,
-          .strategy = std::move(strategy),
-          .model_checkpoint = std::move(model_checkpoint),
-          .rng_checkpoint = std::move(rng_checkpoint)};
+  return {
+      .model = model,
+      .optimizers = {{.optimizer = optimizer,
+                      .checkpoint = std::move(optimizer_checkpoint),
+                      .scheduler = std::make_shared<
+                          jyppx::liuding::training::SchedulerAdapter>(warmup)}},
+      .training_data = training_data,
+      .training_batch_mapper = mapper,
+      .training_target_mapper = targets,
+      .training_step = step,
+      .validation_data = validation_data,
+      .validation_batch_mapper = mapper,
+      .validation_target_mapper = targets,
+      .validation_step = step,
+      .strategy = std::move(strategy),
+      .model_checkpoint = std::move(model_checkpoint),
+      .rng_checkpoint = std::move(rng_checkpoint)};
 }
 
 }  // namespace
@@ -131,7 +140,9 @@ int main() {
     trainer.prepare(make_request(model, optimizer, train, validation));
     const auto result = trainer.fit();
     std::cout << "status=" << static_cast<int>(result.status)
-              << " global_step=" << result.global_step << '\n';
+              << " global_step=" << result.global_step
+              << " learning_rate=" << optimizer->learning_rates().front()
+              << '\n';
     trainer.close();
     return 0;
   } catch (const std::exception& error) {

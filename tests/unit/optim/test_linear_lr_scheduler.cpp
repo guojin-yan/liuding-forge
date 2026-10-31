@@ -6,6 +6,7 @@
 // you may not use this file except in compliance with the License.
 
 #include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/optim/composite_lr_scheduler.hpp>
 #include <jyppx/liuding/optim/linear_lr_scheduler.hpp>
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 
@@ -133,6 +134,8 @@ TEST(LinearFamilySchedulerTest, PublishesTypedDescriptorsAndConstructionRates) {
                          .warmup_iters = 4,
                          .start_factor = 0.2});
   EXPECT_EQ(warmup.descriptor().type_id, "jyppx.scheduler.warmup_lr/v1");
+  EXPECT_EQ(warmup.descriptor().step_mode,
+            jyppx::liuding::optim::SchedulerStepMode::epoch);
   EXPECT_NEAR(warmup.learning_rates()[0], 0.04, 1e-14);
   EXPECT_NEAR(warmup.learning_rates()[1], 0.01, 1e-14);
 }
@@ -403,6 +406,136 @@ TEST(LinearFamilySchedulerCheckpointTest,
     EXPECT_NEAR(constant_target->learning_rates().back(), expected_rate / 4.0,
                 1e-14);
   }
+}
+
+std::shared_ptr<jyppx::liuding::optim::LrScheduler> make_update_scheduler(
+    const std::shared_ptr<jyppx::liuding::optim::SgdOptimizerAdapter>&
+        optimizer,
+    int family, jyppx::liuding::optim::SchedulerStepMode mode) {
+  namespace opt = jyppx::liuding::optim;
+  switch (family) {
+    case 0:
+      return std::make_shared<opt::WarmupLrScheduler>(
+          optimizer,
+          opt::WarmupLrSchedulerOptions{
+              .warmup_iters = 4, .start_factor = 0.2, .step_mode = mode});
+    case 1:
+      return std::make_shared<opt::LinearLrScheduler>(
+          optimizer,
+          opt::LinearLrSchedulerOptions{
+              .start_factor = 0.2, .total_iters = 4, .step_mode = mode});
+    case 2:
+      return std::make_shared<opt::ConstantLrScheduler>(
+          optimizer, opt::ConstantLrSchedulerOptions{
+                         .factor = 0.2, .total_iters = 4, .step_mode = mode});
+    default:
+      return std::make_shared<opt::PolynomialLrScheduler>(
+          optimizer, opt::PolynomialLrSchedulerOptions{
+                         .total_iters = 4, .power = 2.0, .step_mode = mode});
+  }
+}
+
+TEST(LinearFamilySchedulerTest,
+     RejectsUnsupportedEventModesBeforeRateMutation) {
+  namespace opt = jyppx::liuding::optim;
+  auto optimizer = make_optimizer();
+  const auto before = optimizer->learning_rates();
+  for (int family = 0; family < 4; ++family) {
+    for (const auto mode :
+         {opt::SchedulerStepMode::manual, opt::SchedulerStepMode::metric,
+          static_cast<opt::SchedulerStepMode>(255)}) {
+      SCOPED_TRACE(family);
+      EXPECT_THROW(make_update_scheduler(optimizer, family, mode),
+                   jyppx::liuding::InvalidArgument);
+      EXPECT_EQ(optimizer->learning_rates(), before);
+    }
+  }
+}
+
+TEST(LinearFamilySchedulerCheckpointTest,
+     UpdateModeRestoresGroupsAndRejectsChangedEventMode) {
+  namespace opt = jyppx::liuding::optim;
+  for (int family = 0; family < 4; ++family) {
+    SCOPED_TRACE(family);
+    auto source = make_update_scheduler(make_optimizer(), family,
+                                        opt::SchedulerStepMode::batch);
+    source->step();
+    source->step();
+    opt::LrSchedulerCheckpointParticipant participant(source);
+    const auto store = save_state(participant);
+    auto restored = make_update_scheduler(make_optimizer(), family,
+                                          opt::SchedulerStepMode::batch);
+    opt::LrSchedulerCheckpointParticipant target(restored);
+    target.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+    EXPECT_EQ(save_state(target).blobs(), store.blobs());
+    EXPECT_EQ(restored->descriptor().step_mode, opt::SchedulerStepMode::batch);
+    auto epoch = make_update_scheduler(make_optimizer(), family,
+                                       opt::SchedulerStepMode::epoch);
+    opt::LrSchedulerCheckpointParticipant wrong_mode(epoch);
+    const auto before = save_state(wrong_mode).blobs();
+    EXPECT_THROW(
+        wrong_mode.load_state(store, jyppx::liuding::RestorePolicy::exact_only),
+        jyppx::liuding::CompatibilityError);
+    EXPECT_EQ(save_state(wrong_mode).blobs(), before);
+    for (int step = 0; step < 4; ++step) {
+      source->step();
+      restored->step();
+      EXPECT_EQ(restored->learning_rates(), source->learning_rates());
+      EXPECT_EQ(restored->completed_steps(), source->completed_steps());
+      EXPECT_NEAR(restored->learning_rates()[0],
+                  4.0 * restored->learning_rates()[1], 1e-14);
+    }
+  }
+}
+
+TEST(LinearFamilySchedulerTest, UpdateWarmupComposesWithPolynomialAndRestores) {
+  namespace opt = jyppx::liuding::optim;
+  const auto create = [] {
+    auto optimizer = make_optimizer();
+    // Capture decay base rates before warmup applies its construction factor.
+    auto decay = std::make_unique<opt::PolynomialLrScheduler>(
+        optimizer,
+        opt::PolynomialLrSchedulerOptions{
+            .total_iters = 2, .step_mode = opt::SchedulerStepMode::batch});
+    auto warmup = std::make_unique<opt::WarmupLrScheduler>(
+        optimizer, opt::WarmupLrSchedulerOptions{
+                       .warmup_iters = 2,
+                       .start_factor = 0.2,
+                       .step_mode = opt::SchedulerStepMode::batch});
+    std::vector<std::unique_ptr<opt::LrScheduler>> children;
+    children.push_back(std::move(warmup));
+    children.push_back(std::move(decay));
+    return std::make_shared<opt::SequentialLrScheduler>(
+        optimizer, std::move(children),
+        opt::SequentialLrSchedulerOptions{.milestones = {2}});
+  };
+  auto source = create();
+  EXPECT_EQ(source->descriptor().step_mode, opt::SchedulerStepMode::batch);
+  source->step();
+  EXPECT_NEAR(source->learning_rates()[0], 0.12, 1e-14);
+  opt::LrSchedulerCheckpointParticipant participant(source);
+  const auto store = save_state(participant);
+  auto restored = create();
+  opt::LrSchedulerCheckpointParticipant target(restored);
+  target.load_state(store, jyppx::liuding::RestorePolicy::exact_only);
+  for (const double expected : {0.2, 0.1, 0.0, 0.0}) {
+    source->step();
+    restored->step();
+    EXPECT_EQ(restored->learning_rates(), source->learning_rates());
+    EXPECT_NEAR(restored->learning_rates()[0], expected, 1e-14);
+    EXPECT_NEAR(restored->learning_rates()[1], expected / 4.0, 1e-14);
+  }
+  auto optimizer = make_optimizer();
+  std::vector<std::unique_ptr<opt::LrScheduler>> mixed;
+  mixed.push_back(std::make_unique<opt::WarmupLrScheduler>(
+      optimizer, opt::WarmupLrSchedulerOptions{
+                     .step_mode = opt::SchedulerStepMode::batch}));
+  mixed.push_back(std::make_unique<opt::PolynomialLrScheduler>(optimizer));
+  const auto before = optimizer->learning_rates();
+  EXPECT_THROW(opt::SequentialLrScheduler(optimizer, std::move(mixed),
+                                          {.milestones = {1}}),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_EQ(optimizer->learning_rates(), before);
 }
 
 }  // namespace

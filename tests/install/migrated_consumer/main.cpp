@@ -594,11 +594,17 @@ int main() {
        .event_index = 1});
   auto installed_linear_scheduler =
       std::make_shared<jyppx::liuding::optim::WarmupLrScheduler>(
-          installed_optimizer, jyppx::liuding::optim::WarmupLrSchedulerOptions{
-                                   .scheduler_id = "scheduler.warmup",
-                                   .warmup_iters = 2,
-                                   .start_factor = 0.5});
-  installed_linear_scheduler->step();
+          installed_optimizer,
+          jyppx::liuding::optim::WarmupLrSchedulerOptions{
+              .scheduler_id = "scheduler.warmup",
+              .warmup_iters = 2,
+              .start_factor = 0.5,
+              .step_mode = jyppx::liuding::optim::SchedulerStepMode::batch});
+  jyppx::liuding::training::SchedulerAdapter installed_warmup_adapter(
+      installed_linear_scheduler);
+  installed_warmup_adapter.step(
+      {.trigger = jyppx::liuding::optim::SchedulerStepMode::batch,
+       .event_index = 1});
   jyppx::liuding::optim::LrSchedulerCheckpointParticipant
       installed_linear_scheduler_participant(installed_linear_scheduler);
   auto installed_event_scheduler =
@@ -643,6 +649,8 @@ int main() {
       installed_linear_scheduler_participant.describe_state().fields.size() ==
           2 &&
       installed_linear_scheduler->completed_steps() == 1 &&
+      installed_warmup_adapter.mode() ==
+          jyppx::liuding::optim::SchedulerStepMode::batch &&
       installed_event_scheduler_participant.describe_state().schema_version ==
           3 &&
       installed_event_scheduler->completed_steps() == 1 &&

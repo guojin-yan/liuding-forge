@@ -64,6 +64,15 @@ void validate_positive_factor(std::string_view name, double value) {
   }
 }
 
+SchedulerStepMode validate_step_mode(SchedulerStepMode mode) {
+  if (mode != SchedulerStepMode::epoch && mode != SchedulerStepMode::batch) {
+    throw_invalid("step_mode", "epoch or batch",
+                  std::string(scheduler_step_mode_name(mode)),
+                  "Select completed epochs or successful optimizer updates.");
+  }
+  return mode;
+}
+
 void validate_non_negative_power(double value) {
   if (!std::isfinite(value) || value < 0.0) {
     throw_invalid("power", "a finite non-negative exponent",
@@ -180,7 +189,7 @@ LinearLrScheduler::LinearLrScheduler(
   validate_positive_factor("end_factor", options_.end_factor);
   const auto total_iters =
       descriptor_iters(options_.total_iters, "total_iters");
-  configure_descriptor(kLinearTypeId, SchedulerStepMode::epoch,
+  configure_descriptor(kLinearTypeId, validate_step_mode(options_.step_mode),
                        {{"base_learning_rates", base_learning_rates()},
                         {"end_factor", options_.end_factor},
                         {"start_factor", options_.start_factor},
@@ -235,7 +244,7 @@ ConstantLrScheduler::ConstantLrScheduler(
   validate_positive_factor("factor", options_.factor);
   const auto total_iters =
       descriptor_iters(options_.total_iters, "total_iters");
-  configure_descriptor(kConstantTypeId, SchedulerStepMode::epoch,
+  configure_descriptor(kConstantTypeId, validate_step_mode(options_.step_mode),
                        {{"base_learning_rates", base_learning_rates()},
                         {"factor", options_.factor},
                         {"total_iters", total_iters}});
@@ -292,7 +301,8 @@ PolynomialLrScheduler::PolynomialLrScheduler(
   const auto total_iters =
       descriptor_iters(options_.total_iters, "total_iters");
   validate_non_negative_power(options_.power);
-  configure_descriptor(kPolynomialTypeId, SchedulerStepMode::epoch,
+  configure_descriptor(kPolynomialTypeId,
+                       validate_step_mode(options_.step_mode),
                        {{"base_learning_rates", base_learning_rates()},
                         {"power", options_.power},
                         {"total_iters", total_iters}});
@@ -342,7 +352,7 @@ WarmupLrScheduler::WarmupLrScheduler(
   const auto warmup_iters =
       descriptor_iters(options_.warmup_iters, "warmup_iters");
   validate_positive_factor("start_factor", options_.start_factor);
-  configure_descriptor(kWarmupTypeId, SchedulerStepMode::epoch,
+  configure_descriptor(kWarmupTypeId, validate_step_mode(options_.step_mode),
                        {{"base_learning_rates", base_learning_rates()},
                         {"start_factor", options_.start_factor},
                         {"warmup_iters", warmup_iters}});

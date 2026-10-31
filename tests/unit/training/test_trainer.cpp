@@ -11,6 +11,7 @@
 #include <jyppx/liuding/foundation/random_checkpoint_participant.hpp>
 #include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
 #include <jyppx/liuding/optim/event_lr_scheduler.hpp>
+#include <jyppx/liuding/optim/linear_lr_scheduler.hpp>
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
 #include <jyppx/liuding/optim/step_lr_scheduler.hpp>
 #include <jyppx/liuding/training/amp/autocast.hpp>
@@ -545,6 +546,92 @@ TEST(TrainerTest,
     expect_same_checkpoint(final_expected, final_actual);
     resumed.close();
   }
+}
+
+TEST(TrainerTest, WarmupCountsUpdatesAcrossAccumulationTails) {
+  namespace opt = jyppx::liuding::optim;
+  namespace tr = jyppx::liuding::training;
+  for (const auto tail :
+       {tr::AccumulationTailPolicy::flush, tr::AccumulationTailPolicy::drop}) {
+    auto domain = make_domain(10, 2);
+    auto warmup = std::make_shared<opt::WarmupLrScheduler>(
+        domain.optimizer, opt::WarmupLrSchedulerOptions{
+                              .warmup_iters = 4,
+                              .start_factor = 0.2,
+                              .step_mode = opt::SchedulerStepMode::batch});
+    std::vector<double> rates;
+    auto callback = std::make_shared<RecordingCallback>(
+        "callback.warmup", tr::CallbackEventKind::optimizer_step_finished,
+        std::vector<tr::CallbackCommandKind>{}, [&](const tr::CallbackEvent&) {
+          rates.push_back(warmup->learning_rates().front());
+          return tr::CallbackCommandRequest{};
+        });
+    auto config = options(2);
+    config.accumulate_steps = 2;
+    config.accumulation_tail = tail;
+    tr::Trainer trainer(config);
+    trainer.prepare(make_request(
+        domain,
+        std::make_shared<tr::CallbackDispatcher>(
+            std::vector<std::shared_ptr<tr::CallbackHandler>>{callback}),
+        std::make_shared<tr::SchedulerAdapter>(warmup)));
+    const auto expected = tail == tr::AccumulationTailPolicy::flush ? 6U : 4U;
+    EXPECT_EQ(trainer.fit().global_step, expected);
+    EXPECT_EQ(domain.optimizer->completed_steps(), expected);
+    EXPECT_EQ(warmup->completed_steps(), expected);
+    ASSERT_EQ(rates.size(), expected);
+    for (std::size_t step = 0; step < rates.size(); ++step) {
+      const auto factor = 0.2 + 0.2 * std::min<std::size_t>(step + 1, 4);
+      EXPECT_NEAR(rates[step], 1e-4 * factor, 1e-14);
+    }
+  }
+}
+
+TEST(TrainerTest, UpdateWarmupRestoresEveryParticipantAtMidEpochBoundary) {
+  namespace opt = jyppx::liuding::optim;
+  namespace tr = jyppx::liuding::training;
+  const auto request_for = [](const Domain& domain) {
+    auto warmup = std::make_shared<opt::WarmupLrScheduler>(
+        domain.optimizer, opt::WarmupLrSchedulerOptions{
+                              .warmup_iters = 4,
+                              .start_factor = 0.2,
+                              .step_mode = opt::SchedulerStepMode::batch});
+    return make_request(domain, {},
+                        std::make_shared<tr::SchedulerAdapter>(warmup));
+  };
+  auto config = options(2);
+  config.accumulate_steps = 2;
+  torch::manual_seed(274);
+  auto baseline = make_domain(10, 2);
+  tr::Trainer continuous(config);
+  continuous.prepare(request_for(baseline));
+  const auto expected = continuous.fit();
+  MemoryCheckpoint final_expected;
+  continuous.save_checkpoint(final_expected);
+  continuous.close();
+
+  torch::manual_seed(274);
+  MemoryCheckpoint boundary;
+  {
+    auto first = make_domain(10, 2);
+    tr::Trainer interrupted(config);
+    interrupted.prepare(request_for(first));
+    ASSERT_EQ(interrupted.fit_until(2).status, tr::FitStatus::paused);
+    interrupted.save_checkpoint(boundary);
+    interrupted.close();
+  }
+  auto rebuilt = make_domain(10, 2);
+  tr::Trainer resumed(config);
+  resumed.prepare(request_for(rebuilt));
+  resumed.restore_checkpoint(boundary);
+  const auto actual = resumed.fit();
+  EXPECT_EQ(actual.global_step, 6U);
+  EXPECT_EQ(actual.global_step, expected.global_step);
+  EXPECT_EQ(actual.training_metrics, expected.training_metrics);
+  EXPECT_EQ(actual.validation_metrics, expected.validation_metrics);
+  MemoryCheckpoint final_actual;
+  resumed.save_checkpoint(final_actual);
+  expect_same_checkpoint(final_expected, final_actual);
 }
 
 TEST(TrainerTest, RepeatedPauseContinuesSameInstanceAndRejectsPastBoundaries) {
@@ -1529,8 +1616,15 @@ TEST(TrainerDiagnostics,
 TEST(TrainerDiagnosticsCuda, AmpOverflowAttemptsSampleAfterUnscaleAndRestore) {
   if (!jyppx::liuding::cuda_is_available()) GTEST_SKIP() << "CUDA unavailable";
   auto domain = make_domain();
-  auto request = make_request(domain, {}, {}, {},
-                              jyppx::liuding::Device(torch::kCUDA, 0), true);
+  auto warmup = std::make_shared<jyppx::liuding::optim::WarmupLrScheduler>(
+      domain.optimizer,
+      jyppx::liuding::optim::WarmupLrSchedulerOptions{
+          .warmup_iters = 4,
+          .start_factor = 0.2,
+          .step_mode = jyppx::liuding::optim::SchedulerStepMode::batch});
+  auto request =
+      make_request(domain, {}, std::make_shared<td::SchedulerAdapter>(warmup),
+                   {}, jyppx::liuding::Device(torch::kCUDA, 0), true);
   auto diagnostics = std::make_shared<td::TrainingDiagnostics>(
       td::TrainingDiagnosticsOptions{.gradient_norm_every = 2});
   request.diagnostics = diagnostics;
@@ -1558,9 +1652,11 @@ TEST(TrainerDiagnosticsCuda, AmpOverflowAttemptsSampleAfterUnscaleAndRestore) {
       td::CallbackEventKind::batch_finished,
       std::vector<td::CallbackCommandKind>{
           td::CallbackCommandKind::request_checkpoint},
-      [first = true](const td::CallbackEvent& event) mutable {
+      [warmup, first = true](const td::CallbackEvent& event) mutable {
         if (first && event.phase == td::CallbackPhase::training) {
           first = false;
+          EXPECT_EQ(warmup->completed_steps(), 0U);
+          EXPECT_NEAR(warmup->learning_rates().front(), 2e-5, 1e-14);
           return td::CallbackCommandRequest{
               .kind = td::CallbackCommandKind::request_checkpoint,
               .reason = "after AMP overflow"};
@@ -1578,6 +1674,8 @@ TEST(TrainerDiagnosticsCuda, AmpOverflowAttemptsSampleAfterUnscaleAndRestore) {
   td::Trainer trainer(config);
   trainer.prepare(std::move(request));
   EXPECT_EQ(trainer.fit().global_step, 3U);
+  EXPECT_EQ(warmup->completed_steps(), 3U);
+  EXPECT_NEAR(warmup->learning_rates().front(), 8e-5, 1e-14);
   const auto state = diagnostics->snapshot();
   EXPECT_EQ(state.update_attempts, 4U);
   EXPECT_EQ(state.nonfinite_gradient_attempts, 1U);
@@ -1586,8 +1684,16 @@ TEST(TrainerDiagnosticsCuda, AmpOverflowAttemptsSampleAfterUnscaleAndRestore) {
   EXPECT_NEAR(state.last_gradient_l2, std::sqrt(34.0), 1e-12);
 
   auto rebuilt = make_domain();
-  auto resumed = make_request(rebuilt, {}, {}, {},
-                              jyppx::liuding::Device(torch::kCUDA, 0), true);
+  auto restored_warmup =
+      std::make_shared<jyppx::liuding::optim::WarmupLrScheduler>(
+          rebuilt.optimizer,
+          jyppx::liuding::optim::WarmupLrSchedulerOptions{
+              .warmup_iters = 4,
+              .start_factor = 0.2,
+              .step_mode = jyppx::liuding::optim::SchedulerStepMode::batch});
+  auto resumed = make_request(
+      rebuilt, {}, std::make_shared<td::SchedulerAdapter>(restored_warmup), {},
+      jyppx::liuding::Device(torch::kCUDA, 0), true);
   auto restored_diagnostics = std::make_shared<td::TrainingDiagnostics>(
       td::TrainingDiagnosticsOptions{.gradient_norm_every = 2});
   resumed.diagnostics = restored_diagnostics;
@@ -1608,10 +1714,14 @@ TEST(TrainerDiagnosticsCuda, AmpOverflowAttemptsSampleAfterUnscaleAndRestore) {
   td::Trainer restored(config);
   restored.prepare(std::move(resumed));
   restored.restore_checkpoint(checkpoint);
+  EXPECT_EQ(restored_warmup->completed_steps(), 0U);
+  EXPECT_NEAR(restored_warmup->learning_rates().front(), 2e-5, 1e-14);
   EXPECT_EQ(restored_diagnostics->snapshot().update_attempts, 1U);
   EXPECT_EQ(restored_diagnostics->snapshot().amp_skipped_attempts, 1U);
   EXPECT_EQ(restored.global_step(), 0U);
   EXPECT_EQ(restored.fit().global_step, 3U);
+  EXPECT_EQ(restored_warmup->completed_steps(), warmup->completed_steps());
+  EXPECT_EQ(restored_warmup->learning_rates(), warmup->learning_rates());
   EXPECT_EQ(restored_diagnostics->snapshot().norm_samples, 2U);
   EXPECT_EQ(restored_diagnostics->snapshot().update_attempts, 4U);
   EXPECT_DOUBLE_EQ(restored_diagnostics->snapshot().last_gradient_l2,

@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 线性、预热、常量和多项式学习率调度器可显式按成功的优化器更新推进，支持组合与精确恢复；基础训练示例展示纯 C++ 逐更新预热。
+
 - 本地任务可显式启用失败 checkpoint 自动续训；恢复前核验训练输入、检查点和原进程清理证据，并提供模型、SGD 动量与步数一致的 C++ 学习流程。
 
 - TensorBoard CLI 增加可选原生 C++ 隔离 worker，复用现有事件 writer 和进程 transport；配置模式与直接输出互斥，检查存储外输出、配置身份和协议容量，并提供完整学习步骤。
