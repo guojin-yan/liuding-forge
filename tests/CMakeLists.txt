@@ -581,6 +581,26 @@ if(JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
             "${CMAKE_CURRENT_SOURCE_DIR}/integration/telemetry_sidecar/run_acceptance.py")
     set_tests_properties(OfficialTelemetryAcceptance PROPERTIES LABELS "experiment;official;integration" TIMEOUT 300)
 endif()
+
+if(JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR)
+    if(NOT TARGET jyppx::liuding::telemetry_http OR NOT TARGET jyppx_cli OR
+       NOT JYPPX_LIUDING_BUILD_EXAMPLES OR
+       NOT EXISTS "${JYPPX_TELEMETRY_PYTHON}" OR
+       NOT EXISTS "${JYPPX_OTELCOL_EXECUTABLE}")
+        message(FATAL_ERROR "Native Collector acceptance requires TELEMETRY_NATIVE/HTTP, TOOLS, EXAMPLES and locked checker/Collector paths")
+    endif()
+    add_test(NAME NativeOtlpCollectorInterchange
+        COMMAND "${JYPPX_TELEMETRY_PYTHON}" -I -B
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_collector.py"
+            --cli $<TARGET_FILE:jyppx_cli>
+            --example $<TARGET_FILE:jyppx_liuding_otlp_http_example>
+            --collector "${JYPPX_OTELCOL_EXECUTABLE}"
+            --artifacts "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-artifacts.json"
+            --config "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector.yaml")
+    set_tests_properties(NativeOtlpCollectorInterchange PROPERTIES
+        LABELS "experiment;telemetry;otlp;native;official;integration"
+        TIMEOUT 180 RUN_SERIAL TRUE)
+endif()
 if(TARGET jyppx::liuding::sdk)
     add_subdirectory(integration)
 endif()

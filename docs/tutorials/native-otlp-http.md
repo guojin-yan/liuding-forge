@@ -1,6 +1,6 @@
 # 原生 C++ 发送 OTLP 遥测
 
-这个示例从四个预测值和目标值计算平均绝对误差 `0.125`，向已配置的 OpenTelemetry Collector 发送指标及其审计日志，再重放相同事件，演示进程内去重。示例不训练模型、不启动服务，也不自动下载依赖。
+这个示例从四个预测值和目标值计算平均绝对误差 `0.125`，向已配置的 OpenTelemetry Collector 发送指标、完整审计日志、计算说明及实际计算区间的 span，再重放相同事件，演示进程内去重。可选先将事件提交到 SQLite run，便于网络失败后重新导出。示例不训练模型、不启动服务，也不自动下载依赖。
 
 ## 构建
 
@@ -24,7 +24,17 @@ liuding-forge-example-otlp-http collector.example.com 4318 https training-worker
 
 主机参数只接受主机名或不带方括号的 IP 字面量，不接受完整 URL。明文 HTTP 仅允许 `127.0.0.1` 和 `::1`；HTTPS 始终验证系统信任链和主机名。此接口不使用环境代理、凭据、自动认证、Cookie 或重定向，也不支持自定义请求头。
 
-程序成功时输出一个事件的协议响应已通过校验，以及本进程内重放已去重。Collector 应收到一次 `/v1/metrics` 和一次 `/v1/logs` 请求。重复事件不会再次联网。
+程序成功时输出三个事件的协议响应已通过校验，以及本进程内重放已去重。Collector 应收到一次 `/v1/metrics`、两次 `/v1/logs` 和一次 `/v1/traces` 请求。重复事件不会再次联网。
+
+Windows 与 Linux 已验证官方 OpenTelemetry Collector Contrib 0.135.0 的明文回环 HTTP/protobuf 接收：公共 C++ API、SQLite 事件经 CLI 重放，以及六类中立事件的原生 worker 均可被官方协议 reader 读取。此范围不包含 HTTPS 互操作、持久化确认或进程强取消。
+
+需要保留本地记录时，追加一个父目录已存在、目标目录尚不存在的路径：
+
+```text
+liuding-forge-example-otlp-http 127.0.0.1 4318 http local-demo-1 ./mae-run
+```
+
+程序先把三个事件写入 `run.otlp-example`，再访问网络。网络失败会返回错误，但已提交的本地事件可以通过下面的 CLI 流程重新导出；再次运行示例应选择新的目录。
 
 ## 接入应用
 
@@ -40,18 +50,25 @@ HTTP 非 200、缺失或错误的 `Content-Type`、不支持的内容编码、�
 
 ## 导出已有训练 run（预览）
 
-同时启用 `JYPPX_LIUDING_BUILD_TOOLS=ON` 并构建 `jyppx_cli`，可以显式选择 `opentelemetry-native`，由 C++ CLI 把 SQLite 中的原始事件交给独立 C++ worker，再调用同一个公共 HTTP sink。用户运行时不需要 Python。这个预览入口的进程终止、清理以及真实 Collector/TLS 互操作仍需完成独立验收，不能据此声明强取消已经受支持。
+同时启用 `JYPPX_LIUDING_BUILD_TOOLS=ON` 并构建 `jyppx_cli`，可以显式选择 `opentelemetry-native`，由 C++ CLI 把 SQLite 中的原始事件交给独立 C++ worker，再调用同一个公共 HTTP sink。用户运行时不需要 Python。进程强取消和完整 TLS 互操作仍需独立验收。
 
-先运行[学习率搜索示例](../../examples/experiment/README.md#运行网格搜索)，沿用其中的 `$cli`、`$work`、`$store` 和查询得到的 `$bestRun`，再自行启动接收 OTLP HTTP/protobuf 的 Collector。创建独占工作目录和 UTF-8 配置，然后导出这个真实训练 run：
+以前面的 `mae-run` 为例，将 `$cli` 设为本次构建的 `liuding-forge` 可执行文件。span 使用生产时的时钟锚点，必须从原事件取值，不能用导出时的当前时间代替。创建独占工作目录和 UTF-8 配置，再导出原始事件：
 
 ```powershell
-$otlpWork = Join-Path $work 'otlp-worker'
+$store = (Resolve-Path './mae-run').Path
+$events = (& $cli run events --root $store --id run.otlp-example --format json | ConvertFrom-Json).data.events
+$span = ($events | Where-Object { $_.event.payload.kind -eq 4 }).event
+$otlpWork = Join-Path (Get-Location) 'otlp-worker'
 New-Item -ItemType Directory -Path $otlpWork | Out-Null
-$otlpConfig = Join-Path $work 'otlp-native.json'
+$otlpConfig = Join-Path (Get-Location) 'otlp-native.json'
 $config = @{
     schema_version = 1
     endpoint = @{ host = '127.0.0.1'; port = 4318; tls = $false }
-    resource_instance_id = 'linear-grid-export'
+    resource_instance_id = 'mae-run-export'
+    clock_mappings = @{ 'example.clock' = @{
+        monotonic_ns = $span.payload.start_monotonic_ns
+        unix_ns = $span.time.wall_time_unix_ns
+    } }
     working_directory = $otlpWork
     inherit_environment = $true
     operation_timeout_ms = 10000
@@ -59,7 +76,7 @@ $config = @{
     cleanup_timeout_ms = 2000
 } | ConvertTo-Json -Depth 6
 [IO.File]::WriteAllText($otlpConfig, $config, [Text.UTF8Encoding]::new($false))
-& $cli run export --root $store --id $bestRun --backend opentelemetry-native --native-config $otlpConfig --timeout-ms 60000 --format json
+& $cli run export --root $store --id run.otlp-example --backend opentelemetry-native --native-config $otlpConfig --timeout-ms 60000 --format json
 ```
 
 `working_directory` 必须是已存在的独占绝对路径。示例显式继承环境以加载当前 LibTorch 动态库；默认不继承，也可以通过 `environment` 显式提供子进程环境。配置不接受可执行文件、额外启动参数或请求头；CLI 固定启动自身，并校验 worker 读取的配置字节与父进程一致。HTTPS 使用 `endpoint.tls: true`，沿用前述证书与主机约束。

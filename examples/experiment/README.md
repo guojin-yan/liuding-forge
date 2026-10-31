@@ -186,7 +186,7 @@ tensorboard --logdir $tbOutput
 
 ## 原生 OTLP HTTP
 
-启用独立可选 `telemetry_http` 组件后，构建 `jyppx_liuding_otlp_http_example`，运行 `liuding-forge-example-otlp-http 127.0.0.1 4318 http local-demo-1`，向自行启动的 Collector 发送一个指标及审计日志，并演示进程内重放去重。[完整教程](../../docs/tutorials/native-otlp-http.md) 说明显式依赖、HTTPS、取消与重试边界；[示例源码](otlp_http.cpp) 可直接用于学习公共 C++ sink 的接入。示例只在显式运行时联网，不作为默认自动网络测试。
+启用独立可选 `telemetry_http` 组件后，构建 `jyppx_liuding_otlp_http_example`，运行 `liuding-forge-example-otlp-http 127.0.0.1 4318 http local-demo-1`，计算四个样本的 MAE，向自行启动的 Collector 发送指标、审计日志、计算说明和 span，并演示进程内重放去重。追加一个新目录路径可在联网前将三个原始事件提交到 SQLite，供 CLI 重新导出。[完整教程](../../docs/tutorials/native-otlp-http.md) 说明持久化、重放、显式依赖、HTTPS、取消与重试边界；[示例源码](otlp_http.cpp) 展示公共 C++ sink 的接入。示例只在显式运行时联网，不作为默认自动网络测试。
 
 ## 将搜索结果导出到 Collector
 

@@ -278,7 +278,7 @@ if(TARGET jyppx::liuding::telemetry_http)
     set_target_properties(jyppx_liuding_otlp_http_example PROPERTIES
         OUTPUT_NAME liuding-forge-example-otlp-http)
     target_link_libraries(jyppx_liuding_otlp_http_example PRIVATE
-        jyppx::liuding::telemetry_http)
+        jyppx::liuding::telemetry_http jyppx::liuding::experiment)
     jyppx_apply_instrumentation(jyppx_liuding_otlp_http_example)
     jyppx_add_torch_runtime_dependency(jyppx_liuding_otlp_http_example)
 endif()

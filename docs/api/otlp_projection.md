@@ -42,7 +42,7 @@ span 时钟映射使用 `OtlpClockAnchor{monotonic_ns, unix_ns}`，锚点应由�
 
 默认每份请求最多 16 MiB，一个事件准备的全部请求最多 32 MiB，响应最多 1 MiB；这些选项及中立事件限制只能收窄。上限约束协议缓冲区，不代表整个进程的内存峰值。接口不保留后台队列。
 
-`validate_response(signal, bytes)` 使用官方 schema 解码，拒绝损坏、超限及包含拒收数量或非空错误信息的响应。空响应是合法的 protobuf 确认；校验通过仅说明这一份响应满足协议条件，HTTP 状态、网络取消、重试、持久化和完整事件送达仍需由发送端保证。当前此组件尚未提供原生 HTTP 发送器，不能用离线编码成功替代真实 collector 验收。
+`validate_response(signal, bytes)` 使用官方 schema 解码，拒绝损坏、超限及包含拒收数量或非空错误信息的响应。空响应是合法的 protobuf 确认；校验通过仅说明这一份响应满足协议条件，HTTP 状态、网络取消、重试、持久化和完整事件送达仍需由发送端保证。网络发送使用独立可选的 [telemetry_http 组件](../tutorials/native-otlp-http.md)，离线编码成功不等于事件已送达。
 
 `make_telemetry_metric_value` 和中立事件的规范持久化将负零归一为正零；直接构造的合法有限值可在实时编码中保留负零。需要在恢复后重放时，应保留同一份规范事件，不改变已经提交的投影内容。
 
