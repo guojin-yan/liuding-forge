@@ -169,6 +169,17 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
             --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
     set_tests_properties(Cli_update_recipe PROPERTIES
         LABELS "cli;integration;recipe;scheduler" TIMEOUT 1200)
+    add_test(NAME Cli_adamw_recipe
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_adamw_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+    set_tests_properties(Cli_adamw_recipe PROPERTIES
+        LABELS "cli;integration;recipe;optimizer;scheduler" TIMEOUT 1200)
+    add_test(NAME Cli_transfer_adamw_recipe
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_adamw_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --transfer)
+    set_tests_properties(Cli_transfer_adamw_recipe PROPERTIES
+        LABELS "cli;integration;recipe;optimizer;scheduler;pretrained"
+        TIMEOUT 1200 SKIP_RETURN_CODE 77)
     add_test(NAME Cli_transfer_update_recipe
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_update_recipe.py"
             --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --transfer-update)
@@ -184,6 +195,17 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
                 --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
         set_tests_properties(Cli_update_recipe_CUDA PROPERTIES
             LABELS "cli;integration;recipe;scheduler;cuda" TIMEOUT 1200)
+        add_test(NAME Cli_adamw_recipe_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_adamw_recipe.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
+        set_tests_properties(Cli_adamw_recipe_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;optimizer;scheduler;cuda" TIMEOUT 1200)
+        add_test(NAME Cli_transfer_adamw_recipe_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_adamw_recipe.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --transfer --device cuda)
+        set_tests_properties(Cli_transfer_adamw_recipe_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;optimizer;scheduler;pretrained;cuda"
+            TIMEOUT 1200 SKIP_RETURN_CODE 77)
         add_test(NAME Cli_transfer_update_recipe_CUDA
             COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_update_recipe.py"
                 --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda --transfer-update)

@@ -24,6 +24,7 @@
 #include <jyppx/liuding/interop/model_bundle.hpp>
 #include <jyppx/liuding/models/registry.hpp>
 #include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
+#include <jyppx/liuding/optim/adamw_adapter.hpp>
 #include <jyppx/liuding/optim/composite_lr_scheduler.hpp>
 #include <jyppx/liuding/optim/linear_lr_scheduler.hpp>
 #include <jyppx/liuding/optim/sgd_adapter.hpp>
@@ -47,6 +48,7 @@
 #include <fstream>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <stop_token>
 #include <utility>
 
@@ -82,8 +84,27 @@ bool is_schedule_field(std::string_view name) {
          name == "warmup_start_factor" || name == "lr_end_factor";
 }
 
-bool uses_update_schedule(const Json& config) {
+bool is_optimizer_field(std::string_view name) {
+  return name == "optimizer" || name == "momentum" || name == "adam_beta1" ||
+         name == "adam_beta2" || name == "adam_epsilon" ||
+         name == "gradient_clip_norm";
+}
+
+bool uses_adamw(const Json& config) {
+  return config.value("optimizer", "sgd") == "adamw";
+}
+
+bool uses_warmup_schedule(const Json& config) {
   return config.value("lr_schedule", "epoch_step") == "warmup_linear";
+}
+
+bool uses_update_schedule(const Json& config) {
+  return uses_warmup_schedule(config) ||
+         config.value("lr_schedule", "epoch_step") == "linear";
+}
+
+bool has_optimization_details(const Json& config) {
+  return config.contains("optimizer") || config.contains("gradient_clip_norm");
 }
 
 const std::map<std::string, ValueKind>& field_kinds(bool transfer = false) {
@@ -101,6 +122,11 @@ const std::map<std::string, ValueKind>& field_kinds(bool transfer = false) {
       {"workers", ValueKind::integer},
       {"prefetch_batches", ValueKind::integer},
       {"learning_rate", ValueKind::floating},
+      {"optimizer", ValueKind::string},
+      {"adam_beta1", ValueKind::floating},
+      {"adam_beta2", ValueKind::floating},
+      {"adam_epsilon", ValueKind::floating},
+      {"gradient_clip_norm", ValueKind::floating},
       {"momentum", ValueKind::floating},
       {"weight_decay", ValueKind::floating},
       {"lr_gamma", ValueKind::floating},
@@ -134,7 +160,8 @@ ex::config::ConfigSchema config_schema(bool transfer) {
     ValueSchema field;
     field.kind = kind;
     field.name = name;
-    field.required = !is_group_rate(name) && !is_schedule_field(name);
+    field.required = !is_group_rate(name) && !is_schedule_field(name) &&
+                     !is_optimizer_field(name);
     result.root.fields.emplace(name, std::move(field));
   }
   return result;
@@ -143,7 +170,8 @@ Json schema_json(bool transfer = false) {
   Json fields = Json::object();
   for (const auto& [name, kind] : field_kinds(transfer)) {
     fields[name] = {{"kind", value_kind_name(kind)}};
-    if (is_group_rate(name) || is_schedule_field(name))
+    if (is_group_rate(name) || is_schedule_field(name) ||
+        is_optimizer_field(name))
       fields[name]["required"] = false;
   }
   return {{"schema_version", 1},
@@ -180,8 +208,36 @@ Json resolve_config(const std::filesystem::path& path) {
   integer("max_data_bytes", 1024, 1LL << 40);
   integer("max_samples", 2, 1000000);
   integer("image_budget_bytes", 1LL << 20, 4LL << 30);
-  for (const auto* key : {"learning_rate", "momentum", "weight_decay",
-                          "lr_gamma", "minimum_accuracy"}) {
+  const auto optimizer_kind = config.value("optimizer", "sgd");
+  require_recipe(optimizer_kind == "sgd" || optimizer_kind == "adamw",
+                 "optimizer must be sgd or adamw");
+  require_recipe(config.contains("momentum") == !uses_adamw(config),
+                 "momentum must be supplied exactly when optimizer=sgd");
+  for (const auto* key : {"adam_beta1", "adam_beta2", "adam_epsilon"})
+    require_recipe(
+        config.contains(key) == uses_adamw(config),
+        std::string(key) + " must be supplied exactly when optimizer=adamw");
+  if (uses_adamw(config)) {
+    for (const auto* key : {"adam_beta1", "adam_beta2"}) {
+      const auto value = resolved.floating(std::string("/") + key);
+      require_recipe(std::isfinite(value) && value >= 0.0 && value < 1.0,
+                     std::string(key) + " must be finite and in [0,1)");
+    }
+    const auto epsilon = resolved.floating("/adam_epsilon");
+    require_recipe(std::isfinite(epsilon) && epsilon > 0.0,
+                   "adam_epsilon must be finite and positive");
+  } else {
+    const auto momentum = resolved.floating("/momentum");
+    require_recipe(std::isfinite(momentum) && momentum >= 0.0 && momentum < 1.0,
+                   "momentum must be finite and in [0,1)");
+  }
+  if (config.contains("gradient_clip_norm")) {
+    const auto norm = resolved.floating("/gradient_clip_norm");
+    require_recipe(std::isfinite(norm) && norm > 0.0,
+                   "gradient_clip_norm must be finite and positive");
+  }
+  for (const auto* key :
+       {"learning_rate", "weight_decay", "lr_gamma", "minimum_accuracy"}) {
     const auto value = resolved.floating(std::string("/") + key);
     require_recipe(
         std::isfinite(value) && value >= 0.0 && value <= 1.0,
@@ -189,31 +245,31 @@ Json resolve_config(const std::filesystem::path& path) {
   }
   require_recipe(config.at("learning_rate").get<double>() > 0 &&
                      config.at("lr_gamma").get<double>() > 0 &&
-                     config.at("momentum").get<double>() < 1 &&
                      config.at("minimum_accuracy").get<double>() > 0,
                  "Recipe learning rate, gamma and accuracy threshold must be "
-                 "positive; momentum < 1");
+                 "positive");
   require_recipe(!config.at("data_license").get<std::string>().empty(),
                  "Declare the dataset license or terms in data_license");
   const auto schedule = config.value("lr_schedule", "epoch_step");
-  require_recipe(schedule == "epoch_step" || schedule == "warmup_linear",
-                 "lr_schedule must be epoch_step or warmup_linear");
+  require_recipe(schedule == "epoch_step" || schedule == "warmup_linear" ||
+                     schedule == "linear",
+                 "lr_schedule must be epoch_step, warmup_linear or linear");
   for (const auto* key :
        {"warmup_updates", "warmup_start_factor", "lr_end_factor"})
     require_recipe(
-        config.contains(key) == uses_update_schedule(config),
+        config.contains(key) == uses_warmup_schedule(config),
         std::string(key) +
             " must be supplied exactly when lr_schedule=warmup_linear");
-  if (uses_update_schedule(config)) {
+  if (uses_update_schedule(config))
+    require_recipe(config.at("lr_gamma").get<double>() == 1.0,
+                   "Update schedules require lr_gamma=1");
+  if (uses_warmup_schedule(config)) {
     integer("warmup_updates", 1, 999999);
     for (const auto* key : {"warmup_start_factor", "lr_end_factor"}) {
       const auto factor = resolved.floating(std::string("/") + key);
       require_recipe(std::isfinite(factor) && factor > 0.0 && factor <= 1.0,
                      std::string(key) + " must be finite and in (0,1]");
     }
-    require_recipe(
-        config.at("lr_gamma").get<double>() == 1.0,
-        "warmup_linear requires lr_gamma=1; decay uses lr_end_factor");
     const auto start = config.at("warmup_start_factor").get<double>();
     const auto warmup = config.at("warmup_updates").get<double>();
     require_recipe(std::isfinite((start + (1.0 - start) / warmup) / start),
@@ -257,7 +313,7 @@ Json resolve_config(const std::filesystem::path& path) {
           path_text(std::filesystem::absolute(input).lexically_normal());
     }
   }
-  if (uses_update_schedule(config)) {
+  if (uses_warmup_schedule(config)) {
     for (const auto* key :
          {"learning_rate", "backbone_learning_rate", "head_learning_rate"}) {
       if (!config.contains(key)) continue;
@@ -277,7 +333,7 @@ bool uses_group_rates(const Json& config) {
           config.contains("head_learning_rate"));
 }
 
-Json sgd_group_plan(const Json& config) {
+Json optimizer_group_plan(const Json& config) {
   const auto shared = config.at("learning_rate").get<double>();
   if (!uses_group_rates(config))
     return Json::array({{{"group_id", "main"}, {"learning_rate", shared}}});
@@ -294,10 +350,66 @@ Json sgd_group_plan(const Json& config) {
   return groups;
 }
 
-std::shared_ptr<optim::SgdOptimizerAdapter> make_sgd(
-    const Json& config, const nn::ModelAdapter& model) {
+struct RecipeOptimizer {
+  std::shared_ptr<optim::OptimizerAdapter> adapter;
+  std::shared_ptr<CheckpointParticipant> checkpoint;
+  Json groups;
+};
+
+template <typename Adapter, typename Participant, typename Group>
+RecipeOptimizer bind_optimizer(std::string id, std::vector<Group> groups,
+                               const nn::ModelAdapter& model) {
+  const bool shared = groups.front().group_id == "main";
+  for (const auto& parameter : model.state().named_parameters()) {
+    if (!parameter.value().requires_grad()) continue;
+    const auto group_id = shared ? "main"
+                          : parameter.key().starts_with("backbone.")
+                              ? "backbone"
+                          : parameter.key().starts_with("head.") ? "head"
+                                                                 : "";
+    const auto group = std::find_if(
+        groups.begin(), groups.end(),
+        [&](const auto& value) { return value.group_id == group_id; });
+    require_recipe(group != groups.end(),
+                   "Trainable parameter has no declared optimizer group");
+    group->parameters.push_back({parameter.key(), parameter.value()});
+  }
+  auto adapter = std::make_shared<Adapter>(std::move(id), std::move(groups));
+  Json description = Json::array();
+  for (const auto& group : adapter->groups()) {
+    Json names = Json::array();
+    for (const auto& parameter : group.parameters)
+      names.push_back(parameter.parameter_id);
+    description.push_back(
+        {{"group_id", group.group_id},
+         {"parameter_ids", std::move(names)},
+         {"initial_learning_rate", group.options.learning_rate}});
+  }
+  return {.adapter = adapter,
+          .checkpoint = std::make_shared<Participant>(adapter),
+          .groups = std::move(description)};
+}
+
+RecipeOptimizer make_optimizer(const Json& config,
+                               const nn::ModelAdapter& model) {
+  const auto plan = optimizer_group_plan(config);
+  if (uses_adamw(config)) {
+    std::vector<optim::AdamWParameterGroup> groups;
+    for (const auto& entry : plan)
+      groups.push_back(
+          {.group_id = entry.at("group_id").get<std::string>(),
+           .parameters = {},
+           .options = {
+               .learning_rate = entry.at("learning_rate").get<double>(),
+               .beta1 = config.at("adam_beta1").get<double>(),
+               .beta2 = config.at("adam_beta2").get<double>(),
+               .epsilon = config.at("adam_epsilon").get<double>(),
+               .weight_decay = config.at("weight_decay").get<double>()}});
+    return bind_optimizer<optim::AdamWOptimizerAdapter,
+                          optim::AdamWOptimizerCheckpointParticipant>(
+        "recipe.adamw", std::move(groups), model);
+  }
   std::vector<optim::SgdParameterGroup> groups;
-  const auto plan = sgd_group_plan(config);
   for (const auto& entry : plan)
     groups.push_back(
         {.group_id = entry.at("group_id").get<std::string>(),
@@ -305,26 +417,13 @@ std::shared_ptr<optim::SgdOptimizerAdapter> make_sgd(
          .options = {.learning_rate = entry.at("learning_rate").get<double>(),
                      .momentum = config.at("momentum").get<double>(),
                      .weight_decay = config.at("weight_decay").get<double>()}});
-  const bool shared = groups.front().group_id == "main";
-  for (const auto& parameter : model.state().named_parameters()) {
-    if (!parameter.value().requires_grad()) continue;
-    const auto id = shared                                     ? "main"
-                    : parameter.key().starts_with("backbone.") ? "backbone"
-                    : parameter.key().starts_with("head.")     ? "head"
-                                                               : "";
-    const auto group =
-        std::find_if(groups.begin(), groups.end(),
-                     [&](const auto& value) { return value.group_id == id; });
-    require_recipe(group != groups.end(),
-                   "Trainable parameter has no declared SGD group");
-    group->parameters.push_back({parameter.key(), parameter.value()});
-  }
-  return std::make_shared<optim::SgdOptimizerAdapter>("recipe.sgd",
-                                                      std::move(groups));
+  return bind_optimizer<optim::SgdOptimizerAdapter,
+                        optim::SgdOptimizerCheckpointParticipant>(
+      "recipe.sgd", std::move(groups), model);
 }
 
 std::shared_ptr<optim::LrScheduler> make_scheduler(
-    const std::shared_ptr<optim::SgdOptimizerAdapter>& optimizer,
+    const std::shared_ptr<optim::OptimizerAdapter>& optimizer,
     const Json& config, std::uint64_t total_updates) {
   if (!uses_update_schedule(config))
     return std::make_shared<optim::StepLrScheduler>(
@@ -332,6 +431,13 @@ std::shared_ptr<optim::LrScheduler> make_scheduler(
                        .scheduler_id = "recipe.lr",
                        .step_size = 1,
                        .gamma = config.at("lr_gamma").get<double>()});
+  if (!uses_warmup_schedule(config))
+    return std::make_shared<optim::PolynomialLrScheduler>(
+        optimizer, optim::PolynomialLrSchedulerOptions{
+                       .scheduler_id = "recipe.lr",
+                       .total_iters = total_updates,
+                       .power = 1.0,
+                       .step_mode = optim::SchedulerStepMode::batch});
   const auto warmup = config.at("warmup_updates").get<std::uint64_t>();
   std::vector<std::unique_ptr<optim::LrScheduler>> children;
   children.push_back(std::make_unique<optim::WarmupLrScheduler>(
@@ -357,45 +463,55 @@ std::shared_ptr<optim::LrScheduler> make_scheduler(
           .milestones = {static_cast<std::int64_t>(warmup)}});
 }
 
-Json describe_optimization(const optim::SgdOptimizerAdapter& optimizer,
+Json describe_optimization(const RecipeOptimizer& optimizer,
                            const optim::LrScheduler& scheduler,
                            const Json& config, std::uint64_t total_updates) {
-  Json groups = Json::array();
-  const auto rates = optimizer.learning_rates();
+  Json groups = optimizer.groups;
+  const auto rates = optimizer.adapter->learning_rates();
   std::size_t index = 0;
-  for (const auto& group : optimizer.groups()) {
-    Json names = Json::array();
-    for (const auto& parameter : group.parameters)
-      names.push_back(parameter.parameter_id);
-    groups.push_back({{"group_id", group.group_id},
-                      {"parameter_ids", std::move(names)},
-                      {"initial_learning_rate", group.options.learning_rate},
-                      {"final_learning_rate", rates.at(index++)}});
+  for (auto& group : groups) {
+    group["final_learning_rate"] = rates.at(index++);
     if (uses_update_schedule(config))
-      groups.back()["first_learning_rate"] =
-          group.options.learning_rate *
-          config.at("warmup_start_factor").get<double>();
+      group["first_learning_rate"] =
+          group.at("initial_learning_rate").get<double>() *
+          (uses_warmup_schedule(config)
+               ? config.at("warmup_start_factor").get<double>()
+               : 1.0);
   }
-  if (uses_update_schedule(config))
-    return {{"optimizer_id", optimizer.optimizer_id()},
-            {"groups", std::move(groups)},
-            {"scheduler",
-             {{"scheduler_id", "recipe.lr"},
-              {"kind", "warmup_linear"},
-              {"step_mode", "batch"},
-              {"warmup_updates", config.at("warmup_updates")},
-              {"warmup_start_factor", config.at("warmup_start_factor")},
-              {"lr_end_factor", config.at("lr_end_factor")},
-              {"total_updates", total_updates},
-              {"completed_steps", scheduler.completed_steps()}}}};
-  return {{"optimizer_id", optimizer.optimizer_id()},
-          {"groups", std::move(groups)},
-          {"scheduler",
-           {{"scheduler_id", "recipe.lr"},
-            {"kind", "step_lr"},
-            {"step_size", 1},
-            {"gamma", config.at("lr_gamma")},
-            {"completed_steps", scheduler.completed_steps()}}}};
+  Json result{{"optimizer_id", optimizer.adapter->optimizer_id()},
+              {"groups", std::move(groups)}};
+  if (uses_adamw(config))
+    result["adamw"] = {{"beta1", config.at("adam_beta1")},
+                       {"beta2", config.at("adam_beta2")},
+                       {"epsilon", config.at("adam_epsilon")},
+                       {"weight_decay", config.at("weight_decay")},
+                       {"amsgrad", false}};
+  if (config.contains("gradient_clip_norm"))
+    result["gradient_clip_norm"] = config.at("gradient_clip_norm");
+  if (uses_warmup_schedule(config))
+    result["scheduler"] = {
+        {"scheduler_id", "recipe.lr"},
+        {"kind", "warmup_linear"},
+        {"step_mode", "batch"},
+        {"warmup_updates", config.at("warmup_updates")},
+        {"warmup_start_factor", config.at("warmup_start_factor")},
+        {"lr_end_factor", config.at("lr_end_factor")},
+        {"total_updates", total_updates},
+        {"completed_steps", scheduler.completed_steps()}};
+  else if (uses_update_schedule(config))
+    result["scheduler"] = {{"scheduler_id", "recipe.lr"},
+                           {"kind", "linear"},
+                           {"step_mode", "batch"},
+                           {"lr_end_factor", 0.0},
+                           {"total_updates", total_updates},
+                           {"completed_steps", scheduler.completed_steps()}};
+  else
+    result["scheduler"] = {{"scheduler_id", "recipe.lr"},
+                           {"kind", "step_lr"},
+                           {"step_size", 1},
+                           {"gamma", config.at("lr_gamma")},
+                           {"completed_steps", scheduler.completed_steps()}};
+  return result;
 }
 
 struct Inputs {
@@ -437,7 +553,7 @@ Inputs inspect_inputs(const Json& config) {
   require_recipe(total_steps <= 1000000,
                  "Recipe exceeds one million optimizer updates");
   require_recipe(
-      !uses_update_schedule(config) ||
+      !uses_warmup_schedule(config) ||
           config.at("warmup_updates").get<std::uint64_t>() < total_steps,
       "warmup_updates must precede the final optimizer update");
   std::uint64_t data_bytes = 0;
@@ -844,7 +960,7 @@ Result execute(const Arguments& arguments, bool resume) {
         {"head", "seeded linear with bias"},
         {"dropout", "eval when frozen; follows mode when finetuning"}};
     if (uses_group_rates(config))
-      contract["transfer"]["optimizer_groups"] = sgd_group_plan(config);
+      contract["transfer"]["optimizer_groups"] = optimizer_group_plan(config);
   }
   const Json lineage{{"config_sha256", config_hash.hex},
                      {"dataset_sha256", inputs.identity.hex},
@@ -977,15 +1093,20 @@ Result execute(const Arguments& arguments, bool resume) {
                         : std::make_shared<nn::ModelAdapter>(
                               models::create_model("resnet18", model_options));
   const auto initial_state = transfer ? transfer_state(*model) : Json{};
-  auto optimizer = make_sgd(config, *model);
-  auto scheduler = make_scheduler(optimizer, config, inputs.total_steps);
+  auto optimizer = make_optimizer(config, *model);
+  auto scheduler =
+      make_scheduler(optimizer.adapter, config, inputs.total_steps);
   auto diagnostics = std::make_shared<tr::TrainingDiagnostics>();
-  tr::Trainer trainer({.trainer_id = "recipe.trainer",
-                       .run_id = std::string(kRun),
-                       .trace_id = "recipe.image-classification",
-                       .max_epochs = config.at("epochs").get<std::uint64_t>(),
-                       .gradient_clip_norm = {},
-                       .checkpoint = {}});
+  tr::Trainer trainer(
+      {.trainer_id = "recipe.trainer",
+       .run_id = std::string(kRun),
+       .trace_id = "recipe.image-classification",
+       .max_epochs = config.at("epochs").get<std::uint64_t>(),
+       .gradient_clip_norm =
+           config.contains("gradient_clip_norm")
+               ? std::optional(config.at("gradient_clip_norm").get<double>())
+               : std::nullopt,
+       .checkpoint = {}});
   const tr::BatchMapper mapper = [](const data::BatchEnvelope& batch) {
     return nn::Invocation{
         .positional = {image::image_batch_from_value(batch.value).images},
@@ -1010,12 +1131,10 @@ Result execute(const Arguments& arguments, bool resume) {
   };
   trainer.prepare(
       {.model = model,
-       .optimizers =
-           {{.optimizer = optimizer,
-             .checkpoint =
-                 std::make_shared<optim::SgdOptimizerCheckpointParticipant>(
-                     optimizer),
-             .scheduler = std::make_shared<tr::SchedulerAdapter>(scheduler)}},
+       .optimizers = {{.optimizer = optimizer.adapter,
+                       .checkpoint = optimizer.checkpoint,
+                       .scheduler =
+                           std::make_shared<tr::SchedulerAdapter>(scheduler)}},
        .training_data = training_data,
        .training_batch_mapper = mapper,
        .training_target_mapper = target,
@@ -1066,9 +1185,10 @@ Result execute(const Arguments& arguments, bool resume) {
                 {"global_step", fit.global_step},
                 {"checkpoint_sha256", file_digest(root / "latest.jyck").hex},
                 {"lineage", lineage}};
-    if (uses_group_rates(config) || uses_update_schedule(config))
+    if (uses_group_rates(config) || uses_update_schedule(config) ||
+        has_optimization_details(config))
       paused["optimization"] = describe_optimization(
-          *optimizer, *scheduler, config, inputs.total_steps);
+          optimizer, *scheduler, config, inputs.total_steps);
     trainer.close();
     return {std::move(paused), 0};
   }
@@ -1166,8 +1286,9 @@ Result execute(const Arguments& arguments, bool resume) {
         inspect_transfer_input(config).descriptor == transfer->descriptor,
         "Weight descriptor changed while training");
   const auto optimization =
-      uses_group_rates(config) || uses_update_schedule(config)
-          ? describe_optimization(*optimizer, *scheduler, config,
+      uses_group_rates(config) || uses_update_schedule(config) ||
+              has_optimization_details(config)
+          ? describe_optimization(optimizer, *scheduler, config,
                                   inputs.total_steps)
           : Json{};
   const auto bundle =
@@ -1196,7 +1317,7 @@ Result execute(const Arguments& arguments, bool resume) {
       {"run_id", kRun},
       {"global_step", fit.global_step},
       {"completed_epochs", fit.completed_epochs},
-      {"optimizer_steps", optimizer->completed_steps()},
+      {"optimizer_steps", optimizer.adapter->completed_steps()},
       {"scheduler_steps", scheduler->completed_steps()},
       {"training_metrics", fit.training_metrics},
       {"validation_metrics", fit.validation_metrics},

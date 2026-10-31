@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- ImageFolder 分类与迁移学习配方增加显式 AdamW、可选全局 L2 梯度裁剪和按成功更新线性降至零的学习率调度；优化器、参数组与调度状态随完整检查点恢复。
+
 - ONNX Runtime 的普通推理和仅带取消令牌的调用省去未使用的截止计时等待对象；带截止时间的调用仍独立回收计时线程。
 
 - 原生 OTLP HTTP 请求的停滞等待可被取消令牌或绝对截止时间中断，覆盖响应头、部分正文与 TLS 握手等待；未确认事件仍可原样重试。
