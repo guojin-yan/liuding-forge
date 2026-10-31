@@ -35,6 +35,31 @@ struct ExecutionProvider {
       options;  ///< Exact official key/value pairs.
 };
 
+/** @brief Native CUDA EP settings for host I/O and concurrent session runs. */
+struct CudaProviderOptions {
+  std::int32_t device_id = 0;  ///< Explicit nonnegative CUDA device ordinal.
+  std::optional<std::uint64_t> arena_memory_limit_bytes;
+  ///< Optional positive CUDA arena limit; allocations outside that arena and
+  ///< total provider/driver memory are not bounded by this setting.
+  bool allow_tf32 = false;  ///< Explicit precision opt-in on supported devices.
+  bool allow_max_conv_workspace =
+      false;  ///< Opt-in to cuDNN's larger workspace.
+};
+
+/** @brief Creates explicit CUDA options without loading or probing a device.
+ * @param options Device, optional arena budget and precision/workspace policy.
+ * @return Official CUDA V2 provider keys, heuristic convolution search and
+ * synchronized default-stream copies. CPU fallback remains a session policy.
+ * @throws InvalidArgument For a negative device or unrepresentable/zero budget.
+ * @throws ResourceExhausted If provider option storage cannot be allocated.
+ * @note Session creation still requires a complete ORT GPU SDK and compatible
+ * CUDA/cuDNN/driver/device. The arena budget does not bound total device
+ * memory. Raw provider maps remain available for other documented CUDA options,
+ * except CUDA Graph, external streams/allocators and asynchronous copies, whose
+ * lifetime/concurrency contracts are not supported by this host-I/O adapter.
+ */
+ExecutionProvider cuda_execution_provider(const CudaProviderOptions& options);
+
 /** @brief Queries the providers compiled into the actually loaded ORT library.
  * @return Exact official names reported by OrtApi::GetAvailableProviders.
  * @throws Error If the runtime cannot report its available providers.
@@ -127,11 +152,12 @@ class Session final {
    * @param model Complete stable self-contained ONNX bytes for this call.
    * @param expected_digest Independently trusted identity of exactly these
    * bytes.
-   * @param options Explicit CPU, allocation and optional profile settings.
+   * @param options Explicit provider, allocation and optional profile settings.
    * @throws InvalidArgument For malformed identity, options or empty input.
    * @throws CompatibilityError For a hash/runtime/model/operator/schema
    * mismatch.
    * @throws ResourceExhausted For a model bound or allocation failure.
+   * @throws DeviceError If an available non-CPU provider fails to initialize.
    * @throws Error For backend initialization or filesystem failures.
    * @note The constructor does not retain the caller's byte span. The caller
    * must not concurrently modify it while construction is in progress.

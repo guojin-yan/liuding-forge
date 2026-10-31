@@ -40,7 +40,12 @@ at::Tensor ZeroPoint(std::uint8_t value) {
 StaticInt8LinearExportResult ExportPreparedLinear(
     const quantization::StaticInt8LinearPreparation& prepared,
     std::span<const std::int64_t> shape, const ExportOptions& options,
+    StaticInt8LinearGraph graph_kind,
     std::span<const float> product_scales = {}) {
+  if (graph_kind != StaticInt8LinearGraph::portable &&
+      graph_kind != StaticInt8LinearGraph::ort_matmul_integer_to_float)
+    throw InvalidArgument("Invalid static INT8 Linear graph contract",
+                          Details("graph"));
   if (options.opset != 17U || options.minimum_batch <= 0 ||
       options.maximum_batch < options.minimum_batch ||
       options.maximum_batch > 65536 || options.max_output_bytes == 0U ||
@@ -66,10 +71,29 @@ StaticInt8LinearExportResult ExportPreparedLinear(
 
   auto graph = std::make_shared<torch::jit::Graph>();
   std::map<std::string, at::Tensor> initializers;
-  const auto tensor_type = [](at::ScalarType type,
-                              const std::vector<std::int64_t>& sizes) {
-    return c10::TensorType::createContiguous(type, c10::Device(c10::kCPU),
-                                             sizes);
+  const bool symbolic_batch =
+      graph_kind == StaticInt8LinearGraph::ort_matmul_integer_to_float &&
+      options.dynamic_batch;
+  const auto batch_symbol =
+      symbolic_batch ? c10::ShapeSymbol::newSymbol() : c10::ShapeSymbol{};
+  const auto tensor_type = [&](at::ScalarType type,
+                               const std::vector<std::int64_t>& sizes) {
+    auto result =
+        c10::TensorType::createContiguous(type, c10::Device(c10::kCPU), sizes);
+    if (symbolic_batch) {
+      // The custom operator has no standard ONNX shape propagation. Share the
+      // input batch symbol through its output and Add instead of serializing
+      // the example batch as an intermediate constraint.
+      std::vector<c10::ShapeSymbol> dimensions;
+      dimensions.reserve(sizes.size());
+      for (std::size_t axis = 0U; axis < sizes.size(); ++axis)
+        dimensions.push_back(
+            axis == 0U ? batch_symbol
+                       : c10::ShapeSymbol::fromStaticSize(sizes[axis]));
+      result =
+          result->withSymbolicShapes(c10::SymbolicShape(std::move(dimensions)));
+    }
+    return result;
   };
   const std::vector<std::int64_t> input_shape(shape.begin(), shape.end());
   const std::vector<std::int64_t> output_shape{
@@ -83,9 +107,9 @@ StaticInt8LinearExportResult ExportPreparedLinear(
     return value;
   };
   const auto node =
-      [&](const char* operation, std::vector<torch::jit::Value*> inputs,
+      [&](c10::Symbol operation, std::vector<torch::jit::Value*> inputs,
           at::ScalarType type, const std::vector<std::int64_t>& sizes) {
-        auto* result = graph->create(c10::Symbol::onnx(operation), inputs, 1U);
+        auto* result = graph->create(operation, inputs, 1U);
         graph->appendNode(result);
         result->output()->setType(tensor_type(type, sizes));
         return result;
@@ -112,25 +136,42 @@ StaticInt8LinearExportResult ExportPreparedLinear(
                 product_scales.size_bytes());
   auto* scale_product = initializer("scale_product", std::move(products));
   auto* quantized =
-      node("QuantizeLinear", {input, activation_scale, activation_zero},
-           at::kByte, input_shape);
-  auto* accumulated =
-      node("MatMulInteger",
-           {quantized->output(), weight, activation_zero, weight_zero},
-           at::kInt, output_shape);
-  auto* cast = node("Cast", {accumulated->output()}, at::kFloat, output_shape);
-  cast->i_(c10::Symbol::attr("to"), 1);  // Official ONNX TensorProto::FLOAT.
-  auto* scaled =
-      node("Mul", {cast->output(), scale_product}, at::kFloat, output_shape);
-  auto* output = scaled->output();
+      node(c10::Symbol::onnx("QuantizeLinear"),
+           {input, activation_scale, activation_zero}, at::kByte, input_shape);
+  torch::jit::Value* output = nullptr;
+  std::map<std::string, int> custom_opsets;
+  if (graph_kind == StaticInt8LinearGraph::ort_matmul_integer_to_float) {
+    // Product scales are already rounded by preparation. Recomputing the
+    // activation/weight scale product in the kernel could change that value.
+    auto* unit_scale = initializer("unit_scale", Scalar(1.0F));
+    output =
+        node(c10::Symbol::fromQualString("com.microsoft::MatMulIntegerToFloat"),
+             {quantized->output(), weight, unit_scale, scale_product,
+              activation_zero, weight_zero},
+             at::kFloat, output_shape)
+            ->output();
+    custom_opsets.emplace("com.microsoft", 1);
+  } else {
+    auto* accumulated =
+        node(c10::Symbol::onnx("MatMulInteger"),
+             {quantized->output(), weight, activation_zero, weight_zero},
+             at::kInt, output_shape);
+    auto* cast = node(c10::Symbol::onnx("Cast"), {accumulated->output()},
+                      at::kFloat, output_shape);
+    cast->i_(c10::Symbol::attr("to"), 1);  // ONNX TensorProto::FLOAT.
+    output = node(c10::Symbol::onnx("Mul"), {cast->output(), scale_product},
+                  at::kFloat, output_shape)
+                 ->output();
+  }
   if (!prepared.bias.empty()) {
     auto bias = at::empty({static_cast<std::int64_t>(prepared.out_features)},
                           at::TensorOptions().dtype(at::kFloat));
     std::memcpy(bias.data_ptr<float>(), prepared.bias.data(),
                 prepared.bias.size() * sizeof(float));
     auto* bias_value = initializer("bias", std::move(bias));
-    output =
-        node("Add", {output, bias_value}, at::kFloat, output_shape)->output();
+    output = node(c10::Symbol::onnx("Add"), {output, bias_value}, at::kFloat,
+                  output_shape)
+                 ->output();
   }
   output->setDebugName("output");
   graph->registerOutput(output);
@@ -139,9 +180,10 @@ StaticInt8LinearExportResult ExportPreparedLinear(
   if (options.dynamic_batch)
     dynamic_axes = {{"input", {{0, "batch"}}}, {"output", {{0, "batch"}}}};
   try {
-    const auto exported = torch::jit::export_onnx(
-        graph, initializers, 17, dynamic_axes, false,
-        torch::onnx::OperatorExportTypes::ONNX, true, false, {}, true, false);
+    const auto exported =
+        torch::jit::export_onnx(graph, initializers, 17, dynamic_axes, false,
+                                torch::onnx::OperatorExportTypes::ONNX, true,
+                                false, custom_opsets, true, false);
     const auto bytes =
         torch::jit::serialize_model_proto_to_string(std::get<0>(exported));
     if (bytes.empty() || bytes.size() > options.max_output_bytes)
@@ -162,6 +204,12 @@ StaticInt8LinearExportResult ExportPreparedLinear(
     result.artifact.operators.assign(operators.begin(), operators.end());
     result.source_artifact_digest = prepared.source_artifact_digest;
     result.profile_id = prepared.profile_id;
+    if (graph_kind == StaticInt8LinearGraph::ort_matmul_integer_to_float)
+      result.profile_id =
+          product_scales.empty()
+              ? "jyppx.linear.ptq.ort.u8u8.matmul_integer_to_float/v1"
+              : "jyppx.linear.ptq.ort.u8u8.per_output_channel."
+                "matmul_integer_to_float/v1";
     return result;
   } catch (const Error&) {
     throw;
@@ -177,7 +225,7 @@ StaticInt8LinearExportResult export_static_int8_linear(
     std::span<const std::byte> source_artifact,
     const ArtifactDigest& expected_source_digest,
     std::span<const std::int64_t> shape, const ExportOptions& options,
-    quantization::QuantizationLimits limits) {
+    quantization::QuantizationLimits limits, StaticInt8LinearGraph graph_kind) {
   validate_artifact_digest(expected_source_digest);
   if (source_artifact.size() > limits.max_artifact_bytes)
     throw ResourceExhausted("Q0 source exceeds its byte bound",
@@ -191,14 +239,14 @@ StaticInt8LinearExportResult export_static_int8_linear(
   if (prepared.source_artifact_digest != expected_source_digest)
     throw CompatibilityError("Canonical Q0 identity mismatch",
                              Details("identity"));
-  return ExportPreparedLinear(prepared, shape, options);
+  return ExportPreparedLinear(prepared, shape, options, graph_kind);
 }
 
 StaticInt8LinearExportResult export_static_int8_linear_per_output_channel(
     std::span<const std::byte> source_artifact,
     const ArtifactDigest& expected_source_digest,
     std::span<const std::int64_t> shape, const ExportOptions& options,
-    quantization::QuantizationLimits limits) {
+    quantization::QuantizationLimits limits, StaticInt8LinearGraph graph_kind) {
   validate_artifact_digest(expected_source_digest);
   if (source_artifact.size() > limits.max_artifact_bytes)
     throw ResourceExhausted("Per-output-channel source exceeds its byte bound",
@@ -236,7 +284,7 @@ StaticInt8LinearExportResult export_static_int8_linear_per_output_channel(
     for (std::size_t in = 0U; in < source.in_features; ++in)
       merged.weights[in * source.out_features + out] = channel.weights[in];
   }
-  return ExportPreparedLinear(merged, shape, options, products);
+  return ExportPreparedLinear(merged, shape, options, graph_kind, products);
 }
 
 }  // namespace jyppx::liuding::onnx_export

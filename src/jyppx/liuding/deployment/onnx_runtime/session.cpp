@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <condition_variable>
 #include <exception>
@@ -20,6 +21,7 @@
 #include <onnxruntime_cxx_api.h>
 #include <set>
 #include <shared_mutex>
+#include <system_error>
 #include <thread>
 #include <utility>
 
@@ -30,6 +32,35 @@ constexpr const char* kComponent = "onnx_runtime.session";
 
 ErrorDetails Details(std::string operation) {
   return {.component = kComponent, .operation = std::move(operation)};
+}
+
+ErrorDetails ProviderDetails(const ExecutionProvider& provider,
+                             std::string operation, std::string actual) {
+  auto details = Details(std::move(operation));
+  details.expected = provider.name;
+  details.actual = actual.substr(0U, 4096U);
+  details.hint =
+      "Check the staged ONNX Runtime provider SDK, requested device, driver "
+      "and provider dependencies (CUDA/cuDNN for CUDA).";
+  return details;
+}
+
+template <typename Function>
+void ProviderCall(const ExecutionProvider& provider, const char* operation,
+                  Function&& function) {
+  try {
+    std::forward<Function>(function)();
+  } catch (const Ort::Exception& error) {
+    auto details = ProviderDetails(provider, operation, error.what());
+    if (std::string_view(operation) == "provider.options" &&
+        error.GetOrtErrorCode() == ORT_INVALID_ARGUMENT) {
+      details.hint = "Use provider options documented by the loaded ORT SDK.";
+      std::throw_with_nested(InvalidArgument(
+          "ONNX Runtime rejected provider options", std::move(details)));
+    }
+    std::throw_with_nested(DeviceError(
+        "ONNX Runtime provider initialization failed", std::move(details)));
+  }
 }
 
 template <typename Function>
@@ -64,6 +95,53 @@ void CheckOperation(
                            Details("run"));
 }
 
+void ValidateCudaOptions(const ExecutionProvider& provider) {
+  if (provider.name != "CUDAExecutionProvider") return;
+  const auto reject = [&](std::string_view key, std::string_view value) {
+    auto details = ProviderDetails(provider, "provider.options",
+                                   std::string(key) + "=" + std::string(value));
+    details.hint =
+        "Use a nonnegative device, positive arena budget and documented CUDA "
+        "options; this adapter requires default-stream copies and owns no "
+        "external streams, allocators or CUDA Graph buffers.";
+    throw InvalidArgument("Unsupported or invalid CUDA provider option",
+                          std::move(details));
+  };
+  for (const auto& [key, value] : provider.options) {
+    if (key == "device_id" || key == "gpu_mem_limit") {
+      std::uint64_t parsed = 0U;
+      const auto result =
+          std::from_chars(value.data(), value.data() + value.size(), parsed);
+      const auto maximum = key == "device_id"
+                               ? static_cast<std::uint64_t>(
+                                     std::numeric_limits<std::int32_t>::max())
+                               : static_cast<std::uint64_t>(
+                                     std::numeric_limits<std::size_t>::max());
+      if (value.empty() || result.ec != std::errc{} ||
+          result.ptr != value.data() + value.size() || parsed > maximum ||
+          (key == "gpu_mem_limit" && parsed == 0U))
+        reject(key, value);
+    } else if (key == "enable_cuda_graph") {
+      // CUDA Graph requires stable device addresses and disallows concurrent
+      // Run calls, unlike this adapter's borrowed host I/O contract.
+      if (value != "0") reject(key, value);
+    } else if (key == "do_copy_in_default_stream") {
+      // ORT documents possible races when provider copies use separate streams.
+      if (value != "1") reject(key, value);
+    } else if (key == "user_compute_stream" ||
+               key == "has_user_compute_stream" ||
+               key == "gpu_external_alloc" || key == "gpu_external_free" ||
+               key == "gpu_external_empty_cache") {
+      reject(key, value);
+    } else if (key == "use_tf32" || key == "cudnn_conv_use_max_workspace") {
+      if (value != "0" && value != "1") reject(key, value);
+    } else if (key == "cudnn_conv_algo_search") {
+      if (value != "HEURISTIC" && value != "EXHAUSTIVE" && value != "DEFAULT")
+        reject(key, value);
+    }
+  }
+}
+
 void ValidateOptions(const SessionOptions& options) {
   if (options.cpu_threads == 0U || options.cpu_threads > 64U ||
       options.max_model_bytes == 0U || options.max_input_bytes == 0U ||
@@ -85,6 +163,7 @@ void ValidateOptions(const SessionOptions& options) {
       throw InvalidArgument("Invalid ONNX Runtime provider options",
                             Details("provider"));
   }
+  ValidateCudaOptions(options.provider);
   const auto& prefix = options.profile_prefix.native();
   if (!prefix.empty() &&
       (prefix.size() > 4096U ||
@@ -105,12 +184,14 @@ void AppendProvider(Ort::SessionOptions& settings,
   if (!provider_append_supported(provider.name))
     throw CompatibilityError(
         "ONNX Runtime provider has no supported append API in this adapter",
-        Details("provider"));
+        ProviderDetails(provider, "provider", "No supported append API"));
   const auto providers = Ort::GetAvailableProviders();
   if (std::find(providers.begin(), providers.end(), provider.name) ==
       providers.end())
     throw CompatibilityError("Requested ONNX Runtime provider is unavailable",
-                             Details("provider"));
+                             ProviderDetails(provider, "provider",
+                                             "Provider is not compiled into "
+                                             "the loaded runtime"));
   if (provider.name == "CPUExecutionProvider") {
     if (!provider.options.empty())
       throw InvalidArgument(
@@ -131,31 +212,47 @@ void AppendProvider(Ort::SessionOptions& settings,
   const auto& api = Ort::GetApi();
   if (provider.name == "CUDAExecutionProvider") {
     OrtCUDAProviderOptionsV2* pointer = nullptr;
-    Ort::ThrowOnError(api.CreateCUDAProviderOptions(&pointer));
+    ProviderCall(provider, "provider.initialize", [&] {
+      Ort::ThrowOnError(api.CreateCUDAProviderOptions(&pointer));
+    });
     std::unique_ptr<OrtCUDAProviderOptionsV2,
                     decltype(api.ReleaseCUDAProviderOptions)>
         native(pointer, api.ReleaseCUDAProviderOptions);
-    Ort::ThrowOnError(api.UpdateCUDAProviderOptions(
-        native.get(), keys.data(), values.data(), keys.size()));
-    Ort::ThrowOnError(api.SessionOptionsAppendExecutionProvider_CUDA_V2(
-        settings, native.get()));
+    ProviderCall(provider, "provider.options", [&] {
+      Ort::ThrowOnError(api.UpdateCUDAProviderOptions(
+          native.get(), keys.data(), values.data(), keys.size()));
+    });
+    ProviderCall(provider, "provider.initialize", [&] {
+      Ort::ThrowOnError(api.SessionOptionsAppendExecutionProvider_CUDA_V2(
+          settings, native.get()));
+    });
   } else if (provider.name == "TensorrtExecutionProvider") {
     OrtTensorRTProviderOptionsV2* pointer = nullptr;
-    Ort::ThrowOnError(api.CreateTensorRTProviderOptions(&pointer));
+    ProviderCall(provider, "provider.initialize", [&] {
+      Ort::ThrowOnError(api.CreateTensorRTProviderOptions(&pointer));
+    });
     std::unique_ptr<OrtTensorRTProviderOptionsV2,
                     decltype(api.ReleaseTensorRTProviderOptions)>
         native(pointer, api.ReleaseTensorRTProviderOptions);
-    Ort::ThrowOnError(api.UpdateTensorRTProviderOptions(
-        native.get(), keys.data(), values.data(), keys.size()));
-    Ort::ThrowOnError(api.SessionOptionsAppendExecutionProvider_TensorRT_V2(
-        settings, native.get()));
+    ProviderCall(provider, "provider.options", [&] {
+      Ort::ThrowOnError(api.UpdateTensorRTProviderOptions(
+          native.get(), keys.data(), values.data(), keys.size()));
+    });
+    ProviderCall(provider, "provider.initialize", [&] {
+      Ort::ThrowOnError(api.SessionOptionsAppendExecutionProvider_TensorRT_V2(
+          settings, native.get()));
+    });
   } else if (provider.name == "OpenVINOExecutionProvider") {
-    Ort::ThrowOnError(api.SessionOptionsAppendExecutionProvider_OpenVINO_V2(
-        settings, keys.data(), values.data(), keys.size()));
+    ProviderCall(provider, "provider.initialize", [&] {
+      Ort::ThrowOnError(api.SessionOptionsAppendExecutionProvider_OpenVINO_V2(
+          settings, keys.data(), values.data(), keys.size()));
+    });
   } else {
-    Ort::ThrowOnError(api.SessionOptionsAppendExecutionProvider(
-        settings, provider.name.c_str(), keys.data(), values.data(),
-        keys.size()));
+    ProviderCall(provider, "provider.initialize", [&] {
+      Ort::ThrowOnError(api.SessionOptionsAppendExecutionProvider(
+          settings, provider.name.c_str(), keys.data(), values.data(),
+          keys.size()));
+    });
   }
 }
 
@@ -284,6 +381,24 @@ std::vector<std::string> available_providers() {
   return Boundary("providers", [] { return Ort::GetAvailableProviders(); });
 }
 
+ExecutionProvider cuda_execution_provider(const CudaProviderOptions& options) {
+  return Boundary("provider.options", [&] {
+    ExecutionProvider result{
+        .name = "CUDAExecutionProvider",
+        .options = {{"device_id", std::to_string(options.device_id)},
+                    {"cudnn_conv_algo_search", "HEURISTIC"},
+                    {"cudnn_conv_use_max_workspace",
+                     options.allow_max_conv_workspace ? "1" : "0"},
+                    {"use_tf32", options.allow_tf32 ? "1" : "0"},
+                    {"do_copy_in_default_stream", "1"}}};
+    if (options.arena_memory_limit_bytes)
+      result.options.emplace("gpu_mem_limit",
+                             std::to_string(*options.arena_memory_limit_bytes));
+    ValidateCudaOptions(result);
+    return result;
+  });
+}
+
 bool provider_append_supported(std::string_view name) noexcept {
   return name == "CPUExecutionProvider" || name == "CUDAExecutionProvider" ||
          name == "TensorrtExecutionProvider" ||
@@ -316,7 +431,21 @@ class Session::Impl {
     AppendProvider(settings, options);
     if (!options.profile_prefix.empty())
       settings.EnableProfiling(options.profile_prefix.c_str());
-    session = Ort::Session(environment, bytes.data(), bytes.size(), settings);
+    try {
+      session = Ort::Session(environment, bytes.data(), bytes.size(), settings);
+    } catch (const Ort::Exception& error) {
+      auto details = ProviderDetails(options.provider, "load", error.what());
+      if (error.GetOrtErrorCode() == ORT_EP_FAIL)
+        std::throw_with_nested(
+            DeviceError("ONNX Runtime execution provider failed to initialize",
+                        std::move(details)));
+      details.hint =
+          "Check the self-contained model, operator schemas and coverage "
+          "of the requested execution provider.";
+      std::throw_with_nested(CompatibilityError(
+          "ONNX Runtime could not initialize the requested model/session",
+          std::move(details)));
+    }
     const auto input_count = session.GetInputCount();
     const auto output_count = session.GetOutputCount();
     if (input_count == 0U || output_count == 0U ||

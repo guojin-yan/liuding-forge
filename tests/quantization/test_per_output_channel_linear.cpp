@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <gtest/gtest.h>
@@ -23,13 +24,14 @@ namespace q = jyppx::liuding::quantization;
 namespace ex = jyppx::liuding::onnx_export;
 namespace rt = jyppx::liuding::onnx_runtime;
 
-q::CalibrationResult Calibration(std::uint64_t seed = 20261030U) {
+q::CalibrationResult Calibration(std::uint64_t seed = 20261030U,
+                                 float magnitude = 127.0F) {
   q::CalibrationSession session(
       {.dataset_version = "per-output-fixture/v1",
        .dataset_digest = {.hex = std::string(64U, 'a')},
        .preprocessing_fingerprint = "identity-fp32/v1",
        .seed = seed});
-  const std::array<float, 3U> values{-127.0F, 0.0F, 127.0F};
+  const std::array<float, 3U> values{-magnitude, 0.0F, magnitude};
   session.observe("train/0", values);
   return session.finalize();
 }
@@ -158,6 +160,52 @@ TEST(PerOutputChannelInt8, AggregateIdentityBindsRowOrderAndBias) {
                jyppx::liuding::CompatibilityError);
 }
 
+TEST(PerOutputChannelInt8, ExplicitOrtGraphHasDistinctProfileAndExactBounds) {
+  const auto bytes = q::serialize_per_output_channel_linear_artifact(Source());
+  const jyppx::liuding::ArtifactDigest digest{
+      .hex = jyppx::liuding::sha256_hex(bytes)};
+  const std::array<std::int64_t, 2U> shape{1, 3};
+  const auto portable =
+      ex::export_static_int8_linear_per_output_channel(bytes, digest, shape);
+  const auto explicit_portable =
+      ex::export_static_int8_linear_per_output_channel(
+          bytes, digest, shape, {}, {}, ex::StaticInt8LinearGraph::portable);
+  EXPECT_EQ(portable.artifact.onnx, explicit_portable.artifact.onnx);
+  const auto fused = ex::export_static_int8_linear_per_output_channel(
+      bytes, digest, shape, {}, {},
+      ex::StaticInt8LinearGraph::ort_matmul_integer_to_float);
+  EXPECT_EQ(fused.source_artifact_digest, digest);
+  EXPECT_EQ(fused.profile_id,
+            "jyppx.linear.ptq.ort.u8u8.per_output_channel."
+            "matmul_integer_to_float/v1");
+  EXPECT_NE(fused.artifact.digest, portable.artifact.digest);
+  EXPECT_EQ(fused.artifact.operators,
+            (std::vector<std::string>{"com.microsoft::MatMulIntegerToFloat",
+                                      "onnx::Add", "onnx::QuantizeLinear"}));
+  const auto repeated = ex::export_static_int8_linear_per_output_channel(
+      bytes, digest, shape, {}, {},
+      ex::StaticInt8LinearGraph::ort_matmul_integer_to_float);
+  EXPECT_EQ(repeated.artifact.onnx, fused.artifact.onnx);
+  ex::ExportOptions options;
+  options.max_output_bytes = fused.artifact.onnx.size();
+  EXPECT_NO_THROW(ex::export_static_int8_linear_per_output_channel(
+      bytes, digest, shape, options, {},
+      ex::StaticInt8LinearGraph::ort_matmul_integer_to_float));
+  --options.max_output_bytes;
+  EXPECT_THROW(ex::export_static_int8_linear_per_output_channel(
+                   bytes, digest, shape, options, {},
+                   ex::StaticInt8LinearGraph::ort_matmul_integer_to_float),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_THROW(ex::export_static_int8_linear_per_output_channel(
+                   bytes, digest, shape, {}, {},
+                   static_cast<ex::StaticInt8LinearGraph>(255)),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(ex::export_static_int8_linear_per_output_channel(
+                   bytes, {.hex = std::string(64U, '0')}, shape, {}, {},
+                   ex::StaticInt8LinearGraph::ort_matmul_integer_to_float),
+               jyppx::liuding::CompatibilityError);
+}
+
 TEST(PerOutputChannelInt8, CpuIntegerMatchesIndependentInt64Oracle) {
   for (const bool biased : {false, true}) {
     const auto bytes =
@@ -207,6 +255,82 @@ TEST(PerOutputChannelInt8, CpuIntegerMatchesIndependentInt64Oracle) {
       }
       const std::array<std::int64_t, 2U> one{1, 3};
       EXPECT_NO_THROW(session.run(std::span(input).first(3U), one));
+    }
+  }
+}
+
+TEST(PerOutputChannelInt8,
+     FusedAndPortablePreserveNonunitScalesAndSeparateBiasRounding) {
+  constexpr std::array<std::int32_t, 15U> integers{
+      -128, -127, -3, -1, 0, 1, 3, 63, 127, 127, -128, 42, -127, 63, 1};
+  const std::array<float, 9U> weights{37.125F,   -37.125F,   0.0F,
+                                      0.000375F, -0.000375F, 0.0F,
+                                      375000.0F, -375000.0F, 0.0F};
+  const std::array<float, 3U> bias{0.25F, -0.5F, 64.0F};
+  for (const bool biased : {false, true}) {
+    SCOPED_TRACE(biased);
+    const auto source = q::quantize_linear_per_output_channel(
+        {.in_features = 3U,
+         .out_features = 3U,
+         .weights = weights,
+         .bias =
+             biased ? std::span<const float>(bias) : std::span<const float>{}},
+        Calibration(20261030U, 37.75F));
+    const auto bytes = q::serialize_per_output_channel_linear_artifact(source);
+    std::array<float, integers.size()> input{};
+    const auto activation_scale = static_cast<float>(
+        source.channels.front().calibration.activation_params.scale);
+    for (std::size_t i = 0U; i < input.size(); ++i)
+      input[i] = static_cast<float>(integers[i]) * activation_scale;
+    std::array<float, 15U> expected{};
+    for (std::size_t out = 0U; out < source.out_features; ++out) {
+      ASSERT_EQ(source.channels[out].quantized_weights,
+                (std::vector<std::int8_t>{127, -127, 0}));
+      // Independent IEEE FP32 oracle: round each qparam, then their product,
+      // then the int64 dot product, multiplication and separate bias addition.
+      const auto weight_scale =
+          static_cast<float>(source.channels[out].weight_params.scale);
+      const auto product_scale = static_cast<float>(
+          static_cast<double>(activation_scale) * weight_scale);
+      for (std::size_t row = 0U; row < 5U; ++row) {
+        const std::int64_t accumulator =
+            static_cast<std::int64_t>(integers[row * 3U]) * 127 -
+            static_cast<std::int64_t>(integers[row * 3U + 1U]) * 127;
+        volatile float scaled = static_cast<float>(accumulator) * product_scale;
+        expected[row * 3U + out] = biased ? scaled + bias[out] : scaled;
+      }
+    }
+    for (const auto graph :
+         {ex::StaticInt8LinearGraph::portable,
+          ex::StaticInt8LinearGraph::ort_matmul_integer_to_float}) {
+      SCOPED_TRACE(static_cast<unsigned>(graph));
+      for (const std::int64_t example_batch : {1, 4}) {
+        SCOPED_TRACE(example_batch);
+        const std::array<std::int64_t, 2U> example_shape{example_batch, 3};
+        const auto exported = ex::export_static_int8_linear_per_output_channel(
+            bytes, {.hex = jyppx::liuding::sha256_hex(bytes)}, example_shape,
+            {}, {}, graph);
+        for (const bool disable_optimization : {false, true}) {
+          SCOPED_TRACE(disable_optimization);
+          rt::SessionOptions options;
+          options.disable_graph_optimizations = disable_optimization;
+          rt::Session session(exported.artifact.onnx, exported.artifact.digest,
+                              options);
+          for (const std::size_t batch : {4U, 1U, 5U}) {
+            SCOPED_TRACE(batch);
+            const std::array<std::int64_t, 2U> shape{
+                static_cast<std::int64_t>(batch), 3};
+            const auto actual =
+                session.run(std::span(input).first(batch * 3U), shape);
+            EXPECT_EQ(actual.shape, (std::vector<std::int64_t>{shape[0], 3}));
+            ASSERT_EQ(actual.values.size(), batch * 3U);
+            for (std::size_t i = 0U; i < actual.values.size(); ++i)
+              EXPECT_EQ(std::bit_cast<std::uint32_t>(actual.values[i]),
+                        std::bit_cast<std::uint32_t>(expected[i]))
+                  << "output " << i;
+          }
+        }
+      }
     }
   }
 }

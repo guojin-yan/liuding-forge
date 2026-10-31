@@ -22,6 +22,13 @@
 
 namespace {
 
+int Usage() {
+  std::cerr << "Usage: liuding-forge-int8-export [--per-output-channel] "
+               "[--graph portable|ort-matmul-integer-to-float] "
+               "SOURCE.qint8 OUTPUT.onnx\n";
+  return 2;
+}
+
 std::vector<std::byte> ReadSource(const std::filesystem::path& path) {
   constexpr std::uintmax_t kMaximum = 16U << 20U;
   const auto count = std::filesystem::file_size(path);
@@ -45,18 +52,42 @@ int wmain(int argc, wchar_t** argv) {
 #else
 int main(int argc, char** argv) {
 #endif
-  const bool per_output_channel =
-      argc == 4 && std::filesystem::path(argv[1]) == "--per-output-channel";
-  if (argc != 3 && !per_output_channel) {
-    std::cerr << "Usage: liuding-forge-int8-export [--per-output-channel] "
-                 "SOURCE.qint8 OUTPUT.onnx\n";
-    return 2;
-  }
+  if (argc < 3) return Usage();
   try {
     namespace ex = jyppx::liuding::onnx_export;
     namespace q = jyppx::liuding::quantization;
-    const std::filesystem::path source(argv[per_output_channel ? 2 : 1]);
-    const std::filesystem::path destination(argv[per_output_channel ? 3 : 2]);
+    bool per_output_channel = false;
+    bool graph_selected = false;
+    auto graph = ex::StaticInt8LinearGraph::portable;
+    int source_index = 1;
+    while (source_index < argc - 2) {
+      const std::filesystem::path option(argv[source_index]);
+      if (option == "--") {
+        ++source_index;
+        break;
+      }
+      if (option == "--per-output-channel" && !per_output_channel) {
+        per_output_channel = true;
+        ++source_index;
+      } else if (option == "--graph" && !graph_selected &&
+                 source_index + 1 < argc - 2) {
+        const std::filesystem::path value(argv[source_index + 1]);
+        if (value == "portable") {
+          graph = ex::StaticInt8LinearGraph::portable;
+        } else if (value == "ort-matmul-integer-to-float") {
+          graph = ex::StaticInt8LinearGraph::ort_matmul_integer_to_float;
+        } else {
+          return Usage();
+        }
+        graph_selected = true;
+        source_index += 2;
+      } else {
+        return Usage();
+      }
+    }
+    if (argc - source_index != 2) return Usage();
+    const std::filesystem::path source(argv[source_index]);
+    const std::filesystem::path destination(argv[source_index + 1]);
     const auto bytes = ReadSource(source);
     const auto in_features =
         per_output_channel
@@ -68,10 +99,10 @@ int main(int argc, char** argv) {
     const jyppx::liuding::ArtifactDigest digest{
         .hex = jyppx::liuding::sha256_hex(bytes)};
     const auto exported =
-        per_output_channel
-            ? ex::export_static_int8_linear_per_output_channel(bytes, digest,
-                                                               shape)
-            : ex::export_static_int8_linear(bytes, digest, shape);
+        per_output_channel ? ex::export_static_int8_linear_per_output_channel(
+                                 bytes, digest, shape, {}, {}, graph)
+                           : ex::export_static_int8_linear(bytes, digest, shape,
+                                                           {}, {}, graph);
     q::tools_detail::PublishExclusive(destination, exported.artifact.onnx);
     std::cout
         << "{\"schema_version\":1,\"source_artifact_sha256\":\""

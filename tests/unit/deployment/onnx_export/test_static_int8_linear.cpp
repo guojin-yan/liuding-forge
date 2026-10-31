@@ -86,6 +86,62 @@ TEST(NativeStaticInt8Export, ExactSourceIdentityAndIntegerGraph) {
   EXPECT_EQ(q::serialize_linear_artifact(source), bytes);
 }
 
+TEST(NativeStaticInt8Export, OrtGraphIsExplicitAndHasIndependentIdentity) {
+  const std::array<std::int64_t, 2U> shape{1, 3};
+  for (const bool biased : {false, true}) {
+    SCOPED_TRACE(biased);
+    const auto bytes = q::serialize_linear_artifact(Source(biased));
+    const jyppx::liuding::ArtifactDigest digest{
+        .hex = jyppx::liuding::sha256_hex(bytes)};
+    const auto portable =
+        ex::export_static_int8_linear(bytes, digest, shape, Options());
+    const auto explicit_portable =
+        ex::export_static_int8_linear(bytes, digest, shape, Options(), {},
+                                      ex::StaticInt8LinearGraph::portable);
+    EXPECT_EQ(portable.artifact.onnx, explicit_portable.artifact.onnx);
+    const auto fused = ex::export_static_int8_linear(
+        bytes, digest, shape, Options(), {},
+        ex::StaticInt8LinearGraph::ort_matmul_integer_to_float);
+    EXPECT_EQ(fused.source_artifact_digest, digest);
+    EXPECT_EQ(fused.profile_id,
+              "jyppx.linear.ptq.ort.u8u8.matmul_integer_to_float/v1");
+    EXPECT_NE(fused.artifact.digest, portable.artifact.digest);
+    EXPECT_EQ(fused.artifact.digest.hex,
+              jyppx::liuding::sha256_hex(fused.artifact.onnx));
+    auto operators = std::vector<std::string>{
+        "com.microsoft::MatMulIntegerToFloat", "onnx::QuantizeLinear"};
+    if (biased) operators.push_back("onnx::Add");
+    std::sort(operators.begin(), operators.end());
+    EXPECT_EQ(fused.artifact.operators, operators);
+    EXPECT_EQ(fused.artifact.input_shape, portable.artifact.input_shape);
+    EXPECT_EQ(fused.artifact.output_shape, portable.artifact.output_shape);
+    EXPECT_FALSE(fused.artifact.external_data);
+    const auto repeated = ex::export_static_int8_linear(
+        bytes, digest, shape, Options(), {},
+        ex::StaticInt8LinearGraph::ort_matmul_integer_to_float);
+    EXPECT_EQ(repeated.artifact.onnx, fused.artifact.onnx);
+    auto exact_options = Options();
+    exact_options.max_output_bytes = fused.artifact.onnx.size();
+    EXPECT_NO_THROW(ex::export_static_int8_linear(
+        bytes, digest, shape, exact_options, {},
+        ex::StaticInt8LinearGraph::ort_matmul_integer_to_float));
+    --exact_options.max_output_bytes;
+    EXPECT_THROW(ex::export_static_int8_linear(
+                     bytes, digest, shape, exact_options, {},
+                     ex::StaticInt8LinearGraph::ort_matmul_integer_to_float),
+                 jyppx::liuding::ResourceExhausted);
+  }
+}
+
+TEST(NativeStaticInt8Export, RejectsUnknownGraphContract) {
+  const auto bytes = q::serialize_linear_artifact(Source());
+  const std::array<std::int64_t, 2U> shape{1, 3};
+  EXPECT_THROW(ex::export_static_int8_linear(
+                   bytes, {.hex = jyppx::liuding::sha256_hex(bytes)}, shape,
+                   Options(), {}, static_cast<ex::StaticInt8LinearGraph>(255)),
+               jyppx::liuding::InvalidArgument);
+}
+
 TEST(NativeStaticInt8Export,
      RejectsIdentityTruncationVersionAndCapabilityForgery) {
   const auto bytes = q::serialize_linear_artifact(Source());
@@ -221,6 +277,163 @@ TEST(NativeStaticInt8Runtime,
   ASSERT_EQ(actual.values.size(), expected.size());
   for (std::size_t i = 0U; i < expected.size(); ++i)
     EXPECT_FLOAT_EQ(actual.values[i], expected[i]);
+}
+
+TEST(NativeStaticInt8Runtime, OrtFusedPreservesSaturationAndExactBiasRounding) {
+  namespace rt = jyppx::liuding::onnx_runtime;
+  const std::array<float, 12U> input{-1000.0F, -3.5F,  -2.5F,  -1.5F,
+                                     -0.5F,    0.5F,   1.5F,   2.5F,
+                                     3.5F,     127.0F, 128.0F, 1000.0F};
+  const std::array<std::int32_t, 12U> rounded{-1000, -4, -2, -2,  0,   0,
+                                              2,     2,  4,  127, 128, 1000};
+  for (const bool biased : {false, true}) {
+    SCOPED_TRACE(biased);
+    const auto source = Source(biased);
+    const auto bytes = q::serialize_linear_artifact(source);
+    for (const std::int64_t example_batch : {1, 4}) {
+      SCOPED_TRACE(example_batch);
+      const std::array<std::int64_t, 2U> example_shape{example_batch, 3};
+      const auto exported = ex::export_static_int8_linear(
+          bytes, {.hex = jyppx::liuding::sha256_hex(bytes)}, example_shape,
+          Options(), {},
+          ex::StaticInt8LinearGraph::ort_matmul_integer_to_float);
+      for (const bool disable_optimization : {false, true}) {
+        SCOPED_TRACE(disable_optimization);
+        rt::SessionOptions options;
+        options.disable_graph_optimizations = disable_optimization;
+        rt::Session session(exported.artifact.onnx, exported.artifact.digest,
+                            options);
+        // Reuse one Session across shrinking and growing batches, including
+        // the CLI's batch-one export example and the original failing four.
+        for (const std::size_t batch : {4U, 1U, 5U}) {
+          SCOPED_TRACE(batch);
+          std::vector<float> values(batch * 3U);
+          std::vector<std::int32_t> integers(values.size());
+          for (std::size_t i = 0U; i < values.size(); ++i) {
+            values[i] = input[i % input.size()];
+            integers[i] = rounded[i % rounded.size()];
+          }
+          const auto expected = IntegerOracle(source, integers, batch);
+          const std::array<std::int64_t, 2U> shape{
+              static_cast<std::int64_t>(batch), 3};
+          const auto actual = session.run(values, shape);
+          EXPECT_EQ(actual.shape, (std::vector<std::int64_t>{shape[0], 2}));
+          ASSERT_EQ(actual.values.size(), expected.size());
+          for (std::size_t i = 0U; i < expected.size(); ++i)
+            EXPECT_EQ(std::bit_cast<std::uint32_t>(actual.values[i]),
+                      std::bit_cast<std::uint32_t>(expected[i]));
+        }
+      }
+    }
+  }
+}
+
+TEST(NativeStaticInt8Runtime, OrtFusedNonunitScalarScaleMatchesInt64Oracle) {
+  namespace rt = jyppx::liuding::onnx_runtime;
+  q::CalibrationSession calibration(
+      {.dataset_version = "native-nonunit-int8-test/v1",
+       .dataset_digest = {.hex = std::string(64U, 'b')},
+       .preprocessing_fingerprint = "identity-fp32/v1",
+       .seed = 20261031U});
+  const std::array<float, 3U> samples{-37.75F, 0.0F, 37.75F};
+  calibration.observe("train/0", samples);
+  const auto calibrated = calibration.finalize();
+  const std::array<float, 6U> weights{37.125F, -37.125F, 0.0F,
+                                      37.125F, 0.0F,     -37.125F};
+  const std::array<float, 2U> bias{0.25F, -0.5F};
+  const std::array<std::int32_t, 12U> integers{-128, -127, -3,  -1,  0,    1,
+                                               3,    63,   127, 127, -128, 42};
+  const std::array<std::int64_t, 2U> shape{4, 3};
+  for (const bool biased : {false, true}) {
+    SCOPED_TRACE(biased);
+    const auto source =
+        q::quantize_linear({.in_features = 3U,
+                            .out_features = 2U,
+                            .weights = weights,
+                            .bias = biased ? std::span<const float>(bias)
+                                           : std::span<const float>{}},
+                           calibrated);
+    ASSERT_EQ(source.quantized_weights,
+              (std::vector<std::int8_t>{127, -127, 0, 127, 0, -127}));
+    const auto bytes = q::serialize_linear_artifact(source);
+    const auto activation_scale =
+        static_cast<float>(calibrated.activation_params.scale);
+    const auto weight_scale = static_cast<float>(source.weight_params.scale);
+    const auto product_scale = static_cast<float>(
+        static_cast<double>(activation_scale) * weight_scale);
+    std::array<float, integers.size()> input{};
+    for (std::size_t i = 0U; i < input.size(); ++i)
+      input[i] = static_cast<float>(integers[i]) * activation_scale;
+    std::array<float, 8U> expected{};
+    for (std::size_t row = 0U; row < 4U; ++row) {
+      for (std::size_t out = 0U; out < 2U; ++out) {
+        std::int64_t accumulator = 0;
+        for (std::size_t in = 0U; in < 3U; ++in)
+          accumulator += static_cast<std::int64_t>(integers[row * 3U + in]) *
+                         source.quantized_weights[out * 3U + in];
+        // The volatile store makes the oracle's product rounding explicit.
+        volatile float scaled = static_cast<float>(accumulator) * product_scale;
+        expected[row * 2U + out] = biased ? scaled + bias[out] : scaled;
+      }
+    }
+    for (const auto graph :
+         {ex::StaticInt8LinearGraph::portable,
+          ex::StaticInt8LinearGraph::ort_matmul_integer_to_float}) {
+      SCOPED_TRACE(static_cast<unsigned>(graph));
+      const auto exported = ex::export_static_int8_linear(
+          bytes, {.hex = jyppx::liuding::sha256_hex(bytes)}, shape, Options(),
+          {}, graph);
+      for (const bool disable_optimization : {false, true}) {
+        SCOPED_TRACE(disable_optimization);
+        rt::SessionOptions options;
+        options.disable_graph_optimizations = disable_optimization;
+        rt::Session session(exported.artifact.onnx, exported.artifact.digest,
+                            options);
+        const auto actual = session.run(input, shape);
+        ASSERT_EQ(actual.values.size(), expected.size());
+        for (std::size_t i = 0U; i < expected.size(); ++i)
+          EXPECT_EQ(std::bit_cast<std::uint32_t>(actual.values[i]),
+                    std::bit_cast<std::uint32_t>(expected[i]));
+      }
+    }
+  }
+}
+
+TEST(NativeStaticInt8Runtime,
+     OrtFusedFullUnsignedRangeAndLargeAccumulatorMatchInt64Oracle) {
+  namespace rt = jyppx::liuding::onnx_runtime;
+  auto source = Source(false);
+  source.in_features = 4097U;
+  source.out_features = 2U;
+  source.quantized_weights.assign(source.in_features * 2U, 127);
+  std::fill(source.quantized_weights.begin() + source.in_features,
+            source.quantized_weights.end(), -127);
+  const auto bytes = q::serialize_linear_artifact(source);
+  const std::array<std::int64_t, 2U> shape{3, 4097};
+  const auto exported = ex::export_static_int8_linear(
+      bytes, {.hex = jyppx::liuding::sha256_hex(bytes)}, shape, Options(), {},
+      ex::StaticInt8LinearGraph::ort_matmul_integer_to_float);
+  std::vector<float> input(3U * source.in_features, 127.0F);
+  std::fill(input.begin() + source.in_features,
+            input.begin() + 2U * source.in_features, -128.0F);
+  for (std::size_t i = 2U * source.in_features; i < input.size(); ++i)
+    input[i] = i % 2U == 0U ? -127.0F : 127.0F;
+  std::vector<std::int32_t> integers(input.size());
+  std::transform(input.begin(), input.end(), integers.begin(),
+                 [](float value) { return static_cast<std::int32_t>(value); });
+  const auto expected = IntegerOracle(source, integers, 3U);
+  for (const bool disable_optimization : {false, true}) {
+    SCOPED_TRACE(disable_optimization);
+    rt::SessionOptions options;
+    options.disable_graph_optimizations = disable_optimization;
+    rt::Session session(exported.artifact.onnx, exported.artifact.digest,
+                        options);
+    const auto actual = session.run(input, shape);
+    ASSERT_EQ(actual.values.size(), expected.size());
+    for (std::size_t i = 0U; i < expected.size(); ++i)
+      EXPECT_EQ(std::bit_cast<std::uint32_t>(actual.values[i]),
+                std::bit_cast<std::uint32_t>(expected[i]));
+  }
 }
 
 #endif

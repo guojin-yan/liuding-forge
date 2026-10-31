@@ -72,6 +72,19 @@ Runtime 接收一个或多个具名 FP32 稠密输入，返回独立持有数据
 
 非 CPU 请求默认 `allow_cpu_fallback=false`，缺失后端或不支持的图明确失败；调用方显式允许后才接受 CPU 分区回退。`profile_prefix` 启用 ORT profiling，`end_profiling()` 返回可核对实际 Provider 与算子的文件。各后端的数值、kernel 与资源资格分别验证，CPU 结果不代表 GPU 结果。
 
+CUDA 可使用带类型的配置入口，随后按上面的方式创建 `Session`：
+
+```cpp
+namespace runtime = jyppx::liuding::onnx_runtime;
+runtime::SessionOptions options;
+options.provider = runtime::cuda_execution_provider({
+    .device_id = 0,
+    .arena_memory_limit_bytes = 256ULL << 20U,
+});
+```
+
+需要完整的 ORT GPU SDK、与其匹配的 CUDA/cuDNN、驱动和实际设备。`arena_memory_limit_bytes` 只限制 CUDA arena，不是总显存上限；未设置时沿用 ORT 的 arena 限额。默认使用启发式卷积算法搜索，关闭 TF32 和最大 cuDNN workspace，可通过 `allow_tf32`、`allow_max_conv_workspace` 显式启用。当前主机 I/O 与并发接口不接受启用 CUDA Graph、自定义 stream/allocator 或非默认流拷贝的配置。
+
 Runtime 在解析前检查完整字节 SHA-256 和大小，执行前检查形状、batch、输入大小与有限数值，输出独立拥有；取消与 deadline 为协作式中断。`max_io_tensors` 限制输入与输出的总个数，`max_input_bytes`、`max_output_bytes` 分别限制一次调用的全部输入、全部输出字节数，所有输出大小在分配输出数据前统一检查。I/O 上限不覆盖元数据、图中间量与设备分配，哈希不代表来源可信；不可信模型须额外隔离。
 
 ## 导出报告与训练来源

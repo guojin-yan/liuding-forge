@@ -20,6 +20,7 @@
 #include <ATen/Parallel.h>
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -32,9 +33,11 @@
 #include <iterator>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <set>
 #include <span>
 #include <stop_token>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -170,6 +173,72 @@ struct LinearFixture {
       Tensor(Artifact(specification.at("cases").at(0)), "input");
 };
 
+TEST(OnnxRuntimeCudaOptions, CreatesExplicitDeviceArenaAndPrecisionPolicy) {
+  const auto provider = runtime::cuda_execution_provider(
+      {.device_id = 2, .arena_memory_limit_bytes = 64U << 20U});
+  EXPECT_EQ(provider.name, "CUDAExecutionProvider");
+  EXPECT_EQ(provider.options.at("device_id"), "2");
+  EXPECT_EQ(provider.options.at("gpu_mem_limit"), "67108864");
+  EXPECT_EQ(provider.options.at("cudnn_conv_algo_search"), "HEURISTIC");
+  EXPECT_EQ(provider.options.at("cudnn_conv_use_max_workspace"), "0");
+  EXPECT_EQ(provider.options.at("use_tf32"), "0");
+  EXPECT_EQ(provider.options.at("do_copy_in_default_stream"), "1");
+  const auto explicit_opt_in = runtime::cuda_execution_provider(
+      {.device_id = 0, .allow_tf32 = true, .allow_max_conv_workspace = true});
+  EXPECT_FALSE(explicit_opt_in.options.contains("gpu_mem_limit"));
+  EXPECT_EQ(explicit_opt_in.options.at("use_tf32"), "1");
+  EXPECT_EQ(explicit_opt_in.options.at("cudnn_conv_use_max_workspace"), "1");
+  EXPECT_THROW(runtime::cuda_execution_provider({.device_id = -1}),
+               InvalidArgument);
+  EXPECT_THROW(runtime::cuda_execution_provider(
+                   {.device_id = 0, .arena_memory_limit_bytes = 0U}),
+               InvalidArgument);
+}
+
+TEST(OnnxRuntimeCudaOptions, RejectsMalformedDeviceAndArenaBeforeLoading) {
+  LinearFixture fixture;
+  runtime::SessionOptions options;
+  options.provider.name = "CUDAExecutionProvider";
+  for (const auto* value : {"", "-1", "+0", " 0", "0x0", "1.0", "2147483648"}) {
+    options.provider.options = {{"device_id", value}};
+    EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
+                 InvalidArgument)
+        << value;
+  }
+  for (const auto* value :
+       {"", "0", "-1", "+1", "1.0", "18446744073709551616"}) {
+    options.provider.options = {{"gpu_mem_limit", value}};
+    EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
+                 InvalidArgument)
+        << value;
+  }
+}
+
+TEST(OnnxRuntimeCudaOptions, RejectsConflictingStreamGraphAndAllocatorState) {
+  LinearFixture fixture;
+  runtime::SessionOptions options;
+  options.provider.name = "CUDAExecutionProvider";
+  const std::array<std::pair<const char*, const char*>, 12> rejected{
+      std::pair{"enable_cuda_graph", "1"},
+      {"do_copy_in_default_stream", "0"},
+      {"user_compute_stream", "0"},
+      {"has_user_compute_stream", "1"},
+      {"gpu_external_alloc", "0"},
+      {"gpu_external_free", "0"},
+      {"gpu_external_empty_cache", "0"},
+      {"use_tf32", "yes"},
+      {"cudnn_conv_use_max_workspace", "2"},
+      {"cudnn_conv_algo_search", "automatic"},
+      {"enable_cuda_graph", "-1"},
+      {"do_copy_in_default_stream", "false"}};
+  for (const auto& [key, value] : rejected) {
+    options.provider.options = {{key, value}};
+    EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
+                 InvalidArgument)
+        << key << "=" << value;
+  }
+}
+
 #ifdef JYPPX_LIUDING_TEST_ONNX_RUNTIME_MODELS
 TEST(OnnxRuntimeInterchange, LinearSameStateNativeAndOfficialOutputs) {
   CheckSameState("linear", torch::nn::Linear(8, 3));
@@ -266,11 +335,17 @@ TEST(OnnxRuntimeSession, RejectsMissingOrUnwiredProvidersWithoutCpuFallback) {
       continue;
     observed_missing = true;
     options.provider.name = name;
-    EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
-                 CompatibilityError);
-    options.allow_cpu_fallback = true;
-    EXPECT_THROW(runtime::Session(fixture.bytes, fixture.identity, options),
-                 CompatibilityError);
+    for (const bool fallback : {false, true}) {
+      options.allow_cpu_fallback = fallback;
+      try {
+        runtime::Session session(fixture.bytes, fixture.identity, options);
+        FAIL() << "Missing primary provider was replaced by CPU: " << name;
+      } catch (const CompatibilityError& error) {
+        EXPECT_EQ(error.details().operation, "provider");
+        EXPECT_EQ(error.details().expected, name);
+        EXPECT_FALSE(error.details().actual.empty());
+      }
+    }
     options.allow_cpu_fallback = false;
   }
   EXPECT_TRUE(observed_missing);
@@ -706,6 +781,137 @@ TEST(OnnxRuntimeMultiIo, ConcurrentCallsAndResultsHaveIndependentOwnedStorage) {
   a[1].values[0] = -1000.0F;
   EXPECT_EQ(b[0].values, saved);
   EXPECT_EQ(b[0].name, "sum");
+}
+
+runtime::SessionOptions RequiredCudaOptions(const char* profile_name) {
+  const auto* device = std::getenv("JYPPX_LIUDING_ONNX_CUDA_DEVICE");
+  if (device == nullptr || *device == '\0')
+    throw std::runtime_error(
+        "Run CUDA execution tests through verify_onnx.py --require-cuda; "
+        "CPU gates must exclude OnnxRuntimeCudaExecution.*");
+  std::int32_t ordinal = -1;
+  const auto parsed =
+      std::from_chars(device, device + std::strlen(device), ordinal);
+  if (parsed.ec != std::errc{} || *parsed.ptr != '\0' || ordinal < 0)
+    throw std::runtime_error("Invalid required CUDA device ordinal");
+  runtime::SessionOptions options;
+  options.provider = runtime::cuda_execution_provider(
+      {.device_id = ordinal, .arena_memory_limit_bytes = 64U << 20U});
+  options.disable_graph_optimizations = true;
+  options.profile_prefix = Root() / profile_name;
+  return options;
+}
+
+std::set<std::string> RequireCudaProfile(runtime::Session& session) {
+  const auto events = Json::parse(Text(session.end_profiling()));
+  std::size_t cuda_nodes = 0U;
+  std::set<std::string> operators;
+  for (const auto& event : events) {
+    if (event.value("cat", "") != "Node" || !event.contains("args")) continue;
+    const auto provider = event.at("args").value("provider", "");
+    if (provider.empty()) continue;
+    EXPECT_EQ(provider, "CUDAExecutionProvider") << event.dump();
+    if (provider == "CUDAExecutionProvider") {
+      ++cuda_nodes;
+      operators.insert(event.at("args").value("op_name", ""));
+    }
+  }
+  EXPECT_GT(cuda_nodes, 0U);
+  return operators;
+}
+
+TEST(OnnxRuntimeCudaExecution, LinearUsesCudaKernelsAndMatchesCpuReference) {
+  LinearFixture fixture;
+  const auto options = RequiredCudaOptions("native-cuda-linear");
+  runtime::Session session(fixture.bytes, fixture.identity, options);
+  EXPECT_EQ(session.execution_provider().options, options.provider.options);
+  EXPECT_FALSE(session.cpu_fallback_allowed());
+  for (const auto& ref : fixture.specification.at("cases")) {
+    const auto tensors = Artifact(ref);
+    const auto input = Tensor(tensors, "input");
+    const auto expected = Tensor(tensors, "output");
+    const auto actual = RunSession(session, input);
+    EXPECT_EQ(actual.shape.front(), input.size(0));
+    Near(actual.values, expected);
+  }
+  const auto operators = RequireCudaProfile(session);
+  EXPECT_TRUE(operators.contains("Gemm") || operators.contains("MatMul"));
+}
+
+TEST(OnnxRuntimeCudaExecution, ConcurrentNamedRunsOwnResultsAndRemainUsable) {
+  MultiIoFixture first("multi_io", 0U);
+  MultiIoFixture second("multi_io", 2U);
+  runtime::Session session(first.bytes, first.identity,
+                           RequiredCudaOptions("native-cuda-multi-io"));
+  auto pending = std::async(std::launch::async,
+                            [&] { return session.run(first.inputs()); });
+  auto b = session.run(second.inputs());
+  auto a = pending.get();
+  ASSERT_EQ(a.size(), 2U);
+  ASSERT_EQ(b.size(), 2U);
+  Near(a[0].values, Tensor(first.tensors, "sum"));
+  Near(a[1].values, Tensor(first.tensors, "product"));
+  Near(b[0].values, Tensor(second.tensors, "sum"));
+  Near(b[1].values, Tensor(second.tensors, "product"));
+  const auto saved = b[0].values;
+  a[0].values[0] += 1.0F;
+  EXPECT_EQ(b[0].values, saved);
+  std::stop_source stopped;
+  stopped.request_stop();
+  EXPECT_THROW(session.run(first.inputs(), stopped.get_token()), Cancelled);
+  EXPECT_THROW(
+      session.run(first.inputs(), {}, std::chrono::steady_clock::now()),
+      DeadlineExceeded);
+  const auto recovered = session.run(first.inputs());
+  Near(recovered[0].values, Tensor(first.tensors, "sum"));
+  const auto operators = RequireCudaProfile(session);
+  EXPECT_TRUE(operators.contains("Add"));
+  EXPECT_TRUE(operators.contains("Mul"));
+}
+
+TEST(OnnxRuntimeCudaExecution, InvalidDeviceNeverBecomesCpuFallback) {
+  LinearFixture fixture;
+  auto options = RequiredCudaOptions("native-cuda-invalid-device");
+  options.provider = runtime::cuda_execution_provider(
+      {.device_id = std::numeric_limits<std::int32_t>::max()});
+  for (const bool fallback : {false, true}) {
+    options.allow_cpu_fallback = fallback;
+    try {
+      runtime::Session session(fixture.bytes, fixture.identity, options);
+      FAIL() << "Invalid CUDA device was replaced by CPU";
+    } catch (const Error& error) {
+      EXPECT_TRUE(error.code() == ErrorCode::device ||
+                  error.code() == ErrorCode::invalid_argument);
+      EXPECT_EQ(error.details().expected, "CUDAExecutionProvider");
+      EXPECT_FALSE(error.details().actual.empty());
+      EXPECT_TRUE(error.details().operation == "provider.options" ||
+                  error.details().operation == "provider.initialize");
+    }
+  }
+}
+
+TEST(OnnxRuntimeCudaExecution,
+     CpuOnlyOperatorRequiresExplicitPartitionFallback) {
+  const auto specification = Manifest().at("models").at("cpu_only_tree");
+  const auto bytes = Artifact(specification.at("artifact"));
+  const auto identity = Digest(specification.at("artifact").at("digest"));
+  auto options = RequiredCudaOptions("native-cuda-explicit-cpu-partition");
+  EXPECT_THROW(runtime::Session(bytes, identity, options), CompatibilityError);
+  options.allow_cpu_fallback = true;
+  runtime::Session session(bytes, identity, options);
+  const auto tensors = Artifact(specification.at("cases").at(0));
+  Near(RunSession(session, Tensor(tensors, "input")).values,
+       Tensor(tensors, "output"));
+  const auto events = Json::parse(Text(session.end_profiling()));
+  bool cpu_tree_kernel = false;
+  for (const auto& event : events) {
+    if (event.value("cat", "") != "Node" || !event.contains("args")) continue;
+    const auto& arguments = event.at("args");
+    if (arguments.value("provider", "") == "CPUExecutionProvider" &&
+        arguments.value("op_name", "") == "TreeEnsembleRegressor")
+      cpu_tree_kernel = true;
+  }
+  EXPECT_TRUE(cpu_tree_kernel);
 }
 
 }  // namespace

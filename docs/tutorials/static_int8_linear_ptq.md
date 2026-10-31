@@ -107,6 +107,20 @@ liuding-forge-int8-export linear.qint8 linear.int8.onnx
 
 准备工具输出诊断 JSON，实际导出工具直接读取并校验原始 Q0。导出工具使用动态 batch，拒绝覆盖已有输出；输出目录由调用方持有并保持稳定。生产流程不需要 Python 环境。
 
+省略图选项等同于 `--graph portable`，使用标准 ONNX 算子。需要尝试 ORT 官方整数融合算子时，显式选择独立图：
+
+```sh
+liuding-forge-int8-export --graph ort-matmul-integer-to-float linear.qint8 linear.ort-int8.onnx
+```
+
+该图使用 `com.microsoft` opset 1 的 `MatMulIntegerToFloat`，保留独立偏置相加，并返回 `jyppx.linear.ptq.ort.u8u8.matmul_integer_to_float/v1` profile。它需要执行后端支持相应的自定义算子；默认图的数值、后端或性能验证不能直接沿用。C++ 中可将导出调用改为：
+
+```cpp
+const auto exported = ex::export_static_int8_linear(
+    source_bytes, source_digest, shape, export_options, {},
+    ex::StaticInt8LinearGraph::ort_matmul_integer_to_float);
+```
+
 ## 检查执行与任务质量
 
 查看上面返回的 ORT profile，确认同一 ONNX SHA-256 对应的实际事件包含 CPU `MatMulInteger`，或经过单独核验的整数融合算子，并核对输入类型与整数累加。仅在模型里看见 INT8 字节或节点名称不足以证明执行。这个 CPU 配方不因为 runtime 能选择其他 provider 就自动获得 GPU INT8 资格。

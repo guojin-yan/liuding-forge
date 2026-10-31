@@ -177,12 +177,48 @@ def official_models(root):
     return models
 
 
+def official_cpu_only_tree(root):
+    import numpy as np
+    import onnx
+    import onnxruntime as ort
+    import safetensors.numpy
+    from onnx import TensorProto as T, helper as h
+
+    node = h.make_node(
+        "TreeEnsembleRegressor", ["input"], ["output"], domain="ai.onnx.ml",
+        n_targets=1, aggregate_function="SUM", post_transform="NONE",
+        nodes_treeids=[0, 0, 0], nodes_nodeids=[0, 1, 2],
+        nodes_featureids=[0, 0, 0],
+        nodes_modes=["BRANCH_LEQ", "LEAF", "LEAF"],
+        nodes_values=[0.0, 0.0, 0.0], nodes_truenodeids=[1, 0, 0],
+        nodes_falsenodeids=[2, 0, 0], target_treeids=[0, 0],
+        target_nodeids=[1, 2], target_ids=[0, 0], target_weights=[1.0, 2.0])
+    graph = h.make_graph(
+        [node], "cpu-only-tree", [h.make_tensor_value_info("input", T.FLOAT, ["batch", 1])],
+        [h.make_tensor_value_info("output", T.FLOAT, ["batch", 1])])
+    model = h.make_model(graph, opset_imports=[h.make_opsetid("", 18), h.make_opsetid("ai.onnx.ml", 3)],
+                         ir_version=10, producer_name="liuding-independent-test")
+    onnx.checker.check_model(model, full_check=True)
+    payload = model.SerializeToString()
+    values = np.array([[-1.0], [0.0], [2.0]], dtype=np.float32)
+    expected = np.array([[1.0], [1.0], [2.0]], dtype=np.float32)
+    session = ort.InferenceSession(payload, providers=["CPUExecutionProvider"])
+    np.testing.assert_array_equal(session.run(None, {"input": values})[0], expected)
+    return {"artifact": artifact(root, payload, "cpu-only-tree", "application/onnx"),
+            "cases": [artifact(root, safetensors.numpy.save({"input": values, "output": expected}),
+                               "cpu-only-tree-case", "application/safetensors")]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cpp-executable", type=pathlib.Path)
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--require-native-models", action="store_true",
                         help="Require both same-state native Linear/ResNet18 comparisons")
+    parser.add_argument("--require-cuda", action="store_true",
+                        help="Fail closed unless the C++ CUDA kernel, device and fallback gates pass")
+    parser.add_argument("--cuda-device", type=int, default=0,
+                        help="Explicit C++ CUDA device ordinal for --require-cuda")
     parser.add_argument("--work-dir", required=True, type=pathlib.Path)
     parser.add_argument("--environment-lock", type=pathlib.Path,
                         help="Optional independent environment lock to identify in evidence")
@@ -190,6 +226,10 @@ def main():
     args = parser.parse_args()
     if not args.prepare_only and args.cpp_executable is None:
         parser.error("C++ executable is required unless --prepare-only")
+    if not 0 <= args.cuda_device <= 2147483647:
+        parser.error("--cuda-device must be a nonnegative int32 ordinal")
+    if args.cuda_device != 0 and not args.require_cuda:
+        parser.error("--cuda-device requires --require-cuda")
     args.work_dir.mkdir(parents=True, exist_ok=True)
     root = pathlib.Path(tempfile.mkdtemp(prefix="onnx-runtime-reference-", dir=args.work_dir.resolve()))
     (root / "artifacts").mkdir()
@@ -199,17 +239,32 @@ def main():
                                           if args.environment_lock else None),
               "versions": {name: importlib.metadata.version(name)
                            for name in ("torch", "torchvision", "onnx", "onnxruntime", "safetensors")},
-              "production_exporter_claimed": False, "cpp_gate": "not-run"}
+              "production_exporter_claimed": False, "cpp_gate": "not-run",
+              "cuda_gate": "not-run" if args.require_cuda else "not-requested",
+              "cuda_device": args.cuda_device if args.require_cuda else None,
+              "cuda_execution_verified": False, "cuda_execution_scope": [],
+              "cuda_performance_qualified": False,
+              "other_cuda_models_qualified": False}
     try:
         models = official_models(root)
         models.update(official_multi_io_models(root))
+        if args.require_cuda:
+            models["cpu_only_tree"] = official_cpu_only_tree(root)
         negative, slow = official_negative_graphs(root)
         (root / "manifest.json").write_bytes(encoded({"schema_version": 1, "models": models,
                                                       "negative": negative, "slow": slow}))
         if not args.prepare_only:
             env = dict(os.environ)
             env["JYPPX_LIUDING_ONNX_FIXTURE_ROOT"] = str(root)
-            result = subprocess.run([str(args.cpp_executable.resolve()), "--gtest_output=xml:" + str(root / "cpp-results.xml")], env=env, capture_output=True, timeout=600, check=False)
+            test_filter = "*" if args.require_cuda else "-OnnxRuntimeCudaExecution.*"
+            if args.require_cuda:
+                env["JYPPX_LIUDING_ONNX_CUDA_DEVICE"] = str(args.cuda_device)
+            else:
+                env.pop("JYPPX_LIUDING_ONNX_CUDA_DEVICE", None)
+            result = subprocess.run([str(args.cpp_executable.resolve()),
+                                     "--gtest_output=xml:" + str(root / "cpp-results.xml"),
+                                     "--gtest_filter=" + test_filter],
+                                    env=env, capture_output=True, timeout=600, check=False)
             (root / "cpp.stdout").write_bytes(result.stdout)
             (root / "cpp.stderr").write_bytes(result.stderr)
             report["cpp_exit_code"] = result.returncode
@@ -217,15 +272,30 @@ def main():
                 raise RuntimeError("independent C++ runtime gate failed")
             xml = ET.parse(root / "cpp-results.xml").getroot()
             report["cpp_tests"] = {key: int(xml.attrib.get(key, "0")) for key in ("tests", "failures", "disabled", "errors")}
-            required_suites = {"OnnxRuntimeSession": 16, "OnnxRuntimeMultiIo": 8}
+            required_suites = {"OnnxRuntimeSession": 16, "OnnxRuntimeMultiIo": 8,
+                               "OnnxRuntimeCudaOptions": 3}
             if args.require_native_models:
                 required_suites["OnnxRuntimeInterchange"] = 2
+            if args.require_cuda:
+                required_suites["OnnxRuntimeCudaExecution"] = 4
             suites = {suite.attrib["name"]: int(suite.attrib["tests"])
                       for suite in xml.findall("testsuite")}
             report["required_suites"] = required_suites
             if any(suites.get(name, 0) < count for name, count in required_suites.items()) or any(report["cpp_tests"][key] for key in ("failures", "disabled", "errors")) or xml.findall(".//skipped"):
                 raise RuntimeError("independent runtime tests failed, were skipped or omitted")
             report["cpp_gate"] = "passed"
+            if args.require_cuda:
+                report["cuda_gate"] = "passed"
+                report["cuda_execution_verified"] = True
+                report["cuda_execution_scope"] = [
+                    "fp32-linear-dynamic-batch-2-and-5",
+                    "fp32-named-multi-io-concurrent-owned-results",
+                    "invalid-device-no-primary-provider-fallback",
+                    "explicit-cpu-only-tree-partition-policy"]
+                report["cuda_profiles"] = [
+                    {"path": str(path.relative_to(root)),
+                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                    for path in sorted(root.glob("native-cuda-*.json"))]
         report["status"] = "prepared-cpp-not-run" if args.prepare_only else "passed"
         (root / "validation.json").write_bytes(encoded(report))
         print(json.dumps({"status": report["status"], "work_dir": str(root)}), flush=True)

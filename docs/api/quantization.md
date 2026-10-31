@@ -2,6 +2,8 @@
 
 `jyppx::liuding::quantization` 提供有界校准、对称 int8 参考运算和版本化 Linear 权重制品；该组件默认关闭，仅依赖 `foundation`。静态 PTQ 可以准备交给独立 ONNX Runtime adapter 执行的 U8U8/int32 图。制品存储、转换成功、实际整数执行和性能收益分别验证。
 
+本项目的 C++ 代码负责校准、量化格式和制品校验；LibTorch 用于训练和 ONNX 序列化，当前静态 INT8 图由 ONNX Runtime 执行。本模块尚未接入 LibTorch 原生量化执行。
+
 | 路径 | 运算与边界 |
 | --- | --- |
 | Q0 便携制品 | `jyppx.qint8.symmetric.per_tensor/v1`；有符号 int8 权重、每张量单一 scale、零点 0、范围 `[-127,127]`、可选 FP32 bias及完整校准身份 |
@@ -9,6 +11,7 @@
 | `prepare_static_int8_linear` | 将 Q0 的 `[out,in]` 权重无损转为 `[in,out]` 并加 128；生成独立的 `jyppx.linear.ptq.ort.u8u8/v1` 准备信息，不改变 Q0 格式或宣称已执行内核 |
 | ORT 静态 PTQ 图 | 固定 ORT 1.23.2、ONNX opset 17，IR 版本由官方序列化器决定；FP32 输入经 `QuantizeLinear` 转 U8，U8U8 `MatMulInteger` 累加为 int32，随后 FP32 缩放及可选 bias；CPU 资格须由真实执行 trace 证明 |
 | 按输出通道权重 | `quantize_linear_per_output_channel` 对 `[out,in]` 的每行独立取对称权重 scale；`export_static_int8_linear_per_output_channel` 导出一个 U8U8 `MatMulInteger` 加 `[out]` scale 向量，不执行浮点点积 |
+| 显式 ORT 融合图 | `StaticInt8LinearGraph::ort_matmul_integer_to_float` 使用 `com.microsoft::MatMulIntegerToFloat` 合并整数点积、转换和缩放，保留独立 bias Add；需要支持该自定义算子的执行后端，单独验证数值、内核和性能 |
 
 当前路径不提供 QAT、INT4、GPU 量化或任意整图自动转换。U8S8 的 AVX2 路径可能出现中间饱和，本受限配方使用 U8U8，CPU 后端自己完成机器相关的 packing；便携制品不保存机器布局。
 
@@ -36,6 +39,14 @@ liuding-forge-int8-export linear.qint8 linear.int8.onnx
 ```sh
 liuding-forge-int8-export --per-output-channel model.per-output-channel.qint8 model.int8.onnx
 ```
+
+默认图选择是 `--graph portable`，只使用标准 ONNX 算子。要显式导出 ORT 融合图，可使用：
+
+```sh
+liuding-forge-int8-export --per-output-channel --graph ort-matmul-integer-to-float model.per-output-channel.qint8 model.ort-int8.onnx
+```
+
+该选项也支持每张量权重。融合图依赖 ORT 的 `com.microsoft` opset 1，返回的独立 profile 在原 `/v1` 前增加 `.matmul_integer_to_float`。运行时和执行后端必须支持该算子，数值、内核及性能须独立验证。C++ 两个导出函数的最后一个参数对应此图选择，默认值为 `StaticInt8LinearGraph::portable`。
 
 完整 C++ 学习程序见 [examples/quantization](../../examples/quantization/README.md)。新路径仍需独立的真实 kernel trace、任务精度和性能资格，不能由通道数值单测推导通过。
 
