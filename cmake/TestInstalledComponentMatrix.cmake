@@ -40,6 +40,25 @@ if(JYPPX_LIUDING_TEST_CONFIG)
     list(APPEND build_args --config "${JYPPX_LIUDING_TEST_CONFIG}")
     list(APPEND test_args -C "${JYPPX_LIUDING_TEST_CONFIG}")
 endif()
+# The installed `all` consumer may require the caller's selected HTTP SDK.
+# Keep this local to the test; installed packages never record the SDK path.
+if(DEFINED JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT)
+    set(_jyppx_matrix_http_root "${JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT}")
+else()
+    load_cache("${build_dir}" READ_WITH_PREFIX _jyppx_matrix_source_
+        JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT)
+    set(_jyppx_matrix_http_root
+        "${_jyppx_matrix_source_JYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT}")
+endif()
+if(NOT _jyppx_matrix_http_root STREQUAL "")
+    if(NOT IS_ABSOLUTE "${_jyppx_matrix_http_root}" OR
+       NOT IS_DIRECTORY "${_jyppx_matrix_http_root}")
+        message(FATAL_ERROR
+            "Installed component matrix curl SDK root must be an existing absolute directory")
+    endif()
+    list(APPEND config_args
+        "-DJYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT:PATH=${_jyppx_matrix_http_root}")
+endif()
 if(JYPPX_CUDA_STANDARD)
     list(APPEND config_args "-DCMAKE_CUDA_STANDARD=${JYPPX_CUDA_STANDARD}")
 endif()
@@ -136,6 +155,7 @@ foreach(component IN LISTS components)
                 "-UCaffe2_*"
                 "-Uc10_*"
                 "-Ukineto_*"
+                "-UJYPPX_LIUDING_TELEMETRY_HTTP_CURL_ROOT"
                 "-DCMAKE_PREFIX_PATH=${install_dir}"
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
                 "-DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}"

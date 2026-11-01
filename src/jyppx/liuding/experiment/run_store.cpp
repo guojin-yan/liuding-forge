@@ -1369,39 +1369,46 @@ RunArtifactReference SQLiteRunStore::put_artifact_file(
   input.seekg(0);
   if (!input) throw IoError("Could not seek published artifact file");
 
-  std::lock_guard lock(impl_->mutex_);
-  Transaction transaction(impl_->database_);
-  (void)impl_->require_run(run_id);
-  auto upload = impl_->artifacts_.begin(descriptor);
-  std::array<std::byte, 64U * 1024U> buffer{};
-  std::uint64_t copied = 0U;
-  while (copied < size) {
-    check_telemetry_operation(stop, deadline);
-    const auto requested = static_cast<std::streamsize>(
-        std::min<std::uint64_t>(buffer.size(), size - copied));
-    input.read(reinterpret_cast<char*>(buffer.data()), requested);
-    const auto count = input.gcount();
-    if (count != requested)
+  auto lock = event_lock(impl_->mutex_, stop, deadline);
+  OperationControl control(impl_->database_, impl_->options_.busy_timeout, stop,
+                           deadline);
+  try {
+    Transaction transaction(impl_->database_, true, &control);
+    (void)impl_->require_run(run_id);
+    auto upload = impl_->artifacts_.begin(descriptor);
+    std::array<std::byte, 64U * 1024U> buffer{};
+    std::uint64_t copied = 0U;
+    while (copied < size) {
+      check_telemetry_operation(stop, deadline);
+      const auto requested = static_cast<std::streamsize>(
+          std::min<std::uint64_t>(buffer.size(), size - copied));
+      input.read(reinterpret_cast<char*>(buffer.data()), requested);
+      const auto count = input.gcount();
+      if (count != requested)
+        throw IoError("Published artifact file changed while reading");
+      upload->write(std::span<const std::byte>(
+          buffer.data(), static_cast<std::size_t>(count)));
+      copied += static_cast<std::uint64_t>(count);
+    }
+    if (input.peek() != std::char_traits<char>::eof() || input.bad()) {
       throw IoError("Published artifact file changed while reading");
-    upload->write(std::span<const std::byte>(buffer.data(),
-                                             static_cast<std::size_t>(count)));
-    copied += static_cast<std::uint64_t>(count);
+    }
+    RunArtifactReference reference{
+        .reference_id = std::move(reference_id),
+        .kind = kind,
+        .role = std::move(role),
+        .artifact = impl_->artifacts_.commit(
+            *upload, std::move(expected_digest), stop, deadline),
+        .attached_at_unix_ms = attached_at_unix_ms};
+    impl_->attach_unlocked(
+        run_id, std::span<const RunArtifactReference>(&reference, 1U), stop,
+        deadline);
+    transaction.commit();
+    return reference;
+  } catch (...) {
+    control.check();
+    throw;
   }
-  if (input.peek() != std::char_traits<char>::eof() || input.bad()) {
-    throw IoError("Published artifact file changed while reading");
-  }
-  RunArtifactReference reference{
-      .reference_id = std::move(reference_id),
-      .kind = kind,
-      .role = std::move(role),
-      .artifact = impl_->artifacts_.commit(*upload, std::move(expected_digest),
-                                           stop, deadline),
-      .attached_at_unix_ms = attached_at_unix_ms};
-  impl_->attach_unlocked(run_id,
-                         std::span<const RunArtifactReference>(&reference, 1U),
-                         stop, deadline);
-  transaction.commit();
-  return reference;
 }
 
 PublishedFileEvidenceResult SQLiteRunStore::record_published_file_evidence(

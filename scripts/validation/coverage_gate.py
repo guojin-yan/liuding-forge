@@ -250,7 +250,7 @@ def _verify_source_ownership(source_root: Path, targets: dict[str, dict[str, Any
     owned = {}
     excluded = []
     counts = {name: 0 for name in targets}
-    suffixes = {".h", ".hh", ".hpp", ".hxx", ".c", ".cc", ".cpp", ".cxx"}
+    suffixes = {".h", ".hh", ".hpp", ".hxx", ".c", ".cc", ".cpp", ".cxx", ".inc"}
     root = source_root.resolve()
     for relative in ("include/jyppx", "src/jyppx"):
         directory = root / relative

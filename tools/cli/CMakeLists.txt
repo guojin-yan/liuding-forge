@@ -87,7 +87,7 @@ if(JYPPX_LIUDING_BUILD_TESTS)
     # Explicit runtime opt-in, compiled only in test-enabled CLI builds.
     set_property(SOURCE image_recipe.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS=1)
-    add_executable(jyppx_cli_recipe_gate EXCLUDE_FROM_ALL)
+    add_executable(jyppx_cli_recipe_gate)
     set_target_properties(jyppx_cli_recipe_gate PROPERTIES OUTPUT_NAME liuding-forge-recipe-gate)
     target_link_libraries(jyppx_cli_recipe_gate PRIVATE jyppx_cli_objects)
     jyppx_add_torch_runtime_dependency(jyppx_cli_recipe_gate)

@@ -22,12 +22,14 @@ def report(precision="fp32", device="cpu", model="vit_giant_patch14_dinov2-rando
         "workload": {"descriptor": {
             "model": model, "device": device,
             "source_mode": "image-folder", "precision": precision,
+            "diagnostics": "off",
             "parameter_dtype": "float16" if precision == "cuda-fp16-storage" else "float32",
             "model_input_dtype": "float16" if precision == "cuda-fp16-storage" else "float32",
             "grad_scaler_init_scale": 1.0 if precision == "fp32" else 128.0,
             "samples_per_epoch": 3, "batch_size": 2, "epochs": 2,
         }},
         "execution": {"device": device},
+        "diagnostics": {"norm_samples": 0},
         "validation": {
             "observed_samples": 6, "parameter_updated": True, "completed_epochs": 2,
             "global_step": 4, "optimizer_completed_steps": 4,
@@ -47,11 +49,32 @@ def report(precision="fp32", device="cpu", model="vit_giant_patch14_dinov2-rando
 
 class ImageTrainingReportTest(unittest.TestCase):
     def run_report(self, payload, precision="fp32", device="cpu",
-                   model="vit_giant_patch14_dinov2-random-init"):
+                   model="vit_giant_patch14_dinov2-random-init", diagnostics="off"):
         completed = SimpleNamespace(stdout=json.dumps(payload))
         with mock.patch.object(runner.subprocess, "run", return_value=completed):
             return runner.run_sample(["benchmark"], model,
-                                     device, "image-folder", precision)
+                                     device, "image-folder", precision, diagnostics)
+
+    def test_validates_all_diagnostic_policies_and_sampling_boundaries(self):
+        for policy, samples in (("off", 0), ("counters", 0),
+                                ("sampled", 2), ("each-step", 34)):
+            with self.subTest(policy=policy):
+                payload = report()
+                payload["workload"]["descriptor"].update(
+                    diagnostics=policy, samples_per_epoch=34)
+                payload["validation"].update(
+                    observed_samples=68, global_step=34, optimizer_completed_steps=34)
+                payload["diagnostics"]["norm_samples"] = samples
+                self.assertEqual(self.run_report(payload, diagnostics=policy), payload)
+                payload["diagnostics"]["norm_samples"] = samples + 1
+                with self.assertRaisesRegex(ValueError, "diagnostic samples"):
+                    self.run_report(payload, diagnostics=policy)
+
+    def test_rejects_a_different_diagnostic_policy(self):
+        payload = report()
+        payload["workload"]["descriptor"]["diagnostics"] = "each-step"
+        with self.assertRaisesRegex(ValueError, "different diagnostic policy"):
+            self.run_report(payload)
 
     def test_accepts_each_declared_parameter_storage_mode(self):
         for precision, device in (("fp32", "cpu"), ("cuda-fp16", "cuda:0"),

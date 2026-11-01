@@ -113,6 +113,31 @@ class CoverageOwnerPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly one owner"):
             self.audit()
 
+    def test_executable_inc_is_owned_and_counted_in_report(self) -> None:
+        filename = "src/jyppx/new/detail/adapter.inc"
+        self.write(filename, b"int included_implementation() { return 1; }\n")
+        audit = self.audit()
+        self.assertEqual(audit["file_owners"].get(filename), "new")
+        self.assertEqual(audit["source_file_count"], 4)
+        row = copy.deepcopy(self.report["files"][1])
+        row["filename"] = filename
+        self.report["files"].append(row)
+        for metric in GATE.METRIC_NAMES:
+            self.report[metric + "_covered"] += 1
+            self.report[metric + "_total"] += 1
+        result = self.cli()
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("pending observation and review", result.stderr)
+        output = json.loads((self.root / "fixture-output.json").read_bytes())
+        self.assertIn(filename, output["targets"]["new"]["files"])
+        self.assertEqual(output["targets"]["new"]["metrics"]["line"]["total"], 2)
+
+    def test_unowned_inc_cannot_disappear_from_inventory(self) -> None:
+        self.write("src/jyppx/unknown/detail/adapter.inc",
+                   b"int unowned_implementation() { return 1; }\n")
+        with self.assertRaisesRegex(ValueError, "exactly one owner"):
+            self.audit()
+
     def test_parent_and_child_prefixes_cannot_hide_double_ownership(self) -> None:
         self.policy["targets"]["new"]["path_prefixes"] = ["src/jyppx/"]
         with self.assertRaisesRegex(ValueError, "overlap"):

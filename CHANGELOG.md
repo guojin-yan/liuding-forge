@@ -65,6 +65,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 已发布文件登记在等待 SQLite writer 或同实例锁时响应取消与绝对截止时间，失败后仍可用原引用身份重试并重放确认结果。
+- 安装组件矩阵沿用根构建显式选择的 curl SDK，迁移消费者与 SDK 消费者使用独立构建缓存。
+- 启用测试时默认构建 CLI 配方门禁程序；coverage owner 清单纳入 `.inc` 实现，图像 benchmark runner 测试补齐诊断策略与采样计数合同。
+
 - coverage 的纯聚合头例外显式使用 LF 指纹，Windows CRLF 与 Linux LF 可验证为相同内容；内容改动、裸 CR 和可执行代码仍被拒绝。
 
 - 补齐 zlib 1.3.2 完整许可原文与精确归档来源索引，独立登记图像 writer stb_image_write 1.16，并将安装 notice 替换为完整 MIT/Unlicense 原文；依赖安全和正式发布资格继续独立审查。

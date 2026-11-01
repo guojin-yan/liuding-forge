@@ -797,6 +797,93 @@ TEST(SQLiteRunEventTest,
 }
 
 TEST(SQLiteRunEventTest,
+     PublishedFileEvidenceInterruptsWriterWaitThenRetriesOriginalIdentity) {
+  TempRunRoot root;
+  SQLiteRunStoreOptions options;
+  options.busy_timeout = std::chrono::seconds(5);
+  SQLiteRunStore store(root.path(), options);
+  store.start(make_run());
+  auto no_wait_options = options;
+  no_wait_options.busy_timeout = std::chrono::milliseconds::zero();
+  SQLiteRunStore no_wait(root.path(), no_wait_options);
+  const auto published_path = root.path() / "published-output.bin";
+  constexpr std::string_view content = "published image output evidence";
+  {
+    std::ofstream output(published_path, std::ios::binary);
+    output.write(content.data(), static_cast<std::streamsize>(content.size()));
+    output.close();
+    ASSERT_TRUE(output);
+  }
+  jyppx::liuding::experiment::PublishedFileEvidenceRequest request;
+  request.run_id = "run-1";
+  request.reference_id = "published-output";
+  request.path = published_path;
+  request.descriptor = {.logical_name = "published-output.bin",
+                        .media_type = "application/octet-stream",
+                        .producer = "writer-wait-regression",
+                        .expected_size_bytes = content.size()};
+  request.attached_at_unix_ms = 101U;
+  request.expected_digest = {.hex =
+                                 jyppx::liuding::sha256_hex(bytes_of(content))};
+  request.event_batch_key = "published-output-event";
+  request.event = log_event();
+  request.event.payload =
+      jyppx::liuding::TelemetryArtifactReference{.role = "image.preview"};
+
+  RawDatabase competing(store.database_path());
+  competing.execute("BEGIN IMMEDIATE");
+  EXPECT_THROW(no_wait.record_published_file_evidence(request),
+               jyppx::liuding::NotReady);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+  auto timed = std::async(std::launch::async, [&] {
+    return store.record_published_file_evidence(request, {}, deadline);
+  });
+  const bool deadline_ready =
+      timed.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+  EXPECT_TRUE(deadline_ready) << "must finish before the writer is released";
+  if (!deadline_ready) competing.execute("ROLLBACK");
+  EXPECT_THROW(timed.get(), jyppx::liuding::DeadlineExceeded);
+  if (!deadline_ready) return;
+
+  std::stop_source stop;
+  std::latch entered(1);
+  auto cancelled = std::async(std::launch::async, [&] {
+    entered.count_down();
+    return store.record_published_file_evidence(request, stop.get_token());
+  });
+  entered.wait();
+  EXPECT_EQ(cancelled.wait_for(std::chrono::milliseconds(30)),
+            std::future_status::timeout);
+  stop.request_stop();
+  const bool cancellation_ready =
+      cancelled.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+  EXPECT_TRUE(cancellation_ready)
+      << "cancellation must finish before the writer is released";
+  if (!cancellation_ready) competing.execute("ROLLBACK");
+  EXPECT_THROW(cancelled.get(), jyppx::liuding::Cancelled);
+  if (!cancellation_ready) return;
+
+  competing.execute("ROLLBACK");
+  EXPECT_TRUE(store.references("run-1").empty());
+  EXPECT_TRUE(store.events("run-1").events.empty());
+  const auto confirmed = store.record_published_file_evidence(request);
+  EXPECT_FALSE(confirmed.reference_replay);
+  ASSERT_EQ(confirmed.event.receipts.size(), 1U);
+  EXPECT_FALSE(confirmed.event.batch_replay);
+  ASSERT_TRUE(std::filesystem::remove(published_path));
+  request.path.reset();
+
+  SQLiteRunStore reopened(root.path(), options);
+  const auto replayed = reopened.record_published_file_evidence(request);
+  EXPECT_TRUE(replayed.reference_replay);
+  EXPECT_TRUE(replayed.event.batch_replay);
+  EXPECT_EQ(reopened.references("run-1").size(), 2U);
+  EXPECT_EQ(reopened.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(reopened.integrity_check().ok());
+}
+
+TEST(SQLiteRunEventTest,
      IntegrityDetectsOmittedMetricIndexAndChangedStateCounters) {
   for (unsigned damage = 0U; damage < 3U; ++damage) {
     SCOPED_TRACE(damage);
