@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import ast
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -22,11 +25,36 @@ class CoverageLaneTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         scripts = self.root / "scripts/validation"
         scripts.mkdir(parents=True)
-        for name in ("run-coverage.sh", "coverage_gate.py", "coverage_summary.py"):
+        for name in ("run-coverage.sh", "coverage_gate.py", "coverage_summary.py", "coverage_dependencies.py"):
             shutil.copyfile(SOURCE / "scripts/validation" / name, scripts / name)
         fixtures = SOURCE / "tests/fixtures/coverage"
         shutil.copyfile(fixtures / "target-policy.json", self.root / "coverage-policy.json")
         shutil.copyfile(fixtures / "target-summary.json", self.root / "sample.json")
+        (self.root / "include/jyppx").mkdir(parents=True)
+        (self.root / "src/jyppx").mkdir(parents=True)
+        for entry in json.loads((fixtures / "target-summary.json").read_text())["files"]:
+            source = self.root / entry["filename"]
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("// Synthetic protocol source; never instrumented.\n", encoding="utf-8")
+        self.dependency_cache = self.root / "fixture-dependency-inputs.cmake"
+        self.dependency_cache.write_text("# Synthetic reviewed dependency inputs; no real SDK.\n", encoding="utf-8")
+        spec = importlib.util.spec_from_file_location("synthetic_offline_fixture_factory",
+            SOURCE / "tests/scripts/test_coverage_dependencies.py")
+        assert spec and spec.loader
+        factory = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(factory)
+        self.offline = factory.synthetic_inputs(self.root / "out/offline fixture", self.dependency_cache)
+        helper_path = scripts / "coverage_dependencies.py"
+        helper_tree = ast.parse(helper_path.read_text(encoding="utf-8"))
+        for node in helper_tree.body:
+            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and
+                    target.id == "PINNED_FETCHCONTENT" for target in node.targets):
+                node.value = ast.parse(repr(self.offline["locks"]), mode="eval").body
+                break
+        else:
+            self.fail("Synthetic protocol helper pin assignment not found")
+        helper_path.write_text("# SYNTHETIC protocol copy: fixture archive hashes, never release inputs.\n" +
+            ast.unparse(ast.fix_missing_locations(helper_tree)) + "\n", encoding="utf-8")
         (self.root / ".gitignore").write_text("out/\n", encoding="utf-8")
         (self.root / "marker.txt").write_text("committed\n", encoding="utf-8")
         self.output = self.root / "out/coverage/linux/report"
@@ -42,7 +70,26 @@ name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 with open(os.environ["JYPPX_FIXTURE_COMMAND_LOG"], "a", encoding="utf-8") as stream:
     stream.write(json.dumps([name, *args]) + "\\n")
+with open(os.environ["JYPPX_FIXTURE_PARALLEL_LOG"], "a", encoding="utf-8") as stream:
+    stream.write(json.dumps({"name": name, "args": args,
+        "CTEST_PARALLEL_LEVEL": os.environ.get("CTEST_PARALLEL_LEVEL"),
+        "CMAKE_BUILD_PARALLEL_LEVEL": os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL")}) + "\\n")
 if name == "cmake":
+    if "--build" not in args:
+        build = pathlib.Path(args[args.index("-B") + 1])
+        build.mkdir(parents=True, exist_ok=True)
+        entries = []
+        for argument in args:
+            if argument.startswith("-D") and "=" in argument:
+                key, value = argument[2:].split("=", 1)
+                entries.append(key + ("" if ":" in key else ":STRING") + "=" + value)
+        override = os.environ.get("JYPPX_FIXTURE_CACHE_OVERRIDE")
+        if override:
+            key = override.split(":", 1)[0]
+            entries = [entry for entry in entries if not entry.startswith(key + ":")]
+            if not override.endswith(":MISSING"):
+                entries.append(override)
+        (build / "CMakeCache.txt").write_text("\\n".join(entries) + "\\n", encoding="utf-8")
     sys.exit(int(os.environ.get("JYPPX_FIXTURE_BUILD_EXIT" if "--build" in args
                                else "JYPPX_FIXTURE_CONFIGURE_EXIT", "0")))
 if name == "ctest":
@@ -62,6 +109,8 @@ if "--json-summary" in args:
         data["line_covered"] = 19
         data["line_percent"] = 100 * 19 / 30
     pathlib.Path(args[args.index("--json-summary") + 1]).write_text(json.dumps(data))
+    if os.environ.get("JYPPX_FIXTURE_MUTATE_OFFLINE_SOURCE"):
+        pathlib.Path(os.environ["JYPPX_FIXTURE_MUTATE_OFFLINE_SOURCE"]).write_text("changed fixture source")
 else:
     pathlib.Path(args[args.index("--output") + 1]).write_text("<coverage/>")
 '''
@@ -78,10 +127,15 @@ else:
                             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
                             "CMAKE_PREFIX_PATH": str(torch.parents[2]),
                             "JYPPX_FIXTURE_COMMAND_LOG": str(self.root / "out/commands.jsonl"),
+                            "JYPPX_FIXTURE_PARALLEL_LOG": str(self.root / "out/parallel.jsonl"),
                             "JYPPX_FIXTURE_SUMMARY": str(self.root / "sample.json")}
         for key in tuple(self.environment):
             if key.startswith("JYPPX_COVERAGE_") or key in {"JYPPX_LIUDING_BUILD_PARALLEL_LEVEL", "JYPPX_LIUDING_MODELS_REFERENCE_DIR"}:
                 del self.environment[key]
+        self.environment.update({"JYPPX_COVERAGE_DEPENDENCY_CACHE": str(self.dependency_cache),
+                                 "JYPPX_COVERAGE_DEPENDENCY_CACHE_SHA256": hashlib.sha256(self.dependency_cache.read_bytes()).hexdigest(),
+                                 "JYPPX_COVERAGE_OFFLINE_INPUTS": str(self.offline["inputs_file"]),
+                                 "JYPPX_COVERAGE_OFFLINE_INPUTS_SHA256": hashlib.sha256(self.offline["inputs_file"].read_bytes()).hexdigest()})
 
     def run_lane(self, **environment: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["bash", str(self.root / "scripts/validation/run-coverage.sh")],
@@ -113,14 +167,23 @@ else:
         self.assertIn("-DTorch_DIR=" + self.environment["CMAKE_PREFIX_PATH"] + "/share/cmake/Torch", configure)
         self.assertIn("-DJYPPX_LIUDING_MODELS_REFERENCE_DIR=" + reference, configure)
         self.assertEqual(self.metadata()["models_reference_dir"], reference)
-        for owner in ("DATA_IMAGE", "MODELS", "SERVING"):
+        for owner in ("DATA_IMAGE", "MODELS", "SERVING", "VISION_RENDER", "ONNX_EXPORT",
+                      "ONNX_RUNTIME", "ONNX_SERVING", "BUNDLE_SIGNING", "TELEMETRY_NATIVE", "TELEMETRY_HTTP"):
             self.assertIn("-DJYPPX_LIUDING_BUILD_" + owner + "=ON", configure)
         for row in commands:
             if row[0] == "gcovr" and "--version" not in row:
                 self.assertEqual(row[-1], str(self.build))
                 self.assertEqual(row[row.index("-j") + 1], "2")
+        self.assertEqual(configure[configure.index("-C") + 1], str(self.dependency_cache))
+        self.assertIn("-DFETCHCONTENT_FULLY_DISCONNECTED:BOOL=ON", configure)
+        self.assertIn("-DFETCHCONTENT_UPDATES_DISCONNECTED:BOOL=ON", configure)
+        for name, row in self.offline["document"]["fetchcontent"].items():
+            option = self.offline["locks"][name]["cache_option"]
+            self.assertIn("-D" + option + ":PATH=" + Path(row["source_root"]).as_posix(), configure)
+        self.assertEqual(self.metadata()["dependency_cache_sha256"], hashlib.sha256(self.dependency_cache.read_bytes()).hexdigest())
         ctest = next(row for row in commands if row[0] == "ctest")
         self.assertIn("--no-tests=error", ctest)
+        self.assertEqual(ctest[ctest.index("--parallel") + 1], "1")
         self.assertEqual(ctest[ctest.index("-LE") + 1], "packaging")
         self.assertEqual(self.metadata()["ctest_excluded_label"], "packaging")
 
@@ -131,6 +194,66 @@ else:
         self.assertEqual(self.metadata()["ctest_exit"], "8")
         self.assertEqual(self.metadata()["policy_exit"], "0")
         self.assertEqual(self.metadata()["lane_exit"], "8")
+
+    def test_dependency_inputs_missing_or_changed_prevent_configure(self) -> None:
+        for override in ({"JYPPX_COVERAGE_DEPENDENCY_CACHE": ""},
+                         {"JYPPX_COVERAGE_DEPENDENCY_CACHE_SHA256": "0" * 64}):
+            with self.subTest(override=override):
+                result = self.run_lane(**override)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(any(row[0] == "cmake" for row in self.commands()))
+
+    def test_parallelism_cannot_exceed_two(self) -> None:
+        for count in ("0", "3", "999999999999999999999999999999999999"):
+            with self.subTest(count=count):
+                result = self.run_lane(JYPPX_LIUDING_BUILD_PARALLEL_LEVEL=count)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(any(row[0] == "cmake" for row in self.commands()))
+
+    def test_inherited_parallelism_is_overridden_for_ctest_and_build(self) -> None:
+        result = self.run_lane(CTEST_PARALLEL_LEVEL="999", CMAKE_BUILD_PARALLEL_LEVEL="999")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        entries = [json.loads(line) for line in (self.root / "out/parallel.jsonl").read_text().splitlines()]
+        ctest = next(row for row in entries if row["name"] == "ctest")
+        self.assertEqual(ctest["CTEST_PARALLEL_LEVEL"], "1")
+        self.assertEqual(ctest["args"][ctest["args"].index("--parallel") + 1], "1")
+        build = next(row for row in entries if row["name"] == "cmake" and "--build" in row["args"])
+        self.assertEqual(build["CMAKE_BUILD_PARALLEL_LEVEL"], "2")
+        self.assertEqual(build["args"][build["args"].index("--parallel") + 1], "2")
+
+    def test_offline_descriptor_missing_or_bad_digest_prevents_configure(self) -> None:
+        for override in ({"JYPPX_COVERAGE_OFFLINE_INPUTS": ""},
+                         {"JYPPX_COVERAGE_OFFLINE_INPUTS_SHA256": "0" * 64}):
+            with self.subTest(override=override):
+                result = self.run_lane(**override)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(any(row[0] == "cmake" for row in self.commands()))
+
+    def test_missing_local_fetchcontent_archive_prevents_configure(self) -> None:
+        Path(self.offline["document"]["fetchcontent"]["googletest"]["archive"]).unlink()
+        result = self.run_lane()
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse(any(row[0] == "cmake" for row in self.commands()))
+        self.assertEqual(self.metadata()["last_stage"], "preflight")
+
+    def test_offline_cache_type_value_or_missing_option_prevents_build(self) -> None:
+        for override in ("FETCHCONTENT_FULLY_DISCONNECTED:BOOL=OFF",
+                         "FETCHCONTENT_UPDATES_DISCONNECTED:STRING=ON",
+                         "FETCHCONTENT_FULLY_DISCONNECTED:MISSING",
+                         "FETCHCONTENT_SOURCE_DIR_GOOGLETEST:PATH=/wrong-source"):
+            with self.subTest(override=override):
+                result = self.run_lane(JYPPX_FIXTURE_CACHE_OVERRIDE=override)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(any("--build" in row or row[0] == "ctest" for row in self.commands()))
+                self.assertEqual(self.metadata()["last_stage"], "ownership_profile")
+
+    def test_local_dependency_changes_during_collection_reject(self) -> None:
+        target = Path(self.offline["document"]["fetchcontent"]["googletest"]["source_root"]) / "CMakeLists.txt"
+        result = self.run_lane(JYPPX_FIXTURE_MUTATE_OFFLINE_SOURCE=str(target))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(self.metadata()["last_stage"], "verify_dependencies")
+        self.assertEqual(self.metadata()["ctest_exit"], "0")
+        self.assertEqual(self.metadata()["policy_exit"], "0")
 
     def test_real_policy_failure_is_not_a_collection_pass(self) -> None:
         result = self.run_lane(JYPPX_FIXTURE_BAD_COVERAGE="1")

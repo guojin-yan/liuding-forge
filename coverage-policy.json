@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "jyppx-target-coverage-policy",
   "baseline": {
     "commit": "f0418d3ce10a23b5d871a075abfa2de5430d57c5",
@@ -285,6 +285,55 @@
         }
       },
       "baseline_observation": "m8_preview_400f9e9"
+    },
+    "vision_render": {
+      "path_prefixes": [
+        "include/jyppx/liuding/visualization/",
+        "src/jyppx/liuding/visualization/"
+      ],
+      "baseline_status": "pending-observation"
+    },
+    "onnx_export": {
+      "path_prefixes": [
+        "include/jyppx/liuding/deployment/onnx_export/",
+        "src/jyppx/liuding/deployment/onnx_export/"
+      ],
+      "baseline_status": "pending-observation"
+    },
+    "onnx_runtime": {
+      "path_prefixes": [
+        "include/jyppx/liuding/deployment/onnx_runtime/",
+        "src/jyppx/liuding/deployment/onnx_runtime/"
+      ],
+      "baseline_status": "pending-observation"
+    },
+    "onnx_serving": {
+      "path_prefixes": [
+        "include/jyppx/liuding/deployment/onnx_serving/",
+        "src/jyppx/liuding/deployment/onnx_serving/"
+      ],
+      "baseline_status": "pending-observation"
+    },
+    "bundle_signing": {
+      "path_prefixes": [
+        "include/jyppx/liuding/deployment/bundle_signing/",
+        "src/jyppx/liuding/deployment/bundle_signing/"
+      ],
+      "baseline_status": "pending-observation"
+    },
+    "telemetry_native": {
+      "path_prefixes": [
+        "include/jyppx/liuding/telemetry_native/",
+        "src/jyppx/liuding/telemetry_native/"
+      ],
+      "baseline_status": "pending-observation"
+    },
+    "telemetry_http": {
+      "path_prefixes": [
+        "include/jyppx/liuding/telemetry_http/",
+        "src/jyppx/liuding/telemetry_http/"
+      ],
+      "baseline_status": "pending-observation"
     }
   },
   "observations": {
@@ -309,6 +358,36 @@
         "serving"
       ],
       "status": "measured_preview_baseline; existing_stable_ratchets_pending"
+    }
+  },
+  "non_executable_files": [
+    {
+      "path": "include/jyppx/liuding/liuding.hpp",
+      "sha256": "909cf94625e80d5a9e34daa034e19d1186bc2fc57da07b2c540aca67c21c52b9",
+      "reason": "Public include-only aggregation header; no executable entity. Exact bytes and include-only grammar must be verified."
+    }
+  ],
+  "profile": {
+    "id": "v1-selected-cpu",
+    "cmake_options": {
+      "JYPPX_LIUDING_BUILD_CORE": "ON",
+      "JYPPX_LIUDING_BUILD_INTEROP": "ON",
+      "JYPPX_LIUDING_BUILD_DATA": "ON",
+      "JYPPX_LIUDING_BUILD_NN": "ON",
+      "JYPPX_LIUDING_BUILD_OPTIM": "ON",
+      "JYPPX_LIUDING_BUILD_TRAINING": "ON",
+      "JYPPX_LIUDING_BUILD_EXPERIMENT": "ON",
+      "JYPPX_LIUDING_BUILD_DATA_IMAGE": "ON",
+      "JYPPX_LIUDING_BUILD_VISION_RENDER": "ON",
+      "JYPPX_LIUDING_BUILD_MODELS": "ON",
+      "JYPPX_LIUDING_BUILD_SERVING": "ON",
+      "JYPPX_LIUDING_BUILD_ONNX_EXPORT": "ON",
+      "JYPPX_LIUDING_BUILD_ONNX_RUNTIME": "ON",
+      "JYPPX_LIUDING_BUILD_ONNX_SERVING": "ON",
+      "JYPPX_LIUDING_BUILD_BUNDLE_SIGNING": "ON",
+      "JYPPX_LIUDING_BUILD_TELEMETRY_NATIVE": "ON",
+      "JYPPX_LIUDING_BUILD_TELEMETRY_HTTP": "ON",
+      "JYPPX_LIUDING_BUILD_TOOLS": "ON"
     }
   }
 }

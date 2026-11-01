@@ -124,10 +124,26 @@ if(Python3_Interpreter_FOUND)
         LABELS "hygiene;coverage"
         PASS_REGULAR_EXPRESSION "training: line=18/20 [(]90[.]00%[)]"
     )
+    add_test(
+        NAME CoverageOwnerPolicyToolUnitTests
+        COMMAND ${Python3_EXECUTABLE} -I -B
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_coverage_owner_policy.py
+    )
+    set_tests_properties(CoverageOwnerPolicyToolUnitTests PROPERTIES
+        LABELS "hygiene;coverage"
+    )
+    add_test(
+        NAME CoverageOfflineDependenciesToolUnitTests
+        COMMAND ${Python3_EXECUTABLE} -I -B
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_coverage_dependencies.py
+    )
+    set_tests_properties(CoverageOfflineDependenciesToolUnitTests PROPERTIES
+        LABELS "hygiene;coverage"
+    )
     if(UNIX)
         add_test(
             NAME CoverageLaneProtocolUnitTests
-            COMMAND ${Python3_EXECUTABLE}
+            COMMAND ${Python3_EXECUTABLE} -I -B
                     ${CMAKE_SOURCE_DIR}/tests/scripts/test_coverage_lane.py
         )
         set_tests_properties(CoverageLaneProtocolUnitTests PROPERTIES

@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -21,8 +23,11 @@ def _parse_arguments() -> argparse.Namespace:
             "coverage or instrumented-denominator regressions."
         )
     )
-    parser.add_argument("report", type=Path, help="gcovr --json-summary report")
+    parser.add_argument("report", nargs="?", type=Path, help="gcovr --json-summary report")
     parser.add_argument("policy", type=Path, help="checked-in coverage policy")
+    parser.add_argument("--source-root", type=Path, help="source tree for v2 owner verification")
+    parser.add_argument("--cmake-cache", type=Path, help="actual configured cache for the v2 profile")
+    parser.add_argument("--audit-owners", action="store_true", help="verify source ownership only; no coverage evaluated")
     parser.add_argument(
         "--output", type=Path, help="optional machine-readable observed summary"
     )
@@ -30,8 +35,16 @@ def _parse_arguments() -> argparse.Namespace:
 
 
 def _read_object(path: Path, label: str) -> dict[str, Any]:
+    def unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{label} repeats JSON key: {key}")
+            result[key] = value
+        return result
+
     with path.open("r", encoding="utf-8") as stream:
-        value = json.load(stream)
+        value = json.load(stream, object_pairs_hook=unique_keys)
     if not isinstance(value, dict):
         raise ValueError(f"{label} root must be an object")
     return value
@@ -105,8 +118,14 @@ def _read_report_files(report: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _read_policy_targets(policy: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    if policy.get("schema_version") != 1:
-        raise ValueError("coverage policy schema_version must be 1")
+    version = policy.get("schema_version")
+    if type(version) is not int or version not in {1, 2}:
+        raise ValueError("coverage policy schema_version must be 1 or 2")
+    if version == 2 and set(policy) != {
+        "schema_version", "kind", "baseline", "targets", "observations",
+        "non_executable_files", "profile",
+    }:
+        raise ValueError("v2 coverage policy has unknown or missing fields")
     if policy.get("kind") != "jyppx-target-coverage-policy":
         raise ValueError("coverage policy kind must be jyppx-target-coverage-policy")
     baseline = policy.get("baseline")
@@ -140,15 +159,24 @@ def _read_policy_targets(policy: dict[str, Any]) -> dict[str, dict[str, Any]]:
             )
             if not prefix.endswith("/"):
                 raise ValueError(f"{label} path prefix must end with '/': {prefix}")
-            owner = all_prefixes.get(prefix)
-            if owner is not None:
-                raise ValueError(
-                    f"coverage path prefix {prefix!r} belongs to both {owner!r} "
-                    f"and {target_name!r}"
-                )
+            for other, owner in all_prefixes.items():
+                if prefix == other or (owner != target_name and
+                                        (prefix.startswith(other) or other.startswith(prefix))):
+                    raise ValueError(f"coverage path prefixes overlap for {owner!r} and {target_name!r}: {prefix}")
             all_prefixes[prefix] = target_name
             prefixes.append(prefix)
 
+        status = raw_target.get("baseline_status", "ratchet")
+        if status == "pending-observation":
+            if version != 2 or set(raw_target) != {"path_prefixes", "baseline_status"}:
+                raise ValueError(f"{label} pending baseline must have no metrics and requires v2")
+            targets[target_name] = {"path_prefixes": prefixes, "baseline_status": status}
+            continue
+        if status != "ratchet":
+            raise ValueError(f"{label} has invalid baseline_status")
+        if version == 2 and (not {"path_prefixes", "metrics"} <= set(raw_target) or
+                             set(raw_target) - {"path_prefixes", "metrics", "baseline_status", "baseline_observation"}):
+            raise ValueError(f"{label} has unknown or missing fields")
         raw_metrics = raw_target.get("metrics")
         if not isinstance(raw_metrics, dict):
             raise ValueError(f"{label}.metrics must be an object")
@@ -179,8 +207,110 @@ def _read_policy_targets(policy: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     f"{metric_label}.minimum_percent",
                 ),
             }
-        targets[target_name] = {"path_prefixes": prefixes, "metrics": metrics}
+        targets[target_name] = {"path_prefixes": prefixes, "metrics": metrics, "baseline_status": status}
     return targets
+
+
+def _read_non_executable_files(policy: dict[str, Any]) -> dict[str, dict[str, str]]:
+    if policy["schema_version"] == 1:
+        return {}
+    records = policy.get("non_executable_files")
+    if not isinstance(records, list):
+        raise ValueError("non_executable_files must be an array")
+    parsed = {}
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {"path", "sha256", "reason"}:
+            raise ValueError("invalid non-executable file descriptor")
+        path = _normalize_filename(record["path"], "non-executable path")
+        if path in parsed or not path.startswith("include/jyppx/") or not path.endswith(".hpp"):
+            raise ValueError("non-executable exception must name one unique public header")
+        if not isinstance(record["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", record["sha256"]):
+            raise ValueError("non-executable exception requires an exact SHA-256")
+        _require_string(record["reason"], "non-executable reason")
+        parsed[path] = record
+    return parsed
+
+
+def _include_only_header(raw: bytes) -> bool:
+    text = re.sub(r"/\*.*?\*/|//[^\n]*", "", raw.decode("utf-8"), flags=re.S)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 3:
+        return False
+    guard = re.fullmatch(r"#ifndef\s+([A-Za-z_][A-Za-z0-9_]*)", lines[0])
+    return bool(guard and lines[1] == "#define " + guard[1] and lines[-1] == "#endif" and
+                all(re.fullmatch(r'#include\s+(?:<[^<>]+>|"[^"\n]+")', line) for line in lines[2:-1]))
+
+
+def _verify_source_ownership(source_root: Path, targets: dict[str, dict[str, Any]],
+                             exceptions: dict[str, dict[str, str]]) -> dict[str, Any]:
+    owned = {}
+    excluded = []
+    counts = {name: 0 for name in targets}
+    suffixes = {".h", ".hh", ".hpp", ".hxx", ".c", ".cc", ".cpp", ".cxx"}
+    root = source_root.resolve()
+    for relative in ("include/jyppx", "src/jyppx"):
+        directory = root / relative
+        if not directory.is_dir():
+            raise ValueError(f"source ownership root is missing: {relative}")
+        for path in sorted(directory.rglob("*")):
+            if not path.is_file() or path.suffix not in suffixes:
+                continue
+            if path.is_symlink() or not path.resolve().is_relative_to(root):
+                raise ValueError(f"source ownership file is aliased outside the root: {path}")
+            filename = path.relative_to(root).as_posix()
+            owners = [name for name, target in targets.items()
+                      if any(filename.startswith(prefix) for prefix in target["path_prefixes"])]
+            if filename in exceptions:
+                raw = path.read_bytes()
+                if owners or hashlib.sha256(raw).hexdigest() != exceptions[filename]["sha256"] or not _include_only_header(raw):
+                    raise ValueError(f"non-executable exception changed or emits code: {filename}")
+                excluded.append(filename)
+            elif len(owners) != 1:
+                raise ValueError(f"source candidate must have exactly one owner: {filename} ({owners})")
+            else:
+                owned[filename] = owners[0]
+                counts[owners[0]] += 1
+    if set(excluded) != set(exceptions) or any(count == 0 for count in counts.values()):
+        raise ValueError("source ownership has a missing exception or an empty owner")
+    return {"kind": "jyppx-coverage-owner-audit", "file_owners": owned,
+            "non_executable_files": excluded, "owner_file_counts": counts,
+            "source_file_count": len(owned) + len(excluded),
+            "coverage_evaluated": False, "release_qualified": False}
+
+
+def _read_profile(policy: dict[str, Any]) -> dict[str, Any] | None:
+    if policy["schema_version"] == 1:
+        return None
+    profile = policy.get("profile")
+    if not isinstance(profile, dict) or set(profile) != {"id", "cmake_options"}:
+        raise ValueError("v2 profile must have id and cmake_options")
+    _require_string(profile["id"], "coverage profile id")
+    options = profile["cmake_options"]
+    if not isinstance(options, dict) or not options:
+        raise ValueError("coverage profile cmake_options must not be empty")
+    if any(not isinstance(key, str) or not re.fullmatch(r"JYPPX_[A-Z0-9_]+", key) or
+           not isinstance(value, str) or value not in {"ON", "OFF"}
+           for key, value in options.items()):
+        raise ValueError("coverage profile requires explicit JYPPX boolean options")
+    return profile
+
+
+def _verify_profile(cache: Path | None, profile: dict[str, Any]) -> None:
+    if cache is None:
+        raise ValueError("v2 coverage requires the actual --cmake-cache")
+    entries = {}
+    for line in cache.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith(("#", "//")) or ":" not in line or "=" not in line:
+            continue
+        name_type, value = line.split("=", 1)
+        name, kind = name_type.split(":", 1)
+        if name in profile["cmake_options"]:
+            if name in entries:
+                raise ValueError(f"coverage profile cache repeats key: {name}")
+            entries[name] = (kind, value)
+    for name, value in profile["cmake_options"].items():
+        if entries.get(name) != ("BOOL", value):
+            raise ValueError(f"coverage profile option missing or changed: {name}")
 
 
 def _percent(covered: int, total: int) -> float:
@@ -188,7 +318,8 @@ def _percent(covered: int, total: int) -> float:
 
 
 def _aggregate(
-    files: list[dict[str, Any]], targets: dict[str, dict[str, Any]]
+    files: list[dict[str, Any]], targets: dict[str, dict[str, Any]],
+    non_executable_files: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     observed = {
         target_name: {
@@ -203,6 +334,10 @@ def _aggregate(
 
     for file_entry in files:
         filename = file_entry["filename"]
+        if non_executable_files and filename in non_executable_files:
+            if any(metric["total"] or metric["covered"] for metric in file_entry["metrics"].values()):
+                raise ValueError(f"non-executable exception has coverage entities: {filename}")
+            continue
         owners = [
             target_name
             for target_name, target in targets.items()
@@ -268,6 +403,9 @@ def _evaluate(
 ) -> list[str]:
     failures: list[str] = []
     for target_name, target_policy in targets.items():
+        if target_policy.get("baseline_status") == "pending-observation":
+            failures.append(f"{target_name} baseline pending observation and review")
+            continue
         for metric_name in METRIC_NAMES:
             actual = observed[target_name]["metrics"][metric_name]
             expected = target_policy["metrics"][metric_name]
@@ -305,6 +443,10 @@ def _write_output(
         "baseline": policy["baseline"],
         "targets": observed,
     }
+    if policy["schema_version"] == 2:
+        output["pending_baseline_targets"] = [name for name, target in policy["targets"].items()
+                                               if target.get("baseline_status") == "pending-observation"]
+        output["profile"] = policy["profile"]["id"]
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as stream:
         json.dump(output, stream, indent=2, sort_keys=True)
@@ -313,11 +455,36 @@ def _write_output(
 
 def main() -> int:
     args = _parse_arguments()
-    report = _read_object(args.report, "coverage report")
     policy = _read_object(args.policy, "coverage policy")
-    files = _read_report_files(report)
     targets = _read_policy_targets(policy)
-    observed = _aggregate(files, targets)
+    exceptions = _read_non_executable_files(policy)
+    profile = _read_profile(policy)
+    inventory = None
+    if policy["schema_version"] == 2 or args.audit_owners:
+        if args.source_root is None:
+            raise ValueError("source ownership verification requires --source-root")
+        inventory = _verify_source_ownership(args.source_root, targets, exceptions)
+    if args.audit_owners:
+        if args.report is not None:
+            raise ValueError("owner audit must not consume a coverage report")
+        if profile is not None and args.cmake_cache is not None:
+            _verify_profile(args.cmake_cache, profile)
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("Source ownership verified; coverage was not evaluated or qualified")
+        return 0
+    if args.report is None:
+        raise ValueError("a coverage report is required unless --audit-owners is used")
+    if profile is not None:
+        _verify_profile(args.cmake_cache, profile)
+    report = _read_object(args.report, "coverage report")
+    files = _read_report_files(report)
+    if inventory is not None:
+        known = set(inventory["file_owners"]) | set(inventory["non_executable_files"])
+        if any(file["filename"] not in known for file in files):
+            raise ValueError("coverage report includes a file outside the audited source inventory")
+    observed = _aggregate(files, targets, exceptions)
     _verify_report_totals(report, observed)
 
     if args.output is not None:
