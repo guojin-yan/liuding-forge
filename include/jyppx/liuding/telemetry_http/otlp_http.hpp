@@ -56,6 +56,8 @@ struct OtlpHttpOptions {
  * credentials, custom headers or application retries are used. HTTPS uses the
  * system trust store. Calls are serialized by the owner. Destruction performs
  * no network I/O. Flush has no pending network work.
+ * Certificate-chain/hostname validation failures remain IoError, with
+ * ErrorDetails::operation set to verify_peer_certificate and native details.
  *
  * The caller waits synchronously over asynchronous system I/O. Stop requests
  * wake an idle request wait; the earlier caller deadline/request timeout bounds

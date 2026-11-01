@@ -12,6 +12,11 @@
 #else
 #include <cerrno>
 #include <signal.h>
+#if defined(__linux__)
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 #endif
 
 #include "../../tools/cli/local_process.hpp"
@@ -22,6 +27,7 @@
 
 #include <jyppx/liuding/foundation/error.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -121,6 +127,76 @@ class ProcessDirectory {
   fs::path root;
   fs::path fixture;
 };
+
+#if defined(__linux__)
+void expect_delayed_descendant_reaping(bool reap_within_grace) {
+  // Run only in a death-test child: the test owns adopted descendants without
+  // changing the application's process-wide reaper policy in the parent.
+  ASSERT_EQ(prctl(PR_SET_CHILD_SUBREAPER, 1), 0);
+  ProcessDirectory directory;
+  auto options = directory.options("tree-closed-streams");
+  options.cleanup_timeout = reap_within_grace ? 1500ms : 250ms;
+  std::stop_source stop;
+  std::atomic<bool> ready{false}, returned{false}, reaped{false};
+  std::chrono::steady_clock::time_point cancelled_at;
+  std::jthread reaper([&] {
+    ready =
+        await([&] { return fs::is_regular_file(directory.root / "ready"); });
+    if (!ready) {
+      stop.request_stop();
+      return;
+    }
+    std::array<pid_t, 2U> descendants{};
+    for (std::size_t index = 0U; index < descendants.size(); ++index) {
+      std::ifstream file(directory.root /
+                         (index == 0U ? "descendant.pid" : "grandchild.pid"));
+      if (!(file >> descendants[index]) || descendants[index] <= 0) {
+        stop.request_stop();
+        return;
+      }
+    }
+    cancelled_at = std::chrono::steady_clock::now();
+    stop.request_stop();
+    // Both descendants must be adopted, terminated and still unreaped before
+    // deliberately delaying their reaper. Never reap the runner's leader.
+    for (const auto pid : descendants) {
+      if (!await([&] {
+            siginfo_t status{};
+            return waitid(P_PID, static_cast<id_t>(pid), &status,
+                          WEXITED | WNOHANG | WNOWAIT) == 0 &&
+                   status.si_pid == pid;
+          }))
+        return;
+    }
+    if (reap_within_grace)
+      std::this_thread::sleep_for(150ms);
+    else if (!await([&] { return returned.load(); }))
+      return;
+    for (const auto pid : descendants) {
+      if (!await([&] {
+            int status = 0;
+            return waitpid(pid, &status, WNOHANG) == pid;
+          }))
+        return;
+    }
+    reaped = true;
+  });
+  const auto result = cli::LocalProcessRunner{}.run(options, stop.get_token());
+  const auto completed_at = std::chrono::steady_clock::now();
+  returned = true;
+  reaper.join();
+  ASSERT_TRUE(ready);
+  ASSERT_TRUE(reaped);
+  EXPECT_EQ(result.status, cli::LocalProcessStatus::cancelled);
+  EXPECT_FALSE(result.exit_code);
+  EXPECT_FALSE(result.signal);
+  EXPECT_EQ(result.process_tree_cleanup_confirmed, reap_within_grace);
+  if (!reap_within_grace)
+    EXPECT_GE(completed_at - cancelled_at, options.cleanup_timeout);
+  EXPECT_LT(completed_at - cancelled_at, options.cleanup_timeout + 1000ms);
+  directory.expect_tree_stopped(result.process_id);
+}
+#endif
 
 TEST(LocalProcessTest, PreservesLiteralArgvUnicodeCwdEnvironmentAndStdinEof) {
   ProcessDirectory directory;
@@ -253,6 +329,30 @@ TEST(LocalProcessTest, CancellationKillsLeaderDescendantAndGrandchild) {
   directory.expect_tree_stopped(result.process_id);
 }
 
+TEST(LocalProcessTest, CancellationKillsTreeAfterAllStandardStreamsClose) {
+  ProcessDirectory directory;
+  std::stop_source stop;
+  std::atomic<bool> ready{false};
+  std::jthread canceller([&] {
+    ready =
+        await([&] { return fs::is_regular_file(directory.root / "ready"); });
+    stop.request_stop();
+  });
+  const auto result = cli::LocalProcessRunner{}.run(
+      directory.options("tree-closed-streams"), stop.get_token());
+  canceller.join();
+  ASSERT_TRUE(ready);
+  EXPECT_EQ(result.status, cli::LocalProcessStatus::cancelled);
+  EXPECT_FALSE(result.exit_code);
+  EXPECT_FALSE(result.signal);
+  EXPECT_TRUE(result.stdout_capture.empty());
+  EXPECT_TRUE(result.stderr_capture.empty());
+#ifdef _WIN32
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+#endif
+  directory.expect_tree_stopped(result.process_id);
+}
+
 TEST(LocalProcessTest, TimeoutKillsLeaderDescendantAndGrandchild) {
   ProcessDirectory directory;
   auto options = directory.options("tree");
@@ -265,6 +365,24 @@ TEST(LocalProcessTest, TimeoutKillsLeaderDescendantAndGrandchild) {
   directory.expect_tree_stopped(result.process_id);
 }
 
+TEST(LocalProcessTest, TimeoutKillsTreeAfterAllStandardStreamsClose) {
+  ProcessDirectory directory;
+  auto options = directory.options("tree-closed-streams");
+  options.timeout = 3000ms;
+  const auto result = cli::LocalProcessRunner{}.run(options);
+  EXPECT_EQ(result.status, cli::LocalProcessStatus::timed_out);
+  EXPECT_FALSE(result.exit_code);
+  EXPECT_FALSE(result.signal);
+  EXPECT_TRUE(result.stdout_capture.empty());
+  EXPECT_TRUE(result.stderr_capture.empty());
+  EXPECT_GE(result.elapsed, options.timeout);
+  EXPECT_LT(result.elapsed, options.timeout + options.cleanup_timeout + 3000ms);
+#ifdef _WIN32
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+#endif
+  directory.expect_tree_stopped(result.process_id);
+}
+
 TEST(LocalProcessTest, OrdinaryLeaderExitAlsoStopsRemainingDescendants) {
   ProcessDirectory directory;
   const auto result =
@@ -274,6 +392,43 @@ TEST(LocalProcessTest, OrdinaryLeaderExitAlsoStopsRemainingDescendants) {
   EXPECT_EQ(result.stdout_capture, "leader-done");
   directory.expect_tree_stopped(result.process_id);
 }
+
+TEST(LocalProcessTest, OrdinaryLeaderExitStopsTreeAfterStandardStreamsClose) {
+  ProcessDirectory directory;
+  const auto result = cli::LocalProcessRunner{}.run(
+      directory.options("leader-exits-closed-streams"));
+  EXPECT_EQ(result.status, cli::LocalProcessStatus::exited);
+  EXPECT_EQ(result.exit_code, 23U);
+  EXPECT_FALSE(result.signal);
+  EXPECT_TRUE(result.stdout_capture.empty());
+  EXPECT_TRUE(result.stderr_capture.empty());
+#ifdef _WIN32
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+#endif
+  directory.expect_tree_stopped(result.process_id);
+}
+
+#if defined(__linux__)
+TEST(LocalProcessTest, CleanupWaitsForDescendantReapersWithinOriginalGrace) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  ASSERT_EXIT(
+      {
+        expect_delayed_descendant_reaping(true);
+        ::_exit(::testing::Test::HasFailure() ? 1 : 0);
+      },
+      ::testing::ExitedWithCode(0), "");
+}
+
+TEST(LocalProcessTest, CleanupDoesNotConfirmUnreapedDescendantsAfterGrace) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  ASSERT_EXIT(
+      {
+        expect_delayed_descendant_reaping(false);
+        ::_exit(::testing::Test::HasFailure() ? 1 : 0);
+      },
+      ::testing::ExitedWithCode(0), "");
+}
+#endif
 
 TEST(LocalProcessTest, OutputQuotaKillsEntireTreeAndBoundsCapture) {
   ProcessDirectory directory;

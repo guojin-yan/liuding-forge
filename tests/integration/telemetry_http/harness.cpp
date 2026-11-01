@@ -54,9 +54,10 @@ int main(int argc, char** argv) {
         port > 65535U)
       return 2;
     ex::OtlpHttpOptions options;
-    options.endpoint = {.host = "127.0.0.1",
-                        .port = static_cast<std::uint16_t>(port),
-                        .tls = mode == "tls-reject"};
+    options.endpoint = {
+        .host = mode == "ipv6-logs" ? "::1" : "127.0.0.1",
+        .port = static_cast<std::uint16_t>(port),
+        .tls = mode == "tls-reject" || mode == "tls-certificate-reject"};
     options.mapping.resource_instance_id = "http.integration.instance";
     options.mapping.max_reply_bytes = 64U;
     options.request_timeout =
@@ -123,6 +124,27 @@ int main(int argc, char** argv) {
     } else if (mode == "tls-reject") {
       fails<forge::Error>([&] { sink.emit(batch, {}, deadline); });
       require(sink.close().exported_events == 0U);
+    } else if (mode == "tls-certificate-reject") {
+      for (int attempt = 0; attempt < 2; ++attempt) {
+        bool certificate_rejected = false;
+        try {
+          sink.emit(batch, {}, deadline);
+        } catch (const forge::IoError& error) {
+          require(error.message() ==
+                  "OTLP HTTPS certificate validation failed");
+          require(error.details().component == "telemetry_http");
+          require(error.details().operation == "verify_peer_certificate");
+          require(!error.details().actual.empty());
+          std::cout << "native-http-certificate-rejected: "
+                    << error.details().actual << '\n';
+          certificate_rejected = true;
+        }
+        // Retry the same identity through the same sink: neither attempt may
+        // advance the process-local acknowledgement or become a duplicate.
+        require(certificate_rejected);
+        require(sink.flush().exported_events == 0U);
+      }
+      require(sink.close().exported_events == 0U);
     } else {
       if (mode == "prefix-retry") batch.push_back(log_event(2U));
       const bool retry = mode == "reply-retry" || mode == "pair-retry" ||
@@ -132,7 +154,7 @@ int main(int argc, char** argv) {
         require(sink.flush().exported_events ==
                 (mode == "prefix-retry" ? 1U : 0U));
       } else {
-        require(mode == "logs" || mode == "traces");
+        require(mode == "logs" || mode == "traces" || mode == "ipv6-logs");
       }
       const auto result = sink.emit(batch, {}, deadline);
       for (std::size_t i = 0U; i < batch.size(); ++i)

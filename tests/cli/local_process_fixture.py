@@ -56,21 +56,36 @@ def main():
         while True:
             write_all(descriptor, b"x" * 4096)
     elif mode == "grandchild":
+        if arguments == ["close-streams"]:
+            os.close(1)
+            os.close(2)
         (root / "grandchild.pid").write_text(str(os.getpid()), encoding="ascii")
         while True:
             time.sleep(0.01)
     elif mode == "descendant":
         if os.name != "nt":
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        subprocess.Popen([sys.executable, "-I", "-u", __file__, "grandchild", str(root)])
+        subprocess.Popen([sys.executable, "-I", "-u", __file__, "grandchild", str(root),
+                          *arguments])
         await_file(root / "grandchild.pid")
+        if arguments == ["close-streams"]:
+            os.close(1)
+            os.close(2)
         (root / "descendant.pid").write_text(str(os.getpid()), encoding="ascii")
         while True:
             time.sleep(0.01)
-    elif mode in ("tree", "leader-exits", "tree-flood", "volume-leader-exits"):
-        subprocess.Popen([sys.executable, "-I", "-u", __file__, "descendant", str(root)])
+    elif mode in ("tree", "leader-exits", "tree-flood", "volume-leader-exits",
+                  "tree-closed-streams", "leader-exits-closed-streams"):
+        descendant_arguments = ["close-streams"] if mode.endswith("-closed-streams") else []
+        subprocess.Popen([sys.executable, "-I", "-u", __file__, "descendant", str(root),
+                          *descendant_arguments])
         await_file(root / "descendant.pid")
+        if descendant_arguments:
+            os.close(1)
+            os.close(2)
         (root / "ready").write_text("ready", encoding="ascii")
+        if mode == "leader-exits-closed-streams":
+            os._exit(23)
         if mode == "leader-exits":
             write_all(1, b"leader-done")
             os._exit(23)

@@ -56,6 +56,7 @@ struct Completion final {
   DWORD status = 0U;
   DWORD error = ERROR_SUCCESS;
   DWORD bytes = 0U;
+  DWORD secure_failures = 0U;
   // WinHTTP can still reference an async read/write buffer until
   // HANDLE_CLOSING. Keep a bounded chunk alive with the callback, never the
   // caller's payload.
@@ -78,7 +79,12 @@ void CALLBACK completed(HINTERNET, DWORD_PTR context, DWORD status,
   }
   {
     const std::lock_guard lock(state->mutex);
-    if (status == WINHTTP_CALLBACK_STATUS_REQUEST_ERROR) {
+    if (status == WINHTTP_CALLBACK_STATUS_SECURE_FAILURE) {
+      // This notification precedes REQUEST_ERROR and supplies the validation
+      // reason hidden by the generic ERROR_WINHTTP_SECURE_FAILURE result.
+      if (information && length == sizeof(DWORD))
+        state->secure_failures |= *static_cast<DWORD*>(information);
+    } else if (status == WINHTTP_CALLBACK_STATUS_REQUEST_ERROR) {
       state->error =
           information && length == sizeof(WINHTTP_ASYNC_RESULT)
               ? static_cast<WINHTTP_ASYNC_RESULT*>(information)->dwError
@@ -101,6 +107,31 @@ void CALLBACK completed(HINTERNET, DWORD_PTR context, DWORD status,
   state->ready.notify_all();
 }
 
+void check_certificate_error(DWORD code, DWORD secure_failures) {
+  constexpr DWORD certificate_failures =
+      WINHTTP_CALLBACK_STATUS_FLAG_CERT_REV_FAILED |
+      WINHTTP_CALLBACK_STATUS_FLAG_INVALID_CERT |
+      WINHTTP_CALLBACK_STATUS_FLAG_CERT_REVOKED |
+      WINHTTP_CALLBACK_STATUS_FLAG_INVALID_CA |
+      WINHTTP_CALLBACK_STATUS_FLAG_CERT_CN_INVALID |
+      WINHTTP_CALLBACK_STATUS_FLAG_CERT_DATE_INVALID |
+      WINHTTP_CALLBACK_STATUS_FLAG_CERT_WRONG_USAGE;
+  const bool direct_certificate_error =
+      code == ERROR_WINHTTP_SECURE_CERT_DATE_INVALID ||
+      code == ERROR_WINHTTP_SECURE_CERT_CN_INVALID ||
+      code == ERROR_WINHTTP_SECURE_INVALID_CA ||
+      code == ERROR_WINHTTP_SECURE_CERT_REV_FAILED ||
+      code == ERROR_WINHTTP_SECURE_INVALID_CERT ||
+      code == ERROR_WINHTTP_SECURE_CERT_REVOKED ||
+      code == ERROR_WINHTTP_SECURE_CERT_WRONG_USAGE;
+  if (direct_certificate_error ||
+      (code == ERROR_WINHTTP_SECURE_FAILURE &&
+       (secure_failures & certificate_failures) != 0U))
+    throw_http_certificate_error("WinHTTP OS code " + std::to_string(code) +
+                                 "; secure failure flags " +
+                                 std::to_string(secure_failures));
+}
+
 class Request final {
  public:
   explicit Request(HINTERNET handle)
@@ -112,7 +143,8 @@ class Request final {
       throw IoError("Could not set OTLP asynchronous request context");
     if (WinHttpSetStatusCallback(handle_.get(), &completed,
                                  WINHTTP_CALLBACK_FLAG_ALL_COMPLETIONS |
-                                     WINHTTP_CALLBACK_FLAG_HANDLES,
+                                     WINHTTP_CALLBACK_FLAG_HANDLES |
+                                     WINHTTP_CALLBACK_FLAG_SECURE_FAILURE,
                                  0U) == WINHTTP_INVALID_STATUS_CALLBACK)
       throw IoError("Could not install OTLP asynchronous completion callback");
     owner.release();  // HANDLE_CLOSING now owns this one reference.
@@ -125,6 +157,7 @@ class Request final {
     state_->status = 0U;
     state_->error = ERROR_SUCCESS;
     state_->bytes = 0U;
+    state_->secure_failures = 0U;
   }
   DWORD wait(BOOL started, DWORD expected, std::stop_token stop,
              std::chrono::steady_clock::time_point deadline) {
@@ -132,6 +165,7 @@ class Request final {
     check_telemetry_operation(stop, deadline);
     if (error == ERROR_WINHTTP_TIMEOUT)
       throw DeadlineExceeded("OTLP HTTP request deadline exceeded");
+    check_certificate_error(error, 0U);
     if (error != ERROR_SUCCESS && error != ERROR_IO_PENDING)
       throw IoError("OTLP asynchronous WinHTTP operation failed; OS code " +
                     std::to_string(error));
@@ -142,6 +176,7 @@ class Request final {
     check_telemetry_operation(stop, deadline);
     if (state_->error == ERROR_WINHTTP_TIMEOUT)
       throw DeadlineExceeded("OTLP HTTP request deadline exceeded");
+    check_certificate_error(state_->error, state_->secure_failures);
     if (state_->error != ERROR_SUCCESS || state_->status != expected)
       throw IoError("OTLP asynchronous WinHTTP completion failed; OS code " +
                     std::to_string(state_->error));

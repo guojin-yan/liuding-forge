@@ -41,6 +41,19 @@ bool http_ascii_case_equal(std::string_view left,
   return true;
 }
 
+[[noreturn]] void throw_http_certificate_error(std::string native_failure) {
+  throw IoError(
+      "OTLP HTTPS certificate validation failed",
+      ErrorDetails{
+          .component = "telemetry_http",
+          .operation = "verify_peer_certificate",
+          .expected = "System-trusted certificate valid for the collector host",
+          .actual = std::move(native_failure),
+          .hint =
+              "Check the collector certificate, issuing chain, validity and "
+              "configured host against the system trust store"});
+}
+
 void validate_http_response_content_type(std::string_view value) {
   value = trim_http_ows(value);
   auto position = value.find(';');

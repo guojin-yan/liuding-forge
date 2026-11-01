@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <arpa/inet.h>
+#include <array>
 #include <curl/curl.h>
 #include <exception>
 #include <limits>
@@ -200,10 +201,13 @@ class Sender final : public OtlpRequestSender {
     {
       std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(
           nullptr, &curl_slist_free_all);
+      std::array<char, CURL_ERROR_SIZE> native_error{};
       const std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> handle(
           curl_easy_init(), &curl_easy_cleanup);
       if (!handle)
         throw IoError("Could not create OTLP system libcurl request");
+      check(curl_easy_setopt(handle.get(), CURLOPT_ERRORBUFFER,
+                             native_error.data()));
       const auto host = endpoint_.host.find(':') == std::string::npos
                             ? endpoint_.host
                             : "[" + endpoint_.host + "]";
@@ -290,6 +294,11 @@ class Sender final : public OtlpRequestSender {
       // before the next steady-clock comparison observes expiration.
       if (result == CURLE_OPERATION_TIMEDOUT)
         throw DeadlineExceeded("OTLP HTTP request deadline exceeded");
+      if (result == CURLE_PEER_FAILED_VERIFICATION)
+        throw_http_certificate_error(
+            "libcurl code " + std::to_string(static_cast<int>(result)) + "; " +
+            (native_error[0] == '\0' ? curl_easy_strerror(result)
+                                     : native_error.data()));
       check(result);
       long status = 0L;
       check(curl_easy_getinfo(handle.get(), CURLINFO_RESPONSE_CODE, &status));

@@ -903,6 +903,10 @@ class NativeProcess {
 
   PumpResult pump(std::string_view input, std::size_t& position,
                   int timeout_ms) {
+    if (cleanup_deadline_) {
+      check_telemetry_operation({}, *cleanup_deadline_);
+      timeout_ms = std::min(timeout_ms, poll_milliseconds(*cleanup_deadline_));
+    }
     PumpResult result;
     std::array<pollfd, 3U> waiting{
         {{output_.get(), POLLIN, 0},
@@ -974,6 +978,9 @@ class NativeProcess {
   void close_input() noexcept { input_.reset(); }
 
   void stop_tree() noexcept {
+    if (!cleanup_deadline_) cleanup_deadline_ = Clock::now() + cleanup_timeout_;
+    if (termination_requested_) return;
+    termination_requested_ = true;
     if (pid_ > 0) {
       ::kill(-pid_, SIGKILL);
       if (!reaped_) ::kill(pid_, SIGKILL);
@@ -984,24 +991,26 @@ class NativeProcess {
     if (pid_ > 0) {
       // Kill the whole original group even if its leader has already exited.
       stop_tree();
-      const auto deadline = Clock::now() + cleanup_timeout_;
-      while (!reaped_ && Clock::now() < deadline) {
-        int status = 0;
-        const auto result = waitpid(pid_, &status, WNOHANG);
-        if (result == pid_ || (result < 0 && errno == ECHILD))
-          reaped_ = true;
-        else if (result < 0 && errno != EINTR)
-          break;
-        else
-          ::poll(nullptr, 0U, 1);
-      }
+      const auto deadline = *cleanup_deadline_;
       // POSIX descendants are reaped by their actual parent or the system
       // reaper. Do not change the application's global subreaper/SIGCHLD
       // policy.
       // A successful kill request alone does not prove resource release.
-      // Conservatively retain occupancy while any original group member
-      // (including a not-yet-reaped zombie) remains observable.
-      cleanup_confirmed_ = reaped_ && ::kill(-pid_, 0) < 0 && errno == ESRCH;
+      // Wait for those reapers within the original cleanup budget, retaining
+      // occupancy if any member (including a zombie) is still observable.
+      while (true) {
+        if (!reaped_) {
+          int status = 0;
+          const auto result = waitpid(pid_, &status, WNOHANG);
+          if (result == pid_ || (result < 0 && errno == ECHILD))
+            reaped_ = true;
+          else if (result < 0 && errno != EINTR)
+            break;
+        }
+        cleanup_confirmed_ = reaped_ && ::kill(-pid_, 0) < 0 && errno == ESRCH;
+        if (cleanup_confirmed_ || Clock::now() >= deadline) break;
+        ::poll(nullptr, 0U, 1);
+      }
       pid_ = -1;
     }
     input_.reset();
@@ -1014,6 +1023,8 @@ class NativeProcess {
   pid_t pid_ = -1;
   bool reaped_ = false;
   bool cleanup_confirmed_ = false;
+  bool termination_requested_ = false;
+  std::optional<Clock::time_point> cleanup_deadline_;
   Descriptor input_;
   Descriptor output_;
   Descriptor diagnostic_;
