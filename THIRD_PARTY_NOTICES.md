@@ -122,6 +122,18 @@ JYPPX package.
   formats that need a different scalar contract remain outside this profile;
   callers receive a structured decode error rather than an implicit conversion.
 
+### stb_image_write（图像编码）
+
+可选 `jyppx::liuding::data_image` 的 PNG/JPEG 输出私有编译 stb_image_write 1.16；上游为 <https://github.com/nothings/stb>，可选择 MIT 或 Unlicense。该 writer 独立于 stb_image decoder 登记，公共头不暴露其类型。已入库头的路径、长度和 SHA-256 记录在 `dependency-manifest.json`；上游 master 链接仅作来源定位，尚未声明不可变上游提交。
+
+头文件内完整的双选许可、版权与免责声明原样保留在 `third_party/licenses/stb_image_write-1.16-LICENSE.txt`，启用 data-image profile 时安装到 `share/doc/jyppx/licenses/stb_image_write-1.16-LICENSE.txt`。分发对应源代码或二进制时保留完整原文；许可留存不代表安全或正式发布资格。
+
+### zlib（原生数据准备工具）
+
+可选原生数据准备工具使用显式选择的 zlib 1.3.2 私有静态 codec 子集（`Z_SOLO`），适用 Zlib 许可证，上游为 <https://github.com/madler/zlib>；它不是 Core 默认运行依赖。精确源归档身份记录在 `dependency-manifest.json`。
+
+归档成员 `zlib-1.3.2/LICENSE` 的完整原文原样保留在 `third_party/licenses/zlib-1.3.2-LICENSE.txt`。启用相应工具时，构建规则核验调用者显式 SDK 的同一原文并安装为 `share/doc/jyppx/licenses/zlib-1.3.2-LICENSE.txt`；再分发对应库和工具时保留原文。notice 记录完成不代表 codec 子集的漏洞适用性、实际编译/链接、传递依赖或正式发布资格已完成审查。
+
 ### OpenSSL
 
 - Project: https://openssl-library.org/; version: 3.5.9; license: Apache-2.0.

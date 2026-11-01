@@ -63,6 +63,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 补齐 zlib 1.3.2 完整许可原文与精确归档来源索引，独立登记图像 writer stb_image_write 1.16，并将安装 notice 替换为完整 MIT/Unlicense 原文；依赖安全和正式发布资格继续独立审查。
+
 - Serving 的 queue 时间累计真实执行锁等待及 OOM 拆分重试调度等待，排除合批/快照/切片复制，并保留公开 OOM 异常与取消/关闭合同。
 
 - 显式图像批次 prepare/transfer 在分配 pinned/设备输出之前预约共享预算，并按真实 CPU 别名或 CPU:0 pageable 复制分类；后端失败回滚，源与结果租约独立保留。

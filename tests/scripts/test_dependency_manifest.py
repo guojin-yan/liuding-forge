@@ -31,6 +31,32 @@ class DependencyManifestTests(unittest.TestCase):
         google = next(item for item in self.document["dependencies"] if item["id"] == "googletest")
         self.assertEqual(google["license"]["third_party_notice_audit"], "recorded")
 
+    def test_writer_notice_retains_complete_vendored_license(self) -> None:
+        writer = next(item for item in self.document["dependencies"] if item["id"] == "stb_image_write")
+        header = (ROOT / writer["source"]["path"]).read_bytes()
+        self.assertEqual(hashlib.sha256(header).hexdigest(), writer["integrity"]["sha256"])
+        self.assertEqual(len(header), writer["integrity"]["size_bytes"])
+        marker = b"This software is available under 2 licenses -- choose whichever you prefer."
+        marker_offset = header.rfind(marker)
+        self.assertGreater(marker_offset, 0)
+        start = header.rfind(b"/*", 0, marker_offset)
+        end = header.find(b"*/", marker_offset)
+        self.assertGreaterEqual(start, 0)
+        self.assertGreater(end, marker_offset)
+        self.assertIn(header[end + 2:], (b"", b"\n", b"\r\n"))
+        full_license = header[start:]
+        self.assertIn(b"ALTERNATIVE A - MIT License", full_license)
+        self.assertIn(b"ALTERNATIVE B - Public Domain", full_license)
+        index = json.loads((ROOT / "third_party/licenses/manifest.json").read_bytes())
+        records = [item for item in index["files"] if item["dependency_id"] == writer["id"]]
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        retained = (ROOT / "third_party/licenses" / record["path"]).read_bytes()
+        self.assertEqual(retained, full_license)
+        self.assertEqual(record["origin"]["kind"], "vendored-header")
+        self.assertEqual(record["origin"]["url"], writer["source"]["url"])
+        self.assertEqual(record["origin"]["artifact_sha256"], hashlib.sha256(header).hexdigest())
+
     def test_unknown_dependency_field_is_rejected(self) -> None:
         mutated = copy.deepcopy(self.document)
         mutated["dependencies"][0]["unexpected"] = True

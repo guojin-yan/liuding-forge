@@ -269,6 +269,35 @@
       "support_status": "development-candidate"
     },
     {
+      "id": "stb_image_write",
+      "scope": "data-image-encoder",
+      "version": "1.16",
+      "source": {
+        "type": "vendored-upstream-header",
+        "url": "https://github.com/nothings/stb/blob/master/stb_image_write.h",
+        "revision": "1.16 (vendored release marker; upstream immutable revision not established)",
+        "path": "third_party/stb/stb_image_write.h"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05",
+        "size_bytes": 71221
+      },
+      "license": {
+        "spdx": [
+          "MIT",
+          "Unlicense"
+        ],
+        "third_party_notice_audit": "recorded"
+      },
+      "platforms": [
+        "windows-x86_64",
+        "linux-x86_64"
+      ],
+      "linkage": "static-private-implementation",
+      "support_status": "development-candidate"
+    },
+    {
       "id": "onnxruntime-windows-x64",
       "scope": "optional-onnx-runtime",
       "version": "1.23.2",
@@ -337,7 +366,7 @@
         "spdx": [
           "Zlib"
         ],
-        "third_party_notice_audit": "pending"
+        "third_party_notice_audit": "recorded"
       },
       "platforms": [
         "windows-x86_64",
