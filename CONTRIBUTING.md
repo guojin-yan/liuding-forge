@@ -6,6 +6,10 @@
 
 项目使用 C++20 和 CMake 3.18+。先查看 [compatibility.json](compatibility.json) 和 [dependency-manifest.json](dependency-manifest.json)，准备对应的编译器、LibTorch 和依赖；已验证的版本组合与待验证组合分别记录，不能从版本范围推导支持。Windows 官方 Release LibTorch 要求匹配 Release CRT 和 `_ITERATOR_DEBUG_LEVEL=0`。
 
+兼容矩阵中的 `verified_lanes` 仅记录各自源码、组件 profile、设备和实际测试范围；开发切片通过不代表当前完整支持矩阵或 GA。`pending_lanes` 是尚未验证的精确候选，继承所属版本组的 LibTorch 版本，但必须显式声明自己的 `distribution`、环境和所需验证，保持 `status=candidate`、`verification_status=unverified`，不得填写测试成绩、验证证据或验证提交；只有真实验证完成后才能登记到 `verified_lanes`。
+
+LibTorch 2.14.1 CPU / GCC 11.4.0 / Ubuntu x86_64 / Debug coverage 当前为未验证候选；已有 2.5.1 CPU 或 CUDA 结果不能覆盖它。启用通用 `onnx_export` 的 profile 要求精确 LibTorch 2.14.1，不能为复用历史 coverage 树降级依赖。
+
 在仓库根目录分别运行以下两条命令，检查兼容矩阵和依赖声明：
 
 ```sh
@@ -13,7 +17,7 @@ python scripts/validation/compatibility.py --file compatibility.json --validate
 python scripts/validation/dependency_manifest.py --file dependency-manifest.json
 ```
 
-复用兼容的现有构建目录，保留其中的 generator、工具链和依赖路径。当前 Windows 开发目录的增量构建示例：
+复用兼容的现有构建目录，保留其中的 generator、工具链和依赖路径；先检查目录内实际 `CMakeCache.txt` 的版本、配置和依赖身份，不能仅凭目录存在推定可复用。以下是已有兼容 Windows cache 时的增量构建示例：
 
 ```sh
 cmake -S . -B out/build/config-windows -DFETCHCONTENT_FULLY_DISCONNECTED=ON

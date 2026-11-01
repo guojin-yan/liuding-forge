@@ -28,6 +28,69 @@
             "migrated_targets": "foundation/core/data build, install consumer, header guard, and repository hygiene passed"
           },
           "commit": "2f06001"
+        },
+        {
+          "id": "local-windows-msvc1944-cu126-foundation-onnx-export",
+          "os": "windows",
+          "architecture": "x86_64",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch 2.14.1+cu126; host CUDA Toolkit 12.9; this slice establishes linkage, not CUDA execution qualification",
+          "build_type": "Release",
+          "tests": "80 C++ tests; 84 unique CTest contracts closed in stages (83/84, then hygiene 1/1); 0 skipped",
+          "instrumentation": "foundation+onnx_export isolated profile; other optional components and ORT OFF; build parallelism 2",
+          "quality_evidence": {
+            "source_identity": "Actual validation parent 7aa7190d7d18b980e7fec32f5e364cd2d2894b75 plus dirty frozen 1158 tracked-file bytes; those bytes matched delivered main 43b3b2fcccc72bb90b7e396973a5fb1cd23a89de. This was not execution from a clean committed checkout.",
+            "ctest_stages": "The first CTest batch passed 83 and failed RepositoryHygiene because removals were not staged; after staging, the focused hygiene test passed 1/1. The preserved first failure is not rewritten as a single 84/84 batch.",
+            "installation": "23 installed files; foundation and onnx_export consumers each configured, linked and ran successfully. An initial consumer configure failure caused by a missing runtime-directory harness argument is retained.",
+            "qualification_limits": "No ORT, Ubuntu, CUDA-kernel, full default SDK, instrumentation or GA qualification is granted by this slice.",
+            "validation_summary_sha256": "fc437e3d0bd8d22c0a53b84e589404398ef8006b3c3a5dc2c8bac93ba334363c",
+            "delivery_receipt_sha256": "66772c4fbeb3f01e2bc9737d81002e488fcba0a33af00aaaffdf20c736f82e57"
+          },
+          "commit": "7aa7190d7d18b980e7fec32f5e364cd2d2894b75"
+        },
+        {
+          "id": "local-ubuntu-gcc114-cu126-serving-slice",
+          "os": "ubuntu",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cu126; staged CUDA Toolkit 12.6.3 (nvcc 12.6.85); native/JIT CUDA methods in this frozen slice; ORT CPUExecutionProvider only",
+          "build_type": "Release",
+          "tests": "54 methods (36 native + 2 JIT CPU/CUDA + 16 ORT), 6 gate/example CTests, 1 installed-consumer CTest and 1 independent installed bridge; 0 skipped",
+          "instrumentation": "r1 configure/focused build; r2 explicit loader-environment revalidation of unchanged products; no r2 product configure/build",
+          "quality_evidence": {
+            "source_identity": "Actual retained checkout HEAD 43b3b2fcccc72bb90b7e396973a5fb1cd23a89de remained dirty; canonical parent d439470faefef53f18442ae18e2a0b1aeca6bbfb plus 1165 frozen tracked-file bytes matched delivered main 4fe9fc80b6e05f6211b74d3519bb0a1a52ff0b81. Neither the checkout nor its build stamp is relabelled clean current main.",
+            "build_and_revalidation": "r1 configure and focused product build exited 0; native 36 passed, JIT CPU passed and JIT CUDA failed. A single nested diagnostic exited 86 and is retained. r2 changed only explicit LD_LIBRARY_PATH and reran the complete 54/6/1/bridge collection using unchanged product binaries.",
+            "runtime_loader": "Torch lib first, staged CUDA toolkit lib second and the existing curl runtime path; observed libnvrtc.so.12 SHA-256 91b94960f2b236ed69cafab0d58a7d5e001d328d33d12acf6e73b73c22eb803f and libnvrtc-builtins.so.12.6 SHA-256 a1d5fce3e3ef04a7b5e6604c0bb17f40d39f9965a3f6d0b2b7a2bc308e189ed0. Prior missing-builtins failure is preserved.",
+            "installed_bridge": "New-prefix C++ ONNX bridge exercised dynamic batches 1/2/5, v1/v2 numeric responses and drain with CPUExecutionProvider; non-CPU ORT providers are not qualified.",
+            "qualification_limits": "Development Serving correctness slice only; GPU/driver and Ubuntu distribution release were not independently rebound by this slice. No new general CUDA matrix, full profile, load/RSS/VRAM, signing, performance or GA support claim.",
+            "audit_sha256": "bf60a055d3e5118c57abd4a048679493c4b9be2182f598c826d4fc092ed54168",
+            "frozen_source_archive_sha256": "e8eae37ca2c1c9c900a60dc02f9cf0b043d1eb5f19d64704deb81341e91c94c4",
+            "delivery_receipt_sha256": "1556549da5b87216f17b70afc8ccde906bc4ce3acbbc31de7d433adf52ec69fa"
+          },
+          "commit": "43b3b2fcccc72bb90b7e396973a5fb1cd23a89de"
+        }
+      ],
+      "pending_lanes": [
+        {
+          "id": "local-ubuntu-gcc114-cpu214-debug-coverage-candidate",
+          "distribution": "cpu",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU",
+          "build_type": "Debug",
+          "instrumentation": "gcov coverage for the explicit v1-selected-cpu profile with LibTorch 2.14.1; not run; no CUDA or release qualification",
+          "status": "candidate",
+          "verification_status": "unverified",
+          "required_evidence": [
+            "clean-source-identity",
+            "exact-toolchain-and-offline-input-identity",
+            "configure",
+            "build",
+            "ctest-with-real-pass-fail-skip-counts",
+            "coverage-owner-and-ratchet-review",
+            "installed-consumer"
+          ]
         }
       ]
     },
@@ -647,8 +710,15 @@
   },
   "ci": {
     "candidate_lane": "compatibility_candidate",
-    "operating_systems": ["ubuntu-latest", "windows-latest", "macos-latest"],
-    "build_types": ["Release", "Debug"],
+    "operating_systems": [
+      "ubuntu-latest",
+      "windows-latest",
+      "macos-latest"
+    ],
+    "build_types": [
+      "Release",
+      "Debug"
+    ],
     "required_evidence": [
       "configure",
       "build",

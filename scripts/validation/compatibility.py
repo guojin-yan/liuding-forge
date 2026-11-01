@@ -31,6 +31,9 @@ VERIFIED_LANE_STRING_FIELDS = (
     "tests",
     "instrumentation",
 )
+PENDING_LANE_STRING_FIELDS = ("distribution",) + tuple(
+    key for key in VERIFIED_LANE_STRING_FIELDS if key != "tests"
+)
 
 
 def load_document(path: pathlib.Path) -> dict[str, Any]:
@@ -85,6 +88,45 @@ def validate_quality_evidence(evidence: dict[str, Any], location: str) -> None:
             )
 
 
+def validate_pending_lanes(
+    lane: dict[str, Any],
+    location: str,
+    verified_lane_ids: set[str],
+    pending_lane_ids: set[str],
+) -> None:
+    """Validate optional unverified declarations without granting support."""
+    pending_lanes = lane.get("pending_lanes", [])
+    if not isinstance(pending_lanes, list):
+        raise CompatibilityError(f"{location}.pending_lanes must be an array")
+    for index, pending in enumerate(pending_lanes):
+        pending_location = f"{location}.pending_lanes[{index}]"
+        if not isinstance(pending, dict):
+            raise CompatibilityError(f"{pending_location} must be an object")
+        lane_id = require_string(pending, "id", pending_location)
+        if lane_id in verified_lane_ids or lane_id in pending_lane_ids:
+            raise CompatibilityError(f"duplicate declared lane id: {lane_id}")
+        pending_lane_ids.add(lane_id)
+        for key in PENDING_LANE_STRING_FIELDS:
+            require_string(pending, key, pending_location)
+        if pending.get("status") != "candidate":
+            raise CompatibilityError(f"{pending_location}.status must be candidate")
+        if pending.get("verification_status") != "unverified":
+            raise CompatibilityError(
+                f"{pending_location}.verification_status must be unverified"
+            )
+        if any(key in pending for key in ("tests", "quality_evidence", "commit")):
+            raise CompatibilityError(
+                f"{pending_location} cannot contain verified evidence fields"
+            )
+        required = pending.get("required_evidence")
+        if not isinstance(required, list) or not required or not all(
+            isinstance(value, str) and value for value in required
+        ):
+            raise CompatibilityError(
+                f"{pending_location}.required_evidence must be a non-empty string array"
+            )
+
+
 def validate(document: dict[str, Any]) -> None:
     """Validate schema, lane references, and the no-implicit-support policy."""
     if document.get("schema_version") != 1:
@@ -100,6 +142,7 @@ def validate(document: dict[str, Any]) -> None:
     libtorch = require_mapping(document, "libtorch", "root")
     lane_names = ("primary", "compatibility_candidate")
     verified_lane_ids: set[str] = set()
+    pending_lane_ids: set[str] = set()
     for lane_name in lane_names:
         lane = require_mapping(libtorch, lane_name, "libtorch")
         require_string(lane, "version", f"libtorch.{lane_name}")
@@ -122,6 +165,8 @@ def validate(document: dict[str, Any]) -> None:
             lane_id = require_string(verified, "id", location)
             if lane_id in verified_lane_ids:
                 raise CompatibilityError(f"duplicate verified lane id: {lane_id}")
+            if lane_id in pending_lane_ids:
+                raise CompatibilityError(f"duplicate declared lane id: {lane_id}")
             verified_lane_ids.add(lane_id)
             for key in VERIFIED_LANE_STRING_FIELDS:
                 require_string(verified, key, location)
@@ -129,6 +174,9 @@ def validate(document: dict[str, Any]) -> None:
                 require_mapping(verified, "quality_evidence", location), location
             )
             validate_commit(require_string(verified, "commit", location), location)
+        validate_pending_lanes(
+            lane, f"libtorch.{lane_name}", verified_lane_ids, pending_lane_ids
+        )
         if status == "supported" and not verified_lanes:
             raise CompatibilityError(
                 f"libtorch.{lane_name} cannot be supported without verified lanes"

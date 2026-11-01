@@ -86,5 +86,75 @@ class CompatibilityValidatorTest(unittest.TestCase):
             compatibility.validate(changed)
 
 
+    def test_legacy_source_without_pending_lanes_remains_valid(self) -> None:
+        """Keep existing version and evidence declarations backward compatible."""
+        changed = copy.deepcopy(self.document)
+        for lane in changed["libtorch"].values():
+            lane.pop("pending_lanes", None)
+        compatibility.validate(changed)
+
+    def test_pending_candidate_cannot_claim_verification_or_support(self) -> None:
+        """Reject either support or verification promotion of a pending row."""
+        for key, value, message in (
+            ("status", "supported", "status must be candidate"),
+            ("verification_status", "verified", "verification_status must be unverified"),
+        ):
+            with self.subTest(field=key):
+                changed = copy.deepcopy(self.document)
+                changed["libtorch"]["primary"]["pending_lanes"][0][key] = value
+                with self.assertRaisesRegex(compatibility.CompatibilityError, message):
+                    compatibility.validate(changed)
+
+    def test_pending_candidate_cannot_carry_verified_evidence(self) -> None:
+        """Keep passed counts, evidence and validation commits out of pending rows."""
+        for key in ("tests", "quality_evidence", "commit"):
+            with self.subTest(field=key):
+                changed = copy.deepcopy(self.document)
+                changed["libtorch"]["primary"]["pending_lanes"][0][key] = "claimed"
+                with self.assertRaisesRegex(
+                    compatibility.CompatibilityError, "cannot contain verified evidence"
+                ):
+                    compatibility.validate(changed)
+
+    def test_pending_candidate_requires_explicit_distribution(self) -> None:
+        """A CPU candidate must not inherit a CUDA distribution implicitly."""
+        changed = copy.deepcopy(self.document)
+        del changed["libtorch"]["primary"]["pending_lanes"][0]["distribution"]
+        with self.assertRaisesRegex(
+            compatibility.CompatibilityError, "distribution must be a non-empty string"
+        ):
+            compatibility.validate(changed)
+
+    def test_rejects_pending_id_collision_with_later_verified_lane(self) -> None:
+        """Reject cross-version aliases regardless of declaration order."""
+        changed = copy.deepcopy(self.document)
+        changed["libtorch"]["primary"]["pending_lanes"][0]["id"] = changed[
+            "libtorch"
+        ]["compatibility_candidate"]["verified_lanes"][0]["id"]
+        with self.assertRaisesRegex(
+            compatibility.CompatibilityError, "duplicate declared lane id"
+        ):
+            compatibility.validate(changed)
+
+    def test_pending_candidate_cannot_establish_supported_group(self) -> None:
+        """A pending declaration alone never satisfies the green-lane requirement."""
+        changed = copy.deepcopy(self.document)
+        changed["libtorch"]["primary"]["verified_lanes"] = []
+        changed["libtorch"]["primary"]["status"] = "supported"
+        with self.assertRaisesRegex(
+            compatibility.CompatibilityError, "cannot be supported without verified lanes"
+        ):
+            compatibility.validate(changed)
+
+    def test_pending_candidate_requires_evidence_plan(self) -> None:
+        """Reject a candidate that omits every required validation gate."""
+        changed = copy.deepcopy(self.document)
+        changed["libtorch"]["primary"]["pending_lanes"][0]["required_evidence"] = []
+        with self.assertRaisesRegex(
+            compatibility.CompatibilityError, "required_evidence must be a non-empty"
+        ):
+            compatibility.validate(changed)
+
+
 if __name__ == "__main__":
     unittest.main()
