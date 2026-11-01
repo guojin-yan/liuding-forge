@@ -76,7 +76,17 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 
 运行器在创建 attempt 前验证并批量绑定 `local.training.configuration`、`local.training.data_manifest`、可选 `local.training.resume`，拥有执行权的 worker 启动程序前再次复核内容。训练程序通过 `JYPPX_LIUDING_LOCAL_STORE_ROOT`、`JYPPX_LIUDING_LOCAL_SPEC_SHA256` 及已有 job/attempt 环境读取冻结计划；输入绑定采用流式 CAS 验证，不解码模型张量。模型标识和输入摘要用于固定身份，实际模型支持、数据含义、checkpoint 完整性与恢复由 C++ 训练程序检查。示例使用原生 checkpoint coordinator 恢复模型、SGD momentum 和更新计数，再在新 job 中继续训练。
 
-默认 retry 重用最初的冻结输入，在新的 attempt 中重新开始该请求。需要从已确认失败的 checkpoint 续训时，显式启用下一节的策略。已有未确认 attempt 仍返回 `recovery_required`；存在 checkpoint 不能证明旧进程树已经清理。完整输出 schema、系统级资源硬限制、未知 attempt 的外部确认和真实任务恢复联验仍开放；输入限额不代表 RSS/显存上限或训练提速。
+默认 retry 重用最初的冻结输入，在新的 attempt 中重新开始该请求。需要从已确认失败的 checkpoint 续训时，显式启用下一节的策略。已有未确认 attempt 仍返回 `recovery_required`；存在 checkpoint 不能证明旧进程树已经清理。系统级资源硬限制、未知 attempt 的外部确认和真实任务恢复联验仍开放；输入限额不代表 RSS/显存上限或训练提速。
+
+## 训练输出确认
+
+`training.outputs` 可选；省略时保持原执行语义。启用后声明1–64项 `{ "reference_id": "checkpoint.last", "kind": "checkpoint", "role": "last", "max_size_bytes": 65536 }`，kind仅为`artifact`或`checkpoint`。引用ID须唯一且不以`local.`开头，role为1–128字节非空文本；各项及上限合计最多1 GiB，完整确认收据最多64 KiB。
+
+worker启动前观察本attempt的全部声明引用不存在，并将该事实写入不可变owner；启动前再次检查。仅原生正常退出0且进程树清理确认后，核对同attempt的引用、kind、role、真实文件大小和流式CAS摘要。`local.training.outputs`收据绑定冻结spec、job/attempt、实际有效输入、intent/owner及原生结果摘要，与stdout、stderr和result原子提交。结果保留真实原生退出事实，另用`training_outputs_confirmed`表示输出确认；缺失或不符使job失败，不自动重试。
+
+输出核验使用最多30秒的协作预算，同时受原绝对deadline约束；取消、截止或存储检查失败保留原生exited/0并记录确认失败，最终完成前的job取消返回130。清理false或缺失始终先返回7，不读取或补造输出收据；这也适用于启用本合同的终态重放。已提交收据的重放使用独立30秒只读核验预算，不重启训练、不补写引用；后来补齐缺失输出不会改变原失败。不可返回的底层文件系统调用不受协作预算强制中断。
+
+该确认只证明启动前的空引用观察和清理后的STORE不可变绑定/CAS内容，不能证明字节由哪个进程创建，也不能排除其他有写权限的STORE进程抢先发布。checkpoint类型不等于完整可恢复状态，训练质量与模型、优化器、采样器等状态仍由应用验收。可运行示例见[输出确认](../../examples/experiment/README.md#确认训练输出)。
 
 ## 已确认失败的 checkpoint 续训
 

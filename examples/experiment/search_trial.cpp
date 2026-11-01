@@ -216,7 +216,8 @@ Json LocalBinding(std::string_view run,
 void WriteLocalSpec(const fs::path& executable, const fs::path& output,
                     const fs::path& root, std::uint64_t until,
                     const std::string& resume_run,
-                    std::uint64_t checkpoint_retry_after = 0) {
+                    std::uint64_t checkpoint_retry_after = 0,
+                    bool confirm_outputs = false) {
   if (!output.is_absolute() || fs::exists(output) || !root.is_absolute())
     throw std::runtime_error(
         "Use an unused absolute spec file and absolute store");
@@ -294,6 +295,16 @@ void WriteLocalSpec(const fs::path& executable, const fs::path& output,
     spec["training"]["retry_resume"] = {
         {"checkpoint_reference_id", "checkpoint.last"},
         {"restore_policy", "exact_only"}};
+  }
+  if (confirm_outputs) {
+    spec["training"]["outputs"] = {{{"reference_id", "checkpoint.last"},
+                                    {"kind", "checkpoint"},
+                                    {"role", "last"},
+                                    {"max_size_bytes", 65536}},
+                                   {{"reference_id", "training.result"},
+                                    {"kind", "artifact"},
+                                    {"role", "training.result"},
+                                    {"max_size_bytes", 65536}}};
   }
   std::ofstream stream(output, std::ios::binary);
   stream << spec.dump(2) << '\n';
@@ -890,7 +901,8 @@ int main(int argc, char** argv) {
              "Worker: --store ROOT --trial ID --run ID --config FILE "
              "--config-sha256 SHA256 --seed UINT64\n"
              "Local: --write-local-spec FILE --store ROOT --until-step 20 "
-             "[--resume-run SOURCE_ATTEMPT] [--checkpoint-retry-after STEP]\n"
+             "[--resume-run SOURCE_ATTEMPT] [--checkpoint-retry-after STEP] "
+             "[--confirm-outputs yes]\n"
              "Local worker: --local-training UNTIL_STEP "
              "[--checkpoint-retry-after STEP] (owned runner only)\n";
       std::cout << "Typed search: --write-typed-search-spec FILE --store ROOT "
@@ -928,10 +940,14 @@ int main(int argc, char** argv) {
     } else if (arguments.contains("--write-local-spec")) {
       const auto expected_size =
           3U + (arguments.contains("--resume-run") ? 1U : 0U) +
-          (arguments.contains("--checkpoint-retry-after") ? 1U : 0U);
+          (arguments.contains("--checkpoint-retry-after") ? 1U : 0U) +
+          (arguments.contains("--confirm-outputs") ? 1U : 0U);
       if (arguments.size() != expected_size)
         throw std::runtime_error(
             "Unknown local specification option; see --help");
+      if (arguments.contains("--confirm-outputs") &&
+          arguments.at("--confirm-outputs") != "yes")
+        throw std::runtime_error("Use --confirm-outputs yes to opt in");
       WriteLocalSpec(
           fs::path(argv[0]), fs::u8path(arguments.at("--write-local-spec")),
           fs::u8path(arguments.at("--store")),
@@ -940,7 +956,8 @@ int main(int argc, char** argv) {
                                              : "",
           arguments.contains("--checkpoint-retry-after")
               ? LocalStep(arguments.at("--checkpoint-retry-after"))
-              : 0);
+              : 0,
+          arguments.contains("--confirm-outputs"));
     } else if (arguments.contains("--local-training")) {
       if (arguments.size() !=
           (arguments.contains("--checkpoint-retry-after") ? 2U : 1U))

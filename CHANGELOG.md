@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地 typed 训练可声明有界输出引用，在原生成功退出且进程树清理确认后核对本 attempt 的类型、角色、实际大小与 CAS 内容；确认收据与原生结果和双流原子提交，重放只读验证。
+
 
 
 - 增加有界原生 C++ BatchNorm2d 训练后校准，以及 CPU ResNet18 配方的显式开关、完整检查点阶段恢复和最终正常评估；只读取训练数据，不增加优化器更新。

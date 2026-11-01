@@ -18,6 +18,7 @@ import sqlite3
 import struct
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -948,11 +949,452 @@ class TypedSearchTrainingExampleTests(unittest.TestCase):
         self.assertNotIn("training.result", failed_refs)
 
 
+class LocalTrainingOutputContractTests(unittest.TestCase):
+    """Python audits a real C++ training/publication fixture; no model runtime."""
+    invoke = SearchTrainingExampleTests.invoke
+    cli = SearchTrainingExampleTests.cli
+    show_run = SearchTrainingExampleTests.show_run
+    blob = SearchTrainingExampleTests.blob
+    prepare = LocalTrainingExampleTests.prepare
+    archive = LocalTrainingExampleTests.archive
+    refs = RetryCheckpointTrainingExampleTests.refs
+    raw_local = RetryCheckpointTrainingExampleTests.raw_local
+    seed_json = RetryCheckpointTrainingExampleTests.seed_json
+
+    def setUp(self) -> None:
+        SearchTrainingExampleTests.setUp(self)
+        self.assertIsNotNone(OUTPUT_FIXTURE, "Select the native --output-fixture executable")
+
+    @staticmethod
+    def declarations() -> list[dict]:
+        return [{"reference_id": "checkpoint.last", "kind": "checkpoint", "role": "last", "max_size_bytes": 65536},
+                {"reference_id": "training.result", "kind": "artifact", "role": "training.result", "max_size_bytes": 65536}]
+
+    def contract(self, name: str, *, gated: bool = False, legacy: bool = False) -> tuple[Path, dict, Path, Path]:
+        path, spec = self.prepare(name, 60)
+        log = self.directory / (name + ".launches")
+        gate = self.directory / (name + ".gate")
+        spec.update(executable=str(OUTPUT_FIXTURE), executable_sha256=digest(OUTPUT_FIXTURE.read_bytes()),
+                    arguments=["--launch-log", str(log)])
+        if gated:
+            spec["arguments"] += ["--gate", str(gate)]
+        if not legacy:
+            spec["training"]["outputs"] = self.declarations()
+        self.write(path, spec)
+        return path, spec, log, gate
+
+    @staticmethod
+    def write(path: Path, spec: dict) -> None:
+        path.write_text(json.dumps(spec, ensure_ascii=False, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+
+    def snapshot(self) -> tuple:
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+            return (database.execute("SELECT * FROM jyppx_runs ORDER BY run_id").fetchall(),
+                    database.execute("SELECT * FROM jyppx_run_artifacts ORDER BY run_id,reference_id").fetchall())
+
+    def object_path(self, identity: str) -> Path:
+        return self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
+
+    def checked(self, name: str, path: Path, expected: int = 0) -> dict:
+        process = self.raw_local("execute", name, path)
+        self.assertEqual(process.returncode, expected, process.stdout + process.stderr)
+        return json.loads(process.stdout)["data"]
+
+    def receipt(self, state: dict) -> tuple[str, dict, dict, dict]:
+        attempt = state["attempts"][-1]["attempt_id"]
+        refs = self.refs(attempt)
+        result = json.loads(self.blob(refs["local.result"]))
+        encoded = self.blob(refs["local.training.outputs"])
+        self.assertLessEqual(len(encoded), 65536)
+        self.assertEqual(result["training_outputs_sha256"], digest(encoded))
+        return attempt, refs, result, json.loads(encoded)
+
+    def assert_output_failure(self, state: dict, log: Path, reason: str) -> dict:
+        self.assertEqual((state["status"], len(state["attempts"])), ("failed", 1))
+        attempt, _, result, receipt = self.receipt(state)
+        self.assertEqual((result["status"], result["exit_code"], result["process_tree_cleanup_confirmed"]),
+                         ("exited", 0, True))
+        self.assertFalse(result["training_outputs_confirmed"])
+        self.assertFalse(receipt["confirmed"])
+        self.assertIn(reason, [row["failure_reason"] for row in receipt["outputs"]])
+        self.assertEqual(log.read_text(encoding="utf-8").splitlines(), [attempt])
+        return receipt
+
+    def gated(self, name: str, path: Path, gate: Path, mutate) -> subprocess.CompletedProcess:
+        command = [str(CLI), "local", "execute", "--root", str(self.root), "--id", name,
+                   "--spec", str(path), "--format", "json"]
+        with subprocess.Popen(command, cwd=self.directory, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, encoding="utf-8", env=dict(os.environ, OMP_NUM_THREADS="2", MKL_NUM_THREADS="2")) as process:
+            ready = Path(str(gate) + ".ready")
+            deadline = time.monotonic() + 15
+            while not ready.is_file() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            if not ready.is_file():
+                stdout, stderr = process.communicate(timeout=60)
+                self.fail("Native publication gate was not reached: " + stdout + stderr)
+            try:
+                mutate(ready.read_text(encoding="utf-8").strip())
+            finally:
+                gate.write_text("release\n", encoding="ascii")
+            stdout, stderr = process.communicate(timeout=60)
+            return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    def test_real_native_outputs_bind_bounded_receipt_and_replay_read_only(self) -> None:
+        path, spec, log, _ = self.contract("confirmed")
+        state = self.checked("confirmed-job", path)
+        attempt, refs, result, receipt = self.receipt(state)
+        self.assertTrue(receipt["confirmed"])
+        self.assertTrue(result["training_outputs_confirmed"])
+        self.assertEqual(receipt["format"], "jyppx.liuding.local_training_outputs")
+        self.assertEqual((receipt["job_id"], receipt["attempt_id"], receipt["spec_sha256"]),
+                         ("confirmed-job", attempt, state["spec_sha256"]))
+        training = copy.deepcopy(spec["training"])
+        del training["outputs"]
+        self.assertEqual(receipt["training"], training)
+        for name in ("intent", "owner"):
+            self.assertEqual(receipt[name + "_sha256"], refs["local." + name]["artifact"]["sha256"])
+        owner = json.loads(self.blob(refs["local.owner"]))
+        self.assertTrue(owner["training_outputs_absent_at_start"])
+        native = {key: value for key, value in result.items()
+                  if key not in ("training_outputs_sha256", "training_outputs_confirmed")}
+        self.assertEqual(receipt["native_result_sha256"], digest(json.dumps(native, sort_keys=True,
+                         ensure_ascii=False, separators=(",", ":")).encode()))
+        for row in receipt["outputs"]:
+            self.assertTrue(row["confirmed"])
+            reference = refs[row["reference_id"]]
+            self.assertEqual((row["sha256"], row["size_bytes"]),
+                             (reference["artifact"]["sha256"], len(self.blob(reference))))
+        summary = json.loads(self.blob(refs["training.result"]))
+        self.assertEqual(summary["completed_steps"], 60)
+        weight = bias = vw = vb = 0.0
+        for _ in range(60):
+            vw = 0.9 * vw + 2 * (weight - 3) * 11 / 31
+            vb = 0.9 * vb + 2 * (bias - 0.5)
+            weight -= 0.05 * vw
+            bias -= 0.05 * vb
+        self.assertAlmostEqual(summary["weight"], weight, delta=3e-5)
+        self.assertAlmostEqual(summary["bias"], bias, delta=3e-5)
+        manifest, _ = self.archive(self.blob(refs["checkpoint.last"]))
+        self.assertEqual({p["state"]["participant_id"] for p in manifest["participants"]},
+                         {"model.main", "optimizer.main"})
+        before = self.snapshot()
+        self.assertEqual(self.cli("local", "recover", "--root", self.root, "--id", "confirmed-job"), state)
+        self.assertEqual(self.checked("confirmed-job", path), state)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(log.read_text(encoding="utf-8").splitlines(), [attempt])
+
+    def test_missing_wrong_kind_role_and_size_fail_after_real_exit_zero_without_retry(self) -> None:
+        for failure in ("missing_reference", "kind_mismatch", "role_mismatch", "size_limit"):
+            with self.subTest(failure=failure):
+                self.root = self.directory / failure
+                path, spec, log, _ = self.contract(failure)
+                spec.update(max_attempts=3, retry_exit_codes=[23])
+                output = spec["training"]["outputs"][0]
+                if failure == "missing_reference":
+                    output["reference_id"] = "never-published"
+                elif failure == "kind_mismatch":
+                    output["kind"] = "artifact"
+                elif failure == "role_mismatch":
+                    output["role"] = "best"
+                else:
+                    output["max_size_bytes"] = 1
+                self.write(path, spec)
+                state = self.checked(failure, path, 1)
+                self.assert_output_failure(state, log, failure)
+                before = self.snapshot()
+                replay = self.raw_local("recover", failure)
+                self.assertEqual(replay.returncode, 1, replay.stdout + replay.stderr)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_confirmation_rejects_missing_corrupt_and_false_size_actual_cas(self) -> None:
+        for failure in ("missing", "same-size-corrupt", "false-size", "oversize-object"):
+            with self.subTest(failure=failure):
+                self.root = self.directory / ("actual-cas-" + failure)
+                path, _, log, gate = self.contract("actual-cas-" + failure, gated=True)
+                def mutate(attempt: str) -> None:
+                    reference = self.refs(attempt)["checkpoint.last"]
+                    artifact = reference["artifact"]
+                    target = self.object_path(artifact["sha256"])
+                    if failure == "missing":
+                        target.unlink()
+                    elif failure == "same-size-corrupt":
+                        target.write_bytes(b"x" * artifact["size_bytes"])
+                        self.assertEqual(target.stat().st_size, artifact["size_bytes"])
+                    elif failure == "oversize-object":
+                        target.write_bytes(b"x" * 65537)
+                    else:
+                        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                            database.execute("UPDATE jyppx_blobs SET size_bytes=? WHERE digest=?",
+                                             (artifact["size_bytes"] - 1, artifact["sha256"]))
+                process = self.gated(failure, path, gate, mutate)
+                self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+                self.assert_output_failure(json.loads(process.stdout)["data"], log, "verification_unavailable")
+
+    def test_another_attempt_same_name_cannot_satisfy_missing_current_output(self) -> None:
+        source_path, _, _, _ = self.contract("other-source")
+        source = self.checked("other-source", source_path)["attempts"][0]["attempt_id"]
+        source_digest = self.refs(source)["checkpoint.last"]["artifact"]["sha256"]
+        path, _, log, gate = self.contract("other-current", gated=True)
+        def mutate(attempt: str) -> None:
+            with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                self.assertEqual(database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? "
+                    "AND reference_id='checkpoint.last'", (attempt,)).rowcount, 1)
+        process = self.gated("other-current", path, gate, mutate)
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        self.assert_output_failure(json.loads(process.stdout)["data"], log, "missing_reference")
+        self.assertEqual(self.refs(source)["checkpoint.last"]["artifact"]["sha256"], source_digest)
+
+    def test_preexisting_same_attempt_output_fences_before_any_new_native_launch(self) -> None:
+        path, _, log, _ = self.contract("preexisting")
+        state = self.checked("preexisting", path)
+        attempt = state["attempts"][0]["attempt_id"]
+        intent = self.refs(attempt)["local.intent"]["artifact"]["sha256"]
+        # Reconstruct an admitted intent with outputs injected before owner
+        # claim. This is independent negative-state setup, not product repair.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id IN "
+                             "('local.owner','local.result','local.stdout','local.stderr','local.training.outputs')", (attempt,))
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN (?,?)", ("preexisting", attempt))
+        worker = self.cli("local", "worker", "--root", self.root, "--id", "preexisting",
+                          "--attempt", 1, "--intent-sha256", intent)
+        self.assertTrue(worker["result_committed"])
+        refs = self.refs(attempt)
+        result = json.loads(self.blob(refs["local.result"]))
+        self.assertEqual((result["status"], result["process_id"], result["exit_code"]),
+                         ("launch_error", 0, None))
+        self.assertTrue(result["process_tree_cleanup_confirmed"])
+        self.assertFalse(json.loads(self.blob(refs["local.owner"]))["training_outputs_absent_at_start"])
+        self.assertNotIn("local.training.outputs", refs)
+        self.assertEqual(log.read_text(encoding="utf-8").splitlines(), [attempt])
+        self.assertEqual(self.raw_local("recover", "preexisting").returncode, 1)
+
+    def test_cleanup_false_or_unknown_precedes_missing_receipt_and_starts_nothing(self) -> None:
+        for resources in (False, True):
+            for terminal in (False, True):
+                for cleanup in (False, None):
+                    name = f"cleanup-{resources}-{terminal}-{cleanup}"
+                    with self.subTest(name=name):
+                        self.root = self.directory / name
+                        path, spec, log, _ = self.contract(name)
+                        if resources:
+                            spec["resources"] = {"capacity": {"cpu_slots": 2, "memory_bytes": 4096, "gpus": {}},
+                                                 "request": {"cpu_slots": 1, "memory_bytes": 1024, "gpu": None}}
+                            self.write(path, spec)
+                        state = self.checked(name, path)
+                        attempt, _, result, _ = self.receipt(state)
+                        if cleanup is None:
+                            del result["process_tree_cleanup_confirmed"]
+                        else:
+                            result["process_tree_cleanup_confirmed"] = cleanup
+                        self.seed_json(attempt, "local.result", result, replace=True)
+                        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id='local.training.outputs'", (attempt,))
+                            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id='local.resource.release.1'", (name,))
+                            if not terminal:
+                                database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN (?,?)", (name, attempt))
+                        before = self.snapshot()
+                        replay = self.raw_local("recover", name)
+                        self.assertEqual(replay.returncode, 7, replay.stdout + replay.stderr)
+                        self.assertEqual(json.loads(replay.stdout)["data"]["status"], "resource_cleanup_unconfirmed")
+                        self.assertEqual(self.snapshot(), before)
+                        self.assertEqual(log.read_text(encoding="utf-8").splitlines(), [attempt])
+
+    def test_output_limits_and_projected_receipt_reject_before_job_admission(self) -> None:
+        for failure in ("empty", "count", "duplicate", "reserved", "zero", "one-limit", "total-limit", "receipt-limit"):
+            with self.subTest(failure=failure):
+                path, spec, log, _ = self.contract("limit-" + failure)
+                outputs = spec["training"]["outputs"]
+                if failure == "empty":
+                    spec["training"]["outputs"] = []
+                elif failure == "count":
+                    spec["training"]["outputs"] = [dict(outputs[0], reference_id=f"out-{i}") for i in range(65)]
+                elif failure == "duplicate":
+                    outputs[1]["reference_id"] = outputs[0]["reference_id"]
+                elif failure == "reserved":
+                    outputs[0]["reference_id"] = "local.stdout"
+                elif failure == "zero":
+                    outputs[0]["max_size_bytes"] = 0
+                elif failure == "one-limit":
+                    outputs[0]["max_size_bytes"] = (1 << 30) + 1
+                elif failure == "total-limit":
+                    outputs[0]["max_size_bytes"] = 1 << 30
+                else:
+                    spec["training"]["outputs"] = [dict(outputs[0], reference_id=f"out-{i:02}-" + "x" * 120,
+                                                         role="\x01" * 110, max_size_bytes=1) for i in range(64)]
+                    self.assertLess(len(json.dumps(spec, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()), 65536)
+                self.write(path, spec)
+                process = self.raw_local("execute", "limit-" + failure, path)
+                self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+                if failure == "receipt-limit":
+                    self.assertIn("receipt would exceed 64 KiB", process.stdout + process.stderr)
+                self.assertFalse(log.exists())
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                    self.assertEqual(database.execute("SELECT count(*) FROM jyppx_runs WHERE run_id=? OR parent_run_id=?",
+                                     ("limit-" + failure, "limit-" + failure)).fetchone(), (0,))
+
+    def test_sixty_four_observations_keep_receipt_below_64_kib(self) -> None:
+        path, spec, log, _ = self.contract("receipt-bound")
+        spec["training"]["outputs"] = [dict(self.declarations()[0], reference_id=f"missing-{i:02}-" + "x" * 100,
+                                              role="\x01" * 90, max_size_bytes=1) for i in range(64)]
+        self.write(path, spec)
+        state = self.checked("receipt-bound", path, 1)
+        receipt = self.assert_output_failure(state, log, "missing_reference")
+        self.assertEqual(len(receipt["outputs"]), 64)
+        self.assertGreater(len(json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()), 48000)
+
+    def test_replay_rejects_missing_corrupt_and_oversized_receipt_without_repair(self) -> None:
+        for failure in ("missing", "same-size-corrupt", "oversized", "oversized-object", "identity"):
+            with self.subTest(failure=failure):
+                self.root = self.directory / ("receipt-replay-" + failure)
+                path, _, log, _ = self.contract("receipt-replay-" + failure)
+                state = self.checked(failure, path)
+                attempt, refs, result, receipt = self.receipt(state)
+                if failure == "missing":
+                    with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                        database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id='local.training.outputs'", (attempt,))
+                elif failure == "same-size-corrupt":
+                    target = self.object_path(refs["local.training.outputs"]["artifact"]["sha256"])
+                    target.write_bytes(b"x" * target.stat().st_size)
+                elif failure == "oversized-object":
+                    target = self.object_path(refs["local.training.outputs"]["artifact"]["sha256"])
+                    target.write_bytes(b"x" * 65537)
+                else:
+                    if failure == "oversized":
+                        receipt["oversized"] = "x" * 65536
+                    else:
+                        receipt["attempt_id"] = "another-attempt"
+                    identity = self.seed_json(attempt, "local.training.outputs", receipt, replace=True)
+                    result["training_outputs_sha256"] = identity
+                    self.seed_json(attempt, "local.result", result, replace=True)
+                before = self.snapshot()
+                replay = self.raw_local("recover", failure)
+                self.assertNotEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(log.read_text(encoding="utf-8").splitlines(), [attempt])
+
+    def test_replay_rejects_changed_output_binding_or_same_size_corrupt_cas(self) -> None:
+        for failure in ("reference-role", "missing-cas", "same-size-corrupt-cas"):
+            with self.subTest(failure=failure):
+                self.root = self.directory / failure
+                path, _, log, _ = self.contract("output-replay-" + failure)
+                state = self.checked(failure, path)
+                attempt, refs, _, _ = self.receipt(state)
+                reference = refs["checkpoint.last"]
+                if failure == "reference-role":
+                    with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                        database.execute("UPDATE jyppx_run_artifacts SET role='other' WHERE run_id=? AND reference_id='checkpoint.last'", (attempt,))
+                else:
+                    target = self.object_path(reference["artifact"]["sha256"])
+                    if failure == "missing-cas":
+                        target.unlink()
+                    else:
+                        target.write_bytes(b"x" * target.stat().st_size)
+                before = self.snapshot()
+                replay = self.raw_local("recover", failure)
+                self.assertNotEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(log.read_text(encoding="utf-8").splitlines(), [attempt])
+
+    def test_native_retry_exit_preserves_retry_policy_and_never_confirms_outputs(self) -> None:
+        path, spec, log, _ = self.contract("native-retry")
+        spec["arguments"] += ["--exit-code", "23"]
+        spec.update(max_attempts=2, retry_exit_codes=[23])
+        self.write(path, spec)
+        state = self.checked("native-retry", path, 1)
+        self.assertEqual((state["status"], len(state["attempts"])), ("failed", 2))
+        for attempt in state["attempts"]:
+            refs = self.refs(attempt["attempt_id"])
+            result = json.loads(self.blob(refs["local.result"]))
+            self.assertEqual((result["status"], result["exit_code"]), ("exited", 23))
+            self.assertNotIn("training_outputs_sha256", result)
+            self.assertNotIn("local.training.outputs", refs)
+        self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
+                         [item["attempt_id"] for item in state["attempts"]])
+
+    def test_confirmed_native_exit_with_rejected_confirmation_never_retries(self) -> None:
+        # Independent reconstruction of the crash boundary after an atomic
+        # receipt/result commit and before lifecycle, including late cancel.
+        for failure in ("cancelled", "confirmation_deadline", "verification_unavailable"):
+            with self.subTest(failure=failure):
+                self.root = self.directory / ("confirmation-" + failure)
+                path, spec, log, _ = self.contract("confirmation-" + failure)
+                spec.update(max_attempts=3, retry_exit_codes=[23])
+                self.write(path, spec)
+                state = self.checked(failure, path)
+                attempt, _, result, receipt = self.receipt(state)
+                receipt.update(confirmed=False, failure_reason=failure)
+                result["training_outputs_confirmed"] = False
+                result["training_outputs_sha256"] = self.seed_json(attempt, "local.training.outputs", receipt, replace=True)
+                self.seed_json(attempt, "local.result", result, replace=True)
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                    database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN (?,?)", (failure, attempt))
+                if failure == "cancelled":
+                    self.assertTrue(self.cli("local", "cancel", "--root", self.root, "--id", failure)["cancel_requested"])
+                replay = self.raw_local("recover", failure)
+                expected = 130 if failure == "cancelled" else 1
+                self.assertEqual(replay.returncode, expected, replay.stdout + replay.stderr)
+                replay_state = json.loads(replay.stdout)["data"]
+                self.assertEqual(replay_state["status"], "cancelled" if failure == "cancelled" else "failed")
+                self.assertEqual(len(replay_state["attempts"]), 1)
+                observed = replay_state["attempts"][0]["result"]
+                self.assertEqual((observed["status"], observed["exit_code"]), ("exited", 0))
+                self.assertEqual(log.read_text(encoding="utf-8").splitlines(), [attempt])
+                before = self.snapshot()
+                self.assertEqual(self.raw_local("recover", failure).returncode, expected)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_public_example_opt_in_exact_retry_binds_actual_effective_inputs(self) -> None:
+        path = self.directory / "example-opt-in.json"
+        self.invoke(WORKER, "--write-local-spec", path, "--store", self.root,
+                    "--until-step", 60, "--checkpoint-retry-after", 20, "--confirm-outputs", "yes")
+        spec = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(spec["training"]["outputs"], self.declarations())
+        spec["resources"] = {"capacity": {"cpu_slots": 2, "memory_bytes": 4096, "gpus": {}},
+                             "request": {"cpu_slots": 1, "memory_bytes": 1024, "gpu": None}}
+        self.write(path, spec)
+        state = self.checked("example-opt-in", path)
+        self.assertEqual((state["status"], len(state["attempts"])), ("completed", 2))
+        source = state["attempts"][0]["attempt_id"]
+        self.assertNotIn("local.training.outputs", self.refs(source))
+        attempt, refs, result, receipt = self.receipt(state)
+        self.assertTrue(receipt["confirmed"])
+        self.assertEqual(receipt["training"]["resume"], {"restore_policy": "exact_only", "checkpoint": {
+            "run_id": source, "reference_id": "checkpoint.last",
+            "sha256": self.refs(source)["checkpoint.last"]["artifact"]["sha256"],
+            "size_bytes": self.refs(source)["checkpoint.last"]["artifact"]["size_bytes"]}})
+        self.assertEqual(result["training_sha256"], refs["local.training.inputs"]["artifact"]["sha256"])
+        summary = json.loads(self.blob(refs["training.result"]))
+        self.assertEqual((summary["initial_step"], summary["completed_steps"], summary["resumed"]), (20, 60, True))
+        job_refs = self.refs("example-opt-in")
+        for index in (1, 2):
+            self.assertIn("local.resource.release." + str(index), job_refs)
+        before = self.snapshot()
+        self.assertEqual(self.cli("local", "recover", "--root", self.root, "--id", "example-opt-in"), state)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_legacy_terminal_without_opt_in_remains_read_only_and_needs_no_receipt(self) -> None:
+        path, _, log, _ = self.contract("legacy-output", legacy=True)
+        state = self.checked("legacy-output", path)
+        attempt = state["attempts"][0]["attempt_id"]
+        refs = self.refs(attempt)
+        result = json.loads(self.blob(refs["local.result"]))
+        self.assertNotIn("training_outputs_confirmed", result)
+        self.assertNotIn("local.training.outputs", refs)
+        del result["process_tree_cleanup_confirmed"]
+        self.seed_json(attempt, "local.result", result, replace=True)
+        before = self.snapshot()
+        self.assertEqual(self.raw_local("recover", "legacy-output").returncode, 0)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(log.read_text(encoding="utf-8").splitlines(), [attempt])
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--cli", type=Path, required=True)
+    parser.add_argument("--output-fixture", type=Path)
     arguments, remaining = parser.parse_known_args()
     WORKER = arguments.worker.resolve(strict=True)
     CLI = arguments.cli.resolve(strict=True)
+    OUTPUT_FIXTURE = arguments.output_fixture.resolve(strict=True) if arguments.output_fixture else None
     unittest.main(argv=[str(__file__), *remaining])

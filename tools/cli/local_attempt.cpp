@@ -13,7 +13,6 @@
 #include <jyppx/liuding/foundation/version.hpp>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cerrno>
 #include <limits>
@@ -34,6 +33,8 @@ using recipe_support::path_text;
 constexpr std::uint64_t kSpecBytes = 65536;
 constexpr std::uint64_t kCaptureBytes = 8U << 20U;
 constexpr std::uint64_t kMaximumAttempts = 16;
+constexpr std::uint64_t kTrainingOutputBytes = 1ULL << 30U;
+constexpr auto kTrainingOutputVerification = std::chrono::seconds(30);
 constexpr std::string_view kProducer = "jyppx.liuding.cli.local/v1";
 
 void require(bool condition, std::string_view message) {
@@ -165,12 +166,20 @@ struct TrainingInput {
   std::uint64_t size = 0;
 };
 
+struct TrainingOutput {
+  std::string reference;
+  RunArtifactKind kind = RunArtifactKind::artifact;
+  std::string role;
+  std::uint64_t maximum = 0;
+};
+
 struct TrainingSpec {
   std::string model;
   TrainingInput configuration;
   TrainingInput data_manifest;
   std::optional<TrainingInput> resume;
   std::optional<std::string> retry_checkpoint;
+  std::vector<TrainingOutput> outputs;
 };
 
 TrainingInput training_input(const Json& value, std::uint64_t limit) {
@@ -188,7 +197,7 @@ TrainingInput training_input(const Json& value, std::uint64_t limit) {
 
 TrainingSpec training_spec(const Json& value) {
   fields(value, {"model_id", "configuration", "data_manifest", "resume"},
-         {"retry_resume"});
+         {"retry_resume", "outputs"});
   TrainingSpec result;
   result.model = text(value.at("model_id"));
   identifier(result.model);
@@ -208,6 +217,53 @@ TrainingSpec training_spec(const Json& value) {
             "Retry checkpoint continuation requires exact_only restore");
     result.retry_checkpoint = text(retry.at("checkpoint_reference_id"));
     identifier(*result.retry_checkpoint);
+  }
+  if (value.contains("outputs")) {
+    const auto& outputs = value.at("outputs");
+    require(outputs.is_array() && !outputs.empty() && outputs.size() <= 64,
+            "Local training declares between 1 and 64 expected outputs");
+    std::set<std::string> ids;
+    std::uint64_t total = 0;
+    Json rows = Json::array();
+    for (const auto& item : outputs) {
+      fields(item, {"reference_id", "kind", "role", "max_size_bytes"});
+      TrainingOutput output;
+      output.reference = text(item.at("reference_id"));
+      identifier(output.reference);
+      require(!output.reference.starts_with("local.") &&
+                  ids.insert(output.reference).second,
+              "Local training outputs require unique, non-reserved references");
+      const auto kind = text(item.at("kind"));
+      require(kind == "artifact" || kind == "checkpoint",
+              "Unknown local training output kind");
+      output.kind = kind == "checkpoint" ? RunArtifactKind::checkpoint
+                                         : RunArtifactKind::artifact;
+      output.role = text(item.at("role"));
+      require(!output.role.empty() && output.role.size() <= 128,
+              "Local training outputs require a role of at most 128 bytes");
+      output.maximum =
+          positive(item.at("max_size_bytes"), kTrainingOutputBytes);
+      require(output.maximum <= kTrainingOutputBytes - total,
+              "Local training output limits exceed the combined 1 GiB bound");
+      total += output.maximum;
+      auto row = item;
+      row["sha256"] = std::string(64, 'f');
+      row["size_bytes"] = kTrainingOutputBytes;
+      row["confirmed"] = false;
+      row["failure_reason"] = "verification_unavailable";
+      rows.push_back(std::move(row));
+      result.outputs.push_back(std::move(output));
+    }
+    auto identity = value;
+    identity.erase("outputs");
+    identity.erase("retry_resume");
+    // Account for worst-case JSON escaping before admission. The remaining
+    // envelope has fixed fields and bounded IDs/digests, below 4 KiB.
+    require(
+        Json{{"training", std::move(identity)}, {"outputs", std::move(rows)}}
+                .dump()
+                .size() <= kSpecBytes - 4096,
+        "Local training output receipt would exceed 64 KiB");
   }
   return result;
 }
@@ -364,7 +420,7 @@ Spec read_spec(const Json& value) {
 RunMetadata job_metadata(SQLiteRunStore& store, std::string_view job);
 Spec frozen_spec(SQLiteRunStore& store, const RunMetadata& job);
 Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
-             std::uint64_t index);
+             std::uint64_t index, bool check_outputs = true);
 RunStatus terminal_status(const Json& result);
 std::string attempt_id(std::string_view job, std::uint64_t index);
 
@@ -469,7 +525,7 @@ Json reference_json(SQLiteRunStore& store, std::string_view run,
       ref->artifact.size_bytes > maximum)
     throw CompatibilityError(
         "Missing or incompatible local execution reference");
-  FileArtifactStore cas(store.artifact_root());
+  FileArtifactStore cas(store.artifact_root(), {.max_artifact_bytes = maximum});
   auto reader = cas.open(ref->artifact.digest);
   if (reader->size_bytes() != ref->artifact.size_bytes)
     throw SerializationError("Local execution reference size mismatch");
@@ -547,10 +603,15 @@ std::string_view native_status(LocalProcessStatus status) {
   throw InvalidArgument("Unknown native local execution status");
 }
 
-bool succeeded(const Json& result) {
+bool native_succeeded(const Json& result) {
   return result.at("status").get<std::string>() == "exited" &&
          unsigned_number(result.at("exit_code"),
                          std::numeric_limits<std::uint32_t>::max()) == 0;
+}
+
+bool succeeded(const Json& result) {
+  return native_succeeded(result) &&
+         result.value("training_outputs_confirmed", true);
 }
 
 RunStatus terminal_status(const Json& result) {
@@ -612,8 +673,296 @@ Json expected_training_inputs(SQLiteRunStore& store, std::string_view job,
   return expected;
 }
 
+bool declares_training_outputs(const Spec& spec) {
+  return spec.training && !spec.training->outputs.empty();
+}
+
+bool training_outputs_absent(SQLiteRunStore& store, const Spec& spec,
+                             std::string_view attempt) {
+  if (!declares_training_outputs(spec)) return true;
+  return std::all_of(spec.training->outputs.begin(),
+                     spec.training->outputs.end(), [&](const auto& output) {
+                       return !store.find_reference(attempt, output.reference);
+                     });
+}
+
+void verify_training_output(SQLiteRunStore& store, const TrainingOutput& output,
+                            const RunArtifactReference& reference,
+                            TelemetryDeadline deadline,
+                            std::stop_token stop = {}) {
+  // Bound the real open handle, not just the database's claimed byte count.
+  // open() hashes incrementally and retains that same verified handle.
+  FileArtifactStore cas(store.artifact_root(),
+                        {.max_artifact_bytes = output.maximum});
+  const auto reader = cas.open(reference.artifact.digest, stop, deadline);
+  require(reader->size_bytes() == reference.artifact.size_bytes,
+          "Local training output content size differs from its reference");
+}
+
+Json training_output_receipt_identity(SQLiteRunStore& store,
+                                      std::string_view job, const Spec& spec,
+                                      std::uint64_t index, const Json& result) {
+  const auto id = attempt_id(job, index);
+  const auto metadata = store.find(id);
+  require(metadata && metadata->project_id == spec.project &&
+              metadata->experiment_id == spec.experiment &&
+              metadata->lineage.parent_run_id == job &&
+              metadata->lineage.config_digest == spec.sha256 &&
+              metadata->tags.contains("liuding.local.kind") &&
+              metadata->tags.at("liuding.local.kind") == "attempt" &&
+              metadata->tags.contains("liuding.local.index") &&
+              metadata->tags.at("liuding.local.index") == std::to_string(index),
+          "Local training output attempt ownership mismatch");
+  const auto intent = reference_json(store, id, "local.intent", "local.intent");
+  Json expected_intent{{"format", "jyppx.liuding.local_attempt_intent"},
+                       {"schema_version", 1},
+                       {"job_id", job},
+                       {"attempt_id", id},
+                       {"index", index},
+                       {"spec_sha256", spec.sha256}};
+  if (checkpoint_retry(spec))
+    expected_intent["training_sha256"] = result.at("training_sha256");
+  require(intent == expected_intent,
+          "Local training output requires the original immutable intent");
+  const auto intent_reference = store.find_reference(id, "local.intent");
+  require(intent_reference &&
+              intent_reference->artifact.digest == digest(intent.dump()),
+          "Local training output intent is not its canonical CAS identity");
+  const auto owner = reference_json(store, id, "local.owner", "local.owner");
+  fields(owner, {"format", "schema_version", "job_id", "attempt_id", "index",
+                 "spec_sha256", "worker_process_id",
+                 "training_outputs_absent_at_start"});
+  schema(owner, "jyppx.liuding.local_attempt_owner");
+  require(text(owner.at("job_id")) == job &&
+              text(owner.at("attempt_id")) == id &&
+              text(owner.at("spec_sha256")) == spec.sha256 &&
+              positive(owner.at("index"), kMaximumAttempts) == index &&
+              positive(owner.at("worker_process_id"),
+                       std::numeric_limits<std::uint64_t>::max()) != 0 &&
+              owner.at("training_outputs_absent_at_start").get<bool>(),
+          "Local training outputs lack the owned, absent startup baseline");
+  const auto owner_reference = store.find_reference(id, "local.owner");
+  require(owner_reference &&
+              owner_reference->artifact.digest == digest(owner.dump()),
+          "Local training output owner is not its canonical CAS identity");
+  auto training =
+      checkpoint_retry(spec)
+          ? expected_training_inputs(store, job, spec, index).at("training")
+          : spec.json.at("training");
+  training.erase("outputs");
+  training.erase("retry_resume");
+  auto native = result;
+  native.erase("training_outputs_sha256");
+  native.erase("training_outputs_confirmed");
+  return {{"format", "jyppx.liuding.local_training_outputs"},
+          {"schema_version", 1},
+          {"job_id", job},
+          {"attempt_id", id},
+          {"index", index},
+          {"spec_sha256", spec.sha256},
+          {"intent_sha256", intent_reference->artifact.digest.hex},
+          {"owner_sha256", owner_reference->artifact.digest.hex},
+          {"native_result_sha256", digest(native.dump()).hex},
+          {"training", std::move(training)}};
+}
+
+Json collect_training_outputs(SQLiteRunStore& store, std::string_view job,
+                              const Spec& spec, std::uint64_t index,
+                              const Json& result) {
+  auto receipt =
+      training_output_receipt_identity(store, job, spec, index, result);
+  auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       kTrainingOutputVerification)
+                       .count();
+  if (spec.deadline_unix_ms) {
+    const auto wall = now_ms();
+    const auto left =
+        *spec.deadline_unix_ms > wall ? *spec.deadline_unix_ms - wall : 0;
+    remaining = static_cast<std::int64_t>(
+        std::min(static_cast<std::uint64_t>(remaining), left));
+  }
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(remaining);
+  std::stop_source cancellation;
+  std::atomic<bool> monitor_error{false};
+  std::jthread monitor([&](std::stop_token stop) {
+    while (!stop.stop_requested()) {
+      try {
+        if (store.find_reference(job, "local.cancel", stop, deadline)) {
+          cancellation.request_stop();
+          return;
+        }
+      } catch (const Error& error) {
+        if (stop.stop_requested()) return;
+        if (error.code() != ErrorCode::cancelled &&
+            error.code() != ErrorCode::deadline_exceeded)
+          monitor_error = true;
+        cancellation.request_stop();
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+  });
+  Json rows = Json::array();
+  bool confirmed = true;
+  for (std::size_t i = 0; i < spec.training->outputs.size(); ++i) {
+    const auto& output = spec.training->outputs[i];
+    auto row = spec.json.at("training").at("outputs").at(i);
+    row["sha256"] = nullptr;
+    row["size_bytes"] = nullptr;
+    row["confirmed"] = false;
+    std::string reason;
+    try {
+      const auto reference =
+          store.find_reference(attempt_id(job, index), output.reference,
+                               cancellation.get_token(), deadline);
+      if (!reference) {
+        reason = "missing_reference";
+      } else {
+        row["sha256"] = reference->artifact.digest.hex;
+        row["size_bytes"] = reference->artifact.size_bytes;
+        if (reference->kind != output.kind)
+          reason = "kind_mismatch";
+        else if (reference->role != output.role)
+          reason = "role_mismatch";
+        else if (reference->artifact.size_bytes > output.maximum)
+          reason = "size_limit";
+        else
+          verify_training_output(store, output, *reference, deadline,
+                                 cancellation.get_token());
+      }
+    } catch (const Error& error) {
+      // A fixed diagnostic keeps the receipt bounded even for long paths or
+      // platform errors. Failure never rewrites the native exit result.
+      if (monitor_error.load())
+        reason = "verification_unavailable";
+      else if (std::chrono::steady_clock::now() >= deadline ||
+               error.code() == ErrorCode::deadline_exceeded)
+        reason = "confirmation_deadline";
+      else if (error.code() == ErrorCode::cancelled)
+        reason = "cancelled";
+      else
+        reason = "verification_unavailable";
+    }
+    row["confirmed"] = reason.empty();
+    row["failure_reason"] = reason.empty() ? Json(nullptr) : Json(reason);
+    confirmed = confirmed && reason.empty();
+    rows.push_back(std::move(row));
+  }
+  monitor.request_stop();
+  monitor.join();
+  std::string failure;
+  if (monitor_error.load())
+    failure = "verification_unavailable";
+  else if (std::chrono::steady_clock::now() >= deadline)
+    failure = "confirmation_deadline";
+  else if (cancellation.stop_requested())
+    failure = "cancelled";
+  else {
+    try {
+      if (store.find_reference(job, "local.cancel", {}, deadline))
+        failure = "cancelled";
+    } catch (const Error& error) {
+      failure = error.code() == ErrorCode::deadline_exceeded
+                    ? "confirmation_deadline"
+                    : "verification_unavailable";
+    }
+  }
+  receipt["failure_reason"] = failure.empty() ? Json(nullptr) : Json(failure);
+  receipt["confirmed"] = confirmed && failure.empty();
+  receipt["outputs"] = std::move(rows);
+  require(receipt.dump().size() <= kSpecBytes,
+          "Local training output receipt exceeds 64 KiB");
+  return receipt;
+}
+
+void validate_training_outputs(SQLiteRunStore& store, std::string_view job,
+                               const Spec& spec, std::uint64_t index,
+                               const Json& result) {
+  // Cleanup uncertainty has priority over every output check. In particular,
+  // do not require a receipt, hash output CAS, or repair state on this path.
+  if (!result.value("process_tree_cleanup_confirmed", false)) return;
+  const bool required =
+      declares_training_outputs(spec) && native_succeeded(result);
+  require(result.contains("training_outputs_sha256") == required &&
+              result.contains("training_outputs_confirmed") == required,
+          "Local result has a different declared output policy");
+  if (!required) return;
+  const auto id = attempt_id(job, index);
+  const auto receipt = reference_json(store, id, "local.training.outputs",
+                                      "local.training.outputs", kSpecBytes);
+  require(
+      digest(receipt.dump()).hex == text(result.at("training_outputs_sha256")),
+      "Local result differs from its training output receipt");
+  auto identity = receipt;
+  identity.erase("confirmed");
+  identity.erase("outputs");
+  identity.erase("failure_reason");
+  require(identity ==
+              training_output_receipt_identity(store, job, spec, index, result),
+          "Local training output receipt identity mismatch");
+  const auto& rows = receipt.at("outputs");
+  require(rows.is_array() && rows.size() == spec.training->outputs.size(),
+          "Local training output receipt has different declarations");
+  const auto deadline =
+      std::chrono::steady_clock::now() + kTrainingOutputVerification;
+  bool confirmed = receipt.at("failure_reason").is_null();
+  if (!confirmed) {
+    const auto failure = text(receipt.at("failure_reason"));
+    require(failure == "cancelled" || failure == "confirmation_deadline" ||
+                failure == "verification_unavailable",
+            "Unknown local training output confirmation failure");
+  }
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    const auto& row = rows.at(i);
+    fields(row, {"reference_id", "kind", "role", "max_size_bytes", "sha256",
+                 "size_bytes", "confirmed", "failure_reason"});
+    auto declaration = row;
+    for (const auto key :
+         {"sha256", "size_bytes", "confirmed", "failure_reason"})
+      declaration.erase(key);
+    require(declaration == spec.json.at("training").at("outputs").at(i),
+            "Local training output receipt declaration mismatch");
+    const bool passed = row.at("confirmed").get<bool>();
+    confirmed = confirmed && passed;
+    const auto& output = spec.training->outputs[i];
+    if (!passed) {
+      const auto reason = text(row.at("failure_reason"));
+      require(reason == "missing_reference" || reason == "kind_mismatch" ||
+                  reason == "role_mismatch" || reason == "size_limit" ||
+                  reason == "cancelled" || reason == "confirmation_deadline" ||
+                  reason == "verification_unavailable",
+              "Unknown local training output rejection");
+      require(row.at("sha256").is_null() == row.at("size_bytes").is_null(),
+              "Incomplete rejected training output observation");
+      if (!row.at("sha256").is_null()) {
+        validate_artifact_digest({.hex = text(row.at("sha256"))});
+        static_cast<void>(unsigned_number(
+            row.at("size_bytes"), std::numeric_limits<std::uint64_t>::max()));
+      }
+      // A failed receipt is immutable evidence of that check. Publishing a
+      // formerly missing output later cannot turn it into a successful run.
+      continue;
+    }
+    require(row.at("failure_reason").is_null(),
+            "Confirmed local training output has a rejection");
+    const auto reference =
+        store.find_reference(id, output.reference, {}, deadline);
+    require(reference && reference->kind == output.kind &&
+                reference->role == output.role &&
+                reference->artifact.digest.hex == text(row.at("sha256")) &&
+                reference->artifact.size_bytes ==
+                    unsigned_number(row.at("size_bytes"), output.maximum),
+            "Local training output reference differs from its receipt");
+    verify_training_output(store, output, *reference, deadline);
+  }
+  require(receipt.at("confirmed").get<bool>() == confirmed &&
+              result.at("training_outputs_confirmed").get<bool>() == confirmed,
+          "Local training output verdict differs from its receipt");
+}
+
 Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
-             std::uint64_t index) {
+             std::uint64_t index, bool check_outputs) {
   const auto id = attempt_id(job, index);
   auto value = reference_json(store, id, "local.result", "local.result");
   fields(value,
@@ -621,8 +970,13 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
           "spec_sha256", "status", "exit_code", "signal", "process_id",
           "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
           "stdout_sha256", "stderr_sha256", "failure_reason"},
-         {"process_tree_cleanup_confirmed", "training_sha256"});
+         {"process_tree_cleanup_confirmed", "training_sha256",
+          "training_outputs_sha256", "training_outputs_confirmed"});
   schema(value, "jyppx.liuding.local_attempt_result");
+  if (!declares_training_outputs(spec))
+    require(!value.contains("training_outputs_sha256") &&
+                !value.contains("training_outputs_confirmed"),
+            "Local result has undeclared training output fields");
   require(value.at("job_id").get<std::string>() == job &&
               value.at("attempt_id").get<std::string>() == id &&
               unsigned_number(value.at("index"), kMaximumAttempts) == index &&
@@ -676,6 +1030,7 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
     FileArtifactStore cas(store.artifact_root());
     static_cast<void>(cas.open(ref->artifact.digest));
   }
+  if (check_outputs) validate_training_outputs(store, job, spec, index, value);
   return value;
 }
 
@@ -732,8 +1087,10 @@ RunArtifactReference frozen_training_inputs(SQLiteRunStore& store,
             "Retry checkpoint source intent has different training inputs");
     const auto owner =
         reference_json(store, previous_id, "local.owner", "local.owner");
-    fields(owner, {"format", "schema_version", "job_id", "attempt_id", "index",
-                   "spec_sha256", "worker_process_id"});
+    fields(owner,
+           {"format", "schema_version", "job_id", "attempt_id", "index",
+            "spec_sha256", "worker_process_id"},
+           {"training_outputs_absent_at_start"});
     schema(owner, "jyppx.liuding.local_attempt_owner");
     require(text(owner.at("job_id")) == job.run_id &&
                 text(owner.at("attempt_id")) == previous_id &&
@@ -742,6 +1099,11 @@ RunArtifactReference frozen_training_inputs(SQLiteRunStore& store,
                 positive(owner.at("worker_process_id"),
                          std::numeric_limits<std::uint64_t>::max()) != 0,
             "Retry checkpoint source has a different worker owner");
+    require(owner.contains("training_outputs_absent_at_start") ==
+                    declares_training_outputs(spec) &&
+                (!declares_training_outputs(spec) ||
+                 owner.at("training_outputs_absent_at_start").get<bool>()),
+            "Retry checkpoint source has a different output baseline");
   }
   const auto expected =
       expected_training_inputs(store, job.run_id, spec, index);
@@ -817,7 +1179,8 @@ Json resource_lease(const RunMetadata& job, const Spec& spec,
 // committed result/output identities. Free locks, terminal metadata and PIDs
 // alone never release a lease. Concurrent identical receipts are idempotent.
 bool release_resources(SQLiteRunStore& store, const RunMetadata& job,
-                       const Spec& spec, std::uint64_t index) {
+                       const Spec& spec, std::uint64_t index,
+                       const Json* validated_result = nullptr) {
   if (!spec.resources) return true;
   const auto lease_id = resource_reference(index);
   const auto lease = store.find_reference(job.run_id, lease_id);
@@ -829,8 +1192,17 @@ bool release_resources(SQLiteRunStore& store, const RunMetadata& job,
   if (!attempt) return false;
   const auto result_ref = store.find_reference(id, "local.result");
   if (!result_ref) return false;
-  const auto result = outcome(store, job.run_id, spec, index);
+  const auto result = validated_result
+                          ? *validated_result
+                          : outcome(store, job.run_id, spec, index, false);
+  if (validated_result)
+    require(
+        result_ref->artifact.digest == digest(result.dump()) &&
+            reference_json(store, id, "local.result", "local.result") == result,
+        "Resource release result differs from its committed CAS identity");
   if (!result.value("process_tree_cleanup_confirmed", false)) return false;
+  if (!validated_result)
+    validate_training_outputs(store, job.run_id, spec, index, result);
   require(attempt && attempt->lineage.parent_run_id == job.run_id &&
               attempt->lineage.config_digest == spec.sha256,
           "Resource release attempt lineage mismatch");
@@ -846,8 +1218,10 @@ bool release_resources(SQLiteRunStore& store, const RunMetadata& job,
   require(intent == expected_intent,
           "Resource release requires the original immutable intent");
   const auto owner = reference_json(store, id, "local.owner", "local.owner");
-  fields(owner, {"format", "schema_version", "job_id", "attempt_id", "index",
-                 "spec_sha256", "worker_process_id"});
+  fields(owner,
+         {"format", "schema_version", "job_id", "attempt_id", "index",
+          "spec_sha256", "worker_process_id"},
+         {"training_outputs_absent_at_start"});
   schema(owner, "jyppx.liuding.local_attempt_owner");
   require(text(owner.at("job_id")) == job.run_id &&
               text(owner.at("attempt_id")) == id &&
@@ -856,6 +1230,11 @@ bool release_resources(SQLiteRunStore& store, const RunMetadata& job,
               positive(owner.at("worker_process_id"),
                        std::numeric_limits<std::uint64_t>::max()) != 0,
           "Resource release worker identity mismatch");
+  require(owner.contains("training_outputs_absent_at_start") ==
+              declares_training_outputs(spec),
+          "Resource release worker has a different declared output policy");
+  if (declares_training_outputs(spec))
+    static_cast<void>(owner.at("training_outputs_absent_at_start").get<bool>());
   const auto reference_digest = [&](std::string_view name) {
     const auto reference = store.find_reference(id, name);
     require(reference.has_value(), "Resource release evidence disappeared");
@@ -999,7 +1378,8 @@ bool cancelled(SQLiteRunStore& store, std::string_view id) {
 }
 
 Json describe(SQLiteRunStore& store, const RunMetadata& job, const Spec& spec,
-              bool active = false, std::string_view state = {}) {
+              bool active = false, std::string_view state = {},
+              bool check_outputs = true) {
   Json attempts = Json::array();
   for (std::uint64_t index = 1; index <= spec.maximum_attempts; ++index) {
     const auto id = attempt_id(job.run_id, index);
@@ -1009,7 +1389,7 @@ Json describe(SQLiteRunStore& store, const RunMetadata& job, const Spec& spec,
               {"index", index},
               {"run_status", run_status_name(metadata->status)}};
     if (store.find_reference(id, "local.result"))
-      item["result"] = outcome(store, job.run_id, spec, index);
+      item["result"] = outcome(store, job.run_id, spec, index, check_outputs);
     else
       item["result"] = nullptr;
     if (checkpoint_retry(spec)) {
@@ -1108,14 +1488,17 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
   require(!store.find_reference(id, "local.owner") &&
               !store.find_reference(id, "local.result"),
           "This immutable local attempt has already been claimed");
-  put_json(store, id, "local.owner", "local.owner",
-           {{"format", "jyppx.liuding.local_attempt_owner"},
-            {"schema_version", 1},
-            {"job_id", job.run_id},
-            {"attempt_id", id},
-            {"index", index},
-            {"spec_sha256", spec.sha256},
-            {"worker_process_id", process_id()}},
+  const bool outputs_absent = training_outputs_absent(store, spec, id);
+  Json owner_value{{"format", "jyppx.liuding.local_attempt_owner"},
+                   {"schema_version", 1},
+                   {"job_id", job.run_id},
+                   {"attempt_id", id},
+                   {"index", index},
+                   {"spec_sha256", spec.sha256},
+                   {"worker_process_id", process_id()}};
+  if (declares_training_outputs(spec))
+    owner_value["training_outputs_absent_at_start"] = outputs_absent;
+  put_json(store, id, "local.owner", "local.owner", owner_value,
            metadata->created_at_unix_ms);
 
   LocalProcessResult native;
@@ -1143,6 +1526,8 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
       }
     });
     try {
+      require(outputs_absent,
+              "Declared training output already exists before native launch");
       if (cancelled(store, job.run_id)) {
         native.status = LocalProcessStatus::cancelled;
         native.process_tree_cleanup_confirmed = true;
@@ -1208,6 +1593,9 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
             options.environment["JYPPX_LIUDING_LOCAL_GPU_MEMORY_BYTES"] =
                 std::to_string(request.gpu_memory_bytes);
           }
+          require(
+              training_outputs_absent(store, spec, id),
+              "Declared training output already exists before native launch");
           runner_entered = true;
           native = LocalProcessRunner{}.run(options, cancellation.get_token());
         }
@@ -1258,6 +1646,15 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
       {"stderr_sha256", digest(native.stderr_capture).hex}};
   if (frozen_training)
     result["training_sha256"] = frozen_training->manifest.artifact.digest.hex;
+  std::string training_outputs_text;
+  if (declares_training_outputs(spec) && native_succeeded(result) &&
+      native.process_tree_cleanup_confirmed) {
+    const auto receipt =
+        collect_training_outputs(store, job.run_id, spec, index, result);
+    training_outputs_text = receipt.dump();
+    result["training_outputs_sha256"] = digest(training_outputs_text).hex;
+    result["training_outputs_confirmed"] = receipt.at("confirmed");
+  }
   const auto result_text = result.dump();
   const auto upload = [&](std::string name, std::string_view content,
                           std::string media) {
@@ -1273,14 +1670,17 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
         .expected_digest = digest(content),
         .attached_at_unix_ms = timestamp};
   };
-  const std::array uploads{
+  std::vector<RunArtifactUpload> uploads{
       upload("stdout", native.stdout_capture, "application/octet-stream"),
       upload("stderr", native.stderr_capture, "application/octet-stream"),
       upload("result", result_text, "application/json")};
-  // A complete result and both raw output references commit atomically. A
-  // crash before/after the following lifecycle transition is replayable.
+  if (!training_outputs_text.empty())
+    uploads.push_back(
+        upload("training.outputs", training_outputs_text, "application/json"));
+  // The native result, captures and optional output receipt commit atomically.
+  // The receipt confirms STORE bindings/CAS, not which process created bytes.
   store.put_artifacts(id, uploads);
-  static_cast<void>(release_resources(store, job, spec, index));
+  static_cast<void>(release_resources(store, job, spec, index, &result));
   finish_run(store, id, terminal_status(result));
   return {{{"attempt_id", id}, {"result_committed", true}}, 0};
 }
@@ -1295,25 +1695,46 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
       return {describe(store, job, spec, true, "active"), 7};
   }
   const auto current_status = job_metadata(store, job.run_id).status;
-  if (is_terminal_run_status(current_status))
+  if (is_terminal_run_status(current_status)) {
+    // Preserve historical non-opt-in terminal behavior. New contracts require
+    // cleanup before reading any output receipt, even on read-only replay.
+    if (declares_training_outputs(spec)) {
+      for (std::uint64_t index = 1; index <= spec.maximum_attempts; ++index) {
+        if (!store.find(attempt_id(job.run_id, index))) break;
+        const auto result = outcome(store, job.run_id, spec, index, false);
+        if (!result.value("process_tree_cleanup_confirmed", false))
+          return {describe(store, job, spec, false,
+                           "resource_cleanup_unconfirmed", false),
+                  7};
+      }
+    }
     return {describe(store, job, spec),
             current_status == RunStatus::completed   ? 0
             : current_status == RunStatus::cancelled ? 130
                                                      : 1};
+  }
 
   for (std::uint64_t index = 1; index <= spec.maximum_attempts; ++index) {
     const auto id = attempt_id(job.run_id, index);
     auto attempt = store.find(id);
     if (attempt && store.find_reference(id, "local.result")) {
-      const auto result = outcome(store, job.run_id, spec, index);
+      const auto result = outcome(store, job.run_id, spec, index, false);
       // A committed leader result is not proof that its process tree stopped.
       // Fence every lifecycle/retry path, including jobs without resources.
-      if (!result.value("process_tree_cleanup_confirmed", false) ||
-          !release_resources(store, job, spec, index))
+      if (!result.value("process_tree_cleanup_confirmed", false))
+        return {describe(store, job, spec, false,
+                         "resource_cleanup_unconfirmed", false),
+                7};
+      validate_training_outputs(store, job.run_id, spec, index, result);
+      if (!release_resources(store, job, spec, index, &result))
         return {
             describe(store, job, spec, false, "resource_cleanup_unconfirmed"),
             7};
       finish_run(store, id, terminal_status(result));
+      if (declares_training_outputs(spec) && cancelled(store, job.run_id)) {
+        finish_run(store, job.run_id, RunStatus::cancelled);
+        return {describe(store, job, spec), 130};
+      }
       if (succeeded(result)) {
         finish_run(store, job.run_id, RunStatus::completed);
         return {describe(store, job, spec), 0};

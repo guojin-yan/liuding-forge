@@ -124,6 +124,22 @@ $continued.attempts | Select-Object index, run_status, training_sha256, result
 
 接入自己的 C++ 程序时，在 `training` 中显式声明 `retry_resume`，从 attempt 的清单和 job 的 `.N` 引用读取有效输入，然后执行完整 `exact_only` 恢复。保留原模型、配置和数据身份，确保退出前 checkpoint 已提交；运行器不会为应用推断 RNG、scheduler 或 AMP 状态。缺少 checkpoint、伪造或不完整的内容、身份变化、未知结果和未确认清理都不能转为 fresh 重试；详细约定见[本地运行器](../../docs/development/local_process_runner.md#已确认失败的-checkpoint-续训)。此策略仅用于 local job；typed grid/random 仍使用一次 attempt 和显式 checkpoint。
 
+## 确认训练输出
+
+生成本地配置时追加`--confirm-outputs yes`，让运行器在成功退出及进程树清理后确认真实的`checkpoint.last`与`training.result`。下面将输出确认与已有20→60步exact续训组合，沿用前文的`$worker`、`$cli`和独立`$work`：
+
+```powershell
+$confirmedStore = Join-Path $work 'confirmed-training-store'
+$confirmedSpec = Join-Path $work 'confirmed-training.json'
+& $worker --write-local-spec $confirmedSpec --store $confirmedStore --until-step 60 --checkpoint-retry-after 20 --confirm-outputs yes
+& $cli local execute --root $confirmedStore --id confirmed-training --spec $confirmedSpec --format json
+$confirmed = (& $cli local show --root $confirmedStore --id confirmed-training --format json | ConvertFrom-Json).data
+$confirmed.attempts[-1].result.training_outputs_confirmed
+& $cli run show --root $confirmedStore --id $confirmed.attempts[-1].attempt_id --format json
+```
+
+预期最后的确认字段为`true`；第二个attempt的`local.training.outputs`绑定实际用于续训的checkpoint输入和最终输出摘要，首个非零退出attempt不生成成功确认。收据只核同attempt的引用、类型、角色、实际大小和CAS内容，不能代替完整checkpoint恢复或训练质量检查。缺失、损坏或超额输出会保留原生退出0并使job失败，不自动重新训练；[合同与边界](../../docs/development/local_process_runner.md#训练输出确认)说明只读重放、清理优先级、取消和时限。
+
 ## 训练输入与搜索衔接
 
 `--write-typed-search-spec` 演示搜索与 typed local 输入衔接。它使用带 momentum 的原生 SGD，三个学习率从相同零权重开始训练 60 步；模型标识和数据清单在整次搜索固定，每个 trial 的配置拥有独立、可校验的 CAS 身份。这是单独的搜索模式，前面的基础搜索仍展示只保存模型参数的流程。

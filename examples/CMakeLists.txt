@@ -140,6 +140,26 @@ if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::nn
     jyppx_add_torch_runtime_dependency(jyppx_liuding_search_trial)
     if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND
        AND TARGET jyppx_cli_recipe_gate)
+        add_executable(jyppx_cli_local_output_fixture EXCLUDE_FROM_ALL
+            "${PROJECT_SOURCE_DIR}/tests/cli/local_output_fixture.cpp")
+        set_target_properties(jyppx_cli_local_output_fixture PROPERTIES
+            OUTPUT_NAME liuding-forge-test-local-output-fixture)
+        target_link_libraries(jyppx_cli_local_output_fixture PRIVATE
+            jyppx::liuding::experiment jyppx::liuding::nn
+            jyppx::liuding::interop jyppx::liuding::training jyppx::liuding::optim
+            nlohmann_json::nlohmann_json)
+        jyppx_apply_instrumentation(jyppx_cli_local_output_fixture)
+        jyppx_add_torch_runtime_dependency(jyppx_cli_local_output_fixture)
+        add_test(NAME LocalTrainingOutputContract
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_search_training_example.py"
+                --worker $<TARGET_FILE:jyppx_liuding_search_trial>
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+                --output-fixture $<TARGET_FILE:jyppx_cli_local_output_fixture>
+                LocalTrainingOutputContractTests)
+        set_tests_properties(LocalTrainingOutputContract PROPERTIES
+            LABELS "cli;experiment;training;examples"
+            TIMEOUT 240 RUN_SERIAL TRUE PROCESSORS 2)
         add_test(NAME LocalSearchTrainingExample
             COMMAND ${Python3_EXECUTABLE}
                 "${PROJECT_SOURCE_DIR}/tests/scripts/test_search_training_example.py"
