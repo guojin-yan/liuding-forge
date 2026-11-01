@@ -29,10 +29,19 @@ std::shared_ptr<ImageResourceLeaseSet> ReserveBatchTotals(
     std::uint64_t metadata_bytes, std::uint64_t index_bytes,
     std::uint64_t pinned_bytes, std::uint64_t gpu_bytes,
     std::stop_token stop = {});
+// Predict only the memory stage's output location; dtype/shape/host targets
+// stay unchanged. A configured CPU target inherits pinning only on exact
+// source/target Device equality, matching Core's decision to skip to().
+// Null projection accounts the existing tensors as before.
+struct BatchResourceProjection {
+  bool pin_host = false;
+  std::optional<Device> target_device;
+};
 std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
     const ImageBatch& batch, const std::shared_ptr<ImageResourceBudget>& budget,
     const ImageBatchLimits& limits, std::stop_token stop = {},
-    bool reserve_gpu_bytes = true);
+    bool reserve_gpu_bytes = true,
+    const BatchResourceProjection* projection = nullptr);
 bool SamePixels(const PixelSpec& a, const PixelSpec& b);
 void CheckImageFill(const PixelSpec& spec, double value);
 }  // namespace jyppx::liuding::data::image::detail

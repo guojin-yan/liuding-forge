@@ -5,7 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
-#include <jyppx/liuding/data/batch_memory.hpp>
+#include "batch_memory_detail.hpp"
+
 #include <jyppx/liuding/foundation/error.hpp>
 
 #include <ATen/core/Dict.h>
@@ -202,7 +203,8 @@ enum class TransformPhase : std::uint8_t {
 };
 
 Tensor transform_tensor(const Tensor& tensor, TransformContext& context,
-                        TransformPhase phase, const std::string& path) {
+                        TransformPhase phase, const std::string& path,
+                        bool validate_only = false) {
   try {
     Tensor staged = tensor;
     if (phase == TransformPhase::prepare && context.options.target_device &&
@@ -227,13 +229,6 @@ Tensor transform_tensor(const Tensor& tensor, TransformContext& context,
                          .hint = "Disable pin_memory for device-resident "
                                  "producer values."});
       }
-      // Empty tensors have no bytes to pin; LibTorch may report false even
-      // after pin_memory(). Keep their shape/device contract without requiring
-      // a nonexistent storage allocation in the transfer phase.
-      if (staged.numel() != 0) {
-        if (!staged.is_pinned()) staged = staged.pin_memory();
-        ++context.metadata.pinned_tensor_count;
-      }
     }
     if (phase == TransformPhase::transfer && context.options.pin_memory &&
         staged.device().is_cpu() && staged.numel() != 0 &&
@@ -247,6 +242,15 @@ Tensor transform_tensor(const Tensor& tensor, TransformContext& context,
                        .hint = "Pass the unmodified result of "
                                "prepare_batch_memory to the transfer phase."});
     }
+    if (validate_only) return staged;
+    if (phase == TransformPhase::prepare && context.options.pin_memory &&
+        staged.numel() != 0) {
+      // Empty tensors have no bytes to pin; LibTorch may report false even
+      // after pin_memory(). Keep their shape/device contract without requiring
+      // a nonexistent storage allocation in the transfer phase.
+      if (!staged.is_pinned()) staged = staged.pin_memory();
+      ++context.metadata.pinned_tensor_count;
+    }
     if (phase == TransformPhase::transfer && context.options.target_device &&
         staged.device() != *context.options.target_device) {
       staged = staged.to(*context.options.target_device, staged.scalar_type(),
@@ -257,15 +261,45 @@ Tensor transform_tensor(const Tensor& tensor, TransformContext& context,
   } catch (const Error&) {
     throw;
   } catch (const c10::Error& cause) {
-    detail::rethrow_backend_error(
-        cause, {.component = kComponent,
-                .operation = path,
-                .failure_kind = detail::BackendFailureKind::device,
-                .expected = context.options.target_device
-                                ? context.options.target_device->str()
-                                : "pinned CPU memory",
-                .hint = "Verify CUDA availability, pinned-memory support, "
-                        "and device capacity."});
+    ::jyppx::liuding::detail::rethrow_backend_error(
+        cause,
+        {.component = kComponent,
+         .operation = path,
+         .failure_kind = ::jyppx::liuding::detail::BackendFailureKind::device,
+         .expected = context.options.target_device
+                         ? context.options.target_device->str()
+                         : "pinned CPU memory",
+         .hint = "Verify CUDA availability, pinned-memory support, "
+                 "and device capacity."});
+  }
+}
+
+// The inspected value is already bounded. This pass reuses the transform's
+// policy checks without rebuilding containers or allocating Tensor storage.
+// Admission must not mask an invalid later tensor with a budget failure.
+void validate_transform_inputs(const c10::IValue& value,
+                               TransformContext& context, TransformPhase phase,
+                               const std::string& path) {
+  if (value.isTensor()) {
+    static_cast<void>(
+        transform_tensor(value.toTensor(), context, phase, path, true));
+  } else if (value.isTuple()) {
+    const auto& elements = value.toTupleRef().elements();
+    for (std::size_t index = 0; index < elements.size(); ++index)
+      validate_transform_inputs(elements[index], context, phase,
+                                path + "[" + std::to_string(index) + "]");
+  } else if (value.isList()) {
+    const auto elements = value.toListRef();
+    for (std::size_t index = 0; index < elements.size(); ++index)
+      validate_transform_inputs(elements[index], context, phase,
+                                path + "[" + std::to_string(index) + "]");
+  } else if (value.isGenericDict()) {
+    std::size_t index = 0;
+    for (const auto& entry : value.toGenericDict()) {
+      validate_transform_inputs(entry.value(), context, phase,
+                                path + ".value[" + std::to_string(index) + "]");
+      ++index;
+    }
   }
 }
 
@@ -380,6 +414,12 @@ void validate_batch_memory_options(const BatchMemoryOptions& options) {
 
 BatchMemoryStageResult prepare_batch_memory(const c10::IValue& value,
                                             const BatchMemoryOptions& options) {
+  return detail::prepare_batch_memory_with_admission(value, options, {});
+}
+
+BatchMemoryStageResult detail::prepare_batch_memory_with_admission(
+    const c10::IValue& value, const BatchMemoryOptions& options,
+    const BatchMemoryAdmission& admit) {
   validate_batch_memory_options(options);
   BatchMemoryStageResult result;
   result.value = value;
@@ -389,6 +429,7 @@ BatchMemoryStageResult prepare_batch_memory(const c10::IValue& value,
   result.metadata.transfer_stream_policy =
       BatchTransferStreamPolicy::caller_current;
   if (!batch_memory_stage_enabled(options)) {
+    if (admit) admit();
     return result;
   }
 
@@ -396,6 +437,10 @@ BatchMemoryStageResult prepare_batch_memory(const c10::IValue& value,
   inspect_value(value, options, inspection, 0, "batch");
   TransformContext context{.options = options,
                            .metadata = make_metadata(options, inspection)};
+  if (admit) {
+    validate_transform_inputs(value, context, TransformPhase::prepare, "batch");
+    admit();
+  }
   result.value =
       transform_value(value, context, TransformPhase::prepare, "batch");
   result.metadata = context.metadata;
@@ -404,6 +449,13 @@ BatchMemoryStageResult prepare_batch_memory(const c10::IValue& value,
 
 BatchMemoryStageResult transfer_batch_memory(
     BatchMemoryStageResult prepared, const BatchMemoryOptions& options) {
+  return detail::transfer_batch_memory_with_admission(std::move(prepared),
+                                                      options, {});
+}
+
+BatchMemoryStageResult detail::transfer_batch_memory_with_admission(
+    BatchMemoryStageResult prepared, const BatchMemoryOptions& options,
+    const BatchMemoryAdmission& admit) {
   validate_batch_memory_options(options);
   if (!batch_memory_stage_enabled(options)) {
     if (prepared.metadata.staged || prepared.metadata.pin_memory_requested ||
@@ -412,6 +464,7 @@ BatchMemoryStageResult transfer_batch_memory(
       throw CompatibilityError(
           "Prepared batch metadata enables a disabled memory stage");
     }
+    if (admit) admit();
     return prepared;
   }
 
@@ -419,6 +472,11 @@ BatchMemoryStageResult transfer_batch_memory(
   inspect_value(prepared.value, options, inspection, 0, "batch");
   validate_prepared_metadata(prepared, options, inspection);
   TransformContext context{.options = options, .metadata = prepared.metadata};
+  if (admit) {
+    validate_transform_inputs(prepared.value, context, TransformPhase::transfer,
+                              "batch");
+    admit();
+  }
   prepared.value = transform_value(prepared.value, context,
                                    TransformPhase::transfer, "batch");
   prepared.metadata = context.metadata;

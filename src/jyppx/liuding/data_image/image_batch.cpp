@@ -321,7 +321,8 @@ std::shared_ptr<ImageResourceLeaseSet> ReserveBatchTotals(
 
 std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
     const ImageBatch& b, const std::shared_ptr<ImageResourceBudget>& budget,
-    const ImageBatchLimits& l, std::stop_token stop, bool reserve_gpu_bytes) {
+    const ImageBatchLimits& l, std::stop_token stop, bool reserve_gpu_bytes,
+    const BatchResourceProjection* projection) {
   if (!budget) return {};
   CheckStop(stop);
 
@@ -339,9 +340,19 @@ std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
     if (!tensor.defined()) return;
     const auto bytes =
         static_cast<std::uint64_t>(tensor.numel()) * tensor.element_size();
-    if (tensor.device().is_cuda()) {
+    const auto device = projection && projection->target_device
+                            ? *projection->target_device
+                            : tensor.device();
+    const bool transfers = projection && projection->target_device &&
+                           tensor.device() != *projection->target_device;
+    if (device.is_cuda()) {
       gpu_bytes = add(gpu_bytes, bytes, "batch.resource.gpu_bytes");
-    } else if (tensor.is_pinned()) {
+    } else if (device.is_cpu() && tensor.device().is_cpu() &&
+               ((projection && projection->pin_host) ||
+                (!transfers && tensor.is_pinned()))) {
+      // Core calls to() on strict Device inequality. A CPU:0 destination
+      // copies CPU storage to pageable memory; it does not preserve source
+      // pinning like the exact CPU no-op. Only unchanged storage inherits it.
       pinned_bytes = add(pinned_bytes, bytes, "batch.resource.pinned_bytes");
     }
   };

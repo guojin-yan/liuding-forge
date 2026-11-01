@@ -63,6 +63,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 显式图像批次 prepare/transfer 在分配 pinned/设备输出之前预约共享预算，并按真实 CPU 别名或 CPU:0 pageable 复制分类；后端失败回滚，源与结果租约独立保留。
+
 - 本地执行的未终态任务在进程树清理未确认时统一保留围栏，不再因未预约资源或未启用 checkpoint 续训而继续重试或确认成功。
 - 本地执行的已确认结果可在旧程序或工作目录移除后按相同计划重放；新建任务与实际重试仍在启动前核验路径和可执行文件身份。
 

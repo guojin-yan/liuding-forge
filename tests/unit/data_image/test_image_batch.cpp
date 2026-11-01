@@ -289,6 +289,185 @@ TEST(ImageBatchResourceBudgetTest, GeometryAndMemoryStagesCanBeBound) {
   EXPECT_GT(prepared.resource_lease_sets.size(), 0U);
 }
 
+void ExpectBatchBudgetReleased(const std::shared_ptr<ImageResourceBudget>& b) {
+  for (const auto kind :
+       {ImageResourceKind::staged_batches, ImageResourceKind::decoded_bytes,
+        ImageResourceKind::pixels, ImageResourceKind::annotation_bytes,
+        ImageResourceKind::index_bytes, ImageResourceKind::pinned_bytes,
+        ImageResourceKind::gpu_bytes})
+    EXPECT_EQ(b->usage(kind).current, 0U) << static_cast<int>(kind);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     PrepareRejectsPinnedBudgetBeforeBackendAllocation) {
+  const auto batch = Batch({Photo()});
+  ImageResourceBudgetLimits limits;
+  limits.max_pinned_bytes = 0;
+  const auto budget = std::make_shared<ImageResourceBudget>(limits);
+  const BatchMemoryOptions memory{.pin_memory = true};
+  // In an isolated process with CUDA_VISIBLE_DEVICES=-1, the former ordering
+  // reaches pin_memory() and throws DeviceError. Budget refusal must happen
+  // before that backend call, including on a host with no pin allocator.
+  EXPECT_THROW(prepare_image_batch(batch, memory, {}, budget),
+               ResourceExhausted);
+  ExpectBatchBudgetReleased(budget);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 24U);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     TransferRejectsDeviceBudgetBeforeBackendAllocation) {
+  const BatchMemoryOptions memory{.target_device = Device(torch::kCUDA, 0)};
+  const auto prepared = prepare_image_batch(Batch({Photo()}), memory);
+  ImageResourceBudgetLimits limits;
+  limits.max_gpu_bytes = 0;
+  const auto budget = std::make_shared<ImageResourceBudget>(limits);
+  // CPU preparation does not initialize the CUDA destination. The transfer
+  // must refuse the output budget before to(CUDA), even without a CUDA device.
+  EXPECT_THROW(transfer_image_batch(prepared, memory, {}, budget),
+               ResourceExhausted);
+  ExpectBatchBudgetReleased(budget);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 24U);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     MemoryAdmissionFailurePreservesExistingSourceReservations) {
+  ImageResourceBudgetLimits limits;
+  limits.max_pinned_bytes = 0;
+  limits.max_gpu_bytes = 0;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  ImageCollateOptions collate;
+  collate.resource_budget = budget;
+  auto batch = Batch({Photo()}, collate);
+  EXPECT_THROW(prepare_image_batch(batch, {.pin_memory = true}, {}, budget),
+               ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+  const BatchMemoryOptions memory{.target_device = Device(torch::kCUDA, 0)};
+  auto prepared = prepare_image_batch(batch, memory, {}, budget);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 2U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 48U);
+  EXPECT_THROW(transfer_image_batch(prepared, memory, {}, budget),
+               ResourceExhausted);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 2U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 48U);
+  prepared = {};
+  batch = {};
+  ExpectBatchBudgetReleased(budget);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     MemoryAdmissionPreservesOptionBoundsAndMetadataErrors) {
+  const auto batch = Batch({Photo()});
+  ImageResourceBudgetLimits limits;
+  limits.max_staged_batches = 0;
+  const auto budget = std::make_shared<ImageResourceBudget>(limits);
+  BatchMemoryOptions memory{.target_device = Device(torch::kCUDA, 0)};
+  memory.max_tensors = 0;
+  EXPECT_THROW(prepare_image_batch(batch, memory, {}, budget), InvalidArgument);
+  memory.max_tensors = 1;
+  try {
+    static_cast<void>(prepare_image_batch(batch, memory, {}, budget));
+    FAIL() << "Core tensor bounds must be checked before image admission";
+  } catch (const ResourceExhausted& error) {
+    EXPECT_EQ(error.details().component, "data.batch_memory");
+  }
+  memory.max_tensors = 4096;
+  auto prepared = prepare_image_batch(batch, memory);
+  ++prepared.memory.tensor_count;
+  try {
+    static_cast<void>(transfer_image_batch(prepared, memory, {}, budget));
+    FAIL() << "Invalid prepared metadata must precede image admission";
+  } catch (const CompatibilityError& error) {
+    EXPECT_EQ(error.details().component, "data.batch_memory");
+    EXPECT_EQ(error.details().operation, "transfer.metadata");
+  }
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).peak, 0U);
+  ExpectBatchBudgetReleased(budget);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     TransferChecksUnpinnedInputsBeforeImageAdmission) {
+  auto sample = Photo();
+  sample.label_categories = std::make_shared<const std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{.source_id = 1, .name = "label"}});
+  sample.labels = {0};
+  const BatchMemoryOptions pageable{.target_device = Device(torch::kCUDA, 0)};
+  auto forged = prepare_image_batch(Batch({sample}), pageable);
+  // Forge only a consistent summary: leaf validation still must reject the
+  // unpinned CPU storage before the otherwise-failing image budget callback.
+  forged.memory.pin_memory_requested = true;
+  forged.memory.pinned_tensor_count = forged.memory.tensor_count;
+  auto pinning = pageable;
+  pinning.pin_memory = true;
+  ImageResourceBudgetLimits limits;
+  limits.max_staged_batches = 0;
+  const auto budget = std::make_shared<ImageResourceBudget>(limits);
+  try {
+    static_cast<void>(transfer_image_batch(forged, pinning, {}, budget));
+    FAIL() << "Unpinned storage must precede image admission";
+  } catch (const CompatibilityError& error) {
+    EXPECT_EQ(error.message(), "Prepared batch tensor is not pinned");
+    EXPECT_EQ(error.details().component, "data.batch_memory");
+  }
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).peak, 0U);
+  ExpectBatchBudgetReleased(budget);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     DisabledMemoryRetainsBypassAndIndependentOutputLease) {
+  auto budget = std::make_shared<ImageResourceBudget>();
+  ImageCollateOptions collate;
+  collate.resource_budget = budget;
+  auto batch = Batch({Photo()}, collate);
+  BatchMemoryOptions disabled;
+  // Positive bounds smaller than this value are intentionally bypassed by a
+  // disabled Core memory stage. The image's own limits still apply.
+  disabled.max_tensors = 1;
+  disabled.max_value_nodes = 1;
+  disabled.max_bytes = 1;
+  auto prepared = prepare_image_batch(batch, disabled, {}, budget);
+  EXPECT_FALSE(prepared.memory.staged);
+  EXPECT_EQ(prepared.images.data_ptr(), batch.images.data_ptr());
+  auto transferred = transfer_image_batch(prepared, disabled, {}, budget);
+  EXPECT_EQ(transferred.images.data_ptr(), batch.images.data_ptr());
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 3U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 72U);
+  batch = {};
+  prepared = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+  auto shared = transferred;
+  transferred = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+  shared = {};
+  ExpectBatchBudgetReleased(budget);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     BackendPinFailureRollsBackThePreallocationReservation) {
+  if (torch::cuda::is_available())
+    GTEST_SKIP() << "Run in a separate CUDA_VISIBLE_DEVICES=-1 process";
+  const auto batch = Batch({Photo()});
+  const auto budget = std::make_shared<ImageResourceBudget>();
+  EXPECT_THROW(prepare_image_batch(batch, {.pin_memory = true}, {}, budget),
+               DeviceError);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).peak, 24U);
+  ExpectBatchBudgetReleased(budget);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     BackendTransferFailureRollsBackThePreallocationReservation) {
+  if (torch::cuda::is_available())
+    GTEST_SKIP() << "Run in a separate CUDA_VISIBLE_DEVICES=-1 process";
+  const BatchMemoryOptions memory{.target_device = Device(torch::kCUDA, 0)};
+  const auto prepared = prepare_image_batch(Batch({Photo()}), memory);
+  const auto budget = std::make_shared<ImageResourceBudget>();
+  EXPECT_THROW(transfer_image_batch(prepared, memory, {}, budget), DeviceError);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).peak, 24U);
+  ExpectBatchBudgetReleased(budget);
+}
+
 TEST(ImageBatchResourceBudgetTest, FailedReservationRollsBackEarlierLeases) {
   ImageResourceBudgetLimits limits;
   limits.max_decoded_bytes = 1;
@@ -318,8 +497,8 @@ TEST(ImageBatchResourceBudgetTest,
 
   DataPipeline pipeline(
       std::make_shared<samplers::SequentialSampler>(2), options,
-      [](std::span<const std::size_t> indices,
-         const DataWorkerContext& context, std::stop_token stop) {
+      [](std::span<const std::size_t> indices, const DataWorkerContext& context,
+         std::stop_token stop) {
         std::vector<VisionSample> samples;
         std::vector<ImageBatchKey> keys;
         for (const auto index : indices) {
@@ -1055,6 +1234,257 @@ TEST(ImageBatchCUDATest, FinalBatchPinTransferNumericAndRaggedMetadata) {
     EXPECT_TRUE(torch::equal(mask.cpu(), original));
     EXPECT_EQ(round_trip.items[0].key.id, "sample-0");
   }
+}
+
+TEST(ImageBatchCUDATest,
+     MemoryReservationsTrackLayoutsPinnedAliasesAndDeviceOutput) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
+                            ImageBatchLayout::ragged}) {
+    for (const bool paired : {false, true}) {
+      SCOPED_TRACE(static_cast<int>(layout));
+      SCOPED_TRACE(paired);
+      auto a = Photo(), b = Photo();
+      for (auto* sample : {&a, &b}) {
+        if (paired) {
+          sample->paired_target = sample->image.clone();
+          sample->paired_target_pixels = sample->pixels;
+        } else {
+          Mask(*sample);
+        }
+      }
+      auto budget = std::make_shared<ImageResourceBudget>();
+      ImageCollateOptions collate;
+      collate.layout = layout;
+      collate.resource_budget = budget;
+      if (layout == ImageBatchLayout::pad) {
+        collate.size_divisor = 4;
+        collate.mask_padding_id = -7;
+      }
+      auto batch = Batch({a, b}, collate);
+      const BatchMemoryOptions memory{.pin_memory = true,
+                                      .target_device = Device(torch::kCUDA, 0),
+                                      .non_blocking = true};
+      const auto bytes =
+          inspect_batch_memory(image_batch_value(batch), memory).tensor_bytes;
+      auto prepared = prepare_image_batch(batch, memory, {}, budget);
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current,
+                2 * bytes);
+      EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, bytes);
+      auto repinned = prepare_image_batch(prepared, memory, {}, budget);
+      const auto& original = layout == ImageBatchLayout::ragged
+                                 ? prepared.image_list[0]
+                                 : prepared.images;
+      const auto& alias = layout == ImageBatchLayout::ragged
+                              ? repinned.image_list[0]
+                              : repinned.images;
+      EXPECT_EQ(original.data_ptr(), alias.data_ptr());
+      EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current,
+                2 * bytes);
+      repinned = {};
+      auto transferred = transfer_image_batch(prepared, memory, {}, budget);
+      EXPECT_EQ(transferred.memory.pinned_tensor_count,
+                prepared.memory.pinned_tensor_count);
+      EXPECT_EQ(transferred.memory.transferred_tensor_count,
+                prepared.memory.tensor_count);  // Includes the empty labels.
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current,
+                3 * bytes);
+      EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, bytes);
+      EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, bytes);
+      {
+        const auto roundtrip = image_batch_value(transferred);
+        EXPECT_NO_THROW(image_batch_from_value(roundtrip));
+      }
+      const auto& gpu = layout == ImageBatchLayout::ragged
+                            ? transferred.image_list[0]
+                            : transferred.images;
+      EXPECT_TRUE(torch::equal(gpu.cpu(), original));
+      if (!paired) {
+        const auto& actual = layout == ImageBatchLayout::ragged
+                                 ? transferred.mask_list[0]
+                                 : *transferred.masks;
+        const auto& expected = layout == ImageBatchLayout::ragged
+                                   ? batch.mask_list[0]
+                                   : *batch.masks;
+        EXPECT_TRUE(torch::equal(actual.cpu(), expected));
+      }
+      batch = {};
+      prepared = {};
+      EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 0U);
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, bytes);
+      auto shared = transferred;
+      transferred = {};
+      EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, bytes);
+      shared = {};
+      ExpectBatchBudgetReleased(budget);
+    }
+  }
+}
+
+TEST(ImageBatchCUDATest, MemoryProjectionDistinguishesCpuAliasFromIndexedCopy) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const auto batch = Batch({Photo()});
+  const auto pinned = prepare_image_batch(batch, {.pin_memory = true});
+  for (const bool pin : {false, true}) {
+    for (const bool nonblocking : {false, true}) {
+      for (const auto target : {Device(torch::kCPU), Device(torch::kCPU, 0)}) {
+        SCOPED_TRACE(target.str());
+        SCOPED_TRACE(pin);
+        SCOPED_TRACE(nonblocking);
+        const BatchMemoryOptions memory{.pin_memory = pin,
+                                        .target_device = target,
+                                        .non_blocking = nonblocking};
+        auto budget = std::make_shared<ImageResourceBudget>();
+        auto prepared = prepare_image_batch(pinned, memory, {}, budget);
+        ASSERT_TRUE(prepared.images.is_pinned());
+        ASSERT_TRUE(prepared.valid.is_pinned());
+        ASSERT_EQ(prepared.labels.numel(), 0);
+        const bool copies = target != prepared.images.device();
+        auto transferred = transfer_image_batch(prepared, memory, {}, budget);
+        EXPECT_EQ(transferred.images.is_pinned(), !copies);
+        EXPECT_EQ(transferred.valid.is_pinned(), !copies);
+        EXPECT_EQ(transferred.images.data_ptr() == prepared.images.data_ptr(),
+                  !copies);
+        EXPECT_EQ(transferred.valid.data_ptr() == prepared.valid.data_ptr(),
+                  !copies);
+        EXPECT_TRUE(torch::equal(transferred.images, prepared.images));
+        EXPECT_TRUE(torch::equal(transferred.valid, prepared.valid));
+        EXPECT_EQ(transferred.labels.numel(), 0);
+        EXPECT_EQ(transferred.memory.tensor_count, 3U);
+        EXPECT_EQ(transferred.memory.pinned_tensor_count, pin ? 2U : 0U);
+        // The indexed CPU copy includes the zero-byte labels occurrence.
+        EXPECT_EQ(transferred.memory.transferred_tensor_count,
+                  copies ? transferred.memory.tensor_count : 0U);
+        EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 48U);
+        const auto pinned_total = copies ? 24U : 48U;
+        EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current,
+                  pinned_total);
+        EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).peak,
+                  pinned_total);
+        EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+        prepared = {};
+        EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current,
+                  copies ? 0U : 24U);
+        EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+        auto shared = transferred;
+        transferred = {};
+        EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current,
+                  copies ? 0U : 24U);
+        shared = {};
+        ExpectBatchBudgetReleased(budget);
+      }
+    }
+  }
+}
+
+TEST(ImageBatchCUDATest, CpuIndexedCopyNeedsNoAdditionalPinnedLease) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const auto batch = Batch({Photo()});
+  for (const auto target : {Device(torch::kCPU), Device(torch::kCPU, 0)}) {
+    SCOPED_TRACE(target.str());
+    ImageResourceBudgetLimits limits;
+    limits.max_pinned_bytes = 24;
+    auto budget = std::make_shared<ImageResourceBudget>(limits);
+    const BatchMemoryOptions memory{.pin_memory = true,
+                                    .target_device = target};
+    auto prepared = prepare_image_batch(batch, memory, {}, budget);
+    ASSERT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 24U);
+    if (target == prepared.images.device()) {
+      EXPECT_THROW(transfer_image_batch(prepared, memory, {}, budget),
+                   ResourceExhausted);
+      EXPECT_TRUE(prepared.images.is_pinned());
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+    } else {
+      // A pinned source may consume the entire pin budget. Its pageable CPU:0
+      // result still needs a separate logical batch lease, but zero pin bytes.
+      auto transferred = transfer_image_batch(prepared, memory, {}, budget);
+      EXPECT_FALSE(transferred.images.is_pinned());
+      EXPECT_FALSE(transferred.valid.is_pinned());
+      EXPECT_NE(transferred.images.data_ptr(), prepared.images.data_ptr());
+      EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 2U);
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 48U);
+      EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 24U);
+      EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).peak, 24U);
+      prepared = {};
+      EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 0U);
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+      transferred = {};
+    }
+    prepared = {};
+    ExpectBatchBudgetReleased(budget);
+  }
+}
+
+TEST(ImageBatchCUDATest,
+     NoPinPreparationPreservesPinnedSourceAndCudaOutputLease) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const auto pinned =
+      prepare_image_batch(Batch({Photo()}), {.pin_memory = true});
+  for (const auto target : {Device(torch::kCUDA), Device(torch::kCUDA, 0)}) {
+    SCOPED_TRACE(target.str());
+    const BatchMemoryOptions no_pin{.target_device = target};
+    auto budget = std::make_shared<ImageResourceBudget>();
+    auto prepared = prepare_image_batch(pinned, no_pin, {}, budget);
+    EXPECT_EQ(prepared.images.data_ptr(), pinned.images.data_ptr());
+    EXPECT_EQ(prepared.memory.pinned_tensor_count, 0U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 24U);
+    auto transferred = transfer_image_batch(prepared, no_pin, {}, budget);
+    EXPECT_TRUE(transferred.images.device().is_cuda());
+    EXPECT_EQ(transferred.labels.numel(), 0);
+    EXPECT_EQ(transferred.memory.transferred_tensor_count,
+              transferred.memory.tensor_count);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 24U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 24U);
+    prepared = {};
+    EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 0U);
+    transferred = {};
+    ExpectBatchBudgetReleased(budget);
+  }
+}
+
+TEST(ImageBatchCUDATest,
+     DisabledMemoryPreservesCudaSourceAndIndependentGpuLeases) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const BatchMemoryOptions device{.target_device = Device(torch::kCUDA, 0)};
+  const auto gpu = transfer_image_batch(
+      prepare_image_batch(Batch({Photo()}), device), device);
+  auto budget = std::make_shared<ImageResourceBudget>();
+  BatchMemoryOptions disabled;
+  disabled.max_tensors = 1;
+  disabled.max_value_nodes = 1;
+  disabled.max_bytes = 1;
+  auto prepared = prepare_image_batch(gpu, disabled, {}, budget);
+  EXPECT_FALSE(prepared.memory.staged);
+  EXPECT_EQ(prepared.images.data_ptr(), gpu.images.data_ptr());
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 24U);
+  auto transferred = transfer_image_batch(prepared, disabled, {}, budget);
+  EXPECT_EQ(transferred.images.data_ptr(), gpu.images.data_ptr());
+  EXPECT_FALSE(transferred.memory.staged);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 48U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 48U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 0U);
+  prepared = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 24U);
+  auto shared = transferred;
+  transferred = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 24U);
+  shared = {};
+  ExpectBatchBudgetReleased(budget);
+}
+
+TEST(ImageBatchCUDATest, MemorySourceDeviceErrorsPrecedeImageAdmission) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  const BatchMemoryOptions device{.target_device = Device(torch::kCUDA, 0)};
+  const auto gpu = transfer_image_batch(
+      prepare_image_batch(Batch({Photo()}), device), device);
+  ImageResourceBudgetLimits limits;
+  limits.max_staged_batches = 0;
+  const auto budget = std::make_shared<ImageResourceBudget>(limits);
+  EXPECT_THROW(prepare_image_batch(gpu, device, {}, budget), InvalidArgument);
+  EXPECT_THROW(prepare_image_batch(gpu, {.pin_memory = true}, {}, budget),
+               InvalidArgument);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).peak, 0U);
+  ExpectBatchBudgetReleased(budget);
 }
 
 TEST(ImageBatchCUDATest, ContentIdentityRejectsDeviceBatchWithoutTransfer) {

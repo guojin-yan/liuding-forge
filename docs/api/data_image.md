@@ -201,6 +201,8 @@ auto device_batch = image::transfer_image_batch(std::move(prepared), memory);
 
 传输复用 Core 两阶段内存接口，在调用方当前 CUDA stream 上执行；没有独立 copy stream、隐式跨 stream event 或传输重叠保证。准备与传输必须使用相同的内存策略。输入 batch 和源样本保持原样；组批输出具有独立照片/mask/valid/label 存储。独立 pin/传输 API 以及原 pipeline memory stage 的限制各自生效。
 
+向 `prepare_image_batch/transfer_image_batch` 传入共享 `ImageResourceBudget` 时，会在 Core 完成结构、策略及传输元数据检查之后、首个 pin/设备输出存储分配之前，预约结果的已知逻辑 Tensor、pinned/GPU、画布、索引及标注占用。预算不足时立即报告 `ResourceExhausted`，不隐藏等待；同一结果租约保留到 batch 的最后一个共享副本释放，源 batch 的已有租约在其存活期间独立计费。未发生复制的 Tensor 别名仍按 batch 逻辑占用分别计费。CPU 目标仅在完整 Device 与源相等时保留原 pinned 属性；显式 `cpu:0` 会经 Core 的设备复制生成 pageable 输出，其源 pinned 租约独立保留。该合同只覆盖这两个显式图像阶段；不代表完整 pipeline 字节调度、LibTorch 私有 workspace、异步 allocator 驻留或进程 RSS 上限。
+
 ## CPU/CUDA 批量数值变换
 
 `transform_image_batch` 对 packed NCHW 或 ragged CHW 照片执行浮点类型转换、显式强度缩放、RGB/BGR 交换与逐通道标准化，在原 CPU/CUDA 设备及调用方当前 stream 上运行。packed 路径以整批执行，不逐张读取 GPU 标量。运算使用 float32，float64 输出使用 float64 运算，再转换到指定 float16/bfloat16/float32/float64。mask、valid、labels、标注和几何原样共享，不进行重采样或归一化。

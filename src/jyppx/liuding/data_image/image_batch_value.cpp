@@ -5,6 +5,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "../data/batch_memory_detail.hpp"
 #include "image_batch_detail.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
@@ -636,9 +637,9 @@ std::shared_ptr<void> image_batch_resource_lease(
 
 data::BatchResourceLeaseFactory make_image_batch_resource_lease_factory(
     std::shared_ptr<ImageResourceBudget> budget, ImageBatchLimits limits) {
-  return [budget = std::move(budget), limits](
-             const c10::IValue& value, const data::BatchMemoryMetadata&,
-             std::stop_token stop) {
+  return [budget = std::move(budget), limits](const c10::IValue& value,
+                                              const data::BatchMemoryMetadata&,
+                                              std::stop_token stop) {
     return image_batch_resource_lease(value, budget, limits, stop);
   };
 }
@@ -685,13 +686,24 @@ ImageBatch prepare_image_batch(const ImageBatch& batch,
                                const data::BatchMemoryOptions& options,
                                const ImageBatchLimits& limits,
                                std::shared_ptr<ImageResourceBudget> budget) {
-  const auto prepared =
-      data::prepare_batch_memory(image_batch_value(batch, limits), options);
+  // Keep the reservation alive through all temporary/result Tensor handles,
+  // including backend and decode failures. Source leases remain independently
+  // owned and overlap this output reservation while the source is alive.
+  std::shared_ptr<ImageResourceLeaseSet> leases;
+  data::detail::BatchMemoryAdmission admit;
+  if (budget) {
+    admit = [&] {
+      const detail::BatchResourceProjection projection{.pin_host =
+                                                           options.pin_memory};
+      leases = detail::ReserveBatchResources(batch, budget, limits, {}, true,
+                                             &projection);
+    };
+  }
+  const auto prepared = data::detail::prepare_batch_memory_with_admission(
+      image_batch_value(batch, limits), options, admit);
   auto result = image_batch_from_value(prepared.value, limits);
   result.memory = prepared.metadata;
-  if (budget)
-    result.resource_lease_sets.push_back(
-        detail::ReserveBatchResources(result, budget, limits));
+  if (leases) result.resource_lease_sets.push_back(std::move(leases));
   return result;
 }
 
@@ -699,13 +711,21 @@ ImageBatch transfer_image_batch(ImageBatch prepared,
                                 const data::BatchMemoryOptions& options,
                                 const ImageBatchLimits& limits,
                                 std::shared_ptr<ImageResourceBudget> budget) {
-  auto staged = data::transfer_batch_memory(
-      {image_batch_value(prepared, limits), prepared.memory}, options);
+  std::shared_ptr<ImageResourceLeaseSet> leases;
+  data::detail::BatchMemoryAdmission admit;
+  if (budget) {
+    admit = [&] {
+      const detail::BatchResourceProjection projection{
+          .target_device = options.target_device};
+      leases = detail::ReserveBatchResources(prepared, budget, limits, {}, true,
+                                             &projection);
+    };
+  }
+  auto staged = data::detail::transfer_batch_memory_with_admission(
+      {image_batch_value(prepared, limits), prepared.memory}, options, admit);
   auto result = image_batch_from_value(staged.value, limits);
   result.memory = staged.metadata;
-  if (budget)
-    result.resource_lease_sets.push_back(
-        detail::ReserveBatchResources(result, budget, limits));
+  if (leases) result.resource_lease_sets.push_back(std::move(leases));
   return result;
 }
 }  // namespace jyppx::liuding::data::image
