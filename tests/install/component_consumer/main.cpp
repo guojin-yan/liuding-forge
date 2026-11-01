@@ -57,12 +57,6 @@
 #include <jyppx/liuding/foundation/error.hpp>
 #elif defined(JYPPX_CONSUMER_ONNX_SERVING)
 #include <jyppx/liuding/deployment/onnx_serving/backend.hpp>
-#elif defined(JYPPX_CONSUMER_QUANTIZATION_TORCH)
-#include <jyppx/liuding/quantization_torch/static_linear.hpp>
-#elif defined(JYPPX_CONSUMER_QUANTIZATION_ONEDNN)
-#include <jyppx/liuding/quantization_onednn/static_linear.hpp>
-#elif defined(JYPPX_CONSUMER_QUANTIZATION)
-#include <jyppx/liuding/quantization/quantization.hpp>
 #elif defined(JYPPX_CONSUMER_SERVING)
 #include <jyppx/liuding/serving/serving.hpp>
 #elif defined(JYPPX_CONSUMER_ALL)
@@ -119,7 +113,7 @@ bool InstalledModelWeightImportAppliesVerifiedState() {
 #endif
 
 bool BuildCapabilityInventoryMatchesPackage() {
-  constexpr std::array<std::pair<std::string_view, bool>, 19U> kExpected{{
+  constexpr std::array<std::pair<std::string_view, bool>, 16U> kExpected{{
       {"bundle_signing", JYPPX_EXPECT_COMPONENT_BUNDLE_SIGNING != 0},
       {"core", JYPPX_EXPECT_COMPONENT_CORE != 0},
       {"data", JYPPX_EXPECT_COMPONENT_DATA != 0},
@@ -133,9 +127,6 @@ bool BuildCapabilityInventoryMatchesPackage() {
       {"onnx_runtime", JYPPX_EXPECT_COMPONENT_ONNX_RUNTIME != 0},
       {"onnx_serving", JYPPX_EXPECT_COMPONENT_ONNX_SERVING != 0},
       {"optim", JYPPX_EXPECT_COMPONENT_OPTIM != 0},
-      {"quantization", JYPPX_EXPECT_COMPONENT_QUANTIZATION != 0},
-      {"quantization_onednn", JYPPX_EXPECT_COMPONENT_QUANTIZATION_ONEDNN != 0},
-      {"quantization_torch", JYPPX_EXPECT_COMPONENT_QUANTIZATION_TORCH != 0},
       {"serving", JYPPX_EXPECT_COMPONENT_SERVING != 0},
       {"training", JYPPX_EXPECT_COMPONENT_TRAINING != 0},
       {"vision_render", JYPPX_EXPECT_COMPONENT_VISION_RENDER != 0},
@@ -146,9 +137,7 @@ bool BuildCapabilityInventoryMatchesPackage() {
     const auto& [component, enabled] = kExpected[index];
     const auto& feature = manifest.features[index];
     const bool preview =
-        component == "models" || component == "quantization" ||
-        component == "quantization_torch" ||
-        component == "quantization_onednn" || component == "serving" ||
+        component == "models" || component == "serving" ||
         component == "data_image" || component == "vision_render" ||
         component == "onnx_export" || component == "onnx_runtime" ||
         component == "onnx_serving" || component == "bundle_signing";
@@ -604,25 +593,11 @@ int main() {
   } catch (const jyppx::liuding::InvalidArgument&) {
     return 0;
   }
-#elif defined(JYPPX_CONSUMER_QUANTIZATION_TORCH)
-  return jyppx::liuding::quantization_torch::quantized_cpu_capabilities()
-                 .libtorch_version.empty()
-             ? 1
-             : 0;
-#elif defined(JYPPX_CONSUMER_QUANTIZATION)
-  jyppx::liuding::quantization::validate_format_descriptor({});
-  return 0;
 #elif defined(JYPPX_CONSUMER_ONNX_SERVING)
   const std::array<jyppx::liuding::onnx_runtime::TensorSignature, 1> input{
       {{.name = "image", .shape = {-1, 3}, .batch_symbol = "batch"}}};
   return jyppx::liuding::serving::onnx_invocation_schema(input)
                  .keyword.contains("image")
-             ? 0
-             : 1;
-#elif defined(JYPPX_CONSUMER_QUANTIZATION_ONEDNN)
-  return jyppx::liuding::quantization_onednn::StaticLinear::
-                     dependency_identity()
-                         .at("compiled_onednn_version") == "3.12.0"
              ? 0
              : 1;
 #elif defined(JYPPX_CONSUMER_SERVING)

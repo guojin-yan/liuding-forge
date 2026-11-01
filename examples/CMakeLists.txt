@@ -44,7 +44,6 @@ foreach(example_target IN ITEMS
     jyppx_add_torch_runtime_dependency(${example_target})
 endforeach()
 
-
 endif()
 
 if(TARGET jyppx_dataset_preparation)
@@ -177,26 +176,6 @@ if(TARGET jyppx::liuding::bundle_signing)
     endif()
 endif()
 
-if(TARGET jyppx::liuding::quantization AND TARGET jyppx::liuding::onnx_export
-   AND TARGET jyppx::liuding::onnx_runtime)
-    add_executable(jyppx_liuding_quantization_per_output_channel_example
-        quantization/per_output_channel.cpp)
-    set_target_properties(jyppx_liuding_quantization_per_output_channel_example PROPERTIES
-        OUTPUT_NAME liuding-forge-example-int8-per-output-channel)
-    target_link_libraries(jyppx_liuding_quantization_per_output_channel_example PRIVATE
-        jyppx::liuding::quantization jyppx::liuding::onnx_export
-        jyppx::liuding::onnx_runtime)
-    jyppx_apply_instrumentation(jyppx_liuding_quantization_per_output_channel_example)
-    jyppx_add_torch_runtime_dependency(jyppx_liuding_quantization_per_output_channel_example)
-    jyppx_add_onnx_runtime_dependency(jyppx_liuding_quantization_per_output_channel_example)
-    if(JYPPX_LIUDING_BUILD_TESTS)
-        add_test(NAME PerOutputChannelInt8Example
-            COMMAND jyppx_liuding_quantization_per_output_channel_example)
-        set_tests_properties(PerOutputChannelInt8Example PROPERTIES
-            LABELS "examples;quantization;deployment;onnx_runtime" TIMEOUT 120)
-    endif()
-endif()
-
 # Public models/optimizer lesson; local weights are explicit at runtime.
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::optim)
     add_executable(jyppx_transfer_group_rates EXCLUDE_FROM_ALL
@@ -228,7 +207,6 @@ if(JYPPX_LIUDING_PREPARE_MNIST AND TARGET jyppx_dataset_preparation)
     jyppx_apply_instrumentation(jyppx_mnist_data)
     jyppx_add_torch_runtime_dependency(jyppx_mnist_data)
 endif()
-
 
 if(TARGET jyppx::liuding::telemetry_native)
     add_executable(jyppx_liuding_native_tensorboard_example experiment/tensorboard.cpp)
@@ -305,26 +283,4 @@ if(TARGET jyppx::liuding::models)
         jyppx::liuding::models)
     jyppx_apply_instrumentation(jyppx_dino_intermediate_features)
     jyppx_add_torch_runtime_dependency(jyppx_dino_intermediate_features)
-endif()
-
-if(TARGET jyppx::liuding::quantization_torch)
-    add_executable(jyppx_liuding_libtorch_static_linear_example
-        quantization/libtorch_static_linear.cpp)
-    set_target_properties(jyppx_liuding_libtorch_static_linear_example PROPERTIES
-        OUTPUT_NAME liuding-forge-example-libtorch-static-int8)
-    target_link_libraries(jyppx_liuding_libtorch_static_linear_example PRIVATE
-        jyppx::liuding::quantization_torch)
-    jyppx_apply_instrumentation(jyppx_liuding_libtorch_static_linear_example)
-    jyppx_add_torch_runtime_dependency(jyppx_liuding_libtorch_static_linear_example)
-endif()
-
-if(TARGET jyppx::liuding::quantization_onednn)
-    add_executable(jyppx_liuding_onednn_static_linear_example
-        quantization/onednn_static_linear.cpp)
-    set_target_properties(jyppx_liuding_onednn_static_linear_example PROPERTIES
-        OUTPUT_NAME liuding-forge-example-onednn-static-int8)
-    target_link_libraries(jyppx_liuding_onednn_static_linear_example PRIVATE
-        jyppx::liuding::quantization_onednn)
-    jyppx_apply_instrumentation(jyppx_liuding_onednn_static_linear_example)
-    jyppx_add_torch_runtime_dependency(jyppx_liuding_onednn_static_linear_example)
 endif()

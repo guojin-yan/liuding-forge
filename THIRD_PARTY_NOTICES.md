@@ -24,12 +24,6 @@ JYPPX package.
   it must also redistribute the exact license and notice files supplied with
   that LibTorch build. This summary does not replace those files.
 
-### oneDNN（可选）
-
-`jyppx::liuding::quantization_onednn` 使用 [UXL Foundation 官方 oneDNN](https://github.com/uxlfoundation/oneDNN) 3.12.0 的固定静态 CPU SDK，与 LibTorch 内置副本分别配置。上游提交为 `80afa71049cd69a3df32adcccb623b12cd7baa22`，完整源码归档 SHA-256 为 `f13ce92168cae7bd25f5efc43f00b37ff14bcc62ffdea3d85220b1c50c104f17`；SDK 静态库的独立摘要由构建配置显式提供，不能从源码摘要推导。
-
-原始 Apache-2.0 `LICENSE` 和完整 `THIRD-PARTY-PROGRAMS` 已从该归档逐字节保留在 `third_party/licenses/oneDNN-3.12.0-*`，后者包含 Xbyak 等依赖的声明。另逐字保留 `ittptmark64.S` 的完整原始许可头，其中含 Intel 2017 版权和双许可条款；本项目选择其中的 BSD-3-Clause 条款使用和分发。启用此组件的安装包同时保留三份原文。许可文件留存不代表依赖安全或完整发布审查完成。
-
 ### ONNX Runtime（可选）
 
 `jyppx::liuding::onnx_runtime` 使用 Microsoft 官方 ONNX Runtime 1.23.2 CPU SDK，许可证为 MIT；公共头文件不暴露 ORT 类型。原生 `onnx_export` 使用 LibTorch 自带的官方 C++ ONNX 序列化器，不引入 Python 或独立 protobuf SDK。上游项目为 <https://github.com/microsoft/onnxruntime>。

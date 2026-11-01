@@ -1,72 +1,24 @@
-# Bounded parser fuzzing
+# 有界解析器模糊测试
 
-The original `device_parse`, `data_pipeline_state` and
-`iterable_pipeline_state` targets remain available. Seven additional targets
-exercise production parsers without filesystem/network activity:
+基线包含 `device_parse`、`data_pipeline_state`、`iterable_pipeline_state` 和以下六个生产解析边界，共九个 libFuzzer target。解析器测试不访问网络或业务文件系统。
 
-| Target suffix | Production boundary | Successful-input invariants |
+| Target 后缀 | 生产边界 | 成功输入的检查 |
 | --- | --- | --- |
-| `telemetry_codec` | Binary envelope and metric-definition decoders | Exact canonical bytes, SHA-256, encode/decode stability and exact byte budgets |
-| `checkpoint_manifest` | Strict checkpoint JSON parser | Canonical parse/encode/reparse and exact byte budgets |
-| `model_bundle_manifest` | Strict model-bundle JSON parser | Canonical JSON, stable signing payload and exact byte budgets |
-| `safetensors` | Complete header/shape/extent parser | Metadata, tensor association and opaque payload preservation; canonical stability and exact file budgets |
-| `evaluation_json` | Suite, measured-input and quality-report parsers | Canonical JSON, exact byte budgets, report self-comparison and escaped HTML |
-| `backend_protocol` | `OfficialTelemetrySink` reply parser | Actual emit/flush/close receipt validation, immutable replay, exact reply budgets, counter monotonicity and rejection atomicity |
-| `quantization` (optional Preview) | Canonical Linear artifact decoder and `MinMaxObserver::load_state` | Canonical artifact roundtrip and exact byte budgets; bounded checkpoint reads, observer roundtrip and rejected-restore atomicity |
+| `telemetry_codec` | 二进制 envelope 与指标定义 | 规范字节、SHA-256、编解码稳定性、精确字节限额 |
+| `checkpoint_manifest` | 严格 checkpoint JSON | 解析、规范编码、再解析、精确字节限额 |
+| `model_bundle_manifest` | 严格模型 bundle JSON | 规范 JSON、稳定签名载荷、精确字节限额 |
+| `safetensors` | 完整头、形状与 extent 解析 | 元数据、Tensor 关联、不透明载荷、规范稳定性、文件限额 |
+| `evaluation_json` | suite、measured-input、quality-report | 规范 JSON、字节限额、报告自比较、HTML 转义 |
+| `backend_protocol` | `OfficialTelemetrySink` reply | emit/flush/close receipt、不可变重放、reply 限额、计数单调性、拒绝原子性 |
 
-Every new harness accepts raw libFuzzer bytes up to 64 KiB with explicit small
-parser collection/string/shape limits. Each also creates and validates real
-production encodings once, then applies up to eight edits to a selected valid
-seed on every input. Binary edits can preserve the domain/framing prefix to
-reach nested fields while the raw-input path mutates all bytes. Corpus files
-include valid payloads of each supported kind and short malformed boundary
-inputs. `generate_corpus.py` regenerates the six baseline families' data-only
-fixtures. `generate_quantization_corpus.py` updates only the quantization
-fixtures, including biased/unbiased artifacts, empty/finite/nonfinite/zero
-observer states, oversized counts, nonfinite bias, invalid flags/padding and
-trailing bytes. Actual codec-generated seeds are validated by the C++
-executables themselves.
+新增的六个 harness 接收不超过 64 KiB 的输入，并限制集合、字符串和形状大小。每个 harness 验证生产编码生成的种子，再对有效种子执行最多八次编辑；原始输入路径仍可修改全部字节。`generate_corpus.py` 生成这六类数据语料，C++ 可执行程序独立验证实际 codec 种子。
 
-Only documented input-rejection `jyppx::liuding::Error` codes are caught. Internal
-errors, unexpected framework categories, standard exceptions, invariant
-failures and sanitizer errors remain visible. Backend-reported errors are
-accepted only by the protocol harness. Once an input parses, later
-serialization/reparse failures cannot be reclassified as malformed input.
-The quantization decoder also reports nonfinite artifact bias with the public
-`NumericalError` category; only its initial decode accepts that category as an
-input rejection. Observer rejection checks retain an existing finite state and assert that every rejected restore leaves its identity, counters and extrema unchanged. The harness also mutates bounded checkpoint manifests and restore policies independently of the state bytes.
+只捕获文档约定的 `jyppx::liuding::Error` 输入拒绝类别；内部错误、标准异常、不变量失败和 sanitizer 错误必须暴露。只有协议 harness 接受后端错误。输入解析成功后，后续编码或再解析失败不能重新归为非法输入。规范输出与转义 HTML 分别受限，并检查精确大小成功与少一个字节时的拒绝；safetensors 值保持不透明位模式。
 
-Canonical output has a separate bounded budget because compact source JSON, number spelling, escaping and safetensors layout can change its byte length. The exact-size success and one-byte-too-small rejection checks use that output size. HTML has its own escaped output budget. Tensor values remain opaque bits, including signed zero and nonfinite floating-point encodings in safetensors. Quantization artifacts require canonical input; accepted observer signed zero is normalized by its encoder, then must stay stable on reparse. Quantization uses at most 64 features per dimension, 32 sample IDs, 64 bytes per ID and 256 bytes per lineage string. The observer has a fixed production checkpoint byte contract, capped at 128 bytes by the harness, and the reader checks the exact limit requested by the production restore path.
-
-`JYPPX_LIUDING_BUILD_FUZZERS=ON` requires Clang and the complete SDK. Only that opt-in
-build instruments framework implementation archives with `fuzzer-no-link`,
-in addition to the harness coverage and libFuzzer entry point. Third-party
-libraries are not rebuilt with libFuzzer coverage.
+`JYPPX_LIUDING_BUILD_FUZZERS=ON` 要求 Clang 和完整 SDK，并为框架实现归档启用 `fuzzer-no-link`，第三方库不重编译为 libFuzzer coverage。
 
 ```sh
-CMAKE_PREFIX_PATH=/path/to/libtorch JYPPX_FUZZ_RUNS=10000 \ bash scripts/validation/run-fuzz.sh
+CMAKE_PREFIX_PATH=/path/to/libtorch JYPPX_FUZZ_RUNS=10000 bash scripts/validation/run-fuzz.sh
 ```
 
-The runner always reuses `out/build/fuzz-linux` and preserves discovered corpora
-under `out/fuzz/linux`. It runs all nine targets with ASan/UBSan, a fixed seed,
-per-input timeout and process RSS bound. `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL`,
-`JYPPX_FUZZ_RUNS`, `JYPPX_FUZZ_SEED` and `JYPPX_FUZZ_RSS_LIMIT_MB` customize the
-bounded run. Configure/build logs, per-target dictionaries/corpus counts/fuzzer logs/artifacts and overall success/failure metadata are retained. A failed target stops the gate and retains its reproducer; no failure is skipped.
-
-The optional `jyppx_fuzz_quantization` target exists only when
-`jyppx::liuding::quantization` is present and links that Preview explicitly. The
-nine-target baseline runner remains unchanged. After its persistent cache has
-been configured with Clang, libFuzzer, ASan and UBSan, add and run just this new
-target without rebuilding/rerunning the nine completed target gates:
-
-```sh
-set -euo pipefail cmake -S . -B out/build/fuzz-linux -DJYPPX_LIUDING_BUILD_QUANTIZATION=ON cmake --build out/build/fuzz-linux --target jyppx_fuzz_quantization \ --parallel "${JYPPX_LIUDING_BUILD_PARALLEL_LEVEL:-2}" target_output="$PWD/out/fuzz/linux/quantization" mkdir -p "$target_output/corpus" "$target_output/artifacts" cp -R tests/fixtures/fuzz/quantization/corpus/. "$target_output/corpus/" address_layout_runner=() if command -v setarch >/dev/null && setarch "$(uname -m)" -R true 2>/dev/null; then address_layout_runner=(setarch "$(uname -m)" -R) fi ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1:strict_string_checks=1}" \ UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \ "${address_layout_runner[@]}" \ out/build/fuzz-linux/tests/fuzz/liuding-forge-fuzz-quantization \ "$target_output/corpus" \ -dict=tests/fixtures/fuzz/quantization/quantization.dict \ -artifact_prefix="$target_output/artifacts/" \ -max_len=65536 -timeout=10 \ -rss_limit_mb="${JYPPX_FUZZ_RSS_LIMIT_MB:-4096}" \ -seed="${JYPPX_FUZZ_SEED:-20261021}" \ -runs="${JYPPX_FUZZ_RUNS:-10000}" \ 2>&1 | tee "$target_output/03-fuzz.log"
-```
-
-Keep the final source commit, cache/compiler/sanitizer configuration, selected
-address-layout mode, dictionary hash, initial/final corpus counts and process
-exit status alongside the target log when recording this additional gate.
-
-These tests cover the C++ official-backend reply boundary. They do not invoke
-official Python libraries or replace the separate sidecar request/protocol
-integration gate.
+runner 复用 `out/build/fuzz-linux`，在 `out/fuzz/linux` 保留发现的语料、日志与 reproducer。九个 target 使用 ASan/UBSan、固定种子、单输入超时和进程 RSS 限额；可设置 `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL`、`JYPPX_FUZZ_RUNS`、`JYPPX_FUZZ_SEED`、`JYPPX_FUZZ_RSS_LIMIT_MB`。失败即停止并保留证据，不能跳过失败。该检查不替代独立的官方 sidecar 请求/协议集成验收。

@@ -423,7 +423,6 @@ jyppx_add_gtest(jyppx_test_training
 )
 endif()
 
-
 if(TARGET jyppx::liuding::models)
     jyppx_add_gtest(jyppx_test_models_intermediates
         LINK_TARGET jyppx::liuding::models
@@ -583,14 +582,6 @@ if(TARGET jyppx::liuding::onnx_export)
         target_compile_definitions(jyppx_test_onnx_export PRIVATE
             JYPPX_LIUDING_TEST_ONNX_MODELS=1)
     endif()
-    if(TARGET jyppx::liuding::quantization)
-        target_sources(jyppx_test_onnx_export PRIVATE
-            deployment/onnx_export/test_static_int8_linear.cpp)
-        if(TARGET jyppx::liuding::onnx_runtime)
-            target_sources(jyppx_test_onnx_export PRIVATE
-                "${PROJECT_SOURCE_DIR}/tests/quantization/test_per_output_channel_linear.cpp")
-        endif()
-    endif()
     if(TARGET jyppx::liuding::onnx_runtime)
         target_link_libraries(jyppx_test_onnx_export PRIVATE
             jyppx::liuding::onnx_runtime ONNXRuntime::onnxruntime)
@@ -643,38 +634,6 @@ if(JYPPX_LIUDING_ONNX_REFERENCE_PYTHON)
         set_tests_properties(OfficialOnnxRuntimeInterchange PROPERTIES
             LABELS "deployment;onnx_runtime;official" TIMEOUT 900)
     endif()
-    if(TARGET jyppx_int8_prepare AND TARGET jyppx_int8_export)
-        add_test(NAME OfficialNativeInt8Tools
-            COMMAND "${JYPPX_LIUDING_ONNX_REFERENCE_PYTHON}"
-                "${PROJECT_SOURCE_DIR}/tests/quantization/test_native_int8_export.py"
-                --prepare-tool $<TARGET_FILE:jyppx_int8_prepare>
-                --export-tool $<TARGET_FILE:jyppx_int8_export>)
-        set_tests_properties(OfficialNativeInt8Tools PROPERTIES
-            LABELS "deployment;quantization;official" TIMEOUT 180)
-    endif()
-endif()
-
-if(TARGET jyppx::liuding::quantization)
-    jyppx_add_gtest(jyppx_test_quantization
-        LINK_TARGET jyppx::liuding::quantization
-        quantization/test_quantization.cpp
-    )
-endif()
-
-if(TARGET jyppx::liuding::quantization_torch)
-    jyppx_add_gtest(jyppx_test_quantization_torch
-        LINK_TARGET jyppx::liuding::quantization_torch
-        quantization_torch/test_static_linear.cpp)
-    target_link_libraries(jyppx_test_quantization_torch PRIVATE Threads::Threads)
-endif()
-
-if(TARGET jyppx::liuding::quantization_onednn)
-    jyppx_add_gtest(jyppx_test_quantization_onednn
-        LINK_TARGET jyppx::liuding::quantization_onednn
-        quantization_onednn/test_static_linear.cpp)
-    target_include_directories(jyppx_test_quantization_onednn PRIVATE
-        "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/quantization_onednn")
-    target_link_libraries(jyppx_test_quantization_onednn PRIVATE Threads::Threads)
 endif()
 
 if(TARGET jyppx::liuding::serving)
@@ -703,15 +662,6 @@ if(TARGET jyppx::liuding::bundle_signing)
         deployment/bundle_signing/test_provider.cpp)
     target_link_libraries(jyppx_test_bundle_signing PRIVATE
         nlohmann_json::nlohmann_json OpenSSL::Crypto Threads::Threads)
-endif()
-
-if(TARGET jyppx_int8_fashion_fixture)
-    add_test(NAME NativeInt8FixtureTextIdentity
-        COMMAND ${Python3_EXECUTABLE}
-            "${PROJECT_SOURCE_DIR}/tests/quantization/test_fashion_fixture_text.py"
-            --tool $<TARGET_FILE:jyppx_int8_fashion_fixture>)
-    set_tests_properties(NativeInt8FixtureTextIdentity PROPERTIES
-        LABELS "quantization;integration" TIMEOUT 60)
 endif()
 
 if(JYPPX_LIUDING_PREPARE_FASHION_MNIST AND TARGET jyppx_dataset_preparation)
@@ -879,7 +829,6 @@ if(TARGET jyppx_dataset_preparation AND Python3_Interpreter_FOUND AND
             TIMEOUT 900 RUN_SERIAL TRUE)
     endif()
 endif()
-
 
 if(TARGET jyppx::liuding::telemetry_native)
     jyppx_add_gtest(jyppx_test_native_tensorboard

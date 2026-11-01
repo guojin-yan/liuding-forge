@@ -64,10 +64,6 @@ if(TARGET jyppx::liuding::models)
     jyppx_add_resource_bench(jyppx_bench_resource_models jyppx::liuding::models
         bench_resource_models.cpp)
 endif()
-if(TARGET jyppx::liuding::quantization)
-    jyppx_add_resource_bench(jyppx_bench_resource_quantization jyppx::liuding::quantization
-        bench_resource_quantization.cpp)
-endif()
 if(TARGET jyppx::liuding::serving)
     jyppx_add_resource_bench(jyppx_bench_resource_serving jyppx::liuding::serving
         bench_resource_serving.cpp)

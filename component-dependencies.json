@@ -151,7 +151,7 @@
       "source_roots": ["deployment/onnx_export"],
       "required_dependencies": ["foundation"],
       "required_public_dependencies": ["foundation"],
-      "optional_dependencies": ["quantization"]
+      "optional_dependencies": []
     },
     "onnx_runtime": {
       "header_roots": ["deployment/onnx_runtime"],
@@ -182,35 +182,6 @@
         "core",
         "foundation"
       ],
-      "optional_dependencies": []
-    },
-    "quantization": {
-      "header_roots": [
-        "quantization"
-      ],
-      "source_roots": [
-        "quantization"
-      ],
-      "required_dependencies": [
-        "foundation"
-      ],
-      "required_public_dependencies": [
-        "foundation"
-      ],
-      "optional_dependencies": []
-    },
-    "quantization_onednn": {
-      "header_roots": ["quantization_onednn"],
-      "source_roots": ["quantization_onednn"],
-      "required_dependencies": ["core", "foundation", "quantization"],
-      "required_public_dependencies": ["core", "foundation", "quantization"],
-      "optional_dependencies": []
-    },
-    "quantization_torch": {
-      "header_roots": ["quantization_torch"],
-      "source_roots": ["quantization_torch"],
-      "required_dependencies": ["core", "foundation", "quantization"],
-      "required_public_dependencies": ["core", "foundation", "quantization"],
       "optional_dependencies": []
     },
     "serving": {

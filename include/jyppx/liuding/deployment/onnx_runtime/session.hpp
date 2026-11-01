@@ -134,10 +134,9 @@ struct TensorOutput {
  * bounded by max_io_tensors. Only named leading batch dimensions may be
  * dynamic; other dimensions are positive constants. Equal symbols bind equal
  * sizes across inputs; every dynamic output symbol must occur in an input.
- * Independent input batch symbols may have different sizes. Quantized internal
- * nodes are allowed without
- * asserting INT8 execution: that requires separate real provider/kernel
- * evidence.
+ * Independent input batch symbols may have different sizes. Operator execution
+ * depends on the selected provider and requires separate kernel evidence for
+ * any performance claim.
  *
  * Inputs/outputs reside in host memory; ORT owns provider-specific transfers.
  * I/O limits do not bound graph/intermediate memory or device allocations.

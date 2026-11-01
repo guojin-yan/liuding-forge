@@ -74,10 +74,9 @@ platform registration/promotion, HTTP/TLS hosting and deployment control are
 outside this candidate. macOS qualification is deferred and is not a supported
 v1.0 combination. Windows and Ubuntu/CUDA qualification is reported separately.
 
-Models, quantization and serving are independent optional Preview components.
+Models and serving are independent optional Preview components.
 They remain off by default and their individual manifests describe actual
-capabilities. Storage quantization does not establish quantized computation or
-QAT. A missing official weight/license/hash, runtime or profiler result remains
+capabilities. A missing official weight/license/hash, runtime or profiler result remains
 unavailable rather than being inferred from a descriptor.
 
 The current dependency/license/CVE audit, complete current coverage and

@@ -54,7 +54,7 @@ SUITES = {
 TARGETS = list(dict.fromkeys(target for _, target in SUITES.values()))
 TEST_REGEX = "^(" + "|".join(SUITES) + r")\."
 ENABLED = ("CORE", "INTEROP", "DATA", "NN", "OPTIM", "TRAINING", "EXPERIMENT", "SERVING", "TESTS")
-DISABLED = ("EXAMPLES", "BENCHMARKS", "FUZZERS", "DOCS", "TOOLS", "MODELS", "QUANTIZATION")
+DISABLED = ("EXAMPLES", "BENCHMARKS", "FUZZERS", "DOCS", "TOOLS", "MODELS")
 TSAN_DIAGNOSTIC = re.compile(r"(?:WARNING|FATAL):\s*ThreadSanitizer|ThreadSanitizer: reported [1-9]", re.I)
 
 

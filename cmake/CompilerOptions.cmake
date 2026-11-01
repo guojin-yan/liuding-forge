@@ -24,8 +24,6 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_onnx_runtime
     jyppx_liuding_onnx_serving
     jyppx_liuding_bundle_signing
-    jyppx_liuding_quantization
-    jyppx_liuding_quantization_onednn
     jyppx_liuding_serving
     jyppx_dataset_preparation
     jyppx_dinov2_conversion
@@ -34,8 +32,6 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_cli_objects
     jyppx_cli
     jyppx_cli_recipe_gate
-    jyppx_int8_prepare
-    jyppx_int8_export
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_COMPILED_TARGETS)
     if(NOT TARGET ${JYPPX_TARGET})
@@ -212,7 +208,6 @@ endfunction()
 # the framework-only warning and static-analysis target lists.
 set(JYPPX_INSTRUMENTATION_TARGETS
     ${JYPPX_COMPILED_TARGETS}
-    jyppx_int8_frozen_compare
     jyppx_native_telemetry_codec
 )
 foreach(JYPPX_TARGET IN LISTS JYPPX_INSTRUMENTATION_TARGETS)

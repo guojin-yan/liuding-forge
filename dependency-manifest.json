@@ -606,34 +606,6 @@
       ],
       "linkage": "dynamic-os-library-private-product-no-bundling",
       "support_status": "optional-preview-candidate-not-runtime-qualified-license-and-security-review-pending"
-    },
-    {
-      "id": "onednn-static-avx2",
-      "scope": "quantization-onednn-private-cpu",
-      "version": "3.12.0",
-      "source": {
-        "type": "official-source-archive",
-        "url": "https://github.com/uxlfoundation/oneDNN/archive/80afa71049cd69a3df32adcccb623b12cd7baa22.tar.gz",
-        "cache_file": null
-      },
-      "integrity": {
-        "status": "verified",
-        "sha256": "f13ce92168cae7bd25f5efc43f00b37ff14bcc62ffdea3d85220b1c50c104f17",
-        "size_bytes": 14020428
-      },
-      "license": {
-        "spdx": [
-          "Apache-2.0",
-          "BSD-3-Clause"
-        ],
-        "third_party_notice_audit": "recorded"
-      },
-      "platforms": [
-        "windows-x86_64",
-        "linux-x86_64"
-      ],
-      "linkage": "private-static-explicit-sdk",
-      "support_status": "preview-fixed-avx2-profile"
     }
   ]
 }

@@ -113,7 +113,7 @@ else:
         self.assertIn("-DTorch_DIR=" + self.environment["CMAKE_PREFIX_PATH"] + "/share/cmake/Torch", configure)
         self.assertIn("-DJYPPX_LIUDING_MODELS_REFERENCE_DIR=" + reference, configure)
         self.assertEqual(self.metadata()["models_reference_dir"], reference)
-        for owner in ("DATA_IMAGE", "MODELS", "QUANTIZATION", "SERVING"):
+        for owner in ("DATA_IMAGE", "MODELS", "SERVING"):
             self.assertIn("-DJYPPX_LIUDING_BUILD_" + owner + "=ON", configure)
         for row in commands:
             if row[0] == "gcovr" and "--version" not in row:

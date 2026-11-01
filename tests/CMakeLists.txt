@@ -432,9 +432,8 @@ set_tests_properties(OptionalComponentMatrix PROPERTIES
 )
 endif()
 
-
 # Exercise the SDK and independent Preview consumers from installed artifacts.
-foreach(preview_component IN ITEMS sdk data_image vision_render models quantization quantization_torch quantization_onednn serving telemetry_native telemetry_http)
+foreach(preview_component IN ITEMS sdk data_image vision_render models serving telemetry_native telemetry_http)
     if(TARGET jyppx::liuding::${preview_component})
         set(consumer_labels "${preview_component};packaging")
         if(preview_component STREQUAL "sdk")
@@ -449,12 +448,6 @@ foreach(preview_component IN ITEMS sdk data_image vision_render models quantizat
             set(preview_test_name NativeTelemetryInstallConsumer)
         elseif(preview_component STREQUAL "telemetry_http")
             set(preview_test_name NativeTelemetryHttpInstallConsumer)
-        elseif(preview_component STREQUAL "quantization_torch")
-            set(preview_test_name QuantizationTorchInstallConsumer)
-        elseif(preview_component STREQUAL "quantization_onednn")
-            set(preview_test_name QuantizationOneDnnInstallConsumer)
-        elseif(preview_component STREQUAL "quantization")
-            set(preview_test_name QuantizationInstallConsumer)
         else()
             set(preview_test_name ServingInstallConsumer)
         endif()
@@ -511,8 +504,7 @@ if(TARGET jyppx::liuding::onnx_export AND TARGET jyppx::liuding::onnx_runtime)
     )
 endif()
 
-if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_QUANTIZATION OR
-   JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH OR
+if(JYPPX_LIUDING_BUILD_MODELS OR
    JYPPX_LIUDING_BUILD_SERVING OR JYPPX_LIUDING_BUILD_VISION_RENDER)
     add_test(
         NAME PreviewComponentMatrix
@@ -536,7 +528,7 @@ if(JYPPX_LIUDING_BUILD_MODELS OR JYPPX_LIUDING_BUILD_QUANTIZATION OR
             -P ${CMAKE_SOURCE_DIR}/cmake/tests/TestPreviewComponentMatrix.cmake
     )
     set_tests_properties(PreviewComponentMatrix PROPERTIES
-        LABELS "models;quantization;quantization_torch;serving;vision_render;preview;packaging"
+        LABELS "models;serving;vision_render;preview;packaging"
         RESOURCE_LOCK jyppx_component_profile_matrix
         TIMEOUT 10800
     )

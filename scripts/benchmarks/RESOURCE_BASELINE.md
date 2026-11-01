@@ -1,124 +1,47 @@
-# Resource benchmark sampling
+# 资源基准采样
 
-`run_resource_baseline.py` samples public production APIs in **one warmup process
-and five measured processes per profile** by default. It never configures,
-builds, runs CTest, or contacts a remote host. Run it after a complete development
-chapter, using the existing Windows and Ubuntu/CUDA Release build directories.
-Keep build parallelism at `2` and retain those directories for incremental builds.
+`run_resource_baseline.py` 调用实际生产 API，默认每个 profile 启动一个预热进程和五个测量进程。runner 不配置、不构建、不运行 CTest，也不连接远程主机。先在现有 Release 构建中启用 `JYPPX_LIUDING_BUILD_BENCHMARKS=ON`；模型和 Serving 分别还需 `JYPPX_LIUDING_BUILD_MODELS=ON`、`JYPPX_LIUDING_BUILD_SERVING=ON`。可选组件由使用方显式链接，不改变 SDK 能力声明。
 
-Enable `JYPPX_LIUDING_BUILD_BENCHMARKS=ON` in the existing configuration. Models,
-quantization and serving targets additionally require their corresponding
-`JYPPX_LIUDING_BUILD_MODELS`, `JYPPX_LIUDING_BUILD_QUANTIZATION` and `JYPPX_LIUDING_BUILD_SERVING` options.
-Preview benchmarks link their explicit owner libraries; enabling a benchmark does not enable a Preview or change the SDK's capability claims.
-
-After committing, reconfigure that same directory with its existing options so the generated build fingerprint records the exact clean commit, then build the resource targets together. A stale fingerprint or `+dirty` binary is rejected. No benchmark source/output is silently relabelled as a different commit.
+提交后用原有依赖和选项重新配置，使生成的 fingerprint 记录准确的干净提交，再以最多两个编译任务构建。runner 拒绝过期 fingerprint 和 `+dirty` 二进制。
 
 ```powershell
-# Windows: retain the established Release cache and its dependencies/options.
-cmake --build out/build/config-windows --config Release --parallel 2 --target jyppx_bench_resource_stable jyppx_bench_resource_models jyppx_bench_resource_quantization jyppx_bench_resource_serving
+cmake --build out/build/config-windows --config Release --parallel 2 --target jyppx_bench_resource_stable jyppx_bench_resource_models jyppx_bench_resource_serving
 python scripts/benchmarks/run_resource_baseline.py --build-dir out/build/config-windows --storage-environment-id windows-workspace-volume-defaults --output out/baselines/resources/windows-current
 ```
 
 ```sh
-# Ubuntu: use the established CUDA Release cache, not a second benchmark cache.
-cmake --build out/build/cuda-release --config Release --parallel 2 --target jyppx_bench_resource_stable jyppx_bench_resource_models jyppx_bench_resource_quantization jyppx_bench_resource_serving
+cmake --build out/build/cuda-release --config Release --parallel 2 --target jyppx_bench_resource_stable jyppx_bench_resource_models jyppx_bench_resource_serving
 python3 scripts/benchmarks/run_resource_baseline.py --build-dir out/build/cuda-release --device cuda:0 --storage-environment-id ubuntu-workspace-mount-defaults --output out/baselines/resources/cuda-current
 ```
 
-The default selection requires all four executables. For a Core-only build, use `--profiles storage checkpoint telemetry`. `--bin-dir` selects a known custom executable directory. Output directories must be new and should be under an ignored evidence directory such as `out/` to preserve a clean checkout.
+默认选择要求上述三个可执行程序，文件名为 `liuding-forge-bench-resource-{stable,models,serving}`，Windows 加 `.exe`。Core 构建可选 `--profiles storage checkpoint telemetry`，`--bin-dir` 可指定已知可执行文件目录。输出目录必须新建，使用被忽略的证据目录以保持源码干净。
 
-Logical CMake targets retain their `jyppx_bench_resource_*` names. Their files are `liuding-forge-bench-resource-{stable,models,quantization,serving}` (plus
-`.exe` on Windows); installed library files use `liuding-forge-*` while C++
-namespaces and JSON benchmark identities continue to use `jyppx`.
-
-Storage, checkpoint and telemetry profiles require an explicit
-`--storage-environment-id`. Choose a stable ID for the actual backing
-volume/mount, filesystem, relevant mount options and durability configuration of the output workload. The commands above show example IDs; record what the chosen ID means on each host. Keep it for fresh directories on that same storage configuration, and use a different ID when moving between volumes, local/network filesystems, tmpfs, or durability settings. IDs contain 1..256 letters/digits or `_ . : / + -`, starting with a letter/digit and without spaces. The runner compares this operator declaration; it does not discover backing devices or verify mount options. Reusing an ID after storage changes violates the sampling protocol. The unique output directory itself is not part of the environment key. Model/quantization/serving-only runs do not require a storage ID.
-
-| Profile | Fixed work and resource evidence |
+| Profile | 固定负载与证据 |
 | --- | --- |
-| storage | Eight distinct 256 KiB CAS blobs, SQLite FULL publication, metadata reopen, exact reads and integrity check; publish/read time, payload and total disk bytes |
-| checkpoint | Four distinct 1 MiB coordinated checkpoints with synchronization enabled; mean save pause including serialization/hash/publication, restore time, exact restored bytes |
-| telemetry | 256 fixed canonical log envelopes, 16 encoding rounds, JSONL emit/stream flush, verified reopen and duplicate replay; encoding/emit/recovery time and output bytes |
-| resnet18, resnet50, mobilenet_v3_small, mobilenet_v3_large | Real randomly initialized FP32 architectures, seven classes, `[2,3,32,32]`, eval mode, one warmup and 32 forwards |
-| transformer_encoder | Two layers, dimension 32, four heads, FFN 64, dropout 0, GELU/final norm, `[2,16,32]`, one warmup and 256 forwards |
-| quantization | Calibrated 64-to-32 Linear storage artifact, canonical serialization/decode, FP32 reconstruction and 512 batches of 16 verified against an exact arithmetic vector |
-| serving | Existing generated linear bundle fixture, verified NativeStateBackend load/warmup, 128 Predictor calls, 32 rounds of eight DynamicBatcher requests, exact output and actual batch/row counters |
+| `storage` | 八个不同的 256 KiB CAS blob，SQLite FULL 发布、元数据重开、精确读取与完整性校验；发布/读取耗时、载荷和总磁盘字节 |
+| `checkpoint` | 四个不同的 1 MiB 同步 checkpoint；包含序列化、hash、发布的平均保存暂停、恢复耗时、精确恢复字节 |
+| `telemetry` | 256 个固定 envelope，16 轮编码，JSONL emit/stream flush，重开与重复重放；编码/写入/恢复耗时和输出字节 |
+| `resnet18`、`resnet50`、`mobilenet_v3_small`、`mobilenet_v3_large` | 随机初始化 FP32 模型，七分类，`[2,3,32,32]`，eval，一次预热、32 次 forward |
+| `transformer_encoder` | 两层、维度 32、四个 head、FFN 64、dropout 0、GELU/final norm；`[2,16,32]`，一次预热、256 次 forward |
+| `serving` | 生成的 Linear bundle，NativeStateBackend 加载/预热，128 次 Predictor 调用、32 轮各八个 DynamicBatcher 请求；精确输出与实际合批计数 |
 
-All workloads are synthetic and bounded. Model `load_seconds` means architecture construction, random initialization and device transfer; it does not mean pretrained weight loading. Model inputs and initialization seed are fixed, and all retained results are verified for shape, dtype, device, finite values and eval repeatability. Model output tensors remain alive through the measured forward loop; memory includes those outputs. Serving measures the public in-process boundary and batch scheduler, including validation and snapshots. It reports real coalescing counters; no HTTP transport is involved.
+负载均为有界合成数据。模型 `load_seconds` 包含架构构建、随机初始化和设备传输，不代表预训练权重加载。输入和初始化种子固定，验证形状、dtype、设备、有限值与 eval 可重复性。forward 输出在循环期间保持存活并计入内存。Serving 测量进程内接口及调度，不含 HTTP。
 
-`--device cuda:0` runs models and serving on the actual visible device zero,
-synchronizing before and after each stage. Reports include its UUID, name,
-compute capability, CUDA toolkit/runtime/driver versions, and allocator
-allocated/reserved peaks since before load. The runner verifies the UUID and
-driver with `nvidia-smi`; `CUDA_VISIBLE_DEVICES` mappings use the reported UUID,
-not an assumed physical GPU index. CPU-only binaries reject CUDA requests.
-The GPU environment also binds `nvidia-smi` power limit in watts and persistence
-mode. A change rejects historical comparison or invalidates an ongoing run.
-Explicit `N/A`/`Not Supported` readings are retained as unavailable with a reason,
-without a numeric substitute. Such a run can collect standalone stability
-evidence, but `comparison_eligibility.passed` is false: it cannot publish a
-comparable reference or pass `--reference`, even when both readings are unknown
-in both runs. A query error or malformed reading fails rather than being treated
-as unsupported. The runner does not modify GPU settings.
-Storage, checkpoint, telemetry and quantization execute on CPU in either suite.
-Quantization declares **storage-quantized / FP32 fallback**, with no compute
-quantization, QAT or speedup comparison.
+Storage、checkpoint 和 telemetry 必须提供 `--storage-environment-id`，标识实际卷、文件系统、挂载选项及持久化设置；同一存储配置的新目录沿用该 ID，改变配置则换 ID。ID 由 1..256 个字母、数字或 `_ . : / + -` 组成，首字符为字母或数字，无空格。runner 只比较操作者声明，不探测或验证底层设备；复用错误 ID 会破坏比较有效性。仅模型或 Serving 的采样不要求此 ID。
 
-RSS is the process lifetime peak working set on Windows or Linux `VmHWM`,
-including LibTorch/runtime overhead. CUDA peaks cover the LibTorch caching
-allocator, excluding driver/context allocations. Unavailable measurements carry
-an explicit status and reason with no numeric value. CPU CUDA metrics are
-unavailable; their absence never counts as a CUDA pass.
+`--device cuda:0` 在可见设备零上运行模型和 Serving，并在各阶段前后同步。报告绑定 UUID、名称、compute capability、CUDA toolkit/runtime/driver，以及加载前开始统计的 allocator allocated/reserved 峰值；用 `nvidia-smi` 验证 UUID 和驱动，不假定可见索引等于物理索引。CPU 二进制拒绝 CUDA。Storage、checkpoint 和 telemetry 始终在 CPU 执行。
 
-RSS is required for every selected profile on Windows and Linux. A collection
-failure remains explicit in raw samples and statistics, but
-`resource_completeness.passed` is false; the run exits unsuccessfully and cannot
-publish a reference. Actual CUDA profiles additionally require both allocator peaks. Legitimate CPU CUDA inapplicability does not fail completeness.
+GPU 比较还要求可读的功率限额和 persistence mode，变化会拒绝历史比较或使当前采样失效。`N/A`/`Not Supported` 保留不可用原因，此时只能收集独立稳定性证据，不能发布 reference 或通过比较；查询失败与格式错误直接失败。runner 不修改 GPU 设置。
 
-JSONL promises stream flush rather than filesystem fsync; checkpoint and SQLite timings retain their real synchronization semantics. Disk metrics describe the sample workload, not machine-wide I/O or filesystem cache eviction. Processes are independent; the OS file cache and GPU driver/context startup are not forcibly reset.
+RSS 使用 Windows 进程生命周期峰值 working set 或 Linux `VmHWM`，包含运行库开销；CUDA 峰值仅覆盖 LibTorch caching allocator。所有选定 profile 均要求 RSS，实际 CUDA profile 另要求两个 allocator 峰值。缺测保留原因并使完整性检查失败；CPU 不适用 CUDA 指标不视为失败。JSONL 只承诺 stream flush，磁盘指标不代表系统级 I/O；独立进程不主动清空 OS 文件缓存或 GPU context。
 
-Each process has a 120-second timeout and a 1 MiB bound on each output stream by default. Every process retains `stdout.log`, `stderr.log`, `process.json`,
-`sample.json`, `validation.json` and its dedicated workload directory. Failed
-processes retain available logs and failure metadata. The serving example owns
-and removes its own temporary generated bundle. Runs preserve `run.json` and
-`statistics.json`; invalid protocol/source samples fail before aggregation.
-The runner never recursively deletes evidence.
+每个进程默认 120 秒超时、每路输出 1 MiB 限额，保留 `stdout.log`、`stderr.log`、`process.json`、`sample.json`、`validation.json` 及负载目录。失败仍保留可用证据，整体保留 `run.json` 与 `statistics.json`；runner 不递归删除证据。Serving 示例自行清理其生成的临时 bundle。
 
-`statistics.json` includes median, nearest-rank p95, mean, raw samples and sample
-CV. Required repeated resource metrics use a **10% CV gate**. Single short
-startup/warmup/conversion measurements remain explicit diagnostics, with
-`gate:false`; the runner still validates their positive finite values.
-There are no silent retries or discarded measured outliers. An unstable run fails and cannot create a reference. Stabilize the host and retain the failed evidence before collecting a new run.
+统计包含中位数、nearest-rank p95、均值、原始样本和 CV。规定的重复资源指标要求 CV 不超过 10%；短启动、预热和转换指标作为 `gate:false` 的诊断值，仍要求有限正数。不静默重试或丢弃测量离群值，不稳定采样不能生成 reference。
 
-For a first stable reference, add
-`--write-reference out/baselines/resources/windows-reference.json` (or a distinct
-Ubuntu/CUDA reference). Later use `--reference` with that unchanged file.
-References are created exclusively; existing files are never overwritten.
-Comparison allows at most `max(10%, 3 * reference CV)` regression per gated
-metric, with the same metric contract and environment.
+首次稳定采样可传 `--write-reference out/baselines/resources/windows-reference.json`，之后用 `--reference` 比较；reference 不覆盖已有文件。相同指标契约与环境下，回归上限为 `max(10%, 3 × reference CV)`。环境身份绑定硬件、OS、编译参数、ABI/依赖锁、设备/驱动、GPU 控制、存储声明、线程与相关环境变量、固定负载及指标可用性。源码身份另保留准确 commit/tree、干净状态、二进制与 runner/cache hash、完整 fingerprint；必须精确匹配 profile 集合。更换源码提交不改变环境键，不能通过改写历史身份替代新测量。历史二进制无需留在原路径，未签名 JSON 的结构验证也不提供防篡改认证。旧 reference 缺少必需字段时应重新采样。
 
-Environment identity binds host/CPU, OS, CMake performance/configuration flags,
-compiler, LibTorch ABI/version, dependency lock, actual device/driver, GPU power
-limit/persistence mode, the declared I/O storage environment, runtime thread
-settings, relevant environment variables, fixed workload and metric
-availability. Source provenance separately retains the exact Git commit/tree,
-clean state, binary hashes, full build fingerprints, runner hash and cache hash.
-Reference publication and comparison validate all these provenance fields,
-require `clean:true`, require an exact binary/fingerprint profile set, and verify
-that every historical Release fingerprint agrees with its own source commit
-and environment. Historical binary paths are retained for audit and need not
-exist on the current host. This schema validation does not authenticate unsigned
-JSON against deliberate tampering.
-Changing only the source commit does not change the environment key. A legitimate
-new commit can compare against old evidence while retaining both original
-identities. A changed environment or workload rejects comparison; copying a
-new commit into historical provenance is never a substitute for new evidence.
-Older resource references missing the required provenance, GPU controls or
-storage declaration are rejected; collect fresh evidence instead of editing
-historical reports to add inferred values.
-
-Focused runner verification (no C++ compilation or hardware required):
+runner 的集中维护测试不编译 C++，也不要求硬件：
 
 ```sh
 python3 -m unittest discover -s tests/scripts -p test_resource_baseline.py

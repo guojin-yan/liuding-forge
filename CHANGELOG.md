@@ -6,17 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-- 官方 LibTorch 静态 INT8 Linear 在加载时保守检查 `ONEDNN` / `X86` 的 int16 成对累加饱和风险，受影响权重在 prepack 前明确拒绝；不修改校准或启用浮点回退。
 
 ### Added
 
-- 增加默认关闭的官方 oneDNN 静态 INT8 Linear 组件，使用两次官方 U8×S8 整数运算和 ATen 精确合成，支持 Q0/QC1、独立输出校准、加载时精确范围检查和逻辑工作预算；附带 C++ 学习示例，SDK 随安装包提供。完整量化与性能资格仍需独立验收。
 
-- 增加默认关闭的官方 LibTorch CPU 静态 INT8 Linear adapter，直接使用官方 packing/整数算子，支持原 Q0 与按输出通道 QC1；完整输出校准由原 quantization 组件独立保存读取，加载同时绑定两份 SHA-256，并提供 C++ 落盘重载学习示例。Windows AVX2/oneDNN 的完整范围 U8S8 配方尚未通过数值验收，适用边界见[量化 API](docs/api/quantization.md)。
 
 - 增加有界原生 C++ BatchNorm2d 训练后校准，以及 CPU ResNet18 配方的显式开关、完整检查点阶段恢复和最终正常评估；只读取训练数据，不增加优化器更新。
 
-- 静态 INT8 Linear 导出增加显式 ORT 整数融合图，默认标准 ONNX 图保持；ORT Session 增加带类型的 CUDA Provider 配置与明确的不支持错误，设备执行资格仍需独立验证。
+- ORT Session 增加带类型的 CUDA Provider 配置与明确的不支持错误，设备执行资格仍需独立验证。
 
 - ImageFolder 分类与迁移配方增加原生 C++ 零步完整模型导出，以及绑定 SHA-256、架构和有序类别的严格初始化；全部参数和缓冲区在优化器创建前导入，运行、续训与模型包保留相同来源。
 
@@ -50,7 +47,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - 增加原生 C++ MNIST 本地 gzip 准备与显式 HTTPS 下载，校验固定来源、大小、摘要和 IDX 内容；提供数据准备示例，训练示例使用本地 IDX。
 - 增加可选的原生 C++ Fashion-MNIST/CIFAR-10 离线准备入口及教学示例，按固定来源和资源配额流式生成 PNG、索引与内容摘要；构建时显式配置静态 codec SDK。
 - 增加固定 HF DINOv2-S 权重的原生 C++ 转换工具与 CLI，严格验证参数布局和来源摘要，生成权重及转换报告。
-- 增加按输出通道权重量化的有界 Linear 制品及原生 ONNX 导出，使用单个 U8U8 `MatMulInteger` 和通道缩放向量；附带校准、导出、ORT 推理的 C++ 教学示例。
 - 迁移学习配方增加可选的骨干和分类头独立学习率，沿用现有 SGD、调度器与完整检查点恢复，并将参数分组写入结果与模型包来源。
 - 增加可选原生 C++ Ed25519 模型包签名，提供绑定原始 SHA-256 的外部信任策略、PKCS#8 私钥导入、全部声明签名校验、ONNX bundle 推理前验签，以及 CLI 与学习示例。
 - 增加有界、默认串行的 grid/random 搜索，冻结候选配置、seed 与执行身份，复用持久本地任务；按真实 run 指标与 CAS 产物选择 best，并导出带完整搜索历史的存储备份。
@@ -77,6 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- INT8 量化功能延期并从当前源码、构建和安装接口撤出。
+
 - 双输入示例数据通过原生 C++ `data prepare --name paired-affine` 离线生成，保留固定样本内容和摘要；增加可直接运行的数据准备示例。
 - 通用 C++ ONNX 导出生成版本化报告，记录输入输出、参数/buffer 字节摘要、构建身份和动态 batch；CLI 校验模型/报告与训练来源后，以独立关联 run 原子登记模型和报告，支持幂等重试。
 - ONNX Runtime 支持按名称绑定多个 FP32 输入并返回多个具名输出，验证共享或独立 batch 符号；一次调用统一执行输入/输出总字节门禁，保留单输入输出简便接口。
@@ -95,7 +93,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
-- 在 `deployment/` 下增加独立可选的原生 C++ ONNX 导出与 ONNX Runtime 组件：通用导出接受用户模型和 callable，经追踪、可扩展算子转换与 LibTorch serializer 生成 opset 17 自包含图，支持多输入输出、动态 batch、制品摘要与资源边界；提供校准 Q0 INT8 Linear 导出。Runtime 显式选择 Execution Provider，非 CPU 默认禁止 CPU fallback，Python 仅用于独立验证。
+- 在 `deployment/` 下增加独立可选的原生 C++ ONNX 导出与 ONNX Runtime 组件：通用导出接受用户模型和 callable，经追踪、可扩展算子转换与 LibTorch serializer 生成 opset 17 自包含图，支持多输入输出、动态 batch、制品摘要与资源边界。Runtime 显式选择 Execution Provider，非 CPU 默认禁止 CPU fallback，Python 仅用于独立验证。
 - 增加工具层私有的本地进程运行器：直接传递参数、显式子环境、双管道有界输出、原生退出状态及取消/超时后的进程树清理；持久 attempt、重试与搜索入口尚未提供。
 - 增加显式本地预训练 ResNet50/DINOv2-S 的迁移学习配方，复用 Trainer、任务评估和检查点；支持冻结骨干或完整微调、独立 BN/dropout 策略、权重/预处理身份校验以及含来源的模型包。
 - 增加双输入分类/回归 C++ 配方及有界离线数据准备：支持双输出损失与任务评估、完整训练状态的独立进程恢复、配置/内容身份校验和纯数据模型包。

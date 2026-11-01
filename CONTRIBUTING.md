@@ -35,7 +35,7 @@ ctest --test-dir out/build/config-windows -C Release --output-on-failure -R "^(C
 
 ## 代码与性能要求
 
-项目是 C++20 训练平台，所有交付给用户的功能（训练、数据准备、权重转换、ONNX 导出、量化、推理和工具）必须由 C++ 实现；不得通过 Python/sidecar/subprocess 替代实现，也不得让安装后的用户必须具备 Python 环境。Python 仅用于开发维护脚本、官方 checker、独立参考和测试辅助，不能成为产品功能的生产入口。存量 Python 产品路径需按模块迁移并重新验收，历史通过不豁免此约束。
+项目是 C++20 训练平台，所有交付给用户的功能（训练、数据准备、权重转换、ONNX 导出、推理和工具）必须由 C++ 实现；不得通过 Python/sidecar/subprocess 替代实现，也不得让安装后的用户必须具备 Python 环境。Python 仅用于开发维护脚本、官方 checker、独立参考和测试辅助，不能成为产品功能的生产入口。存量 Python 产品路径需按模块迁移并重新验收，历史通过不豁免此约束。
 
 - 公共接口使用 `jyppx::liuding`、`<jyppx/liuding/...>` 和导出目标 `jyppx::liuding::<component>`；配置选项使用 `JYPPX_LIUDING_*`。组件依赖遵循 [依赖图约定](docs/development/component_dependencies.md)。
 - 使用仓库 `.clang-format`。公共声明的 Doxygen 注释应说明必要的所有权、生命周期、线程、错误、状态、单位和资源契约；严格质量配置还需通过 clang-tidy 和 Doxygen 检查。

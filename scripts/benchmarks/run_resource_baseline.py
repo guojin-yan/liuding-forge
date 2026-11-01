@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 MODELS = ("resnet18", "resnet50", "mobilenet_v3_small", "mobilenet_v3_large", "transformer_encoder")
-PROFILES = ("storage", "checkpoint", "telemetry", *MODELS, "quantization", "serving")
+PROFILES = ("storage", "checkpoint", "telemetry", *MODELS, "serving")
 IO_PROFILES = frozenset(("storage", "checkpoint", "telemetry"))
 GPU_CONTROLS = ("power.limit", "persistence_mode")
 BUILD_FIELDS = ("jyppx_version", "git_commit", "compiler", "cxx_standard", "os_arch", "build_type",
@@ -39,7 +39,6 @@ PROFILE_METRICS = {
     "storage": {"load_seconds", "publish_seconds", "throughput_bytes_per_second", "reopen_read_seconds", "artifact_payload_bytes"},
     "checkpoint": {"checkpoint_pause_seconds", "restore_seconds", "throughput_bytes_per_second"},
     "telemetry": {"serialization_seconds", "load_seconds", "emit_flush_seconds", "throughput_events_per_second", "reopen_replay_seconds", "canonical_bytes"},
-    "quantization": {"calibration_conversion_seconds", "serialization_seconds", "load_seconds", "warmup_seconds", "forward_seconds", "throughput_items_per_second"},
     "serving": {"publish_seconds", "load_seconds", "warmup_seconds", "forward_seconds", "batch_seconds", "throughput_requests_per_second"},
 }
 for _model in MODELS:
@@ -124,10 +123,6 @@ def workload(profile: str) -> tuple[dict[str, Any], int, tuple[int, int]]:
                 "warmup_forwards": 1, "forwards": steps,
                 "transformer": {"dimension": 32, "heads": 4, "feedforward": 64, "layers": 2,
                                 "dropout": 0.0, "gelu": True, "final_norm": True}}, steps, (size, size)
-    if profile == "quantization":
-        return {"in_features": 64, "out_features": 32, "batch": 16, "forwards": 512,
-                "codec_rounds": 128, "weights": "((i*13)%3)-1", "input": "(((i*7)%17)-8)/8",
-                "bias": "(o%7)/8", "warmup_forwards": 1, "calibration_samples": 2}, 512, (2048, 65536)
     if profile == "serving":
         return {"fixture": "examples/serving/linear_bundle.hpp", "operation": "y[n,c]=x[n,c]*[2,-3][c]",
                 "direct_requests": 128, "batch_rounds": 32, "batch_width_limit": 8, "max_wait_ms": 5,
@@ -182,7 +177,7 @@ def validate_sample(sample: dict[str, Any], profile: str, device: str, commit: s
             validation.get("completed_operations") != operations or
             validation.get("finite_output") is not True or validation.get("content_verified") is not True):
         raise ValueError("profile did not verify and complete its exact workload")
-    if profile in (*MODELS, "serving", "quantization"):
+    if profile in (*MODELS, "serving"):
         output_sum = validation.get("output_sum")
         if isinstance(output_sum, bool) or not isinstance(output_sum, (int, float)) or not math.isfinite(output_sum):
             raise ValueError("missing finite output evidence")
@@ -191,13 +186,6 @@ def validate_sample(sample: dict[str, Any], profile: str, device: str, commit: s
                 not 1 < validation.get("largest_actual_batch", 0) <= 8 or
                 not 0 < validation.get("batch_forward_calls", 0) < 256):
             raise ValueError("serving profile did not execute actual batching")
-    if profile == "quantization":
-        if (execution.get("path") != "storage-quantized-dequantize-to-fp32-linear" or
-                execution.get("compute_quantized") is not False or execution.get("qat") is not False or
-                execution.get("fallback_modules") != 1):
-            raise ValueError("quantization profile must declare storage-only FP32 fallback")
-        if not re.fullmatch(r"sha256:[0-9a-f]{64}", validation.get("artifact_digest", "")):
-            raise ValueError("quantization artifact digest missing")
     metrics = object_value(sample.get("metrics"), "metrics")
     if metrics.keys() != COMMON_METRICS | PROFILE_METRICS[profile]:
         raise ValueError("required resource metric set mismatch")
@@ -548,7 +536,7 @@ def compare_reference(report: dict[str, Any], reference: dict[str, Any]) -> dict
 
 
 def executable(build: Path, bin_dir: Path | None, profile: str) -> Path:
-    owner = "models" if profile in MODELS else profile if profile in ("quantization", "serving") else "stable"
+    owner = "models" if profile in MODELS else profile if profile == "serving" else "stable"
     filename = "liuding-forge-bench-resource-" + owner + (".exe" if sys.platform == "win32" else "")
     candidates = [bin_dir / filename] if bin_dir else [build / "tests" / "benchmarks" / filename,
         build / "tests" / "benchmarks" / "Release" / filename]
@@ -568,7 +556,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage-environment-id",
                         help="Required for I/O profiles: stable backing volume/mount and durability configuration ID; change it when storage changes")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu",
-                        help="Models/serving device; storage/checkpoint/telemetry/quantization remain CPU")
+                        help="Models/serving device; storage/checkpoint/telemetry remain CPU")
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--samples", type=int, default=5)
     parser.add_argument("--timeout", type=float, default=120)

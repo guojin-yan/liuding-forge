@@ -31,9 +31,6 @@ option(JYPPX_LIUDING_BUILD_OPTIM "Build optimizer and scheduler adapters" ON)
 option(JYPPX_LIUDING_BUILD_TRAINING "Build the training engine" ON)
 option(JYPPX_LIUDING_BUILD_EXPERIMENT "Build local experiment configuration" ON)
 option(JYPPX_LIUDING_BUILD_MODELS "Build the independent models Preview" OFF)
-option(JYPPX_LIUDING_BUILD_QUANTIZATION "Build the independent storage quantization Preview" OFF)
-option(JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH "Build the optional official LibTorch CPU static INT8 adapter" OFF)
-option(JYPPX_LIUDING_BUILD_QUANTIZATION_ONEDNN "Build the optional official oneDNN AVX2 static INT8 adapter" OFF)
 option(JYPPX_LIUDING_BUILD_SERVING "Build the independent in-process serving Preview" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_EXPORT "Build the optional native C++ ONNX exporter" OFF)
 option(JYPPX_LIUDING_BUILD_ONNX_RUNTIME "Build the optional ONNX Runtime adapter with explicit providers" OFF)
@@ -89,18 +86,7 @@ if(JYPPX_LIUDING_BUILD_VISION_RENDER AND NOT JYPPX_LIUDING_BUILD_DATA_IMAGE)
     message(FATAL_ERROR "JYPPX_LIUDING_BUILD_VISION_RENDER=ON requires JYPPX_LIUDING_BUILD_DATA_IMAGE=ON")
 endif()
 
-foreach(JYPPX_QUANTIZED_COMPONENT IN ITEMS QUANTIZATION_TORCH QUANTIZATION_ONEDNN)
-    foreach(JYPPX_QUANTIZED_DEPENDENCY IN ITEMS CORE QUANTIZATION)
-        if(JYPPX_LIUDING_BUILD_${JYPPX_QUANTIZED_COMPONENT} AND
-           NOT JYPPX_LIUDING_BUILD_${JYPPX_QUANTIZED_DEPENDENCY})
-            message(FATAL_ERROR
-                "JYPPX_LIUDING_BUILD_${JYPPX_QUANTIZED_COMPONENT}=ON requires JYPPX_LIUDING_BUILD_${JYPPX_QUANTIZED_DEPENDENCY}=ON")
-        endif()
-    endforeach()
-endforeach()
-
 # Preview model/serving adapters require the explicit lower component closure.
-# Quantization is tensor-neutral and deliberately needs foundation only.
 foreach(JYPPX_PREVIEW_COMPONENT IN ITEMS MODELS SERVING)
     foreach(JYPPX_PREVIEW_DEPENDENCY IN ITEMS CORE INTEROP NN)
         if(JYPPX_LIUDING_BUILD_${JYPPX_PREVIEW_COMPONENT} AND
@@ -227,12 +213,8 @@ if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     find_package(ONNXRuntime 1.23.2 EXACT REQUIRED MODULE)
 endif()
 
-if(JYPPX_LIUDING_BUILD_SERVING OR JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH OR
-   JYPPX_LIUDING_BUILD_QUANTIZATION_ONEDNN)
+if(JYPPX_LIUDING_BUILD_SERVING)
     find_package(Threads REQUIRED)
-endif()
-if(JYPPX_LIUDING_BUILD_QUANTIZATION_ONEDNN)
-    include(cmake/OneDnnDependencies.cmake)
 endif()
 
 # SQLite stays an implementation dependency of experiment. Compile its pinned
@@ -351,9 +333,6 @@ set(JYPPX_LIUDING_COMPONENT_OPTIM_ENABLED ${JYPPX_LIUDING_BUILD_OPTIM})
 set(JYPPX_LIUDING_COMPONENT_TRAINING_ENABLED ${JYPPX_LIUDING_BUILD_TRAINING})
 set(JYPPX_LIUDING_COMPONENT_EXPERIMENT_ENABLED ${JYPPX_LIUDING_BUILD_EXPERIMENT})
 set(JYPPX_LIUDING_COMPONENT_MODELS_ENABLED ${JYPPX_LIUDING_BUILD_MODELS})
-set(JYPPX_LIUDING_COMPONENT_QUANTIZATION_ENABLED ${JYPPX_LIUDING_BUILD_QUANTIZATION})
-set(JYPPX_LIUDING_COMPONENT_QUANTIZATION_TORCH_ENABLED ${JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH})
-set(JYPPX_LIUDING_COMPONENT_QUANTIZATION_ONEDNN_ENABLED ${JYPPX_LIUDING_BUILD_QUANTIZATION_ONEDNN})
 set(JYPPX_LIUDING_COMPONENT_SERVING_ENABLED ${JYPPX_LIUDING_BUILD_SERVING})
 set(JYPPX_LIUDING_COMPONENT_ONNX_RUNTIME_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_RUNTIME})
 set(JYPPX_LIUDING_COMPONENT_ONNX_EXPORT_ENABLED ${JYPPX_LIUDING_BUILD_ONNX_EXPORT})
@@ -809,86 +788,6 @@ if(JYPPX_LIUDING_BUILD_ONNX_RUNTIME)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/onnx_runtime)
 endif()
 
-if(JYPPX_LIUDING_BUILD_QUANTIZATION)
-    add_library(jyppx_liuding_quantization STATIC
-        src/jyppx/liuding/quantization/quantization.cpp)
-    add_library(jyppx::liuding::quantization ALIAS jyppx_liuding_quantization)
-    set_target_properties(jyppx_liuding_quantization PROPERTIES
-        OUTPUT_NAME liuding-forge-quantization EXPORT_NAME quantization)
-    target_include_directories(jyppx_liuding_quantization PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>)
-    target_link_libraries(jyppx_liuding_quantization PUBLIC jyppx_liuding_foundation)
-    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_quantization)
-    list(APPEND JYPPX_ENABLED_COMPONENTS quantization)
-    list(APPEND JYPPX_ENABLED_HEADER_DIRS quantization)
-endif()
-
-if(JYPPX_LIUDING_BUILD_QUANTIZATION_TORCH)
-    add_library(jyppx_liuding_quantization_torch STATIC
-        src/jyppx/liuding/quantization_torch/static_linear.cpp)
-    add_library(jyppx::liuding::quantization_torch ALIAS jyppx_liuding_quantization_torch)
-    set_target_properties(jyppx_liuding_quantization_torch PROPERTIES
-        OUTPUT_NAME liuding-forge-quantization-torch EXPORT_NAME quantization_torch)
-    target_include_directories(jyppx_liuding_quantization_torch PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>)
-    foreach(JYPPX_TORCH_INCLUDE_DIR IN LISTS TORCH_INCLUDE_DIRS)
-        target_include_directories(jyppx_liuding_quantization_torch SYSTEM PUBLIC
-            $<BUILD_INTERFACE:${JYPPX_TORCH_INCLUDE_DIR}>)
-    endforeach()
-    # core owns the existing public Tensor alias; the artifact owner stays
-    # tensor-neutral. Packed state is rebuilt through official operators.
-    target_link_libraries(jyppx_liuding_quantization_torch
-        PUBLIC jyppx_liuding_core jyppx_liuding_quantization
-               jyppx_liuding_foundation ${TORCH_LIBRARIES}
-        PRIVATE Threads::Threads)
-    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_quantization_torch)
-    list(APPEND JYPPX_ENABLED_COMPONENTS quantization_torch)
-    list(APPEND JYPPX_ENABLED_HEADER_DIRS quantization_torch)
-endif()
-
-if(JYPPX_LIUDING_BUILD_QUANTIZATION_ONEDNN)
-    configure_file(cmake/onednn_build_identity.hpp.in
-        "${JYPPX_GENERATED_PRIVATE_INCLUDE_DIR}/jyppx/liuding/quantization_onednn/onednn_build_identity.hpp" @ONLY)
-    add_library(jyppx_liuding_quantization_onednn STATIC
-        src/jyppx/liuding/quantization_onednn/static_linear.cpp
-        src/jyppx/liuding/quantization_onednn/integer_matmul.cpp)
-    add_library(jyppx::liuding::quantization_onednn ALIAS jyppx_liuding_quantization_onednn)
-    set_target_properties(jyppx_liuding_quantization_onednn PROPERTIES
-        OUTPUT_NAME liuding-forge-quantization-onednn EXPORT_NAME quantization_onednn)
-    target_include_directories(jyppx_liuding_quantization_onednn PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-        PRIVATE "${JYPPX_GENERATED_PRIVATE_INCLUDE_DIR}")
-    target_include_directories(jyppx_liuding_quantization_onednn SYSTEM PRIVATE
-        "${JYPPX_ONEDNN_INCLUDE_DIR}")
-    target_link_libraries(jyppx_liuding_quantization_onednn
-        PUBLIC jyppx_liuding_core jyppx_liuding_quantization jyppx_liuding_foundation)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        # Extract the SDK's own ITT definitions even when LibTorch exports
-        # matching names. exclude-libs still keeps them local in the final ELF.
-        # Keep this state scoped to the private archive in installed consumers.
-        target_link_libraries(jyppx_liuding_quantization_onednn PRIVATE
-            "-Wl$<COMMA>--push-state$<COMMA>--whole-archive"
-            LiudingOneDNN::dnnl "-Wl$<COMMA>--pop-state"
-            Threads::Threads ${CMAKE_DL_LIBS})
-    else()
-        target_link_libraries(jyppx_liuding_quantization_onednn PRIVATE
-            LiudingOneDNN::dnnl Threads::Threads)
-    endif()
-    # Requantization has an explicit multiply/add order. Do not contract it
-    # into FMA or enable reassociation through the surrounding build profile.
-    if(MSVC)
-        target_compile_options(jyppx_liuding_quantization_onednn PRIVATE /fp:strict)
-    elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(jyppx_liuding_quantization_onednn PRIVATE -fno-fast-math -ffp-contract=off)
-    endif()
-    list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_quantization_onednn)
-    list(APPEND JYPPX_ENABLED_COMPONENTS quantization_onednn)
-    list(APPEND JYPPX_ENABLED_HEADER_DIRS quantization_onednn)
-endif()
-
 if(JYPPX_LIUDING_BUILD_SERVING)
     add_library(jyppx_liuding_serving STATIC
         src/jyppx/liuding/serving/runtime.cpp
@@ -949,11 +848,6 @@ if(JYPPX_LIUDING_BUILD_ONNX_EXPORT)
     target_link_libraries(jyppx_liuding_onnx_export
         PUBLIC jyppx_liuding_foundation ${TORCH_LIBRARIES}
         PRIVATE $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
-    if(JYPPX_LIUDING_BUILD_QUANTIZATION)
-        target_sources(jyppx_liuding_onnx_export PRIVATE
-            src/jyppx/liuding/deployment/onnx_export/static_int8_linear.cpp)
-        target_link_libraries(jyppx_liuding_onnx_export PUBLIC jyppx_liuding_quantization)
-    endif()
     list(APPEND JYPPX_ENABLED_TARGETS jyppx_liuding_onnx_export)
     list(APPEND JYPPX_ENABLED_COMPONENTS onnx_export)
     list(APPEND JYPPX_ENABLED_HEADER_DIRS deployment/onnx_export)
@@ -1023,7 +917,7 @@ if(JYPPX_LIUDING_BUILD_CORE AND JYPPX_LIUDING_BUILD_INTEROP AND JYPPX_LIUDING_BU
     # The SDK is the stable eight-component Core profile.  Do not route it
     # through `all`: that aggregate intentionally includes every component
     # enabled in the build, including independent Preview components such as
-    # models, quantization, and serving.
+    # models and serving.
     target_link_libraries(jyppx_liuding_sdk INTERFACE
         jyppx_liuding_foundation
         jyppx_liuding_core
@@ -1098,9 +992,6 @@ if(JYPPX_LIUDING_BUILD_TOOLS)
     add_subdirectory(tools/models)
 elseif(JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR)
     message(FATAL_ERROR "JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR=ON requires JYPPX_LIUDING_BUILD_TOOLS=ON")
-endif()
-if(JYPPX_LIUDING_BUILD_QUANTIZATION)
-    add_subdirectory(tools/quantization)
 endif()
 include(cmake/CompilerOptions.cmake)
 
@@ -1202,18 +1093,6 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/jyppxConfigVersion.cmake
     DESTINATION lib/cmake/jyppx
 )
-
-if(JYPPX_LIUDING_BUILD_QUANTIZATION_ONEDNN)
-    configure_file(cmake/jyppxOneDnn.cmake.in
-        "${CMAKE_CURRENT_BINARY_DIR}/jyppxOneDnn.cmake" @ONLY)
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/jyppxOneDnn.cmake"
-        DESTINATION lib/cmake/jyppx)
-    install(FILES "${JYPPX_ONEDNN_LIBRARY}" DESTINATION lib/liuding-forge/dependencies)
-    install(FILES third_party/licenses/oneDNN-3.12.0-LICENSE.txt
-        third_party/licenses/oneDNN-3.12.0-THIRD-PARTY-PROGRAMS.txt
-        third_party/licenses/oneDNN-3.12.0-ittptmark64.S-LICENSE.txt
-        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
-endif()
 
 install(FILES
     LICENSE

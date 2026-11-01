@@ -20,10 +20,6 @@ function(jyppx_public_headers header_root output_variable)
         list(REMOVE_ITEM public_headers
             "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/training/file_checkpoint_store.hpp")
     endif()
-    if(header_root STREQUAL "deployment/onnx_export" AND NOT JYPPX_LIUDING_BUILD_QUANTIZATION)
-        list(REMOVE_ITEM public_headers
-            "${PROJECT_SOURCE_DIR}/include/jyppx/liuding/deployment/onnx_export/static_int8_linear.hpp")
-    endif()
     set(${output_variable} "${public_headers}" PARENT_SCOPE)
 endfunction()
 
@@ -42,9 +38,6 @@ function(jyppx_write_component_graph output_path)
         onnx_runtime
         onnx_serving
         optim
-        quantization
-        quantization_onednn
-        quantization_torch
         serving
         telemetry_http
         telemetry_native

@@ -4,7 +4,7 @@ Run `bash scripts/validation/run-tsan.sh` from a clean, committed Linux checkout
 `CMAKE_PREFIX_PATH` to its installation prefix for the first invocation, or use
 `JYPPX_TSAN_TORCH_DIR=<prefix>/share/cmake/Torch` explicitly.
 
-The incremental build directory is always `out/build/tsan-linux`. Build and test parallelism default to **2**; `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` overrides both. Serving and all Core components are enabled explicitly. Models, quantization, tools, examples, benchmarks and fuzzers are disabled. Coverage, ASan and UBSan are incompatible with this lane. An existing cache with a different source, compiler, CPU Torch package or instrumentation is rejected for review instead of silently replacing that configuration. `JYPPX_TSAN_CXX` can select a Clang executable on the first invocation; later invocations retain the cached compiler.
+The incremental build directory is always `out/build/tsan-linux`. Build and test parallelism default to **2**; `JYPPX_LIUDING_BUILD_PARALLEL_LEVEL` overrides both. Serving and all Core components are enabled explicitly. Models, tools, examples, benchmarks and fuzzers are disabled. Coverage, ASan and UBSan are incompatible with this lane. An existing cache with a different source, compiler, CPU Torch package or instrumentation is rejected for review instead of silently replacing that configuration. `JYPPX_TSAN_CXX` can select a Clang executable on the first invocation; later invocations retain the cached compiler.
 
 Cached CPU `Torch_DIR` takes precedence over ambient `CMAKE_PREFIX_PATH`, so a CUDA lane's environment cannot redirect the fixed cache. `Torch_DIR`,
 `Caffe2_DIR`, `TORCH_LIBRARY`, package version, CPU library hashes and executable

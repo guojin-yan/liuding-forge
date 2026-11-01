@@ -41,7 +41,6 @@ enum class ModelKind : std::uint8_t {
   generic = 0,   ///< Arbitrary native module and caller-owned forward function.
   linear = 1,    ///< One dense FP32 Linear layer.
   resnet18 = 2,  ///< The native Liuding Forge basic-block ResNet18.
-  static_int8_linear = 3,  ///< Bounded static Linear integer-kernel profile.
 };
 
 /** @brief Inserts ONNX nodes and returns one replacement per source output.

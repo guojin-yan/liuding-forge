@@ -262,30 +262,6 @@
       },
       "baseline_observation": "m8_preview_400f9e9"
     },
-    "quantization": {
-      "path_prefixes": [
-        "include/jyppx/liuding/quantization/",
-        "src/jyppx/liuding/quantization/"
-      ],
-      "metrics": {
-        "line": {
-          "baseline_covered": 807,
-          "baseline_total": 948,
-          "minimum_percent": 85.126582
-        },
-        "function": {
-          "baseline_covered": 83,
-          "baseline_total": 86,
-          "minimum_percent": 96.511628
-        },
-        "branch": {
-          "baseline_covered": 783,
-          "baseline_total": 1694,
-          "minimum_percent": 46.22196
-        }
-      },
-      "baseline_observation": "m8_preview_400f9e9"
-    },
     "serving": {
       "path_prefixes": [
         "include/jyppx/liuding/serving/",
@@ -330,7 +306,6 @@
       "report_sha256": "b1e0b5059dcbc620a2c23f52b8c65e6862fab2573023d17d07ab2965888c9ccd",
       "targets": [
         "models",
-        "quantization",
         "serving"
       ],
       "status": "measured_preview_baseline; existing_stable_ratchets_pending"
