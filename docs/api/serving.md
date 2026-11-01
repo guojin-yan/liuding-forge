@@ -73,4 +73,8 @@ predictor 关闭先拒绝新请求，再等待活动 lease；超时返回 false�
 
 `ObservationHook` 接收已删减的 foundation log/correlation/attributes，由应用接入遥测。回调须有界、非阻塞且不重入；异常只增加失败计数。请求/trace 等高基数身份放 logs/traces，避免直接作为 metric label。响应包含各阶段实际计时，调度统计提供请求数、活动深度、驻留逻辑字节和 OOM 重试数。
 
+成功响应的 `timing.queue` 记录已完成的等待区间：直接 `Predictor` 调用从输入快照完成后开始，到取得串行执行锁为止；`DynamicBatcher` 另加 submit 快照及截止检查完成后至实际出队的时间（含发布队列锁等待）、合法 OOM 拆批后等待子组调度的时间，以及该成员各次已确认 native forward 尝试的等锁时间。原队列区间只计算一次，每段重试等待在子组实际取出时结束。输入快照、合批拼接、预后处理、forward、输出切片复制均不归为当前请求的 queue；失败或取消请求没有成功响应计时。
+
+`timing.total` 保留既有测量范围：直接调用从准入后、输入快照前量至输出快照和最终截止检查完成；batcher 从 submit 快照及截止检查完成后量至该成员结果切片构造完成，包含已发生的调度和重试，但不含 submit 初始快照、之后的 future 消费或宿主 codec。preprocess/compute/postprocess 继续对应最终成功尝试，先前失败尝试的工作时间包含在 total 中。total 不是各已命名阶段的相加，也不替代调用方对完整入口/传输端到端墙钟的测量。
+
 参见[本地 JSONL、native 与 ONNX 版本切换示例](../../examples/serving/README.md)。示例不启动网络监听器，不下载预训练权重。具体平台支持、延迟、吞吐、RSS/显存峰值与长时负载资格以实际验收结果为准。

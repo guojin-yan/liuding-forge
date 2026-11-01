@@ -14,6 +14,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
+#include <exception>
 #include <future>
 #include <gtest/gtest.h>
 #include <initializer_list>
@@ -309,6 +310,103 @@ struct Gate {
   }
   ~Gate() { Release(); }
 };
+bool WaitForActive(const std::shared_ptr<Predictor>& predictor,
+                   std::uint64_t count) {
+  const auto end = std::chrono::steady_clock::now() + 5s;
+  while (std::chrono::steady_clock::now() < end) {
+    if (predictor->info().active == count) return true;
+    std::this_thread::yield();
+  }
+  return false;
+}
+TEST_F(ServingTest, QueuedPredictionReportsItsSerializedExecutionWait) {
+  auto gate = std::make_shared<Gate>();
+  auto enabled = std::make_shared<std::atomic<bool>>(false);
+  auto predictor = Load([gate, enabled](const Tensor& input) {
+    if (enabled->load()) gate->Wait(input);
+  });
+  enabled->store(true);
+  auto active = std::async(std::launch::async, [&] {
+    return predictor->predict(Request("execute-owner"));
+  });
+  EXPECT_TRUE(gate->Entered());  // Hook runs while execute is held.
+  auto queued = std::async(std::launch::async, [&] {
+    return predictor->predict(Request("execute-waiter", 2));
+  });
+  const bool admitted = WaitForActive(predictor, 2);
+  EXPECT_TRUE(admitted);
+  // Observe pending work while the known execute owner remains gated. This
+  // is synchronization, not a latency/throughput qualification threshold.
+  EXPECT_EQ(queued.wait_for(5ms), std::future_status::timeout);
+  gate->Release();
+  const auto first = active.get();
+  const auto second = queued.get();
+  EXPECT_TRUE(torch::equal(first.output.value.toTensor(),
+                           torch::tensor({{2.0F, -3.0F}})));
+  EXPECT_TRUE(torch::equal(second.output.value.toTensor(),
+                           torch::tensor({{4.0F, -6.0F}})));
+  // Before the fix this is exactly zero despite the admitted contention.
+  EXPECT_GT(second.timing.queue, 0.0);
+  EXPECT_TRUE(std::isfinite(second.timing.queue));
+  EXPECT_LE(second.timing.queue, second.timing.total);
+  EXPECT_EQ(predictor->info().active, 0U);
+  EXPECT_TRUE(predictor->close());
+}
+TEST_F(ServingTest, QueuedCancellationReleasesOnlyItsAdmission) {
+  auto gate = std::make_shared<Gate>();
+  auto enabled = std::make_shared<std::atomic<bool>>(false);
+  auto predictor = Load([gate, enabled](const Tensor& input) {
+    if (enabled->load()) gate->Wait(input);
+  });
+  enabled->store(true);
+  auto active = std::async(std::launch::async, [&] {
+    return predictor->predict(Request("active"));
+  });
+  EXPECT_TRUE(gate->Entered());
+  std::stop_source stop;
+  auto queued = std::async(std::launch::async, [&] {
+    return predictor->predict(Request("cancelled"), stop.get_token());
+  });
+  EXPECT_TRUE(WaitForActive(predictor, 2));
+  stop.request_stop();
+  EXPECT_EQ(queued.wait_for(5s), std::future_status::ready);
+  EXPECT_THROW(queued.get(), Cancelled);
+  EXPECT_EQ(predictor->info().active, 1U);
+  EXPECT_EQ(predictor->info().health, HealthStatus::ready);
+  gate->Release();
+  EXPECT_NO_THROW(active.get());
+  EXPECT_NO_THROW(predictor->predict(Request("after-cancel")));
+  EXPECT_EQ(predictor->info().active, 0U);
+  EXPECT_EQ(predictor->info().failed, 1U);
+  EXPECT_TRUE(predictor->close());
+}
+TEST_F(ServingTest, QueuedDeadlineReleasesOnlyItsAdmission) {
+  auto gate = std::make_shared<Gate>();
+  auto enabled = std::make_shared<std::atomic<bool>>(false);
+  auto predictor = Load([gate, enabled](const Tensor& input) {
+    if (enabled->load()) gate->Wait(input);
+  });
+  enabled->store(true);
+  auto active = std::async(std::launch::async, [&] {
+    return predictor->predict(Request("active"));
+  });
+  EXPECT_TRUE(gate->Entered());
+  auto request = Request("deadline-waiter");
+  request.deadline = std::chrono::steady_clock::now() + 250ms;
+  auto queued = std::async(std::launch::async,
+                           [&] { return predictor->predict(request); });
+  EXPECT_TRUE(WaitForActive(predictor, 2));
+  EXPECT_EQ(queued.wait_for(5s), std::future_status::ready);
+  EXPECT_THROW(queued.get(), DeadlineExceeded);
+  EXPECT_EQ(predictor->info().active, 1U);
+  EXPECT_EQ(predictor->info().health, HealthStatus::ready);
+  gate->Release();
+  EXPECT_NO_THROW(active.get());
+  EXPECT_NO_THROW(predictor->predict(Request("after-deadline")));
+  EXPECT_EQ(predictor->info().active, 0U);
+  EXPECT_EQ(predictor->info().failed, 1U);
+  EXPECT_TRUE(predictor->close());
+}
 TEST_F(ServingTest, ConcurrentLeaseBoundTimedDrainAndNoPrematureUnload) {
   auto gate = std::make_shared<Gate>();
   auto enabled = std::make_shared<std::atomic<bool>>(false);
@@ -794,6 +892,120 @@ TEST_F(ServingTest, OnlyExplicitConfirmedOomGetsFiniteSplitRetry) {
   EXPECT_EQ(no_retry.statistics().oom_retries, 0U);
   EXPECT_TRUE(no_retry.close());
 }
+TEST_F(ServingTest,
+       BatchReportsQueueAndPredictorContentionWithoutNegativeTime) {
+  auto gate = std::make_shared<Gate>();
+  auto enabled = std::make_shared<std::atomic<bool>>(false);
+  auto predictor = Load([gate, enabled](const Tensor& input) {
+    if (enabled->load()) gate->Wait(input);
+  });
+  DynamicBatcher batcher(predictor, {.max_batch_size = 1, .max_wait = 0ms});
+  enabled->store(true);
+  auto active = std::async(std::launch::async, [&] {
+    return predictor->predict(Request("direct-owner"));
+  });
+  EXPECT_TRUE(gate->Entered());
+  auto queued = batcher.submit(Request("batched-waiter", 2));
+  EXPECT_TRUE(WaitForActive(predictor, 2));
+  EXPECT_EQ(queued.wait_for(5ms), std::future_status::timeout);
+  EXPECT_EQ(batcher.statistics().active, 1U);
+  EXPECT_EQ(batcher.statistics().resident_tensor_bytes, 8U);
+  gate->Release();
+  EXPECT_NO_THROW(active.get());
+  const auto response = queued.get();
+  EXPECT_EQ(response.context.request_id, "batched-waiter");
+  EXPECT_GT(response.timing.queue, 0.0);
+  EXPECT_TRUE(std::isfinite(response.timing.queue));
+  EXPECT_LE(response.timing.queue, response.timing.total);
+  EXPECT_TRUE(torch::equal(response.output.value.toTensor(),
+                           torch::tensor({{4.0F, -6.0F}})));
+  EXPECT_TRUE(batcher.close());
+  EXPECT_EQ(batcher.statistics().resident_tensor_bytes, 0U);
+  EXPECT_EQ(predictor->info().active, 0U);
+  EXPECT_TRUE(predictor->close());
+}
+TEST_F(ServingTest, RetrySafeOomKeepsPublicErrorCodeDetailsAndNestedCause) {
+  auto enabled = std::make_shared<std::atomic<bool>>(false);
+  auto predictor = Load([enabled](const Tensor&) {
+    if (enabled->load()) throw std::bad_alloc();
+  });
+  enabled->store(true);
+  try {
+    static_cast<void>(predictor->predict(Request("oom")));
+    FAIL() << "Expected retry-safe native forward allocation failure";
+  } catch (const RetryableOutOfMemory& error) {
+    EXPECT_EQ(error.code(), ErrorCode::resource_exhausted);
+    EXPECT_EQ(error.message(), "Retry-safe native allocation failed");
+    EXPECT_EQ(error.details().component, "serving");
+    EXPECT_EQ(error.details().operation, "predict.forward");
+    EXPECT_THROW(std::rethrow_if_nested(error), std::bad_alloc);
+  }
+  EXPECT_EQ(predictor->info().active, 0U);
+  EXPECT_EQ(predictor->info().health, HealthStatus::ready);
+  enabled->store(false);
+  EXPECT_NO_THROW(predictor->predict(Request("after-oom")));
+  EXPECT_TRUE(predictor->close());
+}
+TEST_F(ServingTest, OomSplitMembersRetainTheFailedAttemptExecutionWait) {
+  auto gate = std::make_shared<Gate>();
+  auto retry_gate = std::make_shared<Gate>();
+  auto enabled = std::make_shared<std::atomic<bool>>(false);
+  auto attempts = std::make_shared<std::atomic<std::size_t>>(0);
+  auto predictor =
+      Load([gate, retry_gate, enabled, attempts](const Tensor& input) {
+        if (!enabled->load()) return;
+        ++*attempts;
+        if (input.size(0) > 1) throw std::bad_alloc();
+        if (input[0][0].item<float>() == 2.0F)
+          retry_gate->Wait(input);
+        else
+          gate->Wait(input);
+      });
+  DynamicBatcher batcher(
+      predictor, {.max_batch_size = 2, .max_wait = 50ms, .max_oom_retries = 1});
+  enabled->store(true);
+  auto active = std::async(std::launch::async, [&] {
+    return predictor->predict(Request("direct-before-oom"));
+  });
+  EXPECT_TRUE(gate->Entered());
+  auto first = batcher.submit(Request("split-first", 2));
+  auto second = batcher.submit(Request("split-second", 3));
+  EXPECT_TRUE(WaitForActive(predictor, 2));
+  EXPECT_EQ(first.wait_for(5ms), std::future_status::timeout);
+  EXPECT_EQ(second.wait_for(0ms), std::future_status::timeout);
+  gate->Release();
+  EXPECT_NO_THROW(active.get());
+  EXPECT_TRUE(retry_gate->Entered());
+  // The first successful singleton owns execute while the second singleton
+  // is still in the retry deque. Its whole observed blocked interval belongs
+  // to the second member's scheduler wait, not its eventual forward time.
+  const auto retry_blocked = std::chrono::steady_clock::now();
+  EXPECT_EQ(second.wait_for(5ms), std::future_status::timeout);
+  const auto retry_released = std::chrono::steady_clock::now();
+  retry_gate->Release();
+  const auto one = first.get(), two = second.get();
+  EXPECT_TRUE(torch::equal(one.output.value.toTensor(),
+                           torch::tensor({{4.0F, -6.0F}})));
+  EXPECT_TRUE(torch::equal(two.output.value.toTensor(),
+                           torch::tensor({{6.0F, -9.0F}})));
+  for (const auto* result : {&one, &two}) {
+    EXPECT_GT(result->timing.queue, 0.0);
+    EXPECT_TRUE(std::isfinite(result->timing.queue));
+    EXPECT_LE(result->timing.queue, result->timing.total);
+  }
+  EXPECT_GE(
+      two.timing.queue,
+      std::chrono::duration<double>(retry_released - retry_blocked).count());
+  EXPECT_TRUE(batcher.close());
+  EXPECT_EQ(attempts->load(), 4U);  // direct + failed pair + two singletons
+  EXPECT_EQ(batcher.statistics().oom_retries, 1U);
+  EXPECT_EQ(batcher.statistics().completed, 2U);
+  EXPECT_EQ(batcher.statistics().failed, 0U);
+  EXPECT_EQ(batcher.statistics().resident_tensor_bytes, 0U);
+  EXPECT_EQ(predictor->info().active, 0U);
+  EXPECT_EQ(predictor->info().health, HealthStatus::ready);
+  EXPECT_TRUE(predictor->close());
+}
 ProtocolAdapter Protocol() {
   return {.protocol_id = "example.fixed-f32",
           .schema_version = 1,
@@ -872,6 +1084,61 @@ TEST_F(ServingTest,
   std::memcpy(actual.data(), current.body.data(), current.body.size());
   EXPECT_EQ(actual, (std::array<float, 2>{5.0F, 14.0F}));
   EXPECT_TRUE(service.close());
+}
+TEST_F(ServingTest, CancelledEncodeRetainsOldVersionUntilCodecReturns) {
+  auto original = Load();
+  auto owner = std::make_shared<ReloadablePredictor>(
+      original, ReloadPolicy{.initial_reservation_bytes = ReloadReservation,
+                             .max_resident_bytes = 2U * ReloadReservation});
+  auto encode = std::make_shared<Gate>();
+  auto protocol = Protocol();
+  const auto encoder = protocol.encode;
+  protocol.encode = [encode, encoder](const nn::InvocationResult& result) {
+    encode->Wait(Tensor{});
+    return encoder(result);
+  };
+  InferenceServiceAdapter service(owner, protocol);
+  const std::array<float, 2> input{1.0F, 2.0F};
+  TransportContext context{
+      .correlation = Request().context, .authenticated = true, .deadline = {}};
+  context.correlation.model_version.clear();
+  std::stop_source stop;
+  auto pending = std::async(std::launch::async, [&] {
+    return service.handle(std::as_bytes(std::span(input)), context,
+                          stop.get_token());
+  });
+  EXPECT_TRUE(encode->Entered());
+  EXPECT_EQ(original->info().active, 0U);
+  EXPECT_EQ(owner->statistics().active_leases, 1U);
+  example::BundleFixture next;
+  SetVersion(next, "example-linear-v2", {5.0F, 7.0F});
+  next.Publish();
+  NativeStateBackend backend(next.descriptor, example::Factory());
+  const auto publication =
+      owner->reload(backend, next.directory, {}, VersionWarmup({5.0F, 7.0F}),
+                    ReloadLoad(), {.drain_timeout = 0ms});
+  EXPECT_FALSE(publication.previous_drained);
+  stop.request_stop();
+  EXPECT_EQ(pending.wait_for(0ms), std::future_status::timeout);
+  EXPECT_FALSE(owner->drain_previous(std::chrono::steady_clock::now()));
+  EXPECT_EQ(owner->statistics().active_leases, 1U);
+  EXPECT_EQ(original->info().health, HealthStatus::ready);
+  encode->Release();
+  const auto cancelled = pending.get();
+  EXPECT_EQ(cancelled.status, ServiceStatus::cancelled);
+  EXPECT_TRUE(cancelled.body.empty());
+  EXPECT_EQ(owner->statistics().active_leases, 0U);
+  EXPECT_TRUE(owner->drain_previous());
+  EXPECT_EQ(original->info().health, HealthStatus::closed);
+  EXPECT_EQ(owner->statistics().reserved_bytes, ReloadReservation);
+  const auto current = service.handle(std::as_bytes(std::span(input)), context);
+  EXPECT_EQ(current.status, ServiceStatus::ok);
+  std::array<float, 2> actual{};
+  ASSERT_EQ(current.body.size(), sizeof(actual));
+  std::memcpy(actual.data(), current.body.data(), current.body.size());
+  EXPECT_EQ(actual, (std::array<float, 2>{5.0F, 14.0F}));
+  EXPECT_TRUE(service.close());
+  EXPECT_EQ(owner->statistics().reserved_bytes, 0U);
 }
 TEST_F(ServingTest, TransportAuthenticationScopeSizeMappingAndReadiness) {
   auto predictor = Load();

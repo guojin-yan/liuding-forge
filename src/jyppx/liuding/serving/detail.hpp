@@ -40,6 +40,17 @@ inline void Boundary(std::stop_token stop, const Deadline& deadline) {
 inline double Seconds(std::chrono::steady_clock::duration d) {
   return std::chrono::duration<double>(d).count();
 }
+// Preserve the public error category, details and nested allocation cause.
+// Only a confirmed retry-safe forward emits this private timing extension;
+// a final successful Work must retain waits from its failed parent attempts.
+class RetryableOutOfMemoryWithTiming : public RetryableOutOfMemory {
+ public:
+  RetryableOutOfMemoryWithTiming(std::string message, ErrorDetails details,
+                                 double wait_seconds)
+      : RetryableOutOfMemory(std::move(message), std::move(details)),
+        execution_wait(wait_seconds) {}
+  double execution_wait;
+};
 inline void Text(std::string_view text, bool required = false) {
   if ((required && text.empty()) || text.size() > 256U)
     Invalid("context", "bounded nonempty IDs where required");

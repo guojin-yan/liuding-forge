@@ -15,6 +15,7 @@
 #include <exception>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 namespace jyppx::liuding::serving {
@@ -81,6 +82,10 @@ class DynamicBatcher::Impl {
     PredictRequest request;
     std::stop_token stop;
     Clock::time_point queued_at;
+    Clock::time_point dequeued_at;
+    std::optional<Clock::time_point> retry_queued_at;
+    double retry_queue = 0;
+    double retry_execution_wait = 0;
     std::uint64_t bytes = 0;
     std::promise<PredictResponse> promise;
     bool resolved = false;  // Only the scheduler worker accesses completion.
@@ -147,6 +152,14 @@ class DynamicBatcher::Impl {
     while (!pending.empty()) {
       auto group = std::move(pending.front());
       pending.pop_front();
+      const auto retry_dequeued_at = Clock::now();
+      for (const auto& work : group) {
+        if (work->retry_queued_at) {
+          work->retry_queue +=
+              detail::Seconds(retry_dequeued_at - *work->retry_queued_at);
+          work->retry_queued_at.reset();
+        }
+      }
       std::vector<std::shared_ptr<Work>> live;
       for (const auto& work : group) {
         if (auto failure = Failure(work->stop, work->request.deadline))
@@ -182,10 +195,13 @@ class DynamicBatcher::Impl {
           item.output.value =
               result.narrow(0, static_cast<std::int64_t>(i), 1).clone();
           item.context = live[i]->request.context;
+          // Queue residence and Predictor's serialized execution wait are
+          // disjoint. Keep failed-attempt execution and retry-pending waits;
+          // cat/snapshots/output slicing are work, never fabricated queue time.
           item.timing.queue =
-              detail::Seconds(Clock::now() - live[i]->queued_at) -
-              response.timing.total;
-          item.timing.queue = std::max(0.0, item.timing.queue);
+              detail::Seconds(live[i]->dequeued_at - live[i]->queued_at) +
+              live[i]->retry_queue + live[i]->retry_execution_wait +
+              response.timing.queue;
           item.timing.total =
               detail::Seconds(Clock::now() - live[i]->queued_at);
           responses.push_back(std::move(item));
@@ -197,7 +213,12 @@ class DynamicBatcher::Impl {
           else
             Success(live[i], std::move(responses[i]));
         }
-      } catch (const RetryableOutOfMemory&) {
+      } catch (const RetryableOutOfMemory& error) {
+        if (const auto* measured =
+                dynamic_cast<const detail::RetryableOutOfMemoryWithTiming*>(
+                    &error))
+          for (const auto& work : live)
+            work->retry_execution_wait += measured->execution_wait;
         const auto info = predictor->info();
         if (info.health == HealthStatus::ready && info.runtime.oom_retry_safe &&
             live.size() > 1U && retries < options.max_oom_retries) {
@@ -208,6 +229,8 @@ class DynamicBatcher::Impl {
           }
           const auto middle =
               live.begin() + static_cast<std::ptrdiff_t>(live.size() / 2U);
+          const auto retry_queued_at = Clock::now();
+          for (const auto& work : live) work->retry_queued_at = retry_queued_at;
           pending.emplace_front(middle, live.end());
           pending.emplace_front(live.begin(), middle);
         } else {
@@ -278,7 +301,9 @@ class DynamicBatcher::Impl {
                 std::min(end, Clock::now() + std::chrono::milliseconds(1)));
             continue;
           }
+          const auto dequeued_at = Clock::now();
           for (std::size_t i = 0; i < count; ++i) {
+            queue.front()->dequeued_at = dequeued_at;
             batch.push_back(queue.front());
             queue.pop_front();
             --stats.queued;

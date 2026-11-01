@@ -537,8 +537,11 @@ PredictResponse Predictor::predict(const PredictRequest& request,
     std::unique_lock lock(impl->execute, std::defer_lock);
     try {
       auto snapshot = snapshot_request(request);
+      TimingBreakdown timing;
+      const auto queued = std::chrono::steady_clock::now();
       while (!lock.try_lock_for(std::chrono::milliseconds(1)))
         detail::Boundary(stop, request.deadline);
+      timing.queue = detail::Seconds(std::chrono::steady_clock::now() - queued);
       detail::Boundary(stop, request.deadline);
       {
         std::lock_guard lifecycle(impl->mutex);
@@ -552,7 +555,6 @@ PredictResponse Predictor::predict(const PredictRequest& request,
         detail::Invalid("predict.autocast",
                         "autocast disabled on the explicit runtime device");
       c10::InferenceMode guard;
-      TimingBreakdown timing;
       auto stage = std::chrono::steady_clock::now();
       auto processed = impl->pipeline.preprocess
                            ? impl->pipeline.preprocess(snapshot.input)
@@ -573,10 +575,11 @@ PredictResponse Predictor::predict(const PredictRequest& request,
         retryable =
             impl->metadata.runtime.oom_retry_safe && detail::IsOom(error);
         if (retryable)
-          std::throw_with_nested(RetryableOutOfMemory(
+          std::throw_with_nested(detail::RetryableOutOfMemoryWithTiming(
               "Retry-safe native allocation failed",
               detail::Details("predict.forward",
-                              "available memory for this batch")));
+                              "available memory for this batch"),
+              timing.queue));
         throw;
       }
       timing.compute =

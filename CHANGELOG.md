@@ -63,6 +63,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- Serving 的 queue 时间累计真实执行锁等待及 OOM 拆分重试调度等待，排除合批/快照/切片复制，并保留公开 OOM 异常与取消/关闭合同。
+
 - 显式图像批次 prepare/transfer 在分配 pinned/设备输出之前预约共享预算，并按真实 CPU 别名或 CPU:0 pageable 复制分类；后端失败回滚，源与结果租约独立保留。
 
 - 本地执行的未终态任务在进程树清理未确认时统一保留围栏，不再因未预约资源或未启用 checkpoint 续训而继续重试或确认成功。
