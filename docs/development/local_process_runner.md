@@ -49,6 +49,8 @@ Windows 将示例中的程序和工作目录改成真实绝对路径，JSON 中�
 
 已发起的 attempt 若缺少确认结果，即使文件锁已释放，也返回 `recovery_required`（退出码 7），不会单凭 PID、心跳或超时自动重试。强杀 worker 后，POSIX 子孙进程可能仍在运行；该状态必须由应用/操作者检查并处理，当前入口不提供强制解锁重启。正常取消与单次超时由 worker 的原生运行器清理子树后提交结果。[学习率搜索示例](../../examples/experiment/README.md)演示已实现的有界 grid/random、best trial 和实验备份。
 
+未终态 job 即使已有完整结果，只要原生 `process_tree_cleanup_confirmed` 为 `false` 或缺失，就返回 `resource_cleanup_unconfirmed`（退出码 7），保留当前 attempt、结果和引用，不创建新 attempt 或将 job 推进至成功；该围栏适用于未声明资源和默认 retry 的任务。历史已终态 job 继续按原确认结果只读重放，不能据此推断其原生清理证明或资源可释放。
+
 ## CPU/GPU 逻辑资源准入
 
 `local_run_spec` 与搜索的 `execution` 可增加下面的 `resources`。首次准入会将同一机器、同一 STORE 的容量固定到 run/CAS；后续请求必须原样使用该容量。`gpu0` 是调用者约定的设备身份，运行器不探测硬件、不设置 CUDA 可见设备；训练程序负责将该身份映射到实际设备。

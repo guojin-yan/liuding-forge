@@ -479,6 +479,135 @@ class LocalAttemptTest(unittest.TestCase):
         self.assertEqual(denied["attempts"], [])
         self.assertEqual(self.launch_count(), 1)
 
+    def committed_retry_prefix(self) -> dict:
+        self.spec["max_attempts"] = 2
+        self.spec["retry_delay_ms"] = 4000
+        self.write_spec("retry")
+        process = self.start()
+        first_id = "local-" + hashlib.sha256(b"job-one").hexdigest() + ".attempt-1"
+        def confirmed_first() -> bool:
+            if not (self.root / "runs.sqlite3").is_file():
+                return False
+            try:
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                    return database.execute("SELECT COUNT(*) FROM jyppx_run_artifacts AS a "
+                        "JOIN jyppx_runs AS r ON a.run_id=r.run_id "
+                        "WHERE a.run_id=? AND a.reference_id='local.result' AND r.status=4",
+                        (first_id,)).fetchone()[0] == 1
+            except sqlite3.OperationalError:
+                return False
+        self.assertTrue(wait_for(confirmed_first))
+        # Stop only the dispatcher during its retry delay. The real first
+        # child has already exited 23 and its worker committed the result.
+        process.kill()
+        process.communicate(timeout=10)
+        self.assertTrue(wait_for(lambda: not self.local("show")["owner_active"]))
+        original = self.local("show")
+        self.assertEqual(original["status"], "running")
+        self.assertEqual(len(original["attempts"]), 1)
+        result = original["attempts"][0]["result"]
+        self.assertEqual((result["status"], result["exit_code"]), ("exited", 23))
+        self.assertTrue(result["process_tree_cleanup_confirmed"])
+        self.assertFalse(alive(result["process_id"]))
+        self.assertEqual(self.launch_count(), 1)
+        return original
+
+    def replace_cleanup_confirmation(self, attempt: str, cleanup: bool | None,
+                                     *, reopen: bool) -> None:
+        result = json.loads(self.blob(self.references(attempt)["local.result"]))
+        if cleanup is None:
+            del result["process_tree_cleanup_confirmed"]
+        else:
+            result["process_tree_cleanup_confirmed"] = cleanup
+        content = json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        identity = hashlib.sha256(content).hexdigest()
+        destination = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
+        destination.parent.mkdir(exist_ok=True)
+        destination.write_bytes(content)
+        # This is a durable-boundary injection, not a manufactured native
+        # leak. Keep the original intent/owner/raw streams and their CAS.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("INSERT INTO jyppx_blobs(digest,algorithm,size_bytes) VALUES(?,1,?)",
+                             (identity, len(content)))
+            database.execute("UPDATE jyppx_run_artifacts SET digest=? "
+                             "WHERE run_id=? AND reference_id='local.result'", (identity, attempt))
+            if reopen:
+                database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN (?,?)",
+                                 ("job-one", attempt))
+
+    def assert_unmetered_cleanup_fenced(self, *, retry: bool, cleanup: bool | None) -> None:
+        if retry:
+            original = self.committed_retry_prefix()
+        else:
+            original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        self.replace_cleanup_confirmation(attempt, cleanup, reopen=True)
+        job_references = self.references("job-one")
+        attempt_references = self.references(attempt)
+        for action in ("recover", "execute", "recover"):
+            recovered = self.local(action, expected=7)
+            self.assertEqual(recovered["status"], "resource_cleanup_unconfirmed")
+            self.assertEqual(recovered["run_status"], "running")
+            self.assertFalse(recovered["owner_active"])
+            self.assertEqual(len(recovered["attempts"]), 1)
+            first = recovered["attempts"][0]
+            self.assertEqual(first["run_status"], "running")
+            self.assertEqual(first["result"].get("process_tree_cleanup_confirmed"), cleanup)
+            self.assertEqual(first["result"]["exit_code"], 23 if retry else 0)
+            self.assertEqual(self.references("job-one"), job_references)
+            self.assertEqual(self.references(attempt), attempt_references)
+            self.assertEqual(self.launch_count(), 1)
+        self.assertTrue(self.invoke("run", "verify", "--root", self.root)["data"]["valid"])
+
+    def test_unmetered_retry_cleanup_false_remains_fenced(self) -> None:
+        self.assert_unmetered_cleanup_fenced(retry=True, cleanup=False)
+
+    def test_unmetered_retry_without_cleanup_confirmation_remains_fenced(self) -> None:
+        self.assert_unmetered_cleanup_fenced(retry=True, cleanup=None)
+
+    def test_unmetered_success_cleanup_false_remains_fenced(self) -> None:
+        # The exited/0 + false shape tests only independent recovery. It does
+        # not claim that the normal native worker produced this combination.
+        self.assert_unmetered_cleanup_fenced(retry=False, cleanup=False)
+
+    def test_unmetered_success_without_cleanup_confirmation_remains_fenced(self) -> None:
+        self.assert_unmetered_cleanup_fenced(retry=False, cleanup=None)
+
+    def test_confirmed_unmetered_retry_recovery_preserves_first_result(self) -> None:
+        original = self.committed_retry_prefix()
+        first = original["attempts"][0]
+        references = self.references(first["attempt_id"])
+        recovered = self.local("recover")
+        self.assertEqual(recovered["status"], "completed")
+        self.assertEqual(len(recovered["attempts"]), 2)
+        self.assertEqual(recovered["attempts"][0], first)
+        self.assertTrue(recovered["attempts"][1]["result"]["process_tree_cleanup_confirmed"])
+        self.assertEqual(self.references(first["attempt_id"]), references)
+        self.assertEqual(self.local("recover"), recovered)
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_unmetered_terminal_replay_preserves_legacy_cleanup_results(self) -> None:
+        self.spec["max_attempts"] = 1
+        for failed in (False, True):
+            for cleanup in (False, None):
+                with self.subTest(failed=failed, cleanup=cleanup):
+                    self.root = self.directory / f"legacy-{int(failed)}-{cleanup}"
+                    self.write_spec("fail" if failed else "inspect")
+                    expected = 1 if failed else 0
+                    original = self.local("execute", expected=expected)
+                    launches = self.launch_count()
+                    attempt = original["attempts"][0]["attempt_id"]
+                    self.replace_cleanup_confirmation(attempt, cleanup, reopen=False)
+                    legacy = self.local("show")
+                    job_references = self.references("job-one")
+                    attempt_references = self.references(attempt)
+                    self.assertEqual(legacy["status"], "failed" if failed else "completed")
+                    self.assertEqual(self.local("execute", expected=expected), legacy)
+                    self.assertEqual(self.local("recover", expected=expected), legacy)
+                    self.assertEqual(self.references("job-one"), job_references)
+                    self.assertEqual(self.references(attempt), attempt_references)
+                    self.assertEqual(self.launch_count(), launches)
+
     def test_unmetered_live_attempt_blocks_initial_pool_activation(self) -> None:
         self.spec["timeout_ms"] = 30000
         self.write_spec("lease_hold")

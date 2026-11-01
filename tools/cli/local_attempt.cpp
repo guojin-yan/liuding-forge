@@ -1306,7 +1306,10 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
     auto attempt = store.find(id);
     if (attempt && store.find_reference(id, "local.result")) {
       const auto result = outcome(store, job.run_id, spec, index);
-      if (!release_resources(store, job, spec, index))
+      // A committed leader result is not proof that its process tree stopped.
+      // Fence every lifecycle/retry path, including jobs without resources.
+      if (!result.value("process_tree_cleanup_confirmed", false) ||
+          !release_resources(store, job, spec, index))
         return {
             describe(store, job, spec, false, "resource_cleanup_unconfirmed"),
             7};
@@ -1325,11 +1328,6 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
         finish_run(store, job.run_id, RunStatus::failed);
         return {describe(store, job, spec), 1};
       }
-      if (checkpoint_retry(spec) &&
-          !result.value("process_tree_cleanup_confirmed", false))
-        return {
-            describe(store, job, spec, false, "resource_cleanup_unconfirmed"),
-            7};
       continue;
     }
     // Never infer a dead process tree from a free lock, PID or elapsed time.
