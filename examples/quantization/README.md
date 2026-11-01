@@ -1,5 +1,18 @@
 # 静态 INT8 Linear 示例
 
+## 官方 oneDNN 整数执行
+
+`onednn_static_linear.cpp` 使用同一训练校准子集观察输入与 FP32 输出，保存 Q0、按输出行 QC1 和 CA1 输出校准，再有界读回、核对两份期望摘要并调用官方 oneDNN runtime。程序演示两次 U8×S8 整数运算、ATen INT64 合成后的静态 QUInt8 输出，并打印依赖身份；无需 Python 或 ONNX Runtime。输入范围与权重不缩减，超出精确范围时明确失败。
+
+先按[量化 API](../../docs/api/quantization.md#直接使用官方-onednn)配置固定官方 SDK，启用 `CORE`、`QUANTIZATION`、`QUANTIZATION_ONEDNN` 和 `EXAMPLES`，再运行：
+
+```powershell
+cmake --build out/build/config-windows --config Release --target jyppx_liuding_onednn_static_linear_example --parallel 2
+out/build/config-windows/examples/Release/liuding-forge-example-onednn-static-int8.exe ./onednn-int8-demo-new
+```
+
+输出目录必须尚不存在，父目录须已存在；再次运行时使用新的目录。示例内的期望摘要在写盘前从本进程数据冻结，外部制品应使用独立可信来源提供的摘要。它展示校准、保存、重新加载与推理，不承诺真实任务精度、速度或 RSS 收益；默认逻辑工作预算也不是进程内存硬限额。
+
 ## ONNX Runtime 按输出通道执行
 
 `per_output_channel.cpp` 是完整 C++ 教学程序：校准激活、逐输出行量化权重、保存并重新解析 canonical 制品、验证完整 SHA-256、导出 ONNX，再用 ORT CPU 执行，与独立整数 golden 值比较。它只需要库和 ORT SDK，不依赖 Python。固定小夹具便于逐行学习，不能代表真实任务精度或性能。

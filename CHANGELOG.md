@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加默认关闭的官方 oneDNN 静态 INT8 Linear 组件，使用两次官方 U8×S8 整数运算和 ATen 精确合成，支持 Q0/QC1、独立输出校准、加载时精确范围检查和逻辑工作预算；附带 C++ 学习示例，SDK 随安装包提供。完整量化与性能资格仍需独立验收。
+
 - 增加默认关闭的官方 LibTorch CPU 静态 INT8 Linear adapter，直接使用官方 packing/整数算子，支持原 Q0 与按输出通道 QC1；完整输出校准由原 quantization 组件独立保存读取，加载同时绑定两份 SHA-256，并提供 C++ 落盘重载学习示例。Windows AVX2/oneDNN 的完整范围 U8S8 配方尚未通过数值验收，适用边界见[量化 API](docs/api/quantization.md)。
 
 - 增加有界原生 C++ BatchNorm2d 训练后校准，以及 CPU ResNet18 配方的显式开关、完整检查点阶段恢复和最终正常评估；只读取训练数据，不增加优化器更新。

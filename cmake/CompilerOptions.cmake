@@ -25,6 +25,7 @@ set(JYPPX_COMPILED_TARGETS
     jyppx_liuding_onnx_serving
     jyppx_liuding_bundle_signing
     jyppx_liuding_quantization
+    jyppx_liuding_quantization_onednn
     jyppx_liuding_serving
     jyppx_dataset_preparation
     jyppx_dinov2_conversion

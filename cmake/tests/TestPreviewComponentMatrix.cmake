@@ -61,7 +61,7 @@ if(WIN32 AND JYPPX_TORCH_RUNTIME_DIR)
 endif()
 
 set(optional_components core interop data nn optim training experiment
-    models quantization quantization_torch serving data_image vision_render onnx_export onnx_runtime onnx_serving bundle_signing)
+    models quantization quantization_torch quantization_onednn serving data_image vision_render onnx_export onnx_runtime onnx_serving bundle_signing)
 set(preview_components models quantization quantization_torch serving vision_render)
 set(common_options
     -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF

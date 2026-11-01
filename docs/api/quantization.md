@@ -2,12 +2,13 @@
 
 `jyppx::liuding::quantization` 提供有界校准、对称 int8 参考运算和版本化 Linear 权重制品；该组件默认关闭，仅依赖 `foundation`。静态 PTQ 可以准备交给独立 ONNX Runtime adapter 执行的 U8U8/int32 图。制品存储、转换成功、实际整数执行和性能收益分别验证。
 
-本项目的 C++ 代码负责校准、量化格式和制品校验。可选 `quantization_torch` 通过 LibTorch 官方量化算子执行受限的 CPU static INT8 Linear；ONNX 导出与 ONNX Runtime adapter 保留独立部署路径。两条执行路径的输出数值契约和平台资格分别验证。
+本项目的 C++ 代码负责校准、量化格式和制品校验。可选 `quantization_torch` 调用 LibTorch 官方量化算子，`quantization_onednn` 直接调用固定官方 oneDNN SDK 并用 ATen 合成整数结果；ONNX 导出与 ONNX Runtime adapter 提供另一条部署路径。各路径的输出数值、平台和性能分别验证。
 
 | 路径 | 运算与边界 |
 | --- | --- |
 | Q0 便携制品 | `jyppx.qint8.symmetric.per_tensor/v1`；有符号 int8 权重、每张量单一 scale、零点 0、范围 `[-127,127]`、可选 FP32 bias及完整校准身份 |
 | `quantization_torch::StaticLinear` | 原 Q0/QC1 权重经官方 `quantized::linear_prepack` 重建本机 packed state，由 `quantized::linear` 执行；输入和输出为静态 QUInt8，权重为 QInt8，每张量或按输出行 scale，输出单独校准 |
+| `quantization_onednn::StaticLinear` | 原始 U8 输入无损拆成低 7 位与高 1 位，执行两次官方 oneDNN U8×S8→S32 `gemm:jit`，再由 ATen INT64 合成并补偿零点；每输出行必须满足 `127*sum(abs(int64(weight))) <= 2^24`，不进行浮点点积回退 |
 | `StorageQuantizedLinearRuntime` | 构造时反量化权重，随后执行 FP32 Linear；`compute_quantized=false`、`qat=false`，报告一个浮点 fallback 模块 |
 | `prepare_static_int8_linear` | 将 Q0 的 `[out,in]` 权重无损转为 `[in,out]` 并加 128；生成独立的 `jyppx.linear.ptq.ort.u8u8/v1` 准备信息，不改变 Q0 格式或宣称已执行内核 |
 | ORT 静态 PTQ 图 | 固定 ORT 1.23.2、ONNX opset 17，IR 版本由官方序列化器决定；FP32 输入经 `QuantizeLinear` 转 U8，U8U8 `MatMulInteger` 累加为 int32，随后 FP32 缩放及可选 bias；CPU 资格须由真实执行 trace 证明 |
@@ -37,6 +38,16 @@ Q0 二进制以 `JYPPXQ1\0` 开头，使用规范小端编码并拒绝未知版�
 `ONEDNN` 和 `X86` 的 U8S8 内核可能在 int32 累加前先将两个乘积累加到 int16 并饱和。adapter 在两种加载入口、官方 prepack 之前逐行检查权重：每行两个最大正值之和及两个最大负值绝对值之和均须不超过 128，缺项视为 0；不满足时抛出 `CompatibilityError`，诊断操作为 `weight_pair_bound`，包含引擎、输出行和两个界限。检查仅在加载时执行，不改变权重、校准范围或运行时输入。这个保守条件覆盖任意 U8 输入及行内重新配对，可能拒绝在特定机器或样本上计算正确的制品。
 
 通过加载检查只表示排除了这类中间饱和，输出舍入、任务质量和性能仍须分别验证。Windows 完整范围固定任务尚未通过原数值门槛；降低到 SSE4.1 也未解决。当前 LibTorch 入口不能逐对象选择其内部非饱和参考实现，更换引擎名或指定 int32 最终累加类型也不能获得豁免。
+
+## 直接使用官方 oneDNN
+
+启用 `JYPPX_LIUDING_BUILD_QUANTIZATION_ONEDNN=ON`，同时启用 `CORE` 和 `QUANTIZATION`。该组件独立于 `quantization_torch`，使用 `<jyppx/liuding/quantization_onednn/static_linear.hpp>`、`find_package(jyppx REQUIRED COMPONENTS quantization_onednn)` 和 `jyppx::liuding::quantization_onednn`；无需 Python 或 ORT。
+
+构建时显式设置 `JYPPX_LIUDING_ONEDNN_ROOT`（已安装 SDK）、`JYPPX_LIUDING_ONEDNN_BUILD_CACHE`（产生该 SDK 的 `CMakeCache.txt`）和 `JYPPX_LIUDING_ONEDNN_LIBRARY_SHA256`（静态库完整摘要）。当前配置固定为官方 oneDNN 3.12.0、x86_64、STATIC、AVX2、CPU SEQ、GPU/BLAS NONE、MATMUL/REORDER；Linux 还要求 PIC 和隐藏符号。配置过程不下载 SDK，不从 LibTorch 内置副本自动发现。安装包携带静态库和原始许可，消费者无需原 SDK、源码或构建缓存；官方源身份见[第三方声明](../../THIRD_PARTY_NOTICES.md)。
+
+两种 `load_per_tensor` / `load_per_output_channel` 入口使用原 Q0/QC1 权重与独立 CA1 输出校准，分别绑定调用方提供的 SHA-256。输入与输出校准的 lineage 和有序样本 ID 必须一致。`quantize_input` 接收有限、连续 CPU FP32 `[batch,in]`；`forward_quantized` 接收冻结 qparams 的 CPU QUInt8，返回 QUInt8；`forward` 只在最终输出反量化。原始权重、scale 和输入量化范围保持，整数合成后仅做一次顺序 FP32 重定标和输出舍入。该入口直接使用 oneDNN，不调用 `quantized::linear`，也不切换全局 qEngine 或 ISA。
+
+当前要求有效 ISA 为 AVX2、浮点舍入为 nearest-even，并保守限制每行整数幅度，避免官方内核内部 FP32 后处理损失精度；不满足时明确拒绝。`StaticLinearOptions` 默认 `max_batch=64`、`max_io_bytes=1MiB`，逻辑预算包含已知数组、I/O、descriptor scratch 与保守 packing 估计，不能视为进程 RSS 硬限额。相同对象的调用串行复用工作区，返回 Tensor 独立拥有存储；工作区准备或计算失败后须重新加载。`info()` 和 `dependency_identity()` 返回后端、profile、校准及编译依赖身份，不能作为速度或全模型量化的证明。完整落盘重载流程见 [C++ 示例](../../examples/quantization/README.md)。
 
 ## 准备 CPU 静态 PTQ
 
@@ -71,4 +82,4 @@ liuding-forge-int8-export --per-output-channel --graph ort-matmul-integer-to-flo
 
 `compare_reference` 报告 RMSE、MAE、最大绝对/相对误差、SQNR、cosine similarity 和非有限对数。相对误差分母为 `max(abs(reference),1e-12)`；JSON 将无穷 SQNR 表示为 `null`。存储误差不能代替真实任务准确率。
 
-CPU 计算量化验收须核对同一 ONNX SHA-256 的实际 CPU `MatMulInteger` 或其整数融合算子 trace、独立整数累加参考及任务门槛。冷加载、首次推理、无 profiling 的热时延、进程工作集和制品体积分别测量；整数执行本身不意味着加速。缺少 ORT、版本不符、shape 不支持或数值无效均明确失败，不隐式切换浮点 Linear。现有显式存储 fallback 的语义保持独立。
+CPU 计算量化验收须绑定实际制品和校准的完整 SHA-256，核对官方执行 trace、独立整数参考及任务门槛；ORT 路径还须核对同一 ONNX SHA-256 的实际 CPU `MatMulInteger` 或整数融合算子。冷加载、首次推理、无 profiling 的热时延、进程工作集和制品体积分别测量；整数执行本身不意味着加速。不满足所选官方 SDK、引擎、Provider、shape 或数值条件时明确失败，不隐式切换浮点 Linear。显式存储 fallback 的语义保持独立。

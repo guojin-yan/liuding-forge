@@ -1,0 +1,24 @@
+# The static implementation is shipped with the installed package. Discovery
+# never depends on the developer's source tree, SDK, or build cache.
+get_filename_component(_jyppx_onednn_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+set(_jyppx_onednn_library "${_jyppx_onednn_prefix}/lib/liuding-forge/dependencies/@JYPPX_ONEDNN_LIBRARY_NAME@")
+if(NOT EXISTS "${_jyppx_onednn_library}")
+    message(FATAL_ERROR "Installed jyppx oneDNN static archive is missing")
+endif()
+if(TARGET LiudingOneDNN::dnnl)
+    get_target_property(_jyppx_onednn_existing LiudingOneDNN::dnnl IMPORTED_LOCATION)
+    if(NOT _jyppx_onednn_existing STREQUAL _jyppx_onednn_library)
+        message(FATAL_ERROR "Another LiudingOneDNN::dnnl target is already bound to a different SDK")
+    endif()
+    unset(_jyppx_onednn_existing)
+else()
+    add_library(LiudingOneDNN::dnnl STATIC IMPORTED)
+    set_target_properties(LiudingOneDNN::dnnl PROPERTIES
+        IMPORTED_LOCATION "${_jyppx_onednn_library}")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set_property(TARGET LiudingOneDNN::dnnl PROPERTY
+            INTERFACE_LINK_OPTIONS "LINKER:--exclude-libs,@JYPPX_ONEDNN_LIBRARY_NAME@")
+    endif()
+endif()
+unset(_jyppx_onednn_prefix)
+unset(_jyppx_onednn_library)

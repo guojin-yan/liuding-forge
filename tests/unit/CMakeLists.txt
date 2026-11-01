@@ -668,6 +668,15 @@ if(TARGET jyppx::liuding::quantization_torch)
     target_link_libraries(jyppx_test_quantization_torch PRIVATE Threads::Threads)
 endif()
 
+if(TARGET jyppx::liuding::quantization_onednn)
+    jyppx_add_gtest(jyppx_test_quantization_onednn
+        LINK_TARGET jyppx::liuding::quantization_onednn
+        quantization_onednn/test_static_linear.cpp)
+    target_include_directories(jyppx_test_quantization_onednn PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/quantization_onednn")
+    target_link_libraries(jyppx_test_quantization_onednn PRIVATE Threads::Threads)
+endif()
+
 if(TARGET jyppx::liuding::serving)
     jyppx_add_gtest(jyppx_test_serving
         LINK_TARGET jyppx::liuding::serving
