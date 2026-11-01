@@ -129,6 +129,62 @@ class CoverageOwnerPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed or emits code"):
             self.audit()
 
+    def test_lf_fingerprint_accepts_lf_and_crlf_without_granting_coverage(self) -> None:
+        raw = (self.root / self.umbrella).read_bytes()
+        self.policy["non_executable_files"][0]["normalization"] = "LF"
+        for header in (raw, raw.replace(b"\n", b"\r\n")):
+            with self.subTest(header=header):
+                self.write(self.umbrella, header)
+                result = self.audit()
+                self.assertEqual(result["non_executable_files"], [self.umbrella])
+                self.assertEqual(result["source_file_count"], 3)
+                self.assertFalse(result["coverage_evaluated"])
+                self.assertFalse(result["release_qualified"])
+
+    def test_undeclared_normalization_keeps_exact_raw_fingerprint(self) -> None:
+        raw = (self.root / self.umbrella).read_bytes()
+        self.write(self.umbrella, raw.replace(b"\n", b"\r\n"))
+        with self.assertRaisesRegex(ValueError, "changed or emits code"):
+            self.audit()
+
+    def test_lf_fingerprint_rejects_content_whitespace_and_comment_changes(self) -> None:
+        raw = (self.root / self.umbrella).read_bytes()
+        self.policy["non_executable_files"][0]["normalization"] = "LF"
+        for changed in (raw.replace(b"<fixture.hpp>", b"<other.hpp>"),
+                        raw.replace(b"#include ", b"#include  "),
+                        raw + b"// changed comment\n"):
+            with self.subTest(changed=changed):
+                self.write(self.umbrella, changed.replace(b"\n", b"\r\n"))
+                with self.assertRaisesRegex(ValueError, "changed or emits code"):
+                    self.audit()
+
+    def test_lf_fingerprint_rejects_executable_code_even_with_updated_pin(self) -> None:
+        raw = b"#ifndef FIXTURE_HPP\n#define FIXTURE_HPP\ninline int hidden() { return 1; }\n#endif\n"
+        self.policy["non_executable_files"][0].update(
+            normalization="LF", sha256=hashlib.sha256(raw).hexdigest())
+        self.write(self.umbrella, raw.replace(b"\n", b"\r\n"))
+        with self.assertRaisesRegex(ValueError, "changed or emits code"):
+            self.audit()
+
+    def test_lf_fingerprint_rejects_bare_cr_even_with_updated_pin(self) -> None:
+        raw = (self.root / self.umbrella).read_bytes().replace(b"\n", b"\r")
+        self.policy["non_executable_files"][0].update(
+            normalization="LF", sha256=hashlib.sha256(raw).hexdigest())
+        self.write(self.umbrella, raw)
+        with self.assertRaisesRegex(ValueError, "rejects bare CR"):
+            self.audit()
+
+    def test_normalization_descriptor_rejects_unknown_values_types_and_fields(self) -> None:
+        for value in ("lf", "CRLF", "", None, True, 0, [], {}):
+            policy = copy.deepcopy(self.policy)
+            policy["non_executable_files"][0]["normalization"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "normalization must be LF"):
+                self.audit(policy)
+        policy = copy.deepcopy(self.policy)
+        policy["non_executable_files"][0].update(normalization="LF", ignored=True)
+        with self.assertRaisesRegex(ValueError, "invalid non-executable file descriptor"):
+            self.audit(policy)
+
     def test_report_cannot_assign_nonzero_entities_to_umbrella(self) -> None:
         row = copy.deepcopy(self.report["files"][0])
         row["filename"] = self.umbrella

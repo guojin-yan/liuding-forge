@@ -124,7 +124,7 @@ JYPPX package.
 
 ### stb_image_write（图像编码）
 
-可选 `jyppx::liuding::data_image` 的 PNG/JPEG 输出私有编译 stb_image_write 1.16；上游为 <https://github.com/nothings/stb>，可选择 MIT 或 Unlicense。该 writer 独立于 stb_image decoder 登记，公共头不暴露其类型。已入库头的路径、长度和 SHA-256 记录在 `dependency-manifest.json`；上游 master 链接仅作来源定位，尚未声明不可变上游提交。
+可选 `jyppx::liuding::data_image` 的 PNG/JPEG 输出私有编译 stb_image_write 1.16；上游为 <https://github.com/nothings/stb>，可选择 MIT 或 Unlicense。该 writer 独立于 stb_image decoder 登记，公共头不暴露其类型。已入库头的路径、长度和 SHA-256 记录在 `dependency-manifest.json`；来源已固定到不可变上游提交 `1ee679ca2ef753a528db5ba6801e1067b40481b8`，对应上游 header 与入库文件逐字节一致。
 
 头文件内完整的双选许可、版权与免责声明原样保留在 `third_party/licenses/stb_image_write-1.16-LICENSE.txt`，启用 data-image profile 时安装到 `share/doc/jyppx/licenses/stb_image_write-1.16-LICENSE.txt`。分发对应源代码或二进制时保留完整原文；许可留存不代表安全或正式发布资格。
 

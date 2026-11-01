@@ -65,6 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- coverage 的纯聚合头例外显式使用 LF 指纹，Windows CRLF 与 Linux LF 可验证为相同内容；内容改动、裸 CR 和可执行代码仍被拒绝。
+
 - 补齐 zlib 1.3.2 完整许可原文与精确归档来源索引，独立登记图像 writer stb_image_write 1.16，并将安装 notice 替换为完整 MIT/Unlicense 原文；依赖安全和正式发布资格继续独立审查。
 
 - Serving 的 queue 时间累计真实执行锁等待及 OOM 拆分重试调度等待，排除合批/快照/切片复制，并保留公开 OOM 异常与取消/关闭合同。
@@ -87,6 +89,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - SGD 检查点接受单元素维度上等价的 momentum stride，修复 DINO CLS token 使用 momentum 后无法保存训练状态的问题；参数布局、数值类型、设备和形状仍严格校验。
 
 ### Changed
+
+- 将图像 writer 的来源固定到与入库 header 逐字节一致的上游提交，保留原许可和依赖安全状态。
 
 - INT8 量化功能延期并从当前源码、构建和安装接口撤出。
 

@@ -219,13 +219,17 @@ def _read_non_executable_files(policy: dict[str, Any]) -> dict[str, dict[str, st
         raise ValueError("non_executable_files must be an array")
     parsed = {}
     for record in records:
-        if not isinstance(record, dict) or set(record) != {"path", "sha256", "reason"}:
+        if not isinstance(record, dict) or set(record) not in (
+            {"path", "sha256", "reason"}, {"path", "sha256", "reason", "normalization"}
+        ):
             raise ValueError("invalid non-executable file descriptor")
         path = _normalize_filename(record["path"], "non-executable path")
         if path in parsed or not path.startswith("include/jyppx/") or not path.endswith(".hpp"):
             raise ValueError("non-executable exception must name one unique public header")
         if not isinstance(record["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", record["sha256"]):
             raise ValueError("non-executable exception requires an exact SHA-256")
+        if "normalization" in record and record["normalization"] != "LF":
+            raise ValueError("non-executable normalization must be LF when declared")
         _require_string(record["reason"], "non-executable reason")
         parsed[path] = record
     return parsed
@@ -262,7 +266,12 @@ def _verify_source_ownership(source_root: Path, targets: dict[str, dict[str, Any
                       if any(filename.startswith(prefix) for prefix in target["path_prefixes"])]
             if filename in exceptions:
                 raw = path.read_bytes()
-                if owners or hashlib.sha256(raw).hexdigest() != exceptions[filename]["sha256"] or not _include_only_header(raw):
+                fingerprinted = raw
+                if exceptions[filename].get("normalization") == "LF":
+                    fingerprinted = raw.replace(b"\r\n", b"\n")
+                    if b"\r" in fingerprinted:
+                        raise ValueError(f"non-executable LF normalization rejects bare CR: {filename}")
+                if owners or hashlib.sha256(fingerprinted).hexdigest() != exceptions[filename]["sha256"] or not _include_only_header(raw):
                     raise ValueError(f"non-executable exception changed or emits code: {filename}")
                 excluded.append(filename)
             elif len(owners) != 1:

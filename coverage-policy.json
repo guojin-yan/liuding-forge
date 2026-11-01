@@ -363,8 +363,9 @@
   "non_executable_files": [
     {
       "path": "include/jyppx/liuding/liuding.hpp",
-      "sha256": "909cf94625e80d5a9e34daa034e19d1186bc2fc57da07b2c540aca67c21c52b9",
-      "reason": "Public include-only aggregation header; no executable entity. Exact bytes and include-only grammar must be verified."
+      "sha256": "25f7309c09b30eb8ca1508e254f9e7617859741860d21c60da8cb579ebf7c7a8",
+      "normalization": "LF",
+      "reason": "Public include-only aggregation header; no executable entity. Only CRLF-to-LF normalization is allowed before the exact SHA-256 check; include-only grammar must also be verified."
     }
   ],
   "profile": {
