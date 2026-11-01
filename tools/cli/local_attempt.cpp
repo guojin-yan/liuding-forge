@@ -1453,7 +1453,13 @@ Result operate(std::string_view action, const fs::path& selected_root,
   if (action != "execute")
     require(fs::is_regular_file(root / "runs.sqlite3"),
             "Local execution storage does not exist");
-  if (requested) preflight(*requested);
+  bool files_preflighted = false;
+  // Preserve no STORE creation for invalid first requests. Existing IDs must
+  // resolve their frozen identity and ownership before new launch checks.
+  if (requested && !fs::is_regular_file(root / "runs.sqlite3")) {
+    preflight(*requested);
+    files_preflighted = true;
+  }
   SQLiteRunStore store(root);
   ordinary_path(root);
   if (action == "execute") {
@@ -1468,6 +1474,7 @@ Result operate(std::string_view action, const fs::path& selected_root,
       throw IoError("Another caller owns this local job dispatch");
     const auto existing = store.find(id);
     if (!existing) {
+      if (!files_preflighted) preflight(*requested);
       const auto timestamp = now_ms();
       store.start({.run_id = id,
                    .project_id = requested->project,

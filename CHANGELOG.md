@@ -61,6 +61,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 本地执行的已确认结果可在旧程序或工作目录移除后按相同计划重放；新建任务与实际重试仍在启动前核验路径和可执行文件身份。
+
 - POSIX 本地进程清理共用首次宽限期，等待主进程与原进程组全部回收后再确认释放；未回收后代继续保留未确认状态。
 - 原生 OTLP HTTPS 将证书校验失败归类为 `IoError` 的 `verify_peer_certificate` 操作，保留系统 WinHTTP/curl 原因和严格信任校验。
 - DINOv2 中间层提取按请求顺序创建所选输出的归一化与视图节点，保持层选择、共享状态和提前停止语义。

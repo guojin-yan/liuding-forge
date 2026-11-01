@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -221,6 +222,28 @@ class LocalAttemptTest(unittest.TestCase):
         path.write_text(json.dumps(spec), encoding="utf-8")
         return self.invoke("local", "execute", "--root", self.root,
                            "--id", identifier, "--spec", path, expected=expected)
+
+    def private_native_spec(self, identifier: str, *, failed: bool = False) -> tuple[dict, Path, Path]:
+        # Copy only a tiny OS executable into this test's directory. Never
+        # retire or modify the shared Python/CLI executable or its runtime.
+        directory = self.directory / identifier
+        directory.mkdir()
+        cwd = directory / "cwd"
+        cwd.mkdir()
+        if os.name == "nt":
+            source = Path(os.environ["SystemRoot"]) / "System32" / "whoami.exe"
+            arguments = ["/liuding-invalid-option"] if failed else ["/?"]
+            executable = directory / "private-command.exe"
+        else:
+            command = shutil.which("false" if failed else "true")
+            self.assertIsNotNone(command, "The OS true/false test fixture is unavailable")
+            source = Path(command).resolve()
+            arguments = []
+            executable = directory / "private-command"
+        shutil.copy2(source, executable)
+        spec = dict(self.spec, executable=str(executable), executable_sha256=sha256(executable),
+            arguments=arguments, working_directory=str(cwd), max_attempts=1, retry_exit_codes=[])
+        return spec, executable, cwd
 
     def test_unmetered_jobs_use_the_same_nonblocking_admission_lock(self) -> None:
         # Seed an ordinary STORE without enabling any declared resource pool.
@@ -498,6 +521,137 @@ class LocalAttemptTest(unittest.TestCase):
         self.assertEqual(self.local("recover")["attempts"], result["attempts"])
         self.assertEqual(self.launch_count(), 1)
         self.assertTrue(self.invoke("run", "verify", "--root", self.root)["data"]["valid"])
+
+    def test_terminal_replay_does_not_revalidate_retired_launch_files(self) -> None:
+        for failed in (False, True):
+            for retired in ("missing-executable", "changed-executable", "missing-cwd"):
+                with self.subTest(failed=failed, retired=retired):
+                    identifier = f"terminal-{int(failed)}-{retired}"
+                    spec, executable, cwd = self.private_native_spec(identifier, failed=failed)
+                    expected = 1 if failed else 0
+                    original = self.execute_named(identifier, spec, expected=expected)["data"]
+                    self.assertEqual(original["status"], "failed" if failed else "completed")
+                    self.assertEqual(len(original["attempts"]), 1)
+                    attempt = original["attempts"][0]
+                    self.assertEqual(attempt["result"]["status"], "exited")
+                    self.assertEqual(attempt["result"]["exit_code"] == 0, not failed)
+                    job_references = self.references(identifier)
+                    attempt_references = self.references(attempt["attempt_id"])
+                    output = {name: self.blob(attempt_references["local." + name])
+                              for name in ("stdout", "stderr", "result")}
+                    if retired == "missing-executable":
+                        executable.unlink()
+                    elif retired == "changed-executable":
+                        with executable.open("ab") as stream:
+                            stream.write(b"changed after confirmed exit")
+                        self.assertNotEqual(sha256(executable), spec["executable_sha256"])
+                    else:
+                        cwd.rename(cwd.with_name("retired-cwd"))
+                    replayed = self.execute_named(identifier, spec, expected=expected)["data"]
+                    recovered = self.invoke("local", "recover", "--root", self.root,
+                        "--id", identifier, expected=expected)["data"]
+                    self.assertEqual(replayed, original)
+                    self.assertEqual(recovered, original)
+                    self.assertEqual(self.references(identifier), job_references)
+                    self.assertEqual(self.references(attempt["attempt_id"]), attempt_references)
+                    self.assertEqual({name: self.blob(attempt_references["local." + name])
+                                      for name in output}, output)
+
+    def test_frozen_spec_conflict_precedes_missing_launch_files(self) -> None:
+        for retired in ("executable", "cwd"):
+            with self.subTest(retired=retired):
+                identifier = "conflict-" + retired
+                spec, executable, cwd = self.private_native_spec(identifier)
+                original = self.execute_named(identifier, spec)["data"]
+                original_references = self.references(identifier)
+                if retired == "executable":
+                    executable.unlink()
+                else:
+                    cwd.rename(cwd.with_name("retired-cwd"))
+                changed = dict(spec, timeout_ms=spec["timeout_ms"] + 1)
+                rejected = self.execute_named(identifier, changed, expected=2)
+                self.assertEqual(rejected["error"]["name"], "invalid_argument")
+                self.assertIn("Existing local job has a different frozen spec",
+                              rejected["error"]["message"])
+                self.assertEqual(self.references(identifier), original_references)
+                self.assertEqual(self.invoke("local", "show", "--root", self.root,
+                    "--id", identifier)["data"], original)
+
+    def test_parent_identity_conflict_precedes_missing_launch_files(self) -> None:
+        # Recreate a valid creation-before-spec-attachment boundary through
+        # the public run API, with the parent chosen by a native caller.
+        spec_digest = hashlib.sha256(json.dumps(self.spec, ensure_ascii=False,
+            sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        for identifier, lineage, tags in (
+                ("native-parent", {}, {}),
+                ("job-one", {"parent_run_id": "native-parent", "config_digest": spec_digest,
+                    "source_digest": self.spec["executable_sha256"],
+                    "build_fingerprint": "independent-local-fixture"}, {"liuding.local.kind": "job"})):
+            metadata = {"schema_version": 1, "run_id": identifier,
+                "project_id": self.spec["project_id"], "experiment_id": self.spec["experiment_id"],
+                "display_name": identifier, "status": "running", "created_at_unix_ms": 1,
+                "lineage": lineage, "tags": tags}
+            path = self.directory / (identifier + ".metadata.json")
+            path.write_text(json.dumps(metadata), encoding="utf-8")
+            self.invoke("run", "start", "--root", self.root, "--metadata", path)
+        self.cwd.rename(self.directory / "retired-cwd")
+        rejected = self.invoke("local", "execute", "--root", self.root, "--id", "job-one",
+                              "--spec", self.spec_path, expected=2)
+        self.assertEqual(rejected["error"]["name"], "invalid_argument")
+        self.assertIn("Existing local job has a different parent run", rejected["error"]["message"])
+        self.assertEqual(self.references("job-one"), {})
+        self.assertFalse((self.directory / "retired-cwd" / "launches.txt").exists())
+
+    def test_new_jobs_still_preflight_missing_launch_files_without_metadata(self) -> None:
+        self.local("execute")
+        for existing_store in (False, True):
+            for missing in ("executable", "working_directory"):
+                with self.subTest(existing_store=existing_store, missing=missing):
+                    root = self.root if existing_store else self.directory / ("fresh-" + missing)
+                    spec = dict(self.spec, **{missing: str(self.directory / ("missing-" + missing))})
+                    path = self.directory / (f"invalid-{int(existing_store)}-{missing}.json")
+                    path.write_text(json.dumps(spec), encoding="utf-8")
+                    rejected = self.invoke("local", "execute", "--root", root, "--id", "not-created",
+                        "--spec", path, expected=2)
+                    self.assertEqual(rejected["error"]["name"], "invalid_argument")
+                    if existing_store:
+                        with closing(sqlite3.connect(root / "runs.sqlite3")) as database:
+                            self.assertEqual(database.execute("SELECT COUNT(*) FROM jyppx_runs "
+                                "WHERE run_id='not-created'").fetchone()[0], 0)
+                    else:
+                        self.assertFalse((root / "runs.sqlite3").exists())
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_retry_still_preflights_before_creating_the_next_attempt(self) -> None:
+        self.spec["max_attempts"] = 2
+        self.spec["retry_delay_ms"] = 2000
+        self.write_spec("retry")
+        process = self.start()
+        first_id = "local-" + hashlib.sha256(b"job-one").hexdigest() + ".attempt-1"
+        def confirmed_first() -> bool:
+            if not (self.root / "runs.sqlite3").is_file():
+                return False
+            try:
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                    return database.execute("SELECT COUNT(*) FROM jyppx_run_artifacts "
+                        "WHERE run_id=? AND reference_id='local.result'", (first_id,)).fetchone()[0] == 1
+            except sqlite3.OperationalError:
+                return False
+        self.assertTrue(wait_for(confirmed_first))
+        retired = self.directory / "retired-cwd"
+        self.cwd.rename(retired)
+        first_references = self.references(first_id)
+        stdout, stderr = process.communicate(timeout=15)
+        self.assertEqual(process.returncode, 2, stdout + stderr)
+        rejected = json.loads(stdout)
+        self.assertEqual(rejected["error"]["name"], "invalid_argument")
+        rejected = self.invoke("local", "recover", "--root", self.root, "--id", "job-one", expected=2)
+        self.assertEqual(rejected["error"]["name"], "invalid_argument")
+        state = self.local("show")
+        self.assertEqual(len(state["attempts"]), 1)
+        self.assertEqual(state["attempts"][0]["result"]["exit_code"], 23)
+        self.assertEqual(self.references(first_id), first_references)
+        self.assertEqual((retired / "launches.txt").read_text().splitlines(), ["1"])
 
     def test_retry_creates_distinct_child_runs_without_overwriting_failure(self) -> None:
         self.write_spec("retry")
