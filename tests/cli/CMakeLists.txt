@@ -136,12 +136,22 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
             --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
     set_tests_properties(Cli_local_recipe PROPERTIES
         LABELS "cli;integration;recipe;local" TIMEOUT 1200)
+    add_test(NAME Cli_local_recipe_lifecycle
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_lifecycle.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+    set_tests_properties(Cli_local_recipe_lifecycle PROPERTIES
+        LABELS "cli;integration;recipe;local" TIMEOUT 360)
     if(JYPPX_LIUDING_TEST_CLI_CUDA)
         add_test(NAME Cli_local_recipe_CUDA
             COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe.py"
                 --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
         set_tests_properties(Cli_local_recipe_CUDA PROPERTIES
             LABELS "cli;integration;recipe;local;cuda" TIMEOUT 1200)
+        add_test(NAME Cli_local_recipe_lifecycle_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_lifecycle.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
+        set_tests_properties(Cli_local_recipe_lifecycle_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;local;cuda" TIMEOUT 360)
     endif()
     add_test(NAME Cli_initial_state_recipe
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_initial_state_recipe.py"
