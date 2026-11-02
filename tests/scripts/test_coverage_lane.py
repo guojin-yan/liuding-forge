@@ -8,8 +8,10 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -65,7 +67,7 @@ class CoverageLaneTest(unittest.TestCase):
         self.bin = self.root / "fixture-bin"
         self.bin.mkdir()
         stub = '''#!/usr/bin/env python3
-import json, os, pathlib, sys
+import json, os, pathlib, signal, sys
 name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 with open(os.environ["JYPPX_FIXTURE_COMMAND_LOG"], "a", encoding="utf-8") as stream:
@@ -74,6 +76,10 @@ with open(os.environ["JYPPX_FIXTURE_PARALLEL_LOG"], "a", encoding="utf-8") as st
     stream.write(json.dumps({"name": name, "args": args,
         "CTEST_PARALLEL_LEVEL": os.environ.get("CTEST_PARALLEL_LEVEL"),
         "CMAKE_BUILD_PARALLEL_LEVEL": os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL")}) + "\\n")
+if os.environ.get("JYPPX_FIXTURE_WAIT_AT") == name:
+    pathlib.Path(os.environ["JYPPX_FIXTURE_READY"]).write_text(name)
+    while True:
+        signal.pause()
 if name == "cmake":
     if "--build" not in args:
         build = pathlib.Path(args[args.index("-B") + 1])
@@ -194,6 +200,37 @@ else:
         self.assertEqual(self.metadata()["ctest_exit"], "8")
         self.assertEqual(self.metadata()["policy_exit"], "0")
         self.assertEqual(self.metadata()["lane_exit"], "8")
+
+    def test_interrupted_ctest_records_signal_failure(self) -> None:
+        ready = self.root / "out/ctest-ready"
+        environment = {**self.environment, "JYPPX_FIXTURE_WAIT_AT": "ctest",
+                       "JYPPX_FIXTURE_READY": str(ready)}
+        process = subprocess.Popen(["bash", str(self.root / "scripts/validation/run-coverage.sh")],
+            cwd=self.root.parent, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 10
+            while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists(), "Synthetic CTest did not reach its blocking point")
+            os.killpg(process.pid, signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 128 + signal.SIGTERM, stdout + stderr)
+            metadata = self.metadata()
+            self.assertEqual(metadata["lane_exit"], "143")
+            self.assertEqual(metadata["termination_signal"], "TERM")
+            self.assertEqual(metadata["last_stage"], "ctest")
+            self.assertEqual(metadata["ctest_exit"], "not_run")
+            self.assertEqual(metadata["policy_exit"], "not_run")
+            for name in ("ctest.exit", "policy.exit", "coverage-ctest.xml", "coverage.xml",
+                         "coverage-summary.json", "coverage-targets.json"):
+                self.assertFalse((self.output / name).exists(), name)
+            self.assertFalse(any(row[0] == "gcovr" and "--version" not in row
+                                 for row in self.commands()))
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate(timeout=10)
 
     def test_dependency_inputs_missing_or_changed_prevent_configure(self) -> None:
         for override in ({"JYPPX_COVERAGE_DEPENDENCY_CACHE": ""},

@@ -22,6 +22,7 @@ source_dirty=not_run
 started_utc=$(date -u +%FT%TZ)
 ctest_status=not_run
 policy_status=not_run
+termination_signal=none
 stage=preflight
 torch_prefix="${CMAKE_PREFIX_PATH:-not_set}"
 build_parallelism="${JYPPX_LIUDING_BUILD_PARALLEL_LEVEL:-2}"
@@ -69,12 +70,16 @@ components=core,interop,data,nn,optim,training,experiment,data_image,vision_rend
 ctest_excluded_label=$(test "$packaging_excluded" = 1 && echo packaging || echo none)
 ctest_exit=$ctest_status
 policy_exit=$policy_status
+termination_signal=$termination_signal
 last_stage=$stage
 lane_exit=$lane_status
 EOF
   exit "$lane_status"
 }
 trap write_metadata EXIT
+# A resource guard terminates the process group while CTest is still running.
+# Preserve that failure instead of recording the previous successful command.
+trap 'termination_signal=TERM; exit 143' TERM
 # Invalidate prior successful fixed-name metadata before any preflight check.
 printf 'last_stage=preflight\nlane_exit=running\n' > "$output_root/coverage-metadata.txt"
 rm -f "$output_root/ctest.exit" "$output_root/policy.exit"
