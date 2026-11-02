@@ -65,6 +65,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- SHA-256 按完整数据块处理输入，减少大检查点保存、读取和内容校验的开销；保持标准摘要、流式分块和非破坏性摘要读取语义。
 - 已发布文件登记在等待 SQLite writer 或同实例锁时响应取消与绝对截止时间，失败后仍可用原引用身份重试并重放确认结果。
 - 安装组件矩阵沿用根构建显式选择的 curl SDK，迁移消费者与 SDK 消费者使用独立构建缓存。
 - 启用测试时默认构建 CLI 配方门禁程序；coverage owner 清单纳入 `.inc` 实现，图像 benchmark runner 测试补齐诊断策略与采样计数合同。
