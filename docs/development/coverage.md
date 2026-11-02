@@ -54,6 +54,8 @@ lane 强制 `FETCHCONTENT_FULLY_DISCONNECTED:BOOL=ON` 和 `FETCHCONTENT_UPDATES_
 
 lane 要求 clean committed source，使用独立 `out/coverage/linux/{build,report}`，保留依赖输入 SHA、实际配置缓存 SHA、源码身份、CTest 与 policy 分别的状态。CTest 失败后仍按原合同尝试采集；报告采集成功不等于 gate 通过。新 owner 未出现或没有三项实际分母也继续拒绝，不能为缺观测生成基线数字。
 
+gcovr 的异常正计数检查使用有限的 `2^36` 上限：完整配方会反复校验数十 GiB 的 checkpoint/CAS，SHA-256 的固定循环可合法累计数百亿次命中。该上限只用于解析计数的合理性检查，不改变 covered、total、minimum_percent、pending owner 或失败测试的拒绝规则；不得通过忽略解析错误、删除计数或排除源码使采集通过。
+
 ## 维护验证与基线审阅
 
 `CoverageOwnerPolicyToolUnitTests` 使用小型明确标记的 synthetic fixture，检查 pending 拒绝、漏 owner、前缀交叠、聚合头例外及 profile 缓存拒绝。`CoverageOfflineDependenciesToolUnitTests` 以合成归档/源码检查锁定身份、缺失、篡改、成员边界、链接和实际 cache 的拒绝；CLI 的生产 pin 不接受调用者覆盖。Linux `CoverageLaneProtocolUnitTests` 使用假 CMake/CTest/gcovr 和明确替换为 synthetic pin 的私有 helper 副本，验证继承并行、输入缺失、断网 cache 改动、结束身份变化及错误路径。这些 fixture 数字和 pin 均不进入实际 policy 或发布证据。

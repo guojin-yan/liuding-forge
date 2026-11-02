@@ -212,10 +212,12 @@ coverage_args=(
   # inline template code. Keep the report usable while retaining a warning in
   # the lane log; the coverage summary still validates all three metrics.
   --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
-  # The fixed artifact/reference tests hash over a GiB: 22,615,392 SHA-256
-  # blocks * 576 rotations = 13,026,465,792 legitimate positive hits. Retain
-  # these counters and a finite sanity bound rather than suppressing errors.
-  --gcov-suspicious-hits-threshold=20000000000
+  # The selected suite hashes tens of GiB of checkpoints and artifacts. An
+  # independent input ledger for only three CPU recipes already accounts for
+  # 463,154,749 SHA-256 blocks (30,105,058,685 round-loop checks). The complete
+  # saved sample has 797,054,285 blocks and 51,808,528,525 such checks. Retain
+  # a finite 2^36 parser sanity bound; coverage ratchets remain independent.
+  --gcov-suspicious-hits-threshold=68719476736
   -j "$build_parallelism"
 )
 stage=gcov_xml
