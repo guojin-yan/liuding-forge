@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import select
 import signal
 import struct
 import subprocess
@@ -265,9 +266,15 @@ class NativeOtlpWorkerContract(unittest.TestCase):
                     self.assertEqual(os.getpgid(worker), worker)
                     self.assertEqual(os.getsid(worker), os.getsid(process.pid))
                     member = subprocess.Popen(
-                        [sys.executable, "-I", "-c", "import time; time.sleep(60)"],
-                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        process_group=worker)
+                        [sys.executable, "-I", "-c",
+                         "import os,sys,time; os.setpgid(0,int(sys.argv[1])); "
+                         "print(os.getpgid(0),flush=True); time.sleep(60)", str(worker)],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    # Join inside the independent child: process_group requires Python 3.11,
+                    # and preexec_fn is unsafe while the collector thread is running.
+                    self.assertTrue(select.select([member.stdout], [], [], 5)[0],
+                                    "Cleanup fixture did not join the worker process group")
+                    self.assertEqual(member.stdout.readline(), f"{worker}\n".encode("ascii"))
                     self.assertEqual(os.getpgid(member.pid), worker)
                     collector.release.set()
                     # Its real unreaped zombie keeps the owned process group visible.
@@ -291,6 +298,7 @@ class NativeOtlpWorkerContract(unittest.TestCase):
                     if member is not None:
                         member.kill()
                         member.wait(timeout=5)
+                        member.stdout.close()
 
     def test_worker_six_payloads_from_independent_canonical_fixture(self):
         with Collector() as collector:
