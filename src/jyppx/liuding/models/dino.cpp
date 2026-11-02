@@ -204,16 +204,21 @@ class DinoV2Attention final : public torch::nn::Module {
     const auto batch = input.size(0);
     const auto tokens = input.size(1);
     const auto head_dimension = dimension_ / heads_;
-    // Match the ATen Linear operator used by the independent model reference.
-    // The C++ nn::Linear frontend otherwise splits bias addition for 3-D
-    // tokens, changing FP32 rounding before attention and its backward pass.
-    auto qkv = at::linear(input, qkv_->weight, qkv_->bias).chunk(3, -1);
-    auto query =
-        qkv[0].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
-    auto key =
-        qkv[1].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
-    auto value =
-        qkv[2].view({batch, tokens, heads_, head_dimension}).transpose(1, 2);
+    // Retain the fused checkpoint layout while matching the independent
+    // reference's K/V/Q projection shapes and branch accumulation order.
+    const auto project = [&](std::int64_t row) {
+      return at::linear(input, qkv_->weight.narrow(0, row, dimension_),
+                        qkv_->bias.narrow(0, row, dimension_));
+    };
+    auto key_projection = project(dimension_);
+    auto value_projection = project(2 * dimension_);
+    auto query_projection = project(0);
+    auto query = query_projection.view({batch, tokens, heads_, head_dimension})
+                     .transpose(1, 2);
+    auto key = key_projection.view({batch, tokens, heads_, head_dimension})
+                   .transpose(1, 2);
+    auto value = value_projection.view({batch, tokens, heads_, head_dimension})
+                     .transpose(1, 2);
     auto attention =
         torch::softmax(torch::matmul(query, key.transpose(-2, -1)) /
                            std::sqrt(static_cast<double>(head_dimension)),

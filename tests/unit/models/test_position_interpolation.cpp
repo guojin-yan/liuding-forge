@@ -106,6 +106,50 @@ TEST(ModelsCuda, BicubicPositionsRetainFloat32InsideAutocast) {
   EXPECT_TRUE(torch::isfinite(input.grad()).all().item<bool>());
 }
 
+TEST(ModelsCuda, BicubicNativeForwardAndAdjointHandleOffsetChannelsLastInput) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
+  const DeterministicPositions deterministic;
+  for (const auto antialias : {false, true}) {
+    auto storage = torch::linspace(-1.0, 1.0, (37 * 37 + 1) * 4)
+                       .reshape({1, 37 * 37 + 1, 4})
+                       .to(torch::kCUDA);
+    auto input = storage.slice(1, 1)
+                     .reshape({1, 37, 37, 4})
+                     .permute({0, 3, 1, 2})
+                     .detach()
+                     .set_requires_grad(true);
+    ASSERT_EQ(input.storage_offset(), 4);
+    ASSERT_FALSE(input.is_contiguous());
+    auto cpu_input = input.detach().cpu().clone().set_requires_grad(true);
+    const auto options = torch::nn::functional::InterpolateFuncOptions()
+                             .size(std::vector<std::int64_t>{16, 16})
+                             .mode(torch::kBicubic)
+                             .align_corners(false)
+                             .antialias(antialias);
+    const auto actual =
+        jyppx::liuding::models::detail::SeparableBicubicPositions(input, 16, 16,
+                                                                  antialias);
+    const auto native =
+        torch::nn::functional::interpolate(input.detach(), options);
+    EXPECT_TRUE(torch::equal(actual, native));
+    const auto cpu_reference =
+        torch::nn::functional::interpolate(cpu_input, options);
+    const auto upstream =
+        torch::linspace(-0.7, 0.3, actual.numel()).reshape(actual.sizes());
+    actual.backward(upstream.to(torch::kCUDA));
+    cpu_reference.backward(upstream);
+    EXPECT_TRUE(
+        torch::allclose(input.grad().cpu(), cpu_input.grad(), 2e-5, 3e-6));
+    const auto first_gradient = input.grad().clone();
+    input.mutable_grad() = torch::Tensor{};
+    const auto repeated =
+        jyppx::liuding::models::detail::SeparableBicubicPositions(input, 16, 16,
+                                                                  antialias);
+    repeated.backward(upstream.to(torch::kCUDA));
+    EXPECT_TRUE(torch::equal(input.grad(), first_gradient));
+  }
+}
+
 TEST(ModelsCuda, DinoV2ResizedPositionsHaveRepeatableGradients) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
   const DeterministicPositions deterministic;
