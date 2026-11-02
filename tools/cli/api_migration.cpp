@@ -32,7 +32,8 @@ constexpr std::array rules{
          "Review foundation/telemetry.hpp and training/event_sink.hpp "
          "contracts."},
     Rule{"jyppx/utils/tensorboard.hpp", "TELEMETRY-SIDECAR",
-         "Use the explicit telemetry sidecar export contract."},
+         "Use run export --backend tensorboard-native with --output or "
+         "--native-config."},
     Rule{"jyppx::utils", "FOUNDATION-OWNERSHIP",
          "Select the owning foundation/data/training API; no general namespace "
          "replacement."},
@@ -103,10 +104,10 @@ constexpr std::array rules{
     Rule{"jyppx/training/callbacks/progress_callback.hpp", "TRAINING-TELEMETRY",
          "Review telemetry observers; no implicit UI/progress callback "
          "replacement."},
-    Rule{
-        "jyppx/training/callbacks/tensorboard_callback.hpp",
-        "TELEMETRY-SIDECAR",
-        "Use explicit run export --backend tensorboard with a locked sidecar."},
+    Rule{"jyppx/training/callbacks/tensorboard_callback.hpp",
+         "TELEMETRY-SIDECAR",
+         "Use run export --backend tensorboard-native with --output or "
+         "--native-config."},
 };
 
 bool source_file(const std::filesystem::path& path) {
