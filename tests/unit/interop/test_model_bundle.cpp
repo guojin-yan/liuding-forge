@@ -41,17 +41,27 @@ jyppx::liuding::ArtifactDigest Digest(std::span<const std::byte> bytes) {
           .hex = jyppx::liuding::sha256_hex(bytes)};
 }
 
+std::filesystem::path NativeTestPath(std::filesystem::path path) {
+#ifdef _WIN32
+  path.make_preferred();
+  return std::filesystem::path(L"\\\\?\\" + path.native());
+#else
+  return path;
+#endif
+}
+
 void Write(const std::filesystem::path& path,
            std::span<const std::byte> bytes) {
-  std::filesystem::create_directories(path.parent_path());
-  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  std::filesystem::create_directories(NativeTestPath(path.parent_path()));
+  std::ofstream output(NativeTestPath(path),
+                       std::ios::binary | std::ios::trunc);
   output.write(reinterpret_cast<const char*>(bytes.data()),
                static_cast<std::streamsize>(bytes.size()));
   if (!output) throw std::runtime_error("Cannot write model bundle test data");
 }
 
 std::string Read(const std::filesystem::path& path) {
-  std::ifstream input(path, std::ios::binary);
+  std::ifstream input(NativeTestPath(path), std::ios::binary);
   if (!input) throw std::runtime_error("Cannot read model bundle test data");
   return {std::istreambuf_iterator<char>(input),
           std::istreambuf_iterator<char>()};
@@ -90,15 +100,16 @@ class ModelBundleTest : public ::testing::Test {
  protected:
   void SetUp() override {
     static std::atomic<std::uint64_t> sequence{0U};
-    base_ = std::filesystem::temp_directory_path() /
-            ("jyppx-bundle-" +
-             std::to_string(
-                 std::chrono::steady_clock::now().time_since_epoch().count()) +
-             "-" + std::to_string(++sequence));
+    cleanup_ =
+        std::filesystem::temp_directory_path() /
+        ("jyppx-bundle-" +
+         std::to_string(
+             std::chrono::steady_clock::now().time_since_epoch().count()) +
+         "-" + std::to_string(++sequence));
     // Unicode/spaces are supported for the trusted outer directory. Portable
     // lowercase ASCII is required only inside the untrusted bundle namespace.
-    base_ /= std::filesystem::path(u8"bundle 测试");
-    std::filesystem::create_directories(base_ / "sources");
+    base_ = cleanup_ / std::filesystem::path(u8"bundle 测试");
+    std::filesystem::create_directories(NativeTestPath(base_ / "sources"));
     target_ = base_ / "published";
     // Keep the complete v1 regression suite as an explicit N-1 fixture.
     manifest_.schema_version = 1U;
@@ -154,7 +165,7 @@ class ModelBundleTest : public ::testing::Test {
 
   void TearDown() override {
     std::error_code ignored;
-    std::filesystem::remove_all(base_.parent_path(), ignored);
+    std::filesystem::remove_all(NativeTestPath(cleanup_), ignored);
   }
 
   void SaveSource(std::string_view id, std::span<const std::byte> bytes) {
@@ -221,13 +232,31 @@ class ModelBundleTest : public ::testing::Test {
 
   std::size_t Stages() const {
     std::size_t count = 0U;
-    for (const auto& entry : std::filesystem::directory_iterator(base_)) {
+    for (const auto& entry :
+         std::filesystem::directory_iterator(NativeTestPath(base_))) {
       if (entry.path().filename().string().starts_with(".jyppx-bundle-stage-"))
         ++count;
     }
     return count;
   }
 
+#ifdef _WIN32
+  void UseLongOuterPaths() {
+    auto deep = base_;
+    while (deep.native().size() <= 320U)
+      deep /= std::filesystem::path(u8"本地盘 模型包 长路径");
+    for (auto& source : sources_) {
+      const auto content = Read(source.source_path);
+      const auto path = deep / "sources" / source.source_path.filename();
+      Write(path, Bytes(content));
+      source.source_path = path;
+    }
+    base_ = deep;
+    target_ = base_ / "published";
+  }
+#endif
+
+  std::filesystem::path cleanup_;
   std::filesystem::path base_;
   std::filesystem::path target_;
   interop::ModelBundleManifest manifest_;
@@ -603,6 +632,127 @@ TEST_F(ModelBundleTest, PublishesVerifiesAndHashesEveryRealFileAndTensor) {
   EXPECT_EQ(verified.verified_file_bytes, bytes);
   EXPECT_EQ(Stages(), 0U);
 }
+
+TEST_F(ModelBundleTest, RejectsParentTraversalInOuterBundleAndSourcePaths) {
+  const auto traversal = base_ / ".." / "must-not-be-published";
+  EXPECT_THROW(interop::publish_model_bundle(traversal, manifest_, sources_),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(interop::verify_model_bundle_directory(traversal),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   traversal, Digest(Bytes("manifest")), {}),
+               jyppx::liuding::InvalidArgument);
+  auto sources = sources_;
+  sources.front().source_path = sources.front().source_path.parent_path() /
+                                ".." / sources.front().source_path.filename();
+  EXPECT_THROW(interop::publish_model_bundle(target_, manifest_, sources),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_FALSE(std::filesystem::exists(NativeTestPath(target_)));
+  EXPECT_EQ(Stages(), 0U);
+}
+
+#ifdef _WIN32
+TEST_F(ModelBundleTest, RoundtripsLongUnicodeLocalPathsAndInspectsAllEntries) {
+  UseLongOuterPaths();
+  ASSERT_GT(base_.native().size(), 260U);
+  ASSERT_FALSE(target_.native().starts_with(L"\\\\?\\"));
+  for (const auto& source : sources_) {
+    ASSERT_GT(source.source_path.native().size(), 260U);
+    ASSERT_FALSE(source.source_path.native().starts_with(L"\\\\?\\"));
+  }
+  const auto published = Publish();
+  const auto checked = interop::verify_model_bundle_directory(target_);
+  EXPECT_EQ(checked.manifest_digest, published.manifest_digest);
+  EXPECT_EQ(checked.verified_tensors, 3U);
+  EXPECT_EQ(checked.integrity_only_models, 0U);
+  std::vector<std::string_view> selected;
+  for (const auto& file : manifest_.files) selected.push_back(file.id);
+  const auto snapshot = interop::read_model_bundle_snapshot(
+      target_, published.manifest_digest, selected);
+  ASSERT_EQ(snapshot.files.size(), manifest_.files.size());
+  EXPECT_EQ(Digest(snapshot.manifest_bytes), published.manifest_digest);
+  EXPECT_EQ(Read(target_ / std::string(interop::kModelBundleManifest)),
+            interop::serialize_model_bundle_manifest(manifest_));
+  std::uint64_t total_bytes = 0U;
+  for (const auto& file : manifest_.files) {
+    const auto original = Read(Source(file.id));
+    EXPECT_EQ(
+        snapshot.files.at(file.id),
+        std::vector<std::byte>(Bytes(original).begin(), Bytes(original).end()));
+    EXPECT_EQ(Read(target_ / file.relative_path), original);
+    EXPECT_EQ(Digest(snapshot.files.at(file.id)), file.artifact.digest);
+    total_bytes += file.artifact.size_bytes;
+  }
+  EXPECT_EQ(checked.verified_file_bytes, total_bytes);
+  EXPECT_EQ(snapshot.verification.verified_file_bytes, total_bytes);
+  EXPECT_EQ(Stages(), 0U);
+
+  const auto unlisted_directory = target_ / "metadata" / "unlisted" / "nested";
+  std::filesystem::create_directories(NativeTestPath(unlisted_directory));
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_),
+               jyppx::liuding::SerializationError);
+  EXPECT_THROW(interop::read_model_bundle_snapshot(
+                   target_, published.manifest_digest, selected),
+               jyppx::liuding::SerializationError);
+  std::filesystem::remove_all(NativeTestPath(unlisted_directory.parent_path()));
+  const auto unlisted_file = target_ / "metadata" / "undeclared.json";
+  Write(unlisted_file, Bytes("{}"));
+  EXPECT_THROW(interop::verify_model_bundle_directory(target_),
+               jyppx::liuding::SerializationError);
+  std::filesystem::remove(NativeTestPath(unlisted_file));
+  EXPECT_EQ(interop::verify_model_bundle_directory(target_).manifest_digest,
+            published.manifest_digest);
+}
+
+TEST_F(ModelBundleTest, LongPathsPreserveExistingTargetAndCleanFailedStages) {
+  UseLongOuterPaths();
+  const auto previous = Publish();
+  const auto previous_json =
+      Read(target_ / std::string(interop::kModelBundleManifest));
+  manifest_.bundle_id = "must-not-replace";
+  EXPECT_THROW(Publish(), jyppx::liuding::IoError);
+  EXPECT_EQ(Read(target_ / std::string(interop::kModelBundleManifest)),
+            previous_json);
+  EXPECT_EQ(interop::verify_model_bundle_directory(target_).manifest_digest,
+            previous.manifest_digest);
+  EXPECT_EQ(Stages(), 0U);
+
+  const auto previous_target = target_;
+  target_ = base_ / "failed-publication";
+  auto corruption = Read(Source("input"));
+  corruption.front() = '[';
+  Write(Source("input"), Bytes(corruption));
+  EXPECT_THROW(Publish(), jyppx::liuding::SerializationError);
+  EXPECT_FALSE(std::filesystem::exists(NativeTestPath(target_)));
+  EXPECT_EQ(Stages(), 0U);
+  EXPECT_EQ(
+      interop::verify_model_bundle_directory(previous_target).manifest_digest,
+      previous.manifest_digest);
+}
+
+TEST_F(ModelBundleTest, RejectsCallerSuppliedWindowsNamespaces) {
+  const std::array<std::filesystem::path, 4> unsupported{
+      std::filesystem::path(L"\\\\server\\share\\bundle"),
+      std::filesystem::path(L"\\\\?\\" + target_.native()),
+      std::filesystem::path(L"\\\\.\\" + target_.native()),
+      std::filesystem::path(L"//?/" + target_.generic_wstring())};
+  for (const auto& path : unsupported) {
+    EXPECT_THROW(interop::publish_model_bundle(path, manifest_, sources_),
+                 jyppx::liuding::CompatibilityError);
+    EXPECT_THROW(interop::verify_model_bundle_directory(path),
+                 jyppx::liuding::CompatibilityError);
+    EXPECT_THROW(interop::read_model_bundle_snapshot(
+                     path, Digest(Bytes("manifest")), {}),
+                 jyppx::liuding::CompatibilityError);
+    auto sources = sources_;
+    sources.front().source_path = path;
+    EXPECT_THROW(interop::publish_model_bundle(target_, manifest_, sources),
+                 jyppx::liuding::CompatibilityError);
+  }
+  EXPECT_FALSE(std::filesystem::exists(NativeTestPath(target_)));
+  EXPECT_EQ(Stages(), 0U);
+}
+#endif
 
 TEST_F(ModelBundleTest, RejectsCorruptedFileEvenWhenSizeIsUnchanged) {
   Publish();

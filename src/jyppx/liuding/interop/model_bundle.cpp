@@ -801,6 +801,18 @@ std::filesystem::path Absolute(const std::filesystem::path& path) {
   return result;
 }
 
+// Only validated absolute local paths and their portable child names reach
+// this boundary. Keep logical paths unprefixed so caller-supplied Windows
+// UNC/device namespaces still fail Absolute(), independently of path length.
+std::filesystem::path NativePath(std::filesystem::path path) {
+#ifdef _WIN32
+  path.make_preferred();
+  return std::filesystem::path(L"\\\\?\\" + path.native());
+#else
+  return path;
+#endif
+}
+
 class Directory final {
  public:
   explicit Directory(const std::filesystem::path& path)
@@ -809,7 +821,7 @@ class Directory final {
 #ifdef _WIN32
     const auto open = [&](const std::filesystem::path& part) {
       Handle handle(CreateFileW(
-          part.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+          NativePath(part).c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
           FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
       if (handle.get() == kInvalidHandle) Io("directory.open");
@@ -850,7 +862,7 @@ class Directory final {
   void create(std::string_view name) const {
     const std::string local(name);
 #ifdef _WIN32
-    if (!CreateDirectoryW((path_ / local).c_str(), nullptr))
+    if (!CreateDirectoryW(NativePath(path_ / local).c_str(), nullptr))
       Io("directory.create");
 #else
     if (::mkdirat(get(), local.c_str(), 0700) != 0) Io("directory.create");
@@ -864,7 +876,7 @@ class Directory final {
     std::vector<Entry> result;
 #ifdef _WIN32
     std::error_code error;
-    std::filesystem::directory_iterator it(path_, error);
+    std::filesystem::directory_iterator it(NativePath(path_), error);
     if (error) Io("directory.list");
     for (const auto& entry : it) {
       const auto utf8 = entry.path().filename().generic_u8string();
@@ -918,8 +930,8 @@ class Input final {
   Input(const Directory& parent, const std::filesystem::path& filename) {
 #ifdef _WIN32
     handle_ = Handle(CreateFileW(
-        (parent.path() / filename).c_str(), GENERIC_READ, FILE_SHARE_READ,
-        nullptr, OPEN_EXISTING,
+        NativePath(parent.path() / filename).c_str(), GENERIC_READ,
+        FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     BY_HANDLE_FILE_INFORMATION info{};
     LARGE_INTEGER size{};
@@ -986,9 +998,9 @@ class Output final {
   Output(const Directory& parent, const std::filesystem::path& filename) {
 #ifdef _WIN32
     handle_ = Handle(CreateFileW(
-        (parent.path() / filename).c_str(), GENERIC_WRITE, 0U, nullptr,
-        CREATE_NEW, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
-        nullptr));
+        NativePath(parent.path() / filename).c_str(), GENERIC_WRITE, 0U,
+        nullptr, CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
 #else
     handle_ = Handle(
         ::openat(parent.get(), filename.c_str(),
@@ -1222,7 +1234,8 @@ class Stage final {
                   std::chrono::steady_clock::now().time_since_epoch().count()) +
               "-" + std::to_string(++sequence);
 #ifdef _WIN32
-      if (CreateDirectoryW((parent_ / name_).c_str(), nullptr)) return;
+      if (CreateDirectoryW(NativePath(parent_ / name_).c_str(), nullptr))
+        return;
       if (GetLastError() != ERROR_ALREADY_EXISTS) Io("stage.create");
 #else
       if (::mkdirat(parent.get(), name_.c_str(), 0700) == 0) return;
@@ -1234,7 +1247,7 @@ class Stage final {
   ~Stage() {
     if (!published_) {
       std::error_code ignored;
-      std::filesystem::remove_all(path(), ignored);
+      std::filesystem::remove_all(NativePath(path()), ignored);
     }
   }
   Stage(const Stage&) = delete;
@@ -1242,7 +1255,8 @@ class Stage final {
   std::filesystem::path path() const { return parent_ / name_; }
   void publish(const Directory& parent, const std::filesystem::path& filename) {
 #ifdef _WIN32
-    if (!MoveFileExW(path().c_str(), (parent.path() / filename).c_str(),
+    if (!MoveFileExW(NativePath(path()).c_str(),
+                     NativePath(parent.path() / filename).c_str(),
                      MOVEFILE_WRITE_THROUGH))
       Io("stage.atomic_no_replace");
 #elif defined(__linux__)
@@ -1270,7 +1284,8 @@ void MakeParents(const Directory& stage,
     const Directory parent(path);
     const auto child = path / part;
     std::error_code error;
-    const auto status = std::filesystem::symlink_status(child, error);
+    const auto status =
+        std::filesystem::symlink_status(NativePath(child), error);
     if (!std::filesystem::exists(status)) {
       if (error && error != std::errc::no_such_file_or_directory)
         Io("stage.parent.inspect");
