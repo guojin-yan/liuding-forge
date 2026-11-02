@@ -173,7 +173,8 @@ class ModelStateView final {
   void to(const Device& device, bool non_blocking = false);
 
   /**
-   * @brief Converts floating parameters and buffers to a scalar type.
+   * @brief Converts parameters and buffers, including integer buffers, to a
+   * scalar type using LibTorch C++ Module::to semantics.
    * @param dtype Destination scalar type.
    * @param non_blocking Whether eligible conversions may execute
    * asynchronously.
@@ -181,7 +182,8 @@ class ModelStateView final {
   void to(Dtype dtype, bool non_blocking = false);
 
   /**
-   * @brief Moves and converts parameters and buffers in one operation.
+   * @brief Moves and converts parameters and buffers, including integer
+   * buffers, using LibTorch C++ Module::to semantics.
    * @param device Destination device.
    * @param dtype Destination scalar type.
    * @param non_blocking Whether eligible transfers may execute asynchronously.

@@ -1,17 +1,17 @@
-# API: Model Adapter
+# API：模型适配器
 
-Header: `#include <jyppx/liuding/nn/model_adapter.hpp>`
+头文件：`#include <jyppx/liuding/nn/model_adapter.hpp>`。
 
-LibTorch modules do not share a virtual `forward()` signature. JYPPX therefore keeps model state and model invocation as separate contracts:
+LibTorch 模块没有统一的虚函数 `forward()` 签名。六丁炼算分别约定模型状态和调用方式：
 
-- `ModelStateView` retains shared ownership of a `torch::nn::Module` and exposes parameters, buffers, mode, device, and dtype operations.
-- `Invocation` carries positional and keyword `c10::IValue` arguments.
-- `ValueSchema` and `InvocationSchema` validate tensor, tuple, list, dictionary, and scalar boundaries before and after execution.
-- `ModelAdapter` couples a state view with an explicit `ModelInvoker`; it does not guess a forward signature from module inheritance.
+- `ModelStateView` 共享持有 `torch::nn::Module`，提供参数、缓冲区、训练模式、设备和 dtype 操作。
+- `Invocation` 通过 `c10::IValue` 携带位置参数和关键字参数。
+- `ValueSchema` 和 `InvocationSchema` 在执行前后检查张量、元组、列表、字典和标量边界。
+- `ModelAdapter` 将状态视图与显式 `ModelInvoker` 组合；调用签名由调用者指定。
 
-## Tensor models
+## 单张量输入输出
 
-The narrow helper for the common `Tensor -> Tensor` shape accepts either a concrete implementation pointer or a LibTorch holder:
+常见的 `Tensor -> Tensor` 模型可以通过具体实现的共享指针或 LibTorch holder 适配：
 
 ```cpp
 torch::nn::Linear linear(8, 3);
@@ -31,13 +31,24 @@ auto result = adapter.invoke({.positional = {torch::ones({4, 8})}});
 torch::Tensor predictions = result.value.toTensor();
 ```
 
-The adapter retains the module implementation even if the original holder or shared pointer is released.
+原 holder 或共享指针释放后，适配器仍持有模块实现。
 
-## Multi-input and structured output
+## 设备与 dtype 迁移
 
-Use the typed `adapt_module` overload when the forward contract is not
-`Tensor -> Tensor`. The callable receives the concrete module and the already
-validated invocation:
+加载权重后，如需保持每个参数和缓冲区的 dtype，只传入目标设备：
+
+```cpp
+adapter.state().to(jyppx::liuding::Device("cuda:0"));
+adapter.state().eval();
+```
+
+`to(device)` 递归迁移参数和缓冲区并保留各自 dtype。`to(dtype)` 和 `to(device, dtype)` 直接遵循 LibTorch C++ `Module::to` 的转换语义，递归转换所有参数和缓冲区，包括 BatchNorm 的整数计数器；调用者应明确选择需要的状态类型。严格[权重导入](model_weight_import.md)要求目标 dtype 与映射一致，后续迁移也应保留这一约定。
+
+迁移不会改写输入或输出 schema；设备或 dtype 约束改变时，调用者需同步更新 schema，并将输入张量放到匹配的设备。状态迁移和推理、反向、优化器更新之间的互斥及必要同步由调用者负责。
+
+## 多输入与结构化输出
+
+其他调用签名使用带类型的 `adapt_module` 重载。回调接收具体模块和已通过 schema 检查的调用参数：
 
 ```cpp
 jyppx::liuding::nn::InvocationSchema inputs; inputs.positional = {
@@ -61,13 +72,10 @@ auto adapter = jyppx::liuding::nn::adapt_module(
     inputs, outputs);
 ```
 
-`c10::IValue` is only the in-process carrier. Persistent artifacts and remote
-protocols require separately versioned schemas and codecs.
+`c10::IValue` 只用于进程内传递；持久制品和远程协议需要独立版本化的 schema 与编解码器。
 
-## Validation and errors
+## 校验与错误
 
-Malformed schemas, missing keywords, unexpected dictionary fields, and dtype/device/rank/shape mismatches raise `jyppx::liuding::InvalidArgument`. Inputs are validated before user code runs. Results are validated before they leave the adapter. A `c10::Error` raised during forward execution is translated to
-`jyppx::liuding::BackendError` with the original exception retained as a nested cause.
+schema 格式错误、缺失关键字、多余字典字段，以及 dtype、设备、rank 或 shape 不匹配均抛出 `jyppx::liuding::InvalidArgument`。适配器在运行用户代码前检查输入，返回前检查输出。forward 中的 `c10::Error` 转换为 `jyppx::liuding::BackendError`，原异常保留为嵌套原因。
 
-The adapter does not add synchronization. Concurrent calls or state mutation
-are valid only when the concrete module and invoker explicitly support them.
+只有具体模块和 invoker 明确支持相应访问方式时，才能并发调用或修改状态；适配器不提供内部同步。

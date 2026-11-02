@@ -1,66 +1,19 @@
-# Verified model weight import
+# 已验证模型权重导入
 
-Header: `jyppx/interop/model_weight_import.hpp`; target: `jyppx::liuding::interop` with the optional `nn` adapter enabled. The header is not installed when `nn` is OFF. The storage-neutral safetensors codec and weight mapping planner remain usable without nn.
+头文件：`#include <jyppx/liuding/interop/model_weight_import.hpp>`；链接目标：`jyppx::liuding::interop`，需启用可选 `nn` 适配器。关闭 `nn` 时不安装此头文件；不依赖存储设备的 safetensors 编解码器及权重映射规划器仍可使用。
 
-`import_model_weights` checks a trusted whole-artifact SHA-256, parses the
-complete bounded safetensors file, inventories named parameters and buffers,
-and creates a complete `WeightImportPlan`. A rejected mapping returns its full
-diagnostics with `applied=false`; no tensor changes. Exact keys, shapes and
-dtypes are required by default. Explicit partial mode reports every missing,
-unexpected, incompatible and retained entry, with the requested count coverage.
+`import_model_weights` 核对可信来源提供的完整制品 SHA-256，在预算内解析完整 safetensors，盘点命名参数和缓冲区，并生成完整 `WeightImportPlan`。映射被拒绝时返回全部诊断及 `applied=false`，张量保持原值。默认要求键名、shape 和 dtype 精确匹配；显式部分导入模式报告每个缺失、多余、不兼容和保留项，以及请求的计数覆盖率。
 
-Accepted mappings first stage all decoded tensors and device transfers, check
-the entire destination topology again, then replace the assigned data handles
-under `NoGradGuard`. Original data handles are retained until all assignments
-complete. If committing throws, restoration attempts cover every attempted
-assignment in reverse order, including the assignment that threw after a possible
-partial mutation. A failed restoration does not prevent the remaining attempts.
-When all restorations succeed, the original failure is rethrown through the
-framework error boundary. If any restoration fails, `InternalError` reports the
-failed restoration count and retains the original commit exception as its nested
-cause. The model is then unusable: discard it and reconstruct a fresh instance.
-Successful imports preserve parameter TensorImpl identity, dtype, device, mode
-and requires-grad.
+接受映射后，先暂存全部解码张量及设备传输，再次检查整个目标拓扑，随后在 `NoGradGuard` 下替换目标数据句柄。所有赋值完成前保留原句柄；提交抛出异常时，按逆序恢复每个已尝试的赋值，包括可能部分修改后抛出的当前赋值。一项恢复失败仍会继续其他恢复。全部恢复成功时，经框架错误边界重新抛出原失败；任一恢复失败时，`InternalError` 报告恢复失败数，并将原提交异常保留为嵌套原因。此时应丢弃模型并重新构造。成功导入保持参数 TensorImpl 身份、dtype、设备、训练模式和 requires-grad。
 
-The caller must provide exclusive, quiescent access for the whole call: finish
-prior CPU/CUDA work, exclude state readers and writers, forward/backward
-execution and optimizer steps, and release live autograd graphs involving the
-state. The final topology check detects some accidental state changes; it is
-not a lock and cannot make concurrent tensor access safe. Import must run
-outside inference mode. Existing gradients, non-leaf tensors, autograd views,
-inference tensors and lazy negative/conjugate state are rejected. Alias checks
-cover repeated TensorImpl handles, shared nonempty storage and overlapping
-actual byte ranges on the same device, including separate `from_blob` storage
-wrappers. External storage views cannot be inventoried; discard them and rebuild
-optimizer state before subsequent training. This operation imports model
-weights, not a resumable training checkpoint.
+整个调用期间，调用者必须提供静止且独占的访问：完成此前 CPU/CUDA 工作，排除状态读写、forward/backward 和优化器更新，并释放涉及这些状态的存活 autograd 图。最终拓扑检查能发现部分意外状态变化，但不提供锁或并发张量访问保护。导入必须在 inference mode 之外执行；已有梯度、非叶张量、autograd view、inference tensor 以及 lazy negative/conjugate 状态均被拒绝。别名检查覆盖重复 TensorImpl、共享非空存储以及同设备上的实际字节区间重叠，包括独立 `from_blob` 存储包装。外部存储视图无法完整盘点；后续训练前应丢弃这些视图并重建优化器状态。恢复完整训练状态请使用训练检查点；本操作只导入模型权重。
 
-Supported destination types are BOOL, U8, I8, I16, I32, I64, F16, BF16, F32 and
-F64 on dense contiguous CPU/CUDA tensors. The format codec also supports opaque
-U16/U32/U64 bytes; this nn adapter does not materialize those types. BOOL bytes
-must be 0 or 1 before materialization. Unsupported sparse, quantized, complex,
-aliased, special autograd or noncontiguous state fails before mutation.
+目标支持 CPU/CUDA 上稠密连续张量的 BOOL、U8、I8、I16、I32、I64、F16、BF16、F32 和 F64。格式编解码器也支持不透明 U16/U32/U64 字节，但此 nn 适配器不将其物化为张量。BOOL 字节在物化前必须为 0 或 1。稀疏、量化、复数、别名、特殊 autograd 或非连续状态会在修改前被拒绝。
 
-Partial dtype conversion requires an exact per-key `jyppx.float-cast.v1` rule
-between F16/BF16/F32/F64 types. It uses LibTorch's cast semantics including
-rounding and overflow; no implicit precision or finite-value guarantee is
-invented. Unknown conversion rules are rejected before staging. Strict mode
-never casts. The result retains the versioned mapping report and separately
-states whether tensors were actually applied.
+部分导入中的 dtype 转换必须逐键指定 `jyppx.float-cast.v1` 规则，且仅限 F16/BF16/F32/F64 之间。转换遵循 LibTorch 的舍入和溢出语义，不额外保证精度或有限值。未知转换规则在暂存前被拒绝，严格模式不转换 dtype。结果保留带版本的映射报告，并单独说明张量是否实际应用。导入后需保持各状态 dtype 时，使用[仅迁移设备的操作](model_adapter.md#设备与-dtype-迁移)。
 
-Cancellation and deadline checks run during chunked hashing and between staged
-entries, and immediately before committing. The commit is not interrupted
-midway, and rollback runs to completion regardless of cancellation/deadline.
-Device staging synchronizes the affected CUDA devices before mutation; this
-does not replace the caller's obligation to finish prior work before entry.
-The staging budget conservatively charges source decode plus two destination
-buffers per assigned entry; it is not a process RSS cap. Producer authentication
-requires a separate trusted signature; SHA-256 alone establishes byte identity.
+分块哈希、暂存项之间及提交前均检查取消与截止时间。提交不会中途打断；回滚会执行完毕，不受取消或截止影响。设备暂存在修改前同步涉及的 CUDA 设备，调用者仍须在进入前完成此前工作。暂存预算按每个赋值项的源解码及两份目标缓冲区保守计费，不是进程 RSS 硬上限。生产者身份认证需要独立可信签名；SHA-256 只确定字节身份。
 
-LibTorch failures are translated to framework errors with the original exception
-retained as a nested cause. Typed backend out-of-memory and host `bad_alloc`
-failures become `ResourceExhausted`; CUDA synchronization failures become
-`DeviceError`; other LibTorch failures become `BackendError`. Classification
-never depends on backend error text. Top-level messages and details do not copy raw backend diagnostics; inspect the nested cause only in an appropriate diagnostic context.
+LibTorch 失败转换为框架错误并保留原异常为嵌套原因。有类型的后端内存不足和主机 `bad_alloc` 转为 `ResourceExhausted`，CUDA 同步失败转为 `DeviceError`，其他 LibTorch 失败转为 `BackendError`；分类不依赖后端错误文本。顶层消息和详情不复制原始后端诊断，嵌套原因只应在适当的诊断上下文中检查。
 
-This chapter is awaiting consolidated Windows and Ubuntu/CUDA qualification.
+完整支持范围仍待 Windows 与 Ubuntu/CUDA 的联合验收。
