@@ -10,6 +10,8 @@ The self-authored 16/8 RGB task retains 48 updates, seed 20261028 and
 accuracy >= 0.875. It does not qualify pretrained transfer, DINO quality,
 real-dataset accuracy or performance. Transfer byte-preflight uses deliberately
 invalid model bytes and never claims executable weights or group-rate training.
+The CPU training fixture explicitly opts into the native one-pass BN calibration;
+the schema/default fixture and the CUDA/transfer fixtures retain calibration OFF.
 """
 
 from __future__ import annotations
@@ -37,6 +39,9 @@ _fixture = importlib.util.module_from_spec(_fixture_spec)
 _fixture_spec.loader.exec_module(_fixture)
 png = _fixture.png
 PARTICIPANTS = frozenset(_fixture.PARTICIPANTS)
+CALIBRATION_PARTICIPANT = "recipe.batch-norm-calibration"
+CPU_CALIBRATION = {"batch_norm_calibration": "train_cumulative_once",
+                   "calibration_max_snapshot_bytes": 67108864}
 
 EVIDENCE: Path | None = None
 _invocation = 0
@@ -159,8 +164,11 @@ def checkpoint(path: Path) -> dict:
                 assert isinstance(size, int) and 0 <= size <= file_size - stream.tell()
                 key = (identity, blob["field_name"])
                 if key in (("recipe.lr", "topology"), ("recipe.lr", "control"),
-                           ("recipe.sgd", "control")):
-                    assert size <= 65536 and key not in blobs
+                           ("recipe.sgd", "control"),
+                           (CALIBRATION_PARTICIPANT, "contract"),
+                           (CALIBRATION_PARTICIPANT, "control")):
+                    bound = 2048 if key == (CALIBRATION_PARTICIPANT, "control") else 65536
+                    assert size <= bound and key not in blobs
                     data = stream.read(size)
                     assert hashlib.sha256(data).hexdigest() == blob["digest"]["hex"]
                     blobs[key] = data
@@ -187,9 +195,13 @@ def checkpoint(path: Path) -> dict:
     sgd_rates = [sgd.number("d") for _ in range(groups)]
     sgd.read(parameters)  # Momentum-initialized flags, one per parameter.
     sgd.finish()
-    return {"manifest": manifest, "descriptor": descriptor, "scheduler_state": state,
-            "scheduler_rates": rates, "optimizer": {"completed_steps": steps,
-            "parameters": parameters, "learning_rates": sgd_rates}}
+    result = {"manifest": manifest, "descriptor": descriptor, "scheduler_state": state,
+              "scheduler_rates": rates, "optimizer": {"completed_steps": steps,
+              "parameters": parameters, "learning_rates": sgd_rates}}
+    if any(identity == CALIBRATION_PARTICIPANT for identity, _ in blobs):
+        result["calibration"] = {name: json.loads(blobs[(CALIBRATION_PARTICIPANT, name)])
+                                 for name in ("contract", "control")}
+    return result
 
 
 def schedule_factor(completed: int, total: int = 48, warmup: int = 5) -> float:
@@ -331,6 +343,8 @@ class UpdateConfiguration(RecipeCase):
                 path.write_text(json.dumps(config), encoding="utf-8")
                 baseline = self.invoke("recipe", "check", "--file", path)["data"]
                 self.assertEqual(baseline["total_steps"], 48)
+                for field in CPU_CALIBRATION:
+                    self.assertNotIn(field, baseline["config"], "Calibration remains an explicit opt-in")
                 for field in SCHEDULE:
                     self.assertNotIn(field, baseline["config"])
                 hashes = {baseline["config_sha256"]}
@@ -399,6 +413,12 @@ class UpdateRecipe(RecipeCase):
     def setUpClass(cls) -> None:
         cls.setup_fixture("training")
         cls.config |= SCHEDULE
+        cls.expected_participants = PARTICIPANTS
+        if cls.device == "cpu":
+            # The fixed tiny CPU task needs the supported post-training BN pass;
+            # it adds forwards, never optimizer/scheduler updates or warmup.
+            cls.config |= CPU_CALIBRATION
+            cls.expected_participants |= {CALIBRATION_PARTICIPANT}
         cls.file = cls.base / "config.json"
         cls.file.write_text(json.dumps(cls.config), encoding="utf-8")
         cls.preflight = cls.invoke("recipe", "check", "--file", cls.file)["data"]
@@ -415,6 +435,15 @@ class UpdateRecipe(RecipeCase):
             cls.checkpoints[name] = checkpoint(cls.roots["resumed"] / "latest.jyck")
             save_evidence(name, cls.results[name])
             save_evidence(f"{name}-checkpoint", cls.checkpoints[name])
+        if cls.device == "cpu":
+            cls.results["calibration-paused"] = cls.invoke(
+                "recipe", "resume", "--file", cls.file, "--root", cls.roots["resumed"],
+                "--pause-calibration-after", 2)["data"]
+            ready = cls.roots["resumed"] / "latest.jyck"
+            cls.checkpoints["calibration-ready"] = checkpoint(ready)
+            cls.invoke("checkpoint", "verify", "--path", ready)
+            save_evidence("calibration-paused", cls.results["calibration-paused"])
+            save_evidence("calibration-ready-checkpoint", cls.checkpoints["calibration-ready"])
         cls.results["resumed"] = cls.invoke(
             "recipe", "resume", "--file", cls.file, "--root", cls.roots["resumed"])["data"]
         root = cls.roots["killed"]
@@ -444,10 +473,15 @@ class UpdateRecipe(RecipeCase):
         save_evidence("killed-durable-checkpoint", cls.checkpoints["killed-durable"])
         cls.results["killed"] = cls.invoke(
             "recipe", "resume", "--file", cls.file, "--root", root)["data"]
+        cls.final_checkpoint_hashes = {}
         for name, root in cls.roots.items():
             cls.checkpoints[name] = checkpoint(root / "final.jyck")
+            if cls.device == "cpu":
+                cls.final_checkpoint_hashes[name] = file_sha256(root / "final.jyck")
             save_evidence(name, cls.results[name])
             save_evidence(f"{name}-checkpoint", cls.checkpoints[name])
+        if cls.device == "cpu":
+            save_evidence("final-checkpoint-sha256", cls.final_checkpoint_hashes)
         if EVIDENCE is not None:
             for name in ("lineage.json", "dataset.json", "evaluation.json", "diagnostics.json"):
                 shutil.copy2(cls.roots["resumed"] / name, EVIDENCE / name)
@@ -482,6 +516,12 @@ class UpdateRecipe(RecipeCase):
         fields = ("model_sha256", "next_rng_sha256", "next_cpu_rng_sha256", "training_metrics",
                   "validation_metrics", "accuracy", "confusion", "global_step", "optimizer_steps",
                   "scheduler_steps", "completed_epochs", "optimization")
+        if self.device == "cpu":
+            paused = self.results["calibration-paused"]
+            self.assertEqual((paused["status"], paused["stage"], paused["global_step"]),
+                             ("paused", "batch_norm_calibration", 48))
+            self.assertEqual(paused["calibration"], self.checkpoints["calibration-ready"]["calibration"]["control"])
+            fields += ("calibration",)
         for name in self.roots:
             result = self.results[name]
             self.assertEqual(result["status"], "completed")
@@ -495,8 +535,11 @@ class UpdateRecipe(RecipeCase):
             for field in fields:
                 self.assertEqual(result[field], self.results["continuous"][field], (name, field))
             participants = self.checkpoints[name]["manifest"]["participants"]
-            self.assertEqual({item["state"]["participant_id"] for item in participants}, PARTICIPANTS)
+            self.assertEqual(len(participants), len(self.expected_participants))
+            self.assertEqual({item["state"]["participant_id"] for item in participants}, self.expected_participants)
             self.assertEqual(participants, self.checkpoints["continuous"]["manifest"]["participants"])
+            if self.device == "cpu":
+                self.assertEqual(self.final_checkpoint_hashes[name], self.final_checkpoint_hashes["continuous"])
             self.assertEqual(file_sha256(self.roots[name] / "model.safetensors"),
                              self.results["continuous"]["model_sha256"])
 
@@ -528,8 +571,63 @@ class UpdateRecipe(RecipeCase):
                 self.assertEqual(saved["scheduler_rates"], saved["optimizer"]["learning_rates"])
                 self.assertEqual(len(saved["scheduler_rates"]), 1)
                 self.assertAlmostEqual(saved["scheduler_rates"][0], 0.01 * schedule_factor(steps), places=14)
+                participants = saved["manifest"]["participants"]
+                self.assertEqual(len(participants), len(self.expected_participants))
+                self.assertEqual({item["state"]["participant_id"] for item in participants}, self.expected_participants)
+                if self.device == "cpu":
+                    phase = ("ready" if name == "calibration-ready" else
+                             "completed" if name in self.roots else "training")
+                    self.assert_calibration(saved, phase)
+                    if phase == "completed":
+                        self.assertEqual(saved["calibration"]["control"], self.results[name]["calibration"])
+                        self.assertEqual(saved["calibration"]["control"]["calibrated_model_sha256"],
+                                         self.results[name]["model_sha256"])
+                else:
+                    self.assertNotIn("calibration", saved)
         self.assertEqual(self.checkpoints["continuous"]["descriptor"], self.checkpoints["resumed"]["descriptor"])
         self.assertEqual(self.checkpoints["continuous"]["descriptor"], self.checkpoints["killed"]["descriptor"])
+        if self.device == "cpu":
+            # Calibration replays from durable READY without changing the saved
+            # optimizer, scheduler, RNG, pipelines or other protected state.
+            def protected(saved):
+                return {item["state"]["participant_id"]: item for item in saved["manifest"]["participants"]
+                        if item["state"]["participant_id"] not in ("model.main", CALIBRATION_PARTICIPANT)}
+            self.assertEqual(protected(self.checkpoints["calibration-ready"]),
+                             protected(self.checkpoints["resumed"]))
+
+    def assert_calibration(self, saved: dict, phase: str) -> None:
+        contract, control = (saved["calibration"][name] for name in ("contract", "control"))
+        state = next(item["state"] for item in saved["manifest"]["participants"]
+                     if item["state"]["participant_id"] == CALIBRATION_PARTICIPANT)
+        self.assertEqual((state["schema_version"], state["restore_level"], state["degradation_reasons"]),
+                         (1, "exact", []))
+        self.assertEqual({field["name"] for field in state["fields"]}, {"contract", "control"})
+        self.assertEqual(contract["controls"]["checkpoint_module_mode"], "all_eval")
+        self.assertEqual(contract, self.checkpoints["continuous"]["calibration"]["contract"])
+        for name, expected in {"method": "jyppx.liuding.bn2d.train-cumulative-once/v1",
+                               "seed": 20261028, "epoch": 0, "passes": 1, "batch_size": 4,
+                               "image_size": 32, "workers": 0, "prefetch_batches": 1,
+                               "max_model_snapshot_bytes": 67108864,
+                               "image_dtype": "float32-normalized", "interpolation": "bilinear",
+                               "classes": ["green", "red"],
+                               "recovery": "READY replays the entire pass; COMPLETED skips it"}.items():
+            self.assertEqual(contract[name], expected, name)
+        self.assertEqual(set(control), {"schema_version", "phase", "source_model_sha256",
+            "calibrated_model_sha256", "optimizer_updates", "batches", "samples"})
+        self.assertEqual((control["schema_version"], control["phase"]), (1, phase))
+        self.assertEqual(control["optimizer_updates"], 0 if phase == "training" else 48)
+        self.assertEqual((control["batches"], control["samples"]), (4, 16) if phase == "completed" else (0, 0))
+        if phase == "training":
+            self.assertEqual(control["source_model_sha256"], "")
+        else:
+            self.assertRegex(control["source_model_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(control["source_model_sha256"],
+                             self.checkpoints["continuous"]["calibration"]["control"]["source_model_sha256"])
+        if phase == "completed":
+            self.assertRegex(control["calibrated_model_sha256"], r"^[0-9a-f]{64}$")
+            self.assertNotEqual(control["source_model_sha256"], control["calibrated_model_sha256"])
+        else:
+            self.assertEqual(control["calibrated_model_sha256"], "")
 
     def test_03_full_checkpoint_readers_provenance_and_configuration_binding(self) -> None:
         root = self.roots["resumed"]
