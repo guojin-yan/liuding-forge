@@ -139,11 +139,11 @@ JYPPX package.
 - Project: https://openssl-library.org/; version: 3.5.9; license: Apache-2.0.
 - Role: private static EVP Ed25519 backend for the optional `jyppx::liuding::bundle_signing` component. Source archive integrity is pinned in `dependency-manifest.json`; original terms are retained in `third_party/licenses/openssl-3.5.9-LICENSE.txt` and installed with the enabled component. Public headers expose no OpenSSL types. Retaining the license does not establish a complete vulnerability audit or FIPS qualification.
 
-## Optional Python Sidecar
+## Telemetry test references
 
-The optional sidecar runtime is separately deployed and is not installed by the
-C++ SDK. Its exact wheel allowlist is
-`tools/telemetry_sidecar/requirements.lock`. The 2026-10-21 security remediation
+The official Python mappings are test references only and are not installed by
+the C++ SDK. The former Python runtime entry is retired. Its exact test wheel allowlist is
+`tests/reference/telemetry/requirements.lock`. The 2026-10-21 security remediation
 pins Werkzeug 3.1.9 (BSD-3-Clause), protobuf 6.33.5 (BSD-3-Clause), Pillow
 13.0.0 (HPND and separately licensed bundled components), and setuptools 83.0.0
 (MIT and separately licensed bundled vendors). Exact original license/notice

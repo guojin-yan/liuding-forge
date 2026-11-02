@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 移除旧 Python 遥测进程入口和安装选项；TensorBoard/OTLP 导出使用原生 C++ 实现，官方 Python 映射仅保留为独立测试参考。
+
 - 兼容矩阵增加 LibTorch 2.14.1 CPU / GCC 11.4.0 / Debug coverage 的显式未验证候选，并校验待验条目不能夹带验证成绩或授予支持；补充 Windows MSVC 19.44 与 Ubuntu cu126 开发切片的精确源码、组件和验证边界，保留旧兼容事实与版本选择。
 
 - 本地 typed 训练可声明有界输出引用，在原生成功退出且进程树清理确认后核对本 attempt 的类型、角色、实际大小与 CAS 内容；确认收据与原生结果和双流原子提交，重放只读验证。

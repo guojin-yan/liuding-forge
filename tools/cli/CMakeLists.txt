@@ -98,12 +98,3 @@ endif()
 install(FILES "${PROJECT_SOURCE_DIR}/recipes/multi-io/paired-affine.json"
     DESTINATION share/jyppx/recipes/multi-io)
 install(TARGETS jyppx_cli RUNTIME DESTINATION bin)
-
-if(JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR)
-    install(FILES
-        "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py"
-        "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/requirements.lock"
-        "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/dependency-metadata.json"
-        "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/README.txt"
-        DESTINATION share/jyppx/telemetry_sidecar)
-endif()

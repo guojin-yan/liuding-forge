@@ -1,25 +1,7 @@
-# Telemetry backend acceptance
+# 原生遥测 Collector 互操作夹具
 
-This directory qualifies the optional runtime adapter in [`tools/telemetry_sidecar`](../../../tools/telemetry_sidecar). Tests and the official Collector fixture are development infrastructure and are not installed with that adapter.
+此目录保留固定官方 Collector 0.135.0 的配置及制品摘要；该路径名称沿用历史身份。产品导出由 C++ TensorBoard/OTLP worker执行，旧 Python sidecar产品入口已退役。
 
-Use a dedicated CPython 3.11 environment, install the runtime's exact
-`requirements.lock` with `pip --require-hashes --only-binary=:all:`, and supply
-the pinned official Collector Contrib 0.135.0 executable through
-`JYPPX_LIUDING_TEST_OTELCOL`. Verify its download against `collector-artifacts.json`.
-Supply the built product executable through `JYPPX_LIUDING_TEST_CLI`. The configured CMake gate supplies both paths and fails when either prerequisite is absent.
+`NativeOtlpCollectorInterchange` 使用 `tests/scripts/test_native_otlp_collector.py` 检查原生 API、SQLite CLI重放与真实 Collector；TensorBoard与离线 OTLP的独立官方读写参考位于 `tests/reference/telemetry`，不安装到 SDK。启用 `JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY` 时必须提供锁定的测试 CPython、Collector及原生 telemetry组件，不静默跳过。
 
-The 2026-10-21 dependency preparation installed the locked environment on both platforms, passed `pip check` and official module imports, and verified Collector archive hashes and `--version` output. Exact interpreter distributions, package wheels and report digests are recorded in [`optional-runtime-provenance.json`](../../../scripts/interop/optional-runtime-provenance.json). This preparation did not execute the acceptance entry point or the real Collector protocol fixture.
-
-Reuse `out/envs/telemetry-py311/Scripts/python.exe` on Windows or
-`out/envs/telemetry-py311/bin/python` on Ubuntu. The prepared Collector is at
-`out/deps/otelcol-contrib-0.135.0/windows/otelcol-contrib.exe` or
-`out/deps/otelcol-contrib-0.135.0/linux/otelcol-contrib`, respectively. Set
-`JYPPX_LIUDING_TEST_OTELCOL` to its absolute path.
-
-From the repository root:
-
-```sh
-<venv-python> tests/integration/telemetry_sidecar/run_acceptance.py
-```
-
-The acceptance entry point rejects missing prerequisites, version mismatches and skipped tests. It runs protocol tests, official TensorBoard readback, generated OTLP schema consumers, and an actual Collector file-export roundtrip. It also runs actual C++ training/recovery, reads its canonical SQLite events, exports through the product CLI and OS process transport into the official sidecar, and compares official TensorBoard/Collector readback with that evidence. The tests have moved from the runtime directory as part of chapter integration; their execution results are recorded by the chapter gate.
+历史运行结果仍绑定原源码和原协议，不转授当前 HTTPS、持久 ACK或完整章节资格。

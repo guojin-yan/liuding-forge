@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 
-REFERENCE_SIDECAR_SHA256 = "c86ce5978c6753a81f3d5d0795746e192813073604b905083f47cbc56fc3ef44"
+REFERENCE_SIDECAR_SHA256 = "b2395df6fae29dd118359017241ffa51f5c9e0bc5d27ec3ea63ac474ecacc55e"
 
 
 def require(condition: bool, message: str) -> None:

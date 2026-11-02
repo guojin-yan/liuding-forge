@@ -1,106 +1,27 @@
-# Telemetry sidecar process transport
+# 原生遥测 worker 进程传输
 
-`jyppx::liuding::cli::SidecarProcessTransport` is the product CLI's implementation of
-`experiment::TelemetrySidecarTransport`. It launches a fixed executable and
-exchanges bounded UTF-8 JSON lines with that process. It is private tool code; it does not add subprocess management to the installed foundation API.
+`SidecarProcessTransport` 是 CLI 私有的 C++ 有界进程通道，实现 `experiment::TelemetrySidecarTransport`；类名和中立协议标识保持兼容，不表示安装或运行 Python sidecar。产品只启动同一 Liuding Forge 可执行文件中的原生 TensorBoard/OTLP worker，配置入口见[运行遥测 CLI](run_telemetry_cli.md)。
 
-## Launch and ownership
+## 启动与数据边界
 
-Supply an absolute executable path, UTF-8 arguments, an existing isolated working directory, and explicit child environment configuration. The caller reserves the directory for this observer and serializes all calls. Relative executables and PATH lookup are rejected. Arguments are passed directly to the executable and never interpreted by a shell. Child environment overrides do not modify the parent's environment or current directory.
+通道使用固定绝对可执行路径、UTF-8 argv、独立且已存在的工作目录和显式子进程环境；不搜索 PATH、不调用 shell、不修改父环境或 cwd。CLI 不接受任意 executable/arguments 配置，事件不能决定执行程序、目录、环境或目的地。环境默认不继承，调用方须显式选择继承或提供运行库所需环境。
 
-```cpp
-jyppx::liuding::cli::SidecarProcessOptions process;
-process.executable = locked_python_executable;       // absolute native path
-process.working_directory = exclusive_sidecar_cwd;   // existing private directory
-process.arguments = {
-    "-I", "-u", sidecar_script_utf8,
-    "--backend", "tensorboard",
-    "--tensorboard-output", new_output_directory_utf8};
-process.environment = locked_child_environment;
-auto channel = std::make_shared<jyppx::liuding::cli::SidecarProcessTransport>(process);
-jyppx::liuding::experiment::OfficialTelemetrySink observer(channel);
-// Use observer.emit/flush/close with the operation's absolute deadline.
-```
+请求与响应为单行 UTF-8 JSON；默认请求16 MiB、响应128 KiB，拒绝空帧、内嵌 NUL/CR/LF、EOF、不完整响应、多余输出和无效 UTF-8。写 stdin 时同时排空 stdout/stderr，避免有限管道缓冲死锁；默认2 ms静默观察无法预测更晚的 unsolicited输出，后续交换仍检查。`OfficialTelemetrySink` 另核 schema、请求身份、回执与累计计数。
 
-Environment inheritance is disabled by default. A locked child environment must include any platform runtime prerequisites, such as the required Windows system environment. Set `inherit_environment=true` explicitly when a snapshot of the parent environment is intended; overrides then apply only to the child. The application must not concurrently mutate its environment during that snapshot.
+stderr 按默认64 KiB累计配额丢弃，只返回排空字节数，不把内容、argv、环境、路径或系统错误文本带入协议错误。launch配额同时覆盖 argv和环境（默认256 KiB），Windows另受 UTF-16命令行限制。配额是容量上限，不是预分配或私有 workspace 保证。
 
-The telemetry sidecar and dependency files are user-facing product tools under
-`tools/telemetry_sidecar`. Its fixed backend/output/collector options are launch
-configuration. Never derive an executable, arguments, environment, cwd or output
-destination from an event payload. Pin and verify the actual runtime separately;
-successfully launching a Python executable does not verify its packages.
+## 截止、终止与确认
 
-## Framing and limits
+每次交换采用调用方绝对截止和 operation timeout（默认10秒）的较早者，startup timeout默认10秒。管道等待以最多5 ms片段检查 stop/deadline；失败后通道中毒并终止，后续调用报 `NotReady`。不自动重启或重放，因为失败前可能已有外部效果。
 
-`transact` appends one LF to a nonempty UTF-8 request. Embedded NUL, CR or LF is
-rejected. It returns one nonempty UTF-8 reply without LF. The default request and reply bounds are 16 MiB and 128 KiB. The underlying pipes have finite kernel buffers; the implementation drains stdout and stderr while it writes stdin, including when the child stops reading a large request.
+先显式 `close` 取得最终计数，再 `terminate()` 释放所有权；析构和 terminate不发送协议 close/flush。默认清理宽限2秒，可能延长已到达的操作截止；重复终止保留首次结果，不续借预算。原始交换错误优先，清理错误不泄露子进程诊断。
 
-The child must remain alive between exchanges. EOF, a partial line, process exit, invalid UTF-8, embedded NUL/CR, or extra bytes after the reply LF fail explicitly. Available unsolicited stdout is rejected before the next request. A short configurable quiet period (2 ms by default) drains immediate additional output before returning. A byte transport cannot predict output that a child has not yet produced: delayed unsolicited bytes are detected on the next exchange.
-`OfficialTelemetrySink` additionally validates JSON schemas, request identity,
-receipts and cumulative counters. Child diagnostics must use stderr.
+`process_tree_cleanup_confirmed()` 在清理前为 false，仅在原生层确认 leader已退出或回收、原 Job/进程组已空后为 true。CLI不能在 false时报告成功；错误为 `cli.run.export/process.cleanup`，原 SQLite证据保留。operation/startup最大10分钟，cleanup最大10秒，quiet period最大100 ms；操作系统创建、文件系统、DNS和调度仍不提供绝对墙钟保证。
 
-Stderr bytes are discarded without being copied into replies, exceptions or
-logs. A cumulative 64 KiB default quota detects a diagnostic flood. Detached
-statistics expose only completed exchange count and drained byte counts. Error
-details use stable operation names and contain no argv, environment, path,
-stdout, stderr or native error-message text.
+## 平台所有权
 
-The maximum launch byte quota includes argv and the child environment. Windows
-also enforces its UTF-16 command-line bound. Request/reply/stderr/launch quotas
-must be positive and no larger than 1 GiB. They are ceilings, not preallocations.
+Windows使用 Unicode `CreateProcessW`、CRT argv转义、显式句柄继承列表及 overlapped named pipes；进程先挂起，加入 kill-on-close Job后再恢复，不启用 breakaway。无法加入 Job时明确失败并终止挂起子进程，无非隔离回退；后代和持有继承管道的进程属于同一 Job。
 
-## Cancellation, deadlines and restart
+POSIX使用独立进程组、固定绝对 `execve`、父端 nonblocking descriptors、`poll`和 exec状态管道；fork后的子进程只使用已准备数据与 async-signal-safe调用，关闭其他描述符，SIGPIPE仅在线程内屏蔽。清理向原组发送 SIGKILL并回收直接子进程；leader PID在组清理前保持所有权。后代 zombie由其真实父进程或系统 reaper回收，库不改变全局 subreaper/SIGCHLD策略；已有 `SIG_IGN/SA_NOCLDWAIT` 时拒绝启动。原生 worker按该所有权协议协作，进程组不是对恶意 `setsid/setpgid` 程序的沙箱。
 
-An operation uses the earlier of its supplied absolute steady-clock deadline and
-`operation_timeout` (10 seconds by default). Startup similarly uses
-`startup_timeout`. Stop/deadline checks cover pipe writes, reply collection,
-stderr drain and the extra-output quiet period. Native nonblocking/overlapped
-pipe waits are at most 5 ms, so cancellation does not depend on the child
-cooperating or closing a pipe. Native process-creation calls themselves are OS
-calls; late return is detected before a launch can be reported successful.
-
-Any failed exchange, including invalid input or a pre-request cancellation,
-poisons and terminates the transport. Further exchanges throw `NotReady`.
-Construct a new transport to restart. Never silently restart within `transact`:
-the failed child may already have exported a prefix. Retain and replay the
-original immutable durable observations using the sink's at-least-once contract.
-
-`terminate()` and destruction release ownership without throwing. They do not
-send a protocol close/flush. Call the observer's explicit `close` first when its final counters and export acknowledgement are needed, then release the channel. Process termination/reaping may extend an already reached operation deadline by the bounded cleanup grace (2 seconds by default). Native cleanup errors never replace the original exchange failure or leak diagnostics.
-
-`process_tree_cleanup_confirmed()` 在清理前为 `false`，仅在原生层确认 leader 已退出或被回收、原 Job 或进程组已空后为 `true`。显式 `terminate()`、失败后的查询与重复终止均保留首次清理结果，重复终止不续借清理预算；`false` 表示缺少清理确认，调用方不得据此报告成功。
-
-Timeouts must be positive: operation/startup at most 10 minutes, cleanup at most 10 seconds, and the reply quiet period at most 100 ms. Increase these values explicitly for a measured workload; no wait silently becomes infinite.
-
-## Platform containment
-
-Windows uses Unicode `CreateProcessW`, Microsoft CRT argv quoting, an explicit standard-handle inheritance list and overlapped local named pipes. The process starts suspended, joins a kill-on-close Job Object, then resumes. Neither breakaway nor silent-breakaway is enabled. If job assignment is unavailable, launch fails and the suspended child is terminated; there is no uncontained fallback. Nested child processes remain in the job. Closing the owning job also terminates descendants that retain inherited pipe handles.
-
-POSIX uses a distinct process group, fixed absolute `execve`, parent-only nonblocking descriptors, `poll`, and an exec-status pipe. Launch success requires the close-on-exec status pipe to close without an error record. The fork child uses only prepared data and async-signal-safe system calls. Unrelated parent descriptors are closed or marked close-on-exec. SIGPIPE is masked only in the writing thread; the library does not change process-wide signal handlers.
-
-Cleanup sends SIGKILL to the entire original group and reaps its direct child. Exit observation keeps the leader's PID reserved until group cleanup. Descendant zombies are reaped by their actual parent or system reaper; the transport does not change the application's global subreaper or SIGCHLD policy. The caller must not reap this transport's child from an unrelated global wait handler. Launch rejects an existing `SIGCHLD=SIG_IGN` or `SA_NOCLDWAIT` policy because automatic reaping would invalidate process ownership before group cleanup. POSIX process groups supervise cooperative official sidecars; they are not a sandbox for hostile programs that deliberately escape with `setsid` or `setpgid`.
-
-## Validation and build integration
-
-`tests/cli/test_sidecar_transport.cpp` starts the actual Python fixture under
-`tests/cli/sidecar_fixture.py`. It covers persistent echo, Unicode paths and argv
-quoting, child-only environment/cwd, explicit/default deadline, cancellation, blocked stdin, EOF, partial/extra/late frames, invalid UTF-8/NUL/CR, stdout/stderr floods, crash, poison/restart, failed exec, inherited-handle exclusion, descendant termination and Windows Job breakaway refusal.
-
-The CMake test target should compile the product
-`tools/cli/sidecar_process.cpp`, link the experiment/foundation implementation,
-GTest, bounded JSON implementation and `Threads::Threads`, and define:
-
-```cmake
-JYPPX_SIDECAR_TEST_PYTHON="${Python3_EXECUTABLE}" JYPPX_SIDECAR_TEST_FIXTURE="${CMAKE_SOURCE_DIR}/tests/cli/sidecar_fixture.py"
-```
-
-Use CMake's normalized absolute paths for those UTF-8 definitions. Explicit
-environment variables of the same names are a fallback for direct invocation.
-Absent Python or fixture prerequisites fail the test; they do not skip it.
-Windows requires the normal Kernel32 process/job/named-pipe APIs. Linux uses
-pthread signal-mask APIs; no global signal disposition is modified.
-
-This module and its tests were developed without per-edit compilation. The
-chapter's unified Windows and remote Ubuntu/CUDA validation must register and
-execute these targets, alongside the official TensorBoard/Collector consumer
-tests, before the telemetry chapter is accepted.
+进程通道测试中的 Python程序仅是故障夹具，官方 Python包仅用于独立读取/参考映射；二者不安装，也不参与产品导出。原生 Collector、TLS信任、持久 ACK、强取消及完整章节资格按各自实际验证授予。

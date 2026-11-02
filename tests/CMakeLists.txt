@@ -582,20 +582,7 @@ add_subdirectory(diagnostics)
 if(TARGET jyppx_cli)
     add_subdirectory(cli)
 endif()
-if(JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
-    if(NOT TARGET jyppx_cli OR NOT EXISTS "${JYPPX_TELEMETRY_PYTHON}" OR
-       NOT EXISTS "${JYPPX_OTELCOL_EXECUTABLE}")
-        message(FATAL_ERROR "Official telemetry acceptance requires product CLI and locked Python/collector executable paths")
-    endif()
-    add_test(NAME OfficialTelemetryAcceptance
-        COMMAND ${CMAKE_COMMAND} -E env "JYPPX_LIUDING_TEST_OTELCOL=${JYPPX_OTELCOL_EXECUTABLE}"
-            "JYPPX_LIUDING_TEST_CLI=$<TARGET_FILE:jyppx_cli>"
-            "${JYPPX_TELEMETRY_PYTHON}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/integration/telemetry_sidecar/run_acceptance.py")
-    set_tests_properties(OfficialTelemetryAcceptance PROPERTIES LABELS "experiment;official;integration" TIMEOUT 300)
-endif()
-
-if(JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR)
+if(JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR OR JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
     if(NOT TARGET jyppx::liuding::telemetry_http OR NOT TARGET jyppx_cli OR
        NOT JYPPX_LIUDING_BUILD_EXAMPLES OR
        NOT EXISTS "${JYPPX_TELEMETRY_PYTHON}" OR

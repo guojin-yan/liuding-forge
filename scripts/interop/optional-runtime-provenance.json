@@ -26,7 +26,7 @@
       "--require-hashes",
       "--only-binary=:all:"
     ],
-    "sidecar_requirements": "tools/telemetry_sidecar/requirements.lock",
+    "telemetry_test_reference_requirements": "tests/reference/telemetry/requirements.lock",
     "safetensors_requirements": "scripts/interop/requirements-safetensors.lock",
     "lock_note": "Installation report hashes refer to the exact cached input snapshots. The sidecar lock's descriptive comments were updated after preparation; package pins and allowed wheel hashes are unchanged.",
     "safetensors_extras": [],

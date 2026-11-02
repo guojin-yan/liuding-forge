@@ -1,156 +1,65 @@
-# CLI: run events, metrics, and export
+# CLI：查询与导出运行遥测
 
-These product commands read existing local `runs.sqlite3` evidence. They do not create missing storage or fabricate observations. Paths are UTF-8 and converted with `std::filesystem::u8path`, including Windows Unicode paths. Append events through `SQLiteRunStore`/`SQLiteRunTelemetrySink` from a producer; this CLI has no unvalidated JSON-to-database event injection command.
+`run events/metrics/export` 读取已有 `runs.sqlite3` 的规范事件，不创建缺失存储或伪造观测。路径使用 UTF-8；生产者通过 `SQLiteRunStore`/`SQLiteRunTelemetrySink` 写入，CLI 不提供未经校验的 JSON 注入入口。
 
-All commands accept `--format json|text` (text renders nested field/value rows), `--root PATH`,
-`--id RUN_ID`, `--timeout-ms N` (default 60,000, maximum 600,000), and
-`--page-bytes N` (default/maximum 16 MiB, minimum 1 MiB). The timeout is one
-absolute steady-clock deadline across open, reads, export, and close. It is not an observation timestamp. SQLite waits and subprocess exchanges observe this deadline; operating-system file I/O is checked before/after bounded steps and cannot promise interruption of an indefinitely stalled filesystem call.
+所有命令接受 `--format json|text`、`--root PATH`、`--id RUN_ID`、`--timeout-ms N`（默认60,000、最大600,000）和 `--page-bytes N`（默认/最大16 MiB、最小1 MiB）。timeout 是覆盖打开、读取、导出与关闭的一条绝对单调时钟截止，不是观测时间戳；文件系统调用不提供无限停滞时的可中断保证。
 
-## Fixed snapshot queries
+## 固定快照查询
 
 ```text
 liuding-forge run events --root local-runs --id run-001 --limit 128 --format json
 liuding-forge run events --root local-runs --id run-001 --after 128 --snapshot 600 --limit 128 --format json
-
 liuding-forge run metrics --root local-runs --id run-001 --metric validation.accuracy --limit 128 --format json
-liuding-forge run metrics --root local-runs --id run-001 --metric validation.accuracy --after-sequence 80 --after-index 2 --snapshot 600 --limit 128 --format json
+liuding-forge run metrics --root local-runs --id run-001 --metric validation.accuracy --after-sequence 80 --after-index 2 --snapshot 600 --format json
 ```
 
-The first query without a nonzero cursor captures and returns
-`data.snapshot_through`. Continue with that exact `--snapshot` and the returned
-`data.next_after` until it is null. CLI continuation with a nonzero cursor
-requires an explicit snapshot to avoid accidentally including concurrent appends. Keep the same run and filters throughout the scan. A supplied boundary must not be in the future, and a cursor must not be beyond it. Snapshot zero is valid for an empty history. These are logical append-only snapshots, with no long-running SQLite reader held between invocations; direct database mutation is unsupported.
+首次无游标查询返回 `data.snapshot_through`；后续保持 run、过滤器和该 `--snapshot`，使用返回的 `data.next_after`，直到 null。非零游标必须显式指定快照，不能超出边界；空历史快照0合法。这是追加日志上的逻辑快照，不跨命令持有 SQLite reader。
 
-| Command | Extra options |
-|---|---|
-| `events` | `--after N` (exclusive commit sequence, default 0), `--snapshot N`, `--limit N` (default 256, maximum 1,024), `--kind NAME` |
-| `metrics` | required `--metric ID`, `--after-sequence N` and `--after-index N` (both default 0), `--snapshot N`, `--limit N` (default 256, maximum 4,096), `--definition-version N`, `--step-kind NAME` |
+| 命令 | 额外选项 |
+| --- | --- |
+| `events` | `--after N`（exclusive、默认0）、`--snapshot N`、`--limit N`（默认256、最大1,024）、`--kind NAME` |
+| `metrics` | 必需 `--metric ID`；`--after-sequence N`、`--after-index N`（默认0）；`--snapshot N`；`--limit N`（默认256、最大4,096）；`--definition-version N`、`--step-kind NAME` |
 
-Event kinds are `lifecycle`, `metric_batch`, `log`, `span`, `resource_sample`, and `artifact_reference`. Step kinds are `micro_step`, `global_step`, `epoch`,
-`sample`, and `elapsed_nanoseconds`. Definition version is a positive uint32.
-Cursors are nonnegative signed-64-bit-representable database coordinates;
-metric step values retain their full original uint64 range. Count and
-canonical-source byte bounds both apply. CLI JSON content is additionally
-capped at 64 MiB per response; reduce the page count/byte budget on exhaustion.
+事件 kind 为 `lifecycle/metric_batch/log/span/resource_sample/artifact_reference`；step kind 为 `micro_step/global_step/epoch/sample/elapsed_nanoseconds`。游标是可用有符号64位表示的非负数据库坐标，原 metric step 保留 uint64 全范围。规范源字节与条数同时受限，JSON 响应另限64 MiB，超限时缩小分页。
 
-Event records in `data.events` contain `schema_version`, `run_sequence`,
-`content_digest` (SHA-256), `canonical_hex`, and the shared neutral JSON
-`event` projection. The canonical bytes remain the hash/persistence authority;
-JSON number formatting is not the canonical codec.
+`events` 返回 `schema_version/run_sequence/content_digest/canonical_hex/event`；SHA256和规范字节是持久化依据，JSON 数字格式不是规范编码。`metrics` 返回点游标、源事件摘要、完整不可变定义/上下文/step/status/value及可选 sample count，`data.source_events` 在每页去重保存完整来源。NaN、正负无穷和 missing 的 JSON value 为 null，状态分别保留；缺失时钟为 null，负 wall time 保持有符号值，不推断采样数、不重新聚合或拼接重置后的 step。
 
-Metric records in `data.points` contain:
-
-- `cursor: {run_sequence, point_index}` and `source_content_digest`.
-- Original event schema, identity, reliability, clocks, correlation,
-  annotations, and optional `resource_id`.
-- `point`: complete immutable definition with digest, units, aggregation,
-  direction, parameters, context keys/values, step kind/value, value status,
-  numerical value/reason, and optional sample count.
-- `status_name`: `finite`, `not_a_number`, `positive_infinity`,
-  `negative_infinity`, or `missing`.
-
-`data.source_events` contains each referenced canonical event record once per
-page. This preserves event-level provenance without copying a complete event
-beside every point. NaN/Inf/missing observations have JSON `value: null` and
-retain their distinct status. Missing clocks remain null, negative wall times
-remain signed integers, sample counts are not inferred, and no reaggregation,
-step sorting, unit conversion, or reset stitching occurs.
-
-Projection enum numbers are the persisted foundation schema: units 1–9
-(`dimensionless`, `count`, `seconds`, `bytes`, `ratio`, `percent`,
-`count_per_second`, `bytes_per_second`, `unspecified`); aggregations 1–6 (`last`,
-`sum`, `mean`, `minimum`, `maximum`, `unspecified`); directions 1–3 (`none`,
-`minimize`, `maximize`); statuses 1–5 in the order listed above; step kinds 1–5
-in the order listed above. IDs and complete definition digests distinguish incompatible series.
-
-## Export from authoritative evidence
-
-`tensorboard-native` 直接用 C++ 写 TensorBoard 事件文件，使用新的 `--output` 目录，不接受 `--resume` 或 `--sidecar-config`。映射范围、容量和重放限制见[原生 TensorBoard 事件导出](native_tensorboard.md)。
+## 原生导出
 
 ```text
 liuding-forge run export --root local-runs --id run-001 --backend jsonl --output exported.jsonl --format json
 liuding-forge run export --root local-runs --id run-001 --backend jsonl --output exported.jsonl --resume true --snapshot 600 --format json
 liuding-forge run export --root local-runs --id run-001 --backend tensorboard-native --output exports/run-001 --format json
-liuding-forge run export --root local-runs --id run-001 --backend tensorboard --sidecar-config tensorboard.json --format json
-liuding-forge run export --root local-runs --id run-001 --backend opentelemetry --sidecar-config otel.json --format json
+liuding-forge run export --root local-runs --id run-001 --backend tensorboard-native --native-config tensorboard.json --format json
+liuding-forge run export --root local-runs --id run-001 --backend opentelemetry-native --native-config otlp.json --format json
 ```
 
-Export captures a boundary once and reads only original canonical SQLite events through it, using keyset pages. `--snapshot N` selects an explicit already committed boundary; `--after N` selects an exclusive starting coordinate and requires the snapshot when nonzero. There are no implicit event/metric filters or transformations. `--page-size N` defaults to 256 and is capped at 1,024. `--max-events N` defaults to/cannot exceed 1,000,000; the selected unfiltered coordinate range is checked before creating output or launching a process. Protocol batches obey count, canonical-byte and projected request-byte bounds independently of database page size.
+| backend | 配置与行为 |
+| --- | --- |
+| `jsonl` | `--output`；可用显式 `--resume true` 核验相同事件身份并修复不完整尾部 |
+| `tensorboard-native` | 新的 `--output` 目录直接写入，或用 `--native-config` 启动隔离 C++ worker；二者互斥，不接受 resume |
+| `opentelemetry-native` | 必需 `--native-config`，由隔离 C++ worker 使用原生 HTTP 发送 |
 
-JSONL requires `--output PATH` outside the managed SQLite/CAS root. The caller owns this path exclusively; concurrent writers or replacement are unsupported. Existing paths are refused unless `--resume true`. Resume accepts only a regular file with one filesystem link and at least one complete record (or an empty file). The observer verifies every complete record's canonical bytes, digest and projection, then truncates only an incomplete final tail. A nonempty file with no complete record is retained and rejected for diagnosis. Replaying matching source events returns duplicates rather than adding lines. A resumed file may already contain other valid observations; replay does not claim the whole destination is an exact standalone copy of the selected run snapshot.
+旧 `tensorboard/opentelemetry --sidecar-config` 路由和 Python runtime 安装入口已退役；命令明确拒绝，迁移到上表原生 backend。产品导出不需要 Python。原生组件未启用时明确返回 `not_implemented`，不回退到脚本。
 
-JSONL records use the shared schema (`schema_version`, `content_digest`,
-`canonical_hex`, `event`). Their default bounds are 1 GiB/file, 1,000,000 records,
-and 4 MiB/line. Successful close flushes the stream; filesystem fsync durability
-is not claimed. Durable acceptance remains SQLite's responsibility.
-
-Official backends use `--sidecar-config PATH` instead of `--output/--resume`.
-The config is a strict JSON object, capped at 256 KiB, schema 1. It selects the
-executable and exact argv, including backend destinations; no value is read
-from an event or converted into shell syntax. Example TensorBoard config:
+TensorBoard worker 配置示例（路径须为绝对路径，输出目录必须尚不存在）：
 
 ```json
-{ "schema_version": 1, "backend": "tensorboard", "executable": "C:/telemetry-venv/Scripts/python.exe", "arguments": [
-    "-I", "-u", "C:/jyppx/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py",
-    "--backend", "tensorboard",
-    "--tensorboard-output", "C:/exports/tensorboard-run-001"
-], "working_directory": "C:/exports/isolated-sidecar-cwd", "inherit_environment": false, "environment": {}, "operation_timeout_ms": 10000, "startup_timeout_ms": 10000, "cleanup_timeout_ms": 2000 }
+{"schema_version":1,"directory":"C:/exports/run-001","working_directory":"C:/exports/worker","inherit_environment":true}
 ```
 
-Executable and working directory must be absolute; the working directory must
-already exist and be reserved by the caller. Script/output/clock-map arguments
-should be explicit absolute paths. A TensorBoard destination must not exist.
-The config backend must match `--backend`; the supplied process is trusted to
-implement that backend's official protocol. Use the delivered sidecar and its
-pinned requirements, not an arbitrary unverified executable.
+OTLP worker 的 endpoint、资源实例、显式时钟锚点与容量配置见[原生 OTLP HTTP](../tutorials/native-otlp-http.md)；TensorBoard 映射范围和重放限制见[原生 TensorBoard](native_tensorboard.md)。不要从事件载荷推断执行程序、网络目的地、目录或环境。
 
-For OTel, use `backend: "opentelemetry"`, the corresponding fixed `--backend`
-argv, and explicitly configured `--otlp-base-url`, `--allowed-host`,
-`--resource-instance-id`, optional `--clock-mappings`, and
-`--http-timeout-seconds`. For example the destination argv may include
-`--otlp-base-url http://127.0.0.1:4318 --allowed-host 127.0.0.1
---resource-instance-id worker-001`, passed as six separate strings. The official sidecar disables proxies/redirects and permits plain HTTP only for a literal loopback address. No environment/clock/collector setting is inferred from stored observations.
+导出先冻结快照再分页，`--after` 默认0，`--snapshot` 可显式指定，`--page-size` 默认256、最大1,024，`--max-events` 默认/最大1,000,000。超过容量在启动 worker 前拒绝；输出不能进入受管理的 SQLite/CAS 根。JSONL 不修改原事件字节，官方映射不能表示的内容计入 unsupported，required durable evidence 不允许作为 sampled 丢弃。
 
-| Optional sidecar config field | Default / maximum |
-|---|---|
-| `environment` | child-only string map, at most 128 entries |
-| `inherit_environment` | `false`; `true` explicitly copies parent environment before overrides |
-| `operation_timeout_ms`, `startup_timeout_ms` | 10,000 / 600,000 |
-| `cleanup_timeout_ms` | 2,000 / 10,000 |
-| `max_request_bytes` | 16 MiB / 16 MiB, minimum 1,024 |
-| `max_reply_bytes` | 128 KiB / 128 KiB |
-| `max_stderr_bytes` | 64 KiB / 64 KiB cumulative |
+成功结果包含 `scan_completed/fully_represented`、读取和各类回执计数、快照边界及最后游标。`fully_represented` 只有 unsupported和sampled均为0时为 true。C++ worker 成功还必须取得 `data.transport.process_tree_cleanup_confirmed: true`；未确认清理返回 backend错误、无成功 data。进程隔离与截止合同见[进程传输](telemetry_sidecar_process.md)。
 
-All numeric config limits are positive integers. Argv is capped at 256 entries, with a combined native launch bound of 256 KiB from the process transport. Unknown fields and duplicate keys are errors. The process receives no shell, PATH lookup, parent cwd/environment mutations, or inherited arbitrary handles. Its stdout is protocol-only; stderr is discarded under its quota and only the byte count is reported. The earlier of the absolute command deadline and each configured process-operation deadline wins. Failure poisons/terminates the process tree. Cleanup may extend the operation deadline by the bounded cleanup grace. See [process transport](telemetry_sidecar_process.md) for platform containment and ownership details.
+| 退出码 | 含义 |
+| --- | --- |
+| 0 | 扫描完成且全部表示 |
+| 1 | 扫描完成，但有 unsupported或sampled |
+| 2 | 参数、配置、协议或未启用组件错误 |
+| 3 | 存储、后端或未确认进程清理错误 |
+| 124 | 命令或进程操作截止到达 |
 
-## Results, omissions, and retries
-
-Successful command execution returns the normal outer JSON envelope with
-`status: "ok"`. Inspect `data.scan_completed`, `fully_represented`,
-`snapshot_through`, `last_after`, `read_events`, `accepted_events`,
-`duplicate_events`, `sampled_out_events`, `unsupported_events`, and cumulative
-`destination_counters`. JSONL additionally reports verified opening records
-and truncated tail bytes; official exports report bounded transport byte and request counts. Final counters must agree with receipts from this invocation.
-
-进程导出还必须在有界清理结束后确认原生进程树已退出，成功结果的 `data.transport.process_tree_cleanup_confirmed` 为 `true`。清理未确认时返回 exit 3、`error.name: "backend"`、`error.component: "cli.run.export"` 和 `error.operation: "process.cleanup"`，不返回成功 `data`；原 SQLite 观测保持，已发生的外部导出效果可能仍存在，重试仍遵守下述至少一次语义。
-
-| Exit code | Meaning |
-|---|---|
-| 0 | Query complete, or export complete with no omissions |
-| 1 | Export scanned/closed successfully but some observations were unsupported or sampled out |
-| 2 | Invalid option, schema/configuration, corrupt serialization, or compatibility failure |
-| 3 | I/O, quota, process/backend, or other runtime failure |
-| 124 | Command or sidecar operation deadline reached |
-| 130 | Cancellation propagated by the operation layer |
-
-An observer omission does not modify the durable run or its outcome. The official TensorBoard mapping explicitly rejects payloads/scalars it cannot represent, including missing wall time or missing numerical values. OTel spans require explicit clock anchors; unsupported spans are counted. Full backend mapping semantics are documented with the delivered sidecar.
-
-A failure may occur after a JSONL prefix or external collector/SDK effects were written. Failure output does not claim a complete scan, rollback, or final counter proof. Keep SQLite evidence and retry the same boundary and unchanged envelopes after repairing the destination. JSONL can verify/deduplicate its complete recovered records. A new official process has no persistent replay index; collector writes (including OTel metric and companion audit-log writes) can duplicate across retries. The reported delivery model is at least once, with explicit omission accounting, never exactly-once external effects.
-
-`tests/cli/test_run_telemetry.py --cli ABSOLUTE_EXECUTABLE` checks actual CLI
-queries, canonical provenance, concurrent append boundaries, JSONL replay,
-explicit launch configuration and controlled real-process faults. The
-controlled peer does not replace official SDK readback or collector tests;
-`tests/integration/telemetry_sidecar/run_acceptance.py` is a separate mandatory
-chapter gate. These files are implementation/test definitions, not a claim that either platform has passed.
+外部效果按至少一次处理：协议响应确认、HTTP200或进程成功均不等于持久 ACK、exactly-once或可信 HTTPS 的完整资格。失败保留 SQLite 原事件和真实错误，再按原身份决定重放；进程取消不依赖 worker 合作，但系统调用及清理宽限不承诺绝对墙钟上限。

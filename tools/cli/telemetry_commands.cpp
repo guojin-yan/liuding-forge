@@ -288,68 +288,6 @@ Result metrics_command(const Arguments& arguments, SQLiteRunStore& store,
           0};
 }
 
-std::uint64_t config_number(const Json& config, const char* name,
-                            std::uint64_t fallback, std::uint64_t maximum) {
-  const auto value = config.contains(name)
-                         ? unsigned_number(config.at(name), maximum)
-                         : fallback;
-  if (value == 0U)
-    usage("run.sidecar-config",
-          "Sidecar limits and timeouts must be positive.");
-  return value;
-}
-
-SidecarProcessOptions sidecar_options(const Arguments& arguments,
-                                      std::string_view backend) {
-  const auto config = parse_json(
-      read_text(std::filesystem::u8path(arguments.require("sidecar-config")),
-                256U * 1024U));
-  fields(config,
-         {"schema_version", "backend", "executable", "arguments",
-          "working_directory"},
-         {"environment", "inherit_environment", "operation_timeout_ms",
-          "startup_timeout_ms", "cleanup_timeout_ms", "max_request_bytes",
-          "max_reply_bytes", "max_stderr_bytes"});
-  if (unsigned_number(config.at("schema_version"), 1U) != 1U ||
-      config.at("backend").get<std::string>() != backend) {
-    throw CompatibilityError(
-        "Sidecar configuration schema or backend does not match the export");
-  }
-  if (!config.at("arguments").is_array() ||
-      config.at("arguments").size() > 256U ||
-      (config.contains("environment") &&
-       (!config.at("environment").is_object() ||
-        config.at("environment").size() > 128U))) {
-    throw ResourceExhausted(
-        "Sidecar configuration exceeds argv/environment bounds");
-  }
-  SidecarProcessOptions options;
-  options.executable =
-      std::filesystem::u8path(config.at("executable").get<std::string>());
-  options.arguments = config.at("arguments").get<std::vector<std::string>>();
-  options.working_directory = std::filesystem::u8path(
-      config.at("working_directory").get<std::string>());
-  if (config.contains("environment"))
-    options.environment =
-        config.at("environment").get<std::map<std::string, std::string>>();
-  options.inherit_environment = config.value("inherit_environment", false);
-  options.operation_timeout = std::chrono::milliseconds(
-      config_number(config, "operation_timeout_ms", 10000U, 600000U));
-  options.startup_timeout = std::chrono::milliseconds(
-      config_number(config, "startup_timeout_ms", 10000U, 600000U));
-  options.cleanup_timeout = std::chrono::milliseconds(
-      config_number(config, "cleanup_timeout_ms", 2000U, 10000U));
-  options.max_request_bytes = static_cast<std::size_t>(config_number(
-      config, "max_request_bytes", 16U * 1024U * 1024U, 16U * 1024U * 1024U));
-  options.max_reply_bytes = static_cast<std::size_t>(
-      config_number(config, "max_reply_bytes", 128U * 1024U, 128U * 1024U));
-  options.max_stderr_bytes = static_cast<std::size_t>(
-      config_number(config, "max_stderr_bytes", 64U * 1024U, 64U * 1024U));
-  if (options.max_request_bytes < 1024U)
-    usage("run.sidecar-config", "Allow at least 1024 request bytes.");
-  return options;
-}
-
 bool boolean_option(const Arguments& arguments, std::string_view name) {
   const auto value = arguments.optional(name).value_or("false");
   if (value == "true") return true;
@@ -475,15 +413,15 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
       native_tensorboard && arguments.optional("native-config").has_value();
   const bool native_worker = native_otlp || tensorboard_worker;
   const bool local = jsonl || (native_tensorboard && !tensorboard_worker);
-  if (!local && !native_worker && backend != "tensorboard" &&
-      backend != "opentelemetry")
+  if (backend == "tensorboard" || backend == "opentelemetry")
     usage("run.backend",
-          "Choose jsonl/tensorboard-native/tensorboard/opentelemetry/"
-          "opentelemetry-native.");
-  if ((native_worker && (arguments.optional("sidecar-config") ||
-                         !arguments.optional("native-config"))) ||
+          "Python telemetry backends are retired. Use tensorboard-native "
+          "or opentelemetry-native with the native export configuration.");
+  if (!local && !native_worker)
+    usage("run.backend",
+          "Choose jsonl/tensorboard-native/opentelemetry-native.");
+  if ((native_worker && !arguments.optional("native-config")) ||
       (!native_worker && arguments.optional("native-config")) ||
-      (local && arguments.optional("sidecar-config")) ||
       (!local &&
        (arguments.optional("output") || arguments.optional("resume"))) ||
       (native_tensorboard && arguments.optional("resume")))
@@ -491,7 +429,7 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
         "run.export",
         "JSONL uses --output/--resume; tensorboard-native uses a new --output "
         "directory OR --native-config for an isolated worker, never both; "
-        "sidecar backends use --sidecar-config; opentelemetry-native uses "
+        "opentelemetry-native uses "
         "--native-config.");
   RunEventPageRequest request;
   request.after_sequence = arguments.number("after", 0U, kMaximumCoordinate);
@@ -537,17 +475,15 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
                        ? native_tensorboard_worker_options(
                              arguments, page.snapshot_through - initial_after,
                              store.database_path().parent_path())
-                   : native_otlp
-                       ? native_otlp_worker_options(
-                             arguments, page.snapshot_through - initial_after)
-                       : sidecar_options(arguments, backend);
+                       : native_otlp_worker_options(
+                             arguments, page.snapshot_through - initial_after);
     request_bytes = options.max_request_bytes;
     const auto reply_bytes = options.max_reply_bytes;
     check_telemetry_operation({}, deadline);
     process = std::make_shared<SidecarProcessTransport>(
         std::move(options), std::stop_token{}, deadline);
     OfficialTelemetryOptions official;
-    official.backend = (backend == "tensorboard" || tensorboard_worker)
+    official.backend = tensorboard_worker
                            ? OfficialTelemetryBackend::tensorboard
                            : OfficialTelemetryBackend::opentelemetry;
     official.sink_id = "cli.export." + backend;
@@ -678,8 +614,8 @@ Result run_telemetry_command(const Arguments& arguments) {
                      "page-bytes", "timeout-ms"});
   } else if (action == "export") {
     arguments.allow({"root", "id", "backend", "output", "resume",
-                     "sidecar-config", "native-config", "after", "snapshot",
-                     "page-size", "page-bytes", "max-events", "timeout-ms"});
+                     "native-config", "after", "snapshot", "page-size",
+                     "page-bytes", "max-events", "timeout-ms"});
   } else {
     usage("run.telemetry", "Choose events/metrics/export.");
   }

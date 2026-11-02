@@ -15,10 +15,13 @@ import copy
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import queue
+import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -79,9 +82,11 @@ def emit_request(events):
 
 
 class Collector:
-    def __init__(self, replies=()):
+    def __init__(self, replies=(), *, hold=False):
         self.requests, self.errors = [], []
         self.replies = list(replies)
+        self.hold = hold
+        self.ready, self.release = threading.Event(), threading.Event()
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -101,6 +106,9 @@ class Collector:
                     assert len(body) == length
                     index = len(owner.requests)
                     owner.requests.append((self.path, body))
+                    if owner.hold:
+                        owner.ready.set()
+                        assert owner.release.wait(10), "Checker response release timed out"
                     status, delay = owner.replies[index] if index < len(owner.replies) else (200, 0)
                     if delay:
                         time.sleep(delay)
@@ -124,6 +132,7 @@ class Collector:
         return self
 
     def __exit__(self, *_):
+        self.release.set()
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(5)
@@ -232,8 +241,56 @@ class NativeOtlpWorkerContract(unittest.TestCase):
                 self.assertEqual(data["read_events"], 2)
                 self.assertTrue(data["scan_completed"] and data["fully_represented"])
                 self.assertEqual(data["transport"]["completed_requests"], 3)
+                self.assertTrue(data["transport"]["process_tree_cleanup_confirmed"])
                 self.assertEqual([path for path, _ in collector.requests],
                                  ["/v1/logs", "/v1/metrics", "/v1/logs"])
+
+    if os.name == "posix":
+        def test_native_cleanup_failure_rejects_success_and_preserves_sqlite(self):
+            self.assertFalse(self.disabled, "This negative requires the enabled native HTTP profile")
+            store = self.store()
+            original = self.invoke("run", "events", "--root", store, "--id", reference.RUN_ID)["data"]
+            member = None
+            with Collector(hold=True) as collector:
+                config = self.configuration(collector, cleanup_timeout_ms=100)
+                process = subprocess.Popen(
+                    [str(self.cli), "run", "export", "--root", str(store), "--id", reference.RUN_ID,
+                     "--backend", "opentelemetry-native", "--native-config", str(config), "--format", "json"],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                try:
+                    self.assertTrue(collector.ready.wait(10), "Native worker did not reach real HTTP request")
+                    children = (Path("/proc") / str(process.pid) / "task" / str(process.pid) / "children").read_text().split()
+                    self.assertEqual(len(children), 1, children)
+                    worker = int(children[0])
+                    self.assertEqual(os.getpgid(worker), worker)
+                    self.assertEqual(os.getsid(worker), os.getsid(process.pid))
+                    member = subprocess.Popen(
+                        [sys.executable, "-I", "-c", "import time; time.sleep(60)"],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        process_group=worker)
+                    self.assertEqual(os.getpgid(member.pid), worker)
+                    collector.release.set()
+                    # Its real unreaped zombie keeps the owned process group visible.
+                    stdout, stderr = process.communicate(timeout=20)
+                    self.assertEqual(process.returncode, 3, (stdout, stderr))
+                    self.assertEqual(stderr, b"")
+                    result = json.loads(stdout)
+                    self.assertNotIn("data", result)
+                    self.assertEqual(result["error"]["name"], "backend")
+                    self.assertEqual(result["error"]["component"], "cli.run.export")
+                    self.assertEqual(result["error"]["operation"], "process.cleanup")
+                    self.assertEqual(result["error"]["message"], "Telemetry worker process cleanup was not confirmed")
+                    self.assertEqual(member.wait(timeout=5), -signal.SIGKILL)
+                    self.assertEqual(self.invoke("run", "events", "--root", store, "--id", reference.RUN_ID)["data"], original)
+                    self.assertTrue(self.invoke("run", "verify", "--root", store)["data"]["valid"])
+                finally:
+                    collector.release.set()
+                    if process.poll() is None:
+                        process.kill()
+                        process.communicate(timeout=10)
+                    if member is not None:
+                        member.kill()
+                        member.wait(timeout=5)
 
     def test_worker_six_payloads_from_independent_canonical_fixture(self):
         with Collector() as collector:

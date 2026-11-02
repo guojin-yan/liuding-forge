@@ -306,14 +306,14 @@ if(TARGET jyppx::liuding::telemetry_native AND JYPPX_TELEMETRY_PYTHON)
             "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_tensorboard.py"
             --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
             --cli-fixture "${CMAKE_CURRENT_SOURCE_DIR}/test_run_telemetry.py"
-            --sidecar "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py")
+            --sidecar "${PROJECT_SOURCE_DIR}/tests/reference/telemetry/official_mapping.py")
     set_tests_properties(Cli_native_tensorboard PROPERTIES
         LABELS "cli;experiment;telemetry;tensorboard;official;integration" TIMEOUT 240)
     add_test(NAME Cli_native_tensorboard_worker_official
         COMMAND "${JYPPX_TELEMETRY_PYTHON}"
             "${CMAKE_CURRENT_SOURCE_DIR}/test_native_tensorboard_worker.py"
             --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --official
-            --sidecar "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py")
+            --sidecar "${PROJECT_SOURCE_DIR}/tests/reference/telemetry/official_mapping.py")
     set_tests_properties(Cli_native_tensorboard_worker_official PROPERTIES
         LABELS "cli;telemetry_native;tensorboard;official;integration" TIMEOUT 120)
 endif()

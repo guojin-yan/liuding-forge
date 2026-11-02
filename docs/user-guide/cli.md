@@ -62,7 +62,7 @@ liuding-forge data prepare --name mnist --download true --data-root /external/ne
 
 `model bundle inspect|verify` 有界检查目录、文件大小、摘要和 safetensors 映射，分别报告内容完整性、签名信任及运行时兼容性。启用 `bundle_signing` 组件后，CLI 提供原生 `model bundle sign`，验签通过 `--trust-policy` 和 `--trust-policy-sha256` 绑定信任策略；关闭该组件时不提供受信验签。使用方法见[模型包签名与信任策略](bundle-signing.md)；schema 的实际解释和推理仍由对应运行时负责。
 
-启用 `JYPPX_LIUDING_INSTALL_TELEMETRY_SIDECAR=ON` 可单独安装遥测 sidecar 源码与锁定依赖声明；CMake 不安装 Python 包，调用方显式提供解释器和配置，见[进程传输](../api/telemetry_sidecar_process.md)。更完整的本地组合示例见[离线工作流](../examples/offline_workflow.md)。
+遥测导出使用 C++ `tensorboard-native` 或 `opentelemetry-native`，不安装或调用 Python runtime；旧 `--sidecar-config` 和 Python安装选项明确拒绝。配置、容量与进程清理合同见[运行遥测](../api/run_telemetry_cli.md)和[进程传输](../api/telemetry_sidecar_process.md)。更完整的本地组合示例见[离线工作流](../examples/offline_workflow.md)。
 
 ## 本地任务
 

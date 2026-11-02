@@ -5,9 +5,8 @@
 """Real CLI/SQLite and process-boundary contracts for run telemetry commands.
 
 Requires an already built product CLI. The stdlib canonical fixture is inserted
-into a database created by the product, then decoded by production readers. The
-controlled subprocess verifies launch/protocol behavior; official TensorBoard
-and collector interoperability remain separate mandatory integration gates.
+into a database created by the product, then decoded by production readers. Official TensorBoard and collector interoperability are checked
+through the native workers in separate mandatory integration gates.
 No tests are skipped when this entry point is run.
 """
 
@@ -226,68 +225,6 @@ def seed_database(root: Path, events: list[dict]) -> None:
         )
 
 
-def fixture_sidecar() -> int:
-    """Controlled protocol peer, intentionally independent of official SDKs."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--fixture-sidecar", action="store_true")
-    parser.add_argument("--capture", required=True, type=Path)
-    parser.add_argument("--mode", default="accept")
-    parser.add_argument("--literal", required=True)
-    parser.add_argument("--append-root", type=Path)
-    args = parser.parse_args()
-    counters = {"exported_events": 0, "sampled_out_events": 0, "unsupported_events": 0}
-    args.capture.write_text(json.dumps({"launch": {
-        "cwd": os.getcwd(), "literal": args.literal,
-        "child_value": os.environ.get("JYPPX_CLI_CHILD_VALUE"),
-        "parent_secret_present": "JYPPX_CLI_PARENT_SECRET" in os.environ,
-    }}, ensure_ascii=False) + "\n", encoding="utf-8")
-    for line in sys.stdin.buffer:
-        request = json.loads(line)
-        if args.mode == "hold-close" and request["operation"] == "close":
-            # The independent checker joins a child to this original process
-            # group before allowing the final protocol reply. Its parent keeps
-            # the killed child unreaped until the CLI has observed cleanup.
-            ready = args.capture.with_suffix(".close-ready")
-            temporary = ready.with_suffix(".tmp")
-            temporary.write_text(str(os.getpid()), encoding="ascii")
-            os.replace(temporary, ready)
-            deadline = time.monotonic() + 15
-            while not args.capture.with_suffix(".close-release").exists():
-                if time.monotonic() >= deadline:
-                    raise RuntimeError("Controlled close gate was not released")
-                time.sleep(0.01)
-        if args.append_root is not None and request["operation"] == "flush":
-            seed_database(args.append_root, [envelope(5, {"kind": 3, "severity": 2,
-                                                         "body": "concurrent export append"})])
-            args.append_root = None
-        if args.mode == "hang":
-            time.sleep(60)
-            continue
-        if args.mode == "bad-frame":
-            sys.stdout.buffer.write(b"{}\n{}\n")
-            sys.stdout.buffer.flush()
-            continue
-        response = {"protocol_version": 1, "request_id": request["request_id"]}
-        if request["operation"] == "emit":
-            receipts = []
-            for item in request["events"]:
-                if args.mode == "unsupported":
-                    receipt, field = 4, "unsupported_events"
-                elif args.mode == "sampled":
-                    receipt, field = 3, "sampled_out_events"
-                else:
-                    receipt, field = 1, "exported_events"
-                receipts.append(receipt)
-                counters[field] += 1
-            response["receipts"] = receipts
-        with args.capture.open("a", encoding="utf-8") as output:
-            output.write(json.dumps({"request": request}, ensure_ascii=False) + "\n")
-        response["counters"] = counters.copy()
-        if args.mode == "bad-counter" and request["operation"] == "close":
-            response["counters"]["exported_events"] += 1
-        sys.stdout.buffer.write((json.dumps(response, separators=(",", ":")) + "\n").encode("utf-8"))
-        sys.stdout.buffer.flush()
-    return 0
 
 
 class RunTelemetryContract(unittest.TestCase):
@@ -340,25 +277,6 @@ class RunTelemetryContract(unittest.TestCase):
     def query(self, action: str, *options, **keywords) -> dict:
         return self.invoke("run", action, "--root", self.store, "--id", RUN_ID, *options, **keywords)
 
-    def sidecar_config(self, backend: str, mode: str = "accept", *, append_source: bool = False,
-                       **overrides) -> tuple[Path, Path, Path]:
-        cwd = self.root / f"隔离 cwd {backend} {mode}"
-        cwd.mkdir()
-        capture = self.root / f"capture-{backend}-{mode}.jsonl"
-        literal = 'literal " ; & $(not-a-command) 尾\\'
-        config = {
-            "schema_version": 1, "backend": backend, "executable": str(Path(sys.executable).resolve()),
-            "arguments": ["-I", "-u", str(Path(__file__).resolve()), "--fixture-sidecar",
-                          "--capture", str(capture), "--mode", mode, "--literal", literal],
-            "working_directory": str(cwd), "inherit_environment": False,
-            "environment": {"JYPPX_CLI_CHILD_VALUE": "child.值"},
-        }
-        if append_source:
-            config["arguments"].extend(["--append-root", str(self.store)])
-        config.update(overrides)
-        path = self.root / f"config-{backend}-{mode}.json"
-        path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
-        return path, capture, cwd
 
     def test_events_keep_canonical_bytes_and_fixed_snapshot(self) -> None:
         self.assertTrue(self.invoke("run", "verify", "--root", self.store)["data"]["valid"])
@@ -485,75 +403,9 @@ class RunTelemetryContract(unittest.TestCase):
         self.query("export", "--backend", "jsonl", "--output", unrelated, "--resume", "true", expected=2)
         self.assertEqual(unrelated.read_bytes(), b"keep original bytes")
 
-    def test_official_backends_use_fixed_argv_child_environment_and_final_close(self) -> None:
-        for backend in ("tensorboard", "opentelemetry"):
-            with self.subTest(backend=backend):
-                config, capture, cwd = self.sidecar_config(backend)
-                parent = os.environ.copy()
-                parent["JYPPX_CLI_PARENT_SECRET"] = "do-not-inherit"
-                data = self.query("export", "--backend", backend, "--sidecar-config", config,
-                                  "--page-size", 1, env=parent)["data"]
-                self.assertTrue(data["scan_completed"])
-                self.assertTrue(data["fully_represented"])
-                self.assertEqual(data["accepted_events"], 4)
-                self.assertEqual(data["transport"]["completed_requests"], 6)
-                self.assertIs(data["transport"]["process_tree_cleanup_confirmed"], True)
-                items = [json.loads(line) for line in capture.read_text(encoding="utf-8").splitlines()]
-                self.assertEqual(Path(items[0]["launch"]["cwd"]), cwd)
-                self.assertEqual(items[0]["launch"]["child_value"], "child.值")
-                self.assertFalse(items[0]["launch"]["parent_secret_present"])
-                self.assertEqual(items[0]["launch"]["literal"], 'literal " ; & $(not-a-command) 尾\\')
-                requests = [item["request"] for item in items[1:]]
-                self.assertEqual(requests[0]["operation"], "flush")
-                self.assertEqual(requests[-1]["operation"], "close")
-                emitted = [item for request in requests if request["operation"] == "emit" for item in request["events"]]
-                self.assertEqual([item["envelope"] for item in emitted], list(map(projection, self.events)))
-                self.assertEqual([item["content_digest"] for item in emitted],
-                                 [hashlib.sha256(canonical(value)).hexdigest() for value in self.events])
 
-    def test_unsupported_and_sampling_have_explicit_counts_and_verdict(self) -> None:
-        for mode in ("unsupported", "sampled"):
-            with self.subTest(mode=mode):
-                if mode == "sampled":
-                    # Sampling is permitted only for observer observations.
-                    # Seed a separate complete canonical database so the
-                    # durable source is never rewritten to permit sampling.
-                    self.store = self.root / "observer store"
-                    self.events = copy.deepcopy(self.events)
-                    for value in self.events:
-                        value["reliability"] = 2
-                    self.invoke("run", "start", "--root", self.store,
-                                "--metadata", self.root / "运行 metadata.json")
-                    seed_database(self.store, self.events)
-                config, _, _ = self.sidecar_config("tensorboard", mode)
-                result = self.query("export", "--backend", "tensorboard", "--sidecar-config", config, expected=1)
-                data = result["data"]
-                self.assertTrue(data["scan_completed"])
-                self.assertFalse(data["fully_represented"])
-                self.assertEqual(data["accepted_events"], 0)
-                self.assertEqual(data["unsupported_events" if mode == "unsupported" else "sampled_out_events"], 4)
-                self.assertEqual(self.query("events")["data"]["events"][0]["event"], projection(self.events[0]))
 
-    def test_sidecar_cannot_sample_required_durable_evidence(self) -> None:
-        original = self.query("events")["data"]
-        config, _, _ = self.sidecar_config("tensorboard", "sampled")
-        result = self.query("export", "--backend", "tensorboard",
-                            "--sidecar-config", config, expected=2)
-        self.assertEqual(result["error"]["name"], "compatibility")
-        self.assertEqual(result["error"]["operation"], "sink.receipt")
-        self.assertEqual(self.query("events")["data"], original)
 
-    def test_process_export_excludes_an_append_after_initial_snapshot(self) -> None:
-        config, capture, _ = self.sidecar_config("tensorboard", append_source=True)
-        data = self.query("export", "--backend", "tensorboard", "--sidecar-config", config,
-                          "--page-size", 1)["data"]
-        self.assertEqual(data["snapshot_through"], 4)
-        self.assertEqual(data["read_events"], 4)
-        requests = [item["request"] for item in map(json.loads, capture.read_text(encoding="utf-8").splitlines())
-                    if "request" in item]
-        self.assertEqual([item["envelope"]["identity"]["sequence"] for request in requests
-                          for item in request.get("events", [])], [1, 2, 3, 4])
-        self.assertEqual(self.query("events")["data"]["snapshot_through"], 5)
 
     def test_corrupt_canonical_source_is_rejected_without_creating_output(self) -> None:
         with closing(sqlite3.connect(self.store / "runs.sqlite3")) as database, database:
@@ -564,67 +416,21 @@ class RunTelemetryContract(unittest.TestCase):
         self.query("export", "--backend", "jsonl", "--output", output, expected=2)
         self.assertFalse(output.exists())
 
-    def test_process_deadline_and_protocol_failures_do_not_change_evidence(self) -> None:
+
+
+    def test_retired_python_routes_reject_without_opening_configuration(self) -> None:
         original = self.query("events")["data"]
-        config, _, _ = self.sidecar_config("tensorboard", "hang", operation_timeout_ms=100)
-        self.assertEqual(self.query("export", "--backend", "tensorboard", "--sidecar-config", config,
-                                    "--timeout-ms", 1000, expected=124)["error"]["name"], "deadline_exceeded")
-        config, _, _ = self.sidecar_config("tensorboard", "bad-frame")
-        self.query("export", "--backend", "tensorboard", "--sidecar-config", config, expected=2)
-        config, _, _ = self.sidecar_config("tensorboard", "bad-counter")
-        self.query("export", "--backend", "tensorboard", "--sidecar-config", config, expected=2)
+        absent = self.root / "must-not-open.json"
+        for backend in ("tensorboard", "opentelemetry"):
+            with self.subTest(backend=backend):
+                result = self.query("export", "--backend", backend, expected=2)
+                self.assertIn("retired", result["error"]["hint"])
+                self.assertIn("native", result["error"]["hint"])
+                self.query("export", "--backend", backend, "--sidecar-config", absent, expected=2)
+        self.query("export", "--backend", "tensorboard-native", "--sidecar-config", absent, expected=2)
+        self.assertFalse(absent.exists())
         self.assertEqual(self.query("events")["data"], original)
         self.assertTrue(self.invoke("run", "verify", "--root", self.store)["data"]["valid"])
-
-    if os.name == "posix":
-        def test_unconfirmed_cleanup_rejects_success_and_preserves_sqlite(self) -> None:
-            original = self.query("events")["data"]
-            config, capture, _ = self.sidecar_config(
-                "tensorboard", "hold-close", cleanup_timeout_ms=100)
-            command = [str(self.cli), "run", "export", "--root", str(self.store), "--id", RUN_ID,
-                       "--backend", "tensorboard", "--sidecar-config", str(config), "--format", "json"]
-            worker_member = None
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            try:
-                ready = capture.with_suffix(".close-ready")
-                deadline = time.monotonic() + 10
-                while not ready.exists():
-                    self.assertIsNone(process.poll(), "CLI exited before the controlled close gate")
-                    self.assertLess(time.monotonic(), deadline, "Controlled close gate did not arrive")
-                    time.sleep(0.01)
-                group = int(ready.read_text(encoding="ascii"))
-                worker_member = subprocess.Popen(
-                    [sys.executable, "-I", "-c", "import time; time.sleep(60)"],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    process_group=group)
-                self.assertEqual(os.getpgid(worker_member.pid), group)
-                capture.with_suffix(".close-release").write_text("release\n", encoding="ascii")
-                # Do not poll or wait for worker_member yet: its real zombie
-                # keeps kill(-group, 0) observable through the cleanup budget.
-                stdout, stderr = process.communicate(timeout=15)
-                self.assertEqual(process.returncode, 3, (stdout, stderr))
-                self.assertEqual(stderr, b"")
-                result = json.loads(stdout)
-                self.assertEqual(result["status"], "error")
-                self.assertNotIn("data", result)
-                self.assertEqual(result["error"]["name"], "backend")
-                self.assertEqual(result["error"]["component"], "cli.run.export")
-                self.assertEqual(result["error"]["operation"], "process.cleanup")
-                self.assertEqual(result["error"]["message"],
-                                 "Telemetry worker process cleanup was not confirmed")
-                self.assertEqual(worker_member.wait(timeout=5), -signal.SIGKILL)
-                requests = [item["request"] for item in map(
-                    json.loads, capture.read_text(encoding="utf-8").splitlines()) if "request" in item]
-                self.assertEqual(requests[-1]["operation"], "close")
-                self.assertEqual(self.query("events")["data"], original)
-                self.assertTrue(self.invoke("run", "verify", "--root", self.store)["data"]["valid"])
-            finally:
-                if process.poll() is None:
-                    process.kill()
-                    process.communicate(timeout=10)
-                if worker_member is not None:
-                    worker_member.kill()
-                    worker_member.wait(timeout=5)
 
     def test_invalid_cursor_limits_and_launch_configuration_fail_explicitly(self) -> None:
         for action, options in (
@@ -638,9 +444,6 @@ class RunTelemetryContract(unittest.TestCase):
         ):
             with self.subTest(action=action, options=options):
                 self.query(action, *options, expected=2)
-        config, _, _ = self.sidecar_config("tensorboard", executable="python")
-        self.query("export", "--backend", "tensorboard", "--sidecar-config", config, expected=2)
-        self.query("export", "--backend", "opentelemetry", "--sidecar-config", config, expected=2)
         missing = self.root / "missing" / "new-root"
         self.invoke("run", "events", "--root", missing, "--id", RUN_ID, expected=3)
         self.assertFalse(missing.parent.exists())
@@ -658,4 +461,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(fixture_sidecar() if "--fixture-sidecar" in sys.argv else main())
+    raise SystemExit(main())

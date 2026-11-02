@@ -241,7 +241,7 @@ if(TARGET jyppx::liuding::telemetry_native)
             COMMAND "${JYPPX_TELEMETRY_PYTHON}"
                 "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_tensorboard.py"
                 --example $<TARGET_FILE:jyppx_liuding_native_tensorboard_example>
-                --sidecar "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py")
+                --sidecar "${PROJECT_SOURCE_DIR}/tests/reference/telemetry/official_mapping.py")
         set_tests_properties(NativeTensorBoardExample PROPERTIES
             LABELS "examples;experiment;telemetry;tensorboard;official" TIMEOUT 180)
     elseif(JYPPX_LIUDING_BUILD_TESTS AND JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)
@@ -263,7 +263,7 @@ if(TARGET jyppx::liuding::telemetry_native)
             COMMAND "${JYPPX_TELEMETRY_PYTHON}"
                 "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_projection.py"
                 --example $<TARGET_FILE:jyppx_liuding_otlp_projection_example>
-                --sidecar "${PROJECT_SOURCE_DIR}/tools/telemetry_sidecar/jyppx_telemetry_sidecar.py")
+                --sidecar "${PROJECT_SOURCE_DIR}/tests/reference/telemetry/official_mapping.py")
         set_tests_properties(NativeOtlpProjectionExample PROPERTIES
             LABELS "examples;experiment;telemetry;otlp;official" TIMEOUT 180)
     elseif(JYPPX_LIUDING_BUILD_TESTS AND JYPPX_LIUDING_TEST_OFFICIAL_TELEMETRY)

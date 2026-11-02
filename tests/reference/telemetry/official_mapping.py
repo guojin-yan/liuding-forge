@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Protocol-v1 optional observer using official TensorBoard and OTLP schemas.
+"""Independent test-only official TensorBoard/OTLP mapping oracle.
 
-The C++ caller owns canonical envelope validation and SHA-256. This process
-accepts only its bounded JSON projection, checks immutable replay identity, and
-never treats JSON or a visualization backend as durable event evidence.
-The runner must supervise this process with bounded pipes and kill it on an
-operation deadline/cancellation. No shell, credentials, or output paths appear
-in event payloads. External effects remain at least once across process restart.
+Never installed or executed by the C++ product. The retired stdio server
+and command-line backend entry have been removed. Dedicated test output
+directories and official schema packages are supplied by each checker.
 """
 
 from __future__ import annotations
@@ -650,121 +647,8 @@ class OtlpHttpBackend:
         return None
 
 
-class Engine:
-    """Serial protocol state; all batch identities preflight before effects."""
-
-    def __init__(self, name: str, backend: Any, max_seen: int = MAX_SEEN,
-                 max_seen_bytes: int = MAX_SEEN_BYTES):
-        self.name, self.backend = name, backend
-        self.max_seen, self.max_seen_bytes = max_seen, max_seen_bytes
-        self.seen: dict[tuple[str, str], tuple[str, str, int]] = {}
-        self.seen_bytes = 0
-        self.counters = {"exported_events": 0, "sampled_out_events": 0, "unsupported_events": 0}
-        self.closed = False
-
-    def handle(self, request: Any) -> dict[str, Any]:
-        if not isinstance(request, dict):
-            raise ProtocolError("request")
-        operation = request.get("operation")
-        fields(request, {"protocol_version", "backend", "request_id", "operation"}
-                        | ({"events"} if operation == "emit" else set()))
-        integer(request["protocol_version"], 1, 1)
-        if request["backend"] != self.name or operation not in ("emit", "flush", "close"):
-            raise ProtocolError("backend_or_operation")
-        request_id = text(request["request_id"], 64, False)
-        response = {"protocol_version": 1, "request_id": request_id}
-        if operation in ("flush", "close"):
-            if request_id != operation:
-                raise ProtocolError("request_identity")
-            if not self.closed:
-                self.backend.flush() if operation == "flush" else self.backend.close()
-                self.closed = operation == "close"
-        else:
-            if self.closed:
-                raise ProtocolError("closed")
-            events = request["events"]
-            if not isinstance(events, list) or not 1 <= len(events) <= MAX_EVENTS:
-                raise ProtocolError("event_capacity")
-            items = []
-            staged: dict[tuple[str, str], tuple[str, str]] = {}
-            staged_bytes = 0
-            ordered_digests = []
-            for item in events:
-                fields(item, {"content_digest", "envelope"})
-                content_digest = digest(item["content_digest"])
-                value = envelope(item["envelope"])
-                identity = value["identity"]
-                key = (identity["stream_id"], identity["idempotency_key"])
-                fingerprint = hashlib.sha256(compact(value).encode("utf-8")).hexdigest()
-                old = self.seen.get(key) or staged.get(key)
-                if old is not None and old[:2] != (content_digest, fingerprint):
-                    raise ProtocolError("operation_conflict")
-                if old is None:
-                    staged[key] = content_digest, fingerprint
-                    staged_bytes += sum(len(part.encode("utf-8")) for part in key) + 128
-                ordered_digests.append(content_digest)
-                items.append((key, content_digest, fingerprint, value))
-            expected = hashlib.sha256(("jyppx.telemetry.sidecar-batch/v1"
-                                       + "".join(ordered_digests)).encode("utf-8")).hexdigest()
-            if request_id != expected:
-                raise ProtocolError("request_identity")
-            if (len(self.seen) + len(staged) > self.max_seen
-                    or self.seen_bytes + staged_bytes > self.max_seen_bytes):
-                raise ProtocolError("replay_capacity")
-            # Materialize every projection before the first external write.
-            prepared = [self.backend.prepare(item[3]) if item[0] not in self.seen else None
-                        for item in items]
-            receipts = []
-            for (key, content_digest, fingerprint, _), output in zip(items, prepared):
-                if key in self.seen:
-                    disposition = self.seen[key][2]
-                    receipts.append(DUPLICATE if disposition == ACCEPTED else disposition)
-                    continue
-                if output is None:
-                    disposition = UNSUPPORTED
-                    self.counters["unsupported_events"] += 1
-                else:
-                    self.backend.export(output)
-                    disposition = ACCEPTED
-                    self.counters["exported_events"] += 1
-                self.seen[key] = content_digest, fingerprint, disposition
-                self.seen_bytes += sum(len(part.encode("utf-8")) for part in key) + 128
-                receipts.append(disposition)
-            response["receipts"] = receipts
-        response["counters"] = self.counters.copy()
-        return response
 
 
-def serve(engine: Engine, source: BinaryIO, destination: BinaryIO) -> int:
-    """Process bounded newline frames; diagnostics never contain child input."""
-    while True:
-        raw = source.readline(MAX_LINE + 2)
-        if not raw:
-            return 0
-        request_id = "invalid"
-        fatal_frame = len(raw) > MAX_LINE + 1 or not raw.endswith(b"\n")
-        try:
-            if fatal_frame:
-                raise ProtocolError("line_frame")
-            request = strict_json(raw[:-1])
-            if isinstance(request, dict):
-                candidate = request.get("request_id")
-                if isinstance(candidate, str) and len(candidate) <= 64 and candidate.isascii() and candidate.isalnum():
-                    request_id = candidate
-            response = engine.handle(request)
-        except ProtocolError:
-            response = {"protocol_version": 1, "request_id": request_id, "error": "invalid_request"}
-        except Exception:
-            # A successful prefix may already exist. The runner retains durable
-            # originals and can retry; no raw exception, URL, or credential leaks.
-            response = {"protocol_version": 1, "request_id": request_id, "error": "observer_failed"}
-        output = compact(response).encode("utf-8")
-        if len(output) > MAX_RESPONSE:
-            return 3
-        destination.write(output + b"\n")
-        destination.flush()
-        if fatal_frame:
-            return 2
 
 
 def check_dependencies(backend: str) -> None:
@@ -776,39 +660,7 @@ def check_dependencies(backend: str) -> None:
             raise ProtocolError("dependency_version")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("tensorboard", "opentelemetry"), required=True)
-    parser.add_argument("--tensorboard-output", type=Path)
-    parser.add_argument("--otlp-base-url")
-    parser.add_argument("--allowed-host")
-    parser.add_argument("--resource-instance-id")
-    parser.add_argument("--http-timeout-seconds", type=float, default=5.0)
-    parser.add_argument("--clock-mappings", type=Path)
-    args = parser.parse_args()
-    try:
-        check_dependencies(args.backend)
-        if args.backend == "tensorboard":
-            if (args.tensorboard_output is None or args.otlp_base_url or args.allowed_host
-                    or args.clock_mappings or args.resource_instance_id):
-                raise ProtocolError("backend_configuration")
-            backend = TensorBoardBackend(args.tensorboard_output)
-        else:
-            if (not args.otlp_base_url or not args.allowed_host or not args.resource_instance_id
-                    or args.tensorboard_output):
-                raise ProtocolError("backend_configuration")
-            mappings = {}
-            if args.clock_mappings:
-                with args.clock_mappings.open("rb") as stream:
-                    mappings = strict_json(stream.read(64 * 1024 + 1), 64 * 1024)
-            backend = OtlpHttpBackend(args.otlp_base_url, args.allowed_host,
-                                      args.http_timeout_seconds, args.resource_instance_id, mappings)
-        return serve(Engine(args.backend, backend), sys.stdin.buffer, sys.stdout.buffer)
-    except Exception:
-        # Startup diagnostics are stable and redacted, separate from stdout.
-        sys.stderr.write("jyppx telemetry sidecar: startup failed\n")
-        return 2
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit("Test reference only; run the native Liuding Forge telemetry commands.")
