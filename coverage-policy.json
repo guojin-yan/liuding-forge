@@ -291,52 +291,203 @@
         "include/jyppx/liuding/visualization/",
         "src/jyppx/liuding/visualization/"
       ],
-      "baseline_status": "pending-observation"
+      "metrics": {
+        "line": {
+          "baseline_covered": 354,
+          "baseline_total": 390,
+          "minimum_percent": 90.769231
+        },
+        "function": {
+          "baseline_covered": 23,
+          "baseline_total": 23,
+          "minimum_percent": 100.0
+        },
+        "branch": {
+          "baseline_covered": 354,
+          "baseline_total": 662,
+          "minimum_percent": 53.47432
+        }
+      },
+      "baseline_observation": "v1_selected_cpu_27830e4_staged"
     },
     "onnx_export": {
       "path_prefixes": [
         "include/jyppx/liuding/deployment/onnx_export/",
         "src/jyppx/liuding/deployment/onnx_export/"
       ],
-      "baseline_status": "pending-observation"
+      "metrics": {
+        "line": {
+          "baseline_covered": 962,
+          "baseline_total": 1329,
+          "minimum_percent": 72.385252
+        },
+        "function": {
+          "baseline_covered": 65,
+          "baseline_total": 71,
+          "minimum_percent": 91.549296
+        },
+        "branch": {
+          "baseline_covered": 1832,
+          "baseline_total": 4259,
+          "minimum_percent": 43.014792
+        }
+      },
+      "baseline_observation": "v1_selected_cpu_27830e4_staged"
     },
     "onnx_runtime": {
       "path_prefixes": [
         "include/jyppx/liuding/deployment/onnx_runtime/",
         "src/jyppx/liuding/deployment/onnx_runtime/"
       ],
-      "baseline_status": "pending-observation"
+      "metrics": {
+        "line": {
+          "baseline_covered": 864,
+          "baseline_total": 1162,
+          "minimum_percent": 74.354561
+        },
+        "function": {
+          "baseline_covered": 83,
+          "baseline_total": 101,
+          "minimum_percent": 82.178218
+        },
+        "branch": {
+          "baseline_covered": 1332,
+          "baseline_total": 2911,
+          "minimum_percent": 45.757472
+        }
+      },
+      "baseline_observation": "v1_selected_cpu_27830e4_staged"
     },
     "onnx_serving": {
       "path_prefixes": [
         "include/jyppx/liuding/deployment/onnx_serving/",
         "src/jyppx/liuding/deployment/onnx_serving/"
       ],
-      "baseline_status": "pending-observation"
+      "metrics": {
+        "line": {
+          "baseline_covered": 254,
+          "baseline_total": 274,
+          "minimum_percent": 92.70073
+        },
+        "function": {
+          "baseline_covered": 27,
+          "baseline_total": 27,
+          "minimum_percent": 100.0
+        },
+        "branch": {
+          "baseline_covered": 298,
+          "baseline_total": 552,
+          "minimum_percent": 53.985507
+        }
+      },
+      "baseline_observation": "v1_selected_cpu_27830e4_staged"
     },
     "bundle_signing": {
       "path_prefixes": [
         "include/jyppx/liuding/deployment/bundle_signing/",
         "src/jyppx/liuding/deployment/bundle_signing/"
       ],
-      "baseline_status": "pending-observation"
+      "metrics": {
+        "line": {
+          "baseline_covered": 454,
+          "baseline_total": 490,
+          "minimum_percent": 92.653061
+        },
+        "function": {
+          "baseline_covered": 75,
+          "baseline_total": 79,
+          "minimum_percent": 94.936709
+        },
+        "branch": {
+          "baseline_covered": 520,
+          "baseline_total": 880,
+          "minimum_percent": 59.090909
+        }
+      },
+      "baseline_observation": "v1_selected_cpu_27830e4_staged"
     },
     "telemetry_native": {
       "path_prefixes": [
         "include/jyppx/liuding/telemetry_native/",
         "src/jyppx/liuding/telemetry_native/"
       ],
-      "baseline_status": "pending-observation"
+      "metrics": {
+        "line": {
+          "baseline_covered": 855,
+          "baseline_total": 950,
+          "minimum_percent": 90.0
+        },
+        "function": {
+          "baseline_covered": 71,
+          "baseline_total": 74,
+          "minimum_percent": 95.945946
+        },
+        "branch": {
+          "baseline_covered": 850,
+          "baseline_total": 1548,
+          "minimum_percent": 54.909561
+        }
+      },
+      "baseline_observation": "v1_selected_cpu_27830e4_staged"
     },
     "telemetry_http": {
       "path_prefixes": [
         "include/jyppx/liuding/telemetry_http/",
         "src/jyppx/liuding/telemetry_http/"
       ],
-      "baseline_status": "pending-observation"
+      "metrics": {
+        "line": {
+          "baseline_covered": 254,
+          "baseline_total": 350,
+          "minimum_percent": 72.571429
+        },
+        "function": {
+          "baseline_covered": 32,
+          "baseline_total": 36,
+          "minimum_percent": 88.888889
+        },
+        "branch": {
+          "baseline_covered": 311,
+          "baseline_total": 742,
+          "minimum_percent": 41.913747
+        }
+      },
+      "baseline_observation": "v1_selected_cpu_27830e4_staged"
     }
   },
   "observations": {
+    "v1_selected_cpu_27830e4_staged": {
+      "commit": "27830e4acf60d354219aa10bd36bcf205d46f022",
+      "tree": "9d4310a3d3bba5114bed5b51e3bdc421acf732be",
+      "environment": "ubuntu-22.04-gcc-11.4-libtorch-2.14.1-cpu-debug-coverage",
+      "profile": "v1-selected-cpu",
+      "report": "coverage-continuation-r1/report/coverage-summary.json",
+      "report_sha256": "495b518cdc54adba07bf2a7dec014d8e0f658d4475118ba84fbc1b88c7d553a3",
+      "targets": [
+        "vision_render",
+        "onnx_export",
+        "onnx_runtime",
+        "onnx_serving",
+        "bundle_signing",
+        "telemetry_native",
+        "telemetry_http"
+      ],
+      "test_execution": {
+        "mode": "staged_after_disk_guard_interruption",
+        "registered_unique_contracts": 1912,
+        "prior_passed_contracts": 43,
+        "continued_contracts": 1869,
+        "passed": 1733,
+        "failed": 0,
+        "conditional_skips": 179,
+        "ctest_returncode": 0,
+        "original_policy_returncode": 2,
+        "single_uninterrupted_lane": false,
+        "original_interruption_retained": true
+      },
+      "scope": "Selected Linux CPU profile; telemetry_http covers curl only. Windows WinHTTP, CUDA, task quality, and release qualification are not inferred.",
+      "status": "reviewed_first_owner_baselines; existing_12_target_ratchets_retained; coverage_gate_still_failed"
+    },
     "v1_base_bb3c471": {
       "commit": "bb3c471bb6a4e5035e8b01e0ab10615051817275",
       "tree": "f38c3a5ea2bed66ab05cf7f6c2e0707556b2cc79",

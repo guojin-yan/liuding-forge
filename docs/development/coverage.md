@@ -1,6 +1,6 @@
 # 覆盖率 owner 与采集 profile
 
-`coverage-policy.json` v2 将源码归属与已审阅的数值基线分开。现有 12 个 owner 的 covered、total、minimum_percent 以及历史观测保持不变；新增组件先登记 `baseline_status: pending-observation`，不填写 metrics。存在 pending owner 时，coverage gate 始终拒绝通过，即使该次报告的比例达到 100%；须保留真实观测并完成基线审阅，不能清零或降低旧 ratchet 来消除失败。
+`coverage-policy.json` v2 将源码归属与已审阅的数值基线分开，当前 19 个 owner 均登记 covered、total、minimum_percent 三重 ratchet。每个 owner 的 `baseline_observation` 或顶层 `baseline` 标识其原始来源，历史观测保持；七个可选组件的首次基线来自选定的 Linux CPU profile，其中 telemetry_http 仅覆盖 curl 路径。新增组件先登记 `baseline_status: pending-observation`，不填写 metrics；存在 pending owner 时，coverage gate 始终拒绝通过，即使该次报告的比例达到 100%。
 
 ## 只检查源码归属
 
@@ -60,4 +60,6 @@ gcovr 的异常正计数检查使用有限的 `2^36` 上限：完整配方会反
 
 `CoverageOwnerPolicyToolUnitTests` 使用小型明确标记的 synthetic fixture，检查 pending 拒绝、漏 owner、前缀交叠、聚合头例外及 profile 缓存拒绝。`CoverageOfflineDependenciesToolUnitTests` 以合成归档/源码检查锁定身份、缺失、篡改、成员边界、链接和实际 cache 的拒绝；CLI 的生产 pin 不接受调用者覆盖。Linux `CoverageLaneProtocolUnitTests` 使用假 CMake/CTest/gcovr 和明确替换为 synthetic pin 的私有 helper 副本，验证继承并行、输入缺失、断网 cache 改动、结束身份变化及错误路径。这些 fixture 数字和 pin 均不进入实际 policy 或发布证据。
 
-真实采样后，先审阅每组件来源、完整 instrumentation 和观测身份，再登记新增 owner 的真实基线；旧 12 个 owner 的三重 ratchet 仍逐项检查。历史 data/optim 分母变化、Serving 比例缺口及既有失败必须独立审计，不因 schema 升级或新增 owner 而关闭。
+真实采样后，先审阅每组件来源、完整 instrumentation 和观测身份，再登记新增 owner 的真实基线；covered 与 total 使用原始整数，minimum_percent 使用 gate 对该比例相同的六位小数计算。生成源码仍归其组件，须核实际编译选项和 gcno；仅含描述符数据且没有可执行记录的文件不产生额外分母，不能按 generated 身份排除。分阶段采样须在 observation 中保留原中断、唯一合同数、实际通过与条件 skip，不能标为单次完整运行。
+
+基线登记与当次门槛判定分别进行。旧 owner 的三重 ratchet 继续逐项检查，历史分母变化、比例缺口及既有失败须独立审计，不因新增基线关闭；禁止清零或降低旧门槛来消除失败。该 Linux CPU 基线也不授予 Windows WinHTTP、CUDA、完整任务质量或发布资格。
