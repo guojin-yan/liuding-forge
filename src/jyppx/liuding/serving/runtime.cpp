@@ -709,6 +709,7 @@ std::shared_ptr<Predictor> NativeStateBackend::load(
     if (!options.max_snapshot_bytes || !options.max_state_bytes ||
         !options.max_warmup_cases || !options.max_active_requests)
       detail::Invalid("load.limits", "positive state/snapshot/warmup limits");
+    const auto reservation = load_reservation_bytes(options);
     detail::Boundary(options.stop, options.deadline);
     Limits(options.request_limits);
     Limits(options.output_limits);
@@ -827,7 +828,11 @@ std::shared_ptr<Predictor> NativeStateBackend::load(
           options.max_state_bytes);
     }
     interop::ModelWeightImportOptions import_options;
-    import_options.max_staging_bytes = options.max_state_bytes;
+    // The state ceiling bounds the final model, while import conservatively
+    // charges original state, staged state and CPU decode. Give that charge
+    // only the reservation left after both owned snapshot representations.
+    if (total >= reservation) detail::Resource("native.state.staging");
+    import_options.max_staging_bytes = reservation - total;
     // Factory code may allocate/initialize on an asynchronous CUDA stream.
     Sync(descriptor_.device);
     const auto imported = interop::import_model_weights(

@@ -252,6 +252,106 @@ TEST_F(ServingTest, ActualBundleHashTrustAndExactRuntimeAreEnforced) {
   overwrite.close();
   EXPECT_THROW(backend.load(fixture.directory, {}, warmup), Error);
 }
+TEST_F(ServingTest, NativeStateCeilingDoesNotBecomeImportStagingCeiling) {
+  std::shared_ptr<nn::ModelAdapter> target;
+  std::size_t forwards = 0;
+  const auto factory = example::Factory([&](const Tensor&) { ++forwards; });
+  NativeStateBackend backend(fixture.descriptor,
+                             [&](const auto& bundle, const auto& descriptor) {
+                               auto native = factory(bundle, descriptor);
+                               target = native.adapter;
+                               return native;
+                             });
+  const std::array<WarmupCase, 1> warmup{example::KnownVector(Device(Cpu))};
+  LoadOptions options;
+  options.max_state_bytes = 8;  // Complete two-element FP32 buffer.
+  options.max_snapshot_bytes = 65536;
+  auto predictor = backend.load(fixture.directory, {}, warmup, options);
+  EXPECT_EQ(forwards, 1U);
+  ASSERT_TRUE(target);
+  EXPECT_TRUE(torch::equal(target->state().module().named_buffers()["weight"],
+                           torch::tensor({2.0F, -3.0F})));
+  EXPECT_TRUE(predictor->close());
+  forwards = 0;
+  options.max_state_bytes = 7;
+  EXPECT_THROW(backend.load(fixture.directory, {}, warmup, options),
+               ResourceExhausted);
+  EXPECT_EQ(forwards, 0U);
+  ASSERT_TRUE(target);
+  EXPECT_TRUE(torch::equal(target->state().module().named_buffers()["weight"],
+                           torch::zeros({2})));
+}
+TEST_F(ServingTest, NativeImportChargeFitsExactRemainingSnapshotReservation) {
+  const std::array<float, 2> values{2.0F, -3.0F};
+  const interop::SafeTensorSource source{
+      .name = "weight",
+      .dtype = interop::SafeTensorDtype::f32,
+      .shape = {2},
+      .data = std::as_bytes(std::span(values)),
+      .byte_order = interop::SafeTensorByteOrder::little};
+  // Independently encoded source plus declared bundle files are the two owned
+  // snapshot representations. Import's strict same-dtype charge is 3 * 8.
+  std::uint64_t snapshot =
+      interop::serialize_safetensors(std::span(&source, 1)).size();
+  for (const auto& file : fixture.manifest.files)
+    snapshot += file.artifact.size_bytes;
+  std::shared_ptr<nn::ModelAdapter> target;
+  std::size_t forwards = 0;
+  const auto factory = example::Factory([&](const Tensor&) { ++forwards; });
+  NativeStateBackend backend(fixture.descriptor,
+                             [&](const auto& bundle, const auto& descriptor) {
+                               auto native = factory(bundle, descriptor);
+                               target = native.adapter;
+                               return native;
+                             });
+  const std::array<WarmupCase, 1> warmup{example::KnownVector(Device(Cpu))};
+  LoadOptions options;
+  options.max_state_bytes = 8;
+  options.max_snapshot_bytes = snapshot + 8;
+  EXPECT_EQ(backend.load_reservation_bytes(options), snapshot + 24);
+  auto predictor = backend.load(fixture.directory, {}, warmup, options);
+  EXPECT_EQ(forwards, 1U);
+  EXPECT_TRUE(predictor->close());
+  forwards = 0;
+  --options.max_snapshot_bytes;  // Snapshots fit, but only 23 staging bytes.
+  EXPECT_THROW(backend.load(fixture.directory, {}, warmup, options),
+               ResourceExhausted);
+  EXPECT_EQ(forwards, 0U);
+  ASSERT_TRUE(target);
+  EXPECT_TRUE(torch::equal(target->state().module().named_buffers()["weight"],
+                           torch::zeros({2})));
+  options.max_snapshot_bytes = snapshot - 1;
+  EXPECT_THROW(backend.load(fixture.directory, {}, warmup, options),
+               ResourceExhausted);
+  EXPECT_EQ(forwards, 0U);
+  ASSERT_TRUE(target);
+  EXPECT_TRUE(torch::equal(target->state().module().named_buffers()["weight"],
+                           torch::zeros({2})));
+}
+TEST_F(ServingTest, NativeReservationOverflowIsRejectedBeforeFactory) {
+  std::size_t factories = 0;
+  const auto factory = example::Factory();
+  NativeStateBackend backend(fixture.descriptor,
+                             [&](const auto& bundle, const auto& descriptor) {
+                               ++factories;
+                               return factory(bundle, descriptor);
+                             });
+  const std::array<WarmupCase, 1> warmup{example::KnownVector(Device(Cpu))};
+  LoadOptions options;
+  const auto maximum = (std::numeric_limits<std::uint64_t>::max)();
+  options.max_snapshot_bytes = 65536;
+  options.max_state_bytes = (maximum - options.max_snapshot_bytes) / 2;
+  EXPECT_EQ(backend.load_reservation_bytes(options), maximum - 1);
+  ++options.max_state_bytes;
+  EXPECT_THROW(backend.load_reservation_bytes(options), ResourceExhausted);
+  EXPECT_THROW(backend.load(fixture.directory, {}, warmup, options),
+               ResourceExhausted);
+  options.max_snapshot_bytes = maximum;
+  options.max_state_bytes = 1;
+  EXPECT_THROW(backend.load(fixture.directory, {}, warmup, options),
+               ResourceExhausted);
+  EXPECT_EQ(factories, 0U);
+}
 TEST_F(ServingTest, OwnerPipelineDescriptorKnownVectorsAndStrictStateMapping) {
   const std::array<WarmupCase, 1> warmup{example::KnownVector(Device(Cpu))};
   auto factory = example::Factory();
