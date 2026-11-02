@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import sqlite3
 import struct
 import subprocess
@@ -242,6 +243,19 @@ def fixture_sidecar() -> int:
     }}, ensure_ascii=False) + "\n", encoding="utf-8")
     for line in sys.stdin.buffer:
         request = json.loads(line)
+        if args.mode == "hold-close" and request["operation"] == "close":
+            # The independent checker joins a child to this original process
+            # group before allowing the final protocol reply. Its parent keeps
+            # the killed child unreaped until the CLI has observed cleanup.
+            ready = args.capture.with_suffix(".close-ready")
+            temporary = ready.with_suffix(".tmp")
+            temporary.write_text(str(os.getpid()), encoding="ascii")
+            os.replace(temporary, ready)
+            deadline = time.monotonic() + 15
+            while not args.capture.with_suffix(".close-release").exists():
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Controlled close gate was not released")
+                time.sleep(0.01)
         if args.append_root is not None and request["operation"] == "flush":
             seed_database(args.append_root, [envelope(5, {"kind": 3, "severity": 2,
                                                          "body": "concurrent export append"})])
@@ -483,6 +497,7 @@ class RunTelemetryContract(unittest.TestCase):
                 self.assertTrue(data["fully_represented"])
                 self.assertEqual(data["accepted_events"], 4)
                 self.assertEqual(data["transport"]["completed_requests"], 6)
+                self.assertIs(data["transport"]["process_tree_cleanup_confirmed"], True)
                 items = [json.loads(line) for line in capture.read_text(encoding="utf-8").splitlines()]
                 self.assertEqual(Path(items[0]["launch"]["cwd"]), cwd)
                 self.assertEqual(items[0]["launch"]["child_value"], "child.值")
@@ -550,6 +565,7 @@ class RunTelemetryContract(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_process_deadline_and_protocol_failures_do_not_change_evidence(self) -> None:
+        original = self.query("events")["data"]
         config, _, _ = self.sidecar_config("tensorboard", "hang", operation_timeout_ms=100)
         self.assertEqual(self.query("export", "--backend", "tensorboard", "--sidecar-config", config,
                                     "--timeout-ms", 1000, expected=124)["error"]["name"], "deadline_exceeded")
@@ -557,7 +573,58 @@ class RunTelemetryContract(unittest.TestCase):
         self.query("export", "--backend", "tensorboard", "--sidecar-config", config, expected=2)
         config, _, _ = self.sidecar_config("tensorboard", "bad-counter")
         self.query("export", "--backend", "tensorboard", "--sidecar-config", config, expected=2)
-        self.assertEqual(len(self.query("events")["data"]["events"]), 4)
+        self.assertEqual(self.query("events")["data"], original)
+        self.assertTrue(self.invoke("run", "verify", "--root", self.store)["data"]["valid"])
+
+    if os.name == "posix":
+        def test_unconfirmed_cleanup_rejects_success_and_preserves_sqlite(self) -> None:
+            original = self.query("events")["data"]
+            config, capture, _ = self.sidecar_config(
+                "tensorboard", "hold-close", cleanup_timeout_ms=100)
+            command = [str(self.cli), "run", "export", "--root", str(self.store), "--id", RUN_ID,
+                       "--backend", "tensorboard", "--sidecar-config", str(config), "--format", "json"]
+            worker_member = None
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                ready = capture.with_suffix(".close-ready")
+                deadline = time.monotonic() + 10
+                while not ready.exists():
+                    self.assertIsNone(process.poll(), "CLI exited before the controlled close gate")
+                    self.assertLess(time.monotonic(), deadline, "Controlled close gate did not arrive")
+                    time.sleep(0.01)
+                group = int(ready.read_text(encoding="ascii"))
+                worker_member = subprocess.Popen(
+                    [sys.executable, "-I", "-c", "import time; time.sleep(60)"],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    process_group=group)
+                self.assertEqual(os.getpgid(worker_member.pid), group)
+                capture.with_suffix(".close-release").write_text("release\n", encoding="ascii")
+                # Do not poll or wait for worker_member yet: its real zombie
+                # keeps kill(-group, 0) observable through the cleanup budget.
+                stdout, stderr = process.communicate(timeout=15)
+                self.assertEqual(process.returncode, 3, (stdout, stderr))
+                self.assertEqual(stderr, b"")
+                result = json.loads(stdout)
+                self.assertEqual(result["status"], "error")
+                self.assertNotIn("data", result)
+                self.assertEqual(result["error"]["name"], "backend")
+                self.assertEqual(result["error"]["component"], "cli.run.export")
+                self.assertEqual(result["error"]["operation"], "process.cleanup")
+                self.assertEqual(result["error"]["message"],
+                                 "Telemetry worker process cleanup was not confirmed")
+                self.assertEqual(worker_member.wait(timeout=5), -signal.SIGKILL)
+                requests = [item["request"] for item in map(
+                    json.loads, capture.read_text(encoding="utf-8").splitlines()) if "request" in item]
+                self.assertEqual(requests[-1]["operation"], "close")
+                self.assertEqual(self.query("events")["data"], original)
+                self.assertTrue(self.invoke("run", "verify", "--root", self.store)["data"]["valid"])
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate(timeout=10)
+                if worker_member is not None:
+                    worker_member.kill()
+                    worker_member.wait(timeout=5)
 
     def test_invalid_cursor_limits_and_launch_configuration_fail_explicitly(self) -> None:
         for action, options in (

@@ -133,6 +133,8 @@ Successful command execution returns the normal outer JSON envelope with
 `destination_counters`. JSONL additionally reports verified opening records
 and truncated tail bytes; official exports report bounded transport byte and request counts. Final counters must agree with receipts from this invocation.
 
+进程导出还必须在有界清理结束后确认原生进程树已退出，成功结果的 `data.transport.process_tree_cleanup_confirmed` 为 `true`。清理未确认时返回 exit 3、`error.name: "backend"`、`error.component: "cli.run.export"` 和 `error.operation: "process.cleanup"`，不返回成功 `data`；原 SQLite 观测保持，已发生的外部导出效果可能仍存在，重试仍遵守下述至少一次语义。
+
 | Exit code | Meaning |
 |---|---|
 | 0 | Query complete, or export complete with no omissions |

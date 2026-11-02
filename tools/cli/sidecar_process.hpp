@@ -122,9 +122,18 @@ class SidecarProcessTransport final
    */
   std::string transact(std::string_view request_json, std::stop_token stop = {},
                        TelemetryDeadline deadline = std::nullopt) override;
-  /** @brief Explicitly terminates/reaps ownership; no exporter flush is
-   * implied. */
+  /** @brief Explicitly terminates/reaps ownership and retains its native proof.
+   * No exporter flush is implied. Repeated calls preserve the first cleanup
+   * result and do not renew the cleanup budget.
+   */
   void terminate() noexcept;
+  /** @brief Reports native confirmation of the completed process-tree cleanup.
+   * @return False before cleanup or when termination/reaping was unconfirmed;
+   * true only after the native leader exited/was reaped and its original Job
+   * or process group was observed empty. This result remains available after
+   * failure or explicit termination.
+   */
+  bool process_tree_cleanup_confirmed() const noexcept;
   /** @brief Reports whether termination/failure has made reuse invalid.
    * @return True after terminate or any failed exchange.
    */

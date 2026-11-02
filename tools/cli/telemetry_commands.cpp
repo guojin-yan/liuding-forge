@@ -622,11 +622,25 @@ Result export_command(const Arguments& arguments, SQLiteRunStore& store,
   check_telemetry_operation({}, deadline);
   Json transport_stats = nullptr;
   if (process) {
+    process->terminate();
+    const auto cleanup_confirmed = process->process_tree_cleanup_confirmed();
+    if (!cleanup_confirmed)
+      throw BackendError(
+          "Telemetry worker process cleanup was not confirmed",
+          ErrorDetails{
+              .component = "cli.run.export",
+              .operation = "process.cleanup",
+              .expected = "Confirmed termination and reaping of the owned "
+                          "process tree",
+              .actual = "not_confirmed",
+              .hint = "Preserve the original SQLite observations and inspect "
+                      "the worker before retrying; external effects may "
+                      "already exist."});
     const auto stats = process->stats();
     transport_stats = {{"completed_requests", stats.completed_requests},
                        {"stdout_bytes", stats.stdout_bytes},
-                       {"discarded_stderr_bytes", stats.stderr_bytes}};
-    process->terminate();
+                       {"discarded_stderr_bytes", stats.stderr_bytes},
+                       {"process_tree_cleanup_confirmed", cleanup_confirmed}};
   }
   const bool represented = counts.unsupported == 0U && counts.sampled == 0U;
   return {Json{{"run_id", run_id},

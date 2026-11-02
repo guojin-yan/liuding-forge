@@ -161,6 +161,7 @@ bool alive(unsigned long pid) {
 TEST(SidecarProcessTest, RealPersistentChildEchoesMultipleBoundedRequests) {
   ProcessDirectory directory;
   cli::SidecarProcessTransport transport(directory.options("echo"));
+  EXPECT_FALSE(transport.process_tree_cleanup_confirmed());
   for (unsigned index = 0U; index < 4U; ++index) {
     const auto request =
         Json{{"request_id", index}, {"text", "redacted"}}.dump();
@@ -169,6 +170,14 @@ TEST(SidecarProcessTest, RealPersistentChildEchoesMultipleBoundedRequests) {
   EXPECT_FALSE(transport.poisoned());
   EXPECT_EQ(transport.stats().completed_requests, 4U);
   EXPECT_GT(transport.stats().stdout_bytes, 0U);
+  EXPECT_FALSE(transport.process_tree_cleanup_confirmed());
+  transport.terminate();
+  EXPECT_TRUE(transport.poisoned());
+  EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
+  transport.terminate();
+  EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
+  EXPECT_THROW(transport.transact("{}"), jy::NotReady);
+  EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
 }
 
 TEST(SidecarProcessTest, FragmentedFramesLargerThanPipeCapacityRemainExact) {
@@ -237,7 +246,10 @@ TEST(SidecarProcessTest,
     EXPECT_THROW(transport.transact("{}", {}, deadline), jy::DeadlineExceeded);
     EXPECT_LT(std::chrono::steady_clock::now() - begin, 2500ms);
     EXPECT_TRUE(transport.poisoned());
+    EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
     EXPECT_THROW(transport.transact("{}"), jy::NotReady);
+    transport.terminate();
+    EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
   }
 }
 
@@ -257,6 +269,7 @@ TEST(SidecarProcessTest, StopTokenInterruptsARealBlockedExchange) {
   exchange.join();
   EXPECT_EQ(error.load(), jy::ErrorCode::cancelled);
   EXPECT_TRUE(transport.poisoned());
+  EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
 }
 
 TEST(SidecarProcessTest, BlockedStdinWriteHasTheSameAbsoluteDeadline) {
@@ -269,6 +282,7 @@ TEST(SidecarProcessTest, BlockedStdinWriteHasTheSameAbsoluteDeadline) {
       transport.transact(request, {}, std::chrono::steady_clock::now() + 150ms),
       jy::DeadlineExceeded);
   EXPECT_TRUE(transport.poisoned());
+  EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
 }
 
 TEST(SidecarProcessTest,
@@ -306,6 +320,7 @@ TEST(SidecarProcessTest,
   ASSERT_TRUE(ready);
   EXPECT_EQ(error.load(), jy::ErrorCode::cancelled);
   EXPECT_TRUE(transport.poisoned());
+  EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
   for (const auto& path : paths) {
     const auto pid = pid_file(path);
     ASSERT_TRUE(pid);
@@ -350,7 +365,9 @@ TEST(SidecarProcessTest,
       cli::SidecarProcessTransport healthy(directory.options("echo"));
       EXPECT_EQ(healthy.transact("{}"), "{}");
       healthy.terminate();
+      EXPECT_TRUE(healthy.process_tree_cleanup_confirmed());
       healthy.terminate();
+      EXPECT_TRUE(healthy.process_tree_cleanup_confirmed());
     }
     ASSERT_TRUE(GetProcessHandleCount(GetCurrentProcess(), &stages[0]));
     {
@@ -363,6 +380,7 @@ TEST(SidecarProcessTest,
                                     std::chrono::steady_clock::now() + 50ms),
                    jy::DeadlineExceeded);
       blocked.terminate();
+      EXPECT_TRUE(blocked.process_tree_cleanup_confirmed());
     }
     ASSERT_TRUE(GetProcessHandleCount(GetCurrentProcess(), &stages[1]));
     {
@@ -535,6 +553,7 @@ TEST(SidecarProcessTest,
   exchange.join();
   ASSERT_TRUE(ready);
   EXPECT_EQ(error.load(), jy::ErrorCode::cancelled);
+  EXPECT_TRUE(transport.process_tree_cleanup_confirmed());
   for (const auto& path : {parent_path, middle_path, leaf_path}) {
     const auto pid = pid_file(path);
     ASSERT_TRUE(pid.has_value());

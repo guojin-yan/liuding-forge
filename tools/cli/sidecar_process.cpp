@@ -1050,7 +1050,11 @@ class SidecarProcessTransport::Impl {
 
   void terminate() noexcept {
     poisoned = true;
-    native.reset();
+    if (native) {
+      native->terminate();
+      process_tree_cleanup_confirmed = native->cleanup_confirmed();
+      native.reset();
+    }
   }
 
   PumpResult pump(std::string_view input, std::size_t& position,
@@ -1076,6 +1080,7 @@ class SidecarProcessTransport::Impl {
   std::unique_ptr<NativeProcess> native;
   SidecarProcessStats counters;
   bool poisoned = false;
+  bool process_tree_cleanup_confirmed = false;
 };
 
 SidecarProcessTransport::SidecarProcessTransport(SidecarProcessOptions options,
@@ -1161,6 +1166,9 @@ std::string SidecarProcessTransport::transact(std::string_view request_json,
 }
 
 void SidecarProcessTransport::terminate() noexcept { impl_->terminate(); }
+bool SidecarProcessTransport::process_tree_cleanup_confirmed() const noexcept {
+  return impl_->process_tree_cleanup_confirmed;
+}
 bool SidecarProcessTransport::poisoned() const noexcept {
   return impl_->poisoned;
 }

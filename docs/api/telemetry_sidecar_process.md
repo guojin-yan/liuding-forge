@@ -68,6 +68,8 @@ original immutable durable observations using the sink's at-least-once contract.
 `terminate()` and destruction release ownership without throwing. They do not
 send a protocol close/flush. Call the observer's explicit `close` first when its final counters and export acknowledgement are needed, then release the channel. Process termination/reaping may extend an already reached operation deadline by the bounded cleanup grace (2 seconds by default). Native cleanup errors never replace the original exchange failure or leak diagnostics.
 
+`process_tree_cleanup_confirmed()` 在清理前为 `false`，仅在原生层确认 leader 已退出或被回收、原 Job 或进程组已空后为 `true`。显式 `terminate()`、失败后的查询与重复终止均保留首次清理结果，重复终止不续借清理预算；`false` 表示缺少清理确认，调用方不得据此报告成功。
+
 Timeouts must be positive: operation/startup at most 10 minutes, cleanup at most 10 seconds, and the reply quiet period at most 100 ms. Increase these values explicitly for a measured workload; no wait silently becomes infinite.
 
 ## Platform containment
