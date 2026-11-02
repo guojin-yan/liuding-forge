@@ -20,6 +20,8 @@ Windows 采用挂起启动并加入禁止 breakaway 的 kill-on-close Job Object
 
 `local execute --root STORE --id JOB --spec spec.json` 冻结一次本地执行计划；`local show` 查询，`local cancel` 幂等提交取消请求，`local recover` 修复已确认结果的生命周期并继续剩余的可重试 attempt。后三者使用相同的 `--root STORE --id JOB`。同一 ID 的相同计划可重放，改变计划必须使用新 ID。已确认的成功或失败结果重放只校验冻结计划与已提交的 CAS 结果，不要求旧程序或工作目录继续存在；任何实际新启动仍核验现存路径与可执行文件 SHA-256。
 
+可执行文件的身份校验单独限 1 GiB，使用流式 SHA-256；配方训练制品各限 256 MiB。
+
 ```json
 {
   "format": "jyppx.liuding.local_run_spec",

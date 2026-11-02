@@ -27,6 +27,7 @@
 
 namespace jyppx::liuding::cli::recipe_support {
 inline constexpr std::uint64_t kArtifactLimit = 256ULL << 20U;
+inline constexpr std::uint64_t kExecutableLimit = 1ULL << 30U;
 inline void require_recipe(bool value, std::string_view reason) {
   if (!value) throw InvalidArgument(std::string(reason));
 }

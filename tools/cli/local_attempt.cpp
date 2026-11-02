@@ -499,7 +499,8 @@ void preflight(const Spec& spec) {
   ordinary_path(spec.process.working_directory);
   require(fs::is_directory(spec.process.working_directory),
           "Local working directory must already exist");
-  const auto actual = recipe_support::file_digest(spec.process.executable);
+  const auto actual = recipe_support::file_digest(
+      spec.process.executable, recipe_support::kExecutableLimit);
   require(actual.hex == spec.executable_sha256,
           "Local executable SHA-256 differs from the frozen spec");
 }

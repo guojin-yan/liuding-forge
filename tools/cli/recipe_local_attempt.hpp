@@ -37,7 +37,7 @@ inline Result prepare_local_recipe(const Arguments& arguments,
                      !std::filesystem::exists(output) &&
                      std::filesystem::is_directory(output.parent_path()),
                  "Use unused recipe/spec paths with existing parents");
-  const auto executable_sha = file_digest(executable).hex;
+  const auto executable_sha = file_digest(executable, kExecutableLimit).hex;
   const auto pause = arguments.number("pause-after", 0, total_steps);
   require_recipe(pause == 0 || pause < total_steps,
                  "Local recipe pause must precede the final update");

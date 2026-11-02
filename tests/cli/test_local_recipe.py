@@ -22,11 +22,15 @@ import tempfile
 import unittest
 
 from test_image_recipe import PARTICIPANTS, png
+from test_local_attempt import sparse_resize
 
 
 def sha(path: Path) -> str:
+    digest = hashlib.sha256()
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        for chunk in iter(lambda: stream.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class LocalRecipe(unittest.TestCase):
@@ -244,6 +248,28 @@ class LocalRecipe(unittest.TestCase):
                     "--root", root, "--store", self.store, "--spec", self.spec_path,
                     "--executable", self.cli, expected=2)
         self.assertEqual(self.spec_path.read_bytes(), before)
+
+    def test_07_executable_identity_has_an_independent_byte_limit(self) -> None:
+        accepted = self.base / "large-executable.bin"
+        accepted.touch()
+        sparse_resize(accepted, (256 << 20) + 1)
+        spec_path, work = self.base / "large-executable.json", self.base / "large-work"
+        planned = self.invoke(
+            "recipe", "local-spec", "--file", self.config_path, "--root", work,
+            "--store", self.store, "--spec", spec_path, "--executable", accepted)
+        self.assertEqual(planned["specification"]["executable_sha256"], sha(accepted))
+        self.assertFalse(work.exists())
+        oversized = self.base / "oversized-executable.bin"
+        oversized.touch()
+        sparse_resize(oversized, (1 << 30) + 1)
+        rejected = self.base / "oversized-executable.json"
+        result = self.invoke(
+            "recipe", "local-spec", "--file", self.config_path, "--root", work,
+            "--store", self.store, "--spec", rejected, "--executable", oversized, expected=2)
+        self.assertEqual(result["error"]["name"], "invalid_argument")
+        self.assertIn("byte limit", result["error"]["message"])
+        self.assertFalse(rejected.exists())
+        self.assertFalse(work.exists())
 
 
 if __name__ == "__main__":

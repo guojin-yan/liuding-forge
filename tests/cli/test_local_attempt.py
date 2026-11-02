@@ -25,7 +25,29 @@ import unittest
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sparse_resize(path: Path, size: int) -> None:
+    """Bound physical storage for disposable large executable fixtures."""
+    with path.open("r+b") as stream:
+        if os.name == "nt":
+            import ctypes
+            import msvcrt
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.DeviceIoControl.argtypes = [ctypes.c_void_p, ctypes.c_uint32,
+                ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint32), ctypes.c_void_p]
+            kernel.DeviceIoControl.restype = ctypes.c_int
+            returned = ctypes.c_uint32()
+            if not kernel.DeviceIoControl(msvcrt.get_osfhandle(stream.fileno()),
+                    0x000900C4, None, 0, None, 0, ctypes.byref(returned), None):
+                raise ctypes.WinError(ctypes.get_last_error())
+        stream.truncate(size)
 
 
 def wait_for(predicate, timeout: float = 15) -> bool:
@@ -135,9 +157,9 @@ class LocalAttemptTest(unittest.TestCase):
     def command(self, *arguments: object) -> list[str]:
         return [str(self.cli), *map(str, arguments), "--format", "json"]
 
-    def invoke(self, *arguments: object, expected: int = 0) -> dict:
+    def invoke(self, *arguments: object, expected: int = 0, timeout: float = 45) -> dict:
         result = subprocess.run(self.command(*arguments), capture_output=True,
-            text=True, encoding="utf-8", timeout=45, check=False,
+            text=True, encoding="utf-8", timeout=timeout, check=False,
             env=dict(os.environ, OMP_NUM_THREADS="2", MKL_NUM_THREADS="2"))
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return json.loads(result.stdout)
@@ -244,6 +266,20 @@ class LocalAttemptTest(unittest.TestCase):
         spec = dict(self.spec, executable=str(executable), executable_sha256=sha256(executable),
             arguments=arguments, working_directory=str(cwd), max_attempts=1, retry_exit_codes=[])
         return spec, executable, cwd
+
+    def test_native_executable_larger_than_training_artifact_limit(self) -> None:
+        spec, executable, _ = self.private_native_spec("large-executable")
+        # An executable overlay changes its digest without allocating a large buffer.
+        sparse_resize(executable, (256 << 20) + 1)
+        self.spec = dict(spec, executable_sha256=sha256(executable))
+        self.write_spec()
+        result = self.invoke("local", "execute", "--root", self.root, "--id", "large-executable",
+                             "--spec", self.spec_path, timeout=180)["data"]
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(result["attempts"]), 1)
+        self.assertEqual(result["attempts"][0]["result"]["exit_code"], 0)
+        self.assertTrue(result["attempts"][0]["result"]["process_tree_cleanup_confirmed"])
+        self.invoke("run", "verify", "--root", self.root)
 
     def test_unmetered_jobs_use_the_same_nonblocking_admission_lock(self) -> None:
         # Seed an ordinary STORE without enabling any declared resource pool.
