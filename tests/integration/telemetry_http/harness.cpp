@@ -54,10 +54,11 @@ int main(int argc, char** argv) {
         port > 65535U)
       return 2;
     ex::OtlpHttpOptions options;
-    options.endpoint = {
-        .host = mode == "ipv6-logs" ? "::1" : "127.0.0.1",
-        .port = static_cast<std::uint16_t>(port),
-        .tls = mode == "tls-reject" || mode == "tls-certificate-reject"};
+    options.endpoint = {.host = mode == "ipv6-logs" ? "::1" : "127.0.0.1",
+                        .port = static_cast<std::uint16_t>(port),
+                        .tls = mode == "tls-reject" ||
+                               mode == "tls-certificate-reject" ||
+                               mode == "tls-logs"};
     options.mapping.resource_instance_id = "http.integration.instance";
     options.mapping.max_reply_bytes = 64U;
     options.request_timeout =
@@ -154,7 +155,8 @@ int main(int argc, char** argv) {
         require(sink.flush().exported_events ==
                 (mode == "prefix-retry" ? 1U : 0U));
       } else {
-        require(mode == "logs" || mode == "traces" || mode == "ipv6-logs");
+        require(mode == "logs" || mode == "traces" || mode == "ipv6-logs" ||
+                mode == "tls-logs");
       }
       const auto result = sink.emit(batch, {}, deadline);
       for (std::size_t i = 0U; i < batch.size(); ++i)

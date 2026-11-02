@@ -867,6 +867,16 @@ if(TARGET jyppx::liuding::telemetry_http)
     set_tests_properties(NativeOtlpHttpCancellation PROPERTIES
         LABELS "experiment;telemetry;otlp;native;cancellation;loopback"
         TIMEOUT 180 RUN_SERIAL TRUE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME NativeOtlpHttpTrustedTls
+            COMMAND "${Python3_EXECUTABLE}" -I -B
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_trusted_tls.py"
+                --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>
+                --work-dir "${CMAKE_CURRENT_BINARY_DIR}/trusted-tls")
+        set_tests_properties(NativeOtlpHttpTrustedTls PROPERTIES
+            LABELS "experiment;telemetry;otlp;native;tls;loopback"
+            TIMEOUT 120 RUN_SERIAL TRUE)
+    endif()
     if(JYPPX_TELEMETRY_PYTHON)
         add_test(NAME NativeOtlpHttpWireContract
             COMMAND "${JYPPX_TELEMETRY_PYTHON}" -I -B
