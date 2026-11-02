@@ -107,6 +107,8 @@ worker启动前观察本attempt的全部声明引用不存在，并将该事实�
 
 worker 在 attempt 上绑定 `local.training.inputs`，把其摘要写入 intent/result，并通过 `JYPPX_LIUDING_LOCAL_TRAINING_SHA256` 告知 C++ 训练程序。确认结果、终态重放和跨 job 释放资源时，运行器仍在 64 KiB 上限内读取并校验该清单的 CAS、规范内容和有效输入身份；引用摘要相同不能替代内容校验，缺失或损坏会停止推进。应用应按该摘要读取 attempt 清单，按 `.N` 的 job 引用加载输入，再用自己的 checkpoint coordinator 执行 `exact_only` 恢复。运行器只做身份、CAS 和生命周期校验；把任意字节标为 checkpoint 不能替代应用对模型、优化器、RNG 等完整状态的检查。[原生学习例](../../examples/experiment/README.md#失败后自动从-checkpoint-续训)演示 20 步 checkpoint、声明退出码和后续 40 步原生 SGD。
 
+ImageFolder ResNet18 已提供原生配方接线：`recipe local-spec` 封存实际配置/数据并生成三项 typed 输出的计划；`recipe local-run` 只在拥有运行权的 attempt 内执行，完成后流式发布完整 checkpoint、权重和结果。可选 `--pause-after` 用声明的普通退出码 75 接入本节既有 `retry_resume`，恢复前核对保留 workspace 的完整 checkpoint 身份。运行步骤和范围见[图像配方教程](../tutorials/image_classification_recipe.md#8-交给本地执行器并确认训练产物)；尚不覆盖迁移/多IO接线、丢失 workspace 重建、完整环境认证或系统硬资源。
+
 ## 搜索的训练输入
 
 有界 grid/random 的 `execution.training` 使用相同字段，但 `configuration` 必须写成字符串 `"${trial_configuration}"`。搜索将每次实际配置写入 CAS，再生成确定 ID 的 `TRIAL.inputs` run，附上父搜索、索引和计划摘要并封存；该 run 的 `completed` 只表示输入已提交。配置输入的创建、绑定和封存可按原身份幂等恢复；同 ID 不同内容会被拒绝。随后 native attempt 复用 typed local 的终态来源、CAS、原生归属和取消检查。

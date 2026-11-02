@@ -11,6 +11,7 @@
 
 #if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
 #include "recipe_bn_calibration.hpp"
+#include "recipe_local_attempt.hpp"
 #if defined(JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS)
 #include "recipe_bn_calibration_test_gate.hpp"
 #endif
@@ -1082,10 +1083,20 @@ Result initialize(const Arguments& arguments) {
   return {std::move(report), 0};
 }
 
-Result execute(const Arguments& arguments, bool resume) {
+Result execute(const Arguments& arguments, bool resume, bool local = false) {
   const auto config = resolve_config(std::filesystem::absolute(
       std::filesystem::u8path(arguments.require("file"))));
+  require_recipe(
+      !local || !is_transfer_recipe(config),
+      "Local recipe binding currently supports ImageFolder ResNet18");
   auto inputs = inspect_inputs(config);
+  auto local_attempt = local ? std::make_unique<RecipeLocalAttempt>(
+                                   config, inputs.manifest,
+                                   is_transfer_recipe(config)
+                                       ? config.at("model").get<std::string>()
+                                       : "resnet18")
+                             : nullptr;
+  if (local_attempt) resume = local_attempt->resumes();
   const auto transfer = is_transfer_recipe(config)
                             ? std::optional(inspect_transfer_input(config))
                             : std::nullopt;
@@ -1094,7 +1105,9 @@ Result execute(const Arguments& arguments, bool resume) {
   const Device device(config.at("device") == "cuda" ? "cuda:0" : "cpu");
   require_recipe(!device.is_cuda() || torch::cuda::is_available(),
                  "CUDA was requested but is unavailable");
-  const auto pause = arguments.number("pause-after", 0, inputs.total_steps);
+  const auto requested_pause =
+      arguments.number("pause-after", 0, inputs.total_steps);
+  const auto pause = local && resume ? 0 : requested_pause;
   const auto calibration_batches =
       (inputs.train.records().size() +
        config.at("batch_size").get<std::size_t>() - 1) /
@@ -1142,6 +1155,7 @@ Result execute(const Arguments& arguments, bool resume) {
     require_recipe(std::filesystem::create_directory(root),
                    "Recipe run directory was created by another process");
   RunLock lock(root);
+  if (local_attempt) local_attempt->verify_resume(root);
   const auto build = current_build_fingerprint();
   const auto build_json = parse_json(build_fingerprint_json(build));
   const auto config_hash = digest(config.dump());
@@ -1274,6 +1288,7 @@ Result execute(const Arguments& arguments, bool resume) {
     require_recipe(
         result.at("bundle").at("manifest_sha256") == bundle.manifest_digest.hex,
         "Completed recipe bundle identity differs");
+    if (local_attempt) local_attempt->publish_completed(root);
     return {result, result.at("quality_passed").get<bool>() ? 0 : 4};
   }
   require_recipe(metadata->status == ex::RunStatus::running,
@@ -1467,7 +1482,8 @@ Result execute(const Arguments& arguments, bool resume) {
       paused["optimization"] = describe_optimization(
           optimizer, *scheduler, config, inputs.total_steps);
     trainer.close();
-    return {std::move(paused), 0};
+    if (local_attempt) local_attempt->publish_checkpoint(root, false);
+    return {std::move(paused), local ? 75 : 0};
   }
   require_recipe(fit.status == tr::FitStatus::completed &&
                      fit.global_step == inputs.total_steps,
@@ -1750,17 +1766,22 @@ Result execute(const Arguments& arguments, bool resume) {
          config.at("recipe").get<std::string>());
   store.transition(kRun, ex::RunStatus::completed, now_ms());
   trainer.close();
+  if (local_attempt) local_attempt->publish_completed(root);
   return {result, passed ? 0 : 4};
 }
 }  // namespace
 #endif
 
 Result recipe_command(const Arguments& arguments) {
-  arguments.allow(
-      {"file", "root", "pause-after", "pause-calibration-after", "name"});
   if (arguments.words().size() != 2U)
     usage("recipe", "Supply exactly one recipe subcommand.");
   const auto& action = arguments.words()[1];
+  if (action == "local-spec")
+    arguments.allow({"file", "root", "store", "spec", "executable",
+                     "pause-after", "timeout-ms"});
+  else
+    arguments.allow(
+        {"file", "root", "pause-after", "pause-calibration-after", "name"});
   recipe_support::require_recipe(
       !arguments.optional("pause-calibration-after") || action == "run" ||
           action == "resume",
@@ -1784,6 +1805,19 @@ Result recipe_command(const Arguments& arguments) {
     }
   }
 #if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
+  if (action == "local-spec") {
+    const auto config = resolve_config(std::filesystem::absolute(
+        std::filesystem::u8path(arguments.require("file"))));
+    require_recipe(
+        !is_transfer_recipe(config),
+        "Local recipe binding currently supports ImageFolder ResNet18");
+    const auto inputs = inspect_inputs(config);
+    return prepare_local_recipe(arguments, config, inputs.manifest,
+                                is_transfer_recipe(config)
+                                    ? config.at("model").get<std::string>()
+                                    : "resnet18",
+                                inputs.total_steps);
+  }
   if (action == "schema") {
     require_recipe(!arguments.optional("file") && !arguments.optional("root") &&
                        !arguments.optional("pause-after"),
@@ -1820,7 +1854,10 @@ Result recipe_command(const Arguments& arguments) {
   if (action == "initialize") return initialize(arguments);
   if (action == "run" || action == "resume")
     return execute(arguments, action == "resume");
-  usage("recipe", "Choose schema, check, initialize, run or resume.");
+  if (action == "local-run") return execute(arguments, false, true);
+  usage("recipe",
+        "Choose schema, check, initialize, run, resume, local-spec or "
+        "local-run.");
 #else
   throw NotImplemented(
       "Image classification recipes require the models and data_image "

@@ -253,3 +253,22 @@ liuding-forge data prepare --name fashion-mnist --source-dir /datasets/fashion-m
 `index/train.jsonl` 和 `index/validation.jsonl` 记录原始索引、类别 ID、相对图片路径、灰度像素 SHA-256 与 PNG 文件 SHA-256；`preparation.json` 保存来源、选择规则、类别计数和内容身份，`fashion-mnist.LICENSE` 保留原始许可文本。内容身份基于原始索引、标签和灰度字节，不依赖 PNG 压缩实现。准备命令离线运行，拒绝覆盖已有输出，失败时清理本次私有暂存目录。逐图读取与解码示例见[数据准备示例](../../examples/data/README.md#fashion-mnist-图像接入)。
 
 上述工具提供数据接入，不会自动加载预训练权重。使用现有随机初始化 ResNet18 配方时，将数据路径指向对应的两个 split，并为 Fashion-MNIST 单独设置配置与质量阈值；模型所需的缩放、裁剪及 mean/std 由图像管线显式完成，不能沿用 CIFAR-10 的任务阈值来宣称该任务已经通过。预训练 ResNet50 和 DINOv2-S 的冻结骨干、完整微调与恢复步骤见[迁移学习教程](transfer_learning_recipe.md)。
+
+## 8. 交给本地执行器并确认训练产物
+
+ImageFolder ResNet18 配方可使用原生 `local-spec` 生成冻结计划，再由 `local execute` 管理 attempt、进程树清理和输出确认。以下路径均须替换为本机绝对路径，`/work` 已存在，`/work/resnet18` 和计划文件尚不存在；`--executable` 指向本次构建或安装的真实 CLI，生成计划时会记录其 SHA-256。Windows 可使用 `F:/work/...` 和实际 `.exe` 路径。
+
+```sh
+liuding-forge recipe local-spec --file /work/my-resnet18.json --root /work/resnet18 --store /work/run-store --spec /work/resnet18-local.json --executable /sdk/bin/liuding-forge --timeout-ms 3600000
+liuding-forge local execute --root /work/run-store --id resnet18-training --spec /work/resnet18-local.json --format json
+liuding-forge local show --root /work/run-store --id resnet18-training --format json
+liuding-forge local recover --root /work/run-store --id resnet18-training --format json
+```
+
+生成器流式检查图像内容，将解析后的配置和数据清单写入同一 STORE 的不可变 CAS，封存输入来源，并声明 `checkpoint.last`、`model.weights`、`training.result` 三个输出。输入来源的 completed 只表示输入已提交。执行时，内部 `recipe local-run` 重新检查运行器提供的 job/attempt、冻结配置、真实数据清单和模型身份；配置文件及图像仍须保持原位、稳定可读。该命令需要运行器注入的归属信息，不能直接代替 `recipe run` 使用。
+
+需要演练检查点接续时，在生成命令中增加 `--pause-after N`，其中 `N` 必须大于零且小于总更新数。首次进程在第 N 次更新后保存完整 `latest.jyck`，将它发布为本 attempt 的 `checkpoint.last`，返回声明的普通退出码 75。执行器确认原生进程树清理和结果后，将该 checkpoint 冻结为下一 attempt 的 `exact_only` 输入；第二次启动核对原配方目录中 checkpoint 的完整大小和摘要，再恢复模型、优化器、调度器、采样器及 RNG，继续剩余更新。该计划最多两个 attempt；暂停参数只作用于 fresh 启动。
+
+正常完成后，配方将 `final.jyck`、`model.safetensors` 和 `result.json` 流式发布到当前 attempt。执行器在原生退出 0 且清理确认后核对三项引用、类型、角色、大小和 CAS 摘要，再将输出收据与结果及双流原子提交。质量门槛不通过仍保留原生退出码 4，job 失败；不能把文件存在当作训练成功。已确认结果的 `execute`/`recover` 重放不再训练。需要取消时运行 `liuding-forge local cancel --root /work/run-store --id resnet18-training`，随后查询清理结果；取消、信号、超时和未知 attempt 不自动转为 checkpoint retry。
+
+当前接线只支持 ImageFolder ResNet18，且续训依赖保留的原配方目录，不会从 CAS 重建丢失的 workspace；迁移学习和多输入输出配方继续使用各自已有的 `run`/`resume`。计划继承本机环境并显式固定 OMP/MKL 线程数，尚不认证完整环境快照。逻辑资源准入、STORE 其他 writer 的边界与保守恢复规则见[本地进程运行器](../development/local_process_runner.md)。本命令不授予 RSS/显存硬限额、任意训练失败自动恢复或完整 RunSpec 资格。
