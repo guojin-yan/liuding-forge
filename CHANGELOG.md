@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加真实 Collector 已接受但响应丢失的三信号门禁，覆盖指标与审计两个请求边界，明确原生未确认事件重试后的外部重复语义。
+
 - 增加真实 Collector 队列满、原生已确认前缀保留和原字节重试验证；明确指标与审计部分成功后的重复交付语义。
 
 - Collector 持久队列配置与崩溃恢复门禁覆盖日志、指标及其完整源审计、追踪；教学配置直接包含三个信号管线。

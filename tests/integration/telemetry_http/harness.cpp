@@ -48,7 +48,9 @@ int main(int argc, char** argv) {
     if (argc != 3) return 2;
     const std::string_view port_text(argv[1]), mode(argv[2]);
     const bool queue_full = mode.starts_with("queue-full-");
-    const auto signal = queue_full ? mode.substr(11U) : mode;
+    const bool lost_reply = mode.starts_with("lost-reply-");
+    const bool interactive = queue_full || lost_reply;
+    const auto signal = interactive ? mode.substr(11U) : mode;
     unsigned int port = 0U;
     const auto parsed = std::from_chars(
         port_text.data(), port_text.data() + port_text.size(), port);
@@ -72,9 +74,10 @@ int main(int argc, char** argv) {
           {"producer", {10U, 1700000000000000000ULL}}};
     ex::OtlpHttpTelemetrySink sink(options);
     std::vector<forge::TelemetryEnvelope> batch{log_event(1U)};
-    if (queue_full) {
+    if (interactive) {
       require(signal == "logs" || signal == "metrics" || signal == "traces");
-      for (std::uint64_t sequence = 2U; sequence <= 16U; ++sequence)
+      const std::uint64_t count = queue_full ? 16U : 3U;
+      for (std::uint64_t sequence = 2U; sequence <= count; ++sequence)
         batch.push_back(log_event(sequence));
     }
     for (auto& event : batch) {
@@ -86,7 +89,7 @@ int main(int argc, char** argv) {
         event.payload = forge::TelemetryMetricBatch{{point}};
       } else if (signal == "traces") {
         const auto suffix =
-            queue_full ? "-" + std::to_string(event.identity.sequence) : "";
+            interactive ? "-" + std::to_string(event.identity.sequence) : "";
         event.correlation = {.trace_id = "opaque-trace" + suffix,
                              .span_id = "opaque-span" + suffix};
         // A completed span is observed at or after its end in the same clock.
@@ -100,13 +103,16 @@ int main(int argc, char** argv) {
       }
     }
     const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::seconds(queue_full ? 40 : 8);
-    if (queue_full) {
+                          std::chrono::seconds(interactive ? 40 : 8);
+    if (interactive) {
       std::string rejected_status;
       try {
         sink.emit(batch, {}, deadline);
       } catch (const forge::IoError& error) {
-        if (error.message() == "OTLP collector returned HTTP status 503")
+        if (lost_reply) {
+          rejected_status = "lost";
+          std::cerr << error.what() << '\n';
+        } else if (error.message() == "OTLP collector returned HTTP status 503")
           rejected_status = "503";
         else if (error.message() == "OTLP collector returned HTTP status 429")
           rejected_status = "429";
@@ -116,8 +122,10 @@ int main(int argc, char** argv) {
       require(!rejected_status.empty());
       const auto prefix = sink.flush().exported_events;
       require(prefix > 0U && prefix < batch.size());
-      std::cout << "native-http-queue-full " << prefix << ' ' << batch.size()
-                << ' ' << rejected_status << std::endl;
+      std::cout << (queue_full ? "native-http-queue-full "
+                               : "native-http-lost-reply ")
+                << prefix << ' ' << batch.size() << ' ' << rejected_status
+                << std::endl;
       // The supervising fixture drains the real Collector before retrying.
       // Its process deadline also bounds this synchronization read.
       std::string command;
