@@ -1,5 +1,5 @@
 {
-  "audit_date": "2026-11-02",
+  "audit_date": "2026-11-03",
   "dependency_notice_states": {
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
@@ -16,14 +16,14 @@
     "onnxruntime-linux-x64": "recorded",
     "dataset-zlib-codec": "recorded",
     "openssl-bundle-signing": "recorded",
-    "mnist-https-libcurl-linux-runtime": "pending",
-    "mnist-https-libcurl-linux-headers": "pending",
+    "mnist-https-libcurl-linux-runtime": "recorded",
+    "mnist-https-libcurl-linux-headers": "recorded",
     "mnist-https-winhttp-windows": "pending",
     "nanopb-native-telemetry": "recorded",
     "tensorboard-native-schema": "recorded",
     "opentelemetry-native-schema": "recorded",
-    "telemetry-http-libcurl-linux-runtime": "pending",
-    "telemetry-http-libcurl-linux-headers": "pending",
+    "telemetry-http-libcurl-linux-runtime": "recorded",
+    "telemetry-http-libcurl-linux-headers": "recorded",
     "telemetry-http-winhttp-windows": "pending",
     "models-reference-timm": "pending",
     "models-reference-dinov3": "pending",
@@ -420,7 +420,7 @@
         "artifact_sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3",
         "entry": "stb_image.h license block",
         "kind": "vendored-header",
-        "url": "https://github.com/nothings/stb/blob/master/stb_image.h"
+        "url": "https://github.com/nothings/stb/blob/013ac3beddff3dbffafd5177e7972067cd2b5083/stb_image.h"
       },
       "path": "stb_image-2.30-LICENSE.txt",
       "sha256": "eb5436c0b87a6e8b2b64c8bb8f75be118873b713dcae053634f0bea8b5621bf2",
@@ -919,6 +919,54 @@
         "artifact_sha256": "d1f18c4e1be8426da117252a4fb8e5d72be44807b0251fcea23e2fa7b7d85981",
         "entry": "intel_openmp-2026.0.0.data/data/share/doc/compiler/licensing/openmp/third-party-programs.txt"
       }
+    },
+    {
+      "dependency_id": "mnist-https-libcurl-linux-runtime",
+      "path": "curl-7.81.0-1ubuntu1.30-mnist-runtime-copyright",
+      "size_bytes": 11400,
+      "sha256": "d8fef27baefaf797112424a88959cfc1122b884cdfe215e84e4c07df49a35189",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4_7.81.0-1ubuntu1.30_amd64.deb",
+        "artifact_sha256": "2fc35b8056aebaa6cfe9a5672a8e06339c3e690657fbebc6c5d6b50d9f9626fb",
+        "entry": "data.tar.zst/usr/share/doc/libcurl4/copyright"
+      }
+    },
+    {
+      "dependency_id": "mnist-https-libcurl-linux-headers",
+      "path": "curl-7.81.0-1ubuntu1.30-mnist-headers-copyright",
+      "size_bytes": 11400,
+      "sha256": "d8fef27baefaf797112424a88959cfc1122b884cdfe215e84e4c07df49a35189",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4-openssl-dev_7.81.0-1ubuntu1.30_amd64.deb",
+        "artifact_sha256": "37567efb750a9cb1d685d38aa9cd3662466ea1258be0de561a6eaf1122347b13",
+        "entry": "data.tar.zst/usr/share/doc/libcurl4-openssl-dev/copyright"
+      }
+    },
+    {
+      "dependency_id": "telemetry-http-libcurl-linux-runtime",
+      "path": "curl-7.81.0-1ubuntu1.30-otlp-runtime-copyright",
+      "size_bytes": 11400,
+      "sha256": "d8fef27baefaf797112424a88959cfc1122b884cdfe215e84e4c07df49a35189",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4_7.81.0-1ubuntu1.30_amd64.deb",
+        "artifact_sha256": "2fc35b8056aebaa6cfe9a5672a8e06339c3e690657fbebc6c5d6b50d9f9626fb",
+        "entry": "data.tar.zst/usr/share/doc/libcurl4/copyright"
+      }
+    },
+    {
+      "dependency_id": "telemetry-http-libcurl-linux-headers",
+      "path": "curl-7.81.0-1ubuntu1.30-otlp-headers-copyright",
+      "size_bytes": 11400,
+      "sha256": "d8fef27baefaf797112424a88959cfc1122b884cdfe215e84e4c07df49a35189",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4-openssl-dev_7.81.0-1ubuntu1.30_amd64.deb",
+        "artifact_sha256": "37567efb750a9cb1d685d38aa9cd3662466ea1258be0de561a6eaf1122347b13",
+        "entry": "data.tar.zst/usr/share/doc/libcurl4-openssl-dev/copyright"
+      }
     }
   ],
   "hash_algorithm": "sha256",
@@ -926,9 +974,9 @@
     "PyTorch source root licenses do not satisfy the missing bundled LibTorch binary notice audit.",
     "Optional remediation wheel notices are retained and both platform sidecar acceptance gates passed; full transitive review remains pending.",
     "ONNX Runtime entries retain the exact CPU SDK LICENSE and ThirdPartyNotices for each archive; this is not a CVE audit, a transitive license completeness claim, or GPU/provider execution qualification.",
-    "MNIST optional HTTPS uses external system WinHTTP on Windows or matched libcurl4/libcurl4-openssl-dev packages from the curl source package on Ubuntu. Verified curl package digests identify only the retained original .deb bytes; curl is the primary upstream license identity, not a completed distro-package or transitive notice audit. WinHTTP SDK/runtime identity and terms, exact selected-build notice review, transitive dependencies, CA trust assets, CVE/patch review and release qualification remain pending. No OS SDK, system curl/TLS library or CA bundle is copied or authorized for redistribution; these external tool inputs do not qualify other versions, distributions or providers.",
+    "MNIST optional HTTPS uses external system WinHTTP on Windows or matched libcurl4/libcurl4-openssl-dev 7.81.0-1ubuntu1.30 packages on Ubuntu. Exact copyright originals from both locked deb data archives are retained separately for this tool; recorded covers their notice bytes and package provenance only. Curl is the primary upstream license identity, not a completed license-policy, source-applicability, transitive or security audit. WinHTTP identity/terms, other selected builds, TLS/CA assets and redistribution/release qualification remain pending. No system library, SDK or CA bundle is copied or authorized for redistribution.",
     "Native telemetry records retain exact nanopb, TensorBoard schema and OpenTelemetry schema upstream licenses for the selected immutable archives. Integrity and license retention are separate from runtime, wire-interoperability, vulnerability, transport, redistribution and release qualification. Generated schema source hashes and toolchain provenance are locked in scripts/telemetry/native_schema.lock.json; no Python SDK is a native product runtime dependency.",
-    "Optional native OTLP HTTP records the same external WinHTTP and matched Ubuntu curl runtime/header package identities separately from the MNIST tool. Their notice states remain pending: retained package digests and system linking do not complete exact selected-build license/notice, transitive, TLS/CA, SDK terms, vulnerability or redistribution review. No additional license evidence or release qualification is asserted.",
+    "Optional native OTLP HTTP records the same external WinHTTP and matched Ubuntu curl runtime/header package identities separately from the MNIST tool. Its two locked Ubuntu package copyright originals are retained separately with exact archive-member and artifact SHA bindings. Only those notice states are recorded; license-policy, transitive, TLS/CA, SDK terms, vulnerability and redistribution review remain pending. Other versions or selected SDKs require their own evidence.",
     "zlib 1.3.2 的完整 LICENSE 按精确源归档成员原样留存，并与所选静态 SDK 原文逐字节对应；recorded 仅说明 notice 原文与来源记录完成，codec-only 子集的 CVE 适用性、编译和最终链接、传递依赖及发布资格继续待审。",
     "stb_image_write 1.16 单独登记精确 vendored header 与完整 MIT/Unlicense 原文；已通过逐字节与 Git blob 校验绑定到不可变上游提交 1ee679ca2ef753a528db5ba6801e1067b40481b8，入库路径、长度及 SHA-256 保持一致。来源身份闭合不代表依赖安全、支持矩阵和发布资格。",
     "Model reference archives pin the actual torchvision 0.24.1/0.29.1, timm af97f99e and Meta DINOv3 6876159a inputs. Their upstream license originals and selected original source-header excerpts are retained. Root licenses do not license every model weight or erase per-file notices; the C++ implementation provenance and applicable redistribution boundaries remain pending, so these dependency notice states are not promoted to recorded.",

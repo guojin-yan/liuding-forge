@@ -131,10 +131,7 @@ Ubuntu 开发构建独立锁定 Linux `2.14.1+cu126` 官方包，SHA-256 为 `78
 - Version: 2.30 (2024-05-31); license: MIT or Unlicense (public domain dedication)
 - Role: private JPEG, PNG, BMP, GIF, TGA, PNM and related still-image decoding
   inside optional `jyppx::liuding::data_image`
-- The vendored header is pinned by SHA-256 in `dependency-manifest.json`; its
-  upstream license block is retained in
-  `third_party/licenses/stb_image-2.30-LICENSE.txt` and installed with the
-  data-image profile. No stb_image types enter public headers.
+入库 header 的 SHA-256 与不可变上游提交 `013ac3beddff3dbffafd5177e7972067cd2b5083` 逐字节对应，准确来源见 `dependency-manifest.json`。许可原文保留在 `third_party/licenses/stb_image-2.30-LICENSE.txt`，启用 data-image profile 时随 SDK 安装；公共头不暴露 stb_image 类型。
 - Decoder limits are enforced before third-party allocation. HDR/PIC and other
   formats that need a different scalar contract remain outside this profile;
   callers receive a structured decode error rather than an implicit conversion.
@@ -189,6 +186,8 @@ Git 仓库外 `refer/` 目录中的项目是研究输入，不因存放于本机
 
 Linux 使用调用者显式选择的共享系统 libcurl >= 7.81.0 SDK，适用 [curl license](https://curl.se/docs/copyright.html)，上游为 <https://github.com/curl/curl>。SDK 使用的 OpenSSL、GnuTLS、解析器和其他传递依赖分别适用各自条款；本项目不下载、嵌入或安装这些库及 CA 证书。如果后续制品要捆绑任何对应二进制，须先留存所选构建的完整许可证、版权和第三方声明并完成依赖审查，不能用系统链接的说明代替再分发义务。
 
+已保留锁定 Ubuntu `7.81.0-1ubuntu1.30` 包内的 [runtime copyright](third_party/licenses/curl-7.81.0-1ubuntu1.30-mnist-runtime-copyright) 和 [headers copyright](third_party/licenses/curl-7.81.0-1ubuntu1.30-mnist-headers-copyright) 完整原文；对应 `.deb`、内部成员、长度及摘要见许可索引。这只完成这两个包的 notice 留存，不授予其他 SDK、传递依赖、安全或再分发资格。
+
 工具声明位于 [network-dependencies.json](tools/datasets/network-dependencies.json)；Linux 配置记录所选 curlver.h 与解析后共享库的 SHA-256。该可选系统 SDK 接口不代表任意发行版、TLS 后端或版本已经取得发布资格。
 
 
@@ -203,3 +202,5 @@ Linux 使用调用者显式选择的共享系统 libcurl >= 7.81.0 SDK，适用 
 ### 可选原生 OTLP HTTP
 
 独立可选 `telemetry_http` 使用系统 WinHTTP（Windows）或显式选择的共享系统 libcurl >= 7.81（Linux），不复制或分发网络库、TLS 库及 CA 证书。Linux curl 适用 [curl license](https://curl.se/docs/copyright.html)，其 TLS、DNS 和其他依赖各自适用对应条款；Windows 系统 SDK/runtime 适用 Microsoft 相应条款。安装消费者也需显式选择自己的系统 curl SDK。该系统链接策略不代表已完成所选发行版包的 CVE、许可证或发布资格审查。
+
+锁定 Ubuntu `7.81.0-1ubuntu1.30` 的 [runtime copyright](third_party/licenses/curl-7.81.0-1ubuntu1.30-otlp-runtime-copyright) 和 [headers copyright](third_party/licenses/curl-7.81.0-1ubuntu1.30-otlp-headers-copyright) 按本组件单独登记，均来自精确 `.deb` 内部完整原文。notice 留存不代替 curl 许可政策、传递依赖或安全审计；其他选择仍需匹配实际包的证据。

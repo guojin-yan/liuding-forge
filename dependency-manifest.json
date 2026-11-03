@@ -254,8 +254,8 @@
       "version": "2.30",
       "source": {
         "type": "vendored-upstream-header",
-        "url": "https://github.com/nothings/stb/blob/master/stb_image.h",
-        "revision": "2.30 (2024-05-31)",
+        "url": "https://github.com/nothings/stb/blob/013ac3beddff3dbffafd5177e7972067cd2b5083/stb_image.h",
+        "revision": "013ac3beddff3dbffafd5177e7972067cd2b5083",
         "path": "third_party/stb/stb_image.h"
       },
       "integrity": {
@@ -429,7 +429,7 @@
         "spdx": [
           "curl"
         ],
-        "third_party_notice_audit": "pending"
+        "third_party_notice_audit": "recorded"
       },
       "platforms": [
         "linux-x86_64"
@@ -455,7 +455,7 @@
         "spdx": [
           "curl"
         ],
-        "third_party_notice_audit": "pending"
+        "third_party_notice_audit": "recorded"
       },
       "platforms": [
         "linux-x86_64"
@@ -587,7 +587,7 @@
         "spdx": [
           "curl"
         ],
-        "third_party_notice_audit": "pending"
+        "third_party_notice_audit": "recorded"
       },
       "platforms": [
         "linux-x86_64"
@@ -613,7 +613,7 @@
         "spdx": [
           "curl"
         ],
-        "third_party_notice_audit": "pending"
+        "third_party_notice_audit": "recorded"
       },
       "platforms": [
         "linux-x86_64"

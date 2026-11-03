@@ -4,11 +4,12 @@
 
 ## 范围与索引
 
-当前保留材料覆盖 GoogleTest、nlohmann/json、SQLite、TinyXML2、yaml-cpp、stb_image/write、zlib、OpenSSL、ONNX Runtime、原生遥测 schema/runtime、部分可选 Python wheel、PyTorch 主许可证、模型参考声明以及 NVIDIA 协议。完整文件集合及准确版本以 [manifest.json](manifest.json) 和项目根目录 `dependency-manifest.json` 为准，不以根许可证推定整个二进制或传递依赖的许可已经覆盖。
+当前保留材料覆盖 GoogleTest、nlohmann/json、SQLite、TinyXML2、yaml-cpp、stb_image/write、zlib、Ubuntu curl、OpenSSL、ONNX Runtime、原生遥测 schema/runtime、部分可选 Python wheel、PyTorch 主许可证、模型参考声明以及 NVIDIA 协议。完整文件集合及准确版本以 [manifest.json](manifest.json) 和项目根目录 `dependency-manifest.json` 为准，不以根许可证推定整个二进制或传递依赖的许可已经覆盖。
 
 | 原文 | 来源与用途 |
 | --- | --- |
 | [GoogleTest](googletest-1.14.0-LICENSE) | 固定 1.14.0 源归档中的 BSD-3-Clause 原文；仅测试使用。 |
+| Ubuntu curl 7.81.0-1ubuntu1.30：[MNIST runtime](curl-7.81.0-1ubuntu1.30-mnist-runtime-copyright)、[headers](curl-7.81.0-1ubuntu1.30-mnist-headers-copyright)，[OTLP runtime](curl-7.81.0-1ubuntu1.30-otlp-runtime-copyright)、[headers](curl-7.81.0-1ubuntu1.30-otlp-headers-copyright) | 精确 runtime/dev `.deb` 的完整 copyright 按四个依赖条目分别留存；相同原文不表示传递依赖或许可政策/CVE 审查已完成。不捆绑这些系统库及 SDK。 |
 | [nlohmann/json](nlohmann-json-3.12.0-LICENSE.MIT) | 固定 3.12.0 源归档中的 MIT 原文。 |
 | [SQLite 头部摘录](sqlite-3.54.1-copyright-blessing.txt)及[上游版权页](sqlite-copyright-page.txt) | 固定 3.54.1 `sqlite3.h` 最前 294 字节和官方 public domain / blessing 说明。 |
 | [PyTorch 2.14.1](pytorch-2.14.1-build-5c488690-LICENSE.txt)及 [2.5.1](pytorch-2.5.1-LICENSE.txt) | 分别来自构建提交 `5c4886908584029761b579af026dcfb627c84070` 与 `v2.5.1` 的源码主许可证；不能替代随包组件声明。 |
