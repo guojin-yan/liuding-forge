@@ -40,3 +40,9 @@ service:
     logs:
       receivers: [otlp]
       exporters: [otlphttp/boundary]
+    metrics:
+      receivers: [otlp]
+      exporters: [otlphttp/boundary]
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/boundary]

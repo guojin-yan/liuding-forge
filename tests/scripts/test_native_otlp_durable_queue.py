@@ -7,7 +7,8 @@
 
 Python supervises independent fixtures only. The C++ transport owns the OTLP
 request, response validation and same-process replay. This selected Collector
-configuration adds a durable enqueue boundary; generic HTTP 200 does not.
+configuration adds a durable enqueue boundary for logs, metrics with their
+audit log, and traces; generic HTTP 200 does not.
 """
 from __future__ import annotations
 
@@ -58,18 +59,59 @@ def attributes(values):
     return result
 
 
-def verify_request(raw):
+def verify_request(raw, path, signal):
     value = json.loads(raw)
-    resources = value["resourceLogs"]
+    resource_key, scope_key = {"/v1/logs": ("resourceLogs", "scopeLogs"),
+                               "/v1/metrics": ("resourceMetrics", "scopeMetrics"),
+                               "/v1/traces": ("resourceSpans", "scopeSpans")}[path]
+    resources = value[resource_key]
     require(len(resources) == 1, "Unexpected resource count")
     resource = resources[0]
     fields = attributes(resource["resource"]["attributes"])
     require(fields["service.name"] == {"stringValue": "liuding-forge"} and
             fields["service.instance.id"] == {"stringValue": "http.integration.instance"},
             "Native resource identity changed")
-    scopes = resource["scopeLogs"]
+    scopes = resource[scope_key]
     require(len(scopes) == 1 and scopes[0]["scope"]["name"] == "jyppx.telemetry" and
             scopes[0]["scope"]["version"] == "1", "Native scope changed")
+    if path == "/v1/metrics":
+        metrics = scopes[0]["metrics"]
+        require(signal == "metrics" and len(metrics) == 1, "Unexpected native metric count")
+        metric = metrics[0]
+        require(metric["description"] == "http.integration.loss" and "gauge" in metric,
+                "Native metric definition/type changed")
+        points = metric["gauge"]["dataPoints"]
+        require(len(points) == 1 and points[0]["asDouble"] == 0.125 and
+                str(points[0]["timeUnixNano"]) == "1700000000000000000",
+                "Native metric point/value/time changed")
+        fields = attributes(points[0]["attributes"])
+        definition = json.loads(fields["jyppx.metric_definition"]["stringValue"])
+        require(definition["metric_id"] == "http.integration.loss" and
+                metric["name"] == "jyppx.scalar." + definition["definition_digest"],
+                "Native metric definition identity changed")
+        return value
+    if path == "/v1/traces":
+        spans = scopes[0]["spans"]
+        require(signal == "traces" and len(spans) == 1, "Unexpected native span count")
+        span = spans[0]
+        require(span["name"] == "transport-span" and span["status"]["code"] == 1,
+                "Native span name/status changed")
+        require(str(span["startTimeUnixNano"]) == "1700000000000000000" and
+                str(span["endTimeUnixNano"]) == "1700000000000000010",
+                "Native span clock mapping changed")
+        for key, domain, opaque, size in (("traceId", b"jyppx.trace/v1", b"opaque-trace", 16),
+                                           ("spanId", b"jyppx.span/v1", b"opaque-span", 8)):
+            expected = hashlib.sha256(domain + b"\x00" + opaque).digest()[:size].hex()
+            require(span[key].lower() == expected, "Native trace/span identity changed")
+        fields = attributes(span["attributes"])
+        require(json.loads(fields["jyppx.identity"]["stringValue"]) ==
+                {"stream_id": "http.integration", "event_id": "1",
+                 "idempotency_key": "1", "sequence": 1}, "Native span event identity changed")
+        require(fields["jyppx.clock_id"] == {"stringValue": "producer"} and
+                json.loads(fields["jyppx.clock_mapping"]["stringValue"]) ==
+                {"monotonic_ns": 10, "unix_ns": 1700000000000000000},
+                "Native source clock metadata changed")
+        return value
     records = scopes[0]["logRecords"]
     require(len(records) == 1, "Missing or extra native event")
     record = records[0]
@@ -80,8 +122,15 @@ def verify_request(raw):
     require(source["identity"] == {"stream_id": "http.integration", "event_id": "1",
                                    "idempotency_key": "1", "sequence": 1},
             "Native event identity changed")
-    require(source["payload"]["kind"] == 3 and source["payload"]["body"] == "transport lesson",
-            "Native log payload changed")
+    if signal == "logs":
+        require(source["payload"]["kind"] == 3 and source["payload"]["body"] == "transport lesson",
+                "Native log payload changed")
+    else:
+        require(signal == "metrics" and source["payload"]["kind"] == 2,
+                "Native metric audit payload changed")
+        points = source["payload"]["points"]
+        require(len(points) == 1 and points[0]["definition"]["metric_id"] == "http.integration.loss" and
+                points[0]["value"] == 0.125, "Native audited metric changed")
     require(json.loads(record["body"]["stringValue"]) == source["payload"],
             "Collector lost native log fields")
     require(json.loads(fields["jyppx.identity"]["stringValue"]) == source["identity"],
@@ -90,7 +139,7 @@ def verify_request(raw):
 
 
 @contextmanager
-def backend():
+def backend(signal):
     state = {"accept": False, "requests": [], "errors": []}
     lock = threading.Lock()
 
@@ -103,7 +152,8 @@ def backend():
         def do_POST(self):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                require(self.path == "/v1/logs" and 0 < length <= 65536,
+                paths = ["/v1/metrics", "/v1/logs"] if signal == "metrics" else ["/v1/" + signal]
+                require(self.path in paths and 0 < length <= 65536,
                         "Unexpected downstream request path/size")
                 require(self.headers.get("Content-Type", "").split(";")[0] == "application/json",
                         "Collector JSON encoding changed")
@@ -111,7 +161,7 @@ def backend():
                         "Unexpected downstream compression")
                 raw = self.rfile.read(length)
                 require(len(raw) == length, "Incomplete downstream request")
-                source = verify_request(raw)
+                source = verify_request(raw, self.path, signal)
                 with lock:
                     status = 200 if state["accept"] else 503
                 self.send_response(status)
@@ -123,7 +173,7 @@ def backend():
                 self.wfile.flush()
                 with lock:
                     require(len(state["requests"]) < 128, "Downstream request count bound")
-                    state["requests"].append({"status": status, "source": source,
+                    state["requests"].append({"status": status, "source": source, "path": self.path,
                                               "body_sha256": hashlib.sha256(raw).hexdigest()})
             except BaseException:
                 with lock:
@@ -193,7 +243,7 @@ class Collector:
         self.process = None
 
 
-def run_case(args, root, persistent):
+def run_case(args, root, persistent, signal):
     root.mkdir()
     (root / "queue").mkdir()
     config = args.config.read_text(encoding="utf-8")
@@ -206,18 +256,19 @@ def run_case(args, root, persistent):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    with backend() as (downstream_port, state, lock):
+    expected_paths = ["/v1/metrics", "/v1/logs"] if signal == "metrics" else ["/v1/" + signal]
+    with backend(signal) as (downstream_port, state, lock):
         collector = Collector(args.collector, config_path, root, port, downstream_port)
         try:
             collector.start()
-            result = subprocess.run([str(args.harness), str(port), "logs"], cwd=root,
+            result = subprocess.run([str(args.harness), str(port), signal], cwd=root,
                                     stdin=subprocess.DEVNULL, capture_output=True, timeout=12,
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             (root / "native.stdout").write_bytes(result.stdout)
             (root / "native.stderr").write_bytes(result.stderr)
             require(result.returncode == 0 and b"native-http-contract-ok" in result.stdout,
                     "Native acceptance/replay contract failed")
-            wait_for(lambda: bool(state["requests"]) or bool(state["errors"]), 5,
+            wait_for(lambda: set(expected_paths) <= {item["path"] for item in state["requests"]} or bool(state["errors"]), 5,
                      "Collector did not reach the blocked downstream")
             require(not state["errors"], state["errors"])
             require(all(item["status"] == 503 for item in state["requests"]),
@@ -232,11 +283,24 @@ def run_case(args, root, persistent):
                 state["accept"] = True
             collector.start()  # Same queue, no producer replay after the crash.
             if persistent:
-                wait_for(lambda: len(state["requests"]) > before or bool(state["errors"]), 8,
+                wait_for(lambda: len(state["requests"]) >= before + len(expected_paths) or bool(state["errors"]), 8,
                          "Acknowledged event was not recovered from the persistent queue")
                 time.sleep(0.5)
-                require(len(state["requests"]) == before + 1 and state["requests"][-1]["status"] == 200,
+                recovered = state["requests"][before:]
+                require(sorted(item["path"] for item in recovered) == sorted(expected_paths) and
+                        all(item["status"] == 200 for item in recovered),
                         "Recovered delivery was missing or duplicated in this observation")
+                for item in recovered:
+                    original = next(prior for prior in state["requests"][:before] if prior["path"] == item["path"])
+                    require(item["source"] == original["source"], "Recovered native content changed")
+                if signal == "metrics":
+                    metric = next(item["source"] for item in recovered if item["path"] == "/v1/metrics")
+                    audit = next(item["source"] for item in recovered if item["path"] == "/v1/logs")
+                    definition = json.loads(attributes(metric["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
+                                                      ["gauge"]["dataPoints"][0]["attributes"])
+                                            ["jyppx.metric_definition"]["stringValue"])
+                    require(definition == audit["payload"]["points"][0]["definition"],
+                            "Recovered metric and source audit are not paired")
             else:
                 time.sleep(2)
                 require(len(state["requests"]) == before,
@@ -247,10 +311,11 @@ def run_case(args, root, persistent):
             if persistent:
                 collector.start()  # Confirm completed queue items stay removed after another restart.
                 time.sleep(2)
-                require(collector.process.poll() is None and len(state["requests"]) == before + 1,
+                require(collector.process.poll() is None and len(state["requests"]) == before + len(expected_paths),
                         "Completed delivery replayed after queue acknowledgement")
                 collector.stop()
-            report = {"persistent": persistent, "native_invocations": 1,
+            report = {"persistent": persistent, "signal": signal, "native_invocations": 1,
+                      "expected_paths": expected_paths,
                       "native_protocol_accepted_and_process_local_duplicate": True,
                       "producer_replay_after_crash": 0, "queue_files_after_crash": files,
                       "collector_stages": collector.stages, "downstream_requests": state["requests"],
@@ -285,11 +350,12 @@ def main():
             "Pinned Collector version changed")
     report = {"passed": False, "inputs": sources, "work_directory": str(root)}
     try:
-        cases = [run_case(args, root / name, persistent) for name, persistent in
-                 (("persistent-crash-recovery", True), ("volatile-loss-control", False))]
-        report.update({"passed": True, "cases": cases, "native_invocations": 2,
-                       "collector_invocations": 5,
-                       "qualification": "pinned Collector fsync queue survives process kill; volatile ACK loses event",
+        cases = [run_case(args, root / (name if signal == "logs" else signal + "-" + name), persistent, signal)
+                 for signal in ("logs", "metrics", "traces")
+                 for name, persistent in (("persistent-crash-recovery", True), ("volatile-loss-control", False))]
+        report.update({"passed": True, "cases": cases, "native_invocations": 6,
+                       "collector_invocations": 15,
+                       "qualification": "pinned Collector fsync queues recover logs, metrics with audit, and traces after process kill; volatile controls lose acknowledged events",
                        "power_loss_disk_failure_exactly_once_or_generic_http200_qualified": False})
     except BaseException:
         report["failure"] = traceback.format_exc()

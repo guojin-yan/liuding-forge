@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- Collector 持久队列配置与崩溃恢复门禁覆盖日志、指标及其完整源审计、追踪；教学配置直接包含三个信号管线。
+
 - 修正 DINOv2 的独立 K/V/Q 投影与确定性位置插值：CUDA 保留原生 bicubic 前向舍入，反向使用确定性系数矩阵；检查点参数布局保持兼容。
 
 - 移除旧 Python 遥测进程入口和安装选项；TensorBoard/OTLP 导出使用原生 C++ 实现，官方 Python 映射仅保留为独立测试参考。

@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
           {"producer", {10U, 1700000000000000000ULL}}};
     ex::OtlpHttpTelemetrySink sink(options);
     std::vector<forge::TelemetryEnvelope> batch{log_event(1U)};
-    if (mode == "pair-retry") {
+    if (mode == "pair-retry" || mode == "metrics") {
       forge::TelemetryMetricPoint point;
       point.definition.metric_id = "http.integration.loss";
       point.observation = forge::make_telemetry_metric_value(0.125);
@@ -155,8 +155,8 @@ int main(int argc, char** argv) {
         require(sink.flush().exported_events ==
                 (mode == "prefix-retry" ? 1U : 0U));
       } else {
-        require(mode == "logs" || mode == "traces" || mode == "ipv6-logs" ||
-                mode == "tls-logs");
+        require(mode == "logs" || mode == "metrics" || mode == "traces" ||
+                mode == "ipv6-logs" || mode == "tls-logs");
       }
       const auto result = sink.emit(batch, {}, deadline);
       for (std::size_t i = 0U; i < batch.size(); ++i)

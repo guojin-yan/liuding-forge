@@ -89,7 +89,7 @@ $config = @{
 
 ## Collector 崩溃后继续交付
 
-需要 Collector 在接受请求后承受进程崩溃时，应把请求直接送入带存储的 exporter queue，并开启文件存储的 `fsync`；接收器与队列之间的内存 batch processor 会把确认边界提前到内存，不能用于这个要求。以下是 Collector Contrib 0.135.0 的日志管线配置，保存为 `collector.yaml`；先创建专用持久目录，将目录和下游地址替换为自己的配置，再执行 `otelcol-contrib --config collector.yaml`：
+需要 Collector 在接受请求后承受进程崩溃时，应把请求直接送入带存储的 exporter queue，并开启文件存储的 `fsync`；接收器与队列之间的内存 batch processor 会把确认边界提前到内存，不能用于这个要求。以下是 Collector Contrib 0.135.0 的日志、指标与追踪管线配置，保存为 `collector.yaml`；先创建专用持久目录，将目录和下游地址替换为自己的配置，再执行 `otelcol-contrib --config collector.yaml`：
 
 ```yaml
 extensions:
@@ -109,6 +109,8 @@ exporters:
       max_elapsed_time: 0s
     sending_queue:
       enabled: true
+      num_consumers: 1
+      queue_size: 4
       storage: file_storage
 service:
   extensions: [file_storage]
@@ -116,8 +118,14 @@ service:
     logs:
       receivers: [otlp]
       exporters: [otlphttp/downstream]
+    metrics:
+      receivers: [otlp]
+      exporters: [otlphttp/downstream]
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/downstream]
 ```
 
-Windows 的目录可写为 `C:/collector-data/queue`。要接收本教程示例的所有信号，还须在 `service.pipelines` 中增加同结构的 `metrics` 和 `traces` 管线；保护持久目录，重启时保持 exporter ID 和存储配置一致，并监测队列容量及存储错误。队列满或写入失败时应保留本地 run 并按原身份重试，不能依据一次协议成功删除唯一源数据。
+Windows 的目录可写为 `C:/collector-data/queue`。三个信号各有独立队列；指标事件还会发送保存完整源事件的审计日志，客户端只有在指标与审计请求都成功后才确认该事件。保护持久目录，重启时保持 exporter ID 和存储配置一致，并按负载调整有界队列容量、监测存储错误。队列满或写入失败时应保留本地 run 并按原身份重试，不能依据一次协议成功删除唯一源数据。
 
 这个确认边界属于明确配置的外部 Collector。客户端协议校验仍不提供跨进程去重；Collector 已发送但未确认的下游效果可能重复。进程崩溃验证不能替代断电、磁盘损坏、备份恢复或 exactly-once 验收，也不能推广到其他 Collector 配置。
