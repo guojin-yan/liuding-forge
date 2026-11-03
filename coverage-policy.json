@@ -8,6 +8,7 @@
   },
   "targets": {
     "core": {
+      "baseline_observation": "core_gcc11_libtorch2141",
       "path_prefixes": [
         "include/jyppx/liuding/core/",
         "src/jyppx/liuding/core/"
@@ -24,8 +25,8 @@
           "minimum_percent": 100.000000
         },
         "branch": {
-          "baseline_covered": 628,
-          "baseline_total": 992,
+          "baseline_covered": 629,
+          "baseline_total": 990,
           "minimum_percent": 63.306452
         }
       }
@@ -456,6 +457,34 @@
     }
   },
   "observations": {
+    "core_gcc11_libtorch2141": {
+      "commit": "27830e4acf60d354219aa10bd36bcf205d46f022",
+      "tree": "9d4310a3d3bba5114bed5b51e3bdc421acf732be",
+      "environment": "ubuntu-22.04-gcc-11.4-libtorch-2.14.1-cpu-debug-coverage",
+      "report": "coverage-summary.json",
+      "report_sha256": "20f06e16d9bfc9fda3d8daecf959d7bdbad111ee50545319bfa12ef7ca166fb7",
+      "targets": [
+        "core"
+      ],
+      "prior_branch_baseline": {
+        "commit": "f0418d3ce10a23b5d871a075abfa2de5430d57c5",
+        "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug",
+        "baseline_covered": 628,
+        "baseline_total": 992,
+        "minimum_percent": 63.306452
+      },
+      "denominator_change": {
+        "source": "src/jyppx/liuding/core/tensor_utils.cpp",
+        "source_lf_sha256": "98715e7cd9823b59c43bbc810d5f651214a5cef108cd5e0862fcf9f426163332",
+        "operation": "to_device",
+        "prior_translation_unit_branches": 76,
+        "current_translation_unit_branches": 74,
+        "cause": "LibTorch TensorOptions default constructor became noexcept, removing one normal/exception edge pair from implicit Device conversion.",
+        "source_semantics": "All seven core headers/sources retain their token streams after namespace, include, guard and comment normalization.",
+        "verification": "Same GCC11 flags and source; adding only noexcept to retained2.5.1 headers yields74, removing only noexcept from2.14.1 headers yields76. Compile-only comparison; no runtime qualification inferred."
+      },
+      "status": "reviewed_dependency_cfg_denominator_change; historical_minimum_percent_retained; full_coverage_gate_still_failed"
+    },
     "v1_selected_cpu_27830e4_staged": {
       "commit": "27830e4acf60d354219aa10bd36bcf205d46f022",
       "tree": "9d4310a3d3bba5114bed5b51e3bdc421acf732be",
