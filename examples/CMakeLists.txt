@@ -304,3 +304,20 @@ if(TARGET jyppx::liuding::models)
     jyppx_apply_instrumentation(jyppx_dino_intermediate_features)
     jyppx_add_torch_runtime_dependency(jyppx_dino_intermediate_features)
 endif()
+
+if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::data_image)
+    add_executable(jyppx_liuding_published_file_example
+        experiment/published_file_evidence.cpp)
+    set_target_properties(jyppx_liuding_published_file_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-published-file)
+    target_link_libraries(jyppx_liuding_published_file_example PRIVATE
+        jyppx::liuding::experiment jyppx::liuding::data_image)
+    jyppx_apply_instrumentation(jyppx_liuding_published_file_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_published_file_example)
+    if(JYPPX_LIUDING_BUILD_TESTS)
+        add_test(NAME PublishedFileEvidenceExample
+            COMMAND jyppx_liuding_published_file_example)
+        set_tests_properties(PublishedFileEvidenceExample PROPERTIES
+            LABELS "examples;experiment;data_image" TIMEOUT 60)
+    endif()
+endif()

@@ -14,8 +14,10 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <latch>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -369,6 +371,201 @@ TEST(ImageOutputEvidenceTest, SinkCallbackFailureRetainsRecoveryIdentity) {
   EXPECT_TRUE(recovered.reference_replay);
   ASSERT_EQ(recovered.event.receipts.size(), 1U);
   EXPECT_TRUE(store.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest, AtomicEvidenceReplaysAfterRestartWithoutSource) {
+  OutputDirectory directory;
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  const auto published = ticket.completion.get();
+  sink.close();
+  auto request = evidence_request(published);
+  {
+    SQLiteRunStore store(directory.path / "store");
+    store.start(run());
+    const auto first = store.record_published_file_evidence_atomic(request);
+    EXPECT_FALSE(first.reference_replay);
+    EXPECT_FALSE(first.event.batch_replay);
+    ASSERT_EQ(first.event.receipts.size(), 1U);
+    EXPECT_EQ(first.event.receipts.front().run_sequence, 1U);
+    EXPECT_EQ(store.references("run-1").size(), 2U);
+    EXPECT_TRUE(store.integrity_check().ok());
+  }
+  ASSERT_TRUE(std::filesystem::remove(published.path));
+  request.path.reset();
+  SQLiteRunStore reopened(directory.path / "store");
+  const auto replay = reopened.record_published_file_evidence_atomic(request);
+  EXPECT_TRUE(replay.reference_replay);
+  EXPECT_TRUE(replay.event.batch_replay);
+  ASSERT_EQ(replay.event.receipts.size(), 1U);
+  EXPECT_EQ(replay.event.receipts.front().run_sequence, 1U);
+  EXPECT_EQ(reopened.references("run-1").size(), 2U);
+  EXPECT_EQ(reopened.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(reopened.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest, AtomicSequenceFailureRollsBackNewReference) {
+  OutputDirectory directory;
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  const auto published = ticket.completion.get();
+  sink.close();
+  const auto request = evidence_request(published, 2U);
+  {
+    SQLiteRunStore store(directory.path / "store");
+    store.start(run());
+    EXPECT_THROW(store.record_published_file_evidence_atomic(request),
+                 CompatibilityError);
+    EXPECT_FALSE(store.find_reference("run-1", request.reference_id));
+    EXPECT_TRUE(store.references("run-1").empty());
+    EXPECT_TRUE(store.events("run-1").events.empty());
+    EXPECT_EQ(store.find("run-1")->updated_at_unix_ms, 100U);
+    EXPECT_TRUE(store.integrity_check().ok());
+  }
+  SQLiteRunStore reopened(directory.path / "store");
+  TelemetryEnvelope earlier;
+  earlier.identity = {.stream_id = "image-output-1",
+                      .event_id = "earlier-1",
+                      .idempotency_key = "earlier-1",
+                      .sequence = 1U};
+  earlier.correlation.project_id = "project-1";
+  earlier.correlation.run_id = "run-1";
+  earlier.payload = TelemetryLog{.body = "prior event"};
+  reopened.append("run-1", "earlier-event",
+                  std::span<const TelemetryEnvelope>(&earlier, 1U));
+  const auto retry = reopened.record_published_file_evidence_atomic(request);
+  EXPECT_FALSE(retry.reference_replay);
+  EXPECT_FALSE(retry.event.batch_replay);
+  ASSERT_EQ(retry.event.receipts.size(), 1U);
+  EXPECT_EQ(retry.event.receipts.front().run_sequence, 2U);
+  EXPECT_EQ(reopened.references("run-1").size(), 2U);
+  EXPECT_EQ(reopened.events("run-1").events.size(), 2U);
+}
+
+TEST(ImageOutputEvidenceTest, AtomicQuotaFailureRollsBackBothReferences) {
+  OutputDirectory directory;
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  const auto published = ticket.completion.get();
+  sink.close();
+  const auto request = evidence_request(published);
+  SQLiteRunStoreOptions options;
+  options.max_references_per_run = 1U;
+  {
+    SQLiteRunStore limited(directory.path / "store", options);
+    limited.start(run());
+    EXPECT_THROW(limited.record_published_file_evidence_atomic(request),
+                 ResourceExhausted);
+    EXPECT_TRUE(limited.references("run-1").empty());
+    EXPECT_TRUE(limited.events("run-1").events.empty());
+    EXPECT_EQ(limited.find("run-1")->updated_at_unix_ms, 100U);
+    EXPECT_TRUE(limited.integrity_check().ok());
+  }
+  SQLiteRunStore reopened(directory.path / "store");
+  const auto retry = reopened.record_published_file_evidence_atomic(request);
+  EXPECT_FALSE(retry.reference_replay);
+  EXPECT_FALSE(retry.event.batch_replay);
+  EXPECT_EQ(reopened.references("run-1").size(), 2U);
+  EXPECT_EQ(reopened.events("run-1").events.size(), 1U);
+}
+
+TEST(ImageOutputEvidenceTest, AtomicFailurePreservesPreviouslyConfirmedFile) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  const auto published = ticket.completion.get();
+  sink.close();
+  auto request = evidence_request(published, 2U);
+  const auto previous = store.put_artifact_file(
+      request.run_id, request.reference_id, RunArtifactKind::artifact,
+      "image.preview", published.path, request.descriptor,
+      request.attached_at_unix_ms, request.expected_digest);
+  ASSERT_TRUE(std::filesystem::remove(published.path));
+  request.path.reset();
+  EXPECT_THROW(store.record_published_file_evidence_atomic(request),
+               CompatibilityError);
+  const auto retained = store.find_reference("run-1", request.reference_id);
+  ASSERT_TRUE(retained);
+  EXPECT_EQ(retained->artifact.digest, previous.artifact.digest);
+  EXPECT_EQ(store.references("run-1").size(), 1U);
+  EXPECT_TRUE(store.events("run-1").events.empty());
+  EXPECT_TRUE(store.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest,
+     AtomicEventConflictCannotPublishAnotherReference) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  const auto published = ticket.completion.get();
+  sink.close();
+  auto request = evidence_request(published);
+  store.record_published_file_evidence_atomic(request);
+  request.reference_id = "conflicting-preview";
+  request.event.payload = TelemetryArtifactReference{.role = "other.preview"};
+  EXPECT_THROW(store.record_published_file_evidence_atomic(request),
+               CompatibilityError);
+  EXPECT_FALSE(store.find_reference("run-1", request.reference_id));
+  EXPECT_EQ(store.references("run-1").size(), 2U);
+  EXPECT_EQ(store.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(store.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest,
+     AtomicEvidenceSerializesIdenticalConcurrentCalls) {
+  OutputDirectory directory;
+  SQLiteRunStore first(directory.path / "store");
+  first.start(run());
+  SQLiteRunStore second(directory.path / "store");
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  const auto published = ticket.completion.get();
+  sink.close();
+  const auto request = evidence_request(published);
+  std::latch ready(2);
+  std::latch proceed(1);
+  const auto record = [&](SQLiteRunStore& store) {
+    ready.count_down();
+    proceed.wait();
+    return store.record_published_file_evidence_atomic(request);
+  };
+  auto a = std::async(std::launch::async, [&] { return record(first); });
+  auto b = std::async(std::launch::async, [&] { return record(second); });
+  ready.wait();
+  proceed.count_down();
+  const auto a_result = a.get();
+  const auto b_result = b.get();
+  EXPECT_NE(a_result.reference_replay, b_result.reference_replay);
+  EXPECT_NE(a_result.event.batch_replay, b_result.event.batch_replay);
+  EXPECT_EQ(first.references("run-1").size(), 2U);
+  EXPECT_EQ(first.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(first.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest, AtomicCancellationAndDeadlineLeaveNoReference) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  const auto published = ticket.completion.get();
+  sink.close();
+  const auto request = evidence_request(published);
+  std::stop_source stopped;
+  stopped.request_stop();
+  EXPECT_THROW(
+      store.record_published_file_evidence_atomic(request, stopped.get_token()),
+      Cancelled);
+  EXPECT_THROW(store.record_published_file_evidence_atomic(
+                   request, {},
+                   std::chrono::steady_clock::now() - std::chrono::seconds(1)),
+               DeadlineExceeded);
+  EXPECT_TRUE(store.references("run-1").empty());
+  EXPECT_TRUE(store.events("run-1").events.empty());
 }
 
 }  // namespace

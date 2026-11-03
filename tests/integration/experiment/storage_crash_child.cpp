@@ -352,6 +352,12 @@ void seed(const std::filesystem::path& root, std::string_view operation) {
             {"target_content", kTarget},
             {"store", state}});
   }
+  if (operation == "published") {
+    std::ofstream output(root / "published.bin", std::ios::binary);
+    output << kTarget;
+    output.close();
+    require(static_cast<bool>(output), "could not seed published source file");
+  }
   if (operation == "migration") {
     // Construct a v1 INPUT fixture, matching the existing migration tests.
     // The interrupted operation itself is the real production constructor.
@@ -365,7 +371,8 @@ void seed(const std::filesystem::path& root, std::string_view operation) {
   }
 }
 
-Json perform(ex::SQLiteRunStore& store, std::string_view operation) {
+Json perform(ex::SQLiteRunStore& store, std::string_view operation,
+             const std::filesystem::path& root) {
   if (operation == "event") {
     const std::vector<jyppx::liuding::TelemetryEnvelope> target{event(2U),
                                                                 event(3U)};
@@ -375,6 +382,29 @@ Json perform(ex::SQLiteRunStore& store, std::string_view operation) {
     const auto result = artifact(store, false);
     return {{"reference_id", result.reference_id},
             {"digest", result.artifact.digest.hex}};
+  }
+  if (operation == "published") {
+    const std::string_view content(kTarget);
+    ex::PublishedFileEvidenceRequest request;
+    request.run_id = kRun;
+    request.reference_id = "artifact.target";
+    request.path = root / "published.bin";
+    request.descriptor = {.logical_name = "target.bin",
+                          .media_type = "application/octet-stream",
+                          .producer = "storage-crash-fixture",
+                          .expected_size_bytes = content.size()};
+    request.attached_at_unix_ms = 200U;
+    request.expected_digest = {.hex =
+                                   jyppx::liuding::sha256_hex(bytes(content))};
+    request.event_batch_key = "batch.target";
+    request.event = event(2U);
+    request.event.payload =
+        jyppx::liuding::TelemetryArtifactReference{.role = "last.target"};
+    const auto result = store.record_published_file_evidence_atomic(request);
+    return {{"reference_id", result.reference.reference_id},
+            {"digest", result.reference.artifact.digest.hex},
+            {"reference_replay", result.reference_replay},
+            {"event", receipt(result.event)}};
   }
   if (operation == "finalize") {
     const auto result = store.transition(kRun, ex::RunStatus::completed, 300U);
@@ -391,7 +421,8 @@ int execute(std::string_view mode, const std::filesystem::path& root,
               mode == "inspect" || mode == "gc",
           "unknown storage child mode");
   require(operation == "event" || operation == "artifact" ||
-              operation == "finalize" || operation == "migration",
+              operation == "finalize" || operation == "migration" ||
+              operation == "published",
           "unknown storage operation");
   require(std::filesystem::is_directory(root),
           "fixture root must already exist");
@@ -420,7 +451,7 @@ int execute(std::string_view mode, const std::filesystem::path& root,
     state.verified_wal_full = true;
     state.statements.clear();
     state.armed = true;
-    perform(store, operation);
+    perform(store, operation, root);
     throw std::runtime_error("real operation escaped its required SQLite hook");
   }
   ex::SQLiteRunStore store(root / "store");
@@ -428,7 +459,7 @@ int execute(std::string_view mode, const std::filesystem::path& root,
               {"phase", "completed"},
               {"operation", operation},
               {"mode", mode}};
-  if (mode == "retry") result["receipt"] = perform(store, operation);
+  if (mode == "retry") result["receipt"] = perform(store, operation, root);
   if (mode == "gc") {
     const auto gc = store.collect_garbage(std::chrono::seconds::zero());
     result["gc"] = {{"removed_files", gc.removed_files},

@@ -274,9 +274,10 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
    * @param uploads Immutable borrowed payloads and stable relationship fields.
    * @return Durable receipts in upload order; identical retries are idempotent.
    * @throws Error Invalid input, quota, identity conflict or I/O failure.
-   * @note Failure leaves no new relationships. Already-published unreferenced
-   * CAS blobs may remain for GC. The writer lock spans publication and commit;
-   * model/report pairs cannot become partially visible through this method.
+   * @note Uncommitted relationships roll back; a commit-time I/O error may
+   * leave an unknown outcome. Reopen and retry the original identities.
+   * Unreferenced CAS blobs may remain for GC. The writer lock spans publication
+   * and commit; model/report pairs cannot become partially visible.
    */
   std::vector<RunArtifactReference> put_artifacts(
       std::string_view run_id, std::span<const RunArtifactUpload> uploads);
@@ -321,6 +322,22 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
    * A successful event consumes a second run reference and its byte quota.
    */
   PublishedFileEvidenceResult record_published_file_evidence(
+      const PublishedFileEvidenceRequest& request, std::stop_token stop = {},
+      TelemetryDeadline deadline = std::nullopt);
+
+  /**
+   * @brief 在同一 SQLite 写事务中登记已发布文件并追加制品事件。
+   * @param request 稳定的文件、运行引用及事件身份；首次登记必须提供 path。
+   * @param stop 取消流式复制或数据库等待的令牌。
+   * @param deadline 复制、登记、追加和提交共用的绝对截止时间。
+   * @return 同时持久化的运行引用与事件回执；相同重试幂等。
+   * @throws Error 输入、摘要、配额、事件冲突、取消或 I/O 失败。
+   * @note 未提交的新增引用与事件一起回滚；提交阶段 I/O/同步错误可能在
+   * 无成功回执时已提交，结果未知。应重开存储并保留全部身份重试；未确认
+   * 引用前保留原文件。已确认后可省略 path 重放；未引用 CAS 对象可由 GC
+   * 清理。原文件在调用前已发布，不属于 SQLite 事务。原独立提交接口保持。
+   */
+  PublishedFileEvidenceResult record_published_file_evidence_atomic(
       const PublishedFileEvidenceRequest& request, std::stop_token stop = {},
       TelemetryDeadline deadline = std::nullopt);
 

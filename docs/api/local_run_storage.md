@@ -110,6 +110,11 @@ existing run and returns detached records in reference ID order.
 
 For a successfully published local output file, `record_published_file_evidence` accepts a stable run/reference ID, the file path, exact size and SHA-256, descriptor, attachment time, event batch key, and a telemetry envelope whose artifact payload contains only the role. It streams the file into CAS, attaches the run reference, then appends the completed artifact event. The two commits are separate: if the event fails, retain the same request identity and retry with `path` omitted. `find_reference(run_id, reference_id)` uses the run-local primary key to inspect the durable relationship without loading every reference or requiring the original file. A retry rejects changed digest, size, descriptor, role, kind, or attachment time; event retries still require the original stream, sequence, batch key, and envelope fields. The event creates a second run reference, so allow for both references and their linked bytes in the run quotas. Neither this API nor a successful CAS copy measures end-to-end training speed, RSS, or GPU memory.
 
+需要运行引用与制品事件同时持久化时，使用 `record_published_file_evidence_atomic(request, stop, deadline)`，请求字段与上述接口相同。该方法持有同一个 SQLite 写事务完成流式 CAS 复制、运行引用登记、事件及其 GC 引用追加；事件冲突、配额或取消导致的失败会回滚本次新增的全部数据库关系，已确认的旧引用保留。CAS 中可能留下未引用对象，可由该 store 的 GC 清理；原文件在调用前已经发布，不属于数据库事务。成功后即使原文件移走，也可保留全部请求身份并省略 `path` 重放；联合提交失败且引用未持久化时，重试仍需原文件。每次成功操作占用两个运行引用及相应字节配额。
+
+提交阶段出现 I/O 或同步错误时，调用方可能没有收到成功回执，而完整事务已经写入 WAL；这类错误的提交结果未知，不能据异常认定数据库未写入。停止使用发生错误的句柄，重新打开存储，以原有 run、reference、batch、stream、event、sequence、摘要和描述符重试；已提交的请求会返回原回执，未提交的请求会重新提交，两种情况都不会产生半个联合提交或重复事件。在确认引用前保留原文件及完整请求身份。
+
+
 ## Durability and schema v2
 
 SQLite uses WAL, `synchronous=FULL`, foreign-key enforcement, a full-mutex connection, and a per-handle mutex. Different handles/processes writing the same database coordinate through `BEGIN IMMEDIATE`. The default busy timeout is five seconds; exhaustion reports `NotReady`, so callers can retry the same operation identity. The directory must permit creation of SQLite's WAL and shared-memory files and support WAL; this is a local store, with no network filesystem or remote-service guarantee.

@@ -254,4 +254,8 @@ auto view = image::transform_sample(sample, sampled, joint_options);
 
 回调仅在文件成功发布后由现有写入线程执行；采样跳过、容量丢弃、文件写入失败均不会调用它。已排队的提交同时返回文件 `completion` 和 `evidence_completion`，前者即使证据登记失败仍保留成功发布的路径与摘要，后者单独报告登记结果。无回调的 `submit` 只有文件 future；未入队时两个 future 都无效。回调执行前已释放编码缓冲及其资源租约，但该项仍占用 sink 的项数和容量直到回调结束；调用方须保证捕获对象活到回调完成。回调捕获对象的内存不计入编码字节预算，应保持有界并及时返回，不得重新调用同一 sink。回调失败计入失败统计并由 `flush/close` 传播；默认策略停止后续已排队写入，`continue_after_error` 可允许继续。
 
-文件发布、CAS 引用登记和事件追加不是一个原子事务。证据失败后保留 `completion` 的身份，按[本地 run 存储](local_run_storage.md)使用原有 reference、事件身份和描述符重试；已持久化的引用可在原文件移走后恢复事件。该回调只简化关联，不代表跨阶段严格内存上界或端到端训练提速。
+使用原有 `record_published_file_evidence` 时，文件发布、CAS 引用登记和事件追加分阶段完成。证据失败后保留 `completion` 的身份，按[本地 run 存储](local_run_storage.md)使用原有 reference、事件身份和描述符重试；已持久化的引用可在原文件移走后恢复事件。该回调只简化关联，不代表跨阶段严格内存上界或端到端训练提速。
+
+需要 CAS 运行引用与事件同时确认时，回调可调用 `record_published_file_evidence_atomic`：两者在同一个 SQLite 事务中提交，未提交的新增引用与事件一起回滚。提交阶段的 I/O/同步错误可能使调用方未获成功回执，但事务已经完整提交；应重开存储并用全部原身份重试，确认前保留原文件。文件本身已由 sink 独立发布，仍需检查两个 future；已确认后的幂等重放可以省略文件路径。
+
+完整的回调、联合提交及重启重放示例见[图像文件证据示例](../../examples/experiment/PUBLISHED_FILE.md)。

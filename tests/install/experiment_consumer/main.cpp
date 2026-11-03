@@ -79,13 +79,25 @@ bool storage_consumer() {
     const auto evidence = store.record_published_file_evidence(request);
     if (evidence.reference_replay || evidence.event.receipts.size() != 1U)
       return false;
+    request.reference_id = "published.2";
+    request.event_batch_key = "published.atomic.event";
+    request.event.identity.event_id = "published.2";
+    request.event.identity.idempotency_key = "published.2";
+    request.event.identity.sequence = 2U;
+    const auto atomic = store.record_published_file_evidence_atomic(request);
+    if (atomic.reference_replay || atomic.event.batch_replay ||
+        atomic.event.receipts.size() != 1U)
+      return false;
     if (!std::filesystem::remove(published)) return false;
+    request.path.reset();
+    const auto replay = store.record_published_file_evidence_atomic(request);
+    if (!replay.reference_replay || !replay.event.batch_replay) return false;
   }
   jyppx::liuding::experiment::SQLiteRunStore reopened(root.path);
   return reopened.find("consumer.run").has_value() &&
          reopened.find_reference("consumer.run", "published.1").has_value() &&
-         reopened.references("consumer.run").size() == 3U &&
-         reopened.events("consumer.run").events.size() == 1U &&
+         reopened.references("consumer.run").size() == 5U &&
+         reopened.events("consumer.run").events.size() == 2U &&
          reopened.integrity_check().ok();
 }
 }  // namespace

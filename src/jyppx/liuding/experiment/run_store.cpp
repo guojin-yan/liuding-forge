@@ -735,6 +735,10 @@ constexpr const char* kSelectReference =
 
 }  // namespace
 
+namespace {
+struct PreparedEvents;
+}
+
 class SQLiteRunStore::Impl final {
  public:
   Impl(std::filesystem::path root, SQLiteRunStoreOptions options,
@@ -1155,6 +1159,19 @@ class SQLiteRunStore::Impl final {
     activity.done();
   }
 
+  RunArtifactReference put_artifact_file_unlocked(
+      std::string_view run_id, std::string reference_id, RunArtifactKind kind,
+      std::string role, const std::filesystem::path& path,
+      const ArtifactDescriptor& descriptor, std::uint64_t attached_at_unix_ms,
+      ArtifactDigest expected_digest, std::stop_token stop,
+      TelemetryDeadline deadline);
+
+  RunEventAppendResult append_unlocked(
+      std::string_view run_id, std::string_view batch_key,
+      std::span<const TelemetryEnvelope> envelopes,
+      const PreparedEvents& prepared, std::stop_token stop,
+      TelemetryDeadline deadline, OperationControl& control);
+
   SQLiteRunStoreOptions options_;
   std::filesystem::path root_;
   std::filesystem::path database_path_;
@@ -1332,14 +1349,14 @@ std::vector<RunArtifactReference> SQLiteRunStore::put_artifacts(
   return references;
 }
 
-RunArtifactReference SQLiteRunStore::put_artifact_file(
+RunArtifactReference SQLiteRunStore::Impl::put_artifact_file_unlocked(
     std::string_view run_id, std::string reference_id, RunArtifactKind kind,
     std::string role, const std::filesystem::path& path,
     const ArtifactDescriptor& descriptor, std::uint64_t attached_at_unix_ms,
     ArtifactDigest expected_digest, std::stop_token stop,
     TelemetryDeadline deadline) {
   check_telemetry_operation(stop, deadline);
-  impl_->validate_run_id(run_id);
+  validate_run_id(run_id);
   validate_artifact_digest(expected_digest);
   std::error_code path_error;
   const auto status = std::filesystem::symlink_status(path, path_error);
@@ -1357,7 +1374,7 @@ RunArtifactReference SQLiteRunStore::put_artifact_file(
     throw IoError("Could not open published artifact file");
   }
   const auto size = static_cast<std::uint64_t>(input.tellg());
-  if (size > impl_->options_.artifact_limits.max_artifact_bytes) {
+  if (size > options_.artifact_limits.max_artifact_bytes) {
     exhausted("put_artifact_file.size", "configured artifact byte bound",
               "oversized file");
   }
@@ -1369,39 +1386,54 @@ RunArtifactReference SQLiteRunStore::put_artifact_file(
   input.seekg(0);
   if (!input) throw IoError("Could not seek published artifact file");
 
+  (void)require_run(run_id);
+  auto upload = artifacts_.begin(descriptor);
+  std::array<std::byte, 64U * 1024U> buffer{};
+  std::uint64_t copied = 0U;
+  while (copied < size) {
+    check_telemetry_operation(stop, deadline);
+    const auto requested = static_cast<std::streamsize>(
+        std::min<std::uint64_t>(buffer.size(), size - copied));
+    input.read(reinterpret_cast<char*>(buffer.data()), requested);
+    const auto count = input.gcount();
+    if (count != requested)
+      throw IoError("Published artifact file changed while reading");
+    upload->write(std::span<const std::byte>(buffer.data(),
+                                             static_cast<std::size_t>(count)));
+    copied += static_cast<std::uint64_t>(count);
+  }
+  if (input.peek() != std::char_traits<char>::eof() || input.bad()) {
+    throw IoError("Published artifact file changed while reading");
+  }
+  RunArtifactReference reference{
+      .reference_id = std::move(reference_id),
+      .kind = kind,
+      .role = std::move(role),
+      .artifact = artifacts_.commit(*upload, std::move(expected_digest), stop,
+                                    deadline),
+      .attached_at_unix_ms = attached_at_unix_ms};
+  attach_unlocked(run_id, std::span<const RunArtifactReference>(&reference, 1U),
+                  stop, deadline);
+  return reference;
+}
+
+RunArtifactReference SQLiteRunStore::put_artifact_file(
+    std::string_view run_id, std::string reference_id, RunArtifactKind kind,
+    std::string role, const std::filesystem::path& path,
+    const ArtifactDescriptor& descriptor, std::uint64_t attached_at_unix_ms,
+    ArtifactDigest expected_digest, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  check_telemetry_operation(stop, deadline);
+  impl_->validate_run_id(run_id);
+  validate_artifact_digest(expected_digest);
   auto lock = event_lock(impl_->mutex_, stop, deadline);
   OperationControl control(impl_->database_, impl_->options_.busy_timeout, stop,
                            deadline);
   try {
     Transaction transaction(impl_->database_, true, &control);
-    (void)impl_->require_run(run_id);
-    auto upload = impl_->artifacts_.begin(descriptor);
-    std::array<std::byte, 64U * 1024U> buffer{};
-    std::uint64_t copied = 0U;
-    while (copied < size) {
-      check_telemetry_operation(stop, deadline);
-      const auto requested = static_cast<std::streamsize>(
-          std::min<std::uint64_t>(buffer.size(), size - copied));
-      input.read(reinterpret_cast<char*>(buffer.data()), requested);
-      const auto count = input.gcount();
-      if (count != requested)
-        throw IoError("Published artifact file changed while reading");
-      upload->write(std::span<const std::byte>(
-          buffer.data(), static_cast<std::size_t>(count)));
-      copied += static_cast<std::uint64_t>(count);
-    }
-    if (input.peek() != std::char_traits<char>::eof() || input.bad()) {
-      throw IoError("Published artifact file changed while reading");
-    }
-    RunArtifactReference reference{
-        .reference_id = std::move(reference_id),
-        .kind = kind,
-        .role = std::move(role),
-        .artifact = impl_->artifacts_.commit(
-            *upload, std::move(expected_digest), stop, deadline),
-        .attached_at_unix_ms = attached_at_unix_ms};
-    impl_->attach_unlocked(
-        run_id, std::span<const RunArtifactReference>(&reference, 1U), stop,
+    auto reference = impl_->put_artifact_file_unlocked(
+        run_id, std::move(reference_id), kind, std::move(role), path,
+        descriptor, attached_at_unix_ms, std::move(expected_digest), stop,
         deadline);
     transaction.commit();
     return reference;
@@ -1411,7 +1443,8 @@ RunArtifactReference SQLiteRunStore::put_artifact_file(
   }
 }
 
-PublishedFileEvidenceResult SQLiteRunStore::record_published_file_evidence(
+namespace {
+const TelemetryArtifactReference* validate_published_file_request(
     const PublishedFileEvidenceRequest& request, std::stop_token stop,
     TelemetryDeadline deadline) {
   check_telemetry_operation(stop, deadline);
@@ -1432,6 +1465,15 @@ PublishedFileEvidenceResult SQLiteRunStore::record_published_file_evidence(
             "an artifact payload containing only its role",
             "invalid event template");
   }
+  return payload;
+}
+}  // namespace
+
+PublishedFileEvidenceResult SQLiteRunStore::record_published_file_evidence(
+    const PublishedFileEvidenceRequest& request, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  const auto* payload =
+      validate_published_file_request(request, stop, deadline);
   auto existing =
       find_reference(request.run_id, request.reference_id, stop, deadline);
   PublishedFileEvidenceResult result;
@@ -1762,6 +1804,41 @@ void consume_quota(std::uint64_t& used, std::uint64_t added,
   if (used > maximum || added > maximum - used)
     exhausted(std::string(name), "configured durable quota", "quota exceeded");
   used += added;
+}
+
+struct PreparedEvents {
+  std::vector<EncodedEvent> encoded;
+  std::string digest;
+};
+
+PreparedEvents prepare_event_append(
+    std::string_view run_id, std::string_view batch_key,
+    std::span<const TelemetryEnvelope> envelopes,
+    const RunEventStoreLimits& limits, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  check_telemetry_operation(stop, deadline);
+  validate_text(batch_key, limits.telemetry.max_identifier_bytes,
+                "events.batch_key");
+  validate_telemetry_batch(envelopes, limits.telemetry);
+  std::vector<EncodedEvent> encoded;
+  encoded.reserve(envelopes.size());
+  std::uint64_t batch_metric_count = 0U;
+  for (const auto& envelope : envelopes) {
+    check_telemetry_operation(stop, deadline);
+    if (envelope.correlation.run_id != run_id)
+      invalid("events.correlation.run_id", "the requested run identity",
+              "mismatch");
+    validate_integer(envelope.identity.sequence, "events.producer_sequence");
+    consume_quota(batch_metric_count, event_metrics(envelope).size(),
+                  limits.max_metric_points_per_batch, "events.batch_metrics");
+    auto canonical = encode_telemetry_envelope(envelope, limits.telemetry);
+    auto digest = sha256_hex(canonical);
+    encoded.push_back({.envelope = &envelope,
+                       .canonical = std::move(canonical),
+                       .digest = std::move(digest)});
+  }
+  auto request_digest = batch_digest(encoded);
+  return {.encoded = std::move(encoded), .digest = std::move(request_digest)};
 }
 
 TelemetryEnvelope decode_stored_event(std::span<const std::byte> canonical,
@@ -2144,347 +2221,392 @@ std::vector<RunMetadata> SQLiteRunStore::list(
   }
 }
 
+RunEventAppendResult SQLiteRunStore::Impl::append_unlocked(
+    std::string_view run_id, std::string_view batch_key,
+    std::span<const TelemetryEnvelope> envelopes,
+    const PreparedEvents& prepared, std::stop_token stop,
+    TelemetryDeadline deadline, OperationControl& control) {
+  const auto& limits = options_.event_limits;
+  const auto& encoded = prepared.encoded;
+  const auto& request_digest = prepared.digest;
+  const auto run = require_run(run_id);
+  for (const auto& envelope : envelopes) {
+    if (!envelope.correlation.project_id.empty() &&
+        envelope.correlation.project_id != run.project_id)
+      invalid("events.project_id", "run project identity or empty", "mismatch");
+  }
+  auto state = read_event_state(database_, run_id, &control);
+  RunEventAppendResult result;
+  result.receipts.reserve(envelopes.size());
+  result.committed_through = state.last;
+  if (envelopes.empty()) {
+    return result;
+  }
+  {
+    Statement batch(database_,
+                    "SELECT request_digest, input_count, committed_through "
+                    "FROM jyppx_event_batches "
+                    "WHERE run_id = ?1 AND batch_key = ?2",
+                    "events.batch_replay", &control);
+    batch.bind(1, run_id);
+    batch.bind(2, batch_key);
+    if (batch.row()) {
+      if (batch.text(0, 64U) != request_digest ||
+          batch.integer(1) != envelopes.size())
+        event_conflict("events.batch_key",
+                       "different ordered request for batch key");
+      result.committed_through = batch.integer(2);
+      result.batch_replay = true;
+      Statement items(
+          database_,
+          "SELECT i.ordinal, i.run_sequence, e.canonical FROM "
+          "jyppx_event_batch_items i "
+          "JOIN jyppx_events e ON e.run_id = i.run_id AND e.run_sequence = "
+          "i.run_sequence "
+          "WHERE i.run_id = ?1 AND i.batch_key = ?2 ORDER BY i.ordinal",
+          "events.batch_items", &control);
+      items.bind(1, run_id);
+      items.bind(2, batch_key);
+      while (items.row()) {
+        const auto ordinal = items.integer(0);
+        if (ordinal != result.receipts.size() || ordinal >= encoded.size() ||
+            items.blob(2, limits.telemetry.max_envelope_bytes) !=
+                encoded[ordinal].canonical)
+          corrupt("events.batch_replay", "inconsistent original batch receipt");
+        result.receipts.push_back(
+            {.run_sequence = items.integer(1),
+             .disposition = TelemetryDisposition::duplicate});
+      }
+      if (result.receipts.size() != envelopes.size())
+        corrupt("events.batch_replay", "incomplete original batch receipt");
+      return result;
+    }
+  }
+
+  consume_quota(state.batches, 1U, limits.max_batches_per_run,
+                "events.batches");
+  Statement duplicate(
+      database_,
+      "SELECT run_id, run_sequence, event_id, producer_sequence, "
+      "idempotency_key, "
+      "content_digest, canonical FROM jyppx_events WHERE stream_id = ?1 AND "
+      "(event_id = ?2 OR producer_sequence = ?3 OR idempotency_key = ?4)",
+      "events.identity", &control);
+  Statement stream(database_,
+                   "SELECT run_id, last_sequence, terminal FROM "
+                   "jyppx_event_streams WHERE stream_id = ?1",
+                   "events.stream", &control);
+  Statement new_stream(database_,
+                       "INSERT INTO jyppx_event_streams(stream_id, run_id, "
+                       "last_sequence, terminal) "
+                       "VALUES(?1, ?2, 0, 0)",
+                       "events.new_stream", &control);
+  Statement advance_stream(database_,
+                           "UPDATE jyppx_event_streams SET last_sequence = "
+                           "?2, terminal = ?3 WHERE stream_id = ?1",
+                           "events.advance_stream", &control);
+  Statement insert(
+      database_,
+      "INSERT INTO jyppx_events(run_id, run_sequence, stream_id, "
+      "producer_sequence, "
+      "event_id, idempotency_key, payload_kind, content_digest, canonical) "
+      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+      "events.insert", &control);
+  Statement find_definition(
+      database_,
+      "SELECT definition_digest, canonical FROM jyppx_metric_definitions "
+      "WHERE metric_id = ?1 AND definition_version = ?2",
+      "metrics.definition", &control);
+  Statement insert_definition(
+      database_,
+      "INSERT INTO jyppx_metric_definitions(metric_id, definition_version, "
+      "definition_digest, canonical) "
+      "VALUES(?1, ?2, ?3, ?4)",
+      "metrics.new_definition", &control);
+  Statement insert_point(
+      database_,
+      "INSERT INTO jyppx_metric_points(run_id, run_sequence, point_index, "
+      "metric_id, "
+      "definition_version, step_kind, step_key, value_status) VALUES(?1, ?2, "
+      "?3, ?4, ?5, ?6, ?7, ?8)",
+      "metrics.insert", &control);
+  std::optional<std::uint64_t> definition_count;
+  for (const auto& item : encoded) {
+    control.check();
+    const auto& envelope = *item.envelope;
+    const auto& identity = envelope.identity;
+    duplicate.bind(1, identity.stream_id);
+    duplicate.bind(2, identity.event_id);
+    duplicate.bind(3, identity.sequence);
+    duplicate.bind(4, identity.idempotency_key);
+    std::optional<std::uint64_t> existing_sequence;
+    while (duplicate.row()) {
+      if (existing_sequence ||
+          duplicate.text(0, options_.run_metadata_limits.max_id_bytes) !=
+              run_id ||
+          duplicate.text(2, limits.telemetry.max_identifier_bytes) !=
+              identity.event_id ||
+          duplicate.integer(3) != identity.sequence ||
+          duplicate.text(4, limits.telemetry.max_identifier_bytes) !=
+              identity.idempotency_key ||
+          duplicate.text(5, 64U) != item.digest ||
+          duplicate.blob(6, limits.telemetry.max_envelope_bytes) !=
+              item.canonical)
+        event_conflict(
+            "events.identity",
+            "event ID, operation key, or producer sequence conflict");
+      existing_sequence = duplicate.integer(1);
+    }
+    duplicate.reset();
+    if (existing_sequence) {
+      result.receipts.push_back(
+          {.run_sequence = *existing_sequence,
+           .disposition = TelemetryDisposition::duplicate});
+      continue;
+    }
+    if (is_terminal_run_status(run.status))
+      invalid("events.append", "nonterminal run for new evidence",
+              "terminal run");
+    stream.bind(1, identity.stream_id);
+    std::uint64_t previous = 0U;
+    if (stream.row()) {
+      if (stream.text(0, options_.run_metadata_limits.max_id_bytes) != run_id)
+        event_conflict("events.stream",
+                       "stream already belongs to a different run");
+      previous = stream.integer(1);
+      if (stream.integer(2) != 0U)
+        invalid("events.stream", "open producer stream", "terminal stream");
+    } else {
+      consume_quota(state.streams, 1U, limits.max_streams_per_run,
+                    "events.streams");
+      new_stream.bind(1, identity.stream_id);
+      new_stream.bind(2, run_id);
+      new_stream.done();
+      new_stream.reset();
+    }
+    stream.reset();
+    if (previous == static_cast<std::uint64_t>(
+                        std::numeric_limits<sqlite3_int64>::max()) ||
+        identity.sequence != previous + 1U)
+      event_conflict("events.sequence", "producer sequence gap or regression");
+    consume_quota(state.last, 1U, limits.max_events_per_run, "events.count");
+    consume_quota(state.bytes, item.canonical.size(),
+                  limits.max_event_bytes_per_run, "events.content_bytes");
+    const auto points = event_metrics(envelope);
+    consume_quota(state.metrics, points.size(),
+                  limits.max_metric_points_per_run, "metrics.count");
+    if (const auto* artifact =
+            std::get_if<TelemetryArtifactReference>(&envelope.payload)) {
+      RunArtifactReference reference;
+      reference.reference_id =
+          "telemetry." +
+          telemetry_idempotency_digest(identity, limits.telemetry).hex;
+      reference.role = artifact->role;
+      reference.artifact = artifact->artifact;
+      reference.attached_at_unix_ms = run.updated_at_unix_ms;
+      attach_unlocked(run_id,
+                      std::span<const RunArtifactReference>(&reference, 1U),
+                      stop, deadline);
+    }
+    insert.bind(1, run_id);
+    insert.bind(2, state.last);
+    insert.bind(3, identity.stream_id);
+    insert.bind(4, identity.sequence);
+    insert.bind(5, identity.event_id);
+    insert.bind(6, identity.idempotency_key);
+    insert.bind(7,
+                static_cast<std::uint64_t>(*telemetry_payload_kind(envelope)));
+    insert.bind(8, item.digest);
+    insert.bind_blob(9, item.canonical);
+    insert.done();
+    insert.reset();
+    for (std::size_t point_index = 0U; point_index < points.size();
+         ++point_index) {
+      control.check();
+      const auto& point = points[point_index];
+      const auto definition_bytes = encode_telemetry_metric_definition(
+          point.definition, limits.telemetry);
+      const auto digest = sha256_hex(definition_bytes);
+      find_definition.bind(1, point.definition.metric_id);
+      find_definition.bind(
+          2, static_cast<std::uint64_t>(point.definition.version));
+      if (find_definition.row()) {
+        if (find_definition.text(0, 64U) != digest ||
+            find_definition.blob(1, limits.telemetry.max_envelope_bytes) !=
+                definition_bytes)
+          event_conflict("metrics.definition",
+                         "immutable definition ID/version was redefined");
+      } else {
+        if (!definition_count) {
+          Statement count(database_,
+                          "SELECT COUNT(*) FROM jyppx_metric_definitions",
+                          "metrics.definition_count", &control);
+          if (!count.row())
+            corrupt("metrics.definition_count", "missing count");
+          definition_count = count.integer(0);
+        }
+        consume_quota(*definition_count, 1U, limits.max_metric_definitions,
+                      "metrics.definitions");
+        insert_definition.bind(1, point.definition.metric_id);
+        insert_definition.bind(
+            2, static_cast<std::uint64_t>(point.definition.version));
+        insert_definition.bind(3, digest);
+        insert_definition.bind_blob(4, definition_bytes);
+        insert_definition.done();
+        insert_definition.reset();
+      }
+      find_definition.reset();
+      insert_point.bind(1, run_id);
+      insert_point.bind(2, state.last);
+      insert_point.bind(3, static_cast<std::uint64_t>(point_index));
+      insert_point.bind(4, point.definition.metric_id);
+      insert_point.bind(5,
+                        static_cast<std::uint64_t>(point.definition.version));
+      insert_point.bind(6, static_cast<std::uint64_t>(point.step.kind));
+      insert_point.bind_blob(7, unsigned_key(point.step.value));
+      insert_point.bind(8,
+                        static_cast<std::uint64_t>(point.observation.status));
+      insert_point.done();
+      insert_point.reset();
+    }
+    const auto* lifecycle = std::get_if<TelemetryLifecycle>(&envelope.payload);
+    advance_stream.bind(1, identity.stream_id);
+    advance_stream.bind(2, identity.sequence);
+    advance_stream.bind(3,
+                        lifecycle != nullptr && lifecycle->terminal ? 1U : 0U);
+    advance_stream.done();
+    advance_stream.reset();
+    result.receipts.push_back({.run_sequence = state.last,
+                               .disposition = TelemetryDisposition::accepted});
+  }
+  {
+    Statement save(
+        database_,
+        "INSERT INTO "
+        "jyppx_run_event_state(run_id,last_sequence,metric_count,content_"
+        "bytes,batch_count,stream_count) "
+        "VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(run_id) DO UPDATE SET "
+        "last_sequence=excluded.last_sequence,metric_count=excluded.metric_"
+        "count,"
+        "content_bytes=excluded.content_bytes,batch_count=excluded.batch_"
+        "count,stream_count=excluded.stream_count",
+        "events.save_state", &control);
+    save.bind(1, run_id);
+    save.bind(2, state.last);
+    save.bind(3, state.metrics);
+    save.bind(4, state.bytes);
+    save.bind(5, state.batches);
+    save.bind(6, state.streams);
+    save.done();
+    Statement batch(database_,
+                    "INSERT INTO "
+                    "jyppx_event_batches(run_id,batch_key,request_digest,"
+                    "input_count,committed_through) "
+                    "VALUES(?1,?2,?3,?4,?5)",
+                    "events.save_batch", &control);
+    batch.bind(1, run_id);
+    batch.bind(2, batch_key);
+    batch.bind(3, request_digest);
+    batch.bind(4, static_cast<std::uint64_t>(envelopes.size()));
+    batch.bind(5, state.last);
+    batch.done();
+    Statement receipt(database_,
+                      "INSERT INTO "
+                      "jyppx_event_batch_items(run_id,batch_key,ordinal,run_"
+                      "sequence) VALUES(?1,?2,?3,?4)",
+                      "events.save_receipt", &control);
+    for (std::size_t index = 0U; index < result.receipts.size(); ++index) {
+      receipt.bind(1, run_id);
+      receipt.bind(2, batch_key);
+      receipt.bind(3, static_cast<std::uint64_t>(index));
+      receipt.bind(4, result.receipts[index].run_sequence);
+      receipt.done();
+      receipt.reset();
+    }
+  }
+  result.committed_through = state.last;
+  return result;
+}
+
 RunEventAppendResult SQLiteRunStore::append(
     std::string_view run_id, std::string_view batch_key,
     std::span<const TelemetryEnvelope> envelopes, std::stop_token stop,
     TelemetryDeadline deadline) {
   check_telemetry_operation(stop, deadline);
   impl_->validate_run_id(run_id);
-  const auto& limits = impl_->options_.event_limits;
-  validate_text(batch_key, limits.telemetry.max_identifier_bytes,
-                "events.batch_key");
-  validate_telemetry_batch(envelopes, limits.telemetry);
-  std::vector<EncodedEvent> encoded;
-  encoded.reserve(envelopes.size());
-  std::uint64_t batch_metric_count = 0U;
-  for (const auto& envelope : envelopes) {
-    check_telemetry_operation(stop, deadline);
-    if (envelope.correlation.run_id != run_id)
-      invalid("events.correlation.run_id", "the requested run identity",
-              "mismatch");
-    validate_integer(envelope.identity.sequence, "events.producer_sequence");
-    consume_quota(batch_metric_count, event_metrics(envelope).size(),
-                  limits.max_metric_points_per_batch, "events.batch_metrics");
-    auto canonical = encode_telemetry_envelope(envelope, limits.telemetry);
-    auto digest = sha256_hex(canonical);
-    encoded.push_back({.envelope = &envelope,
-                       .canonical = std::move(canonical),
-                       .digest = std::move(digest)});
-  }
-  const auto request_digest = batch_digest(encoded);
+  const auto prepared =
+      prepare_event_append(run_id, batch_key, envelopes,
+                           impl_->options_.event_limits, stop, deadline);
   auto lock = event_lock(impl_->mutex_, stop, deadline);
   OperationControl control(impl_->database_, impl_->options_.busy_timeout, stop,
                            deadline);
   try {
     Transaction transaction(impl_->database_, true, &control);
-    const auto run = impl_->require_run(run_id);
-    for (const auto& envelope : envelopes) {
-      if (!envelope.correlation.project_id.empty() &&
-          envelope.correlation.project_id != run.project_id)
-        invalid("events.project_id", "run project identity or empty",
-                "mismatch");
-    }
-    auto state = read_event_state(impl_->database_, run_id, &control);
-    RunEventAppendResult result;
-    result.receipts.reserve(envelopes.size());
-    result.committed_through = state.last;
-    if (envelopes.empty()) {
-      transaction.commit();
-      return result;
-    }
-    {
-      Statement batch(impl_->database_,
-                      "SELECT request_digest, input_count, committed_through "
-                      "FROM jyppx_event_batches "
-                      "WHERE run_id = ?1 AND batch_key = ?2",
-                      "events.batch_replay", &control);
-      batch.bind(1, run_id);
-      batch.bind(2, batch_key);
-      if (batch.row()) {
-        if (batch.text(0, 64U) != request_digest ||
-            batch.integer(1) != envelopes.size())
-          event_conflict("events.batch_key",
-                         "different ordered request for batch key");
-        result.committed_through = batch.integer(2);
-        result.batch_replay = true;
-        Statement items(
-            impl_->database_,
-            "SELECT i.ordinal, i.run_sequence, e.canonical FROM "
-            "jyppx_event_batch_items i "
-            "JOIN jyppx_events e ON e.run_id = i.run_id AND e.run_sequence = "
-            "i.run_sequence "
-            "WHERE i.run_id = ?1 AND i.batch_key = ?2 ORDER BY i.ordinal",
-            "events.batch_items", &control);
-        items.bind(1, run_id);
-        items.bind(2, batch_key);
-        while (items.row()) {
-          const auto ordinal = items.integer(0);
-          if (ordinal != result.receipts.size() || ordinal >= encoded.size() ||
-              items.blob(2, limits.telemetry.max_envelope_bytes) !=
-                  encoded[ordinal].canonical)
-            corrupt("events.batch_replay",
-                    "inconsistent original batch receipt");
-          result.receipts.push_back(
-              {.run_sequence = items.integer(1),
-               .disposition = TelemetryDisposition::duplicate});
-        }
-        if (result.receipts.size() != envelopes.size())
-          corrupt("events.batch_replay", "incomplete original batch receipt");
-        transaction.commit();
-        return result;
-      }
-    }
-
-    consume_quota(state.batches, 1U, limits.max_batches_per_run,
-                  "events.batches");
-    Statement duplicate(
-        impl_->database_,
-        "SELECT run_id, run_sequence, event_id, producer_sequence, "
-        "idempotency_key, "
-        "content_digest, canonical FROM jyppx_events WHERE stream_id = ?1 AND "
-        "(event_id = ?2 OR producer_sequence = ?3 OR idempotency_key = ?4)",
-        "events.identity", &control);
-    Statement stream(impl_->database_,
-                     "SELECT run_id, last_sequence, terminal FROM "
-                     "jyppx_event_streams WHERE stream_id = ?1",
-                     "events.stream", &control);
-    Statement new_stream(impl_->database_,
-                         "INSERT INTO jyppx_event_streams(stream_id, run_id, "
-                         "last_sequence, terminal) "
-                         "VALUES(?1, ?2, 0, 0)",
-                         "events.new_stream", &control);
-    Statement advance_stream(impl_->database_,
-                             "UPDATE jyppx_event_streams SET last_sequence = "
-                             "?2, terminal = ?3 WHERE stream_id = ?1",
-                             "events.advance_stream", &control);
-    Statement insert(
-        impl_->database_,
-        "INSERT INTO jyppx_events(run_id, run_sequence, stream_id, "
-        "producer_sequence, "
-        "event_id, idempotency_key, payload_kind, content_digest, canonical) "
-        "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        "events.insert", &control);
-    Statement find_definition(
-        impl_->database_,
-        "SELECT definition_digest, canonical FROM jyppx_metric_definitions "
-        "WHERE metric_id = ?1 AND definition_version = ?2",
-        "metrics.definition", &control);
-    Statement insert_definition(
-        impl_->database_,
-        "INSERT INTO jyppx_metric_definitions(metric_id, definition_version, "
-        "definition_digest, canonical) "
-        "VALUES(?1, ?2, ?3, ?4)",
-        "metrics.new_definition", &control);
-    Statement insert_point(
-        impl_->database_,
-        "INSERT INTO jyppx_metric_points(run_id, run_sequence, point_index, "
-        "metric_id, "
-        "definition_version, step_kind, step_key, value_status) VALUES(?1, ?2, "
-        "?3, ?4, ?5, ?6, ?7, ?8)",
-        "metrics.insert", &control);
-    std::optional<std::uint64_t> definition_count;
-    for (const auto& item : encoded) {
-      control.check();
-      const auto& envelope = *item.envelope;
-      const auto& identity = envelope.identity;
-      duplicate.bind(1, identity.stream_id);
-      duplicate.bind(2, identity.event_id);
-      duplicate.bind(3, identity.sequence);
-      duplicate.bind(4, identity.idempotency_key);
-      std::optional<std::uint64_t> existing_sequence;
-      while (duplicate.row()) {
-        if (existing_sequence ||
-            duplicate.text(0,
-                           impl_->options_.run_metadata_limits.max_id_bytes) !=
-                run_id ||
-            duplicate.text(2, limits.telemetry.max_identifier_bytes) !=
-                identity.event_id ||
-            duplicate.integer(3) != identity.sequence ||
-            duplicate.text(4, limits.telemetry.max_identifier_bytes) !=
-                identity.idempotency_key ||
-            duplicate.text(5, 64U) != item.digest ||
-            duplicate.blob(6, limits.telemetry.max_envelope_bytes) !=
-                item.canonical)
-          event_conflict(
-              "events.identity",
-              "event ID, operation key, or producer sequence conflict");
-        existing_sequence = duplicate.integer(1);
-      }
-      duplicate.reset();
-      if (existing_sequence) {
-        result.receipts.push_back(
-            {.run_sequence = *existing_sequence,
-             .disposition = TelemetryDisposition::duplicate});
-        continue;
-      }
-      if (is_terminal_run_status(run.status))
-        invalid("events.append", "nonterminal run for new evidence",
-                "terminal run");
-      stream.bind(1, identity.stream_id);
-      std::uint64_t previous = 0U;
-      if (stream.row()) {
-        if (stream.text(0, impl_->options_.run_metadata_limits.max_id_bytes) !=
-            run_id)
-          event_conflict("events.stream",
-                         "stream already belongs to a different run");
-        previous = stream.integer(1);
-        if (stream.integer(2) != 0U)
-          invalid("events.stream", "open producer stream", "terminal stream");
-      } else {
-        consume_quota(state.streams, 1U, limits.max_streams_per_run,
-                      "events.streams");
-        new_stream.bind(1, identity.stream_id);
-        new_stream.bind(2, run_id);
-        new_stream.done();
-        new_stream.reset();
-      }
-      stream.reset();
-      if (previous == static_cast<std::uint64_t>(
-                          std::numeric_limits<sqlite3_int64>::max()) ||
-          identity.sequence != previous + 1U)
-        event_conflict("events.sequence",
-                       "producer sequence gap or regression");
-      consume_quota(state.last, 1U, limits.max_events_per_run, "events.count");
-      consume_quota(state.bytes, item.canonical.size(),
-                    limits.max_event_bytes_per_run, "events.content_bytes");
-      const auto points = event_metrics(envelope);
-      consume_quota(state.metrics, points.size(),
-                    limits.max_metric_points_per_run, "metrics.count");
-      if (const auto* artifact =
-              std::get_if<TelemetryArtifactReference>(&envelope.payload)) {
-        RunArtifactReference reference;
-        reference.reference_id =
-            "telemetry." +
-            telemetry_idempotency_digest(identity, limits.telemetry).hex;
-        reference.role = artifact->role;
-        reference.artifact = artifact->artifact;
-        reference.attached_at_unix_ms = run.updated_at_unix_ms;
-        impl_->attach_unlocked(
-            run_id, std::span<const RunArtifactReference>(&reference, 1U), stop,
-            deadline);
-      }
-      insert.bind(1, run_id);
-      insert.bind(2, state.last);
-      insert.bind(3, identity.stream_id);
-      insert.bind(4, identity.sequence);
-      insert.bind(5, identity.event_id);
-      insert.bind(6, identity.idempotency_key);
-      insert.bind(
-          7, static_cast<std::uint64_t>(*telemetry_payload_kind(envelope)));
-      insert.bind(8, item.digest);
-      insert.bind_blob(9, item.canonical);
-      insert.done();
-      insert.reset();
-      for (std::size_t point_index = 0U; point_index < points.size();
-           ++point_index) {
-        control.check();
-        const auto& point = points[point_index];
-        const auto definition_bytes = encode_telemetry_metric_definition(
-            point.definition, limits.telemetry);
-        const auto digest = sha256_hex(definition_bytes);
-        find_definition.bind(1, point.definition.metric_id);
-        find_definition.bind(
-            2, static_cast<std::uint64_t>(point.definition.version));
-        if (find_definition.row()) {
-          if (find_definition.text(0, 64U) != digest ||
-              find_definition.blob(1, limits.telemetry.max_envelope_bytes) !=
-                  definition_bytes)
-            event_conflict("metrics.definition",
-                           "immutable definition ID/version was redefined");
-        } else {
-          if (!definition_count) {
-            Statement count(impl_->database_,
-                            "SELECT COUNT(*) FROM jyppx_metric_definitions",
-                            "metrics.definition_count", &control);
-            if (!count.row())
-              corrupt("metrics.definition_count", "missing count");
-            definition_count = count.integer(0);
-          }
-          consume_quota(*definition_count, 1U, limits.max_metric_definitions,
-                        "metrics.definitions");
-          insert_definition.bind(1, point.definition.metric_id);
-          insert_definition.bind(
-              2, static_cast<std::uint64_t>(point.definition.version));
-          insert_definition.bind(3, digest);
-          insert_definition.bind_blob(4, definition_bytes);
-          insert_definition.done();
-          insert_definition.reset();
-        }
-        find_definition.reset();
-        insert_point.bind(1, run_id);
-        insert_point.bind(2, state.last);
-        insert_point.bind(3, static_cast<std::uint64_t>(point_index));
-        insert_point.bind(4, point.definition.metric_id);
-        insert_point.bind(5,
-                          static_cast<std::uint64_t>(point.definition.version));
-        insert_point.bind(6, static_cast<std::uint64_t>(point.step.kind));
-        insert_point.bind_blob(7, unsigned_key(point.step.value));
-        insert_point.bind(8,
-                          static_cast<std::uint64_t>(point.observation.status));
-        insert_point.done();
-        insert_point.reset();
-      }
-      const auto* lifecycle =
-          std::get_if<TelemetryLifecycle>(&envelope.payload);
-      advance_stream.bind(1, identity.stream_id);
-      advance_stream.bind(2, identity.sequence);
-      advance_stream.bind(
-          3, lifecycle != nullptr && lifecycle->terminal ? 1U : 0U);
-      advance_stream.done();
-      advance_stream.reset();
-      result.receipts.push_back(
-          {.run_sequence = state.last,
-           .disposition = TelemetryDisposition::accepted});
-    }
-    {
-      Statement save(
-          impl_->database_,
-          "INSERT INTO "
-          "jyppx_run_event_state(run_id,last_sequence,metric_count,content_"
-          "bytes,batch_count,stream_count) "
-          "VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(run_id) DO UPDATE SET "
-          "last_sequence=excluded.last_sequence,metric_count=excluded.metric_"
-          "count,"
-          "content_bytes=excluded.content_bytes,batch_count=excluded.batch_"
-          "count,stream_count=excluded.stream_count",
-          "events.save_state", &control);
-      save.bind(1, run_id);
-      save.bind(2, state.last);
-      save.bind(3, state.metrics);
-      save.bind(4, state.bytes);
-      save.bind(5, state.batches);
-      save.bind(6, state.streams);
-      save.done();
-      Statement batch(impl_->database_,
-                      "INSERT INTO "
-                      "jyppx_event_batches(run_id,batch_key,request_digest,"
-                      "input_count,committed_through) "
-                      "VALUES(?1,?2,?3,?4,?5)",
-                      "events.save_batch", &control);
-      batch.bind(1, run_id);
-      batch.bind(2, batch_key);
-      batch.bind(3, request_digest);
-      batch.bind(4, static_cast<std::uint64_t>(envelopes.size()));
-      batch.bind(5, state.last);
-      batch.done();
-      Statement receipt(impl_->database_,
-                        "INSERT INTO "
-                        "jyppx_event_batch_items(run_id,batch_key,ordinal,run_"
-                        "sequence) VALUES(?1,?2,?3,?4)",
-                        "events.save_receipt", &control);
-      for (std::size_t index = 0U; index < result.receipts.size(); ++index) {
-        receipt.bind(1, run_id);
-        receipt.bind(2, batch_key);
-        receipt.bind(3, static_cast<std::uint64_t>(index));
-        receipt.bind(4, result.receipts[index].run_sequence);
-        receipt.done();
-        receipt.reset();
-      }
-    }
-    result.committed_through = state.last;
+    auto result = impl_->append_unlocked(run_id, batch_key, envelopes, prepared,
+                                         stop, deadline, control);
     transaction.commit();
-    // Do not check cancellation after a successful commit: its durable receipt
-    // must win over a stop arriving after the transaction's decision point.
+    // A completed commit wins over cancellation arriving after its decision.
+    return result;
+  } catch (...) {
+    control.check();
+    throw;
+  }
+}
+
+PublishedFileEvidenceResult
+SQLiteRunStore::record_published_file_evidence_atomic(
+    const PublishedFileEvidenceRequest& request, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  const auto* payload =
+      validate_published_file_request(request, stop, deadline);
+  impl_->validate_run_id(request.run_id);
+  validate_text(request.reference_id, impl_->options_.max_reference_id_bytes,
+                "reference_id");
+  auto lock = event_lock(impl_->mutex_, stop, deadline);
+  OperationControl control(impl_->database_, impl_->options_.busy_timeout, stop,
+                           deadline);
+  try {
+    Transaction transaction(impl_->database_, true, &control);
+    (void)impl_->require_run(request.run_id);
+    auto existing = impl_->find_reference_unlocked(
+        request.run_id, request.reference_id, &control);
+    PublishedFileEvidenceResult result;
+    result.reference_replay = existing.has_value();
+    if (existing) {
+      if (existing->kind != RunArtifactKind::artifact ||
+          existing->role != payload->role ||
+          existing->artifact.digest != request.expected_digest ||
+          existing->artifact.size_bytes !=
+              *request.descriptor.expected_size_bytes ||
+          existing->artifact.logical_name != request.descriptor.logical_name ||
+          existing->artifact.media_type != request.descriptor.media_type ||
+          existing->artifact.producer != request.descriptor.producer ||
+          existing->attached_at_unix_ms != request.attached_at_unix_ms) {
+        invalid("published_file.reference_id",
+                "the original immutable relationship", "identity conflict");
+      }
+      result.reference = std::move(*existing);
+    } else {
+      if (!request.path) {
+        invalid("published_file.path", "a path for first registration",
+                "missing source file");
+      }
+      result.reference = impl_->put_artifact_file_unlocked(
+          request.run_id, request.reference_id, RunArtifactKind::artifact,
+          payload->role, *request.path, request.descriptor,
+          request.attached_at_unix_ms, request.expected_digest, stop, deadline);
+    }
+    auto event = request.event;
+    event.payload = TelemetryArtifactReference{
+        .role = payload->role, .artifact = result.reference.artifact};
+    const auto envelopes = std::span<const TelemetryEnvelope>(&event, 1U);
+    const auto prepared =
+        prepare_event_append(request.run_id, request.event_batch_key, envelopes,
+                             impl_->options_.event_limits, stop, deadline);
+    result.event =
+        impl_->append_unlocked(request.run_id, request.event_batch_key,
+                               envelopes, prepared, stop, deadline, control);
+    transaction.commit();
     return result;
   } catch (...) {
     control.check();

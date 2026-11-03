@@ -4,7 +4,7 @@
 
 """Actual production SQLite operations interrupted at official commit hooks.
 
-Four operations, two boundaries each. The migration fixture is v1 input; the
+Five operations, two boundaries each. The migration fixture is v1 input; the
 operation under test is SQLiteRunStore's actual constructor migration. There
 are no synthetic replacement writes, graceful crashes, optional dependencies,
 or skipped cases. The child is an already built test executable.
@@ -115,10 +115,15 @@ class StorageCrashBoundaryTests(unittest.TestCase):
                 expected = {
                     "event": "INSERT INTO jyppx_events",
                     "artifact": "INSERT INTO jyppx_run_artifacts",
+                    "published": "INSERT INTO jyppx_run_artifacts",
                     "finalize": "UPDATE jyppx_runs SET status",
                     "migration": "CREATE TABLE jyppx_events",
                 }
                 self.assertIn(expected[self.operation], statements)
+                if self.operation == "published":
+                    self.assertIn("INSERT INTO jyppx_events", statements)
+                    self.assertEqual(statements.count("BEGIN IMMEDIATE"), 1)
+                    self.assertEqual(statements.count("COMMIT"), 1)
                 if self.operation == "migration":
                     self.assertIn("PRAGMA synchronous = FULL", statements)
                     self.assertIn("PRAGMA user_version = 2", statements)
@@ -214,20 +219,31 @@ class StorageCrashBoundaryTests(unittest.TestCase):
         run = tables["jyppx_runs"][0]
         self.assertEqual(run["status"], 3 if self.operation == "finalize" else 2)
         self.assertEqual(run["updated_at_ms"],
-                         300 if self.operation == "finalize" else 200 if self.operation == "artifact" else 110)
-        count = 0 if self.operation == "migration" else 3 if self.operation == "event" else 1
+                         300 if self.operation == "finalize" else
+                         200 if self.operation in ("artifact", "published") else 110)
+        count = (0 if self.operation == "migration" else 3 if self.operation == "event"
+                 else 2 if self.operation == "published" else 1)
         self.assertEqual(len(tables["jyppx_events"]), count)
-        self.assertEqual(len(tables["jyppx_metric_points"]), count)
+        self.assertEqual(len(tables["jyppx_metric_points"]),
+                         1 if self.operation == "published" else count)
         if self.operation == "event":
             self.assertEqual([row["run_sequence"] for row in tables["jyppx_events"]], [1, 2, 3])
             self.assertEqual([row["producer_sequence"] for row in tables["jyppx_events"]], [1, 2, 3])
             self.assertEqual(len(tables["jyppx_event_batches"]), 2)
             self.assertEqual(len(tables["jyppx_event_batch_items"]), 3)
             self.assertEqual(tables["jyppx_run_event_state"][0]["last_sequence"], 3)
+        if self.operation == "published":
+            self.assertEqual([row["run_sequence"] for row in tables["jyppx_events"]], [1, 2])
+            self.assertEqual([row["producer_sequence"] for row in tables["jyppx_events"]], [1, 2])
+            self.assertEqual(len(tables["jyppx_event_batches"]), 2)
+            self.assertEqual(len(tables["jyppx_event_batch_items"]), 2)
+            self.assertEqual(tables["jyppx_run_event_state"][0]["last_sequence"], 2)
+            self.assertEqual(tables["jyppx_run_event_state"][0]["metric_count"], 1)
         references = tables["jyppx_run_artifacts"]
-        self.assertEqual(len(references), 2 if self.operation == "artifact" else 1)
+        self.assertEqual(len(references), 3 if self.operation == "published" else
+                         2 if self.operation == "artifact" else 1)
         expected_contents = [seeded["confirmed_content"]]
-        if self.operation == "artifact":
+        if self.operation in ("artifact", "published"):
             expected_contents.append(seeded["target_content"])
         self.assertEqual(final["objects"], {
             hashlib.sha256(content.encode("utf-8")).hexdigest(): content.encode("utf-8").hex()
@@ -255,7 +271,7 @@ class StorageCrashBoundaryTests(unittest.TestCase):
 
         # put_artifact publishes CAS before its DB relation commits. Recover
         # the legitimate orphan through production GC, preserving confirmed CAS.
-        if operation == "artifact":
+        if operation in ("artifact", "published"):
             target_digest = hashlib.sha256(seeded["target_content"].encode("utf-8")).hexdigest()
             self.assertIn(target_digest, crashed["objects"])
             gc = self.complete("gc", "gc_after_kill")
@@ -271,6 +287,8 @@ class StorageCrashBoundaryTests(unittest.TestCase):
             self.assertEqual(inspected["store"]["snapshot_through"],
                              3 if operation == "event" and boundary == "after" else 1)
 
+        if operation == "published" and boundary == "after":
+            (self.root / "published.bin").unlink()
         retried = self.complete("retry", "retried_real_operation")
         final = self.facts("database_after_retry")
         self.assert_final(initial, final, seeded)
@@ -283,11 +301,23 @@ class StorageCrashBoundaryTests(unittest.TestCase):
                 {"run_sequence": sequence, "disposition": 2 if boundary == "after" else 1}
                 for sequence in (2, 3)
             ])
+        if operation == "published":
+            self.assertEqual(retried["receipt"]["reference_replay"], boundary == "after")
+            event_receipt = retried["receipt"]["event"]
+            self.assertEqual(event_receipt["batch_replay"], boundary == "after")
+            self.assertEqual(event_receipt["committed_through"], 2)
+            self.assertEqual(event_receipt["receipts"], [
+                {"run_sequence": 2, "disposition": 2 if boundary == "after" else 1}])
         replayed = self.complete("retry", "idempotent_replay")
         self.assertEqual(self.facts("database_after_replay"), final)
         if operation == "event":
             self.assertTrue(replayed["receipt"]["batch_replay"])
             self.assertEqual([item["disposition"] for item in replayed["receipt"]["receipts"]], [2, 2])
+        if operation == "published":
+            self.assertTrue(replayed["receipt"]["reference_replay"])
+            self.assertTrue(replayed["receipt"]["event"]["batch_replay"])
+            self.assertEqual(replayed["receipt"]["event"]["receipts"], [
+                {"run_sequence": 2, "disposition": 2}])
         self.complete("inspect", "fresh_production_integrity")
         self.assertEqual(self.facts("final_database"), final)
         self.assertFalse((self.root / "storage-cleanup.marker").exists())
@@ -302,6 +332,11 @@ class StorageCrashBoundaryTests(unittest.TestCase):
         for boundary in ("before", "after"):
             with self.subTest(boundary=boundary):
                 self.scenario("artifact", boundary)
+
+    def test_atomic_published_file_and_event_commit_boundaries(self) -> None:
+        for boundary in ("before", "after"):
+            with self.subTest(boundary=boundary):
+                self.scenario("published", boundary)
 
     def test_real_finalize_commit_boundaries(self) -> None:
         for boundary in ("before", "after"):
@@ -340,9 +375,9 @@ def main() -> int:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(StorageCrashBoundaryTests)
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         print(json.dumps({"valid": result.wasSuccessful(), "tests_run": result.testsRun,
-                          "scenarios": 8, "skipped": len(result.skipped),
+                          "scenarios": 10, "skipped": len(result.skipped),
                           "work_root": str(root), "evidence_retained": temporary is None}))
-        return 0 if result.wasSuccessful() and result.testsRun == 4 and not result.skipped else 1
+        return 0 if result.wasSuccessful() and result.testsRun == 5 and not result.skipped else 1
     finally:
         if temporary is not None:
             temporary.cleanup()
