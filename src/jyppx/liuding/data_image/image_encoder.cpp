@@ -137,8 +137,7 @@ void Append(void* context, void* data, int size) {
 }
 
 Tensor HwcBytes(const Tensor& pixels, const PixelSpec& spec,
-                std::uint8_t channels, std::size_t input_bytes,
-                std::size_t& working_bytes) {
+                std::uint8_t channels) {
   if (!pixels.device().is_cpu()) Invalid("encode.device", "a CPU tensor");
   if (pixels.scalar_type() != torch::kUInt8 || spec.dtype != torch::kUInt8 ||
       spec.range != PixelValueRange::unsigned_full_scale)
@@ -154,14 +153,18 @@ Tensor HwcBytes(const Tensor& pixels, const PixelSpec& spec,
   if (spec.layout == ImageLayout::hwc &&
       pixels.size(2) != static_cast<std::int64_t>(channels))
     Invalid("encode.channels", "tensor and PixelSpec channel counts agree");
-  if (input_bytes > std::numeric_limits<std::size_t>::max() / 2U)
-    Resource("encode.working", "size_t range");
-  working_bytes = pixels.is_contiguous() && spec.layout == ImageLayout::hwc
-                      ? 0U
-                      : input_bytes;
-  if (spec.layout == ImageLayout::chw)
-    return pixels.permute({1, 2, 0}).contiguous();
-  return pixels.contiguous();
+  const auto hwc =
+      spec.layout == ImageLayout::chw ? pixels.permute({1, 2, 0}) : pixels;
+  if (spec.color == PixelColorModel::bgr ||
+      spec.color == PixelColorModel::bgra) {
+    auto rgb = hwc.clone(torch::MemoryFormat::Contiguous);
+    auto* data = rgb.data_ptr<std::uint8_t>();
+    const auto count = static_cast<std::size_t>(rgb.numel());
+    for (std::size_t offset = 0; offset < count; offset += channels)
+      std::swap(data[offset], data[offset + 2U]);
+    return rgb;
+  }
+  return hwc.contiguous();
 }
 
 }  // namespace
@@ -187,15 +190,13 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
                                           channels, options.limits);
   if (pixels.numel() != static_cast<std::int64_t>(input_bytes))
     Invalid("encode.tensor", "tensor element count matches PixelSpec");
-  std::size_t staging_bytes = 0;
-  Tensor hwc;
   try {
-    hwc = HwcBytes(pixels, pixel_spec, channels, input_bytes, staging_bytes);
-    const auto writer_working =
+    // The writer's two-image workspace bound also covers the single HWC/color
+    // staging tensor. Admit it before any materializing tensor conversion.
+    const auto required_working =
         input_bytes > (std::numeric_limits<std::size_t>::max() / 2U)
             ? std::numeric_limits<std::size_t>::max()
             : input_bytes * 2U;
-    const auto required_working = std::max(staging_bytes, writer_working);
     if (required_working > options.limits.max_working_bytes)
       Resource("encode.working",
                std::to_string(options.limits.max_working_bytes),
@@ -207,9 +208,8 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
       decoded_lease = options.resource_budget->reserve(
           ImageResourceKind::decoded_bytes, input_bytes);
       pixel_lease = options.resource_budget->reserve(
-          ImageResourceKind::pixels,
-          static_cast<std::uint64_t>(width) *
-              static_cast<std::uint64_t>(height));
+          ImageResourceKind::pixels, static_cast<std::uint64_t>(width) *
+                                         static_cast<std::uint64_t>(height));
       scratch_lease = options.resource_budget->reserve(
           ImageResourceKind::codec_scratch_bytes, required_working);
     }
@@ -219,6 +219,7 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
             static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
       Resource("encode.backend_dimensions", "INT_MAX");
 
+    const auto hwc = HwcBytes(pixels, pixel_spec, channels);
     CallbackState state;
     state.limit = options.limits.max_output_bytes;
     state.bytes.reserve(std::min(options.limits.max_output_bytes,
@@ -251,7 +252,8 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
                             ? ImageFormat::png
                             : ImageFormat::jpeg,
                         static_cast<std::uint32_t>(width),
-                        static_cast<std::uint32_t>(height), channels,
+                        static_cast<std::uint32_t>(height),
+                        channels,
                         std::move(output_lease)};
   } catch (const c10::Error& error) {
     detail::rethrow_backend_error(

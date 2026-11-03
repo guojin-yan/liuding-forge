@@ -71,6 +71,92 @@ TEST(ImageEncoderTest, PngPreservesAlphaAndJpegRejectsIt) {
   EXPECT_THROW(encode_image(rgba, spec, jpeg), InvalidArgument);
 }
 
+TEST(ImageEncoderTest, BgrAndBgraPngPreserveColorAlphaAndCallerStorage) {
+  for (const auto channels : {3, 4}) {
+    for (const auto layout : {ImageLayout::hwc, ImageLayout::chw}) {
+      SCOPED_TRACE(channels);
+      SCOPED_TRACE(static_cast<int>(layout));
+      auto storage = torch::arange(2 * 6 * channels, torch::kUInt8)
+                         .reshape({2, 6, channels});
+      const auto original = storage.clone();
+      auto bgr = storage.slice(1, 0, 6, 2);
+      ASSERT_FALSE(bgr.is_contiguous());
+      auto expected = bgr.clone();
+      expected.select(2, 0).copy_(bgr.select(2, 2));
+      expected.select(2, 2).copy_(bgr.select(2, 0));
+      auto spec = RgbSpec(layout);
+      spec.color = channels == 3 ? PixelColorModel::bgr : PixelColorModel::bgra;
+      spec.alpha =
+          channels == 3 ? PixelAlphaMode::none : PixelAlphaMode::straight;
+      const auto input =
+          layout == ImageLayout::hwc ? bgr : bgr.permute({2, 0, 1});
+      const auto strides = input.strides().vec();
+      const auto encoded = encode_image(input, spec);
+      ImageDecodeOptions decode;
+      decode.layout = ImageLayout::hwc;
+      const auto result = decode_image(encoded.bytes, decode);
+      EXPECT_TRUE(torch::equal(result.tensor, expected));
+      EXPECT_EQ(result.channels, channels);
+      EXPECT_EQ(result.pixels.color,
+                channels == 3 ? PixelColorModel::rgb : PixelColorModel::rgba);
+      EXPECT_TRUE(torch::equal(storage, original));
+      EXPECT_EQ(input.strides().vec(), strides);
+    }
+  }
+}
+
+TEST(ImageEncoderTest, BgrJpegMatchesExplicitRgbForBothLayoutsAndOwnedResults) {
+  const auto rgb = torch::arange(12 * 10 * 3, torch::kInt64)
+                       .remainder(251)
+                       .to(torch::kUInt8)
+                       .reshape({12, 10, 3});
+  auto bgr = rgb.clone();
+  bgr.select(2, 0).copy_(rgb.select(2, 2));
+  bgr.select(2, 2).copy_(rgb.select(2, 0));
+  ImageEncodeOptions options;
+  options.format = ImageEncodeFormat::jpeg;
+  options.jpeg_quality = 93;
+  const auto expected = encode_image(rgb, RgbSpec(), options);
+  for (const auto layout : {ImageLayout::hwc, ImageLayout::chw}) {
+    auto spec = RgbSpec(layout);
+    spec.color = PixelColorModel::bgr;
+    const auto input =
+        layout == ImageLayout::hwc ? bgr : bgr.permute({2, 0, 1});
+    const auto actual = encode_image(input, spec, options);
+    EXPECT_EQ(actual.bytes, expected.bytes);
+    EXPECT_TRUE(torch::equal(bgr.select(2, 0), rgb.select(2, 2)));
+    EXPECT_TRUE(torch::equal(bgr.select(2, 2), rgb.select(2, 0)));
+  }
+}
+
+TEST(ImageEncoderTest, ColorConversionFailureReleasesEverySharedReservation) {
+  const auto image = torch::arange(24, torch::kUInt8).reshape({2, 4, 3});
+  const auto original = image.clone();
+  auto spec = RgbSpec();
+  spec.color = PixelColorModel::bgr;
+  ImageResourceBudgetLimits limits;
+  limits.max_codec_scratch_bytes = 47;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  ImageEncodeOptions options;
+  options.resource_budget = budget;
+  EXPECT_THROW(encode_image(image, spec, options), ResourceExhausted);
+  for (const auto kind :
+       {ImageResourceKind::decoded_bytes, ImageResourceKind::pixels,
+        ImageResourceKind::codec_scratch_bytes,
+        ImageResourceKind::encoded_bytes})
+    EXPECT_EQ(budget->usage(kind).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).peak, 0U);
+  EXPECT_TRUE(torch::equal(image, original));
+
+  options.resource_budget.reset();
+  options.limits.max_working_bytes = 47;
+  EXPECT_THROW(encode_image(image, spec, options), ResourceExhausted);
+  options.limits.max_working_bytes = 48;
+  const auto encoded = encode_image(image, spec, options);
+  EXPECT_FALSE(encoded.bytes.empty());
+  EXPECT_TRUE(torch::equal(image, original));
+}
+
 TEST(ImageEncoderTest, JpegRoundTripsDimensionsAndCanBeWrittenToFile) {
   auto image = torch::zeros({3, 4, 5}, torch::kUInt8);
   image[0].fill_(255);

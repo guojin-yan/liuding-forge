@@ -248,6 +248,8 @@ auto view = image::transform_sample(sample, sampled, joint_options);
 
 ## 异步图像输出与证据登记
 
+`encode_image` 将 CPU uint8 的 CHW/HWC 图像编码为 PNG 或 JPEG。BGR/BGRA 输入会在独立存储中重排为 RGB/RGBA，保留调用者像素、步幅和 PNG alpha；JPEG 拒绝 alpha。单次工作区上限和共享资源预约先于布局或颜色转换分配生效，成功结果持有编码字节租约直到消费。`write_image_file` 在编码成功后打开目标，但写入失败可能留下部分文件；需要暂存发布时使用 `ImageOutputSink`。
+
 `ImageOutputSink` 接受已编码的 CPU PNG/JPEG 字节，以单个写入线程和有界项数/字节容量发布本地文件；它不会隐式编码 Tensor 或执行 CUDA D2H。`submit` 的 `completion` 在文件成功发布后返回路径、字节数和 SHA-256。需要把每个成功文件关联到 run 时，使用 `submit_with_evidence(path, image, callback, sample_key, stop)`：调用方在回调中捕获稳定的 run、reference 和事件身份，并将发布结果传给 [`SQLiteRunStore::record_published_file_evidence`](local_run_storage.md)。`data_image` 组件不依赖 `experiment` 组件。
 
 回调仅在文件成功发布后由现有写入线程执行；采样跳过、容量丢弃、文件写入失败均不会调用它。已排队的提交同时返回文件 `completion` 和 `evidence_completion`，前者即使证据登记失败仍保留成功发布的路径与摘要，后者单独报告登记结果。无回调的 `submit` 只有文件 future；未入队时两个 future 都无效。回调执行前已释放编码缓冲及其资源租约，但该项仍占用 sink 的项数和容量直到回调结束；调用方须保证捕获对象活到回调完成。回调捕获对象的内存不计入编码字节预算，应保持有界并及时返回，不得重新调用同一 sink。回调失败计入失败统计并由 `flush/close` 传播；默认策略停止后续已排队写入，`continue_after_error` 可允许继续。

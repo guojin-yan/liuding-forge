@@ -75,6 +75,9 @@ struct EncodedImage {
  *
  * The encoder rejects CUDA tensors instead of transferring them implicitly.
  * PNG supports one through four uint8 channels; JPEG supports gray or RGB.
+ * BGR/BGRA inputs are reordered to RGB/RGBA in owned staging storage; the
+ * caller's pixels and PNG alpha values are preserved. Known workspace limits
+ * and shared reservations are checked before staging allocation.
  * It does not apply color management, EXIF, normalization or annotation
  * compositing. Use visualization::render_annotations before encoding an
  * annotated RGB image.
