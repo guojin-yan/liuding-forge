@@ -10,6 +10,7 @@
 #include <chrono>
 #include <iostream>
 #include <stop_token>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -46,6 +47,8 @@ int main(int argc, char** argv) {
   try {
     if (argc != 3) return 2;
     const std::string_view port_text(argv[1]), mode(argv[2]);
+    const bool queue_full = mode.starts_with("queue-full-");
+    const auto signal = queue_full ? mode.substr(11U) : mode;
     unsigned int port = 0U;
     const auto parsed = std::from_chars(
         port_text.data(), port_text.data() + port_text.size(), port);
@@ -64,31 +67,74 @@ int main(int argc, char** argv) {
     options.request_timeout =
         std::chrono::milliseconds(mode == "slow-response" ? 100 : 2000);
     if (mode == "max-seen") options.max_seen = 1U;
-    if (mode == "traces")
+    if (signal == "traces")
       options.mapping.clock_mappings = {
           {"producer", {10U, 1700000000000000000ULL}}};
     ex::OtlpHttpTelemetrySink sink(options);
     std::vector<forge::TelemetryEnvelope> batch{log_event(1U)};
-    if (mode == "pair-retry" || mode == "metrics") {
-      forge::TelemetryMetricPoint point;
-      point.definition.metric_id = "http.integration.loss";
-      point.observation = forge::make_telemetry_metric_value(0.125);
-      batch[0].payload = forge::TelemetryMetricBatch{{point}};
-    } else if (mode == "traces") {
-      batch[0].correlation = {.trace_id = "opaque-trace",
-                              .span_id = "opaque-span"};
-      // A completed span is observed at or after its end in the same clock.
-      batch[0].time.monotonic_time_ns = 20U;
-      batch[0].time.clock_id = "producer";
-      batch[0].payload =
-          forge::TelemetrySpan{.name = "transport-span",
-                               .start_monotonic_ns = 10U,
-                               .end_monotonic_ns = 20U,
-                               .status = forge::TelemetrySpanStatus::ok};
+    if (queue_full) {
+      require(signal == "logs" || signal == "metrics" || signal == "traces");
+      for (std::uint64_t sequence = 2U; sequence <= 16U; ++sequence)
+        batch.push_back(log_event(sequence));
     }
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(8);
-    if (mode == "invalid-batch" || mode == "max-seen") {
+    for (auto& event : batch) {
+      if (mode == "pair-retry" || signal == "metrics") {
+        forge::TelemetryMetricPoint point;
+        point.definition.metric_id = "http.integration.loss";
+        point.observation = forge::make_telemetry_metric_value(
+            0.125 * static_cast<double>(event.identity.sequence));
+        event.payload = forge::TelemetryMetricBatch{{point}};
+      } else if (signal == "traces") {
+        const auto suffix =
+            queue_full ? "-" + std::to_string(event.identity.sequence) : "";
+        event.correlation = {.trace_id = "opaque-trace" + suffix,
+                             .span_id = "opaque-span" + suffix};
+        // A completed span is observed at or after its end in the same clock.
+        event.time.monotonic_time_ns = 20U;
+        event.time.clock_id = "producer";
+        event.payload =
+            forge::TelemetrySpan{.name = "transport-span",
+                                 .start_monotonic_ns = 10U,
+                                 .end_monotonic_ns = 20U,
+                                 .status = forge::TelemetrySpanStatus::ok};
+      }
+    }
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(queue_full ? 40 : 8);
+    if (queue_full) {
+      std::string rejected_status;
+      try {
+        sink.emit(batch, {}, deadline);
+      } catch (const forge::IoError& error) {
+        if (error.message() == "OTLP collector returned HTTP status 503")
+          rejected_status = "503";
+        else if (error.message() == "OTLP collector returned HTTP status 429")
+          rejected_status = "429";
+        else
+          throw;
+      }
+      require(!rejected_status.empty());
+      const auto prefix = sink.flush().exported_events;
+      require(prefix > 0U && prefix < batch.size());
+      std::cout << "native-http-queue-full " << prefix << ' ' << batch.size()
+                << ' ' << rejected_status << std::endl;
+      // The supervising fixture drains the real Collector before retrying.
+      // Its process deadline also bounds this synchronization read.
+      std::string command;
+      require(static_cast<bool>(std::getline(std::cin, command)) &&
+              command == "retry");
+      const auto result = sink.emit(batch, {}, deadline);
+      require(result.dispositions.size() == batch.size());
+      for (std::size_t i = 0U; i < batch.size(); ++i)
+        require(result.dispositions[i] ==
+                (i < prefix ? forge::TelemetryDisposition::duplicate
+                            : forge::TelemetryDisposition::accepted));
+      const auto repeated = sink.emit(batch, {}, deadline);
+      require(repeated.dispositions.size() == batch.size());
+      for (const auto value : repeated.dispositions)
+        require(value == forge::TelemetryDisposition::duplicate);
+      require(sink.close().exported_events == batch.size());
+    } else if (mode == "invalid-batch" || mode == "max-seen") {
       batch.push_back(log_event(2U));
       if (mode == "invalid-batch") batch[1].identity.stream_id.clear();
       if (mode == "invalid-batch")

@@ -620,6 +620,17 @@ if(JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR OR JYPPX_LIUDING_TEST_OFFICIAL_TELEM
     set_tests_properties(NativeOtlpCollectorDurableQueue PROPERTIES
         LABELS "experiment;telemetry;otlp;native;official;integration;recovery"
         TIMEOUT 90 RUN_SERIAL TRUE)
+    add_test(NAME NativeOtlpCollectorQueueFull
+        COMMAND "${Python3_EXECUTABLE}" -I -B
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_queue_full.py"
+            --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>
+            --collector "${JYPPX_OTELCOL_EXECUTABLE}"
+            --artifacts "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-artifacts.json"
+            --config "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-durable-queue.yaml"
+            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/collector-queue-full")
+    set_tests_properties(NativeOtlpCollectorQueueFull PROPERTIES
+        LABELS "experiment;telemetry;otlp;native;official;integration;backpressure"
+        TIMEOUT 120 RUN_SERIAL TRUE)
 endif()
 if(TARGET jyppx::liuding::sdk)
     add_subdirectory(integration)
