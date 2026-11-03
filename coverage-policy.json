@@ -147,6 +147,7 @@
       }
     },
     "optim": {
+      "baseline_observation": "optim_gcc11_libtorch2141_audited_sources",
       "path_prefixes": [
         "include/jyppx/liuding/optim/",
         "src/jyppx/liuding/optim/"
@@ -158,13 +159,13 @@
           "minimum_percent": 78.297474
         },
         "function": {
-          "baseline_covered": 652,
-          "baseline_total": 750,
+          "baseline_covered": 661,
+          "baseline_total": 749,
           "minimum_percent": 86.933333
         },
         "branch": {
-          "baseline_covered": 7406,
-          "baseline_total": 19854,
+          "baseline_covered": 7456,
+          "baseline_total": 19820,
           "minimum_percent": 37.302307
         }
       }
@@ -457,6 +458,68 @@
     }
   },
   "observations": {
+    "optim_gcc11_libtorch2141_audited_sources": {
+      "commit": "27830e4acf60d354219aa10bd36bcf205d46f022",
+      "tree": "9d4310a3d3bba5114bed5b51e3bdc421acf732be",
+      "environment": "ubuntu-22.04-gcc-11.4-libtorch-2.14.1-cpu-debug-coverage",
+      "report": "coverage-summary.json",
+      "report_sha256": "20f06e16d9bfc9fda3d8daecf959d7bdbad111ee50545319bfa12ef7ca166fb7",
+      "targets": [
+        "optim"
+      ],
+      "source_verified_unchanged_through": "b44af1a3ad5f246d83b92c689ab9e4a9dd9aa064",
+      "prior_baseline": {
+        "commit": "f0418d3ce10a23b5d871a075abfa2de5430d57c5",
+        "environment": "ubuntu-22.04-gcc-11-libtorch-2.5.1-cpu-debug",
+        "function": {
+          "baseline_covered": 652,
+          "baseline_total": 750,
+          "minimum_percent": 86.933333
+        },
+        "branch": {
+          "baseline_covered": 7406,
+          "baseline_total": 19854,
+          "minimum_percent": 37.302307
+        }
+      },
+      "denominator_change": {
+        "function": {
+          "prior_total": 750,
+          "current_total": 749,
+          "removed_helpers": [
+            "stateful_optimizer_adapter.inc:state_field_equal",
+            "step_lr_scheduler.cpp:field_equal",
+            "sgd_adapter.cpp:state_field_equal"
+          ],
+          "added_contracts": [
+            "sgd_adapter.cpp:momentum_strides_match",
+            "linear_lr_scheduler.cpp:validate_step_mode"
+          ],
+          "source_commits": [
+            "57a55eed95e447c850def869267441e847b05d68",
+            "b55e44148a9755fb2a087bdda3944d554a553be8",
+            "745c988efa26c33ce26fecbb3b81f862ce2462d3"
+          ]
+        },
+        "branch": {
+          "prior_total": 19854,
+          "current_total": 19820,
+          "dependency_cfg_delta": -38,
+          "stateful_and_step_restore_refactor_delta": -12,
+          "sgd_stride_and_restore_refactor_delta": -4,
+          "linear_step_mode_delta": 20,
+          "native_adapter_dependency_delta": {
+            "adadelta": -10,
+            "lamb": -10,
+            "nadam": -10
+          },
+          "shared_inc_dependency_delta": -8,
+          "cause": "LibTorch intrusive_ptr copy and TensorOptions default constructors became noexcept; Optimizer groups are passed by const reference. Restored tensor vector-conversion EH arcs move between source lines with zero net change per shared instantiation.",
+          "verification": "Same current sources and GCC11 flags with retained2.5.1 and current2.14.1 headers reproduce every changed adapter denominator; reciprocal effective declaration overlays reproduce complete Adadelta CPP graphs. Shared-inc and Adagrad source-line arcs are audited against the complete retained XML. All diagnostic counters are zero; no runtime qualification inferred."
+        }
+      },
+      "status": "reviewed_source_and_dependency_cfg_denominator_changes; historical_minimum_percent_retained; saved_full_coverage_gate_still_failed"
+    },
     "core_gcc11_libtorch2141": {
       "commit": "27830e4acf60d354219aa10bd36bcf205d46f022",
       "tree": "9d4310a3d3bba5114bed5b51e3bdc421acf732be",
