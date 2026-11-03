@@ -6,7 +6,8 @@ function(jyppx_add_torch_runtime_dependency target_name)
     endif()
 
     get_filename_component(jyppx_torch_runtime_dir "${TORCH_LIBRARY}" DIRECTORY)
-    file(GLOB jyppx_torch_runtime_dlls "${jyppx_torch_runtime_dir}/*.dll")
+    file(GLOB jyppx_torch_runtime_dlls CONFIGURE_DEPENDS
+        "${jyppx_torch_runtime_dir}/*.dll")
     if(NOT jyppx_torch_runtime_dlls)
         return()
     endif()
@@ -21,6 +22,12 @@ function(jyppx_add_torch_runtime_dependency target_name)
             "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}")
         set(jyppx_runtime_stamp
             "${jyppx_runtime_output_dir}/jyppx-runtime-${jyppx_binary_dir_id}.stamp")
+        # A removed DLL no longer appears in DEPENDS. Track the selected set
+        # separately so switching SDKs also restages when the set shrinks.
+        set(jyppx_runtime_inputs
+            "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/jyppx-runtime-${jyppx_binary_dir_id}.inputs")
+        file(GENERATE OUTPUT "${jyppx_runtime_inputs}"
+            CONTENT "${jyppx_torch_runtime_dir}\n${jyppx_torch_runtime_dlls}\n")
         add_custom_command(
             OUTPUT "${jyppx_runtime_stamp}"
             COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -31,6 +38,7 @@ function(jyppx_add_torch_runtime_dependency target_name)
                 -P "${PROJECT_SOURCE_DIR}/cmake/StageTorchRuntime.cmake"
             COMMAND ${CMAKE_COMMAND} -E touch "${jyppx_runtime_stamp}"
             DEPENDS ${jyppx_torch_runtime_dlls}
+                "${jyppx_runtime_inputs}"
                 "${PROJECT_SOURCE_DIR}/cmake/StageTorchRuntime.cmake"
             COMMENT "Copying LibTorch runtime DLLs for ${CMAKE_CURRENT_BINARY_DIR}"
             VERBATIM

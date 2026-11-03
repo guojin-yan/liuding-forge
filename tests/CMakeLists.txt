@@ -13,6 +13,12 @@ endif()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    add_test(NAME TorchRuntimeStagingContract
+        COMMAND ${CMAKE_COMMAND} -E env "CMAKE_COMMAND=${CMAKE_COMMAND}"
+            ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_torch_runtime_staging.py")
+    set_tests_properties(TorchRuntimeStagingContract PROPERTIES
+        LABELS "hygiene;dependency;runtime" TIMEOUT 180)
     add_test(
         NAME CompatibilitySource
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/validation/compatibility.py
