@@ -1,5 +1,5 @@
 {
-  "audit_date": "2026-11-01",
+  "audit_date": "2026-11-02",
   "dependency_notice_states": {
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
@@ -24,7 +24,11 @@
     "opentelemetry-native-schema": "recorded",
     "telemetry-http-libcurl-linux-runtime": "pending",
     "telemetry-http-libcurl-linux-headers": "pending",
-    "telemetry-http-winhttp-windows": "pending"
+    "telemetry-http-winhttp-windows": "pending",
+    "models-reference-timm": "pending",
+    "models-reference-dinov3": "pending",
+    "models-reference-torchvision-0.24.1": "pending",
+    "models-reference-torchvision-0.29.1": "pending"
   },
   "files": [
     {
@@ -541,6 +545,380 @@
         "artifact_sha256": "cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05",
         "entry": "stb_image_write.h license block"
       }
+    },
+    {
+      "dependency_id": "models-reference-timm",
+      "path": "timm-af97f99e-LICENSE",
+      "size_bytes": 11343,
+      "sha256": "71b111620fa32c17a80ccd6db2da759d31a591e497d8b5f382174f59d1b59d49",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/huggingface/pytorch-image-models/tar.gz/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c",
+        "artifact_sha256": "4f29aa40de07f6a0a748023270a3d2d1b7049b4b700f827b29ad410fa4c09251",
+        "entry": "pytorch-image-models-af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "models-reference-timm",
+      "path": "models-timm-convnext-SOURCE-NOTICE.txt",
+      "size_bytes": 1960,
+      "sha256": "f59e19a7496a378711a2c60c367611044ddc7fbb252381f063eb339134744011",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/huggingface/pytorch-image-models/tar.gz/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c",
+        "artifact_sha256": "4f29aa40de07f6a0a748023270a3d2d1b7049b4b700f827b29ad410fa4c09251",
+        "entry": "pytorch-image-models-af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/timm/models/convnext.py",
+        "byte_offset": 0,
+        "byte_length": 1960
+      }
+    },
+    {
+      "dependency_id": "models-reference-timm",
+      "path": "models-timm-swin_transformer-SOURCE-NOTICE.txt",
+      "size_bytes": 838,
+      "sha256": "45ee0cc15578dc045f87eb927b2ef7c1a115d80fa73e4c23386063785c093ab0",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/huggingface/pytorch-image-models/tar.gz/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c",
+        "artifact_sha256": "4f29aa40de07f6a0a748023270a3d2d1b7049b4b700f827b29ad410fa4c09251",
+        "entry": "pytorch-image-models-af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/timm/models/swin_transformer.py",
+        "byte_offset": 0,
+        "byte_length": 838
+      }
+    },
+    {
+      "dependency_id": "models-reference-timm",
+      "path": "models-timm-vision_transformer-SOURCE-NOTICE.txt",
+      "size_bytes": 4497,
+      "sha256": "2047f359cf1965f2febecad095486565bac61b1b137c272b013bcdec38d97853",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/huggingface/pytorch-image-models/tar.gz/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c",
+        "artifact_sha256": "4f29aa40de07f6a0a748023270a3d2d1b7049b4b700f827b29ad410fa4c09251",
+        "entry": "pytorch-image-models-af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/timm/models/vision_transformer.py",
+        "byte_offset": 0,
+        "byte_length": 4497
+      }
+    },
+    {
+      "dependency_id": "models-reference-timm",
+      "path": "models-timm-efficientnet-SOURCE-NOTICE.txt",
+      "size_bytes": 2567,
+      "sha256": "ad99f4ffa0b1c44dd67fdd8eebd2dccf43f8e0eb75a012d94a98723e07e5fab2",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/huggingface/pytorch-image-models/tar.gz/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c",
+        "artifact_sha256": "4f29aa40de07f6a0a748023270a3d2d1b7049b4b700f827b29ad410fa4c09251",
+        "entry": "pytorch-image-models-af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c/timm/models/efficientnet.py",
+        "byte_offset": 0,
+        "byte_length": 2567
+      }
+    },
+    {
+      "dependency_id": "models-reference-dinov3",
+      "path": "dinov3-6876159a-LICENSE.md",
+      "size_bytes": 7503,
+      "sha256": "25d122eb8f5b880fd23c736fb6ea8018ee45c12237e00b8a86d14c653904999e",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/facebookresearch/dinov3/tar.gz/6876159a11b4df116f30f667f8c9888617df0751",
+        "artifact_sha256": "94da41da596633a73619078bb3bbde64ff3be95c55e8658638fa57c542cc4fe7",
+        "entry": "dinov3-6876159a11b4df116f30f667f8c9888617df0751/LICENSE.md"
+      }
+    },
+    {
+      "dependency_id": "models-reference-dinov3",
+      "path": "models-dinov3-vision_transformer-SOURCE-NOTICE.txt",
+      "size_bytes": 164,
+      "sha256": "6e63b883b13efd796cf79dd70364d554efa6c9411bd414b2acb16a81442bb5db",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/facebookresearch/dinov3/tar.gz/6876159a11b4df116f30f667f8c9888617df0751",
+        "artifact_sha256": "94da41da596633a73619078bb3bbde64ff3be95c55e8658638fa57c542cc4fe7",
+        "entry": "dinov3-6876159a11b4df116f30f667f8c9888617df0751/dinov3/models/vision_transformer.py",
+        "byte_offset": 0,
+        "byte_length": 164
+      }
+    },
+    {
+      "dependency_id": "models-reference-dinov3",
+      "path": "models-dinov3-convnext-SOURCE-NOTICE.txt",
+      "size_bytes": 164,
+      "sha256": "6e63b883b13efd796cf79dd70364d554efa6c9411bd414b2acb16a81442bb5db",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/facebookresearch/dinov3/tar.gz/6876159a11b4df116f30f667f8c9888617df0751",
+        "artifact_sha256": "94da41da596633a73619078bb3bbde64ff3be95c55e8658638fa57c542cc4fe7",
+        "entry": "dinov3-6876159a11b4df116f30f667f8c9888617df0751/dinov3/models/convnext.py",
+        "byte_offset": 0,
+        "byte_length": 164
+      }
+    },
+    {
+      "dependency_id": "models-reference-torchvision-0.24.1",
+      "path": "torchvision-0.24.1-LICENSE",
+      "size_bytes": 1517,
+      "sha256": "6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/pytorch/vision/tar.gz/refs/tags/v0.24.1",
+        "artifact_sha256": "071da2078600bfec4886efab77358c9329abfedcf1488b05879b556cb9b84ba7",
+        "entry": "vision-0.24.1/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "models-reference-torchvision-0.29.1",
+      "path": "torchvision-0.29.1-LICENSE",
+      "size_bytes": 1517,
+      "sha256": "6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/pytorch/vision/tar.gz/refs/tags/v0.29.1",
+        "artifact_sha256": "0a14655bd32095148d93fa595f93aba45dda0d13b25cc7fe86a041340e4a4862",
+        "entry": "vision-0.29.1/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "models-reference-timm",
+      "path": "convnext-upstream-MIT-LICENSE",
+      "size_bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/facebookresearch/ConvNeXt/048efcea897d999aed302f2639b6270aedf8d4c8/LICENSE",
+        "artifact_sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+      }
+    },
+    {
+      "dependency_id": "models-reference-timm",
+      "path": "swin-transformer-upstream-MIT-LICENSE",
+      "size_bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/microsoft/Swin-Transformer/f82860bfb5225915aca09c3227159ee9e1df874d/LICENSE",
+        "artifact_sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "nvidia-cuda-12.6.0-EULA.html",
+      "size_bytes": 83535,
+      "sha256": "f9f1d448ea3fc0cf46197c570774b7cfe672c0bbe9ac6456444d65a9b487ba5a",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://docs.nvidia.com/cuda/archive/12.6.0/eula/index.html",
+        "artifact_sha256": "f9f1d448ea3fc0cf46197c570774b7cfe672c0bbe9ac6456444d65a9b487ba5a"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "nvidia-cudnn-9.10.2-EULA.html",
+      "size_bytes": 43905,
+      "sha256": "f3763a5ae20aa135e6f0186ac64c22f61c049e5ef5b81122ea06dd4b9ce58707",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://docs.nvidia.com/deeplearning/cudnn/backend/v9.10.2/reference/eula.html",
+        "artifact_sha256": "f3763a5ae20aa135e6f0186ac64c22f61c049e5ef5b81122ea06dd4b9ce58707"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "libuv-1.40.0-LICENSE",
+      "size_bytes": 3143,
+      "sha256": "6d20216ae022fbeed23916f48508fd807ece3d8464992330643b0e64e5c0c24b",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://s3.amazonaws.com/ossci-windows/libuv-1.40.0-h8ffe710_0.tar.bz2",
+        "artifact_sha256": "e22158feea790e9c4e9f14a3dd85d9fdba8dcdc9b4a7b998e6adadfe8dee3865",
+        "entry": "info/licenses/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "libuv-1.40.0-tree-SOURCE-NOTICE.txt",
+      "size_bytes": 1336,
+      "sha256": "3603cdc5aab0dcb05e63affdfbd085f7bb5331cf1112559a1a09390aa9eee9fd",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/libuv/libuv/tar.gz/refs/tags/v1.40.0",
+        "artifact_sha256": "70fe1c9ba4f2c509e8166c0ca2351000237da573bb6c82092339207a9715ba6b",
+        "entry": "libuv-1.40.0/include/uv/tree.h",
+        "byte_offset": 0,
+        "byte_length": 1336
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "libuv-1.40.0-inet-SOURCE-NOTICE.txt",
+      "size_bytes": 849,
+      "sha256": "f1d738080d87a941fff655c38ab94429272f6c1edb082fdc9865bf312d7aa389",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/libuv/libuv/tar.gz/refs/tags/v1.40.0",
+        "artifact_sha256": "70fe1c9ba4f2c509e8166c0ca2351000237da573bb6c82092339207a9715ba6b",
+        "entry": "libuv-1.40.0/src/inet.c",
+        "byte_offset": 0,
+        "byte_length": 849
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "libuv-1.40.0-stdint-msvc2008-SOURCE-NOTICE.txt",
+      "size_bytes": 1690,
+      "sha256": "ef92dc978ac314610c3107abe91660930e3bd2fa80bd14d8dc118a3f63c020d7",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/libuv/libuv/tar.gz/refs/tags/v1.40.0",
+        "artifact_sha256": "70fe1c9ba4f2c509e8166c0ca2351000237da573bb6c82092339207a9715ba6b",
+        "entry": "libuv-1.40.0/include/uv/stdint-msvc2008.h",
+        "byte_offset": 0,
+        "byte_length": 1690
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "zlib-1.2.3-binary-README.txt",
+      "size_bytes": 3843,
+      "sha256": "fbf8ff4370b9d6b2be692deff4374255f4ed6d8bf84bf3904e3646f7dbe471a8",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://s3.amazonaws.com/ossci-windows/zlib123dllx64.zip",
+        "artifact_sha256": "fd324c6923aa4f45a60413665e0b68bb34a7779d0861849e02d2711ff8efb9a4",
+        "entry": "readme.txt"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "zlib-1.2.3-SOURCE-NOTICE.txt",
+      "size_bytes": 1333,
+      "sha256": "9d615faf2ad8701ee0719fa71c66678a477415ac6056fb710ccc9e8e8d3dac55",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/madler/zlib/tar.gz/refs/tags/v1.2.3",
+        "artifact_sha256": "2134178c123ea8252fd6afc9b794d9a2df480ccd030cc5db720a41883676fc2e",
+        "entry": "zlib-1.2.3/zlib.h",
+        "byte_offset": 0,
+        "byte_length": 1333
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "minizip-1.01e-zip-SOURCE-NOTICE.txt",
+      "size_bytes": 1493,
+      "sha256": "d7a52c6b13815e5a2a7e4b5ea416bf197c24e4b944f5f5c40f09f702a2ae4470",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/madler/zlib/tar.gz/refs/tags/v1.2.3",
+        "artifact_sha256": "2134178c123ea8252fd6afc9b794d9a2df480ccd030cc5db720a41883676fc2e",
+        "entry": "zlib-1.2.3/contrib/minizip/zip.h",
+        "byte_offset": 0,
+        "byte_length": 1493
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "minizip-1.01e-unzip-SOURCE-NOTICE.txt",
+      "size_bytes": 1462,
+      "sha256": "2588cae36c52e012e5dd8b5fc62be743cea17c330557e7bce924f445b5c439a6",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/madler/zlib/tar.gz/refs/tags/v1.2.3",
+        "artifact_sha256": "2134178c123ea8252fd6afc9b794d9a2df480ccd030cc5db720a41883676fc2e",
+        "entry": "zlib-1.2.3/contrib/minizip/unzip.h",
+        "byte_offset": 0,
+        "byte_length": 1462
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "minizip-1.01e-ioapi-SOURCE-NOTICE.txt",
+      "size_bytes": 190,
+      "sha256": "c870d1be756cf095582d45a76f7efb1dbbddb1d1543b6e0e5dfa11b3ce41931a",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/madler/zlib/tar.gz/refs/tags/v1.2.3",
+        "artifact_sha256": "2134178c123ea8252fd6afc9b794d9a2df480ccd030cc5db720a41883676fc2e",
+        "entry": "zlib-1.2.3/contrib/minizip/ioapi.h",
+        "byte_offset": 0,
+        "byte_length": 190
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "minizip-1.01e-crypt-SOURCE-NOTICE.txt",
+      "size_bytes": 1102,
+      "sha256": "689e81fcbbfbee0748f141a75fe1af7838e703b025ae755940a8c619f9018d98",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://codeload.github.com/madler/zlib/tar.gz/refs/tags/v1.2.3",
+        "artifact_sha256": "2134178c123ea8252fd6afc9b794d9a2df480ccd030cc5db720a41883676fc2e",
+        "entry": "zlib-1.2.3/contrib/minizip/crypt.h",
+        "byte_offset": 0,
+        "byte_length": 1102
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "nvidia-cuda-12.6-cudart-cupti-LICENSE.txt",
+      "size_bytes": 63021,
+      "sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-12.6.77-archive.zip",
+        "artifact_sha256": "7a313bc0c93b1a50bb03aa9783a199ae70c3b66e2d8084da65e8254a8577b925",
+        "entry": "cuda_cudart-windows-x86_64-12.6.77-archive/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "nvidia-cudnn-9.10.2.21-archive-LICENSE.txt",
+      "size_bytes": 29574,
+      "sha256": "295a1b7118d3417f5d6a943e5f87b59e2a0631fb277129c3b15dee6248adc7cf",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.10.2.21_cuda12-archive.zip",
+        "artifact_sha256": "c1a4567d822ebda7373fa1f19255dff4942302de741f830160b6c7d1fb31af23",
+        "entry": "cudnn-windows-x86_64-9.10.2.21_cuda12-archive/LICENSE"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "nvidia-nvtoolsext-legacy-SOURCE-NOTICE.txt",
+      "size_bytes": 1875,
+      "sha256": "2c63ce88215dba4ef25751e64e41496a58f95a841551d9021d9436f8dd915627",
+      "origin": {
+        "kind": "archive-excerpt",
+        "url": "https://ossci-windows.s3.us-east-1.amazonaws.com/builder/NvToolsExt.7z",
+        "artifact_sha256": "f0a4d2aa71466829e171e3a4365fbcfb6431a30fe43c4ffcd56c235a53731482",
+        "entry": "include/nvToolsExt.h",
+        "byte_offset": 0,
+        "byte_length": 1875
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "intel-openmp-2026.0.0-LICENSE.txt",
+      "size_bytes": 25224,
+      "sha256": "febfb69a5b058f55892dc7f341108a9ca29d50e9fe85723a57eebbb826436958",
+      "origin": {
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/2f/48/32b1c24d3f1e4f47495d29bda38002384ae03a9ab709b575dda31842c0a4/intel_openmp-2026.0.0-py2.py3-none-win_amd64.whl",
+        "artifact_sha256": "d1f18c4e1be8426da117252a4fb8e5d72be44807b0251fcea23e2fa7b7d85981",
+        "entry": "intel_openmp-2026.0.0.dist-info/LICENSE.txt"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-windows-cu126",
+      "path": "intel-openmp-2026.0.0-third-party-programs.txt",
+      "size_bytes": 31578,
+      "sha256": "f8ce918fe7311ce279e68380a2e233f8a42b1cd3dda8f4c48d6de97a0255c1d7",
+      "origin": {
+        "kind": "wheel-entry",
+        "url": "https://files.pythonhosted.org/packages/2f/48/32b1c24d3f1e4f47495d29bda38002384ae03a9ab709b575dda31842c0a4/intel_openmp-2026.0.0-py2.py3-none-win_amd64.whl",
+        "artifact_sha256": "d1f18c4e1be8426da117252a4fb8e5d72be44807b0251fcea23e2fa7b7d85981",
+        "entry": "intel_openmp-2026.0.0.data/data/share/doc/compiler/licensing/openmp/third-party-programs.txt"
+      }
     }
   ],
   "hash_algorithm": "sha256",
@@ -552,7 +930,11 @@
     "Native telemetry records retain exact nanopb, TensorBoard schema and OpenTelemetry schema upstream licenses for the selected immutable archives. Integrity and license retention are separate from runtime, wire-interoperability, vulnerability, transport, redistribution and release qualification. Generated schema source hashes and toolchain provenance are locked in scripts/telemetry/native_schema.lock.json; no Python SDK is a native product runtime dependency.",
     "Optional native OTLP HTTP records the same external WinHTTP and matched Ubuntu curl runtime/header package identities separately from the MNIST tool. Their notice states remain pending: retained package digests and system linking do not complete exact selected-build license/notice, transitive, TLS/CA, SDK terms, vulnerability or redistribution review. No additional license evidence or release qualification is asserted.",
     "zlib 1.3.2 的完整 LICENSE 按精确源归档成员原样留存，并与所选静态 SDK 原文逐字节对应；recorded 仅说明 notice 原文与来源记录完成，codec-only 子集的 CVE 适用性、编译和最终链接、传递依赖及发布资格继续待审。",
-    "stb_image_write 1.16 单独登记精确 vendored header 与完整 MIT/Unlicense 原文；已通过逐字节与 Git blob 校验绑定到不可变上游提交 1ee679ca2ef753a528db5ba6801e1067b40481b8，入库路径、长度及 SHA-256 保持一致。来源身份闭合不代表依赖安全、支持矩阵和发布资格。"
+    "stb_image_write 1.16 单独登记精确 vendored header 与完整 MIT/Unlicense 原文；已通过逐字节与 Git blob 校验绑定到不可变上游提交 1ee679ca2ef753a528db5ba6801e1067b40481b8，入库路径、长度及 SHA-256 保持一致。来源身份闭合不代表依赖安全、支持矩阵和发布资格。",
+    "Model reference archives pin the actual torchvision 0.24.1/0.29.1, timm af97f99e and Meta DINOv3 6876159a inputs. Their upstream license originals and selected original source-header excerpts are retained. Root licenses do not license every model weight or erase per-file notices; the C++ implementation provenance and applicable redistribution boundaries remain pending, so these dependency notice states are not promoted to recorded.",
+    "LicenseRef-DINOv3 identifies the complete retained DINOv3 License in dinov3-6876159a-LICENSE.md. It applies to upstream DINO Materials and their derivatives; retaining it does not determine whether particular project-authored C++ code is derivative, relicense the project, or qualify DINOv3-containing artifacts for release.",
+    "ConvNeXt and Swin MIT license originals are retained at the exact upstream document commits named in their origin URLs as context for the inherited notices in the pinned timm source. These document commits are not asserted to be the original source revisions from which timm or this project was derived.",
+    "CUDA 12.6.0 and cuDNN 9.10.2 EULA HTML snapshots identify terms relevant to the selected Windows cu126 baseline. They are upstream licensing documents, not the complete selected-binary third-party notice set, a redistribution allowlist, or evidence that all 37 staged LibTorch DLLs may be shipped. All LibTorch notice audits remain pending."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"

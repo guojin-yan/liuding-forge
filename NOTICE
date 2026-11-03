@@ -1,8 +1,19 @@
 JYPPX Training Framework
 Copyright 2025-2026 JYPPX Training Framework Contributors
 
-This product is licensed under the Apache License, Version 2.0.
+Project-authored contributions are licensed under the Apache License,
+Version 2.0.
 
 Third-party dependencies are not relicensed by this notice. Their licensing
 information and distribution requirements are summarized in
 THIRD_PARTY_NOTICES.md.
+
+This project uses PyTorch / LibTorch and uses torchvision, timm and Meta
+DINOv3 as model references. Their original copyright, attribution and license
+texts are retained under third_party/licenses/. DINOv3 has its own license,
+which covers model code as well as weights; it is not relicensed as Apache-2.0.
+The applicability of upstream source terms to the C++ model implementations
+remains under provenance review. See THIRD_PARTY_NOTICES.md and the model
+provenance document (third_party/licenses/MODEL_PROVENANCE.md in source;
+share/doc/jyppx/licenses/models/MODEL_PROVENANCE.md in models SDK installations).
+Upstream names identify references and do not imply endorsement or affiliation.

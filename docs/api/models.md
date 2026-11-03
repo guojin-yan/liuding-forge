@@ -2,6 +2,8 @@
 
 `models` 是默认关闭的可选组件。构建时设置 `JYPPX_LIUDING_BUILD_MODELS=ON`，安装后使用 `find_package(jyppx CONFIG REQUIRED COMPONENTS models)`，并链接 `jyppx::liuding::models`。组件直接依赖 `nn` 和 `interop`；模型构造不联网，不自动下载权重，也不执行图像解码、归一化或训练循环。
 
+使用或分发模型组件前，请查看 [模型来源与许可](../../third_party/licenses/MODEL_PROVENANCE.md)。DINOv3 上游代码和权重适用独立协议，相关 C++ 源码的来源判定仍为待核查；模型架构参考通过不表示已取得预训练权重或再分发资格。启用本组件的 SDK 会附带对应许可原文和来源说明。
+
 ## 创建模型
 
 公共入口为 `<jyppx/liuding/models/models.hpp>`。`list_models()` 和 `model_info()` 查询本地注册表，`create_model()` 返回拥有模型状态的 `nn::ModelAdapter`。构造使用 LibTorch 的当前随机数状态；需要可复现初始化时，应由调用方在构造前设置种子并记录设备和版本。

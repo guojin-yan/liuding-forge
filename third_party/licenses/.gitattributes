@@ -3,4 +3,5 @@
 # Repository-authored metadata follows the normal text policy.
 .gitattributes text eol=lf !whitespace
 README.md text eol=lf !whitespace
+MODEL_PROVENANCE.md text eol=lf !whitespace
 manifest.json text eol=lf !whitespace

@@ -2,6 +2,9 @@
 // Product: 六丁炼算 (Liuding Forge)
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
+// This license declaration covers project-authored contributions only.
+// Upstream references and DINOv3 terms: third_party/licenses/MODEL_PROVENANCE.md.
+// C++ source provenance and applicable upstream terms remain under review.
 
 #include "detail.hpp"
 #include "feature_adapters.hpp"

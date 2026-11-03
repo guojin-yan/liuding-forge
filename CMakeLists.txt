@@ -1101,6 +1101,54 @@ install(FILES
     DESTINATION share/doc/jyppx
     COMPONENT licenses
 )
+# Upstream notices accompany the selected SDK; retaining them does not qualify
+# the bundled runtime or pending model-source provenance for redistribution.
+if(Torch_VERSION VERSION_EQUAL "2.14.1")
+    install(FILES third_party/licenses/pytorch-2.14.1-build-5c488690-LICENSE.txt
+        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+elseif(Torch_VERSION VERSION_EQUAL "2.5.1")
+    install(FILES third_party/licenses/pytorch-2.5.1-LICENSE.txt
+        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+endif()
+if(WIN32 AND Torch_VERSION VERSION_EQUAL "2.14.1" AND
+   JYPPX_LIBTORCH_PACKAGE_TAG STREQUAL "cu126")
+    install(FILES
+        third_party/licenses/nvidia-cuda-12.6.0-EULA.html
+        third_party/licenses/nvidia-cudnn-9.10.2-EULA.html
+        third_party/licenses/nvidia-cuda-12.6-cudart-cupti-LICENSE.txt
+        third_party/licenses/nvidia-cudnn-9.10.2.21-archive-LICENSE.txt
+        third_party/licenses/nvidia-nvtoolsext-legacy-SOURCE-NOTICE.txt
+        third_party/licenses/intel-openmp-2026.0.0-LICENSE.txt
+        third_party/licenses/intel-openmp-2026.0.0-third-party-programs.txt
+        third_party/licenses/libuv-1.40.0-LICENSE
+        third_party/licenses/libuv-1.40.0-tree-SOURCE-NOTICE.txt
+        third_party/licenses/libuv-1.40.0-inet-SOURCE-NOTICE.txt
+        third_party/licenses/libuv-1.40.0-stdint-msvc2008-SOURCE-NOTICE.txt
+        third_party/licenses/zlib-1.2.3-binary-README.txt
+        third_party/licenses/zlib-1.2.3-SOURCE-NOTICE.txt
+        third_party/licenses/minizip-1.01e-zip-SOURCE-NOTICE.txt
+        third_party/licenses/minizip-1.01e-unzip-SOURCE-NOTICE.txt
+        third_party/licenses/minizip-1.01e-ioapi-SOURCE-NOTICE.txt
+        third_party/licenses/minizip-1.01e-crypt-SOURCE-NOTICE.txt
+        DESTINATION share/doc/jyppx/licenses COMPONENT licenses)
+endif()
+if(JYPPX_LIUDING_BUILD_MODELS)
+    install(FILES
+        third_party/licenses/MODEL_PROVENANCE.md
+        third_party/licenses/timm-af97f99e-LICENSE
+        third_party/licenses/torchvision-0.24.1-LICENSE
+        third_party/licenses/torchvision-0.29.1-LICENSE
+        third_party/licenses/convnext-upstream-MIT-LICENSE
+        third_party/licenses/swin-transformer-upstream-MIT-LICENSE
+        third_party/licenses/dinov3-6876159a-LICENSE.md
+        third_party/licenses/models-timm-convnext-SOURCE-NOTICE.txt
+        third_party/licenses/models-timm-swin_transformer-SOURCE-NOTICE.txt
+        third_party/licenses/models-timm-vision_transformer-SOURCE-NOTICE.txt
+        third_party/licenses/models-timm-efficientnet-SOURCE-NOTICE.txt
+        third_party/licenses/models-dinov3-vision_transformer-SOURCE-NOTICE.txt
+        third_party/licenses/models-dinov3-convnext-SOURCE-NOTICE.txt
+        DESTINATION share/doc/jyppx/licenses/models COMPONENT licenses)
+endif()
 if(JYPPX_LIUDING_BUILD_INTEROP OR JYPPX_LIUDING_BUILD_EXPERIMENT OR
    JYPPX_LIUDING_BUILD_DATA_IMAGE OR JYPPX_LIUDING_BUILD_ONNX_EXPORT OR
    JYPPX_LIUDING_BUILD_ONNX_RUNTIME)

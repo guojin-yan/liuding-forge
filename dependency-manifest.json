@@ -18,7 +18,17 @@
       },
       "license": {
         "spdx": [
-          "BSD-3-Clause"
+          "BSD-3-Clause",
+          "MIT",
+          "BSD-2-Clause",
+          "ISC",
+          "Zlib",
+          "LicenseRef-NVIDIA-CUDA",
+          "LicenseRef-NVIDIA-cuDNN",
+          "LicenseRef-NVIDIA-NvToolsExt-Legacy",
+          "LicenseRef-Intel-Developer-Tools",
+          "Apache-2.0 WITH LLVM-exception",
+          "LicenseRef-Intel-Simplified-Software-2022"
         ],
         "third_party_notice_audit": "pending"
       },
@@ -635,6 +645,114 @@
       ],
       "linkage": "dynamic-os-library-private-product-no-bundling",
       "support_status": "optional-preview-candidate-not-runtime-qualified-license-and-security-review-pending"
+    },
+    {
+      "id": "models-reference-timm",
+      "scope": "optional-models-upstream-reference-and-source-provenance-review",
+      "version": "af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c",
+      "source": {
+        "type": "pinned-upstream-reference-source-archive",
+        "url": "https://codeload.github.com/huggingface/pytorch-image-models/tar.gz/af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c",
+        "cache_file": "out/deps/legal-notices-20261102/models-reference-timm.tar.gz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "4f29aa40de07f6a0a748023270a3d2d1b7049b4b700f827b29ad410fa4c09251",
+        "size_bytes": 3922747
+      },
+      "license": {
+        "spdx": [
+          "Apache-2.0"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "development-reference-with-cpp-source-provenance-review-pending",
+      "support_status": "reference-only-not-a-pretrained-weight-or-redistribution-qualification"
+    },
+    {
+      "id": "models-reference-dinov3",
+      "scope": "optional-models-upstream-reference-and-source-provenance-review",
+      "version": "6876159a11b4df116f30f667f8c9888617df0751",
+      "source": {
+        "type": "pinned-upstream-reference-source-archive",
+        "url": "https://codeload.github.com/facebookresearch/dinov3/tar.gz/6876159a11b4df116f30f667f8c9888617df0751",
+        "cache_file": "out/deps/legal-notices-20261102/models-reference-dinov3.tar.gz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "94da41da596633a73619078bb3bbde64ff3be95c55e8658638fa57c542cc4fe7",
+        "size_bytes": 13333605
+      },
+      "license": {
+        "spdx": [
+          "LicenseRef-DINOv3"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "development-reference-with-cpp-source-provenance-review-pending",
+      "support_status": "reference-only-not-a-pretrained-weight-or-redistribution-qualification"
+    },
+    {
+      "id": "models-reference-torchvision-0.24.1",
+      "scope": "optional-models-upstream-reference-and-source-provenance-review",
+      "version": "0.24.1",
+      "source": {
+        "type": "pinned-upstream-reference-source-archive",
+        "url": "https://codeload.github.com/pytorch/vision/tar.gz/refs/tags/v0.24.1",
+        "cache_file": "out/deps/legal-notices-20261102/models-reference-torchvision-0.24.1.tar.gz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "071da2078600bfec4886efab77358c9329abfedcf1488b05879b556cb9b84ba7",
+        "size_bytes": 14588923
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "development-reference-with-cpp-source-provenance-review-pending",
+      "support_status": "reference-only-not-a-pretrained-weight-or-redistribution-qualification"
+    },
+    {
+      "id": "models-reference-torchvision-0.29.1",
+      "scope": "optional-models-upstream-reference-and-source-provenance-review",
+      "version": "0.29.1",
+      "source": {
+        "type": "pinned-upstream-reference-source-archive",
+        "url": "https://codeload.github.com/pytorch/vision/tar.gz/refs/tags/v0.29.1",
+        "cache_file": "out/deps/legal-notices-20261102/models-reference-torchvision-0.29.1.tar.gz"
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "0a14655bd32095148d93fa595f93aba45dda0d13b25cc7fe86a041340e4a4862",
+        "size_bytes": 14444371
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "windows",
+        "linux"
+      ],
+      "linkage": "development-reference-with-cpp-source-provenance-review-pending",
+      "support_status": "reference-only-not-a-pretrained-weight-or-redistribution-qualification"
     }
   ]
 }

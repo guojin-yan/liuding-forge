@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - 移除旧 Python 遥测进程入口和安装选项；TensorBoard/OTLP 导出使用原生 C++ 实现，官方 Python 映射仅保留为独立测试参考。
 
+- 保留 Windows cu126 随包 libuv 1.40.0、zlib 1.2.3/MiniZip、CUDA/cuDNN、旧 NvToolsExt 和 Intel OpenMP 的 15 份原始许可与通知，并纳入相应 SDK 安装；明确 DINOv3 官方源码使用及后续适配事实，保留独立来源、完整运行库许可与再分发条件的待判定边界。
+
+- 保留固定 torchvision、timm、Meta DINOv3 的许可原文与模型来源声明，并在启用 models 的 SDK 安装中附带；对支持的 LibTorch 版本安装对应 PyTorch 主许可，对 Windows 2.14.1 cu126 另附 NVIDIA 协议文本。源码来源和完整随包组件审查继续保留待核查状态。
+
 - 兼容矩阵增加 LibTorch 2.14.1 CPU / GCC 11.4.0 / Debug coverage 的显式未验证候选，并校验待验条目不能夹带验证成绩或授予支持；补充 Windows MSVC 19.44 与 Ubuntu cu126 开发切片的精确源码、组件和验证边界，保留旧兼容事实与版本选择。
 
 - 本地 typed 训练可声明有界输出引用，在原生成功退出且进程树清理确认后核对本 attempt 的类型、角色、实际大小与 CAS 内容；确认收据与原生结果和双流原子提交，重放只读验证。
@@ -68,6 +72,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - 增加原生 C++ ONNX Runtime 数值验证、实际 Provider/kernel trace 汇总及 CLI 验证制品关联；数值失败保留失败报告与 run，不声明任务质量或性能资格。
 
 ### Fixed
+
+- 明确 Apache-2.0 声明适用于项目自有贡献，第三方材料保留各自条款；修正 Pillow 13.0.0 主许可为 MIT-CMU，并补充代码、权重、数据集与运行库的授权边界。
 
 - SHA-256 按完整数据块处理输入，减少大检查点保存、读取和内容校验的开销；保持标准摘要、流式分块和非破坏性摘要读取语义。
 - 已发布文件登记在等待 SQLite writer 或同实例锁时响应取消与绝对截止时间，失败后仍可用原引用身份重试并重放确认结果。

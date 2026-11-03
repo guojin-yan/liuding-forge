@@ -1,28 +1,45 @@
 # Third-Party Notices
 
-JYPPX Training Framework is licensed under the Apache License, Version 2.0.
-Third-party software remains subject to its own license terms. A dependency's
-presence here does not mean its source or binaries are redistributed with every
-JYPPX package.
+本项目贡献者拥有并有权授权的贡献采用 Apache-2.0。第三方依赖、上游代码和其他材料保留各自适用条款，本声明不将其重新许可为 Apache-2.0。下列摘要不能代替许可原文；依赖在此列出不表示每个 SDK 都包含其源码或二进制。清单中的 `pending` 表示对应审查尚未完成。上游名称仅用于说明来源与兼容性，不表示关联、认证或背书。
 
 ## Runtime Dependency
 
 ### LibTorch / PyTorch
 
-- Project: https://github.com/pytorch/pytorch
-- Role: tensor, autograd, device and runtime backend
-- Upstream license: BSD-style license with separately licensed bundled
-  third-party components
-- The locked Windows `2.14.1+cu126` archive was inspected on 2026-10-21 and
-  contains no license-like entry. Its PyTorch source `LICENSE` at build commit
-  `5c4886908584029761b579af026dcfb627c84070` is retained in
-  `third_party/licenses/`, but does not close the bundled-component notice
-  audit. The candidate `2.5.1+cu124` installation has the same unresolved
-  notice boundary. Both manifest entries remain pending.
-- Ubuntu 开发构建独立锁定 Linux `2.14.1+cu126` 官方包，SHA-256 为 `78409e1d17eb439efab01bbdde385ef3531ac3fc651ceda1117317ae9903dc7c`。该摘要经过本地完整归档复核，不是厂商另行发布的摘要；二进制附带组件的 notice 审查仍为 pending，开发构建结果不代表 GA 资格。
-- Distribution rule: when a JYPPX artifact redistributes LibTorch binaries,
-  it must also redistribute the exact license and notice files supplied with
-  that LibTorch build. This summary does not replace those files.
+上游为 <https://github.com/pytorch/pytorch>，提供 Tensor、autograd、设备和运行后端。PyTorch 主体使用 BSD 风格许可，随包组件分别适用其自身条款。
+
+锁定的 Windows `2.14.1+cu126` ZIP 未包含许可证或 notice 文件；已保留其构建提交 `5c4886908584029761b579af026dcfb627c84070` 的 PyTorch 源码 `LICENSE`。候选 `2.5.1+cu124` 同样尚未完成随包组件审查；对应依赖状态继续为 `pending`。
+
+该 Windows cu126 包的本地完整 ZIP 摘要与锁定值一致，安装目录的 37 个 DLL 也与 ZIP 对应成员逐一一致。进一步核对确认 `uv.dll` 来自 libuv 1.40.0 `h8ffe710_0`，`zlibwapi.dll` 来自 `zlib123dllx64.zip`，`cudart64_12.dll` 来自 CUDA Runtime 12.6.77，`cupti64_2024.3.2.dll` 与 `nvperf_host.dll` 来自 CUPTI 12.6.80，旧 `nvToolsExt64_1.dll` 来自 PyTorch 构建使用的 `NvToolsExt.7z`；这些 DLL 均与相应来源包的成员逐字节一致。
+
+下表链接使用源码树路径；对应 SDK 中已安装原文的位置见本节后面的安装说明。
+
+| 随包组件 | 许可与保留原文 |
+| --- | --- |
+| libuv 1.40.0 | [主 MIT 原文](third_party/licenses/libuv-1.40.0-LICENSE)，另保留 [tree.h BSD 声明](third_party/licenses/libuv-1.40.0-tree-SOURCE-NOTICE.txt)、[inet.c ISC 声明](third_party/licenses/libuv-1.40.0-inet-SOURCE-NOTICE.txt)及 [旧 MSVC 头声明](third_party/licenses/libuv-1.40.0-stdint-msvc2008-SOURCE-NOTICE.txt)。旧头声明的留存不表示该头已编入当前 DLL。 |
+| zlib 1.2.3 / MiniZip 1.01e | [二进制包 README](third_party/licenses/zlib-1.2.3-binary-README.txt)、[Zlib 许可](third_party/licenses/zlib-1.2.3-SOURCE-NOTICE.txt)，以及 MiniZip 的 [zip](third_party/licenses/minizip-1.01e-zip-SOURCE-NOTICE.txt)、[unzip](third_party/licenses/minizip-1.01e-unzip-SOURCE-NOTICE.txt)、[ioapi](third_party/licenses/minizip-1.01e-ioapi-SOURCE-NOTICE.txt)、[crypt](third_party/licenses/minizip-1.01e-crypt-SOURCE-NOTICE.txt)原始声明。原生数据工具的 zlib 1.3.2 记录不能替代此处旧 DLL 的来源。 |
+| CUDA / CUPTI | `LicenseRef-NVIDIA-CUDA`：[已匹配 cudart/CUPTI 包的完整 LICENSE](third_party/licenses/nvidia-cuda-12.6-cudart-cupti-LICENSE.txt)，包含协议、补充和第三方声明；另保留 [CUDA 12.6.0 官方协议网页](third_party/licenses/nvidia-cuda-12.6.0-EULA.html)。 |
+| cuDNN 9.10.2.21 | `LicenseRef-NVIDIA-cuDNN`：[版本化归档 LICENSE](third_party/licenses/nvidia-cudnn-9.10.2.21-archive-LICENSE.txt)及 [9.10.2 官方协议网页](third_party/licenses/nvidia-cudnn-9.10.2-EULA.html)。 |
+| 旧 NvToolsExt | `LicenseRef-NVIDIA-NvToolsExt-Legacy`：[该旧包的 NVIDIA 专有声明](third_party/licenses/nvidia-nvtoolsext-legacy-SOURCE-NOTICE.txt)，指向相应 NVIDIA 协议；不能套用新版 NVTX3 的开源许可。 |
+| Intel OpenMP | 官方 2026.0.0 wheel 的[根 EULA](third_party/licenses/intel-openmp-2026.0.0-LICENSE.txt)（`LicenseRef-Intel-Developer-Tools`）与[完整第三方通知](third_party/licenses/intel-openmp-2026.0.0-third-party-programs.txt)。通知包括 LLVM OpenMP 的 `Apache-2.0 WITH LLVM-exception`、BSD/MIT 组件及 oneTBB/Thread Composability Manager 的 `LicenseRef-Intel-Simplified-Software-2022` 原文；准确适用范围见下文。 |
+
+本地两个 Intel OpenMP DLL 的版本资源为 `20260213`，有效签名属于 Intel；其全部 PE 节和去除签名封装差异后的文件主体，与官方 2026.0.0 和 2026.1.0 wheel 对应 DLL 一致，但完整文件摘要不一致，无法唯一确定其原始分发包版本。两份官方 wheel 的根 EULA 相同；保留这些参考原文不等于已经确认具体 DLL 的全部再分发资格。
+
+Intel 包内是混合条款，不能将整个 OpenMP 笼统归为专有 EULA 或纯 LLVM 许可。EULA 的 Materials 定义排除 Third Party Software，第 2.2 条明确这些软件按其独立条款管理；第三方通知中的 LLVM OpenMP 等开源授权不能被根 EULA 无差别覆盖。当前尚未将本地 DLL 的各组成部分与这些授权逐项对应，通知列出的全部组件也不表示每一项都实际编入当前 DLL。
+
+对实际由 Developer Tools EULA 管理的 Materials，该协议允许有条件的内部个人或企业开发使用；分发须限于已授权的 Redistributables，作为自有产品的一部分，二进制下游协议须禁止对这些 Intel 材料逆向、反编译和反汇编，并传递相应责任限制。两个 wheel 中未找到该定义所指的 `redist.txt`、`redist-rt.txt` 或同类文件清单；需要依赖该 EULA 的分发范围和合同条件仍未闭合，不能只附 EULA 就视为完成。
+
+Intel EULA 第 3.1(xi) 条限制将其 Materials 直接或间接用于特定 SaaS 或 service bureau 服务；这不自动给适用独立开源许可的部分新增同类限制。对外提供托管训练或推理服务时，应先确认实际使用部分的授权，再结合服务架构判断，不能笼统推导“整个 OpenMP 禁止 SaaS”或“根 EULA 的所有限制均不适用”。
+
+CUDA/cuDNN 并非一概禁止商业使用，但受各自 NVIDIA 协议的用途、平台和再分发条件限制。cuDNN 补充条款允许符合协议的应用分发 runtime `.dll` / `.so`，其开发用途限 NVIDIA GPU 系统；CUDA 需按相应可再分发清单核对实际文件。尚未确认 `nvperf_host.dll` 的具体分发授权范围，不能仅因它出现在开发运行目录就认定可随包转发。旧 NvToolsExt 的专有声明也不能替代对适用 NVIDIA 协议的核对。
+
+cuDNN 版本化 LICENSE 从官方 9.10.2.21 归档通过 HTTP Range 取得；索引中的整个归档摘要来自 NVIDIA 官方版本清单，本次未下载并重算该完整归档，也未逐个与该厂商包核对 cuDNN DLL 的 SHA-256。这一证据边界与上述已完整匹配的 DLL 不同。当前声明和依赖清单只列已识别条款，并非可任选其一或已穷尽 LibTorch 静态嵌入组件及全部第三方 notice，相关依赖继续为 `pending`。
+
+Ubuntu 开发构建独立锁定 Linux `2.14.1+cu126` 官方包，SHA-256 为 `78409e1d17eb439efab01bbdde385ef3531ac3fc651ceda1117317ae9903dc7c`。该摘要经过本地完整归档复核，不是厂商另行发布的摘要；二进制附带组件的 notice 审查仍为 `pending`，开发构建结果不代表 GA 资格。
+
+当前安装后的 CMake 包通过 `find_dependency(Torch REQUIRED)` 要求调用方提供外部 LibTorch。SDK 安装对 2.14.1 和 2.5.1 保留对应 PyTorch 源码主许可证；Windows 2.14.1 cu126 配置还附带上述已留存的随包运行库原文，位置为 `share/doc/jyppx/licenses/`。这些文件的留存不关闭随包组件审查，也不代替需要实际履行的下游合同条件。
+
+构建脚本会将 Torch `lib/` 下全部 DLL 暂存到开发运行目录；这个操作不构成再分发资格确认。若交付制品包含 LibTorch 二进制，必须按实际交付文件逐项满足相应许可和再分发条件，提供对应构建的完整版权、许可与 notice；不能直接以开发运行目录或这份摘要替代审核。
 
 ### ONNX Runtime（可选）
 
@@ -141,25 +158,29 @@ JYPPX package.
 
 ## Telemetry test references
 
-The official Python mappings are test references only and are not installed by
-the C++ SDK. The former Python runtime entry is retired. Its exact test wheel allowlist is
-`tests/reference/telemetry/requirements.lock`. The 2026-10-21 security remediation
-pins Werkzeug 3.1.9 (BSD-3-Clause), protobuf 6.33.5 (BSD-3-Clause), Pillow
-13.0.0 (HPND and separately licensed bundled components), and setuptools 83.0.0
-(MIT and separately licensed bundled vendors). Exact original license/notice
-entries for the selected Windows/Linux and universal wheels are retained
-under `third_party/licenses/optional-sidecar/`, with artifact and file digests
-in `third_party/licenses/manifest.json`. Preserve the full originals when
-redistributing those wheels; this list does not establish a complete transitive
-license review of the entire optional Python runtime.
+遥测官方参考仅用于维护测试，不由 C++ SDK 安装；精确 wheel 锁位于 `tests/reference/telemetry/requirements.lock`。旧 Python 产品 sidecar 已退役，产品导出使用 C++ worker。Werkzeug 3.1.9 与 protobuf 6.33.5 主许可为 BSD-3-Clause，Pillow 13.0.0 主许可为 MIT-CMU，setuptools 83.0.0 主许可为 MIT；Pillow 和 setuptools 的随包组件另外适用各自条款。
+
+同一锁定环境还包括 TensorBoard 2.20.0、opentelemetry-proto 1.37.0、absl-py 2.3.1、grpcio 1.75.1、tensorboard-data-server 0.7.2（主许可 Apache-2.0），Markdown 3.9、NumPy 2.3.3、MarkupSafe 3.0.2（主许可 BSD-3-Clause），packaging 25.0（Apache-2.0 或 BSD-2-Clause）及 typing-extensions 4.15.0（PSF-2.0）。根许可摘要不覆盖每个平台 wheel 的全部内置库；例如 NumPy 随包数值库、GCC runtime 例外和 Pillow 图像/字体库条款需要结合实际制品核对，不能据某个内置许可文本推导整个框架的许可。
+
+选定 Werkzeug、protobuf、Pillow 和 setuptools Windows/Linux 或通用 wheel 的原始许可与 notice 已保存在 `third_party/licenses/optional-sidecar/`，其制品和文件摘要见 `third_party/licenses/manifest.json`。分发这些 wheel 时应保留完整原文；其余依赖及整个 Python 运行环境的传递许可审查尚未完成，不能以这份主许可列表代替。
+
+## 模型参考与源码来源
+
+模型参考脚本使用 torchvision 0.24.1 和 0.29.1（BSD-3-Clause）、固定 timm 提交 `af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c`（根许可 Apache-2.0），以及固定 Meta DINOv3 提交 `6876159a11b4df116f30f667f8c9888617df0751`（自定义 DINOv3 License）。timm 中 ConvNeXt、Swin 等文件另保留 Meta、Microsoft 等原始来源声明；根许可不统一覆盖所有模型权重。
+
+对应许可原文、部分源文件头和架构参考关系见源码树中的 [模型来源与许可说明](third_party/licenses/MODEL_PROVENANCE.md)。启用 `models` 的 SDK 将该说明和相关原文安装到 `share/doc/jyppx/licenses/models/`。版权及署名包括 torchvision 的 Soumith Chintala、timm 的 Ross Wightman、ConvNeXt/DINOv3 的 Meta Platforms, Inc. and affiliates，以及 Swin Transformer 的 Microsoft；完整措辞以保留的原文为准。
+
+DINOv3 协议覆盖模型代码、权重及其他 DINO Materials，不仅限于预训练权重；使用、复制、修改和分发须遵守其协议。已确认参考测试执行官方源码，C++ ViT 和 DINOv3 ConvNeXt 后续按官方源码作过兼容适配；当前实现的完全独立来源尚未证实，是否复制、翻译或实质改写受保护表达仍需具体判断。分发适用材料或其衍生作品时须按 DINOv3 协议提供并附带协议原文，不能宣称已确认只适用 Apache-2.0。四个模型参考条目继续为 `pending`，具体边界见上述模型来源说明；关闭编译选项或随机参考测试通过均不能替代来源判定。
 
 ## Reference Projects
 
-Projects stored outside the Git repository under the local `refer/` directory
-are research inputs, not JYPPX dependencies or redistributed source. Their
-licenses do not change the JYPPX project license. Any future source reuse,
-linking or binary redistribution requires a separate provenance and license
-review before integration.
+Git 仓库外 `refer/` 目录中的项目是研究输入，不因存放于本机就成为随本仓库分发的依赖；是否产生许可义务取决于实际使用或复用内容。已识别的参考项目包括 Ultralytics（AGPL-3.0）、YoloSharp/SwapFighter（Apache-2.0）及 ggml（MIT）。实际复制、翻译、修改、链接或再分发时，应记录具体来源、适用版本和许可，并完成相应审查；不能据“仅作参考”推定复用内容已获宽松许可。
+
+## 数据集与模型权重
+
+框架代码、模型实现、具体权重和数据集分别核对权利来源。Fashion-MNIST 的 MIT 原文随数据准备配方保留；MNIST、CIFAR-10、Penn-Fudan 等材料仍须按各自发布方的实际授权和使用方式审查，下载 URL 或 SHA-256 只证明来源与文件身份，不授予数据使用或再分发权。
+
+当前仓库不分发预训练权重，Penn-Fudan 的图片、掩码及训练权重也在仓库外。后续交付预训练、微调、量化或转换后的权重及模型包时，必须保留具体制品所适用的授权和声明；转换为 safetensors、ONNX 或本项目格式不会自动改变原许可。模型注册、随机数值对齐或权重摘要登记不表示已经取得权重分发或商业用途资格。
 
 
 ## MNIST 可选 HTTPS 下载

@@ -114,4 +114,4 @@ The repository contains source code, tests, build/CI configuration, scripts, shi
 
 ## License and contribution
 
-The project is distributed under the [Apache License 2.0](LICENSE). Third-party dependencies retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Read [CONTRIBUTING.md](CONTRIBUTING.md) before contributing and include the tests and user-facing documentation required for code changes.
+Contributions owned by project contributors and within their authority to license are distributed under the [Apache License 2.0](LICENSE). Third-party dependencies, upstream materials and model weights retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [model provenance and licensing](third_party/licenses/MODEL_PROVENANCE.md). The project license does not replace DINOv3's separate terms or resolve the pending C++ source provenance review. Read [CONTRIBUTING.md](CONTRIBUTING.md) before contributing and include the tests and user-facing documentation required for code changes.

@@ -123,4 +123,4 @@ benchmark 操作说明见 [docs/benchmarks/README.md](docs/benchmarks/README.md)
 
 ## 许可与贡献
 
-本项目主体采用 [Apache License 2.0](LICENSE)。第三方依赖保留各自许可，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。贡献前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并为代码变更补充必要测试和面向使用者的文档。
+本项目贡献者拥有并有权授权的贡献采用 [Apache License 2.0](LICENSE)。第三方依赖、上游材料和模型权重保留各自许可，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与 [模型来源与许可](third_party/licenses/MODEL_PROVENANCE.md)；DINOv3 的独立条款及尚未完成的源码来源核查不由项目许可替代。贡献前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并为代码变更补充必要测试和面向使用者的文档。
