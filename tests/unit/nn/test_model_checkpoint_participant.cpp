@@ -324,4 +324,204 @@ TEST(ModelCheckpointParticipantTest,
                jyppx::liuding::CompatibilityError);
 }
 
+std::map<std::string, std::vector<std::byte>> raw_model_fields(
+    const MemoryStateStore& store) {
+  std::map<std::string, std::vector<std::byte>> result;
+  for (const auto& field : store.manifest().fields) {
+    const auto bytes = store.read_blob(field.name, field.max_bytes);
+    result.emplace(field.name,
+                   std::vector<std::byte>(bytes.begin(), bytes.end()));
+  }
+  return result;
+}
+
+class DenseScalarBufferModelImpl final : public torch::nn::Module {
+ public:
+  DenseScalarBufferModelImpl() {
+    for (const auto dtype :
+         {c10::ScalarType::Byte, c10::ScalarType::Char, c10::ScalarType::Short,
+          c10::ScalarType::Int, c10::ScalarType::Long, c10::ScalarType::Half,
+          c10::ScalarType::Float, c10::ScalarType::Double,
+          c10::ScalarType::ComplexHalf, c10::ScalarType::ComplexFloat,
+          c10::ScalarType::ComplexDouble, c10::ScalarType::Bool,
+          c10::ScalarType::BFloat16}) {
+      const auto name = "scalar_" + std::to_string(static_cast<int>(dtype));
+      register_buffer(name, torch::arange(6, torch::kFloat64)
+                                .to(dtype)
+                                .reshape({2, 3})
+                                .transpose(0, 1));
+    }
+    register_buffer("empty", torch::empty({0, 3}, torch::kFloat64));
+  }
+};
+
+TEST(ModelCheckpointParticipantTest,
+     RoundTripsDenseScalarTypesEmptyTensorsAndNoncontiguousViewsExactly) {
+  auto model = std::make_shared<DenseScalarBufferModelImpl>();
+  model->eval();
+  jyppx::liuding::nn::ModelCheckpointParticipant participant(state_for(model));
+  const auto saved = save_participant(participant);
+  const auto expected = raw_model_fields(saved);
+  for (const auto& item : model->named_buffers()) item.value().zero_();
+
+  participant.load_state(saved, jyppx::liuding::RestorePolicy::exact_only);
+
+  EXPECT_EQ(raw_model_fields(save_participant(participant)), expected);
+  EXPECT_FALSE(model->is_training());
+  for (const auto& item : model->named_buffers()) {
+    if (item.key() != "empty") EXPECT_FALSE(item.value().is_contiguous());
+  }
+}
+
+TEST(ModelCheckpointParticipantTest,
+     InvalidLastTensorPreservesEveryParameterBufferAndTopology) {
+  auto model = std::make_shared<ProbeModelImpl>();
+  model->eval();
+  jyppx::liuding::nn::ModelCheckpointParticipant participant(state_for(model));
+  auto saved = save_participant(participant);
+  model->linear->weight.detach().fill_(11.0F);
+  model->linear->bias.detach().fill_(13.0F);
+  model->offset.fill_(17.0F);
+  model->mask.fill_(false);
+  const auto before = raw_model_fields(save_participant(participant));
+  const auto last = saved.manifest().fields.back().name;
+  saved.mutable_blob(last).pop_back();
+
+  EXPECT_THROW(
+      participant.load_state(saved, jyppx::liuding::RestorePolicy::exact_only),
+      jyppx::liuding::SerializationError);
+
+  EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+  EXPECT_FALSE(model->is_training());
+}
+
+TEST(ModelCheckpointParticipantTest,
+     MalformedTopologyCannotPartiallyRestoreAnyModelState) {
+  auto model = std::make_shared<ProbeModelImpl>();
+  model->eval();
+  jyppx::liuding::nn::ModelCheckpointParticipant participant(state_for(model));
+  const auto source = save_participant(participant);
+  model->linear->weight.detach().fill_(19.0F);
+  model->linear->bias.detach().fill_(23.0F);
+  model->offset.fill_(29.0F);
+  model->mask.fill_(false);
+  const auto before = raw_model_fields(save_participant(participant));
+  enum class Rejection { malformed, incompatible, resource };
+  struct Mutation {
+    const char* name;
+    std::size_t offset;
+    std::size_t width;
+    std::uint64_t value;
+    Rejection rejection;
+  };
+  // The version-1 wire header is magic[8], u32 version, u32 count.
+  // Each entry begins role/u8, dtype/u8, grad/u8, reserved/u8,
+  // key-length/u32, rank/u32, alias-group/u32, offset/i64, bytes/u64.
+  const std::vector<Mutation> mutations{
+      {"future version", 8, 4, 2, Rejection::incompatible},
+      {"zero tensors", 12, 4, 0, Rejection::malformed},
+      {"excessive tensors", 12, 4, 0xffffffffU, Rejection::resource},
+      {"unknown role", 16, 1, 255, Rejection::malformed},
+      {"unknown dtype", 17, 1, 255, Rejection::malformed},
+      {"nonboolean grad flag", 18, 1, 2, Rejection::malformed},
+      {"unknown reserved flag", 19, 1, 1, Rejection::malformed},
+      {"unbounded key", 20, 4, 0xffffffffU, Rejection::resource},
+      {"unbounded rank", 24, 4, 0xffffffffU, Rejection::resource},
+      {"forward alias reference", 28, 4, 1, Rejection::malformed},
+      {"negative storage offset", 32, 8, 0xffffffffffffffffULL,
+       Rejection::malformed},
+      {"inconsistent tensor bytes", 40, 8, 17, Rejection::malformed},
+      {"unbounded tensor bytes", 40, 8, 0xffffffffffffffffULL,
+       Rejection::resource},
+      {"embedded NUL in key", 48, 1, 0, Rejection::malformed},
+  };
+  for (const auto& mutation : mutations) {
+    SCOPED_TRACE(mutation.name);
+    auto corrupted = source;
+    auto& bytes = corrupted.mutable_blob("topology");
+    ASSERT_LE(mutation.offset + mutation.width, bytes.size());
+    for (std::size_t i = 0; i < mutation.width; ++i) {
+      bytes[mutation.offset + i] =
+          static_cast<std::byte>(mutation.value >> (8 * i));
+    }
+    const auto restore = [&] {
+      participant.load_state(corrupted,
+                             jyppx::liuding::RestorePolicy::exact_only);
+    };
+    switch (mutation.rejection) {
+      case Rejection::malformed:
+        EXPECT_THROW(restore(), jyppx::liuding::SerializationError);
+        break;
+      case Rejection::incompatible:
+        EXPECT_THROW(restore(), jyppx::liuding::CompatibilityError);
+        break;
+      case Rejection::resource:
+        EXPECT_THROW(restore(), jyppx::liuding::ResourceExhausted);
+        break;
+    }
+    EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+    EXPECT_FALSE(model->is_training());
+  }
+}
+
+TEST(ModelCheckpointParticipantTest,
+     ExactResourceBoundsAreAcceptedAndSmallerLimitsPreserveTheModel) {
+  auto model = std::make_shared<ProbeModelImpl>();
+  auto view = state_for(model);
+  jyppx::liuding::nn::ModelCheckpointParticipant participant(view);
+  const auto& constant = participant;
+  ASSERT_EQ(&participant.state(), view.get());
+  ASSERT_EQ(&constant.state(), view.get());
+  const auto source = save_participant(participant);
+  const auto before = raw_model_fields(source);
+  auto limits = participant.options();
+  limits.max_tensors = participant.state().named_parameters().size() +
+                       constant.state().named_buffers().size();
+  limits.max_state_key_bytes = 1;
+  for (const auto& item : participant.state().named_parameters()) {
+    limits.max_state_key_bytes =
+        std::max(limits.max_state_key_bytes, item.key().size());
+  }
+  for (const auto& item : constant.state().named_buffers()) {
+    limits.max_state_key_bytes =
+        std::max(limits.max_state_key_bytes, item.key().size());
+  }
+  limits.max_topology_bytes = source.manifest().fields.front().max_bytes;
+  limits.max_tensor_bytes = 1;
+  limits.max_total_bytes = 0;
+  for (const auto& field : source.manifest().fields) {
+    limits.max_total_bytes += field.max_bytes;
+    if (field.name != "topology") {
+      limits.max_tensor_bytes =
+          std::max(limits.max_tensor_bytes, field.max_bytes);
+    }
+  }
+  jyppx::liuding::nn::ModelCheckpointParticipant bounded(view, limits);
+  EXPECT_EQ(raw_model_fields(save_participant(bounded)), before);
+  bounded.load_state(source, jyppx::liuding::RestorePolicy::exact_only);
+  EXPECT_EQ(raw_model_fields(save_participant(bounded)), before);
+
+  auto smaller = limits;
+  --smaller.max_tensors;
+  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(view, smaller),
+               jyppx::liuding::ResourceExhausted);
+  smaller = limits;
+  --smaller.max_state_key_bytes;
+  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(view, smaller),
+               jyppx::liuding::InvalidArgument);
+  smaller = limits;
+  --smaller.max_topology_bytes;
+  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(view, smaller),
+               jyppx::liuding::ResourceExhausted);
+  smaller = limits;
+  --smaller.max_tensor_bytes;
+  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(view, smaller),
+               jyppx::liuding::ResourceExhausted);
+  smaller = limits;
+  --smaller.max_total_bytes;
+  EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(view, smaller),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+}
+
 }  // namespace
