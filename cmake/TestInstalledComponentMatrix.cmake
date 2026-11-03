@@ -159,6 +159,7 @@ foreach(component IN LISTS components)
                 "-DCMAKE_PREFIX_PATH=${install_dir}"
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
                 "-DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+                "-DJYPPX_RUNTIME_STAGER=${source_dir}/cmake/StageTorchRuntime.cmake"
                 "-DJYPPX_CONSUMER_COMPONENT=${component}"
                 ${config_args}
         RESULT_VARIABLE configure_result

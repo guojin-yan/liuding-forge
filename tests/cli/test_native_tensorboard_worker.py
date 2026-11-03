@@ -337,7 +337,7 @@ def main():
         for package, version in (("tensorboard", "2.20.0"), ("protobuf", "6.33.5")):
             if importlib.metadata.version(package) != version:
                 raise AssertionError("Official reference dependency version mismatch")
-        if hashlib.sha256(args.sidecar.read_bytes()).hexdigest() != \
+        if hashlib.sha256(args.sidecar.read_bytes().replace(b"\r\n", b"\n")).hexdigest() != \
                 tensorboard_reference.REFERENCE_SIDECAR_SHA256:
             raise AssertionError("Pinned independent reference writer source drifted")
         case.sidecar = tensorboard_reference.module(

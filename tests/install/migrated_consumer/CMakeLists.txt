@@ -61,15 +61,14 @@ if(WIN32)
     if(NOT JYPPX_TORCH_RUNTIME_DIR)
         message(FATAL_ERROR "Windows consumer smoke requires JYPPX_TORCH_RUNTIME_DIR")
     endif()
-    file(GLOB JYPPX_CONSUMER_RUNTIME_DLLS
-        "${JYPPX_TORCH_RUNTIME_DIR}/*.dll"
-    )
+    if(NOT EXISTS "${JYPPX_RUNTIME_STAGER}")
+        message(FATAL_ERROR "Windows consumer requires StageTorchRuntime.cmake")
+    endif()
     add_custom_command(TARGET jyppx_migrated_api_consumer POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${JYPPX_CONSUMER_RUNTIME_DLLS}
-            "$<TARGET_FILE_DIR:jyppx_migrated_api_consumer>"
-        VERBATIM
-    )
+        COMMAND ${CMAKE_COMMAND}
+            "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+            "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_migrated_api_consumer>"
+            -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
 endif()
 
 enable_testing()

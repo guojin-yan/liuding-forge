@@ -18,7 +18,8 @@ import subprocess
 import sys
 import tempfile
 
-SIDECAR_SHA256 = "b2395df6fae29dd118359017241ffa51f5c9e0bc5d27ec3ea63ac474ecacc55e"
+# Pin Git's LF bytes while accepting a CRLF working-tree checkout.
+SIDECAR_SHA256 = "1fbc53b46e8d50614f7473377eb835dfecba7f4ae961c961121616c317d991cf"
 JSON_ATTRIBUTES = {"jyppx.identity", "jyppx.correlation", "jyppx.attributes",
                    "jyppx.envelope", "jyppx.metric_definition",
                    "jyppx.metric_context", "jyppx.clock_mapping"}
@@ -35,7 +36,7 @@ def compact(value) -> str:
 
 
 def reference(path: Path):
-    require(hashlib.sha256(path.read_bytes()).hexdigest() == SIDECAR_SHA256,
+    require(hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == SIDECAR_SHA256,
             "Official reference mapping drifted")
     spec = importlib.util.spec_from_file_location("liuding_otlp_codec_reference", path)
     require(spec is not None and spec.loader is not None, "Cannot load independent mapping oracle")

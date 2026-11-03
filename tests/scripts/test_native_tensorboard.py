@@ -25,7 +25,8 @@ import subprocess
 import sys
 import tempfile
 
-REFERENCE_SIDECAR_SHA256 = "b2395df6fae29dd118359017241ffa51f5c9e0bc5d27ec3ea63ac474ecacc55e"
+# Pin Git's LF bytes while accepting a CRLF working-tree checkout.
+REFERENCE_SIDECAR_SHA256 = "1fbc53b46e8d50614f7473377eb835dfecba7f4ae961c961121616c317d991cf"
 
 
 def require(condition: bool, message: str) -> None:
@@ -293,7 +294,7 @@ def main() -> int:
     for package, version in (("tensorboard", "2.20.0"), ("protobuf", "6.33.5")):
         require(importlib.metadata.version(package) == version, "Reference dependency version mismatch")
     require(masked_crc32c(b"123456789") == 0xC78AB0E5, "CRC32C reference self-check failed")
-    require(hashlib.sha256(args.sidecar.read_bytes()).hexdigest() == REFERENCE_SIDECAR_SHA256,
+    require(hashlib.sha256(args.sidecar.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == REFERENCE_SIDECAR_SHA256,
             "Official reference source drifted; review the mapping contract before updating its pin")
     sidecar = module(args.sidecar.resolve(), "liuding_official_telemetry_reference")
     with tempfile.TemporaryDirectory(prefix="liuding-native-tensorboard-") as temporary:

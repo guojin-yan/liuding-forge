@@ -20,19 +20,14 @@ if(WIN32)
     if(NOT JYPPX_TORCH_RUNTIME_DIR)
         message(FATAL_ERROR "Windows deployment consumer requires JYPPX_TORCH_RUNTIME_DIR")
     endif()
-    if(JYPPX_RUNTIME_STAGER AND EXISTS "${JYPPX_RUNTIME_STAGER}")
-        add_custom_command(TARGET jyppx_liuding_deployment_consumer POST_BUILD
-            COMMAND ${CMAKE_COMMAND}
-                "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
-                "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_liuding_deployment_consumer>"
-                -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
-    else()
-        file(GLOB JYPPX_CONSUMER_RUNTIME_DLLS "${JYPPX_TORCH_RUNTIME_DIR}/*.dll")
-        add_custom_command(TARGET jyppx_liuding_deployment_consumer POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${JYPPX_CONSUMER_RUNTIME_DLLS}
-                "$<TARGET_FILE_DIR:jyppx_liuding_deployment_consumer>" VERBATIM)
+    if(NOT EXISTS "${JYPPX_RUNTIME_STAGER}")
+        message(FATAL_ERROR "Windows consumer requires StageTorchRuntime.cmake")
     endif()
+    add_custom_command(TARGET jyppx_liuding_deployment_consumer POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+            "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_liuding_deployment_consumer>"
+            -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
     get_filename_component(JYPPX_DEPLOYMENT_INSTALL_PREFIX "${jyppx_DIR}/../../.." ABSOLUTE)
     set(JYPPX_DEPLOYMENT_RUNTIME_DIR "${JYPPX_DEPLOYMENT_INSTALL_PREFIX}/bin")
     if(NOT EXISTS "${JYPPX_DEPLOYMENT_RUNTIME_DIR}/onnxruntime.dll")

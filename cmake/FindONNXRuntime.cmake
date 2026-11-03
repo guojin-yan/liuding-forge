@@ -80,6 +80,11 @@ function(jyppx_add_onnx_runtime_dependency target)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRuntime_RUNTIME}" ${ONNXRuntime_PROVIDER_LIBRARIES}
                 "$<TARGET_FILE_DIR:${target}>" VERBATIM)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Installed executables resolve the SDK's bundled ORT without the
+        # original build tree or an external ONNX Runtime loader path.
+        set_property(TARGET ${target} APPEND PROPERTY
+            INSTALL_RPATH "$ORIGIN/../lib")
     endif()
 endfunction()
 

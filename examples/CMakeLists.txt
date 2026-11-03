@@ -140,7 +140,7 @@ if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::nn
     jyppx_add_torch_runtime_dependency(jyppx_liuding_search_trial)
     if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND
        AND TARGET jyppx_cli_recipe_gate)
-        add_executable(jyppx_cli_local_output_fixture EXCLUDE_FROM_ALL
+        add_executable(jyppx_cli_local_output_fixture
             "${PROJECT_SOURCE_DIR}/tests/cli/local_output_fixture.cpp")
         set_target_properties(jyppx_cli_local_output_fixture PROPERTIES
             OUTPUT_NAME liuding-forge-test-local-output-fixture)

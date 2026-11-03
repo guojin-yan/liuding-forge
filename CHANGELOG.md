@@ -79,6 +79,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- Linux 安装后的 CLI 通过相对运行库路径加载随包 ONNX Runtime，支持迁移安装目录；补齐默认构建中的本地训练输出测试夹具，官方遥测参考摘要按 Git 换行格式核对，Windows 安装消费者统一复用有所有权记录的 Torch 运行库部署，避免重复复制大型 DLL。
+
 - 原生 OTLP HTTP 校验分块响应的 `Trailer` 字段名声明，拒绝在尾部声明内容类型、内容编码或传输长度等确认元数据；失败事件可保持原字节重试。
 
 - 明确 Apache-2.0 声明适用于项目自有贡献，第三方材料保留各自条款；修正 Pillow 13.0.0 主许可为 MIT-CMU，并补充代码、权重、数据集与运行库的授权边界。

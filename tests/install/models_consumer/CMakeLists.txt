@@ -15,19 +15,14 @@ if(WIN32)
   if(NOT JYPPX_TORCH_RUNTIME_DIR)
     message(FATAL_ERROR "Windows models consumer requires JYPPX_TORCH_RUNTIME_DIR")
   endif()
-    if(JYPPX_RUNTIME_STAGER AND EXISTS "${JYPPX_RUNTIME_STAGER}")
-        add_custom_command(TARGET jyppx_liuding_models_consumer POST_BUILD
-            COMMAND ${CMAKE_COMMAND}
-                "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
-                "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_liuding_models_consumer>"
-                -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
-    else()
-        file(GLOB JYPPX_CONSUMER_RUNTIME_DLLS "${JYPPX_TORCH_RUNTIME_DIR}/*.dll")
-        add_custom_command(TARGET jyppx_liuding_models_consumer POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${JYPPX_CONSUMER_RUNTIME_DLLS}
-                "$<TARGET_FILE_DIR:jyppx_liuding_models_consumer>" VERBATIM)
+    if(NOT EXISTS "${JYPPX_RUNTIME_STAGER}")
+        message(FATAL_ERROR "Windows consumer requires StageTorchRuntime.cmake")
     endif()
+    add_custom_command(TARGET jyppx_liuding_models_consumer POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DJYPPX_RUNTIME_SOURCE_DIR=${JYPPX_TORCH_RUNTIME_DIR}"
+            "-DJYPPX_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:jyppx_liuding_models_consumer>"
+            -P "${JYPPX_RUNTIME_STAGER}" VERBATIM)
 endif()
 enable_testing()
 add_test(NAME Runs COMMAND jyppx_liuding_models_consumer)

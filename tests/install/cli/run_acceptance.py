@@ -5,7 +5,9 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -58,6 +60,19 @@ def main() -> None:
         assert help_data["usage"].startswith("liuding-forge "), help_data
         doctor = invoke("doctor", "--device", "cpu")
         assert doctor["checks"] and all(check["status"] == "pass" for check in doctor["checks"]), doctor
+        packaged_ort = list((args.prefix / "lib").glob("libonnxruntime*.so*"))
+        if sys.platform.startswith("linux") and packaged_ort:
+            relocated = Path(cwd) / "relocated SDK with spaces"
+            (relocated / "bin").mkdir(parents=True)
+            (relocated / "lib").mkdir()
+            relocated_cli = relocated / "bin" / cli.name
+            shutil.copy2(cli, relocated_cli)
+            for library in packaged_ort:
+                shutil.copy2(library, relocated / "lib" / library.name, follow_symlinks=False)
+            assert invoke("--version", executable=relocated_cli) == version
+            relocated_doctor = invoke("doctor", "--device", "cpu", executable=relocated_cli)
+            assert relocated_doctor["checks"] and all(
+                check["status"] == "pass" for check in relocated_doctor["checks"]), relocated_doctor
         print(json.dumps({"status": "passed", "installed_cli": str(cli),
                           "version": version["version"]}))
 
