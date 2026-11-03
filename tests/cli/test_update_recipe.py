@@ -651,6 +651,7 @@ class UpdateRecipe(RecipeCase):
 class TransferUpdateRecipe(RecipeCase):
     """Real fixed DINO weights; schedule/state-policy coverage, not task quality."""
     weights_root: Path
+    backbone_modes = ("frozen", "finetune")
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -684,7 +685,7 @@ class TransferUpdateRecipe(RecipeCase):
             "head_learning_rate": 0.01,
         } | SCHEDULE | {"warmup_updates": 2}
         cls.cases = {}
-        for mode in ("frozen", "finetune"):
+        for mode in cls.backbone_modes:
             config = template | {"backbone_mode": mode}
             if mode == "finetune":
                 config["backbone_learning_rate"] = 0.00005
@@ -831,5 +832,12 @@ if __name__ == "__main__":
         if arguments.transfer_update:
             EVIDENCE /= "transfer"
         EVIDENCE.mkdir(parents=True, exist_ok=False)
-    unittest.main(argv=[__file__, *rest], defaultTest=(
-        "TransferUpdateRecipe" if arguments.transfer_update else ("UpdateConfiguration", "UpdateRecipe")))
+    default_tests = ("UpdateConfiguration", "UpdateRecipe")
+    if arguments.transfer_update:
+        default_tests = []
+        for mode in TransferUpdateRecipe.backbone_modes:
+            name = f"TransferUpdateRecipe_{mode}"
+            globals()[name] = type(name, (TransferUpdateRecipe,),
+                {"__module__": __name__, "backbone_modes": (mode,)})
+            default_tests.append(name)
+    unittest.main(argv=[__file__, *rest], defaultTest=default_tests)

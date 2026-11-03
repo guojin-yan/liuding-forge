@@ -69,6 +69,12 @@ def checkpoint_sgd_control(path: Path) -> dict:
 
 
 class TransferRecipe(unittest.TestCase):
+    model_cases = (
+        ("resnet50", "resnet50.a1_in1k.safetensors", "resnet50-a1.weights.json"),
+        ("vit_small_patch14_dinov2", "dinov2-small.liuding.safetensors", "dinov2-small.weights.json"),
+    )
+    backbone_modes = ("frozen", "finetune")
+
     @classmethod
     def invoke(cls, *arguments: object, expected: int | tuple[int, ...] = 0) -> dict:
         result = subprocess.run(
@@ -111,15 +117,12 @@ class TransferRecipe(unittest.TestCase):
             "backbone_mode": "frozen", "batch_norm": "eval",
         }
         cls.cases = {}
-        for model, filename, descriptor in (
-            ("resnet50", "resnet50.a1_in1k.safetensors", "resnet50-a1.weights.json"),
-            ("vit_small_patch14_dinov2", "dinov2-small.liuding.safetensors", "dinov2-small.weights.json"),
-        ):
+        for model, filename, descriptor in cls.model_cases:
             weights = cls.weights_root / filename
             assert weights.is_file(), weights
             metadata = cls.base / descriptor
             metadata.write_bytes((cls.repo / "recipes/transfer-learning" / descriptor).read_bytes())
-            for mode in ("frozen", "finetune"):
+            for mode in cls.backbone_modes:
                 name = model + "-" + mode
                 config = cls.config | {
                     "model": model, "weights_file": str(weights),
@@ -490,5 +493,20 @@ if __name__ == "__main__":
     TransferRecipe.evidence = arguments.evidence
     TransferConfiguration.cli = TransferRecipe.cli
     TransferConfiguration.repo = TransferRecipe.repo
-    unittest.main(argv=[__file__, *rest], defaultTest=(
-        "TransferConfiguration" if arguments.contracts_only else "TransferRecipe"))
+    default_tests = ("TransferConfiguration",)
+    if not arguments.contracts_only:
+        default_tests = []
+        # Finish every assertion and class cleanup for one model/mode before
+        # retaining the next case's checkpoints. Training remains serial.
+        for model_case in TransferRecipe.model_cases:
+            for mode in TransferRecipe.backbone_modes:
+                name = f"TransferRecipe_{model_case[0]}_{mode}"
+                attributes = {"__module__": __name__, "model_cases": (model_case,),
+                              "backbone_modes": (mode,)}
+                if (model_case[0], mode) != ("resnet50", "frozen"):
+                    attributes["test_03_closed_config_descriptor_and_lineage"] = None
+                if (model_case[0], mode) != ("resnet50", "finetune"):
+                    attributes["test_04_explicit_training_batch_norm_updates"] = None
+                globals()[name] = type(name, (TransferRecipe,), attributes)
+                default_tests.append(name)
+    unittest.main(argv=[__file__, *rest], defaultTest=default_tests)

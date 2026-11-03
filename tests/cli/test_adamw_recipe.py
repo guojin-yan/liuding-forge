@@ -307,6 +307,7 @@ class Recovery(Case):
 class TransferRecovery(Case):
     """Four actual DINO updates qualify wiring/recovery, not task accuracy."""
     weights_root: Path
+    backbone_modes = ("frozen", "finetune")
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -339,7 +340,7 @@ class TransferRecovery(Case):
             "head_learning_rate": 0.001,
         } | OPTIONS
         cls.cases = {}
-        for mode in ("frozen", "finetune"):
+        for mode in cls.backbone_modes:
             config = template | {"backbone_mode": mode}
             if mode == "finetune":
                 config["backbone_learning_rate"] = 0.00005
@@ -476,5 +477,12 @@ if __name__ == "__main__":
         if args.transfer:
             EVIDENCE /= "transfer"
         EVIDENCE.mkdir(parents=True, exist_ok=False)
-    unittest.main(argv=[__file__, *rest], defaultTest=("Configuration" if args.contracts_only else
-                  "TransferRecovery" if args.transfer else ("Configuration", "Recovery")))
+    default_tests = ("Configuration",) if args.contracts_only else ("Configuration", "Recovery")
+    if args.transfer:
+        default_tests = []
+        for mode in TransferRecovery.backbone_modes:
+            name = f"TransferRecovery_{mode}"
+            globals()[name] = type(name, (TransferRecovery,),
+                {"__module__": __name__, "backbone_modes": (mode,)})
+            default_tests.append(name)
+    unittest.main(argv=[__file__, *rest], defaultTest=default_tests)
