@@ -220,6 +220,33 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn("dependency-audit.blocking-licenses", result["ga_blockers"])
         self.assertIn("dependency-audit.blocking-vulnerabilities", result["ga_blockers"])
 
+    def test_curl_license_acceptance_keeps_notice_and_security_gates(self) -> None:
+        self.dependencies["dependencies"][0]["license"]["spdx"] = ["curl"]
+        self.evidence["dependency_audit"]["status"] = "pending"
+        self.evidence["dependency_audit"]["blocking_vulnerabilities"] = [
+            "synthetic unresolved advisory: not a release audit"
+        ]
+        self.write_inputs()
+        self.candidate()
+        result = self.inspect()
+        self.assertFalse(result["ga_ready"])
+        self.assertNotIn("dependency.fixture.license-review-pending", result["ga_blockers"])
+        self.assertIn("dependency-audit.pending", result["ga_blockers"])
+        self.assertIn("dependency-audit.blocking-vulnerabilities", result["ga_blockers"])
+        self.assertIn("signature.pending", result["ga_blockers"])
+        sbom = json.loads((self.output / "sbom.cdx.json").read_bytes())
+        self.assertEqual(sbom["components"][0]["licenses"], [{"license": {"id": "curl"}}])
+
+        self.dependencies["dependencies"][0]["license"]["third_party_notice_audit"] = "pending"
+        self.evidence["dependency_audit"]["status"] = "passed"
+        self.write_inputs()
+        other = self.root / "curl-notice-pending"
+        self.candidate(other)
+        pending = self.inspect(other)
+        self.assertFalse(pending["ga_ready"])
+        self.assertIn("dependency.fixture.notice-pending", pending["ga_blockers"])
+        self.assertIn("dependency-audit.blocking-vulnerabilities", pending["ga_blockers"])
+
     def test_passed_check_requires_real_artifact_and_rejects_log_tamper(self) -> None:
         self.evidence["checks"][0]["artifacts"] = []
         self.write_inputs()

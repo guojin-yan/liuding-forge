@@ -70,7 +70,7 @@ STATES = {"passed", "pending", "failed"}
 # Extending it requires explicit license-policy review, not a manifest spelling.
 RELEASE_LICENSES = frozenset({
     "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "MIT", "ISC", "Zlib",
-    "BSL-1.0", "CC0-1.0", "Unlicense", "blessing",
+    "BSL-1.0", "CC0-1.0", "Unlicense", "blessing", "curl",
 })
 SEMVER = re.compile(
     r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"

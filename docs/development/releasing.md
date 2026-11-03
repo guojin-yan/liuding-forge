@@ -91,13 +91,11 @@ block GA. Required check IDs are:
 | `release-blockers` | No open P0/P1 release blockers |
 | `offline-rebuild` | Clean/offline rebuild equivalence evidence |
 
-The dependency audit must be `passed`, enumerate every exact manifest
-dependency ID, include actual audit artifacts and contain no unresolved
-`blocking_licenses` or `blocking_vulnerabilities`. A complete manifest is also
-required: every dependency must have a verified source digest, an exact URL and recorded notice audit. The conservative release license policy allows
-`Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `MIT`, `ISC`, `Zlib`, `BSL-1.0`,
-`CC0-1.0`, `Unlicense` and `blessing`. Other/custom licenses remain pending until
-a separate reviewed policy update; a manifest string cannot extend the policy. An empty blocking-vulnerability list is a **publisher audit declaration**, not an automatically performed or inferred CVE scan. The tools cannot interpret arbitrary test/scan logs or prove their truth; the external trusted signature authenticates the publisher's reviewed assertions and exact evidence bytes.
+依赖审计必须为 `passed`，枚举清单中每个精确依赖 ID、提供实际审计材料，并且没有未解决的 `blocking_licenses` 或 `blocking_vulnerabilities`。完整依赖清单中的每项必须具有核验过的来源摘要、精确 URL 和已记录的 notice 审计。
+
+发布许可策略接受 `Apache-2.0`、`BSD-2-Clause`、`BSD-3-Clause`、`MIT`、`ISC`、`Zlib`、`BSL-1.0`、`CC0-1.0`、`Unlicense`、`blessing` 和 `curl`；其他或自定义许可仍须单独审查，清单中的字符串不能扩展策略。`curl` 许可允许使用、修改和分发，但要求保留完整版权及许可声明，禁止未经许可使用权利人名称作宣传；依赖包的原文、其他文件和传递依赖的义务仍须分别核验。接受该许可不会关闭 notice、安全审计或签名门槛，也不授予任何实际运行或分发资格。
+
+发行版回补版本须同时绑定实际包摘要、完整发行版安全记录、源码补丁及适用配置；上游基础版本号或 `not-affected` 标签不能单独证明所选包安全。没有源码、编译配置或调用路径依据的例外继续登记待审。空漏洞阻断列表是**发布者审计声明**，工具不会自动扫描 CVE，也不能证明任意日志的真实性；外部可信签名仅认证发布者审查过的声明及其精确证据字节。
 
 ## Candidate preparation
 
