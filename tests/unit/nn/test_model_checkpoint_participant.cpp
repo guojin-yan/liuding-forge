@@ -11,9 +11,12 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <gtest/gtest.h>
+#include <limits>
 #include <map>
 #include <memory>
+#include <new>
 #include <span>
 #include <string>
 #include <string_view>
@@ -522,6 +525,174 @@ TEST(ModelCheckpointParticipantTest,
   EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(view, smaller),
                jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+}
+
+enum class StoreFault { allocation, backend, missing };
+
+[[noreturn]] void raise_store_fault(StoreFault fault) {
+  if (fault == StoreFault::allocation) throw std::bad_alloc();
+  TORCH_CHECK(false, "injected checkpoint store backend failure");
+}
+
+class FaultingStateWriter final : public jyppx::liuding::StateWriter {
+ public:
+  FaultingStateWriter(jyppx::liuding::StateManifest manifest, StoreFault fault)
+      : store_(std::move(manifest)), fault_(fault) {}
+
+  void write_blob(std::string_view name,
+                  std::span<const std::byte> bytes) override {
+    if (name == "tensor.0000000001") raise_store_fault(fault_);
+    store_.write_blob(name, bytes);
+    ++completed_writes;
+  }
+
+  std::size_t completed_writes = 0;
+
+ private:
+  MemoryStateStore store_;
+  StoreFault fault_;
+};
+
+class FaultingStateReader final : public jyppx::liuding::StateReader {
+ public:
+  FaultingStateReader(const MemoryStateStore& store, StoreFault fault)
+      : store_(store),
+        fault_(fault),
+        last_(store.manifest().fields.back().name) {}
+
+  const jyppx::liuding::StateManifest& manifest() const noexcept override {
+    return store_.manifest();
+  }
+
+  bool contains(std::string_view name) const override {
+    return !(fault_ == StoreFault::missing && name == last_) &&
+           store_.contains(name);
+  }
+
+  std::span<const std::byte> read_blob(std::string_view name,
+                                       std::uint64_t max_bytes) const override {
+    if (name == last_) raise_store_fault(fault_);
+    const auto bytes = store_.read_blob(name, max_bytes);
+    ++completed_reads;
+    return bytes;
+  }
+
+  mutable std::size_t completed_reads = 0;
+
+ private:
+  const MemoryStateStore& store_;
+  StoreFault fault_;
+  std::string last_;
+};
+
+TEST(ModelCheckpointParticipantTest,
+     StoreFailuresRetainTypedDiagnosticsAndEveryModelField) {
+  for (const auto fault : {StoreFault::allocation, StoreFault::backend}) {
+    for (const auto saving : {true, false}) {
+      SCOPED_TRACE(static_cast<int>(fault));
+      SCOPED_TRACE(saving);
+      auto model = std::make_shared<ProbeModelImpl>();
+      model->eval();
+      jyppx::liuding::nn::ModelCheckpointParticipant participant(
+          state_for(model));
+      const auto saved = save_participant(participant);
+      model->linear->weight.detach().fill_(31.0F);
+      model->linear->bias.detach().fill_(37.0F);
+      model->offset.fill_(41.0F);
+      model->mask.fill_(false);
+      const auto before = raw_model_fields(save_participant(participant));
+      FaultingStateWriter writer(participant.describe_state(), fault);
+      FaultingStateReader reader(saved, fault);
+
+      try {
+        if (saving)
+          participant.save_state(writer);
+        else
+          participant.load_state(reader,
+                                 jyppx::liuding::RestorePolicy::exact_only);
+        FAIL() << "store failure must be reported";
+      } catch (const jyppx::liuding::ResourceExhausted& error) {
+        EXPECT_EQ(fault, StoreFault::allocation);
+        EXPECT_EQ(error.details().component, "nn.model_checkpoint");
+        EXPECT_EQ(error.details().operation, saving ? "save" : "restore");
+        EXPECT_EQ(error.details().actual, "allocation failed");
+        EXPECT_FALSE(error.details().hint.empty());
+      } catch (const jyppx::liuding::BackendError& error) {
+        EXPECT_EQ(fault, StoreFault::backend);
+        EXPECT_EQ(error.details().component, "nn.model_checkpoint");
+        EXPECT_EQ(error.details().operation,
+                  saving ? "save model state" : "restore model state");
+        bool nested_backend = false;
+        try {
+          std::rethrow_if_nested(error);
+        } catch (const c10::Error& cause) {
+          nested_backend = true;
+          EXPECT_NE(std::string(cause.what())
+                        .find("injected checkpoint store backend failure"),
+                    std::string::npos);
+        }
+        EXPECT_TRUE(nested_backend);
+      }
+
+      EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+      EXPECT_FALSE(model->is_training());
+      if (saving)
+        EXPECT_EQ(writer.completed_writes, 2U);
+      else
+        EXPECT_EQ(reader.completed_reads, 4U);
+    }
+  }
+}
+
+TEST(ModelCheckpointParticipantTest,
+     EveryTopologyTruncationAndMissingFieldPreservesTheWholeModel) {
+  auto model = std::make_shared<ProbeModelImpl>();
+  model->eval();
+  jyppx::liuding::nn::ModelCheckpointParticipant participant(state_for(model));
+  const auto saved = save_participant(participant);
+  model->linear->weight.detach().fill_(43.0F);
+  model->linear->bias.detach().fill_(47.0F);
+  model->offset.fill_(53.0F);
+  model->mask.fill_(false);
+  const auto before = raw_model_fields(save_participant(participant));
+  const auto size = saved.read_blob("topology", 1024 * 1024).size();
+  for (std::size_t prefix = 0; prefix < size; ++prefix) {
+    SCOPED_TRACE(prefix);
+    auto truncated = saved;
+    truncated.mutable_blob("topology").resize(prefix);
+    EXPECT_THROW(participant.load_state(
+                     truncated, jyppx::liuding::RestorePolicy::exact_only),
+                 jyppx::liuding::SerializationError);
+    EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+    EXPECT_FALSE(model->is_training());
+  }
+  FaultingStateReader missing(saved, StoreFault::missing);
+  EXPECT_THROW(participant.load_state(
+                   missing, jyppx::liuding::RestorePolicy::exact_only),
+               jyppx::liuding::SerializationError);
+  EXPECT_EQ(missing.completed_reads, 0U);
+  EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+  EXPECT_FALSE(model->is_training());
+}
+
+TEST(ModelCheckpointParticipantTest,
+     RejectsZeroAndUnrepresentableWireLimitsBeforeModelAllocation) {
+  auto model = std::make_shared<ProbeModelImpl>();
+  auto view = state_for(model);
+  jyppx::liuding::nn::ModelCheckpointParticipant participant(view);
+  const auto before = raw_model_fields(save_participant(participant));
+  using Options = jyppx::liuding::nn::ModelCheckpointParticipantOptions;
+  const auto above_wire =
+      static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()) + 1;
+  for (const auto& options :
+       {Options{.max_tensors = 0}, Options{.max_state_key_bytes = 0},
+        Options{.max_topology_bytes = 0}, Options{.max_tensor_bytes = 0},
+        Options{.max_total_bytes = 0}, Options{.max_tensors = above_wire},
+        Options{.max_state_key_bytes = above_wire}}) {
+    EXPECT_THROW(jyppx::liuding::nn::ModelCheckpointParticipant(view, options),
+                 jyppx::liuding::InvalidArgument);
+    EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+  }
 }
 
 }  // namespace
