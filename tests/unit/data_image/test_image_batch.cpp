@@ -1348,6 +1348,246 @@ TEST(ImageBatchTransformTest, BgrAndBgraSwapAnalyticallyAndGrayRejectsSwap) {
                InvalidArgument);
 }
 
+TEST(ImageBatchTest, RejectsInconsistentExternalStorageBeforePublishingValue) {
+  const auto source = Batch({Photo(), Photo()});
+  const auto identity = image_batch_content_identity(source);
+  const auto reject = [&](ImageBatch candidate, const char* operation) {
+    try {
+      static_cast<void>(image_batch_value(candidate));
+      FAIL() << "accepted " << operation;
+    } catch (const InvalidArgument& error) {
+      EXPECT_EQ(error.details().operation, operation);
+    }
+    EXPECT_EQ(image_batch_content_identity(source), identity);
+  };
+  auto invalid = source;
+  invalid.layout = static_cast<ImageBatchLayout>(99);
+  reject(invalid, "batch.layout");
+  EXPECT_THROW(image_batch_schema(invalid, torch::kCPU), InvalidArgument);
+  invalid = source;
+  invalid.pixels.layout = ImageLayout::hwc;
+  reject(invalid, "batch.layout_pixels");
+  invalid = source;
+  invalid.image_list = {Photo().image};
+  reject(invalid, "batch.storage");
+  invalid = source;
+  invalid.images = source.images.transpose(2, 3);
+  reject(invalid, "batch.tensor");
+  invalid = source;
+  invalid.valid = torch::ones({2, 1, 3}, torch::kBool);
+  reject(invalid, "batch.valid_shape");
+  invalid = source;
+  invalid.items[1].mask.emplace();
+  reject(invalid, "batch.mask_presence");
+  invalid = source;
+  invalid.labels = torch::tensor({0, 0}, torch::kInt64);
+  invalid.label_offsets = {0, 3, 2};
+  reject(invalid, "batch.label_offsets");
+  ImageBatchLimits limits;
+  limits.max_dimension = 2;
+  EXPECT_THROW(image_batch_value(source, limits), ResourceExhausted);
+  limits = {};
+  limits.max_samples = 0;
+  EXPECT_THROW(image_batch_value(source, limits), InvalidArgument);
+
+  auto sample = Photo();
+  sample.paired_target = sample.image.clone();
+  sample.paired_target_pixels = sample.pixels;
+  const auto paired = Batch({sample, sample});
+  invalid = paired;
+  invalid.paired_images = paired.paired_images->slice(0, 0, 1);
+  reject(invalid, "batch.target_sample_axis");
+  invalid = paired;
+  invalid.paired_images = torch::zeros({2, 3, 1, 3}, torch::kUInt8);
+  reject(invalid, "batch.paired_shape");
+  sample = Photo();
+  Mask(sample);
+  const auto masks = Batch({sample});
+  invalid = masks;
+  invalid.masks = torch::zeros({1, 1, 3}, torch::kInt64);
+  reject(invalid, "batch.mask_shape");
+}
+
+TEST(ImageBatchTest, RejectsAnnotationContradictionsAndKeepsOriginalMetadata) {
+  auto sample = Photo();
+  auto annotation = Record(sample);
+  annotation->objects.push_back({.source_id = 1, .box = ImageBox{0, 0, 2, 1}});
+  const auto source = Batch({sample});
+  const auto identity = image_batch_content_identity(source);
+  const auto reject = [&](ImageBatch candidate, const char* operation) {
+    try {
+      static_cast<void>(image_batch_value(candidate));
+      FAIL() << "accepted " << operation;
+    } catch (const InvalidArgument& error) {
+      EXPECT_EQ(error.details().operation, operation);
+    }
+    EXPECT_EQ(image_batch_content_identity(source), identity);
+  };
+  auto invalid = source;
+  invalid.items[0].key.id.clear();
+  reject(invalid, "batch.sample_id");
+  invalid = source;
+  invalid.items[0].geometry.emplace(ImageExtent{1, 1});
+  reject(invalid, "batch.trace_canvas");
+  invalid = source;
+  invalid.items[0].categories =
+      std::make_shared<const std::vector<VisionCategory>>(
+          std::vector<VisionCategory>{{.source_id = 1, .name = ""}});
+  reject(invalid, "batch.category");
+  invalid = source;
+  invalid.items[0].categories =
+      std::make_shared<const std::vector<VisionCategory>>(
+          std::vector<VisionCategory>{{.source_id = 1,
+                                       .name = "person",
+                                       .keypoint_names = {"one"},
+                                       .skeleton = {{0, 1}}}});
+  reject(invalid, "batch.skeleton");
+  const auto change_record = [&](auto edit, const char* operation) {
+    auto candidate = source;
+    auto record =
+        std::make_shared<VisionAnnotationRecord>(*source.items[0].annotation);
+    edit(*record);
+    candidate.items[0].annotation = record;
+    reject(candidate, operation);
+  };
+  change_record([](auto& r) { r.width = 1; }, "batch.annotation_canvas");
+  change_record([](auto& r) { r.panoptic_mask_materialized = true; },
+                "batch.panoptic_binding");
+  change_record([](auto& r) { r.objects[0].category = 1; },
+                "batch.category_index");
+  change_record([](auto& r) { r.objects[0].area = -1; }, "batch.area");
+  change_record([](auto& r) { r.objects[0].box->x_min = -1; }, "batch.point");
+  change_record(
+      [](auto& r) {
+        r.objects[0].polygons = {{{0, 0}, {1, 0}, {2, 0}}};
+      },
+      "batch.polygon");
+  change_record(
+      [](auto& r) {
+        r.objects[0].oriented_box =
+            std::array<ImagePoint, 4>{{{0, 0}, {2, 0}, {1, 0.5}, {0, 2}}};
+      },
+      "batch.obb");
+  change_record(
+      [](auto& r) {
+        r.objects[0].rle = ImageMaskRle{1, 1, {1}};
+      },
+      "batch.rle_canvas");
+  change_record([](auto& r) { r.objects[0].mask_pixel_area = 7; },
+                "batch.mask_area");
+  change_record(
+      [](auto& r) {
+        r.objects[0].keypoints = {{{0, 0}, 2}, {{1, 1}, 2}};
+      },
+      "batch.pose_schema");
+  change_record(
+      [](auto& r) {
+        r.objects[0].keypoints = {{{0, 0}, 3}};
+      },
+      "batch.keypoint");
+  sample = Photo();
+  Mask(sample);
+  auto mask_batch = Batch({sample});
+  mask_batch.items[0].mask->encoding = static_cast<MaskEncoding>(99);
+  reject(mask_batch, "batch.mask_encoding");
+  mask_batch.items[0].mask->encoding = MaskEncoding::class_index;
+  mask_batch.items[0].mask->palette = {{{1, 2, 3}, 255}};
+  reject(mask_batch, "batch.palette");
+  auto panoptic = Batch({Panoptic()});
+  auto record =
+      std::make_shared<VisionAnnotationRecord>(*panoptic.items[0].annotation);
+  record->objects[0].source_id = 0;
+  panoptic.items[0].annotation = record;
+  reject(panoptic, "batch.panoptic_segment");
+}
+
+TEST(ImageBatchTest, RecursiveExternalValueRejectsNarrowingAndInvalidTypes) {
+  const auto source = Batch({Photo()});
+  const auto identity = image_batch_content_identity(source);
+  const auto tuple_field = [](const c10::IValue& tuple, std::size_t field,
+                              c10::IValue replacement) {
+    const auto& old = tuple.toTupleRef().elements();
+    std::vector<c10::IValue> fields(old.begin(), old.end());
+    fields.at(field) = std::move(replacement);
+    return c10::IValue(c10::ivalue::Tuple::create(std::move(fields)));
+  };
+  const auto reject_pixel = [&](std::size_t field, std::int64_t replacement) {
+    auto value = image_batch_value(source);
+    auto dictionary = value.toGenericDict();
+    dictionary.insert_or_assign(
+        "pixels", tuple_field(dictionary.at("pixels"), field, replacement));
+    EXPECT_THROW(image_batch_from_value(value), InvalidArgument);
+  };
+  reject_pixel(0, -1);
+  reject_pixel(1, 99);
+  reject_pixel(2, 99);
+  reject_pixel(3, 99);
+  const auto reject_item = [&](std::size_t field, c10::IValue replacement) {
+    auto value = image_batch_value(source);
+    auto items = value.toGenericDict().at("items").toList();
+    items.set(0, tuple_field(items.get(0), field, std::move(replacement)));
+    EXPECT_THROW(image_batch_from_value(value), InvalidArgument);
+  };
+  reject_item(0, std::string{});
+  reject_item(3, 0);
+  reject_item(4, std::numeric_limits<std::int64_t>::max());
+  auto value = image_batch_value(source);
+  auto dict = value.toGenericDict();
+  auto item = dict.at("items").toList().get(0);
+  reject_item(10, tuple_field(item.toTupleRef().elements()[10], 6, 129));
+  value = image_batch_value(source);
+  value.toGenericDict().insert_or_assign("valid", c10::IValue(torch::Tensor{}));
+  EXPECT_THROW(image_batch_from_value(value), InvalidArgument);
+  value = image_batch_value(source);
+  value.toGenericDict().insert_or_assign("unexpected",
+                                         c10::IValue(c10::Device(c10::kCPU)));
+  EXPECT_THROW(image_batch_from_value(value), InvalidArgument);
+  auto ragged = Batch({Photo()}, {.layout = ImageBatchLayout::ragged});
+  value = image_batch_value(ragged);
+  value.toGenericDict().insert_or_assign(
+      "images", c10::impl::GenericList(c10::AnyType::get()));
+  EXPECT_THROW(image_batch_from_value(value), InvalidArgument);
+  value = image_batch_value(source);
+  ImageBatchLimits limits;
+  limits.max_string_bytes = 4;
+  EXPECT_THROW(image_batch_from_value(value, limits), ResourceExhausted);
+  EXPECT_EQ(image_batch_content_identity(source), identity);
+  EXPECT_EQ(image_batch_content_identity(
+                image_batch_from_value(image_batch_value(source))),
+            identity);
+}
+
+TEST(ImageBatchTransformTest,
+     IdentityTracksPaddedExtentAndRejectsInvalidPolicies) {
+  ImageCollateOptions collate;
+  collate.layout = ImageBatchLayout::pad;
+  collate.padded_extent = ImageExtent{4, 4};
+  const auto original = image_batch_identity(collate);
+  collate.padded_extent->height = 5;
+  EXPECT_NE(image_batch_identity(collate), original);
+  collate.padded_extent->width = 0;
+  EXPECT_THROW(image_batch_identity(collate), InvalidArgument);
+  collate = {};
+  collate.layout = static_cast<ImageBatchLayout>(99);
+  EXPECT_THROW(image_batch_identity(collate), InvalidArgument);
+  ImageBatchTransformOptions options;
+  options.image.scale = static_cast<BatchPixelScale>(99);
+  EXPECT_THROW(image_batch_identity({}, options), InvalidArgument);
+  const auto source = Batch({Photo()});
+  EXPECT_THROW(transform_image_batch(source, options), InvalidArgument);
+  options = {};
+  options.image.mean = {0, 0, 0};
+  options.image.std = {1, 1, 1};
+  const auto normalized = image_batch_identity({}, options);
+  options.image.std[0] = 2;
+  EXPECT_NE(image_batch_identity({}, options), normalized);
+  auto sample = Photo();
+  sample.image = sample.image.to(torch::kFloat32);
+  sample.pixels.dtype = torch::kFloat32;
+  sample.pixels.range = PixelValueRange::unit_interval;
+  EXPECT_THROW(Batch({sample}, {.image_padding = 2}), InvalidArgument);
+}
+
 TEST(ImageBatchCUDATest, FinalBatchPinTransferNumericAndRaggedMetadata) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
   for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,

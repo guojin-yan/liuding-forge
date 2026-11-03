@@ -7,6 +7,7 @@
 
 #include <jyppx/liuding/data_image/manifests.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -390,6 +391,81 @@ TEST(ImageManifestTest,
   EXPECT_THROW(index_image_folder(fixture.path() / "missing"),
                jyppx::liuding::IoError);
   EXPECT_EQ(index_image_folder(fixture.path()).records().size(), 3U);
+}
+
+TEST(ImageManifestTest, InvalidOptionsAndClassificationSchemaFailBeforeIndex) {
+  using jyppx::liuding::InvalidArgument;
+  using jyppx::liuding::SerializationError;
+  for (int field = 0; field < 7; ++field) {
+    auto options = Classes();
+    if (field == 0) options.limits.max_input_bytes = 0;
+    if (field == 1) options.limits.max_depth = 129;
+    if (field == 2) options.max_record_bytes = 0;
+    if (field == 3) options.max_labels_per_record = 0;
+    if (field == 4) options.categories.clear();
+    if (field == 5) options.max_index_bytes = 0;
+    if (field == 6) options.limits.max_categories = 0;
+    EXPECT_THROW(parse_manifest("path,labels\na.png,cat\n", ManifestFormat::csv,
+                                ManifestTask::classification, options),
+                 InvalidArgument)
+        << field;
+  }
+  EXPECT_THROW(parse_manifest("path,labels\na.png,cat\n",
+                              static_cast<ManifestFormat>(99),
+                              ManifestTask::classification, Classes()),
+               InvalidArgument);
+  EXPECT_THROW(parse_manifest("path,labels\na.png,cat\n", ManifestFormat::csv,
+                              static_cast<ManifestTask>(99), Classes()),
+               InvalidArgument);
+  EXPECT_THROW(
+      parse_manifest("input,target\na.png,b.png\n", ManifestFormat::csv,
+                     ManifestTask::paired, Classes()),
+      InvalidArgument);
+  auto options = ManifestReadOptions{};
+  options.multi_label = true;
+  EXPECT_THROW(
+      parse_manifest("input,target\na.png,b.png\n", ManifestFormat::csv,
+                     ManifestTask::paired, options),
+      InvalidArgument);
+  for (const auto* json : {"{\"path\":\"a.png\",\"wrong\":[\"cat\"]}",
+                           "{\"path\":\"a.png\",\"labels\":\"cat\"}",
+                           "{\"path\":\"a.png\",\"labels\":[\"cat\"]",
+                           "{\"path\":\"a\\u0001.png\",\"labels\":[\"cat\"]}"})
+    EXPECT_THROW(parse_manifest(json, ManifestFormat::jsonl,
+                                ManifestTask::classification, Classes()),
+                 SerializationError)
+        << json;
+  EXPECT_THROW(
+      parse_manifest("path,labels\na.png,cat\rbroken", ManifestFormat::csv,
+                     ManifestTask::classification, Classes()),
+      SerializationError);
+  EXPECT_THROW(parse_manifest("input,target\na.png,\n", ManifestFormat::csv,
+                              ManifestTask::paired),
+               SerializationError);
+}
+
+TEST(ImageManifestTest,
+     RichCategoryIndexIsOwnedAndFolderCaseCollisionsAreExplicit) {
+  auto options = Classes();
+  options.categories[0].keypoint_names = {"left", "right"};
+  options.categories[0].skeleton = {{0, 1}};
+  const auto index =
+      parse_manifest("path,labels\na.png,cat\n", ManifestFormat::csv,
+                     ManifestTask::classification, options);
+  options.categories[0].skeleton.clear();
+  EXPECT_EQ(index.categories()[0].keypoint_names,
+            (std::vector<std::string>{"left", "right"}));
+  EXPECT_EQ(index.categories()[0].skeleton,
+            (std::vector<std::array<std::size_t, 2>>{{0, 1}}));
+  TempDirectory fixture;
+  Write(fixture.path() / "cat" / "a.png", "first");
+  Write(fixture.path() / "cat" / "A.PNG", "second");
+  if (fs::equivalent(fixture.path() / "cat" / "a.png",
+                     fixture.path() / "cat" / "A.PNG"))
+    EXPECT_EQ(index_image_folder(fixture.path()).records().size(), 1U);
+  else
+    EXPECT_THROW(index_image_folder(fixture.path()),
+                 jyppx::liuding::SerializationError);
 }
 
 TEST(ImageManifestTest, CancellationIsObservedBeforePublishing) {
