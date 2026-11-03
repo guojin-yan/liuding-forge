@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <stop_token>
 #include <string>
+#include <vector>
 
 namespace {
 using namespace jyppx::liuding::data::image;
@@ -305,6 +306,90 @@ TEST(ImageManifestTest, ImageFolderRejectsRootImagesAndEmptyClasses) {
   options.allow_empty_classes = true;
   EXPECT_THROW(index_image_folder(fixture.path(), options),
                jyppx::liuding::SerializationError);
+}
+
+TEST(ImageManifestTest, PairedJsonlPreservesPathsAndRejectsAmbiguousSchemas) {
+  const auto index = parse_manifest(
+      "{\"input\":\"photos/a.png\",\"target\":\"labels/a.png\"}\r\n"
+      "{\"target\":\"labels/b.png\",\"input\":\"photos/b.png\"}\n",
+      ManifestFormat::jsonl, ManifestTask::paired);
+  ASSERT_EQ(index.records().size(), 2U);
+  EXPECT_EQ(index.task(), ManifestTask::paired);
+  EXPECT_TRUE(index.categories().empty());
+  EXPECT_EQ(index.records()[0].path, "photos/a.png");
+  EXPECT_EQ(index.records()[1].target_path, "labels/b.png");
+  EXPECT_TRUE(index.records()[0].labels.empty());
+  for (const auto* text :
+       {"{\"input\":\"a.png\",\"other\":\"b.png\"}",
+        "{\"input\":\"a.png\",\"target\":1}",
+        "{\"input\":\"a.png\",\"target\":\"b.png\",\"extra\":true}",
+        "{\"input\":\"a.png\",\"input\":\"c.png\"}", "[]", "\n",
+        "{\"input\":\"a.png\",\"target\":\"b.png\"}\n\n"})
+    EXPECT_THROW(
+        parse_manifest(text, ManifestFormat::jsonl, ManifestTask::paired),
+        jyppx::liuding::SerializationError)
+        << text;
+  EXPECT_THROW(parse_manifest(std::string("\xff", 1), ManifestFormat::jsonl,
+                              ManifestTask::paired),
+               jyppx::liuding::SerializationError);
+  auto options = ManifestReadOptions{};
+  options.limits.max_depth = 1;
+  EXPECT_THROW(
+      parse_manifest("{\"input\":[[\"a.png\"]],\"target\":\"b.png\"}",
+                     ManifestFormat::jsonl, ManifestTask::paired, options),
+      jyppx::liuding::ResourceExhausted);
+  options = {};
+  options.limits.max_string_bytes = 6;
+  EXPECT_THROW(
+      parse_manifest("{\"input\":\"long-name.png\",\"target\":\"b.png\"}",
+                     ManifestFormat::jsonl, ManifestTask::paired, options),
+      jyppx::liuding::ResourceExhausted);
+  options = {};
+  options.limits.max_input_bytes = 8;
+  EXPECT_THROW(
+      parse_manifest("{\"input\":\"a.png\",\"target\":\"b.png\"}",
+                     ManifestFormat::jsonl, ManifestTask::paired, options),
+      jyppx::liuding::ResourceExhausted);
+}
+
+TEST(ImageManifestTest,
+     ImageFolderLimitsAndExtensionsRejectWithoutPartialIndex) {
+  TempDirectory fixture;
+  Write(fixture.path() / "cat" / "a.png", "image");
+  Write(fixture.path() / "cat" / "b.jpg", "image");
+  Write(fixture.path() / "dog" / "c.png", "image");
+  for (const auto& extensions :
+       std::vector<std::vector<std::string>>{{},
+                                             {"png"},
+                                             {"."},
+                                             {".p?g"},
+                                             {".png", ".PNG"},
+                                             {".abcdefghijklmnop"}}) {
+    ImageFolderOptions options;
+    options.extensions = extensions;
+    EXPECT_THROW(index_image_folder(fixture.path(), options),
+                 jyppx::liuding::InvalidArgument);
+  }
+  for (int field = 0; field < 5; ++field) {
+    ImageFolderOptions options;
+    if (field == 0) options.max_directory_entries = 1;
+    if (field == 1) options.limits.max_categories = 1;
+    if (field == 2) options.limits.max_images = 1;
+    if (field == 3) options.max_index_bytes = 1;
+    if (field == 4) options.limits.max_string_bytes = 1;
+    EXPECT_THROW(index_image_folder(fixture.path(), options),
+                 jyppx::liuding::ResourceExhausted)
+        << field;
+  }
+  ImageFolderOptions options;
+  options.extensions = {".PNG"};
+  EXPECT_EQ(index_image_folder(fixture.path(), options).records().size(), 2U);
+  EXPECT_THROW(index_image_folder({}), jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(index_image_folder(fixture.path() / ".." / "unused"),
+               jyppx::liuding::InvalidArgument);
+  EXPECT_THROW(index_image_folder(fixture.path() / "missing"),
+               jyppx::liuding::IoError);
+  EXPECT_EQ(index_image_folder(fixture.path()).records().size(), 3U);
 }
 
 TEST(ImageManifestTest, CancellationIsObservedBeforePublishing) {

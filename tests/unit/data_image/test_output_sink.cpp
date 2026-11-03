@@ -361,4 +361,132 @@ TEST(ImageOutputSinkTest, ContinuesPublishingAfterEvidenceFailureWhenEnabled) {
   EXPECT_EQ(sink.stats().completed, 1U);
 }
 
+TEST(ImageOutputSinkTest,
+     BlockedAdmissionAndFlushCancelWithoutLosingAcceptedFile) {
+  using namespace std::chrono_literals;
+  SinkDirectory directory;
+  auto budget = std::make_shared<ImageResourceBudget>();
+  ImageOutputSinkOptions options;
+  options.resource_budget = budget;
+  options.max_pending_items = 1;
+  ImageOutputSink sink(options);
+  std::promise<void> entered, release;
+  auto released = release.get_future().share();
+  const auto expected = Png(7).bytes;
+  const auto path = directory.path / "accepted.png";
+  auto accepted = sink.submit_with_evidence(path, Png(7), [&](const auto&) {
+    entered.set_value();
+    released.wait();
+  });
+  const auto status = entered.get_future().wait_for(5s);
+  // Release before any fatal assertion or exception can destroy a blocked sink.
+  if (status != std::future_status::ready) {
+    release.set_value();
+    FAIL() << "writer callback did not start";
+  }
+  std::stop_source admission_stop, flush_stop;
+  std::promise<void> admission_started, flush_started;
+  auto rejected = std::async(std::launch::async, [&] {
+    admission_started.set_value();
+    EXPECT_THROW(sink.submit(directory.path / "cancelled.png", Png(), {},
+                             admission_stop.get_token()),
+                 Cancelled);
+  });
+  auto flushed = std::async(std::launch::async, [&] {
+    flush_started.set_value();
+    EXPECT_THROW(sink.flush(flush_stop.get_token()), Cancelled);
+  });
+  admission_started.get_future().wait();
+  flush_started.get_future().wait();
+  admission_stop.request_stop();
+  flush_stop.request_stop();
+  const auto admission_status = rejected.wait_for(5s);
+  const auto flush_status = flushed.wait_for(5s);
+  const auto pending = sink.stats();
+  release.set_value();
+  EXPECT_EQ(admission_status, std::future_status::ready);
+  EXPECT_EQ(flush_status, std::future_status::ready);
+  rejected.get();
+  flushed.get();
+  EXPECT_EQ(pending.pending_items, 1U);
+  EXPECT_EQ(pending.queued, 1U);
+  EXPECT_EQ(accepted.completion.get().sha256, sha256_hex(expected));
+  EXPECT_NO_THROW(accepted.evidence_completion.get());
+  EXPECT_NO_THROW(sink.flush());
+  EXPECT_NO_THROW(sink.close());
+  EXPECT_NO_THROW(sink.close());
+  EXPECT_EQ(Read(path), expected);
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "cancelled.png"));
+  EXPECT_EQ(sink.stats().completed, 1U);
+  EXPECT_EQ(sink.stats().pending_items, 0U);
+  EXPECT_EQ(sink.stats().pending_bytes, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::disk_spool_bytes).current, 0U);
+  EXPECT_THROW(sink.submit(directory.path / "closed.png", Png()),
+               InvalidArgument);
+}
+
+TEST(ImageOutputSinkTest, RejectsInvalidPolicyImageAndKeyBeforePublication) {
+  SinkDirectory directory;
+  for (int field = 0; field < 5; ++field) {
+    ImageOutputSinkOptions options;
+    if (field == 0) options.max_pending_items = 0;
+    if (field == 1) options.max_pending_bytes = 0;
+    if (field == 2) options.max_item_bytes = 0;
+    if (field == 3) options.sample_every = 0;
+    if (field == 4) options.overflow = static_cast<ImageSinkOverflowPolicy>(99);
+    EXPECT_THROW(ImageOutputSink{options}, InvalidArgument) << field;
+  }
+  ImageOutputSink sink;
+  EXPECT_THROW(sink.submit({}, Png()), InvalidArgument);
+  EXPECT_THROW(sink.submit(directory.path / "wrong.jpg", Png()),
+               InvalidArgument);
+  auto invalid = Png();
+  invalid.width = 0;
+  EXPECT_THROW(sink.submit(directory.path / "invalid.png", std::move(invalid)),
+               InvalidArgument);
+  invalid = Png();
+  invalid.format = static_cast<ImageFormat>(99);
+  EXPECT_THROW(sink.submit(directory.path / "invalid.png", std::move(invalid)),
+               InvalidArgument);
+  invalid = Png();
+  invalid.format = ImageFormat::jpeg;
+  EXPECT_THROW(sink.submit(directory.path / "invalid.jpg", std::move(invalid)),
+               InvalidArgument);
+  ImageOutputSinkOptions options;
+  options.sample_every = 2;
+  ImageOutputSink sampled(options);
+  EXPECT_THROW(sampled.submit(directory.path / "no-key.png", Png()),
+               InvalidArgument);
+  EXPECT_THROW(sampled.submit(directory.path / "long-key.png", Png(),
+                              std::string(4097, 'x')),
+               InvalidArgument);
+  sink.close();
+  sampled.close();
+  EXPECT_EQ(sink.stats().submitted, 0U);
+  EXPECT_TRUE(std::filesystem::is_empty(directory.path));
+}
+
+TEST(ImageOutputSinkTest,
+     FailedWriterRejectsLaterAdmissionAndBoundsDiagnostics) {
+  SinkDirectory directory;
+  ImageOutputSinkOptions options;
+  options.max_reported_failures = 0;
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  ImageOutputSink sink(options);
+  auto failed = sink.submit(directory.path / "missing" / "bad.png", Png());
+  EXPECT_THROW(failed.completion.get(), IoError);
+  EXPECT_THROW(sink.flush(), IoError);
+  EXPECT_THROW(sink.submit(directory.path / "later.png", Png()), IoError);
+  EXPECT_THROW(sink.close(), IoError);
+  EXPECT_TRUE(sink.failures().empty());
+  EXPECT_EQ(sink.stats().failed, 1U);
+  EXPECT_EQ(sink.stats().queued, 1U);
+  EXPECT_EQ(sink.stats().pending_bytes, 0U);
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "later.png"));
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::disk_spool_bytes).current, 0U);
+}
+
 }  // namespace

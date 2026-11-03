@@ -1186,6 +1186,168 @@ TEST(ImageBatchContentIdentityTest, ValidatesLimitsAndCancellation) {
   EXPECT_THROW(image_batch_content_identity(batch, limits), ResourceExhausted);
 }
 
+TEST(ImageBatchTest, PaletteSkeletonAndPackedPairedValueOwnMetadata) {
+  auto sample = Photo();
+  Record(sample);
+  auto categories = std::make_shared<std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{.source_id = 71,
+                                   .name = "person",
+                                   .keypoint_names = {"left", "right"},
+                                   .skeleton = {{0, 1}}}});
+  sample.categories = categories;
+  sample.label_categories = categories;
+  sample.labels = {0};
+  Mask(sample);
+  sample.mask_target->encoding = MaskEncoding::palette_index;
+  sample.mask_target->source_bit_depth = 8;
+  sample.mask_target->source_interlaced = true;
+  sample.mask_target->palette = {{{1, 2, 3}, 17}, {{4, 5, 6}, 255}};
+  sample.mask_target->ids =
+      torch::tensor({{0, 1, -7}, {1, 0, -9}}, torch::kInt64);
+  sample.paired_target = sample.image.to(torch::kFloat64).div(255);
+  sample.paired_target_pixels = sample.pixels;
+  sample.paired_target_pixels->dtype = torch::kFloat64;
+  sample.paired_target_pixels->range = PixelValueRange::unit_interval;
+  sample.target_path = "target.png";
+  EXPECT_THROW(Batch({sample}), InvalidArgument);
+  auto paired_sample = sample;
+  paired_sample.mask_target.reset();
+  const auto paired_batch = Batch({paired_sample});
+  const auto paired_result =
+      image_batch_from_value(image_batch_value(paired_batch));
+  sample.paired_target.reset();
+  sample.paired_target_pixels.reset();
+  sample.target_path.reset();
+  const auto batch = Batch({sample});
+  const auto value = image_batch_value(batch);
+  const auto identity = image_batch_content_identity(batch);
+  const auto result = image_batch_from_value(value);
+  categories->at(0).name = "changed";
+  sample.mask_target->palette[0].alpha = 0;
+  ASSERT_TRUE(result.items[0].mask);
+  const auto& mask = *result.items[0].mask;
+  EXPECT_EQ(mask.encoding, MaskEncoding::palette_index);
+  EXPECT_EQ(mask.source_bit_depth, 8);
+  EXPECT_TRUE(mask.source_interlaced);
+  ASSERT_EQ(mask.palette.size(), 2U);
+  EXPECT_EQ(mask.palette[0].rgb, (std::array<std::uint8_t, 3>{1, 2, 3}));
+  EXPECT_EQ(mask.palette[0].alpha, 17);
+  EXPECT_EQ(mask.ignore_id, -7);
+  EXPECT_EQ(mask.void_id, -9);
+  EXPECT_EQ(result.items[0].categories->at(0).name, "person");
+  EXPECT_EQ(result.items[0].label_categories->at(0).skeleton,
+            (std::vector<std::array<std::size_t, 2>>{{0, 1}}));
+  EXPECT_EQ(paired_result.items[0].target_path, "target.png");
+  ASSERT_TRUE(paired_result.paired_images);
+  EXPECT_EQ(paired_result.paired_images->data_ptr(),
+            paired_batch.paired_images->data_ptr());
+  EXPECT_EQ(result.images.data_ptr(), batch.images.data_ptr());
+  EXPECT_EQ(image_batch_content_identity(result), identity);
+}
+
+TEST(ImageBatchResourceBudgetTest,
+     RaggedValueLeaseCountsAllStorageAndRollsBack) {
+  for (const bool paired : {false, true}) {
+    auto a = Photo(3, 2), b = Photo(1, 4);
+    for (auto* sample : {&a, &b}) {
+      if (!paired) {
+        Mask(*sample);
+        continue;
+      }
+      sample->paired_target = sample->image.to(torch::kFloat64);
+      sample->paired_target_pixels = sample->pixels;
+      sample->paired_target_pixels->dtype = torch::kFloat64;
+      sample->paired_target_pixels->range = PixelValueRange::unbounded;
+    }
+    const auto batch = Batch({a, b}, {.layout = ImageBatchLayout::ragged});
+    const auto value = image_batch_value(batch);
+    auto budget = std::make_shared<ImageResourceBudget>();
+    auto lease = image_batch_resource_lease(value, budget);
+    // Masks and validity add storage; paired images also add ten pixels.
+    EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current,
+              paired ? 20U : 10U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current,
+              paired ? 30U + 240U + 10U : 30U + 80U + 10U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::index_bytes).current, 24U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
+    EXPECT_GT(budget->usage(ImageResourceKind::annotation_bytes).current, 0U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 0U);
+    lease.reset();
+    ExpectBatchBudgetReleased(budget);
+    ImageResourceBudgetLimits limits;
+    limits.max_pixels = paired ? 19 : 9;
+    auto tight = std::make_shared<ImageResourceBudget>(limits);
+    EXPECT_THROW(image_batch_resource_lease(value, tight), ResourceExhausted);
+    ExpectBatchBudgetReleased(tight);
+    std::stop_source stop;
+    stop.request_stop();
+    EXPECT_THROW(
+        image_batch_resource_lease(value, budget, {}, stop.get_token()),
+        Cancelled);
+    ExpectBatchBudgetReleased(budget);
+    EXPECT_FALSE(image_batch_resource_lease(value, {}));
+    EXPECT_EQ(image_batch_from_value(value).image_list[0].data_ptr(),
+              batch.image_list[0].data_ptr());
+  }
+}
+
+TEST(ImageBatchContentIdentityTest, DtypesAndRaggedValuesBindStableIdentity) {
+  std::map<std::string, torch::ScalarType> identities;
+  for (const auto dtype :
+       {torch::kUInt8, torch::kUInt16, torch::kFloat16, torch::kBFloat16,
+        torch::kFloat32, torch::kFloat64}) {
+    auto sample = Photo(2, 1, 1);
+    sample.image = sample.image.to(dtype);
+    sample.pixels.dtype = dtype;
+    if (dtype != torch::kUInt8 && dtype != torch::kUInt16)
+      sample.pixels.range = PixelValueRange::unbounded;
+    const auto batch = Batch({sample}, {.layout = ImageBatchLayout::ragged});
+    const auto identity = image_batch_content_identity(batch);
+    EXPECT_EQ(identity.size(), 64U);
+    EXPECT_TRUE(identities.emplace(identity, dtype).second);
+    EXPECT_EQ(image_batch_content_identity(
+                  image_batch_from_value(image_batch_value(batch))),
+              identity);
+    auto changed = batch;
+    changed.image_list[0] = batch.image_list[0].clone();
+    changed.image_list[0][0][0][0] = 2;
+    EXPECT_NE(image_batch_content_identity(changed), identity);
+    EXPECT_EQ(image_batch_content_identity(batch), identity);
+  }
+}
+
+TEST(ImageBatchTransformTest, BgrAndBgraSwapAnalyticallyAndGrayRejectsSwap) {
+  for (const int channels : {3, 4}) {
+    auto sample = Photo(1, 1, channels);
+    sample.image = torch::tensor({16, 32, 64, 128}, torch::kUInt8)
+                       .slice(0, 0, channels)
+                       .reshape({channels, 1, 1});
+    sample.pixels.color =
+        channels == 3 ? PixelColorModel::bgr : PixelColorModel::bgra;
+    sample.pixels.alpha =
+        channels == 3 ? PixelAlphaMode::none : PixelAlphaMode::straight;
+    const auto batch = Batch({sample});
+    ImageBatchTransformOptions options;
+    options.image.dtype = torch::kFloat64;
+    options.image.swap_red_blue = true;
+    const auto result = transform_image_batch(batch, options);
+    EXPECT_EQ(result.pixels.color,
+              channels == 3 ? PixelColorModel::rgb : PixelColorModel::rgba);
+    EXPECT_DOUBLE_EQ(result.images[0][0][0][0].item<double>(), 64.0 / 255);
+    EXPECT_DOUBLE_EQ(result.images[0][1][0][0].item<double>(), 32.0 / 255);
+    EXPECT_DOUBLE_EQ(result.images[0][2][0][0].item<double>(), 16.0 / 255);
+    if (channels == 4)
+      EXPECT_DOUBLE_EQ(result.images[0][3][0][0].item<double>(), 128.0 / 255);
+    EXPECT_EQ(batch.images[0][0][0][0].item<int>(), 16);
+    EXPECT_NE(result.images.data_ptr(), batch.images.data_ptr());
+  }
+  ImageBatchTransformOptions options;
+  options.image.swap_red_blue = true;
+  EXPECT_THROW(transform_image_batch(Batch({Photo(1, 1, 1)}), options),
+               InvalidArgument);
+}
+
 TEST(ImageBatchCUDATest, FinalBatchPinTransferNumericAndRaggedMetadata) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
   for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
