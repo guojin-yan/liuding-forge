@@ -1,0 +1,42 @@
+# Copyright 2026 JYPPX Training Framework Contributors
+# Product: 六丁炼算 (Liuding Forge)
+# Project alias: JYPPX Training Framework
+# Licensed under the Apache License, Version 2.0.
+# Pinned Collector 0.135.0: no batch processor before the persistent queue.
+extensions:
+  file_storage:
+    directory: ${env:JYPPX_OTELCOL_QUEUE_DIRECTORY}
+    fsync: true
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: ${env:JYPPX_OTELCOL_ENDPOINT}
+        max_request_body_size: 16777216
+exporters:
+  otlphttp/boundary:
+    endpoint: ${env:JYPPX_OTELCOL_BACKEND}
+    encoding: json
+    compression: none
+    timeout: 1s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 100ms
+      max_interval: 1s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 4
+      storage: file_storage
+service:
+  extensions: [file_storage]
+  telemetry:
+    logs:
+      level: error
+    metrics:
+      level: none
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [otlphttp/boundary]

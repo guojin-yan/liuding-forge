@@ -606,6 +606,20 @@ if(JYPPX_LIUDING_TEST_NATIVE_OTLP_COLLECTOR OR JYPPX_LIUDING_TEST_OFFICIAL_TELEM
     set_tests_properties(NativeOtlpCollectorInterchange PROPERTIES
         LABELS "experiment;telemetry;otlp;native;official;integration"
         TIMEOUT 180 RUN_SERIAL TRUE)
+    if(NOT TARGET jyppx_test_otlp_http_harness)
+        message(FATAL_ERROR "Collector crash acceptance requires the native HTTP test harness")
+    endif()
+    add_test(NAME NativeOtlpCollectorDurableQueue
+        COMMAND "${Python3_EXECUTABLE}" -I -B
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_durable_queue.py"
+            --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>
+            --collector "${JYPPX_OTELCOL_EXECUTABLE}"
+            --artifacts "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-artifacts.json"
+            --config "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_sidecar/collector-durable-queue.yaml"
+            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/collector-queue")
+    set_tests_properties(NativeOtlpCollectorDurableQueue PROPERTIES
+        LABELS "experiment;telemetry;otlp;native;official;integration;recovery"
+        TIMEOUT 90 RUN_SERIAL TRUE)
 endif()
 if(TARGET jyppx::liuding::sdk)
     add_subdirectory(integration)

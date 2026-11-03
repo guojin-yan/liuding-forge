@@ -86,3 +86,38 @@ $config = @{
 每个 exchange 使用 `operation_timeout_ms`，整个命令还受 `--timeout-ms` 的更早截止约束。到达截止后，父进程请求终止 worker；`cleanup_timeout_ms`（默认 2000、最多 10000）约束首次清理开始后的排空和退出等待，不用于无限延长 flush。Windows 父端使用同步非阻塞管道，在清理时没有待完成的异步 I/O 或应用主动建立的无限完成等待；操作系统调用和调度仍不提供绝对墙钟上界，强取消资格仍需独立验收。Windows 使用 Job Object；Linux 使用进程组，后者不是针对自行脱组恶意进程的沙箱，也不能据此声称所有后代与内核资源已按时回收。
 
 命令失败时返回非零，不自动重试。批次中的指标与审计日志成对确认；部分请求失败可能已在 Collector 形成数据，再执行导出可能重复。去重只属于当前 worker，重新执行命令会创建新 worker；始终保留 run store 作为证据来源，交付语义为至少一次。一次快照默认最多 100000 个事件，`max_seen` 可缩小这个上限，不会通过静默淘汰索引扩容；还会检查索引字节与批次准备字节上限。
+
+## Collector 崩溃后继续交付
+
+需要 Collector 在接受请求后承受进程崩溃时，应把请求直接送入带存储的 exporter queue，并开启文件存储的 `fsync`；接收器与队列之间的内存 batch processor 会把确认边界提前到内存，不能用于这个要求。以下是 Collector Contrib 0.135.0 的日志管线配置，保存为 `collector.yaml`；先创建专用持久目录，将目录和下游地址替换为自己的配置，再执行 `otelcol-contrib --config collector.yaml`：
+
+```yaml
+extensions:
+  file_storage:
+    directory: /absolute/path/to/collector-queue
+    fsync: true
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+exporters:
+  otlphttp/downstream:
+    endpoint: https://collector.example.com:4318
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage
+service:
+  extensions: [file_storage]
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [otlphttp/downstream]
+```
+
+Windows 的目录可写为 `C:/collector-data/queue`。要接收本教程示例的所有信号，还须在 `service.pipelines` 中增加同结构的 `metrics` 和 `traces` 管线；保护持久目录，重启时保持 exporter ID 和存储配置一致，并监测队列容量及存储错误。队列满或写入失败时应保留本地 run 并按原身份重试，不能依据一次协议成功删除唯一源数据。
+
+这个确认边界属于明确配置的外部 Collector。客户端协议校验仍不提供跨进程去重；Collector 已发送但未确认的下游效果可能重复。进程崩溃验证不能替代断电、磁盘损坏、备份恢复或 exactly-once 验收，也不能推广到其他 Collector 配置。
