@@ -7,6 +7,7 @@
 
 #include <jyppx/liuding/data_image/annotation_files.hpp>
 #include <jyppx/liuding/data_image/annotations.hpp>
+#include <jyppx/liuding/data_image/panoptic.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -447,6 +448,104 @@ TEST(ImageAnnotationTest,
     EXPECT_THROW(parse_yolo_dataset_yaml(text),
                  jyppx::liuding::SerializationError);
   EXPECT_EQ(parse_yolo_dataset_yaml("names: [cat, dog]").categories.size(), 2U);
+}
+
+TEST(ImageAnnotationTest, XmlDeclarationsAreCountedAndBoundedAsMetadata) {
+  const std::string declaration = "<?xml version=\"1.0\"?>";
+  const auto result =
+      parse_annotations(declaration + kVoc, AnnotationFormat::voc);
+  ASSERT_EQ(result.images.size(), 1U);
+  EXPECT_EQ(result.images[0].image_path, "img.jpg");
+  EXPECT_EQ(result.images[0].objects.size(), 1U);
+  AnnotationReadOptions options;
+  options.limits.max_string_bytes = 16;
+  EXPECT_THROW(parse_annotations("<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                                     std::string(kVoc),
+                                 AnnotationFormat::voc, options),
+               jyppx::liuding::ResourceExhausted);
+  options = {};
+  options.limits.max_nodes = 1;
+  EXPECT_THROW(
+      parse_annotations(declaration + kVoc, AnnotationFormat::voc, options),
+      jyppx::liuding::ResourceExhausted);
+  EXPECT_NO_THROW(parse_annotations(kVoc, AnnotationFormat::voc));
+}
+
+TEST(ImageAnnotationTest, PanopticRejectsInvalidOptionsAndSourceBeforePixels) {
+  VisionAnnotationRecord record;
+  record.image_path = "image.png";
+  record.width = record.height = 1;
+  record.panoptic_mask_path = "mask.png";
+  DecodedMask mask;
+  mask.width = mask.height = 1;
+  mask.encoding = MaskEncoding::panoptic_rgb;
+  mask.void_id = 0;
+  mask.ids = torch::zeros({1, 1}, torch::kInt64);
+  const auto original = mask.ids.clone();
+  for (int variant = 0; variant < 8; ++variant) {
+    SCOPED_TRACE(variant);
+    auto source = record;
+    auto input = mask;
+    PanopticBindOptions options;
+    switch (variant) {
+      case 0:
+        options.limits.max_dimension = 0;
+        break;
+      case 1:
+        options.limits.max_pixels = 0;
+        break;
+      case 2:
+        options.max_working_bytes = 0;
+        break;
+      case 3:
+        source.panoptic_mask_path.reset();
+        break;
+      case 4:
+        source.panoptic_mask_path = "";
+        break;
+      case 5:
+        input.encoding = MaskEncoding::class_index;
+        break;
+      case 6:
+        input.void_id.reset();
+        break;
+      case 7:
+        input.ids = input.ids.to(torch::kFloat32);
+        break;
+    }
+    try {
+      static_cast<void>(bind_panoptic_mask(source, input, 1, options));
+      FAIL() << "accepted an invalid panoptic binding";
+    } catch (const jyppx::liuding::InvalidArgument& error) {
+      EXPECT_EQ(error.details().component, "data.image.panoptic");
+      EXPECT_EQ(error.details().operation, variant < 3 ? "bind.limits"
+                                           : variant < 5
+                                               ? "bind.source_reference"
+                                               : "bind.mask");
+    }
+    EXPECT_FALSE(source.panoptic_mask_materialized);
+    EXPECT_TRUE(source.objects.empty());
+    EXPECT_TRUE(torch::equal(mask.ids, original));
+  }
+  EXPECT_NO_THROW(bind_panoptic_mask(record, mask, 1));
+}
+
+TEST(ImageAnnotationTest, YoloNullClassesFailAndNullOptionalSplitsAreEmpty) {
+  for (const auto* document :
+       {"names: null", "names: [cat, null]", "names: [cat]\nval: [null]"}) {
+    SCOPED_TRACE(document);
+    EXPECT_THROW(parse_yolo_dataset_yaml(document),
+                 jyppx::liuding::SerializationError);
+  }
+  const auto optional =
+      parse_yolo_dataset_yaml("names: [cat]\ntrain: null\nval: ~\ntest:");
+  EXPECT_TRUE(optional.train.empty());
+  EXPECT_TRUE(optional.validation.empty());
+  EXPECT_TRUE(optional.test.empty());
+  EXPECT_EQ(parse_yolo_dataset_yaml("names: [cat]\ntrain: images/train")
+                .categories.front()
+                .name,
+            "cat");
 }
 
 }  // namespace

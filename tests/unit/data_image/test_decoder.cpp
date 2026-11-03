@@ -7,6 +7,7 @@
 
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,19 @@
 namespace {
 using namespace jyppx::liuding::data::image;
 namespace fs = std::filesystem;
+
+TEST(ImageDecoderTest, FormatNamesRemainStableForEveryPublicValue) {
+  constexpr std::array formats{ImageFormat::auto_detect, ImageFormat::jpeg,
+                               ImageFormat::png,         ImageFormat::bmp,
+                               ImageFormat::gif,         ImageFormat::tga,
+                               ImageFormat::pnm,         ImageFormat::hdr,
+                               ImageFormat::pic,         ImageFormat::unknown};
+  constexpr std::array names{"auto", "jpeg", "png", "bmp", "gif",
+                             "tga",  "pnm",  "hdr", "pic", "unknown"};
+  for (std::size_t i = 0; i < formats.size(); ++i)
+    EXPECT_EQ(image_format_name(formats[i]), names[i]);
+  EXPECT_EQ(image_format_name(static_cast<ImageFormat>(255)), "unknown");
+}
 
 std::vector<std::byte> ReadFixture(const char* name) {
   const auto path =

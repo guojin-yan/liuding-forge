@@ -13,8 +13,10 @@
 #include <chrono>
 #include <filesystem>
 #include <gtest/gtest.h>
+#include <limits>
 #include <memory>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -250,6 +252,129 @@ TEST(ImageEncoderTest, AggregateBudgetRetainsEncodedLeaseUntilConsumption) {
                ResourceExhausted);
   encoded.output_lease.release();
   EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
+}
+
+TEST(ImageResourceBudgetTest, EveryCategoryEnforcesItsOwnCapAndDiagnostics) {
+  const ImageResourceBudgetLimits limits{3, 3, 3, 3, 3, 3, 3,
+                                         3, 3, 3, 3, 3, 3, 3};
+  ImageResourceBudget budget(limits);
+  constexpr std::array kinds{ImageResourceKind::encoded_bytes,
+                             ImageResourceKind::decoded_bytes,
+                             ImageResourceKind::pixels,
+                             ImageResourceKind::codec_scratch_bytes,
+                             ImageResourceKind::annotation_bytes,
+                             ImageResourceKind::index_bytes,
+                             ImageResourceKind::pinned_bytes,
+                             ImageResourceKind::gpu_bytes,
+                             ImageResourceKind::staged_batches,
+                             ImageResourceKind::render_queue,
+                             ImageResourceKind::encoded_queue_bytes,
+                             ImageResourceKind::disk_spool_bytes,
+                             ImageResourceKind::pipeline_inflight_batches,
+                             ImageResourceKind::pipeline_inflight_bytes};
+  constexpr std::array names{"encoded_bytes",
+                             "decoded_bytes",
+                             "pixels",
+                             "codec_scratch_bytes",
+                             "annotation_bytes",
+                             "index_bytes",
+                             "pinned_bytes",
+                             "gpu_bytes",
+                             "staged_batches",
+                             "render_queue",
+                             "encoded_queue_bytes",
+                             "disk_spool_bytes",
+                             "pipeline_inflight_batches",
+                             "pipeline_inflight_bytes"};
+  for (std::size_t i = 0; i < kinds.size(); ++i) {
+    SCOPED_TRACE(names[i]);
+    EXPECT_EQ(budget.limit(kinds[i]), 3U);
+    auto first = budget.reserve(kinds[i], 2);
+    auto second = budget.reserve_wait(kinds[i], 1);
+    const auto rejected = [&](auto&& reserve, const char* prefix,
+                              const char* actual) {
+      try {
+        reserve();
+        FAIL() << "accepted a reservation beyond the category cap";
+      } catch (const ResourceExhausted& error) {
+        EXPECT_EQ(error.details().component, "data.image.resource_budget");
+        EXPECT_EQ(error.details().operation, std::string(prefix) + names[i]);
+        EXPECT_EQ(error.details().expected, "3");
+        EXPECT_EQ(error.details().actual, actual);
+      }
+      EXPECT_EQ(budget.usage(kinds[i]).current, 3U);
+      EXPECT_EQ(budget.usage(kinds[i]).peak, 3U);
+    };
+    rejected([&] { static_cast<void>(budget.reserve(kinds[i], 1)); },
+             "reserve.", "3+1");
+    rejected([&] { static_cast<void>(budget.reserve_wait(kinds[i], 4)); },
+             "reserve_wait.", "4");
+    const std::array requests{ImageResourceRequest{kinds[i], 4}};
+    rejected([&] { static_cast<void>(budget.reserve_wait_all(requests)); },
+             "reserve_wait_all.", "4");
+    first.release();
+    second.release();
+    EXPECT_EQ(budget.usage(kinds[i]).current, 0U);
+    EXPECT_EQ(budget.usage(kinds[i]).peak, 3U);
+  }
+}
+
+TEST(ImageResourceBudgetTest, InvalidKindsAndOverflowLeaveAllUsageUnchanged) {
+  ImageResourceBudget budget;
+  const auto invalid = static_cast<ImageResourceKind>(255);
+  EXPECT_EQ(budget.limit(invalid), 0U);
+  EXPECT_EQ(budget.usage(invalid).current, 0U);
+  EXPECT_EQ(budget.usage(invalid).peak, 0U);
+  EXPECT_EQ(budget.usage(invalid).limit, 0U);
+  EXPECT_FALSE(budget.reserve(invalid, 0).active());
+  std::stop_source stopped;
+  stopped.request_stop();
+  EXPECT_FALSE(budget.reserve_wait(invalid, 0, stopped.get_token()).active());
+  EXPECT_THROW(budget.reserve(invalid, 1), InvalidArgument);
+  EXPECT_THROW(budget.reserve_wait(invalid, 1), InvalidArgument);
+  auto held = budget.reserve(ImageResourceKind::decoded_bytes, 7);
+  const std::array invalid_requests{
+      ImageResourceRequest{ImageResourceKind::decoded_bytes, 1},
+      ImageResourceRequest{invalid, 0}};
+  EXPECT_THROW(budget.reserve_wait_all(invalid_requests), InvalidArgument);
+  const std::array overflow{
+      ImageResourceRequest{ImageResourceKind::decoded_bytes,
+                           std::numeric_limits<std::uint64_t>::max()},
+      ImageResourceRequest{ImageResourceKind::decoded_bytes, 1}};
+  EXPECT_THROW(budget.reserve_wait_all(overflow), ResourceExhausted);
+  EXPECT_EQ(budget.usage(ImageResourceKind::decoded_bytes).current, 7U);
+  EXPECT_EQ(budget.usage(ImageResourceKind::decoded_bytes).peak, 7U);
+}
+
+TEST(ImageResourceBudgetTest, RelatedLeasesSurviveOwnerAndMoveAssignment) {
+  ImageResourceLease inactive;
+  EXPECT_THROW(inactive.reserve_related(ImageResourceKind::encoded_bytes, 1),
+               InvalidArgument);
+  ImageResourceLease retained;
+  {
+    ImageResourceBudgetLimits limits;
+    limits.max_encoded_bytes = 8;
+    ImageResourceBudget budget(limits);
+    auto first = budget.reserve(ImageResourceKind::encoded_bytes, 3);
+    auto second = budget.reserve(ImageResourceKind::encoded_bytes, 2);
+    second = std::move(first);
+    EXPECT_FALSE(first.active());
+    EXPECT_EQ(budget.usage(ImageResourceKind::encoded_bytes).current, 3U);
+    ImageResourceLease moved(std::move(second));
+    EXPECT_FALSE(second.active());
+    retained = std::move(moved);
+    EXPECT_FALSE(moved.active());
+  }
+  auto related = retained.reserve_related(ImageResourceKind::encoded_bytes, 5);
+  EXPECT_THROW(retained.reserve_related(ImageResourceKind::encoded_bytes, 1),
+               ResourceExhausted);
+  retained.release();
+  retained.release();
+  EXPECT_FALSE(retained.active());
+  auto remaining = related.reserve_related(ImageResourceKind::encoded_bytes, 3);
+  EXPECT_TRUE(remaining.active());
+  EXPECT_THROW(retained.reserve_related(ImageResourceKind::encoded_bytes, 0),
+               InvalidArgument);
 }
 
 #if defined(JYPPX_LIUDING_IMAGE_TEST_CUDA)
