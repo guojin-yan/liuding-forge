@@ -68,6 +68,54 @@
             "delivery_receipt_sha256": "1556549da5b87216f17b70afc8ccde906bc4ce3acbbc31de7d433adf52ec69fa"
           },
           "commit": "43b3b2fcccc72bb90b7e396973a5fb1cd23a89de"
+        },
+        {
+          "id": "local-windows-msvc1944-cu126-selected-sdk-install",
+          "os": "windows",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch 2.14.1+cu126; FindCUDA headers/libraries Toolkit 12.9; VS/CMake CUDA compiler detection selected NVIDIA 13.2.51 and SDK 13.2. Product/test projects have no CudaCompile inputs; not a pure 12.9 compiler or independent CUDA compilation lane.",
+          "build_type": "Release",
+          "tests": "18-component SDK build/install; focused 11/11 CTest contracts and independent installed C++ consumer 1/1 passed, zero CTest skips in those checks. The complete 2013-contract profile remains failed and is not qualified by this lane.",
+          "instrumentation": "MSVC Release full selected build and incremental repair; CMake 4.3.0-rc1; compile/test parallelism 1; no instrumentation",
+          "quality_evidence": {
+            "source_identity": "Execution used parent 2339a9739da35ab5c9f16842927d17b78cc0df60 plus the frozen dirty 16-file repair overlay. All 1209 frozen Git-file bytes matched delivered main b1c9b04d2ec918bbc022dc3ab6539a5f40cb2e72; the actual fingerprint remained 2339a9739da35ab5c9f16842927d17b78cc0df60+dirty. This is not clean committed current-main execution.",
+            "profile": "All 18 selected product components, CLI, examples, tests and native dataset preparation enabled; sdk aggregate remains exactly eight Core libraries. OptionalComponentMatrix and PreviewComponentMatrix remain separate pending combinations.",
+            "qualification_limits": "Only the explicit successful correctness or installation scope below is verified. No new coverage, sanitizer, complete resource/performance, full model/recipe, trusted Windows TLS/revocation, signing or GA qualification.",
+            "verified_scope": "SDK construction, focused component/install/reference/output gates and independent new-prefix installed consumption only; the complete Windows selected test profile remains unqualified.",
+            "complete_profile_failure": "Original repair batch: 1934 passed, 3 failed, 76 conditionally skipped / 2013. Unchanged native dataset binaries and PNG/hash assertions passed when only their independent checker interpreter changed from zlib-ng 2.2.4 to standard zlib 1.3.1. Staged unique counts are 1936 passed, 1 unresolved NativeOtlpHttpCancellation, 76 skipped. Original failures and the failed six-mode HTTP supplement remain preserved.",
+            "reference_limits": "Fashion-MNIST checker: 12 internal methods, 10 passed and 2 existing optional CLI skips; separate native CLI identity passed in the complete batch. This is not an internal zero-skip claim.",
+            "installation": "New repair install and independently configured C++ consumer passed with actual 2339+dirty/Release fingerprint and exactly eight Core sdk members. Torch runtime staging used verified same-volume hardlinks and preserved canonical SDK bytes.",
+            "prior_failure": "Initial clean-parent SDK build/install succeeded; the initial test batch encountered ComponentInstallMatrixConsumer failure and F-volume exhaustion. Original logs and five incomplete runtime fragments remain retained.",
+            "full_terminal_sha256": "4db55960c45ca3797cb98503132c6903de5a796a93d07d0c46fc5f0ebf170687",
+            "staged_review_sha256": "dc4669c2e501670d74655b5be76d46796298918f374e7504059528723d8ca509",
+            "consumer_terminal_sha256": "e30c61da7c34ccfa0251c0ca51c5b02155d62e090ec30e944cb64c703df42807"
+          },
+          "commit": "2339a9739da35ab5c9f16842927d17b78cc0df60"
+        },
+        {
+          "id": "local-ubuntu-gcc114-cpu214-selected-release",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1 CPU; no CUDA execution qualification",
+          "build_type": "Release",
+          "tests": "1971 unique selected CTest contracts closed in stages: 1792 passed, 179 conditionally skipped, zero unresolved failures; focused 11/11 and independent installed C++ consumer 1/1",
+          "instrumentation": "GCC Release full selected build and incremental repair in executable tmpfs; compile/test parallelism 1; no instrumentation",
+          "quality_evidence": {
+            "source_identity": "Execution used parent 2339a9739da35ab5c9f16842927d17b78cc0df60 plus the frozen dirty 16-file repair overlay. All 1209 frozen Git-file bytes matched delivered main b1c9b04d2ec918bbc022dc3ab6539a5f40cb2e72; the actual fingerprint remained 2339a9739da35ab5c9f16842927d17b78cc0df60+dirty. This is not clean committed current-main execution.",
+            "profile": "All 18 selected product components, CLI, examples, tests and native dataset preparation enabled; sdk aggregate remains exactly eight Core libraries. OptionalComponentMatrix and PreviewComponentMatrix remain separate pending combinations.",
+            "qualification_limits": "Only the explicit successful correctness or installation scope below is verified. No new coverage, sanitizer, complete resource/performance, full model/recipe, trusted Windows TLS/revocation, signing or GA qualification.",
+            "original_batch": "Clean-parent full batch: 1786 passed, 6 failed, 179 skipped. Original failures and complete evidence remain preserved.",
+            "repair_batch": "Repair full batch: 1789 passed, 3 failed, 179 skipped. Three CLI recipe cases exhausted tmpfs during checkpoint/CAS staging; identical source, binaries and assertions reran only those three, 3/3 passed and zero skips. This is not a single all-green 1971-contract batch.",
+            "resource_boundary": "After checking available RAM, tmpfs quota increased temporarily by 2 GiB for the three unchanged cases, then returned to its original 8224788480-byte limit. Root free-space floor remained 2 GiB. The original tmpfs quota is not qualified as sufficient for the complete workload.",
+            "installation": "New repair install and independently configured C++ consumer passed with actual 2339+dirty/Release fingerprint and eight Core sdk members. Installed CLI also passed version/doctor after relocation to a path containing spaces.",
+            "staged_closure_sha256": "3a3784c9061fb742b5ec035f60a1410c26f2d49edc965fa45a0e5befda9bd748",
+            "consumer_terminal_sha256": "521b474d266f70ecb16456e2df4b20127eaeb4b0e80496fcdc8d8d80fccf46c4"
+          },
+          "commit": "2339a9739da35ab5c9f16842927d17b78cc0df60"
         }
       ],
       "pending_lanes": [
