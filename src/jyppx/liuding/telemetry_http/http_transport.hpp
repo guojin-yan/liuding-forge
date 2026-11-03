@@ -20,6 +20,7 @@ bool http_ascii_case_equal(std::string_view left,
                            std::string_view right) noexcept;
 void validate_http_response_content_type(std::string_view value);
 void validate_http_response_content_encoding(std::string_view value);
+void validate_http_response_trailer_declaration(std::string_view value);
 [[noreturn]] void throw_http_certificate_error(std::string native_failure);
 std::chrono::steady_clock::time_point http_request_deadline(
     std::stop_token stop, TelemetryDeadline caller_deadline,

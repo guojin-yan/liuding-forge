@@ -854,6 +854,14 @@ if(TARGET jyppx::liuding::telemetry_http)
         jyppx::liuding::telemetry_http Threads::Threads)
     jyppx_apply_instrumentation(jyppx_test_otlp_http_harness)
     jyppx_add_torch_runtime_dependency(jyppx_test_otlp_http_harness)
+    add_test(NAME NativeOtlpHttpFraming
+        COMMAND "${Python3_EXECUTABLE}" -I -B
+            "${PROJECT_SOURCE_DIR}/tests/scripts/test_native_otlp_http_framing.py"
+            --harness $<TARGET_FILE:jyppx_test_otlp_http_harness>
+            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/http-framing")
+    set_tests_properties(NativeOtlpHttpFraming PROPERTIES
+        LABELS "experiment;telemetry;otlp;native;loopback"
+        TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(jyppx_test_otlp_http_cancellation
         "${PROJECT_SOURCE_DIR}/tests/integration/telemetry_http/cancellation.cpp")
     target_link_libraries(jyppx_test_otlp_http_cancellation PRIVATE

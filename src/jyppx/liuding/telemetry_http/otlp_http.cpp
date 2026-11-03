@@ -130,6 +130,25 @@ void validate_http_response_content_encoding(std::string_view value) {
   }
 }
 
+void validate_http_response_trailer_declaration(std::string_view value) {
+  for (;;) {
+    const auto comma = value.find(',');
+    const auto name = trim_http_ows(value.substr(0U, comma));
+    if (name.empty() ||
+        !std::all_of(name.begin(), name.end(), http_token_character))
+      throw IoError("OTLP collector returned an invalid Trailer declaration");
+    if (http_ascii_case_equal(name, "Content-Type") ||
+        http_ascii_case_equal(name, "Content-Encoding") ||
+        http_ascii_case_equal(name, "Content-Length") ||
+        http_ascii_case_equal(name, "Transfer-Encoding"))
+      throw IoError(
+          "OTLP collector declared representation or framing metadata in "
+          "trailers");
+    if (comma == std::string_view::npos) return;
+    value.remove_prefix(comma + 1U);
+  }
+}
+
 void validate_http_endpoint(const OtlpHttpEndpoint& endpoint) {
   if (endpoint.host.empty() || endpoint.host.size() > 253U ||
       endpoint.port == 0U)

@@ -193,15 +193,15 @@ class Request final {
 template <typename Validate>
 std::size_t validate_response_headers(
     HINTERNET request, DWORD query, Validate&& validate, std::stop_token stop,
-    std::chrono::steady_clock::time_point deadline) {
+    std::chrono::steady_clock::time_point deadline,
+    const wchar_t* name = WINHTTP_HEADER_NAME_BY_INDEX) {
   std::size_t count = 0U;
   DWORD index = 0U;
   for (;;) {
     DWORD next_index = index;
     DWORD bytes = 0U;
-    const auto sized =
-        WinHttpQueryHeaders(request, query, WINHTTP_HEADER_NAME_BY_INDEX,
-                            WINHTTP_NO_OUTPUT_BUFFER, &bytes, &next_index);
+    const auto sized = WinHttpQueryHeaders(
+        request, query, name, WINHTTP_NO_OUTPUT_BUFFER, &bytes, &next_index);
     const auto code = sized ? ERROR_SUCCESS : GetLastError();
     check_telemetry_operation(stop, deadline);
     if (!sized && code == ERROR_WINHTTP_HEADER_NOT_FOUND) return count;
@@ -210,8 +210,8 @@ std::size_t validate_response_headers(
       throw IoError("Could not read bounded OTLP HTTP response metadata");
     std::wstring value(bytes / sizeof(wchar_t), L'\0');
     next_index = index;  // Size queries must not advance enumeration.
-    check(WinHttpQueryHeaders(request, query, WINHTTP_HEADER_NAME_BY_INDEX,
-                              value.data(), &bytes, &next_index),
+    check(WinHttpQueryHeaders(request, query, name, value.data(), &bytes,
+                              &next_index),
           stop, deadline);
     if (next_index <= index)
       throw IoError("OTLP HTTP response metadata enumeration did not advance");
@@ -360,6 +360,12 @@ class Sender final : public OtlpRequestSender {
             validate_http_response_content_encoding(value);
           },
           stop, deadline));
+      static_cast<void>(validate_response_headers(
+          request.get(), WINHTTP_QUERY_CUSTOM,
+          [](std::string_view value) {
+            validate_http_response_trailer_declaration(value);
+          },
+          stop, deadline, L"Trailer"));
       DWORD length = 0U;
       size = sizeof(length);
       if (WinHttpQueryHeaders(

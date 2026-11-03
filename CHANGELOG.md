@@ -73,6 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 原生 OTLP HTTP 校验分块响应的 `Trailer` 字段名声明，拒绝在尾部声明内容类型、内容编码或传输长度等确认元数据；失败事件可保持原字节重试。
+
 - 明确 Apache-2.0 声明适用于项目自有贡献，第三方材料保留各自条款；修正 Pillow 13.0.0 主许可为 MIT-CMU，并补充代码、权重、数据集与运行库的授权边界。
 
 - SHA-256 按完整数据块处理输入，减少大检查点保存、读取和内容校验的开销；保持标准摘要、流式分块和非破坏性摘要读取语义。

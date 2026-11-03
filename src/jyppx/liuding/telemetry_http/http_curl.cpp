@@ -135,6 +135,8 @@ std::size_t receive_header(char* data, std::size_t size, std::size_t count,
           if (receiver.header_block_complete)
             throw IoError("OTLP collector returned a content-coding trailer");
           validate_http_response_content_encoding(value);
+        } else if (http_ascii_case_equal(name, "Trailer")) {
+          validate_http_response_trailer_declaration(value);
         }
       }
     }
