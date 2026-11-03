@@ -7,12 +7,23 @@
 # test executables).
 
 include(FetchContent)
+include("${CMAKE_SOURCE_DIR}/cmake/ComponentMatrixSettings.cmake")
+set(JYPPX_LIUDING_MATRIX_BUILD_JOBS "" CACHE STRING
+    "Nested component matrix compile jobs (empty uses CMAKE_BUILD_PARALLEL_LEVEL or 2)")
+set(JYPPX_MATRIX_DEPENDENCY_CACHE "${CMAKE_CURRENT_BINARY_DIR}/component-matrix-dependencies.cmake")
+jyppx_write_matrix_dependency_cache("${JYPPX_MATRIX_DEPENDENCY_CACHE}")
 if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    add_test(NAME ComponentMatrixSettingsContract
+        COMMAND ${CMAKE_COMMAND} -E env "CMAKE_COMMAND=${CMAKE_COMMAND}"
+            ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_component_matrix_settings.py")
+    set_tests_properties(ComponentMatrixSettingsContract PROPERTIES
+        LABELS "hygiene;dependency;packaging" TIMEOUT 180)
     add_test(NAME TorchRuntimeStagingContract
         COMMAND ${CMAKE_COMMAND} -E env "CMAKE_COMMAND=${CMAKE_COMMAND}"
             ${Python3_EXECUTABLE}
@@ -431,6 +442,8 @@ set_tests_properties(ComponentInstallMatrixConsumer PROPERTIES
 add_test(
     NAME OptionalComponentMatrix
     COMMAND ${CMAKE_COMMAND}
+        "-DJYPPX_MATRIX_DEPENDENCY_CACHE=${JYPPX_MATRIX_DEPENDENCY_CACHE}"
+        "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
         -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
         -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_SOURCE_DIR}/out/component-matrix/$<CONFIG>
@@ -450,7 +463,7 @@ add_test(
 set_tests_properties(OptionalComponentMatrix PROPERTIES
     LABELS "core;data;experiment;foundation;interop;nn;optim;training;packaging"
     RESOURCE_LOCK jyppx_component_profile_matrix
-    TIMEOUT 3600
+    TIMEOUT 10800
 )
 endif()
 
@@ -531,6 +544,8 @@ if(JYPPX_LIUDING_BUILD_MODELS OR
     add_test(
         NAME PreviewComponentMatrix
         COMMAND ${CMAKE_COMMAND}
+            "-DJYPPX_MATRIX_DEPENDENCY_CACHE=${JYPPX_MATRIX_DEPENDENCY_CACHE}"
+            "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
             -DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
             -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
             -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_SOURCE_DIR}/out/preview-component-matrix/$<CONFIG>

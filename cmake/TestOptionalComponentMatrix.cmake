@@ -20,8 +20,8 @@ if(JYPPX_CMAKE_GENERATOR_TOOLSET)
     list(APPEND generator_args -T "${JYPPX_CMAKE_GENERATOR_TOOLSET}")
 endif()
 
-set(config_args)
-set(build_args --parallel 2)
+include("${CMAKE_CURRENT_LIST_DIR}/ComponentMatrixSettings.cmake")
+jyppx_component_matrix_settings(config_args build_args)
 set(test_args)
 if(JYPPX_LIUDING_TEST_CONFIG)
     list(APPEND config_args "-DCMAKE_BUILD_TYPE=${JYPPX_LIUDING_TEST_CONFIG}")
@@ -206,6 +206,7 @@ foreach(profile IN LISTS profiles)
                 "${CMAKE_COMMAND}"
                 -S "${consumer_source_dir}"
                 -B "${consumer_build_dir}"
+                ${generator_args}
                 "-UTorch_*" "-UTORCH_*" "-UCaffe2_*" "-Uc10_*" "-Ukineto_*"
                 "-DCMAKE_PREFIX_PATH=${install_dir}"
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
@@ -248,7 +249,10 @@ set(invalid_cases
     training_without_nn
     training_without_optim
 )
+set(invalid_case_index 0)
 foreach(invalid_case IN LISTS invalid_cases)
+    # Keep MSBuild's nested compiler-probe paths short on Windows.
+    math(EXPR invalid_case_index "${invalid_case_index} + 1")
     set(invalid_options
         -DJYPPX_LIUDING_BUILD_CORE=ON
         -DJYPPX_LIUDING_BUILD_INTEROP=OFF
@@ -267,13 +271,16 @@ foreach(invalid_case IN LISTS invalid_cases)
     )
     if(invalid_case STREQUAL "data_image_without_data")
         list(APPEND invalid_options -DJYPPX_LIUDING_BUILD_DATA_IMAGE=ON)
+        set(expected_error "JYPPX_LIUDING_BUILD_DATA_IMAGE=ON requires JYPPX_LIUDING_BUILD_DATA=ON")
     elseif(invalid_case STREQUAL "vision_render_without_data_image")
         list(APPEND invalid_options -DJYPPX_LIUDING_BUILD_VISION_RENDER=ON)
+        set(expected_error "JYPPX_LIUDING_BUILD_VISION_RENDER=ON requires JYPPX_LIUDING_BUILD_DATA_IMAGE=ON")
     elseif(invalid_case MATCHES "^core_off_([a-z]+)_on$")
         string(TOUPPER "${CMAKE_MATCH_1}" dependent_component)
         list(APPEND invalid_options
              -DJYPPX_LIUDING_BUILD_CORE=OFF
              "-DJYPPX_LIUDING_BUILD_${dependent_component}=ON")
+        set(expected_error "JYPPX_LIUDING_BUILD_${dependent_component}=ON requires JYPPX_LIUDING_BUILD_CORE=ON")
     elseif(invalid_case MATCHES "^training_without_([a-z]+)$")
         string(TOUPPER "${CMAKE_MATCH_1}" missing_component)
         list(APPEND invalid_options
@@ -282,20 +289,25 @@ foreach(invalid_case IN LISTS invalid_cases)
              -DJYPPX_LIUDING_BUILD_OPTIM=ON
              -DJYPPX_LIUDING_BUILD_TRAINING=ON
              "-DJYPPX_LIUDING_BUILD_${missing_component}=OFF")
+        set(expected_error "JYPPX_LIUDING_BUILD_TRAINING=ON requires DATA, NN, and OPTIM components")
     else()
         message(FATAL_ERROR "Unknown invalid component case: ${invalid_case}")
     endif()
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -S "${source_dir}"
-                -B "${test_root}/invalid/${invalid_case}"
+                -B "${test_root}/invalid/${invalid_case_index}"
                 ${generator_args}
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
                 -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF
                 ${invalid_options} ${config_args}
         RESULT_VARIABLE invalid_result
+        OUTPUT_VARIABLE invalid_output ERROR_VARIABLE invalid_error
     )
-    if(invalid_result EQUAL 0)
-        message(FATAL_ERROR "Invalid component profile was accepted: ${invalid_case}")
+    string(CONCAT invalid_log "${invalid_output}" "${invalid_error}")
+    string(REGEX REPLACE "[ \t\r\n]+" " " invalid_log "${invalid_log}")
+    string(FIND "${invalid_log}" "${expected_error}" expected_position)
+    if(invalid_result EQUAL 0 OR expected_position EQUAL -1)
+        message(FATAL_ERROR "Dependency rejection failed for ${invalid_case}: ${invalid_log}")
     endif()
 endforeach()
 

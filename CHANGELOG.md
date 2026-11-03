@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 修正组件矩阵的嵌套构建：继承父配置的离线依赖及锁定源码，支持显式编译任务预算，并核实非法组合因指定依赖缺失而被拒绝。
+
 
 ### Added
 
