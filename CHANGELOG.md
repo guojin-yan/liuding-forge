@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补齐实际 Linux CPU LibTorch 2.14.1 的独立原包锁及对应构建提交的主许可来源，保留 CPU 2.5.1 候选和随包 notice 待审状态。
+
 - 安装 foundation 实际构建后的配置隔离来源记录；离线发布准备和独立安全验包严格核对提交、dirty 状态、基础版本及依赖清单原始字节 SHA-256，拒绝重标旧安装目录。
 - 补存两份 torchvision 参考归档中的 TensorFlow 测试资产告知，并补齐 timm 参考源码的 MIT 许可标识；原许可审查和分发门槛保持。
 

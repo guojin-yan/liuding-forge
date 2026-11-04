@@ -6,6 +6,7 @@
     "libtorch-candidate-cuda-cu124": "pending",
     "libtorch-primary-windows-cu126": "pending",
     "libtorch-primary-linux-cu126": "pending",
+    "libtorch-primary-linux-cpu": "pending",
     "nlohmann-json": "recorded",
     "sqlite": "recorded",
     "tinyxml2": "recorded",
@@ -351,6 +352,17 @@
         "url": "https://raw.githubusercontent.com/pytorch/pytorch/5c4886908584029761b579af026dcfb627c84070/LICENSE"
       },
       "path": "pytorch-2.14.1-build-5c488690-LICENSE.txt",
+      "sha256": "bd018feef8825e88181c84eb7e3aa4eafb8f08a20d9fd6ef948569610c4a3e43",
+      "size_bytes": 3464
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "origin": {
+        "artifact_sha256": "bd018feef8825e88181c84eb7e3aa4eafb8f08a20d9fd6ef948569610c4a3e43",
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/pytorch/5c4886908584029761b579af026dcfb627c84070/LICENSE"
+      },
+      "path": "pytorch-2.14.1-cpu-build-5c488690-LICENSE.txt",
       "sha256": "bd018feef8825e88181c84eb7e3aa4eafb8f08a20d9fd6ef948569610c4a3e43",
       "size_bytes": 3464
     },

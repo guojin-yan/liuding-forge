@@ -64,6 +64,32 @@
       "support_status": "development-baseline"
     },
     {
+      "id": "libtorch-primary-linux-cpu",
+      "scope": "core",
+      "version": "2.14.1+cpu",
+      "source": {
+        "type": "official-binary",
+        "url": "https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.14.1%2Bcpu.zip",
+        "cache_file": null
+      },
+      "integrity": {
+        "status": "verified",
+        "sha256": "0f02329a5266153cffa9dc12926ff2221fa626207b894d40bd61905cc2079821",
+        "size_bytes": 127853266
+      },
+      "license": {
+        "spdx": [
+          "BSD-3-Clause"
+        ],
+        "third_party_notice_audit": "pending"
+      },
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "linkage": "dynamic",
+      "support_status": "development-baseline"
+    },
+    {
       "id": "googletest",
       "scope": "test",
       "version": "1.14.0",

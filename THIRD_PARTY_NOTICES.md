@@ -37,6 +37,8 @@ cuDNN 版本化 LICENSE 从官方 9.10.2.21 归档通过 HTTP Range 取得；索
 
 Ubuntu 开发构建独立锁定 Linux `2.14.1+cu126` 官方包，SHA-256 为 `78409e1d17eb439efab01bbdde385ef3531ac3fc651ceda1117317ae9903dc7c`。该摘要经过本地完整归档复核，不是厂商另行发布的摘要；二进制附带组件的 notice 审查仍为 `pending`，开发构建结果不代表 GA 资格。
 
+Ubuntu CPU 开发 profile 另锁定 `2.14.1+cpu` 原始 ZIP，127853266 字节、SHA-256 `0f02329a5266153cffa9dc12926ff2221fa626207b894d40bd61905cc2079821`；它与 CPU `2.5.1` 候选分别记录。其构建提交 `5c4886908584029761b579af026dcfb627c84070` 的 [PyTorch 主许可原文](third_party/licenses/pytorch-2.14.1-cpu-build-5c488690-LICENSE.txt) 来自上游源码文档；该留存不表示 ZIP 内含相同许可文件，随包第三方组件、完整 notice 与再分发审查继续为 `pending`。
+
 当前安装后的 CMake 包通过 `find_dependency(Torch REQUIRED)` 要求调用方提供外部 LibTorch。SDK 安装对 2.14.1 和 2.5.1 保留对应 PyTorch 源码主许可证；Windows 2.14.1 cu126 配置还附带上述已留存的随包运行库原文，位置为 `share/doc/jyppx/licenses/`。这些文件的留存不关闭随包组件审查，也不代替需要实际履行的下游合同条件。
 
 构建脚本会将 Torch `lib/` 下全部 DLL 暂存到开发运行目录；这个操作不构成再分发资格确认。若交付制品包含 LibTorch 二进制，必须按实际交付文件逐项满足相应许可和再分发条件，提供对应构建的完整版权、许可与 notice；不能直接以开发运行目录或这份摘要替代审核。
