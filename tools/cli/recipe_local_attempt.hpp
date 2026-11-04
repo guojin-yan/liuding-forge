@@ -16,11 +16,11 @@
 
 namespace jyppx::liuding::cli {
 
-inline Result prepare_local_recipe(const Arguments& arguments,
-                                   const Json& configuration,
-                                   const Json& data_manifest,
-                                   std::string_view model,
-                                   std::uint64_t total_steps) {
+inline Result prepare_local_recipe(
+    const Arguments& arguments, const Json& configuration,
+    const Json& data_manifest, std::string_view model,
+    std::uint64_t total_steps,
+    std::string_view experiment_id = "image-classification") {
   using namespace recipe_support;
   namespace ex = experiment;
   const auto absolute = [&](std::string_view name) {
@@ -52,7 +52,7 @@ inline Result prepare_local_recipe(const Arguments& arguments,
   const auto created = previous ? previous->created_at_unix_ms : stamp;
   store.start({.run_id = source,
                .project_id = "liuding-forge",
-               .experiment_id = "image-classification",
+               .experiment_id = std::string(experiment_id),
                .display_name = "Frozen native recipe inputs",
                .status = ex::RunStatus::running,
                .created_at_unix_ms = created,
@@ -115,7 +115,7 @@ inline Result prepare_local_recipe(const Arguments& arguments,
       {"format", "jyppx.liuding.local_run_spec"},
       {"schema_version", 1},
       {"project_id", "liuding-forge"},
-      {"experiment_id", "image-classification"},
+      {"experiment_id", experiment_id},
       {"executable", path_text(executable)},
       {"executable_sha256", executable_sha},
       {"arguments", std::move(argv)},

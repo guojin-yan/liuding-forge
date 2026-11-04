@@ -93,3 +93,19 @@ liuding-forge run verify --root runs/paired-resume/run-store --format json
 ```
 
 遇到输入或续训拒绝时，先检查 `recipe check` 的摘要、路径、类别与字段范围。质量未通过时查看 `evaluation.json` 和 `diagnostics.json`，保留原运行结果；不要覆盖原证据或通过改低阈值重新解释同一次运行。
+
+## 7. 通过本地任务运行与精确续训
+
+同一份配方也可以交给本地任务管理器运行。下面的路径均替换为实际绝对路径；训练目录和规格文件应尚不存在，父目录应已经创建。
+
+```sh
+liuding-forge recipe local-spec --file /path/to/paired-affine.local.json --root /path/to/runs/paired-local --store /path/to/attempt-store --spec /path/to/paired-local-spec.json --executable /path/to/bin/liuding-forge --pause-after 259 --timeout-ms 360000 --format json
+liuding-forge local execute --root /path/to/attempt-store --id paired-affine --spec /path/to/paired-local-spec.json --format json
+liuding-forge local show --root /path/to/attempt-store --id paired-affine --format json
+```
+
+`local-spec` 检查并冻结有效配置、完整数据内容身份和执行程序身份，不执行训练。上面的第一个 attempt 在第 259 次更新保存完整检查点，随后由同一任务自动创建第二个 attempt，以 `exact_only` 从该检查点完成剩余 1,021 次更新。训练预算仍为 40 轮、1,280 次更新，accuracy 至少 0.95、MSE 至多 0.005。省略 `--pause-after` 会生成单个 attempt 的完整训练规格。
+
+任务记录把冻结配置、数据和检查点关联到对应 attempt；完成后确认 `checkpoint.last`、`model.weights`、`training.result` 三类产物及其完整内容摘要。原生训练目录仍保留评估、诊断和 Bundle。恢复要求保留这份训练目录及原配置、数据、构建与程序；当前接口不会从 CAS 重建丢失的训练目录，也不会推断未确认进程的安全状态。
+
+已确认完成的任务可以重复 `local execute` 或 `local recover` 查看同一结果，训练不会再次运行。继续直接使用前文的 `recipe run`、`recipe resume` 时，仍遵守其独立训练与恢复契约。

@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
+#include "recipe_local_attempt.hpp"
 #include "recipe_support.hpp"
 
 #include <jyppx/liuding/data/data_pipeline.hpp>
@@ -504,14 +505,20 @@ Json publish_bundle(const std::filesystem::path& root,
           {"transitive_sbom_complete", false}};
 }
 
-Result execute(const Arguments& arguments, bool resume) {
+Result execute(const Arguments& arguments, bool resume, bool local = false) {
   const auto config = resolve_config(std::filesystem::absolute(
       std::filesystem::u8path(arguments.require("file"))));
   const auto inputs = inspect_inputs(config);
+  auto local_attempt = local ? std::make_unique<RecipeLocalAttempt>(
+                                   config, inputs.manifest, "paired-affine")
+                             : nullptr;
+  if (local_attempt) resume = local_attempt->resumes();
   const Device device(config.at("device") == "cuda" ? "cuda:0" : "cpu");
   require_recipe(!device.is_cuda() || torch::cuda::is_available(),
                  "CUDA requested but unavailable");
-  const auto pause = arguments.number("pause-after", 0, inputs.total_steps);
+  const auto requested_pause =
+      arguments.number("pause-after", 0, inputs.total_steps);
+  const auto pause = local && resume ? 0 : requested_pause;
   require_recipe(pause == 0 || pause < inputs.total_steps,
                  "pause-after must precede final update");
   const auto root = std::filesystem::absolute(
@@ -522,6 +529,7 @@ Result execute(const Arguments& arguments, bool resume) {
              : std::filesystem::create_directory(root),
       "Recipe run needs a new directory; resume needs an existing directory");
   RunLock lock(root);
+  if (local_attempt) local_attempt->verify_resume(root);
   const auto build = current_build_fingerprint();
   const auto config_hash = digest(config.dump());
   const Json numerics{{"deterministic_algorithms", true},
@@ -583,6 +591,7 @@ Result execute(const Arguments& arguments, bool resume) {
                        interop::verify_model_bundle_directory(root / "bundle")
                            .manifest_digest.hex,
                    "Completed bundle differs");
+    if (local_attempt) local_attempt->publish_completed(root);
     return {result, result.at("quality_passed").get<bool>() ? 0 : 4};
   }
   require_recipe(metadata->status == ex::RunStatus::running,
@@ -725,10 +734,11 @@ Result execute(const Arguments& arguments, bool resume) {
     trainer.save_checkpoint(checkpoint);
     store.heartbeat(kRun, now_ms());
     trainer.close();
+    if (local_attempt) local_attempt->publish_checkpoint(root, false);
     return {Json{{"status", "paused"},
                  {"global_step", fit.global_step},
                  {"lineage", lineage}},
-            0};
+            local ? 75 : 0};
   }
   require_recipe(fit.status == tr::FitStatus::completed &&
                      fit.global_step == inputs.total_steps,
@@ -905,6 +915,7 @@ Result execute(const Arguments& arguments, bool resume) {
   attach(store, root / "bundle/manifest.json", "bundle", time);
   store.transition(kRun, ex::RunStatus::completed, now_ms());
   trainer.close();
+  if (local_attempt) local_attempt->publish_completed(root);
   return {result, passed ? 0 : 4};
 }
 }  // namespace
@@ -941,8 +952,18 @@ Result paired_recipe_command(const Arguments& arguments) {
                  {"total_steps", inputs.total_steps}},
             0};
   }
+  if (action == "local-spec") {
+    const auto config = resolve_config(std::filesystem::absolute(
+        std::filesystem::u8path(arguments.require("file"))));
+    const auto inputs = inspect_inputs(config);
+    return prepare_local_recipe(arguments, config, inputs.manifest,
+                                "paired-affine", inputs.total_steps,
+                                "paired-affine");
+  }
   if (action == "run" || action == "resume")
     return execute(arguments, action == "resume");
-  usage("recipe", "Choose schema, check, run or resume.");
+  if (action == "local-run") return execute(arguments, false, true);
+  usage("recipe",
+        "Choose schema, check, run, resume, local-spec or local-run.");
 }
 }  // namespace jyppx::liuding::cli

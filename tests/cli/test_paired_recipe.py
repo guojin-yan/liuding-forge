@@ -302,6 +302,331 @@ class PairedRecipe(unittest.TestCase):
             (self.evidence / "quality-failed.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
 
+class LocalPairedRecipe(unittest.TestCase):
+    """The existing full paired task through typed durable attempts."""
+    cli: Path
+    device: str
+    @classmethod
+    def command_evidence(cls, index: int, command: list[str], expected: int,
+                         status: str, stdout: bytes = b"", stderr: bytes = b"",
+                         returncode: int | None = None) -> None:
+        if cls.evidence is None:
+            return
+        prefix = cls.evidence / f"command-{index:03}"
+        prefix.with_suffix(".json").write_text(json.dumps({"command": command,
+            "expected_exit": expected, "status": status, "returncode": returncode},
+            indent=2) + "\n", encoding="utf-8")
+        prefix.with_suffix(".stdout").write_bytes(stdout)
+        prefix.with_suffix(".stderr").write_bytes(stderr)
+
+    @classmethod
+    def invoke(cls, *arguments: object, expected: int = 0) -> dict:
+        command = [str(cls.cli), *(str(value) for value in arguments), "--format", "json"]
+        cls.command_index += 1
+        index = cls.command_index
+        cls.command_evidence(index, command, expected, "started")
+        try:
+            result = subprocess.run(command, capture_output=True, timeout=180,
+                env=dict(os.environ, CUBLAS_WORKSPACE_CONFIG=":4096:8"), check=False)
+        except subprocess.TimeoutExpired as error:
+            cls.command_evidence(index, command, expected, "timeout",
+                                 error.stdout or b"", error.stderr or b"")
+            raise
+        cls.command_evidence(index, command, expected, "returned", result.stdout,
+                             result.stderr, result.returncode)
+        if result.returncode != expected:
+            raise AssertionError(f"args={arguments!r} exit={result.returncode} expected={expected}"
+                f"\nstdout={result.stdout.decode('utf-8', errors='replace')}"
+                f"\nstderr={result.stderr.decode('utf-8', errors='replace')}")
+        envelope = json.loads(result.stdout)
+        if envelope["schema_version"] != 1:
+            raise AssertionError(envelope)
+        return envelope
+
+    @classmethod
+    def preserve_workspace(cls) -> None:
+        # Evidence mode retains the original short TEMP as well as the copy,
+        # including when a command or checker fails before train() completes.
+        for name, attribute in (("config", "config"), ("preflight", "preflight"),
+                                ("plan", "prepared"), ("continuous", "baseline"),
+                                ("local", "completed"), ("resumed", "resumed"),
+                                ("checkpoints", "manifests")):
+            if hasattr(cls, attribute):
+                (cls.evidence / f"{name}.json").write_text(
+                    json.dumps(getattr(cls, attribute), indent=2) + "\n", encoding="utf-8")
+        if cls.base.is_dir():
+            copytree_windows_safe(cls.base, cls.evidence / "workspace")
+
+
+    @staticmethod
+    def file_sha(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(65536), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        output = os.environ.get("JYPPX_LIUDING_RECIPE_EVIDENCE_DIR")
+        cls.evidence = Path(output) / ("paired-local-" + cls.device) if output else None
+        cls.command_index = 0
+        if cls.evidence is not None:
+            cls.evidence.mkdir(parents=True, exist_ok=False)
+            retained = Path(tempfile.mkdtemp(prefix="liuding-local-paired-"))
+            cls.base = retained / "typed paired recipe"
+            cls.addClassCleanup(cls.preserve_workspace)
+            (cls.evidence / "workspace-source.json").write_text(json.dumps({
+                "retained_temp": str(retained), "workspace": str(cls.base),
+                "retained_for_root_collection": True,
+                "copy": str(cls.evidence / "workspace")}, indent=2) + "\n", encoding="utf-8")
+        else:
+            cls.temporary = tempfile.TemporaryDirectory(prefix="liuding-local-paired-")
+            cls.addClassCleanup(cls.temporary.cleanup)
+            cls.base = Path(cls.temporary.name) / "typed paired recipe"
+        cls.base.mkdir()
+        prepared = cls.invoke("data", "prepare", "--name", "paired-affine",
+                              "--data-root", cls.base / "datasets")["data"]
+        cls.data = Path(prepared["destination"])
+        cls.config = json.loads((ROOT / "recipes/multi-io/paired-affine.json").read_text(encoding="utf-8"))
+        cls.config.update(train_file=str(cls.data / "train.jsonl"),
+                          validation_file=str(cls.data / "validation.jsonl"), device=cls.device)
+        cls.config_file = cls.base / "config.json"
+        cls.config_file.write_text(json.dumps(cls.config), encoding="utf-8")
+        cls.preflight = cls.invoke("recipe", "check", "--file", cls.config_file)["data"]
+        cls.store, cls.work = cls.base / "store", cls.base / "resumed"
+        cls.spec_path = cls.base / "retry.json"
+        cls.training_started = False
+
+    @classmethod
+    def prepare(cls, config: Path, work: Path, spec: Path, *, pause: int = 259,
+                expected: int = 0) -> dict:
+        return cls.invoke("recipe", "local-spec", "--file", config, "--root", work,
+                          "--store", cls.store, "--spec", spec, "--executable", cls.cli,
+                          "--pause-after", pause, "--timeout-ms", 360000, expected=expected)
+
+    @classmethod
+    def plan(cls) -> dict:
+        if not hasattr(cls, "prepared"):
+            cls.prepared = cls.prepare(cls.config_file, cls.work, cls.spec_path)["data"]
+        return cls.prepared
+
+    @classmethod
+    def refs(cls, run: str) -> dict:
+        return {row["reference_id"]: row for row in cls.invoke(
+            "run", "show", "--root", cls.store, "--id", run)["data"]["references"]}
+
+    @classmethod
+    def blob(cls, reference: dict) -> bytes:
+        artifact = reference["artifact"]
+        identity = artifact["sha256"]
+        content = (cls.store / "artifacts/objects" / identity[:2] / identity[2:]).read_bytes()
+        if len(content) != artifact["size_bytes"] or hashlib.sha256(content).hexdigest() != identity:
+            raise AssertionError("Typed paired CAS content differs from its reference")
+        return content
+
+    @classmethod
+    def train(cls) -> None:
+        if cls.training_started:
+            if not hasattr(cls, "completed"):
+                raise AssertionError("The previous native training group failed; its budget forbids an automatic rerun")
+            return
+        cls.plan()
+        cls.training_started = True
+        cls.baseline_root = cls.base / "continuous"
+        cls.baseline = cls.invoke("recipe", "run", "--file", cls.config_file,
+                                  "--root", cls.baseline_root)["data"]
+        completed = cls.invoke("local", "execute", "--root", cls.store,
+                               "--id", "paired-retry", "--spec", cls.spec_path)["data"]
+        cls.resumed = json.loads((cls.work / "result.json").read_bytes())
+        cls.manifests = {name: cls.invoke("checkpoint", "inspect", "--path",
+            root / "final.jyck")["data"]["manifest"] for name, root in (
+                ("continuous", cls.baseline_root), ("resumed", cls.work))}
+        cls.completed = completed
+        if cls.evidence is not None:
+            evidence = cls.evidence
+            for name, value in (("preflight", cls.preflight), ("plan", cls.prepared),
+                                ("continuous", cls.baseline), ("local", cls.completed),
+                                ("resumed", cls.resumed), ("checkpoints", cls.manifests)):
+                (evidence / f"{name}.json").write_text(
+                    json.dumps(value, indent=2) + "\n", encoding="utf-8")
+            for attempt in cls.completed["attempts"]:
+                references = cls.refs(attempt["attempt_id"])
+                for name in ("local.result", "local.training.inputs", "local.training.outputs"):
+                    if name in references:
+                        (evidence / f"attempt-{attempt['index']}-{name}.json").write_bytes(
+                            cls.blob(references[name]))
+
+    def test_01_local_spec_freezes_paired_inputs_and_program(self) -> None:
+        spec = self.plan()["specification"]
+        self.assertEqual(spec, json.loads(self.spec_path.read_bytes()))
+        self.assertEqual(spec["executable_sha256"], self.file_sha(self.cli))
+        self.assertEqual(spec["experiment_id"], "paired-affine")
+        self.assertEqual(spec["training"]["model_id"], "paired-affine")
+        self.assertEqual(spec["max_attempts"], 2)
+        self.assertEqual(spec["retry_exit_codes"], [75])
+        self.assertEqual(spec["training"]["retry_resume"],
+                         {"checkpoint_reference_id": "checkpoint.last", "restore_policy": "exact_only"})
+        self.assertFalse(self.work.exists())
+        for name, actual in (("configuration", self.preflight["config"]),
+                             ("data_manifest", self.preflight["dataset"])):
+            binding = spec["training"][name]
+            references = self.refs(binding["run_id"])
+            self.assertEqual(json.loads(self.blob(references[binding["reference_id"]])), actual)
+            source = self.invoke("run", "show", "--root", self.store,
+                                 "--id", binding["run_id"])["data"]["run"]
+            self.assertEqual(source["experiment_id"], "paired-affine")
+        before = self.spec_path.read_bytes()
+        self.prepare(self.config_file, self.base / "unused-work", self.spec_path, expected=2)
+        self.assertEqual(self.spec_path.read_bytes(), before)
+        single = self.prepare(self.config_file, self.base / "single-work",
+                              self.base / "single.json", pause=0)["data"]["specification"]
+        self.assertEqual(single["max_attempts"], 1)
+        self.assertEqual(single["retry_exit_codes"], [])
+        self.assertNotIn("retry_resume", single["training"])
+
+    def test_02_full_task_exact_retry_and_typed_outputs_match_continuous(self) -> None:
+        self.train()
+        self.assertEqual(self.config["seed"], 20261028)
+        self.assertEqual(self.preflight["total_steps"], 1280)
+        self.assertEqual(self.preflight["dataset"]["train"]["samples"], 1024)
+        self.assertEqual(self.preflight["dataset"]["validation"]["samples"], 256)
+        for result in (self.baseline, self.resumed):
+            self.assertEqual(result["global_step"], 1280)
+            self.assertEqual(result["optimizer_steps"], 1280)
+            self.assertEqual(result["scheduler_steps"], 40)
+            self.assertEqual(result["completed_epochs"], 40)
+            self.assertEqual(result["validation_samples"], 256)
+            self.assertGreaterEqual(result["accuracy"], .95)
+            self.assertLessEqual(result["mse"], .005)
+            self.assertTrue(result["quality_passed"])
+        for field in RESULT_FIELDS:
+            self.assertEqual(self.resumed[field], self.baseline[field], field)
+        self.assertEqual((self.work / "model.safetensors").read_bytes(),
+                         (self.baseline_root / "model.safetensors").read_bytes())
+        states = {name: {entry["state"]["participant_id"]: entry
+                  for entry in manifest["participants"]} for name, manifest in self.manifests.items()}
+        self.assertEqual(set(states["resumed"]), PARTICIPANTS)
+        self.assertEqual(states["resumed"], states["continuous"])
+        self.assertEqual(self.completed["status"], "completed")
+        self.assertEqual(len(self.completed["attempts"]), 2)
+        first, second = self.completed["attempts"]
+        self.assertNotEqual(first["attempt_id"], second["attempt_id"])
+        self.assertEqual(first["result"]["exit_code"], 75)
+        self.assertEqual(second["result"]["exit_code"], 0)
+        for attempt in (first, second):
+            self.assertTrue(attempt["result"]["process_tree_cleanup_confirmed"])
+        old_refs, new_refs = self.refs(first["attempt_id"]), self.refs(second["attempt_id"])
+        self.assertIn("checkpoint.last", old_refs)
+        self.assertNotIn("model.weights", old_refs)
+        self.assertNotIn("training.result", old_refs)
+        self.assertNotIn("local.training.outputs", old_refs)
+        paused = json.loads(self.blob(old_refs["local.stdout"]))["data"]
+        self.assertEqual(paused["status"], "paused")
+        self.assertEqual(paused["global_step"], 259)
+        inputs = json.loads(self.blob(new_refs["local.training.inputs"]))
+        checkpoint = old_refs["checkpoint.last"]["artifact"]
+        paused_checkpoint = self.base / "paused.jyck"
+        paused_checkpoint.write_bytes(self.blob(old_refs["checkpoint.last"]))
+        self.invoke("checkpoint", "verify", "--path", paused_checkpoint)
+        expected_training = dict(self.plan()["specification"]["training"])
+        del expected_training["retry_resume"]
+        expected_training["resume"] = {"restore_policy": "exact_only", "checkpoint": {
+            "run_id": first["attempt_id"], "reference_id": "checkpoint.last",
+            "sha256": checkpoint["sha256"], "size_bytes": checkpoint["size_bytes"]}}
+        spec_sha = self.refs("paired-retry")["local.spec"]["artifact"]["sha256"]
+        self.assertEqual(inputs, {"format": "jyppx.liuding.local_training_inputs",
+            "schema_version": 1, "job_id": "paired-retry", "attempt_id": second["attempt_id"],
+            "index": 2, "spec_sha256": spec_sha, "training": expected_training,
+            "previous_result_sha256": old_refs["local.result"]["artifact"]["sha256"]})
+        self.assertEqual(second["result"]["training_sha256"],
+                         new_refs["local.training.inputs"]["artifact"]["sha256"])
+        self.assertTrue(second["result"]["training_outputs_confirmed"])
+        receipt = json.loads(self.blob(new_refs["local.training.outputs"]))
+        self.assertEqual(new_refs["local.training.outputs"]["artifact"]["sha256"],
+                         second["result"]["training_outputs_sha256"])
+        native = dict(second["result"])
+        del native["training_outputs_sha256"], native["training_outputs_confirmed"]
+        expected_rows = [dict(row, sha256=new_refs[row["reference_id"]]["artifact"]["sha256"],
+            size_bytes=new_refs[row["reference_id"]]["artifact"]["size_bytes"],
+            confirmed=True, failure_reason=None) for row in expected_training["outputs"]]
+        self.assertEqual(receipt, {"format": "jyppx.liuding.local_training_outputs",
+            "schema_version": 1, "job_id": "paired-retry", "attempt_id": second["attempt_id"],
+            "index": 2, "spec_sha256": spec_sha,
+            "intent_sha256": new_refs["local.intent"]["artifact"]["sha256"],
+            "owner_sha256": new_refs["local.owner"]["artifact"]["sha256"],
+            "native_result_sha256": hashlib.sha256(json.dumps(native, ensure_ascii=False,
+                sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest(),
+            "training": {key: value for key, value in expected_training.items() if key != "outputs"},
+            "outputs": expected_rows, "confirmed": True, "failure_reason": None})
+        for name, filename in (("checkpoint.last", "final.jyck"),
+                               ("model.weights", "model.safetensors"), ("training.result", "result.json")):
+            self.assertEqual(new_refs[name]["artifact"]["sha256"], self.file_sha(self.work / filename))
+            self.assertEqual(self.blob(new_refs[name]), (self.work / filename).read_bytes())
+        for command, path in ((('model', 'verify'), self.work / 'model.safetensors'),
+                              (('model', 'bundle', 'verify'), self.work / 'bundle'),
+                              (('checkpoint', 'verify'), self.work / 'final.jyck')):
+            self.invoke(*command, "--path", path)
+        for root in (self.store, self.work / "run-store"):
+            self.assertTrue(self.invoke("run", "verify", "--root", root)["data"]["valid"])
+        input_schema = json.loads((self.work / "bundle/metadata/input.json").read_text(encoding="utf-8"))
+        output_schema = json.loads((self.work / "bundle/metadata/output.json").read_text(encoding="utf-8"))
+        self.assertEqual([entry["name"] for entry in input_schema["positional"]], ["left", "right"])
+        self.assertEqual([entry["shape"] for entry in output_schema["tuple"]], [[None, 2], [None, 1]])
+
+    def test_03_confirmed_terminal_replay_does_not_train_or_change_files(self) -> None:
+        self.train()
+        before = {str(p.relative_to(self.work)): (self.file_sha(p), p.stat().st_mtime_ns)
+                  for p in self.work.rglob("*") if p.is_file()}
+        for action in ("recover", "execute"):
+            options = ("--spec", self.spec_path) if action == "execute" else ()
+            replay = self.invoke("local", action, "--root", self.store,
+                                 "--id", "paired-retry", *options)["data"]
+            self.assertEqual(replay, self.completed)
+        after = {str(p.relative_to(self.work)): (self.file_sha(p), p.stat().st_mtime_ns)
+                 for p in self.work.rglob("*") if p.is_file()}
+        self.assertEqual(after, before)
+
+    def test_04_changed_inputs_and_unowned_local_run_fail_before_training(self) -> None:
+        for name in ("model", "config", "data", "outputs"):
+            with self.subTest(name=name):
+                work, path = self.base / ("bad-" + name), self.base / ("bad-spec-" + name + ".json")
+                spec = self.prepare(self.config_file, work, path)["data"]["specification"]
+                original = None
+                if name == "model":
+                    spec["training"]["model_id"] = "not-paired-affine"
+                elif name == "outputs":
+                    spec["training"]["outputs"][1]["role"] = "wrong"
+                elif name == "config":
+                    changed = self.base / "changed-config.json"
+                    changed.write_text(json.dumps(self.config | {"seed": 7}), encoding="utf-8")
+                    spec["arguments"][3] = str(changed)
+                else:
+                    data = self.data / "train.jsonl"
+                    original = data.read_bytes()
+                    head, tail = original.split(b"\n", 1)
+                    row = json.loads(head)
+                    row["left"][0] = -row["left"][0] if row["left"][0] else .5
+                    data.write_bytes(json.dumps(row).encode("utf-8") + b"\n" + tail)
+                try:
+                    path.write_text(json.dumps(spec), encoding="utf-8")
+                    rejected = self.invoke("local", "execute", "--root", self.store,
+                        "--id", "bad-" + name, "--spec", path, expected=1)["data"]
+                    self.assertEqual(rejected["status"], "failed")
+                    self.assertEqual(len(rejected["attempts"]), 1)
+                    attempt = rejected["attempts"][0]
+                    self.assertEqual(attempt["result"]["exit_code"], 2)
+                    self.assertTrue(attempt["result"]["process_tree_cleanup_confirmed"])
+                    self.assertNotIn("checkpoint.last", self.refs(attempt["attempt_id"]))
+                    self.assertFalse(work.exists())
+                finally:
+                    if original is not None:
+                        data.write_bytes(original)
+        unowned = self.base / "unowned"
+        self.invoke("recipe", "local-run", "--file", self.config_file, "--root", unowned, expected=2)
+        self.assertFalse(unowned.exists())
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--cli", type=Path, required=True)
@@ -309,4 +634,6 @@ if __name__ == "__main__":
     arguments, remaining = parser.parse_known_args()
     PairedRecipe.cli = arguments.cli.resolve()
     PairedRecipe.device = arguments.device
+    LocalPairedRecipe.cli = arguments.cli.resolve()
+    LocalPairedRecipe.device = arguments.device
     unittest.main(argv=[__file__, *remaining])

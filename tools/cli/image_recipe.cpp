@@ -1794,7 +1794,7 @@ Result recipe_command(const Arguments& arguments) {
       !arguments.optional("name") || transfer_schema,
       "recipe schema accepts --name paired-affine or --name transfer");
   if (action == "check" || action == "initialize" || action == "run" ||
-      action == "resume") {
+      action == "resume" || action == "local-spec" || action == "local-run") {
     const auto config = parse_json(read_text(arguments.require("file")));
     if (config.is_object() &&
         config.value("recipe", Json{}) == "jyppx.liuding.paired-affine/v1") {
