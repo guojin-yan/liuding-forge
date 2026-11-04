@@ -3,6 +3,7 @@
 // Project alias: JYPPX Training Framework
 // Licensed under the Apache License, Version 2.0.
 
+#include "paired_search_bridge.hpp"
 #include "recipe_local_attempt.hpp"
 #include "recipe_support.hpp"
 
@@ -44,7 +45,7 @@ namespace tr = training;
 constexpr std::string_view kRecipe = "jyppx.liuding.paired-affine/v1";
 constexpr std::string_view kRun = "run.paired-affine";
 
-const std::map<std::string, ValueKind>& field_kinds() {
+const std::map<std::string, ValueKind> &field_kinds() {
   static const std::map<std::string, ValueKind> fields{
       {"schema_version", ValueKind::integer},
       {"recipe", ValueKind::string},
@@ -72,11 +73,11 @@ const std::map<std::string, ValueKind>& field_kinds() {
   return fields;
 }
 
-Json resolve_config(const std::filesystem::path& path) {
+Json resolve_config(const std::filesystem::path &path) {
   ex::config::ConfigSchema schema;
   schema.schema_id = std::string(kRecipe);
   schema.root.kind = ValueKind::dictionary;
-  for (const auto& [name, kind] : field_kinds()) {
+  for (const auto &[name, kind] : field_kinds()) {
     ValueSchema field;
     field.name = name;
     field.kind = kind;
@@ -86,7 +87,7 @@ Json resolve_config(const std::filesystem::path& path) {
   resolver.add_json_file(path);
   const auto resolved = resolver.resolve();
   auto config = parse_json(resolved.canonical_json());
-  const auto integer = [&](const char* name, std::int64_t low,
+  const auto integer = [&](const char *name, std::int64_t low,
                            std::int64_t high) {
     const auto value = resolved.integer(std::string("/") + name);
     require_recipe(value >= low && value <= high,
@@ -107,7 +108,7 @@ Json resolve_config(const std::filesystem::path& path) {
                  "Unsupported paired recipe identity");
   require_recipe(config.at("device") == "cpu" || config.at("device") == "cuda",
                  "Recipe device must be cpu or cuda");
-  for (const auto* key :
+  for (const auto *key :
        {"learning_rate", "momentum", "weight_decay", "lr_gamma",
         "regression_weight", "minimum_accuracy", "maximum_mse"}) {
     const auto value = resolved.floating(std::string("/") + key);
@@ -127,7 +128,7 @@ Json resolve_config(const std::filesystem::path& path) {
                  "Recipe batch exceeds max_batch_bytes before allocation");
   require_recipe(!config.at("data_license").get<std::string>().empty(),
                  "Declare the dataset license");
-  for (const auto* key : {"train_file", "validation_file"}) {
+  for (const auto *key : {"train_file", "validation_file"}) {
     require_recipe(!config.at(key).get<std::string>().empty(),
                    "Recipe data path must not be empty");
     auto file = std::filesystem::u8path(config.at(key).get<std::string>());
@@ -151,12 +152,12 @@ struct Inputs {
   std::uint64_t total_steps;
 };
 
-Inputs inspect_inputs(const Json& config) {
+Inputs inspect_inputs(const Json &config) {
   std::uint64_t total_bytes = 0;
   Json manifest{{"schema_version", 1},
                 {"dataset", kRecipe},
                 {"data_license", config.at("data_license")}};
-  const auto load = [&](const char* key, const char* split) {
+  const auto load = [&](const char *key, const char *split) {
     const auto path =
         std::filesystem::u8path(config.at(key).get<std::string>());
     const auto identity =
@@ -197,10 +198,10 @@ Inputs inspect_inputs(const Json& config) {
       require_recipe(value.at("id") == id.str(),
                      "Recipe row identity/order differs");
       Row row{};
-      const auto feature = [&](const char* field, std::size_t width,
-                               float* output, double minimum,
+      const auto feature = [&](const char *field, std::size_t width,
+                               float *output, double minimum,
                                double maximum_value) {
-        const auto& values = value.at(field);
+        const auto &values = value.at(field);
         require_recipe(values.is_array() && values.size() == width,
                        "Recipe input/target shape differs");
         for (std::size_t i = 0; i < width; ++i) {
@@ -252,7 +253,7 @@ Inputs inspect_inputs(const Json& config) {
 }
 
 ValueSchema tensor_schema(std::string name, std::int64_t width,
-                          const Device& device, Dtype dtype = torch::kFloat32) {
+                          const Device &device, Dtype dtype = torch::kFloat32) {
   TensorSchema schema;
   schema.dtype = dtype;
   schema.device = device;
@@ -264,8 +265,8 @@ ValueSchema tensor_schema(std::string name, std::int64_t width,
 }
 
 std::shared_ptr<data::DataPipeline> make_pipeline(
-    const Json& config, std::shared_ptr<const std::vector<Row>> rows,
-    bool validation, const ArtifactDigest& identity, const Device& device) {
+    const Json &config, std::shared_ptr<const std::vector<Row>> rows,
+    bool validation, const ArtifactDigest &identity, const Device &device) {
   data::DataPipelineOptions options;
   options.pipeline_id = validation ? "recipe.validation" : "recipe.training";
   options.dataset_version = identity.hex;
@@ -296,7 +297,7 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
           rows->size(), config.at("seed").get<std::int64_t>()),
       options,
       [rows, maximum](std::span<const std::size_t> indices,
-                      const data::DataWorkerContext&, std::stop_token stop) {
+                      const data::DataWorkerContext &, std::stop_token stop) {
         require_recipe(indices.size() <= maximum / 28,
                        "Recipe batch exceeds allocation budget");
         if (stop.stop_requested())
@@ -307,7 +308,7 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
         auto labels = torch::empty({count}, torch::kInt64);
         auto regression = torch::empty({count, 1}, torch::kFloat32);
         for (std::size_t i = 0; i < indices.size(); ++i) {
-          const auto& row = rows->at(indices[i]);
+          const auto &row = rows->at(indices[i]);
           std::copy(row.left.begin(), row.left.end(),
                     left.data_ptr<float>() + 2 * i);
           std::copy(row.right.begin(), row.right.end(),
@@ -325,7 +326,7 @@ class PairedModule final : public torch::nn::Module {
     classifier = register_module("classifier", torch::nn::Linear(4, 2));
     regressor = register_module("regressor", torch::nn::Linear(4, 1));
   }
-  c10::IValue forward(const Tensor& left, const Tensor& right) {
+  c10::IValue forward(const Tensor &left, const Tensor &right) {
     const auto joined = torch::cat({left, right}, 1);
     return c10::ivalue::Tuple::create({classifier(joined), regressor(joined)});
   }
@@ -344,10 +345,10 @@ class Checkpoints final : public tr::CallbackHandler {
     descriptor_.allowed_commands = {
         tr::CallbackCommandKind::request_checkpoint};
   }
-  const tr::CallbackDescriptor& descriptor() const noexcept override {
+  const tr::CallbackDescriptor &descriptor() const noexcept override {
     return descriptor_;
   }
-  tr::CallbackCommandRequest handle(const tr::CallbackEvent& event) override {
+  tr::CallbackCommandRequest handle(const tr::CallbackEvent &event) override {
     if (event.phase == tr::CallbackPhase::training &&
         (event.global_step % every_ == 0 || event.global_step == total_))
       return {tr::CallbackCommandKind::request_checkpoint,
@@ -360,12 +361,12 @@ class Checkpoints final : public tr::CallbackHandler {
   std::uint64_t every_, total_;
 };
 
-std::vector<std::byte> encode_model(const nn::ModelAdapter& model) {
+std::vector<std::byte> encode_model(const nn::ModelAdapter &model) {
   std::vector<Tensor> owners;
   std::vector<interop::SafeTensorSource> tensors;
-  for (const auto& parameter : model.state().named_parameters()) {
+  for (const auto &parameter : model.state().named_parameters()) {
     owners.push_back(parameter.value().detach().to(torch::kCPU).contiguous());
-    const auto& tensor = owners.back();
+    const auto &tensor = owners.back();
     std::vector<std::uint64_t> shape;
     for (const auto extent : tensor.sizes())
       shape.push_back(static_cast<std::uint64_t>(extent));
@@ -373,15 +374,15 @@ std::vector<std::byte> encode_model(const nn::ModelAdapter& model) {
         {.name = "parameter." + parameter.key(),
          .dtype = interop::SafeTensorDtype::f32,
          .shape = std::move(shape),
-         .data = {static_cast<const std::byte*>(tensor.const_data_ptr()),
+         .data = {static_cast<const std::byte *>(tensor.const_data_ptr()),
                   tensor.nbytes()}});
   }
   return interop::serialize_safetensors(tensors,
                                         {{"recipe", std::string(kRecipe)}});
 }
 
-void attach(ex::SQLiteRunStore& store, const std::filesystem::path& path,
-            const std::string& id, std::uint64_t time,
+void attach(ex::SQLiteRunStore &store, const std::filesystem::path &path,
+            const std::string &id, std::uint64_t time,
             ex::RunArtifactKind kind = ex::RunArtifactKind::artifact) {
   const auto hash = file_digest(path);
   if (const auto previous = store.find_reference(kRun, id)) {
@@ -398,9 +399,9 @@ void attach(ex::SQLiteRunStore& store, const std::filesystem::path& path,
       time, hash);
 }
 
-Json publish_bundle(const std::filesystem::path& root,
-                    const BuildFingerprint& build, const Json& config,
-                    const Json& lineage, const Json& evaluation,
+Json publish_bundle(const std::filesystem::path &root,
+                    const BuildFingerprint &build, const Json &config,
+                    const Json &lineage, const Json &evaluation,
                     std::span<const std::byte> weights) {
   interop::ModelBundleManifest manifest;
   manifest.bundle_id = "paired-affine-v1";
@@ -418,7 +419,7 @@ Json publish_bundle(const std::filesystem::path& root,
   model.id = "paired-affine";
   model.file_ids = {"weights"};
   const interop::SafeTensorsView view(weights);
-  for (const auto& tensor : view.directory().tensors)
+  for (const auto &tensor : view.directory().tensors)
     model.tensors.push_back({.name = tensor.name,
                              .dtype = tensor.dtype,
                              .shape = tensor.shape,
@@ -428,7 +429,7 @@ Json publish_bundle(const std::filesystem::path& root,
   std::filesystem::create_directories(root / "descriptors");
   std::vector<interop::BundlePublishSource> sources{
       {"weights", root / "model.safetensors"}};
-  const auto descriptor = [&](const std::string& id,
+  const auto descriptor = [&](const std::string &id,
                               interop::BundleFileRole role, Json value) {
     value["schema_version"] = 1;
     const auto file = root / "descriptors" / (id + ".json");
@@ -481,7 +482,7 @@ Json publish_bundle(const std::filesystem::path& root,
                   {"config", config},
                   {"initialization", "random; self-authored affine model"}});
   auto os_arch = build.os_arch;
-  for (auto& value : os_arch)
+  for (auto &value : os_arch)
     if (value >= 'A' && value <= 'Z')
       value = static_cast<char>(value - 'A' + 'a');
   manifest.runtime = {.backend_id = "libtorch.paired-affine",
@@ -505,7 +506,7 @@ Json publish_bundle(const std::filesystem::path& root,
           {"transitive_sbom_complete", false}};
 }
 
-Result execute(const Arguments& arguments, bool resume, bool local = false) {
+Result execute(const Arguments &arguments, bool resume, bool local = false) {
   const auto config = resolve_config(std::filesystem::absolute(
       std::filesystem::u8path(arguments.require("file"))));
   const auto inputs = inspect_inputs(config);
@@ -596,7 +597,7 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
   }
   require_recipe(metadata->status == ex::RunStatus::running,
                  "Recipe cannot resume a terminal run");
-  for (const auto* id : {"lineage", "config", "dataset"})
+  for (const auto *id : {"lineage", "config", "dataset"})
     attach(store, root / (std::string(id) + ".json"), id, time);
   at::set_num_threads(1);
   at::set_num_interop_threads(1);
@@ -620,7 +621,7 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
                              tensor_schema("right", 2, device)};
   auto model = std::make_shared<nn::ModelAdapter>(nn::adapt_module(
       module,
-      [](PairedModule& concrete, const nn::Invocation& input) {
+      [](PairedModule &concrete, const nn::Invocation &input) {
         return concrete.forward(input.positional.at(0).toTensor(),
                                 input.positional.at(1).toTensor());
       },
@@ -628,7 +629,7 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
       ValueSchema::tuple({tensor_schema("logits", 2, device),
                           tensor_schema("regression", 1, device)})));
   std::vector<optim::OptimizerParameterBinding> bindings;
-  for (const auto& parameter : model->state().named_parameters())
+  for (const auto &parameter : model->state().named_parameters())
     bindings.push_back({parameter.key(), parameter.value()});
   auto optimizer = std::make_shared<optim::SgdOptimizerAdapter>(
       "recipe.sgd",
@@ -644,22 +645,22 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
                      .scheduler_id = "recipe.lr",
                      .step_size = 1,
                      .gamma = config.at("lr_gamma").get<double>()});
-  const tr::BatchMapper mapper = [](const data::BatchEnvelope& batch) {
-    const auto& values = batch.value.toTuple()->elements();
+  const tr::BatchMapper mapper = [](const data::BatchEnvelope &batch) {
+    const auto &values = batch.value.toTuple()->elements();
     return nn::Invocation{.positional = {values.at(0), values.at(1)},
                           .keyword = {}};
   };
   const tr::TargetMapper targets =
-      [](const data::BatchEnvelope& batch) -> std::optional<c10::IValue> {
-    const auto& values = batch.value.toTuple()->elements();
+      [](const data::BatchEnvelope &batch) -> std::optional<c10::IValue> {
+    const auto &values = batch.value.toTuple()->elements();
     return c10::ivalue::Tuple::create({values.at(2), values.at(3)});
   };
   const tr::StepFunction step =
       [weight = config.at("regression_weight").get<double>()](
-          const tr::StepInput& input) {
+          const tr::StepInput &input) {
         const auto output = input.model.invoke(input.invocation);
-        const auto& values = output.value.toTuple()->elements();
-        const auto& target = input.target->toTuple()->elements();
+        const auto &values = output.value.toTuple()->elements();
+        const auto &target = input.target->toTuple()->elements();
         const auto logits = values.at(0).toTensor();
         const auto mse =
             (values.at(1).toTensor() - target.at(1).toTensor()).square().mean();
@@ -716,7 +717,7 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
                                                      device.is_cuda()}),
        .diagnostics = diagnostics,
        .additional_participants = {},
-       .checkpoint_action = [&](const tr::CheckpointCoordinator& coordinator) {
+       .checkpoint_action = [&](const tr::CheckpointCoordinator &coordinator) {
          tr::FileCheckpointStore checkpoint(root / "latest.jyck");
          coordinator.save(checkpoint);
        }});
@@ -750,7 +751,7 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
   write_file(root / "model.safetensors", weights);
   auto classifier = nn::adapt_module(
       module,
-      [](PairedModule& concrete, const nn::Invocation& invocation) {
+      [](PairedModule &concrete, const nn::Invocation &invocation) {
         return concrete
             .forward(invocation.positional.at(0).toTensor(),
                      invocation.positional.at(1).toTensor())
@@ -803,7 +804,7 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
   require_recipe(std::isfinite(mse), "Recipe regression MSE is nonfinite");
   const auto accuracy = std::find_if(
       scores.observations.begin(), scores.observations.end(),
-      [](const auto& point) {
+      [](const auto &point) {
         return point.definition.metric_id == "classification.accuracy" &&
                point.context.at("slice") == "overall" &&
                point.context.at("source") == "all";
@@ -822,6 +823,24 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
                       .reason = {}},
       .context = {{"split", "validation"}},
       .sample_count = regression_samples};
+  require_recipe(
+      telemetry_metric_definition_digest(accuracy->definition) ==
+          telemetry_metric_definition_digest(paired_search_objective()),
+      "Paired search accuracy definition differs");
+  const TelemetryEnvelope final_evaluation{
+      .identity = {.stream_id = "recipe.paired-affine.evaluation",
+                   .event_id = "evaluation.final",
+                   .idempotency_key = "evaluation.final",
+                   .sequence = 1},
+      .correlation = {.project_id = "liuding-forge",
+                      .run_id = std::string(kRun)},
+      .attributes = {{"recipe", std::string(kRecipe)},
+                     {"config_sha256", config_hash.hex},
+                     {"dataset_sha256", inputs.identity.hex},
+                     {"model_sha256", model_hash.hex}},
+      .payload = TelemetryMetricBatch{{*accuracy, mse_point}}};
+  store.append(kRun, "recipe.paired-affine.final-evaluation",
+               std::span(&final_evaluation, 1));
   ex::EvaluationSuite suite{
       .suite_id = "recipe.paired-affine",
       .task = "classification-and-regression",
@@ -899,13 +918,13 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
       {"lineage", lineage},
       {"bundle", bundle},
       {"next_rng_sha256",
-       sha256_hex({static_cast<const std::byte*>(next_rng.const_data_ptr()),
+       sha256_hex({static_cast<const std::byte *>(next_rng.const_data_ptr()),
                    next_rng.nbytes()})},
-      {"next_cpu_rng_sha256",
-       sha256_hex({static_cast<const std::byte*>(next_cpu_rng.const_data_ptr()),
-                   next_cpu_rng.nbytes()})}};
+      {"next_cpu_rng_sha256", sha256_hex({static_cast<const std::byte *>(
+                                              next_cpu_rng.const_data_ptr()),
+                                          next_cpu_rng.nbytes()})}};
   write_json(root / "result.json", result);
-  for (const auto* name :
+  for (const auto *name :
        {"model.safetensors", "evaluation-suite.json", "evaluation.json",
         "diagnostics.json", "result.json"})
     attach(store, root / name, std::filesystem::path(name).stem().string(),
@@ -920,14 +939,36 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
 }
 }  // namespace
 
-Result paired_recipe_command(const Arguments& arguments) {
-  const auto& action = arguments.words().at(1);
+Json inspect_paired_search_inputs(const std::filesystem::path &path) {
+  const auto configuration = resolve_config(path);
+  const auto inputs = inspect_inputs(configuration);
+  return {{"configuration", configuration},
+          {"data_manifest", inputs.manifest},
+          {"total_steps", inputs.total_steps}};
+}
+
+TelemetryMetricDefinition paired_search_objective() {
+  return {.metric_id = "classification.accuracy",
+          .version = 1,
+          .unit = TelemetryMetricUnit::ratio,
+          .aggregation = TelemetryAggregation::mean,
+          .direction = TelemetryMetricDirection::maximize,
+          .parameters = {{"classes", "2"},
+                         {"ignore_index", "none"},
+                         {"zero_division", "zero"},
+                         {"ties", "lowest_class_index"},
+                         {"macro_classes", "all"}},
+          .context_keys = {"slice", "source"}};
+}
+
+Result paired_recipe_command(const Arguments &arguments) {
+  const auto &action = arguments.words().at(1);
   if (action == "schema") {
     require_recipe(!arguments.optional("file") && !arguments.optional("root") &&
                        !arguments.optional("pause-after"),
                    "recipe schema accepts only --name");
     Json fields = Json::object();
-    for (const auto& [name, kind] : field_kinds())
+    for (const auto &[name, kind] : field_kinds())
       fields[name] = {{"kind", value_kind_name(kind)}};
     return {Json{{"schema_version", 1},
                  {"schema_id", kRecipe},

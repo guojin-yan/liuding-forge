@@ -7,6 +7,7 @@
 #include "local_search.hpp"
 
 #include "local_attempt.hpp"
+#include "paired_search_bridge.hpp"
 #include "recipe_support.hpp"
 
 #include <jyppx/liuding/experiment/run_store.hpp>
@@ -44,12 +45,14 @@ constexpr std::uint64_t kMaximumTrials = 256;
 constexpr std::uint64_t kMaximumSpace = 1000000;
 constexpr std::uint64_t kMaximumDuration = 24ULL * 60 * 60 * 1000;
 constexpr std::string_view kProducer = "jyppx.liuding.cli.search/v1";
+constexpr std::string_view kPairedRecipe = "jyppx.liuding.paired-affine/v1";
+constexpr std::string_view kRecipeBridge = "search.recipe.bridge";
 
 void require(bool condition, std::string_view reason) {
   if (!condition) throw InvalidArgument(std::string(reason));
 }
 
-std::string text(const Json& value) {
+std::string text(const Json &value) {
   const auto result = value.get<std::string>();
   require(result.find('\0') == std::string::npos,
           "Search strings must not contain NUL");
@@ -69,13 +72,13 @@ void identifier(std::string_view value) {
           "'-'");
 }
 
-std::uint64_t positive(const Json& value, std::uint64_t limit) {
+std::uint64_t positive(const Json &value, std::uint64_t limit) {
   const auto result = unsigned_number(value, limit);
   require(result != 0, "Search budgets must be positive");
   return result;
 }
 
-void ordinary(const fs::path& path) {
+void ordinary(const fs::path &path) {
   require(path.is_absolute(), "Search paths must be absolute");
   for (auto part = path.lexically_normal(); !part.empty();) {
     require(!fs::is_symlink(fs::symlink_status(part)),
@@ -94,7 +97,7 @@ void ordinary(const fs::path& path) {
 
 class SearchLock final {
  public:
-  SearchLock(const fs::path& root, std::string_view id) {
+  SearchLock(const fs::path &root, std::string_view id) {
     const auto directory = root / ".local-search-locks";
     fs::create_directories(directory);
     ordinary(directory);
@@ -153,8 +156,8 @@ class SearchLock final {
     return handle_ >= 0;
 #endif
   }
-  SearchLock(const SearchLock&) = delete;
-  SearchLock& operator=(const SearchLock&) = delete;
+  SearchLock(const SearchLock &) = delete;
+  SearchLock &operator=(const SearchLock &) = delete;
 
  private:
 #if defined(_WIN32)
@@ -164,7 +167,7 @@ class SearchLock final {
 #endif
 };
 
-void bounded_json(const Json& value, unsigned depth, std::uint64_t& nodes) {
+void bounded_json(const Json &value, unsigned depth, std::uint64_t &nodes) {
   require(depth <= 16 && ++nodes <= 16384,
           "Search configuration exceeds nesting/node limits");
   if (value.is_string()) static_cast<void>(text(value));
@@ -172,10 +175,10 @@ void bounded_json(const Json& value, unsigned depth, std::uint64_t& nodes) {
     require(std::isfinite(value.get<double>()),
             "Search numbers must be finite");
   if (value.is_structured())
-    for (const auto& child : value) bounded_json(child, depth + 1, nodes);
+    for (const auto &child : value) bounded_json(child, depth + 1, nodes);
 }
 
-TelemetryMetricDefinition definition(const Json& value) {
+TelemetryMetricDefinition definition(const Json &value) {
   fields(value, {"schema_version", "metric_id", "version", "unit",
                  "aggregation", "direction", "parameters", "context_keys"});
   TelemetryMetricDefinition result;
@@ -234,7 +237,7 @@ struct Plan {
 
 // Standard engine + explicit rejection sampling gives the same sequence on
 // MSVC/libstdc++; std::uniform_int_distribution has no cross-library contract.
-std::uint64_t uniform(std::mt19937_64& engine, std::uint64_t bound) {
+std::uint64_t uniform(std::mt19937_64 &engine, std::uint64_t bound) {
   const auto threshold = (std::uint64_t{0} - bound) % bound;
   std::uint64_t draw = 0;
   do {
@@ -243,11 +246,12 @@ std::uint64_t uniform(std::mt19937_64& engine, std::uint64_t bound) {
   return draw % bound;
 }
 
-Plan read_plan(const Json& value) {
+Plan read_plan(const Json &value) {
   fields(value,
          {"format", "schema_version", "project_id", "experiment_id", "strategy",
           "seed", "max_trials", "max_duration_ms", "max_failures", "space",
-          "configuration", "execution", "objective", "inputs", "outputs"});
+          "configuration", "execution", "objective", "inputs", "outputs"},
+         {"recipe_bridge"});
   require(text(value.at("format")) == "jyppx.liuding.local_search_spec" &&
               positive(value.at("schema_version"), 1) == 1,
           "Unknown search schema");
@@ -269,13 +273,13 @@ Plan read_plan(const Json& value) {
   const auto strategy = text(value.at("strategy"));
   require(strategy == "grid" || strategy == "random",
           "Choose grid or random search");
-  const auto& space = value.at("space");
+  const auto &space = value.at("space");
   require(space.is_array() && !space.empty() && space.size() <= 16,
           "Search requires 1-16 finite choice axes");
   require(value.at("configuration").is_object(),
           "Search configuration must be an object");
   std::set<std::string> names, pointers;
-  for (const auto& axis : space) {
+  for (const auto &axis : space) {
     fields(axis, {"name", "config_pointer", "values"});
     const auto name = text(axis.at("name"));
     identifier(name);
@@ -285,12 +289,12 @@ Plan read_plan(const Json& value) {
                 pointers.insert(pointer).second,
             "Search config pointers must be unique, non-root JSON pointers");
     const Json::json_pointer location(pointer);
-    const auto& original = value.at("configuration").at(location);
-    const auto& choices = axis.at("values");
+    const auto &original = value.at("configuration").at(location);
+    const auto &choices = axis.at("values");
     require(choices.is_array() && !choices.empty() && choices.size() <= 256,
             "Each search axis requires 1-256 choices");
     std::set<std::string> distinct;
-    for (const auto& choice : choices) {
+    for (const auto &choice : choices) {
       require(!choice.is_null() && !choice.is_structured() &&
                   ((choice.is_number() && original.is_number()) ||
                    choice.type() == original.type()),
@@ -303,7 +307,7 @@ Plan read_plan(const Json& value) {
             "Search Cartesian space exceeds one million combinations");
     result.cardinality *= choices.size();
   }
-  const auto& objective = value.at("objective");
+  const auto &objective = value.at("objective");
   fields(objective, {"definition", "context", "step_kind", "selection"});
   result.metric = definition(objective.at("definition"));
   result.metric_sha256 = telemetry_metric_definition_digest(result.metric).hex;
@@ -312,7 +316,7 @@ Plan read_plan(const Json& value) {
   require(text(objective.at("selection")) == "last",
           "Search selects the last committed matching observation");
   std::set<std::string> context_keys;
-  for (const auto& [key, item] : result.context) {
+  for (const auto &[key, item] : result.context) {
     static_cast<void>(item);
     context_keys.insert(key);
   }
@@ -333,10 +337,89 @@ Plan read_plan(const Json& value) {
                     .sequence = 1};
   probe.payload = TelemetryMetricBatch{{std::move(objective_probe)}};
   validate_telemetry_envelope(probe);
-  const auto& execution = value.at("execution");
+  const auto &execution = value.at("execution");
+  const bool paired = value.contains("recipe_bridge");
+  if (paired) {
+    require(value.at("recipe_bridge") ==
+                Json{{"format", "jyppx.liuding.local_search_recipe_bridge"},
+                     {"schema_version", 1},
+                     {"recipe", kPairedRecipe},
+                     {"seed_policy", "configuration"}},
+            "Search supports only its versioned paired-affine recipe bridge");
+    require(result.project == "liuding-forge" &&
+                result.experiment == "paired-affine" &&
+                execution.contains("training") &&
+                result.metric_sha256 == telemetry_metric_definition_digest(
+                                            paired_search_objective())
+                                            .hex &&
+                result.context == TelemetryAttributes{{"slice", "overall"},
+                                                      {"source", "all"}} &&
+                result.step == TelemetryStepKind::sample,
+            "Paired search requires its native project, model and complete "
+            "accuracy objective");
+    const auto &arguments = execution.at("arguments");
+    Json expected{"recipe", "local-run",           "--file",   "${config}",
+                  "--root", "${recipe_directory}", "--format", "json"};
+    const bool retry = arguments.is_array() && arguments.size() == 10;
+    if (retry) {
+      require(arguments.at(8) == "--pause-after",
+              "Paired search only accepts an optional --pause-after");
+      const auto pause_text = text(arguments.at(9));
+      require(!pause_text.empty() && pause_text.size() <= 7 &&
+                  pause_text.front() != '0' &&
+                  std::all_of(
+                      pause_text.begin(), pause_text.end(),
+                      [](unsigned char c) { return c >= '0' && c <= '9'; }) &&
+                  std::stoull(pause_text) <= 1000000,
+              "Paired search pause must be a positive bounded integer");
+      expected.push_back("--pause-after");
+      expected.push_back(pause_text);
+    }
+    require(arguments == expected &&
+                unsigned_number(execution.at("max_attempts"), 16) ==
+                    (retry ? 2 : 1) &&
+                execution.at("retry_exit_codes") ==
+                    (retry ? Json{75} : Json::array()),
+            "Paired search uses its whole-value local-run template and at "
+            "most one exact checkpoint continuation");
+    const auto &training = execution.at("training");
+    require(
+        training.at("model_id") == "paired-affine" &&
+            training.at("resume").is_null() && training.contains("outputs") &&
+            training.contains("retry_resume") == retry &&
+            (!retry || training.at("retry_resume") ==
+                           Json{{"checkpoint_reference_id", "checkpoint.last"},
+                                {"restore_policy", "exact_only"}}),
+        "Paired search starts fresh and only continues its owned exact "
+        "checkpoint.last");
+    Json outputs = Json::array();
+    for (const auto &output : training.at("outputs")) {
+      fields(output, {"reference_id", "kind", "role", "max_size_bytes"});
+      static_cast<void>(positive(output.at("max_size_bytes"),
+                                 recipe_support::kArtifactLimit));
+      auto declaration = output;
+      declaration.erase("max_size_bytes");
+      outputs.push_back(std::move(declaration));
+    }
+    const Json required_outputs{{{"reference_id", "checkpoint.last"},
+                                 {"kind", "checkpoint"},
+                                 {"role", "last"}},
+                                {{"reference_id", "model.weights"},
+                                 {"kind", "artifact"},
+                                 {"role", "model.weights"}},
+                                {{"reference_id", "training.result"},
+                                 {"kind", "artifact"},
+                                 {"role", "training.result"}}};
+    require(
+        outputs == required_outputs && value.at("outputs") == required_outputs,
+        "Paired search requires its three typed native outputs in order");
+  }
   if (execution.contains("training")) {
-    const auto& training = execution.at("training");
-    fields(training, {"model_id", "configuration", "data_manifest", "resume"});
+    const auto &training = execution.at("training");
+    fields(training, {"model_id", "configuration", "data_manifest", "resume"},
+           paired ? std::initializer_list<std::string_view>{"outputs",
+                                                            "retry_resume"}
+                  : std::initializer_list<std::string_view>{});
     require(training.at("configuration").is_string() &&
                 text(training.at("configuration")) == "${trial_configuration}",
             "Typed search owns configuration; use ${trial_configuration}");
@@ -345,19 +428,19 @@ Plan read_plan(const Json& value) {
       execution.at("project_id").get<std::string>() == result.project &&
           execution.at("experiment_id").get<std::string>() == result.experiment,
       "Search and execution project/experiment must match");
-  require(unsigned_number(execution.at("max_attempts"), 16) == 1 &&
-              execution.at("retry_exit_codes").is_array() &&
-              execution.at("retry_exit_codes").empty(),
+  require(paired || (unsigned_number(execution.at("max_attempts"), 16) == 1 &&
+                     execution.at("retry_exit_codes").is_array() &&
+                     execution.at("retry_exit_codes").empty()),
           "Search trials execute once; checkpoint continuation requires a "
           "new search with explicit frozen inputs");
   require(!execution.contains("deadline_unix_ms"),
           "Search owns its frozen absolute execution deadline");
-  const auto validate_bindings = [&](const Json& bindings, bool output) {
+  const auto validate_bindings = [&](const Json &bindings, bool output) {
     require(bindings.is_array() && bindings.size() <= 64 &&
                 (!output || !bindings.empty()),
             "Search declares at most 64 inputs/outputs and requires an output");
     std::set<std::string> ids;
-    for (const auto& binding : bindings) {
+    for (const auto &binding : bindings) {
       if (output) {
         fields(binding, {"reference_id", "kind", "role"});
         const auto kind = text(binding.at("kind"));
@@ -406,9 +489,9 @@ Plan read_plan(const Json& value) {
   return result;
 }
 
-RunArtifactReference put_json(SQLiteRunStore& store, std::string_view run,
+RunArtifactReference put_json(SQLiteRunStore &store, std::string_view run,
                               std::string id, std::string role,
-                              const Json& value, std::uint64_t stamp) {
+                              const Json &value, std::uint64_t stamp) {
   const auto content = value.dump();
   require(content.size() <= kEvidenceBytes, "Search artifact exceeds 1 MiB");
   return store.put_artifact(run, std::move(id), RunArtifactKind::artifact,
@@ -420,15 +503,14 @@ RunArtifactReference put_json(SQLiteRunStore& store, std::string_view run,
                             stamp, digest(content));
 }
 
-Json load_json(SQLiteRunStore& store, std::string_view run,
-               std::string_view id) {
-  const auto reference = store.find_reference(run, id);
-  if (!reference || reference->kind != RunArtifactKind::artifact ||
-      reference->role != id || reference->artifact.size_bytes > kEvidenceBytes)
-    throw CompatibilityError("Missing/incompatible search evidence reference");
+Json artifact_json(SQLiteRunStore &store,
+                   const RunArtifactReference &reference) {
+  require(reference.kind == RunArtifactKind::artifact &&
+              reference.artifact.size_bytes <= kEvidenceBytes,
+          "Search JSON evidence exceeds its bounded artifact contract");
   FileArtifactStore cas(store.artifact_root());
-  auto reader = cas.open(reference->artifact.digest);
-  require(reader->size_bytes() == reference->artifact.size_bytes,
+  auto reader = cas.open(reference.artifact.digest);
+  require(reader->size_bytes() == reference.artifact.size_bytes,
           "Search artifact size mismatch");
   std::string content(static_cast<std::size_t>(reader->size_bytes()), '\0');
   std::size_t offset = 0;
@@ -439,12 +521,21 @@ Json load_json(SQLiteRunStore& store, std::string_view run,
     if (!count) throw SerializationError("Truncated search evidence");
     offset += count;
   }
-  require(digest(content) == reference->artifact.digest,
+  require(digest(content) == reference.artifact.digest,
           "Search evidence digest mismatch");
   return parse_json(content);
 }
 
-Json reference_json(const RunArtifactReference& reference) {
+Json load_json(SQLiteRunStore &store, std::string_view run,
+               std::string_view id) {
+  const auto reference = store.find_reference(run, id);
+  if (!reference || reference->kind != RunArtifactKind::artifact ||
+      reference->role != id || reference->artifact.size_bytes > kEvidenceBytes)
+    throw CompatibilityError("Missing/incompatible search evidence reference");
+  return artifact_json(store, *reference);
+}
+
+Json reference_json(const RunArtifactReference &reference) {
   return {{"reference_id", reference.reference_id},
           {"kind", reference.kind == RunArtifactKind::checkpoint ? "checkpoint"
                                                                  : "artifact"},
@@ -453,16 +544,16 @@ Json reference_json(const RunArtifactReference& reference) {
           {"size_bytes", reference.artifact.size_bytes}};
 }
 
-void verify_content(SQLiteRunStore& store,
-                    const RunArtifactReference& reference) {
+void verify_content(SQLiteRunStore &store,
+                    const RunArtifactReference &reference) {
   FileArtifactStore cas(store.artifact_root());
   auto reader = cas.open(reference.artifact.digest);
   require(reader->size_bytes() == reference.artifact.size_bytes,
           "Search bound artifact size mismatch");
 }
 
-void validate_inputs(SQLiteRunStore& store, const Plan& plan) {
-  for (const auto& input : plan.json.at("inputs")) {
+void validate_inputs(SQLiteRunStore &store, const Plan &plan) {
+  for (const auto &input : plan.json.at("inputs")) {
     const auto reference = store.find_reference(text(input.at("run_id")),
                                                 text(input.at("reference_id")));
     require(
@@ -470,9 +561,9 @@ void validate_inputs(SQLiteRunStore& store, const Plan& plan) {
         "Declared search input differs from the committed run/CAS artifact");
     verify_content(store, *reference);
   }
-  const auto& execution = plan.json.at("execution");
+  const auto &execution = plan.json.at("execution");
   if (execution.contains("training")) {
-    const auto& training = execution.at("training");
+    const auto &training = execution.at("training");
     validate_local_training_source(store, plan.project,
                                    training.at("data_manifest"),
                                    RunArtifactKind::artifact);
@@ -483,7 +574,7 @@ void validate_inputs(SQLiteRunStore& store, const Plan& plan) {
   }
 }
 
-RunMetadata search_metadata(SQLiteRunStore& store, std::string_view id) {
+RunMetadata search_metadata(SQLiteRunStore &store, std::string_view id) {
   const auto run = store.find(id);
   require(run && run->tags.contains("liuding.search.kind") &&
               run->tags.at("liuding.search.kind") == "search",
@@ -491,7 +582,7 @@ RunMetadata search_metadata(SQLiteRunStore& store, std::string_view id) {
   return *run;
 }
 
-void validate_identity(const RunMetadata& search, const Plan& plan) {
+void validate_identity(const RunMetadata &search, const Plan &plan) {
   require(search.project_id == plan.project &&
               search.experiment_id == plan.experiment &&
               search.lineage.config_digest == plan.sha256 &&
@@ -521,7 +612,7 @@ struct Trial {
   Json execution;
 };
 
-Trial trial(const Plan& plan, std::string_view search, const fs::path& root,
+Trial trial(const Plan &plan, std::string_view search, const fs::path &root,
             std::uint64_t index, std::uint64_t deadline) {
   require(index >= 1 && index <= plan.sequence.size(),
           "Trial index outside frozen sequence");
@@ -532,10 +623,10 @@ Trial trial(const Plan& plan, std::string_view search, const fs::path& root,
   result.parameters = Json::object();
   result.configuration = plan.json.at("configuration");
   auto coordinate = plan.sequence[static_cast<std::size_t>(index - 1)];
-  const auto& space = plan.json.at("space");
+  const auto &space = plan.json.at("space");
   for (std::size_t offset = space.size(); offset != 0; --offset) {
-    const auto& axis = space.at(offset - 1);
-    const auto& choices = axis.at("values");
+    const auto &axis = space.at(offset - 1);
+    const auto &choices = axis.at("values");
     const auto choice = coordinate % choices.size();
     coordinate /= choices.size();
     result.parameters[text(axis.at("name"))] =
@@ -559,13 +650,16 @@ Trial trial(const Plan& plan, std::string_view search, const fs::path& root,
       {"${config_sha256}", result.config_sha256},
       {"${trial_directory}", path_text(result.directory)},
       {"${trial_seed}", std::to_string(result.seed)}};
-  for (const auto& [name, value] : result.parameters.items())
+  if (plan.json.contains("recipe_bridge"))
+    substitutions["${recipe_directory}"] =
+        path_text(result.directory / "recipe");
+  for (const auto &[name, value] : result.parameters.items())
     substitutions["${param." + name + "}"] =
         value.is_string() ? text(value) : value.dump();
-  for (const auto& input : plan.json.at("inputs"))
+  for (const auto &input : plan.json.at("inputs"))
     substitutions["${input." + text(input.at("name")) + "}"] =
         text(input.at("sha256"));
-  const auto expand = [&](const Json& value) {
+  const auto expand = [&](const Json &value) {
     auto original = text(value);
     const auto found = substitutions.find(original);
     if (found != substitutions.end()) return found->second;
@@ -575,8 +669,8 @@ Trial trial(const Plan& plan, std::string_view search, const fs::path& root,
     return original;
   };
   result.execution = plan.json.at("execution");
-  for (auto& value : result.execution.at("arguments")) value = expand(value);
-  for (auto& value : result.execution.at("environment")) value = expand(value);
+  for (auto &value : result.execution.at("arguments")) value = expand(value);
+  for (auto &value : result.execution.at("environment")) value = expand(value);
   result.execution["working_directory"] =
       expand(result.execution.at("working_directory"));
   result.execution["deadline_unix_ms"] = deadline;
@@ -593,7 +687,7 @@ Trial trial(const Plan& plan, std::string_view search, const fs::path& root,
   return result;
 }
 
-void materialize(const Trial& value) {
+void materialize(const Trial &value) {
   fs::create_directories(value.directory);
   ordinary(value.directory);
   const auto path = value.directory / "config.json";
@@ -617,7 +711,7 @@ void materialize(const Trial& value) {
   fs::rename(temporary, path);
 }
 
-Json admission(const Trial& value, std::uint64_t index, const Plan& plan) {
+Json admission(const Trial &value, std::uint64_t index, const Plan &plan) {
   return {
       {"format", "jyppx.liuding.local_search_admission"},
       {"schema_version", 1},
@@ -634,8 +728,8 @@ Json admission(const Trial& value, std::uint64_t index, const Plan& plan) {
       {"execution", value.execution}};
 }
 
-void seal_trial_inputs(SQLiteRunStore& store, const RunMetadata& search,
-                       const Plan& plan, const Trial& value,
+void seal_trial_inputs(SQLiteRunStore &store, const RunMetadata &search,
+                       const Plan &plan, const Trial &value,
                        std::uint64_t index, bool child_exists) {
   if (!value.execution.contains("training")) return;
   const auto id = value.id + ".inputs";
@@ -677,8 +771,566 @@ void seal_trial_inputs(SQLiteRunStore& store, const RunMetadata& search,
   store.transition(id, RunStatus::completed, search.created_at_unix_ms);
 }
 
-Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
-              std::uint64_t index, const Json& local) {
+Json bound_json(SQLiteRunStore &store, const Json &binding) {
+  const auto reference = store.find_reference(text(binding.at("run_id")),
+                                              text(binding.at("reference_id")));
+  require(reference && reference->kind == RunArtifactKind::artifact &&
+              reference->artifact.digest.hex == text(binding.at("sha256")) &&
+              reference->artifact.size_bytes ==
+                  unsigned_number(binding.at("size_bytes"), kEvidenceBytes),
+          "Paired bridge JSON differs from its frozen binding");
+  return artifact_json(store, *reference);
+}
+
+struct RecipeBridgeReceipt {
+  std::string run;
+  std::string id;
+};
+
+RecipeBridgeReceipt recipe_bridge_receipt(SQLiteRunStore &store,
+                                          const Trial &value) {
+  const auto job = store.find(value.id);
+  require(job && job->lineage.parent_run_id,
+          "Paired bridge trial has no owning search");
+  // A completed local job is immutable. Its parent search is still running
+  // while each trial's confirmed receipt is first committed. The full trial
+  // digest gives every trial a distinct reference within that owning search.
+  return {*job->lineage.parent_run_id,
+          std::string(kRecipeBridge) + "." + digest(value.id).hex};
+}
+
+void validate_paired_trial_inputs(SQLiteRunStore &store, const Trial &value) {
+  const auto inspected =
+      inspect_paired_search_inputs(value.directory / "config.json");
+  require(
+      inspected.at("configuration") == value.configuration &&
+          digest(inspected.at("configuration").dump()).hex ==
+              value.config_sha256 &&
+          inspected.at("data_manifest") ==
+              bound_json(store,
+                         value.execution.at("training").at("data_manifest")),
+      "Paired trial configuration must equal the resolved recipe and "
+      "its frozen dataset before dispatch");
+  const auto &arguments = value.execution.at("arguments");
+  if (arguments.size() == 10)
+    require(std::stoull(text(arguments.at(9))) <
+                positive(inspected.at("total_steps"), 1000000),
+            "Paired search pause must precede the final update");
+  require(!fs::exists(value.directory / "recipe"),
+          "Paired trial requires its unused recipe directory");
+}
+
+std::string canonical_hex(std::span<const std::byte> content) {
+  constexpr std::string_view digits = "0123456789abcdef";
+  require(content.size() <= 65536,
+          "Paired bridge metric exceeds its evidence limit");
+  std::string encoded;
+  encoded.reserve(content.size() * 2);
+  for (const auto item : content) {
+    const auto value = std::to_integer<unsigned>(item);
+    encoded.push_back(digits[value >> 4U]);
+    encoded.push_back(digits[value & 15U]);
+  }
+  return encoded;
+}
+
+TelemetryEnvelope bridge_metric(const Json &manifest) {
+  const auto encoded = text(manifest.at("native_metric_canonical_hex"));
+  require(
+      !encoded.empty() && encoded.size() <= 131072 && encoded.size() % 2 == 0,
+      "Invalid paired native metric evidence size");
+  const auto nibble = [](char value) -> unsigned {
+    if (value >= '0' && value <= '9') return unsigned(value - '0');
+    if (value >= 'a' && value <= 'f') return unsigned(value - 'a' + 10);
+    throw CompatibilityError("Invalid paired native metric evidence hex");
+  };
+  std::vector<std::byte> content;
+  content.reserve(encoded.size() / 2);
+  for (std::size_t i = 0; i < encoded.size(); i += 2)
+    content.push_back(
+        std::byte((nibble(encoded[i]) << 4U) | nibble(encoded[i + 1])));
+  require(sha256_hex(content) == text(manifest.at("native_metric_sha256")),
+          "Paired native metric evidence digest differs");
+  return decode_telemetry_envelope(content);
+}
+
+// Local control validates the complete owner/intent/output receipt chain.
+// Retain that exact final-attempt evidence, including its effective resume;
+// the search's original null resume must never stand in for a continuation.
+Json recipe_attempt_evidence(SQLiteRunStore &store, const Trial &value,
+                             const Json &local) {
+  require(local.at("status") == "completed" &&
+              !local.at("owner_active").get<bool>() &&
+              local.at("job_id") == value.id &&
+              local.at("spec_sha256") == digest(value.execution.dump()).hex &&
+              local.at("attempts").is_array() && !local.at("attempts").empty(),
+          "Paired bridge requires its completed, unowned local job");
+  const auto &final = local.at("attempts").back();
+  const auto index = positive(final.at("index"), 2);
+  require(index == local.at("attempts").size(),
+          "Paired bridge final attempt index differs");
+  const auto attempt = text(final.at("attempt_id"));
+  const auto outcome = load_json(store, attempt, "local.result");
+  require(
+      outcome == final.at("result") && outcome.at("job_id") == value.id &&
+          outcome.at("attempt_id") == attempt && outcome.at("index") == index &&
+          outcome.at("spec_sha256") == local.at("spec_sha256") &&
+          outcome.at("status") == "exited" && outcome.at("exit_code") == 0 &&
+          outcome.at("process_tree_cleanup_confirmed").get<bool>() &&
+          outcome.at("training_outputs_confirmed").get<bool>(),
+      "Paired bridge requires confirmed final native cleanup and outputs");
+  auto training = value.execution.at("training");
+  training.erase("retry_resume");
+  Json inputs_sha = nullptr;
+  if (value.execution.at("training").contains("retry_resume")) {
+    const auto frozen = load_json(store, attempt, "local.training.inputs");
+    const auto job_frozen = load_json(
+        store, value.id, "local.training.inputs." + std::to_string(index));
+    require(frozen == job_frozen && frozen.at("job_id") == value.id &&
+                frozen.at("attempt_id") == attempt &&
+                frozen.at("index") == index &&
+                frozen.at("spec_sha256") == local.at("spec_sha256") &&
+                outcome.at("training_sha256") == digest(frozen.dump()).hex,
+            "Paired bridge effective training manifest differs");
+    for (const auto *name :
+         {"model_id", "configuration", "data_manifest", "outputs"})
+      require(frozen.at("training").at(name) == training.at(name),
+              "Paired bridge changed an immutable typed input");
+    if (index == 1) {
+      require(frozen.at("training").at("resume").is_null() &&
+                  frozen.at("previous_result_sha256").is_null(),
+              "Paired first attempt must start from its frozen null resume");
+    } else {
+      const auto &previous = local.at("attempts").at(index - 2);
+      const auto previous_id = text(previous.at("attempt_id"));
+      const auto checkpoint =
+          store.find_reference(previous_id, "checkpoint.last");
+      const auto previous_result =
+          store.find_reference(previous_id, "local.result");
+      require(checkpoint && previous_result &&
+                  checkpoint->kind == RunArtifactKind::checkpoint &&
+                  previous.at("result").at("status") == "exited" &&
+                  previous.at("result").at("exit_code") == 75 &&
+                  previous.at("result")
+                      .at("process_tree_cleanup_confirmed")
+                      .get<bool>() &&
+                  frozen.at("previous_result_sha256") ==
+                      previous_result->artifact.digest.hex &&
+                  frozen.at("training").at("resume") ==
+                      Json{{"restore_policy", "exact_only"},
+                           {"checkpoint",
+                            {{"run_id", previous_id},
+                             {"reference_id", "checkpoint.last"},
+                             {"sha256", checkpoint->artifact.digest.hex},
+                             {"size_bytes", checkpoint->artifact.size_bytes}}}},
+              "Paired continuation must bind its exact prior checkpoint and "
+              "confirmed retryable result");
+    }
+    training = frozen.at("training");
+    inputs_sha = digest(frozen.dump()).hex;
+  }
+  const auto receipt = load_json(store, attempt, "local.training.outputs");
+  auto receipt_training = training;
+  receipt_training.erase("outputs");
+  require(
+      receipt.at("confirmed").get<bool>() &&
+          receipt.at("failure_reason").is_null() &&
+          receipt.at("job_id") == value.id &&
+          receipt.at("attempt_id") == attempt && receipt.at("index") == index &&
+          receipt.at("spec_sha256") == local.at("spec_sha256") &&
+          receipt.at("training") == receipt_training &&
+          outcome.at("training_outputs_sha256") == digest(receipt.dump()).hex &&
+          receipt.at("outputs").size() == 3,
+      "Paired bridge output receipt differs from its effective inputs");
+  Json outputs = Json::array();
+  for (const auto &output : receipt.at("outputs")) {
+    const auto reference =
+        store.find_reference(attempt, text(output.at("reference_id")));
+    require(reference && output.at("confirmed").get<bool>() &&
+                output.at("failure_reason").is_null() &&
+                output.at("sha256") == reference->artifact.digest.hex &&
+                output.at("size_bytes") == reference->artifact.size_bytes,
+            "Paired bridge output differs from its confirmed receipt");
+    verify_content(store, *reference);
+    outputs.push_back(reference_json(*reference));
+  }
+  return {{"trial_id", value.id},
+          {"training_run_id", value.training},
+          {"spec_sha256", local.at("spec_sha256")},
+          {"attempt_id", attempt},
+          {"attempt_index", index},
+          {"local_result_sha256", digest(outcome.dump()).hex},
+          {"training_outputs_sha256", digest(receipt.dump()).hex},
+          {"effective_inputs_sha256", inputs_sha},
+          {"training", training},
+          {"outputs", outputs}};
+}
+
+const TelemetryMetricPoint &validate_native_metric(
+    const TelemetryEnvelope &envelope, const Plan &plan, const Trial &value,
+    const Json &result) {
+  const auto *batch = std::get_if<TelemetryMetricBatch>(&envelope.payload);
+  require(
+      batch && batch->points.size() == 2 &&
+          envelope.identity.stream_id == "recipe.paired-affine.evaluation" &&
+          envelope.identity.event_id == "evaluation.final" &&
+          envelope.identity.idempotency_key == "evaluation.final" &&
+          envelope.identity.sequence == 1 &&
+          envelope.correlation.project_id == plan.project &&
+          envelope.correlation.run_id == "run.paired-affine" &&
+          envelope.attributes ==
+              TelemetryAttributes{
+                  {"recipe", std::string(kPairedRecipe)},
+                  {"config_sha256", value.config_sha256},
+                  {"dataset_sha256", text(value.execution.at("training")
+                                              .at("data_manifest")
+                                              .at("sha256"))},
+                  {"model_sha256", text(result.at("model_sha256"))}},
+      "Paired native committed evaluation identity differs");
+  const auto &point = batch->points.front();
+  require(telemetry_metric_definition_digest(point.definition).hex ==
+                  plan.metric_sha256 &&
+              point.context == plan.context && point.step.kind == plan.step &&
+              point.step.value == result.at("validation_samples") &&
+              point.sample_count == point.step.value &&
+              point.observation.status == TelemetryValueStatus::finite &&
+              point.observation.value &&
+              std::isfinite(*point.observation.value) &&
+              *point.observation.value == result.at("accuracy") &&
+              batch->points.back().definition.metric_id == "regression.mse" &&
+              batch->points.back().observation.status ==
+                  TelemetryValueStatus::finite &&
+              batch->points.back().observation.value &&
+              *batch->points.back().observation.value == result.at("mse"),
+          "Paired native objective is missing, nonfinite or incompatible");
+  return point;
+}
+
+Json validate_recipe_bridge(SQLiteRunStore &store, const Plan &plan,
+                            const Trial &value, const Json &local) {
+  const auto receipt = recipe_bridge_receipt(store, value);
+  const auto manifest = load_json(store, receipt.run, receipt.id);
+  fields(manifest, {"format",
+                    "schema_version",
+                    "search_spec_sha256",
+                    "trial_id",
+                    "training_run_id",
+                    "spec_sha256",
+                    "attempt_id",
+                    "attempt_index",
+                    "local_result_sha256",
+                    "training_outputs_sha256",
+                    "effective_inputs_sha256",
+                    "training",
+                    "outputs",
+                    "seed_policy",
+                    "training_seed",
+                    "trial_seed",
+                    "native_source_digest",
+                    "native_build_fingerprint",
+                    "native_metric_canonical_hex",
+                    "native_metric_sha256",
+                    "native_metric_run_sequence"});
+  require(manifest.at("format") == "jyppx.liuding.local_search_paired_bridge" &&
+              manifest.at("schema_version") == 1 &&
+              manifest.at("search_spec_sha256") == plan.sha256 &&
+              manifest.at("seed_policy") == "configuration" &&
+              manifest.at("training_seed") ==
+                  unsigned_number(value.configuration.at("seed"), 2147483647) &&
+              manifest.at("trial_seed") == value.seed,
+          "Paired bridge schema or frozen search identity differs");
+  const auto evidence = recipe_attempt_evidence(store, value, local);
+  for (const auto &[key, item] : evidence.items())
+    require(manifest.at(key) == item,
+            "Paired bridge differs from confirmed final-attempt evidence");
+  const auto result =
+      load_json(store, text(evidence.at("attempt_id")), "training.result");
+  const auto &lineage = result.at("lineage");
+  const auto data =
+      bound_json(store, evidence.at("training").at("data_manifest"));
+  const auto steps =
+      ((positive(data.at("train").at("samples"), 4096) +
+        positive(value.configuration.at("batch_size"), 1024) - 1) /
+       positive(value.configuration.at("batch_size"), 1024)) *
+      positive(value.configuration.at("epochs"), 1000);
+  const auto job = store.find(value.id);
+  require(
+      job && result.at("schema_version") == 1 &&
+          text(result.at("recipe")) == kPairedRecipe &&
+          result.at("run_id") == "run.paired-affine" &&
+          result.at("status") == "completed" &&
+          result.at("quality_passed").get<bool>() &&
+          result.at("global_step") == steps &&
+          result.at("optimizer_steps") == steps &&
+          result.at("completed_epochs") == value.configuration.at("epochs") &&
+          result.at("scheduler_steps") == value.configuration.at("epochs") &&
+          result.at("validation_samples") ==
+              data.at("validation").at("samples") &&
+          result.at("model_sha256") ==
+              evidence.at("outputs").at(1).at("sha256") &&
+          text(lineage.at("recipe")) == kPairedRecipe &&
+          lineage.at("config_sha256") == value.config_sha256 &&
+          lineage.at("dataset_sha256") ==
+              evidence.at("training").at("data_manifest").at("sha256") &&
+          lineage.at("numerics") == result.at("numerics") &&
+          parse_json(text(manifest.at("native_build_fingerprint"))) ==
+              lineage.at("build") &&
+          digest(text(manifest.at("native_build_fingerprint"))).hex ==
+              job->lineage.build_fingerprint &&
+          !text(manifest.at("native_source_digest")).empty() &&
+          manifest.at("native_source_digest") ==
+              lineage.at("build").at("git_commit") &&
+          positive(manifest.at("native_metric_run_sequence"), 1000000) != 0,
+      "Paired bridge result/configuration/data/model/build lineage differs");
+  const auto envelope = bridge_metric(manifest);
+  static_cast<void>(validate_native_metric(envelope, plan, value, result));
+  return manifest;
+}
+
+// A partial publication can contain no references or the complete atomic
+// attachment, and no event or exactly the one native-derived event. Other
+// writers cannot turn a running partial bridge into a different objective.
+struct RecipePublication {
+  RunMetadata metadata;
+  std::vector<RunArtifactReference> references;
+  TelemetryEnvelope event;
+};
+
+RecipePublication recipe_publication(SQLiteRunStore &store, const Plan &plan,
+                                     const Trial &value, const Json &manifest) {
+  const auto job = store.find(value.id);
+  require(job && job->lineage.parent_run_id,
+          "Paired trial has no owning search");
+  const auto search = search_metadata(store, *job->lineage.parent_run_id);
+  validate_identity(search, plan);
+  const auto manifest_sha = digest(manifest.dump()).hex;
+  RunMetadata metadata;
+  metadata.run_id = value.training;
+  metadata.project_id = plan.project;
+  metadata.experiment_id = plan.experiment;
+  metadata.display_name = "Confirmed native paired search training";
+  metadata.status = RunStatus::running;
+  metadata.created_at_unix_ms = search.created_at_unix_ms;
+  metadata.updated_at_unix_ms = search.created_at_unix_ms;
+  metadata.lineage.parent_run_id = value.id;
+  metadata.lineage.source_digest = text(manifest.at("native_source_digest"));
+  metadata.lineage.build_fingerprint =
+      text(manifest.at("native_build_fingerprint"));
+  metadata.lineage.config_digest = value.config_sha256;
+  metadata.lineage.data_manifest_digest =
+      text(manifest.at("training").at("data_manifest").at("sha256"));
+  metadata.tags = {
+      {"liuding.training.model_id", "paired-affine"},
+      {"liuding.search.recipe", std::string(kPairedRecipe)},
+      {"liuding.search.bridge_sha256", manifest_sha},
+      {"liuding.search.attempt_id", text(manifest.at("attempt_id"))}};
+  std::vector<RunArtifactReference> references;
+  const auto attach = [&](std::string_view run, std::string_view id,
+                          std::string_view renamed) {
+    auto reference = store.find_reference(run, id);
+    require(reference.has_value(),
+            "Paired bridge publication source is missing");
+    verify_content(store, *reference);
+    reference->reference_id = renamed;
+    reference->role = renamed;
+    reference->attached_at_unix_ms = search.created_at_unix_ms;
+    references.push_back(std::move(*reference));
+  };
+  const auto &training = manifest.at("training");
+  for (const auto *name : {"configuration", "data_manifest"}) {
+    const auto &binding = training.at(name);
+    attach(text(binding.at("run_id")), text(binding.at("reference_id")),
+           "search.training." + std::string(name));
+  }
+  if (!training.at("resume").is_null()) {
+    const auto &binding = training.at("resume").at("checkpoint");
+    attach(text(binding.at("run_id")), text(binding.at("reference_id")),
+           "search.training.resume");
+  }
+  for (const auto &input : plan.json.at("inputs"))
+    attach(text(input.at("run_id")), text(input.at("reference_id")),
+           "search.input." + text(input.at("name")));
+  for (const auto &output : manifest.at("outputs")) {
+    auto reference = store.find_reference(text(manifest.at("attempt_id")),
+                                          text(output.at("reference_id")));
+    require(reference.has_value(), "Paired native output disappeared");
+    reference->attached_at_unix_ms = search.created_at_unix_ms;
+    references.push_back(std::move(*reference));
+  }
+  const auto receipt = recipe_bridge_receipt(store, value);
+  attach(receipt.run, receipt.id, kRecipeBridge);
+  const auto native = bridge_metric(manifest);
+  const auto result =
+      load_json(store, text(manifest.at("attempt_id")), "training.result");
+  const auto &point = validate_native_metric(native, plan, value, result);
+  const TelemetryEnvelope event{
+      .identity = {.stream_id = "search.recipe.paired-affine." +
+                                digest(value.training).hex,
+                   .event_id = "evaluation.final",
+                   .idempotency_key = "evaluation.final",
+                   .sequence = 1},
+      .time = native.time,
+      .correlation = {.project_id = plan.project,
+                      .run_id = value.training,
+                      .attempt_id = text(manifest.at("attempt_id"))},
+      .attributes = {{"recipe", std::string(kPairedRecipe)},
+                     {"bridge_sha256", manifest_sha},
+                     {"native_metric_sha256",
+                      text(manifest.at("native_metric_sha256"))}},
+      .payload = TelemetryMetricBatch{{point}}};
+  return {std::move(metadata), std::move(references), event};
+}
+
+void validate_recipe_publication(SQLiteRunStore &store, const Trial &value,
+                                 const RecipePublication &expected,
+                                 bool complete) {
+  const auto metadata = store.find(value.training);
+  const auto &wanted = expected.metadata;
+  require(metadata &&
+              (complete ? metadata->status == RunStatus::completed
+                        : metadata->status == RunStatus::running ||
+                              metadata->status == RunStatus::completed) &&
+              metadata->project_id == wanted.project_id &&
+              metadata->experiment_id == wanted.experiment_id &&
+              metadata->display_name == wanted.display_name &&
+              metadata->created_at_unix_ms == wanted.created_at_unix_ms &&
+              metadata->updated_at_unix_ms == wanted.updated_at_unix_ms &&
+              metadata->lineage.parent_run_id == wanted.lineage.parent_run_id &&
+              metadata->lineage.source_digest == wanted.lineage.source_digest &&
+              metadata->lineage.build_fingerprint ==
+                  wanted.lineage.build_fingerprint &&
+              metadata->lineage.config_digest == wanted.lineage.config_digest &&
+              metadata->lineage.data_manifest_digest ==
+                  wanted.lineage.data_manifest_digest &&
+              metadata->tags == wanted.tags,
+          "Paired outer training metadata differs from its frozen bridge");
+  const auto actual = store.references(value.training);
+  const bool attached = !actual.empty();
+  require(
+      (!complete && !attached) || actual.size() == expected.references.size(),
+      "Paired outer references must be empty or the complete atomic batch");
+  if (attached) {
+    for (const auto &reference : expected.references) {
+      const auto found =
+          std::find_if(actual.begin(), actual.end(), [&](const auto &item) {
+            return item.reference_id == reference.reference_id;
+          });
+      require(
+          found != actual.end() &&
+              reference_json(*found) == reference_json(reference) &&
+              found->artifact.logical_name == reference.artifact.logical_name &&
+              found->artifact.media_type == reference.artifact.media_type &&
+              found->artifact.producer == reference.artifact.producer &&
+              found->attached_at_unix_ms == reference.attached_at_unix_ms,
+          "Paired outer reference differs from its frozen bridge");
+      verify_content(store, *found);
+    }
+  }
+  const auto events = store.events(value.training, {.limit = 2});
+  require(
+      !events.next_after && events.events.size() <= 1 &&
+          (!complete || events.events.size() == 1) &&
+          (events.events.empty() ||
+           (attached && events.events.front().run_sequence == 1 &&
+            telemetry_content_digest(events.events.front().envelope) ==
+                telemetry_content_digest(expected.event))),
+      "Paired outer evaluation must be its unique exact native-derived event");
+}
+
+void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
+                             const Plan &plan, const Trial &value,
+                             const Json &local) {
+  if (local.at("status") != "completed") return;
+  const auto bridge_receipt = recipe_bridge_receipt(store, value);
+  require(bridge_receipt.run == search.run_id,
+          "Paired bridge receipt must belong to the owning search");
+  if (!store.find_reference(bridge_receipt.run, bridge_receipt.id)) {
+    require(
+        !store.find(value.training),
+        "Paired bridge cannot adopt a training run without its prior receipt");
+    auto manifest = recipe_attempt_evidence(store, value, local);
+    const auto attempt = text(manifest.at("attempt_id"));
+    const auto root = value.directory / "recipe" / "run-store";
+    require(fs::is_regular_file(root / "runs.sqlite3"),
+            "Completed paired recipe requires its native evidence store");
+    ordinary(root / "runs.sqlite3");
+    SQLiteRunStore native(root);
+    const auto metadata = native.find("run.paired-affine");
+    const auto result = load_json(store, attempt, "training.result");
+    require(metadata && metadata->status == RunStatus::completed &&
+                metadata->project_id == plan.project &&
+                metadata->experiment_id == plan.experiment &&
+                metadata->lineage.config_digest == value.config_sha256 &&
+                metadata->lineage.data_manifest_digest ==
+                    text(value.execution.at("training")
+                             .at("data_manifest")
+                             .at("sha256")) &&
+                metadata->lineage.source_digest &&
+                metadata->lineage.build_fingerprint &&
+                load_json(native, "run.paired-affine", "config") ==
+                    value.configuration &&
+                load_json(native, "run.paired-affine", "dataset") ==
+                    bound_json(
+                        store,
+                        value.execution.at("training").at("data_manifest")) &&
+                load_json(native, "run.paired-affine", "lineage") ==
+                    result.at("lineage"),
+            "Paired bridge requires the actual completed native run lineage");
+    const std::array<std::string_view, 3> source_ids{"final-checkpoint",
+                                                     "model", "result"};
+    for (std::size_t i = 0; i < source_ids.size(); ++i) {
+      const auto reference =
+          native.find_reference("run.paired-affine", source_ids[i]);
+      require(
+          reference &&
+              reference->artifact.digest.hex ==
+                  text(manifest.at("outputs").at(i).at("sha256")) &&
+              reference->artifact.size_bytes ==
+                  manifest.at("outputs").at(i).at("size_bytes") &&
+              reference->kind == (i == 0 ? RunArtifactKind::checkpoint
+                                         : RunArtifactKind::artifact),
+          "Paired native run differs from its three confirmed typed outputs");
+      verify_content(native, *reference);
+    }
+    const auto page = native.events("run.paired-affine", {.limit = 4});
+    require(page.events.size() == 1 && !page.next_after,
+            "Paired bridge requires its unique committed native evaluation");
+    const auto &event = page.events.front();
+    static_cast<void>(
+        validate_native_metric(event.envelope, plan, value, result));
+    const auto encoded = encode_telemetry_envelope(event.envelope);
+    manifest["format"] = "jyppx.liuding.local_search_paired_bridge";
+    manifest["schema_version"] = 1;
+    manifest["search_spec_sha256"] = plan.sha256;
+    manifest["seed_policy"] = "configuration";
+    manifest["training_seed"] = value.configuration.at("seed");
+    manifest["trial_seed"] = value.seed;
+    manifest["native_source_digest"] = *metadata->lineage.source_digest;
+    manifest["native_build_fingerprint"] = *metadata->lineage.build_fingerprint;
+    manifest["native_metric_canonical_hex"] = canonical_hex(encoded);
+    manifest["native_metric_sha256"] = sha256_hex(encoded);
+    manifest["native_metric_run_sequence"] = event.run_sequence;
+    put_json(store, bridge_receipt.run, bridge_receipt.id, bridge_receipt.id,
+             manifest, search.created_at_unix_ms);
+  }
+  const auto manifest = validate_recipe_bridge(store, plan, value, local);
+  const auto publication = recipe_publication(store, plan, value, manifest);
+  store.start(publication.metadata);
+  validate_recipe_publication(store, value, publication, false);
+  store.attach(value.training, publication.references);
+  store.append(value.training, "search.recipe.paired-affine.final-evaluation",
+               std::span(&publication.event, 1));
+  validate_recipe_publication(store, value, publication, false);
+  store.transition(value.training, RunStatus::completed,
+                   search.created_at_unix_ms);
+  // Validate again after closing the run: another public writer could have
+  // raced the final pre-completion check. Such evidence is preserved, never
+  // admitted to selection. New appends are rejected by the completed run.
+  validate_recipe_publication(store, value, publication, true);
+}
+
+Json evaluate(SQLiteRunStore &store, const Plan &plan, const Trial &value,
+              std::uint64_t index, const Json &local) {
   Json result{{"format", "jyppx.liuding.local_search_trial_result"},
               {"schema_version", 1},
               {"index", index},
@@ -695,7 +1347,20 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
               {"outputs", Json::array()}};
   if (value.execution.contains("training"))
     result["training_inputs"] = value.execution.at("training");
+  Json effective = nullptr;
+  if (plan.json.contains("recipe_bridge")) {
+    result["recipe_bridge_sha256"] = nullptr;
+    result["effective_training_inputs"] = nullptr;
+  }
   if (local.at("status").get<std::string>() != "completed") return result;
+  if (plan.json.contains("recipe_bridge")) {
+    const auto manifest = validate_recipe_bridge(store, plan, value, local);
+    const auto publication = recipe_publication(store, plan, value, manifest);
+    validate_recipe_publication(store, value, publication, true);
+    effective = manifest.at("training");
+    result["recipe_bridge_sha256"] = digest(manifest.dump()).hex;
+    result["effective_training_inputs"] = effective;
+  }
   const auto training = store.find(value.training);
   if (!training || training->status != RunStatus::completed) {
     result["reason"] = "training_not_completed";
@@ -722,7 +1387,8 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
            ? Json(*training->lineage.data_manifest_digest)
            : Json(nullptr)}};
   if (value.execution.contains("training")) {
-    const auto& inputs = value.execution.at("training");
+    const auto &inputs =
+        effective.is_null() ? value.execution.at("training") : effective;
     if (training->lineage.data_manifest_digest !=
             text(inputs.at("data_manifest").at("sha256")) ||
         !training->tags.contains("liuding.training.model_id") ||
@@ -731,7 +1397,7 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
       result["reason"] = "training_input_mismatch";
       return result;
     }
-    const auto matches = [&](const Json& binding, std::string_view role,
+    const auto matches = [&](const Json &binding, std::string_view role,
                              RunArtifactKind kind) {
       const auto reference = store.find_reference(value.training, role);
       if (!reference || reference->kind != kind || reference->role != role ||
@@ -753,7 +1419,7 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
       return result;
     }
   }
-  for (const auto& input : plan.json.at("inputs")) {
+  for (const auto &input : plan.json.at("inputs")) {
     const auto name = "search.input." + text(input.at("name"));
     const auto reference = store.find_reference(value.training, name);
     if (!reference || reference->role != name ||
@@ -763,7 +1429,7 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
     }
     verify_content(store, *reference);
   }
-  for (const auto& output : plan.json.at("outputs")) {
+  for (const auto &output : plan.json.at("outputs")) {
     const auto reference =
         store.find_reference(value.training, text(output.at("reference_id")));
     const auto kind = text(output.at("kind")) == "checkpoint"
@@ -787,7 +1453,7 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
   while (true) {
     const auto page = store.metrics(value.training, request);
     request.snapshot_through = page.snapshot_through;
-    for (const auto& point : page.points) {
+    for (const auto &point : page.points) {
       if (++inspected > 65536)
         throw ResourceExhausted(
             "Search metric scan exceeds 65536 points per trial");
@@ -807,7 +1473,7 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
     result["reason"] = "objective_missing_or_incompatible";
     return result;
   }
-  const auto& point = selected->point;
+  const auto &point = selected->point;
   result["metric"] = {
       {"definition_sha256", plan.metric_sha256},
       {"definition", plan.json.at("objective").at("definition")},
@@ -834,11 +1500,11 @@ Json evaluate(SQLiteRunStore& store, const Plan& plan, const Trial& value,
   return result;
 }
 
-std::vector<Json> results(SQLiteRunStore& store, const RunMetadata& search,
-                          const Plan& plan) {
+std::vector<Json> results(SQLiteRunStore &store, const RunMetadata &search,
+                          const Plan &plan) {
   std::vector<Json> result;
   std::set<std::string> references;
-  for (const auto& reference : store.references(search.run_id))
+  for (const auto &reference : store.references(search.run_id))
     references.insert(reference.reference_id);
   bool gap = false;
   for (std::uint64_t index = 1; index <= plan.sequence.size(); ++index) {
@@ -867,13 +1533,42 @@ std::vector<Json> results(SQLiteRunStore& store, const RunMetadata& search,
            {"format", "schema_version", "index", "trial_id", "training_run_id",
             "search_spec_sha256", "config_sha256", "parameters", "trial_seed",
             "eligible", "reason", "training_lineage", "metric", "outputs"},
-           {"training_inputs"});
+           {"training_inputs", "recipe_bridge_sha256",
+            "effective_training_inputs"});
     require(row.contains("training_inputs") ==
                 expected.execution.contains("training"),
             "Confirmed typed input presence differs from its admission");
     if (row.contains("training_inputs"))
       require(row.at("training_inputs") == expected.execution.at("training"),
               "Confirmed typed training inputs differ from their admission");
+    const bool paired = plan.json.contains("recipe_bridge");
+    require(row.contains("recipe_bridge_sha256") == paired &&
+                row.contains("effective_training_inputs") == paired,
+            "Confirmed recipe bridge presence differs from the search plan");
+    if (paired) {
+      require(row.at("recipe_bridge_sha256").is_null() ==
+                  row.at("effective_training_inputs").is_null(),
+              "Confirmed paired trial requires complete bridge evidence");
+      if (!row.at("recipe_bridge_sha256").is_null()) {
+        const auto local = control_local_job("show", store.root(), expected.id);
+        require(local.data.at("status") == "completed" &&
+                    !local.data.at("owner_active").get<bool>(),
+                "Confirmed paired bridge requires resolved local ownership");
+        const auto manifest =
+            validate_recipe_bridge(store, plan, expected, local.data);
+        require(
+            row.at("recipe_bridge_sha256") == digest(manifest.dump()).hex &&
+                row.at("effective_training_inputs") == manifest.at("training"),
+            "Confirmed paired result differs from its frozen bridge");
+      }
+      require(!row.at("eligible").get<bool>() ||
+                  !row.at("recipe_bridge_sha256").is_null(),
+              "Eligible paired trial requires its confirmed native bridge");
+      const auto local = control_local_job("show", store.root(), expected.id);
+      require(evaluate(store, plan, expected, index, local.data) == row,
+              "Confirmed paired result differs from its actual outer training "
+              "evidence");
+    }
     require(
         text(row.at("format")) == "jyppx.liuding.local_search_trial_result" &&
             positive(row.at("schema_version"), 1) == 1 &&
@@ -895,7 +1590,7 @@ std::vector<Json> results(SQLiteRunStore& store, const RunMetadata& search,
                 row.at("outputs").size() <= plan.json.at("outputs").size(),
             "Invalid confirmed trial outputs");
     if (!row.at("metric").is_null()) {
-      const auto& metric = row.at("metric");
+      const auto &metric = row.at("metric");
       require(metric.at("definition") ==
                       plan.json.at("objective").at("definition") &&
                   metric.at("definition_sha256").get<std::string>() ==
@@ -917,9 +1612,9 @@ std::vector<Json> results(SQLiteRunStore& store, const RunMetadata& search,
   return result;
 }
 
-Json best(const std::vector<Json>& rows, const Plan& plan) {
+Json best(const std::vector<Json> &rows, const Plan &plan) {
   Json selected = nullptr;
-  for (const auto& row : rows) {
+  for (const auto &row : rows) {
     if (!row.at("eligible").get<bool>()) continue;
     const auto number = row.at("metric").at("value").get<double>();
     require(std::isfinite(number) &&
@@ -936,8 +1631,8 @@ Json best(const std::vector<Json>& rows, const Plan& plan) {
                     // trial index.
 }
 
-Json describe(SQLiteRunStore& store, const RunMetadata& search,
-              const Plan& plan, bool active = false,
+Json describe(SQLiteRunStore &store, const RunMetadata &search,
+              const Plan &plan, bool active = false,
               std::string_view override_status = {}) {
   const auto rows = results(store, search, plan);
   const auto current = search_metadata(store, search.run_id);
@@ -956,7 +1651,7 @@ Json describe(SQLiteRunStore& store, const RunMetadata& search,
       {"planned_trials", plan.sequence.size()},
       {"confirmed_trials", rows.size()},
       {"failure_count", std::count_if(rows.begin(), rows.end(),
-                                      [](const Json& row) {
+                                      [](const Json &row) {
                                         return !row.at("eligible").get<bool>();
                                       })},
       {"trials", rows},
@@ -969,8 +1664,8 @@ Json describe(SQLiteRunStore& store, const RunMetadata& search,
   return value;
 }
 
-Json confirmed_summary(SQLiteRunStore& store, const RunMetadata& search,
-                       const Plan& plan, const std::vector<Json>& rows) {
+Json confirmed_summary(SQLiteRunStore &store, const RunMetadata &search,
+                       const Plan &plan, const std::vector<Json> &rows) {
   auto summary = load_json(store, search.run_id, "search.result");
   fields(summary,
          {"format", "schema_version", "search_id", "search_spec_sha256",
@@ -1002,8 +1697,8 @@ Json confirmed_summary(SQLiteRunStore& store, const RunMetadata& search,
   return summary;
 }
 
-Result finalize(SQLiteRunStore& store, const RunMetadata& search,
-                const Plan& plan, std::string_view reason, bool cancelled) {
+Result finalize(SQLiteRunStore &store, const RunMetadata &search,
+                const Plan &plan, std::string_view reason, bool cancelled) {
   const auto rows = results(store, search, plan);
   const auto selected = best(rows, plan);
   const auto status = cancelled            ? RunStatus::cancelled
@@ -1030,8 +1725,8 @@ Result finalize(SQLiteRunStore& store, const RunMetadata& search,
                                                               : 0};
 }
 
-Result drive(SQLiteRunStore& store, const fs::path& root,
-             const RunMetadata& search, const Plan& plan) {
+Result drive(SQLiteRunStore &store, const fs::path &root,
+             const RunMetadata &search, const Plan &plan) {
   auto completed = results(store, search, plan);
   if (store.find_reference(search.run_id, "search.result")) {
     const auto summary = confirmed_summary(store, search, plan, completed);
@@ -1047,7 +1742,7 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
   const auto deadline = search.created_at_unix_ms + plan.duration;
   auto failures = static_cast<std::uint64_t>(std::count_if(
       completed.begin(), completed.end(),
-      [](const Json& row) { return !row.at("eligible").get<bool>(); }));
+      [](const Json &row) { return !row.at("eligible").get<bool>(); }));
   for (std::uint64_t index = 1; index <= plan.sequence.size(); ++index) {
     if (completed.size() >= index) continue;
     const auto cancel =
@@ -1075,6 +1770,8 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
                                          : "failure_budget",
                       cancel);
     materialize(value);
+    if (plan.json.contains("recipe_bridge") && !child)
+      validate_paired_trial_inputs(store, value);
     validate_local_execution_spec(value.execution, !child);
     const auto record = admission(value, index, plan);
     if (admitted)
@@ -1143,6 +1840,8 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
                        execution.data.value("owner_active", false),
                        execution.data.at("status").get<std::string>()),
               7};
+    if (plan.json.contains("recipe_bridge"))
+      publish_recipe_training(store, search, plan, value, execution.data);
     const auto row = evaluate(store, plan, value, index, execution.data);
     const auto reference = "search.result." + std::to_string(index);
     put_json(store, search.run_id, reference, reference, row,
@@ -1171,9 +1870,9 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
       false);
 }
 
-Result export_search(SQLiteRunStore& store, const fs::path& root,
-                     const RunMetadata& search, const Plan& plan,
-                     const Arguments& arguments) {
+Result export_search(SQLiteRunStore &store, const fs::path &root,
+                     const RunMetadata &search, const Plan &plan,
+                     const Arguments &arguments) {
   require(
       is_terminal_run_status(search_metadata(store, search.run_id).status) &&
           store.find_reference(search.run_id, "search.best").has_value(),
@@ -1184,7 +1883,14 @@ Result export_search(SQLiteRunStore& store, const fs::path& root,
   require(selected == best(rows, plan),
           "Best selection differs from confirmed trial evidence");
   const auto index = positive(selected.at("index"), kMaximumTrials);
-  const auto value = trial(plan, search.run_id, root, index,
+  const auto frozen_root =
+      plan.json.contains("recipe_bridge")
+          ? fs::u8path(
+                text(load_json(store, search.run_id,
+                               "search.admission." + std::to_string(index))
+                         .at("store_root")))
+          : root;
+  const auto value = trial(plan, search.run_id, frozen_root, index,
                            search.created_at_unix_ms + plan.duration);
   const auto local = control_local_job("show", root, value.id);
   require(evaluate(store, plan, value, index, local.data) == selected,
@@ -1207,7 +1913,7 @@ Result export_search(SQLiteRunStore& store, const fs::path& root,
 }
 }  // namespace
 
-Result local_search_command(const Arguments& arguments) {
+Result local_search_command(const Arguments &arguments) {
   const auto action = arguments.words().at(1);
   require(action == "execute" || action == "show" || action == "recover" ||
               action == "cancel" || action == "export",
@@ -1224,7 +1930,7 @@ Result local_search_command(const Arguments& arguments) {
       fs::absolute(fs::u8path(arguments.require("root"))).lexically_normal();
   std::optional<Plan> requested;
   bool files_preflighted = false;
-  const auto preflight_files = [&](const Plan& plan) {
+  const auto preflight_files = [&](const Plan &plan) {
     auto probe =
         trial(plan, id, root, 1, std::numeric_limits<std::int64_t>::max());
     if (text(plan.json.at("execution").at("working_directory")) ==

@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 多输入输出配方接入有界原生搜索，支持完整 checkpoint 精确续训、真实指标选优及发布中断恢复。
+
 - 迁移学习配方接入本地任务、完整权重描述输入冻结和精确续训，完成态确认 checkpoint、权重及结果产物。
 
 - 多输入输出 `paired-affine` 配方支持本地计划、拥有任务身份的原生执行、暂停后精确续训及 checkpoint、权重和结果三类产物确认。

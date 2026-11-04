@@ -122,7 +122,7 @@ $continued.attempts | Select-Object index, run_status, training_sha256, result
 
 预期 job 为 `completed`，两个 attempt 分别保留 `failed/23` 和 `completed/0` 的结果。第二个 attempt 的 `training.result` 应记录 `initial_step: 20`、`completed_steps: 60`、`resumed: true`；`checkpoint.last` 包含实际模型、SGD momentum、更新计数和输入身份。`local.training.inputs` 与 intent/result 中的 `training_sha256` 对应同一恢复清单，job 的 `local.training.inputs.2` 还记录首个结果摘要和 checkpoint 来源；原始配置中的 `resume` 仍为 `null`。重复 `recover` 查询相同结果，不再运行训练。
 
-接入自己的 C++ 程序时，在 `training` 中显式声明 `retry_resume`，从 attempt 的清单和 job 的 `.N` 引用读取有效输入，然后执行完整 `exact_only` 恢复。保留原模型、配置和数据身份，确保退出前 checkpoint 已提交；运行器不会为应用推断 RNG、scheduler 或 AMP 状态。缺少 checkpoint、伪造或不完整的内容、身份变化、未知结果和未确认清理都不能转为 fresh 重试；详细约定见[本地运行器](../../docs/development/local_process_runner.md#已确认失败的-checkpoint-续训)。此策略仅用于 local job；typed grid/random 仍使用一次 attempt 和显式 checkpoint。
+接入自己的 C++ 程序时，在 `training` 中显式声明 `retry_resume`，从 attempt 的清单和 job 的 `.N` 引用读取有效输入，然后执行完整 `exact_only` 恢复。保留原模型、配置和数据身份，确保退出前 checkpoint 已提交；运行器不会为应用推断 RNG、scheduler 或 AMP 状态。缺少 checkpoint、伪造或不完整的内容、身份变化、未知结果和未确认清理都不能转为 fresh 重试；详细约定见[本地运行器](../../docs/development/local_process_runner.md#已确认失败的-checkpoint-续训)。普通 typed grid/random 仍使用一次 attempt 和显式 checkpoint；下文的多输入输出配方搜索提供显式的配方接线。
 
 ## 确认训练输出
 
@@ -213,3 +213,7 @@ tensorboard --logdir $tbOutput
 ```
 
 这条学习路径将 C++ 训练、持久化 run 查询和原生 OTLP 导出串起来。检查 `scan_completed`、`fully_represented` 和事件计数；网络失败后保留训练存储并按至少一次语义重试。原生入口属于预览，截止终止和清理边界见教程；运行时不调用 Python，也不会替用户启动 Collector。
+
+## 多输入输出配方搜索
+
+`paired-affine` 已接入原生 grid/random 与完整 checkpoint 精确续训。按[配方搜索教程](../../docs/tutorials/paired_native_search.md)生成闭合搜索规格，显式选择 `recipe_bridge` 和 `seed_policy=configuration`。它确认三类 typed 产物、原生 completed run 及真实 accuracy 后选优，支持相同冻结清单的发布恢复和终态实验备份。

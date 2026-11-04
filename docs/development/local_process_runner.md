@@ -109,7 +109,7 @@ worker启动前观察本attempt的全部声明引用不存在，并将该事实�
 
 worker 在 attempt 上绑定 `local.training.inputs`，把其摘要写入 intent/result，并通过 `JYPPX_LIUDING_LOCAL_TRAINING_SHA256` 告知 C++ 训练程序。确认结果、终态重放和跨 job 释放资源时，运行器仍在 64 KiB 上限内读取并校验该清单的 CAS、规范内容和有效输入身份；引用摘要相同不能替代内容校验，缺失或损坏会停止推进。应用应按该摘要读取 attempt 清单，按 `.N` 的 job 引用加载输入，再用自己的 checkpoint coordinator 执行 `exact_only` 恢复。运行器只做身份、CAS 和生命周期校验；把任意字节标为 checkpoint 不能替代应用对模型、优化器、RNG 等完整状态的检查。[原生学习例](../../examples/experiment/README.md#失败后自动从-checkpoint-续训)演示 20 步 checkpoint、声明退出码和后续 40 步原生 SGD。
 
-ImageFolder ResNet18、`paired-affine` 多输入输出和迁移学习配方已提供原生接线：`recipe local-spec` 封存实际配置/数据并生成三项 typed 输出的计划；`recipe local-run` 只在拥有运行权的 attempt 内执行，完成后流式发布完整 checkpoint、权重和结果。可选 `--pause-after` 用声明的普通退出码 75 接入本节既有 `retry_resume`，恢复前核对保留 workspace 的完整 checkpoint 身份。运行步骤和范围见[图像配方教程](../tutorials/image_classification_recipe.md#8-交给本地执行器并确认训练产物)；多输入输出步骤见[多输入输出教程](../tutorials/multi_io_recipe.md)；迁移学习的权重描述冻结及步骤见[迁移学习教程](../tutorials/transfer_learning_recipe.md)，当前接线验收使用CPU冻结ResNet50小任务，完整迁移设备/任务矩阵单独验收、丢失 workspace 重建、完整环境认证或系统硬资源。
+ImageFolder ResNet18、`paired-affine` 多输入输出和迁移学习配方已提供原生接线：`recipe local-spec` 封存实际配置/数据并生成三项 typed 输出的计划；`recipe local-run` 只在拥有运行权的 attempt 内执行，完成后流式发布完整 checkpoint、权重和结果。可选 `--pause-after` 用声明的普通退出码 75 接入本节既有 `retry_resume`，恢复前核对保留 workspace 的完整 checkpoint 身份。运行步骤和范围见[图像配方教程](../tutorials/image_classification_recipe.md#8-交给本地执行器并确认训练产物)；多输入输出步骤见[多输入输出教程](../tutorials/multi_io_recipe.md)；迁移学习的权重描述冻结及步骤见[迁移学习教程](../tutorials/transfer_learning_recipe.md)，当前接线验收使用CPU冻结ResNet50小任务，完整迁移设备/任务矩阵单独验收。丢失 workspace 重建、完整环境认证及系统硬资源限制仍待实现。
 
 训练超时保留 `timed_out` 与空原生退出码；只有进程树清理和结果均已确认，才释放逻辑预约。已有 `latest.jyck` 不会把超时改为可重试退出。若持久 owner worker 在提交结果前被强杀，attempt 保持 `recovery_required`，即使后来已无 OS 进程，`recover`、`execute` 或提交取消请求也不能补造结果或释放预约。Windows 的 kill-on-close Job 会随 worker 退出回收其 trainer；Linux worker 为同步启动的直接子进程启用父线程死亡信号，使受信任、同凭据执行的原生 trainer 随之终止。Linux 上 dispatch 调用者退出时，持久 worker 仍独立运行；该保护不覆盖任意 fork 孙进程、特权或凭据切换，以及主动清除信号的程序，也不能代替结果与清理确认。
 
@@ -129,3 +129,11 @@ ctest --test-dir out/build/config-windows -C Release --output-on-failure --no-te
 ```
 
 Linux 使用对应构建目录并省略多配置参数。原生测试覆盖进程生命周期和 sidecar 回归；独立 CLI 合同覆盖有限重试、输出 CAS、活跃归属、并发取消、调用者强杀和提交边界恢复。`Cli_local_recipe_lifecycle` 验证真实训练取消；`Cli_local_recipe_failure_lifecycle` 在完整 checkpoint 后挂起真实 trainer，验证原生超时和持久 worker 强杀；Linux 的 `Cli_local_recipe_parent_death` 额外要求夹具动手清理之前 trainer 已退出、未知预约仍被围栏。Python 仅注入故障与独立检查，各自的 `_CUDA` 合同需显式启用 CLI CUDA 测试，按顺序执行。强杀后的结果按平台原生生命周期判断，不把保守隔离误记为自动训练恢复。
+
+### 多输入输出配方搜索
+
+`paired-affine` 配方可显式启用闭合的 `recipe_bridge`，将已有 `recipe local-run`、typed 三输出及 `exact_only` retry 接入有界 grid/random。固定模板中的 `${config}` 指向本 trial 的有效配置，`${recipe_directory}` 指向尚不存在的 `TRIAL/recipe` 子目录；不可拼接模板片段或复用已存在的 trial 根作为训练目录。真实 resolver 必须确认有效配置与冻结配置完全一致、实际数据与冻结清单一致，才准入训练。
+
+此模式的 `seed_policy` 为 `configuration`：配方使用有效配置中的 `seed` 训练，搜索派生的 `trial_seed` 只标识调度顺序，两者分别保留。完成态要求本地任务清理确认、完整三输出收据、有效 exact 恢复输入、原生 completed run 及其已提交的真实 accuracy；仅退出码 0 不足以选优。冻结桥接清单后，外层训练记录依次创建、原子绑定引用、提交相同指标，最后完成；整个流程跨多个 API，可恢复相同清单的部分发布，额外指标、部分引用或其他冲突会被拒绝。终态查询与实验导出依赖 CAS，不要求原生训练目录继续存在；实际继续训练仍要求原目录。
+
+普通 typed 搜索保持单 attempt 与显式 checkpoint 的原合同；上述例外仅用于这一配方及固定模板，不向任意外部程序开放自动续训。可运行配置见[配方搜索示例](../../examples/experiment/README.md#多输入输出配方搜索)。
