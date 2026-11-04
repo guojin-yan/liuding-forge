@@ -45,6 +45,11 @@ struct LocalProcessOptions {
       3600000};  ///< Launch through exit/drain, <=7d.
   std::chrono::milliseconds startup_timeout{10000};  ///< Launch upper bound.
   std::chrono::milliseconds cleanup_timeout{2000};   ///< Extra kill/reap grace.
+  // Linux opt-in for synchronous ownership. Ordinary same-credential exec
+  // preserves this fence; privilege transitions or child code can clear it.
+  // This protects the direct child, not arbitrary forked descendants.
+  bool kill_on_parent_death =
+      false;  ///< SIGKILL if the Linux launching thread dies.
 };
 
 /** @brief A child failure is a result; invalid launch and I/O throw Error. */

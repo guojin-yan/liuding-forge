@@ -111,6 +111,8 @@ worker 在 attempt 上绑定 `local.training.inputs`，把其摘要写入 intent
 
 ImageFolder ResNet18 已提供原生配方接线：`recipe local-spec` 封存实际配置/数据并生成三项 typed 输出的计划；`recipe local-run` 只在拥有运行权的 attempt 内执行，完成后流式发布完整 checkpoint、权重和结果。可选 `--pause-after` 用声明的普通退出码 75 接入本节既有 `retry_resume`，恢复前核对保留 workspace 的完整 checkpoint 身份。运行步骤和范围见[图像配方教程](../tutorials/image_classification_recipe.md#8-交给本地执行器并确认训练产物)；尚不覆盖迁移/多IO接线、丢失 workspace 重建、完整环境认证或系统硬资源。
 
+训练超时保留 `timed_out` 与空原生退出码；只有进程树清理和结果均已确认，才释放逻辑预约。已有 `latest.jyck` 不会把超时改为可重试退出。若持久 owner worker 在提交结果前被强杀，attempt 保持 `recovery_required`，即使后来已无 OS 进程，`recover`、`execute` 或提交取消请求也不能补造结果或释放预约。Windows 的 kill-on-close Job 会随 worker 退出回收其 trainer；Linux worker 为同步启动的直接子进程启用父线程死亡信号，使受信任、同凭据执行的原生 trainer 随之终止。Linux 上 dispatch 调用者退出时，持久 worker 仍独立运行；该保护不覆盖任意 fork 孙进程、特权或凭据切换，以及主动清除信号的程序，也不能代替结果与清理确认。
+
 ## 搜索的训练输入
 
 有界 grid/random 的 `execution.training` 使用相同字段，但 `configuration` 必须写成字符串 `"${trial_configuration}"`。搜索将每次实际配置写入 CAS，再生成确定 ID 的 `TRIAL.inputs` run，附上父搜索、索引和计划摘要并封存；该 run 的 `completed` 只表示输入已提交。配置输入的创建、绑定和封存可按原身份幂等恢复；同 ID 不同内容会被拒绝。随后 native attempt 复用 typed local 的终态来源、CAS、原生归属和取消检查。
@@ -126,4 +128,4 @@ cmake --build out/build/config-windows --config Release --target jyppx_test_loca
 ctest --test-dir out/build/config-windows -C Release --output-on-failure --no-tests=error -R "^(LocalProcessTest|SidecarProcessTest)\.|^Cli_local_attempt$"
 ```
 
-Linux 使用对应构建目录并省略多配置参数。原生测试覆盖进程生命周期和 sidecar 回归；独立 CLI 合同覆盖有限重试、输出 CAS、活跃归属、并发取消、调用者强杀和提交边界恢复。强杀后的结果按平台原生生命周期判断，不把保守隔离误记为自动训练恢复。
+Linux 使用对应构建目录并省略多配置参数。原生测试覆盖进程生命周期和 sidecar 回归；独立 CLI 合同覆盖有限重试、输出 CAS、活跃归属、并发取消、调用者强杀和提交边界恢复。`Cli_local_recipe_lifecycle` 验证真实训练取消；`Cli_local_recipe_failure_lifecycle` 在完整 checkpoint 后挂起真实 trainer，验证原生超时和持久 worker 强杀；Linux 的 `Cli_local_recipe_parent_death` 额外要求夹具动手清理之前 trainer 已退出、未知预约仍被围栏。Python 仅注入故障与独立检查，各自的 `_CUDA` 合同需显式启用 CLI CUDA 测试，按顺序执行。强杀后的结果按平台原生生命周期判断，不把保守隔离误记为自动训练恢复。

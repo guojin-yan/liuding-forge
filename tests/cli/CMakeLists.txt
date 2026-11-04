@@ -141,6 +141,18 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
             --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
     set_tests_properties(Cli_local_recipe_lifecycle PROPERTIES
         LABELS "cli;integration;recipe;local" TIMEOUT 360)
+    add_test(NAME Cli_local_recipe_failure_lifecycle
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_failure_lifecycle.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+    set_tests_properties(Cli_local_recipe_failure_lifecycle PROPERTIES
+        LABELS "cli;integration;recipe;local" TIMEOUT 420 RUN_SERIAL TRUE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME Cli_local_recipe_parent_death
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_parent_death.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+        set_tests_properties(Cli_local_recipe_parent_death PROPERTIES
+            LABELS "cli;integration;recipe;local" TIMEOUT 180 RUN_SERIAL TRUE)
+    endif()
     if(JYPPX_LIUDING_TEST_CLI_CUDA)
         add_test(NAME Cli_local_recipe_CUDA
             COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe.py"
@@ -152,6 +164,18 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
                 --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
         set_tests_properties(Cli_local_recipe_lifecycle_CUDA PROPERTIES
             LABELS "cli;integration;recipe;local;cuda" TIMEOUT 360)
+        add_test(NAME Cli_local_recipe_failure_lifecycle_CUDA
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_failure_lifecycle.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
+        set_tests_properties(Cli_local_recipe_failure_lifecycle_CUDA PROPERTIES
+            LABELS "cli;integration;recipe;local;cuda" TIMEOUT 420 RUN_SERIAL TRUE)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            add_test(NAME Cli_local_recipe_parent_death_CUDA
+                COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_parent_death.py"
+                    --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device cuda)
+            set_tests_properties(Cli_local_recipe_parent_death_CUDA PROPERTIES
+                LABELS "cli;integration;recipe;local;cuda" TIMEOUT 180 RUN_SERIAL TRUE)
+        endif()
     endif()
     add_test(NAME Cli_initial_state_recipe
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_initial_state_recipe.py"

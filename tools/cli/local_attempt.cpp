@@ -1597,6 +1597,9 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
           require(
               training_outputs_absent(store, spec, id),
               "Declared training output already exists before native launch");
+          // The durable worker can outlive its dispatch caller; its native
+          // attempt must not outlive the worker (Linux direct-child fence).
+          options.kill_on_parent_death = true;
           runner_entered = true;
           native = LocalProcessRunner{}.run(options, cancellation.get_token());
         }

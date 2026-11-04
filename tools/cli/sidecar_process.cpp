@@ -22,6 +22,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #if defined(__linux__)
+#include <sys/prctl.h>
 #include <sys/syscall.h>
 #endif
 extern char** environ;
@@ -460,7 +461,8 @@ class AttributeList {
 class NativeProcess {
  public:
   NativeProcess(const SidecarProcessOptions& options, std::stop_token stop,
-                Clock::time_point deadline)
+                Clock::time_point deadline,
+                [[maybe_unused]] bool kill_on_parent_death = false)
       : cleanup_timeout_(options.cleanup_timeout) {
     try {
       check_telemetry_operation(stop, deadline);
@@ -735,7 +737,8 @@ ssize_t write_without_sigpipe(int descriptor, const char* bytes,
 class NativeProcess {
  public:
   NativeProcess(const SidecarProcessOptions& options, std::stop_token stop,
-                Clock::time_point deadline)
+                Clock::time_point deadline,
+                [[maybe_unused]] bool kill_on_parent_death = false)
       : cleanup_timeout_(options.cleanup_timeout) {
     try {
       check_telemetry_operation(stop, deadline);
@@ -811,6 +814,11 @@ class NativeProcess {
             details("launch.sigchld_policy"));
       }
       check_telemetry_operation(stop, deadline);
+#if defined(__linux__)
+      // Capture before fork: getppid() in the child could already name a
+      // reaper if its actual launching parent died before signal setup.
+      const auto launch_parent = ::getpid();
+#endif
       pid_ = fork();
       if (pid_ < 0) launch_failure("launch.fork");
       if (pid_ == 0) {
@@ -823,9 +831,21 @@ class NativeProcess {
         ::close(output_parent);
         ::close(diagnostic_parent);
         int failure = 0;
-        if (setpgid(0, 0) != 0 || dup2(in, STDIN_FILENO) < 0 ||
-            dup2(out, STDOUT_FILENO) < 0 || dup2(err, STDERR_FILENO) < 0 ||
-            chdir(cwd.c_str()) != 0) {
+#if defined(__linux__)
+        if (kill_on_parent_death) {
+          // Use the raw Linux system-call wrapper after fork; no allocator,
+          // logging, C++ exception or process-wide reaper policy is involved.
+          if (::syscall(SYS_prctl, PR_SET_PDEATHSIG, SIGKILL, 0UL, 0UL, 0UL) !=
+              0)
+            failure = errno;
+          else if (::getppid() != launch_parent)
+            failure = ECHILD;
+        }
+#endif
+        if (failure == 0 &&
+            (setpgid(0, 0) != 0 || dup2(in, STDIN_FILENO) < 0 ||
+             dup2(out, STDOUT_FILENO) < 0 || dup2(err, STDERR_FILENO) < 0 ||
+             chdir(cwd.c_str()) != 0)) {
           failure = errno;
         }
         if (failure == 0) {
@@ -1221,7 +1241,8 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
     launch_entered = true;
     native = std::make_unique<NativeProcess>(
         launch, stop,
-        std::min(deadline, Clock::now() + options.startup_timeout));
+        std::min(deadline, Clock::now() + options.startup_timeout),
+        options.kill_on_parent_death);
     result.process_id = native->process_id();
     native->close_input();
     bool leader_exited = false;
