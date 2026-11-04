@@ -10,6 +10,7 @@
 #include "local_attempt.hpp"
 #include "paired_search_bridge.hpp"
 #include "recipe_support.hpp"
+#include "transfer_search_bridge.hpp"
 
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/foundation/version.hpp>
@@ -49,6 +50,8 @@ constexpr std::string_view kProducer = "jyppx.liuding.cli.search/v1";
 constexpr std::string_view kPairedRecipe = "jyppx.liuding.paired-affine/v1";
 constexpr std::string_view kImageRecipe =
     "jyppx.liuding.imagefolder.resnet18/v1";
+constexpr std::string_view kTransferSearchRecipe =
+    "jyppx.liuding.imagefolder.transfer/v1";
 constexpr std::string_view kRecipeBridge = "search.recipe.bridge";
 
 void require(bool condition, std::string_view reason) {
@@ -65,6 +68,7 @@ std::string text(const Json &value) {
 struct RecipeBridgeProfile {
   std::string_view recipe;
   std::string_view experiment;
+  std::string_view native_experiment;
   std::string_view model;
   std::string_view native_run;
   std::string_view manifest_format;
@@ -73,31 +77,57 @@ struct RecipeBridgeProfile {
   std::string_view outer_batch;
   std::string_view display_name;
   bool image;
+  bool transfer;
 };
 
 const RecipeBridgeProfile &recipe_bridge_profile(const Json &plan) {
-  static constexpr std::array<RecipeBridgeProfile, 2> profiles{
-      {{kPairedRecipe, "paired-affine", "paired-affine", "run.paired-affine",
-        "jyppx.liuding.local_search_paired_bridge",
+  static constexpr std::array<RecipeBridgeProfile, 3> profiles{
+      {{kPairedRecipe, "paired-affine", "paired-affine", "paired-affine",
+        "run.paired-affine", "jyppx.liuding.local_search_paired_bridge",
         "recipe.paired-affine.evaluation", "search.recipe.paired-affine.",
         "search.recipe.paired-affine.final-evaluation",
-        "Confirmed native paired search training", false},
-       {kImageRecipe, "image-classification", "resnet18",
-        "run.image-classification", "jyppx.liuding.local_search_image_bridge",
+        "Confirmed native paired search training", false, false},
+       {kImageRecipe, "image-classification", "image-classification",
+        "resnet18", "run.image-classification",
+        "jyppx.liuding.local_search_image_bridge",
         "recipe.image-classification.evaluation",
         "search.recipe.image-classification.",
         "search.recipe.image-classification.final-evaluation",
-        "Confirmed native image search training", true}}};
-  for (const auto &profile : profiles)
-    if (plan.at("recipe_bridge") ==
-        Json{{"format", "jyppx.liuding.local_search_recipe_bridge"},
-             {"schema_version", 1},
-             {"recipe", std::string(profile.recipe)},
-             {"seed_policy", "configuration"}})
+        "Confirmed native image search training", true, false},
+       {kTransferSearchRecipe, "transfer-learning", "image-classification",
+        "resnet50", "run.image-classification",
+        "jyppx.liuding.local_search_transfer_bridge",
+        "recipe.transfer-learning.evaluation",
+        "search.recipe.transfer-learning.",
+        "search.recipe.transfer-learning.final-evaluation",
+        "Confirmed native frozen ResNet50 transfer search training", true,
+        true}}};
+  const auto &bridge = plan.at("recipe_bridge");
+  for (const auto &profile : profiles) {
+    Json expected{{"format", "jyppx.liuding.local_search_recipe_bridge"},
+                  {"schema_version", 1},
+                  {"recipe", std::string(profile.recipe)},
+                  {"seed_policy", "configuration"}};
+    if (profile.transfer && bridge.contains("transfer")) {
+      const auto &transfer = bridge.at("transfer");
+      fields(transfer, {"descriptor", "weight_input_sha256"});
+      const auto identity = text(transfer.at("weight_input_sha256"));
+      require(transfer.at("descriptor").is_object() && identity.size() == 64 &&
+                  std::all_of(identity.begin(), identity.end(),
+                              [](char c) {
+                                return (c >= '0' && c <= '9') ||
+                                       (c >= 'a' && c <= 'f');
+                              }),
+              "Transfer search requires its complete frozen weight input");
+      expected["transfer"] = transfer;
+    }
+    if (bridge == expected &&
+        (!profile.transfer || bridge.contains("transfer")))
       return profile;
+  }
   throw InvalidArgument(
-      "Search supports only its closed versioned paired-affine or image "
-      "ResNet18 bridge");
+      "Search supports only its closed versioned paired-affine, image "
+      "ResNet18 or frozen transfer ResNet50 bridge");
 }
 
 std::size_t image_objective_classes(
@@ -660,6 +690,7 @@ struct Trial {
   std::string training;
   Json parameters;
   Json configuration;
+  Json training_configuration;
   std::string config_sha256;
   std::uint64_t seed = 0;
   fs::path root;
@@ -690,6 +721,11 @@ Trial trial(const Plan &plan, std::string_view search, const fs::path &root,
         choices.at(static_cast<std::size_t>(choice));
   }
   result.config_sha256 = digest(result.configuration.dump()).hex;
+  result.training_configuration = result.configuration;
+  if (plan.json.contains("recipe_bridge") &&
+      recipe_bridge_profile(plan.json).transfer)
+    result.training_configuration = transfer_search_configuration(
+        result.configuration, plan.json.at("recipe_bridge").at("transfer"));
   // SplitMix64, fully specified unsigned arithmetic; no mutable RNG state.
   result.seed = plan.seed + index * 0x9e3779b97f4a7c15ULL;
   result.seed = (result.seed ^ (result.seed >> 30U)) * 0xbf58476d1ce4e5b9ULL;
@@ -736,8 +772,8 @@ Trial trial(const Plan &plan, std::string_view search, const fs::path &root,
     result.execution["training"]["configuration"] = {
         {"run_id", result.id + ".inputs"},
         {"reference_id", "configuration"},
-        {"sha256", result.config_sha256},
-        {"size_bytes", result.configuration.dump().size()}};
+        {"sha256", digest(result.training_configuration.dump()).hex},
+        {"size_bytes", result.training_configuration.dump().size()}};
   }
   return result;
 }
@@ -818,9 +854,10 @@ void seal_trial_inputs(SQLiteRunStore &store, const RunMetadata &search,
   // are rejected by the existing store rather than silently adopted.
   store.start(metadata);
   const auto reference =
-      put_json(store, id, "configuration", "configuration", value.configuration,
-               search.created_at_unix_ms);
-  require(reference.artifact.digest.hex == value.config_sha256,
+      put_json(store, id, "configuration", "configuration",
+               value.training_configuration, search.created_at_unix_ms);
+  require(reference.artifact.digest.hex ==
+              digest(value.training_configuration.dump()).hex,
           "Trial input configuration differs from its admission");
   verify_content(store, reference);
   store.transition(id, RunStatus::completed, search.created_at_unix_ms);
@@ -858,11 +895,18 @@ void validate_recipe_trial_inputs(SQLiteRunStore &store, const Plan &plan,
                                   const Trial &value) {
   const auto &profile = recipe_bridge_profile(plan.json);
   const auto inspected =
-      profile.image
+      profile.transfer
+          ? inspect_transfer_search_inputs(value.directory / "config.json")
+      : profile.image
           ? inspect_image_search_inputs(value.directory / "config.json")
           : inspect_paired_search_inputs(value.directory / "config.json");
   require(text(value.configuration.at("recipe")) == profile.recipe,
           "Recipe trial configuration differs from its closed bridge identity");
+  if (profile.transfer)
+    require(
+        inspected.at("training_configuration") == value.training_configuration,
+        "Transfer descriptor or weight identity differs from frozen search "
+        "input");
   if (profile.image)
     require(plan.metric_sha256 ==
                 telemetry_metric_definition_digest(
@@ -1127,7 +1171,8 @@ Json validate_recipe_bridge(SQLiteRunStore &store, const Plan &plan,
       positive(value.configuration.at("epochs"), 1000);
   const bool recipe_lineage =
       profile.image
-          ? !result.contains("transfer") && data.at("classes").is_array() &&
+          ? result.contains("transfer") == profile.transfer &&
+                data.at("classes").is_array() &&
                 data.at("classes").size() >= 2 &&
                 data.at("classes").size() <= 1024 &&
                 plan.metric_sha256 ==
@@ -1136,7 +1181,26 @@ Json validate_recipe_bridge(SQLiteRunStore &store, const Plan &plan,
                         .hex
           : text(lineage.at("recipe")) == kPairedRecipe &&
                 lineage.at("numerics") == result.at("numerics");
-  if (profile.image) {
+  if (profile.transfer) {
+    const auto &frozen = plan.json.at("recipe_bridge").at("transfer");
+    const auto configuration =
+        bound_json(store, evidence.at("training").at("configuration"));
+    const auto &transfer = result.at("transfer");
+    require(configuration == value.training_configuration &&
+                value.configuration.at("device") == "cpu" &&
+                value.configuration.at("model") == "resnet50" &&
+                value.configuration.at("backbone_mode") == "frozen" &&
+                value.configuration.at("batch_norm") == "eval" &&
+                transfer.at("backbone_mode") == "frozen" &&
+                transfer.at("batch_norm") == "eval" &&
+                transfer.at("weight_input_sha256") ==
+                    frozen.at("weight_input_sha256") &&
+                transfer.at("initial").at("backbone_sha256") ==
+                    transfer.at("final").at("backbone_sha256") &&
+                !result.contains("calibration"),
+            "Transfer result must preserve its frozen descriptor, backbone and "
+            "BN policy");
+  } else if (profile.image) {
     const bool calibrated =
         value.configuration.value("batch_norm_calibration", "off") ==
         "train_cumulative_once";
@@ -1368,7 +1432,7 @@ void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
     const auto result = load_json(store, attempt, "training.result");
     require(metadata && metadata->status == RunStatus::completed &&
                 metadata->project_id == plan.project &&
-                metadata->experiment_id == plan.experiment &&
+                metadata->experiment_id == profile.native_experiment &&
                 metadata->lineage.config_digest == value.config_sha256 &&
                 metadata->lineage.data_manifest_digest ==
                     text(value.execution.at("training")
@@ -1385,6 +1449,17 @@ void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
                 load_json(native, profile.native_run, "lineage") ==
                     result.at("lineage"),
             "Paired bridge requires the actual completed native run lineage");
+    if (profile.transfer) {
+      const auto reference =
+          native.find_reference(profile.native_run, "weight-input");
+      require(reference && reference->kind == RunArtifactKind::artifact &&
+                  reference->role == "source_weight_contract",
+              "Transfer native weight descriptor role differs");
+      require(
+          artifact_json(native, *reference) ==
+              plan.json.at("recipe_bridge").at("transfer").at("descriptor"),
+          "Transfer native weight descriptor differs from frozen search input");
+    }
     const std::array<std::string_view, 3> source_ids{"final-checkpoint",
                                                      "model", "result"};
     for (std::size_t i = 0; i < source_ids.size(); ++i) {

@@ -9,6 +9,7 @@
 #include "recipe_initial_state.hpp"
 #include "recipe_support.hpp"
 #include "transfer_recipe.hpp"
+#include "transfer_search_bridge.hpp"
 
 #if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
 #include "recipe_bn_calibration.hpp"
@@ -416,12 +417,9 @@ void configure_recipe_numerics() {
 Json local_recipe_configuration(const Json& config,
                                 const std::optional<TransferInput>& transfer) {
   if (!transfer) return config;
-  return {{"format", "jyppx.liuding.local_transfer_configuration"},
-          {"schema_version", 1},
-          {"configuration", config},
-          {"transfer",
-           {{"descriptor", transfer->descriptor},
-            {"weight_input_sha256", transfer->input_identity}}}};
+  return transfer_search_configuration(
+      config, {{"descriptor", transfer->descriptor},
+               {"weight_input_sha256", transfer->input_identity}});
 }
 
 std::shared_ptr<nn::ModelAdapter> make_recipe_model(
@@ -1642,14 +1640,16 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
       });
   require_recipe(accuracy != scores.observations.end(),
                  "Classifier did not emit the overall accuracy observation");
-  if (!transfer) {
+  {
     require_recipe(
         telemetry_metric_definition_digest(accuracy->definition) ==
             telemetry_metric_definition_digest(
                 image_search_objective(inputs.validation.categories().size())),
-        "Image search accuracy definition differs");
+        "Image or transfer search accuracy definition differs");
     const TelemetryEnvelope final_evaluation{
-        .identity = {.stream_id = "recipe.image-classification.evaluation",
+        .identity = {.stream_id =
+                         transfer ? "recipe.transfer-learning.evaluation"
+                                  : "recipe.image-classification.evaluation",
                      .event_id = "evaluation.final",
                      .idempotency_key = "evaluation.final",
                      .sequence = 1},
@@ -1660,7 +1660,9 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
                        {"dataset_sha256", inputs.identity.hex},
                        {"model_sha256", model_hash.hex}},
         .payload = TelemetryMetricBatch{{*accuracy}}};
-    store.append(kRun, "recipe.image-classification.final-evaluation",
+    store.append(kRun,
+                 transfer ? "recipe.transfer-learning.final-evaluation"
+                          : "recipe.image-classification.final-evaluation",
                  std::span(&final_evaluation, 1));
   }
   ex::EvaluationSuite suite{
@@ -1818,6 +1820,32 @@ Json inspect_image_search_inputs(const std::filesystem::path& path) {
   static_cast<void>(path);
   throw NotImplemented(
       "Image search recipes require models and data_image components");
+#endif
+}
+
+Json inspect_transfer_search_inputs(const std::filesystem::path& path) {
+#if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
+  const auto configuration = resolve_config(path);
+  recipe_support::require_recipe(
+      is_transfer_recipe(configuration) &&
+          configuration.at("device") == "cpu" &&
+          configuration.at("model") == "resnet50" &&
+          configuration.at("backbone_mode") == "frozen" &&
+          configuration.at("batch_norm") == "eval",
+      "Transfer search accepts only CPU frozen ResNet50 with BN eval");
+  const auto inputs = inspect_inputs(configuration);
+  const auto transfer = inspect_transfer_input(configuration);
+  static_cast<void>(inspect_recipe_initial_state(
+      configuration, inputs.manifest.at("classes")));
+  return {{"configuration", configuration},
+          {"training_configuration",
+           local_recipe_configuration(configuration, transfer)},
+          {"data_manifest", inputs.manifest},
+          {"total_steps", inputs.total_steps}};
+#else
+  static_cast<void>(path);
+  throw NotImplemented(
+      "Transfer search recipes require models and data_image components");
 #endif
 }
 

@@ -174,3 +174,5 @@ liuding-forge local show --root /path/to/attempt-store --id transfer-task --form
 显式 `--pause-after` 必须小于当前任务的完整更新预算。首个 attempt 保存完整检查点后退出；任务管理器使用已提交的 `checkpoint.last` 创建下一 attempt，以 `exact_only` 从该状态完成剩余训练。恢复仍要求保留训练目录；接口不从 CAS 重建丢失的工作目录。省略暂停参数会生成单个 attempt 的完整训练规格。冻结/微调、BN、优化器、质量阈值与总更新预算均取原配方，不能借助重试降低验收条件。
 
 完成后确认 `checkpoint.last`、`model.weights`、`training.result` 三个有界制品及其内容身份；评估、诊断和 Bundle 仍保存在原生训练目录。已确认终态的 `local execute`、`local recover` 返回同一结果并保持文件；未知进程清理状态继续受保守围栏限制。直接使用第 5 节的 `recipe run`、`recipe resume` 时，其独立配置与恢复身份保持原契约。
+
+CPU ResNet50 的冻结骨干、BN eval 配置也可使用[有界原生搜索](paired_native_search.md#使用冻结-resnet50-迁移配方)。搜索显式冻结完整权重描述与输入身份，沿用原配方的全部更新、质量门槛和一次精确续训，并从原生存储已提交的 accuracy 选择 best。DINOv2、CUDA、完整微调和更宽搜索矩阵不属于该桥接的当前支持范围。

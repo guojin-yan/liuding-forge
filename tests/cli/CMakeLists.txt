@@ -194,6 +194,27 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
             --cli $<TARGET_FILE:jyppx_cli> --contracts-only)
     set_tests_properties(Cli_transfer_configuration PROPERTIES
         LABELS "cli;integration;recipe" TIMEOUT 180)
+    add_test(NAME Cli_local_search_transfer_configuration
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_local_search_transfer_recipe.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --task contracts)
+    set_tests_properties(Cli_local_search_transfer_configuration PROPERTIES
+        LABELS "cli;integration;recipe;search;transfer" TIMEOUT 300 RUN_SERIAL TRUE)
+    set(JYPPX_LIUDING_TEST_TRANSFER_SEARCH_WEIGHTS "" CACHE FILEPATH
+        "Explicit pinned ResNet50 weights for the four-update transfer search task; no downloads")
+    if(JYPPX_LIUDING_TEST_TRANSFER_SEARCH_WEIGHTS)
+        if(NOT EXISTS "${JYPPX_LIUDING_TEST_TRANSFER_SEARCH_WEIGHTS}")
+            message(FATAL_ERROR "Configured transfer search weights are missing")
+        endif()
+        add_test(NAME Cli_local_search_transfer_recipe
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_CURRENT_SOURCE_DIR}/test_local_search_transfer_recipe.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --task fixture
+                --weights-file "${JYPPX_LIUDING_TEST_TRANSFER_SEARCH_WEIGHTS}")
+        set_tests_properties(Cli_local_search_transfer_recipe PROPERTIES
+            LABELS "cli;integration;recipe;search;transfer;external-weights"
+            TIMEOUT 1200 RUN_SERIAL TRUE)
+    endif()
     add_test(NAME Cli_transfer_recipe
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_transfer_recipe.py"
             --cli $<TARGET_FILE:jyppx_cli>)
