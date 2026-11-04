@@ -48,6 +48,18 @@ std::string text(const Json& value) {
   return result;
 }
 
+bool reserved_environment_name(std::string_view name) {
+  constexpr std::string_view prefix = "JYPPX_LIUDING_LOCAL_";
+  if (name.size() < prefix.size()) return false;
+  for (std::size_t index = 0; index < prefix.size(); ++index) {
+    auto current = static_cast<unsigned char>(name[index]);
+    if (current >= 'a' && current <= 'z')
+      current = static_cast<unsigned char>(current - 'a' + 'A');
+    if (current != static_cast<unsigned char>(prefix[index])) return false;
+  }
+  return true;
+}
+
 std::uint64_t positive(const Json& value, std::uint64_t maximum) {
   const auto result = unsigned_number(value, maximum);
   require(result != 0, "Local execution bounds must be positive");
@@ -375,7 +387,7 @@ Spec read_spec(const Json& value) {
   for (const auto& [name, item] : value.at("environment").items()) {
     require(!name.empty() && name.find('=') == std::string::npos &&
                 name.find('\0') == std::string::npos &&
-                !name.starts_with("JYPPX_LIUDING_LOCAL_"),
+                !reserved_environment_name(name),
             "Invalid or reserved local environment name");
     process.environment[name] = text(item);
     launch_bytes += name.size() + process.environment[name].size() + 2;

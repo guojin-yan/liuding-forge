@@ -92,6 +92,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 本地执行计划在创建任务存储或启动进程前拒绝保留环境变量前缀的 ASCII 大小写变体，防止 Windows 环境合并时覆盖任务身份。
+
 - Linux 安装后的 CLI 通过相对运行库路径加载随包 ONNX Runtime，支持迁移安装目录；补齐默认构建中的本地训练输出测试夹具，官方遥测参考摘要按 Git 换行格式核对，Windows 安装消费者统一复用有所有权记录的 Torch 运行库部署，避免重复复制大型 DLL。
 
 - 原生 OTLP HTTP 校验分块响应的 `Trailer` 字段名声明，拒绝在尾部声明内容类型、内容编码或传输长度等确认元数据；失败事件可保持原字节重试。

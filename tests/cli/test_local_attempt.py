@@ -946,6 +946,53 @@ class LocalAttemptTest(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertEqual(self.launch_count(), 1)
 
+    def test_reserved_environment_case_variants_fail_before_store_or_launch(self) -> None:
+        names = ("JYPPX_LIUDING_LOCAL_JOB_ID", "jyppx_liuding_local_job_id",
+                 "jYpPx_LiUdInG_lOcAl_JoB_iD")
+        for index, name in enumerate(names):
+            with self.subTest(name=name):
+                cwd = self.directory / f"reserved-cwd-{index}"
+                cwd.mkdir()
+                root = self.directory / f"reserved-store-{index}"
+                path = self.directory / f"reserved-spec-{index}.json"
+                spec = dict(self.spec, working_directory=str(cwd),
+                            environment={name: "forged-job"})
+                spec["arguments"] = [*self.spec["arguments"][:-1], str(cwd)]
+                path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+                self.assertFalse(root.exists())
+                self.assertEqual(list(cwd.iterdir()), [])
+                rejected = self.invoke("local", "execute", "--root", root,
+                    "--id", "reserved-job", "--spec", path, expected=2)
+                self.assertEqual(rejected["status"], "error")
+                self.assertEqual(rejected["error"]["name"], "invalid_argument")
+                self.assertIn("Invalid or reserved local environment name",
+                              rejected["error"]["message"])
+                self.assertFalse(root.exists())
+                self.assertEqual(list(cwd.iterdir()), [])
+
+    def test_similar_non_reserved_environment_names_preserve_owned_identity(self) -> None:
+        self.spec["environment"].update({
+            "JYPPX_LIUDING_LOCAL": "no-trailing-underscore",
+            "JYPPX_LIUDING_LOCALITY_JOB_ID": "different-namespace",
+            "XJYPPX_LIUDING_LOCAL_JOB_ID": "prefix-not-at-start"})
+        self.write_spec()
+        result = self.local("execute")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(result["attempts"]), 1)
+        attempt = result["attempts"][0]
+        self.assertEqual(attempt["result"]["status"], "exited")
+        self.assertEqual(attempt["result"]["exit_code"], 0)
+        self.assertTrue(attempt["result"]["process_tree_cleanup_confirmed"])
+        refs = self.references(attempt["attempt_id"])
+        payload = json.loads(self.blob(refs["local.stdout"]))
+        self.assertEqual(payload["job_id"], "job-one")
+        self.assertEqual(payload["attempt_id"], attempt["attempt_id"])
+        self.assertEqual(payload["index"], 1)
+        self.assertEqual(payload["token"], "literal")
+        self.assertTrue(payload["stdin_eof"])
+        self.assertEqual(self.launch_count(), 1)
+        self.assertTrue(self.invoke("run", "verify", "--root", self.root)["data"]["valid"])
+
     def test_changed_frozen_spec_and_invalid_inputs_fail_before_launch(self) -> None:
         self.local("execute")
         self.spec["timeout_ms"] += 1
