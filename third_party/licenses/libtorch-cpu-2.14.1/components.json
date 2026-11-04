@@ -1,0 +1,1916 @@
+{
+  "schema_version": 1,
+  "dependency_id": "libtorch-primary-linux-cpu",
+  "notice_state": "pending",
+  "artifact": {
+    "url": "https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.14.1%2Bcpu.zip",
+    "size_bytes": 127853266,
+    "sha256": "0f02329a5266153cffa9dc12926ff2221fa626207b894d40bd61905cc2079821",
+    "build_version": "2.14.1+cpu",
+    "build_commit": "5c4886908584029761b579af026dcfb627c84070"
+  },
+  "source_tree": {
+    "repository": "https://github.com/pytorch/pytorch",
+    "revision": "5c4886908584029761b579af026dcfb627c84070",
+    "third_party_tree_sha1": "28007e25e3fc108f530da7485b2c366149d08602"
+  },
+  "components": [
+    {
+      "id": "pybind11",
+      "source": {
+        "repository": "https://github.com/pybind/pybind11",
+        "revision": "97bf890db679505a14dfe547a5e77bb2bd05dc90",
+        "pytorch_gitlink_path": "third_party/pybind11"
+      },
+      "upstream_license_expression": "BSD-3-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/pybind11-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/pybind11/attr.h": {
+          "bytes": 26479,
+          "sha256": "e2e0386a4b0bd6b95e4d8d501dd57ab2d5cd2b6c2e0d9a89b4f616805f532265"
+        },
+        "include/pybind11/buffer_info.h": {
+          "bytes": 7838,
+          "sha256": "90849dec6781145edf27817f9a0bccf2d16dd75f9e7d72afded9857c1e9011aa"
+        },
+        "include/pybind11/cast.h": {
+          "bytes": 96849,
+          "sha256": "54cfdb09535529c4b33f5cb06312ea008260d43e71289b5221897c9c8dc8efed"
+        },
+        "include/pybind11/chrono.h": {
+          "bytes": 8605,
+          "sha256": "e07c05145da261cdbb4d53d80eaba7dea8a3985deda8b91434315998c70f53d4"
+        },
+        "include/pybind11/common.h": {
+          "bytes": 120,
+          "sha256": "01383d06dd69c05f2a9cdb88d3ce9fa6b3380944ddad9764fe0d875c4d527fa0"
+        },
+        "include/pybind11/complex.h": {
+          "bytes": 3055,
+          "sha256": "d9275367b53c34f6de865cee6ece6fc358820911c9fd574e9c016df9437a728b"
+        },
+        "include/pybind11/critical_section.h": {
+          "bytes": 1610,
+          "sha256": "625cb959703218fe72f72f97d038f21801f676d12a5ee5a723e4eb9d63077589"
+        },
+        "include/pybind11/eigen.h": {
+          "bytes": 316,
+          "sha256": "f87992035920c0243e18752decf1ed4c473ebf1ab0f71011a45f0f1d6262a76f"
+        },
+        "include/pybind11/embed.h": {
+          "bytes": 10226,
+          "sha256": "006d15a971426c64c8337dea55012fb1469b6566d2ec0eb9a81006d402e6f30b"
+        },
+        "include/pybind11/eval.h": {
+          "bytes": 4800,
+          "sha256": "6e9e8707574efe460b479c6ba7f3026107d5173fbdf0414c049497ff97abc708"
+        },
+        "include/pybind11/functional.h": {
+          "bytes": 5111,
+          "sha256": "11f144d71cb258e2ff0c9495bddbf180ecee15f6b4bc473b20b128b2dc9c7aad"
+        },
+        "include/pybind11/gil.h": {
+          "bytes": 6945,
+          "sha256": "3eedfee721a938121823320d3215c197e7b4a6e7c01c3db89057872648f1f2d5"
+        },
+        "include/pybind11/gil_safe_call_once.h": {
+          "bytes": 13103,
+          "sha256": "afa1b440b7710ba35c071d0ce98e72b7401fa5b8257a199770a2f98ffdd24609"
+        },
+        "include/pybind11/gil_simple.h": {
+          "bytes": 1185,
+          "sha256": "02e3bd982d5d7af7634e75ce7b46891ac9c9b920b79dead69c6d7b1d54105fd9"
+        },
+        "include/pybind11/iostream.h": {
+          "bytes": 10438,
+          "sha256": "7acf4b5b2ceae7f7b86d5cdaef7b72daa4a09d3548c4f9d9639cc67995e9c582"
+        },
+        "include/pybind11/native_enum.h": {
+          "bytes": 2723,
+          "sha256": "8bcb62bcebe84b076f5d2d2d495f34026ca2b8d853ddfa6f64b6c4b1332a1860"
+        },
+        "include/pybind11/numpy.h": {
+          "bytes": 94985,
+          "sha256": "a9bba1f0976acd7e7597daef1abd398a1e0b81213747278cffef6b325979fee1"
+        },
+        "include/pybind11/operators.h": {
+          "bytes": 9103,
+          "sha256": "db6e11a005dcbf595ae0d358f6b437683fc0782f12f592b1dc754ad4ef01e0c5"
+        },
+        "include/pybind11/options.h": {
+          "bytes": 2734,
+          "sha256": "a97be69e3fbef5f652a79e8d61e7e70775b9575ee9a47958d52ae0a370cd069c"
+        },
+        "include/pybind11/pybind11.h": {
+          "bytes": 181286,
+          "sha256": "ba323b835ef91eb85342057db2353cbac3da9040eac9f0b83891a3ce66911a75"
+        },
+        "include/pybind11/pytypes.h": {
+          "bytes": 104244,
+          "sha256": "c74dd04fb339a272cc725c374d46edef05f4e213896da70c90015dcd9fda312e"
+        },
+        "include/pybind11/stl.h": {
+          "bytes": 24742,
+          "sha256": "ea83b4a2027b1063393f9546e1d32c6630ca9ebd7022e0911dc0210e4259c9ce"
+        },
+        "include/pybind11/stl_bind.h": {
+          "bytes": 30067,
+          "sha256": "a9d8a61f0671044e0f3bc4a0063c7d61ac9101f3faa9d1d035be0b31dc89f2df"
+        },
+        "include/pybind11/subinterpreter.h": {
+          "bytes": 19423,
+          "sha256": "3a31eb3436d40b40345b413775c79b12ced0fc82e73d539355905619c1fc08f0"
+        },
+        "include/pybind11/trampoline_self_life_support.h": {
+          "bytes": 2673,
+          "sha256": "f935fdc394f12355d7dc01b6e7994c2dd882c91f9d664337db5c05b1e7729f1f"
+        },
+        "include/pybind11/type_caster_pyobject_ptr.h": {
+          "bytes": 1929,
+          "sha256": "1fba4a0584ef52589b88940470a99e024ca0490c280a4b88cae90d483995abe5"
+        },
+        "include/pybind11/typing.h": {
+          "bytes": 8785,
+          "sha256": "e872df48d4e4dbd2b3c76abbc3bfec3e0fd66605d8fcd2633cfac4510fd0176a"
+        },
+        "include/pybind11/warnings.h": {
+          "bytes": 2368,
+          "sha256": "89d70134ae5e117c5805f3de56ec9c2f172032b2aebd1cd0237dc16a927c1b88"
+        },
+        "include/pybind11/conduit/pybind11_conduit_v1.h": {
+          "bytes": 4153,
+          "sha256": "19af7d983107690a0250e53de0257ab2f394c99d2b2046cbf0cdb84643ffdcfc"
+        },
+        "include/pybind11/conduit/pybind11_platform_abi_id.h": {
+          "bytes": 3991,
+          "sha256": "554656e07ee2cbdbd553380b749d7df76c25e0d9cdeac30259db599f563177f6"
+        },
+        "include/pybind11/conduit/wrap_include_python_h.h": {
+          "bytes": 2069,
+          "sha256": "b86c91eda51e381e8411919f6f5f5367cb3270fede6d9db0e7131a2013226d33"
+        },
+        "include/pybind11/detail/argument_vector.h": {
+          "bytes": 13896,
+          "sha256": "ca7ae47c63d6c57b40b64c620c53bea040be9a23d1e29b2a9ff647bd94f9269c"
+        },
+        "include/pybind11/detail/class.h": {
+          "bytes": 32465,
+          "sha256": "91087ad1b3e785f9839784f6d71016fcf09d6822e5e4d05118a1d0a4ff8ebbcf"
+        },
+        "include/pybind11/detail/common.h": {
+          "bytes": 63589,
+          "sha256": "a455fde97288d2cacb50b2d21282064e4340349352fc0b3be2208e61e54ad62e"
+        },
+        "include/pybind11/detail/cpp_conduit.h": {
+          "bytes": 2545,
+          "sha256": "9c68646e446b107f69304ab1af7b57057ef8fa24b22c308eb046af296f4a6aee"
+        },
+        "include/pybind11/detail/descr.h": {
+          "bytes": 8228,
+          "sha256": "8b225ac30dcaea0540fe5c5e83af6f359c8de375eb3d5b7251b8665cc0625459"
+        },
+        "include/pybind11/detail/dynamic_raw_ptr_cast_if_possible.h": {
+          "bytes": 1176,
+          "sha256": "d6a59a3651fafa3f67e55a0417bd3308eacdcfa26914b16eea0a9d62d3452f7e"
+        },
+        "include/pybind11/detail/exception_translation.h": {
+          "bytes": 2593,
+          "sha256": "32c88bbf1a9017a0acf3a11692603d754d0549ced257b54e18f71398d747ab07"
+        },
+        "include/pybind11/detail/function_record_pyobject.h": {
+          "bytes": 7772,
+          "sha256": "aeb3e88f60b1f09e96790b6f1a42bbe87df33d45db2f499b68634f1cdc595736"
+        },
+        "include/pybind11/detail/function_ref.h": {
+          "bytes": 3729,
+          "sha256": "8b071de14ad618f70115f20ebe44b70b5242b176bbc0710ac8b842895a498ebb"
+        },
+        "include/pybind11/detail/holder_caster_foreign_helpers.h": {
+          "bytes": 3927,
+          "sha256": "02602538206cc5a04f957866a3c4e97b7e1442c8968c53d6e174eb6c6471e443"
+        },
+        "include/pybind11/detail/init.h": {
+          "bytes": 23967,
+          "sha256": "d43866489b09546b95d251df34c04015b4a82474e2f38a64bc20733259a8f1f4"
+        },
+        "include/pybind11/detail/internals.h": {
+          "bytes": 45731,
+          "sha256": "5eefa6b72e435277a3e75378597e13c295aefb6ff8d0943fa2220ed9efb54fbc"
+        },
+        "include/pybind11/detail/native_enum_data.h": {
+          "bytes": 8403,
+          "sha256": "d301c7a82b82a87c03eb9b01ceafbffc53347b9003821ec426a6cb0d3659d195"
+        },
+        "include/pybind11/detail/pybind11_namespace_macros.h": {
+          "bytes": 3574,
+          "sha256": "60a5e35a5b0807d0cc142d4af298d5c982ad84f95ddfbf65f54e36b140ddba77"
+        },
+        "include/pybind11/detail/struct_smart_holder.h": {
+          "bytes": 16425,
+          "sha256": "18305bcedae4792e32047d6d8f1b16b6e6a72014aad56827ee0b9a976ca2becc"
+        },
+        "include/pybind11/detail/type_caster_base.h": {
+          "bytes": 72331,
+          "sha256": "ea9dc652f3f5d09b1ac7994d00f2c3ea82c6c763c1d218c5c2851956f593178f"
+        },
+        "include/pybind11/detail/typeid.h": {
+          "bytes": 1625,
+          "sha256": "8f0e69afd9bbdaf903b25a13f2fc65f708f5ed52467047570f2ce2065b7cf49b"
+        },
+        "include/pybind11/detail/using_smart_holder.h": {
+          "bytes": 540,
+          "sha256": "b03da16159791f8bbc5089aa9a2e524fda1fb434143e427ac91dea47795e4244"
+        },
+        "include/pybind11/detail/value_and_holder.h": {
+          "bytes": 3733,
+          "sha256": "12ddc263339c3ebbbfdfbe69c23665b0c56c0783c19f35f7c1f2d9fae0ca8afe"
+        },
+        "include/pybind11/eigen/common.h": {
+          "bytes": 378,
+          "sha256": "7487aa98aec8cd6e4ae24da56ab3e703503ceb7ac3a77f14f586cd230888c989"
+        },
+        "include/pybind11/eigen/matrix.h": {
+          "bytes": 32590,
+          "sha256": "4773e9f41c04a4f28241c97a01e39740181e46a289566437e340fb8201b50dc6"
+        },
+        "include/pybind11/eigen/tensor.h": {
+          "bytes": 18640,
+          "sha256": "ce6d0e1e1e6b8c9296937474d43de3cbe3c50ac6ad9088dffc60373e1d44c8b4"
+        },
+        "include/pybind11/stl/filesystem.h": {
+          "bytes": 4074,
+          "sha256": "c20e3212879de83e21503a731210707521c5c70b36d5781621092b232c3fdd98"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/pybind11/attr.h",
+        "include/pybind11/buffer_info.h",
+        "include/pybind11/cast.h",
+        "include/pybind11/chrono.h",
+        "include/pybind11/common.h",
+        "include/pybind11/complex.h",
+        "include/pybind11/critical_section.h",
+        "include/pybind11/eigen.h",
+        "include/pybind11/embed.h",
+        "include/pybind11/eval.h",
+        "include/pybind11/functional.h",
+        "include/pybind11/gil.h",
+        "include/pybind11/gil_safe_call_once.h",
+        "include/pybind11/gil_simple.h",
+        "include/pybind11/iostream.h",
+        "include/pybind11/native_enum.h",
+        "include/pybind11/numpy.h",
+        "include/pybind11/operators.h",
+        "include/pybind11/options.h",
+        "include/pybind11/pybind11.h",
+        "include/pybind11/pytypes.h",
+        "include/pybind11/stl.h",
+        "include/pybind11/stl_bind.h",
+        "include/pybind11/subinterpreter.h",
+        "include/pybind11/trampoline_self_life_support.h",
+        "include/pybind11/type_caster_pyobject_ptr.h",
+        "include/pybind11/typing.h",
+        "include/pybind11/warnings.h",
+        "include/pybind11/conduit/pybind11_conduit_v1.h",
+        "include/pybind11/conduit/pybind11_platform_abi_id.h",
+        "include/pybind11/conduit/wrap_include_python_h.h",
+        "include/pybind11/detail/argument_vector.h",
+        "include/pybind11/detail/class.h",
+        "include/pybind11/detail/common.h",
+        "include/pybind11/detail/cpp_conduit.h",
+        "include/pybind11/detail/descr.h",
+        "include/pybind11/detail/dynamic_raw_ptr_cast_if_possible.h",
+        "include/pybind11/detail/exception_translation.h",
+        "include/pybind11/detail/function_record_pyobject.h",
+        "include/pybind11/detail/function_ref.h",
+        "include/pybind11/detail/holder_caster_foreign_helpers.h",
+        "include/pybind11/detail/init.h",
+        "include/pybind11/detail/internals.h",
+        "include/pybind11/detail/native_enum_data.h",
+        "include/pybind11/detail/pybind11_namespace_macros.h",
+        "include/pybind11/detail/struct_smart_holder.h",
+        "include/pybind11/detail/type_caster_base.h",
+        "include/pybind11/detail/typeid.h",
+        "include/pybind11/detail/using_smart_holder.h",
+        "include/pybind11/detail/value_and_holder.h",
+        "include/pybind11/eigen/common.h",
+        "include/pybind11/eigen/matrix.h",
+        "include/pybind11/eigen/tensor.h",
+        "include/pybind11/stl/filesystem.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "protobuf",
+      "source": {
+        "repository": "https://github.com/protocolbuffers/protobuf",
+        "revision": "f0dc78d7e6e331b8c6bb2d5283e06aa26883ca7c",
+        "pytorch_gitlink_path": "third_party/protobuf"
+      },
+      "upstream_license_expression": "BSD-3-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/protobuf-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/google/protobuf/any.h": {
+          "bytes": 6801,
+          "sha256": "ff35e0eba97ea66a999b2335163bc2cf2baae1b43fa15368862490a58540846a"
+        },
+        "include/google/protobuf/any.pb.h": {
+          "bytes": 14046,
+          "sha256": "c3c9aa7495487bcc53da750018896750319cf03bcfa40a8d8f75665f236a410d"
+        },
+        "include/google/protobuf/api.pb.h": {
+          "bytes": 52165,
+          "sha256": "8df0d1c0d4c93598da634af6316a0436adb77ebb5a008947ff42c4dc6ee7dab3"
+        },
+        "include/google/protobuf/arena.h": {
+          "bytes": 36035,
+          "sha256": "0fff17f81debe963cfc59d933499914adbb850ed937710b7b6fefd760c05b96e"
+        },
+        "include/google/protobuf/arena_impl.h": {
+          "bytes": 25687,
+          "sha256": "b1cf63dfc7a24d5bd6e5cb9fcc23cf0d0b7013e76e2f081151a2e31d8cbd6567"
+        },
+        "include/google/protobuf/arenastring.h": {
+          "bytes": 19262,
+          "sha256": "d9945d550051ca6ea762b54dea84af49176844643cb8c2f4e217902cfe0a95be"
+        },
+        "include/google/protobuf/arenaz_sampler.h": {
+          "bytes": 7896,
+          "sha256": "ab6f1daca511908be0ed8d5ce6956cae5d11c53f7500a1e5db2706f55a1e998c"
+        },
+        "include/google/protobuf/descriptor.h": {
+          "bytes": 101078,
+          "sha256": "51d47364f339805ec5e33c2bb6cc6b974b7533249ef3665c3fd15056ab664a1e"
+        },
+        "include/google/protobuf/descriptor.pb.h": {
+          "bytes": 611954,
+          "sha256": "84a430121c0fc6eb821ad0d0144298b0407a06967b6219ed5e6301eaac83d91f"
+        },
+        "include/google/protobuf/descriptor_database.h": {
+          "bytes": 19151,
+          "sha256": "b62caeac288bee347a9dd304011de06debc5950d296b6cd5aa34da0ddb32cb6f"
+        },
+        "include/google/protobuf/duration.pb.h": {
+          "bytes": 9423,
+          "sha256": "090224ea8b1966ad673e17a6d8b750dfa61bd0d4d26ea2bf5e4ce90324f160cb"
+        },
+        "include/google/protobuf/dynamic_message.h": {
+          "bytes": 9397,
+          "sha256": "671b728f8916762a2dbd670de05b83cd72be15ecba9d8025287e4862cc232aa3"
+        },
+        "include/google/protobuf/empty.pb.h": {
+          "bytes": 6986,
+          "sha256": "fb435768e579caa84a19d63fb92f79acbfb38756c6ff0911699e448b6f6e1938"
+        },
+        "include/google/protobuf/endian.h": {
+          "bytes": 5383,
+          "sha256": "c8fc07704a50cb78bd55b0eb9db6f9a98fed7e6caa45ab73ba97328100f979b3"
+        },
+        "include/google/protobuf/explicitly_constructed.h": {
+          "bytes": 4181,
+          "sha256": "092488f70343e3080692bd4acec0e4bc33fa4e511fe88018a8cacd9d22115493"
+        },
+        "include/google/protobuf/extension_set.h": {
+          "bytes": 72136,
+          "sha256": "55881253613b8a37ee1acf98978f27574b556cdfbb8665e4f9e7396bcd2ea87b"
+        },
+        "include/google/protobuf/extension_set_inl.h": {
+          "bytes": 13007,
+          "sha256": "11a119271d4581a0979c9b3dd145da40236e757d9d4175696e1abc5492e2eedf"
+        },
+        "include/google/protobuf/field_access_listener.h": {
+          "bytes": 7711,
+          "sha256": "920f04d1e61d4a4d4dead1fa4c3f36073518752f82eb41e3209bff10678869a7"
+        },
+        "include/google/protobuf/field_mask.pb.h": {
+          "bytes": 11884,
+          "sha256": "f483a0e6f923bc08223399c21afddd2ab86e95477b48f6e771ae919b7ae3ff77"
+        },
+        "include/google/protobuf/generated_enum_reflection.h": {
+          "bytes": 4274,
+          "sha256": "25786acf2cd5f05f2b367edb5fa4ffd1f76f644079a31fc907d2a5344fd63731"
+        },
+        "include/google/protobuf/generated_enum_util.h": {
+          "bytes": 3547,
+          "sha256": "80bfa89993358a4105030f15422ac395a465e2c8cf905780b8d0bf58dc8b93b7"
+        },
+        "include/google/protobuf/generated_message_bases.h": {
+          "bytes": 3865,
+          "sha256": "f25b39edfefac11df2bb18eb9e5597875f0a38d1c7ecb74bc5367f978ba5700b"
+        },
+        "include/google/protobuf/generated_message_reflection.h": {
+          "bytes": 14438,
+          "sha256": "58f873c72be67761207e354d861129eef52e127c23c0853a070555cc68e0bb41"
+        },
+        "include/google/protobuf/generated_message_tctable_decl.h": {
+          "bytes": 12626,
+          "sha256": "f528a6818a1ddc15fb41cc966f2e7ccfb691afa1ed0e668f45c11886542e64bd"
+        },
+        "include/google/protobuf/generated_message_tctable_impl.h": {
+          "bytes": 23281,
+          "sha256": "3211ac699a069d24d78605afe2dc4259459dedf509d2056c9aa4e6d01c446f92"
+        },
+        "include/google/protobuf/generated_message_util.h": {
+          "bytes": 8495,
+          "sha256": "bdebbdeb664679272b7ff348734185ce8c9731f6e51ab786310c7d39e47f224f"
+        },
+        "include/google/protobuf/has_bits.h": {
+          "bytes": 3828,
+          "sha256": "83aa04c6bdc91e4ba9faddb44f8709fbd434ad8d7c141b038e067fd8edc68027"
+        },
+        "include/google/protobuf/implicit_weak_message.h": {
+          "bytes": 8048,
+          "sha256": "c77be6d7ed1d4438ecc3afe37cbd0aed6c26c32eb9a242cf5f1d075f92090f72"
+        },
+        "include/google/protobuf/inlined_string_field.h": {
+          "bytes": 21859,
+          "sha256": "6a837254b9933ce2c3ff8cf7c770cde6bcab4653407aaf59588a75777422ee6e"
+        },
+        "include/google/protobuf/map.h": {
+          "bytes": 52697,
+          "sha256": "4819a397c09c6d412a9e62b40f47cbcfa42d184514d58437eff4e7e039803d00"
+        },
+        "include/google/protobuf/map_entry.h": {
+          "bytes": 5997,
+          "sha256": "b672df355756eab1eb9e94d05ac0fa987b4655a4e284339ccf092881da65d281"
+        },
+        "include/google/protobuf/map_entry_lite.h": {
+          "bytes": 21617,
+          "sha256": "8e3c3cb6e5da42d8c59dd365a44e984d06b2086c64ce8e54d3be43ae46bb06f7"
+        },
+        "include/google/protobuf/map_field.h": {
+          "bytes": 34948,
+          "sha256": "383229c77c18328e6bce39100af037bbd1577cc7400df6e7c606722a55c30a65"
+        },
+        "include/google/protobuf/map_field_inl.h": {
+          "bytes": 14791,
+          "sha256": "8e397498f64c98c77aa0f674bda6a8e367f0a1bd8123745fe6a2962532c1f3ce"
+        },
+        "include/google/protobuf/map_field_lite.h": {
+          "bytes": 8037,
+          "sha256": "9d15cc78e64aba9a4b1c4fcdb118d3cea7ec2bb4674e28a44858490e2ad7c365"
+        },
+        "include/google/protobuf/map_type_handler.h": {
+          "bytes": 34411,
+          "sha256": "6a82c0e61ec0d50011aecf23aa1515485b20fc62d5a429716ba4832753893810"
+        },
+        "include/google/protobuf/message.h": {
+          "bytes": 70400,
+          "sha256": "4bc4feea1cb8dc7d00c444e496f0264e25155d19aa1d860a78b05829fe820daa"
+        },
+        "include/google/protobuf/message_lite.h": {
+          "bytes": 26114,
+          "sha256": "a89fffefdaedc64ca86d602d9b418b944acaac75d785d5ebe292ff691c75d429"
+        },
+        "include/google/protobuf/metadata.h": {
+          "bytes": 2111,
+          "sha256": "07518e32ca9b90504ca549bd7296a71b7e0ec5292f487cff1370a4dcdabe9f32"
+        },
+        "include/google/protobuf/metadata_lite.h": {
+          "bytes": 11326,
+          "sha256": "1d8511ff203b74de25d2cdedb634a0a3ce4f0abbfd58659b4574a24be8b8e6cc"
+        },
+        "include/google/protobuf/parse_context.h": {
+          "bytes": 39145,
+          "sha256": "63b4c0e37d3a0d4a5ee69562cbd2d64a4d1583e09bb9e5f5d02cc4b7ab1b7ae4"
+        },
+        "include/google/protobuf/port.h": {
+          "bytes": 3348,
+          "sha256": "37e3eb326f1a560f2475c7a390eedc45a95e9f72abd0e3cc63c61966ebfac59c"
+        },
+        "include/google/protobuf/reflection.h": {
+          "bytes": 23157,
+          "sha256": "66fadc3fd9a7b9e476da31180a4e544412caf41dff1f9727001711de42bc7361"
+        },
+        "include/google/protobuf/reflection_ops.h": {
+          "bytes": 4090,
+          "sha256": "5f4cea963ad4f103277710197bc976b8fe3ead4b19a1dd2c96c1922ed47d8f9d"
+        },
+        "include/google/protobuf/repeated_field.h": {
+          "bytes": 43241,
+          "sha256": "94234527800d2f34d1a1770aa0bc3cb2a025f3daee2f8dfca4b3c736d0013dc6"
+        },
+        "include/google/protobuf/repeated_ptr_field.h": {
+          "bytes": 71667,
+          "sha256": "0e2de95679443421d0853af5dbaeb8e874ed285e51d89aaec35405e8c9de7df2"
+        },
+        "include/google/protobuf/service.h": {
+          "bytes": 13440,
+          "sha256": "4393c2959d6c6d22dc6a75bb269f37a3b1c29e75b7688472cfbe32874905ef57"
+        },
+        "include/google/protobuf/source_context.pb.h": {
+          "bytes": 10551,
+          "sha256": "209e7139778718ad2e168f03c9ddf24edaa7e8909a1a5db9b57ca2153e345bfc"
+        },
+        "include/google/protobuf/struct.pb.h": {
+          "bytes": 42317,
+          "sha256": "f869c03af02d09f0d7974a8521ea4e98339add93f1a8ebba8aa015d5b59cd520"
+        },
+        "include/google/protobuf/text_format.h": {
+          "bytes": 31194,
+          "sha256": "5ad6fb5e521dfadb719e19029e446e5b804ac2676665095a84af0ba08b7b5a05"
+        },
+        "include/google/protobuf/timestamp.pb.h": {
+          "bytes": 9484,
+          "sha256": "1038203348d5b358e39dc0d136042cf3f538215c4bee065fd6f3b06d49c4749d"
+        },
+        "include/google/protobuf/type.pb.h": {
+          "bytes": 93951,
+          "sha256": "b67cb14e72c02933a82f338b4d0d002d91dacaa053dfe3dfe8babf6369d7e120"
+        },
+        "include/google/protobuf/unknown_field_set.h": {
+          "bytes": 14426,
+          "sha256": "030df36531e85d3f4a6b87f3399d5a7fbad55f3dfb7f21cf5a0f5709711667e1"
+        },
+        "include/google/protobuf/wire_format.h": {
+          "bytes": 18374,
+          "sha256": "68e324c4ddd604e4c9d14cc04e10dc9b70322e628fc9dc77f4bc93269f267f81"
+        },
+        "include/google/protobuf/wire_format_lite.h": {
+          "bytes": 86007,
+          "sha256": "adfb1ecc406a6f6327d18a693a76def521d768cb869aa7028b02680e707bfef7"
+        },
+        "include/google/protobuf/wrappers.pb.h": {
+          "bytes": 59548,
+          "sha256": "0a5c8de32a54eb381c7f0cc260d5e3f7fe6daf7114f94a282b5860429bcc3f9e"
+        },
+        "include/google/protobuf/compiler/code_generator.h": {
+          "bytes": 8846,
+          "sha256": "2706f94cb5bacfdf8ae360bc2f08abf321396abc47785d8f268d57e126d35335"
+        },
+        "include/google/protobuf/compiler/command_line_interface.h": {
+          "bytes": 20561,
+          "sha256": "b6a344786611a9e3abb164eb1077d20d746359400256833b22191a4e7ce44e3b"
+        },
+        "include/google/protobuf/compiler/importer.h": {
+          "bytes": 14588,
+          "sha256": "29200c68334e369287141c69c20712c3d9532281bc08ed1d92fa04b3a703772a"
+        },
+        "include/google/protobuf/compiler/parser.h": {
+          "bytes": 28086,
+          "sha256": "284e92948b143a4b0d48c44b19fb0e0218d3b80fe586c2eb7a9d309587186c61"
+        },
+        "include/google/protobuf/compiler/plugin.h": {
+          "bytes": 4630,
+          "sha256": "fcd3f0f7e206e73cd19d2b314d5020a47a6ce45533e84f77c1d3149903fc2f9f"
+        },
+        "include/google/protobuf/compiler/plugin.pb.h": {
+          "bytes": 78870,
+          "sha256": "cdfb594f4864c0adf3501038f3e0859eb04796cb078353d9c49a80ec9cefb9ab"
+        },
+        "include/google/protobuf/compiler/cpp/cpp_generator.h": {
+          "bytes": 473,
+          "sha256": "a86228650cfb14898d5d8e8b874df8d6a4a05ef8c12ebb06d2cb81378e2805b4"
+        },
+        "include/google/protobuf/compiler/cpp/file.h": {
+          "bytes": 8891,
+          "sha256": "c79ea1be10650e9bfbc6aab3256c42c86be43fdee05bab64d85e9722a13e6340"
+        },
+        "include/google/protobuf/compiler/cpp/generator.h": {
+          "bytes": 4458,
+          "sha256": "25ce3f9e325fea41801b646e98a1848edf40212c7ca29f9d40772f3618c4f476"
+        },
+        "include/google/protobuf/compiler/cpp/helpers.h": {
+          "bytes": 42921,
+          "sha256": "d116403813818106f77b11fcf5f232289df31bc9dfd6d68fdaa426883d4970e4"
+        },
+        "include/google/protobuf/compiler/cpp/names.h": {
+          "bytes": 4046,
+          "sha256": "7e13534008913bd4ac2b23eb355c8294986d6484f072818bdafdebe079eb59ff"
+        },
+        "include/google/protobuf/compiler/csharp/csharp_doc_comment.h": {
+          "bytes": 2779,
+          "sha256": "c70c47906f346c89d06b5ee0198b826e5f787a99ec1ed790141d62dbe47bf82c"
+        },
+        "include/google/protobuf/compiler/csharp/csharp_generator.h": {
+          "bytes": 3066,
+          "sha256": "5dc15ad9eaa96e3d3b0058df4583b18357ff590dfecdd8b8682af949524d4a56"
+        },
+        "include/google/protobuf/compiler/csharp/csharp_names.h": {
+          "bytes": 4434,
+          "sha256": "52b27ed1c3608071d721054bbfd3f2cd5f0eb4a22a17c5c6ca0658417b463657"
+        },
+        "include/google/protobuf/compiler/csharp/csharp_options.h": {
+          "bytes": 3845,
+          "sha256": "b079aac2b533a91982ac8743dedf869377efb8fc65023b8b4a3873630285cc87"
+        },
+        "include/google/protobuf/compiler/java/generator.h": {
+          "bytes": 3353,
+          "sha256": "2b6a38b923eb0e64f3bf5bc14f79291596580c44c60c42b7b55b591a4a307ac7"
+        },
+        "include/google/protobuf/compiler/java/java_generator.h": {
+          "bytes": 480,
+          "sha256": "2d9db03ba018801e9a80a37ec1bcb2bd4f0bcfc8c7cc0ced4e2a12b34bbb7789"
+        },
+        "include/google/protobuf/compiler/java/kotlin_generator.h": {
+          "bytes": 3249,
+          "sha256": "14ae6617c05b0c07d0b40e115c49f6553b0c4e0f328e377c0f9ca5df738568e4"
+        },
+        "include/google/protobuf/compiler/java/names.h": {
+          "bytes": 3531,
+          "sha256": "a7c8326635206e0efd7e78706fa45903cdd8273e1d028cf772fe9a0c3229f121"
+        },
+        "include/google/protobuf/compiler/objectivec/objectivec_generator.h": {
+          "bytes": 3653,
+          "sha256": "e024c2df3bd6f056ce1ec2e2af01d53bef148a2046d5f25d6236793c69eaa343"
+        },
+        "include/google/protobuf/compiler/objectivec/objectivec_helpers.h": {
+          "bytes": 14354,
+          "sha256": "2a8ce9748e04bc36d2fd857a7fb5c01524f0e5cbc998ba6697051c1cc467dc90"
+        },
+        "include/google/protobuf/compiler/php/php_generator.h": {
+          "bytes": 3802,
+          "sha256": "b646a2b430dc910eba185b2300c8bfa05592a3b3b01ef27a5c56693c70a50080"
+        },
+        "include/google/protobuf/compiler/python/generator.h": {
+          "bytes": 8178,
+          "sha256": "238c3d0ac54698a709dfb9d9736cdb45fc973f811897cced06fb77d3994c54e9"
+        },
+        "include/google/protobuf/compiler/python/pyi_generator.h": {
+          "bytes": 5148,
+          "sha256": "7d69ffebc2d0765eecbecf78d7efc58a2e6efc1b1186d7b237d7078281b63b29"
+        },
+        "include/google/protobuf/compiler/python/python_generator.h": {
+          "bytes": 494,
+          "sha256": "ab889334e1a34aede027278c28eded7b17a37f6d2c75d4f2e592a72721fcd079"
+        },
+        "include/google/protobuf/compiler/ruby/ruby_generator.h": {
+          "bytes": 3074,
+          "sha256": "fe2a8c8835aee6b037d8b85fba5355584b4f8fb0094c37923d8729fa06c4a76d"
+        },
+        "include/google/protobuf/io/coded_stream.h": {
+          "bytes": 73758,
+          "sha256": "3d20dcfa04e4081b7a724a126cfe15c8812d2cbfdf8ea5ec266a1812faa0b8d9"
+        },
+        "include/google/protobuf/io/gzip_stream.h": {
+          "bytes": 7079,
+          "sha256": "9d22ada72d2f412d9bcd3538b4b50e7bd5c1c25882600688af0ab3727cf8da1c"
+        },
+        "include/google/protobuf/io/io_win32.h": {
+          "bytes": 5665,
+          "sha256": "15efba107660710636669f94d624672b81f12ddc0bb503a021ec40dff11690ac"
+        },
+        "include/google/protobuf/io/printer.h": {
+          "bytes": 16207,
+          "sha256": "ca69953bc7b306f536fa9fc688e10bbb7dd23e2fe705db5f680d8ff134aafb52"
+        },
+        "include/google/protobuf/io/strtod.h": {
+          "bytes": 2685,
+          "sha256": "4cc0bf1e36d30f7b85df23d76346b633bbbc353886324aa71fdca2bdd9fae332"
+        },
+        "include/google/protobuf/io/tokenizer.h": {
+          "bytes": 18334,
+          "sha256": "94377e38434273faac2ce51a2a4bd13d214e9c203221bdbbe4b8108fad3fdcab"
+        },
+        "include/google/protobuf/io/zero_copy_stream.h": {
+          "bytes": 10943,
+          "sha256": "ca9b9fbbaabf9da81376ee5577c6976a85711e496e577aecc47c8eb1b2cab23c"
+        },
+        "include/google/protobuf/io/zero_copy_stream_impl.h": {
+          "bytes": 13268,
+          "sha256": "72e0257ace8f523608bf6ca81c62c051eacfc5f6d773f7fd89367ab44b68c9b0"
+        },
+        "include/google/protobuf/io/zero_copy_stream_impl_lite.h": {
+          "bytes": 17352,
+          "sha256": "ff05b5d633660e6c617db7eff71914c5082fb3fcab7c28b145028c34b38a3f77"
+        },
+        "include/google/protobuf/stubs/bytestream.h": {
+          "bytes": 12023,
+          "sha256": "55dca09f6aaf8b67cf76cf33d92fd275af5537ebded1a9f041ab4d96a2c48f24"
+        },
+        "include/google/protobuf/stubs/callback.h": {
+          "bytes": 17352,
+          "sha256": "4dc1966c5b54b7f16577c07aa96d31bcc1363c54368b5d4abf28cf09283f677b"
+        },
+        "include/google/protobuf/stubs/casts.h": {
+          "bytes": 5957,
+          "sha256": "0c3f58b3bdbf14f19b64631ed34b523697fa8849a0bb46dba7cfd3111c940379"
+        },
+        "include/google/protobuf/stubs/common.h": {
+          "bytes": 7390,
+          "sha256": "3c0683ecbdd0f7e0d129793f4f12073fec42e7199ee567af146dc69162310ece"
+        },
+        "include/google/protobuf/stubs/hash.h": {
+          "bytes": 4165,
+          "sha256": "893f4bd85dfa3dab3acbf6ffe02d4a3548c173fc4da0512f6b03a30dc66baf95"
+        },
+        "include/google/protobuf/stubs/logging.h": {
+          "bytes": 9206,
+          "sha256": "5395d59ee51e8666bb7867e5952b068ef3a4c430cfa97d54dee14ed139830b98"
+        },
+        "include/google/protobuf/stubs/macros.h": {
+          "bytes": 4371,
+          "sha256": "c6003a91afd09ebbb8e1ebd3ad165485402c74e19199b30c5e563d429f2a7928"
+        },
+        "include/google/protobuf/stubs/map_util.h": {
+          "bytes": 31467,
+          "sha256": "82c970e3c67f3569f0a4e0a896836c70f384beb80ba6d3d44287aa2b2d05decc"
+        },
+        "include/google/protobuf/stubs/mutex.h": {
+          "bytes": 7262,
+          "sha256": "259202ac26e7cbdcd5ac90337cfa35fb9d3b77ad8bfecc8e74ad0b91f699255b"
+        },
+        "include/google/protobuf/stubs/once.h": {
+          "bytes": 2438,
+          "sha256": "e8aa9843fe46710f4590ec6645b9f120ffac61594691df9ecd76c7c0c7866e5c"
+        },
+        "include/google/protobuf/stubs/platform_macros.h": {
+          "bytes": 5404,
+          "sha256": "e8ac0c1dc6f36f5a29bcb45a7a21064a0bd9331ece707c3b6e1704e1be14ac12"
+        },
+        "include/google/protobuf/stubs/port.h": {
+          "bytes": 13353,
+          "sha256": "22493ea731197ca4733808ce64849ced4288c170140253c340dadcd6d8eee867"
+        },
+        "include/google/protobuf/stubs/status.h": {
+          "bytes": 8846,
+          "sha256": "23e2a3d20e47a452a88fdbd1a8c4849fea29dadd0154b48c6159381a48566caf"
+        },
+        "include/google/protobuf/stubs/stl_util.h": {
+          "bytes": 4187,
+          "sha256": "b76a4bc231925cd7b08ad08367c7d638d8944b1875965d9247391bf4212ac21c"
+        },
+        "include/google/protobuf/stubs/stringpiece.h": {
+          "bytes": 15346,
+          "sha256": "a1e042bdbd24cfc9f365fae9d3af9b7b632b42246bff8a9266851a3e309bdc28"
+        },
+        "include/google/protobuf/stubs/strutil.h": {
+          "bytes": 39854,
+          "sha256": "6fcdda1cba17443ffe9b3eae04352df2803c9fb5cd029ed8b260575720a37065"
+        },
+        "include/google/protobuf/stubs/template_util.h": {
+          "bytes": 5088,
+          "sha256": "23b6342430b146ded03bbaaae9535a50eccb49d2dcee6b6c1df170ca31156a9a"
+        },
+        "include/google/protobuf/util/delimited_message_util.h": {
+          "bytes": 5679,
+          "sha256": "b24545d139b540468de755093b050bb41c07a650dc09d56f6cb701e873ed7d51"
+        },
+        "include/google/protobuf/util/field_comparator.h": {
+          "bytes": 11961,
+          "sha256": "b4a8c196b73dccee9062662aae28031a9b971badf0236daa5befccf48abff422"
+        },
+        "include/google/protobuf/util/field_mask_util.h": {
+          "bytes": 11667,
+          "sha256": "d73b98efb7a89488025bdacfab51a1d940ea5ab50d4ca59c07c626f8157e1d1f"
+        },
+        "include/google/protobuf/util/json_util.h": {
+          "bytes": 8839,
+          "sha256": "230f7cb2baf423d87a4589274727ab76f1252be0d2065458c022c8312abdd3a2"
+        },
+        "include/google/protobuf/util/message_differencer.h": {
+          "bytes": 47698,
+          "sha256": "cd50b15b263531da5e16c302c6058575f823997d2a6a9e31abc4e3b151fecca2"
+        },
+        "include/google/protobuf/util/time_util.h": {
+          "bytes": 12512,
+          "sha256": "1ad6b01e9ac8177fb13fc41aac56f8343f4f292c5a15e42286e2fa556baa4a1a"
+        },
+        "include/google/protobuf/util/type_resolver.h": {
+          "bytes": 3173,
+          "sha256": "2ab0940ba30f491cf80bc591f22cb07cda52d83208e10c4390777e73df8916b8"
+        },
+        "include/google/protobuf/util/type_resolver_util.h": {
+          "bytes": 2687,
+          "sha256": "532ff1311baf3130065534b339e86f6986efb78069f29c4d67a2946889db63d2"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/google/protobuf/any.h",
+        "include/google/protobuf/any.pb.h",
+        "include/google/protobuf/api.pb.h",
+        "include/google/protobuf/arena.h",
+        "include/google/protobuf/arena_impl.h",
+        "include/google/protobuf/arenastring.h",
+        "include/google/protobuf/arenaz_sampler.h",
+        "include/google/protobuf/descriptor.h",
+        "include/google/protobuf/descriptor.pb.h",
+        "include/google/protobuf/descriptor_database.h",
+        "include/google/protobuf/duration.pb.h",
+        "include/google/protobuf/dynamic_message.h",
+        "include/google/protobuf/empty.pb.h",
+        "include/google/protobuf/endian.h",
+        "include/google/protobuf/explicitly_constructed.h",
+        "include/google/protobuf/extension_set.h",
+        "include/google/protobuf/extension_set_inl.h",
+        "include/google/protobuf/field_access_listener.h",
+        "include/google/protobuf/field_mask.pb.h",
+        "include/google/protobuf/generated_enum_reflection.h",
+        "include/google/protobuf/generated_enum_util.h",
+        "include/google/protobuf/generated_message_bases.h",
+        "include/google/protobuf/generated_message_reflection.h",
+        "include/google/protobuf/generated_message_tctable_decl.h",
+        "include/google/protobuf/generated_message_tctable_impl.h",
+        "include/google/protobuf/generated_message_util.h",
+        "include/google/protobuf/has_bits.h",
+        "include/google/protobuf/implicit_weak_message.h",
+        "include/google/protobuf/inlined_string_field.h",
+        "include/google/protobuf/map.h",
+        "include/google/protobuf/map_entry.h",
+        "include/google/protobuf/map_entry_lite.h",
+        "include/google/protobuf/map_field.h",
+        "include/google/protobuf/map_field_inl.h",
+        "include/google/protobuf/map_field_lite.h",
+        "include/google/protobuf/map_type_handler.h",
+        "include/google/protobuf/message.h",
+        "include/google/protobuf/message_lite.h",
+        "include/google/protobuf/metadata.h",
+        "include/google/protobuf/metadata_lite.h",
+        "include/google/protobuf/parse_context.h",
+        "include/google/protobuf/port.h",
+        "include/google/protobuf/reflection.h",
+        "include/google/protobuf/reflection_ops.h",
+        "include/google/protobuf/repeated_field.h",
+        "include/google/protobuf/repeated_ptr_field.h",
+        "include/google/protobuf/service.h",
+        "include/google/protobuf/source_context.pb.h",
+        "include/google/protobuf/struct.pb.h",
+        "include/google/protobuf/text_format.h",
+        "include/google/protobuf/timestamp.pb.h",
+        "include/google/protobuf/type.pb.h",
+        "include/google/protobuf/unknown_field_set.h",
+        "include/google/protobuf/wire_format.h",
+        "include/google/protobuf/wire_format_lite.h",
+        "include/google/protobuf/wrappers.pb.h",
+        "include/google/protobuf/compiler/code_generator.h",
+        "include/google/protobuf/compiler/command_line_interface.h",
+        "include/google/protobuf/compiler/importer.h",
+        "include/google/protobuf/compiler/parser.h",
+        "include/google/protobuf/compiler/plugin.h",
+        "include/google/protobuf/compiler/plugin.pb.h",
+        "include/google/protobuf/compiler/cpp/cpp_generator.h",
+        "include/google/protobuf/compiler/cpp/file.h",
+        "include/google/protobuf/compiler/cpp/generator.h",
+        "include/google/protobuf/compiler/cpp/helpers.h",
+        "include/google/protobuf/compiler/cpp/names.h",
+        "include/google/protobuf/compiler/csharp/csharp_doc_comment.h",
+        "include/google/protobuf/compiler/csharp/csharp_generator.h",
+        "include/google/protobuf/compiler/csharp/csharp_names.h",
+        "include/google/protobuf/compiler/csharp/csharp_options.h",
+        "include/google/protobuf/compiler/java/generator.h",
+        "include/google/protobuf/compiler/java/java_generator.h",
+        "include/google/protobuf/compiler/java/kotlin_generator.h",
+        "include/google/protobuf/compiler/java/names.h",
+        "include/google/protobuf/compiler/objectivec/objectivec_generator.h",
+        "include/google/protobuf/compiler/objectivec/objectivec_helpers.h",
+        "include/google/protobuf/compiler/php/php_generator.h",
+        "include/google/protobuf/compiler/python/generator.h",
+        "include/google/protobuf/compiler/python/pyi_generator.h",
+        "include/google/protobuf/compiler/python/python_generator.h",
+        "include/google/protobuf/compiler/ruby/ruby_generator.h",
+        "include/google/protobuf/io/coded_stream.h",
+        "include/google/protobuf/io/gzip_stream.h",
+        "include/google/protobuf/io/io_win32.h",
+        "include/google/protobuf/io/printer.h",
+        "include/google/protobuf/io/strtod.h",
+        "include/google/protobuf/io/tokenizer.h",
+        "include/google/protobuf/io/zero_copy_stream.h",
+        "include/google/protobuf/io/zero_copy_stream_impl.h",
+        "include/google/protobuf/io/zero_copy_stream_impl_lite.h",
+        "include/google/protobuf/stubs/bytestream.h",
+        "include/google/protobuf/stubs/callback.h",
+        "include/google/protobuf/stubs/casts.h",
+        "include/google/protobuf/stubs/common.h",
+        "include/google/protobuf/stubs/hash.h",
+        "include/google/protobuf/stubs/logging.h",
+        "include/google/protobuf/stubs/macros.h",
+        "include/google/protobuf/stubs/map_util.h",
+        "include/google/protobuf/stubs/mutex.h",
+        "include/google/protobuf/stubs/once.h",
+        "include/google/protobuf/stubs/platform_macros.h",
+        "include/google/protobuf/stubs/port.h",
+        "include/google/protobuf/stubs/status.h",
+        "include/google/protobuf/stubs/stl_util.h",
+        "include/google/protobuf/stubs/stringpiece.h",
+        "include/google/protobuf/stubs/strutil.h",
+        "include/google/protobuf/stubs/template_util.h",
+        "include/google/protobuf/util/delimited_message_util.h",
+        "include/google/protobuf/util/field_comparator.h",
+        "include/google/protobuf/util/field_mask_util.h",
+        "include/google/protobuf/util/json_util.h",
+        "include/google/protobuf/util/message_differencer.h",
+        "include/google/protobuf/util/time_util.h",
+        "include/google/protobuf/util/type_resolver.h",
+        "include/google/protobuf/util/type_resolver_util.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "NNPACK",
+      "source": {
+        "repository": "https://github.com/Maratyszcza/NNPACK",
+        "revision": "c07e3a0400713d546e0dea2d5466dd22ea389c73",
+        "pytorch_gitlink_path": "third_party/NNPACK"
+      },
+      "upstream_license_expression": "BSD-2-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/NNPACK-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/nnpack.h": {
+          "bytes": 33337,
+          "sha256": "63d36111e61bf7e7a90a363e6bd5f47bac73c8ce79997400a09291d8b4355edb"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "pthreadpool",
+      "source": {
+        "repository": "https://github.com/google/pthreadpool",
+        "revision": "a56dcd79c699366e7ac6466792c3025883ff7704",
+        "pytorch_gitlink_path": "third_party/pthreadpool"
+      },
+      "upstream_license_expression": "BSD-2-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/pthreadpool-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/pthreadpool.h": {
+          "bytes": 171089,
+          "sha256": "e7d011d55bb737054e61156ea7bdb6b85d2fa2b053a00ec7f1c1fd706366ea36"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/pthreadpool.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "FXdiv",
+      "source": {
+        "repository": "https://github.com/Maratyszcza/FXdiv",
+        "revision": "b408327ac2a15ec3e43352421954f5b1967701d1",
+        "pytorch_gitlink_path": "third_party/FXdiv"
+      },
+      "upstream_license_expression": "MIT",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/FXdiv-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/fxdiv.h": {
+          "bytes": 13403,
+          "sha256": "b460230ab887e8268e698686a15b2e4abe7acb81a15320b635e56c74cd63298d"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/fxdiv.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "FP16",
+      "source": {
+        "repository": "https://github.com/Maratyszcza/FP16",
+        "revision": "4dfe081cf6bcd15db339cf2680b9281b8451eeb3",
+        "pytorch_gitlink_path": "third_party/FP16"
+      },
+      "upstream_license_expression": "MIT",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/FP16-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/fp16.h": {
+          "bytes": 395,
+          "sha256": "a8e8a13ee20525ceca6bf52bb6b0a31e35c55872993b9b26e0cc918286ba854c"
+        },
+        "include/fp16/bitcasts.h": {
+          "bytes": 2407,
+          "sha256": "8fdf280e5157773366a728b61b8d7ab512fb2b76e5dbf2ce442427cad67afdc8"
+        },
+        "include/fp16/fp16.h": {
+          "bytes": 22256,
+          "sha256": "3be29ca612dc0d1be9c0b989b25fb716ac6a4684ee3af0582156f4c8f05b3660"
+        },
+        "include/fp16/psimd.h": {
+          "bytes": 7099,
+          "sha256": "d8bfa91e5687d7fb75494a6ad0b3af1aa280df349ca02d211d4621a58c0481b1"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/fp16.h",
+        "include/fp16/bitcasts.h",
+        "include/fp16/fp16.h",
+        "include/fp16/psimd.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "psimd",
+      "source": {
+        "repository": "https://github.com/Maratyszcza/psimd",
+        "revision": "072586a71b55b7f8c584153d223e95687148a900",
+        "pytorch_gitlink_path": "third_party/psimd"
+      },
+      "upstream_license_expression": "MIT",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/psimd-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/psimd.h": {
+          "bytes": 45758,
+          "sha256": "673ed87a145433c80731b02010b4f266a031d55a34d7024580defe5c29da2166"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/psimd.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "cpuinfo",
+      "source": {
+        "repository": "https://github.com/pytorch/cpuinfo",
+        "revision": "bc3c01e230c6974283e4b89421cfb0e232435589",
+        "pytorch_gitlink_path": "third_party/cpuinfo"
+      },
+      "upstream_license_expression": "BSD-2-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/cpuinfo-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/cpuinfo.h": {
+          "bytes": 58122,
+          "sha256": "0c12d39817f667b84f2f3e802fc66dfa2d84659cee6e0fa460842870722e6a44"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/cpuinfo.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "clog",
+      "source": {
+        "repository": "https://github.com/pytorch/cpuinfo",
+        "revision": "bc3c01e230c6974283e4b89421cfb0e232435589",
+        "pytorch_gitlink_path": "third_party/cpuinfo",
+        "subdirectory": "deps/clog"
+      },
+      "upstream_license_expression": "BSD-2-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/cpuinfo-clog-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/clog.h": {
+          "bytes": 5154,
+          "sha256": "2e6854d01e4676f67185b7626eb7f20fa23ec01790538652b8dfe62f93b7649f"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "sleef",
+      "source": {
+        "repository": "https://github.com/shibatch/sleef",
+        "revision": "5a1d179df9cf652951b59010a2d2075372d67f68",
+        "pytorch_gitlink_path": "third_party/sleef"
+      },
+      "upstream_license_expression": "BSL-1.0",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/sleef-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/sleef.h": {
+          "bytes": 269286,
+          "sha256": "b4ddf0931fac015dfcaa7ed2ab452c7fb54b15ed908ad3c5388b64429d1d31ec"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/sleef.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "fbgemm",
+      "source": {
+        "repository": "https://github.com/pytorch/fbgemm",
+        "revision": "bf6dce360a4fe133bc779e2fd036277678509f95",
+        "pytorch_gitlink_path": "third_party/fbgemm"
+      },
+      "upstream_license_expression": "BSD-3-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/fbgemm-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/fbgemm/Assert.h": {
+          "bytes": 2750,
+          "sha256": "68464f42d36debd0d12d4c5ad8b3122ae840bf7652b5ff167e90f5630d619575"
+        },
+        "include/fbgemm/ConvUtils.h": {
+          "bytes": 5849,
+          "sha256": "b10d84c44eda600a262528ad33005e243cbc656c91394498fe31d93b536f3a43"
+        },
+        "include/fbgemm/Fbgemm.h": {
+          "bytes": 44258,
+          "sha256": "1a27076abbe1fdf3cba19a7c639704d938a3b9485f94e66944545130bd0e937f"
+        },
+        "include/fbgemm/FbgemmBuild.h": {
+          "bytes": 3489,
+          "sha256": "498652bef7a1f5f12fb97b4383b1a6d792fb57f89f18597eca21a15bb35f4ecb"
+        },
+        "include/fbgemm/FbgemmConvert.h": {
+          "bytes": 4842,
+          "sha256": "b0a2213782e1d250bb67d75087ba701d101dfebd94dd7c33175b58644dca1274"
+        },
+        "include/fbgemm/FbgemmEmbedding.h": {
+          "bytes": 13219,
+          "sha256": "12d23da5925c53f5c592a64a76f4d516125037919aaaa1c8777728627e91c340"
+        },
+        "include/fbgemm/FbgemmFP16.h": {
+          "bytes": 1385,
+          "sha256": "a0ddb9d650e59ebc887f7aecede44a67813285e318afabfdaf4ed8dd0dc5ffb1"
+        },
+        "include/fbgemm/FbgemmFP32.h": {
+          "bytes": 1272,
+          "sha256": "1d34374e91444476600c09ccd8ecc5bae6e41f070f8eebbd5fc2c1e1d1f493ec"
+        },
+        "include/fbgemm/FbgemmFPCommon.h": {
+          "bytes": 9478,
+          "sha256": "1d6db4a0ea13ce640ad684cbbd45c54ba5a581f6471886882c145fc2da4e54e6"
+        },
+        "include/fbgemm/FbgemmI64.h": {
+          "bytes": 835,
+          "sha256": "a1400216cd6d58f0f2777a543b7a2cfe3eedcd31fb6af1d54512f43a2645550d"
+        },
+        "include/fbgemm/FbgemmI8DepthwiseAvx2.h": {
+          "bytes": 3795,
+          "sha256": "42e984f67f1acf3b26cc6cb1e33ef9e1960a711344fb9cfcb84206078d111e6f"
+        },
+        "include/fbgemm/FbgemmI8DirectconvAvx2.h": {
+          "bytes": 2059,
+          "sha256": "e2828ca1e2971402f3e8d499c190df35473773c6384b86971dd713bb6d8d054f"
+        },
+        "include/fbgemm/FbgemmI8Spmdm.h": {
+          "bytes": 3691,
+          "sha256": "b520d3c502d8180d29fba3587adfe8c8bdf26c25e39a529ff978e285e6d38732"
+        },
+        "include/fbgemm/FbgemmPackMatrixB.h": {
+          "bytes": 9470,
+          "sha256": "e09eb2d51c977774f48a164d05ec0079b20eca13e902424168f637bbd9e3d86c"
+        },
+        "include/fbgemm/FbgemmSparse.h": {
+          "bytes": 6642,
+          "sha256": "785c51e1440e683414a4a96fc3b15022fbe631820797b06a3c97f424cf764c5f"
+        },
+        "include/fbgemm/FloatConversion.h": {
+          "bytes": 11734,
+          "sha256": "d4818353aa4203186baf9d12edb516fe966b6b4957a00e2b4461ff60787bddc2"
+        },
+        "include/fbgemm/OutputProcessing-inl.h": {
+          "bytes": 10983,
+          "sha256": "5fc860917295226de27745da09ccc32dc11b71273e40fda6c0056c90e5e7bd9b"
+        },
+        "include/fbgemm/PackingTraits-inl.h": {
+          "bytes": 19699,
+          "sha256": "5658060c0939ce402637608939d60b0ae652b8b9e12da731afdc98b543fd9133"
+        },
+        "include/fbgemm/QuantUtils.h": {
+          "bytes": 12683,
+          "sha256": "b39f013ac330a5d51cb8e23ab25826556eeaae8bf458ea52c8a9cc0757cca8e7"
+        },
+        "include/fbgemm/QuantUtilsAvx2.h": {
+          "bytes": 5293,
+          "sha256": "f6ac11efdcfe34c9fd31c507fab76e9c98c9544caee3306de9142cb91f2be6e3"
+        },
+        "include/fbgemm/QuantUtilsAvx512.h": {
+          "bytes": 1464,
+          "sha256": "6da7b5e657d10e7f2d787ecd4576c834321c1f1bbce0b686ff93b2fa88f2f10d"
+        },
+        "include/fbgemm/QuantUtilsNeon.h": {
+          "bytes": 1666,
+          "sha256": "d38473c43e3dcd2591cdac449c5726f400655b7d95fb6f829740df08c5409c4b"
+        },
+        "include/fbgemm/SimdUtils.h": {
+          "bytes": 3209,
+          "sha256": "b44b0f42247bbe1e55d643d8587e00cf529e0ec23df59fb9ba14e37cbee018a9"
+        },
+        "include/fbgemm/Types.h": {
+          "bytes": 806,
+          "sha256": "c8aa87cde053bb57bc715a60d6240e2ac8edad2864f5c756be7b284db2113397"
+        },
+        "include/fbgemm/Utils.h": {
+          "bytes": 13499,
+          "sha256": "d10dbc49972f4fb702fc28741a4b35f458309cf225c42c6a69ad6a3bc4c38cf3"
+        },
+        "include/fbgemm/UtilsAvx2.h": {
+          "bytes": 2999,
+          "sha256": "78375a9e65da2e9cbc73699c2f8c2cb8ea8e8e16506b68eda5d97f0c5fc160cd"
+        },
+        "include/fbgemm/spmmUtils.h": {
+          "bytes": 1584,
+          "sha256": "c98cedc83d66befd71c1250483ac8fd0674fc07d8b8bda2061c9e21334f63fc2"
+        },
+        "include/fbgemm/spmmUtilsAvx2.h": {
+          "bytes": 1376,
+          "sha256": "c42e6164025d2042495a9f5d8f9d46a4bf4e5c4c30edd4e83d0050ddfd320a4c"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "fmt",
+      "source": {
+        "repository": "https://github.com/fmtlib/fmt",
+        "revision": "c0330b746600bfd91dbacb88837da5a16f947ba5",
+        "pytorch_gitlink_path": "third_party/fmt"
+      },
+      "upstream_license_expression": "MIT",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/fmt-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/fmt/args.h": {
+          "bytes": 7446,
+          "sha256": "1f9c56014d4970cce0bd148f113244500b8685589d95dfe9382566e3876737d3"
+        },
+        "include/fmt/base.h": {
+          "bytes": 102994,
+          "sha256": "0f12868e01911e53146c7d2f33d120b33a2e69606406928191c04a7b58d34796"
+        },
+        "include/fmt/chrono.h": {
+          "bytes": 77626,
+          "sha256": "ba13c2f19b7a4cd68fd78b9e03b447d4324cb2a82c165dc179299472c6edef0a"
+        },
+        "include/fmt/color.h": {
+          "bytes": 25576,
+          "sha256": "1cc0cfef92de9de384c01a3c1ebb38e7b99ca70d63d121cf0f3d0d58fe32f70f"
+        },
+        "include/fmt/compile.h": {
+          "bytes": 21513,
+          "sha256": "6a1ae7954484c75a889533272f3dd2d8103166b6c89f57d53667dd28f1fb6ec3"
+        },
+        "include/fmt/core.h": {
+          "bytes": 643,
+          "sha256": "7f3671a49173cf4a6fbe237ede52f451ec3e2238043cfe1e8dbf35e6f894d82f"
+        },
+        "include/fmt/fmt-c.h": {
+          "bytes": 7633,
+          "sha256": "59c3980dc5b20607979d0109821c34fa089a3face4000e99ca4680a22ce7dd5b"
+        },
+        "include/fmt/format-inl.h": {
+          "bytes": 83335,
+          "sha256": "8a9ad0f1de1e6c0a069c6e475653b178c75344c2089225991de910b3c733740e"
+        },
+        "include/fmt/format.h": {
+          "bytes": 164560,
+          "sha256": "9783a589b7a91fd691ddd08cbb10e725e682702f1bd645ba3ba6871509af0417"
+        },
+        "include/fmt/os.h": {
+          "bytes": 12866,
+          "sha256": "c40a2876899f0a6c17dd45c23b79df60cb1b9247ac0d6048947808b4cfcaac42"
+        },
+        "include/fmt/ostream.h": {
+          "bytes": 5311,
+          "sha256": "cb052be01fd09cde3a4e0d4c0aeae7d0b5dc71132ea835eb58277c1167a56f91"
+        },
+        "include/fmt/printf.h": {
+          "bytes": 21426,
+          "sha256": "630cb697308f3a1ac7e99b6d42074102e99916e7b8d851c69630fb6bcc04090d"
+        },
+        "include/fmt/ranges.h": {
+          "bytes": 29036,
+          "sha256": "645beb57ce28a506e3693e330dcab75d41346a007d38a3f23bf9c2af7bfeab04"
+        },
+        "include/fmt/std.h": {
+          "bytes": 27723,
+          "sha256": "fb4ead19aaff73a85ec1a4be2bfefbf286bcf79bb9a8a39791e6efdcdcb005a8"
+        },
+        "include/fmt/xchar.h": {
+          "bytes": 14478,
+          "sha256": "6dd81f0717bb5ff14882c2d9fe4e9bb003f002af6a9601371b09c285174bcc1f"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/fmt/args.h",
+        "include/fmt/base.h",
+        "include/fmt/chrono.h",
+        "include/fmt/color.h",
+        "include/fmt/compile.h",
+        "include/fmt/core.h",
+        "include/fmt/fmt-c.h",
+        "include/fmt/format-inl.h",
+        "include/fmt/format.h",
+        "include/fmt/os.h",
+        "include/fmt/ostream.h",
+        "include/fmt/printf.h",
+        "include/fmt/ranges.h",
+        "include/fmt/std.h",
+        "include/fmt/xchar.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "tensorpipe",
+      "source": {
+        "repository": "https://github.com/pytorch/tensorpipe",
+        "revision": "2b4cd91092d335a697416b2a3cb398283246849d",
+        "pytorch_gitlink_path": "third_party/tensorpipe"
+      },
+      "upstream_license_expression": "BSD-3-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/tensorpipe-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/tensorpipe/config.h": {
+          "bytes": 605,
+          "sha256": "6c0c876086e93343344cc3e24dc685bdc5a71427c3a1dcffaea199362fe465c9"
+        },
+        "include/tensorpipe/tensorpipe.h": {
+          "bytes": 1703,
+          "sha256": "e6a9a65eef12c8cabfb11122599e4696333e825cfea65e1b25278c69140b87a5"
+        },
+        "include/tensorpipe/channel/context.h": {
+          "bytes": 3955,
+          "sha256": "c0d1e086443aea42b75269608d05538f32cdd6614854340cfe9aa9e88c0798fd"
+        },
+        "include/tensorpipe/channel/error.h": {
+          "bytes": 1032,
+          "sha256": "1e98854c0e5a15dee8987e5f7d627f4334557e6ce4e06c84de611903f28ddc7a"
+        },
+        "include/tensorpipe/channel/basic/factory.h": {
+          "bytes": 717,
+          "sha256": "ca68a5fcb05cf0622dc041701df040b90369e3acbfed3dcb978aa7bc9de44af8"
+        },
+        "include/tensorpipe/channel/cma/factory.h": {
+          "bytes": 713,
+          "sha256": "330285649562c95ba35a72e8e11c9f9dc1f9d1b252271ec9fe0c7b8683316e70"
+        },
+        "include/tensorpipe/channel/mpt/factory.h": {
+          "bytes": 900,
+          "sha256": "e0d617f12fab745051f460d68e05701747ee1369355a14ecefecfc5ca6090221"
+        },
+        "include/tensorpipe/channel/xth/factory.h": {
+          "bytes": 713,
+          "sha256": "a2af4b17df4a4d37abe9990fd905b6bba6bbc7868e0573b77c84788936c8d221"
+        },
+        "include/tensorpipe/common/buffer.h": {
+          "bytes": 3726,
+          "sha256": "bd98731896cfef01abc05410698d1d9d87ff3c6ef4b4f12a39a5fb0fc92f7fa4"
+        },
+        "include/tensorpipe/common/cpu_buffer.h": {
+          "bytes": 695,
+          "sha256": "7568e6e855a57cdbbe1b27ba011987816c56c0e258100a07be0a361704750082"
+        },
+        "include/tensorpipe/common/device.h": {
+          "bytes": 1903,
+          "sha256": "ab25a427a36128a18fa834b35dd0f1cc7c9490d9585f738c33ec314c7960002b"
+        },
+        "include/tensorpipe/common/error.h": {
+          "bytes": 3382,
+          "sha256": "b1498cf43f48641b2d16ff1a576ed92c0c43436775f78c37f7e6aebce4776427"
+        },
+        "include/tensorpipe/common/optional.h": {
+          "bytes": 382,
+          "sha256": "0a0f33b6e22fc42f1c916c8cd60897661a08b18085188a29450f3041dddfd7b9"
+        },
+        "include/tensorpipe/core/context.h": {
+          "bytes": 2722,
+          "sha256": "7943f08cb53756873ea6e556f18674dfebad954875136a662ebce99a057cc194"
+        },
+        "include/tensorpipe/core/error.h": {
+          "bytes": 1215,
+          "sha256": "733a866ffe51eb3cf985c8f506b5d93770f4e1df0036de3d9db123a6c739b28c"
+        },
+        "include/tensorpipe/core/listener.h": {
+          "bytes": 3182,
+          "sha256": "3682916213831514dbda889fa6ce5cc51758a087ba979a4baa14bf9b9c473054"
+        },
+        "include/tensorpipe/core/message.h": {
+          "bytes": 3139,
+          "sha256": "37295028b6e97fe20a87234ecce40151eda3e295578c9f59974081aee2bc869d"
+        },
+        "include/tensorpipe/core/pipe.h": {
+          "bytes": 3226,
+          "sha256": "173c48495799543c55c602cdcb3f0de2b72a83e127e496092b78cc0c074334e3"
+        },
+        "include/tensorpipe/transport/context.h": {
+          "bytes": 2899,
+          "sha256": "743e0d35ca917b58efcc70153d894bfe4a127f4a02eaadeef995c81b2a87a104"
+        },
+        "include/tensorpipe/transport/error.h": {
+          "bytes": 1173,
+          "sha256": "87ce8d978c1d54f081701d7598beb7d1762a48dcc09dabe6076a0e5375b054cc"
+        },
+        "include/tensorpipe/transport/ibv/error.h": {
+          "bytes": 1174,
+          "sha256": "895a8a65953af8cc317a4d52686a219dd5583ed2f5f448b97dbbfc5f66f6ee85"
+        },
+        "include/tensorpipe/transport/ibv/factory.h": {
+          "bytes": 719,
+          "sha256": "b8000a4736c5e8c7434e292bde0093297271192e6c7c18f21dc678a0e0ab53d6"
+        },
+        "include/tensorpipe/transport/ibv/utility.h": {
+          "bytes": 823,
+          "sha256": "622f9511f5e1506dfd9caf0f317653f7f8c410ee68dc96a60dbe796deb0e5f0e"
+        },
+        "include/tensorpipe/transport/shm/factory.h": {
+          "bytes": 719,
+          "sha256": "1dc69a4dae609c6a93d10cf62e5b0bb6d53d0d890b603d97279204da6fdfb5f4"
+        },
+        "include/tensorpipe/transport/uv/error.h": {
+          "bytes": 970,
+          "sha256": "42c3f0e11d15ba23093e25386e9d90218c3d038d14c9bf85dc9e5e7cbf3cc9a6"
+        },
+        "include/tensorpipe/transport/uv/factory.h": {
+          "bytes": 717,
+          "sha256": "0f78bface436177d690e8ea28afb2c357f6ad869663dcc5140bc7792ff946133"
+        },
+        "include/tensorpipe/transport/uv/utility.h": {
+          "bytes": 1303,
+          "sha256": "e59fd01bae1a53d9fec8c48c29ea4a065508f7486d2f01c121c66126b9fdd8c8"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "kineto",
+      "source": {
+        "repository": "https://github.com/pytorch/kineto",
+        "revision": "15f4784a3471d4db8b31720d528f2f57cd2b1f40",
+        "pytorch_gitlink_path": "third_party/kineto"
+      },
+      "upstream_license_expression": "BSD-3-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/kineto-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/kineto/AbstractConfig.h": {
+          "bytes": 4164,
+          "sha256": "1ce2779abe5ca0bbf392dc4a19d5ef45c9801f0cba085d315cfc588b0bc64607"
+        },
+        "include/kineto/ActivityProfilerInterface.h": {
+          "bytes": 4129,
+          "sha256": "d040ba072df001c84e1234241f729e484c7accd379e678704e3d012e5a0de41a"
+        },
+        "include/kineto/ActivityTraceInterface.h": {
+          "bytes": 863,
+          "sha256": "1aa22cfc44dbb0596fa24a668ab5d2db25e2d9e0e6ce8766f6fbbfe167fc18a4"
+        },
+        "include/kineto/ActivityType.h": {
+          "bytes": 5213,
+          "sha256": "c23810b3ec3c42e2383fc03c2bba192d73988142bf3af9632ff3d0bf73ded552"
+        },
+        "include/kineto/ClientInterface.h": {
+          "bytes": 919,
+          "sha256": "601c8c5e7d70aefe9e8e5eb45f3e1a04b4d64244851ecd33ca8cb48826777185"
+        },
+        "include/kineto/Config.h": {
+          "bytes": 11847,
+          "sha256": "77deadf2c902c29b19f4f75109d302b37ea0df2bdc8b682db2f4158ce32d908a"
+        },
+        "include/kineto/GenericTraceActivity.h": {
+          "bytes": 5647,
+          "sha256": "9c1dd00e374a0424dfc291d70ec0085e8cbee707e5beb0391685d4ef421f95fc"
+        },
+        "include/kineto/IActivityProfiler.h": {
+          "bytes": 5199,
+          "sha256": "242efcbe860bb199c467541f68a7b8847aff67e1d6c79969d63eddd8ac197f59"
+        },
+        "include/kineto/ILoggerObserver.h": {
+          "bytes": 3229,
+          "sha256": "18d90582b92b70252f25bbbbbe71f3ee7a80cbb6f89cb0f0926f2a24b992351b"
+        },
+        "include/kineto/ITraceActivity.h": {
+          "bytes": 3092,
+          "sha256": "bc6d161302200e4a06a2f521b714733cd8730ae980ddabcd8add464e91fcc5b8"
+        },
+        "include/kineto/LoggingAPI.h": {
+          "bytes": 600,
+          "sha256": "960b88fcebbb15ab921c49533e258ef4bd7cd775135aea93755d618a4bf92101"
+        },
+        "include/kineto/MetadataFieldCatalog.h": {
+          "bytes": 9449,
+          "sha256": "fe37194bed585fba624e8cc305902f0331b910148484dd432cb1e93fb93c753a"
+        },
+        "include/kineto/ThreadUtil.h": {
+          "bytes": 1179,
+          "sha256": "a65eef311f5b0a29d1e3012cf63f5daa32989aa60d7a066a70f231c4f59ba075"
+        },
+        "include/kineto/TraceSpan.h": {
+          "bytes": 1230,
+          "sha256": "7f78510960090f7b057eb013eeb5446b6e365d7b4bcf8726b798412949b4f63c"
+        },
+        "include/kineto/TypedMetadata.h": {
+          "bytes": 4757,
+          "sha256": "7fda7d6f3c0cff9f1266c99a07ae7991ebb048c5fe770ebd1e7f3b3e11c865c5"
+        },
+        "include/kineto/TypedMetadataJson.h": {
+          "bytes": 6325,
+          "sha256": "f7a331b6a69365dd0795d6dae1e905fff75e6b66d90584e1018ee7d2d6a557a8"
+        },
+        "include/kineto/libkineto.h": {
+          "bytes": 4612,
+          "sha256": "85b0b80e7a69acff462e13e28595ce144abbe12e4540ec54095f3e6b53e69aa7"
+        },
+        "include/kineto/output_base.h": {
+          "bytes": 2342,
+          "sha256": "79f2e30a9c9ff1f1a2025d9c8095c4521956b4909e896218ea69f102135f8960"
+        },
+        "include/kineto/time_since_epoch.h": {
+          "bytes": 770,
+          "sha256": "6a3760795242343d501e11a3dc632307c26b1eacb24737134667d199f0a31de9"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/kineto/AbstractConfig.h",
+        "include/kineto/ActivityProfilerInterface.h",
+        "include/kineto/ActivityTraceInterface.h",
+        "include/kineto/ActivityType.h",
+        "include/kineto/ClientInterface.h",
+        "include/kineto/Config.h",
+        "include/kineto/GenericTraceActivity.h",
+        "include/kineto/IActivityProfiler.h",
+        "include/kineto/ILoggerObserver.h",
+        "include/kineto/ITraceActivity.h",
+        "include/kineto/LoggingAPI.h",
+        "include/kineto/MetadataFieldCatalog.h",
+        "include/kineto/ThreadUtil.h",
+        "include/kineto/TraceSpan.h",
+        "include/kineto/TypedMetadata.h",
+        "include/kineto/TypedMetadataJson.h",
+        "include/kineto/libkineto.h",
+        "include/kineto/output_base.h",
+        "include/kineto/time_since_epoch.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "ittapi",
+      "source": {
+        "repository": "https://github.com/intel/ittapi",
+        "revision": "0c57540822deb5dae43bef6c1cc9b3be4772a033",
+        "pytorch_gitlink_path": "third_party/ittapi"
+      },
+      "upstream_license_expression": "BSD-3-Clause OR GPL-2.0-only",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/ittapi-LICENSES-BSD-3-Clause.txt",
+        "libtorch-cpu-2.14.1/ittapi-LICENSES-GPL-2.0-only.txt"
+      ],
+      "archive_headers": {
+        "include/advisor-annotate.h": {
+          "bytes": 23930,
+          "sha256": "3208eb5a431f1575dbd81ee92657f8c4ef9dad18624143f0e6ddfa3f6eb813e8"
+        },
+        "include/ittnotify-zca.h": {
+          "bytes": 4007,
+          "sha256": "0742c576ed5b556ac7dee13a6c3dfb264532e86994a5aa633614fabc7d5af1e0"
+        },
+        "include/ittnotify.h": {
+          "bytes": 199788,
+          "sha256": "b9b23d3e24a757de7fbbac5db1ebd415038e5cdbb3929fd3c967cc788dd39769"
+        },
+        "include/jitprofiling.h": {
+          "bytes": 29872,
+          "sha256": "294081babcddee3ff50830569419ba2c60f971c0ee9f2409c3c4917d25fcc2c4"
+        },
+        "include/libittnotify.h": {
+          "bytes": 823,
+          "sha256": "cc0d4c3cee9451158b83d4ec165daf6ff3e2be8dd283a3ec3595dcaf7d4ff754"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/advisor-annotate.h",
+        "include/ittnotify-zca.h",
+        "include/ittnotify.h",
+        "include/jitprofiling.h",
+        "include/libittnotify.h"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "oneDNN",
+      "source": {
+        "repository": "https://github.com/oneapi-src/oneDNN",
+        "revision": "80afa71049cd69a3df32adcccb623b12cd7baa22",
+        "pytorch_gitlink_path": "third_party/ideep",
+        "intermediate_source": {
+          "repository": "https://github.com/intel/ideep",
+          "revision": "e087b6e4b32a7ba684db82231d1558123968ac1d",
+          "gitlink_path": "mkl-dnn"
+        }
+      },
+      "upstream_license_expression": "Apache-2.0",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/oneDNN-LICENSE.txt",
+        "libtorch-cpu-2.14.1/oneDNN-THIRD-PARTY-PROGRAMS.txt"
+      ],
+      "archive_headers": {
+        "include/dnnl.h": {
+          "bytes": 1080,
+          "sha256": "fa7a62484208097d99272d9b696a4c5f8b8e650a605df87503f219746481a7c0"
+        },
+        "include/dnnl.hpp": {
+          "bytes": 1088,
+          "sha256": "60f64025551f7bf744140c8159ced997574859908a400be745ecf13232219121"
+        },
+        "include/dnnl_config.h": {
+          "bytes": 1108,
+          "sha256": "d0b456ffd74935358044baa12be9e50a06e7586c56401b336d2a15c915d97276"
+        },
+        "include/dnnl_debug.h": {
+          "bytes": 1104,
+          "sha256": "5cb8d23601549fcddac93baa0991d99a7fd8beae268f0694e40f9ccdb9494dce"
+        },
+        "include/dnnl_ocl.h": {
+          "bytes": 1096,
+          "sha256": "d37fffbc1302c508fcd72e5ca97478945df2a03959d9277a510d86248282a874"
+        },
+        "include/dnnl_ocl.hpp": {
+          "bytes": 1104,
+          "sha256": "39eeb16087607a8a6d41b182f59f1f04a77e89944b6d5664569c0fc57827ac2e"
+        },
+        "include/dnnl_sycl.h": {
+          "bytes": 1100,
+          "sha256": "42e14727dcb43d5064ef013901df3b0d463cc35badff4dbce07037033af83922"
+        },
+        "include/dnnl_sycl.hpp": {
+          "bytes": 1108,
+          "sha256": "ab2649c5db06adacb9f906f91a5b2b79e4459e2d91ca3e1dc06a33c052419059"
+        },
+        "include/dnnl_sycl_types.h": {
+          "bytes": 1124,
+          "sha256": "7103b1ba183cd3d3b82ee7a11766f4d66eba7235c3775d4861c12e6fffadc49c"
+        },
+        "include/dnnl_threadpool.h": {
+          "bytes": 1124,
+          "sha256": "37f0188a65a24a29df1917da24eed03bec30512a7ae7a22740cb31a2ea71b2f8"
+        },
+        "include/dnnl_threadpool.hpp": {
+          "bytes": 1132,
+          "sha256": "1536577695c3cbb4fe1c74ed678f91f0d16e865f27ffad472a65c7a892d977c2"
+        },
+        "include/dnnl_threadpool_iface.hpp": {
+          "bytes": 1156,
+          "sha256": "e47ed0fc4d3dfe7c829963c083a280af6fd5b3b5721836d7e2923a12af68a743"
+        },
+        "include/dnnl_types.h": {
+          "bytes": 1104,
+          "sha256": "df8d80304054850502eb4e4bf276b6eef9408fd74286d1a267ae39f9fe246df6"
+        },
+        "include/dnnl_version.h": {
+          "bytes": 1112,
+          "sha256": "f51d7a673319a0519ace0a799ee718687a6b0571bb42a9b627aec41d850367af"
+        },
+        "include/oneapi/dnnl/dnnl.h": {
+          "bytes": 198902,
+          "sha256": "8842f155a1052ea80b4c741e521407fba4ee3212e2d84e7a0621420117902228"
+        },
+        "include/oneapi/dnnl/dnnl.hpp": {
+          "bytes": 665473,
+          "sha256": "81f579d45ad1f2f024cf869c6878fa25693f59289c939d10f65378bbc68e2e06"
+        },
+        "include/oneapi/dnnl/dnnl_common.h": {
+          "bytes": 5905,
+          "sha256": "75b51f7e6fefccc12cbc105d426e105a225c2b1edd4590f420be81437e0c39ac"
+        },
+        "include/oneapi/dnnl/dnnl_common.hpp": {
+          "bytes": 16045,
+          "sha256": "c067fdab2ba0cffbb73f1825f8dbb882079479876cc9cfb9639c6495f3fd80d4"
+        },
+        "include/oneapi/dnnl/dnnl_common_types.h": {
+          "bytes": 8590,
+          "sha256": "70b57b2000b359479686f48f02b87d3c8b688ea9990b6f3ff533831fbf55f25f"
+        },
+        "include/oneapi/dnnl/dnnl_config.h": {
+          "bytes": 6760,
+          "sha256": "4aada88419693fd90129c01f13d0aaf54b24aea1a04f19bf002bdcf7718613ff"
+        },
+        "include/oneapi/dnnl/dnnl_debug.h": {
+          "bytes": 2597,
+          "sha256": "0b23b7499e5797cdd267c8017ebf88e7ae0680c859d496849b75978e35ee5309"
+        },
+        "include/oneapi/dnnl/dnnl_graph.h": {
+          "bytes": 34541,
+          "sha256": "4ac597306bcfdf7ee0bf8cc8aa90bd1341e74f457324f94d16026f3c314433ae"
+        },
+        "include/oneapi/dnnl/dnnl_graph.hpp": {
+          "bytes": 68894,
+          "sha256": "34b55ad682b1773cb1d2a2a672b36daef4c2a4d0977ce2fc6beaab0f3aa05380"
+        },
+        "include/oneapi/dnnl/dnnl_graph_ocl.h": {
+          "bytes": 6028,
+          "sha256": "2419c2e1c13a7b095070aa32ed87240192808a0cad5d164d13d5ae4ae16b72b0"
+        },
+        "include/oneapi/dnnl/dnnl_graph_ocl.hpp": {
+          "bytes": 5682,
+          "sha256": "bd94a5d3dd728d0d4cb1afeb7160623a52338193155649fef7121c6bba54c3b8"
+        },
+        "include/oneapi/dnnl/dnnl_graph_sycl.h": {
+          "bytes": 3902,
+          "sha256": "298dc96985016c916ba6fc59251a1e913e24576c78bc2213e8d3e6ea1a56c687"
+        },
+        "include/oneapi/dnnl/dnnl_graph_sycl.hpp": {
+          "bytes": 4586,
+          "sha256": "d702471fd148059d0a2d9ba268f79a86c090de01037eea940d0ab55d9777bb60"
+        },
+        "include/oneapi/dnnl/dnnl_graph_types.h": {
+          "bytes": 17935,
+          "sha256": "ea25620f0532175f134526f570041b0fe34b79d1600fac1f48bf735b2b9cdf52"
+        },
+        "include/oneapi/dnnl/dnnl_ocl.h": {
+          "bytes": 11871,
+          "sha256": "ad8b6d9637e19efd0e844388e277e2c2d89de3361aadfbbb157aff3d164d1d5c"
+        },
+        "include/oneapi/dnnl/dnnl_ocl.hpp": {
+          "bytes": 15571,
+          "sha256": "84671b2403e158cf70c77ca5258a1d6b61ee905236594a45eefc528fdb4e96e5"
+        },
+        "include/oneapi/dnnl/dnnl_ocl_types.h": {
+          "bytes": 1592,
+          "sha256": "833c32787dee791e9b7bb4583ed6e5e1f0cd0c19cbe1942208f5c9d26d8737f4"
+        },
+        "include/oneapi/dnnl/dnnl_sycl.h": {
+          "bytes": 8562,
+          "sha256": "e4385373e611cfd5c5d5bfb6e31061961fabac8f9b127d67bce1bb0ec5c615d0"
+        },
+        "include/oneapi/dnnl/dnnl_sycl.hpp": {
+          "bytes": 13094,
+          "sha256": "ae67c7f194405072f4d2422d946846dd252c8a40b1c06b27f2169f7b74cde3f9"
+        },
+        "include/oneapi/dnnl/dnnl_sycl_types.h": {
+          "bytes": 1599,
+          "sha256": "654057227e6011bcb51aab4163c2e6de8a969485067893eef7de5d0bd82f46f7"
+        },
+        "include/oneapi/dnnl/dnnl_threadpool.h": {
+          "bytes": 4773,
+          "sha256": "a5b5e369603734095bb58c900b347b2b2ae0711bc20438967d13cbdc082ba3b2"
+        },
+        "include/oneapi/dnnl/dnnl_threadpool.hpp": {
+          "bytes": 4576,
+          "sha256": "c264d7e00b22f74af20864a70c81797a75d146a705a16b0e667fe5d2e4f32222"
+        },
+        "include/oneapi/dnnl/dnnl_threadpool_iface.hpp": {
+          "bytes": 2752,
+          "sha256": "2d2b502e1cf3eec2103048f972b67b2ced4ad83c226ae5542428f7db0ce2fdcd"
+        },
+        "include/oneapi/dnnl/dnnl_types.h": {
+          "bytes": 102379,
+          "sha256": "1e14481b1376f1cb5acea52fbfe275177a33f3697a2092e2b483dea50a894b62"
+        },
+        "include/oneapi/dnnl/dnnl_ukernel.h": {
+          "bytes": 14037,
+          "sha256": "235899873c2c77ba77d8cb5b46b1c9c2541828f0308bc638e608208f0974e98b"
+        },
+        "include/oneapi/dnnl/dnnl_ukernel.hpp": {
+          "bytes": 17933,
+          "sha256": "3bc75cc7eca93be8c2b063eb0cb648c1946180259e006edc98df140ca6b25bab"
+        },
+        "include/oneapi/dnnl/dnnl_ukernel_types.h": {
+          "bytes": 2957,
+          "sha256": "69fa0e0acc51edb75b8be9e638c7321e13341e09fbc422b7115fa6fc46635813"
+        },
+        "include/oneapi/dnnl/dnnl_version.h": {
+          "bytes": 1262,
+          "sha256": "e57a57968520cce43408527682818c8e329bd94766834d0562d9b62862044783"
+        },
+        "include/oneapi/dnnl/dnnl_version_hash.h": {
+          "bytes": 1500,
+          "sha256": "d602137abf6fd0f473206ea21807e8e4a3c7338d4defaa76711b1f7b481f8856"
+        },
+        "include/oneapi/dnnl/dnnl_ze.h": {
+          "bytes": 6588,
+          "sha256": "7ed63417f0eb5a1eb13569e00c6fc8fea1ba191b5e5fc2985fd11ea3d8a12cec"
+        },
+        "include/oneapi/dnnl/dnnl_ze.hpp": {
+          "bytes": 8816,
+          "sha256": "4c5082c994202e1b5905f8b1b0e923a2a9de872aae81fddaafcd15b166a73a27"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [
+        "include/dnnl.h",
+        "include/dnnl.hpp",
+        "include/dnnl_config.h",
+        "include/dnnl_debug.h",
+        "include/dnnl_ocl.h",
+        "include/dnnl_ocl.hpp",
+        "include/dnnl_sycl.h",
+        "include/dnnl_sycl.hpp",
+        "include/dnnl_sycl_types.h",
+        "include/dnnl_threadpool.h",
+        "include/dnnl_threadpool.hpp",
+        "include/dnnl_threadpool_iface.hpp",
+        "include/dnnl_types.h",
+        "include/dnnl_version.h",
+        "include/oneapi/dnnl/dnnl.h",
+        "include/oneapi/dnnl/dnnl.hpp",
+        "include/oneapi/dnnl/dnnl_common.h",
+        "include/oneapi/dnnl/dnnl_common.hpp",
+        "include/oneapi/dnnl/dnnl_common_types.h",
+        "include/oneapi/dnnl/dnnl_config.h",
+        "include/oneapi/dnnl/dnnl_debug.h",
+        "include/oneapi/dnnl/dnnl_graph.h",
+        "include/oneapi/dnnl/dnnl_graph.hpp",
+        "include/oneapi/dnnl/dnnl_graph_ocl.h",
+        "include/oneapi/dnnl/dnnl_graph_ocl.hpp",
+        "include/oneapi/dnnl/dnnl_graph_sycl.h",
+        "include/oneapi/dnnl/dnnl_graph_sycl.hpp",
+        "include/oneapi/dnnl/dnnl_graph_types.h",
+        "include/oneapi/dnnl/dnnl_ocl.h",
+        "include/oneapi/dnnl/dnnl_ocl.hpp",
+        "include/oneapi/dnnl/dnnl_ocl_types.h",
+        "include/oneapi/dnnl/dnnl_sycl.h",
+        "include/oneapi/dnnl/dnnl_sycl.hpp",
+        "include/oneapi/dnnl/dnnl_sycl_types.h",
+        "include/oneapi/dnnl/dnnl_threadpool.h",
+        "include/oneapi/dnnl/dnnl_threadpool.hpp",
+        "include/oneapi/dnnl/dnnl_threadpool_iface.hpp",
+        "include/oneapi/dnnl/dnnl_types.h",
+        "include/oneapi/dnnl/dnnl_ukernel.h",
+        "include/oneapi/dnnl/dnnl_ukernel.hpp",
+        "include/oneapi/dnnl/dnnl_ukernel_types.h",
+        "include/oneapi/dnnl/dnnl_version.h",
+        "include/oneapi/dnnl/dnnl_version_hash.h",
+        "include/oneapi/dnnl/dnnl_ze.h",
+        "include/oneapi/dnnl/dnnl_ze.hpp"
+      ],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    },
+    {
+      "id": "QNNPACK-headers",
+      "source": {
+        "repository": "https://github.com/pytorch/pytorch",
+        "revision": "5c4886908584029761b579af026dcfb627c84070",
+        "pytorch_gitlink_path": null,
+        "subdirectory": "aten/src/ATen/native/quantized/cpu/qnnpack"
+      },
+      "upstream_license_expression": "BSD-3-Clause",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/qnnpack-LICENSE.txt"
+      ],
+      "archive_headers": {
+        "include/qnnpack_func.h": {
+          "bytes": 4400,
+          "sha256": "4ed0c5e6686915c4dbcef2d46251d5df7286d819156442cc7dd25af1d28de9ea"
+        }
+      },
+      "headers_reproduced_by_existing_windows_header_CRLF_to_LF_only": [],
+      "scope": "actual archive header family; upstream root and selected complete notices retained; compiled binary composition is not established by header presence"
+    }
+  ],
+  "pytorch_owned_header": {
+    "include/libshm.h": {
+      "bytes": 1459,
+      "sha256": "37366eb9f80d5f6f98e6afc03ca9efaadf028ff7f715baadb34ee193db4c13a7"
+    }
+  },
+  "archive_native_libraries": {
+    "lib/libaoti_custom_ops.so": {
+      "bytes": 370488,
+      "sha256": "d9d3f27a145b1c4bb3e1c9820c5e1da2829e9b946a5b8879b4bab69123743090"
+    },
+    "lib/libbackend_with_compiler.so": {
+      "bytes": 261384,
+      "sha256": "e12ddf3c410b3619e113c21c5f3d7aa32fdea11f893bb9bdcb0634ce3d8bc361"
+    },
+    "lib/libc10.so": {
+      "bytes": 1553824,
+      "sha256": "34e3830d7529dcf4d6072ae9930f5b95ee08edb60b410d471cf5e629de686fb8"
+    },
+    "lib/libgomp.so.1": {
+      "bytes": 2115417,
+      "sha256": "f733ebed9b7c97455da2016283fc0d2e6715d42bdcce3104dea6a58c93762ee2"
+    },
+    "lib/libjitbackend_test.so": {
+      "bytes": 213776,
+      "sha256": "42fa71e84e0fce6c3838992de850e5728286a8881d99617db08ad181b08af766"
+    },
+    "lib/libshm.so": {
+      "bytes": 41328,
+      "sha256": "b254cbaba5b5bf7c919b47fa85696cc007d0760fd7c64834218a12cad877f4bb"
+    },
+    "lib/libtorch.so": {
+      "bytes": 8032,
+      "sha256": "c8da4b0475a4c5dda72cd64050069a6d232493226b33a670ed9a26f20a6e0edf"
+    },
+    "lib/libtorch_cpu.so": {
+      "bytes": 437843464,
+      "sha256": "5fe351a59d2ede41a4c203a4474577321a4c135dd7206c25ec97bad813580999"
+    },
+    "lib/libtorch_global_deps.so": {
+      "bytes": 8264,
+      "sha256": "59a67fff8b9220c99f7bf5d7cf575b6eac24e121499a61eddf31f5ac24b335cd"
+    },
+    "lib/libtorchbind_test.so": {
+      "bytes": 918152,
+      "sha256": "eaa4bfc0274b810bee131529dc62d05c1a9b7edb054686b4bbfb64b95affc1b6"
+    }
+  },
+  "limitations": [
+    "The original ZIP contains no LICENSE/NOTICE/COPYING/COPYRIGHT files. These complete documents are upstream source originals at the build commit or its pinned submodules, not invented ZIP members.",
+    "Archive member names, lengths and SHA-256 bind this inventory to the actual CPU archive. Header presence does not establish that every source component is compiled or shipped in a downstream framework SDK.",
+    "263 of 321 third-party headers can be reproduced from existing Windows headers by CRLF-to-LF only and their exact original CPU member SHA-256 is rechecked; the other 58 are not claimed byte-equivalent. One PyTorch-owned libshm header is recorded separately, giving 322 headers in total with 59 not claimed byte-equivalent.",
+    "oneDNN THIRD-PARTY-PROGRAMS is retained in full, including notices for its source components. This does not prove that every listed source component is enabled in this CPU binary.",
+    "ITT API upstream is BSD-3-Clause OR GPL-2.0-only, with both exact texts retained. This alternative license does not assign GPL terms to all of PyTorch or to unrelated SDK code.",
+    "The bundled libgomp.so.1 source/build identity, its full applicable GCC runtime notices and redistribution obligations, embedded static numerical libraries and full transitive composition remain pending. No GCC version is inferred from the PyTorch build hash.",
+    "No CVE status, license-policy decision, binary redistribution clearance, complete support matrix or formal release qualification is granted by this inventory."
+  ]
+}

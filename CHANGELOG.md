@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补存 Linux CPU LibTorch 2.14.1 的固定版本第三方许可原文及实际包成员来源，区分各组件条款，保留随包运行库和完整再分发审查。
+
 - CPU ResNet50 冻结骨干迁移配方接入有界原生搜索，冻结完整权重描述与输入身份，支持精确续训、真实准确率选优及发布恢复。
 
 - ImageFolder / ResNet18 分类配方接入有界原生搜索，支持精确续训、真实准确率选优和发布恢复。

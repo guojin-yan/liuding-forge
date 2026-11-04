@@ -39,6 +39,12 @@ Ubuntu 开发构建独立锁定 Linux `2.14.1+cu126` 官方包，SHA-256 为 `78
 
 Ubuntu CPU 开发 profile 另锁定 `2.14.1+cpu` 原始 ZIP，127853266 字节、SHA-256 `0f02329a5266153cffa9dc12926ff2221fa626207b894d40bd61905cc2079821`；它与 CPU `2.5.1` 候选分别记录。其构建提交 `5c4886908584029761b579af026dcfb627c84070` 的 [PyTorch 主许可原文](third_party/licenses/pytorch-2.14.1-cpu-build-5c488690-LICENSE.txt) 来自上游源码文档；该留存不表示 ZIP 内含相同许可文件，随包第三方组件、完整 notice 与再分发审查继续为 `pending`。
 
+CPU 包实际附带的第三方头文件按原 ZIP 成员摘要与构建提交的固定子模块版本登记在 [CPU 组件来源清单](third_party/licenses/libtorch-cpu-2.14.1/components.json)，对应完整原文位于 [libtorch-cpu-2.14.1](third_party/licenses/libtorch-cpu-2.14.1/)。其中 protobuf、pybind11、FBGEMM、TensorPipe、Kineto 和包内 QNNPACK 头使用 BSD-3-Clause；cpuinfo、其内置 clog、NNPACK、pthreadpool 使用 BSD-2-Clause；FP16、FXdiv、psimd、fmt 使用 MIT；SLEEF 使用 BSL-1.0。它们保留各自版权与署名，不能统一改称 PyTorch 主体 BSD 许可，也不表示这些上游组件都已编入本框架 SDK。该清单只补充既有外部 LibTorch 包的许可来源，不启用或恢复框架已延期的量化功能。
+
+oneDNN 的实际头文件对应 PyTorch 固定 iDeep 子模块进一步固定的 oneDNN 提交 `80afa71049cd69a3df32adcccb623b12cd7baa22`；保留其 [Apache-2.0 原文](third_party/licenses/libtorch-cpu-2.14.1/oneDNN-LICENSE.txt)和[完整第三方声明](third_party/licenses/libtorch-cpu-2.14.1/oneDNN-THIRD-PARTY-PROGRAMS.txt)，后者的各条款分别管理相应材料。ITT API 上游提供 BSD-3-Clause 或 GPL-2.0-only 双重许可，两个原文均保留；这不把 GPL 条款赋给全部 PyTorch 或无关的 SDK 代码。
+
+同一 CPU 原包还包含独立 `libgomp.so.1`，不能据上述宽松许可摘要宣称整个二进制依赖链均已放行。该运行库的精确源码/构建来源、适用的 GCC runtime 例外及完整告知、静态嵌入的数值库与全部传递分发义务继续待核；未据 PyTorch 提交推定 GCC 版本。新增原文不改变 CPU notice 的 `pending`，不授予漏洞、安全、二进制再分发或正式发布资格。
+
 当前安装后的 CMake 包通过 `find_dependency(Torch REQUIRED)` 要求调用方提供外部 LibTorch。SDK 安装对 2.14.1 和 2.5.1 保留对应 PyTorch 源码主许可证；Windows 2.14.1 cu126 配置还附带上述已留存的随包运行库原文，位置为 `share/doc/jyppx/licenses/`。这些文件的留存不关闭随包组件审查，也不代替需要实际履行的下游合同条件。
 
 构建脚本会将 Torch `lib/` 下全部 DLL 暂存到开发运行目录；这个操作不构成再分发资格确认。若交付制品包含 LibTorch 二进制，必须按实际交付文件逐项满足相应许可和再分发条件，提供对应构建的完整版权、许可与 notice；不能直接以开发运行目录或这份摘要替代审核。

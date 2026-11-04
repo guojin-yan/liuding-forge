@@ -1003,6 +1003,215 @@
         "artifact_sha256": "0a14655bd32095148d93fa595f93aba45dda0d13b25cc7fe86a041340e4a4862",
         "entry": "vision-0.29.1/test/assets/damaged_jpeg/TensorFlow-LICENSE"
       }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/pybind11-LICENSE.txt",
+      "size_bytes": 1684,
+      "sha256": "83965b843b98f670d3a85bd041ed4b372c8ec50d7b4a5995a83ac697ba675dcb",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pybind/pybind11/97bf890db679505a14dfe547a5e77bb2bd05dc90/LICENSE",
+        "artifact_sha256": "83965b843b98f670d3a85bd041ed4b372c8ec50d7b4a5995a83ac697ba675dcb"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/protobuf-LICENSE.txt",
+      "size_bytes": 1732,
+      "sha256": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/protocolbuffers/protobuf/f0dc78d7e6e331b8c6bb2d5283e06aa26883ca7c/LICENSE",
+        "artifact_sha256": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/NNPACK-LICENSE.txt",
+      "size_bytes": 1352,
+      "sha256": "ab09e33621f513ebdd1ef685b324f39c1f6bee9221d15600bafd958322df1231",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/Maratyszcza/NNPACK/c07e3a0400713d546e0dea2d5466dd22ea389c73/LICENSE",
+        "artifact_sha256": "ab09e33621f513ebdd1ef685b324f39c1f6bee9221d15600bafd958322df1231"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/pthreadpool-LICENSE.txt",
+      "size_bytes": 1378,
+      "sha256": "57814a606b4d0fb087d9a534919084b6c11b58a4174cb5a4aef200187780dc3a",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/google/pthreadpool/a56dcd79c699366e7ac6466792c3025883ff7704/LICENSE",
+        "artifact_sha256": "57814a606b4d0fb087d9a534919084b6c11b58a4174cb5a4aef200187780dc3a"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/FXdiv-LICENSE.txt",
+      "size_bytes": 1117,
+      "sha256": "7cac00006125b1486a27e4801ed66357236e984c540bd323945ab7b66b078ec3",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/Maratyszcza/FXdiv/b408327ac2a15ec3e43352421954f5b1967701d1/LICENSE",
+        "artifact_sha256": "7cac00006125b1486a27e4801ed66357236e984c540bd323945ab7b66b078ec3"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/FP16-LICENSE.txt",
+      "size_bytes": 1157,
+      "sha256": "17e4f539024be2749ee729d1e2f01d24cef12ece8c9bf18e91a4349be29c80bf",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/Maratyszcza/FP16/4dfe081cf6bcd15db339cf2680b9281b8451eeb3/LICENSE",
+        "artifact_sha256": "17e4f539024be2749ee729d1e2f01d24cef12ece8c9bf18e91a4349be29c80bf"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/psimd-LICENSE.txt",
+      "size_bytes": 1162,
+      "sha256": "984ce1e0b8ee89d234e28b960381f240e03a07a8031f35012f9c3256f56964e2",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/Maratyszcza/psimd/072586a71b55b7f8c584153d223e95687148a900/LICENSE",
+        "artifact_sha256": "984ce1e0b8ee89d234e28b960381f240e03a07a8031f35012f9c3256f56964e2"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/cpuinfo-LICENSE.txt",
+      "size_bytes": 1424,
+      "sha256": "8e7e60636c3aa0cb03571a1a841ce5697f9551ff92b3c426c2561613d15ade70",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/cpuinfo/bc3c01e230c6974283e4b89421cfb0e232435589/LICENSE",
+        "artifact_sha256": "8e7e60636c3aa0cb03571a1a841ce5697f9551ff92b3c426c2561613d15ade70"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/cpuinfo-clog-LICENSE.txt",
+      "size_bytes": 1384,
+      "sha256": "68a14c3e79add023eecd83d611e73f05b8bf1d16852efeb7eb4033a96736da9e",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/cpuinfo/bc3c01e230c6974283e4b89421cfb0e232435589/deps/clog/LICENSE",
+        "artifact_sha256": "68a14c3e79add023eecd83d611e73f05b8bf1d16852efeb7eb4033a96736da9e"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/sleef-LICENSE.txt",
+      "size_bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/shibatch/sleef/5a1d179df9cf652951b59010a2d2075372d67f68/LICENSE.txt",
+        "artifact_sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/fbgemm-LICENSE.txt",
+      "size_bytes": 1535,
+      "sha256": "12c2370ec32e78115dcd71ba22cdcb1297320fdc4ade81f798136d42357c58b8",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/fbgemm/bf6dce360a4fe133bc779e2fd036277678509f95/LICENSE",
+        "artifact_sha256": "12c2370ec32e78115dcd71ba22cdcb1297320fdc4ade81f798136d42357c58b8"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/fmt-LICENSE.txt",
+      "size_bytes": 1094,
+      "sha256": "a65fcc5a1095fc33cc37e4fff69366e49d7e92f613558a2b95ed1b70e33758b4",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/fmtlib/fmt/c0330b746600bfd91dbacb88837da5a16f947ba5/LICENSE",
+        "artifact_sha256": "a65fcc5a1095fc33cc37e4fff69366e49d7e92f613558a2b95ed1b70e33758b4"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/tensorpipe-LICENSE.txt",
+      "size_bytes": 1535,
+      "sha256": "f4dcef0d1f0520b414d5bfaeed8df02f188e4ec05c0a17bf1c18f25f6cc66245",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/tensorpipe/2b4cd91092d335a697416b2a3cb398283246849d/LICENSE.txt",
+        "artifact_sha256": "f4dcef0d1f0520b414d5bfaeed8df02f188e4ec05c0a17bf1c18f25f6cc66245"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/kineto-LICENSE.txt",
+      "size_bytes": 1609,
+      "sha256": "6f3d59b9103e72e5c977eecf61b261c2e1546a9be2995847e3ee2d31021fd39b",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/kineto/15f4784a3471d4db8b31720d528f2f57cd2b1f40/LICENSE",
+        "artifact_sha256": "6f3d59b9103e72e5c977eecf61b261c2e1546a9be2995847e3ee2d31021fd39b"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/ittapi-LICENSES-BSD-3-Clause.txt",
+      "size_bytes": 1485,
+      "sha256": "cf48cdd9ed87c2031b68fb1b9f4cfb55d00dcf815b21a30bf8304aa1e5e6f76a",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/intel/ittapi/0c57540822deb5dae43bef6c1cc9b3be4772a033/LICENSES/BSD-3-Clause.txt",
+        "artifact_sha256": "cf48cdd9ed87c2031b68fb1b9f4cfb55d00dcf815b21a30bf8304aa1e5e6f76a"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/ittapi-LICENSES-GPL-2.0-only.txt",
+      "size_bytes": 17599,
+      "sha256": "cbe0f9505c5ca02ee34bfca453df31a98e31e6d56afcdf8ab0f87f4c94f1181b",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/intel/ittapi/0c57540822deb5dae43bef6c1cc9b3be4772a033/LICENSES/GPL-2.0-only.txt",
+        "artifact_sha256": "cbe0f9505c5ca02ee34bfca453df31a98e31e6d56afcdf8ab0f87f4c94f1181b"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/oneDNN-LICENSE.txt",
+      "size_bytes": 11607,
+      "sha256": "e9fc874fc09801b9acf3411ba72394098473704d832d713404b6c4861a086318",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/oneapi-src/oneDNN/80afa71049cd69a3df32adcccb623b12cd7baa22/LICENSE",
+        "artifact_sha256": "e9fc874fc09801b9acf3411ba72394098473704d832d713404b6c4861a086318"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/oneDNN-THIRD-PARTY-PROGRAMS.txt",
+      "size_bytes": 44015,
+      "sha256": "2567c1c5cab0ed7709dac7ac0d0aea504f6fb8bb4bd221ef8718defadecf0fa3",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/oneapi-src/oneDNN/80afa71049cd69a3df32adcccb623b12cd7baa22/THIRD-PARTY-PROGRAMS",
+        "artifact_sha256": "2567c1c5cab0ed7709dac7ac0d0aea504f6fb8bb4bd221ef8718defadecf0fa3"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/qnnpack-LICENSE.txt",
+      "size_bytes": 1534,
+      "sha256": "ca5018243e6b6b698d927c8bdf99c08ddf119f36d9cf18dda82cd45e75ee5dfc",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/pytorch/pytorch/5c4886908584029761b579af026dcfb627c84070/aten/src/ATen/native/quantized/cpu/qnnpack/LICENSE",
+        "artifact_sha256": "ca5018243e6b6b698d927c8bdf99c08ddf119f36d9cf18dda82cd45e75ee5dfc"
+      }
     }
   ],
   "hash_algorithm": "sha256",
@@ -1019,7 +1228,8 @@
     "LicenseRef-DINOv3 identifies the complete retained DINOv3 License in dinov3-6876159a-LICENSE.md. It applies to upstream DINO Materials and their derivatives; retaining it does not determine whether particular project-authored C++ code is derivative, relicense the project, or qualify DINOv3-containing artifacts for release.",
     "ConvNeXt and Swin MIT license originals are retained at the exact upstream document commits named in their origin URLs as context for the inherited notices in the pinned timm source. These document commits are not asserted to be the original source revisions from which timm or this project was derived.",
     "CUDA 12.6.0 and cuDNN 9.10.2 EULA HTML snapshots identify terms relevant to the selected Windows cu126 baseline. They are upstream licensing documents, not the complete selected-binary third-party notice set, a redistribution allowlist, or evidence that all 37 staged LibTorch DLLs may be shipped. All LibTorch notice audits remain pending.",
-    "The pinned timm source retains MIT notices for inherited ConvNeXt/Swin code in addition to its Apache-2.0 root license. The two torchvision source archives also contain the separately retained TensorFlow Apache-2.0 notice for damaged-JPEG test assets. These are observed source-archive license identities, not an assertion that test assets, weights or all upstream files are included in the SDK. All four model-reference notice states and C++ provenance/redistribution boundaries remain pending."
+    "The pinned timm source retains MIT notices for inherited ConvNeXt/Swin code in addition to its Apache-2.0 root license. The two torchvision source archives also contain the separately retained TensorFlow Apache-2.0 notice for damaged-JPEG test assets. These are observed source-archive license identities, not an assertion that test assets, weights or all upstream files are included in the SDK. All four model-reference notice states and C++ provenance/redistribution boundaries remain pending.",
+    "The actual Linux CPU 2.14.1 archive now has pinned-source third-party header licenses and complete oneDNN source notices in libtorch-cpu-2.14.1/components.json. Exact archive member hashes and source gitlinks are retained; bundled libgomp source/build identity, embedded static numerical libraries and full transitive redistribution/notice review remain pending. This adds evidence without changing the CPU notice state or any CVE decision."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"
