@@ -374,6 +374,8 @@ add_library(jyppx_liuding_foundation STATIC
     src/jyppx/liuding/foundation/version.cpp
 )
 add_library(jyppx::liuding::foundation ALIAS jyppx_liuding_foundation)
+include(cmake/BuildProvenance.cmake)
+jyppx_install_build_provenance(jyppx_liuding_foundation)
 set_target_properties(jyppx_liuding_foundation PROPERTIES
     OUTPUT_NAME liuding-forge-foundation
     EXPORT_NAME foundation

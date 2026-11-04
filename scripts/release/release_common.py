@@ -396,6 +396,35 @@ def validate_installed_version(prefix: Path, release: dict[str, Any], limits: Li
         fail("installed SDK version string differs from declared release")
 
 
+def validate_installed_provenance(prefix: Path, release: dict[str, Any],
+                                  dependency_lock_sha256: str, limits: Limits) -> None:
+    """Bind installed build identity to the declared source and actual lock bytes."""
+    data = read_file(prefix / "share/jyppx/build-provenance.json", limits.max_metadata_bytes)
+    metadata = exact(json_document(data, limits), {
+        "schema_version", "project_version", "git_commit",
+        "dependency_lock_sha256", "configuration",
+    }, "installed build provenance")
+    if type(metadata["schema_version"]) is not int or metadata["schema_version"] != 1:
+        fail("unsupported installed build provenance schema")
+    version = SEMVER.fullmatch(release["version"])
+    assert version is not None  # validate_release is mandatory at the entry point.
+    if metadata["project_version"] != ".".join(version[index] for index in (1, 2, 3)):
+        fail("installed build provenance project version differs from declared release")
+    commit = text(metadata["git_commit"], "installed build provenance git_commit", 70)
+    clean_commit = commit.removesuffix("+dirty")
+    if COMMIT.fullmatch(clean_commit) is None:
+        fail("installed build provenance requires a full lowercase Git object ID")
+    expected_commit = release["source"]["commit"] + ("+dirty" if release["source"]["dirty"] else "")
+    if commit != expected_commit:
+        fail("installed build provenance source differs from declared release")
+    lock_digest = digest(metadata["dependency_lock_sha256"], "installed build provenance dependency lock")
+    if lock_digest != digest(dependency_lock_sha256, "actual dependency lock SHA-256"):
+        fail("installed build provenance dependency lock differs from actual lock bytes")
+    configuration = text(metadata["configuration"], "installed build provenance configuration", 128)
+    if not configuration.strip():
+        fail("installed build provenance configuration must not be blank")
+
+
 def validate_inventory(value: Any, limits: Limits) -> dict[str, Any]:
     """Validate the canonical archive file set and aggregate byte budget."""
     exact(value, {"schema_version", "files", "total_bytes"}, "inventory")

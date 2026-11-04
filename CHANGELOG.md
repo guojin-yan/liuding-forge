@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 安装 foundation 实际构建后的配置隔离来源记录；离线发布准备和独立安全验包严格核对提交、dirty 状态、基础版本及依赖清单原始字节 SHA-256，拒绝重标旧安装目录。
+- 补存两份 torchvision 参考归档中的 TensorFlow 测试资产告知，并补齐 timm 参考源码的 MIT 许可标识；原许可审查和分发门槛保持。
+
 - 增加真实 ResNet18 完整检查点后的进程超时与 worker 强杀门禁，检查原生清理、逻辑预约释放条件及未知 attempt 的恢复围栏。
 
 - Linux 本地 attempt 的直接子进程随持久 worker 死亡而终止；dispatch 调用者退出后 worker 仍可继续提交结果，未知 attempt 继续保留资源围栏。

@@ -7,6 +7,17 @@
 # test executables).
 
 include(FetchContent)
+add_test(NAME BuildProvenanceLifecycle
+    COMMAND ${CMAKE_COMMAND}
+        "-DJYPPX_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DJYPPX_LIUDING_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/build-provenance-lifecycle"
+        "-DJYPPX_CMAKE_GENERATOR=${CMAKE_GENERATOR}"
+        "-DJYPPX_CMAKE_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "-DJYPPX_CMAKE_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "-DJYPPX_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/tests/TestBuildProvenance.cmake")
+set_tests_properties(BuildProvenanceLifecycle PROPERTIES
+    LABELS "hygiene;packaging;provenance" TIMEOUT 240 RUN_SERIAL TRUE)
 include("${CMAKE_SOURCE_DIR}/cmake/ComponentMatrixSettings.cmake")
 set(JYPPX_LIUDING_MATRIX_BUILD_JOBS "" CACHE STRING
     "Nested component matrix compile jobs (empty uses CMAKE_BUILD_PARALLEL_LEVEL or 2)")

@@ -1,5 +1,5 @@
 {
-  "audit_date": "2026-11-03",
+  "audit_date": "2026-11-04",
   "dependency_notice_states": {
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
@@ -967,6 +967,30 @@
         "artifact_sha256": "37567efb750a9cb1d685d38aa9cd3662466ea1258be0de561a6eaf1122347b13",
         "entry": "data.tar.zst/usr/share/doc/libcurl4-openssl-dev/copyright"
       }
+    },
+    {
+      "dependency_id": "models-reference-torchvision-0.24.1",
+      "path": "torchvision-0.24.1-TensorFlow-SOURCE-NOTICE.txt",
+      "size_bytes": 616,
+      "sha256": "6a42158e28c57e6f56a6a9b960167bc269c22aa8ab219487b1b2b292a7a6bf44",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/pytorch/vision/tar.gz/refs/tags/v0.24.1",
+        "artifact_sha256": "071da2078600bfec4886efab77358c9329abfedcf1488b05879b556cb9b84ba7",
+        "entry": "vision-0.24.1/test/assets/damaged_jpeg/TensorFlow-LICENSE"
+      }
+    },
+    {
+      "dependency_id": "models-reference-torchvision-0.29.1",
+      "path": "torchvision-0.29.1-TensorFlow-SOURCE-NOTICE.txt",
+      "size_bytes": 616,
+      "sha256": "6a42158e28c57e6f56a6a9b960167bc269c22aa8ab219487b1b2b292a7a6bf44",
+      "origin": {
+        "kind": "archive-entry",
+        "url": "https://codeload.github.com/pytorch/vision/tar.gz/refs/tags/v0.29.1",
+        "artifact_sha256": "0a14655bd32095148d93fa595f93aba45dda0d13b25cc7fe86a041340e4a4862",
+        "entry": "vision-0.29.1/test/assets/damaged_jpeg/TensorFlow-LICENSE"
+      }
     }
   ],
   "hash_algorithm": "sha256",
@@ -982,7 +1006,8 @@
     "Model reference archives pin the actual torchvision 0.24.1/0.29.1, timm af97f99e and Meta DINOv3 6876159a inputs. Their upstream license originals and selected original source-header excerpts are retained. Root licenses do not license every model weight or erase per-file notices; the C++ implementation provenance and applicable redistribution boundaries remain pending, so these dependency notice states are not promoted to recorded.",
     "LicenseRef-DINOv3 identifies the complete retained DINOv3 License in dinov3-6876159a-LICENSE.md. It applies to upstream DINO Materials and their derivatives; retaining it does not determine whether particular project-authored C++ code is derivative, relicense the project, or qualify DINOv3-containing artifacts for release.",
     "ConvNeXt and Swin MIT license originals are retained at the exact upstream document commits named in their origin URLs as context for the inherited notices in the pinned timm source. These document commits are not asserted to be the original source revisions from which timm or this project was derived.",
-    "CUDA 12.6.0 and cuDNN 9.10.2 EULA HTML snapshots identify terms relevant to the selected Windows cu126 baseline. They are upstream licensing documents, not the complete selected-binary third-party notice set, a redistribution allowlist, or evidence that all 37 staged LibTorch DLLs may be shipped. All LibTorch notice audits remain pending."
+    "CUDA 12.6.0 and cuDNN 9.10.2 EULA HTML snapshots identify terms relevant to the selected Windows cu126 baseline. They are upstream licensing documents, not the complete selected-binary third-party notice set, a redistribution allowlist, or evidence that all 37 staged LibTorch DLLs may be shipped. All LibTorch notice audits remain pending.",
+    "The pinned timm source retains MIT notices for inherited ConvNeXt/Swin code in addition to its Apache-2.0 root license. The two torchvision source archives also contain the separately retained TensorFlow Apache-2.0 notice for damaged-JPEG test assets. These are observed source-archive license identities, not an assertion that test assets, weights or all upstream files are included in the SDK. All four model-reference notice states and C++ provenance/redistribution boundaries remain pending."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"

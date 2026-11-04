@@ -75,11 +75,36 @@ class ReleaseTest(unittest.TestCase):
                 "platforms": ["linux-x86_64"], "linkage": "static", "support_status": "test-only",
             }],
         }
+        self.build_metadata = self.prefix / "share/jyppx/build-provenance.json"
+        self.build_metadata.parent.mkdir(parents=True)
+        self.simulate_rebuild()
         self.evidence = self.evidence_document()
         self.write_inputs()
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def simulate_rebuild(self) -> None:
+        """Explicitly model a new built prefix, never an external relabeling."""
+        self.build_metadata.write_bytes(common.canonical({
+            "schema_version": 1, "project_version": self.release["version"].split("-", 1)[0],
+            "git_commit": self.release["source"]["commit"] + (
+                "+dirty" if self.release["source"]["dirty"] else ""
+            ),
+            "dependency_lock_sha256": hashlib.sha256(common.canonical(self.dependencies)).hexdigest(),
+            "configuration": "Release",
+        }))
+        if hasattr(self, "evidence"):
+            self.bind_evidence_to_prefix()
+
+    def bind_evidence_to_prefix(self) -> None:
+        """Make external claims coherent without changing the installed stamp."""
+        self.evidence["release"] = copy.deepcopy({
+            key: self.release[key] for key in ("version", "platform", "source")
+        })
+        self.evidence["installation_inventory_sha256"] = hashlib.sha256(
+            common.canonical(common.prefix_inventory(self.prefix, common.Limits()))
+        ).hexdigest()
 
     def evidence_document(self) -> dict:
         """Synthetic evidence is deliberately labeled as such in the fixture."""
@@ -90,7 +115,7 @@ class ReleaseTest(unittest.TestCase):
         inventory = common.canonical(common.prefix_inventory(self.prefix, common.Limits()))
         return {
             "schema_version": 1,
-            "release": {key: self.release[key] for key in ("version", "platform", "source")},
+            "release": copy.deepcopy({key: self.release[key] for key in ("version", "platform", "source")}),
             "installation_inventory_sha256": hashlib.sha256(inventory).hexdigest(),
             "dependency_lock_sha256": hashlib.sha256(common.canonical(self.dependencies)).hexdigest(),
             "checks": [{"id": identity, "status": "passed", "details": "synthetic unit-test check",
@@ -129,6 +154,63 @@ class ReleaseTest(unittest.TestCase):
     def load_manifest(self) -> dict:
         return json.loads((self.output / "release-manifest.json").read_bytes())
 
+    def unchecked_candidate(self, output: Path) -> None:
+        """Forge a coherent outer package without calling the validating producer.
+
+        Only extracted build metadata can expose these fixture declarations;
+        every archive, inventory, evidence and signing-payload hash is current.
+        """
+        limits = common.Limits()
+        output.mkdir()
+        inventory = common.prefix_inventory(self.prefix, limits)
+        inventory_data = common.canonical(inventory)
+        (output / "inventory.json").write_bytes(inventory_data)
+        for source, name in ((self.lock, "dependency-manifest.json"),
+                             (self.index, "evidence-index.json"),
+                             (self.license, "LICENSE"), (self.notices, "THIRD_PARTY_NOTICES.md")):
+            shutil.copyfile(source, output / name)
+        blockers, records = common.validate_evidence(
+            self.evidence, self.release, hashlib.sha256(inventory_data).hexdigest(),
+            hashlib.sha256(self.lock.read_bytes()).hexdigest(),
+            common.validate_dependencies(self.dependencies), limits,
+        )
+        artifacts = []
+        for record in records:
+            name = "evidence/" + record["path"]
+            destination = output / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.inputs / record["path"], destination)
+            artifacts.append(common.descriptor(destination, name, limits))
+        archive_name = f"liuding-forge-{self.release['version']}-{self.release['platform']}.zip"
+        prepare.write_archive(output / archive_name, self.prefix, inventory,
+                              self.release["source_date_epoch"], limits)
+        archive = common.descriptor(output / archive_name, archive_name, limits)
+        (output / "sbom.cdx.json").write_bytes(common.canonical(
+            common.sbom(self.release, self.dependencies, archive["sha256"])
+        ))
+        documents = {
+            identity: common.descriptor(output / name, name, limits)
+            for identity, name in verify.DOCUMENTS.items() if identity != "provenance"
+        }
+        (output / "provenance.intoto.json").write_bytes(common.canonical(
+            common.provenance(self.release, archive, documents)
+        ))
+        documents["provenance"] = common.descriptor(
+            output / "provenance.intoto.json", "provenance.intoto.json", limits
+        )
+        manifest = {
+            "schema_version": 1, "kind": "jyppx-sdk-release", "release": self.release,
+            "archive": archive, "documents": documents, "evidence_artifacts": artifacts,
+            "ga": {"status": "pending", "blockers": common.ga_blockers(
+                self.release, self.dependencies, blockers
+            )},
+        }
+        (output / "release-manifest.json").write_bytes(common.canonical(manifest))
+        files = [archive, *documents.values(), *artifacts, common.descriptor(
+            output / "release-manifest.json", "release-manifest.json", limits
+        )]
+        (output / "signing-payload.json").write_bytes(common.canonical(common.signing_payload(files)))
+
     def test_candidate_round_trip_unpacks_and_keeps_signature_pending(self) -> None:
         self.assertEqual(self.candidate()["ga_blockers"], ["signature.pending"])
         self.assertEqual(self.load_manifest()["archive"]["path"],
@@ -140,7 +222,7 @@ class ReleaseTest(unittest.TestCase):
         result = self.inspect()
         self.assertTrue(result["candidate_verified"])
         self.assertFalse(result["ga_ready"])
-        self.assertEqual(result["unpacked_files"], 2)
+        self.assertEqual(result["unpacked_files"], 3)
         self.assertEqual(result["ga_blockers"], ["signature.pending"])
 
     def test_outputs_are_deterministic_and_do_not_overwrite(self) -> None:
@@ -153,12 +235,156 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(common.ReleaseError, "already exists"):
             self.candidate()
 
+    def test_coherent_source_relabel_cannot_reuse_built_prefix(self) -> None:
+        for index, (built_dirty, commit, dirty) in enumerate((
+            (False, "2" * 40, False), (False, "1" * 40, True), (True, "1" * 40, False),
+        )):
+            with self.subTest(index=index):
+                self.release["source"] = {"commit": "1" * 40, "dirty": built_dirty}
+                self.simulate_rebuild()
+                built_stamp = self.build_metadata.read_bytes()
+                self.release["source"] = {"commit": commit, "dirty": dirty}
+                self.bind_evidence_to_prefix()
+                self.write_inputs()
+                self.assertEqual(self.build_metadata.read_bytes(), built_stamp)
+                with self.assertRaisesRegex(common.ReleaseError, "build provenance source"):
+                    self.candidate(self.root / f"relabel-source-{index}")
+
+    def test_coherent_lock_relabel_cannot_reuse_built_prefix(self) -> None:
+        original = copy.deepcopy(self.dependencies)
+        built_stamp = self.build_metadata.read_bytes()
+        for raw_bytes_only in (False, True):
+            with self.subTest(raw_bytes_only=raw_bytes_only):
+                self.dependencies = copy.deepcopy(original)
+                if not raw_bytes_only:
+                    self.dependencies["dependencies"][0]["version"] = "1.2.4"
+                self.bind_evidence_to_prefix()
+                self.write_inputs()
+                if raw_bytes_only:
+                    self.lock.write_bytes(b" \n" + self.lock.read_bytes())
+                    self.evidence["dependency_lock_sha256"] = hashlib.sha256(self.lock.read_bytes()).hexdigest()
+                    self.index.write_bytes(common.canonical(self.evidence))
+                self.assertEqual(self.build_metadata.read_bytes(), built_stamp)
+                with self.assertRaisesRegex(common.ReleaseError, "build provenance dependency lock"):
+                    self.candidate(self.root / f"relabel-lock-{raw_bytes_only}")
+
+    def test_independent_forgery_fixture_has_coherent_outer_bindings(self) -> None:
+        self.unchecked_candidate(self.output)
+        self.assertTrue(self.inspect()["candidate_verified"])
+
+    def test_independent_verifier_rejects_coherent_relabels_without_producer(self) -> None:
+        original_release = copy.deepcopy(self.release)
+        original_dependencies = copy.deepcopy(self.dependencies)
+        original_stamp = self.build_metadata.read_bytes()
+        for attack in ("commit", "dirty", "dirty-cleared", "lock", "lock-bytes"):
+            with self.subTest(attack=attack):
+                self.release = copy.deepcopy(original_release)
+                self.dependencies = copy.deepcopy(original_dependencies)
+                self.build_metadata.write_bytes(original_stamp)
+                if attack == "dirty-cleared":
+                    self.release["source"]["dirty"] = True
+                    self.simulate_rebuild()
+                installed_stamp = self.build_metadata.read_bytes()
+                if attack == "commit":
+                    self.release["source"]["commit"] = "a" * 64
+                elif attack == "dirty":
+                    self.release["source"]["dirty"] = True
+                elif attack == "dirty-cleared":
+                    self.release["source"]["dirty"] = False
+                elif attack == "lock":
+                    self.dependencies["dependencies"][0]["version"] = "1.2.4"
+                self.bind_evidence_to_prefix()
+                self.write_inputs()
+                if attack == "lock-bytes":
+                    self.lock.write_bytes(self.lock.read_bytes() + b" \n")
+                    self.evidence["dependency_lock_sha256"] = hashlib.sha256(self.lock.read_bytes()).hexdigest()
+                    self.index.write_bytes(common.canonical(self.evidence))
+                self.assertEqual(self.build_metadata.read_bytes(), installed_stamp)
+                output = self.root / f"forged-{attack}"
+                self.unchecked_candidate(output)
+                with self.assertRaisesRegex(common.ReleaseError, "build provenance (source|dependency lock)"):
+                    self.inspect(output)
+
+    def malformed_build_provenance(self) -> list[tuple[str, bytes | None]]:
+        """Malformed installed metadata is hidden behind fully coherent outer hashes."""
+        metadata = json.loads(self.build_metadata.read_bytes())
+        values = [
+            ("schema-bool", {**metadata, "schema_version": True}),
+            ("schema-unsupported", {**metadata, "schema_version": 2}),
+            ("schema-text", {**metadata, "schema_version": "1"}),
+            ("version-mismatch", {**metadata, "project_version": "1.0.1"}),
+            ("version-prerelease", {**metadata, "project_version": "1.0.0-rc.1"}),
+            ("version-type", {**metadata, "project_version": ["1.0.0"]}),
+            ("commit-unknown", {**metadata, "git_commit": "unknown"}),
+            ("commit-short", {**metadata, "git_commit": "1" * 39}),
+            ("commit-uppercase", {**metadata, "git_commit": "A" * 40}),
+            ("commit-double-dirty", {**metadata, "git_commit": "1" * 40 + "+dirty+dirty"}),
+            ("commit-type", {**metadata, "git_commit": False}),
+            ("lock-unlocked", {**metadata, "dependency_lock_sha256": "unlocked"}),
+            ("lock-uppercase", {**metadata, "dependency_lock_sha256": "A" * 64}),
+            ("lock-type", {**metadata, "dependency_lock_sha256": True}),
+            ("configuration-empty", {**metadata, "configuration": ""}),
+            ("configuration-blank", {**metadata, "configuration": " "}),
+            ("configuration-type", {**metadata, "configuration": False}),
+            ("configuration-control", {**metadata, "configuration": "Release\x00"}),
+            ("configuration-limit", {**metadata, "configuration": "x" * 129}),
+            ("unknown-field", {**metadata, "unknown": True}),
+            ("missing-field", {key: value for key, value in metadata.items() if key != "git_commit"}),
+        ]
+        original = common.canonical(metadata)
+        return [(name, common.canonical(value)) for name, value in values] + [
+            ("duplicate", b'{"schema_version":1,' + original[1:]),
+            ("not-json", b"not JSON"), ("utf8", b"\xff"), ("absent", None),
+        ]
+
+    def test_missing_or_malformed_installed_provenance_is_rejected_by_producer(self) -> None:
+        for name, data in self.malformed_build_provenance():
+            with self.subTest(name=name):
+                if data is None:
+                    self.build_metadata.unlink()
+                else:
+                    self.build_metadata.write_bytes(data)
+                self.bind_evidence_to_prefix()
+                self.write_inputs()
+                with self.assertRaises(common.ReleaseError):
+                    self.candidate(self.root / f"invalid-{name}")
+
+    def test_independent_verifier_rejects_missing_or_malformed_installed_provenance(self) -> None:
+        for name, data in self.malformed_build_provenance():
+            with self.subTest(name=name):
+                if data is None:
+                    self.build_metadata.unlink()
+                else:
+                    self.build_metadata.write_bytes(data)
+                self.bind_evidence_to_prefix()
+                self.write_inputs()
+                output = self.root / f"forged-invalid-{name}"
+                self.unchecked_candidate(output)
+                with self.assertRaises(common.ReleaseError):
+                    self.inspect(output)
+
+    def test_built_identity_accepts_rc_base_version_and_full_64_digit_commits(self) -> None:
+        for index, (commit, dirty, version) in enumerate((
+            ("1" * 40, False, "1.0.0-rc.1"),
+            ("a" * 64, False, "1.0.0"),
+            ("b" * 64, True, "1.0.0-rc.1"),
+        )):
+            with self.subTest(index=index):
+                self.release["source"] = {"commit": commit, "dirty": dirty}
+                self.release["version"] = version
+                self.simulate_rebuild()
+                self.write_inputs()
+                output = self.root / f"built-identity-{index}"
+                self.candidate(output)
+                self.assertTrue(self.inspect(output)["candidate_verified"])
+
     def test_checked_in_draft_dependency_manifest_never_becomes_audit_pass(self) -> None:
         self.dependencies = json.loads((ROOT / "dependency-manifest.json").read_bytes())
         self.evidence["dependency_audit"] = {
             "status": "pending", "audited_dependency_ids": [],
             "blocking_licenses": [], "blocking_vulnerabilities": [], "artifacts": [],
         }
+        self.simulate_rebuild()
         self.write_inputs()
         self.candidate()
         result = self.inspect()
@@ -173,6 +399,7 @@ class ReleaseTest(unittest.TestCase):
         self.release["source"]["dirty"] = True
         self.release["version"] = "1.0.0-rc.1"
         self.evidence["release"] = {key: self.release[key] for key in ("version", "platform", "source")}
+        self.simulate_rebuild()
         self.write_inputs()
         self.candidate()
         result = self.inspect()
@@ -213,6 +440,7 @@ class ReleaseTest(unittest.TestCase):
         self.dependencies["dependencies"][0]["license"]["spdx"] = ["Not-A-Real-License"]
         self.evidence["dependency_audit"]["blocking_licenses"] = ["unresolved redistribution obligation"]
         self.evidence["dependency_audit"]["blocking_vulnerabilities"] = ["unresolved P1 finding"]
+        self.simulate_rebuild()
         self.write_inputs()
         self.candidate()
         result = self.inspect()
@@ -226,6 +454,7 @@ class ReleaseTest(unittest.TestCase):
         self.evidence["dependency_audit"]["blocking_vulnerabilities"] = [
             "synthetic unresolved advisory: not a release audit"
         ]
+        self.simulate_rebuild()
         self.write_inputs()
         self.candidate()
         result = self.inspect()
@@ -239,6 +468,7 @@ class ReleaseTest(unittest.TestCase):
 
         self.dependencies["dependencies"][0]["license"]["third_party_notice_audit"] = "pending"
         self.evidence["dependency_audit"]["status"] = "passed"
+        self.simulate_rebuild()
         self.write_inputs()
         other = self.root / "curl-notice-pending"
         self.candidate(other)
@@ -335,7 +565,8 @@ class ReleaseTest(unittest.TestCase):
         archive = self.output / manifest["archive"]["path"]
         inventory = common.prefix_inventory(self.prefix, common.Limits())
         with self.assertRaisesRegex(common.ReleaseError, "central-directory"):
-            verify.verify_archive(archive, inventory, self.release, limits)
+            verify.verify_archive(archive, inventory, self.release,
+                                  hashlib.sha256(self.lock.read_bytes()).hexdigest(), limits)
         with self.assertRaises(common.ReleaseError):
             common.json_document(b"[0,0,0,0]", common.Limits(max_json_nodes=3))
 
@@ -360,7 +591,8 @@ class ReleaseTest(unittest.TestCase):
                     if attack in {"unknown", "duplicate"}:
                         output.writestr("payload/unknown" if attack == "unknown" else info.filename, b"x")
                 with self.assertRaises(common.ReleaseError):
-                    verify.verify_archive(archive, inventory, self.release, common.Limits())
+                    verify.verify_archive(archive, inventory, self.release,
+                                          hashlib.sha256(self.lock.read_bytes()).hexdigest(), common.Limits())
                 self.assertFalse((self.root / "outside").exists())
 
     def test_independent_extractor_checks_hashes_truncation_hidden_data_and_local_names(self) -> None:
@@ -371,7 +603,8 @@ class ReleaseTest(unittest.TestCase):
         wrong = copy.deepcopy(inventory)
         wrong["files"][0]["sha256"] = "0" * 64
         with self.assertRaisesRegex(common.ReleaseError, "size/hash"):
-            verify.verify_archive(archive, wrong, self.release, common.Limits())
+            verify.verify_archive(archive, wrong, self.release,
+                                  hashlib.sha256(self.lock.read_bytes()).hexdigest(), common.Limits())
         original = archive.read_bytes()
         name_size = struct.unpack_from("<H", original, 26)[0]
         changed_name = bytearray(original)
@@ -380,7 +613,8 @@ class ReleaseTest(unittest.TestCase):
             hostile = self.root / "hostile.zip"
             hostile.write_bytes(data)
             with self.assertRaises((common.ReleaseError, zipfile.BadZipFile)):
-                verify.verify_archive(hostile, inventory, self.release, common.Limits())
+                verify.verify_archive(hostile, inventory, self.release,
+                                      hashlib.sha256(self.lock.read_bytes()).hexdigest(), common.Limits())
 
     def test_cli_require_ga_exits_pending_and_writes_structured_reason(self) -> None:
         self.candidate()
@@ -424,6 +658,7 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(common.ReleaseError, "signature verification failed"):
             self.inspect(**trust)
         self.dependencies["status"] = "draft"
+        self.simulate_rebuild()
         self.write_inputs()
         candidate = self.root / "draft-candidate"
         self.candidate(candidate)

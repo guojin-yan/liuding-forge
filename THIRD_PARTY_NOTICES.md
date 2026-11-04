@@ -165,6 +165,8 @@ Ubuntu 开发构建独立锁定 Linux `2.14.1+cu126` 官方包，SHA-256 为 `78
 
 模型参考脚本使用 torchvision 0.24.1 和 0.29.1（BSD-3-Clause）、固定 timm 提交 `af97f99efef62bd9bd7eaa908fffe5b7a2d98e2c`（根许可 Apache-2.0），以及固定 Meta DINOv3 提交 `6876159a11b4df116f30f667f8c9888617df0751`（自定义 DINOv3 License）。timm 中 ConvNeXt、Swin 等文件另保留 Meta、Microsoft 等原始来源声明；根许可不统一覆盖所有模型权重。
 
+锁定 timm 源码中的 ConvNeXt、Swin 文件明确保留 MIT 声明，依赖清单因此同时列出 Apache-2.0 与 MIT。两个 torchvision 源归档还各含 `test/assets/damaged_jpeg/TensorFlow-LICENSE`，保留 TensorFlow Authors 2019 的 Apache-2.0 告知，原文件分别存为 [0.24.1 原文](third_party/licenses/torchvision-0.24.1-TensorFlow-SOURCE-NOTICE.txt)和 [0.29.1 原文](third_party/licenses/torchvision-0.29.1-TensorFlow-SOURCE-NOTICE.txt)，[Apache-2.0 完整协议](LICENSE)继续保留。该附加条款来自源归档的测试图像资产，不能解释为所有 torchvision 模型或权重统一改为 Apache-2.0；这两份参考归档告知在源树中留存，测试图像不属于当前 SDK 安装集合。上述补充只修正已观察到的归档许可身份，四个模型参考的源码来源和分发审查仍为 pending。
+
 对应许可原文、部分源文件头和架构参考关系见源码树中的 [模型来源与许可说明](third_party/licenses/MODEL_PROVENANCE.md)。启用 `models` 的 SDK 将该说明和相关原文安装到 `share/doc/jyppx/licenses/models/`。版权及署名包括 torchvision 的 Soumith Chintala、timm 的 Ross Wightman、ConvNeXt/DINOv3 的 Meta Platforms, Inc. and affiliates，以及 Swin Transformer 的 Microsoft；完整措辞以保留的原文为准。
 
 DINOv3 协议覆盖模型代码、权重及其他 DINO Materials，不仅限于预训练权重；使用、复制、修改和分发须遵守其协议。已确认参考测试执行官方源码，C++ ViT 和 DINOv3 ConvNeXt 后续按官方源码作过兼容适配；当前实现的完全独立来源尚未证实，是否复制、翻译或实质改写受保护表达仍需具体判断。分发适用材料或其衍生作品时须按 DINOv3 协议提供并附带协议原文，不能宣称已确认只适用 Apache-2.0。四个模型参考条目继续为 `pending`，具体边界见上述模型来源说明；关闭编译选项或随机参考测试通过均不能替代来源判定。

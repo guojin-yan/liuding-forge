@@ -26,7 +26,7 @@ from release_common import (
     Limits, ReleaseError, canonical, descriptor, fail, ga_blockers, json_document,
     no_links, prefix_inventory, provenance, read_file, relative_name, sbom,
     signing_payload, stream_file, validate_dependencies, validate_evidence,
-    validate_installed_version, validate_release,
+    validate_installed_provenance, validate_installed_version, validate_release,
 )
 
 
@@ -87,10 +87,12 @@ def prepare_release(*, prefix: Path, out: Path, release: dict[str, Any],
     lock_data = read_file(dependency_lock, limits.max_metadata_bytes)
     dependencies = json_document(lock_data, limits)
     dependency_ids = validate_dependencies(dependencies)
+    lock_sha = hashlib.sha256(lock_data).hexdigest()
+    validate_installed_provenance(prefix, release, lock_sha, limits)
     evidence_data = read_file(evidence_index, limits.max_metadata_bytes)
     evidence = json_document(evidence_data, limits)
     blockers, records = validate_evidence(
-        evidence, release, inventory_sha, hashlib.sha256(lock_data).hexdigest(),
+        evidence, release, inventory_sha, lock_sha,
         dependency_ids, limits,
     )
     blockers = ga_blockers(release, dependencies, blockers)

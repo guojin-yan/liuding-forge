@@ -29,7 +29,7 @@ from release_common import (
     fail, ga_blockers, json_document, no_links, provenance, read_file,
     relative_name, sbom, signing_payload, stream_file, validate_dependencies,
     validate_descriptor, validate_evidence, validate_inventory, validate_release,
-    validate_installed_version, walk_files,
+    validate_installed_provenance, validate_installed_version, walk_files,
 )
 
 DOCUMENTS = {
@@ -92,7 +92,7 @@ def zip64_extra(data: bytes) -> bytes | None:
 
 
 def verify_archive(path: Path, inventory: dict[str, Any], release: dict[str, Any],
-                   limits: Limits) -> None:
+                   dependency_lock_sha256: str, limits: Limits) -> None:
     """Actually extract every regular file into a fresh private directory.
 
     Data is streamed with exact size/hash/CRC checks. extractall(), stored path
@@ -177,6 +177,7 @@ def verify_archive(path: Path, inventory: dict[str, Any], release: dict[str, Any
                 if actual_names != [entry["path"] for entry in inventory["files"]]:
                     fail("extracted file set differs from inventory")
                 validate_installed_version(extraction, release, limits)
+                validate_installed_provenance(extraction, release, dependency_lock_sha256, limits)
 
 
 def verify_signature(payload: bytes, signature: Path, public_key: Path,
@@ -297,7 +298,8 @@ def verify_release(directory: Path, *, expected_version: str,
         b"Apache License", b"Version 2.0", b"TERMS AND CONDITIONS", b"END OF TERMS AND CONDITIONS"
     )) or not read_file(directory / "THIRD_PARTY_NOTICES.md", limits.max_metadata_bytes):
         fail("project license/third-party notices missing or inconsistent")
-    verify_archive(directory / archive["path"], inventory, release, limits)
+    verify_archive(directory / archive["path"], inventory, release,
+                   documents["dependency_lock"]["sha256"], limits)
     if descriptor(directory / archive["path"], archive["path"], limits) != archive:
         fail("archive changed during extraction")
     if signature_verified:
