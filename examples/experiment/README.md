@@ -217,3 +217,7 @@ tensorboard --logdir $tbOutput
 ## 多输入输出配方搜索
 
 `paired-affine` 已接入原生 grid/random 与完整 checkpoint 精确续训。按[配方搜索教程](../../docs/tutorials/paired_native_search.md)生成闭合搜索规格，显式选择 `recipe_bridge` 和 `seed_policy=configuration`。它确认三类 typed 产物、原生 completed run 及真实 accuracy 后选优，支持相同冻结清单的发布恢复和终态实验备份。
+
+## 图像分类配方搜索
+
+ImageFolder / ResNet18 分类配方可通过原生 grid/random 运行，使用完整检查点精确续训，并按真正提交的验证集准确率选优。按[分类搜索步骤](../../docs/tutorials/paired_native_search.md#使用-imagefolder--resnet18-分类配方)从 `recipe check` 与 `recipe local-spec` 生成规格，再显式声明对应 `recipe_bridge`；配置训练种子与搜索调度种子分别记录。

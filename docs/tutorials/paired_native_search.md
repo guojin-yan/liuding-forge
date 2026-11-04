@@ -1,6 +1,6 @@
-# 用有界搜索运行 paired 原生配方
+# 用有界搜索运行原生配方
 
-`search` 的 `recipe_bridge` 模式目前仅支持`jyppx.liuding.paired-affine/v1`。每个 trial 调用真实 C++ 配方，确认训练、三类 typed 产物与持久提交的最终 accuracy 后，才参与 best 选择。
+`search` 的 `recipe_bridge` 模式支持 `jyppx.liuding.paired-affine/v1` 和 `jyppx.liuding.imagefolder.resnet18/v1` 两种明确的配方。每个 trial 调用真实 C++ 配方，确认训练、三类 typed 产物与持久提交的最终 accuracy 后，才参与 best 选择。
 
 先按 `multi_io_recipe.md` 准备完整 paired-affine 数据与有效配置，再使用实际绝对路径：
 
@@ -72,4 +72,27 @@ liuding-forge search export --root /path/search-store --id paired-search --outpu
 
 训练完成后，搜索检查原生 completed run、完整结果、配置/数据/模型/构建 lineage、真实提交的 accuracy 与三类 typed 输出。它先冻结桥接回执，再发布外层 trainingrun 的原子引用批和唯一原生指标，最后标记 completed。发布中断只能按同一回执重放；额外指标、额外或部分引用、身份漂移、未确认 owner/cleanup 都会保留证据并拒绝选优。
 
-运行中的精确续训仍要求保留原训练目录。完成后的 search show/recover/export读取已冻结的 SQLite/CAS 证据，导出后可通过 `run restore` 恢复并查看历史，无须原生训练工作目录。导出是包含 trial 历史的 run-store 备份，`deployable_model_bundle=false`。分类配方、迁移学习、其他目标和更宽的搜索矩阵尚未获得本桥接的验证结论。
+运行中的精确续训仍要求保留原训练目录。完成后的 search show/recover/export读取已冻结的 SQLite/CAS 证据，导出后可通过 `run restore` 恢复并查看历史，无须原生训练工作目录。导出是包含 trial 历史的 run-store 备份，`deployable_model_bundle=false`。迁移学习、其他目标和更宽的搜索矩阵尚未获得本桥接的验证结论。
+
+## 使用 ImageFolder / ResNet18 分类配方
+
+分类流程使用 CPU。先对完整分类配置执行 `recipe check --file <config> --format json`，将返回的 `data.config` 保存为配方文件；完整路径和配置值必须与搜索的 `configuration` 相同。用该文件调用 `recipe local-spec`，复用返回的 `data.specification` 作为 `execution`，再按上文替换完整参数占位符、`training.configuration` 和工作目录。生成规格的步骤只检查、冻结输入。
+
+搜索的 `project_id=liuding-forge`、`experiment_id=image-classification`，`execution.training.model_id=resnet18`；桥接声明使用以下完整对象：
+
+```json
+{
+  "format": "jyppx.liuding.local_search_recipe_bridge",
+  "schema_version": 1,
+  "recipe": "jyppx.liuding.imagefolder.resnet18/v1",
+  "seed_policy": "configuration"
+}
+```
+
+目标仍是最后一条 `classification.accuracy`，使用 `context={"slice":"overall","source":"all"}`、`step_kind=sample`、ratio / mean / maximize。定义中的 `parameters.classes` 必须是完整数据清单 `data.dataset.classes` 长度对应的十进制字符串，范围为 2–1024，例如二分类用 `"2"`；其余参数保留 `ignore_index=none`、`zero_division=zero`、`ties=lowest_class_index`、`macro_classes=all`。搜索在启动子任务前检查类别映射、原始图片内容、完整解析配置与冻结 typed 输入的一致性。
+
+保持同样的三类输出和精确恢复模板。`--pause-after` 可在小于总更新数的位置暂停一次，接续使用该 trial 已确认的 `checkpoint.last`；学习率调度器可以按 epoch 或 update 计步，搜索按实际配置核对最终计数。分类模型固定为原生 ResNet18；完整初始状态文件继续遵守配方本身的字节、摘要和模型拓扑检查。
+
+配置 `batch_norm_calibration=train_cumulative_once` 时必须同时设置 `calibration_max_snapshot_bytes`，且设备为 CPU。完成结果必须证明校准完整遍历一次训练集、没有额外 optimizer 更新，并将校准后的模型摘要绑定到最终 typed 模型。校准关闭时保留关闭状态。搜索目标来自原生 run-store 已提交的完整验证集准确率，模型、检查点、配置、数据和构建身份一致后才发布外层 training run。
+
+运行和恢复命令沿用上文的 `search execute/show/recover`，导出流程也使用同一个 run-store 备份接口。分类质量仍按配置中的 `minimum_accuracy` 判断；小型自定义数据的通过结果不能替代完整 CIFAR10 等任务的质量要求。

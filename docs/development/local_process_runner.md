@@ -136,4 +136,8 @@ Linux 使用对应构建目录并省略多配置参数。原生测试覆盖进�
 
 此模式的 `seed_policy` 为 `configuration`：配方使用有效配置中的 `seed` 训练，搜索派生的 `trial_seed` 只标识调度顺序，两者分别保留。完成态要求本地任务清理确认、完整三输出收据、有效 exact 恢复输入、原生 completed run 及其已提交的真实 accuracy；仅退出码 0 不足以选优。冻结桥接清单后，外层训练记录依次创建、原子绑定引用、提交相同指标，最后完成；整个流程跨多个 API，可恢复相同清单的部分发布，额外指标、部分引用或其他冲突会被拒绝。终态查询与实验导出依赖 CAS，不要求原生训练目录继续存在；实际继续训练仍要求原目录。
 
-普通 typed 搜索保持单 attempt 与显式 checkpoint 的原合同；上述例外仅用于这一配方及固定模板，不向任意外部程序开放自动续训。可运行配置见[配方搜索示例](../../examples/experiment/README.md#多输入输出配方搜索)。
+普通 typed 搜索保持单 attempt 与显式 checkpoint 的原合同；上述例外仅用于显式声明的配方及固定模板，不向任意外部程序开放自动续训。可运行配置见[配方搜索示例](../../examples/experiment/README.md#多输入输出配方搜索)。
+
+### 图像分类配方搜索
+
+ImageFolder / ResNet18 配方使用相同的显式桥接合同，声明 `recipe=jyppx.liuding.imagefolder.resnet18/v1` 和 `seed_policy=configuration`。类别数与完整冻结数据清单一致，目标必须是原生验证集提交的 `classification.accuracy`；完整状态文件、模型、检查点和数据身份也须一致。可按固定模板暂停一次并从已确认的完整检查点精确继续，完成后的查询与发布恢复使用冻结 CAS。CPU 的 `train_cumulative_once` BatchNorm 校准还须证明完整遍历一次训练集、优化器计数不变，最终模型摘要与校准报告一致。配置与运行步骤见[配方搜索教程](../tutorials/paired_native_search.md#使用-imagefolder--resnet18-分类配方)。

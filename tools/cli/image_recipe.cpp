@@ -5,6 +5,7 @@
 // you may not use this file except in compliance with the License.
 
 #include "cli.hpp"
+#include "image_search_bridge.hpp"
 #include "recipe_initial_state.hpp"
 #include "recipe_support.hpp"
 #include "transfer_recipe.hpp"
@@ -58,6 +59,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <span>
 #include <stop_token>
 #include <utility>
 
@@ -1640,6 +1642,27 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
       });
   require_recipe(accuracy != scores.observations.end(),
                  "Classifier did not emit the overall accuracy observation");
+  if (!transfer) {
+    require_recipe(
+        telemetry_metric_definition_digest(accuracy->definition) ==
+            telemetry_metric_definition_digest(
+                image_search_objective(inputs.validation.categories().size())),
+        "Image search accuracy definition differs");
+    const TelemetryEnvelope final_evaluation{
+        .identity = {.stream_id = "recipe.image-classification.evaluation",
+                     .event_id = "evaluation.final",
+                     .idempotency_key = "evaluation.final",
+                     .sequence = 1},
+        .correlation = {.project_id = "liuding-forge",
+                        .run_id = std::string(kRun)},
+        .attributes = {{"recipe", config.at("recipe").get<std::string>()},
+                       {"config_sha256", config_hash.hex},
+                       {"dataset_sha256", inputs.identity.hex},
+                       {"model_sha256", model_hash.hex}},
+        .payload = TelemetryMetricBatch{{*accuracy}}};
+    store.append(kRun, "recipe.image-classification.final-evaluation",
+                 std::span(&final_evaluation, 1));
+  }
   ex::EvaluationSuite suite{
       .suite_id = "recipe.image-classification",
       .task = "classification",
@@ -1778,6 +1801,25 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
 }
 }  // namespace
 #endif
+
+Json inspect_image_search_inputs(const std::filesystem::path& path) {
+#if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
+  const auto configuration = resolve_config(path);
+  recipe_support::require_recipe(
+      !is_transfer_recipe(configuration),
+      "Image search bridge accepts only its ResNet18 recipe");
+  const auto inputs = inspect_inputs(configuration);
+  static_cast<void>(inspect_recipe_initial_state(
+      configuration, inputs.manifest.at("classes")));
+  return {{"configuration", configuration},
+          {"data_manifest", inputs.manifest},
+          {"total_steps", inputs.total_steps}};
+#else
+  static_cast<void>(path);
+  throw NotImplemented(
+      "Image search recipes require models and data_image components");
+#endif
+}
 
 Result recipe_command(const Arguments& arguments) {
   if (arguments.words().size() != 2U)

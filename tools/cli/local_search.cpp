@@ -6,6 +6,7 @@
 
 #include "local_search.hpp"
 
+#include "image_search_bridge.hpp"
 #include "local_attempt.hpp"
 #include "paired_search_bridge.hpp"
 #include "recipe_support.hpp"
@@ -46,6 +47,8 @@ constexpr std::uint64_t kMaximumSpace = 1000000;
 constexpr std::uint64_t kMaximumDuration = 24ULL * 60 * 60 * 1000;
 constexpr std::string_view kProducer = "jyppx.liuding.cli.search/v1";
 constexpr std::string_view kPairedRecipe = "jyppx.liuding.paired-affine/v1";
+constexpr std::string_view kImageRecipe =
+    "jyppx.liuding.imagefolder.resnet18/v1";
 constexpr std::string_view kRecipeBridge = "search.recipe.bridge";
 
 void require(bool condition, std::string_view reason) {
@@ -57,6 +60,59 @@ std::string text(const Json &value) {
   require(result.find('\0') == std::string::npos,
           "Search strings must not contain NUL");
   return result;
+}
+
+struct RecipeBridgeProfile {
+  std::string_view recipe;
+  std::string_view experiment;
+  std::string_view model;
+  std::string_view native_run;
+  std::string_view manifest_format;
+  std::string_view native_stream;
+  std::string_view outer_stream;
+  std::string_view outer_batch;
+  std::string_view display_name;
+  bool image;
+};
+
+const RecipeBridgeProfile &recipe_bridge_profile(const Json &plan) {
+  static constexpr std::array<RecipeBridgeProfile, 2> profiles{
+      {{kPairedRecipe, "paired-affine", "paired-affine", "run.paired-affine",
+        "jyppx.liuding.local_search_paired_bridge",
+        "recipe.paired-affine.evaluation", "search.recipe.paired-affine.",
+        "search.recipe.paired-affine.final-evaluation",
+        "Confirmed native paired search training", false},
+       {kImageRecipe, "image-classification", "resnet18",
+        "run.image-classification", "jyppx.liuding.local_search_image_bridge",
+        "recipe.image-classification.evaluation",
+        "search.recipe.image-classification.",
+        "search.recipe.image-classification.final-evaluation",
+        "Confirmed native image search training", true}}};
+  for (const auto &profile : profiles)
+    if (plan.at("recipe_bridge") ==
+        Json{{"format", "jyppx.liuding.local_search_recipe_bridge"},
+             {"schema_version", 1},
+             {"recipe", std::string(profile.recipe)},
+             {"seed_policy", "configuration"}})
+      return profile;
+  throw InvalidArgument(
+      "Search supports only its closed versioned paired-affine or image "
+      "ResNet18 bridge");
+}
+
+std::size_t image_objective_classes(
+    const TelemetryMetricDefinition &definition) {
+  const auto found = definition.parameters.find("classes");
+  require(found != definition.parameters.end(),
+          "Image search objective requires its class count");
+  const auto &encoded = found->second;
+  require(!encoded.empty() && encoded.size() <= 4 && encoded.front() != '0' &&
+              std::all_of(encoded.begin(), encoded.end(),
+                          [](unsigned char c) { return c >= '0' && c <= '9'; }),
+          "Image search class count must be a canonical bounded integer");
+  const auto count = std::stoull(encoded);
+  require(count >= 2 && count <= 1024, "Image search requires 2-1024 classes");
+  return static_cast<std::size_t>(count);
 }
 
 void identifier(std::string_view value) {
@@ -338,32 +394,31 @@ Plan read_plan(const Json &value) {
   probe.payload = TelemetryMetricBatch{{std::move(objective_probe)}};
   validate_telemetry_envelope(probe);
   const auto &execution = value.at("execution");
-  const bool paired = value.contains("recipe_bridge");
-  if (paired) {
-    require(value.at("recipe_bridge") ==
-                Json{{"format", "jyppx.liuding.local_search_recipe_bridge"},
-                     {"schema_version", 1},
-                     {"recipe", kPairedRecipe},
-                     {"seed_policy", "configuration"}},
-            "Search supports only its versioned paired-affine recipe bridge");
-    require(result.project == "liuding-forge" &&
-                result.experiment == "paired-affine" &&
-                execution.contains("training") &&
-                result.metric_sha256 == telemetry_metric_definition_digest(
-                                            paired_search_objective())
-                                            .hex &&
-                result.context == TelemetryAttributes{{"slice", "overall"},
-                                                      {"source", "all"}} &&
-                result.step == TelemetryStepKind::sample,
-            "Paired search requires its native project, model and complete "
-            "accuracy objective");
+  const bool bridged = value.contains("recipe_bridge");
+  if (bridged) {
+    const auto &profile = recipe_bridge_profile(value);
+    const auto expected_objective =
+        profile.image
+            ? image_search_objective(image_objective_classes(result.metric))
+            : paired_search_objective();
+    require(
+        result.project == "liuding-forge" &&
+            result.experiment == profile.experiment &&
+            execution.contains("training") &&
+            result.metric_sha256 ==
+                telemetry_metric_definition_digest(expected_objective).hex &&
+            result.context ==
+                TelemetryAttributes{{"slice", "overall"}, {"source", "all"}} &&
+            result.step == TelemetryStepKind::sample,
+        "Recipe search requires its native project, model and complete "
+        "accuracy objective");
     const auto &arguments = execution.at("arguments");
     Json expected{"recipe", "local-run",           "--file",   "${config}",
                   "--root", "${recipe_directory}", "--format", "json"};
     const bool retry = arguments.is_array() && arguments.size() == 10;
     if (retry) {
       require(arguments.at(8) == "--pause-after",
-              "Paired search only accepts an optional --pause-after");
+              "Recipe search only accepts an optional --pause-after");
       const auto pause_text = text(arguments.at(9));
       require(!pause_text.empty() && pause_text.size() <= 7 &&
                   pause_text.front() != '0' &&
@@ -371,7 +426,7 @@ Plan read_plan(const Json &value) {
                       pause_text.begin(), pause_text.end(),
                       [](unsigned char c) { return c >= '0' && c <= '9'; }) &&
                   std::stoull(pause_text) <= 1000000,
-              "Paired search pause must be a positive bounded integer");
+              "Recipe search pause must be a positive bounded integer");
       expected.push_back("--pause-after");
       expected.push_back(pause_text);
     }
@@ -380,17 +435,17 @@ Plan read_plan(const Json &value) {
                     (retry ? 2 : 1) &&
                 execution.at("retry_exit_codes") ==
                     (retry ? Json{75} : Json::array()),
-            "Paired search uses its whole-value local-run template and at "
+            "Recipe search uses its whole-value local-run template and at "
             "most one exact checkpoint continuation");
     const auto &training = execution.at("training");
     require(
-        training.at("model_id") == "paired-affine" &&
+        text(training.at("model_id")) == profile.model &&
             training.at("resume").is_null() && training.contains("outputs") &&
             training.contains("retry_resume") == retry &&
             (!retry || training.at("retry_resume") ==
                            Json{{"checkpoint_reference_id", "checkpoint.last"},
                                 {"restore_policy", "exact_only"}}),
-        "Paired search starts fresh and only continues its owned exact "
+        "Recipe search starts fresh and only continues its owned exact "
         "checkpoint.last");
     Json outputs = Json::array();
     for (const auto &output : training.at("outputs")) {
@@ -412,14 +467,14 @@ Plan read_plan(const Json &value) {
                                  {"role", "training.result"}}};
     require(
         outputs == required_outputs && value.at("outputs") == required_outputs,
-        "Paired search requires its three typed native outputs in order");
+        "Recipe search requires its three typed native outputs in order");
   }
   if (execution.contains("training")) {
     const auto &training = execution.at("training");
     fields(training, {"model_id", "configuration", "data_manifest", "resume"},
-           paired ? std::initializer_list<std::string_view>{"outputs",
-                                                            "retry_resume"}
-                  : std::initializer_list<std::string_view>{});
+           bridged ? std::initializer_list<std::string_view>{"outputs",
+                                                             "retry_resume"}
+                   : std::initializer_list<std::string_view>{});
     require(training.at("configuration").is_string() &&
                 text(training.at("configuration")) == "${trial_configuration}",
             "Typed search owns configuration; use ${trial_configuration}");
@@ -428,9 +483,9 @@ Plan read_plan(const Json &value) {
       execution.at("project_id").get<std::string>() == result.project &&
           execution.at("experiment_id").get<std::string>() == result.experiment,
       "Search and execution project/experiment must match");
-  require(paired || (unsigned_number(execution.at("max_attempts"), 16) == 1 &&
-                     execution.at("retry_exit_codes").is_array() &&
-                     execution.at("retry_exit_codes").empty()),
+  require(bridged || (unsigned_number(execution.at("max_attempts"), 16) == 1 &&
+                      execution.at("retry_exit_codes").is_array() &&
+                      execution.at("retry_exit_codes").empty()),
           "Search trials execute once; checkpoint continuation requires a "
           "new search with explicit frozen inputs");
   require(!execution.contains("deadline_unix_ms"),
@@ -799,9 +854,22 @@ RecipeBridgeReceipt recipe_bridge_receipt(SQLiteRunStore &store,
           std::string(kRecipeBridge) + "." + digest(value.id).hex};
 }
 
-void validate_paired_trial_inputs(SQLiteRunStore &store, const Trial &value) {
+void validate_recipe_trial_inputs(SQLiteRunStore &store, const Plan &plan,
+                                  const Trial &value) {
+  const auto &profile = recipe_bridge_profile(plan.json);
   const auto inspected =
-      inspect_paired_search_inputs(value.directory / "config.json");
+      profile.image
+          ? inspect_image_search_inputs(value.directory / "config.json")
+          : inspect_paired_search_inputs(value.directory / "config.json");
+  require(text(value.configuration.at("recipe")) == profile.recipe,
+          "Recipe trial configuration differs from its closed bridge identity");
+  if (profile.image)
+    require(plan.metric_sha256 ==
+                telemetry_metric_definition_digest(
+                    image_search_objective(
+                        inspected.at("data_manifest").at("classes").size()))
+                    .hex,
+            "Image objective class count differs from its complete dataset");
   require(
       inspected.at("configuration") == value.configuration &&
           digest(inspected.at("configuration").dump()).hex ==
@@ -969,24 +1037,24 @@ Json recipe_attempt_evidence(SQLiteRunStore &store, const Trial &value,
 const TelemetryMetricPoint &validate_native_metric(
     const TelemetryEnvelope &envelope, const Plan &plan, const Trial &value,
     const Json &result) {
+  const auto &profile = recipe_bridge_profile(plan.json);
   const auto *batch = std::get_if<TelemetryMetricBatch>(&envelope.payload);
-  require(
-      batch && batch->points.size() == 2 &&
-          envelope.identity.stream_id == "recipe.paired-affine.evaluation" &&
-          envelope.identity.event_id == "evaluation.final" &&
-          envelope.identity.idempotency_key == "evaluation.final" &&
-          envelope.identity.sequence == 1 &&
-          envelope.correlation.project_id == plan.project &&
-          envelope.correlation.run_id == "run.paired-affine" &&
-          envelope.attributes ==
-              TelemetryAttributes{
-                  {"recipe", std::string(kPairedRecipe)},
-                  {"config_sha256", value.config_sha256},
-                  {"dataset_sha256", text(value.execution.at("training")
-                                              .at("data_manifest")
-                                              .at("sha256"))},
-                  {"model_sha256", text(result.at("model_sha256"))}},
-      "Paired native committed evaluation identity differs");
+  require(batch && batch->points.size() == (profile.image ? 1U : 2U) &&
+              envelope.identity.stream_id == profile.native_stream &&
+              envelope.identity.event_id == "evaluation.final" &&
+              envelope.identity.idempotency_key == "evaluation.final" &&
+              envelope.identity.sequence == 1 &&
+              envelope.correlation.project_id == plan.project &&
+              envelope.correlation.run_id == profile.native_run &&
+              envelope.attributes ==
+                  TelemetryAttributes{
+                      {"recipe", std::string(profile.recipe)},
+                      {"config_sha256", value.config_sha256},
+                      {"dataset_sha256", text(value.execution.at("training")
+                                                  .at("data_manifest")
+                                                  .at("sha256"))},
+                      {"model_sha256", text(result.at("model_sha256"))}},
+          "Paired native committed evaluation identity differs");
   const auto &point = batch->points.front();
   require(telemetry_metric_definition_digest(point.definition).hex ==
                   plan.metric_sha256 &&
@@ -996,18 +1064,21 @@ const TelemetryMetricPoint &validate_native_metric(
               point.observation.status == TelemetryValueStatus::finite &&
               point.observation.value &&
               std::isfinite(*point.observation.value) &&
-              *point.observation.value == result.at("accuracy") &&
-              batch->points.back().definition.metric_id == "regression.mse" &&
-              batch->points.back().observation.status ==
-                  TelemetryValueStatus::finite &&
-              batch->points.back().observation.value &&
-              *batch->points.back().observation.value == result.at("mse"),
-          "Paired native objective is missing, nonfinite or incompatible");
+              *point.observation.value == result.at("accuracy"),
+          "Recipe native objective is missing, nonfinite or incompatible");
+  if (!profile.image)
+    require(batch->points.back().definition.metric_id == "regression.mse" &&
+                batch->points.back().observation.status ==
+                    TelemetryValueStatus::finite &&
+                batch->points.back().observation.value &&
+                *batch->points.back().observation.value == result.at("mse"),
+            "Paired native objective is missing, nonfinite or incompatible");
   return point;
 }
 
 Json validate_recipe_bridge(SQLiteRunStore &store, const Plan &plan,
                             const Trial &value, const Json &local) {
+  const auto &profile = recipe_bridge_profile(plan.json);
   const auto receipt = recipe_bridge_receipt(store, value);
   const auto manifest = load_json(store, receipt.run, receipt.id);
   fields(manifest, {"format",
@@ -1031,7 +1102,7 @@ Json validate_recipe_bridge(SQLiteRunStore &store, const Plan &plan,
                     "native_metric_canonical_hex",
                     "native_metric_sha256",
                     "native_metric_run_sequence"});
-  require(manifest.at("format") == "jyppx.liuding.local_search_paired_bridge" &&
+  require(text(manifest.at("format")) == profile.manifest_format &&
               manifest.at("schema_version") == 1 &&
               manifest.at("search_spec_sha256") == plan.sha256 &&
               manifest.at("seed_policy") == "configuration" &&
@@ -1049,30 +1120,66 @@ Json validate_recipe_bridge(SQLiteRunStore &store, const Plan &plan,
   const auto data =
       bound_json(store, evidence.at("training").at("data_manifest"));
   const auto steps =
-      ((positive(data.at("train").at("samples"), 4096) +
+      ((positive(data.at("train").at("samples"),
+                 profile.image ? 1000000 : 4096) +
         positive(value.configuration.at("batch_size"), 1024) - 1) /
        positive(value.configuration.at("batch_size"), 1024)) *
       positive(value.configuration.at("epochs"), 1000);
+  const bool recipe_lineage =
+      profile.image
+          ? !result.contains("transfer") && data.at("classes").is_array() &&
+                data.at("classes").size() >= 2 &&
+                data.at("classes").size() <= 1024 &&
+                plan.metric_sha256 ==
+                    telemetry_metric_definition_digest(
+                        image_search_objective(data.at("classes").size()))
+                        .hex
+          : text(lineage.at("recipe")) == kPairedRecipe &&
+                lineage.at("numerics") == result.at("numerics");
+  if (profile.image) {
+    const bool calibrated =
+        value.configuration.value("batch_norm_calibration", "off") ==
+        "train_cumulative_once";
+    require(
+        result.contains("calibration") == calibrated,
+        "Image result must preserve its declared BatchNorm calibration policy");
+    if (calibrated) {
+      const auto &calibration = result.at("calibration");
+      const auto samples = positive(data.at("train").at("samples"), 1000000);
+      const auto batch = positive(value.configuration.at("batch_size"), 1024);
+      require(value.configuration.at("device") == "cpu" &&
+                  calibration.at("phase") == "completed" &&
+                  calibration.at("optimizer_updates") == steps &&
+                  calibration.at("samples") == samples &&
+                  calibration.at("batches") == (samples + batch - 1) / batch &&
+                  calibration.at("calibrated_model_sha256") ==
+                      result.at("model_sha256"),
+              "Image calibration must complete one training-data pass without "
+              "extra optimizer updates");
+    }
+  }
+  const auto schedule = value.configuration.value("lr_schedule", "epoch_step");
+  const Json scheduler_steps = profile.image && schedule != "epoch_step"
+                                   ? Json(steps)
+                                   : value.configuration.at("epochs");
   const auto job = store.find(value.id);
   require(
-      job && result.at("schema_version") == 1 &&
-          text(result.at("recipe")) == kPairedRecipe &&
-          result.at("run_id") == "run.paired-affine" &&
+      job && result.at("schema_version") == 1 && recipe_lineage &&
+          text(result.at("recipe")) == profile.recipe &&
+          text(result.at("run_id")) == profile.native_run &&
           result.at("status") == "completed" &&
           result.at("quality_passed").get<bool>() &&
           result.at("global_step") == steps &&
           result.at("optimizer_steps") == steps &&
           result.at("completed_epochs") == value.configuration.at("epochs") &&
-          result.at("scheduler_steps") == value.configuration.at("epochs") &&
+          result.at("scheduler_steps") == scheduler_steps &&
           result.at("validation_samples") ==
               data.at("validation").at("samples") &&
           result.at("model_sha256") ==
               evidence.at("outputs").at(1).at("sha256") &&
-          text(lineage.at("recipe")) == kPairedRecipe &&
           lineage.at("config_sha256") == value.config_sha256 &&
           lineage.at("dataset_sha256") ==
               evidence.at("training").at("data_manifest").at("sha256") &&
-          lineage.at("numerics") == result.at("numerics") &&
           parse_json(text(manifest.at("native_build_fingerprint"))) ==
               lineage.at("build") &&
           digest(text(manifest.at("native_build_fingerprint"))).hex ==
@@ -1098,6 +1205,7 @@ struct RecipePublication {
 
 RecipePublication recipe_publication(SQLiteRunStore &store, const Plan &plan,
                                      const Trial &value, const Json &manifest) {
+  const auto &profile = recipe_bridge_profile(plan.json);
   const auto job = store.find(value.id);
   require(job && job->lineage.parent_run_id,
           "Paired trial has no owning search");
@@ -1108,7 +1216,7 @@ RecipePublication recipe_publication(SQLiteRunStore &store, const Plan &plan,
   metadata.run_id = value.training;
   metadata.project_id = plan.project;
   metadata.experiment_id = plan.experiment;
-  metadata.display_name = "Confirmed native paired search training";
+  metadata.display_name = profile.display_name;
   metadata.status = RunStatus::running;
   metadata.created_at_unix_ms = search.created_at_unix_ms;
   metadata.updated_at_unix_ms = search.created_at_unix_ms;
@@ -1120,8 +1228,8 @@ RecipePublication recipe_publication(SQLiteRunStore &store, const Plan &plan,
   metadata.lineage.data_manifest_digest =
       text(manifest.at("training").at("data_manifest").at("sha256"));
   metadata.tags = {
-      {"liuding.training.model_id", "paired-affine"},
-      {"liuding.search.recipe", std::string(kPairedRecipe)},
+      {"liuding.training.model_id", std::string(profile.model)},
+      {"liuding.search.recipe", std::string(profile.recipe)},
       {"liuding.search.bridge_sha256", manifest_sha},
       {"liuding.search.attempt_id", text(manifest.at("attempt_id"))}};
   std::vector<RunArtifactReference> references;
@@ -1164,7 +1272,7 @@ RecipePublication recipe_publication(SQLiteRunStore &store, const Plan &plan,
       load_json(store, text(manifest.at("attempt_id")), "training.result");
   const auto &point = validate_native_metric(native, plan, value, result);
   const TelemetryEnvelope event{
-      .identity = {.stream_id = "search.recipe.paired-affine." +
+      .identity = {.stream_id = std::string(profile.outer_stream) +
                                 digest(value.training).hex,
                    .event_id = "evaluation.final",
                    .idempotency_key = "evaluation.final",
@@ -1173,7 +1281,7 @@ RecipePublication recipe_publication(SQLiteRunStore &store, const Plan &plan,
       .correlation = {.project_id = plan.project,
                       .run_id = value.training,
                       .attempt_id = text(manifest.at("attempt_id"))},
-      .attributes = {{"recipe", std::string(kPairedRecipe)},
+      .attributes = {{"recipe", std::string(profile.recipe)},
                      {"bridge_sha256", manifest_sha},
                      {"native_metric_sha256",
                       text(manifest.at("native_metric_sha256"))}},
@@ -1241,6 +1349,7 @@ void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
                              const Plan &plan, const Trial &value,
                              const Json &local) {
   if (local.at("status") != "completed") return;
+  const auto &profile = recipe_bridge_profile(plan.json);
   const auto bridge_receipt = recipe_bridge_receipt(store, value);
   require(bridge_receipt.run == search.run_id,
           "Paired bridge receipt must belong to the owning search");
@@ -1255,7 +1364,7 @@ void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
             "Completed paired recipe requires its native evidence store");
     ordinary(root / "runs.sqlite3");
     SQLiteRunStore native(root);
-    const auto metadata = native.find("run.paired-affine");
+    const auto metadata = native.find(profile.native_run);
     const auto result = load_json(store, attempt, "training.result");
     require(metadata && metadata->status == RunStatus::completed &&
                 metadata->project_id == plan.project &&
@@ -1267,20 +1376,20 @@ void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
                              .at("sha256")) &&
                 metadata->lineage.source_digest &&
                 metadata->lineage.build_fingerprint &&
-                load_json(native, "run.paired-affine", "config") ==
+                load_json(native, profile.native_run, "config") ==
                     value.configuration &&
-                load_json(native, "run.paired-affine", "dataset") ==
+                load_json(native, profile.native_run, "dataset") ==
                     bound_json(
                         store,
                         value.execution.at("training").at("data_manifest")) &&
-                load_json(native, "run.paired-affine", "lineage") ==
+                load_json(native, profile.native_run, "lineage") ==
                     result.at("lineage"),
             "Paired bridge requires the actual completed native run lineage");
     const std::array<std::string_view, 3> source_ids{"final-checkpoint",
                                                      "model", "result"};
     for (std::size_t i = 0; i < source_ids.size(); ++i) {
       const auto reference =
-          native.find_reference("run.paired-affine", source_ids[i]);
+          native.find_reference(profile.native_run, source_ids[i]);
       require(
           reference &&
               reference->artifact.digest.hex ==
@@ -1292,14 +1401,14 @@ void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
           "Paired native run differs from its three confirmed typed outputs");
       verify_content(native, *reference);
     }
-    const auto page = native.events("run.paired-affine", {.limit = 4});
+    const auto page = native.events(profile.native_run, {.limit = 4});
     require(page.events.size() == 1 && !page.next_after,
             "Paired bridge requires its unique committed native evaluation");
     const auto &event = page.events.front();
     static_cast<void>(
         validate_native_metric(event.envelope, plan, value, result));
     const auto encoded = encode_telemetry_envelope(event.envelope);
-    manifest["format"] = "jyppx.liuding.local_search_paired_bridge";
+    manifest["format"] = std::string(profile.manifest_format);
     manifest["schema_version"] = 1;
     manifest["search_spec_sha256"] = plan.sha256;
     manifest["seed_policy"] = "configuration";
@@ -1318,7 +1427,7 @@ void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
   store.start(publication.metadata);
   validate_recipe_publication(store, value, publication, false);
   store.attach(value.training, publication.references);
-  store.append(value.training, "search.recipe.paired-affine.final-evaluation",
+  store.append(value.training, profile.outer_batch,
                std::span(&publication.event, 1));
   validate_recipe_publication(store, value, publication, false);
   store.transition(value.training, RunStatus::completed,
@@ -1771,7 +1880,7 @@ Result drive(SQLiteRunStore &store, const fs::path &root,
                       cancel);
     materialize(value);
     if (plan.json.contains("recipe_bridge") && !child)
-      validate_paired_trial_inputs(store, value);
+      validate_recipe_trial_inputs(store, plan, value);
     validate_local_execution_spec(value.execution, !child);
     const auto record = admission(value, index, plan);
     if (admitted)
