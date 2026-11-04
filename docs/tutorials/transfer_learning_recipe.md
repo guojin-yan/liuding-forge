@@ -158,3 +158,19 @@ optim::StepLrScheduler scheduler(
 其中每个 `OptimizerParameterBinding` 包含稳定参数名及模型拥有的 tensor handle。骨干导入、head 替换、device/dtype 放置及冻结策略都应在创建 optimizer 前完成；更换 head 或可训练参数集合后，需要重新建立 optimizer 和 checkpoint 拓扑，不能把旧 momentum 对到一组新参数上。`learning_rates()` 的顺序与 `parameter_group_ids()` 一致，示例会打印更新前后各组学习率、绑定张量数量、patch/head 的实际变化量。
 
 示例刻意不保存一个不完整的“仅模型”恢复文件。真实可恢复训练应把同一个 `SgdOptimizerAdapter` 交给 `SgdOptimizerCheckpointParticipant`，把同一个 scheduler 包装进 `training::SchedulerAdapter`，与模型、RNG、数据游标、Trainer 一起交给 `Trainer::prepare()`；创建同一拓扑后调用 `restore_checkpoint()`，再继续 `fit_until()`。完整的运行和进程恢复可直接采用第 5 节 CLI；不能在保存权重后重新创建一个初始 SGD，就声称接续了原训练。
+
+## 7. 通过本地任务管理器运行
+
+迁移配方也可以先生成本地任务规格，再交给同一套原生训练与恢复流程。下面的路径均替换为实际绝对路径；运行目录和规格文件应尚不存在，父目录应已创建。
+
+```sh
+liuding-forge recipe local-spec --file /path/to/my-transfer.json --root /path/to/runs/transfer-local --store /path/to/attempt-store --spec /path/to/transfer-spec.json --executable /path/to/bin/liuding-forge --pause-after 47 --timeout-ms 3600000 --format json
+liuding-forge local execute --root /path/to/attempt-store --id transfer-task --spec /path/to/transfer-spec.json --format json
+liuding-forge local show --root /path/to/attempt-store --id transfer-task --format json
+```
+
+`local-spec` 只校验并冻结输入，不构建模型或启动训练。迁移任务的配置制品额外保存完整权重描述及 `weight_input_sha256`，把来源、预处理、映射、权重大小和完整摘要与本次任务绑定。生成规格后更改描述内容会在新训练目录创建前被拒绝；本地权重仍由 `weights_file` 指定，不复制进任务输入 CAS，也不会自动下载。原始图片、权重、描述和配置在运行期间都必须保持稳定。
+
+显式 `--pause-after` 必须小于当前任务的完整更新预算。首个 attempt 保存完整检查点后退出；任务管理器使用已提交的 `checkpoint.last` 创建下一 attempt，以 `exact_only` 从该状态完成剩余训练。恢复仍要求保留训练目录；接口不从 CAS 重建丢失的工作目录。省略暂停参数会生成单个 attempt 的完整训练规格。冻结/微调、BN、优化器、质量阈值与总更新预算均取原配方，不能借助重试降低验收条件。
+
+完成后确认 `checkpoint.last`、`model.weights`、`training.result` 三个有界制品及其内容身份；评估、诊断和 Bundle 仍保存在原生训练目录。已确认终态的 `local execute`、`local recover` 返回同一结果并保持文件；未知进程清理状态继续受保守围栏限制。直接使用第 5 节的 `recipe run`、`recipe resume` 时，其独立配置与恢复身份保持原契约。

@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 迁移学习配方接入本地任务、完整权重描述输入冻结和精确续训，完成态确认 checkpoint、权重及结果产物。
+
 - 多输入输出 `paired-affine` 配方支持本地计划、拥有任务身份的原生执行、暂停后精确续训及 checkpoint、权重和结果三类产物确认。
 
 - 补齐实际 Linux CPU LibTorch 2.14.1 的独立原包锁及对应构建提交的主许可来源，保留 CPU 2.5.1 候选和随包 notice 待审状态。

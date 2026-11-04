@@ -411,6 +411,17 @@ void configure_recipe_numerics() {
                  "Recipe requires TF32 disabled for cuDNN and cuBLAS");
 }
 
+Json local_recipe_configuration(const Json& config,
+                                const std::optional<TransferInput>& transfer) {
+  if (!transfer) return config;
+  return {{"format", "jyppx.liuding.local_transfer_configuration"},
+          {"schema_version", 1},
+          {"configuration", config},
+          {"transfer",
+           {{"descriptor", transfer->descriptor},
+            {"weight_input_sha256", transfer->input_identity}}}};
+}
+
 std::shared_ptr<nn::ModelAdapter> make_recipe_model(
     const Json& config, const std::optional<TransferInput>& transfer,
     std::int64_t classes, bool load_pretrained) {
@@ -1086,20 +1097,16 @@ Result initialize(const Arguments& arguments) {
 Result execute(const Arguments& arguments, bool resume, bool local = false) {
   const auto config = resolve_config(std::filesystem::absolute(
       std::filesystem::u8path(arguments.require("file"))));
-  require_recipe(
-      !local || !is_transfer_recipe(config),
-      "Local recipe binding currently supports ImageFolder ResNet18");
   auto inputs = inspect_inputs(config);
-  auto local_attempt = local ? std::make_unique<RecipeLocalAttempt>(
-                                   config, inputs.manifest,
-                                   is_transfer_recipe(config)
-                                       ? config.at("model").get<std::string>()
-                                       : "resnet18")
-                             : nullptr;
-  if (local_attempt) resume = local_attempt->resumes();
   const auto transfer = is_transfer_recipe(config)
                             ? std::optional(inspect_transfer_input(config))
                             : std::nullopt;
+  auto local_attempt =
+      local ? std::make_unique<RecipeLocalAttempt>(
+                  local_recipe_configuration(config, transfer), inputs.manifest,
+                  transfer ? config.at("model").get<std::string>() : "resnet18")
+            : nullptr;
+  if (local_attempt) resume = local_attempt->resumes();
   auto initial_input =
       inspect_recipe_initial_state(config, inputs.manifest.at("classes"));
   const Device device(config.at("device") == "cuda" ? "cuda:0" : "cpu");
@@ -1808,15 +1815,16 @@ Result recipe_command(const Arguments& arguments) {
   if (action == "local-spec") {
     const auto config = resolve_config(std::filesystem::absolute(
         std::filesystem::u8path(arguments.require("file"))));
-    require_recipe(
-        !is_transfer_recipe(config),
-        "Local recipe binding currently supports ImageFolder ResNet18");
     const auto inputs = inspect_inputs(config);
-    return prepare_local_recipe(arguments, config, inputs.manifest,
-                                is_transfer_recipe(config)
-                                    ? config.at("model").get<std::string>()
-                                    : "resnet18",
-                                inputs.total_steps);
+    const auto transfer = is_transfer_recipe(config)
+                              ? std::optional(inspect_transfer_input(config))
+                              : std::nullopt;
+    return prepare_local_recipe(
+        arguments, local_recipe_configuration(config, transfer),
+        inputs.manifest,
+        transfer ? config.at("model").get<std::string>() : "resnet18",
+        inputs.total_steps,
+        transfer ? "transfer-learning" : "image-classification");
   }
   if (action == "schema") {
     require_recipe(!arguments.optional("file") && !arguments.optional("root") &&

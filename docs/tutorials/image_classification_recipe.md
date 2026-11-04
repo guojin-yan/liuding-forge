@@ -271,4 +271,4 @@ liuding-forge local recover --root /work/run-store --id resnet18-training --form
 
 正常完成后，配方将 `final.jyck`、`model.safetensors` 和 `result.json` 流式发布到当前 attempt。执行器在原生退出 0 且清理确认后核对三项引用、类型、角色、大小和 CAS 摘要，再将输出收据与结果及双流原子提交。质量门槛不通过仍保留原生退出码 4，job 失败；不能把文件存在当作训练成功。已确认结果的 `execute`/`recover` 重放不再训练。需要取消时运行 `liuding-forge local cancel --root /work/run-store --id resnet18-training`，随后查询清理结果；取消、信号、超时和未知 attempt 不自动转为 checkpoint retry。
 
-本节的 ImageFolder 接线支持 ResNet18，续训依赖保留的原配方目录，不会从 CAS 重建丢失的 workspace；迁移学习配方继续使用已有的 `run`/`resume`；`paired-affine` 的本地执行步骤见[多输入输出教程](multi_io_recipe.md)。计划继承本机环境并显式固定 OMP/MKL 线程数，尚不认证完整环境快照。逻辑资源准入、STORE 其他 writer 的边界与保守恢复规则见[本地进程运行器](../development/local_process_runner.md)。本命令不授予 RSS/显存硬限额、任意训练失败自动恢复或完整 RunSpec 资格。
+本节的 ImageFolder 接线支持 ResNet18，续训依赖保留的原配方目录，不会从 CAS 重建丢失的 workspace；迁移学习的本地计划和权重描述冻结见[迁移学习教程](transfer_learning_recipe.md)；`paired-affine` 的本地执行步骤见[多输入输出教程](multi_io_recipe.md)。计划继承本机环境并显式固定 OMP/MKL 线程数，尚不认证完整环境快照。逻辑资源准入、STORE 其他 writer 的边界与保守恢复规则见[本地进程运行器](../development/local_process_runner.md)。本命令不授予 RSS/显存硬限额、任意训练失败自动恢复或完整 RunSpec 资格。
