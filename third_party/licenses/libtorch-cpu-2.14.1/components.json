@@ -2130,7 +2130,31 @@
       "AT_MKL_SEQUENTIAL": 0,
       "AT_PARALLEL_OPENMP": 1
     },
-    "scope": "exact selected archive configuration; does not identify the complete statically linked numerical library version, build, notices or CVE applicability",
-    "precise_MKL_version_and_static_composition": "pending"
+    "scope": "Exact selected archive configuration and embedded oneMKL version/build identity; complete static composition, original component packages, notices and CVE applicability remain separate review gates.",
+    "precise_MKL_version_and_static_composition": "pending",
+    "embedded_MKL_identity": {
+      "archive_member": "lib/libtorch_cpu.so",
+      "archive_member_identity": {
+        "bytes": 437843464,
+        "sha256": "5fe351a59d2ede41a4c203a4474577321a4c135dd7206c25ec97bad813580999"
+      },
+      "version": "2024.2",
+      "build": "20240605",
+      "version_string": "Intel(R) oneAPI Math Kernel Library Version 2024.2-Product Build 20240605 for Intel(R) 64 architecture applications",
+      "identification_method": "Static x86_64 instruction bytes and referenced read-only strings in the embedded MKL version formatter; no product ELF execution.",
+      "embedded_version_functions": {
+        "MKLGetVerItems": {
+          "virtual_address": "0xb2d64c0",
+          "bytes": 306,
+          "sha256": "54be681de2e8e5e80ffe8f773a453f236de4832bcd0b22d7fda32aa6e5100592"
+        },
+        "mkl_serv_get_version": {
+          "virtual_address": "0xb2d62b0",
+          "bytes": 357,
+          "sha256": "d14f71a8ad24e41d1b430ace27ba178df415f19ec21d08f3253c1b88c7ad27ad"
+        }
+      },
+      "scope": "Identifies the embedded oneMKL version formatter and build in this exact CPU archive member. Complete static-object composition, original Intel package identity, applicable notices, redistribution terms and CVE review remain pending."
+    }
   }
 }
