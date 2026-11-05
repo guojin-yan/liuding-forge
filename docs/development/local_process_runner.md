@@ -74,7 +74,7 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 
 ## 训练输入与显式恢复
 
-`local_run_spec` 可选 `training` 对象，要求 `model_id`、`configuration`、`data_manifest` 和 `resume`。两个输入使用 `{ "run_id": "SOURCE", "reference_id": "REF", "sha256": "...", "size_bytes": 123 }` 引用同一存储中已提交的 CAS 内容；来源 run 必须同项目且为 completed/failed/cancelled。本地 attempt 来源还须通过既有的冻结计划、结果与双流引用检查，不能仅靠修改状态来证明已清理。配置和数据清单各限 1 MiB；`resume` 为 `null` 或 `{ "checkpoint": { ...同样的引用字段... }, "restore_policy": "exact_only" }`，checkpoint 引用必须为 checkpoint 类型、最多 1 GiB。
+`local_run_spec` 可选 `training` 对象，要求 `model_id`、`configuration`、`data_manifest` 和 `resume`。两个输入使用 `{ "run_id": "SOURCE", "reference_id": "REF", "sha256": "...", "size_bytes": 123 }` 引用同一存储中已提交的 CAS 内容；来源 run 必须同项目且为 completed/failed/cancelled。本地 attempt 来源还须通过既有的冻结计划、结果与双流引用检查，且结果必须明确包含 `process_tree_cleanup_confirmed: true`，无资源计量的旧任务也适用。历史终态结果仍可只读重放，但清理确认缺失或为 false 时，其配置、数据与 checkpoint 均不能作为新训练或搜索的输入。配置和数据清单各限 1 MiB；`resume` 为 `null` 或 `{ "checkpoint": { ...同样的引用字段... }, "restore_policy": "exact_only" }`，checkpoint 引用必须为 checkpoint 类型、最多 1 GiB。
 
 运行器在创建 attempt 前验证并批量绑定 `local.training.configuration`、`local.training.data_manifest`、可选 `local.training.resume`，拥有执行权的 worker 启动程序前再次复核内容。训练程序通过 `JYPPX_LIUDING_LOCAL_STORE_ROOT`、`JYPPX_LIUDING_LOCAL_SPEC_SHA256` 及已有 job/attempt 环境读取冻结计划；输入绑定采用流式 CAS 验证，不解码模型张量。模型标识和输入摘要用于固定身份，实际模型支持、数据含义、checkpoint 完整性与恢复由 C++ 训练程序检查。示例使用原生 checkpoint coordinator 恢复模型、SGD momentum 和更新计数，再在新 job 中继续训练。
 

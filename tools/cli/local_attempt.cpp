@@ -457,8 +457,7 @@ void training_source(SQLiteRunStore& store, std::string_view project,
                 source->experiment_id == source_spec.experiment,
             "Local training source differs from its frozen attempt identity");
     const auto confirmed = outcome(store, parent.run_id, source_spec, index);
-    require(confirmed.value("process_tree_cleanup_confirmed",
-                            !source_spec.resources),
+    require(confirmed.value("process_tree_cleanup_confirmed", false),
             "Local training source has unconfirmed native process cleanup");
     require(terminal_status(confirmed) == source->status,
             "Local training source requires its confirmed attempt result");

@@ -779,6 +779,78 @@ class TypedLocalSearchTests(unittest.TestCase):
         self.assert_not_admitted("unconfirmed-resume", self.spec)
         self.assertEqual(len(self.launches()), 1)
 
+    def checkpoint_cleanup_admission(self, cleanup: bool | None) -> None:
+        self.single("ok")
+        completed = self.search("execute")
+        job = completed["trials"][0]["trial_id"]
+        original = self.invoke("local", "show", "--root", self.root, "--id", job)["data"]
+        source = original["attempts"][0]["attempt_id"]
+        content, _ = committed_reference(self.root, source, "local.result")
+        result = json.loads(content)
+        self.assertTrue(result["process_tree_cleanup_confirmed"])
+        if cleanup is None:
+            del result["process_tree_cleanup_confirmed"]
+        else:
+            result["process_tree_cleanup_confirmed"] = cleanup
+        # Inject only the historical result shape; retain ownership, raw
+        # streams, terminal metadata and the original CAS object unchanged.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? "
+                             "AND reference_id='local.result'", (source,))
+        seed_reference(self.root, source, "local.result", 1, "local.result",
+                       json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        checkpoint = b"valid immutable checkpoint fixture"
+        identity = seed_reference(self.root, source, "checkpoint.last", 2, "last", checkpoint)
+        binding = {"run_id": source, "reference_id": "checkpoint.last",
+                   "sha256": identity, "size_bytes": len(checkpoint)}
+        self.spec["execution"]["training"]["resume"] = {
+            "checkpoint": binding, "restore_policy": "exact_only"}
+        replay = self.invoke("local", "show", "--root", self.root, "--id", job)["data"]
+        self.assertEqual(self.invoke("local", "recover", "--root", self.root, "--id", job)["data"], replay)
+        self.assertEqual(len(self.launches()), 1)
+        if cleanup is True:
+            self.search_id = "confirmed-resume"
+            resumed = self.search("execute")
+            self.assertEqual(resumed["status"], "completed")
+            self.assertIsNotNone(resumed["best"])
+            self.assertEqual(self.launches()[1]["training"]["resume"]["checkpoint"], binding)
+            self.assertEqual(len(self.launches()), 2)
+            return
+        self.assert_not_admitted("legacy-resume", self.spec)
+        local_bytes, _ = committed_reference(self.root, job, "local.spec")
+        original_local = json.loads(local_bytes)
+        for role in ("configuration", "data_manifest", "resume"):
+            with self.subTest(input_role=role):
+                local = copy.deepcopy(original_local)
+                if role == "resume":
+                    local["training"][role] = {"checkpoint": binding, "restore_policy": "exact_only"}
+                else:
+                    reference = "source." + role
+                    artifact = seed_reference(self.root, source, reference, 1, reference, b"immutable input")
+                    local["training"][role] = {"run_id": source, "reference_id": reference,
+                                               "sha256": artifact, "size_bytes": len(b"immutable input")}
+                target = "legacy-" + role
+                path = self.directory / (target + ".json")
+                path.write_text(json.dumps(local), encoding="utf-8")
+                rejected = self.invoke("local", "execute", "--root", self.root, "--id", target,
+                                       "--spec", path, expected=2)
+                self.assertEqual(rejected["status"], "error")
+                self.assertIn("unconfirmed native process cleanup", rejected["error"]["message"])
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+                    self.assertEqual(database.execute("SELECT count(*) FROM jyppx_runs WHERE parent_run_id=?",
+                                                      (target,)).fetchone(), (0,))
+        self.assertEqual(self.invoke("local", "show", "--root", self.root, "--id", job)["data"], replay)
+        self.assertEqual(len(self.launches()), 1)
+
+    def test_explicit_checkpoint_without_cleanup_confirmation_is_fenced(self) -> None:
+        self.checkpoint_cleanup_admission(None)
+
+    def test_explicit_checkpoint_with_false_cleanup_confirmation_is_fenced(self) -> None:
+        self.checkpoint_cleanup_admission(False)
+
+    def test_explicit_checkpoint_with_confirmed_cleanup_is_admitted(self) -> None:
+        self.checkpoint_cleanup_admission(True)
+
     def test_typed_unknown_owned_attempt_stays_fenced_with_frozen_inputs(self) -> None:
         self.single("ok")
         self.search("execute")
