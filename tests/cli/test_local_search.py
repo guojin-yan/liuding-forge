@@ -256,6 +256,16 @@ class LocalSearchTests(unittest.TestCase):
         path = self.directory / "launches.jsonl"
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
+    def reject_search(self, action: str, **options) -> None:
+        if action == "execute":
+            self.write()
+            options["spec"] = self.spec_path
+        arguments = [word for key, value in options.items() for word in ("--" + key, value)]
+        result = self.invoke("search", action, "--root", self.root, "--id", self.search_id,
+                             *arguments, expected=2)
+        self.assertEqual(result["status"], "error")
+        self.assertNotIn("data", result)
+
     def single(self, mode: str) -> None:
         self.spec["configuration"]["case"] = mode
         self.spec["space"][0]["values"] = [2.0]
@@ -452,16 +462,78 @@ class LocalSearchTests(unittest.TestCase):
         self.invoke("search", "recover", "--root", self.root, "--id", self.search_id, expected=2)
         self.assertEqual(len(self.launches()), 1)
 
-    def test_best_export_rechecks_source_artifact_bytes(self) -> None:
+    def test_confirmed_result_rechecks_source_artifact_bytes_without_launch(self) -> None:
         self.single("ok")
         original = self.search("execute")
         identity = original["best"]["outputs"][0]["sha256"]
         artifact = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
         content = artifact.read_bytes()
         artifact.write_bytes(bytes([content[0] ^ 1]) + content[1:])
-        self.invoke("search", "export", "--root", self.root, "--id", self.search_id,
-                    "--output", self.directory / "corrupt-export", expected=2)
+        for action in ("show", "recover", "execute", "export"):
+            with self.subTest(action=action):
+                options = {"output": self.directory / "corrupt-export"} if action == "export" else {}
+                self.reject_search(action, **options)
         self.assertFalse((self.directory / "corrupt-export").exists())
+        self.assertEqual(len(self.launches()), 1)
+        artifact.write_bytes(content)
+        self.assertEqual(self.search("recover")["trials"], original["trials"])
+        self.assertEqual(len(self.launches()), 1)
+
+    def test_confirmed_result_rechecks_output_reference_and_training_lineage(self) -> None:
+        self.single("ok")
+        original = self.search("execute")
+        run = original["best"]["training_run_id"]
+        cases = (
+            ("jyppx_run_artifacts", "role", "best", "wrong-role", " AND reference_id='checkpoint.best'"),
+            ("jyppx_runs", "build_fingerprint", "independent-test-fixture-v1", "another-build", ""),
+        )
+        for table, column, prior, changed, suffix in cases:
+            with self.subTest(field=column):
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                    database.execute(f"UPDATE {table} SET {column}=? WHERE run_id=?{suffix}", (changed, run))
+                for action in ("show", "recover"):
+                    self.reject_search(action)
+                self.assertEqual(len(self.launches()), 1)
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                    database.execute(f"UPDATE {table} SET {column}=? WHERE run_id=?{suffix}", (prior, run))
+                self.assertEqual(self.search("show")["trials"], original["trials"])
+
+    def test_consistent_cached_metric_cannot_replace_the_committed_observation(self) -> None:
+        self.single("ok")
+        original = self.search("execute")
+        names = ("search.result.1", "search.result", "search.best")
+        saved = {name: committed_reference(self.root, self.search_id, name)[0] for name in names}
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
+            cursor = database.execute("SELECT * FROM jyppx_run_artifacts WHERE run_id=? AND "
+                "reference_id IN ('search.result.1','search.result','search.best')", (self.search_id,))
+            columns = [column[0] for column in cursor.description]
+            references = cursor.fetchall()
+        self.assertEqual(len(references), 3)
+        for name, content in saved.items():
+            value = json.loads(content)
+            row = value["best"] if name == "search.result" else value
+            row["metric"]["value"] = -1000.0
+            with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id=?",
+                                 (self.search_id, name))
+            seed_reference(self.root, self.search_id, name, 1, name,
+                           json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        # The cached row, final summary and best agree and each has a valid
+        # CAS digest; the actual immutable training observation still differs.
+        for action in ("show", "recover", "export"):
+            with self.subTest(action=action):
+                options = {"output": self.directory / "forged-export"} if action == "export" else {}
+                self.reject_search(action, **options)
+        self.assertFalse((self.directory / "forged-export").exists())
+        self.assertEqual(len(self.launches()), 1)
+        # Restore every original reference field, including producer and
+        # publication metadata; restoring the digest alone is insufficient.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND "
+                "reference_id IN ('search.result.1','search.result','search.best')", (self.search_id,))
+            database.executemany("INSERT INTO jyppx_run_artifacts(" + ",".join(columns) + ") VALUES(" +
+                                 ",".join("?" for _ in columns) + ")", references)
+        self.assertEqual(self.search("recover")["best"], original["best"])
         self.assertEqual(len(self.launches()), 1)
 
     def test_declared_input_digest_output_and_backup_keep_complete_lineage(self) -> None:

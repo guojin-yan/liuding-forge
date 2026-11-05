@@ -130,6 +130,8 @@ ImageFolder ResNet18、`paired-affine` 多输入输出和迁移学习配方已�
 
 整次搜索固定 `model_id`、`data_manifest` 和可选 `resume`；checkpoint 必须显式指定且采用 `exact_only`，不会从失败 attempt 自动选择。每个 trial 结果的 `training_inputs` 包含实际配置、数据和恢复点的来源与摘要。训练程序须将模型标识写入 `liuding.training.model_id` tag、数据摘要写入 lineage，并将对应输入绑定为 `search.training.configuration`、`search.training.data_manifest` 和可选 `search.training.resume`；缺少或不匹配的结果不参与 best 选择。参考[原生训练搜索教程](../../examples/experiment/README.md#训练输入与搜索衔接)中的 C++ 接线。
 
+查询、恢复和重复执行会复核每个可选 trial 的原生执行终态、训练来源、实际已提交指标、输入输出引用及 CAS 内容；结果缓存、最终摘要和 best 彼此一致，仍不能替代这些来源。损坏的产物或不匹配的来源使命令失败，修复原证据后可只读重放；复核不要求旧可执行文件或工作目录存在，也不启动新的 attempt。已确认的不合格 trial 保留原失败结果，不因后来补齐产物而升级为候选。
+
 ## 验证
 
 使用启用了测试与 CLI 的兼容构建目录，按顺序运行：

@@ -1791,6 +1791,18 @@ std::vector<Json> results(SQLiteRunStore &store, const RunMetadata &search,
                   row.at("outputs").size() == plan.json.at("outputs").size(),
               "Eligible trial requires complete training, finite metric and "
               "output evidence");
+    if (eligible && !paired) {
+      // A confirmed row is a cache of committed evidence. Recheck every
+      // selectable ordinary trial just as the recipe bridge does, without
+      // requiring the old executable/workspace or starting another attempt.
+      const auto local = control_local_job("show", store.root(), expected.id);
+      require(local.data.at("status") == "completed" &&
+                  !local.data.at("owner_active").get<bool>(),
+              "Eligible search result requires resolved local ownership");
+      require(evaluate(store, plan, expected, index, local.data) == row,
+              "Confirmed search result differs from its actual committed "
+              "training, metric or output evidence");
+    }
     result.push_back(std::move(row));
   }
   return result;

@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地搜索在查询和恢复时复核可选 trial 的执行终态、真实指标及输入输出内容，拒绝损坏产物或与训练证据不符的缓存结果，保持已确认任务不重复执行。
+
 - 本地执行结果保存原生 CPU 时间与峰值驻留内存，标明 Windows 直接进程和 Linux wait4 的统计范围，支持缺失观测与旧结果的原样重放。
 
 - 绑定实际 Linux CPU LibTorch 2.14.1 内嵌 oneMKL 的版本 2024.2 与构建号 20240605，保留完整静态组成、许可和安全分发审查。
