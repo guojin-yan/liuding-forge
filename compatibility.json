@@ -139,6 +139,30 @@
             "scope": "CPU selected Release qualification only. OptionalComponentMatrix and PreviewComponentMatrix are separate configurations and are not counted in this batch. Conditional skips, current coverage, full model/task/device matrices, Windows HTTP and formal release gates remain separate."
           },
           "commit": "7b4e9d8c21ccef3798e624007949e4d76ed107b1"
+        },
+        {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-3c862070-rebuilt-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; no CUDA or non-CPU ORT provider execution qualification",
+          "build_type": "Release",
+          "tests": "One complete selected CTest batch: 1989 unique contracts, 1810 passed, 179 conditional skips, 0 failures; independent installed C++ consumer 1/1 passed.",
+          "instrumentation": "Fresh Ubuntu 22.04.5 / kernel 6.8.0-138 x86_64; CMake 3.22.1 / Ninja 1.10.1; all 18 selected product libraries, CLI, examples, tests and native dataset preparation; build and CTest parallelism 1; no instrumentation",
+          "quality_evidence": {
+            "source_identity": "Real clean committed 3c862070ba3b94d0f466f34fc6259d96f07b0991 shallow checkout; all 1258 Git blob and checkout SHA-256 identities verified before and after tests; strict git fsck passed. The later metadata commit is not the executed SDK fingerprint.",
+            "source_and_install_review_sha256": "e4ea2dc6f59b424ff5bb1d1781fb5ad9697e68ea64c9bb3763fb9b3f4d2f4a16",
+            "terminal_sha256": "156144d57d01b0b4370141ebe34e5547ae2492f7e557d22f2eb73970bd31272f",
+            "selected_results_sha256": "bf1294e9d8e04ab5b37fbd1d48bc1f2104da839bd06ab8337f1fc88973c12d3d",
+            "consumer_junit_sha256": "4ae743c7589ced18288aa046700cd7fbd47f6be8e6087bdd5907c012762a740d",
+            "installed_manifest_sha256": "a45807f70ec1031602624d374878becb0fa91b3e0480d9cb630188223f4da182",
+            "installation": "231 installed files and 18 branded framework libraries rehashed; separately configured C++ sdk consumer checks exactly eight Core aggregate members and runs successfully. Installed CLI version and CPU doctor passed with exact 3c862070/Release fingerprint.",
+            "original_failures": "Initial supervisor rejected a process name containing spaces before configuration; after parser repair, Ninja subprocess groups exposed incomplete group-only RSS accounting. Both stops and the exact-identity cleanup are retained. Same source/cache/objects resumed with descendant and creation-time accounting, unchanged product assertions and original deadlines.",
+            "resource_boundary": "Original 10800-second overall and cumulative 6000-second build budgets retained; 6 GiB memory / 24 GiB disk admission, 4 GiB MemAvailable / 2 GiB disk stop lines, 5 GiB owned RSS cap and 10 GiB total root-volume growth cap. Measured peak owned RSS 2194067456 bytes; minimum MemAvailable 12341862400 bytes; maximum owned compiler frontends 1.",
+            "scope": "CPU selected Release correctness and installation only. OptionalComponentMatrix and PreviewComponentMatrix are separate configurations and excluded from this batch. Conditional skips, final-candidate coverage, full model/task/device/resource matrices, Windows HTTP, security/licensing, formal signing and GA remain separate."
+          },
+          "commit": "3c862070ba3b94d0f466f34fc6259d96f07b0991"
         }
       ],
       "pending_lanes": [
