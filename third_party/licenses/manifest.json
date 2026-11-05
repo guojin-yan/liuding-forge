@@ -1,5 +1,5 @@
 {
-  "audit_date": "2026-11-04",
+  "audit_date": "2026-11-05",
   "dependency_notice_states": {
     "googletest": "recorded",
     "libtorch-candidate-cpu": "pending",
@@ -1212,6 +1212,28 @@
         "url": "https://raw.githubusercontent.com/pytorch/pytorch/5c4886908584029761b579af026dcfb627c84070/aten/src/ATen/native/quantized/cpu/qnnpack/LICENSE",
         "artifact_sha256": "ca5018243e6b6b698d927c8bdf99c08ddf119f36d9cf18dda82cd45e75ee5dfc"
       }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/gcc-8.5.0-COPYING3.txt",
+      "size_bytes": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/a3253c88425835d5b339d6998a1110a66ccd8b44/COPYING3",
+        "artifact_sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+      }
+    },
+    {
+      "dependency_id": "libtorch-primary-linux-cpu",
+      "path": "libtorch-cpu-2.14.1/gcc-8.5.0-COPYING.RUNTIME.txt",
+      "size_bytes": 3324,
+      "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
+      "origin": {
+        "kind": "upstream-document",
+        "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/a3253c88425835d5b339d6998a1110a66ccd8b44/COPYING.RUNTIME",
+        "artifact_sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+      }
     }
   ],
   "hash_algorithm": "sha256",
@@ -1229,7 +1251,7 @@
     "ConvNeXt and Swin MIT license originals are retained at the exact upstream document commits named in their origin URLs as context for the inherited notices in the pinned timm source. These document commits are not asserted to be the original source revisions from which timm or this project was derived.",
     "CUDA 12.6.0 and cuDNN 9.10.2 EULA HTML snapshots identify terms relevant to the selected Windows cu126 baseline. They are upstream licensing documents, not the complete selected-binary third-party notice set, a redistribution allowlist, or evidence that all 37 staged LibTorch DLLs may be shipped. All LibTorch notice audits remain pending.",
     "The pinned timm source retains MIT notices for inherited ConvNeXt/Swin code in addition to its Apache-2.0 root license. The two torchvision source archives also contain the separately retained TensorFlow Apache-2.0 notice for damaged-JPEG test assets. These are observed source-archive license identities, not an assertion that test assets, weights or all upstream files are included in the SDK. All four model-reference notice states and C++ provenance/redistribution boundaries remain pending.",
-    "The actual Linux CPU 2.14.1 archive now has pinned-source third-party header licenses and complete oneDNN source notices in libtorch-cpu-2.14.1/components.json. Exact archive member hashes and source gitlinks are retained; bundled libgomp source/build identity, embedded static numerical libraries and full transitive redistribution/notice review remain pending. This adds evidence without changing the CPU notice state or any CVE decision."
+    "The actual Linux CPU 2.14.1 archive has pinned third-party header/oneDNN notices and now retains exact GCC GPLv3 and Runtime Library Exception 3.1 texts. libgomp code/data and loader semantics are traced to the official AlmaLinux 8.5.0-28.el8_10.alma.1 package and its exact source packaging revision; whole ELF bytes differ by downstream loader metadata. Actual Corresponding Source conveyance, packaging-modification material, exact static numerical library composition, full transitive notices, CVE and redistribution qualification remain pending. CPU notice state is unchanged."
   ],
   "schema_version": 1,
   "scope": "exact-retained-license-and-notice-evidence; not-an-assertion-of-transitive-completeness"

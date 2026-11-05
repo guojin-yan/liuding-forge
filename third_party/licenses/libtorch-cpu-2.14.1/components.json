@@ -1910,7 +1910,119 @@
     "263 of 321 third-party headers can be reproduced from existing Windows headers by CRLF-to-LF only and their exact original CPU member SHA-256 is rechecked; the other 58 are not claimed byte-equivalent. One PyTorch-owned libshm header is recorded separately, giving 322 headers in total with 59 not claimed byte-equivalent.",
     "oneDNN THIRD-PARTY-PROGRAMS is retained in full, including notices for its source components. This does not prove that every listed source component is enabled in this CPU binary.",
     "ITT API upstream is BSD-3-Clause OR GPL-2.0-only, with both exact texts retained. This alternative license does not assign GPL terms to all of PyTorch or to unrelated SDK code.",
-    "The bundled libgomp.so.1 source/build identity, its full applicable GCC runtime notices and redistribution obligations, embedded static numerical libraries and full transitive composition remain pending. No GCC version is inferred from the PyTorch build hash.",
+    "The bundled libgomp code/data and loader semantics are traced to the exact AlmaLinux 8.5.0-28.el8_10.alma.1 package and its pinned GCC packaging/base-source revisions. Complete GPLv3 and GCC Runtime Library Exception texts are retained. Actual downstream Corresponding Source conveyance, packaging-modification material, embedded static numerical libraries and full transitive redistribution review remain pending; no GCC version is inferred from the PyTorch build hash.",
     "No CVE status, license-policy decision, binary redistribution clearance, complete support matrix or formal release qualification is granted by this inventory."
-  ]
+  ],
+  "bundled_runtime_provenance": {
+    "libgomp": {
+      "archive_member": "lib/libgomp.so.1",
+      "archive_member_identity": {
+        "bytes": 2115417,
+        "sha256": "f733ebed9b7c97455da2016283fc0d2e6715d42bdcce3104dea6a58c93762ee2"
+      },
+      "observed_GNU_build_id": "2244452c1de4759ccb52adc5352b501d4c2ee9ce",
+      "observed_gnu_debuglink": "libgomp.so.1.0.0-8.5.0-28.el8_10.alma.1.x86_64.debug",
+      "upstream_license_expression": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "retained_documents": [
+        "libtorch-cpu-2.14.1/gcc-8.5.0-COPYING3.txt",
+        "libtorch-cpu-2.14.1/gcc-8.5.0-COPYING.RUNTIME.txt"
+      ],
+      "runtime_license_scope": "libgomp runtime and eligible independent-module combinations under the exact exception; not the license of all PyTorch or framework code",
+      "official_distribution_package": {
+        "url": "https://repo.almalinux.org/almalinux/8.10/BaseOS/x86_64/os/Packages/libgomp-8.5.0-28.el8_10.alma.1.x86_64.rpm",
+        "identity": {
+          "bytes": 212868,
+          "sha256": "fba0574d69f6a946696c031e834312f428fe585a4a7842906fc4353ca317b6f0"
+        },
+        "name": "libgomp",
+        "version": "8.5.0",
+        "release": "28.el8_10.alma.1",
+        "architecture": "x86_64",
+        "build_host": "x64-builder03.almalinux.org",
+        "build_time_unix": 1756209600,
+        "source_rpm": "gcc-8.5.0-28.el8_10.alma.1.src.rpm",
+        "original_library_member": "usr/lib64/libgomp.so.1.0.0",
+        "original_library_identity": {
+          "bytes": 235072,
+          "sha256": "e985bcbb6b444c2c472de70c331ab101e6de860affa3a20d1d1aecd06d9242e8"
+        },
+        "acquisition": "official HTTPS using default Windows certificate validation; no validation override",
+        "RPM_signature_verification": "not performed; package identity is bound to the acquired official HTTPS bytes"
+      },
+      "actual_binary_correspondence": {
+        "state": "original_Alma_build_traced_with_exact_code_data_and_loader_semantics",
+        "whole_ELF_byte_identical": false,
+        "same_raw_ELF_sections": 28,
+        "same_GNU_build_id_and_debuglink": true,
+        "same_original_code_data_relocations_and_version_sections": true,
+        "same_511_dynamic_symbols_after_resolving_string_offsets_and_section_indices": true,
+        "changed_sections": [
+          ".dynsym",
+          ".dynstr",
+          ".dynamic"
+        ],
+        "only_additional_semantic_dynamic_tag": {
+          "name": "DT_RPATH",
+          "value": "$ORIGIN"
+        },
+        "remaining_dynamic_changes": "section reindexing, relocated metadata pointers and eight additional string bytes",
+        "not_claimed": "whole-file equality, reproducible rebuild, upstream approval of downstream packaging, or completed corresponding-source conveyance"
+      },
+      "distribution_source": {
+        "repository": "https://git.almalinux.org/rpms/gcc",
+        "revision": "6988efa6f931cad0cd7b4c809c3cd612d7538369",
+        "release_tag": "changed/a8/gcc-8.5.0-28.el8_10.alma.1",
+        "spec_url": "https://git.almalinux.org/rpms/gcc/raw/commit/6988efa6f931cad0cd7b4c809c3cd612d7538369/SPECS/gcc.spec",
+        "spec_identity": {
+          "bytes": 134235,
+          "sha256": "38ac48c80d6ecf0715594bd92503679c0e006139ca0361bd58b4c14805e5690b"
+        },
+        "source_metadata_url": "https://git.almalinux.org/rpms/gcc/raw/commit/6988efa6f931cad0cd7b4c809c3cd612d7538369/.gcc.metadata",
+        "source_metadata_identity": {
+          "bytes": 294,
+          "sha256": "76f8e872e2c92b3c4daa31ddf74bb8743dc6ab3a6db522fec83e3891e2e40026"
+        },
+        "base_source_archive": "gcc-8.5.0-20210514.tar.xz",
+        "base_source_sha1_declared_by_distribution": "b7245af5eab1d4055b6590b6e4f5fb3b7f6c24bf",
+        "base_source_repository": "https://gcc.gnu.org/git/gcc.git",
+        "base_source_revision": "a3253c88425835d5b339d6998a1110a66ccd8b44",
+        "distribution_patches": "the exact fixed gcc.spec lists and applies downstream patches; unpatched GCC 8.5.0 alone is not asserted to recreate this binary",
+        "full_source_archive_locally_hashed": false
+      },
+      "obligations": [
+        "Retain the exact GPLv3 and GCC Runtime Library Exception 3.1 notices and applicable copyright notices when conveying the runtime.",
+        "The exception permits eligible Target Code combinations with Independent Modules under their own terms; it does not erase GPL obligations for conveying libgomp itself or an altered runtime.",
+        "Before binary redistribution, satisfy the applicable GPLv3 section 6 Corresponding Source mechanism for the actual runtime and record any downstream packaging modifications; identifying a source RPM or repository alone is not a completed source offer.",
+        "The complete transitive notice audit, downstream distribution conditions and CVE applicability remain separate review gates."
+      ],
+      "redistribution_qualified": false,
+      "CVE_qualified": false
+    }
+  },
+  "observed_numerical_library_configuration": {
+    "archive_members": {
+      "include/ATen/Config.h": {
+        "bytes": 1055,
+        "sha256": "78100d3fa1c881e4bb45ff610c32335ea55fa53d821874b8c06e2a074bc98e6f"
+      },
+      "include/oneapi/dnnl/dnnl_config.h": {
+        "bytes": 6760,
+        "sha256": "4aada88419693fd90129c01f13d0aaf54b24aea1a04f19bf002bdcf7718613ff"
+      },
+      "share/cmake/Caffe2/Caffe2Config.cmake": {
+        "bytes": 5111,
+        "sha256": "641c2d2059930d5a2087c0690a1de2757ad2052c44e14db93c9a9a493769dc9c"
+      }
+    },
+    "ATen_config_macros": {
+      "AT_MKL_ENABLED": 1,
+      "AT_MKLDNN_ENABLED": 1,
+      "AT_BUILD_WITH_BLAS": 1,
+      "AT_BUILD_WITH_LAPACK": 1,
+      "AT_MKL_SEQUENTIAL": 0,
+      "AT_PARALLEL_OPENMP": 1
+    },
+    "scope": "exact selected archive configuration; does not identify the complete statically linked numerical library version, build, notices or CVE applicability",
+    "precise_MKL_version_and_static_composition": "pending"
+  }
 }
