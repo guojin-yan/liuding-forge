@@ -168,6 +168,14 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(CoverageOfflineDependenciesToolUnitTests PROPERTIES
         LABELS "hygiene;coverage"
     )
+    add_test(
+        NAME CoverageHitSanityToolUnitTests
+        COMMAND ${Python3_EXECUTABLE} -I -B
+                ${CMAKE_SOURCE_DIR}/tests/scripts/test_coverage_hits.py
+    )
+    set_tests_properties(CoverageHitSanityToolUnitTests PROPERTIES
+        LABELS "hygiene;coverage"
+    )
     if(UNIX)
         add_test(
             NAME CoverageLaneProtocolUnitTests

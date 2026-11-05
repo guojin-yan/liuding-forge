@@ -38,6 +38,8 @@ offline_inputs_sha256=not_run
 configured_cache_sha256=not_run
 coverage_tool=not_run
 policy_sha256=not_run
+coverage_hit_threshold=not_run
+coverage_hit_validation=not_run
 
 write_metadata() {
   local lane_status=$?
@@ -65,6 +67,8 @@ configured_cache_sha256=$configured_cache_sha256
 coverage_tool=$coverage_tool
 coverage_policy=coverage-policy.json
 coverage_policy_sha256=$policy_sha256
+coverage_parser_threshold=$coverage_hit_threshold
+coverage_hit_validation=$coverage_hit_validation
 gcov_search_root=$build_root
 components=core,interop,data,nn,optim,training,experiment,data_image,vision_render,models,serving,onnx_export,onnx_runtime,onnx_serving,bundle_signing,telemetry_native,telemetry_http,tools
 ctest_excluded_label=$(test "$packaging_excluded" = 1 && echo packaging || echo none)
@@ -84,7 +88,9 @@ trap 'termination_signal=TERM; exit 143' TERM
 printf 'last_stage=preflight\nlane_exit=running\n' > "$output_root/coverage-metadata.txt"
 rm -f "$output_root/ctest.exit" "$output_root/policy.exit"
 rm -f "$output_root/coverage-offline-inputs.json" "$output_root/coverage-offline-inputs-final.json" \
-  "$output_root/coverage-offline-cmake-args.txt"
+  "$output_root/coverage-offline-cmake-args.txt" \
+  "$output_root/coverage-counter-sanity.json" "$output_root/coverage-counter-sanity-validation.json" \
+  "$output_root/coverage-counter-sanity-final.json"
 command -v cmake >/dev/null
 command -v ctest >/dev/null
 command -v python3 >/dev/null
@@ -209,6 +215,15 @@ ctest_status=$?
 set -e
 printf '%s\n' "$ctest_status" > "$output_root/ctest.exit"
 
+stage=counter_sanity
+coverage_hit_threshold=$(run_logged 03-counter-sanity.log python3 -I -B \
+  "$source_root/scripts/validation/coverage_hits.py" prepare \
+  --source-root "$source_root" --build-dir "$build_root" \
+  --output "$output_root/coverage-counter-sanity.json")
+case "$coverage_hit_threshold" in
+  ''|*[!0-9]*) echo "Coverage counter check did not return a finite parser threshold" >&2; exit 2 ;;
+esac
+
 coverage_args=(
   --root "$source_root"
   --filter "$source_root/(src|include)/jyppx/"
@@ -217,18 +232,23 @@ coverage_args=(
   # inline template code. Keep the report usable while retaining a warning in
   # the lane log; the coverage summary still validates all three metrics.
   --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
-  # The selected suite hashes tens of GiB of checkpoints and artifacts. An
-  # independent input ledger for only three CPU recipes already accounts for
-  # 463,154,749 SHA-256 blocks (30,105,058,685 round-loop checks). The complete
-  # saved sample has 797,054,285 blocks and 51,808,528,525 such checks. Retain
-  # a finite 2^36 parser sanity bound; coverage ratchets remain independent.
-  --gcov-suspicious-hits-threshold=68719476736
+  # The ordinary sanity bound remains 2^36. A separately checked fixed SHA
+  # loop may have larger exact counts; its raw control flow determines this
+  # finite transport ceiling. Validate all XML hits before running the policy.
+  --gcov-suspicious-hits-threshold="$coverage_hit_threshold"
   -j "$build_parallelism"
 )
 stage=gcov_xml
 run_logged 04-gcov-xml.log gcovr "${coverage_args[@]}" \
   --xml-pretty \
   --output "$output_root/coverage.xml" "$build_root"
+stage=validate_hits
+run_logged 04-hit-validation.log python3 -I -B \
+  "$source_root/scripts/validation/coverage_hits.py" validate-xml \
+  --receipt "$output_root/coverage-counter-sanity.json" \
+  --xml "$output_root/coverage.xml" \
+  --output "$output_root/coverage-counter-sanity-validation.json"
+coverage_hit_validation=xml_passed
 stage=gcov_summary
 run_logged 05-gcov-summary.log gcovr "${coverage_args[@]}" \
   --json-summary-pretty \
@@ -254,6 +274,13 @@ stage=verify_dependencies
 run_logged 06-offline-inputs-final.log python3 -I -B "$source_root/scripts/validation/coverage_dependencies.py" recheck \
   --receipt "$output_root/coverage-offline-inputs.json" --cmake-cache "$build_root/CMakeCache.txt" \
   --output "$output_root/coverage-offline-inputs-final.json"
+stage=verify_hits_final
+run_logged 06-counter-sanity-final.log python3 -I -B \
+  "$source_root/scripts/validation/coverage_hits.py" validate-xml \
+  --receipt "$output_root/coverage-counter-sanity.json" \
+  --xml "$output_root/coverage.xml" \
+  --output "$output_root/coverage-counter-sanity-final.json"
+coverage_hit_validation=passed
 stage=complete
 if [ "$(sha256sum "$dependency_cache" | awk '{print $1}')" != "$dependency_cache_sha256" ]; then
   echo "Dependency input identity changed during coverage collection" >&2

@@ -124,6 +124,24 @@ else:
             path = self.bin / name
             path.write_text(stub, encoding="utf-8")
             path.chmod(0o755)
+        # This lane test stubs the native tools rather than creating GCC data.
+        # The counter parser's real binary and XML contracts have separate tests.
+        (scripts / "coverage_hits.py").write_text('''
+import json, os, pathlib, sys
+args = sys.argv[1:]
+with open(os.environ["JYPPX_FIXTURE_COMMAND_LOG"], "a", encoding="utf-8") as stream:
+    stream.write(json.dumps(["coverage_hits.py", *args]) + "\\n")
+mode = args[0]
+status = int(os.environ.get("JYPPX_FIXTURE_COUNTER_EXIT" if mode == "prepare"
+                            else "JYPPX_FIXTURE_XML_EXIT", "0"))
+if status:
+    sys.exit(status)
+if mode == "validate-xml":
+    assert pathlib.Path(args[args.index("--receipt") + 1]).is_file()
+    assert pathlib.Path(args[args.index("--xml") + 1]).is_file()
+pathlib.Path(args[args.index("--output") + 1]).write_text('{"synthetic_protocol_only": true}')
+print("68719476736" if mode == "prepare" else '{"synthetic_protocol_only": true}')
+''', encoding="utf-8")
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture",
@@ -180,6 +198,8 @@ else:
             if row[0] == "gcovr" and "--version" not in row:
                 self.assertEqual(row[-1], str(self.build))
                 self.assertEqual(row[row.index("-j") + 1], "2")
+                self.assertIn("--gcov-suspicious-hits-threshold=68719476736", row)
+        self.assertEqual(self.metadata()["coverage_hit_validation"], "passed")
         self.assertEqual(configure[configure.index("-C") + 1], str(self.dependency_cache))
         self.assertIn("-DFETCHCONTENT_FULLY_DISCONNECTED:BOOL=ON", configure)
         self.assertIn("-DFETCHCONTENT_UPDATES_DISCONNECTED:BOOL=ON", configure)
@@ -315,6 +335,28 @@ else:
         self.assertEqual(result.returncode, 3, result.stderr)
         self.assertEqual(self.metadata()["last_stage"], "gcov_xml")
         self.assertEqual(self.metadata()["policy_exit"], "not_run")
+
+    def test_counter_sanity_failure_prevents_all_report_passes(self) -> None:
+        result = self.run_lane(JYPPX_FIXTURE_COUNTER_EXIT="2")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(self.metadata()["last_stage"], "counter_sanity")
+        self.assertEqual(self.metadata()["coverage_hit_validation"], "not_run")
+        self.assertEqual(self.metadata()["policy_exit"], "not_run")
+        self.assertFalse(any(row[0] == "gcovr" and "--version" not in row
+                             for row in self.commands()))
+        self.assertFalse((self.output / "coverage-targets.json").exists())
+
+    def test_invalid_xml_hits_prevent_summary_and_policy(self) -> None:
+        result = self.run_lane(JYPPX_FIXTURE_XML_EXIT="2")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(self.metadata()["last_stage"], "validate_hits")
+        self.assertEqual(self.metadata()["coverage_hit_validation"], "not_run")
+        self.assertEqual(self.metadata()["policy_exit"], "not_run")
+        reports = [row for row in self.commands() if row[0] == "gcovr" and "--version" not in row]
+        self.assertEqual(len(reports), 1)
+        self.assertIn("--xml-pretty", reports[0])
+        self.assertFalse((self.output / "coverage-summary.json").exists())
+        self.assertFalse((self.output / "coverage-targets.json").exists())
 
     def test_dirty_source_cannot_begin_collection(self) -> None:
         (self.root / "marker.txt").write_text("changed\n", encoding="utf-8")
