@@ -1947,7 +1947,7 @@
           "sha256": "e985bcbb6b444c2c472de70c331ab101e6de860affa3a20d1d1aecd06d9242e8"
         },
         "acquisition": "official HTTPS using default Windows certificate validation; no validation override",
-        "RPM_signature_verification": "not performed; package identity is bound to the acquired official HTTPS bytes"
+        "RPM_signature_verification": "Both OpenPGP v4 RSA PKCS1v1.5 SHA256 header and header+payload signatures verified under the official HTTPS AlmaLinux 8 key identified in distribution_source; PGP trust and revocation policy not evaluated"
       },
       "actual_binary_correspondence": {
         "state": "original_Alma_build_traced_with_exact_code_data_and_loader_semantics",
@@ -1987,7 +1987,47 @@
         "base_source_repository": "https://gcc.gnu.org/git/gcc.git",
         "base_source_revision": "a3253c88425835d5b339d6998a1110a66ccd8b44",
         "distribution_patches": "the exact fixed gcc.spec lists and applies downstream patches; unpatched GCC 8.5.0 alone is not asserted to recreate this binary",
-        "full_source_archive_locally_hashed": false
+        "full_source_archive_locally_hashed": true,
+        "source_rpm_artifact": {
+          "url": "https://vault.almalinux.org/8.10/BaseOS/Source/Packages/gcc-8.5.0-28.el8_10.alma.1.src.rpm",
+          "identity": {
+            "bytes": 65715094,
+            "sha256": "c94dbbd2cd6d5d01a5a6822ea18f8ce34942c25a80e17b4682d547d5e652dbd0"
+          },
+          "contents": "Exact fixed-commit gcc.spec, all three declared source archives and all 59 declared downstream patches; all 63 regular RPM payload members verified against the signed RPM header",
+          "acquisition": "official HTTPS using default Windows certificate validation; no validation override",
+          "RPM_signature_verification": "Both OpenPGP v4 RSA PKCS1v1.5 SHA256 header and header+payload signatures verified under the official HTTPS AlmaLinux 8 key; PGP trust and revocation policy not evaluated",
+          "corresponding_source_conveyance_complete": false
+        },
+        "source_archives": [
+          {
+            "name": "gcc-8.5.0-20210514.tar.xz",
+            "bytes": 57977652,
+            "sha256": "09718a9a8b3b55c13dc4e0de6f353ca6bfe9a23fcae5d7ba3991ffc055b10245",
+            "distribution_metadata_sha1": "b7245af5eab1d4055b6590b6e4f5fb3b7f6c24bf"
+          },
+          {
+            "name": "nvptx-tools-c28050f60193b3b95a18866a96f03334e874e78f.tar.xz",
+            "bytes": 519308,
+            "sha256": "f5c09b9fe820f5825c6cbb06871a32b29cd6600003edf301130f859408c62389",
+            "distribution_metadata_sha1": "ce8eb83be0ac37fb5d5388df455a980fe37b4f13"
+          },
+          {
+            "name": "nvptx-newlib-aadc8eb0ec43b7cd0dd2dfb484bae63c8b05ef24.tar.xz",
+            "bytes": 6918480,
+            "sha256": "aa2b782a2df1b021117437a4940e9b45528310d450eaaca4c1f8df3dc7ec977d",
+            "distribution_metadata_sha1": "3bdb3cc01fa7690a0e20ea5cfffcbe690f7665eb"
+          }
+        ],
+        "signature_key": {
+          "url": "https://repo.almalinux.org/almalinux/RPM-GPG-KEY-AlmaLinux-8",
+          "identity": {
+            "bytes": 5150,
+            "sha256": "2cbe597b108cefbf571d8d430d238d0a7a6575eebf6c80649be5e10c323e7023"
+          },
+          "OpenPGP_v4_fingerprint": "bc5eddcadf502c077f1582882ae81e8aced7258b",
+          "authority_basis": "Default-trust official HTTPS public-key bytes; no local trust-store import or modification"
+        }
       },
       "obligations": [
         "Retain the exact GPLv3 and GCC Runtime Library Exception 3.1 notices and applicable copyright notices when conveying the runtime.",

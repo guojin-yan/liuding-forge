@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补齐 Linux CPU LibTorch 随包 libgomp 的精确官方 GCC 源包、源码与补丁身份，并验证源包及运行库包的签名；完整对应源码交付仍待完成。
+
 - 补存 Linux CPU LibTorch 随包 libgomp 的 GPLv3 与 GCC Runtime Library Exception 原文，并核实实际运行库对应的 AlmaLinux 构建及源码版本，保留完整分发审查状态。
 
 - 补存 Linux CPU LibTorch 2.14.1 的固定版本第三方许可原文及实际包成员来源，区分各组件条款，保留随包运行库和完整再分发审查。
