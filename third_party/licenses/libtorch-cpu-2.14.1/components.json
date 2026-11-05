@@ -1910,7 +1910,7 @@
     "263 of 321 third-party headers can be reproduced from existing Windows headers by CRLF-to-LF only and their exact original CPU member SHA-256 is rechecked; the other 58 are not claimed byte-equivalent. One PyTorch-owned libshm header is recorded separately, giving 322 headers in total with 59 not claimed byte-equivalent.",
     "oneDNN THIRD-PARTY-PROGRAMS is retained in full, including notices for its source components. This does not prove that every listed source component is enabled in this CPU binary.",
     "ITT API upstream is BSD-3-Clause OR GPL-2.0-only, with both exact texts retained. This alternative license does not assign GPL terms to all of PyTorch or to unrelated SDK code.",
-    "The bundled libgomp code/data and loader semantics are traced to the exact AlmaLinux 8.5.0-28.el8_10.alma.1 package and its pinned GCC packaging/base-source revisions. Complete GPLv3 and GCC Runtime Library Exception texts are retained. Actual downstream Corresponding Source conveyance, packaging-modification material, embedded static numerical libraries and full transitive redistribution review remain pending; no GCC version is inferred from the PyTorch build hash.",
+    "The bundled libgomp code/data and loader semantics are traced to the exact AlmaLinux 8.5.0-28.el8_10.alma.1 package and its pinned GCC packaging/base-source revisions. Complete GPLv3 and GCC Runtime Library Exception texts are retained. Fixed official PyTorch RPATH modification scripts and the Linux CPU workflow are recorded below; the actual archive's historical execution, source-wheel identity, container digest and patchelf version are not proven. Actual downstream Corresponding Source conveyance, embedded static numerical library identification and full transitive redistribution review remain pending; no GCC version is inferred from the PyTorch build hash.",
     "No CVE status, license-policy decision, binary redistribution clearance, complete support matrix or formal release qualification is granted by this inventory."
   ],
   "bundled_runtime_provenance": {
@@ -2028,6 +2028,74 @@
           "OpenPGP_v4_fingerprint": "bc5eddcadf502c077f1582882ae81e8aced7258b",
           "authority_basis": "Default-trust official HTTPS public-key bytes; no local trust-store import or modification"
         }
+      },
+      "pytorch_packaging_modification_material": {
+        "fixed_PyTorch_revision": "5c4886908584029761b579af026dcfb627c84070",
+        "fixed_official_source_originals_obtained": true,
+        "official_sources": [
+          {
+            "source_path": ".ci/libtorch/extract_libtorch_from_wheel.py",
+            "official_raw_url": "https://raw.githubusercontent.com/pytorch/pytorch/5c4886908584029761b579af026dcfb627c84070/.ci/libtorch/extract_libtorch_from_wheel.py",
+            "git_blob_sha1": "2802e5fd9569a4e90199b9d198453540a21128ed",
+            "bytes": 18660,
+            "sha256": "c6c52f14209ef35b65154d43cc8cac5032c92df8abb7774de0786483d62d9a9c"
+          },
+          {
+            "source_path": ".github/workflows/generated-linux-binary-manywheel-nightly.yml",
+            "official_raw_url": "https://raw.githubusercontent.com/pytorch/pytorch/5c4886908584029761b579af026dcfb627c84070/.github/workflows/generated-linux-binary-manywheel-nightly.yml",
+            "git_blob_sha1": "d58ddfac7cc408879b9c0593c7afa267ce5b9839",
+            "bytes": 86362,
+            "sha256": "92007028014d16bbb210b89a6923018d46dc1269378918dfd5f5ff4c7b39a9b1"
+          }
+        ],
+        "Linux_CPU_source_chain": {
+          "workflow_CPU_matrix_lines": "1664-1672",
+          "desired_cuda": "cpu",
+          "libtorch_variant": "shared-with-deps",
+          "libtorch_config": "release",
+          "source_wheel_build_name_label": "manywheel-py3_10-cpu",
+          "build_name_label": "libtorch-cpu-shared-with-deps-release",
+          "container_image_name_label": "manylinux2_28-builder",
+          "container_image_tag_prefix_label": "cpu",
+          "checkout_and_extract_lines": "1724-1747",
+          "checkout_ref_expression": "github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha",
+          "checkout_sparse_path": ".ci/libtorch/",
+          "workflow_extraction_command": [
+            "python3",
+            ".ci/libtorch/extract_libtorch_from_wheel.py",
+            "--wheel-dir",
+            "${GITHUB_WORKSPACE}/wheel_artifact",
+            "--output-dir",
+            "${GITHUB_WORKSPACE}/libtorch_output",
+            "--platform",
+            "linux",
+            "--desired-cuda",
+            "$DESIRED_CUDA",
+            "--libtorch-variant",
+            "$LIBTORCH_VARIANT"
+          ],
+          "Linux_extraction_RPATH_call_lines": "492-502",
+          "CPU_reaches_fix_rpath": true,
+          "fix_rpath_lines": "103-129",
+          "modified_files": "regular files with names ending .so or containing .so. in libtorch/lib",
+          "patchelf_lookup": "shutil.which('patchelf')",
+          "RPATH_rewrite_argv_template": [
+            "patchelf",
+            "--set-rpath",
+            "$ORIGIN",
+            "--force-rpath",
+            "<selected-shared-library-path>"
+          ],
+          "source_level_effect": "The fixed official Linux extraction script explicitly forces $ORIGIN RPATH for selected shared libraries, including the CPU branch."
+        },
+        "actual_archive_historical_execution_proven": false,
+        "unproven_historical_bindings": [
+          "The execution record that produced the actual selected CPU ZIP.",
+          "The exact source-wheel artifact identity, bytes and digest used by that execution.",
+          "The actual extraction-container image digest.",
+          "The actual patchelf version and execution record."
+        ],
+        "scope": "These fixed official source originals document the applicable CPU packaging modification logic. They do not replay or establish the actual archive's historical build, complete downstream Corresponding Source conveyance, static numerical-library identification or redistribution qualification."
       },
       "obligations": [
         "Retain the exact GPLv3 and GCC Runtime Library Exception 3.1 notices and applicable copyright notices when conveying the runtime.",
