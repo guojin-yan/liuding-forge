@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补录干净提交 `7b4e9d8c` 的完整 Linux CPU Release SDK 与安装消费者事实：选定 1987 项合同为 1808 通过、179 条件跳过、零失败，保留准备阶段原失败及其他配置/设备/发布边界。
+
 - 本地配方暂停时保存绑定 checkpoint 的工作目录与训练记录快照；已确认的精确续训可从 CAS 重建丢失的目录，保留原身份并拒绝覆盖现存目录。
 
 - 补齐 Linux CPU LibTorch 随包 libgomp 的固定官方打包脚本及 CPU 调用链，记录 `$ORIGIN` RPATH 修改，保留历史构建绑定和完整对应源码交付待办。

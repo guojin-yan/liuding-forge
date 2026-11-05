@@ -116,6 +116,29 @@
             "consumer_terminal_sha256": "521b474d266f70ecb16456e2df4b20127eaeb4b0e80496fcdc8d8d80fccf46c4"
           },
           "commit": "2339a9739da35ab5c9f16842927d17b78cc0df60"
+        },
+        {
+          "id": "local-ubuntu-gcc114-cpu214-clean-7b4e9d8-selected-release",
+          "os": "ubuntu-22.04",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; no CUDA or non-CPU ORT provider execution qualification",
+          "build_type": "Release",
+          "tests": "One complete selected CTest batch: 1987 unique contracts, 1808 passed, 179 conditional skips, 0 failures; independent installed C++ consumer 1/1 passed.",
+          "instrumentation": "Clean real shallow Git checkout; full selected 18-library SDK, tools, tests and examples; Unix Makefiles; build and tests each parallelism 1; no instrumentation",
+          "quality_evidence": {
+            "source_identity": "Real committed 7b4e9d8c21ccef3798e624007949e4d76ed107b1 checkout; git fsck --full --strict passed; all 1258 Git blob and checkout SHA-256 identities verified; source unchanged after tests.",
+            "source_binding_sha256": "b3465881ee09f7523b6b4064f103ab933f19f1bc8e1143287362cd1ca8b2fc1f",
+            "original_failures": "r1 missing ignored parser archives stopped configuration; r2 process-snapshot race stopped make before product compilation. Both original terminal receipts and archives retained. No product assertions were relaxed.",
+            "selected_results_sha256": "7daf0818fd2462552d01db861754a946681c6b34028498c469bffb02b80f25bc",
+            "terminal_sha256": "5845236312181cf91bffef8abc3b52930640b911f6eb0346edc0b62f9af226ca",
+            "installed_consumer": "Separately configured C++ consumer used only new installed framework headers/libraries, exact 7b4e9d8c21ccef3798e624007949e4d76ed107b1/Release fingerprint and exactly eight Core sdk members; link map verified.",
+            "consumer_junit_sha256": "81420fe94af2283ffe250df5a11c8adba037c553682976d8a1aff34ab9efb237",
+            "resource_boundary": "Original root baseline 15652184064 bytes and 10 GiB growth cap retained; combined coverage/418/419/420 prefix allocation capped at 10 GiB; root/tmpfs 2 GiB stop lines, MemAvailable 4 GiB stop and owned RSS 5 GiB cap; no quota enlargement. Thirteen already-passed private consumer trees were fully hashed/archived in two groups and reclaimed during the same serial CTest batch; the 209320414-byte completed training archive was moved to verified local retention. Source, SDKs, assertions and original failures were preserved.",
+            "scope": "CPU selected Release qualification only. OptionalComponentMatrix and PreviewComponentMatrix are separate configurations and are not counted in this batch. Conditional skips, current coverage, full model/task/device matrices, Windows HTTP and formal release gates remain separate."
+          },
+          "commit": "7b4e9d8c21ccef3798e624007949e4d76ed107b1"
         }
       ],
       "pending_lanes": [
