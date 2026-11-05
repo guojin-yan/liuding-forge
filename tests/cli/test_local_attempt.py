@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 def sha256(path: Path) -> str:
@@ -118,6 +119,14 @@ def fixture(mode: str, root: Path, arguments: list[str]) -> None:
     if mode == "fail" or (mode == "retry" and index < 2):
         os.write(1, b"failed-output\x00\xff")
         os._exit(23)
+    if mode == "environment_reference":
+        payload = {"matched": os.environ.get("LOCAL_REFERENCE_VALUE") ==
+                   "private-本地引用-\\\"$()&",
+                   "empty_present": "LOCAL_REFERENCE_EMPTY" in os.environ,
+                   "empty_value": os.environ.get("LOCAL_REFERENCE_EMPTY"),
+                   "source_absent": "LIUDING_REFERENCE_SOURCE" not in os.environ}
+        os.write(1, json.dumps(payload).encode("ascii"))
+        return
     payload = {"argv": arguments, "cwd": str(Path.cwd()), "index": index,
         "job_id": os.environ["JYPPX_LIUDING_LOCAL_JOB_ID"],
         "attempt_id": os.environ["JYPPX_LIUDING_LOCAL_ATTEMPT_ID"],
@@ -266,6 +275,104 @@ class LocalAttemptTest(unittest.TestCase):
         spec = dict(self.spec, executable=str(executable), executable_sha256=sha256(executable),
             arguments=arguments, working_directory=str(cwd), max_attempts=1, retry_exit_codes=[])
         return spec, executable, cwd
+
+    def test_environment_references_resolve_without_persisting_values_and_replay_after_removal(self) -> None:
+        secret = "private-本地引用-\\\"$()&"
+        self.spec.update(inherit_environment=False, environment={}, environment_refs={
+            "LOCAL_REFERENCE_VALUE": {"source": "process_environment", "name": "LIUDING_REFERENCE_SOURCE"},
+            "LOCAL_REFERENCE_EMPTY": {"source": "process_environment", "name": "LIUDING_REFERENCE_EMPTY"}})
+        self.write_spec("environment_reference")
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE=secret, LIUDING_REFERENCE_EMPTY=""):
+            result = self.local("execute")
+        attempt = result["attempts"][0]["attempt_id"]
+        refs = self.references(attempt)
+        observed = json.loads(self.blob(refs["local.stdout"]))
+        self.assertEqual(observed, {"matched": True, "empty_present": True,
+                                   "empty_value": "", "source_absent": True})
+        forbidden = (secret.encode(), hashlib.sha256(secret.encode()).hexdigest().encode())
+        for file in self.root.rglob("*"):
+            if file.is_file():
+                raw = file.read_bytes()
+                for value in forbidden:
+                    self.assertNotIn(value, raw, str(file))
+        frozen = json.loads(self.blob(self.references("job-one")["local.spec"]))
+        self.assertEqual(frozen, self.spec)
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.local(action), result)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_environment_reference_schema_rejects_conflicts_reserved_and_unknown_sources(self) -> None:
+        reference = {"source": "process_environment", "name": "LIUDING_REFERENCE_SOURCE"}
+        invalid = [None, [], {"LOCAL_ATTEMPT_FIXTURE": reference},
+            {"local_attempt_fixture": reference}, {"1BAD": reference},
+            {"jYpPx_lIuDiNg_lOcAl_JOB_ID": reference},
+            {"TOKEN": dict(reference, name="JYPPX_LIUDING_LOCAL_JOB_ID")},
+            {"TOKEN": dict(reference, name="BAD=NAME")},
+            {"TOKEN": dict(reference, source="file")},
+            {"TOKEN": dict(reference, extra="unrecognized")},
+            {"TOKEN": dict(reference, name="${trial_id}")},
+            {"TOKEN": reference, "token": reference},
+            {f"REF_{index}": reference for index in range(128)}]
+        for index, references in enumerate(invalid):
+            with self.subTest(index=index):
+                self.spec["environment_refs"] = references
+                self.write_spec()
+                rejected = self.invoke("local", "execute", "--root", self.root,
+                    "--id", "invalid-reference", "--spec", self.spec_path, expected=2)
+                self.assertEqual(rejected["status"], "error")
+                self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_environment_reference_missing_and_combined_launch_bound_fail_before_store(self) -> None:
+        self.spec.update(environment={}, environment_refs={"TOKEN": {
+            "source": "process_environment", "name": "LIUDING_REFERENCE_SOURCE"}})
+        self.write_spec()
+        with patch.dict(os.environ):
+            os.environ.pop("LIUDING_REFERENCE_SOURCE", None)
+            missing = self.invoke("local", "execute", "--root", self.root,
+                "--id", "missing-reference", "--spec", self.spec_path, expected=2)
+        self.assertIn("referenced process environment variable is unavailable", missing["error"]["message"])
+        self.assertFalse(self.root.exists())
+        # Per-variable Windows limits stay below 32 KiB; the combined native
+        # launch still exceeds 64 KiB once three destinations are resolved.
+        self.spec["environment_refs"] = {name: {"source": "process_environment",
+            "name": "LIUDING_REFERENCE_SOURCE"} for name in ("TOKEN_A", "TOKEN_B", "TOKEN_C")}
+        self.write_spec()
+        value = "private-bound-" + "x" * 23000
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE=value):
+            rejected = self.invoke("local", "execute", "--root", self.root,
+                "--id", "oversized-reference", "--spec", self.spec_path, expected=2)
+        self.assertIn("resolved argv/environment exceeds 64 KiB", rejected["error"]["message"])
+        self.assertNotIn(value, json.dumps(rejected))
+        self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_environment_references_preserve_retry_and_empty_opt_in_legacy_semantics(self) -> None:
+        self.spec["environment_refs"] = {"LOCAL_ATTEMPT_FIXTURE": {
+            "source": "process_environment", "name": "LIUDING_REFERENCE_SOURCE"}}
+        self.spec["environment"] = {}
+        self.write_spec("retry")
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE="resolved-retry"):
+            result = self.local("execute")
+        self.assertEqual(len(result["attempts"]), 2)
+        last = result["attempts"][-1]["attempt_id"]
+        self.assertEqual(json.loads(self.blob(self.references(last)["local.stdout"]))["token"], "resolved-retry")
+        spec, _, _ = self.private_native_spec("empty-reference")
+        spec["environment_refs"] = {}
+        self.assertEqual(self.execute_named("empty-reference", spec)["data"]["status"], "completed")
+
+    @unittest.skipIf(os.name == "nt", "POSIX byte environment has no Windows equivalent")
+    def test_environment_reference_invalid_utf8_has_value_free_error_before_store(self) -> None:
+        self.spec["environment_refs"] = {"TOKEN": {
+            "source": "process_environment", "name": "LIUDING_REFERENCE_SOURCE"}}
+        self.write_spec()
+        with patch.dict(os.environb):
+            os.environb[b"LIUDING_REFERENCE_SOURCE"] = b"private-invalid-\xff"
+            rejected = self.invoke("local", "execute", "--root", self.root,
+                "--id", "invalid-utf8-reference", "--spec", self.spec_path, expected=2)
+        self.assertIn("Referenced environment value must be valid UTF-8", rejected["error"]["message"])
+        self.assertNotIn("private-invalid", json.dumps(rejected))
+        self.assertFalse(self.root.exists())
 
     def test_native_executable_larger_than_training_artifact_limit(self) -> None:
         spec, executable, _ = self.private_native_spec("large-executable")

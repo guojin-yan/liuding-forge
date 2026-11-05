@@ -27,6 +27,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -295,6 +296,28 @@ class LocalSearchTests(unittest.TestCase):
             self.assertTrue(job["attempts"][0]["result"]["process_tree_cleanup_confirmed"])
         self.assertEqual(self.search("recover")["best"], result["best"])
         self.assertEqual(len(self.launches()), 3)
+
+    def test_environment_references_flow_through_search_and_replay_without_source(self) -> None:
+        self.single("ok")
+        self.spec["execution"].update(environment={}, environment_refs={"SEARCH_PARAMETER": {
+            "source": "process_environment", "name": "LIUDING_SEARCH_REFERENCE_SOURCE"}})
+        with patch.dict(os.environ):
+            os.environ.pop("LIUDING_SEARCH_REFERENCE_SOURCE", None)
+            self.reject_search("execute")
+            self.assertFalse(self.root.exists())
+            self.assertEqual(self.launches(), [])
+        value = "referenced-search-value"
+        with patch.dict(os.environ, LIUDING_SEARCH_REFERENCE_SOURCE=value):
+            result = self.search("execute")
+        self.assertEqual(self.launches()[0]["environment"], value)
+        trial = result["trials"][0]["trial_id"]
+        for run, role in ((self.search_id, "search.spec"), (trial, "local.spec")):
+            content, _ = committed_reference(self.root, run, role)
+            self.assertNotIn(value.encode(), content)
+            self.assertIn(b"LIUDING_SEARCH_REFERENCE_SOURCE", content)
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.search(action), result)
+        self.assertEqual(len(self.launches()), 1)
 
     def test_grid_is_serial_uses_committed_metrics_and_replays_without_launch(self) -> None:
         result = self.search("execute")

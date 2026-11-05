@@ -54,7 +54,26 @@ Windows 采用挂起启动并加入禁止 breakaway 的 kill-on-close Job Object
 }
 ```
 
-Windows 将示例中的程序和工作目录改成真实绝对路径，JSON 中的反斜杠需转义。目标程序每次启动前核对 SHA-256；计划最多 64 KiB、256 个参数、128 个环境覆盖、16 次 attempt，单次时限最多 24 小时，双流各最多捕获 8 MiB，重试间隔最多 60 秒。只有声明的非零普通退出码可重试；信号、取消、超时、超限与启动失败不自动重试。`max_attempts` 包含首次执行。环境覆盖原样存入本地 CAS；此入口尚无 secret-reference 解析或环境快照认证。
+Windows 将示例中的程序和工作目录改成真实绝对路径，JSON 中的反斜杠需转义。目标程序每次启动前核对 SHA-256；计划最多 64 KiB、256 个参数、128 个环境项、16 次 attempt，单次时限最多 24 小时，双流各最多捕获 8 MiB，重试间隔最多 60 秒。只有声明的非零普通退出码可重试；信号、取消、超时、超限与启动失败不自动重试。`max_attempts` 包含首次执行。`environment` 中的值原样存入本地 CAS；需要只保存变量引用时使用下一节的 `environment_refs`。
+
+### 环境变量引用
+
+`local_run_spec` 与搜索的 `execution` 可选 `environment_refs`，将目标环境名映射到启动进程环境中的变量引用：
+
+```json
+{
+  "environment_refs": {
+    "SERVICE_TOKEN": {"source": "process_environment", "name": "LOCAL_SERVICE_TOKEN"}
+  },
+  "inherit_environment": false
+}
+```
+
+计划只冻结引用的来源与名称；C++ 运行器在准入及实际 worker 启动前解析值，不将解析值或其摘要加入计划、intent、结果或错误信息。变量缺失、无效 UTF-8 或解析后显式 argv/环境合计超过64 KiB时拒绝启动；存在的空值保留为空字符串。首次请求在准入前失败时不会创建 STORE；已持久资源预约或 worker 端的解析失败沿用原有 launch-error 与清理确认合同。
+
+显式环境和引用合计最多128项；引用的目标与来源名限128字节的 ASCII 字母、数字与下划线，首字符不能是数字。目标名不得与显式环境或其他引用按 ASCII 大小写冲突，目标与来源均不得使用运行器保留前缀；不展开 shell、文件路径或搜索占位符。已有任务的查询、恢复及重复执行只读重放已确认结果，不要求来源变量仍存在；实际新 attempt 使用当次调用者传给 worker 的值。
+
+这是本机进程环境引用，不认证环境快照、secret manager 或值的跨重试一致性。`inherit_environment=false` 可避免整份父环境进入训练程序；训练程序若自行把变量写到 stdout/stderr 或产物，这些内容仍按原有合同保存，不自动脱敏。依赖变量值的训练可复现性须由应用自己的输入身份合同保证。
 
 每次 attempt 是独立 child run，关联 parent job、冻结计划和原始输出。`JYPPX_LIUDING_LOCAL_` 前缀由运行器保留，不区分 ASCII 大小写；显式环境覆盖使用该前缀时，新任务在创建 Store 和启动进程前以 `invalid_argument` 拒绝。程序可从 `JYPPX_LIUDING_LOCAL_JOB_ID`、`JYPPX_LIUDING_LOCAL_ATTEMPT_ID`、`JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX` 读取身份；工作目录由调用者提供并在重试间复用，应用负责按 attempt ID 隔离自己的可变文件。运行器不猜测训练程序的 checkpoint/resume 参数，也不解析退出码为训练完成或暂停语义。
 

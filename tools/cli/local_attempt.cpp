@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <set>
@@ -58,6 +59,70 @@ bool reserved_environment_name(std::string_view name) {
     if (current != static_cast<unsigned char>(prefix[index])) return false;
   }
   return true;
+}
+
+std::string environment_key(std::string_view name) {
+  std::string result(name);
+  for (auto& c : result) {
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+  }
+  return result;
+}
+
+void environment_reference_name(std::string_view name) {
+  const auto letter = [](unsigned char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+  };
+  require(!name.empty() && name.size() <= 128 && letter(name.front()) &&
+              std::all_of(name.begin(), name.end(), [&](unsigned char c) {
+                return letter(c) || (c >= '0' && c <= '9');
+              }) &&
+              !reserved_environment_name(name),
+          "Environment references require non-reserved portable names");
+}
+
+// Resolve only named variables. Never put resolved bytes or their digests in
+// the frozen spec, launch intent, result, or diagnostic text.
+std::string process_environment_value(const std::string& name) {
+#if defined(_WIN32)
+  const std::wstring wide_name(name.begin(), name.end());
+  SetLastError(ERROR_SUCCESS);
+  const auto capacity = GetEnvironmentVariableW(wide_name.c_str(), nullptr, 0);
+  if (capacity == 0) {
+    require(GetLastError() == ERROR_SUCCESS,
+            "A referenced process environment variable is unavailable");
+    return {};
+  }
+  require(capacity <= kSpecBytes + 1,
+          "Referenced environment value exceeds the launch bound");
+  std::vector<wchar_t> buffer(capacity);
+  SetLastError(ERROR_SUCCESS);
+  const auto length =
+      GetEnvironmentVariableW(wide_name.c_str(), buffer.data(), capacity);
+  require(length < capacity && (length != 0 || GetLastError() == ERROR_SUCCESS),
+          "Cannot read a referenced process environment variable");
+  if (length == 0) return {};
+  const auto count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                                       buffer.data(), static_cast<int>(length),
+                                       nullptr, 0, nullptr, nullptr);
+  require(count > 0 && static_cast<std::uint64_t>(count) <= kSpecBytes,
+          "Referenced environment value is invalid or exceeds the launch bound");
+  std::string result(static_cast<std::size_t>(count), '\0');
+  require(WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, buffer.data(),
+                              static_cast<int>(length), result.data(), count,
+                              nullptr, nullptr) == count,
+          "Cannot encode a referenced process environment variable");
+  return result;
+#else
+  const auto* value = std::getenv(name.c_str());
+  require(value != nullptr,
+          "A referenced process environment variable is unavailable");
+  std::size_t length = 0;
+  while (length <= kSpecBytes && value[length] != '\0') ++length;
+  require(length <= kSpecBytes,
+          "Referenced environment value exceeds the launch bound");
+  return {value, length};
+#endif
 }
 
 std::uint64_t positive(const Json& value, std::uint64_t maximum) {
@@ -338,6 +403,7 @@ struct Spec {
   std::string project;
   std::string experiment;
   LocalProcessOptions process;
+  std::map<std::string, std::string> environment_references;
   std::uint64_t maximum_attempts = 1;
   std::uint64_t retry_delay_ms = 0;
   std::optional<std::uint64_t> deadline_unix_ms;
@@ -353,7 +419,7 @@ Spec read_spec(const Json& value) {
        "executable_sha256", "arguments", "working_directory", "environment",
        "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
-       "deadline_unix_ms", "training", "resources"});
+       "deadline_unix_ms", "training", "resources", "environment_refs"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -392,6 +458,28 @@ Spec read_spec(const Json& value) {
     process.environment[name] = text(item);
     launch_bytes += name.size() + process.environment[name].size() + 2;
   }
+  if (value.contains("environment_refs")) {
+    const auto& references = value.at("environment_refs");
+    require(references.is_object() &&
+                references.size() + process.environment.size() <= 128,
+            "Local execution allows at most 128 combined environment entries");
+    std::set<std::string> names;
+    for (const auto& [name, unused] : process.environment) {
+      static_cast<void>(unused);
+      names.insert(environment_key(name));
+    }
+    for (const auto& [name, reference] : references.items()) {
+      environment_reference_name(name);
+      require(names.insert(environment_key(name)).second,
+              "Environment reference destinations must be unique ignoring ASCII case");
+      fields(reference, {"source", "name"});
+      require(text(reference.at("source")) == "process_environment",
+              "Unknown environment reference source");
+      auto source = text(reference.at("name"));
+      environment_reference_name(source);
+      result.environment_references.emplace(name, std::move(source));
+    }
+  }
   require(launch_bytes <= kSpecBytes,
           "Local explicit argv/environment exceeds 64 KiB");
   process.inherit_environment = value.at("inherit_environment").get<bool>();
@@ -424,6 +512,29 @@ Spec read_spec(const Json& value) {
             "Checkpoint continuation requires a bounded retry policy");
   if (value.contains("resources"))
     result.resources = resource_spec(value.at("resources"));
+  return result;
+}
+
+LocalProcessOptions resolved_process(const Spec& spec) {
+  auto result = spec.process;
+  if (spec.environment_references.empty()) return result;
+  std::size_t launch_bytes = path_text(result.executable).size() + 1;
+  for (const auto& argument : result.arguments) launch_bytes += argument.size() + 1;
+  for (const auto& [name, value] : result.environment)
+    launch_bytes += name.size() + value.size() + 2;
+  for (const auto& [name, source] : spec.environment_references) {
+    auto value = process_environment_value(source);
+    // JSON's strict encoder checks UTF-8 without exposing the value on error.
+    try {
+      static_cast<void>(Json(value).dump());
+    } catch (const Json::exception&) {
+      throw InvalidArgument("Referenced environment value must be valid UTF-8");
+    }
+    launch_bytes += name.size() + value.size() + 2;
+    require(launch_bytes <= kSpecBytes,
+            "Local resolved argv/environment exceeds 64 KiB");
+    result.environment.emplace(name, std::move(value));
+  }
   return result;
 }
 
@@ -514,6 +625,8 @@ void preflight(const Spec& spec) {
       spec.process.executable, recipe_support::kExecutableLimit);
   require(actual.hex == spec.executable_sha256,
           "Local executable SHA-256 differs from the frozen spec");
+  if (!spec.environment_references.empty())
+    static_cast<void>(resolved_process(spec));
 }
 
 RunArtifactReference put_json(SQLiteRunStore& store, std::string_view run,
@@ -1570,7 +1683,7 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
         native.process_tree_cleanup_confirmed = true;
       } else {
         preflight(spec);
-        auto options = spec.process;
+        auto options = resolved_process(spec);
         const auto started = std::chrono::steady_clock::now();
         auto deadline = started + options.timeout;
         if (spec.deadline_unix_ms) {
