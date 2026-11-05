@@ -12,6 +12,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <psapi.h>
 #else
 #include <fcntl.h>
 #include <poll.h>
@@ -599,6 +600,11 @@ class NativeProcess {
 
   bool cleanup_confirmed() const noexcept { return cleanup_confirmed_; }
 
+  const std::optional<LocalProcessResourceUsage>& resource_usage() const
+      noexcept {
+    return resource_usage_;
+  }
+
   void close_input() noexcept { input_.cancel(); }
 
   void stop_tree() noexcept {
@@ -645,6 +651,28 @@ class NativeProcess {
                                     JobObjectBasicAccountingInformation,
                                     &accounting, sizeof(accounting), nullptr) &&
           accounting.ActiveProcesses == 0U;
+      // Read the owned handle only after final exit and before closing it.
+      // Accounting failure must not change cleanup or termination semantics.
+      if (WaitForSingleObject(process_.get(), 0U) == WAIT_OBJECT_0) {
+        LocalProcessResourceUsage usage{
+            LocalProcessResourceSource::windows_process, {}, {}, {}};
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (GetProcessTimes(process_.get(), &created, &exited, &kernel, &user)) {
+          const auto microseconds = [](const FILETIME& value) {
+            return ((static_cast<std::uint64_t>(value.dwHighDateTime) << 32U) |
+                    value.dwLowDateTime) /
+                   10U;
+          };
+          usage.user_cpu_time_us = microseconds(user);
+          usage.system_cpu_time_us = microseconds(kernel);
+        }
+        PROCESS_MEMORY_COUNTERS memory{};
+        memory.cb = sizeof(memory);
+        if (K32GetProcessMemoryInfo(process_.get(), &memory, sizeof(memory)))
+          usage.peak_resident_memory_bytes = memory.PeakWorkingSetSize;
+        if (usage.user_cpu_time_us || usage.peak_resident_memory_bytes)
+          resource_usage_ = usage;
+      }
     }
     job_.reset();
     process_.reset();
@@ -662,6 +690,7 @@ class NativeProcess {
   bool cleanup_confirmed_ = false;
   bool termination_requested_ = false;
   std::optional<Clock::time_point> cleanup_deadline_;
+  std::optional<LocalProcessResourceUsage> resource_usage_;
 };
 #else
 
@@ -995,6 +1024,11 @@ class NativeProcess {
 
   bool cleanup_confirmed() const noexcept { return cleanup_confirmed_; }
 
+  const std::optional<LocalProcessResourceUsage>& resource_usage() const
+      noexcept {
+    return resource_usage_;
+  }
+
   void close_input() noexcept { input_.reset(); }
 
   void stop_tree() noexcept {
@@ -1021,7 +1055,38 @@ class NativeProcess {
       while (true) {
         if (!reaped_) {
           int status = 0;
+#if defined(__linux__)
+          rusage accounting{};
+          const auto result = wait4(pid_, &status, WNOHANG, &accounting);
+          if (result == pid_) {
+            LocalProcessResourceUsage usage{
+                LocalProcessResourceSource::linux_wait4, {}, {}, {}};
+            const auto microseconds = [](const timeval& value)
+                -> std::optional<std::uint64_t> {
+              constexpr auto maximum =
+                  std::numeric_limits<std::uint64_t>::max();
+              if (value.tv_sec < 0 || value.tv_usec < 0 ||
+                  value.tv_usec >= 1000000)
+                return {};
+              const auto seconds = static_cast<std::uint64_t>(value.tv_sec);
+              const auto fraction = static_cast<std::uint64_t>(value.tv_usec);
+              if (seconds > (maximum - fraction) / 1000000U) return {};
+              return seconds * 1000000U + fraction;
+            };
+            usage.user_cpu_time_us = microseconds(accounting.ru_utime);
+            usage.system_cpu_time_us = microseconds(accounting.ru_stime);
+            if (accounting.ru_maxrss >= 0 &&
+                static_cast<std::uint64_t>(accounting.ru_maxrss) <=
+                    std::numeric_limits<std::uint64_t>::max() / 1024U)
+              usage.peak_resident_memory_bytes =
+                  static_cast<std::uint64_t>(accounting.ru_maxrss) * 1024U;
+            if (usage.user_cpu_time_us || usage.system_cpu_time_us ||
+                usage.peak_resident_memory_bytes)
+              resource_usage_ = usage;
+          }
+#else
           const auto result = waitpid(pid_, &status, WNOHANG);
+#endif
           if (result == pid_ || (result < 0 && errno == ECHILD))
             reaped_ = true;
           else if (result < 0 && errno != EINTR)
@@ -1045,6 +1110,7 @@ class NativeProcess {
   bool cleanup_confirmed_ = false;
   bool termination_requested_ = false;
   std::optional<Clock::time_point> cleanup_deadline_;
+  std::optional<LocalProcessResourceUsage> resource_usage_;
   Descriptor input_;
   Descriptor output_;
   Descriptor diagnostic_;
@@ -1226,6 +1292,7 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
     if (native) {
       native->terminate();
       result.process_tree_cleanup_confirmed = native->cleanup_confirmed();
+      result.resource_usage = native->resource_usage();
     } else {
       // A constructor that crossed its launch boundary may have failed during
       // cleanup. Only cancellation before entering it proves no child existed.

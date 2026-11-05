@@ -51,6 +51,25 @@ def main():
         os.close(1)
         time.sleep(0.05)
         write_all(2, b"stderr-after-stdout-eof")
+    elif mode in ("resources", "resources-hold"):
+        memory = bytearray(24 * 1024 * 1024)
+        for offset in range(0, len(memory), 4096):
+            memory[offset] = 23
+        target = time.process_time() + 0.08
+        while time.process_time() < target:
+            sum(range(10000))
+        payload = {"cpu_time_us": time.process_time_ns() // 1000,
+                   "touched_bytes": len(memory)}
+        if sys.platform == "linux":
+            # Independent /proc interface, not the runner's wait4 result.
+            for line in Path("/proc/self/status").read_text().splitlines():
+                if line.startswith("VmHWM:"):
+                    payload["self_peak_resident_memory_bytes"] = int(line.split()[1]) * 1024
+        write_all(1, json.dumps(payload).encode("ascii"))
+        (root / "ready").write_text("ready", encoding="ascii")
+        if mode == "resources-hold":
+            while True:
+                time.sleep(0.01)
     elif mode == "flood":
         descriptor = int(arguments[0])
         while True:

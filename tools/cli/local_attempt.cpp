@@ -983,8 +983,33 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
           "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
           "stdout_sha256", "stderr_sha256", "failure_reason"},
          {"process_tree_cleanup_confirmed", "training_sha256",
-          "training_outputs_sha256", "training_outputs_confirmed"});
+          "training_outputs_sha256", "training_outputs_confirmed",
+          "resource_usage"});
   schema(value, "jyppx.liuding.local_attempt_result");
+  // Older immutable results have no accounting field. Do not fabricate one
+  // during replay; a present measurement must retain explicit OS semantics.
+  if (value.contains("resource_usage") &&
+      !value.at("resource_usage").is_null()) {
+    const auto& usage = value.at("resource_usage");
+    fields(usage, {"source", "user_cpu_time_us", "system_cpu_time_us",
+                   "peak_resident_memory_bytes"}, {});
+    const auto source = text(usage.at("source"));
+    require(source == "windows_process" || source == "linux_wait4",
+            "Unknown local resource accounting source");
+    bool measured = false;
+    for (const auto name : {"user_cpu_time_us", "system_cpu_time_us",
+                            "peak_resident_memory_bytes"}) {
+      if (!usage.at(name).is_null()) {
+        static_cast<void>(unsigned_number(
+            usage.at(name), std::numeric_limits<std::uint64_t>::max()));
+        measured = true;
+      }
+    }
+    const auto pid = unsigned_number(
+        value.at("process_id"), std::numeric_limits<std::uint64_t>::max());
+    require(measured && pid != 0,
+            "Local resource accounting requires a measured launched process");
+  }
   if (!declares_training_outputs(spec))
     require(!value.contains("training_outputs_sha256") &&
                 !value.contains("training_outputs_confirmed"),
@@ -1659,6 +1684,20 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
        failure_reason.empty() ? Json(nullptr) : Json(failure_reason)},
       {"stdout_sha256", digest(native.stdout_capture).hex},
       {"stderr_sha256", digest(native.stderr_capture).hex}};
+  result["resource_usage"] = nullptr;
+  if (native.resource_usage) {
+    const auto& usage = *native.resource_usage;
+    const auto number = [](const std::optional<std::uint64_t>& value) {
+      return value ? Json(*value) : Json(nullptr);
+    };
+    result["resource_usage"] = {
+        {"source", usage.source == LocalProcessResourceSource::windows_process
+                       ? "windows_process"
+                       : "linux_wait4"},
+        {"user_cpu_time_us", number(usage.user_cpu_time_us)},
+        {"system_cpu_time_us", number(usage.system_cpu_time_us)},
+        {"peak_resident_memory_bytes", number(usage.peak_resident_memory_bytes)}};
+  }
   if (frozen_training)
     result["training_sha256"] = frozen_training->manifest.artifact.digest.hex;
   std::string training_outputs_text;

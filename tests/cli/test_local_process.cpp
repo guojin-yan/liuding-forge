@@ -307,7 +307,70 @@ TEST(LocalProcessTest, PrecancelledInvocationDoesNotLaunch) {
   EXPECT_EQ(result.process_id, 0U);
   EXPECT_TRUE(result.process_tree_cleanup_confirmed);
   EXPECT_FALSE(result.exit_code);
+  EXPECT_FALSE(result.resource_usage);
   EXPECT_FALSE(fs::exists(directory.root / "ready"));
+}
+
+void expect_resource_usage(const cli::LocalProcessResult& result) {
+  ASSERT_TRUE(result.resource_usage);
+  const auto& usage = *result.resource_usage;
+#ifdef _WIN32
+  EXPECT_EQ(usage.source, cli::LocalProcessResourceSource::windows_process);
+#else
+  EXPECT_EQ(usage.source, cli::LocalProcessResourceSource::linux_wait4);
+#endif
+  ASSERT_TRUE(usage.user_cpu_time_us);
+  ASSERT_TRUE(usage.system_cpu_time_us);
+  ASSERT_TRUE(usage.peak_resident_memory_bytes);
+  const auto payload = Json::parse(result.stdout_capture);
+  const auto cpu = *usage.user_cpu_time_us + *usage.system_cpu_time_us;
+  // The child's independent process CPU clock precedes its final accounting.
+  EXPECT_GE(cpu + 2000U, payload.at("cpu_time_us").get<std::uint64_t>());
+  EXPECT_GE(cpu, 70000U);
+  EXPECT_LE(cpu, static_cast<std::uint64_t>(result.elapsed.count()) * 1000U +
+                     100000U);
+  EXPECT_GE(*usage.peak_resident_memory_bytes,
+            payload.at("touched_bytes").get<std::uint64_t>());
+  if (payload.contains("self_peak_resident_memory_bytes"))
+    EXPECT_GE(*usage.peak_resident_memory_bytes,
+              payload.at("self_peak_resident_memory_bytes").get<std::uint64_t>());
+  // Detect a wrong unit conversion without relying on interpreter baseline.
+  EXPECT_LT(*usage.peak_resident_memory_bytes, 256U * 1024U * 1024U);
+}
+
+TEST(LocalProcessTest, FinalResourceUsageMatchesIndependentChildMeasurements) {
+#if defined(_WIN32) || defined(__linux__)
+  ProcessDirectory directory;
+  const auto result =
+      cli::LocalProcessRunner{}.run(directory.options("resources"));
+  ASSERT_EQ(result.exit_code, 0U);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+  expect_resource_usage(result);
+#else
+  GTEST_SKIP() << "Final OS accounting is implemented for Windows and Linux";
+#endif
+}
+
+TEST(LocalProcessTest, CancellationRetainsFinalResourceUsageAfterReaping) {
+#if defined(_WIN32) || defined(__linux__)
+  ProcessDirectory directory;
+  std::stop_source stop;
+  std::atomic<bool> ready{false};
+  std::jthread canceller([&] {
+    ready = await([&] { return fs::is_regular_file(directory.root / "ready"); });
+    stop.request_stop();
+  });
+  const auto result = cli::LocalProcessRunner{}.run(
+      directory.options("resources-hold"), stop.get_token());
+  canceller.join();
+  ASSERT_TRUE(ready);
+  ASSERT_EQ(result.status, cli::LocalProcessStatus::cancelled);
+  EXPECT_FALSE(result.exit_code);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+  expect_resource_usage(result);
+#else
+  GTEST_SKIP() << "Final OS accounting is implemented for Windows and Linux";
+#endif
 }
 
 TEST(LocalProcessTest, CancellationKillsLeaderDescendantAndGrandchild) {

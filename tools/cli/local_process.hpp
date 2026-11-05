@@ -61,6 +61,20 @@ enum class LocalProcessStatus : std::uint8_t {
   output_limit  ///< Either stream exceeded its cumulative byte quota.
 };
 
+/** @brief OS accounting scope; neither source measures concurrent tree RSS. */
+enum class LocalProcessResourceSource : std::uint8_t {
+  windows_process,  ///< Direct process times and peak working set only.
+  linux_wait4      ///< Kernel wait4 accounting, including waited descendants.
+};
+
+/** @brief Final OS counters; unavailable individual measurements stay absent. */
+struct LocalProcessResourceUsage {
+  LocalProcessResourceSource source;
+  std::optional<std::uint64_t> user_cpu_time_us;
+  std::optional<std::uint64_t> system_cpu_time_us;
+  std::optional<std::uint64_t> peak_resident_memory_bytes;
+};
+
 /** @brief Detached bounded output and status; never owns a running child. */
 struct LocalProcessResult {
   LocalProcessStatus status = LocalProcessStatus::exited;
@@ -76,6 +90,8 @@ struct LocalProcessResult {
   std::string stderr_capture;      ///< Raw bytes; at most max_stderr_bytes.
   std::chrono::milliseconds elapsed{};  ///< Includes launch, drain and cleanup.
   bool process_tree_cleanup_confirmed = false;  ///< Conservative native proof.
+  std::optional<LocalProcessResourceUsage>
+      resource_usage;  ///< Absent before launch or if final accounting failed.
 };
 
 /**

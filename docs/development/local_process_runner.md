@@ -16,6 +16,17 @@ Windows 采用挂起启动并加入禁止 breakaway 的 kill-on-close Job Object
 
 该原语只拥有本次同步调用的进程生命周期；持久执行由下面的 CLI 组合现有 run/SQLite/CAS。输出上限不限制子进程本身的 RSS 或 GPU 显存。
 
+## 原生资源观测
+
+`LocalProcessResult::resource_usage` 与持久 `local.result` 的同名对象保存退出或强制停止后的操作系统计数：`user_cpu_time_us`、`system_cpu_time_us` 使用整数微秒，`peak_resident_memory_bytes` 使用整数字节。启动前取消、启动失败或最终计数不可用时对象为 `null`；单项读取失败时该项为 `null`，实际零计数仍保留为 `0`。旧结果可缺少整个字段，查询或恢复继续返回原已提交内容，不补写测量。
+
+| `source` | CPU 时间范围 | 峰值驻留内存范围 |
+| --- | --- | --- |
+| `windows_process` | `GetProcessTimes` 返回的直接子进程用户态与内核态时间 | `GetProcessMemoryInfo` 的直接子进程 `PeakWorkingSetSize`；不包含 Job 中其他进程，不使用 Job 提交量替代工作集 |
+| `linux_wait4` | 回收已拥有的直接子进程时，内核 `wait4` 返回的统计，可能包含该进程已等待回收的后代 | `ru_maxrss` 从 KiB 转换为字节，遵循内核对被回收进程及其已等待后代的峰值统计；不是并发进程树 RSS 的总和 |
+
+计数在原有清理宽限内读取，不延长截止，不改变退出码、清理确认或逻辑资源释放。未回收后代、逃离进程组的进程、运行器自身和 GPU 显存不在完整观测范围；不同 `source` 不能直接当成相同口径比较。该观测不执行 RSS/CPU/显存硬限制，也不证明训练质量或端到端性能资格。
+
 ## 持久执行 CLI
 
 `local execute --root STORE --id JOB --spec spec.json` 冻结一次本地执行计划；`local show` 查询，`local cancel` 幂等提交取消请求，`local recover` 修复已确认结果的生命周期并继续剩余的可重试 attempt。后三者使用相同的 `--root STORE --id JOB`。同一 ID 的相同计划可重放，改变计划必须使用新 ID。已确认的成功或失败结果重放只校验冻结计划与已提交的 CAS 结果，不要求旧程序或工作目录继续存在；任何实际新启动仍核验现存路径与可执行文件 SHA-256。

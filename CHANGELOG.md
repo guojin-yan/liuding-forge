@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地执行结果保存原生 CPU 时间与峰值驻留内存，标明 Windows 直接进程和 Linux wait4 的统计范围，支持缺失观测与旧结果的原样重放。
+
 - 绑定实际 Linux CPU LibTorch 2.14.1 内嵌 oneMKL 的版本 2024.2 与构建号 20240605，保留完整静态组成、许可和安全分发审查。
 
 - 补录干净提交 `7b4e9d8c` 的完整 Linux CPU Release SDK 与安装消费者事实：选定 1987 项合同为 1808 通过、179 条件跳过、零失败，保留准备阶段原失败及其他配置/设备/发布边界。

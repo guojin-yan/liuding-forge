@@ -555,6 +555,9 @@ class LocalAttemptTest(unittest.TestCase):
             del result["process_tree_cleanup_confirmed"]
         else:
             result["process_tree_cleanup_confirmed"] = cleanup
+        self.replace_result(attempt, result, reopen=reopen)
+
+    def replace_result(self, attempt: str, result: dict, *, reopen: bool = False) -> None:
         content = json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8")
         identity = hashlib.sha256(content).hexdigest()
         destination = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
@@ -682,10 +685,58 @@ class LocalAttemptTest(unittest.TestCase):
         self.assertEqual(payload["token"], "literal")
         self.assertEqual(self.blob(refs["local.stderr"]), b"diagnostic\x00\xfe")
         self.assertEqual(json.loads(self.blob(refs["local.result"])), attempt["result"])
+        usage = attempt["result"]["resource_usage"]
+        self.assertEqual(usage["source"], "windows_process" if os.name == "nt" else "linux_wait4")
+        self.assertIs(type(usage["user_cpu_time_us"]), int)
+        self.assertIs(type(usage["system_cpu_time_us"]), int)
+        self.assertGreater(usage["user_cpu_time_us"] + usage["system_cpu_time_us"], 0)
+        self.assertGreater(usage["peak_resident_memory_bytes"], 0)
         self.assertEqual(self.local("execute")["attempts"], result["attempts"])
         self.assertEqual(self.local("recover")["attempts"], result["attempts"])
         self.assertEqual(self.launch_count(), 1)
         self.assertTrue(self.invoke("run", "verify", "--root", self.root)["data"]["valid"])
+
+    def test_resource_usage_legacy_missing_and_unavailable_replay_without_fabrication(self) -> None:
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        result = dict(original["attempts"][0]["result"])
+        for unavailable in ("missing", "null", "partial"):
+            with self.subTest(unavailable=unavailable):
+                if unavailable == "missing":
+                    result.pop("resource_usage", None)
+                elif unavailable == "null":
+                    result["resource_usage"] = None
+                else:
+                    result["resource_usage"] = {"source": "windows_process", "user_cpu_time_us": 0,
+                        "system_cpu_time_us": 0, "peak_resident_memory_bytes": None}
+                self.replace_result(attempt, result)
+                references = self.references(attempt)
+                for action in ("show", "recover", "execute"):
+                    self.assertEqual(self.local(action)["attempts"][0]["result"], result)
+                    self.assertEqual(self.references(attempt), references)
+                    self.assertEqual(self.launch_count(), 1)
+
+    def test_invalid_resource_usage_is_rejected_without_relaunch(self) -> None:
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        result = dict(original["attempts"][0]["result"])
+        valid = dict(result["resource_usage"])
+        cases = [[], {}, dict(valid, source="tree_rss"), dict(valid, extra=1),
+                 {key: value for key, value in valid.items() if key != "source"},
+                 dict(valid, user_cpu_time_us=None, system_cpu_time_us=None,
+                      peak_resident_memory_bytes=None)]
+        for field in ("user_cpu_time_us", "system_cpu_time_us", "peak_resident_memory_bytes"):
+            for invalid in (-1, 1.5, True, "12", 1 << 64):
+                cases.append(dict(valid, **{field: invalid}))
+        for usage in cases:
+            with self.subTest(usage=usage):
+                result["resource_usage"] = usage
+                self.replace_result(attempt, result)
+                references = self.references(attempt)
+                error = self.invoke("local", "show", "--root", self.root, "--id", "job-one", expected=2)
+                self.assertIn("error", error)
+                self.assertEqual(self.references(attempt), references)
+                self.assertEqual(self.launch_count(), 1)
 
     def test_terminal_replay_does_not_revalidate_retired_launch_files(self) -> None:
         for failed in (False, True):
