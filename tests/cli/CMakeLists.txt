@@ -65,6 +65,20 @@ add_test(NAME Cli_local_search
 set_tests_properties(Cli_local_search PROPERTIES
     LABELS "cli;experiment;integration" TIMEOUT 600)
 
+set(local_workspace_recipes paired)
+if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
+    list(APPEND local_workspace_recipes image)
+endif()
+foreach(recipe IN LISTS local_workspace_recipes)
+    add_test(NAME Cli_local_recipe_workspace_${recipe}
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_workspace.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+            --source-root "${PROJECT_SOURCE_DIR}" --recipe ${recipe})
+    set_tests_properties(Cli_local_recipe_workspace_${recipe} PROPERTIES
+        LABELS "cli;experiment;recipe;integration" TIMEOUT 1000 RUN_SERIAL TRUE)
+endforeach()
+
 set(bundle_signing_test_mode off)
 if(TARGET jyppx::liuding::bundle_signing)
     set(bundle_signing_test_mode on)

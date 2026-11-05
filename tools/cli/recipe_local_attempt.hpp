@@ -9,9 +9,11 @@
 
 #include <jyppx/liuding/experiment/artifact_store.hpp>
 #include <jyppx/liuding/experiment/run_store.hpp>
+#include <jyppx/liuding/foundation/version.hpp>
 
 #include <algorithm>
 #include <cstdlib>
+#include <memory>
 #include <set>
 
 namespace jyppx::liuding::cli {
@@ -220,8 +222,133 @@ class RecipeLocalAttempt final {
 
   bool resumes() const noexcept { return resume_.has_value(); }
 
-  // This first adapter resumes the retained recipe directory; it does not
-  // reconstruct a lost workspace or infer ownership from an existing file.
+  // Rebuild only a missing directory from the source attempt's complete
+  // snapshot. Retain the new root's lock through the caller's whole run.
+  std::unique_ptr<recipe_support::RunLock> restore_workspace(
+      const std::filesystem::path& root) {
+    using namespace recipe_support;
+    namespace fs = std::filesystem;
+    if (!resume_ || fs::exists(root)) return {};
+    const auto source =
+        training_.at("resume").at("checkpoint").at("run_id").get<std::string>();
+    const auto reference = store_.find_reference(source, kWorkspace);
+    require_recipe(
+        reference && reference->role == kWorkspace,
+        "Missing recipe workspace snapshot; retain the original directory");
+    const auto snapshot =
+        read_json(source, kWorkspace, reference->artifact.digest.hex, 65536);
+    require_recipe(
+        snapshot.at("format") == "jyppx.liuding.recipe_workspace_snapshot" &&
+            snapshot.at("schema_version") == 1 &&
+            snapshot.at("source_attempt_id") == source &&
+            snapshot.at("checkpoint_sha256") == resume_->digest.hex &&
+            snapshot.at("checkpoint_size_bytes") == resume_->size_bytes &&
+            snapshot.at("build") == parse_json(build_fingerprint_json()),
+        "Recipe workspace snapshot differs from checkpoint, source or build");
+    const auto& files = snapshot.at("files");
+    require_recipe(files.is_array() && !files.empty() && files.size() <= 128,
+                   "Recipe workspace snapshot file count exceeds its bound");
+    experiment::FileArtifactStore cas(store_.artifact_root(),
+                                      {.max_artifact_bytes = kWorkspaceBytes});
+    struct Input {
+      fs::path path;
+      std::unique_ptr<experiment::ArtifactReader> reader;
+    };
+    std::vector<Input> inputs;
+    std::set<std::string> seen;
+    std::uint64_t total = 0;
+    for (const auto& file : files) {
+      const auto relative = file.at("path").get<std::string>();
+      const auto path = fs::u8path(relative);
+      require_recipe(!path.empty() && !path.is_absolute() &&
+                         !path.has_root_name() &&
+                         relative.find('\\') == std::string::npos &&
+                         relative.find(':') == std::string::npos &&
+                         relative.find('\0') == std::string::npos &&
+                         path_text(path.lexically_normal()) == relative &&
+                         seen.insert(relative).second,
+                     "Invalid recipe workspace snapshot path");
+      for (const auto& component : path)
+        require_recipe(component != "." && component != "..",
+                       "Recipe workspace snapshot path escapes its root");
+      require_recipe(relative.starts_with("backup/") ||
+                         workspace_files().contains(relative),
+                     "Unexpected recipe workspace snapshot file");
+      const auto id = file.at("reference_id").get<std::string>();
+      require_recipe(id == workspace_reference(relative),
+                     "Recipe workspace file reference differs");
+      const auto bound = store_.find_reference(source, id);
+      const auto size = file.at("size_bytes").get<std::uint64_t>();
+      require_recipe(bound &&
+                         bound->kind == experiment::RunArtifactKind::artifact &&
+                         bound->role == kWorkspace &&
+                         bound->artifact.digest.hex ==
+                             file.at("sha256").get<std::string>() &&
+                         bound->artifact.size_bytes == size &&
+                         size <= kWorkspaceBytes - total,
+                     "Recipe workspace file binding or total size differs");
+      auto reader = cas.open(bound->artifact.digest);
+      require_recipe(reader->size_bytes() == size,
+                     "Recipe workspace file content size differs");
+      total += size;
+      inputs.push_back({path, std::move(reader)});
+    }
+    for (const auto* mandatory :
+         {"workspace/lineage.json", "workspace/config.json",
+          "workspace/dataset.json", "backup/runs.sqlite3",
+          "backup/manifest.jyppx-backup"})
+      require_recipe(seen.contains(mandatory),
+                     "Recipe workspace snapshot lacks a required file");
+    experiment::FileArtifactStore checkpoint_cas(
+        store_.artifact_root(), {.max_artifact_bytes = kArtifactLimit});
+    auto checkpoint = checkpoint_cas.open(resume_->digest);
+    require_recipe(checkpoint->size_bytes() == resume_->size_bytes,
+                   "Recipe workspace checkpoint size differs");
+    // Check existing ancestors before claiming a new directory. Files below
+    // the claim are created by this attempt under its retained RunLock.
+    auto parent = root.parent_path();
+    require_recipe(fs::is_directory(parent),
+                   "Recipe workspace parent directory must exist");
+    for (auto cursor = parent; !cursor.empty();) {
+      require_recipe(!fs::is_symlink(fs::symlink_status(cursor)),
+                     "Recipe workspace parent must not traverse links");
+#if defined(_WIN32)
+      const auto attributes = GetFileAttributesW(cursor.c_str());
+      require_recipe(
+          attributes != INVALID_FILE_ATTRIBUTES &&
+              (attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0,
+          "Recipe workspace parent must not traverse reparse points");
+#endif
+      const auto next = cursor.parent_path();
+      if (cursor == next) break;
+      cursor = next;
+    }
+    require_recipe(fs::create_directory(root),
+                   "Recipe workspace directory was created by another process");
+    auto lock = std::make_unique<RunLock>(root);
+    const auto backup = root / ".local-resume-backup";
+    for (auto& input : inputs) {
+      const auto relative = input.path.lexically_relative(
+          input.path.begin()->string() == "backup" ? fs::path("backup")
+                                                   : fs::path("workspace"));
+      const auto target = input.path.begin()->string() == "backup"
+                              ? backup / relative
+                              : root / relative;
+      fs::create_directories(target.parent_path());
+      copy_workspace_file(target, *input.reader);
+    }
+    // Empty CAS directories have no file reference in the snapshot, but are
+    // part of the native backup layout even when no object is staged there.
+    fs::create_directories(backup / "artifacts" / "objects");
+    fs::create_directories(backup / "artifacts" / "tmp");
+    experiment::SQLiteRunStore::restore_backup(
+        backup, root / "run-store", workspace_options(), {},
+        std::chrono::steady_clock::now() + std::chrono::seconds(30));
+    copy_workspace_file(root / "latest.jyck", *checkpoint);
+    fs::remove_all(backup);
+    return lock;
+  }
+
   void verify_resume(const std::filesystem::path& root) const {
     if (!resume_) return;
     const auto path = root / "latest.jyck";
@@ -235,6 +362,7 @@ class RecipeLocalAttempt final {
   void publish_checkpoint(const std::filesystem::path& root, bool completed) {
     publish(root / (completed ? "final.jyck" : "latest.jyck"),
             "checkpoint.last", "application/octet-stream");
+    if (!completed) publish_workspace(root);
   }
 
   void publish_completed(const std::filesystem::path& root) {
@@ -245,6 +373,133 @@ class RecipeLocalAttempt final {
   }
 
  private:
+  static constexpr std::string_view kWorkspace = "recipe.workspace.snapshot";
+  static constexpr std::uint64_t kWorkspaceBytes = 32ULL << 20U;
+
+  static const std::set<std::string>& workspace_files() {
+    static const std::set<std::string> files{
+        "workspace/lineage.json",      "workspace/config.json",
+        "workspace/dataset.json",      "workspace/build.json",
+        "workspace/weight-input.json", "workspace/initialization.json"};
+    return files;
+  }
+
+  static std::string workspace_reference(std::string_view path) {
+    return "recipe.workspace." + recipe_support::digest(path).hex;
+  }
+
+  static experiment::SQLiteRunStoreOptions workspace_options() {
+    experiment::SQLiteRunStoreOptions options;
+    options.max_backup_database_bytes = kWorkspaceBytes;
+    options.max_backup_manifest_bytes = 65536;
+    options.artifact_limits.max_artifact_bytes = kWorkspaceBytes;
+    return options;
+  }
+
+  static void copy_workspace_file(const std::filesystem::path& path,
+                                  experiment::ArtifactReader& reader) {
+    using namespace recipe_support;
+    require_recipe(!std::filesystem::exists(path),
+                   "Recipe workspace restore never overwrites a file");
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    if (!stream) throw IoError("Cannot create recipe workspace file");
+    std::array<std::byte, 65536> buffer{};
+    Sha256 hash;
+    std::uint64_t count = 0;
+    for (;;) {
+      const auto got = reader.read(buffer);
+      if (got == 0) break;
+      require_recipe(got <= reader.size_bytes() - count,
+                     "Recipe workspace content grew during restore");
+      stream.write(reinterpret_cast<const char*>(buffer.data()),
+                   static_cast<std::streamsize>(got));
+      if (!stream) throw IoError("Cannot write recipe workspace file");
+      hash.update(std::span(buffer.data(), got));
+      count += got;
+    }
+    stream.close();
+    require_recipe(stream && count == reader.size_bytes() &&
+                       sha256_digest_hex(hash.finish()) == reader.digest().hex,
+                   "Recipe workspace restore content differs");
+  }
+
+  void publish_workspace(const std::filesystem::path& root) {
+    using namespace recipe_support;
+    namespace fs = std::filesystem;
+    const auto backup = root / ".local-resume-backup";
+    // Bound the source before the native consistent backup creates copies.
+    std::uint64_t source_bytes = 0;
+    std::size_t source_files = 0;
+    for (const auto& entry :
+         fs::recursive_directory_iterator(root / "run-store")) {
+      require_recipe(!entry.is_symlink(),
+                     "Recipe run store must not contain links");
+      if (!entry.is_regular_file()) continue;
+      const auto size = entry.file_size();
+      require_recipe(
+          ++source_files <= 128 && size <= kWorkspaceBytes - source_bytes,
+          "Recipe run-store snapshot exceeds 128 files or 32 MiB");
+      source_bytes += size;
+    }
+    experiment::SQLiteRunStore inner(root / "run-store", workspace_options());
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    inner.backup(backup, {}, deadline);
+    Json files = Json::array();
+    std::uint64_t total = 0;
+    const auto add = [&](const fs::path& path, const std::string& relative) {
+      const auto size = fs::file_size(path);
+      require_recipe(files.size() < 128 && size <= kWorkspaceBytes - total,
+                     "Recipe workspace snapshot exceeds 128 files or 32 MiB");
+      const auto sha = file_digest(path, kWorkspaceBytes);
+      const auto id = workspace_reference(relative);
+      const auto reference = store_.put_artifact_file(
+          attempt_, id, experiment::RunArtifactKind::artifact,
+          std::string(kWorkspace), path,
+          {.logical_name = path_text(path.filename()),
+           .media_type = "application/octet-stream",
+           .producer = "liuding-forge.recipe.local-run",
+           .expected_size_bytes = size},
+          stamp_, sha, {}, deadline);
+      files.push_back({{"path", relative},
+                       {"reference_id", id},
+                       {"sha256", reference.artifact.digest.hex},
+                       {"size_bytes", size}});
+      total += size;
+    };
+    for (const auto& name : workspace_files()) {
+      const auto path = root / fs::u8path(name).filename();
+      if (fs::exists(path)) add(path, name);
+    }
+    for (const auto& entry : fs::recursive_directory_iterator(backup))
+      if (entry.is_regular_file())
+        add(entry.path(),
+            "backup/" + path_text(entry.path().lexically_relative(backup)));
+    const auto checkpoint = store_.find_reference(attempt_, "checkpoint.last");
+    require_recipe(checkpoint.has_value(),
+                   "Recipe snapshot requires its checkpoint");
+    const Json snapshot{
+        {"format", "jyppx.liuding.recipe_workspace_snapshot"},
+        {"schema_version", 1},
+        {"source_attempt_id", attempt_},
+        {"checkpoint_sha256", checkpoint->artifact.digest.hex},
+        {"checkpoint_size_bytes", checkpoint->artifact.size_bytes},
+        {"build", parse_json(read_text(root / "lineage.json")).at("build")},
+        {"files", std::move(files)}};
+    const auto content = snapshot.dump();
+    require_recipe(content.size() <= 65536,
+                   "Recipe workspace manifest exceeds 64 KiB");
+    store_.put_artifact(attempt_, std::string(kWorkspace),
+                        experiment::RunArtifactKind::artifact,
+                        std::string(kWorkspace), bytes(content),
+                        {.logical_name = "recipe-workspace.json",
+                         .media_type = "application/json",
+                         .producer = "liuding-forge.recipe.local-run",
+                         .expected_size_bytes = content.size()},
+                        stamp_, digest(content));
+    fs::remove_all(backup);
+  }
+
   static std::string environment(std::string_view name) {
     const auto key = "JYPPX_LIUDING_LOCAL_" + std::string(name);
 #if defined(_WIN32)

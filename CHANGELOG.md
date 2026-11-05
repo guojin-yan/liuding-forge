@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地配方暂停时保存绑定 checkpoint 的工作目录与训练记录快照；已确认的精确续训可从 CAS 重建丢失的目录，保留原身份并拒绝覆盖现存目录。
+
 - 补齐 Linux CPU LibTorch 随包 libgomp 的固定官方打包脚本及 CPU 调用链，记录 `$ORIGIN` RPATH 修改，保留历史构建绑定和完整对应源码交付待办。
 
 - 补齐 Linux CPU LibTorch 随包 libgomp 的精确官方 GCC 源包、源码与补丁身份，并验证源包及运行库包的签名；完整对应源码交付仍待完成。

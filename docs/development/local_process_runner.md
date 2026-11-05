@@ -134,9 +134,15 @@ Linux 使用对应构建目录并省略多配置参数。原生测试覆盖进�
 
 `paired-affine` 配方可显式启用闭合的 `recipe_bridge`，将已有 `recipe local-run`、typed 三输出及 `exact_only` retry 接入有界 grid/random。固定模板中的 `${config}` 指向本 trial 的有效配置，`${recipe_directory}` 指向尚不存在的 `TRIAL/recipe` 子目录；不可拼接模板片段或复用已存在的 trial 根作为训练目录。真实 resolver 必须确认有效配置与冻结配置完全一致、实际数据与冻结清单一致，才准入训练。
 
-此模式的 `seed_policy` 为 `configuration`：配方使用有效配置中的 `seed` 训练，搜索派生的 `trial_seed` 只标识调度顺序，两者分别保留。完成态要求本地任务清理确认、完整三输出收据、有效 exact 恢复输入、原生 completed run 及其已提交的真实 accuracy；仅退出码 0 不足以选优。冻结桥接清单后，外层训练记录依次创建、原子绑定引用、提交相同指标，最后完成；整个流程跨多个 API，可恢复相同清单的部分发布，额外指标、部分引用或其他冲突会被拒绝。终态查询与实验导出依赖 CAS，不要求原生训练目录继续存在；实际继续训练仍要求原目录。
+此模式的 `seed_policy` 为 `configuration`：配方使用有效配置中的 `seed` 训练，搜索派生的 `trial_seed` 只标识调度顺序，两者分别保留。完成态要求本地任务清理确认、完整三输出收据、有效 exact 恢复输入、原生 completed run 及其已提交的真实 accuracy；仅退出码 0 不足以选优。冻结桥接清单后，外层训练记录依次创建、原子绑定引用、提交相同指标，最后完成；整个流程跨多个 API，可恢复相同清单的部分发布，额外指标、部分引用或其他冲突会被拒绝。终态查询与实验导出依赖 CAS，不要求原生训练目录继续存在；实际续训遵守下一节的工作目录恢复合同。
 
 普通 typed 搜索保持单 attempt 与显式 checkpoint 的原合同；上述例外仅用于显式声明的配方及固定模板，不向任意外部程序开放自动续训。可运行配置见[配方搜索示例](../../examples/experiment/README.md#多输入输出配方搜索)。
+
+### 配方工作目录丢失后的恢复
+
+原生配方在本地暂停并提交 `checkpoint.last` 时，同时发布 `recipe.workspace.snapshot`，将该 checkpoint、构建来源、配置、数据清单和完整内层 run-store 备份绑定到来源 attempt。快照元数据最多128文件、合计32 MiB，manifest最多64 KiB；checkpoint沿用独立的256 MiB上限。备份和恢复使用原生SQLite/CAS校验，文件按64 KiB块流式复制，不将模型和备份整份装入内存。
+
+`local recover` 接续已确认的75退出码时，若原工作目录已丢失，会从冻结 CAS 重建原目录并持有目录锁，保留原run身份、已有引用及训练记录，然后执行完整checkpoint的`exact_only`恢复。现存目录继续按原文件及checkpoint身份检查，自动恢复不会覆盖或修补它。外部数据、预训练权重和显式初态文件仍须存在并通过原身份检查；旧attempt没有工作目录快照时仍须保留原目录。快照缺失、来源/checkpoint/build不符、非法路径或CAS损坏会失败，不能回退为fresh训练。重建中发生存储错误时保留已创建目录供检查，可用原checkpoint和新计划选择新的目录；未知attempt仍受原结果、清理和资源预约围栏约束。
 
 ### 图像分类配方搜索
 

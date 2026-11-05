@@ -1133,6 +1133,8 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
   const auto root = std::filesystem::absolute(
                         std::filesystem::u8path(arguments.require("root")))
                         .lexically_normal();
+  auto workspace_lock =
+      local_attempt ? local_attempt->restore_workspace(root) : nullptr;
   if (resume)
     require_recipe(std::filesystem::is_directory(root),
                    "Resume requires an existing recipe directory");
@@ -1161,7 +1163,7 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
   if (!resume)
     require_recipe(std::filesystem::create_directory(root),
                    "Recipe run directory was created by another process");
-  RunLock lock(root);
+  if (!workspace_lock) workspace_lock = std::make_unique<RunLock>(root);
   if (local_attempt) local_attempt->verify_resume(root);
   const auto build = current_build_fingerprint();
   const auto build_json = parse_json(build_fingerprint_json(build));
