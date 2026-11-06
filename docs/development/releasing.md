@@ -57,6 +57,8 @@ schema 1 索引是 UTF-8 JSON，结构如下：
 
 每个证据引用必须恰含 `path`、`size`、`sha256`，例如 `{"path":"logs/ctest.log","size":123,"sha256":"64位小写十六进制摘要"}`。路径相对索引所在目录。准备工具读取、核摘要并将原文件纳入候选。`passed` 检查至少需要一份实际文件；重复检查、未知字段、冲突引用、缺文件和摘要不符均被拒绝。
 
+第三方源码伴随包可作为 `dependency_audit.artifacts` 的证据附入候选，必须核验实际整包和包内来源清单的摘要，并随候选保留原件。[CPU 组件来源清单](../../third_party/licenses/libtorch-cpu-2.14.1/components.json)的 `source_materials_bundle` 登记已组装 libgomp 材料包的精确身份；当前尚未建立公开分发机制，不能因此将依赖审计改为 `passed`，完整 Corresponding Source、实际打包执行、CVE 和再分发资格仍须分别完成。
+
 检查状态只能为 `passed`、`pending`、`failed`。缺失或未通过的必需检查会阻断 GA：
 
 | 检查 ID | 所需证据 |

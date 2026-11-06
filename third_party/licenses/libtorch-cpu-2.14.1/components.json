@@ -2104,7 +2104,27 @@
         "The complete transitive notice audit, downstream distribution conditions and CVE applicability remain separate review gates."
       ],
       "redistribution_qualified": false,
-      "CVE_qualified": false
+      "CVE_qualified": false,
+      "source_materials_bundle": {
+        "state": "offline_materials_prepared_not_published",
+        "filename": "libtorch-cpu-2.14.1-libgomp-source-materials-v1.zip",
+        "identity": {
+          "bytes": 66020483,
+          "sha256": "e7041a1286ea3408ba13c53400ef00dcb10066b21eabd79ffbecb303bbba9bd8"
+        },
+        "manifest_identity": {
+          "bytes": 21464,
+          "sha256": "479f075a2cc09aef6394105c062714685785b78b945a132777322209d7aaa0d8"
+        },
+        "ordinary_file_count": 23,
+        "contents": "Exact signed GCC source RPM with 63 payload files including 59 downstream patches; 17 fixed PyTorch packaging originals; AlmaLinux 8 public key; GPLv3 and GCC Runtime Library Exception; identity manifest and reading instructions.",
+        "source_rpm_signatures_reverified": true,
+        "all_source_materials_and_archive_members_SHA256_verified": true,
+        "source_scripts_executed": false,
+        "public_download_or_distribution_mechanism_established": false,
+        "corresponding_source_conveyance_complete": false,
+        "scope": "Binds an assembled materials artifact only. Actual source-wheel/container/patchelf execution, full Corresponding Source conveyance, transitive notices, CVE and redistribution qualification remain pending."
+      }
     }
   },
   "observed_numerical_library_configuration": {
