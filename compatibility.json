@@ -163,6 +163,30 @@
             "scope": "CPU selected Release correctness and installation only. OptionalComponentMatrix and PreviewComponentMatrix are separate configurations and excluded from this batch. Conditional skips, final-candidate coverage, full model/task/device/resource matrices, Windows HTTP, security/licensing, formal signing and GA remain separate."
           },
           "commit": "3c862070ba3b94d0f466f34fc6259d96f07b0991"
+        },
+        {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-570ca267-component-matrices",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; no CUDA execution qualification",
+          "build_type": "Release",
+          "tests": "2/2 component-matrix CTest contracts passed; 10 optional-profile installed consumers and 20 Preview installed-consumer runs across six sequential configurations; 0 failures or skips.",
+          "instrumentation": "CMake 3.22.1 / Ninja 1.10.1; serial independent optional profiles and one persistent Preview build tree; build and CTest parallelism 1; no instrumentation",
+          "quality_evidence": {
+            "source_identity": "Actual clean committed 570ca267dac77f5fb6bce4b381fa0983ba1f76b3; 1258 Git-file identities checked before and after both matrices. The retained complete CPU SDK remains bound to its actual 3c862070 build.",
+            "optional_matrix": "foundation, core, interop, data, data_image, vision_render, nn, optim, training and experiment independently configured, built, installed and consumed; invalid dependency combinations rejected with the required diagnostics.",
+            "preview_matrix": "core_before, models, serving, vision_render, all_previews and core_after use one persistent framework build tree. All 20 consumer runs, installed symbol/header isolation, disabled REQUIRED discovery and dependency rejection contracts passed.",
+            "independent_audit_sha256": "4d9a4a67cfa708985d8971c878eccff0b719593c5aa233da385dd2f0e6449193",
+            "terminal_sha256": "97f1b16393b5442beb9459a3e529ff032f20e8b513366d9e8df61bf197fc7931",
+            "optional_matrix_junit_sha256": "3c30266f25caf2544f7aa08ce8e8d34d7c8def9275ad8c80ceac99d87be6d977",
+            "preview_matrix_junit_sha256": "0dd9b3c8180d87b2febcb45f970e2aa9230268a73238a22f7a1444ce7e336ac3",
+            "preservation": "All 231 files of the prior complete CPU SDK retain exact bytes; source and previous failures preserved.",
+            "resources": "One owned compiler frontend maximum; peak sampled owned RSS 1713688576 bytes; elapsed 2998.444 seconds. Original 10800-second total, 5 GiB RSS and 10 GiB whole-volume growth caps retained.",
+            "scope": "These are two separately selected matrix contracts and 30 nested consumer executions, not another complete 1989-contract SDK batch. CUDA, Windows, DINO independent two-step numerics, final-candidate coverage, complete device/task/resource matrices, security/licensing, formal signing and GA remain separate."
+          },
+          "commit": "570ca267dac77f5fb6bce4b381fa0983ba1f76b3"
         }
       ],
       "pending_lanes": [
