@@ -1042,6 +1042,7 @@ ImageBatch transform_image_batch_geometry(
       if (options.resource_budget)
         result.resource_lease_sets.push_back(detail::ReserveBatchResources(
             result, options.resource_budget, options.limits, stop, false));
+      detail::RetainBatchSourceResources(batch, result);
       return result;
     }
 
@@ -1072,7 +1073,9 @@ ImageBatch transform_image_batch_geometry(
       collate.padded_extent = output_canvas;
     collate.limits = options.limits;
     collate.resource_budget = options.resource_budget;
-    return collate_images(transformed, keys, collate, stop);
+    auto result = collate_images(transformed, keys, collate, stop);
+    detail::RetainBatchSourceResources(batch, result);
+    return result;
   } catch (const std::bad_alloc&) {
     BatchLimit("batch_geometry.allocate");
   } catch (const c10::OutOfMemoryError&) {

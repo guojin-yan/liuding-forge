@@ -258,6 +258,7 @@ ImageBatch transform_image_batch(const ImageBatch& b,
     }
     Stop(stop);
     detail::CheckImageBatch(result, o.limits, stop);
+    detail::RetainBatchSourceResources(b, result);
     return result;
   } catch (const std::bad_alloc&) {
     BatchLimit("batch_transform.allocate");

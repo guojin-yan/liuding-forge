@@ -733,7 +733,7 @@ ImageBatch prepare_image_batch(const ImageBatch& batch,
                                std::shared_ptr<ImageResourceBudget> budget) {
   // Keep the reservation alive through all temporary/result Tensor handles,
   // including backend and decode failures. Source leases remain independently
-  // owned and overlap this output reservation while the source is alive.
+  // owned and remain charged through source/output storage aliases.
   std::shared_ptr<ImageResourceLeaseSet> leases;
   data::detail::BatchMemoryAdmission admit;
   if (budget) {
@@ -748,6 +748,7 @@ ImageBatch prepare_image_batch(const ImageBatch& batch,
       image_batch_value(batch, limits), options, admit);
   auto result = image_batch_from_value(prepared.value, limits);
   result.memory = prepared.metadata;
+  detail::RetainBatchSourceResources(batch, result);
   if (leases) result.resource_lease_sets.push_back(std::move(leases));
   return result;
 }
@@ -770,6 +771,7 @@ ImageBatch transfer_image_batch(ImageBatch prepared,
       {image_batch_value(prepared, limits), prepared.memory}, options, admit);
   auto result = image_batch_from_value(staged.value, limits);
   result.memory = staged.metadata;
+  detail::RetainBatchSourceResources(prepared, result);
   if (leases) result.resource_lease_sets.push_back(std::move(leases));
   return result;
 }

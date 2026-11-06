@@ -23,6 +23,9 @@ std::size_t CheckBatchMetadata(const ImageBatch& batch,
                                bool source_panoptic = false,
                                std::stop_token stop = {});
 std::uint64_t BatchTensorBytes(const ImageBatch& batch);
+// Keep an aggregate source reservation while a result still shares any
+// Tensor storage or immutable target owner. No pixel copies or new leases.
+void RetainBatchSourceResources(const ImageBatch& source, ImageBatch& result);
 std::shared_ptr<ImageResourceLeaseSet> ReserveBatchTotals(
     const std::shared_ptr<ImageResourceBudget>& budget,
     std::uint64_t tensor_bytes, std::uint64_t pixel_count,

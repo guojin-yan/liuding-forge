@@ -319,6 +319,45 @@ std::shared_ptr<ImageResourceLeaseSet> ReserveBatchTotals(
   return leases;
 }
 
+void RetainBatchSourceResources(const ImageBatch& source, ImageBatch& result) {
+  if (source.resource_lease_sets.empty()) return;
+  const auto shares_tensor = [](const Tensor& a, const Tensor& b) {
+    return a.defined() && b.defined() && a.has_storage() && b.has_storage() &&
+           a.storage().unsafeGetStorageImpl() ==
+               b.storage().unsafeGetStorageImpl();
+  };
+  const auto shares_list = [&](const auto& a, const auto& b) {
+    for (std::size_t i = 0; i < std::min(a.size(), b.size()); ++i)
+      if (shares_tensor(a[i], b[i])) return true;
+    return false;
+  };
+  const auto shares_optional = [&](const auto& a, const auto& b) {
+    return a && b && shares_tensor(*a, *b);
+  };
+  bool shared =
+      shares_tensor(source.images, result.images) ||
+      shares_tensor(source.valid, result.valid) ||
+      shares_tensor(source.labels, result.labels) ||
+      shares_optional(source.paired_images, result.paired_images) ||
+      shares_optional(source.masks, result.masks) ||
+      shares_list(source.image_list, result.image_list) ||
+      shares_list(source.paired_image_list, result.paired_image_list) ||
+      shares_list(source.mask_list, result.mask_list) ||
+      shares_list(source.valid_list, result.valid_list);
+  for (std::size_t i = 0;
+       !shared && i < std::min(source.items.size(), result.items.size()); ++i) {
+    const auto& a = source.items[i];
+    const auto& b = result.items[i];
+    shared = (a.annotation && a.annotation == b.annotation) ||
+             (a.categories && a.categories == b.categories) ||
+             (a.label_categories && a.label_categories == b.label_categories);
+  }
+  if (shared)
+    result.resource_lease_sets.insert(result.resource_lease_sets.end(),
+                                      source.resource_lease_sets.begin(),
+                                      source.resource_lease_sets.end());
+}
+
 std::shared_ptr<ImageResourceLeaseSet> ReserveBatchResources(
     const ImageBatch& b, const std::shared_ptr<ImageResourceBudget>& budget,
     const ImageBatchLimits& l, std::stop_token stop, bool reserve_gpu_bytes,

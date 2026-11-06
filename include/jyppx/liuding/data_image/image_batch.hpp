@@ -152,8 +152,10 @@ struct ImageBatch {
   /**
    * @brief Aggregate reservations outlive every tensor and host field below.
    *
-   * Copies share each lease set. Runtime leases are not serialized and are
-   * recreated only by a stage receiving a resource budget.
+   * Copies and transformations retain source sets while Tensor storage or
+   * immutable target owners are shared, including empty storage owners.
+   * Aggregate source reservations can therefore outlive the original batch.
+   * Runtime leases are not serialized; a supplied budget adds output sets.
    */
   std::vector<std::shared_ptr<ImageResourceLeaseSet>> resource_lease_sets;
   ImageBatchLayout layout = ImageBatchLayout::stack;  ///< Packed/ragged policy.

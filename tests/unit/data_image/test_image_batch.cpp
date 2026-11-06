@@ -209,6 +209,160 @@ TEST(ImageBatchResourceBudgetTest, AssignmentReleasesStorageBeforeLease) {
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
 }
 
+void ExpectBatchBudgetReleased(const std::shared_ptr<ImageResourceBudget>& b);
+
+TEST(ImageBatchAliasResourceTest, PreparationKeepsSharedSourceStorageCharged) {
+  for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
+                            ImageBatchLayout::ragged}) {
+    for (const bool add_budget : {false, true}) {
+      SCOPED_TRACE(static_cast<int>(layout));
+      SCOPED_TRACE(add_budget);
+      auto source_budget = std::make_shared<ImageResourceBudget>();
+      auto output_budget =
+          add_budget ? std::make_shared<ImageResourceBudget>() : nullptr;
+      std::uint64_t charged_at_release =
+          std::numeric_limits<std::uint64_t>::max();
+      auto source = Batch({Photo()},
+                          {.layout = layout, .resource_budget = source_budget});
+      auto& photo = layout == ImageBatchLayout::ragged ? source.image_list[0]
+                                                       : source.images;
+      auto* bytes = new std::uint8_t[photo.numel()]{};
+      photo = torch::from_blob(
+          bytes, photo.sizes(),
+          [source_budget, &charged_at_release](void* storage) {
+            charged_at_release =
+                source_budget->usage(ImageResourceKind::decoded_bytes).current;
+            delete[] static_cast<std::uint8_t*>(storage);
+          },
+          photo.options());
+      const auto charged =
+          source_budget->usage(ImageResourceKind::decoded_bytes).current;
+      auto result = prepare_image_batch(source, {}, {}, output_budget);
+      source = {};
+      EXPECT_EQ(source_budget->usage(ImageResourceKind::decoded_bytes).current,
+                charged);
+      EXPECT_EQ(charged_at_release, std::numeric_limits<std::uint64_t>::max());
+      result = {};
+      EXPECT_EQ(charged_at_release, charged);
+      ExpectBatchBudgetReleased(source_budget);
+      if (output_budget) ExpectBatchBudgetReleased(output_budget);
+    }
+  }
+}
+
+TEST(ImageBatchAliasResourceTest, TransferKeepsMovedSourceReservations) {
+  for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
+                            ImageBatchLayout::ragged}) {
+    for (const bool add_budget : {false, true}) {
+      SCOPED_TRACE(static_cast<int>(layout));
+      SCOPED_TRACE(add_budget);
+      auto budget = std::make_shared<ImageResourceBudget>();
+      auto output_budget =
+          add_budget ? std::make_shared<ImageResourceBudget>() : nullptr;
+      auto source =
+          Batch({Photo()}, {.layout = layout, .resource_budget = budget});
+      const auto charged =
+          budget->usage(ImageResourceKind::decoded_bytes).current;
+      const BatchMemoryOptions memory{.target_device = Device(torch::kCPU)};
+      source.memory =
+          prepare_batch_memory(image_batch_value(source), memory).metadata;
+      auto result =
+          transfer_image_batch(std::move(source), memory, {}, output_budget);
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current,
+                charged);
+      result = {};
+      ExpectBatchBudgetReleased(budget);
+      if (output_budget) ExpectBatchBudgetReleased(output_budget);
+    }
+  }
+}
+
+TEST(ImageBatchAliasResourceTest, NumericKeepsUnchangedPairedStorageCharged) {
+  for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
+                            ImageBatchLayout::ragged}) {
+    for (const bool add_budget : {false, true}) {
+      SCOPED_TRACE(static_cast<int>(layout));
+      SCOPED_TRACE(add_budget);
+      auto sample = Photo();
+      sample.paired_target = sample.image.clone();
+      sample.paired_target_pixels = sample.pixels;
+      auto budget = std::make_shared<ImageResourceBudget>();
+      auto output_budget =
+          add_budget ? std::make_shared<ImageResourceBudget>() : nullptr;
+      auto source =
+          Batch({sample}, {.layout = layout, .resource_budget = budget});
+      const auto charged =
+          budget->usage(ImageResourceKind::decoded_bytes).current;
+      ImageBatchTransformOptions options;
+      options.image.scale = BatchPixelScale::preserve;
+      options.resource_budget = output_budget;
+      auto result = transform_image_batch(source, options);
+      const auto& original = layout == ImageBatchLayout::ragged
+                                 ? source.paired_image_list[0]
+                                 : *source.paired_images;
+      const auto& target = layout == ImageBatchLayout::ragged
+                               ? result.paired_image_list[0]
+                               : *result.paired_images;
+      EXPECT_EQ(original.storage().unsafeGetStorageImpl(),
+                target.storage().unsafeGetStorageImpl());
+      source = {};
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current,
+                charged);
+      result = {};
+      ExpectBatchBudgetReleased(budget);
+      if (output_budget) ExpectBatchBudgetReleased(output_budget);
+    }
+  }
+}
+
+TEST(ImageBatchAliasResourceTest, GeometryKeepsSharedImmutableTargetOwners) {
+  for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
+                            ImageBatchLayout::ragged}) {
+    for (const bool add_budget : {false, true}) {
+      SCOPED_TRACE(static_cast<int>(layout));
+      SCOPED_TRACE(add_budget);
+      auto sample = Photo();
+      Record(sample);
+      auto budget = std::make_shared<ImageResourceBudget>();
+      auto output_budget =
+          add_budget ? std::make_shared<ImageResourceBudget>() : nullptr;
+      auto source =
+          Batch({sample}, {.layout = layout, .resource_budget = budget});
+      const auto charged =
+          budget->usage(ImageResourceKind::annotation_bytes).current;
+      ImageBatchGeometryOptions options;
+      options.resource_budget = output_budget;
+      auto result = transform_image_batch_geometry(
+          source, std::vector<std::vector<ImageGeometryStep>>(1), options);
+      EXPECT_EQ(source.items[0].categories.get(),
+                result.items[0].categories.get());
+      source = {};
+      EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+                charged);
+      result = {};
+      ExpectBatchBudgetReleased(budget);
+      if (output_budget) ExpectBatchBudgetReleased(output_budget);
+    }
+  }
+}
+
+TEST(ImageBatchAliasResourceTest, IndependentCopyReleasesSourceReservations) {
+  auto sample = Photo();
+  sample.label_categories = std::make_shared<const std::vector<VisionCategory>>(
+      std::vector<VisionCategory>{{.source_id = 1, .name = "label"}});
+  sample.labels = {0};
+  auto budget = std::make_shared<ImageResourceBudget>();
+  auto source = Batch({sample}, {.resource_budget = budget});
+  const auto expected = source.images.clone();
+  const BatchMemoryOptions memory{.target_device = Device(torch::kCPU, 0)};
+  source.memory =
+      prepare_batch_memory(image_batch_value(source), memory).metadata;
+  auto result = transfer_image_batch(std::move(source), memory);
+  EXPECT_TRUE(result.resource_lease_sets.empty());
+  EXPECT_TRUE(torch::equal(result.images, expected));
+  ExpectBatchBudgetReleased(budget);
+}
+
 TEST(ImageBatchResourceBudgetTest,
      NumericReservesOutputAndWorkingStorageBeforeConversion) {
   const auto batch = Batch({Photo()});
@@ -430,16 +584,26 @@ TEST(ImageBatchResourceBudgetTest,
   auto prepared = prepare_image_batch(batch, disabled, {}, budget);
   EXPECT_FALSE(prepared.memory.staged);
   EXPECT_EQ(prepared.images.data_ptr(), batch.images.data_ptr());
+  ASSERT_EQ(prepared.resource_lease_sets.size(), 2U);
+  EXPECT_EQ(prepared.resource_lease_sets[0], batch.resource_lease_sets[0]);
   auto transferred = transfer_image_batch(prepared, disabled, {}, budget);
   EXPECT_EQ(transferred.images.data_ptr(), batch.images.data_ptr());
+  EXPECT_EQ(transferred.images.storage().unsafeGetStorageImpl(),
+            batch.images.storage().unsafeGetStorageImpl());
+  ASSERT_EQ(transferred.resource_lease_sets.size(), 3U);
+  EXPECT_EQ(transferred.resource_lease_sets[0],
+            prepared.resource_lease_sets[0]);
+  EXPECT_EQ(transferred.resource_lease_sets[1],
+            prepared.resource_lease_sets[1]);
   EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 3U);
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 72U);
   batch = {};
   prepared = {};
-  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 3U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 72U);
   auto shared = transferred;
   transferred = {};
-  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 72U);
   shared = {};
   ExpectBatchBudgetReleased(budget);
 }
@@ -1783,6 +1947,73 @@ TEST(ImageBatchCUDATest, FinalBatchPinTransferNumericAndRaggedMetadata) {
   }
 }
 
+TEST(ImageBatchAliasResourceTest, PinningKeepsEmptySourceStorageOwner) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  auto budget = std::make_shared<ImageResourceBudget>();
+  std::uint64_t charged_at_release = std::numeric_limits<std::uint64_t>::max();
+  auto source = Batch({Photo()}, {.resource_budget = budget});
+  auto* owner = new std::int64_t[1]{};
+  source.labels = torch::from_blob(
+      owner, {0},
+      [budget, &charged_at_release](void* storage) {
+        charged_at_release =
+            budget->usage(ImageResourceKind::decoded_bytes).current;
+        delete[] static_cast<std::int64_t*>(storage);
+      },
+      torch::TensorOptions().dtype(torch::kInt64));
+  const auto charged = budget->usage(ImageResourceKind::decoded_bytes).current;
+  auto result = prepare_image_batch(source, {.pin_memory = true});
+  EXPECT_TRUE(result.images.is_pinned());
+  EXPECT_EQ(source.labels.storage().unsafeGetStorageImpl(),
+            result.labels.storage().unsafeGetStorageImpl());
+  source = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, charged);
+  EXPECT_EQ(charged_at_release, std::numeric_limits<std::uint64_t>::max());
+  result = {};
+  EXPECT_EQ(charged_at_release, charged);
+  ExpectBatchBudgetReleased(budget);
+}
+
+TEST(ImageBatchAliasResourceTest, CudaGeometryKeepsSharedTargetOwners) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
+  for (const auto layout : {ImageBatchLayout::stack, ImageBatchLayout::pad,
+                            ImageBatchLayout::ragged}) {
+    for (const bool add_budget : {false, true}) {
+      SCOPED_TRACE(static_cast<int>(layout));
+      SCOPED_TRACE(add_budget);
+      auto sample = Photo();
+      Record(sample);
+      auto budget = std::make_shared<ImageResourceBudget>();
+      auto output_budget =
+          add_budget ? std::make_shared<ImageResourceBudget>() : nullptr;
+      auto source =
+          Batch({sample}, {.layout = layout, .resource_budget = budget});
+      if (layout == ImageBatchLayout::ragged) {
+        source.image_list[0] = source.image_list[0].cuda();
+        source.valid_list[0] = source.valid_list[0].cuda();
+      } else {
+        source.images = source.images.cuda();
+        source.valid = source.valid.cuda();
+      }
+      source.labels = source.labels.cuda();
+      const auto charged =
+          budget->usage(ImageResourceKind::annotation_bytes).current;
+      ImageBatchGeometryOptions options;
+      options.resource_budget = output_budget;
+      auto result = transform_image_batch_geometry(
+          source, std::vector<std::vector<ImageGeometryStep>>(1), options);
+      EXPECT_EQ(source.items[0].categories.get(),
+                result.items[0].categories.get());
+      source = {};
+      EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+                charged);
+      result = {};
+      ExpectBatchBudgetReleased(budget);
+      if (output_budget) ExpectBatchBudgetReleased(output_budget);
+    }
+  }
+}
+
 TEST(ImageBatchCUDATest,
      MemoryReservationsTrackLayoutsPinnedAliasesAndDeviceOutput) {
   if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA runtime unavailable";
@@ -1897,6 +2128,7 @@ TEST(ImageBatchCUDATest, MemoryProjectionDistinguishesCpuAliasFromIndexedCopy) {
         EXPECT_TRUE(torch::equal(transferred.images, prepared.images));
         EXPECT_TRUE(torch::equal(transferred.valid, prepared.valid));
         EXPECT_EQ(transferred.labels.numel(), 0);
+        EXPECT_EQ(transferred.resource_lease_sets.size(), copies ? 1U : 2U);
         EXPECT_EQ(transferred.memory.tensor_count, 3U);
         EXPECT_EQ(transferred.memory.pinned_tensor_count, pin ? 2U : 0U);
         // The indexed CPU copy includes the zero-byte labels occurrence.
@@ -1911,12 +2143,13 @@ TEST(ImageBatchCUDATest, MemoryProjectionDistinguishesCpuAliasFromIndexedCopy) {
         EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 0U);
         prepared = {};
         EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current,
-                  copies ? 0U : 24U);
-        EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+                  copies ? 0U : 48U);
+        EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current,
+                  copies ? 24U : 48U);
         auto shared = transferred;
         transferred = {};
         EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current,
-                  copies ? 0U : 24U);
+                  copies ? 0U : 48U);
         shared = {};
         ExpectBatchBudgetReleased(budget);
       }
@@ -2003,18 +2236,22 @@ TEST(ImageBatchCUDATest,
   auto prepared = prepare_image_batch(gpu, disabled, {}, budget);
   EXPECT_FALSE(prepared.memory.staged);
   EXPECT_EQ(prepared.images.data_ptr(), gpu.images.data_ptr());
+  ASSERT_EQ(prepared.resource_lease_sets.size(), 1U);
   EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 24U);
   auto transferred = transfer_image_batch(prepared, disabled, {}, budget);
   EXPECT_EQ(transferred.images.data_ptr(), gpu.images.data_ptr());
+  ASSERT_EQ(transferred.resource_lease_sets.size(), 2U);
+  EXPECT_EQ(transferred.resource_lease_sets[0],
+            prepared.resource_lease_sets[0]);
   EXPECT_FALSE(transferred.memory.staged);
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 48U);
   EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 48U);
   EXPECT_EQ(budget->usage(ImageResourceKind::pinned_bytes).current, 0U);
   prepared = {};
-  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 24U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 48U);
   auto shared = transferred;
   transferred = {};
-  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 24U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::gpu_bytes).current, 48U);
   shared = {};
   ExpectBatchBudgetReleased(budget);
 }
