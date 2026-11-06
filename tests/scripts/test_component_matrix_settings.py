@@ -149,6 +149,139 @@ class ComponentMatrixSettingsTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn("Component matrix", result.stdout)
 
+    def installed_fixture(self):
+        source = self.root / "installable"
+        source.mkdir()
+        config = source / "jyppxConfig.cmake"
+        config.write_text("# Minimal package fixture.\n", encoding="utf-8")
+        notices = ["nlohmann-json-3.12.0-LICENSE.MIT",
+                   "sqlite-3.54.1-copyright-blessing.txt",
+                   "sqlite-copyright-page.txt"]
+        source.joinpath("CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.20)\n'
+            'project(installable_fixture LANGUAGES NONE)\n'
+            'install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/jyppxConfig.cmake" '
+            'DESTINATION lib/cmake/jyppx)\n'
+            + 'install(FILES\n'
+            + "\n".join(f'  "{(REPO / "third_party/licenses" / name).as_posix()}"'
+                        for name in notices)
+            + '\n  DESTINATION share/doc/jyppx/licenses)\n', encoding="utf-8")
+        consumer = self.root / "consumer"
+        consumer.mkdir()
+        consumer.joinpath("CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.20)\n'
+            'project(consumer_fixture LANGUAGES NONE)\n'
+            'add_custom_target(first ALL COMMAND "${CMAKE_COMMAND}" -E '
+            'touch "${CMAKE_BINARY_DIR}/first-built")\n'
+            'add_custom_target(second ALL COMMAND "${CMAKE_COMMAND}" -E '
+            'touch "${CMAKE_BINARY_DIR}/second-built")\n'
+            'enable_testing()\n'
+            'add_test(NAME minimal_consumer COMMAND "${CMAKE_COMMAND}" -E true)\n',
+            encoding="utf-8")
+        build = self.root / "installed-build"
+        configured = subprocess.run(
+            [CMAKE, "-S", str(source), "-B", str(build)], env=self.env,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            check=False, encoding="utf-8", errors="replace")
+        self.assertEqual(configured.returncode, 0, configured.stdout)
+        return build, consumer
+
+    def run_installed_script(self, name, build, consumer, *options,
+                             environment_jobs=None):
+        env = dict(self.env)
+        if environment_jobs is not None:
+            env["CMAKE_BUILD_PARALLEL_LEVEL"] = environment_jobs
+        script = REPO / "cmake" / name
+        return subprocess.run(
+            [CMAKE, "--trace-expand", f"--trace-source={script}",
+             f"-DJYPPX_SOURCE_DIR={REPO.as_posix()}",
+             f"-DJYPPX_LIUDING_BUILD_DIR={build.as_posix()}",
+             f"-DJYPPX_CONSUMER_SOURCE_DIR={consumer.as_posix()}",
+             f"-DJYPPX_LIUDING_TEST_ROOT={(build / name).as_posix()}",
+             "-DJYPPX_LIUDING_TEST_CONFIG=Release",
+             f"-DJYPPX_TORCH_DIR={(self.root / 'unused-torch').as_posix()}",
+             *options, "-P", str(script)], env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+            encoding="utf-8", errors="replace")
+
+    def test_installed_consumers_inherit_actual_build_budget(self):
+        build, consumer = self.installed_fixture()
+        cases = [((), "1", "1"),
+                 (("-DJYPPX_MATRIX_BUILD_JOBS=1",), "2", "1")]
+        for name in ("TestInstalledTargets.cmake", "TestInstalledComponentMatrix.cmake"):
+            for options, environment_jobs, expected in cases:
+                with self.subTest(script=name, options=options):
+                    result = self.run_installed_script(
+                        name, build, consumer, *options,
+                        environment_jobs=environment_jobs)
+                    self.assertEqual(result.returncode, 0, result.stdout)
+                    commands = re.findall(r"execute_process\(COMMAND [^\n]* --build [^\n]*",
+                                          result.stdout)
+                    self.assertEqual(len(commands), 10 if "Matrix" in name else 1,
+                                     result.stdout)
+                    for command in commands:
+                        self.assertRegex(command, r" --parallel[ ;]" + expected + r"(?:[ ;]|\))")
+                    self.assertNotRegex(result.stdout, r" --install [^\n]* --parallel[ ;]")
+                    self.assertTrue((build / name / "b" / "CMakeCache.txt").is_file()
+                                    if "Matrix" not in name else
+                                    (build / name / "b" / "sdk" / "CMakeCache.txt").is_file())
+
+    def test_installed_invalid_budget_keeps_existing_prefix(self):
+        build = self.root / "unconfigured"
+        build.mkdir()
+        consumer = self.root / "unused-consumer"
+        consumer.mkdir()
+        for name in ("TestInstalledTargets.cmake", "TestInstalledComponentMatrix.cmake"):
+            sentinel = build / name / "i" / "preserve-existing.txt"
+            sentinel.parent.mkdir(parents=True)
+            sentinel.write_text("existing install", encoding="utf-8")
+            for options, environment_jobs in [(("-DJYPPX_MATRIX_BUILD_JOBS=1;2",), "1"),
+                                               ((), "bad")]:
+                with self.subTest(script=name, options=options):
+                    result = self.run_installed_script(
+                        name, build, consumer, *options,
+                        environment_jobs=environment_jobs)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn("Component matrix build jobs must be a positive integer",
+                                  result.stdout)
+                    self.assertEqual(sentinel.read_text(encoding="utf-8"), "existing install")
+
+    def test_installed_ctest_registration_preserves_invalid_list_budget(self):
+        source = self.root / "installed-registrations"
+        source.mkdir()
+        for name in ("ComponentMatrixSettings.cmake", "TestInstalledTargets.cmake",
+                     "TestInstalledComponentMatrix.cmake"):
+            target = source / "cmake" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPO / "cmake" / name, target)
+        registrations = (REPO / "tests/CMakeLists.txt").read_text(encoding="utf-8")
+        blocks = []
+        for name in ("MigratedInstallConsumer", "ComponentInstallMatrixConsumer"):
+            match = re.search(r"add_test\(\s*NAME " + name + r"\s.*?\n\s*\)",
+                              registrations, re.DOTALL)
+            self.assertIsNotNone(match, name)
+            blocks.append(match.group())
+        (source / "CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.20)\n'
+            'project(installed_registration_probe LANGUAGES NONE)\n'
+            'enable_testing()\n'
+            'set(JYPPX_LIUDING_MATRIX_BUILD_JOBS "1;2")\n'
+            + "\n".join(blocks) + "\n", encoding="utf-8")
+        build = self.root / "installed-registered-build"
+        configured = subprocess.run(
+            [CMAKE, "-S", str(source), "-B", str(build)], env=self.env,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            encoding="utf-8", errors="replace", check=False)
+        self.assertEqual(configured.returncode, 0, configured.stdout)
+        ctest = str(Path(CMAKE).with_name("ctest.exe" if os.name == "nt" else "ctest"))
+        tested = subprocess.run(
+            [ctest, "--test-dir", str(build), "-C", "Release", "--output-on-failure"],
+            env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            encoding="utf-8", errors="replace", check=False)
+        self.assertNotEqual(tested.returncode, 0, tested.stdout)
+        self.assertEqual(tested.stdout.count("Component matrix build jobs must be a positive integer"),
+                         2, tested.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

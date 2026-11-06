@@ -20,7 +20,7 @@ set_tests_properties(BuildProvenanceLifecycle PROPERTIES
     LABELS "hygiene;packaging;provenance" TIMEOUT 240 RUN_SERIAL TRUE)
 include("${CMAKE_SOURCE_DIR}/cmake/ComponentMatrixSettings.cmake")
 set(JYPPX_LIUDING_MATRIX_BUILD_JOBS "" CACHE STRING
-    "Nested component matrix compile jobs (empty uses CMAKE_BUILD_PARALLEL_LEVEL or 2)")
+    "Nested component matrix and install consumer compile jobs (empty uses CMAKE_BUILD_PARALLEL_LEVEL or 2)")
 set(JYPPX_MATRIX_DEPENDENCY_CACHE "${CMAKE_CURRENT_BINARY_DIR}/component-matrix-dependencies.cmake")
 jyppx_write_matrix_dependency_cache("${JYPPX_MATRIX_DEPENDENCY_CACHE}")
 if(POLICY CMP0135)
@@ -354,6 +354,7 @@ add_test(
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/migrated_consumer
         -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/migrated/$<CONFIG>
         -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+        "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -376,6 +377,7 @@ add_test(
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/interop_consumer
         -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/interop/$<CONFIG>
         -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+        "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -398,6 +400,7 @@ add_test(
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/experiment_consumer
         -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/experiment/$<CONFIG>
         -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+        "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -420,6 +423,7 @@ add_test(
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/package_component_consumer
         -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/package/$<CONFIG>
         -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+        "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -443,6 +447,7 @@ add_test(
         -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/component_consumer
         -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/matrix/$<CONFIG>
         -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+        "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
         ${JYPPX_CONSUMER_GENERATOR_ARGS}
         -DJYPPX_TORCH_DIR=${Torch_DIR}
         -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -515,6 +520,7 @@ foreach(preview_component IN ITEMS sdk data_image vision_render models serving t
                 -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/${preview_component}_consumer
                 -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/${preview_component}/$<CONFIG>
                 -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+                "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
                 ${JYPPX_CONSUMER_GENERATOR_ARGS}
                 -DJYPPX_TORCH_DIR=${Torch_DIR}
                 -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}
@@ -541,6 +547,7 @@ if(TARGET jyppx::liuding::onnx_export AND TARGET jyppx::liuding::onnx_runtime)
             -DJYPPX_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install/deployment_consumer
             -DJYPPX_LIUDING_TEST_ROOT=${CMAKE_BINARY_DIR}/_ic/deployment/$<CONFIG>
             -DJYPPX_LIUDING_TEST_CONFIG=$<CONFIG>
+            "-DJYPPX_MATRIX_BUILD_JOBS=${JYPPX_LIUDING_MATRIX_BUILD_JOBS}"
             ${JYPPX_CONSUMER_GENERATOR_ARGS}
             -DJYPPX_TORCH_DIR=${Torch_DIR}
             -DJYPPX_TORCH_RUNTIME_DIR=${JYPPX_TORCH_RUNTIME_DIR}

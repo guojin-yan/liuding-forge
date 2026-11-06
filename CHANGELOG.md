@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 安装验收消费者复用组件矩阵的编译预算：显式设置优先，其次继承环境；非法预算在刷新安装目录前拒绝，安装命令与构建并发参数分别传递。
+
 - 补录干净提交 `5434b34` 的完整 CPU Release SDK 验证：18 库安装与独立消费者通过，选定 2008 项合同为 1823 通过、185 条件跳过、零失败；保留其他设备和正式发布边界。
 
 - 离散 mask 在分配前计入 RGB 查表及返回调色板容量，复制 palette 独立预约并保持赋值异常安全；移除随 IDAT 数增长的块索引和动态 Adam7 pass 表。

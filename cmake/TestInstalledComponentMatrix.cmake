@@ -15,6 +15,9 @@ if(test_root_relative MATCHES "^\\.\\." OR IS_ABSOLUTE "${test_root_relative}")
         "Installed component matrix root must stay inside the build tree")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/ComponentMatrixSettings.cmake")
+jyppx_component_build_arguments(build_args)
+
 set(install_dir "${test_root}/i")
 set(consumer_build_root "${test_root}/b")
 # Refresh only the staging prefix so removed install files cannot survive.
@@ -33,11 +36,12 @@ endif()
 if(JYPPX_CMAKE_GENERATOR_TOOLSET)
     list(APPEND generator_args -T "${JYPPX_CMAKE_GENERATOR_TOOLSET}")
 endif()
-set(build_args)
+set(install_args)
 set(test_args)
 if(JYPPX_LIUDING_TEST_CONFIG)
     list(APPEND config_args "-DCMAKE_BUILD_TYPE=${JYPPX_LIUDING_TEST_CONFIG}")
     list(APPEND build_args --config "${JYPPX_LIUDING_TEST_CONFIG}")
+    list(APPEND install_args --config "${JYPPX_LIUDING_TEST_CONFIG}")
     list(APPEND test_args -C "${JYPPX_LIUDING_TEST_CONFIG}")
 endif()
 # The installed `all` consumer may require the caller's selected HTTP SDK.
@@ -88,7 +92,7 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --install "${build_dir}"
-            --prefix "${install_dir}" ${build_args}
+            --prefix "${install_dir}" ${install_args}
     RESULT_VARIABLE install_result
 )
 if(NOT install_result EQUAL 0)
