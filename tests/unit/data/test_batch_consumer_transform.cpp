@@ -13,6 +13,7 @@
 #include <atomic>
 #include <gtest/gtest.h>
 #include <map>
+#include <mutex>
 #include <thread>
 
 namespace {
@@ -115,7 +116,8 @@ std::unique_ptr<BatchPipeline> Build(
     int mode,
     std::optional<BatchConsumerTransform> transform = ScaleTransform(),
     BatchSchema output = FloatsSchema(), BatchMemoryOptions memory = {},
-    bool deterministic_factory = true) {
+    bool deterministic_factory = true, BatchStageResourceFactory resources = {},
+    BatchResourceLeaseFactory legacy_resources = {}) {
   if (mode < 2) {
     DataPipelineOptions o;
     o.pipeline_id = "precommit.fixture";
@@ -130,6 +132,8 @@ std::unique_ptr<BatchPipeline> Build(
     o.memory = memory;
     o.deterministic_batch_factory = deterministic_factory;
     o.consumer_transform = std::move(transform);
+    o.stage_resource_factory = std::move(resources);
+    o.resource_lease_factory = std::move(legacy_resources);
     return std::make_unique<DataPipeline>(
         std::make_shared<samplers::SequentialSampler>(6), o,
         [](std::span<const std::size_t> ids, const DataWorkerContext&,
@@ -149,6 +153,8 @@ std::unique_ptr<BatchPipeline> Build(
   o.memory = memory;
   o.deterministic_batch_factory = deterministic_factory;
   o.consumer_transform = std::move(transform);
+  o.stage_resource_factory = std::move(resources);
+  o.resource_lease_factory = std::move(legacy_resources);
   return std::make_unique<IterableDataPipeline>(
       std::make_shared<SixSource>(), o,
       [](std::span<const IterableSample> samples, std::uint64_t, std::uint64_t,
@@ -523,4 +529,241 @@ TEST(BatchMemoryInspectionTest, CountsOccurrencesWithoutCopyingOrRequiringCpu) {
   EXPECT_THROW(inspect_batch_memory(value, {.max_bytes = 95}),
                ResourceExhausted);
 }
+
+class BatchStageResourceTest : public testing::TestWithParam<int> {};
+
+TEST_P(BatchStageResourceTest, RetainsOwnersWithNullStoredPointers) {
+  std::atomic<int> sources = 0;
+  std::atomic<int> destinations = 0;
+  const auto factory = [&](const c10::IValue&, BatchResourceStage stage,
+                           const BatchMemoryOptions&,
+                           std::stop_token) -> std::shared_ptr<void> {
+    if (stage == BatchResourceStage::produced) {
+      ++sources;
+      return std::shared_ptr<void>(nullptr, [&](void*) { --sources; });
+    }
+    if (stage == BatchResourceStage::transfer) {
+      EXPECT_GT(sources.load(), 0);
+      ++destinations;
+      return std::shared_ptr<void>(nullptr, [&](void*) { --destinations; });
+    }
+    return {};
+  };
+  auto pipeline =
+      Build(GetParam(), std::nullopt, BytesSchema(),
+            {.target_device = Device(torch::kCPU, 0)}, true, factory);
+  pipeline->set_epoch(0);
+  auto batch = pipeline->next();
+  ASSERT_TRUE(batch);
+  pipeline->close();
+  EXPECT_EQ(sources.load(), 0);
+  EXPECT_EQ(destinations.load(), 1);
+  EXPECT_EQ(batch->resource_lease.get(), nullptr);
+  EXPECT_GT(batch->resource_lease.use_count(), 0);
+  batch.reset();
+  EXPECT_EQ(destinations.load(), 0);
+}
+
+TEST_P(BatchStageResourceTest, ReservesSourceAndOutputBeforeReplacingInput) {
+  std::mutex mutex;
+  std::map<void*, int> retained;
+  void* consumer_source = nullptr;
+  std::atomic<int> outputs = 0;
+  const auto factory = [&](const c10::IValue& value, BatchResourceStage stage,
+                           const BatchMemoryOptions&, std::stop_token) {
+    std::lock_guard lock(mutex);
+    if (stage == BatchResourceStage::produced) {
+      EXPECT_EQ(value.toTensor().scalar_type(), torch::kUInt8);
+    } else {
+      EXPECT_EQ(stage, BatchResourceStage::consumer_output);
+      EXPECT_TRUE(retained.contains(consumer_source));
+      EXPECT_EQ(value.toTensor().scalar_type(), torch::kFloat32);
+      ++outputs;
+    }
+    auto* pointer = value.toTensor().data_ptr();
+    ++retained[pointer];
+    return std::shared_ptr<void>(new int(1), [&, pointer](void* p) {
+      delete static_cast<int*>(p);
+      std::lock_guard lock(mutex);
+      if (--retained.at(pointer) == 0) retained.erase(pointer);
+    });
+  };
+  auto transform = ScaleTransform();
+  transform.apply = [&](const c10::IValue& value, const BatchConsumerContext&,
+                        std::stop_token) {
+    {
+      std::lock_guard lock(mutex);
+      consumer_source = value.toTensor().data_ptr();
+      EXPECT_TRUE(retained.contains(consumer_source));
+    }
+    return c10::IValue(value.toTensor().to(torch::kFloat32));
+  };
+  auto p = Build(GetParam(), transform, FloatsSchema(), {}, true, factory);
+  p->set_epoch(0);
+  auto batch = p->next();
+  ASSERT_TRUE(batch);
+  p->close();
+  EXPECT_EQ(outputs.load(), 1);
+  EXPECT_EQ(retained.size(), 1U);
+  EXPECT_EQ(Committed(*p), 2U);
+  batch.reset();
+  EXPECT_TRUE(retained.empty());
+}
+
+TEST_P(BatchStageResourceTest, RejectsPreparationBeforeThePinningBackend) {
+  std::atomic<int> current = 0;
+  std::atomic<int> prepares = 0;
+  auto factory = [&](const c10::IValue&, BatchResourceStage stage,
+                     const BatchMemoryOptions&,
+                     std::stop_token) -> std::shared_ptr<void> {
+    if (stage == BatchResourceStage::prepare) {
+      EXPECT_GT(current.load(), 0);
+      ++prepares;
+      throw ResourceExhausted("test pin reservation rejected");
+    }
+    EXPECT_EQ(stage, BatchResourceStage::produced);
+    ++current;
+    return std::shared_ptr<void>(new int(1), [&](void* p) {
+      delete static_cast<int*>(p);
+      --current;
+    });
+  };
+  auto p = Build(GetParam(), std::nullopt, BytesSchema(), {.pin_memory = true},
+                 true, factory);
+  p->set_epoch(0);
+  try {
+    static_cast<void>(p->next());
+    FAIL() << "Preparation must fail before the pin allocator";
+  } catch (const ResourceExhausted& error) {
+    EXPECT_EQ(error.message(), "test pin reservation rejected");
+  }
+  EXPECT_GT(prepares.load(), 0);
+  EXPECT_EQ(Committed(*p), 0U);
+  p->close();
+  EXPECT_EQ(current.load(), 0);
+}
+
+TEST_P(BatchStageResourceTest, ValidatesPreparedLeavesBeforeInvokingAdmission) {
+  std::atomic<int> prepares = 0;
+  auto factory = [&](const c10::IValue&, BatchResourceStage stage,
+                     const BatchMemoryOptions&,
+                     std::stop_token) -> std::shared_ptr<void> {
+    if (stage == BatchResourceStage::prepare) ++prepares;
+    return {};
+  };
+  auto p = Build(GetParam(), std::nullopt, BytesSchema(),
+                 {.pin_memory = true, .max_bytes = 1}, true, factory);
+  p->set_epoch(0);
+  EXPECT_THROW(p->next(), ResourceExhausted);
+  EXPECT_EQ(prepares.load(), 0);
+  EXPECT_EQ(Committed(*p), 0U);
+  p->close();
+}
+
+TEST_P(BatchStageResourceTest, KeepsOriginalCursorWhenOutputAdmissionFails) {
+  std::atomic<int> outputs = 0;
+  auto factory = [&](const c10::IValue&, BatchResourceStage stage,
+                     const BatchMemoryOptions&,
+                     std::stop_token) -> std::shared_ptr<void> {
+    if (stage == BatchResourceStage::consumer_output) {
+      ++outputs;
+      throw ResourceExhausted("test output reservation rejected");
+    }
+    return {};
+  };
+  auto p =
+      Build(GetParam(), ScaleTransform(), FloatsSchema(), {}, true, factory);
+  p->set_epoch(0);
+  EXPECT_THROW(p->next(), ResourceExhausted);
+  EXPECT_EQ(outputs.load(), 1);
+  EXPECT_EQ(Committed(*p), 0U);
+  p->close();
+}
+
+TEST_P(BatchStageResourceTest, RejectsTransferBeforeTheDestinationBackend) {
+  std::atomic<int> transfers = 0;
+  auto factory = [&](const c10::IValue& value, BatchResourceStage stage,
+                     const BatchMemoryOptions&,
+                     std::stop_token) -> std::shared_ptr<void> {
+    if (stage == BatchResourceStage::transfer) {
+      EXPECT_TRUE(value.toTensor().device().is_cpu());
+      ++transfers;
+      throw ResourceExhausted("test transfer reservation rejected");
+    }
+    return {};
+  };
+  auto p = Build(GetParam(), std::nullopt, BytesSchema(),
+                 {.target_device = Device(torch::kCUDA, 0)}, true, factory);
+  p->set_epoch(0);
+  try {
+    static_cast<void>(p->next());
+    FAIL() << "Destination admission must precede the backend";
+  } catch (const ResourceExhausted& error) {
+    EXPECT_EQ(error.message(), "test transfer reservation rejected");
+  }
+  EXPECT_EQ(transfers.load(), 1);
+  EXPECT_EQ(Committed(*p), 0U);
+  p->close();
+}
+
+TEST_P(BatchStageResourceTest, CancelledOutputDiesBeforeItsAcquiredLease) {
+  std::stop_source cancellation;
+  std::atomic<int> output_live = 0;
+  std::atomic<int> early_release = 0;
+  std::atomic<int> output_deleted = 0;
+  auto transform = ScaleTransform();
+  transform.apply = [&](const c10::IValue&, const BatchConsumerContext&,
+                        std::stop_token) {
+    return c10::IValue(torch::from_blob(
+        new float(7), {1},
+        [&](void* p) {
+          if (output_live.load() != 1) ++early_release;
+          delete static_cast<float*>(p);
+          ++output_deleted;
+        },
+        torch::TensorOptions().dtype(torch::kFloat32)));
+  };
+  auto factory = [&](const c10::IValue&, BatchResourceStage stage,
+                     const BatchMemoryOptions&,
+                     std::stop_token) -> std::shared_ptr<void> {
+    if (stage != BatchResourceStage::consumer_output) return {};
+    ++output_live;
+    cancellation.request_stop();
+    return std::shared_ptr<void>(new int(1), [&](void* p) {
+      delete static_cast<int*>(p);
+      --output_live;
+    });
+  };
+  auto p = Build(GetParam(), transform, FloatsSchema(), {}, true, factory);
+  p->set_epoch(0);
+  auto batch = p->next(cancellation.get_token());
+  EXPECT_FALSE(batch);
+  batch.reset();
+  p->close();
+  EXPECT_EQ(output_deleted.load(), 1);
+  EXPECT_EQ(early_release.load(), 0);
+  EXPECT_EQ(output_live.load(), 0);
+  EXPECT_EQ(Committed(*p), 0U);
+}
+
+TEST_P(BatchStageResourceTest, RejectsTwoResourcePoliciesAtConstruction) {
+  BatchStageResourceFactory stage =
+      [](const c10::IValue&, BatchResourceStage, const BatchMemoryOptions&,
+         std::stop_token) { return std::shared_ptr<void>{}; };
+  BatchResourceLeaseFactory legacy =
+      [](const c10::IValue&, const BatchMemoryMetadata&, std::stop_token) {
+        return std::shared_ptr<void>{};
+      };
+  EXPECT_THROW(
+      Build(GetParam(), std::nullopt, BytesSchema(), {}, true, stage, legacy),
+      InvalidArgument);
+}
+
+INSTANTIATE_TEST_SUITE_P(AllPipelines, BatchStageResourceTest,
+                         testing::Values(0, 1, 2),
+                         [](const testing::TestParamInfo<int>& p) {
+                           return p.param == 0 ? "InlineMap"
+                                               : (p.param == 1 ? "WorkerMap"
+                                                               : "Iterable");
+                         });
 }  // namespace

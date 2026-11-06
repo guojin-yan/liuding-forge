@@ -281,6 +281,8 @@ struct DataPipelineOptions {
   ///< Optional aggregate-resource reservation for produced batches.
   BatchAdmissionFactory admission_factory;
   ///< Optional cancellable capacity gate before batch production.
+  BatchStageResourceFactory stage_resource_factory;
+  ///< Optional source/output accounting and preallocation memory admission.
 };
 
 /**

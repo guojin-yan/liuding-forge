@@ -644,6 +644,51 @@ data::BatchResourceLeaseFactory make_image_batch_resource_lease_factory(
   };
 }
 
+data::BatchStageResourceFactory make_image_batch_stage_resource_factory(
+    std::shared_ptr<ImageResourceBudget> budget, ImageBatchLimits limits) {
+  detail::CheckBatchLimits(limits);
+  if (!budget) return {};
+  return [budget = std::move(budget), limits](
+             const c10::IValue& value, data::BatchResourceStage stage,
+             const data::BatchMemoryOptions& options,
+             std::stop_token stop) -> std::shared_ptr<void> {
+    if (stage == data::BatchResourceStage::produced ||
+        stage == data::BatchResourceStage::consumer_output)
+      return image_batch_resource_lease(value, budget, limits, stop);
+    if (stage != data::BatchResourceStage::prepare &&
+        stage != data::BatchResourceStage::transfer)
+      InvalidBatch("batch.resource.stage");
+    if ((stage == data::BatchResourceStage::prepare && !options.pin_memory) ||
+        (stage == data::BatchResourceStage::transfer && !options.target_device))
+      return {};
+    auto batch = image_batch_from_value(value, limits);
+    const auto changes = [&](const Tensor& tensor) {
+      if (!tensor.defined() || tensor.numel() == 0) return false;
+      return stage == data::BatchResourceStage::prepare
+                 ? options.pin_memory && !tensor.is_pinned()
+                 : options.target_device &&
+                       tensor.device() != *options.target_device;
+    };
+    bool allocates = changes(batch.images) || changes(batch.valid) ||
+                     changes(batch.labels) ||
+                     (batch.paired_images && changes(*batch.paired_images)) ||
+                     (batch.masks && changes(*batch.masks));
+    for (const auto* tensors : {&batch.image_list, &batch.paired_image_list,
+                                &batch.mask_list, &batch.valid_list})
+      for (const auto& tensor : *tensors)
+        allocates = allocates || changes(tensor);
+    if (!allocates) return {};
+    const detail::BatchResourceProjection projection{
+        .pin_host =
+            stage == data::BatchResourceStage::prepare && options.pin_memory,
+        .target_device = stage == data::BatchResourceStage::transfer
+                             ? options.target_device
+                             : std::nullopt};
+    return std::static_pointer_cast<void>(detail::ReserveBatchResources(
+        batch, budget, limits, stop, true, &projection));
+  };
+}
+
 data::BatchAdmissionFactory make_image_batch_admission_factory(
     std::shared_ptr<ImageResourceBudget> budget) {
   return [budget = std::move(budget)](std::stop_token stop) {

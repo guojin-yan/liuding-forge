@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 流水线新增 `stage_resource_factory`，图像配方在锁页和设备复制分配前检查共享预算，保持源与目标的重叠计费；消费变换输出在替换输入前预约，失败不推进已提交位置。
+
 - 修复 `DecodedImage` 与 `VisionSample` 整体赋值时旧像素租约的释放顺序，样本 mask 调色板复制失败时保留完整目标；两类型改为默认构造后逐字段设置，不再接受聚合初始化。
 
 - 批次销毁、替换、预取丢弃和取消时先释放数据再归还资源租约；map 消费者直接移交 worker 值，避免变换后仍保留旧存储别名。`BatchEnvelope` 使用默认构造后设置字段。

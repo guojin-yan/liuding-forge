@@ -635,6 +635,151 @@ TEST(ImageBatchResourceBudgetTest,
             64U);
 }
 
+DataPipelineOptions ImageStageOptions(
+    std::size_t workers, const std::shared_ptr<ImageResourceBudget>& budget) {
+  DataPipelineOptions options;
+  options.pipeline_id = "image.batch.stage-resources";
+  options.dataset_version = "image-batch-fixture/v1";
+  options.dataset_size = 1;
+  options.batch_factory_id = "image-batch-stage/v1";
+  options.batch_size = 1;
+  options.num_workers = workers;
+  options.prefetch_batches = 1;
+  if (workers) options.batch_timeout = std::chrono::seconds(2);
+  options.schema = image_batch_schema(Batch({Photo()}), torch::kCPU);
+  options.stage_resource_factory =
+      make_image_batch_stage_resource_factory(budget);
+  return options;
+}
+
+DataBatchFactory ImageStageFactory() {
+  return [](std::span<const std::size_t>, const DataWorkerContext&,
+            std::stop_token) { return image_batch_value(Batch({Photo()})); };
+}
+
+TEST(ImageBatchStageResourceTest, PinningBudgetRejectsBeforeBackendAllocation) {
+  for (const std::size_t workers : {0U, 1U}) {
+    ImageResourceBudgetLimits limits;
+    limits.max_pinned_bytes = 23;  // 18 photo bytes + 6 validity bytes.
+    auto budget = std::make_shared<ImageResourceBudget>(limits);
+    auto options = ImageStageOptions(workers, budget);
+    options.memory.pin_memory = true;
+    DataPipeline pipeline(std::make_shared<samplers::SequentialSampler>(1),
+                          options, ImageStageFactory());
+    pipeline.set_epoch(0);
+    try {
+      static_cast<void>(pipeline.next());
+      FAIL() << "The pinning cap must reject before a backend allocation";
+    } catch (const ResourceExhausted& error) {
+      EXPECT_EQ(error.details().operation, "reserve.pinned_bytes");
+    }
+    EXPECT_EQ(pipeline.state().next_cursor, 0U);
+    pipeline.close();
+    EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 48U);
+    ExpectBatchBudgetReleased(budget);
+  }
+}
+
+TEST(ImageBatchStageResourceTest,
+     DestinationBudgetRejectsBeforeBackendAllocation) {
+  for (const std::size_t workers : {0U, 1U}) {
+    ImageResourceBudgetLimits limits;
+    limits.max_gpu_bytes = 23;
+    auto budget = std::make_shared<ImageResourceBudget>(limits);
+    auto options = ImageStageOptions(workers, budget);
+    options.memory.target_device = Device(torch::kCUDA, 0);
+    DataPipeline pipeline(std::make_shared<samplers::SequentialSampler>(1),
+                          options, ImageStageFactory());
+    pipeline.set_epoch(0);
+    try {
+      static_cast<void>(pipeline.next());
+      FAIL() << "The GPU cap must reject before a backend allocation";
+    } catch (const ResourceExhausted& error) {
+      EXPECT_EQ(error.details().operation, "reserve.gpu_bytes");
+    }
+    EXPECT_EQ(pipeline.state().next_cursor, 0U);
+    pipeline.close();
+    EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 48U);
+    ExpectBatchBudgetReleased(budget);
+  }
+}
+
+TEST(ImageBatchStageResourceTest, UnchangedStagesRetainOneReservation) {
+  for (const std::size_t workers : {0U, 1U}) {
+    for (const bool target_cpu : {false, true}) {
+      ImageResourceBudgetLimits limits;
+      limits.max_staged_batches = 1;
+      limits.max_decoded_bytes = 24;
+      auto budget = std::make_shared<ImageResourceBudget>(limits);
+      auto options = ImageStageOptions(workers, budget);
+      if (target_cpu) options.memory.target_device = Device(torch::kCPU);
+      DataPipeline pipeline(std::make_shared<samplers::SequentialSampler>(1),
+                            options, ImageStageFactory());
+      pipeline.set_epoch(0);
+      auto batch = pipeline.next();
+      ASSERT_TRUE(batch);
+      EXPECT_EQ(budget->usage(ImageResourceKind::staged_batches).current, 1U);
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+      auto shared = *batch;
+      batch.reset();
+      pipeline.close();
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+      shared = {};
+      ExpectBatchBudgetReleased(budget);
+    }
+  }
+}
+
+TEST(ImageBatchStageResourceTest, CpuCopiesChargeSourceAndDestinationTogether) {
+  for (const std::uint64_t capacity : {47U, 48U}) {
+    ImageResourceBudgetLimits limits;
+    limits.max_decoded_bytes = capacity;
+    auto budget = std::make_shared<ImageResourceBudget>(limits);
+    auto options = ImageStageOptions(1, budget);
+    options.memory.target_device = Device(torch::kCPU, 0);
+    DataPipeline pipeline(std::make_shared<samplers::SequentialSampler>(1),
+                          options, ImageStageFactory());
+    pipeline.set_epoch(0);
+    if (capacity == 47) {
+      EXPECT_THROW(pipeline.next(), ResourceExhausted);
+      EXPECT_EQ(pipeline.state().next_cursor, 0U);
+    } else {
+      auto batch = pipeline.next();
+      ASSERT_TRUE(batch);
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).peak, 48U);
+      EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 24U);
+      EXPECT_TRUE(torch::equal(image_batch_from_value(batch->value).images,
+                               Batch({Photo()}).images));
+      batch.reset();
+    }
+    pipeline.close();
+    ExpectBatchBudgetReleased(budget);
+  }
+}
+
+TEST(ImageBatchStageResourceTest,
+     FailedBackendReleasesSourceAndTargetReservations) {
+  if (torch::cuda::is_available()) GTEST_SKIP() << "CPU-only backend contract";
+  for (const bool pin : {false, true}) {
+    auto budget = std::make_shared<ImageResourceBudget>();
+    auto options = ImageStageOptions(1, budget);
+    options.memory.pin_memory = pin;
+    if (!pin) options.memory.target_device = Device(torch::kCUDA, 0);
+    DataPipeline pipeline(std::make_shared<samplers::SequentialSampler>(1),
+                          options, ImageStageFactory());
+    pipeline.set_epoch(0);
+    EXPECT_THROW(pipeline.next(), DeviceError);
+    EXPECT_EQ(pipeline.state().next_cursor, 0U);
+    pipeline.close();
+    EXPECT_EQ(budget
+                  ->usage(pin ? ImageResourceKind::pinned_bytes
+                              : ImageResourceKind::gpu_bytes)
+                  .peak,
+              24U);
+    ExpectBatchBudgetReleased(budget);
+  }
+}
+
 TEST(ImageBatchTest,
      ClassificationOffsetsAndMissingVersusEmptyAnnotationsRoundTrip) {
   auto a = Photo(), b = Photo(), c = Photo();

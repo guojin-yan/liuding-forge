@@ -252,6 +252,23 @@ std::shared_ptr<void> image_batch_resource_lease(
 data::BatchResourceLeaseFactory make_image_batch_resource_lease_factory(
     std::shared_ptr<ImageResourceBudget> budget, ImageBatchLimits limits = {});
 
+/**
+ * @brief Accounts image pipeline values and admits pin/transfer outputs.
+ *
+ * Set stage_resource_factory instead of resource_lease_factory. A factory
+ * value is accounted before memory staging; a changed pin/transfer result is
+ * reserved before its first Tensor allocation while the source stays charged.
+ * An unchanged stage retains its existing lease. Consumer callback output is
+ * accounted before replacing the input, after the callback has allocated it.
+ * @param budget Shared aggregate budget; absent returns a disabled callback.
+ * @param limits Structural, Tensor-payload and host-metadata caps.
+ * @return Nonblocking source/output reservation and memory-admission callback.
+ * @throws InvalidArgument Per-batch limits are invalid.
+ * @note Known logical payload is bounded, not private workspace or process RSS.
+ */
+data::BatchStageResourceFactory make_image_batch_stage_resource_factory(
+    std::shared_ptr<ImageResourceBudget> budget, ImageBatchLimits limits = {});
+
 /** @brief Waits for a bounded in-flight slot before a pipeline builds a batch.
  * @param budget Shared budget retained by the callback; absent disables it.
  * @return Admission callback reserving one pipeline_inflight_batches slot.

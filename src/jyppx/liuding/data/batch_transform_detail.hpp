@@ -18,11 +18,24 @@ namespace jyppx::liuding::data::detail {
 void validate_consumer_transform(
     const std::optional<BatchConsumerTransform>& transform);
 
-BatchMemoryUsage run_consumer_transform(c10::IValue& value,
-                                        const BatchConsumerTransform& transform,
-                                        const BatchConsumerContext& context,
-                                        const BatchMemoryOptions& limits,
-                                        std::stop_token stop);
+BatchMemoryUsage run_consumer_transform(
+    c10::IValue& value, const BatchConsumerTransform& transform,
+    const BatchConsumerContext& context, const BatchMemoryOptions& limits,
+    std::stop_token stop, const BatchStageResourceFactory& factory = {},
+    std::shared_ptr<void>* retained = nullptr);
+
+void run_stage_resource_factory(const BatchStageResourceFactory& factory,
+                                const c10::IValue& value,
+                                BatchResourceStage stage,
+                                const BatchMemoryOptions& options,
+                                std::stop_token stop,
+                                std::shared_ptr<void>& retained);
+
+void run_pipeline_memory(c10::IValue& value, BatchMemoryMetadata& metadata,
+                         const BatchMemoryOptions& options,
+                         const BatchStageResourceFactory& factory,
+                         BatchResourceStage stage, std::stop_token stop,
+                         std::shared_ptr<void>& retained);
 
 void run_resource_lease_factory(const BatchResourceLeaseFactory& factory,
                                 const c10::IValue& value,

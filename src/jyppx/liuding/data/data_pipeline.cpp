@@ -509,11 +509,13 @@ class WorkerRuntime final {
   // an epoch plan.
   WorkerRuntime(DataBatchFactory factory, BatchMemoryOptions memory,
                 BatchResourceLeaseFactory resource_lease_factory,
-                BatchAdmissionFactory admission_factory, std::size_t workers,
-                std::chrono::milliseconds timeout)
+                BatchAdmissionFactory admission_factory,
+                BatchStageResourceFactory stage_resource_factory,
+                std::size_t workers, std::chrono::milliseconds timeout)
       : factory_(std::move(factory)),
         resource_lease_factory_(std::move(resource_lease_factory)),
         admission_factory_(std::move(admission_factory)),
+        stage_resource_factory_(std::move(stage_resource_factory)),
         memory_(memory),
         timeout_(timeout) {
     workers_.reserve(workers);
@@ -713,11 +715,16 @@ class WorkerRuntime final {
         if (!result->error) {
           result->value = invoke_factory(factory_, work->indices, work->context,
                                          epoch->stop_source.get_token());
+          detail::run_stage_resource_factory(
+              stage_resource_factory_, result->value,
+              BatchResourceStage::produced, memory_,
+              epoch->stop_source.get_token(), result->resource_lease);
           if (batch_memory_stage_enabled(memory_) &&
               !epoch->stop_source.stop_requested()) {
-            auto staged = prepare_batch_memory(result->value, memory_);
-            result->value = std::move(staged.value);
-            result->memory = staged.metadata;
+            detail::run_pipeline_memory(
+                result->value, result->memory, memory_, stage_resource_factory_,
+                BatchResourceStage::prepare, epoch->stop_source.get_token(),
+                result->resource_lease);
           }
           detail::run_resource_lease_factory(
               resource_lease_factory_, result->value, result->memory,
@@ -740,6 +747,7 @@ class WorkerRuntime final {
   DataBatchFactory factory_;
   BatchResourceLeaseFactory resource_lease_factory_;
   BatchAdmissionFactory admission_factory_;
+  BatchStageResourceFactory stage_resource_factory_;
   // Immutable memory-stage policy shared by every worker invocation.
   BatchMemoryOptions memory_;
   // Zero means an unbounded wait; positive values apply per next() call.
@@ -762,6 +770,8 @@ void validate_options(const DataPipelineOptions& options) {
   validate_batch_memory_options(options.memory);
   validate_batch_schema(options.schema);
   detail::validate_consumer_transform(options.consumer_transform);
+  if (options.resource_lease_factory && options.stage_resource_factory)
+    throw InvalidArgument("Choose one batch resource factory policy");
   if (options.pipeline_id.empty() || options.dataset_version.empty() ||
       options.batch_factory_id.empty()) {
     throw InvalidArgument(
@@ -1016,7 +1026,8 @@ struct DataPipeline::Impl {
   std::unique_ptr<WorkerRuntime> make_runtime() const {
     return std::make_unique<WorkerRuntime>(
         batch_factory, options.memory, options.resource_lease_factory,
-        options.admission_factory, options.num_workers, options.batch_timeout);
+        options.admission_factory, options.stage_resource_factory,
+        options.num_workers, options.batch_timeout);
   }
 
   void install_epoch(DataPipelineState candidate,
@@ -1193,11 +1204,20 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
           make_worker_context(impl_->options, impl_->state.epoch, sequence);
       envelope.value =
           invoke_factory(impl_->batch_factory, indices, context, stop_token);
+      detail::run_stage_resource_factory(
+          impl_->options.stage_resource_factory, envelope.value,
+          BatchResourceStage::produced, impl_->options.memory, stop_token,
+          envelope.resource_lease);
       if (!stop_token.stop_requested() &&
           batch_memory_stage_enabled(impl_->options.memory)) {
-        auto staged = stage_batch_memory(envelope.value, impl_->options.memory);
-        envelope.value = std::move(staged.value);
-        envelope.memory = staged.metadata;
+        detail::run_pipeline_memory(
+            envelope.value, envelope.memory, impl_->options.memory,
+            impl_->options.stage_resource_factory, BatchResourceStage::prepare,
+            stop_token, envelope.resource_lease);
+        detail::run_pipeline_memory(
+            envelope.value, envelope.memory, impl_->options.memory,
+            impl_->options.stage_resource_factory, BatchResourceStage::transfer,
+            stop_token, envelope.resource_lease);
       }
     } else {
       auto result = impl_->runtime->wait_for(sequence, stop_token);
@@ -1216,11 +1236,10 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
       envelope.resource_lease = std::move(result->resource_lease);
       if (!stop_token.stop_requested() &&
           batch_memory_stage_enabled(impl_->options.memory)) {
-        auto staged = transfer_batch_memory(
-            {.value = std::move(envelope.value), .metadata = envelope.memory},
-            impl_->options.memory);
-        envelope.value = std::move(staged.value);
-        envelope.memory = staged.metadata;
+        detail::run_pipeline_memory(
+            envelope.value, envelope.memory, impl_->options.memory,
+            impl_->options.stage_resource_factory, BatchResourceStage::transfer,
+            stop_token, envelope.resource_lease);
       }
     }
     if (stop_token.stop_requested())
@@ -1234,7 +1253,8 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
            .sequence = sequence,
            .sample_ids = envelope.sample_ids,
            .source_watermark = {}},
-          impl_->options.memory, stop_token);
+          impl_->options.memory, stop_token,
+          impl_->options.stage_resource_factory, &envelope.resource_lease);
     }
     const bool reacquire_final_lease =
         impl_->options.num_workers == 0 ||

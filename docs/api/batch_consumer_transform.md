@@ -47,6 +47,10 @@ factory、传输、consumer transform、资源检查或 schema 检查在成功�
 
 启用变换后，`memory.max_tensors`、`max_value_nodes` 和 `max_bytes` 即使未启用 pin/transfer，也会检查输入和输出。检查只访问 Tensor 的布局、dtype、shape、device 等主机元数据，不读取 GPU 像素或主动同步。回调输出是在返回后才接受上限检查；这些限制不能阻止用户回调内部的大分配，也不代表 scratch、总 in-flight bytes、GPU allocator 占用或 RSS 门槛。
 
+`options.stage_resource_factory` 可为流水线配置共享资源策略，与原 `resource_lease_factory` 互斥，同时设置会在构造时拒绝。`produced` 接收 factory 的实际输出；`prepare` 和 `transfer` 在 Core 完成全部叶节点与策略检查后、首个目标 Tensor 分配前接收未修改的源值；`consumer_output` 在消费回调返回并通过资源检查后、替换输入之前接收实际输出。旧输入与租约保持到新输出就绪，新输出存储在失败或取消时先于新租约释放；预算拒绝不提交 cursor。仅在 `prepare/transfer` 返回空 owner 时保留原租约，另外两种阶段返回空 owner 表示输出无需预约。此策略只存在于运行时，不写入 checkpoint。
+
+回调必须线程安全、有界并响应取消，不应持有满足自身请求所需的资源等待。`produced` 在 factory 返回后计费，`consumer_output` 在消费回调返回后计费，不能为任意 factory 或消费回调的内部输出、scratch 预先准入；自行保留 Tensor 别名仍需保留对应租约。
+
 `BatchEnvelope.memory` 记录变换前 memory stage 的实际输入与传输工作；例如 uint8 照片传输时按 uint8 计数。`consumer_transform_id` 标识实际应用的阶段，`transformed_memory` 单独报告最终输出的 Tensor 次数、逻辑字节和容器节点；别名 Tensor 重复出现时重复计数。未配置变换时它为空。`inspect_batch_memory()` 可单独执行同样的无拷贝检查，不会 pin 或传输数据。ImageBatch 自身的旧 runtime memory 信息仍由数值变换清空，以免误当成输出统计。
 
 ## Checkpoint 格式

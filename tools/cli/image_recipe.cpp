@@ -809,8 +809,8 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
   }
   options.admission_factory =
       image::make_image_batch_byte_admission_factory(budget, collate.limits);
-  options.resource_lease_factory =
-      image::make_image_batch_resource_lease_factory(budget, collate.limits);
+  options.stage_resource_factory =
+      image::make_image_batch_stage_resource_factory(budget, collate.limits);
   return std::make_shared<data::DataPipeline>(
       std::make_shared<data::samplers::RandomSampler>(
           source->size(), config.at("seed").get<std::int64_t>()),

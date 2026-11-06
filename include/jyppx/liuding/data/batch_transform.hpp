@@ -55,6 +55,34 @@ struct BatchConsumerContext {
 using BatchResourceLeaseFactory = std::function<std::shared_ptr<void>(
     const c10::IValue&, const BatchMemoryMetadata&, std::stop_token)>;
 
+/** @brief Pipeline boundary whose retained output needs resource accounting. */
+enum class BatchResourceStage : std::uint8_t {
+  produced,  ///< Factory output, before optional memory preparation.
+  prepare,   ///< Projected pinning output, before the first allocation.
+  transfer,  ///< Projected destination output, before the first allocation.
+  consumer_output,  ///< Callback output, before replacing the input value.
+};
+
+/**
+ * @brief Accounts source values and admits known memory-stage outputs.
+ *
+ * produced and consumer_output receive the actual output. prepare and
+ * transfer receive the unchanged source and memory policy after Core has
+ * validated every leaf, before any destination allocation. The old value and
+ * its lease remain alive while the callback reserves a replacement. Returning
+ * an empty owner retains the source lease only for prepare and transfer. For
+ * produced and consumer_output it means the output needs no reservation.
+ * Callbacks must be thread-safe, bounded and respond to cancellation; avoid
+ * waiting while retaining resources needed to satisfy the request. Consumer
+ * callbacks allocate their own output before consumer_output; this factory
+ * cannot admit arbitrary callback scratch or allocations in advance.
+ * This runtime-only policy is mutually exclusive with
+ * BatchResourceLeaseFactory.
+ */
+using BatchStageResourceFactory = std::function<std::shared_ptr<void>(
+    const c10::IValue&, BatchResourceStage, const BatchMemoryOptions&,
+    std::stop_token)>;
+
 /**
  * @brief Admits one batch before its source or collator starts allocating.
  *

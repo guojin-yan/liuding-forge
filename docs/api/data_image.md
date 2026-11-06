@@ -207,7 +207,9 @@ auto device_batch = image::transfer_image_batch(std::move(prepared), memory);
 
 传输复用 Core 两阶段内存接口，在调用方当前 CUDA stream 上执行；没有独立 copy stream、隐式跨 stream event 或传输重叠保证。准备与传输必须使用相同的内存策略。输入 batch 和源样本保持原样；组批输出具有独立照片/mask/valid/label 存储。独立 pin/传输 API 以及原 pipeline memory stage 的限制各自生效。
 
-向 `prepare_image_batch/transfer_image_batch` 传入共享 `ImageResourceBudget` 时，会在 Core 完成结构、策略及传输元数据检查之后、首个 pin/设备输出存储分配之前，预约结果的已知逻辑 Tensor、pinned/GPU、画布、索引及标注占用。预算不足时立即报告 `ResourceExhausted`，不隐藏等待；同一结果租约保留到 batch 的最后一个共享副本释放，源 batch 的已有租约在其存活期间独立计费。未发生复制的 Tensor 别名仍按 batch 逻辑占用分别计费。CPU 目标仅在完整 Device 与源相等时保留原 pinned 属性；显式 `cpu:0` 会经 Core 的设备复制生成 pageable 输出，其源 pinned 租约独立保留。该合同只覆盖这两个显式图像阶段；不代表完整 pipeline 字节调度、LibTorch 私有 workspace、异步 allocator 驻留或进程 RSS 上限。
+向 `prepare_image_batch/transfer_image_batch` 传入共享 `ImageResourceBudget` 时，会在 Core 完成结构、策略及传输元数据检查之后、首个 pin/设备输出存储分配之前，预约结果的已知逻辑 Tensor、pinned/GPU、画布、索引及标注占用。预算不足时立即报告 `ResourceExhausted`，不隐藏等待；同一结果租约保留到 batch 的最后一个共享副本释放，源 batch 的已有租约在其存活期间独立计费。未发生复制的 Tensor 别名仍按 batch 逻辑占用分别计费。CPU 目标仅在完整 Device 与源相等时保留原 pinned 属性；显式 `cpu:0` 会经 Core 的设备复制生成 pageable 输出，其源 pinned 租约独立保留。
+
+在 `DataPipeline` 或 `IterableDataPipeline` 中设置 `options.stage_resource_factory = image::make_image_batch_stage_resource_factory(budget, limits)`，即可在 factory 输出后计费，并在 pin/设备复制分配前预约目标，输入与输出同时存活时重叠计费。无复制的内存阶段保留一份原租约；消费变换输出在返回后、替换输入前另行计费，即使其 Tensor 与输入共享存储也按逻辑占用保守预约。该选项与旧 `resource_lease_factory` 互斥，可与生产前的 `admission_factory` 配合；阶段合同见[提交前批次变换](batch_consumer_transform.md)。这些预约不覆盖任意回调内部分配、完整跨阶段字节调度、LibTorch 私有 workspace、异步 allocator 驻留或进程 RSS 上限。
 
 ## CPU/CUDA 批量数值变换
 

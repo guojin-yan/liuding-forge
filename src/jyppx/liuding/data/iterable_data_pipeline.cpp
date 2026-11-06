@@ -394,6 +394,8 @@ void validate_options(const IterableDataPipelineOptions& options) {
   validate_batch_memory_options(options.memory);
   validate_batch_schema(options.schema);
   detail::validate_consumer_transform(options.consumer_transform);
+  if (options.resource_lease_factory && options.stage_resource_factory)
+    throw InvalidArgument("Choose one batch resource factory policy");
   if (options.pipeline_id.empty() || options.dataset_version.empty() ||
       options.batch_factory_id.empty()) {
     throw InvalidArgument(
@@ -694,11 +696,15 @@ class IterableRuntime final {
     if (stop.stop_requested()) {
       return {};
     }
-    if (batch_memory_stage_enabled(options_.memory)) {
-      auto staged = prepare_batch_memory(envelope.value, options_.memory);
-      envelope.value = std::move(staged.value);
-      envelope.memory = staged.metadata;
-    }
+    detail::run_stage_resource_factory(
+        options_.stage_resource_factory, envelope.value,
+        BatchResourceStage::produced, options_.memory, stop,
+        envelope.resource_lease);
+    if (batch_memory_stage_enabled(options_.memory))
+      detail::run_pipeline_memory(
+          envelope.value, envelope.memory, options_.memory,
+          options_.stage_resource_factory, BatchResourceStage::prepare, stop,
+          envelope.resource_lease);
     detail::run_resource_lease_factory(options_.resource_lease_factory,
                                        envelope.value, envelope.memory, stop,
                                        envelope.resource_lease);
@@ -1086,11 +1092,10 @@ std::optional<BatchEnvelope> IterableDataPipeline::next(
     }
     auto envelope = std::move(*result->envelope);
     if (batch_memory_stage_enabled(impl_->options.memory)) {
-      auto staged = transfer_batch_memory(
-          {.value = std::move(envelope.value), .metadata = envelope.memory},
-          impl_->options.memory);
-      envelope.value = std::move(staged.value);
-      envelope.memory = staged.metadata;
+      detail::run_pipeline_memory(
+          envelope.value, envelope.memory, impl_->options.memory,
+          impl_->options.stage_resource_factory, BatchResourceStage::transfer,
+          stop_token, envelope.resource_lease);
     }
     if (stop_token.stop_requested())
       throw Cancelled("IterableDataPipeline epoch cancelled before commit");
@@ -1103,7 +1108,8 @@ std::optional<BatchEnvelope> IterableDataPipeline::next(
            .sequence = envelope.sequence,
            .sample_ids = envelope.sample_ids,
            .source_watermark = envelope.source_watermark},
-          impl_->options.memory, stop_token);
+          impl_->options.memory, stop_token,
+          impl_->options.stage_resource_factory, &envelope.resource_lease);
     }
     const bool reacquire_final_lease =
         impl_->options.consumer_transform.has_value() ||
