@@ -187,6 +187,32 @@
             "scope": "These are two separately selected matrix contracts and 30 nested consumer executions, not another complete 1989-contract SDK batch. CUDA, Windows, DINO independent two-step numerics, final-candidate coverage, complete device/task/resource matrices, security/licensing, formal signing and GA remain separate."
           },
           "commit": "570ca267dac77f5fb6bce4b381fa0983ba1f76b3"
+        },
+        {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-4953ef96-selected-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; no CUDA or non-CPU ORT provider execution qualification",
+          "build_type": "Release",
+          "tests": "One complete selected CTest batch: 1997 unique contracts, 1812 passed, 185 conditional skips, 0 failures; independent installed C++ consumer 1/1 passed.",
+          "instrumentation": "CMake 3.22.1 / Ninja 1.10.1; reused fixed CPU Release tree; all 18 selected product libraries, CLI, examples, tests and native dataset preparation; build and CTest parallelism 1; no instrumentation",
+          "quality_evidence": {
+            "source_identity": "Real clean committed 4953ef9625d327fd98b53a1115c730fadd7c512d checkout; all 1258 Git blob and checkout SHA-256 identities verified before and after tests; independent strict git fsck passed. Later metadata commits are not the executed SDK fingerprint.",
+            "independent_audit_sha256": "bef57f135fffe6949f681850fceb15d97c0607db6c46a404c075ea05452a4d86",
+            "source_and_install_review_sha256": "93b283489eaa0415a86a192fc057bba749899dab95d410682aacbb08eb01dc59",
+            "terminal_sha256": "b5ea73a4f7dcd9e84b794132774fb0cc2d49e579ab5c22e827004424e71b8799",
+            "selected_results_sha256": "13fdea8f4508f76a0865ca05a2aa79fd33c7312a0dd0a9e2d42c5bbdfc17b877",
+            "consumer_junit_sha256": "7ea37481dda75a672adc640281ce0dd5f7026ce360454cc5cf3b5d6d9f85d00d",
+            "installed_manifest_sha256": "c604e146dc87739f0c1588f4a97f8d9cf2755e215d702e3659b6fcd339420204",
+            "installation": "231 installed files and 18 branded framework libraries independently rehashed; separately configured C++ sdk consumer checks exactly eight Core aggregate members and runs successfully. Installed CLI version and CPU doctor passed with exact 4953ef96/Release fingerprint. Both previous SDKs retain all 231 file identities each.",
+            "incremental_build": "Default ALL completed with 10 translation units and 120 link commands in 81.171 seconds. Selected CTest took 1568.297 seconds; the complete batch took 1676.734 seconds. Training contracts executed; total training updates are not aggregated here.",
+            "maintenance_failure": "Initial independent review stopped during source hashing because Ubuntu system Python 3.10 lacks hashlib.file_digest, before product execution. Original log retained; chunked SHA-256 review succeeded without rerunning the product batch.",
+            "resource_boundary": "Original 10800-second total, 6000-second build and 4000-second selected CTest limits retained; admission 6 GiB available memory / 24 GiB disk; runtime stop lines 4 GiB available memory / 2 GiB disk; owned RSS cap 5 GiB and whole-volume growth / incremental output caps each 10 GiB. Measured peak owned RSS 1849135104 bytes, minimum MemAvailable 12566966272 bytes and maximum compiler frontends 1. No owned processes remained after stages.",
+            "scope": "CPU selected Release correctness and installation only. OptionalComponentMatrix and PreviewComponentMatrix are excluded separate configurations. Conditional skips, final-candidate coverage, complete model/recipe/device/resource matrices, Windows HTTP, security/licensing, formal signing, RC upgrade/rollback and GA remain separate."
+          },
+          "commit": "4953ef9625d327fd98b53a1115c730fadd7c512d"
         }
       ],
       "pending_lanes": [

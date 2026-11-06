@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补录干净提交 `4953ef96` 的完整 CPU Release SDK 与安装消费者验证：选定 1997 项合同为 1812 通过、185 条件跳过、零失败，保留其他配置、设备及正式发布边界。
+
 - 本地任务与搜索在创建存储或启动任务前拒绝显式环境目标名的 ASCII 大小写别名，避免同一计划在 Windows 和 Linux 上出现不同含义。
 
 - 增加 OTLP 认证挑战、Cookie 与请求连接隔离检查，更新 CPU libgomp 和 oneMKL 已确认来源说明，保留完整安全及再分发审查边界。
