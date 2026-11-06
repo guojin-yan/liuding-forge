@@ -276,6 +276,36 @@
             "scope": "Selected CPU Release correctness and installation only. OptionalComponentMatrix and PreviewComponentMatrix are excluded separate configurations. Conditional skips, strict DINO two-step numerics, complete model/recipe/device/resource matrices, Windows SDK/HTTP, final-candidate coverage, security/licensing, signing and Beta/RC upgrade/rollback remain open."
           },
           "commit": "5434b34de3646881e63b7bc905ea921735692a40"
+        },
+        {
+          "id": "local-ubuntu22045-gcc114-cu126-clean-d841b54-selected-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cuda",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cu126; CUDA Toolkit 12.6.3; cuDNN 9.10.2.21; NVIDIA RTX 2060; driver 580.178.04",
+          "build_type": "Release",
+          "tests": "Complete selected CTest contracts closed in stages: 2086 unique contracts, 2014 passed, 72 conditional skips, 0 unresolved failures; independent installed C++ sdk consumer 1/1 passed. Initial complete-batch failures are retained separately.",
+          "instrumentation": "CMake 3.22.1 / Ninja 1.10.1; existing CUDA Release build and installed consumer cache reused; 18 product libraries with CLI, examples, native dataset preparation and tests; no product instrumentation. Compile and CTest jobs 1, GPU tasks sequential, observed global compiler frontends at most 1.",
+          "quality_evidence": {
+            "source_identity": "Clean committed d841b54246420be32a4945aec7d5e8a842c85188 checkout; all 1261 Git blobs and source mtimes verified before and after execution. Independent source/install SHA-256 and strict git fsck passed. Later metadata is not the executed SDK fingerprint.",
+            "independent_audit_sha256": "ccf7c19efc2bcc02cfd53d3f8bd173a1582c289b1710a2a164a37f66d3c93827",
+            "source_and_install_review_sha256": "cb467804689bf404aa8545c170d2c412c7b5d1d3cca68e92a88bfa6586a60190",
+            "environment_sha256": "417a7ad5af39b96f24f00ef264eae4f3e868f254cbc985f25f65933c065c3d2d",
+            "initial_batch_and_supplement": "The initial complete batch had 6 optional evidence-directory FileExistsError failures, retained with its terminal and JUnit. Only those exact contracts were retried using per-test evidence namespaces; no product source or correctness/quality gate changed. The original 10800s absolute deadline and aggregate selected-test 4000s cap were retained. This is staged closure, not one green full-suite invocation.",
+            "terminal_sha256": "7f89849638acb0b673c8dcd2d2842874739bbd43bb1f664fd139ad15a9060870",
+            "selected_results_sha256": "0a9fbafde3a30ad670540a2dc9b9358525dd82eba526c6b130d5eb2e25007e33",
+            "consumer_junit_sha256": "58f4b76c645350b2bc12516bccff0482bf92231b82f0edf785c094270226126d",
+            "installed_manifest_sha256": "ad06c3577017dca446e9d7720bf6418483d41dbee0ddcc9742a33b2953e0508f",
+            "installation": "New canonical current CUDA prefix in the existing source out/install tree: 18 branded libraries / 231 files independently verified; SDK aggregate remains eight Core members. Installed CLI source fingerprint and CPU/CUDA doctor passed. Three historical/current CPU/CUDA SDKs retain 231 files each. No LibTorch/runtime copies; shared object and consumer caches retained.",
+            "pipeline_memory_scope": "Includes produced/pin/device-transfer/consumer-output stage admission and empty-pointer lease-owner lifetime contracts from this exact source. Known destination allocations are admitted before allocation; arbitrary factory/consumer scratch, full cross-stage scheduling/backpressure, allocator residency and OS RSS/VRAM hard limits remain outside this qualification.",
+            "real_recipe_tasks": "Cli_image_recipe and Cli_update_recipe passed on CPU and real CUDA. Fixed image task uses 16 training / 8 validation samples, 12 epochs / 48 optimizer updates and original accuracy minimum 0.875; continuous, paused/resumed and killed/resumed cases passed. Update recipe retains 48 updates and 4-batch/16-sample post-training BN calibration, exact model/next-RNG and full-checkpoint identity across recovery paths. Small JSON and SHA receipts retained; no weight/checkpoint payload copied. Other selected training also executed; aggregate update count not calculated.",
+            "incremental_build": "Default ALL: 75 log-visible translation units and 125 link commands; build 933.723s, selected CTest 3076.649s, total 4156.099s. Compiler warnings retained in logs; no zero-warning build claim.",
+            "resource_boundary": "Original registered caps: 10800s total, build 6000s / selected tests 4000s, admission 8GiB available memory / 24GiB disk, runtime stop 4GiB / 2GiB, owned process RSS and CUDA memory each 5GiB, whole-volume and incremental output each 10GiB. Observed owned RSS 2365710336 bytes, sampled CUDA process peak 1709178880 bytes; no owned processes remained. These are supervised observations, not product OS hard limits or comparative performance results.",
+            "temporary_storage": "13 temporary prefixes verified then removed: 1217223735 ordinary payload bytes plus 0 generated document bytes. Canonical SDK, shared objects, all consumer caches and three prior SDKs retained.",
+            "scope": "This exact source and selected Ubuntu CUDA Release profile only. OptionalComponentMatrix and PreviewComponentMatrix are separate unrefreshed configurations. Conditional skips, strict DINO two-step numerics, complete 33-model/four-recipe task/device/resource matrices, Windows SDK/HTTP, final-candidate coverage, security/licensing/SBOM/provenance, formal signing and Beta/RC upgrade/rollback remain open. ORT tests do not grant untested non-CPU Provider support."
+          },
+          "commit": "d841b54246420be32a4945aec7d5e8a842c85188"
         }
       ],
       "pending_lanes": [

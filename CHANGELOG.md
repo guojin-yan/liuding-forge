@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补录干净提交 `d841b54` 的 CUDA Release SDK 验证：18 库安装、独立消费者及 CPU/CUDA 真实图像训练恢复通过，选定 2086 项合同分阶段闭合为 2014 通过、72 条件跳过、零未解决失败；保留首批证据目录冲突失败，完整模型矩阵和正式发布仍待验收。
+
 - 流水线新增 `stage_resource_factory`，图像配方在锁页和设备复制分配前检查共享预算，保持源与目标的重叠计费；消费变换输出在替换输入前预约，失败不推进已提交位置。
 
 - 修复 `DecodedImage` 与 `VisionSample` 整体赋值时旧像素租约的释放顺序，样本 mask 调色板复制失败时保留完整目标；两类型改为默认构造后逐字段设置，不再接受聚合初始化。
