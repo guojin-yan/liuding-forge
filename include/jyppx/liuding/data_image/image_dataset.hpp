@@ -30,12 +30,71 @@
 #include <optional>
 #include <stop_token>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace jyppx::liuding::data::image {
 
 /** @brief One lazily decoded image and its owned or shared target metadata. */
 struct VisionSample {
+  /** @brief Creates an empty sample for explicit field population. */
+  VisionSample() = default;
+  /** @brief Copies metadata while sharing pixels and immutable targets.
+   * @param other Source sample; mask palette copies reserve independently.
+   * @throws ResourceExhausted A copied mask palette exceeds its shared budget.
+   */
+  VisionSample(const VisionSample& other) = default;
+  /** @brief Transfers images, targets, metadata and their reservations.
+   * @param other Sample left with moved-from owners.
+   */
+  VisionSample(VisionSample&& other) noexcept = default;
+  /** @brief Exchanges complete samples without releasing their storage.
+   * @param a First sample.
+   * @param b Second sample; may refer to the first sample.
+   */
+  friend void swap(VisionSample& a, VisionSample& b) noexcept {
+    using std::swap;
+    swap(a.image_resource_leases, b.image_resource_leases);
+    swap(a.image, b.image);
+    swap(a.paired_target_resource_leases, b.paired_target_resource_leases);
+    swap(a.paired_target, b.paired_target);
+    swap(a.mask_target, b.mask_target);
+    swap(a.labels, b.labels);
+    swap(a.image_path, b.image_path);
+    swap(a.target_path, b.target_path);
+    swap(a.label_categories, b.label_categories);
+    swap(a.categories, b.categories);
+    swap(a.annotation, b.annotation);
+    swap(a.width, b.width);
+    swap(a.height, b.height);
+    swap(a.pixels, b.pixels);
+    swap(a.paired_target_pixels, b.paired_target_pixels);
+    swap(a.geometry, b.geometry);
+  }
+  /** @brief Replaces a sample only after its entire copy succeeds.
+   * @param other Source sample; self-assignment preserves existing owners.
+   * @return This sample after replacement.
+   * @throws ResourceExhausted A copied mask palette exceeds its shared budget.
+   */
+  VisionSample& operator=(const VisionSample& other) {
+    if (this != &other) {
+      VisionSample replacement(other);
+      swap(*this, replacement);
+    }
+    return *this;
+  }
+  /** @brief Releases old storage before returning its reservations.
+   * @param other Sample whose owners are transferred; self-move has no effect.
+   * @return This sample after replacement.
+   */
+  VisionSample& operator=(VisionSample&& other) noexcept {
+    if (this != &other) {
+      VisionSample replacement(std::move(other));
+      swap(*this, replacement);
+    }
+    return *this;
+  }
+
   std::shared_ptr<ImageResourceLeaseSet> image_resource_leases;
   ///< Keeps the decoded input charged while this sample retains it.
   Tensor image;  ///< Owning decoded pixels or a shared source Tensor handle.

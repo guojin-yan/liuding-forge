@@ -785,4 +785,167 @@ TEST(ImageDatasetTest, PanopticReadRequiresCompleteExplicitAssociations) {
                jyppx::liuding::SerializationError);
 }
 
+// Observe actual storage destruction while consulting the real budget, rather
+// than inferring lifetime from Tensor handles or the wrapper's use_count.
+struct ImageStorageObservation
+    : std::enable_shared_from_this<ImageStorageObservation> {
+  std::shared_ptr<ImageResourceBudget> budget =
+      std::make_shared<ImageResourceBudget>();
+  int released = 0;
+  int released_without_reservation = 0;
+
+  DecodedImage image() {
+    DecodedImage result;
+    result.resource_leases = std::make_shared<ImageResourceLeaseSet>();
+    result.resource_leases->push_back(
+        budget->reserve(ImageResourceKind::decoded_bytes, 8));
+    result.tensor = torch::from_blob(
+        new std::int64_t(7), {1},
+        [self = shared_from_this()](void* pointer) {
+          if (self->budget->usage(ImageResourceKind::decoded_bytes).current !=
+              8)
+            ++self->released_without_reservation;
+          delete static_cast<std::int64_t*>(pointer);
+          ++self->released;
+        },
+        torch::TensorOptions().dtype(torch::kInt64));
+    return result;
+  }
+
+  void expect_released() const {
+    EXPECT_EQ(released, 1);
+    EXPECT_EQ(released_without_reservation, 0);
+    EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  }
+};
+
+VisionSample ObservedSample(
+    const std::shared_ptr<ImageStorageObservation>& main,
+    const std::shared_ptr<ImageStorageObservation>& paired) {
+  VisionSample sample;
+  auto image = main->image();
+  sample.image = std::move(image.tensor);
+  sample.image_resource_leases = std::move(image.resource_leases);
+  image = paired->image();
+  sample.paired_target = std::move(image.tensor);
+  sample.paired_target_resource_leases = std::move(image.resource_leases);
+  sample.image_path = "main";
+  sample.target_path = "paired";
+  return sample;
+}
+
+TEST(ImageOwnerLeaseTest, DecodedCopyReplacementRetainsStorageReservations) {
+  auto old = std::make_shared<ImageStorageObservation>();
+  auto next = std::make_shared<ImageStorageObservation>();
+  auto image = old->image();
+  auto source = next->image();
+  image = source;
+  old->expect_released();
+  source = {};
+  EXPECT_EQ(next->released, 0);
+  auto retained = image;
+  image = {};
+  EXPECT_EQ(next->released, 0);
+  retained = {};
+  next->expect_released();
+}
+
+TEST(ImageOwnerLeaseTest, DecodedMoveReplacementRetainsStorageReservations) {
+  auto old = std::make_shared<ImageStorageObservation>();
+  auto next = std::make_shared<ImageStorageObservation>();
+  std::optional<DecodedImage> image(old->image());
+  auto source = next->image();
+  image = std::move(source);
+  old->expect_released();
+  EXPECT_FALSE(source.resource_leases);
+  EXPECT_FALSE(source.tensor.defined());
+  auto& self = *image;
+  *image = self;
+  *image = std::move(self);
+  EXPECT_EQ(next->released, 0);
+  image.reset();
+  next->expect_released();
+}
+
+TEST(ImageOwnerLeaseTest, SampleCopyReplacementRetainsBothImageReservations) {
+  auto old_main = std::make_shared<ImageStorageObservation>();
+  auto old_paired = std::make_shared<ImageStorageObservation>();
+  auto next_main = std::make_shared<ImageStorageObservation>();
+  auto next_paired = std::make_shared<ImageStorageObservation>();
+  auto sample = ObservedSample(old_main, old_paired);
+  auto source = ObservedSample(next_main, next_paired);
+  source.image_path = "replacement";
+  sample = source;
+  old_main->expect_released();
+  old_paired->expect_released();
+  EXPECT_EQ(sample.image_path, "replacement");
+  source = {};
+  EXPECT_EQ(next_main->released, 0);
+  EXPECT_EQ(next_paired->released, 0);
+  auto retained = sample;
+  sample = {};
+  EXPECT_EQ(next_main->released, 0);
+  retained = {};
+  next_main->expect_released();
+  next_paired->expect_released();
+}
+
+TEST(ImageOwnerLeaseTest, SampleMoveReplacementRetainsBothImageReservations) {
+  auto old_main = std::make_shared<ImageStorageObservation>();
+  auto old_paired = std::make_shared<ImageStorageObservation>();
+  auto next_main = std::make_shared<ImageStorageObservation>();
+  auto next_paired = std::make_shared<ImageStorageObservation>();
+  std::optional<VisionSample> sample(ObservedSample(old_main, old_paired));
+  auto source = ObservedSample(next_main, next_paired);
+  sample = std::move(source);
+  old_main->expect_released();
+  old_paired->expect_released();
+  EXPECT_FALSE(source.image_resource_leases);
+  EXPECT_FALSE(source.paired_target_resource_leases);
+  auto& self = *sample;
+  *sample = self;
+  *sample = std::move(self);
+  sample.reset();
+  next_main->expect_released();
+  next_paired->expect_released();
+}
+
+TEST(ImageOwnerLeaseTest, FailedMaskPaletteCopyPreservesTheCompleteSample) {
+  auto old_main = std::make_shared<ImageStorageObservation>();
+  auto old_paired = std::make_shared<ImageStorageObservation>();
+  auto next_main = std::make_shared<ImageStorageObservation>();
+  auto next_paired = std::make_shared<ImageStorageObservation>();
+  auto sample = ObservedSample(old_main, old_paired);
+  auto source = ObservedSample(next_main, next_paired);
+  const auto original_main = sample.image.data_ptr();
+  const auto original_paired = sample.paired_target->data_ptr();
+  source.image_path = "replacement";
+  source.mask_target.emplace();
+  auto& mask = *source.mask_target;
+  mask.palette.emplace_back();
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = sizeof(MaskPaletteEntry);
+  auto palette_budget = std::make_shared<ImageResourceBudget>(limits);
+  mask.palette_lease = palette_budget->reserve(
+      ImageResourceKind::annotation_bytes, sizeof(MaskPaletteEntry));
+  EXPECT_THROW(sample = source, jyppx::liuding::ResourceExhausted);
+  EXPECT_EQ(sample.image.data_ptr(), original_main);
+  EXPECT_EQ(sample.paired_target->data_ptr(), original_paired);
+  EXPECT_EQ(sample.image_path, "main");
+  EXPECT_EQ(sample.target_path, "paired");
+  EXPECT_FALSE(sample.mask_target);
+  EXPECT_EQ(old_main->released, 0);
+  EXPECT_EQ(old_paired->released, 0);
+  auto& self = source;
+  EXPECT_NO_THROW(source = self);
+  source = {};
+  next_main->expect_released();
+  next_paired->expect_released();
+  EXPECT_EQ(palette_budget->usage(ImageResourceKind::annotation_bytes).current,
+            0U);
+  sample = {};
+  old_main->expect_released();
+  old_paired->expect_released();
+}
+
 }  // namespace

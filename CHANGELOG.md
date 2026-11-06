@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 修复 `DecodedImage` 与 `VisionSample` 整体赋值时旧像素租约的释放顺序，样本 mask 调色板复制失败时保留完整目标；两类型改为默认构造后逐字段设置，不再接受聚合初始化。
+
 - 批次销毁、替换、预取丢弃和取消时先释放数据再归还资源租约；map 消费者直接移交 worker 值，避免变换后仍保留旧存储别名。`BatchEnvelope` 使用默认构造后设置字段。
 
 - 安装验收消费者复用组件矩阵的编译预算：显式设置优先，其次继承环境；非法预算在刷新安装目录前拒绝，安装命令与构建并发参数分别传递。

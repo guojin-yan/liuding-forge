@@ -30,6 +30,7 @@
 #include <span>
 #include <stop_token>
 #include <string_view>
+#include <utility>
 
 namespace jyppx::liuding::data::image {
 
@@ -88,6 +89,41 @@ struct ImageDecodeOptions {
 
 /** @brief Owning decoded image and stable source metadata. */
 struct DecodedImage {
+  /** @brief Creates an empty image for explicit field population. */
+  DecodedImage() = default;
+  /** @brief Shares pixel storage and its reservations.
+   * @param other Image whose shared owners remain valid.
+   */
+  DecodedImage(const DecodedImage& other) = default;
+  /** @brief Transfers pixels, metadata and reservations together.
+   * @param other Image left with moved-from owners.
+   */
+  DecodedImage(DecodedImage&& other) noexcept = default;
+  /** @brief Exchanges complete images without releasing their storage.
+   * @param a First image.
+   * @param b Second image; may refer to the first image.
+   */
+  friend void swap(DecodedImage& a, DecodedImage& b) noexcept {
+    using std::swap;
+    swap(a.resource_leases, b.resource_leases);
+    swap(a.tensor, b.tensor);
+    swap(a.format, b.format);
+    swap(a.layout, b.layout);
+    swap(a.width, b.width);
+    swap(a.height, b.height);
+    swap(a.channels, b.channels);
+    swap(a.source_is_16bit, b.source_is_16bit);
+    swap(a.pixels, b.pixels);
+  }
+  /** @brief Releases replaced pixels before their reservations.
+   * @param other Copied or moved replacement image.
+   * @return This image after replacement.
+   */
+  DecodedImage& operator=(DecodedImage other) noexcept {
+    swap(*this, other);
+    return *this;
+  }
+
   std::shared_ptr<ImageResourceLeaseSet> resource_leases;
   ///< Holds decoded storage, pixel and optional pinned reservations.
   Tensor tensor;                              ///< Owning CPU tensor.
