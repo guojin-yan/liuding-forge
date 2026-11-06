@@ -16,7 +16,6 @@
 #include <stb_image.h>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 
 namespace jyppx::liuding::data::image {
@@ -24,7 +23,24 @@ namespace {
 
 constexpr std::string_view kComponent = "data.image.mask";
 using Bytes = std::span<const std::byte>;
-using ColorMap = std::unordered_map<std::uint32_t, std::int64_t>;
+constexpr auto kEmptyColor = std::numeric_limits<std::uint32_t>::max();
+struct ColorEntry {
+  std::uint32_t key = kEmptyColor;
+  std::int64_t id = 0;
+};
+struct ColorMap {
+  ImageResourceLease lease;
+  std::vector<ColorEntry> values;
+  std::size_t bytes = 0;
+  std::size_t mask = 0;
+  unsigned shift = 64;
+};
+
+std::size_t ColorSlot(std::uint32_t key, const ColorMap& colors) {
+  return static_cast<std::size_t>(
+      (static_cast<std::uint64_t>(key) * 0x9e3779b97f4a7c15ULL) >>
+      colors.shift);
+}
 
 [[noreturn]] void Invalid(std::string_view operation, std::string_view reason) {
   throw InvalidArgument("Invalid mask decoder options",
@@ -127,18 +143,39 @@ ColorMap ValidateOptions(const MaskDecodeOptions& options) {
   if (options.unknown_color_is_ignore && !options.ignore_id)
     Invalid("mask.ignore", "unknown-color fallback requires ignore_id");
 
-  ColorMap colors;
-  colors.reserve(options.colors.size());
   for (const auto& entry : options.colors) {
     if (entry.id < 0 && entry.id != options.ignore_id &&
         entry.id != options.void_id)
       Invalid("mask.colors",
               "negative labels must be declared ignore/void IDs");
-    if (!colors
-             .emplace(RgbKey(entry.rgb[0], entry.rgb[1], entry.rgb[2]),
-                      entry.id)
-             .second)
-      Invalid("mask.colors", "duplicate RGB mapping key");
+  }
+  ColorMap colors;
+  if (options.colors.empty()) return colors;
+  if (options.colors.size() >
+      options.max_working_bytes / sizeof(ColorEntry) / 2)
+    Resource("mask.colors.working");
+  std::size_t capacity = 1;
+  while (capacity < options.colors.size() * 2) {
+    capacity *= 2;
+    --colors.shift;
+  }
+  if (capacity > options.max_working_bytes / sizeof(ColorEntry))
+    Resource("mask.colors.working");
+  colors.mask = capacity - 1;
+  colors.bytes = capacity * sizeof(ColorEntry);
+  if (options.resource_budget)
+    colors.lease = options.resource_budget->reserve(
+        ImageResourceKind::codec_scratch_bytes, colors.bytes);
+  colors.values.resize(capacity);
+  for (const auto& entry : options.colors) {
+    const auto key = RgbKey(entry.rgb[0], entry.rgb[1], entry.rgb[2]);
+    auto slot = ColorSlot(key, colors);
+    while (colors.values[slot].key != kEmptyColor) {
+      if (colors.values[slot].key == key)
+        Invalid("mask.colors", "duplicate RGB mapping key");
+      slot = (slot + 1) & colors.mask;
+    }
+    colors.values[slot] = {key, entry.id};
   }
   return colors;
 }
@@ -153,15 +190,18 @@ struct Png {
   std::uint32_t width = 0, height = 0;
   unsigned depth = 0, color = 0;
   bool interlaced = false;
+  ImageResourceLease palette_lease;
   std::vector<MaskPaletteEntry> palette;
   ImageResourceLease working_lease;
   std::vector<std::byte> compressed;
-  std::vector<Pass> passes;
+  std::array<Pass, 7> passes;
+  std::size_t pass_count = 0;
   std::size_t filtered_size = 0;
   std::shared_ptr<ImageResourceLeaseSet> output_leases;
 };
 
-void ReadHeader(Png& png, Bytes data, const MaskDecodeOptions& options) {
+void ReadHeader(Png& png, Bytes data, const MaskDecodeOptions& options,
+                std::size_t working_limit) {
   if (data.size() != 13) Malformed("mask.header", "invalid IHDR length");
   png.width = Big32(data.first(4));
   png.height = Big32(data.subspan(4, 4));
@@ -210,13 +250,13 @@ void ReadHeader(Png& png, Bytes data, const MaskDecodeOptions& options) {
     const auto row =
         (static_cast<std::uint64_t>(pass.width) * channels * png.depth + 7) / 8;
     const auto size = (row + 1) * pass.height;
-    if (size > options.max_working_bytes - png.filtered_size ||
+    if (size > working_limit - png.filtered_size ||
         size > static_cast<std::size_t>((std::numeric_limits<int>::max)()) -
                    png.filtered_size)
       Resource("mask.raster");
     pass.row_bytes = static_cast<std::size_t>(row);
     png.filtered_size += static_cast<std::size_t>(size);
-    png.passes.push_back(pass);
+    png.passes[png.pass_count++] = pass;
   };
   if (png.interlaced) {
     for (const auto& pass : kAdam7) add_pass(pass);
@@ -233,12 +273,12 @@ void ReadHeader(Png& png, Bytes data, const MaskDecodeOptions& options) {
 }
 
 Png ParsePng(Bytes bytes, const MaskDecodeOptions& options,
-             std::stop_token stop) {
+             std::size_t working_limit, std::stop_token stop) {
   if (detect_image_format(bytes) != ImageFormat::png)
     Malformed("mask.format",
               "label reader requires PNG; lossy images are not masks");
   Png png;
-  std::vector<Bytes> idat_chunks;
+  std::size_t first_idat = 0, end_idat = 0;
   std::size_t compressed_size = 0;
   bool header = false, palette = false, transparency = false;
   bool idat = false, idat_ended = false;
@@ -264,13 +304,14 @@ Png ParsePng(Bytes bytes, const MaskDecodeOptions& options,
     if (Crc32(bytes.subspan(offset + 4, static_cast<std::size_t>(length) + 4),
               stop) != Big32(bytes.subspan(offset + 8 + length, 4)))
       Malformed("mask.crc", "PNG chunk CRC mismatch");
+    const auto chunk_offset = offset;
     offset += static_cast<std::size_t>(length) + 12;
     if (!header && type != "IHDR")
       Malformed("mask.header", "IHDR must be first; CgBI is unsupported");
     if (idat && type != "IDAT") idat_ended = true;
     if (type == "IHDR") {
       if (header) Malformed("mask.header", "duplicate IHDR");
-      ReadHeader(png, data, options);
+      ReadHeader(png, data, options, working_limit);
       header = true;
     } else if (type == "PLTE") {
       if (palette || transparency || idat || png.color == 0 || length == 0 ||
@@ -279,11 +320,17 @@ Png ParsePng(Bytes bytes, const MaskDecodeOptions& options,
         Malformed("mask.palette", "invalid or misplaced PLTE");
       palette = true;
       if (png.color == 3) {
-        for (std::size_t i = 0; i < length; i += 3)
-          png.palette.push_back({{static_cast<std::uint8_t>(Byte(data[i])),
-                                  static_cast<std::uint8_t>(Byte(data[i + 1])),
-                                  static_cast<std::uint8_t>(Byte(data[i + 2]))},
-                                 255});
+        const auto entries = length / 3;
+        if (options.resource_budget)
+          png.palette_lease = options.resource_budget->reserve(
+              ImageResourceKind::annotation_bytes,
+              entries * sizeof(MaskPaletteEntry));
+        png.palette.resize(entries);
+        for (std::size_t i = 0; i < entries; ++i)
+          png.palette[i] = {{static_cast<std::uint8_t>(Byte(data[i * 3])),
+                             static_cast<std::uint8_t>(Byte(data[i * 3 + 1])),
+                             static_cast<std::uint8_t>(Byte(data[i * 3 + 2]))},
+                            255};
       }
     } else if (type == "tRNS") {
       if (transparency || idat || !palette || png.color != 3 || length == 0 ||
@@ -296,14 +343,15 @@ Png ParsePng(Bytes bytes, const MaskDecodeOptions& options,
     } else if (type == "IDAT") {
       if (idat_ended || (png.color == 3 && !palette))
         Malformed("mask.idat", "noncontiguous IDAT or missing palette");
+      if (!idat) first_idat = chunk_offset;
       idat = true;
-      const auto available = options.max_working_bytes - png.filtered_size;
+      end_idat = offset;
+      const auto available = working_limit - png.filtered_size;
       if (length > available - compressed_size ||
           length > static_cast<std::size_t>((std::numeric_limits<int>::max)()) -
                        compressed_size)
         Resource("mask.working");
       compressed_size += length;
-      idat_chunks.push_back(data);
     } else if (type == "IEND") {
       if (length != 0 || !idat || compressed_size == 0 ||
           offset != bytes.size())
@@ -314,12 +362,20 @@ Png ParsePng(Bytes bytes, const MaskDecodeOptions& options,
             compressed_size + png.filtered_size);
       png.compressed.resize(compressed_size);
       std::size_t copied = 0;
-      for (const auto chunk : idat_chunks) {
+      // IDAT chunks must be consecutive. Revisit their validated byte range
+      // without retaining an attacker-sized vector of span descriptors.
+      for (auto cursor = first_idat; cursor < end_idat;) {
         CheckStop(stop);
+        const auto size = Big32(bytes.subspan(cursor, 4));
+        if (size > end_idat - cursor - 12 ||
+            size > png.compressed.size() - copied)
+          Malformed("mask.idat", "IDAT range changed while decoding");
+        const auto chunk = bytes.subspan(cursor + 8, size);
         if (!chunk.empty())
           std::memcpy(png.compressed.data() + copied, chunk.data(),
                       chunk.size());
         copied += chunk.size();
+        cursor += static_cast<std::size_t>(size) + 12;
       }
       return png;
     } else if (type == "acTL" || type == "fcTL" || type == "fdAT") {
@@ -378,8 +434,11 @@ std::int64_t LabelAt(Bytes row, std::size_t x, const Png& png,
     const auto key =
         RgbKey(Byte(row[x * 3]), Byte(row[x * 3 + 1]), Byte(row[x * 3 + 2]));
     if (options.encoding == MaskEncoding::panoptic_rgb) return key;
-    const auto found = colors.find(key);
-    if (found != colors.end()) return found->second;
+    auto slot = ColorSlot(key, colors);
+    while (colors.values[slot].key != kEmptyColor) {
+      if (colors.values[slot].key == key) return colors.values[slot].id;
+      slot = (slot + 1) & colors.mask;
+    }
     if (options.unknown_color_is_ignore) return *options.ignore_id;
     Malformed("mask.color_unknown", "RGB pixel has no explicit label mapping");
   }
@@ -399,10 +458,10 @@ std::int64_t LabelAt(Bytes row, std::size_t x, const Png& png,
 }
 
 DecodedMask Decode(Bytes bytes, const MaskDecodeOptions& options,
-                   std::stop_token stop) {
-  const auto colors = ValidateOptions(options);
+                   const ColorMap& colors, std::stop_token stop) {
   if (bytes.size() > options.limits.max_input_bytes) Resource("mask.input");
-  auto png = ParsePng(bytes, options, stop);
+  auto png =
+      ParsePng(bytes, options, options.max_working_bytes - colors.bytes, stop);
   if (png.compressed.size() < 6)
     Malformed("mask.zlib", "truncated zlib stream");
   CheckStop(stop);
@@ -427,7 +486,8 @@ DecodedMask Decode(Bytes bytes, const MaskDecodeOptions& options,
   auto* output = result.ids.data_ptr<std::int64_t>();
   std::size_t offset = 0;
   const auto stride = std::max(1U, (png.color == 2 ? 3U : 1U) * png.depth / 8);
-  for (const auto& pass : png.passes) {
+  for (std::size_t i = 0; i < png.pass_count; ++i) {
+    const auto& pass = png.passes[i];
     Bytes previous;
     for (std::uint32_t y = 0; y < pass.height; ++y) {
       CheckStop(stop);
@@ -449,6 +509,7 @@ DecodedMask Decode(Bytes bytes, const MaskDecodeOptions& options,
   result.source_bit_depth = static_cast<std::uint8_t>(png.depth);
   result.source_interlaced = png.interlaced;
   result.palette = std::move(png.palette);
+  result.palette_lease = std::move(png.palette_lease);
   result.ignore_id = options.ignore_id;
   result.void_id = options.void_id;
   return result;
@@ -456,12 +517,56 @@ DecodedMask Decode(Bytes bytes, const MaskDecodeOptions& options,
 
 }  // namespace
 
+DecodedMask::DecodedMask(const DecodedMask& other)
+    : resource_leases(other.resource_leases),
+      ids(other.ids),
+      encoding(other.encoding),
+      width(other.width),
+      height(other.height),
+      source_bit_depth(other.source_bit_depth),
+      source_interlaced(other.source_interlaced),
+      palette_lease(other.palette_lease.active()
+                        ? other.palette_lease.reserve_related(
+                              ImageResourceKind::annotation_bytes,
+                              other.palette.size() * sizeof(MaskPaletteEntry))
+                        : ImageResourceLease{}),
+      palette(other.palette),
+      ignore_id(other.ignore_id),
+      void_id(other.void_id) {}
+
+DecodedMask& DecodedMask::operator=(const DecodedMask& other) {
+  if (this != &other) {
+    DecodedMask copy(other);
+    *this = std::move(copy);
+  }
+  return *this;
+}
+
+DecodedMask& DecodedMask::operator=(DecodedMask&& other) noexcept {
+  if (this != &other) {
+    // The old leases remain alive until both replaced storages are released.
+    ids = std::move(other.ids);
+    palette = std::move(other.palette);
+    resource_leases = std::move(other.resource_leases);
+    palette_lease = std::move(other.palette_lease);
+    encoding = other.encoding;
+    width = other.width;
+    height = other.height;
+    source_bit_depth = other.source_bit_depth;
+    source_interlaced = other.source_interlaced;
+    ignore_id = other.ignore_id;
+    void_id = other.void_id;
+  }
+  return *this;
+}
+
 DecodedMask decode_mask(std::span<const std::byte> bytes,
                         const MaskDecodeOptions& options,
                         std::stop_token stop) {
   CheckStop(stop);
   try {
-    return Decode(bytes, options, stop);
+    const auto colors = ValidateOptions(options);
+    return Decode(bytes, options, colors, stop);
   } catch (const std::bad_alloc&) {
     Resource("mask.allocation");
   } catch (const c10::Error& error) {
@@ -478,7 +583,7 @@ DecodedMask read_mask_file(const std::filesystem::path& path,
                            std::stop_token stop) {
   CheckStop(stop);
   try {
-    static_cast<void>(ValidateOptions(options));
+    const auto colors = ValidateOptions(options);
     std::error_code error;
     const auto size = std::filesystem::file_size(path, error);
     if (error)
@@ -511,7 +616,16 @@ DecodedMask read_mask_file(const std::filesystem::path& path,
                                    .operation = "mask.file.read"});
       offset += count;
     }
-    return decode_mask(bytes, options, stop);
+    try {
+      return Decode(bytes, options, colors, stop);
+    } catch (const c10::Error& backend_error) {
+      detail::rethrow_backend_error(
+          backend_error,
+          detail::BackendErrorContext{
+              .component = std::string(kComponent),
+              .operation = "mask.tensor",
+              .failure_kind = detail::BackendFailureKind::device});
+    }
   } catch (const std::bad_alloc&) {
     Resource("mask.allocation");
   }

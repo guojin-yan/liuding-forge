@@ -6,6 +6,7 @@
 // you may not use this file except in compliance with the License.
 
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <array>
 #include <cstring>
@@ -14,6 +15,7 @@
 #include <future>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -24,6 +26,21 @@ using namespace jyppx::liuding::data::image;
 using jyppx::liuding::InvalidArgument;
 using jyppx::liuding::ResourceExhausted;
 using jyppx::liuding::SerializationError;
+using jyppx::liuding::sha256_hex;
+
+std::string LabelIdentity(const DecodedMask& mask) {
+  return sha256_hex(
+      std::as_bytes(std::span(mask.ids.data_ptr<std::int64_t>(),
+                              static_cast<std::size_t>(mask.ids.numel()))));
+}
+
+void ExpectMaskReservationsReleased(const ImageResourceBudget& budget) {
+  for (const auto kind :
+       {ImageResourceKind::encoded_bytes, ImageResourceKind::decoded_bytes,
+        ImageResourceKind::pixels, ImageResourceKind::codec_scratch_bytes,
+        ImageResourceKind::annotation_bytes})
+    EXPECT_EQ(budget.usage(kind).current, 0U);
+}
 
 std::filesystem::path FixturePath(std::string_view name) {
   return std::filesystem::path(JYPPX_LIUDING_TEST_FIXTURE_ROOT) / "data_image" /
@@ -103,6 +120,9 @@ TEST_P(PaletteMaskTest,
   const auto mask = decode_mask(Read(name), options);
   CheckLabels(mask, depth, interlaced);
   ASSERT_EQ(mask.palette.size(), 1U << depth);
+  RecordProperty("label_sha256", LabelIdentity(mask));
+  RecordProperty("palette_sha256",
+                 sha256_hex(std::as_bytes(std::span(mask.palette))));
   EXPECT_EQ(mask.palette[0].rgb, mask.palette[1].rgb);
   for (std::size_t i = 0; i < mask.palette.size(); ++i)
     EXPECT_EQ(mask.palette[i].alpha, i);
@@ -145,6 +165,7 @@ TEST(MaskDecoderTest,
   for (const auto name : {"rgb.png", "rgb-adam7.png"}) {
     auto options = RgbOptions();
     const auto mask = decode_mask(Read(name), options);
+    RecordProperty("rgb_label_sha256", LabelIdentity(mask));
     for (std::size_t y = 0; y < 7; ++y)
       for (std::size_t x = 0; x < 9; ++x)
         EXPECT_EQ(
@@ -266,6 +287,149 @@ TEST(MaskDecoderTest, ChecksAllInputOutputRasterChunkAndMappingBudgets) {
   EXPECT_THROW(decode_mask(Read("rgb.png"), colors), ResourceExhausted);
   EXPECT_THROW(read_mask_file(FixturePath("gray8.png"), cases[0]),
                ResourceExhausted);
+}
+
+TEST(MaskDecoderTest, PaletteAllocationRejectsBeforePublication) {
+  const auto bytes = Read("palette8.png");
+  MaskDecodeOptions options;
+  options.encoding = MaskEncoding::palette_index;
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = 1;
+  options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+  EXPECT_THROW(decode_mask(bytes, options), ResourceExhausted);
+  ExpectMaskReservationsReleased(*options.resource_budget);
+  EXPECT_EQ(
+      options.resource_budget->usage(ImageResourceKind::annotation_bytes).peak,
+      0U);
+  options.resource_budget.reset();
+  CheckLabels(decode_mask(bytes, options), 8, false);
+}
+
+TEST(MaskDecoderTest,
+     PaletteCopiesHoldIndependentReservationsAndReplaceAtomically) {
+  const auto bytes = Read("palette8.png");
+  const auto palette_bytes = 256U * sizeof(MaskPaletteEntry);
+  ImageResourceBudgetLimits limits;
+  limits.max_annotation_bytes = 2 * palette_bytes;
+  limits.max_decoded_bytes = 9U * 7U * sizeof(std::int64_t);
+  limits.max_pixels = 9U * 7U;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  MaskDecodeOptions options;
+  options.encoding = MaskEncoding::palette_index;
+  options.resource_budget = budget;
+  auto original = decode_mask(bytes, options);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            palette_bytes);
+  auto copy = original;
+  EXPECT_EQ(copy.ids.data_ptr(), original.ids.data_ptr());
+  EXPECT_NE(copy.palette.data(), original.palette.data());
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            2 * palette_bytes);
+  EXPECT_THROW(static_cast<void>(DecodedMask(copy)), ResourceExhausted);
+  auto destination = decode_mask(Read("gray16.png"));
+  const auto* previous = destination.ids.data_ptr();
+  EXPECT_THROW(destination = copy, ResourceExhausted);
+  EXPECT_EQ(destination.ids.data_ptr(), previous);
+  CheckLabels(destination, 16, false);
+  copy = copy;
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            2 * palette_bytes);
+  original = {};
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            palette_bytes);
+  destination = copy;
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            2 * palette_bytes);
+  EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current,
+            limits.max_decoded_bytes);
+  copy = std::move(destination);
+  EXPECT_EQ(budget->usage(ImageResourceKind::annotation_bytes).current,
+            palette_bytes);
+  CheckLabels(copy, 8, false);
+  EXPECT_EQ(copy.palette[1].alpha, 1U);
+  copy = {};
+  ExpectMaskReservationsReleased(*budget);
+}
+
+TEST(MaskDecoderTest, ColorLookupAndRasterShareExactWorkingBoundary) {
+  const auto bytes = Read("rgb-adam7.png");
+  auto options = RgbOptions();
+  const auto source_colors = options.colors;
+  const auto reference = decode_mask(bytes, options);
+  auto budget = std::make_shared<ImageResourceBudget>();
+  options.resource_budget = budget;
+  EXPECT_TRUE(torch::equal(decode_mask(bytes, options).ids, reference.ids));
+  const auto peak = budget->usage(ImageResourceKind::codec_scratch_bytes).peak;
+  EXPECT_GE(peak, options.colors.size() * sizeof(MaskColorMapping));
+  RecordProperty("scratch_peak", std::to_string(peak));
+  ExpectMaskReservationsReleased(*budget);
+  options.max_working_bytes = peak;
+  EXPECT_TRUE(torch::equal(decode_mask(bytes, options).ids, reference.ids));
+  EXPECT_TRUE(
+      torch::equal(read_mask_file(FixturePath("rgb-adam7.png"), options).ids,
+                   reference.ids));
+  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).peak, peak);
+  options.max_working_bytes = peak - 1;
+  EXPECT_THROW(decode_mask(bytes, options), ResourceExhausted);
+  ExpectMaskReservationsReleased(*budget);
+  options.max_working_bytes = peak;
+  ImageResourceBudgetLimits limits;
+  limits.max_codec_scratch_bytes = peak - 1;
+  options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+  EXPECT_THROW(decode_mask(bytes, options), ResourceExhausted);
+  ExpectMaskReservationsReleased(*options.resource_budget);
+  options.resource_budget = std::make_shared<ImageResourceBudget>();
+  options.colors.push_back(options.colors.front());
+  EXPECT_THROW(decode_mask(bytes, options), InvalidArgument);
+  ExpectMaskReservationsReleased(*options.resource_budget);
+  ASSERT_EQ(source_colors.size() + 1, options.colors.size());
+  for (std::size_t i = 0; i < source_colors.size(); ++i) {
+    EXPECT_EQ(source_colors[i].rgb, options.colors[i].rgb);
+    EXPECT_EQ(source_colors[i].id, options.colors[i].id);
+  }
+}
+
+TEST(MaskDecoderTest, EmptyIdatChunksKeepScratchBoundedAndFailureReleasesAll) {
+  const auto bytes = Read("split-idat.png");
+  constexpr std::array empty_idat{
+      std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0},
+      std::byte{'I'},  std::byte{'D'},  std::byte{'A'},  std::byte{'T'},
+      std::byte{0x35}, std::byte{0xaf}, std::byte{0x06}, std::byte{0x1e}};
+  // Insert 10,000 legal empty chunks before the first existing IDAT. Their
+  // descriptors must not require a growing heap index in the parser.
+  std::size_t first_idat = 8;
+  const auto length = [&](std::size_t offset) {
+    std::size_t value = 0;
+    for (std::size_t i = 0; i < 4; ++i)
+      value = value * 256 + std::to_integer<unsigned>(bytes[offset + i]);
+    return value;
+  };
+  while (std::memcmp(bytes.data() + first_idat + 4, "IDAT", 4) != 0)
+    first_idat += length(first_idat) + 12;
+  std::vector<std::byte> expanded(bytes.begin(), bytes.begin() + first_idat);
+  for (std::size_t i = 0; i < 10'000; ++i)
+    expanded.insert(expanded.end(), empty_idat.begin(), empty_idat.end());
+  expanded.insert(expanded.end(), bytes.begin() + first_idat, bytes.end());
+  MaskDecodeOptions options;
+  options.resource_budget = std::make_shared<ImageResourceBudget>();
+  CheckLabels(decode_mask(bytes, options), 8, false);
+  const auto peak =
+      options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+          .peak;
+  CheckLabels(decode_mask(expanded, options), 8, false);
+  EXPECT_EQ(
+      options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+          .peak,
+      peak);
+  ExpectMaskReservationsReleased(*options.resource_budget);
+  options.max_chunks = 100;
+  EXPECT_THROW(decode_mask(expanded, options), ResourceExhausted);
+  ExpectMaskReservationsReleased(*options.resource_budget);
+  options.max_chunks = 65'536;
+  options.encoding = MaskEncoding::palette_index;
+  EXPECT_THROW(decode_mask(Read("bad-palette-index.png"), options),
+               SerializationError);
+  ExpectMaskReservationsReleased(*options.resource_budget);
 }
 
 TEST(MaskDecoderTest, RejectsInvalidOrAmbiguousOptions) {

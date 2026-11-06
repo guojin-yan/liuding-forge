@@ -55,8 +55,8 @@ struct MaskDecodeOptions {
   ImageDecodeLimits limits =
       {};  ///< Encoded, dimension, pixel and int64 output bounds.
   std::size_t max_working_bytes = 512U << 20U;
-  ///< Bound on compressed copy plus filtered raster; excludes input and output
-  ///< storage.
+  ///< Bound on the owned RGB lookup, compressed copy and filtered raster;
+  ///< excludes caller input, returned labels/palette, stack and bookkeeping.
   std::size_t max_chunks =
       65'536;  ///< Bound on all PNG chunks, including empty ones.
   std::size_t max_color_entries = 65'536;  ///< Bound on the explicit RGB table.
@@ -75,6 +75,29 @@ struct MaskDecodeOptions {
 
 /** @brief Owning discrete CPU labels with their source interpretation. */
 struct DecodedMask {
+  /** @brief Creates an empty mask without resource reservations. */
+  DecodedMask() = default;
+  /** @brief Shares label storage and copies the palette with a new charge.
+   * @param other Source mask; its labels and reservations remain valid.
+   * @throws ResourceExhausted Insufficient shared annotation-byte capacity.
+   */
+  DecodedMask(const DecodedMask& other);
+  /** @brief Replaces this mask only after its complete copy succeeds.
+   * @param other Source mask; self-assignment leaves this mask unchanged.
+   * @return This mask.
+   * @throws ResourceExhausted Insufficient shared annotation-byte capacity.
+   */
+  DecodedMask& operator=(const DecodedMask& other);
+  /** @brief Moves label/palette storage and their reservations together.
+   * @param other Mask left without the transferred reservations.
+   */
+  DecodedMask(DecodedMask&& other) noexcept = default;
+  /** @brief Frees replaced storage before releasing its reservations.
+   * @param other Source mask; self-assignment has no effect.
+   * @return This mask.
+   */
+  DecodedMask& operator=(DecodedMask&& other) noexcept;
+
   std::shared_ptr<ImageResourceLeaseSet> resource_leases;
   ///< Holds decoded storage and pixel reservations while labels are retained.
   Tensor ids;  ///< Decoded output is contiguous and owning; Tensor sources may
@@ -85,6 +108,8 @@ struct DecodedMask {
       0;  ///< Current canvas height; PNG height when decoded.
   std::uint8_t source_bit_depth = 0;  ///< Encoded sample precision.
   bool source_interlaced = false;     ///< True when Adam7 was decoded.
+  ImageResourceLease palette_lease;
+  ///< Independent annotation-byte reservation for this palette's capacity.
   std::vector<MaskPaletteEntry>
       palette;  ///< Original PLTE/tRNS for indexed labels.
   std::optional<std::int64_t> ignore_id;  ///< Caller-declared ignore marker.
@@ -114,6 +139,11 @@ struct DecodedMask {
  * PNG, CgBI, and grayscale/RGB tRNS are rejected. Palette tRNS is retained as
  * metadata. EXIF, ICC, gamma and display palettes never transform IDs or RGB
  * mapping keys.
+ * The owned RGB lookup, compressed copy and filtered raster are admitted
+ * before allocation. Indexed output palettes retain a separate annotation
+ * reservation; copying a mask shares its label Tensor but reserves a new
+ * palette copy. Public-buffer mutation and separately retained Tensor/palette
+ * ownership require the caller to preserve the corresponding reservations.
  */
 DecodedMask decode_mask(std::span<const std::byte> bytes,
                         const MaskDecodeOptions& options = {},

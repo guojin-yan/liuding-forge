@@ -69,7 +69,9 @@ auto mask = image::read_mask_file("labels.png", mask_options);
 
 JPEG 等有损格式、带独立 alpha 通道的 PNG、灰度/RGB 的 tRNS、APNG 和 Apple CgBI PNG 当前会明确拒绝。读入全景 ID 图后，可使用下面的 `bind_panoptic_mask` 校验 segment 表与类别的关联。该入口检查所有 PNG chunk 的 CRC、zlib Adler-32、完整输出尺寸、调色板索引范围及文件结构。
 
-`limits` 分别限制编码字节、尺寸、像素数和 int64 输出字节；`max_working_bytes` 限制压缩副本与滤波光栅的合计字节，不包含调用者输入、输出张量和映射表。chunk 数、RGB 映射条目数另有独立上限。取消在文件读取、chunk 校验和行处理边界检查，底层一次 DEFLATE 调用不支持中途取消。
+`limits` 分别限制编码字节、尺寸、像素数和 int64 输出字节；`max_working_bytes` 与共享 `codec_scratch_bytes` 同时限制内部 RGB 查表、压缩副本和滤波光栅。查表使用一次分配的哈希存储，槽数为不小于两倍颜色条目数的最小二次幂，按槽容量计费，不修改调用者颜色表；Adam7 pass 使用固定数组，连续 IDAT 直接重访已校验的输入范围，不为每块另建堆索引。返回的 palette 容量在分配前预约共享 `annotation_bytes`；复制 `DecodedMask` 共享标签张量，另为实际复制的 palette 取得独立预约，容量不足时复制赋值保留原目标。移动、替换和析构先释放旧存储再归还其预约。调用方若单独保留张量或 palette，须同时维持相应预约；手动修改公开缓冲时自行维护计费。
+
+工作区不包含调用者输入/颜色表、返回标签/palette、codec 栈、分配器元数据或 LibTorch 私有空间，不能视作 RSS 硬上限。chunk 数和 RGB 映射条目数另有独立上限。取消在文件读取、chunk 校验和行处理边界检查，底层一次 DEFLATE 调用不支持中途取消。
 
 ### 从配对清单读取 mask
 
