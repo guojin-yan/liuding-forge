@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "stb_write_resource_scope.hpp"
+
 #include <jyppx/liuding/data_image/image_encoder.hpp>
 
 #include <algorithm>
@@ -15,6 +17,15 @@
 #include <string_view>
 #include <utility>
 
+#define STBIW_MALLOC(size)                                                    \
+  jyppx::liuding::data::image::codec_detail::StbWriteResourceScope::Allocate( \
+      size)
+#define STBIW_REALLOC(pointer, size)                                 \
+  jyppx::liuding::data::image::codec_detail::StbWriteResourceScope:: \
+      Reallocate(pointer, size)
+#define STBIW_FREE(pointer)                                               \
+  jyppx::liuding::data::image::codec_detail::StbWriteResourceScope::Free( \
+      pointer)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
@@ -119,18 +130,32 @@ void CheckFormat(const ImageEncodeOptions& options, std::uint8_t channels) {
 }
 
 struct CallbackState {
+  ImageResourceLease output_lease;
   std::vector<std::byte> bytes;
   std::size_t limit = 0;
-  bool exceeded = false;
+  std::shared_ptr<ImageResourceBudget> budget;
+  std::stop_token stop;
 };
 
 void Append(void* context, void* data, int size) {
   auto& state = *static_cast<CallbackState*>(context);
+  CheckStop(state.stop);
   if (size <= 0) return;
   const auto count = static_cast<std::size_t>(size);
-  if (count > state.limit - std::min(state.limit, state.bytes.size())) {
-    state.exceeded = true;
-    return;
+  if (count > state.limit - state.bytes.size())
+    Resource("encode.output", std::to_string(state.limit));
+  const auto required = state.bytes.size() + count;
+  if (required > state.bytes.capacity()) {
+    const auto old_capacity = state.bytes.capacity();
+    const auto grown =
+        old_capacity > state.limit / 2 ? state.limit : old_capacity * 2;
+    const auto capacity = std::min(state.limit, std::max(required, grown));
+    ImageResourceLease next;
+    if (state.budget)
+      next = state.budget->reserve(ImageResourceKind::encoded_bytes, capacity);
+    // Keep the old lease through reserve's overlapping allocation/copy.
+    state.bytes.reserve(capacity);
+    state.output_lease = std::move(next);
   }
   const auto* begin = static_cast<const std::byte*>(data);
   state.bytes.insert(state.bytes.end(), begin, begin + count);
@@ -191,8 +216,8 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
   if (pixels.numel() != static_cast<std::int64_t>(input_bytes))
     Invalid("encode.tensor", "tensor element count matches PixelSpec");
   try {
-    // The writer's two-image workspace bound also covers the single HWC/color
-    // staging tensor. Admit it before any materializing tensor conversion.
+    // Preserve the conservative two-image staging admission. Private writer
+    // allocations are charged separately, before each actual allocation.
     const auto required_working =
         input_bytes > (std::numeric_limits<std::size_t>::max() / 2U)
             ? std::numeric_limits<std::size_t>::max()
@@ -220,10 +245,13 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
       Resource("encode.backend_dimensions", "INT_MAX");
 
     const auto hwc = HwcBytes(pixels, pixel_spec, channels);
+    codec_detail::StbWriteResourceScope writer_resources(
+        options.resource_budget, options.limits.max_working_bytes,
+        required_working);
     CallbackState state;
     state.limit = options.limits.max_output_bytes;
-    state.bytes.reserve(std::min(options.limits.max_output_bytes,
-                                 std::max<std::size_t>(1024U, input_bytes)));
+    state.budget = options.resource_budget;
+    state.stop = stop;
     const auto* data = hwc.data_ptr<std::uint8_t>();
     const auto stride = static_cast<int>(width * channels);
     int ok = 0;
@@ -236,17 +264,8 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
                                   static_cast<int>(height), channels, data,
                                   options.jpeg_quality);
     }
-    if (state.exceeded || state.bytes.size() > options.limits.max_output_bytes)
-      Resource("encode.output",
-               std::to_string(options.limits.max_output_bytes));
     if (!ok) BackendFailure("encode.backend");
     CheckStop(stop);
-    ImageResourceLease output_lease;
-    if (options.resource_budget) {
-      output_lease = options.resource_budget->reserve(
-          ImageResourceKind::encoded_bytes,
-          static_cast<std::uint64_t>(state.bytes.size()));
-    }
     return EncodedImage{std::move(state.bytes),
                         options.format == ImageEncodeFormat::png
                             ? ImageFormat::png
@@ -254,7 +273,7 @@ EncodedImage encode_image(const Tensor& pixels, const PixelSpec& pixel_spec,
                         static_cast<std::uint32_t>(width),
                         static_cast<std::uint32_t>(height),
                         channels,
-                        std::move(output_lease)};
+                        std::move(state.output_lease)};
   } catch (const c10::Error& error) {
     detail::rethrow_backend_error(
         error, detail::BackendErrorContext{

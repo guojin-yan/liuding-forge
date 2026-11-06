@@ -7,11 +7,13 @@
 
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/image_encoder.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <gtest/gtest.h>
 #include <limits>
 #include <memory>
@@ -36,6 +38,7 @@ PixelSpec RgbSpec(ImageLayout layout = ImageLayout::hwc) {
 TEST(ImageEncoderTest, PngIsLosslessForHwcAndChwRgb) {
   const auto hwc = torch::arange(24, torch::kUInt8).reshape({2, 4, 3});
   const auto encoded = encode_image(hwc, RgbSpec());
+  RecordProperty("png_sha256", sha256_hex(encoded.bytes));
   EXPECT_EQ(encoded.format, ImageFormat::png);
   EXPECT_EQ(detect_image_format(encoded.bytes), ImageFormat::png);
   EXPECT_EQ(encoded.width, 4U);
@@ -117,6 +120,7 @@ TEST(ImageEncoderTest, BgrJpegMatchesExplicitRgbForBothLayoutsAndOwnedResults) {
   options.format = ImageEncodeFormat::jpeg;
   options.jpeg_quality = 93;
   const auto expected = encode_image(rgb, RgbSpec(), options);
+  RecordProperty("jpeg_sha256", sha256_hex(expected.bytes));
   for (const auto layout : {ImageLayout::hwc, ImageLayout::chw}) {
     auto spec = RgbSpec(layout);
     spec.color = PixelColorModel::bgr;
@@ -152,9 +156,146 @@ TEST(ImageEncoderTest, ColorConversionFailureReleasesEverySharedReservation) {
   options.limits.max_working_bytes = 47;
   EXPECT_THROW(encode_image(image, spec, options), ResourceExhausted);
   options.limits.max_working_bytes = 48;
+  EXPECT_THROW(encode_image(image, spec, options), ResourceExhausted);
+  options.limits = {};
   const auto encoded = encode_image(image, spec, options);
   EXPECT_FALSE(encoded.bytes.empty());
   EXPECT_TRUE(torch::equal(image, original));
+}
+
+void ExpectEncoderReservationsReleased(const ImageResourceBudget& budget) {
+  for (const auto kind :
+       {ImageResourceKind::decoded_bytes, ImageResourceKind::pixels,
+        ImageResourceKind::codec_scratch_bytes,
+        ImageResourceKind::encoded_bytes})
+    EXPECT_EQ(budget.usage(kind).current, 0U);
+}
+
+TEST(ImageEncoderTest, PrivateWriterHeapRejectsBeforePublishingAndRecovers) {
+  const auto image = torch::arange(24, torch::kUInt8).reshape({2, 4, 3});
+  ImageResourceBudgetLimits limits;
+  // Both known staging copies fit. The original estimated-only writer still
+  // allocated its private PNG workspace and published a result at this cap.
+  limits.max_codec_scratch_bytes = 48;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  ImageEncodeOptions options;
+  options.resource_budget = budget;
+  EXPECT_THROW(encode_image(image, RgbSpec(), options), ResourceExhausted);
+  ExpectEncoderReservationsReleased(*budget);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).peak, 0U);
+  EXPECT_LE(budget->usage(ImageResourceKind::codec_scratch_bytes).peak, 48U);
+  options.resource_budget.reset();
+  options.limits.max_working_bytes = 48;
+  EXPECT_THROW(encode_image(image, RgbSpec(), options), ResourceExhausted);
+  EXPECT_FALSE(encode_image(image, RgbSpec()).bytes.empty());
+}
+
+TEST(ImageEncoderTest, WriterWorkingAndSharedBudgetsEnforceExactPeak) {
+  const auto image = torch::arange(24, torch::kUInt8).reshape({2, 4, 3});
+  const auto reference = encode_image(image, RgbSpec());
+  ImageEncodeOptions options;
+  options.resource_budget = std::make_shared<ImageResourceBudget>();
+  EXPECT_EQ(encode_image(image, RgbSpec(), options).bytes, reference.bytes);
+  const auto peak =
+      options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+          .peak;
+  ASSERT_GT(peak, 48U);
+  RecordProperty("scratch_peak", std::to_string(peak));
+  ExpectEncoderReservationsReleased(*options.resource_budget);
+
+  ImageResourceBudgetLimits limits;
+  limits.max_codec_scratch_bytes = peak;
+  options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+  options.limits.max_working_bytes = peak;
+  EXPECT_EQ(encode_image(image, RgbSpec(), options).bytes, reference.bytes);
+  ExpectEncoderReservationsReleased(*options.resource_budget);
+  for (const auto cap : {std::uint64_t{48}, peak / 2, peak - 1}) {
+    SCOPED_TRACE(cap);
+    limits.max_codec_scratch_bytes = cap;
+    options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+    EXPECT_THROW(encode_image(image, RgbSpec(), options), ResourceExhausted);
+    ExpectEncoderReservationsReleased(*options.resource_budget);
+    EXPECT_LE(
+        options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+            .peak,
+        cap);
+    options.resource_budget = std::make_shared<ImageResourceBudget>();
+    options.limits.max_working_bytes = cap;
+    EXPECT_THROW(encode_image(image, RgbSpec(), options), ResourceExhausted);
+    ExpectEncoderReservationsReleased(*options.resource_budget);
+    options.limits.max_working_bytes = peak;
+  }
+  EXPECT_EQ(encode_image(image, RgbSpec()).bytes, reference.bytes);
+}
+
+TEST(ImageEncoderTest, OutputCallbackFailuresReleaseWriterAndCapacity) {
+  const auto image = torch::arange(32 * 32 * 3, torch::kInt64)
+                         .remainder(251)
+                         .to(torch::kUInt8)
+                         .reshape({32, 32, 3});
+  for (const auto format : {ImageEncodeFormat::png, ImageEncodeFormat::jpeg}) {
+    SCOPED_TRACE(static_cast<int>(format));
+    ImageEncodeOptions options;
+    options.format = format;
+    auto budget = std::make_shared<ImageResourceBudget>();
+    options.resource_budget = budget;
+    auto reference = encode_image(image, RgbSpec(), options);
+    EXPECT_EQ(reference.output_lease.amount(), reference.bytes.capacity());
+    const auto peak = budget->usage(ImageResourceKind::encoded_bytes).peak;
+    EXPECT_GE(peak, reference.bytes.capacity());
+    if (format == ImageEncodeFormat::jpeg)
+      EXPECT_GT(peak, reference.bytes.capacity());
+    const auto expected = reference.bytes;
+    reference = {};
+    ExpectEncoderReservationsReleased(*budget);
+
+    ImageResourceBudgetLimits limits;
+    limits.max_encoded_bytes = peak;
+    options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+    EXPECT_EQ(encode_image(image, RgbSpec(), options).bytes, expected);
+    ExpectEncoderReservationsReleased(*options.resource_budget);
+    for (const auto cap : {std::uint64_t{1}, peak - 1}) {
+      limits.max_encoded_bytes = cap;
+      options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+      EXPECT_THROW(encode_image(image, RgbSpec(), options), ResourceExhausted);
+      ExpectEncoderReservationsReleased(*options.resource_budget);
+      EXPECT_LE(
+          options.resource_budget->usage(ImageResourceKind::encoded_bytes).peak,
+          cap);
+    }
+    options.resource_budget = std::make_shared<ImageResourceBudget>();
+    options.limits.max_output_bytes = expected.size() - 1;
+    EXPECT_THROW(encode_image(image, RgbSpec(), options), ResourceExhausted);
+    ExpectEncoderReservationsReleased(*options.resource_budget);
+    options.limits.max_output_bytes = expected.size();
+    EXPECT_EQ(encode_image(image, RgbSpec(), options).bytes, expected);
+    ExpectEncoderReservationsReleased(*options.resource_budget);
+  }
+}
+
+TEST(ImageEncoderTest, WriterScopesKeepConcurrentThreadBudgetsIndependent) {
+  const auto image = torch::arange(24, torch::kUInt8).reshape({2, 4, 3});
+  const auto reference = encode_image(image, RgbSpec());
+  ImageResourceBudgetLimits limits;
+  limits.max_codec_scratch_bytes = 48;
+  auto small = std::make_shared<ImageResourceBudget>(limits);
+  auto large = std::make_shared<ImageResourceBudget>();
+  const auto encode = [&](const auto& budget) {
+    ImageEncodeOptions options;
+    options.resource_budget = budget;
+    return encode_image(image, RgbSpec(), options);
+  };
+  auto rejected = std::async(std::launch::async, [&] { return encode(small); });
+  auto accepted = std::async(std::launch::async, [&] { return encode(large); });
+  EXPECT_THROW(rejected.get(), ResourceExhausted);
+  auto result = accepted.get();
+  EXPECT_EQ(result.bytes, reference.bytes);
+  ExpectEncoderReservationsReleased(*small);
+  EXPECT_EQ(large->usage(ImageResourceKind::codec_scratch_bytes).current, 0U);
+  EXPECT_EQ(large->usage(ImageResourceKind::encoded_bytes).current,
+            result.bytes.capacity());
+  result = {};
+  ExpectEncoderReservationsReleased(*large);
 }
 
 TEST(ImageEncoderTest, JpegRoundTripsDimensionsAndCanBeWrittenToFile) {
@@ -327,16 +468,29 @@ TEST(ImageEncoderTest, AggregateBudgetRetainsEncodedLeaseUntilConsumption) {
   const auto reference = encode_image(image, RgbSpec(ImageLayout::chw));
 
   ImageResourceBudgetLimits limits;
-  limits.max_encoded_bytes = reference.bytes.size();
+  limits.max_encoded_bytes = reference.bytes.capacity();
   auto budget = std::make_shared<ImageResourceBudget>(limits);
   ImageEncodeOptions options;
   options.resource_budget = budget;
   auto encoded = encode_image(image, RgbSpec(ImageLayout::chw), options);
   EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current,
-            encoded.bytes.size());
-  EXPECT_THROW(encode_image(image, RgbSpec(ImageLayout::chw), options),
-               ResourceExhausted);
-  encoded.output_lease.release();
+            encoded.bytes.capacity());
+  EXPECT_EQ(encoded.output_lease.amount(), encoded.bytes.capacity());
+  auto blocked = std::async(std::launch::async, [&] {
+    return encode_image(image, RgbSpec(ImageLayout::chw), options);
+  });
+  EXPECT_THROW(blocked.get(), ResourceExhausted);
+  EncodedImage moved(std::move(encoded));
+  EXPECT_FALSE(encoded.output_lease.active());
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current,
+            moved.bytes.capacity());
+  auto replacement = encode_image(image, RgbSpec(ImageLayout::chw));
+  moved = std::move(replacement);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
+  {
+    auto destroyed = encode_image(image, RgbSpec(ImageLayout::chw), options);
+    EXPECT_EQ(destroyed.output_lease.amount(), destroyed.bytes.capacity());
+  }
   EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
 }
 

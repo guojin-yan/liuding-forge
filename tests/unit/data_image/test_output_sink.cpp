@@ -73,6 +73,10 @@ TEST(ImageOutputSinkTest, PublishesCompleteBytesAndReleasesBudgetLeases) {
   limits.max_encoded_queue_bytes = expected.size();
   limits.max_disk_spool_bytes = expected.size();
   auto budget = std::make_shared<ImageResourceBudget>(limits);
+  image.output_lease =
+      budget->reserve(ImageResourceKind::encoded_bytes, image.bytes.capacity());
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current,
+            image.bytes.capacity());
   ImageOutputSinkOptions options;
   options.resource_budget = budget;
   options.max_pending_bytes = expected.size();
@@ -89,6 +93,7 @@ TEST(ImageOutputSinkTest, PublishesCompleteBytesAndReleasesBudgetLeases) {
   EXPECT_EQ(result.sha256, sha256_hex(expected));
   EXPECT_FALSE(ticket.evidence_completion.valid());
   EXPECT_EQ(Read(path), expected);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
   EXPECT_EQ(sink.stats().completed, 1U);
   EXPECT_EQ(sink.stats().pending_bytes, 0U);
   EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current, 0U);

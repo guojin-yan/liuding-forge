@@ -425,8 +425,8 @@ class ImageOutputSink::Impl final {
       }
       const auto bytes = work.image.bytes.size();
       work.queue_lease.release();
-      work.image.output_lease.release();
       std::vector<std::byte>().swap(work.image.bytes);
+      work.image.output_lease.release();
       if (work.evidence_promise) {
         if (published) {
           try {

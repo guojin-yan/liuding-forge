@@ -250,7 +250,9 @@ auto view = image::transform_sample(sample, sampled, joint_options);
 
 ## 异步图像输出与证据登记
 
-`encode_image` 将 CPU uint8 的 CHW/HWC 图像编码为 PNG 或 JPEG。BGR/BGRA 输入会在独立存储中重排为 RGB/RGBA，保留调用者像素、步幅和 PNG alpha；JPEG 拒绝 alpha。单次工作区上限和共享资源预约先于布局或颜色转换分配生效，成功结果持有编码字节租约直到消费。`write_image_file` 在编码成功后打开目标，但写入失败可能留下部分文件；需要暂存发布时使用 `ImageOutputSink`。
+`encode_image` 将 CPU uint8 的 CHW/HWC 图像编码为 PNG 或 JPEG。BGR/BGRA 输入会在独立存储中重排为 RGB/RGBA，保留调用者像素、步幅和 PNG alpha；JPEG 拒绝 alpha。`max_working_bytes` 与共享 `codec_scratch_bytes` 同时计入保守的两份图像暂存和 stb 写入器实际请求的堆缓冲，分配前拒绝超限；扩容时旧、新缓冲重叠计费，编码或输出回调失败均回收预约及私有缓冲。工作区边界排除编码结果容量、codec 栈、分配器元数据和 LibTorch 私有空间，不能当作 RSS 硬上限。
+
+编码结果的 `std::vector` 容量另计入共享 `encoded_bytes`，增长期间同时预约旧、新容量，因此多次回调的 JPEG 可能需要高于最终文件长度的预算。`EncodedImage` 的移动操作一并转移容量租约，析构和 sink 消费先释放存储再释放租约；调用者若提前手动释放或修改公开缓冲，须自行维护计费。`max_output_bytes` 限制文件长度，取消在入口、输出回调和完成时检查。`write_image_file` 在编码成功后打开目标，但写入失败可能留下部分文件；需要暂存发布时使用 `ImageOutputSink`。
 
 `ImageOutputSink` 接受已编码的 CPU PNG/JPEG 字节，以单个写入线程和有界项数/字节容量发布本地文件；它不会隐式编码 Tensor 或执行 CUDA D2H。`submit` 的 `completion` 在文件成功发布后返回路径、字节数和 SHA-256。需要把每个成功文件关联到 run 时，使用 `submit_with_evidence(path, image, callback, sample_key, stop)`：调用方在回调中捕获稳定的 run、reference 和事件身份，并将发布结果传给 [`SQLiteRunStore::record_published_file_evidence`](local_run_storage.md)。`data_image` 组件不依赖 `experiment` 组件。
 
