@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补录 Ubuntu / RTX 2060 的原生 CUDA ResNet18 实际负载、版本切换回退、队列生命周期与 RSS/显存观测，明确单请求后端、同权重参考及单次负载的验证边界。
+
 - 登记 CPU libgomp 离线源码伴随材料包的精确身份与发布证据用法，保留完整对应源码分发、安全和再分发审查的待审状态。
 
 - 补录干净提交 `4953ef96` 的完整 CPU Release SDK 与安装消费者验证：选定 1997 项合同为 1812 通过、185 条件跳过、零失败，保留其他配置、设备及正式发布边界。

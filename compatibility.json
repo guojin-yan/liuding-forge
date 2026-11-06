@@ -213,6 +213,31 @@
             "scope": "CPU selected Release correctness and installation only. OptionalComponentMatrix and PreviewComponentMatrix are excluded separate configurations. Conditional skips, final-candidate coverage, complete model/recipe/device/resource matrices, Windows HTTP, security/licensing, formal signing, RC upgrade/rollback and GA remain separate."
           },
           "commit": "4953ef9625d327fd98b53a1115c730fadd7c512d"
+        },
+        {
+          "id": "local-ubuntu22045-gcc114-cu126-native-serving-resnet18-load",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cu126; CUDA Toolkit 12.6.3; cuDNN 9.10.2.21; NVIDIA RTX 2060 compute capability 7.5; driver 580.178.04",
+          "build_type": "Release",
+          "tests": "One native C++ CUDA consumer: 9319 load requests and 21 other successful requests; 17 lifecycle events; 20 queued accepted, 18 completed and 2 expected cancellation/deadline failures; one expected queue-full rejection; no conditional skips.",
+          "instrumentation": "CMake 3.22.1 / Ninja; reused fixed consumer build tree and installed SDK; 1 translation unit / 1 compile job / 1 native process / 0 training updates; 30-second load with four producers and Torch intra/inter threads each 1; 336 process-resource samples.",
+          "quality_evidence": {
+            "source_identity": "Installed SDK actually built from clean 8216be09a221bbbaaf7b73941ad4a96cf9d3756d; all 231 installed files retain their identities. Consumer compiled at clean checkout f21b1a4ee2df05754fad46470f966a0efd1affa9. Selected serving/models/interop/nn source directories have no diff between these commits; the entire SDK is not relabelled as the later checkout.",
+            "consumer_sha256": "109c81e3a0400aec29b9c5e3524644a285e0deeea1fdbcf4f2f0c26bc5516429",
+            "terminal_sha256": "61cdc8d19c5439f24c6b3ae8cd59bf7b64ca5e015dd6c5a879f4ad6e9b570fbb",
+            "native_report_sha256": "1ed02ecdface394aa7eff58976ceac3ff61630a9cc0c30cbdb1be5d579dda938",
+            "independent_audit_sha256": "682bee48092f5863cf3b32664c8aa26894718195ae1a2c310a19c9491499bfd9",
+            "complete_receipts_archive_sha256": "867f26b99fa9b4ca5485041264cbb4019c43c8da7e866290fa64cccafcf69b80",
+            "workload": "Random untrained ResNet18, FP32 CUDA [1,3,224,224], 122 state tensors per version; only fc.bias changes by FP32 0.125. Direct C++ same-weights CUDA references cover the service boundary. Native max_batch_size=1: queue lifecycle only, without request coalescing or OOM retry.",
+            "lifecycle": "v1 to v2 publication at 10 seconds and rollback to v1 at 20 seconds; bad known-vector candidate retains old version; old lease and third-slot rejection; drain and close timeouts retain active instances; cancellation, expiry and queue-full semantics; all logical reservations returned.",
+            "numerics": "All 9340 successful responses checked in native under unchanged rtol=1e-5 / atol=1e-6; saved maximum error versus each same-version direct reference is 0. Supplemental bitwise identity expected_v2 == FP32(expected_v1 + 0.125) failed for 145/1000 elements, maximum difference 1.1920928955078125e-7, with 0 original-tolerance violations. Initial audit failure is retained; this grants neither independent architecture nor exact-bias qualification.",
+            "resources": "Single-run observation: 9319 requests in 30.012211578 seconds, 310.506940676 requests/s; end-to-end p50/p95/p99 12.292084/22.071064/31.643060 ms. Native lifetime peak RSS 1084010496 bytes; allocator allocated/reserved peaks 342778368/406847488 bytes; external CUDA process sample peak 689963008 bytes; whole-batch owned RSS peak 1615437824 bytes. Original deadlines and resource caps retained; no owned processes remained and both locks released.",
+            "scope": "Native CUDA ResNet18 service boundary for this source and device only. No production SLO, comparative performance, training/task quality, independent architecture, coalesced batch, real OOM pressure, JIT/ORT provider, Windows, formal signature or complete release qualification."
+          },
+          "commit": "8216be09a221bbbaaf7b73941ad4a96cf9d3756d"
         }
       ],
       "pending_lanes": [

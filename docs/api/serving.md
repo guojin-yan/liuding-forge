@@ -77,4 +77,4 @@ predictor 关闭先拒绝新请求，再等待活动 lease；超时返回 false�
 
 `timing.total` 保留既有测量范围：直接调用从准入后、输入快照前量至输出快照和最终截止检查完成；batcher 从 submit 快照及截止检查完成后量至该成员结果切片构造完成，包含已发生的调度和重试，但不含 submit 初始快照、之后的 future 消费或宿主 codec。preprocess/compute/postprocess 继续对应最终成功尝试，先前失败尝试的工作时间包含在 total 中。total 不是各已命名阶段的相加，也不替代调用方对完整入口/传输端到端墙钟的测量。
 
-参见[本地 JSONL、native 与 ONNX 版本切换示例](../../examples/serving/README.md)。示例不启动网络监听器，不下载预训练权重。具体平台支持、延迟、吞吐、RSS/显存峰值与长时负载资格以实际验收结果为准。
+参见[本地 JSONL、native 与 ONNX 版本切换示例](../../examples/serving/README.md)。示例不启动网络监听器，不下载预训练权重。已验证的源码、平台、设备与负载边界见[兼容矩阵](../../compatibility.json)；单次负载观测不代表生产 SLO、真实 OOM 压力或完整发布资格。
