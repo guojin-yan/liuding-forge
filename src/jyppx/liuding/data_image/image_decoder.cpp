@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "stb_resource_scope.hpp"
+
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 
 #include <algorithm>
@@ -302,13 +304,17 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
   int width = 0;
   int height = 0;
   int source_channels = 0;
-  if (!stbi_info_from_memory(encoded, static_cast<int>(bytes.size()), &width,
-                             &height, &source_channels))
-    Malformed("decode.info", BackendReason());
+  codec_detail::StbResourceScope codec_resources(options.resource_budget);
+  const auto metadata_ok =
+      stbi_info_from_memory(encoded, static_cast<int>(bytes.size()), &width,
+                            &height, &source_channels);
+  codec_resources.rethrow_if_failed();
+  if (!metadata_ok) Malformed("decode.info", BackendReason());
   if (width <= 0 || height <= 0 || source_channels <= 0)
     Malformed("decode.info", "invalid image metadata");
   const bool source_is_16bit =
       stbi_is_16_bit_from_memory(encoded, static_cast<int>(bytes.size())) != 0;
+  codec_resources.rethrow_if_failed();
   const auto output_channels =
       PublishedChannels(source_channels, options.channels);
   const auto element_size = options.dtype == ImageDtype::float32_normalized
@@ -341,12 +347,10 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
         leases.push_back(options.resource_budget->reserve(
             ImageResourceKind::pinned_bytes, output_bytes));
       const auto extra_bytes = std::max(source_bytes, output_bytes);
-      if (source_bytes >
-          std::numeric_limits<std::uint64_t>::max() - extra_bytes)
-        Resource("decode.scratch", "uint64 range");
-      // stb pixels and one overlapping LibTorch conversion copy are known here.
+      // stb allocations, including its output, are charged by its allocator.
+      // Reserve the overlapping LibTorch layout/conversion copy separately.
       scratch_lease = options.resource_budget->reserve(
-          ImageResourceKind::codec_scratch_bytes, source_bytes + extra_bytes);
+          ImageResourceKind::codec_scratch_bytes, extra_bytes);
     }
   } catch (const std::bad_alloc&) {
     Resource("decode.allocation", "available memory");
@@ -374,6 +378,7 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
       auto decoded = OwnStbi(
           stbi_load_16_from_memory(encoded, static_cast<int>(bytes.size()),
                                    &width, &height, &source_channels, desired));
+      codec_resources.rethrow_if_failed();
       if (!decoded) Malformed("decode.pixels", BackendReason());
       result.tensor = MakeTensor(decoded.get(), width, height, output_channels,
                                  true, options);
@@ -381,6 +386,7 @@ DecodedImage decode_image(std::span<const std::byte> bytes,
       auto decoded = OwnStbi(
           stbi_load_from_memory(encoded, static_cast<int>(bytes.size()), &width,
                                 &height, &source_channels, desired));
+      codec_resources.rethrow_if_failed();
       if (!decoded) Malformed("decode.pixels", BackendReason());
       result.tensor = MakeTensor(decoded.get(), width, height, output_channels,
                                  false, options);

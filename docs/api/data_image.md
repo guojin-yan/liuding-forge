@@ -20,6 +20,8 @@ image::validate_pixels(decoded.tensor, decoded.pixels);
 
 `validate_pixels` 检查形状、dtype、通道和 alpha/range 契约，支持有步幅的 CPU/CUDA 单图 Tensor。该函数不扫描像素数值、不传输设备数据、不执行颜色转换；范围表示编码语义，并非观测到的最小值和最大值。标准化后的浮点图像应显式改用 `PixelValueRange::unbounded`。单图 API 不接受 NCHW batch。
 
+设置 `ImageDecodeOptions::resource_budget` 后，解码器会在底层 stb 申请堆内存之前预约 `codec_scratch_bytes`，覆盖格式探测、私有解码缓冲和 codec 输出；LibTorch 布局转换的已知暂存另行预约。共享预算不足时立即报告 `ResourceExhausted`，失败后释放本次预约，其他线程保留各自预算。codec 扩容时计入同时存活的新旧缓冲，所以原来仅够像素副本的预算可能需要提高。计数按请求的有效字节计算，不包含分配器元数据、codec 栈或 LibTorch 私有缓冲，不能作为进程 RSS 上限。
+
 `ImageDataset::get` 返回的 `VisionSample` 携带 `pixels` 和初始恒等 `geometry`；配对图像另有 `paired_target_pixels`，不会继承输入图像的颜色或归一化策略。语义、实例或全景标签应选择下面的离散 mask 入口。
 
 ### 已解码 Tensor 输入

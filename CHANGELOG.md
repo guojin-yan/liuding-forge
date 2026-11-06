@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 图像解码的共享资源预算纳入 stb 格式探测和私有堆缓冲，在实际分配前拒绝超限，保留扩容重叠计费及失败回收语义。
+
 - 补录原生 CUDA ResNet18 的真实 batch=4 合批、16 种输入的响应映射、输入/输出快照及取消/身份隔离验证，保留原数值容差与单次观测边界。
 
 - 补录 Ubuntu / RTX 2060 的原生 CUDA ResNet18 实际负载、版本切换回退、队列生命周期与 RSS/显存观测，明确单请求后端、同权重参考及单次负载的验证边界。

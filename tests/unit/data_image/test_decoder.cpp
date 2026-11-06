@@ -191,14 +191,13 @@ TEST(ImageDecoderTest, AggregateBudgetTracksReadDecodeAndConcurrentResults) {
   limits.max_encoded_bytes = bytes.size();
   limits.max_decoded_bytes = 6;
   limits.max_pixels = 2;
-  limits.max_codec_scratch_bytes = 12;
   budget = std::make_shared<ImageResourceBudget>(limits);
   options.resource_budget = budget;
   auto decoded = read_image_file(path, options);
   EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
   EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).peak, bytes.size());
   EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).current, 0U);
-  EXPECT_EQ(budget->usage(ImageResourceKind::codec_scratch_bytes).peak, 12U);
+  EXPECT_GT(budget->usage(ImageResourceKind::codec_scratch_bytes).peak, 12U);
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 6U);
   EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 2U);
   auto concurrent = std::async(std::launch::async,
@@ -218,6 +217,85 @@ TEST(ImageDecoderTest, AggregateBudgetTracksReadDecodeAndConcurrentResults) {
   EXPECT_THROW(decode_image(bytes, options), jyppx::liuding::ResourceExhausted);
   EXPECT_EQ(budget->usage(ImageResourceKind::decoded_bytes).current, 0U);
   EXPECT_EQ(budget->usage(ImageResourceKind::pixels).current, 0U);
+}
+
+TEST(ImageDecoderTest,
+     PrivateCodecAllocationRejectsBeforePublishingAndRecovers) {
+  const auto bytes = ReadFixture("rgb.png");
+  ImageResourceBudgetLimits limits;
+  // The six-pixel-byte output and its known copies fit; stb's private PNG
+  // workspace does not. The original estimated-only accounting accepted this.
+  limits.max_codec_scratch_bytes = 12;
+  ImageDecodeOptions options;
+  options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+  EXPECT_THROW(decode_image(bytes, options), jyppx::liuding::ResourceExhausted);
+  for (const auto kind :
+       {ImageResourceKind::codec_scratch_bytes,
+        ImageResourceKind::decoded_bytes, ImageResourceKind::pixels})
+    EXPECT_EQ(options.resource_budget->usage(kind).current, 0U);
+  EXPECT_LE(
+      options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+          .peak,
+      12U);
+  // A failed scope must not poison an unbudgeted call on the same thread.
+  EXPECT_TRUE(
+      torch::equal(decode_image(bytes).tensor, decode_image(bytes).tensor));
+}
+
+TEST(ImageDecoderTest,
+     CodecBudgetIncludesMetadataAndPreservesPixelsAtBoundary) {
+  for (const auto* name : {"rgb.png", "rgb.jpg"}) {
+    SCOPED_TRACE(name);
+    const auto bytes = ReadFixture(name);
+    const auto reference = decode_image(bytes);
+    ImageDecodeOptions options;
+    options.resource_budget = std::make_shared<ImageResourceBudget>();
+    EXPECT_TRUE(
+        torch::equal(reference.tensor, decode_image(bytes, options).tensor));
+    const auto peak =
+        options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+            .peak;
+    ASSERT_GT(peak, 12U);
+    EXPECT_EQ(
+        options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+            .current,
+        0U);
+    ImageResourceBudgetLimits limits;
+    limits.max_codec_scratch_bytes = peak;
+    options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+    EXPECT_TRUE(
+        torch::equal(reference.tensor, decode_image(bytes, options).tensor));
+    limits.max_codec_scratch_bytes = peak - 1;
+    options.resource_budget = std::make_shared<ImageResourceBudget>(limits);
+    EXPECT_THROW(decode_image(bytes, options),
+                 jyppx::liuding::ResourceExhausted);
+    for (const auto kind :
+         {ImageResourceKind::codec_scratch_bytes,
+          ImageResourceKind::decoded_bytes, ImageResourceKind::pixels})
+      EXPECT_EQ(options.resource_budget->usage(kind).current, 0U);
+  }
+}
+
+TEST(ImageDecoderTest, CodecScopesKeepConcurrentThreadBudgetsIndependent) {
+  const auto bytes = ReadFixture("rgb.png");
+  ImageResourceBudgetLimits limits;
+  limits.max_codec_scratch_bytes = 12;
+  auto small = std::make_shared<ImageResourceBudget>(limits);
+  auto large = std::make_shared<ImageResourceBudget>();
+  const auto decode = [&](const std::shared_ptr<ImageResourceBudget>& budget) {
+    ImageDecodeOptions options;
+    options.resource_budget = budget;
+    return decode_image(bytes, options);
+  };
+  auto rejected = std::async(std::launch::async, [&] { return decode(small); });
+  auto accepted = std::async(std::launch::async, [&] { return decode(large); });
+  EXPECT_THROW(rejected.get(), jyppx::liuding::ResourceExhausted);
+  auto result = accepted.get();
+  EXPECT_TRUE(torch::equal(result.tensor, decode_image(bytes).tensor));
+  EXPECT_EQ(small->usage(ImageResourceKind::codec_scratch_bytes).current, 0U);
+  EXPECT_EQ(large->usage(ImageResourceKind::codec_scratch_bytes).current, 0U);
+  EXPECT_EQ(small->usage(ImageResourceKind::decoded_bytes).current, 0U);
+  EXPECT_EQ(large->usage(ImageResourceKind::decoded_bytes).current, 6U);
 }
 
 TEST(ImageDecoderTest, RejectsCorruptInputLimitsAndCancellation) {

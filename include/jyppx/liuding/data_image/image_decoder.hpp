@@ -81,8 +81,9 @@ struct ImageDecodeOptions {
   bool pin_memory =
       false;  ///< Publish CPU storage through the pinned allocator.
   std::shared_ptr<ImageResourceBudget> resource_budget;
-  ///< Optional aggregate budget for known allocations, not process RSS or
-  ///< private codec/backend buffers.
+  ///< Optional aggregate budget including stb's requested heap payloads.
+  ///< Excludes allocator bookkeeping, codec stack and private LibTorch buffers;
+  ///< this is not a process RSS limit. Reallocation charges both live buffers.
 };
 
 /** @brief Owning decoded image and stable source metadata. */
