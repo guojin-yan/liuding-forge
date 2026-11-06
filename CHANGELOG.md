@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补齐 BatchNorm 统计重估与 OTLP 编码、HTTP 发送选项的公共 API 参数、返回值及资源含义说明。
+
 - 原生 BatchNorm2d 训练后统计重估支持同设备 CUDA FP32 模型与图像分类配方，显式保存并恢复 CPU/CUDA RNG；保留单遍训练数据、快照预算、取消回滚和 READY/COMPLETED 恢复语义，默认关闭。
 
 - 补录干净提交 `570ca267` 的 Ubuntu 组件开关与安装隔离验证：两组矩阵通过，十种独立组件消费者及六轮 Preview 配置中的二十次消费者执行通过，保留完整 SDK 与设备资格边界。

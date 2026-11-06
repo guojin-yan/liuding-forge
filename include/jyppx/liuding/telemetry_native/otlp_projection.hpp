@@ -68,17 +68,29 @@ struct PreparedOtlpRequest {
  */
 class OtlpProjectionEncoder final {
  public:
-  /** @brief Validates immutable identity, clock and capacity options. */
+  /** @brief Validates immutable identity, clock and capacity options.
+   * @param options Explicit resource identity, clock anchors and codec bounds.
+   */
   explicit OtlpProjectionEncoder(OtlpProjectionOptions options);
-  /** @brief Prepares all requests for one immutable neutral envelope. */
+  /** @brief Prepares all requests for one immutable neutral envelope.
+   * @param envelope Neutral event to validate and map without network I/O.
+   * @param stop Cancellation request checked before and after preparation.
+   * @param deadline Optional deadline checked before and after preparation.
+   * @return Owned requests in send order, or empty for an unsupported event.
+   */
   std::vector<PreparedOtlpRequest> encode(
       const TelemetryEnvelope& envelope, std::stop_token stop = {},
       TelemetryDeadline deadline = std::nullopt) const;
   /** @brief Rejects malformed/oversized protobuf and any collector partial
-   * success. */
+   * success.
+   * @param signal Official response family expected for the request.
+   * @param bytes Complete response protobuf, bounded by max_reply_bytes.
+   */
   void validate_response(OtlpSignal signal,
                          std::span<const std::byte> bytes) const;
   /** @brief Returns the fixed official path for a signal, without an endpoint.
+   * @param signal Official OTLP/HTTP signal family.
+   * @return Static /v1/metrics, /v1/logs or /v1/traces path.
    */
   static std::string_view signal_path(OtlpSignal signal);
 

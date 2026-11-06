@@ -28,8 +28,9 @@ struct OtlpHttpEndpoint {
 
 /** @brief Immutable endpoint, mapping and bounded process-local retry state. */
 struct OtlpHttpOptions {
-  OtlpHttpEndpoint endpoint;
-  OtlpProjectionOptions mapping;
+  OtlpHttpEndpoint endpoint;  ///< Explicit trusted collector authority.
+  OtlpProjectionOptions mapping;  ///< Source, clock and codec capacity options.
+  /** @brief Stable sink identity; the role must remain observer. */
   TelemetrySinkDescriptor descriptor{
       .type_id = "jyppx.telemetry-sink.opentelemetry-http/v1",
       .sink_id = "telemetry.opentelemetry-http",
@@ -37,8 +38,10 @@ struct OtlpHttpOptions {
       .role = TelemetrySinkRole::observer};
   std::chrono::milliseconds request_timeout{30000};  ///< In [1, 30000] ms.
   std::size_t max_seen = 100000U;  ///< May only narrow the default.
-  std::uint64_t max_seen_bytes = 32U * 1024U * 1024U;
-  std::size_t max_batch_prepared_bytes = 32U * 1024U * 1024U;
+  std::uint64_t max_seen_bytes =
+      32U * 1024U * 1024U;  ///< Logical seen/staged key bytes; not total RSS.
+  std::size_t max_batch_prepared_bytes =
+      32U * 1024U * 1024U;  ///< Sum of encoded request bodies for one batch.
 };
 
 /** @brief Synchronous C++ OTLP/HTTP observer with no hidden application queue.
@@ -70,7 +73,9 @@ struct OtlpHttpOptions {
  */
 class OtlpHttpTelemetrySink final : public TelemetrySink {
  public:
-  /** @brief Validates options without connecting to the collector. */
+  /** @brief Validates options without connecting to the collector.
+   * @param options Immutable endpoint, mapping, identity and retry bounds.
+   */
   explicit OtlpHttpTelemetrySink(OtlpHttpOptions options);
   /** @brief Releases native state without a fallible flush. */
   ~OtlpHttpTelemetrySink() override;
@@ -90,7 +95,7 @@ class OtlpHttpTelemetrySink final : public TelemetrySink {
 
  private:
   class Impl;
-  std::unique_ptr<Impl> impl_;
+  std::unique_ptr<Impl> impl_;  ///< Owns descriptor, sender and delivery state.
 };
 
 }  // namespace jyppx::liuding::experiment

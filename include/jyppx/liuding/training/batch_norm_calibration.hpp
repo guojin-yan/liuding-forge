@@ -44,10 +44,10 @@ struct BatchNormCalibrationOptions {
 
 /** @brief Describes a complete calibration, with no optimizer update. */
 struct BatchNormCalibrationResult {
-  std::uint64_t batches = 0;
-  std::uint64_t samples = 0;
-  std::uint64_t batch_norm_modules = 0;
-  std::uint64_t model_snapshot_bytes = 0;
+  std::uint64_t batches = 0;  ///< Accepted and forwarded training batches.
+  std::uint64_t samples = 0;  ///< Total accepted batch dimension N.
+  std::uint64_t batch_norm_modules = 0;  ///< Participating tracked BN2d modules.
+  std::uint64_t model_snapshot_bytes = 0;  ///< Encoded rollback snapshot bytes.
 };
 
 /** @brief Optionally atomically publishes a coordinated COMPLETED checkpoint.
@@ -93,7 +93,15 @@ using BatchNormCalibrationCommit =
  * snapshot encoding and restoration also require host/device transfer budgets.
  * No partially calibrated state is a valid checkpoint boundary.
  *
+ * @param model Exclusively owned model whose tracked BN2d state is calibrated.
+ * @param source Synchronously borrowed finite batch source; nullopt ends it.
+ * @param options Frozen source identity, exact counts and per-call bounds.
+ * @param stop Cancellation request checked during the finite pass.
+ * @param commit Optional publication callback after mode/momentum/RNG restore.
+ * @return Exact accepted counts and encoded rollback snapshot size.
  * @throws InvalidArgument, ResourceExhausted For incompatible inputs/bounds.
+ * @throws CompatibilityError For a changed source or protected model state.
+ * @throws NumericalError For nonfinite input or invalid calibrated state.
  * @throws Cancelled After restoring the entire pre-call model/RNG state.
  * @throws InternalError If restoration itself cannot finish.
  */
