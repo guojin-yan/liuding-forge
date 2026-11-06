@@ -450,11 +450,14 @@ Spec read_spec(const Json& value) {
   require(value.at("environment").is_object() &&
               value.at("environment").size() <= 128,
           "Local execution allows at most 128 environment overrides");
+  std::set<std::string> environment_names;
   for (const auto& [name, item] : value.at("environment").items()) {
     require(!name.empty() && name.find('=') == std::string::npos &&
                 name.find('\0') == std::string::npos &&
                 !reserved_environment_name(name),
             "Invalid or reserved local environment name");
+    require(environment_names.insert(environment_key(name)).second,
+            "Environment destinations must be unique ignoring ASCII case");
     process.environment[name] = text(item);
     launch_bytes += name.size() + process.environment[name].size() + 2;
   }
@@ -463,14 +466,9 @@ Spec read_spec(const Json& value) {
     require(references.is_object() &&
                 references.size() + process.environment.size() <= 128,
             "Local execution allows at most 128 combined environment entries");
-    std::set<std::string> names;
-    for (const auto& [name, unused] : process.environment) {
-      static_cast<void>(unused);
-      names.insert(environment_key(name));
-    }
     for (const auto& [name, reference] : references.items()) {
       environment_reference_name(name);
-      require(names.insert(environment_key(name)).second,
+      require(environment_names.insert(environment_key(name)).second,
               "Environment reference destinations must be unique ignoring ASCII case");
       fields(reference, {"source", "name"});
       require(text(reference.at("source")) == "process_environment",

@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地任务与搜索在创建存储或启动任务前拒绝显式环境目标名的 ASCII 大小写别名，避免同一计划在 Windows 和 Linux 上出现不同含义。
+
 - 增加 OTLP 认证挑战、Cookie 与请求连接隔离检查，更新 CPU libgomp 和 oneMKL 已确认来源说明，保留完整安全及再分发审查边界。
 
 - 补齐 BatchNorm 统计重估与 OTLP 编码、HTTP 发送选项的公共 API 参数、返回值及资源含义说明。

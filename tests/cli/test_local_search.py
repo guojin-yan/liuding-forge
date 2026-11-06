@@ -319,6 +319,27 @@ class LocalSearchTests(unittest.TestCase):
             self.assertEqual(self.search(action), result)
         self.assertEqual(len(self.launches()), 1)
 
+    def test_explicit_environment_case_aliases_fail_before_storage_or_launch(self) -> None:
+        self.single("ok")
+        environment = dict(self.spec["execution"]["environment"])
+        for index, references in enumerate((None, {})):
+            for variant, spelling in enumerate(("portable_token", "Portable_Token")):
+                with self.subTest(references=references, spelling=spelling):
+                    execution = self.spec["execution"]
+                    execution["environment"] = dict(environment, PORTABLE_TOKEN="upper", **{spelling: "mixed"})
+                    execution.pop("environment_refs", None)
+                    if references is not None:
+                        execution["environment_refs"] = references
+                    self.root = self.directory / ("case-alias-" + str(index) + str(variant))
+                    self.write()
+                    rejected = self.invoke("search", "execute", "--root", self.root,
+                        "--id", self.search_id, "--spec", self.spec_path, expected=2)
+                    self.assertEqual(rejected["error"]["name"], "invalid_argument")
+                    self.assertIn("Environment destinations must be unique ignoring ASCII case",
+                                  rejected["error"]["message"])
+                    self.assertFalse(self.root.exists())
+        self.assertEqual(self.launches(), [])
+
     def test_grid_is_serial_uses_committed_metrics_and_replays_without_launch(self) -> None:
         result = self.search("execute")
         self.assertEqual(result["status"], "completed")

@@ -301,6 +301,25 @@ class LocalAttemptTest(unittest.TestCase):
             self.assertEqual(self.local(action), result)
         self.assertEqual(self.launch_count(), 1)
 
+    def test_explicit_environment_case_aliases_fail_before_storage_or_launch(self) -> None:
+        for index, references in enumerate((None, {})):
+            for variant, spelling in enumerate(("portable_token", "Portable_Token")):
+                with self.subTest(references=references, spelling=spelling):
+                    invalid = dict(self.spec, environment=dict(self.spec["environment"],
+                        PORTABLE_TOKEN="upper", **{spelling: "mixed"}))
+                    if references is not None:
+                        invalid["environment_refs"] = references
+                    path = self.directory / "case-alias.json"
+                    path.write_text(json.dumps(invalid), encoding="utf-8")
+                    root = self.directory / ("case-alias-" + str(index) + str(variant))
+                    rejected = self.invoke("local", "execute", "--root", root,
+                        "--id", "case-alias", "--spec", path, expected=2)
+                    self.assertEqual(rejected["error"]["name"], "invalid_argument")
+                    self.assertIn("Environment destinations must be unique ignoring ASCII case",
+                                  rejected["error"]["message"])
+                    self.assertFalse(root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
     def test_environment_reference_schema_rejects_conflicts_reserved_and_unknown_sources(self) -> None:
         reference = {"source": "process_environment", "name": "LIUDING_REFERENCE_SOURCE"}
         invalid = [None, [], {"LOCAL_ATTEMPT_FIXTURE": reference},

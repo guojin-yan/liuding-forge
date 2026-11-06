@@ -56,6 +56,8 @@ Windows 采用挂起启动并加入禁止 breakaway 的 kill-on-close Job Object
 
 Windows 将示例中的程序和工作目录改成真实绝对路径，JSON 中的反斜杠需转义。目标程序每次启动前核对 SHA-256；计划最多 64 KiB、256 个参数、128 个环境项、16 次 attempt，单次时限最多 24 小时，双流各最多捕获 8 MiB，重试间隔最多 60 秒。只有声明的非零普通退出码可重试；信号、取消、超时、超限与启动失败不自动重试。`max_attempts` 包含首次执行。`environment` 中的值原样存入本地 CAS；需要只保存变量引用时使用下一节的 `environment_refs`。
 
+本地计划和搜索 `execution` 的显式环境目标名必须在忽略 ASCII 大小写后唯一，包括 `environment` 内部及其与 `environment_refs` 的组合。`TOKEN` 与 `token` 同时出现会在创建存储或启动任务前被拒绝；单个目标名的原有拼写与值保持，仍可覆盖继承环境中的同名变量。
+
 ### 环境变量引用
 
 `local_run_spec` 与搜索的 `execution` 可选 `environment_refs`，将目标环境名映射到启动进程环境中的变量引用：
