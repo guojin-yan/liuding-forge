@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.metadata
 import json
@@ -25,7 +26,7 @@ def require(condition, message):
 
 
 @contextmanager
-def collector(replies, host="127.0.0.1"):
+def collector(replies, host="127.0.0.1", *, keep_alive=False, connections=None):
     requests, errors = [], []
 
     class Handler(BaseHTTPRequestHandler):
@@ -42,6 +43,8 @@ def collector(replies, host="127.0.0.1"):
                 require(not any(self.headers.get(key) for key in ("Authorization", "Proxy-Authorization", "Cookie")), "Ambient authentication or cookie leaked")
                 body = self.rfile.read(length)
                 require(len(body) == length, "Truncated request body")
+                if connections is not None:
+                    connections.append(self.client_address)
                 index = len(requests)
                 requests.append((self.path, body))
                 require(index < len(replies), "Hidden application retry/redirect occurred")
@@ -52,7 +55,7 @@ def collector(replies, host="127.0.0.1"):
                 if not any(key.lower() == "content-type" for key, _ in extra):
                     self.send_header("Content-Type", "application/x-protobuf")
                 self.send_header("Content-Length", str(len(response)))
-                self.send_header("Connection", "close")
+                self.send_header("Connection", "keep-alive" if keep_alive else "close")
                 for key, value in extra:
                     if value is not None:  # None explicitly omits a fixture field.
                         self.send_header(key, value)
@@ -201,6 +204,65 @@ def decode_request(path, body):
         require(span.end_time_unix_nano - span.start_time_unix_nano == 10, "Span clock mapping changed")
 
 
+def auth_isolation_checks(executable, environment, good):
+    """Challenge the native sender while the fixture permits connection reuse."""
+    evidence, failures = [], []
+    connections, requests = [], []
+    try:
+        with collector([good, good], keep_alive=True, connections=connections) as (port, requests, errors):
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                for _ in range(2):
+                    connection.request("POST", "/v1/logs", body=b"fixture-control",
+                                       headers={"Content-Type": "application/x-protobuf"})
+                    response = connection.getresponse()
+                    require(response.status == 200 and response.read() == b"", "Keep-alive control response")
+            finally:
+                connection.close()
+        require(not errors and len(requests) == 2 and len(connections) == 2,
+                "Keep-alive fixture control did not finish both requests")
+        require(connections[0] == connections[1], "Fixture did not permit same-connection reuse")
+    except Exception as error:
+        failures.append({"mode": "keep-alive-control", "error": str(error)})
+    evidence.append({"mode": "keep-alive-control", "requests": len(requests),
+                     "connections": len(set(connections)), "native_processes": 0})
+
+    cookie = ("Set-Cookie", "do-not-replay=1")
+    cases = [
+        ("negotiate-origin-challenge", "reply-retry",
+         [(401, b"", [("WWW-Authenticate", "Negotiate"), cookie], 0), good], ["/v1/logs"] * 2),
+        ("negotiate-proxy-challenge", "reply-retry",
+         [(407, b"", [("Proxy-Authenticate", "Negotiate"), cookie], 0), good], ["/v1/logs"] * 2),
+        ("pair-cookie-isolation", "pair-retry",
+         [(200, b"", [cookie], 0), (503, b"", [cookie], 0), good, good],
+         ["/v1/metrics", "/v1/logs", "/v1/metrics", "/v1/logs"]),
+    ]
+    for name, mode, replies, expected in cases:
+        connections, requests = [], []
+        try:
+            with collector(replies, keep_alive=True, connections=connections) as (port, requests, errors):
+                run(executable, port, mode, environment)
+            require(not errors, f"{name}: fixture errors {errors}")
+            require([path for path, _ in requests] == expected, f"{name}: hidden retry or changed request order")
+            require(len(connections) == len(requests), f"{name}: incomplete connection observations")
+            for path, body in requests:
+                decode_request(path, body)
+            if mode == "pair-retry":
+                require(requests[0] == requests[2] and requests[1] == requests[3], "Pair retry changed immutable bytes")
+            else:
+                require(requests[0] == requests[1], "Challenge retry changed immutable bytes")
+            # The curl backend owns a new easy/multi pair per request. WinHTTP
+            # may reuse an unauthenticated connection and is outside this CVE.
+            if os.name != "nt":
+                require(len(set(connections)) == len(requests), f"{name}: curl reused a connection across requests")
+        except Exception as error:
+            failures.append({"mode": name, "error": str(error)})
+        evidence.append({"mode": name, "requests": len(requests),
+                         "connections": len(set(connections)), "native_processes": 1,
+                         "curl_fresh_connection_asserted": os.name != "nt"})
+    return evidence, failures
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--harness", type=Path, required=True)
@@ -254,6 +316,9 @@ def main():
             except Exception as error:
                 failures.append({"case": index, "mode": mode, "error": str(error)})
             evidence.append({"mode": mode, "requests": len(requests)})
+        auth_evidence, auth_failures = auth_isolation_checks(args.harness.resolve(), environment, good)
+        evidence.extend(auth_evidence)
+        failures.extend(auth_failures)
         fixture_root = Path(__file__).resolve().parents[1] / "integration" / "telemetry_http" / "fixtures"
         for certificate, trust in (("self-signed.pem", "self-signed.pem"),
                                    ("unknown-ca-chain.pem", "unknown-ca.pem")):

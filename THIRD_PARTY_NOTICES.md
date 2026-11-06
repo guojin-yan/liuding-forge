@@ -43,7 +43,9 @@ CPU 包实际附带的第三方头文件按原 ZIP 成员摘要与构建提交�
 
 oneDNN 的实际头文件对应 PyTorch 固定 iDeep 子模块进一步固定的 oneDNN 提交 `80afa71049cd69a3df32adcccb623b12cd7baa22`；保留其 [Apache-2.0 原文](third_party/licenses/libtorch-cpu-2.14.1/oneDNN-LICENSE.txt)和[完整第三方声明](third_party/licenses/libtorch-cpu-2.14.1/oneDNN-THIRD-PARTY-PROGRAMS.txt)，后者的各条款分别管理相应材料。ITT API 上游提供 BSD-3-Clause 或 GPL-2.0-only 双重许可，两个原文均保留；这不把 GPL 条款赋给全部 PyTorch 或无关的 SDK 代码。
 
-同一 CPU 原包还包含独立 `libgomp.so.1`，不能据上述宽松许可摘要宣称整个二进制依赖链均已放行。该运行库的精确源码/构建来源、适用的 GCC runtime 例外及完整告知、静态嵌入的数值库与全部传递分发义务继续待核；未据 PyTorch 提交推定 GCC 版本。新增原文不改变 CPU notice 的 `pending`，不授予漏洞、安全、二进制再分发或正式发布资格。
+同一 CPU 原包的 `libgomp.so.1` 已按原始代码、数据及加载语义对应到 AlmaLinux `8.5.0-28.el8_10.alma.1`，精确源码 RPM、发行版补丁及官方 PyTorch `$ORIGIN` RPATH 修改材料见 [CPU 组件来源清单](third_party/licenses/libtorch-cpu-2.14.1/components.json)。保留其 [GPLv3 原文](third_party/licenses/libtorch-cpu-2.14.1/gcc-8.5.0-COPYING3.txt)与 [GCC Runtime Library Exception 3.1](third_party/licenses/libtorch-cpu-2.14.1/gcc-8.5.0-COPYING.RUNTIME.txt)；例外不免除分发运行库本身的适用义务。原 ELF 完整字节并不相同，实际打包执行与下游完整对应源码交付仍待完成，不能只给源码链接就视为已履行。
+
+该 CPU 包的 `libtorch_cpu.so` 内嵌版本函数已确认 oneMKL `2024.2`、Product Build `20240605`；这不等于已确定全部静态组成或原始 Intel 分发包。完整第三方告知、传递依赖、漏洞及再分发审查仍为 `pending`，上述来源识别不授予整个 CPU 包或正式发布资格。
 
 当前安装后的 CMake 包通过 `find_dependency(Torch REQUIRED)` 要求调用方提供外部 LibTorch。SDK 安装对 2.14.1 和 2.5.1 保留对应 PyTorch 源码主许可证；Windows 2.14.1 cu126 配置还附带上述已留存的随包运行库原文，位置为 `share/doc/jyppx/licenses/`。这些文件的留存不关闭随包组件审查，也不代替需要实际履行的下游合同条件。
 
@@ -214,3 +216,5 @@ Linux 使用调用者显式选择的共享系统 libcurl >= 7.81.0 SDK，适用 
 独立可选 `telemetry_http` 使用系统 WinHTTP（Windows）或显式选择的共享系统 libcurl >= 7.81（Linux），不复制或分发网络库、TLS 库及 CA 证书。Linux curl 适用 [curl license](https://curl.se/docs/copyright.html)，其 TLS、DNS 和其他依赖各自适用对应条款；Windows 系统 SDK/runtime 适用 Microsoft 相应条款。安装消费者也需显式选择自己的系统 curl SDK。该系统链接策略不代表已完成所选发行版包的 CVE、许可证或发布资格审查。
 
 锁定 Ubuntu `7.81.0-1ubuntu1.30` 的 [runtime copyright](third_party/licenses/curl-7.81.0-1ubuntu1.30-otlp-runtime-copyright) 和 [headers copyright](third_party/licenses/curl-7.81.0-1ubuntu1.30-otlp-headers-copyright) 按本组件单独登记，均来自精确 `.deb` 内部完整原文。notice 留存不代替 curl 许可政策、传递依赖或安全审计；其他选择仍需匹配实际包的证据。
+
+当前 Linux OTLP 发送路径显式设置 `CURLAUTH_NONE`、忽略 netrc、关闭代理和重定向，每次请求独立创建并释放 easy/multi 句柄，不提供凭据输入或连接共享接口。对 [CVE-2026-19931](https://curl.se/docs/CVE-2026-19931.html) 的审查须限定这个调用路径；无认证和请求隔离不能推导所选系统 libcurl、MNIST 下载路径或其他调用者已完成安全资格。

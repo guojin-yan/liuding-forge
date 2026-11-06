@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 增加 OTLP 认证挑战、Cookie 与请求连接隔离检查，更新 CPU libgomp 和 oneMKL 已确认来源说明，保留完整安全及再分发审查边界。
+
 - 补齐 BatchNorm 统计重估与 OTLP 编码、HTTP 发送选项的公共 API 参数、返回值及资源含义说明。
 
 - 原生 BatchNorm2d 训练后统计重估支持同设备 CUDA FP32 模型与图像分类配方，显式保存并恢复 CPU/CUDA RNG；保留单遍训练数据、快照预算、取消回滚和 READY/COMPLETED 恢复语义，默认关闭。
