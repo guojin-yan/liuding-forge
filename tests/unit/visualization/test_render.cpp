@@ -157,6 +157,56 @@ TEST(RenderTest, RejectsNonCpuAndInvalidHeatmapContracts) {
   }
 }
 
+TEST(RenderTest, RejectsUnsupportedCpuPixelsWithoutChangingInputs) {
+  const auto grad_options =
+      torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true);
+  const std::array<torch::Tensor, 3> images{
+      torch::zeros({3, 2, 2}, torch::kUInt16),
+      torch::zeros({3, 2, 2}, torch::kFloat32),
+      torch::zeros({3, 2, 2}, grad_options)};
+  const VisionAnnotationRecord record{.width = 2, .height = 2};
+  for (const auto& image : images) {
+    SCOPED_TRACE(static_cast<int>(image.scalar_type()));
+    SCOPED_TRACE(image.requires_grad());
+    auto spec = RgbSpec();
+    spec.dtype = image.scalar_type();
+    spec.range = image.is_floating_point()
+                     ? PixelValueRange::unit_interval
+                     : PixelValueRange::unsigned_full_scale;
+    const auto before = image.detach().clone();
+    const bool requires_grad = image.requires_grad();
+    ASSERT_NO_THROW(validate_pixels(image, spec));
+    EXPECT_THROW(render_annotations(image, spec, record), InvalidArgument);
+    EXPECT_TRUE(torch::equal(image.detach(), before));
+    EXPECT_EQ(image.requires_grad(), requires_grad);
+    EXPECT_FALSE(image.grad().defined());
+  }
+}
+
+TEST(RenderTest, BlendsStridedDoubleHeatmapWithExactRgbResults) {
+  const auto image = torch::full({3, 2, 3}, 100, torch::kUInt8);
+  const auto heatmap =
+      torch::tensor({{0.0, 1.0}, {0.25, 0.75}, {0.5, 0.0}}, torch::kFloat64)
+          .transpose(0, 1);
+  ASSERT_FALSE(heatmap.is_contiguous());
+  const auto original_heatmap = heatmap.clone();
+  const VisionAnnotationRecord record{.width = 3, .height = 2};
+  auto options = RenderOptions{};
+  options.heatmap_alpha = 128;
+  const auto result =
+      render_annotations(image, RgbSpec(), record, {}, {}, heatmap, options);
+  const auto float_result = render_annotations(
+      image, RgbSpec(), record, {}, {}, heatmap.to(torch::kFloat32), options);
+  const auto expected = torch::tensor(
+      {{{100, 100, 100}, {104, 104, 104}, {139, 139, 75}},
+       {{178, 50, 50}, {158, 111, 62}, {100, 100, 100}}},
+      torch::kUInt8);
+  EXPECT_TRUE(torch::equal(result.pixels, expected));
+  EXPECT_TRUE(torch::equal(result.pixels, float_result.pixels));
+  EXPECT_TRUE(torch::equal(heatmap, original_heatmap));
+  EXPECT_TRUE(torch::equal(image, torch::full({3, 2, 3}, 100, torch::kUInt8)));
+}
+
 TEST(RenderTest, BoundsBaseAndOverlayPixelWork) {
   const auto image = torch::zeros({3, 2, 2}, torch::kUInt8);
   const VisionAnnotationRecord record{.width = 2, .height = 2};
