@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补录原生 CUDA ResNet18 的真实 batch=4 合批、16 种输入的响应映射、输入/输出快照及取消/身份隔离验证，保留原数值容差与单次观测边界。
+
 - 补录 Ubuntu / RTX 2060 的原生 CUDA ResNet18 实际负载、版本切换回退、队列生命周期与 RSS/显存观测，明确单请求后端、同权重参考及单次负载的验证边界。
 
 - 登记 CPU libgomp 离线源码伴随材料包的精确身份与发布证据用法，保留完整对应源码分发、安全和再分发审查的待审状态。
