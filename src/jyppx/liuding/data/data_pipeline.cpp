@@ -437,6 +437,8 @@ struct BatchWork {
 
 struct BatchResult {
   std::shared_ptr<void> admission_lease;
+  // Declared before value so discarded prefetched payloads release first.
+  std::shared_ptr<void> resource_lease;
   // Sequence copied from the claimed work item.
   std::uint64_t sequence = 0;
   // Cursor boundary validated before the pipeline commits the result.
@@ -447,8 +449,6 @@ struct BatchResult {
   BatchMemoryMetadata memory;
   // Structured factory failure retained for ordered propagation.
   std::exception_ptr error;
-  // Opaque aggregate-resource lease retained until consumer publication.
-  std::shared_ptr<void> resource_lease;
 };
 
 struct EpochWork {
@@ -719,9 +719,9 @@ class WorkerRuntime final {
             result->value = std::move(staged.value);
             result->memory = staged.metadata;
           }
-          result->resource_lease = detail::run_resource_lease_factory(
+          detail::run_resource_lease_factory(
               resource_lease_factory_, result->value, result->memory,
-              epoch->stop_source.get_token());
+              epoch->stop_source.get_token(), result->resource_lease);
         }
       } catch (...) {
         result->error = std::current_exception();
@@ -1210,7 +1210,7 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
         throw InternalError(
             "DataPipeline worker result topology is inconsistent");
       }
-      envelope.value = result->value;
+      envelope.value = std::move(result->value);
       envelope.admission_lease = std::move(result->admission_lease);
       envelope.memory = result->memory;
       envelope.resource_lease = std::move(result->resource_lease);
@@ -1244,9 +1244,9 @@ std::optional<BatchEnvelope> DataPipeline::next(std::stop_token stop_token) {
       // Release the worker/producer reservation before accounting the final
       // consumer value, so a strict budget is never charged twice.
       envelope.resource_lease.reset();
-      envelope.resource_lease = detail::run_resource_lease_factory(
-          impl_->options.resource_lease_factory, envelope.value,
-          envelope.memory, stop_token);
+      detail::run_resource_lease_factory(impl_->options.resource_lease_factory,
+                                         envelope.value, envelope.memory,
+                                         stop_token, envelope.resource_lease);
     }
     validate_batch_value(envelope.value, impl_->options.schema);
     if (stop_token.stop_requested())

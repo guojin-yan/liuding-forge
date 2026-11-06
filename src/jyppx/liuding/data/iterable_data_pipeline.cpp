@@ -489,7 +489,7 @@ struct ProducedBatch {
   std::string source_state;       ///< Cursor position after this batch or tail.
   std::string source_watermark;   ///< Last pulled source watermark.
   bool source_exhausted = false;  ///< Whether no later source item exists.
-  std::exception_ptr error;  ///< Ordered source or collator failure.
+  std::exception_ptr error;       ///< Ordered source or collator failure.
 };
 
 class IterableRuntime final {
@@ -699,9 +699,9 @@ class IterableRuntime final {
       envelope.value = std::move(staged.value);
       envelope.memory = staged.metadata;
     }
-    envelope.resource_lease = detail::run_resource_lease_factory(
-        options_.resource_lease_factory, envelope.value, envelope.memory,
-        stop);
+    detail::run_resource_lease_factory(options_.resource_lease_factory,
+                                       envelope.value, envelope.memory, stop,
+                                       envelope.resource_lease);
     envelope.schema = options_.schema;
     envelope.dataset_version = options_.dataset_version;
     envelope.epoch = epoch_;
@@ -1112,9 +1112,9 @@ std::optional<BatchEnvelope> IterableDataPipeline::next(
       // Release the producer reservation before accounting the final
       // consumer value, so a strict budget is never charged twice.
       envelope.resource_lease.reset();
-      envelope.resource_lease = detail::run_resource_lease_factory(
-          impl_->options.resource_lease_factory, envelope.value,
-          envelope.memory, stop_token);
+      detail::run_resource_lease_factory(impl_->options.resource_lease_factory,
+                                         envelope.value, envelope.memory,
+                                         stop_token, envelope.resource_lease);
     }
     validate_batch_value(envelope.value, impl_->options.schema);
     if (envelope.sample_ids.size() > std::numeric_limits<std::uint64_t>::max() -

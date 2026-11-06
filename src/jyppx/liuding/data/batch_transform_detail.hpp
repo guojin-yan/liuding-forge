@@ -24,9 +24,11 @@ BatchMemoryUsage run_consumer_transform(c10::IValue& value,
                                         const BatchMemoryOptions& limits,
                                         std::stop_token stop);
 
-std::shared_ptr<void> run_resource_lease_factory(
-    const BatchResourceLeaseFactory& factory, const c10::IValue& value,
-    const BatchMemoryMetadata& metadata, std::stop_token stop);
+void run_resource_lease_factory(const BatchResourceLeaseFactory& factory,
+                                const c10::IValue& value,
+                                const BatchMemoryMetadata& metadata,
+                                std::stop_token stop,
+                                std::shared_ptr<void>& retained);
 
 std::shared_ptr<void> run_admission_factory(
     const BatchAdmissionFactory& factory, std::stop_token stop);

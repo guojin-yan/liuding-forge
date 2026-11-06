@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "test_utils/batch_resource_lifetime.hpp"
+
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/dataset.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
@@ -1598,6 +1600,170 @@ TEST(DataPipelineWorkerTest, RejectsInvalidWorkerOptionsBeforeStarting) {
   EXPECT_THROW(
       jyppx::liuding::data::DataPipeline(sampler, inline_timeout, factory),
       jyppx::liuding::InvalidArgument);
+}
+
+TEST(BatchEnvelopeLeaseTest, DestructionReleasesStorageBeforeBothReservations) {
+  auto probe = std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+  {
+    jyppx::liuding::data::BatchEnvelope batch;
+    batch.value = probe->tensor();
+    batch.admission_lease = probe->lease(true);
+    batch.resource_lease = probe->lease();
+  }
+  const auto state = probe->snapshot();
+  EXPECT_EQ(state.payloads_released, 1);
+  EXPECT_EQ(state.resources_released, 1);
+  EXPECT_EQ(state.admissions_released, 1);
+  EXPECT_EQ(state.early_resource_releases, 0);
+  EXPECT_EQ(state.early_admission_releases, 0);
+}
+
+TEST(BatchEnvelopeLeaseTest, ReplacementAndSharedCopiesKeepStorageAccounted) {
+  using jyppx::liuding::data::BatchEnvelope;
+  for (const bool move : {false, true}) {
+    auto old = std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    auto replacement =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    {
+      BatchEnvelope batch;
+      batch.value = old->tensor(1);
+      batch.admission_lease = old->lease(true);
+      batch.resource_lease = old->lease();
+      BatchEnvelope other;
+      other.value = replacement->tensor(2);
+      other.admission_lease = replacement->lease(true);
+      other.resource_lease = replacement->lease();
+      if (move)
+        batch = std::move(other);
+      else
+        batch = other;
+      EXPECT_EQ(old->snapshot().payloads_released, 1);
+      EXPECT_EQ(old->snapshot().early_resource_releases, 0);
+      EXPECT_EQ(old->snapshot().early_admission_releases, 0);
+      EXPECT_EQ(batch.value.toTensor().item<std::int64_t>(), 2);
+      auto* self = &batch;
+      batch = *self;
+      batch = std::move(*self);
+      EXPECT_EQ(batch.value.toTensor().item<std::int64_t>(), 2);
+      EXPECT_EQ(replacement->snapshot().resources_released, 0);
+      auto copy = batch;
+      batch = BatchEnvelope{};
+      EXPECT_EQ(replacement->snapshot().resources_released, 0);
+      EXPECT_EQ(copy.value.toTensor().item<std::int64_t>(), 2);
+    }
+    EXPECT_EQ(replacement->snapshot().payloads_released, 1);
+    EXPECT_EQ(replacement->snapshot().resources_released, 1);
+    EXPECT_EQ(replacement->snapshot().admissions_released, 1);
+    EXPECT_EQ(replacement->snapshot().early_resource_releases, 0);
+    EXPECT_EQ(replacement->snapshot().early_admission_releases, 0);
+  }
+}
+
+TEST(DataPipelineLeaseTest, InlineAndWorkerDeliveryRetainStorageReservations) {
+  using namespace jyppx::liuding::data;
+  for (const std::size_t workers : {0U, 1U}) {
+    auto probe =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    auto config =
+        make_worker_options("data.lifetime.deliver", workers, 1, false);
+    config.dataset_size = config.batch_size = 1;
+    config.admission_factory = [probe](std::stop_token) {
+      return probe->lease(true);
+    };
+    config.resource_lease_factory =
+        [probe](const c10::IValue&, const BatchMemoryMetadata&,
+                std::stop_token) { return probe->lease(); };
+    DataPipeline pipeline(
+        std::make_shared<samplers::SequentialSampler>(1), config,
+        [probe](std::span<const std::size_t>, const DataWorkerContext&,
+                std::stop_token) { return c10::IValue(probe->tensor()); });
+    pipeline.set_epoch(0);
+    auto batch = pipeline.next();
+    ASSERT_TRUE(batch);
+    pipeline.close();
+    EXPECT_EQ(probe->snapshot().resources_released, 0);
+    batch.reset();
+    const auto state = probe->snapshot();
+    EXPECT_EQ(state.payloads_released, 1);
+    EXPECT_EQ(state.resources_released, 1);
+    EXPECT_EQ(state.admissions_released, 1);
+    EXPECT_EQ(state.early_resource_releases, 0);
+    EXPECT_EQ(state.early_admission_releases, 0);
+  }
+}
+
+TEST(DataPipelineLeaseTest, DiscardedWorkerPayloadPrecedesResourceRelease) {
+  using namespace jyppx::liuding::data;
+  for (const bool cancel_during_reservation : {false, true}) {
+    auto probe =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    auto config = make_worker_options("data.lifetime.discard", 1, 1, false);
+    config.dataset_size = config.batch_size = 1;
+    config.admission_factory = [probe](std::stop_token) {
+      return probe->lease(true);
+    };
+    config.resource_lease_factory = [probe, cancel_during_reservation](
+                                        const c10::IValue&,
+                                        const BatchMemoryMetadata&,
+                                        std::stop_token stop) {
+      auto lease = probe->lease();
+      if (cancel_during_reservation) probe->wait_for_stop(stop);
+      return lease;
+    };
+    DataPipeline pipeline(
+        std::make_shared<samplers::SequentialSampler>(1), config,
+        [probe](std::span<const std::size_t>, const DataWorkerContext&,
+                std::stop_token) { return c10::IValue(probe->tensor()); });
+    pipeline.set_epoch(0);
+    ASSERT_TRUE(probe->wait_for_resources());
+    pipeline.close();
+    EXPECT_EQ(pipeline.state().next_cursor, 0U);
+    const auto state = probe->snapshot();
+    EXPECT_EQ(state.payloads_released, 1);
+    EXPECT_EQ(state.resources_released, 1);
+    EXPECT_EQ(state.admissions_released, 1);
+    EXPECT_EQ(state.early_resource_releases, 0);
+    EXPECT_EQ(state.early_admission_releases, 0);
+  }
+}
+
+TEST(DataPipelineLeaseTest,
+     ConsumerReplacementDoesNotRetainAWorkerStorageAlias) {
+  using namespace jyppx::liuding::data;
+  auto source = std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+  auto output = std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+  auto calls = std::make_shared<std::atomic<int>>(0);
+  auto config = make_worker_options("data.lifetime.transform", 1, 1, false);
+  config.dataset_size = config.batch_size = 1;
+  config.consumer_transform = BatchConsumerTransform{
+      .id = "tracked-storage-replacement/v1",
+      .input_schema = config.schema,
+      .apply = [output](const c10::IValue&, const BatchConsumerContext&,
+                        std::stop_token) {
+        return c10::IValue(output->tensor());
+      }};
+  config.resource_lease_factory =
+      [source, output, calls](const c10::IValue&, const BatchMemoryMetadata&,
+                              std::stop_token) {
+        if (calls->fetch_add(1) == 0) return source->lease();
+        EXPECT_EQ(source->snapshot().live_payloads, 0);
+        return output->lease();
+      };
+  DataPipeline pipeline(
+      std::make_shared<samplers::SequentialSampler>(1), config,
+      [source](std::span<const std::size_t>, const DataWorkerContext&,
+               std::stop_token) { return c10::IValue(source->tensor()); });
+  pipeline.set_epoch(0);
+  auto batch = pipeline.next();
+  ASSERT_TRUE(batch);
+  pipeline.close();
+  EXPECT_EQ(calls->load(), 2);
+  EXPECT_EQ(source->snapshot().early_resource_releases, 0);
+  EXPECT_EQ(source->snapshot().payloads_released, 1);
+  batch.reset();
+  EXPECT_EQ(output->snapshot().payloads_released, 1);
+  EXPECT_EQ(output->snapshot().resources_released, 1);
+  EXPECT_EQ(output->snapshot().early_resource_releases, 0);
 }
 
 }  // namespace

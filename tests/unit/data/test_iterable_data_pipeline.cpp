@@ -5,6 +5,8 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "test_utils/batch_resource_lifetime.hpp"
+
 #include <jyppx/liuding/data/iterable_data_pipeline.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 
@@ -32,13 +34,13 @@
 
 namespace {
 
+using jyppx::liuding::data::BatchMemoryMetadata;
 using jyppx::liuding::data::IterableDataPipeline;
 using jyppx::liuding::data::IterableDataPipelineOptions;
 using jyppx::liuding::data::IterableSample;
 using jyppx::liuding::data::IterableSource;
 using jyppx::liuding::data::IterableSourceCursor;
 using jyppx::liuding::data::IterableSourceDescriptor;
-using jyppx::liuding::data::BatchMemoryMetadata;
 
 /** @brief Storage-neutral in-memory checkpoint used by iterable tests. */
 class MemoryStateStore final : public jyppx::liuding::StateWriter,
@@ -604,8 +606,8 @@ TEST(IterableDataPipelineTest,
   auto config = options("data.iterable.resource-lease", 2);
   config.prefetch_batches = 1;
   config.resource_lease_factory = [state](const c10::IValue& value,
-                                           const BatchMemoryMetadata&,
-                                           std::stop_token) {
+                                          const BatchMemoryMetadata&,
+                                          std::stop_token) {
     const auto key = value.toInt();
     {
       std::lock_guard<std::mutex> lock(state->mutex);
@@ -613,9 +615,8 @@ TEST(IterableDataPipelineTest,
         throw std::runtime_error("duplicate resource lease reservation");
       }
     }
-    return std::shared_ptr<void>(new int(0), [](void* pointer) {
-      delete static_cast<int*>(pointer);
-    });
+    return std::shared_ptr<void>(
+        new int(0), [](void* pointer) { delete static_cast<int*>(pointer); });
   };
 
   IterableDataPipeline pipeline(make_source({1, 2, 3, 4}), config,
@@ -1206,6 +1207,72 @@ TEST(IterableBatchMemoryCudaTest, PinsTransfersAndRestoresExactCursor) {
       torch::equal(actual->value.toTensor(), expected->value.toTensor()));
   EXPECT_EQ(actual->memory.pinned_tensor_count, 1U);
   EXPECT_EQ(actual->memory.transferred_tensor_count, 1U);
+}
+
+TEST(IterableDataPipelineLeaseTest, ConsumerStoragePrecedesResourceRelease) {
+  auto probe = std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+  auto config = options("data.iterable.lifetime.deliver", 1);
+  config.prefetch_batches = 1;
+  config.schema = jyppx::liuding::data::BatchSchema::any("tracked.tensor");
+  config.admission_factory = [probe](std::stop_token) {
+    return probe->lease(true);
+  };
+  config.resource_lease_factory =
+      [probe](const c10::IValue&, const BatchMemoryMetadata&, std::stop_token) {
+        return probe->lease();
+      };
+  IterableDataPipeline pipeline(
+      make_source({1}), config,
+      [probe](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
+              std::stop_token) { return c10::IValue(probe->tensor()); });
+  pipeline.set_epoch(0);
+  auto batch = pipeline.next();
+  ASSERT_TRUE(batch);
+  pipeline.close();
+  EXPECT_EQ(probe->snapshot().resources_released, 0);
+  batch.reset();
+  const auto state = probe->snapshot();
+  EXPECT_EQ(state.payloads_released, 1);
+  EXPECT_EQ(state.resources_released, 1);
+  EXPECT_EQ(state.admissions_released, 1);
+  EXPECT_EQ(state.early_resource_releases, 0);
+  EXPECT_EQ(state.early_admission_releases, 0);
+}
+
+TEST(IterableDataPipelineLeaseTest,
+     DiscardAndCancelledReservationKeepStorageCharged) {
+  for (const bool cancel_during_reservation : {false, true}) {
+    auto probe =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    auto config = options("data.iterable.lifetime.discard", 1);
+    config.prefetch_batches = 1;
+    config.schema = jyppx::liuding::data::BatchSchema::any("tracked.tensor");
+    config.admission_factory = [probe](std::stop_token) {
+      return probe->lease(true);
+    };
+    config.resource_lease_factory = [probe, cancel_during_reservation](
+                                        const c10::IValue&,
+                                        const BatchMemoryMetadata&,
+                                        std::stop_token stop) {
+      auto lease = probe->lease();
+      if (cancel_during_reservation) probe->wait_for_stop(stop);
+      return lease;
+    };
+    IterableDataPipeline pipeline(
+        make_source({1}), config,
+        [probe](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
+                std::stop_token) { return c10::IValue(probe->tensor()); });
+    pipeline.set_epoch(0);
+    ASSERT_TRUE(probe->wait_for_resources());
+    pipeline.close();
+    EXPECT_EQ(pipeline.state().committed_samples, 0U);
+    const auto state = probe->snapshot();
+    EXPECT_EQ(state.payloads_released, 1);
+    EXPECT_EQ(state.resources_released, 1);
+    EXPECT_EQ(state.admissions_released, 1);
+    EXPECT_EQ(state.early_resource_releases, 0);
+    EXPECT_EQ(state.early_admission_releases, 0);
+  }
 }
 
 }  // namespace

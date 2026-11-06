@@ -29,6 +29,7 @@
 #include <span>
 #include <stop_token>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace jyppx::liuding::data {
@@ -41,6 +42,48 @@ namespace jyppx::liuding::data {
  * dtype, device, and shape constraints without depending on the nn target.
  */
 struct BatchEnvelope {
+  /** @brief Creates an empty envelope for explicit field population. */
+  BatchEnvelope() = default;
+  /** @brief Copies metadata while sharing the value and runtime leases.
+   * @param other Envelope whose shared owners remain valid.
+   */
+  BatchEnvelope(const BatchEnvelope& other) = default;
+  /** @brief Transfers metadata, the value and both runtime leases.
+   * @param other Envelope left with moved-from owners.
+   */
+  BatchEnvelope(BatchEnvelope&& other) noexcept = default;
+  /** @brief Releases the value before either of its runtime reservations. */
+  ~BatchEnvelope() { value = c10::IValue(); }
+
+  /** @brief Swaps complete values without releasing either reservation.
+   * @param a First envelope.
+   * @param b Second envelope; may be the first envelope itself.
+   */
+  friend void swap(BatchEnvelope& a, BatchEnvelope& b) noexcept {
+    using std::swap;
+    swap(a.admission_lease, b.admission_lease);
+    swap(a.value, b.value);
+    swap(a.schema, b.schema);
+    swap(a.sample_ids, b.sample_ids);
+    swap(a.dataset_version, b.dataset_version);
+    swap(a.epoch, b.epoch);
+    swap(a.sequence, b.sequence);
+    swap(a.source_watermark, b.source_watermark);
+    swap(a.memory, b.memory);
+    swap(a.consumer_transform_id, b.consumer_transform_id);
+    swap(a.transformed_memory, b.transformed_memory);
+    swap(a.resource_lease, b.resource_lease);
+  }
+
+  /** @brief Replaces the entire value before releasing its old reservations.
+   * @param other Copied or moved replacement; copy failure preserves this.
+   * @return This envelope after ownership transfer.
+   */
+  BatchEnvelope& operator=(BatchEnvelope other) noexcept {
+    swap(*this, other);
+    return *this;
+  }
+
   std::shared_ptr<void> admission_lease;  ///< Released after the batch payload.
   c10::IValue value;   ///< Collated batch value owned by the consumer.
   BatchSchema schema;  ///< Complete validated producer value contract.
@@ -61,6 +104,8 @@ struct BatchEnvelope {
    *
    * This is runtime state only and is never serialized into checkpoint
    * values. Its concrete owner is supplied by an optional adapter callback.
+   * Destruction and whole-envelope assignment release the owned value first.
+   * A caller retaining value aliases must also retain the corresponding lease.
    */
   std::shared_ptr<void> resource_lease;
 };

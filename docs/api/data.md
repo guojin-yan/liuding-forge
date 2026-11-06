@@ -97,6 +97,8 @@ auto subsets = jyppx::liuding::data::random_split(
 
 `DataPipeline` is the explicit-epoch, cursor-aware contract used by the checkpoint coordinator. `set_epoch(epoch)` is the only operation that creates an epoch order; `next()` never advances an epoch implicitly. Each successful `next()` commits one batch and returns a `BatchEnvelope` containing the validated value, complete versioned `BatchSchema`, sample IDs, dataset version, epoch, and batch sequence.
 
+`BatchEnvelope` 的析构和整体赋值先释放原批次值，再归还对应的资源与生产准入租约；复制共享值和租约，移动转移所有权。自行保留 `value` 或其中 Tensor 的别名时，也须保留对应 envelope 或租约。该类型使用默认构造后逐字段设置，不能使用聚合初始化；检查点格式保持原样。
+
 ```cpp
 auto sampler = std::make_shared<jyppx::liuding::data::samplers::RandomSampler>(100, 7); jyppx::liuding::data::DataPipeline pipeline(
     sampler,

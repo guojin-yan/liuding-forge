@@ -60,18 +60,20 @@ BatchMemoryUsage run_consumer_transform(c10::IValue& value,
   return usage;
 }
 
-std::shared_ptr<void> run_resource_lease_factory(
-    const BatchResourceLeaseFactory& factory, const c10::IValue& value,
-    const BatchMemoryMetadata& metadata, std::stop_token stop) {
-  if (!factory) return {};
+void run_resource_lease_factory(const BatchResourceLeaseFactory& factory,
+                                const c10::IValue& value,
+                                const BatchMemoryMetadata& metadata,
+                                std::stop_token stop,
+                                std::shared_ptr<void>& retained) {
+  if (!factory) return;
   if (stop.stop_requested()) throw Cancelled("Batch resource lease cancelled");
   try {
-    auto lease = factory(value, metadata, stop);
+    // Publish ownership before observing cancellation: unwinding must keep
+    // this reservation until the caller has destroyed the retained payload.
+    retained = factory(value, metadata, stop);
     if (stop.stop_requested()) {
-      lease.reset();
       throw Cancelled("Batch resource lease cancelled");
     }
-    return lease;
   } catch (const Error&) {
     throw;
   } catch (const std::exception& cause) {
