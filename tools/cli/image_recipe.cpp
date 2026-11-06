@@ -252,8 +252,8 @@ Json resolve_config(const std::filesystem::path& path) {
                  "calibration_max_snapshot_bytes is required exactly when "
                  "BatchNorm calibration is enabled");
   if (uses_bn_calibration(config)) {
-    require_recipe(!transfer && config.at("device") == "cpu",
-                   "This calibration slice supports the CPU ResNet18 recipe");
+    require_recipe(!transfer,
+                   "BatchNorm calibration supports the ResNet18 recipe");
     integer("calibration_max_snapshot_bytes", 1LL << 20, 1LL << 30);
   }
   integer("seed", 0, 2147483647);
@@ -708,8 +708,8 @@ std::shared_ptr<data::DataPipeline> make_pipeline(
     const ArtifactDigest& identity, const Device& device,
     const std::shared_ptr<image::ImageResourceBudget>& budget,
     const TransferInput* transfer, bool calibration = false) {
-  require_recipe(!calibration || (!validation && !transfer && device.is_cpu()),
-                 "Calibration must use CPU training inputs exclusively");
+  require_recipe(!calibration || (!validation && !transfer),
+                 "Calibration must use training inputs exclusively");
   image::ImageDatasetOptions source_options;
   source_options.resource_budget = budget;
   source_options.image.channels = image::ImageChannels::rgb;

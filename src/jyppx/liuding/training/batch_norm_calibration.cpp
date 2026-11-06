@@ -97,11 +97,11 @@ Sha256Digest protected_state(const nn::ModelAdapter& model,
       const auto& value = entry.value();
       if (!parameters && allowed.contains(value.unsafeGetTensorImpl()))
         continue;
-      // Input/model validation admits CPU dense tensors. Only a non-contiguous
-      // tensor can require one transient tensor-sized contiguous
-      // materialization.
-      const auto tensor = value.detach().contiguous();
+      // Hash host bytes, including for a CUDA model. At most one protected
+      // tensor is staged at a time, after the full snapshot bound was checked.
+      const auto tensor = value.detach().cpu().contiguous();
       add_text(hash, entry.key());
+      add_text(hash, value.device().str());
       add_text(hash, c10::toString(tensor.scalar_type()));
       add_integer(hash, tensor.dim());
       for (const auto size : tensor.sizes()) add_integer(hash, size);
@@ -114,27 +114,33 @@ Sha256Digest protected_state(const nn::ModelAdapter& model,
   return hash.finish();
 }
 
-void check_cpu_state(const nn::ModelAdapter& model) {
-  const auto check = [](const auto& entries, bool parameters) {
+c10::Device check_model_state(const nn::ModelAdapter& model) {
+  std::optional<c10::Device> device;
+  const auto check = [&](const auto& entries, bool parameters) {
     for (const auto& entry : entries) {
       const auto& tensor = entry.value();
-      if (!tensor.defined() || !tensor.device().is_cpu() ||
+      if (!tensor.defined() ||
+          (!tensor.device().is_cpu() && !tensor.device().is_cuda()) ||
+          (device && tensor.device() != *device) ||
           tensor.layout() != c10::Layout::Strided ||
           !tensor.is_non_overlapping_and_dense() ||
           (tensor.scalar_type() != torch::kFloat32 &&
            (parameters || tensor.scalar_type() != torch::kInt64)))
         throw InvalidArgument(
-            "BN calibration requires dense CPU FP32 model "
-            "parameters and CPU FP32/int64 buffers");
+            "BN calibration requires dense FP32 parameters and FP32/int64 "
+            "buffers on one CPU or CUDA device");
+      device = tensor.device();
     }
   };
   check(model.state().named_parameters(), true);
   check(model.state().named_buffers(), false);
+  if (!device) throw InvalidArgument("BN calibration model has no state");
+  return *device;
 }
 
 void restore_controls(const std::vector<Mode>& modes,
                       const std::vector<Norm>& norms,
-                      const core::RngState& rng) {
+                      const core::RngState& rng, bool include_cuda) {
   std::exception_ptr failure;
   const auto attempt = [&](auto&& action) {
     try {
@@ -149,7 +155,7 @@ void restore_controls(const std::vector<Mode>& modes,
     attempt([&] { mode.module->train(mode.training); });
   for (const auto& norm : norms)
     attempt([&] { norm.module->options.momentum(norm.momentum); });
-  attempt([&] { core::set_rng_state(rng, false); });
+  attempt([&] { core::set_rng_state(rng, include_cuda); });
   if (failure) std::rethrow_exception(failure);
 }
 
@@ -173,7 +179,8 @@ BatchNormCalibrationResult calibrate_batch_norm(
         "BN calibration requires a finite non-empty source "
         "and explicit positive resource bounds");
   cancelled(stop);
-  check_cpu_state(model);
+  const auto device = check_model_state(model);
+  const bool include_cuda = device.is_cuda();
   std::vector<Mode> modes;
   std::vector<Norm> norms;
   std::set<const void*> allowed;
@@ -201,10 +208,10 @@ BatchNormCalibrationResult calibrate_batch_norm(
             "BN calibration requires tracked FP32 BN2d state");
       for (const auto& value :
            {norm->running_mean, norm->running_var, norm->num_batches_tracked}) {
-        if (!value.device().is_cpu() ||
+        if (value.device() != device ||
             !registered_buffers.contains(value.unsafeGetTensorImpl()))
           throw InvalidArgument(
-              "BN calibration statistics must be registered CPU buffers");
+              "BN calibration statistics must be registered model-device buffers");
         if (!allowed.insert(value.unsafeGetTensorImpl()).second ||
             !allowed_storages.insert(value.storage().unsafeGetStorageImpl())
                  .second)
@@ -251,7 +258,7 @@ BatchNormCalibrationResult calibrate_batch_norm(
                          options.max_model_snapshot_bytes);
   participant.save_state(snapshot);
   const auto protected_before = protected_state(model, allowed);
-  const auto rng = core::get_rng_state(false);
+  const auto rng = core::get_rng_state(include_cuda);
   BatchNormCalibrationResult result{.batch_norm_modules = norms.size(),
                                     .model_snapshot_bytes = snapshot.bytes()};
   torch::NoGradGuard no_grad;
@@ -270,12 +277,13 @@ BatchNormCalibrationResult calibrate_batch_norm(
       const auto& input = batch->images;
       if (!(batch->training_source == options.training_source))
         throw CompatibilityError("BN calibration received another data source");
-      if (!input.defined() || !input.device().is_cpu() ||
+      if (!input.defined() || input.device() != device ||
           input.scalar_type() != torch::kFloat32 ||
           input.layout() != c10::Layout::Strided || input.dim() != 4 ||
           input.size(0) <= 0 || input.size(1) <= 0 || input.size(2) <= 0 ||
           input.size(3) <= 0)
-        throw InvalidArgument("BN calibration input must be CPU FP32 NCHW");
+        throw InvalidArgument(
+            "BN calibration input must be FP32 NCHW on the model device");
       if (input.nbytes() > options.max_input_bytes)
         throw ResourceExhausted("BN calibration input exceeds its byte bound");
       const auto count = static_cast<std::uint64_t>(input.size(0));
@@ -300,9 +308,10 @@ BatchNormCalibrationResult calibrate_batch_norm(
               static_cast<std::int64_t>(options.expected_batches))
         throw NumericalError("BN calibration produced invalid tracked state");
     }
-    if (protected_state(model, allowed) != protected_before)
+    if (check_model_state(model) != device ||
+        protected_state(model, allowed) != protected_before)
       throw CompatibilityError("BN calibration changed protected model state");
-    restore_controls(modes, norms, rng);
+    restore_controls(modes, norms, rng, include_cuda);
     cancelled(stop);
     if (commit) commit(result);
     // All potentially throwing control restoration precedes durable commit.
@@ -316,7 +325,7 @@ BatchNormCalibrationResult calibrate_batch_norm(
       rollback_failure = std::current_exception();
     }
     try {
-      restore_controls(modes, norms, rng);
+      restore_controls(modes, norms, rng, include_cuda);
     } catch (...) {
       if (!rollback_failure) rollback_failure = std::current_exception();
     }

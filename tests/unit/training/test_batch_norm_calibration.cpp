@@ -82,7 +82,7 @@ using Bits = std::map<std::string, std::vector<std::byte>>;
 Bits bits(const nn::ModelAdapter& model) {
   Bits result;
   const auto add = [&](const std::string& name, const Tensor& tensor) {
-    const auto value = tensor.detach().contiguous();
+    const auto value = tensor.detach().cpu().contiguous();
     const auto* bytes = static_cast<const std::byte*>(value.const_data_ptr());
     result[name] = {bytes, bytes + value.nbytes()};
   };
@@ -126,7 +126,189 @@ void controls(const std::shared_ptr<Toy>& toy, const core::RngState& rng) {
   EXPECT_FALSE(toy->dropout->is_training());
   EXPECT_TRUE(toy->conv->is_training());
   EXPECT_EQ(toy->bn->options.momentum(), .3);
-  EXPECT_TRUE(torch::equal(core::get_rng_state(false).cpu, rng.cpu));
+  const auto current = core::get_rng_state(!rng.cuda.empty());
+  EXPECT_TRUE(torch::equal(current.cpu, rng.cpu));
+  ASSERT_EQ(current.cuda.size(), rng.cuda.size());
+  for (std::size_t index = 0; index < rng.cuda.size(); ++index)
+    EXPECT_TRUE(torch::equal(current.cuda[index], rng.cuda[index]));
+}
+
+BatchNormCalibrationSource cuda_source() {
+  return [index = std::uint64_t{0}](std::stop_token) mutable
+             -> std::optional<BatchNormCalibrationBatch> {
+    if (index == 3) return std::nullopt;
+    auto value = batch(index++);
+    value.images = value.images.to(torch::kCUDA);
+    return value;
+  };
+}
+
+TEST(BatchNormCalibrationCUDA, ExactFixedStatisticsPreserveProtectedStateAndRng) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
+  auto toy = std::make_shared<Toy>();
+  toy->to(torch::kCUDA);
+  auto model = nn::adapt_tensor_module(toy);
+  const auto before = bits(model);
+  const auto rng = core::get_rng_state(true);
+  const auto result = calibrate_batch_norm(model, cuda_source(), options());
+  EXPECT_EQ(result.batches, 3);
+  EXPECT_EQ(result.samples, 6);
+  EXPECT_EQ(result.batch_norm_modules, 1);
+  const auto after = bits(model);
+  for (const auto& [name, value] : before)
+    if (!name.starts_with("buffer.bn.")) EXPECT_EQ(value, after.at(name));
+  EXPECT_TRUE(torch::allclose(toy->bn->running_mean.cpu(),
+                             torch::tensor({8.5F, 12.5F, 16.5F}), 1e-6, 1e-6));
+  // Each channel's eight values have squared deviations summing to 298.
+  EXPECT_TRUE(torch::allclose(
+      toy->bn->running_var.cpu(),
+      torch::full({3}, 298. / 7., torch::kFloat32), 1e-6, 1e-6));
+  EXPECT_EQ(toy->bn->num_batches_tracked.item<std::int64_t>(), 3);
+  EXPECT_TRUE(toy->bn->running_mean.is_cuda());
+  controls(toy, rng);
+}
+
+TEST(BatchNormCalibrationCUDA, SourceErrorRestoresWholeModelAndBothRngs) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
+  auto toy = std::make_shared<Toy>();
+  toy->to(torch::kCUDA);
+  auto model = nn::adapt_tensor_module(toy);
+  const auto before = bits(model);
+  const auto rng = core::get_rng_state(true);
+  auto next = cuda_source();
+  std::uint64_t index = 0;
+  EXPECT_THROW(
+      calibrate_batch_norm(
+          model,
+          [&](std::stop_token stop) -> std::optional<BatchNormCalibrationBatch> {
+            if (index++ == 1) {
+              static_cast<void>(torch::rand({8}));
+              static_cast<void>(
+                  torch::rand({8}, torch::TensorOptions().device(torch::kCUDA)));
+              throw std::runtime_error("CUDA source failed after a forward");
+            }
+            return next(stop);
+          },
+          options()),
+      std::runtime_error);
+  EXPECT_EQ(bits(model), before);
+  controls(toy, rng);
+}
+
+TEST(BatchNormCalibrationCUDA, CancellationRestoresAndWholePassReplaysExactly) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
+  auto toy = std::make_shared<Toy>();
+  toy->to(torch::kCUDA);
+  auto model = nn::adapt_tensor_module(toy);
+  nn::ModelCheckpointParticipant participant(model);
+  MemoryState initial(participant.describe_state());
+  participant.save_state(initial);
+  const auto before = bits(model);
+  const auto rng = core::get_rng_state(true);
+  std::stop_source stop;
+  auto next = cuda_source();
+  std::uint64_t index = 0;
+  EXPECT_THROW(
+      calibrate_batch_norm(
+          model,
+          [&](std::stop_token token) -> std::optional<BatchNormCalibrationBatch> {
+            if (index++ == 2) {
+              stop.request_stop();
+              return std::nullopt;
+            }
+            return next(token);
+          },
+          options(), stop.get_token()),
+      Cancelled);
+  EXPECT_EQ(bits(model), before);
+  controls(toy, rng);
+  calibrate_batch_norm(model, cuda_source(), options());
+  const auto resumed = bits(model);
+  participant.load_state(initial, RestorePolicy::exact_only);
+  core::set_rng_state(rng, true);
+  calibrate_batch_norm(model, cuda_source(), options());
+  EXPECT_EQ(bits(model), resumed);
+  controls(toy, rng);
+}
+
+TEST(BatchNormCalibrationCUDA, CommitAndProtectedMutationFailuresRollBack) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
+  auto toy = std::make_shared<Toy>();
+  toy->to(torch::kCUDA);
+  auto model = nn::adapt_tensor_module(toy);
+  const auto before = bits(model);
+  const auto rng = core::get_rng_state(true);
+  EXPECT_THROW(
+      calibrate_batch_norm(model, cuda_source(), options(), {},
+                           [](const BatchNormCalibrationResult&) {
+                             throw std::runtime_error("CUDA commit failed");
+                           }),
+      std::runtime_error);
+  EXPECT_EQ(bits(model), before);
+  controls(toy, rng);
+  auto next = cuda_source();
+  std::uint64_t index = 0;
+  EXPECT_THROW(
+      calibrate_batch_norm(
+          model,
+          [&](std::stop_token stop) -> std::optional<BatchNormCalibrationBatch> {
+            if (index++ == 1) model.state().parameters().front().add_(1);
+            return next(stop);
+          },
+          options()),
+      CompatibilityError);
+  EXPECT_EQ(bits(model), before);
+  controls(toy, rng);
+}
+
+TEST(BatchNormCalibrationCUDA, WrongDeviceAndSnapshotBoundRejectAtomically) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
+  auto toy = std::make_shared<Toy>();
+  toy->to(torch::kCUDA);
+  auto model = nn::adapt_tensor_module(toy);
+  const auto before = bits(model);
+  const auto rng = core::get_rng_state(true);
+  EXPECT_THROW(calibrate_batch_norm(model, source(), options()), InvalidArgument);
+  EXPECT_EQ(bits(model), before);
+  controls(toy, rng);
+  auto bounded = options();
+  bounded.max_model_snapshot_bytes = 1;
+  std::uint64_t calls = 0;
+  EXPECT_THROW(
+      calibrate_batch_norm(
+          model,
+          [&](std::stop_token) -> std::optional<BatchNormCalibrationBatch> {
+            ++calls;
+            return std::nullopt;
+          },
+          bounded),
+      ResourceExhausted);
+  EXPECT_EQ(calls, 0);
+  EXPECT_EQ(bits(model), before);
+  controls(toy, rng);
+}
+
+TEST(BatchNormCalibrationCUDA, MixedModelDevicesRejectBeforeSourceOrForward) {
+  if (!torch::cuda::is_available()) GTEST_SKIP() << "CUDA unavailable";
+  auto toy = std::make_shared<Toy>();
+  toy->to(torch::kCUDA);
+  toy->conv->to(torch::kCPU);
+  auto model = nn::adapt_tensor_module(toy);
+  const auto before = bits(model);
+  const auto rng = core::get_rng_state(true);
+  std::uint64_t calls = 0;
+  EXPECT_THROW(
+      calibrate_batch_norm(
+          model,
+          [&](std::stop_token) -> std::optional<BatchNormCalibrationBatch> {
+            ++calls;
+            return std::nullopt;
+          },
+          options()),
+      InvalidArgument);
+  EXPECT_EQ(calls, 0);
+  EXPECT_EQ(bits(model), before);
+  controls(toy, rng);
 }
 
 TEST(BatchNormCalibration, SuccessPreservesParametersGradientsModesAndRng) {

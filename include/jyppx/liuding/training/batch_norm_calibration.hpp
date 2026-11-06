@@ -5,7 +5,7 @@
 #ifndef JYPPX_LIUDING_TRAINING_BATCH_NORM_CALIBRATION_HPP
 #define JYPPX_LIUDING_TRAINING_BATCH_NORM_CALIBRATION_HPP
 /** @file batch_norm_calibration.hpp
- * @brief Transactional, training-input-only CPU BatchNorm2d calibration.
+ * @brief Transactional, training-input-only BatchNorm2d calibration.
  */
 
 #include <jyppx/liuding/foundation/artifact.hpp>
@@ -19,7 +19,7 @@
 
 namespace jyppx::liuding::training {
 
-/** @brief One CPU FP32 NCHW training batch, with no task target field. */
+/** @brief One model-device FP32 NCHW training batch, without task targets. */
 struct BatchNormCalibrationBatch {
   Tensor images;  ///< Already-preprocessed images on the model's device.
   ArtifactDigest training_source;  ///< Frozen training/preprocessing identity.
@@ -70,23 +70,27 @@ using BatchNormCalibrationCommit =
  * used. Cumulative averaging weights each batch equally; unequal tail batches
  * do not yield exact sample-weighted whole-dataset mean/variance. Only
  * discovered BN running_mean/running_var/num_batches_tracked may
- * change. CPU FP32 model parameters and CPU FP32/int64 buffers are supported;
- * other normalization variants, devices and custom mutable topology are
- * rejected or outside this first implementation's contract. The image recipe
- * initially exposes this only for its existing CPU ResNet18 architecture.
+ * change. Dense FP32 parameters and FP32/int64 buffers on one CPU or CUDA
+ * device are supported; inputs must use that same device. Other normalization
+ * variants, devices and custom mutable topology are rejected or outside the
+ * contract. The image recipe exposes this for its ResNet18 architecture.
  *
  * A bounded full ModelCheckpointParticipant snapshot supplies rollback for
  * source, forward, cancellation, validation or publication failure. Original
  * per-module modes, BN momentum and CPU process RNG are explicitly restored
- * on both paths; rollback failure raises InternalError. Source callbacks must
+ * on both paths. CUDA models also snapshot and restore every visible default
+ * CUDA generator. Rollback failure raises InternalError. Source callbacks must
  * be deterministic and must not modify model topology, gradients, optimizer
  * state, global runtime settings or external state. Exclusive ownership of
- * model/default RNG is required. A source's claimed identity is verified as an
- * identity contract, not as a sandbox against dishonest caller code.
+ * model and the selected default RNGs is required. A source's claimed identity
+ * is verified as an identity contract, not as a sandbox against dishonest
+ * caller code.
  *
  * The accepted input and encoded snapshot have hard bounds. Input production,
  * LibTorch activations and backend workspace require separate caller budgets.
  * Existing model restore may transiently allocate two further model copies.
+ * Hashing protected CUDA state stages one tensor at a time on the host;
+ * snapshot encoding and restoration also require host/device transfer budgets.
  * No partially calibrated state is a valid checkpoint boundary.
  *
  * @throws InvalidArgument, ResourceExhausted For incompatible inputs/bounds.

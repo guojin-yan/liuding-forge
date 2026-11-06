@@ -10,8 +10,8 @@ The self-authored 16/8 RGB task retains 48 updates, seed 20261028 and
 accuracy >= 0.875. It does not qualify pretrained transfer, DINO quality,
 real-dataset accuracy or performance. Transfer byte-preflight uses deliberately
 invalid model bytes and never claims executable weights or group-rate training.
-The CPU training fixture explicitly opts into the native one-pass BN calibration;
-the schema/default fixture and the CUDA/transfer fixtures retain calibration OFF.
+The CPU and CUDA training fixtures explicitly opt into native one-pass BN
+calibration; the schema/default and transfer fixtures retain calibration OFF.
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ _fixture_spec.loader.exec_module(_fixture)
 png = _fixture.png
 PARTICIPANTS = frozenset(_fixture.PARTICIPANTS)
 CALIBRATION_PARTICIPANT = "recipe.batch-norm-calibration"
-CPU_CALIBRATION = {"batch_norm_calibration": "train_cumulative_once",
-                   "calibration_max_snapshot_bytes": 67108864}
+BN_CALIBRATION = {"batch_norm_calibration": "train_cumulative_once",
+                  "calibration_max_snapshot_bytes": 67108864}
 
 EVIDENCE: Path | None = None
 _invocation = 0
@@ -343,7 +343,7 @@ class UpdateConfiguration(RecipeCase):
                 path.write_text(json.dumps(config), encoding="utf-8")
                 baseline = self.invoke("recipe", "check", "--file", path)["data"]
                 self.assertEqual(baseline["total_steps"], 48)
-                for field in CPU_CALIBRATION:
+                for field in BN_CALIBRATION:
                     self.assertNotIn(field, baseline["config"], "Calibration remains an explicit opt-in")
                 for field in SCHEDULE:
                     self.assertNotIn(field, baseline["config"])
@@ -413,12 +413,10 @@ class UpdateRecipe(RecipeCase):
     def setUpClass(cls) -> None:
         cls.setup_fixture("training")
         cls.config |= SCHEDULE
-        cls.expected_participants = PARTICIPANTS
-        if cls.device == "cpu":
-            # The fixed tiny CPU task needs the supported post-training BN pass;
-            # it adds forwards, never optimizer/scheduler updates or warmup.
-            cls.config |= CPU_CALIBRATION
-            cls.expected_participants |= {CALIBRATION_PARTICIPANT}
+        # Keep the fixed 48 updates and quality threshold on both devices.
+        # The explicit post-training pass adds forwards, never optimizer steps.
+        cls.config |= BN_CALIBRATION
+        cls.expected_participants = PARTICIPANTS | {CALIBRATION_PARTICIPANT}
         cls.file = cls.base / "config.json"
         cls.file.write_text(json.dumps(cls.config), encoding="utf-8")
         cls.preflight = cls.invoke("recipe", "check", "--file", cls.file)["data"]
@@ -435,15 +433,14 @@ class UpdateRecipe(RecipeCase):
             cls.checkpoints[name] = checkpoint(cls.roots["resumed"] / "latest.jyck")
             save_evidence(name, cls.results[name])
             save_evidence(f"{name}-checkpoint", cls.checkpoints[name])
-        if cls.device == "cpu":
-            cls.results["calibration-paused"] = cls.invoke(
-                "recipe", "resume", "--file", cls.file, "--root", cls.roots["resumed"],
-                "--pause-calibration-after", 2)["data"]
-            ready = cls.roots["resumed"] / "latest.jyck"
-            cls.checkpoints["calibration-ready"] = checkpoint(ready)
-            cls.invoke("checkpoint", "verify", "--path", ready)
-            save_evidence("calibration-paused", cls.results["calibration-paused"])
-            save_evidence("calibration-ready-checkpoint", cls.checkpoints["calibration-ready"])
+        cls.results["calibration-paused"] = cls.invoke(
+            "recipe", "resume", "--file", cls.file, "--root", cls.roots["resumed"],
+            "--pause-calibration-after", 2)["data"]
+        ready = cls.roots["resumed"] / "latest.jyck"
+        cls.checkpoints["calibration-ready"] = checkpoint(ready)
+        cls.invoke("checkpoint", "verify", "--path", ready)
+        save_evidence("calibration-paused", cls.results["calibration-paused"])
+        save_evidence("calibration-ready-checkpoint", cls.checkpoints["calibration-ready"])
         cls.results["resumed"] = cls.invoke(
             "recipe", "resume", "--file", cls.file, "--root", cls.roots["resumed"])["data"]
         root = cls.roots["killed"]
@@ -476,12 +473,10 @@ class UpdateRecipe(RecipeCase):
         cls.final_checkpoint_hashes = {}
         for name, root in cls.roots.items():
             cls.checkpoints[name] = checkpoint(root / "final.jyck")
-            if cls.device == "cpu":
-                cls.final_checkpoint_hashes[name] = file_sha256(root / "final.jyck")
+            cls.final_checkpoint_hashes[name] = file_sha256(root / "final.jyck")
             save_evidence(name, cls.results[name])
             save_evidence(f"{name}-checkpoint", cls.checkpoints[name])
-        if cls.device == "cpu":
-            save_evidence("final-checkpoint-sha256", cls.final_checkpoint_hashes)
+        save_evidence("final-checkpoint-sha256", cls.final_checkpoint_hashes)
         if EVIDENCE is not None:
             for name in ("lineage.json", "dataset.json", "evaluation.json", "diagnostics.json"):
                 shutil.copy2(cls.roots["resumed"] / name, EVIDENCE / name)
@@ -516,12 +511,11 @@ class UpdateRecipe(RecipeCase):
         fields = ("model_sha256", "next_rng_sha256", "next_cpu_rng_sha256", "training_metrics",
                   "validation_metrics", "accuracy", "confusion", "global_step", "optimizer_steps",
                   "scheduler_steps", "completed_epochs", "optimization")
-        if self.device == "cpu":
-            paused = self.results["calibration-paused"]
-            self.assertEqual((paused["status"], paused["stage"], paused["global_step"]),
-                             ("paused", "batch_norm_calibration", 48))
-            self.assertEqual(paused["calibration"], self.checkpoints["calibration-ready"]["calibration"]["control"])
-            fields += ("calibration",)
+        paused = self.results["calibration-paused"]
+        self.assertEqual((paused["status"], paused["stage"], paused["global_step"]),
+                         ("paused", "batch_norm_calibration", 48))
+        self.assertEqual(paused["calibration"], self.checkpoints["calibration-ready"]["calibration"]["control"])
+        fields += ("calibration",)
         for name in self.roots:
             result = self.results[name]
             self.assertEqual(result["status"], "completed")
@@ -538,8 +532,7 @@ class UpdateRecipe(RecipeCase):
             self.assertEqual(len(participants), len(self.expected_participants))
             self.assertEqual({item["state"]["participant_id"] for item in participants}, self.expected_participants)
             self.assertEqual(participants, self.checkpoints["continuous"]["manifest"]["participants"])
-            if self.device == "cpu":
-                self.assertEqual(self.final_checkpoint_hashes[name], self.final_checkpoint_hashes["continuous"])
+            self.assertEqual(self.final_checkpoint_hashes[name], self.final_checkpoint_hashes["continuous"])
             self.assertEqual(file_sha256(self.roots[name] / "model.safetensors"),
                              self.results["continuous"]["model_sha256"])
 
@@ -574,26 +567,22 @@ class UpdateRecipe(RecipeCase):
                 participants = saved["manifest"]["participants"]
                 self.assertEqual(len(participants), len(self.expected_participants))
                 self.assertEqual({item["state"]["participant_id"] for item in participants}, self.expected_participants)
-                if self.device == "cpu":
-                    phase = ("ready" if name == "calibration-ready" else
-                             "completed" if name in self.roots else "training")
-                    self.assert_calibration(saved, phase)
-                    if phase == "completed":
-                        self.assertEqual(saved["calibration"]["control"], self.results[name]["calibration"])
-                        self.assertEqual(saved["calibration"]["control"]["calibrated_model_sha256"],
-                                         self.results[name]["model_sha256"])
-                else:
-                    self.assertNotIn("calibration", saved)
+                phase = ("ready" if name == "calibration-ready" else
+                         "completed" if name in self.roots else "training")
+                self.assert_calibration(saved, phase)
+                if phase == "completed":
+                    self.assertEqual(saved["calibration"]["control"], self.results[name]["calibration"])
+                    self.assertEqual(saved["calibration"]["control"]["calibrated_model_sha256"],
+                                     self.results[name]["model_sha256"])
         self.assertEqual(self.checkpoints["continuous"]["descriptor"], self.checkpoints["resumed"]["descriptor"])
         self.assertEqual(self.checkpoints["continuous"]["descriptor"], self.checkpoints["killed"]["descriptor"])
-        if self.device == "cpu":
-            # Calibration replays from durable READY without changing the saved
-            # optimizer, scheduler, RNG, pipelines or other protected state.
-            def protected(saved):
-                return {item["state"]["participant_id"]: item for item in saved["manifest"]["participants"]
-                        if item["state"]["participant_id"] not in ("model.main", CALIBRATION_PARTICIPANT)}
-            self.assertEqual(protected(self.checkpoints["calibration-ready"]),
-                             protected(self.checkpoints["resumed"]))
+        # Calibration replays from durable READY without changing the saved
+        # optimizer, scheduler, RNG, pipelines or other protected state.
+        def protected(saved):
+            return {item["state"]["participant_id"]: item for item in saved["manifest"]["participants"]
+                    if item["state"]["participant_id"] not in ("model.main", CALIBRATION_PARTICIPANT)}
+        self.assertEqual(protected(self.checkpoints["calibration-ready"]),
+                         protected(self.checkpoints["resumed"]))
 
     def assert_calibration(self, saved: dict, phase: str) -> None:
         contract, control = (saved["calibration"][name] for name in ("contract", "control"))

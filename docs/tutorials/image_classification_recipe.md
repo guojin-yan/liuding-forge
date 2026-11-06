@@ -148,7 +148,7 @@ liuding-forge recipe initialize --file my-resnet18.json --root initial-model --f
 
 ### 3.4 训练后重估 BatchNorm 统计
 
-小数据或短训练后，可显式选择用训练集重新估计 BatchNorm 的运行统计。当前配方只在 CPU FP32 ResNet18 分类中支持此功能，默认关闭；迁移学习和 CUDA 配方会拒绝启用。将下列片段合并到完整配置，并重新运行 `recipe check`：
+小数据或短训练后，可显式选择用训练集重新估计 BatchNorm 的运行统计。CPU 和 CUDA FP32 ResNet18 分类均可显式启用，默认关闭；迁移学习配方会拒绝启用。将下列片段合并到完整配置，并重新运行 `recipe check`；CUDA 运行将 `device` 改为 `cuda`：
 
 ```json
 {
