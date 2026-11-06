@@ -249,6 +249,33 @@
             "coalesced_qualification_limits": "Fixed-version native CUDA batch sizes 1 and 4 on this source/device only. Same-weights service-boundary reference; no independent model architecture/task accuracy, comparative performance, size-2/3 evidence, OOM pressure/retry, versioned batching, other providers/platforms, formal signing or full release qualification."
           },
           "commit": "8216be09a221bbbaaf7b73941ad4a96cf9d3756d"
+        },
+        {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-5434b34-selected-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; no CUDA or non-CPU ORT provider qualification",
+          "build_type": "Release",
+          "tests": "One complete selected CTest batch: 2008 unique contracts, 1823 passed, 185 conditional skips, 0 failures; independent installed C++ sdk consumer 1/1 passed.",
+          "instrumentation": "CMake 3.22.1 / Ninja 1.10.1; fixed CPU Release build, current install and consumer trees reused; 18 product libraries with CLI, examples, native dataset preparation and tests; no instrumentation. Top-level compile and CTest jobs 1; observed compiler frontends at most 1.",
+          "quality_evidence": {
+            "source_identity": "Clean committed 5434b34de3646881e63b7bc905ea921735692a40 checkout; all 1260 Git blob identities verified before and after execution; independent checkout, installed-file SHA-256 and strict git fsck passed. Later qualification metadata is not the executed SDK fingerprint.",
+            "independent_audit_sha256": "311760f5f5b08aa44bda85b7b719c3a852b2cfa11c1e42d10882e352426022da",
+            "source_and_install_review_sha256": "4b8bfa668dae97f4970cc95eb6549c931fe4abb4203f3fdd80faa89567ccf372",
+            "terminal_sha256": "aa2dd230bb655b9e5a8c32e23ba211626391e6d33542b67a5188c12b3f312c1c",
+            "selected_results_sha256": "f0e789ca33f89b0dd4e5cee4040f6ad3ded564979f91a097938462eeaac6e679",
+            "consumer_junit_sha256": "ef6ab154b582d252d9a9c10cbe0dff0b5725f31cc6566ee76b72aeb33a1031ca",
+            "installed_manifest_sha256": "036c610089a9494a48db4a391e90e762b6a85538601d39c727718541295b302d",
+            "installation": "Current fixed installation updated in place from its verified 4953ef96 manifest; 18 branded libraries / 231 installed files independently verified. SDK aggregate remains eight Core members. Installed CLI version and CPU doctor passed; both historical CPU/CUDA SDKs retain 231 file identities each. No backup SDK or LibTorch runtime copies made; temporary installed ORT payloads are accounted and cleaned below.",
+            "incremental_build": "Default ALL: 9 log-visible target translation units and 120 link commands; build 153.879 seconds, selected CTest 1581.476 seconds, total 1754.114 seconds. Real training contracts ran; training update totals were not aggregated.",
+            "resource_boundary": "Original same-class gates retained: 10800 seconds total, 6000 build / 4000 selected-test stage caps, admission 6 GiB available memory / 24 GiB disk, runtime stop lines 4 GiB memory / 2 GiB disk, owned tree RSS 5 GiB, whole-volume and incremental-output growth each 10 GiB. Measured owned RSS peak 2219401216 bytes, minimum available memory 12084539392 bytes; no owned processes remained after stages.",
+            "nested_build_budget": "Top-level and explicit consumer build/CTest use one job; the existing TestInstalledTargets script requests --parallel 2 for a single-TU consumer. Observed compiler frontends never exceeded one. This inheritance defect is separately queued for repair; the batch is not proof that every nested command requested one job.",
+            "temporary_storage": "13 temporary installed prefixes, 1216484178 ordinary payload bytes and 0 generated documentation bytes verified then removed; fixed SDK, shared objects and consumer build caches preserved.",
+            "scope": "Selected CPU Release correctness and installation only. OptionalComponentMatrix and PreviewComponentMatrix are excluded separate configurations. Conditional skips, strict DINO two-step numerics, complete model/recipe/device/resource matrices, Windows SDK/HTTP, final-candidate coverage, security/licensing, signing and Beta/RC upgrade/rollback remain open."
+          },
+          "commit": "5434b34de3646881e63b7bc905ea921735692a40"
         }
       ],
       "pending_lanes": [

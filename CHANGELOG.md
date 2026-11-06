@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补录干净提交 `5434b34` 的完整 CPU Release SDK 验证：18 库安装与独立消费者通过，选定 2008 项合同为 1823 通过、185 条件跳过、零失败；保留其他设备和正式发布边界。
+
 - 离散 mask 在分配前计入 RGB 查表及返回调色板容量，复制 palette 独立预约并保持赋值异常安全；移除随 IDAT 数增长的块索引和动态 Adam7 pass 表。
 
 - 图像编码在分配前计入 stb 私有堆缓冲和编码结果容量，扩容保留重叠预约，异常路径统一回收；移动、析构和异步消费保持缓冲与资源租约的释放顺序。
