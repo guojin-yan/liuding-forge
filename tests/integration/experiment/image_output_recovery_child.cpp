@@ -14,6 +14,12 @@
 #include <string>
 #include <string_view>
 
+#ifdef LIUDING_OUTPUT_NATIVE_FAULTS
+bool configure_native_image_output(const std::filesystem::path& root,
+                                   std::string_view selected);
+nlohmann::json native_image_output_observations();
+#endif
+
 namespace {
 namespace image = jyppx::liuding::data::image;
 namespace experiment = jyppx::liuding::experiment;
@@ -39,8 +45,13 @@ int main(int argc, char** argv) {
     if (argc != 3) throw std::runtime_error("expected root and boundary");
     const std::filesystem::path root(argv[1]);
     const std::string boundary(argv[2]);
+    bool valid_boundary =
+        boundary == "file" || boundary == "evidence" || boundary == "none";
+#ifdef LIUDING_OUTPUT_NATIVE_FAULTS
+    valid_boundary = configure_native_image_output(root, boundary);
+#endif
     if (!root.is_absolute() || !std::filesystem::is_directory(root) ||
-        (boundary != "file" && boundary != "evidence" && boundary != "none"))
+        !valid_boundary)
       throw std::runtime_error("invalid recovery child input");
     experiment::SQLiteRunStore runs(root / "store");
     runs.start({.run_id = "output.recovery",
@@ -96,19 +107,23 @@ int main(int argc, char** argv) {
     const auto published = ticket.completion.get();
     ticket.evidence_completion.get();
     sink.close();
-    report(
-        {{"phase", "completed"},
-         {"digest", published.sha256},
-         {"bytes", published.bytes},
-         {"reference_replay", reference_replay},
-         {"event_replay", event_replay},
-         {"references", runs.references("output.recovery").size()},
-         {"events", runs.events("output.recovery").events.size()},
-         {"integrity_ok", runs.integrity_check().ok()},
-         {"queue_bytes",
-          budget->usage(image::ImageResourceKind::encoded_queue_bytes).current},
-         {"spool_bytes",
-          budget->usage(image::ImageResourceKind::disk_spool_bytes).current}});
+    Json completed = {
+        {"phase", "completed"},
+        {"digest", published.sha256},
+        {"bytes", published.bytes},
+        {"reference_replay", reference_replay},
+        {"event_replay", event_replay},
+        {"references", runs.references("output.recovery").size()},
+        {"events", runs.events("output.recovery").events.size()},
+        {"integrity_ok", runs.integrity_check().ok()},
+        {"queue_bytes",
+         budget->usage(image::ImageResourceKind::encoded_queue_bytes).current},
+        {"spool_bytes",
+         budget->usage(image::ImageResourceKind::disk_spool_bytes).current}};
+#ifdef LIUDING_OUTPUT_NATIVE_FAULTS
+    completed["native"] = native_image_output_observations();
+#endif
+    report(completed);
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

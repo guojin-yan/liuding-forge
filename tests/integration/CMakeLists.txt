@@ -17,6 +17,29 @@ if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::experiment)
             nlohmann_json::nlohmann_json)
         jyppx_apply_instrumentation(jyppx_image_output_recovery_child)
         jyppx_add_torch_runtime_dependency(jyppx_image_output_recovery_child)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            target_sources(jyppx_image_output_recovery_child PRIVATE
+                experiment/image_output_native_hooks.cpp)
+            target_compile_definitions(jyppx_image_output_recovery_child PRIVATE
+                LIUDING_OUTPUT_NATIVE_FAULTS=1)
+            target_link_options(jyppx_image_output_recovery_child PRIVATE
+                -Wl,--wrap=open -Wl,--wrap=write -Wl,--wrap=fsync
+                -Wl,--wrap=linkat -Wl,--wrap=link -Wl,--wrap=close)
+            add_test(NAME ImageOutputStagingRecovery
+                COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_image_output_recovery.py"
+                    --child $<TARGET_FILE:jyppx_image_output_recovery_child>
+                    --work-dir "${CMAKE_BINARY_DIR}/_image_recovery/$<CONFIG>"
+                    --suite staging)
+            add_test(NAME ImageOutputStagingFaults
+                COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_image_output_recovery.py"
+                    --child $<TARGET_FILE:jyppx_image_output_recovery_child>
+                    --work-dir "${CMAKE_BINARY_DIR}/_image_recovery/$<CONFIG>"
+                    --suite faults)
+            set_tests_properties(ImageOutputStagingRecovery ImageOutputStagingFaults
+                PROPERTIES LABELS "data_image;experiment;integration;process" TIMEOUT 120)
+        endif()
         add_test(NAME ImageOutputProcessRecovery
             COMMAND ${Python3_EXECUTABLE}
                 "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_image_output_recovery.py"

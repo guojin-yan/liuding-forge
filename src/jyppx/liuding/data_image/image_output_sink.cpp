@@ -166,8 +166,28 @@ void VerifyIdenticalFile(const std::filesystem::path& path,
 
 class StagedFile final {
  public:
-  explicit StagedFile(const std::filesystem::path& destination)
-      : destination_(destination) {
+  StagedFile(const std::filesystem::path& destination, bool replace_existing)
+      : destination_(destination), path_(destination) {
+    // An unlinked inode has no staging name to strand when the process dies.
+    // Replacement still needs a named source for its atomic rename.
+#if defined(__linux__) && defined(O_TMPFILE)
+    if (!replace_existing) {
+      const auto parent = Parent(destination_);
+      descriptor_ =
+          ::open(parent.c_str(), O_TMPFILE | O_WRONLY | O_CLOEXEC, 0600);
+      if (descriptor_ >= 0) {
+        anonymous_ = true;
+        return;
+      }
+      const auto error = NativeError();
+      if (error.value() != EOPNOTSUPP && error.value() != EINVAL &&
+          error.value() != EISDIR && error.value() != ENOSYS &&
+          error.value() != ENOENT)
+        Io("temporary.create", parent, error);
+    }
+#else
+    static_cast<void>(replace_existing);
+#endif
     for (int attempt = 0; attempt < 32; ++attempt) {
       path_ = destination;
       path_ += ".liuding-tmp-" + std::to_string(ProcessId()) + "-" +
@@ -195,7 +215,7 @@ class StagedFile final {
 
   ~StagedFile() {
     CloseNoThrow();
-    if (!published_) {
+    if (!published_ && !anonymous_) {
       std::error_code ignored;
       std::filesystem::remove(path_, ignored);
     }
@@ -226,7 +246,7 @@ class StagedFile final {
 #else
     if (::fsync(descriptor_) != 0) Io("temporary.flush", path_, NativeError());
 #endif
-    Close();
+    if (!anonymous_) Close();
   }
 
   void Publish(bool replace_existing, bool replay_identical_existing,
@@ -244,7 +264,26 @@ class StagedFile final {
         Io("temporary.remove", path_, NativeError());
     }
 #else
-    if (replace_existing) {
+    if (anonymous_) {
+#if defined(__linux__) && defined(O_TMPFILE)
+      int result = ::linkat(descriptor_, "", AT_FDCWD, destination_.c_str(),
+                            AT_EMPTY_PATH);
+      // AT_EMPTY_PATH can require CAP_DAC_READ_SEARCH. /proc/self/fd links
+      // the same open inode without that capability and never names a temp.
+      if (result != 0 && (errno == EPERM || errno == ENOENT)) {
+        const auto source = "/proc/self/fd/" + std::to_string(descriptor_);
+        result = ::linkat(AT_FDCWD, source.c_str(), AT_FDCWD,
+                          destination_.c_str(), AT_SYMLINK_FOLLOW);
+      }
+      if (result != 0) {
+        const auto error = NativeError();
+        if (!replay_identical_existing || error.value() != EEXIST)
+          Io("publish", destination_, error);
+        VerifyIdenticalFile(destination_, expected);
+      }
+      Close();
+#endif
+    } else if (replace_existing) {
       if (::rename(path_.c_str(), destination_.c_str()) != 0)
         Io("publish", destination_, NativeError());
     } else {
@@ -297,6 +336,7 @@ class StagedFile final {
   std::filesystem::path destination_;
   std::filesystem::path path_;
   bool published_ = false;
+  bool anonymous_ = false;
 #ifdef _WIN32
   HANDLE handle_ = INVALID_HANDLE_VALUE;
 #else
@@ -489,7 +529,7 @@ class ImageOutputSink::Impl final {
       spool_lease = options_.resource_budget->reserve(
           ImageResourceKind::disk_spool_bytes, bytes);
     const auto digest = sha256_hex(work.image.bytes);
-    StagedFile staged(work.path);
+    StagedFile staged(work.path, options_.replace_existing);
     staged.Write(work.image.bytes);
     staged.Publish(options_.replace_existing,
                    options_.replay_identical_existing, work.image.bytes);
