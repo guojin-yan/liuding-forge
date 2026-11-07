@@ -306,6 +306,34 @@
             "scope": "This exact source and selected Ubuntu CUDA Release profile only. OptionalComponentMatrix and PreviewComponentMatrix are separate unrefreshed configurations. Conditional skips, strict DINO two-step numerics, complete 33-model/four-recipe task/device/resource matrices, Windows SDK/HTTP, final-candidate coverage, security/licensing/SBOM/provenance, formal signing and Beta/RC upgrade/rollback remain open. ORT tests do not grant untested non-CPU Provider support."
           },
           "commit": "d841b54246420be32a4945aec7d5e8a842c85188"
+        },
+        {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-98e96c0-selected-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; CUDA and non-CPU ORT providers are not qualified by this lane",
+          "build_type": "Release",
+          "tests": "Complete selected contracts closed in stages: 2064 unique contracts, 1877 passed, 187 conditional skips, 0 unresolved failures; independent installed C++ sdk consumer 1/1 passed. The initial supervisor interruption is preserved.",
+          "instrumentation": "CMake 3.22.1 / Ninja 1.10.1; existing fixed CPU build/install/consumer trees reused, 18 product libraries and CLI/examples/tests. Build and CTest jobs 1; no product instrumentation. Native memory contracts run in a delegated user cgroup scope.",
+          "quality_evidence": {
+            "source_identity": "Clean committed 98e96c0d3d270040e57beaaef9a70212b5a97be3; all 1262 Git-file SHA-256 identities and mtimes verified before and after execution; independent source/install audit and strict git fsck passed. The subsequent qualification metadata commit is not the executed SDK source.",
+            "independent_audit_sha256": "5d0ec07e5a3e8d22506d5c16cf5b24b9edd264b34183719ef1238558af6d914c",
+            "source_and_install_review_sha256": "fa930ff842cffff5f87aa49d27905594a422d077c1ecc671601c3dabb2b50395",
+            "terminal_sha256": "216967651048cb3c1eced5f86a83d1e3496dabb1ea042630e6bd98cd8b345307",
+            "initial_interruption": "The initial selected invocation was stopped by a maintenance output-inventory FileNotFoundError while a test deleted its temporary directory: 1994 complete test results retained and Cli_local_search interrupted. A subsequent registration-only numeric-index mismatch launched zero tests and is retained; original printed names are matched against the frozen inventory instead. After ignoring only confirmed vanished paths, exactly the interrupted contract and 69 unexecuted contracts ran; the first 1994 were not repeated. Original 10800s absolute deadline and aggregate 4000s selected-test budget retained. This is staged closure, not a single all-green invocation.",
+            "selected_results_sha256": "5c26da536b953e01870761485abfc6442b56683c7fd0694811fc6f53418cd875",
+            "consumer_junit_sha256": "74017bf058d39227ff5295d516fc2660ed7f9a592a24970920910682b1d2030f",
+            "installed_manifest_sha256": "a89b5747926334bf0f5fd98e1f1855edbe3f8e75a75da578192910c32394f63f",
+            "installation": "The actual prior CPU installed CLI reported 5434b34, independently checked before update. The fixed prefix now reports exact 98e96c0/Release and CPU doctor passes. 18 branded libraries / 231 installed files are independently verified; sdk aggregate remains eight Core members. Three other historical CPU/CUDA SDKs retain 231 files each. No LibTorch/runtime copy or backup SDK.",
+            "memory_and_search": "The staged selected qualification passes Cli_local_recipe_memory, including real exact-resume/quality, cancellation, timeout, kernel OOM and preflight contracts; 42 native OS boundary observations were inspected. Each new empty delegated cgroup parent was removed after all children were cleaned. Earlier failed batches remain separate historical evidence. Total updates for the entire selected suite were not aggregated.",
+            "incremental_build": "Default ALL log contains 1 target translation units and 120 link commands; build 32.006s, selected tests 2030.180s, total 2451.085s. Compiler/configuration warnings remain in receipts; no zero-warning or comparative performance claim.",
+            "resource_boundary": "Registered absolute 10800s window; build 6000s and selected tests 4000s caps unchanged. Admission: 6GiB available memory / 24GiB free disk; runtime stop: 4GiB / 2GiB; owned-family RSS 5GiB; whole-volume and incremental output growth each 10GiB. Observed peak owned RSS 1580957696 bytes, minimum available memory 12571623424 bytes; every stage released its owned family. These supervisor measurements do not qualify exact product RSS/VRAM bounds.",
+            "temporary_storage": "Verified then removed 13 temporary installed prefixes, generated documentation, used training workspaces and the remote duplicate receipt archive: 1846023284 logical bytes. Fixed SDK, shared build objects, dependencies and consumer caches preserved; complete small receipts remain in external cache with SHA/CRC audit.",
+            "scope": "This exact source and selected CPU Release correctness/install lane. OptionalComponentMatrix and PreviewComponentMatrix remain separate configurations. Hardware skips are not passes. DINO strict two-step numerics, complete 33-model/four-recipe task/device/resource matrix, Windows SDK/HTTP/TLS, final-candidate coverage, complete licensing/CVE/SBOM/provenance, formal asset signing and Beta/RC upgrade/rollback remain open."
+          },
+          "commit": "98e96c0d3d270040e57beaaef9a70212b5a97be3"
         }
       ],
       "pending_lanes": [
