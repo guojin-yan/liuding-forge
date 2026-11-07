@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 补齐精确 LibTorch 2.14.1+cpu / GCC 11.4 / Ubuntu Debug coverage profile 的覆盖率、真实内存边界与独立安装消费者证据，并同步兼容矩阵；保留条件跳过、组件范围与正式发布边界。
+
 - 本地执行新增显式 `local abandon`：操作者以原 attempt 摘要和外部清理证据放弃未知结果，幂等释放预约并保留失败与未知更新数；迟到 worker、自动 retry 和搜索选优继续受围栏约束。
 
 - 普通 typed grid/random 可显式启用有界 exact checkpoint 续训，并确认最后 attempt 的有效输入、清理及输出收据；原生 C++ 学习示例提供 20→60 步恢复，早期 attempt 的输出不参与最终选择。

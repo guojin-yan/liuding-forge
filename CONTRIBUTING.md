@@ -8,7 +8,7 @@
 
 兼容矩阵中的 `verified_lanes` 仅记录各自源码、组件 profile、设备和实际测试范围；开发切片通过不代表当前完整支持矩阵或 GA。`pending_lanes` 是尚未验证的精确候选，继承所属版本组的 LibTorch 版本，但必须显式声明自己的 `distribution`、环境和所需验证，保持 `status=candidate`、`verification_status=unverified`，不得填写测试成绩、验证证据或验证提交；只有真实验证完成后才能登记到 `verified_lanes`。
 
-LibTorch 2.14.1 CPU / GCC 11.4.0 / Ubuntu x86_64 / Debug coverage 当前为未验证候选；已有 2.5.1 CPU 或 CUDA 结果不能覆盖它。启用通用 `onnx_export` 的 profile 要求精确 LibTorch 2.14.1，不能为复用历史 coverage 树降级依赖。
+LibTorch 2.14.1+cpu / GCC 11.4.0 / Ubuntu 22.04.5 x86_64 的选定 Debug coverage profile 已在干净提交 `4136aab` 上验证，包含原覆盖率策略和独立安装 SDK 消费者；2039 项合同分阶段为 1847 通过、192 条件跳过。该 profile 关闭 examples/docs 并排除 packaging 标签，不授予被跳过路径、其他平台/设备或完整发布资格；具体范围见兼容矩阵对应的 `verified_lanes`。启用通用 `onnx_export` 的 profile 要求精确 LibTorch 2.14.1，不能为复用历史 coverage 树降级依赖。
 
 在仓库根目录分别运行以下两条命令，检查兼容矩阵和依赖声明：
 

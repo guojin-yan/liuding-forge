@@ -334,29 +334,32 @@
             "scope": "This exact source and selected CPU Release correctness/install lane. OptionalComponentMatrix and PreviewComponentMatrix remain separate configurations. Hardware skips are not passes. DINO strict two-step numerics, complete 33-model/four-recipe task/device/resource matrix, Windows SDK/HTTP/TLS, final-candidate coverage, complete licensing/CVE/SBOM/provenance, formal asset signing and Beta/RC upgrade/rollback remain open."
           },
           "commit": "98e96c0d3d270040e57beaaef9a70212b5a97be3"
-        }
-      ],
-      "pending_lanes": [
+        },
         {
-          "id": "local-ubuntu-gcc114-cpu214-debug-coverage-candidate",
+          "id": "local-ubuntu-gcc114-cpu214-debug-coverage-current",
           "distribution": "cpu",
-          "os": "ubuntu-22.04",
+          "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
-          "compiler": "GCC 11.4.0",
-          "accelerator": "CPU",
+          "compiler": "GCC 11.4.0; CMake 3.22.1; Ninja",
+          "accelerator": "CPU; LibTorch 2.14.1+cpu; no CUDA execution qualification",
           "build_type": "Debug",
-          "instrumentation": "gcov coverage for the explicit v1-selected-cpu profile with LibTorch 2.14.1; not run; no CUDA or release qualification",
-          "status": "candidate",
-          "verification_status": "unverified",
-          "required_evidence": [
-            "clean-source-identity",
-            "exact-toolchain-and-offline-input-identity",
-            "configure",
-            "build",
-            "ctest-with-real-pass-fail-skip-counts",
-            "coverage-owner-and-ratchet-review",
-            "installed-consumer"
-          ]
+          "tests": "2039 unique selected CTest contracts: one batch 1846 passed/193 conditional skips/0 failed; delegated-memory supplement 1/1 with 14 methods, staged 1847 passed/192 skipped/0 unresolved failures; installed SDK consumer 1/1",
+          "instrumentation": "gcov; v1-selected-cpu profile with 18 libraries and 19 coverage owners; framework and CTest 1 job; examples/docs OFF and packaging-labelled tests excluded; installed consumer links exactly eight Core components",
+          "quality_evidence": {
+            "source_identity": "Clean 4136aab4f24a9c42a3e6748eca692b4f8752601b; 1265 raw Git blobs and source mtimes bound across execution. Later support metadata does not relabel these product binaries.",
+            "configure_and_build": "Existing offline Debug coverage tree; configure succeeded and 181 incremental build steps completed for this exact source. GCC 11.4.0 and shared LibTorch 2.14.1+cpu paths preserved.",
+            "ctest_stages": "The full selected batch passed 1846 and conditionally skipped 193 of 2039 unique contracts. The memory test initially returned 77 without a delegated cgroup parent; a later isolated run passed its original 14 methods, giving 1847 passed/192 skipped/0 unresolved failures across the same 2039 contracts. This was not a second full batch.",
+            "coverage_owners": "All 19 owners passed the original line/function/branch ratchets; pending baselines 0; independent policy calculation passed. Coverage totals: line 47812/55814, function 4763/4998, branch 55334/114648; thresholds unchanged.",
+            "coverage_identity": "Original 338 gcno and 321 gcda, cache, compile commands, Ninja log and report preserved by SHA and mtime across the memory and installed-consumer supplements; 17 originally unexecuted entries have no gcda. Supplemental counters isolated using GCOV_PREFIX and never merged into the original report.",
+            "real_memory_recipe": "Original continuous/direct-resumed/search tasks each 48 updates; direct model/checkpoint/optimizer/scheduler/sampling/metrics/RNG exact and accuracy 1.0. Local/search attempts use 2GiB cgroup v2; cancel/timeout clean up and release reservations; 128MiB negative case records a real kernel OOM and preserves failed/SIGKILL without retry.",
+            "install_consumer": "Existing Debug products installed as 18 framework libraries/231 file entries; independent C++ SDK consumer configured, linked and ran 1/1. Exported --coverage runtime propagated; link command uses exactly foundation/core/interop/data/nn/optim/training/experiment. Existing consumer tree then restored to Release and passed 1/1 using its original retained SDK.",
+            "resource_and_storage": "Installed-consumer collection 30.097s; maximum one compiler frontend; framework configure/build 0 and consumer translation units 2. Shared LibTorch and four existing SDKs unchanged; temporary 229 ordinary installed files, 2 internal ORT symlinks and 4 private counters removed after SHA review; ordinary payload 933495701 bytes.",
+            "qualification_limits": "Only this explicit CPU Debug profile and original selected contracts are qualified. 192 conditional CTest skips and existing aggregate-method skips remain explicit; no complete examples/docs, all component consumers, final Windows/CUDA matrix, DINO strict two-step, licence/security/signature or GA qualification.",
+            "coverage_receipt_sha256": "37876e28caf303de2c8a0310cca206090536ceaf98e3d992956b0c236c62cdd2",
+            "memory_receipt_sha256": "d6f2f3174b671ee2caae15fe87b9df14d50e50f3f0adff0f7e3d2e8d2d46e50d",
+            "installed_consumer_receipt_sha256": "3fc88da5fad38a32ed27edeaee761691371165de5ece8d0441b79a0972fc00c4"
+          },
+          "commit": "4136aab4f24a9c42a3e6748eca692b4f8752601b"
         }
       ]
     },
