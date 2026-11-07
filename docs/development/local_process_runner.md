@@ -176,6 +176,8 @@ ctest --test-dir out/build/config-windows -C Release --output-on-failure --no-te
 
 Linux 使用对应构建目录并省略多配置参数。原生测试覆盖进程生命周期和 sidecar 回归；独立 CLI 合同覆盖有限重试、输出 CAS、活跃归属、并发取消、调用者强杀和提交边界恢复。`Cli_local_recipe_lifecycle` 验证真实训练取消；`Cli_local_recipe_failure_lifecycle` 在完整 checkpoint 后挂起真实 trainer，验证原生超时和持久 worker 强杀；Linux 的 `Cli_local_recipe_parent_death` 额外要求夹具动手清理之前 trainer 已退出、未知预约仍被围栏。Python 仅注入故障与独立检查，各自的 `_CUDA` 合同需显式启用 CLI CUDA 测试，按顺序执行。强杀后的结果按平台原生生命周期判断，不把保守隔离误记为自动训练恢复。
 
+Linux CPU 的 `Cli_local_recipe_memory` 在 2 GiB cgroup 限制下复用完整图像训练、精确续训、搜索、checkpoint 后取消和超时合同，并以独立 128 MiB 任务验证真实内核 OOM、失败结果、逻辑预约释放与无重训重放。调用者须先准备空的委派父组、启用其 memory 子控制器，并将绝对路径设为 `JYPPX_LIUDING_TEST_CGROUP_PARENT`；测试不修改祖先控制器，没有委派时明确跳过。可直接运行 `tests/cli/test_local_recipe_memory.py --cli <原生CLI> --evidence-dir <新证据目录> --temp-parent <临时目录>` 保留收据；OOM 发生前的更新数未知，不把它计作完成训练，Windows/CUDA 与精确整树 RSS/显存仍需各自验收。
+
 ### 多输入输出配方搜索
 
 `paired-affine` 配方可显式启用闭合的 `recipe_bridge`，将已有 `recipe local-run`、typed 三输出及 `exact_only` retry 接入有界 grid/random。固定模板中的 `${config}` 指向本 trial 的有效配置，`${recipe_directory}` 指向尚不存在的 `TRIAL/recipe` 子目录；不可拼接模板片段或复用已存在的 trial 根作为训练目录。真实 resolver 必须确认有效配置与冻结配置完全一致、实际数据与冻结清单一致，才准入训练。

@@ -161,6 +161,12 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
     set_tests_properties(Cli_local_recipe_failure_lifecycle PROPERTIES
         LABELS "cli;integration;recipe;local" TIMEOUT 420 RUN_SERIAL TRUE)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME Cli_local_recipe_memory
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_memory.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
+        set_tests_properties(Cli_local_recipe_memory PROPERTIES
+            LABELS "cli;integration;recipe;local;memory" TIMEOUT 1500 RUN_SERIAL TRUE
+            SKIP_RETURN_CODE 77)
         add_test(NAME Cli_local_recipe_parent_death
             COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_recipe_parent_death.py"
                 --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)

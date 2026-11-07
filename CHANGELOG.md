@@ -166,6 +166,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- 图像配方搜索在创建 trial 前拒绝 CUDA BatchNorm 校准，保持搜索已声明的 CPU 校准边界；原生配方自身的 CUDA 校准入口继续可用，并增加真实训练的 OS 内存限制联验。
+
 - 本地训练与搜索拒绝引用清理确认缺失或为 false 的旧 attempt 输入；历史终态结果仍可只读查看和重放，未声明资源的任务同样执行来源检查。
 
 - 覆盖率采集保留普通异常计数上限，校验 SHA256 固定循环的原始控制流和精确命中次数；拒绝其他越限计数及采集期间变化的源码或计数，不截断命中或放宽模块覆盖率规则。

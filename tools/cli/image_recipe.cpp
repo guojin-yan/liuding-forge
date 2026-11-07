@@ -1812,6 +1812,9 @@ Json inspect_image_search_inputs(const std::filesystem::path& path) {
   recipe_support::require_recipe(
       !is_transfer_recipe(configuration),
       "Image search bridge accepts only its ResNet18 recipe");
+  recipe_support::require_recipe(
+      !uses_bn_calibration(configuration) || configuration.at("device") == "cpu",
+      "Image search BatchNorm calibration requires CPU");
   const auto inputs = inspect_inputs(configuration);
   static_cast<void>(inspect_recipe_initial_state(
       configuration, inputs.manifest.at("classes")));
