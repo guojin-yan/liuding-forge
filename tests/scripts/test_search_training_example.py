@@ -844,12 +844,184 @@ class TypedSearchTrainingExampleTests(unittest.TestCase):
     prepare = LocalTrainingExampleTests.prepare
     execute = LocalTrainingExampleTests.execute
 
-    def typed(self, name: str, strategy: str = "grid", resume: str | None = None) -> tuple[Path, dict]:
+    refs = RetryCheckpointTrainingExampleTests.refs
+    seed_json = RetryCheckpointTrainingExampleTests.seed_json
+
+    def typed(self, name: str, strategy: str = "grid", resume: str | None = None,
+              retry_after: int = 0) -> tuple[Path, dict]:
         path = self.directory / (name + ".json")
         options = ["--resume-run", resume] if resume else []
+        if retry_after:
+            options += ["--checkpoint-retry-after", str(retry_after)]
         self.invoke(WORKER, "--write-typed-search-spec", path, "--store", self.root,
                     "--strategy", strategy, *options)
         return path, json.loads(path.read_text(encoding="utf-8"))
+
+    def raw_search(self, action: str, name: str, path: Path | None = None) -> subprocess.CompletedProcess:
+        options = ["--spec", str(path)] if path else []
+        return subprocess.run([str(CLI), "search", action, "--root", str(self.root),
+            "--id", name, *options, "--format", "json"], cwd=self.directory,
+            capture_output=True, text=True, encoding="utf-8", timeout=45,
+            env=dict(os.environ, OMP_NUM_THREADS="2", MKL_NUM_THREADS="2"))
+
+    def test_automatic_search_retry_matches_continuous_training_and_final_attempt(self) -> None:
+        path, _ = self.typed("control")
+        control = self.cli("search", "execute", "--root", self.root, "--id", "control", "--spec", path)
+        expected = {}
+        for row in control["trials"]:
+            refs = self.refs(row["training_run_id"])
+            expected[row["parameters"]["learning_rate"]] = (
+                self.archive(self.blob(refs["checkpoint.last"]))[1], row["metric"]["value"])
+            self.assertNotIn("effective_training_inputs", row)
+            self.assertNotIn("confirmed_training_attempt", row)
+        for strategy in ("grid", "random"):
+            with self.subTest(strategy=strategy):
+                path, spec = self.typed("retry-" + strategy, strategy, retry_after=20)
+                state = self.cli("search", "execute", "--root", self.root,
+                                 "--id", strategy, "--spec", path)
+                self.assertEqual((state["status"], state["confirmed_trials"], state["parallel_trials"]),
+                                 ("completed", 3, 1))
+                for row in state["trials"]:
+                    self.assertTrue(row["eligible"])
+                    self.assertIsNone(row["training_inputs"]["resume"])
+                    local = self.cli("local", "show", "--root", self.root, "--id", row["trial_id"])
+                    self.assertEqual(len(local["attempts"]), 2)
+                    first, final = local["attempts"]
+                    self.assertEqual([a["result"]["exit_code"] for a in (first, final)], [23, 0])
+                    self.assertTrue(all(a["result"]["process_tree_cleanup_confirmed"] for a in (first, final)))
+                    self.assertTrue(final["result"]["training_outputs_confirmed"])
+                    first_refs, final_refs = self.refs(first["attempt_id"]), self.refs(final["attempt_id"])
+                    before = json.loads(self.blob(first_refs["training.result"]))
+                    after = json.loads(self.blob(final_refs["training.result"]))
+                    self.assertEqual((before["initial_step"], before["completed_steps"]), (0, 20))
+                    self.assertEqual((after["initial_step"], after["completed_steps"], after["resumed"]),
+                                     (20, 60, True))
+                    evidence = row["confirmed_training_attempt"]
+                    self.assertEqual((evidence["attempt_id"], evidence["attempt_index"]), (final["attempt_id"], 2))
+                    self.assertEqual(evidence["outputs"], row["outputs"])
+                    frozen = json.loads(self.blob(final_refs["local.training.inputs"]))
+                    effective = row["effective_training_inputs"]
+                    self.assertEqual(effective, frozen["training"])
+                    self.assertEqual(evidence["effective_inputs_sha256"], final["result"]["training_sha256"])
+                    self.assertEqual(evidence["training_outputs_sha256"],
+                                     final_refs["local.training.outputs"]["artifact"]["sha256"])
+                    self.assertEqual(frozen["previous_result_sha256"], first_refs["local.result"]["artifact"]["sha256"])
+                    self.assertEqual(effective["resume"]["checkpoint"]["run_id"], first["attempt_id"])
+                    self.assertEqual(effective["resume"]["checkpoint"]["sha256"],
+                                     first_refs["checkpoint.last"]["artifact"]["sha256"])
+                    training = self.show_run(row["training_run_id"])
+                    self.assertEqual(training["run"]["tags"]["liuding.training.owner_attempt"], final["attempt_id"])
+                    refs = {r["reference_id"]: r for r in training["references"]}
+                    self.assertEqual(refs["search.training.resume"]["artifact"], first_refs["checkpoint.last"]["artifact"])
+                    fields = self.archive(self.blob(refs["checkpoint.last"]))[1]
+                    expected_fields, metric = expected[row["parameters"]["learning_rate"]]
+                    self.assertEqual(fields, expected_fields)
+                    self.assertEqual(row["metric"]["value"], metric)
+                    self.assertEqual(row["metric"]["step"], 60)
+                    self.assertEqual(json.loads(self.blob(self.refs(row["trial_id"])["local.spec"]))["training"],
+                                     row["training_inputs"])
+                self.assertEqual(state["best"], min(state["trials"], key=lambda r: r["metric"]["value"]))
+                self.assertEqual(self.cli("search", "recover", "--root", self.root, "--id", strategy)["trials"],
+                                 state["trials"])
+                self.assertTrue(self.cli("run", "verify", "--root", self.root)["valid"])
+
+    def test_search_retry_preserves_explicit_initial_checkpoint(self) -> None:
+        path, _ = self.prepare("initial", 20)
+        partial, _, _ = self.execute("initial-job", path)
+        source = partial["attempts"][0]["attempt_id"]
+        path, _ = self.typed("resume-retry", resume=source, retry_after=40)
+        state = self.cli("search", "execute", "--root", self.root, "--id", "resume-retry", "--spec", path)
+        row = state["best"]
+        self.assertIsNotNone(row)
+        self.assertEqual(row["training_inputs"]["resume"]["checkpoint"]["run_id"], source)
+        local = self.cli("local", "show", "--root", self.root, "--id", row["trial_id"])
+        summaries = [json.loads(self.blob(self.refs(a["attempt_id"])["training.result"])) for a in local["attempts"]]
+        self.assertEqual([(s["initial_step"], s["completed_steps"]) for s in summaries], [(20, 40), (40, 60)])
+        path, _ = self.prepare("continuous-retry-control", 60)
+        _, refs, _ = self.execute("continuous-retry-control", path)
+        actual = self.archive(self.blob(self.refs(row["training_run_id"])["checkpoint.last"]))[1]
+        self.assertEqual(actual, self.archive(self.blob(refs["checkpoint.last"]))[1])
+
+    def test_search_retry_requires_bounded_policy_and_matching_confirmed_outputs(self) -> None:
+        path, original = self.typed("invalid-retry", retry_after=20)
+        mutations = [lambda s: s["execution"].update(max_attempts=1),
+            lambda s: s["execution"].update(retry_exit_codes=[]),
+            lambda s: s["execution"]["training"].pop("outputs"),
+            lambda s: s["execution"]["training"]["outputs"][0].update(role="foreign"),
+            lambda s: s["execution"]["training"]["outputs"][0].update(max_size_bytes=0),
+            lambda s: s["execution"]["training"]["retry_resume"].update(restore_policy="allow_best_effort")]
+        for index, mutate in enumerate(mutations):
+            with self.subTest(index=index):
+                spec = copy.deepcopy(original)
+                mutate(spec)
+                path.write_text(json.dumps(spec), encoding="utf-8")
+                self.assertEqual(self.raw_search("execute", "invalid-" + str(index), path).returncode, 2)
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as db:
+                    self.assertEqual(db.execute("SELECT count(*) FROM jyppx_runs WHERE run_id=?",
+                                                ("invalid-" + str(index),)).fetchone(), (0,))
+
+    def test_search_retry_missing_checkpoint_unknown_result_and_false_cleanup_remain_fenced(self) -> None:
+        path, spec = self.typed("fenced-retry", retry_after=20)
+        spec["space"][0]["values"] = [0.05]
+        spec["max_trials"] = 1
+        spec["execution"]["training"]["retry_resume"]["checkpoint_reference_id"] = "missing.checkpoint"
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        self.assertNotEqual(self.raw_search("execute", "fenced", path).returncode, 0)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as db:
+            job, = db.execute("SELECT run_id FROM jyppx_run_tags WHERE name='liuding.local.kind' AND value='job'").fetchone()
+        local = self.cli("local", "show", "--root", self.root, "--id", job)
+        self.assertEqual(len(local["attempts"]), 1)
+        attempt = local["attempts"][0]["attempt_id"]
+        refs = self.refs(attempt)
+        original = json.loads(self.blob(refs["local.result"]))
+        self.assertEqual(original["exit_code"], 23)
+        self.assertTrue(original["process_tree_cleanup_confirmed"])
+        self.assertNotIn("local.training.inputs.2", self.refs(job))
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM jyppx_runs WHERE run_id=?", (job + ".training",)).fetchone(), (0,))
+        for fault in ("missing", "false_cleanup", "unknown"):
+            with self.subTest(fault=fault):
+                if fault == "false_cleanup":
+                    altered = copy.deepcopy(original)
+                    altered["process_tree_cleanup_confirmed"] = False
+                    self.seed_json(attempt, "local.result", altered, replace=True)
+                elif fault == "unknown":
+                    with closing(sqlite3.connect(self.root / "runs.sqlite3")) as db, db:
+                        db.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND reference_id='local.result'", (attempt,))
+                self.assertNotEqual(self.raw_search("recover", "fenced").returncode, 0)
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as db:
+                    self.assertEqual(db.execute("SELECT count(*) FROM jyppx_runs WHERE parent_run_id=? AND run_id<>?",
+                                                (job, job + ".training")).fetchone(), (1,))
+
+    def test_search_retry_rejects_earlier_attempt_output_and_owner_without_retraining(self) -> None:
+        path, spec = self.typed("substituted-retry", retry_after=20)
+        spec["space"][0]["values"] = [0.05]
+        spec["max_trials"] = 1
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        state = self.cli("search", "execute", "--root", self.root, "--id", "substituted", "--spec", path)
+        row = state["best"]
+        local = self.cli("local", "show", "--root", self.root, "--id", row["trial_id"])
+        first, final = local["attempts"]
+        original = self.refs(row["training_run_id"])["checkpoint.last"]["artifact"]["sha256"]
+        earlier = self.refs(first["attempt_id"])["checkpoint.last"]["artifact"]["sha256"]
+        self.assertNotEqual(original, earlier)
+        for fault, reason in (("output", "training_output_mismatch"), ("owner", "training_attempt_mismatch")):
+            with self.subTest(fault=fault):
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as db, db:
+                    db.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='substituted' AND "
+                               "reference_id IN ('search.result.1','search.result','search.best')")
+                    db.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='substituted'")
+                    db.execute("UPDATE jyppx_run_artifacts SET digest=? WHERE run_id=? AND reference_id='checkpoint.last'",
+                               (earlier if fault == "output" else original, row["training_run_id"]))
+                    db.execute("UPDATE jyppx_run_tags SET value=? WHERE run_id=? AND name='liuding.training.owner_attempt'",
+                               (first["attempt_id"] if fault == "owner" else final["attempt_id"], row["training_run_id"]))
+                rejected = self.raw_search("recover", "substituted")
+                self.assertEqual(rejected.returncode, 1, rejected.stdout + rejected.stderr)
+                result = json.loads(rejected.stdout)["data"]
+                self.assertIsNone(result["best"])
+                self.assertEqual(result["trials"][0]["reason"], reason)
+                after = self.cli("local", "show", "--root", self.root, "--id", row["trial_id"])
+                self.assertEqual(after["attempts"], local["attempts"])
 
     def test_grid_and_random_bind_native_training_to_identical_model_and_data(self) -> None:
         orders = {}

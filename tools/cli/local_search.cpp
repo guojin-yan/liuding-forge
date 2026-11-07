@@ -502,22 +502,39 @@ Plan read_plan(const Json &value) {
   if (execution.contains("training")) {
     const auto &training = execution.at("training");
     fields(training, {"model_id", "configuration", "data_manifest", "resume"},
-           bridged ? std::initializer_list<std::string_view>{"outputs",
-                                                             "retry_resume"}
-                   : std::initializer_list<std::string_view>{});
+           {"outputs", "retry_resume"});
     require(training.at("configuration").is_string() &&
                 text(training.at("configuration")) == "${trial_configuration}",
             "Typed search owns configuration; use ${trial_configuration}");
+    if (!bridged && training.contains("retry_resume")) {
+      require(training.contains("outputs"),
+              "Typed search continuation requires confirmed native outputs");
+      Json outputs = Json::array();
+      for (const auto &output : training.at("outputs")) {
+        fields(output, {"reference_id", "kind", "role", "max_size_bytes"});
+        auto declaration = output;
+        declaration.erase("max_size_bytes");
+        outputs.push_back(std::move(declaration));
+      }
+      require(outputs == value.at("outputs"),
+              "Typed continuation outputs must match search declarations");
+    } else if (!bridged) {
+      require(!training.contains("outputs"),
+              "Ordinary typed output confirmation requires retry_resume");
+    }
   }
   require(
       execution.at("project_id").get<std::string>() == result.project &&
           execution.at("experiment_id").get<std::string>() == result.experiment,
       "Search and execution project/experiment must match");
-  require(bridged || (unsigned_number(execution.at("max_attempts"), 16) == 1 &&
-                      execution.at("retry_exit_codes").is_array() &&
-                      execution.at("retry_exit_codes").empty()),
-          "Search trials execute once; checkpoint continuation requires a "
-          "new search with explicit frozen inputs");
+  const bool continuation = execution.contains("training") &&
+                            execution.at("training").contains("retry_resume");
+  require(
+      bridged || continuation ||
+          (unsigned_number(execution.at("max_attempts"), 16) == 1 &&
+           execution.at("retry_exit_codes").is_array() &&
+           execution.at("retry_exit_codes").empty()),
+      "Search retries require explicit typed exact checkpoint continuation");
   require(!execution.contains("deadline_unix_ms"),
           "Search owns its frozen absolute execution deadline");
   const auto validate_bindings = [&](const Json &bindings, bool output) {
@@ -969,18 +986,19 @@ TelemetryEnvelope bridge_metric(const Json &manifest) {
 // Local control validates the complete owner/intent/output receipt chain.
 // Retain that exact final-attempt evidence, including its effective resume;
 // the search's original null resume must never stand in for a continuation.
-Json recipe_attempt_evidence(SQLiteRunStore &store, const Trial &value,
-                             const Json &local) {
+Json confirmed_training_attempt(SQLiteRunStore &store, const Trial &value,
+                                const Json &local) {
   require(local.at("status") == "completed" &&
               !local.at("owner_active").get<bool>() &&
               local.at("job_id") == value.id &&
               local.at("spec_sha256") == digest(value.execution.dump()).hex &&
               local.at("attempts").is_array() && !local.at("attempts").empty(),
-          "Paired bridge requires its completed, unowned local job");
+          "Training selection requires its completed, unowned local job");
   const auto &final = local.at("attempts").back();
-  const auto index = positive(final.at("index"), 2);
+  const auto index = positive(final.at("index"),
+                              positive(value.execution.at("max_attempts"), 16));
   require(index == local.at("attempts").size(),
-          "Paired bridge final attempt index differs");
+          "Training final attempt index differs");
   const auto attempt = text(final.at("attempt_id"));
   const auto outcome = load_json(store, attempt, "local.result");
   require(
@@ -990,7 +1008,7 @@ Json recipe_attempt_evidence(SQLiteRunStore &store, const Trial &value,
           outcome.at("status") == "exited" && outcome.at("exit_code") == 0 &&
           outcome.at("process_tree_cleanup_confirmed").get<bool>() &&
           outcome.at("training_outputs_confirmed").get<bool>(),
-      "Paired bridge requires confirmed final native cleanup and outputs");
+      "Training selection requires confirmed final native cleanup and outputs");
   auto training = value.execution.at("training");
   training.erase("retry_resume");
   Json inputs_sha = nullptr;
@@ -1003,26 +1021,31 @@ Json recipe_attempt_evidence(SQLiteRunStore &store, const Trial &value,
                 frozen.at("index") == index &&
                 frozen.at("spec_sha256") == local.at("spec_sha256") &&
                 outcome.at("training_sha256") == digest(frozen.dump()).hex,
-            "Paired bridge effective training manifest differs");
+            "Effective training manifest differs");
     for (const auto *name :
          {"model_id", "configuration", "data_manifest", "outputs"})
       require(frozen.at("training").at(name) == training.at(name),
-              "Paired bridge changed an immutable typed input");
+              "Continuation changed an immutable typed input");
     if (index == 1) {
-      require(frozen.at("training").at("resume").is_null() &&
+      require(frozen.at("training").at("resume") == training.at("resume") &&
                   frozen.at("previous_result_sha256").is_null(),
-              "Paired first attempt must start from its frozen null resume");
+              "First attempt must use its original frozen resume");
     } else {
       const auto &previous = local.at("attempts").at(index - 2);
       const auto previous_id = text(previous.at("attempt_id"));
-      const auto checkpoint =
-          store.find_reference(previous_id, "checkpoint.last");
+      const auto checkpoint_id = text(value.execution.at("training")
+                                          .at("retry_resume")
+                                          .at("checkpoint_reference_id"));
+      const auto checkpoint = store.find_reference(previous_id, checkpoint_id);
       const auto previous_result =
           store.find_reference(previous_id, "local.result");
       require(checkpoint && previous_result &&
                   checkpoint->kind == RunArtifactKind::checkpoint &&
                   previous.at("result").at("status") == "exited" &&
-                  previous.at("result").at("exit_code") == 75 &&
+                  std::find(value.execution.at("retry_exit_codes").begin(),
+                            value.execution.at("retry_exit_codes").end(),
+                            previous.at("result").at("exit_code")) !=
+                      value.execution.at("retry_exit_codes").end() &&
                   previous.at("result")
                       .at("process_tree_cleanup_confirmed")
                       .get<bool>() &&
@@ -1032,10 +1055,10 @@ Json recipe_attempt_evidence(SQLiteRunStore &store, const Trial &value,
                       Json{{"restore_policy", "exact_only"},
                            {"checkpoint",
                             {{"run_id", previous_id},
-                             {"reference_id", "checkpoint.last"},
+                             {"reference_id", checkpoint_id},
                              {"sha256", checkpoint->artifact.digest.hex},
                              {"size_bytes", checkpoint->artifact.size_bytes}}}},
-              "Paired continuation must bind its exact prior checkpoint and "
+              "Continuation must bind its exact prior checkpoint and "
               "confirmed retryable result");
     }
     training = frozen.at("training");
@@ -1052,8 +1075,8 @@ Json recipe_attempt_evidence(SQLiteRunStore &store, const Trial &value,
           receipt.at("spec_sha256") == local.at("spec_sha256") &&
           receipt.at("training") == receipt_training &&
           outcome.at("training_outputs_sha256") == digest(receipt.dump()).hex &&
-          receipt.at("outputs").size() == 3,
-      "Paired bridge output receipt differs from its effective inputs");
+          receipt.at("outputs").size() == training.at("outputs").size(),
+      "Training output receipt differs from its effective inputs");
   Json outputs = Json::array();
   for (const auto &output : receipt.at("outputs")) {
     const auto reference =
@@ -1062,7 +1085,7 @@ Json recipe_attempt_evidence(SQLiteRunStore &store, const Trial &value,
                 output.at("failure_reason").is_null() &&
                 output.at("sha256") == reference->artifact.digest.hex &&
                 output.at("size_bytes") == reference->artifact.size_bytes,
-            "Paired bridge output differs from its confirmed receipt");
+            "Training output differs from its confirmed receipt");
     verify_content(store, *reference);
     outputs.push_back(reference_json(*reference));
   }
@@ -1154,7 +1177,7 @@ Json validate_recipe_bridge(SQLiteRunStore &store, const Plan &plan,
                   unsigned_number(value.configuration.at("seed"), 2147483647) &&
               manifest.at("trial_seed") == value.seed,
           "Paired bridge schema or frozen search identity differs");
-  const auto evidence = recipe_attempt_evidence(store, value, local);
+  const auto evidence = confirmed_training_attempt(store, value, local);
   for (const auto &[key, item] : evidence.items())
     require(manifest.at(key) == item,
             "Paired bridge differs from confirmed final-attempt evidence");
@@ -1421,7 +1444,7 @@ void publish_recipe_training(SQLiteRunStore &store, const RunMetadata &search,
     require(
         !store.find(value.training),
         "Paired bridge cannot adopt a training run without its prior receipt");
-    auto manifest = recipe_attempt_evidence(store, value, local);
+    auto manifest = confirmed_training_attempt(store, value, local);
     const auto attempt = text(manifest.at("attempt_id"));
     const auto root = value.directory / "recipe" / "run-store";
     require(fs::is_regular_file(root / "runs.sqlite3"),
@@ -1532,9 +1555,18 @@ Json evaluate(SQLiteRunStore &store, const Plan &plan, const Trial &value,
   if (value.execution.contains("training"))
     result["training_inputs"] = value.execution.at("training");
   Json effective = nullptr;
+  Json confirmed = nullptr;
+  const bool continuation =
+      !plan.json.contains("recipe_bridge") &&
+      value.execution.contains("training") &&
+      value.execution.at("training").contains("retry_resume");
   if (plan.json.contains("recipe_bridge")) {
     result["recipe_bridge_sha256"] = nullptr;
     result["effective_training_inputs"] = nullptr;
+  }
+  if (continuation) {
+    result["effective_training_inputs"] = nullptr;
+    result["confirmed_training_attempt"] = nullptr;
   }
   if (local.at("status").get<std::string>() != "completed") return result;
   if (plan.json.contains("recipe_bridge")) {
@@ -1544,6 +1576,12 @@ Json evaluate(SQLiteRunStore &store, const Plan &plan, const Trial &value,
     effective = manifest.at("training");
     result["recipe_bridge_sha256"] = digest(manifest.dump()).hex;
     result["effective_training_inputs"] = effective;
+  }
+  if (continuation) {
+    confirmed = confirmed_training_attempt(store, value, local);
+    effective = confirmed.at("training");
+    result["effective_training_inputs"] = effective;
+    result["confirmed_training_attempt"] = confirmed;
   }
   const auto training = store.find(value.training);
   if (!training || training->status != RunStatus::completed) {
@@ -1570,6 +1608,13 @@ Json evaluate(SQLiteRunStore &store, const Plan &plan, const Trial &value,
        training->lineage.data_manifest_digest
            ? Json(*training->lineage.data_manifest_digest)
            : Json(nullptr)}};
+  if (continuation &&
+      (!training->tags.contains("liuding.training.owner_attempt") ||
+       training->tags.at("liuding.training.owner_attempt") !=
+           text(confirmed.at("attempt_id")))) {
+    result["reason"] = "training_attempt_mismatch";
+    return result;
+  }
   if (value.execution.contains("training")) {
     const auto &inputs =
         effective.is_null() ? value.execution.at("training") : effective;
@@ -1625,6 +1670,17 @@ Json evaluate(SQLiteRunStore &store, const Plan &plan, const Trial &value,
       return result;
     }
     verify_content(store, *reference);
+    if (continuation) {
+      const auto &outputs = confirmed.at("outputs");
+      const auto matching =
+          std::find_if(outputs.begin(), outputs.end(), [&](const Json &output) {
+            return output == reference_json(*reference);
+          });
+      if (matching == outputs.end()) {
+        result["reason"] = "training_output_mismatch";
+        return result;
+      }
+    }
     result["outputs"].push_back(reference_json(*reference));
   }
   RunMetricPageRequest request;
@@ -1718,7 +1774,7 @@ std::vector<Json> results(SQLiteRunStore &store, const RunMetadata &search,
             "search_spec_sha256", "config_sha256", "parameters", "trial_seed",
             "eligible", "reason", "training_lineage", "metric", "outputs"},
            {"training_inputs", "recipe_bridge_sha256",
-            "effective_training_inputs"});
+            "effective_training_inputs", "confirmed_training_attempt"});
     require(row.contains("training_inputs") ==
                 expected.execution.contains("training"),
             "Confirmed typed input presence differs from its admission");
@@ -1726,8 +1782,13 @@ std::vector<Json> results(SQLiteRunStore &store, const RunMetadata &search,
       require(row.at("training_inputs") == expected.execution.at("training"),
               "Confirmed typed training inputs differ from their admission");
     const bool paired = plan.json.contains("recipe_bridge");
+    const bool continuation =
+        !paired && expected.execution.contains("training") &&
+        expected.execution.at("training").contains("retry_resume");
     require(row.contains("recipe_bridge_sha256") == paired &&
-                row.contains("effective_training_inputs") == paired,
+                row.contains("effective_training_inputs") ==
+                    (paired || continuation) &&
+                row.contains("confirmed_training_attempt") == continuation,
             "Confirmed recipe bridge presence differs from the search plan");
     if (paired) {
       require(row.at("recipe_bridge_sha256").is_null() ==
@@ -1791,12 +1852,12 @@ std::vector<Json> results(SQLiteRunStore &store, const RunMetadata &search,
                   row.at("outputs").size() == plan.json.at("outputs").size(),
               "Eligible trial requires complete training, finite metric and "
               "output evidence");
-    if (eligible && !paired) {
+    if ((eligible && !paired) || continuation) {
       // A confirmed row is a cache of committed evidence. Recheck every
       // selectable ordinary trial just as the recipe bridge does, without
       // requiring the old executable/workspace or starting another attempt.
       const auto local = control_local_job("show", store.root(), expected.id);
-      require(local.data.at("status") == "completed" &&
+      require((!eligible || local.data.at("status") == "completed") &&
                   !local.data.at("owner_active").get<bool>(),
               "Eligible search result requires resolved local ownership");
       require(evaluate(store, plan, expected, index, local.data) == row,

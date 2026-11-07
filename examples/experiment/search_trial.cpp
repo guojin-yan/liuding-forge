@@ -317,7 +317,10 @@ void WriteLocalSpec(const fs::path& executable, const fs::path& output,
 
 void WriteTypedSearchSpec(const fs::path& executable, const fs::path& output,
                           const fs::path& root, std::string_view strategy,
-                          const std::string& resume_run) {
+                          const std::string& resume_run,
+                          std::uint64_t checkpoint_retry_after) {
+  if (checkpoint_retry_after >= 60)
+    throw std::runtime_error("Retry checkpoint must precede the final step");
   if (!output.is_absolute() || fs::exists(output) || !root.is_absolute())
     throw std::runtime_error(
         "Use an unused absolute spec file and absolute store");
@@ -389,6 +392,18 @@ void WriteTypedSearchSpec(const fs::path& executable, const fs::path& output,
                      {{"reference_id", "training.result"},
                       {"kind", "artifact"},
                       {"role", "training.result"}}};
+  if (checkpoint_retry_after != 0) {
+    execution["max_attempts"] = 2;
+    execution["retry_exit_codes"] = {23};
+    execution["arguments"].push_back("--checkpoint-retry-after");
+    execution["arguments"].push_back(std::to_string(checkpoint_retry_after));
+    execution["training"]["retry_resume"] = {
+        {"checkpoint_reference_id", "checkpoint.last"},
+        {"restore_policy", "exact_only"}};
+    auto outputs = spec.at("outputs");
+    for (auto& item : outputs) item["max_size_bytes"] = 65536;
+    execution["training"]["outputs"] = std::move(outputs);
+  }
   WriteSpecification(output, spec);
   std::cout << "Typed search written; every trial owns its configuration and "
                "shares explicit model/data/checkpoint inputs.\n";
@@ -512,10 +527,16 @@ void PublishTypedSearchTraining(
       copy.attached_at_unix_ms = stamp;
       references.push_back(std::move(copy));
     };
-    pin(job, "local.training.configuration", "search.training.configuration");
-    pin(job, "local.training.data_manifest", "search.training.data_manifest");
+    const auto suffix =
+        result.contains("training_sha256")
+            ? "." + LocalEnvironment("JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX")
+            : "";
+    pin(job, "local.training.configuration" + suffix,
+        "search.training.configuration");
+    pin(job, "local.training.data_manifest" + suffix,
+        "search.training.data_manifest");
     if (!training.at("resume").is_null())
-      pin(job, "local.training.resume", "search.training.resume");
+      pin(job, "local.training.resume" + suffix, "search.training.resume");
     pin(attempt, "checkpoint.last", "checkpoint.last");
     pin(attempt, "training.result", "training.result");
     store.attach(run_id, references);
@@ -590,7 +611,7 @@ int LocalTrain(std::uint64_t until,
       checkpoint_retry_after != 0 &&
       LocalEnvironment("JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX") == "1";
   if (checkpoint_retry_after != 0 &&
-      (search || input_suffix.empty() || checkpoint_retry_after >= until))
+      (input_suffix.empty() || checkpoint_retry_after >= until))
     throw std::runtime_error("Invalid owned checkpoint retry demonstration");
   const auto target = first_retry_segment ? checkpoint_retry_after : until;
   if (training.at("model_id").get<std::string>() != kLocalModel)
@@ -731,7 +752,7 @@ int LocalTrain(std::uint64_t until,
                       .producer = "liuding-forge-example-search-trial",
                       .expected_size_bytes = content.size()},
                      stamp);
-  if (search)
+  if (search && !first_retry_segment)
     PublishTypedSearchTraining(store, job, attempt, training, result, *search);
   if (first_retry_segment) {
     std::cout << "Checkpoint committed at the learning boundary; exiting 23 "
@@ -906,7 +927,8 @@ int main(int argc, char** argv) {
              "Local worker: --local-training UNTIL_STEP "
              "[--checkpoint-retry-after STEP] (owned runner only)\n";
       std::cout << "Typed search: --write-typed-search-spec FILE --store ROOT "
-                   "[--strategy grid|random] [--resume-run SOURCE_ATTEMPT]\n";
+                   "[--strategy grid|random] [--resume-run SOURCE_ATTEMPT] "
+                   "[--checkpoint-retry-after STEP]\n";
       return 0;
     }
     std::map<std::string, std::string> arguments;
@@ -919,9 +941,10 @@ int main(int argc, char** argv) {
             "Expected distinct option/value pairs; see --help");
     }
     if (arguments.contains("--write-typed-search-spec")) {
-      const auto expected_size = 2U +
-                                 (arguments.contains("--strategy") ? 1U : 0U) +
-                                 (arguments.contains("--resume-run") ? 1U : 0U);
+      const auto expected_size =
+          2U + (arguments.contains("--strategy") ? 1U : 0U) +
+          (arguments.contains("--resume-run") ? 1U : 0U) +
+          (arguments.contains("--checkpoint-retry-after") ? 1U : 0U);
       if (arguments.size() != expected_size)
         throw std::runtime_error("Unknown typed search option; see --help");
       WriteTypedSearchSpec(
@@ -931,12 +954,19 @@ int main(int argc, char** argv) {
           arguments.contains("--strategy") ? arguments.at("--strategy")
                                            : "grid",
           arguments.contains("--resume-run") ? arguments.at("--resume-run")
-                                             : "");
+                                             : "",
+          arguments.contains("--checkpoint-retry-after")
+              ? LocalStep(arguments.at("--checkpoint-retry-after"))
+              : 0);
     } else if (arguments.contains("--typed-search-training")) {
-      if (arguments.size() != 5U)
+      if (arguments.size() !=
+          (arguments.contains("--checkpoint-retry-after") ? 6U : 5U))
         throw std::runtime_error("Expected the typed search worker options");
-      return LocalTrain(LocalStep(arguments.at("--typed-search-training")),
-                        &arguments);
+      return LocalTrain(
+          LocalStep(arguments.at("--typed-search-training")), &arguments,
+          arguments.contains("--checkpoint-retry-after")
+              ? LocalStep(arguments.at("--checkpoint-retry-after"))
+              : 0);
     } else if (arguments.contains("--write-local-spec")) {
       const auto expected_size =
           3U + (arguments.contains("--resume-run") ? 1U : 0U) +

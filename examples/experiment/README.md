@@ -122,7 +122,7 @@ $continued.attempts | Select-Object index, run_status, training_sha256, result
 
 预期 job 为 `completed`，两个 attempt 分别保留 `failed/23` 和 `completed/0` 的结果。第二个 attempt 的 `training.result` 应记录 `initial_step: 20`、`completed_steps: 60`、`resumed: true`；`checkpoint.last` 包含实际模型、SGD momentum、更新计数和输入身份。`local.training.inputs` 与 intent/result 中的 `training_sha256` 对应同一恢复清单，job 的 `local.training.inputs.2` 还记录首个结果摘要和 checkpoint 来源；原始配置中的 `resume` 仍为 `null`。重复 `recover` 查询相同结果，不再运行训练。
 
-接入自己的 C++ 程序时，在 `training` 中显式声明 `retry_resume`，从 attempt 的清单和 job 的 `.N` 引用读取有效输入，然后执行完整 `exact_only` 恢复。保留原模型、配置和数据身份，确保退出前 checkpoint 已提交；运行器不会为应用推断 RNG、scheduler 或 AMP 状态。缺少 checkpoint、伪造或不完整的内容、身份变化、未知结果和未确认清理都不能转为 fresh 重试；详细约定见[本地运行器](../../docs/development/local_process_runner.md#已确认失败的-checkpoint-续训)。普通 typed grid/random 仍使用一次 attempt 和显式 checkpoint；下文的多输入输出配方搜索提供显式的配方接线。
+接入自己的 C++ 程序时，在 `training` 中显式声明 `retry_resume`，从 attempt 的清单和 job 的 `.N` 引用读取有效输入，然后执行完整 `exact_only` 恢复。保留原模型、配置和数据身份，确保退出前 checkpoint 已提交；运行器不会为应用推断 RNG、scheduler 或 AMP 状态。缺少 checkpoint、伪造或不完整的内容、身份变化、未知结果和未确认清理都不能转为 fresh 重试；详细约定见[本地运行器](../../docs/development/local_process_runner.md#已确认失败的-checkpoint-续训)。普通 typed grid/random 也可显式启用下文的续训与输出确认合同。
 
 ## 确认训练输出
 
@@ -153,6 +153,18 @@ $typed = (& $cli search show --root $typedStore --id typed-grid --format json | 
 $typed.trials | Select-Object index, parameters, training_inputs, metric
 & $cli run show --root $typedStore --id $typed.best.training_run_id --format json
 ```
+
+在新配置上追加 `--checkpoint-retry-after 20`，即可让每个候选先训练 20 步并以已声明的退出码 23 结束，再从该 attempt 的完整 checkpoint 续训到 60 步。生成器同时声明两项有界输出，运行器确认最终进程树清理与产物后，搜索才选择实际验证指标：
+
+```powershell
+$retrySearchSpec = Join-Path $work 'typed-retry.json'
+& $worker --write-typed-search-spec $retrySearchSpec --store $typedStore --strategy grid --checkpoint-retry-after 20
+& $cli search execute --root $typedStore --id typed-retry --spec $retrySearchSpec --format json
+$retried = (& $cli search show --root $typedStore --id typed-retry --format json | ConvertFrom-Json).data
+$retried.trials | Select-Object index, training_inputs, effective_training_inputs, confirmed_training_attempt, metric
+```
+
+`training_inputs.resume` 保留原请求，`effective_training_inputs.resume` 绑定前一已确认 attempt 的 checkpoint；`confirmed_training_attempt` 绑定最终结果和输出收据。示例仅在完成 60 步时发布外层训练 run，并将最终 attempt 的配置、数据、恢复点和输出绑定到它；20 步中间结果不会参与 best。自定义 C++ worker 须实现同样的完整恢复和最终发布合同，不能仅设置重试退出码；[本地运行器](../../docs/development/local_process_runner.md#搜索的训练输入)说明字段和失败边界。
 
 将 `--strategy` 改为 `random` 并使用新的配置文件、搜索 ID，即可按固定种子无重复抽取候选。每个 trial 的 `training_inputs` 记录模型标识、真实配置、同源数据清单和可选 checkpoint；配置来源 `TRIAL.inputs` 的终态只表示输入已提交。训练 run 的 `checkpoint.last` 包含模型、SGD momentum、更新计数和输入身份，`training.result` 记录实际结果；两者与已确认的原生 attempt、验证指标和 best trial 一起保留在实验备份中。
 

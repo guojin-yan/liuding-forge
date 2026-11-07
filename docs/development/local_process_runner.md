@@ -161,7 +161,9 @@ ImageFolder ResNet18、`paired-affine` 多输入输出和迁移学习配方已�
 
 有界 grid/random 的 `execution.training` 使用相同字段，但 `configuration` 必须写成字符串 `"${trial_configuration}"`。搜索将每次实际配置写入 CAS，再生成确定 ID 的 `TRIAL.inputs` run，附上父搜索、索引和计划摘要并封存；该 run 的 `completed` 只表示输入已提交。配置输入的创建、绑定和封存可按原身份幂等恢复；同 ID 不同内容会被拒绝。随后 native attempt 复用 typed local 的终态来源、CAS、原生归属和取消检查。
 
-整次搜索固定 `model_id`、`data_manifest` 和可选 `resume`；checkpoint 必须显式指定且采用 `exact_only`，不会从失败 attempt 自动选择。每个 trial 结果的 `training_inputs` 包含实际配置、数据和恢复点的来源与摘要。训练程序须将模型标识写入 `liuding.training.model_id` tag、数据摘要写入 lineage，并将对应输入绑定为 `search.training.configuration`、`search.training.data_manifest` 和可选 `search.training.resume`；缺少或不匹配的结果不参与 best 选择。参考[原生训练搜索教程](../../examples/experiment/README.md#训练输入与搜索衔接)中的 C++ 接线。
+整次搜索固定 `model_id`、`data_manifest` 和可选初始 `resume`；checkpoint 采用 `exact_only`。默认每个 trial 执行一次；显式配置 `training.retry_resume`、有界 `max_attempts > 1`、非空 `retry_exit_codes` 和 `training.outputs` 后，可以复用本地执行器的已确认 checkpoint 自动续训。`training.outputs` 除额外的 `max_size_bytes` 外须与搜索 `outputs` 按顺序相同，大小沿用合计 1 GiB 上限；成功退出后必须确认最终 attempt 的全部输出，取消、超时、信号、未知结果和未确认清理继续停止推进。
+
+每个 trial 的 `training_inputs` 保留原始请求；启用自动续训时，`effective_training_inputs` 和 `confirmed_training_attempt` 另存最后一次已确认 attempt 的有效恢复输入、原生结果与输出收据摘要。训练程序从本地 `.N` 引用读取有效输入，仅在最终完成时发布外层训练 run，将最后 attempt ID 写入 `liuding.training.owner_attempt`，将模型标识写入 `liuding.training.model_id`、数据摘要写入 lineage，并绑定 `search.training.configuration`、`search.training.data_manifest` 和可选 `search.training.resume`。只有外层输入与最终有效输入相同、输出与最终收据相同且指标符合搜索目标时才参与 best；早期 attempt 的输出不能替代最终输出。参考[原生训练搜索教程](../../examples/experiment/README.md#训练输入与搜索衔接)中的 C++ 接线。
 
 查询、恢复和重复执行会复核每个可选 trial 的原生执行终态、训练来源、实际已提交指标、输入输出引用及 CAS 内容；结果缓存、最终摘要和 best 彼此一致，仍不能替代这些来源。损坏的产物或不匹配的来源使命令失败，修复原证据后可只读重放；复核不要求旧可执行文件或工作目录存在，也不启动新的 attempt。已确认的不合格 trial 保留原失败结果，不因后来补齐产物而升级为候选。
 
@@ -184,7 +186,7 @@ Linux CPU 的 `Cli_local_recipe_memory` 在 2 GiB cgroup 限制下复用完整�
 
 此模式的 `seed_policy` 为 `configuration`：配方使用有效配置中的 `seed` 训练，搜索派生的 `trial_seed` 只标识调度顺序，两者分别保留。完成态要求本地任务清理确认、完整三输出收据、有效 exact 恢复输入、原生 completed run 及其已提交的真实 accuracy；仅退出码 0 不足以选优。冻结桥接清单后，外层训练记录依次创建、原子绑定引用、提交相同指标，最后完成；整个流程跨多个 API，可恢复相同清单的部分发布，额外指标、部分引用或其他冲突会被拒绝。终态查询与实验导出依赖 CAS，不要求原生训练目录继续存在；实际续训遵守下一节的工作目录恢复合同。
 
-普通 typed 搜索保持单 attempt 与显式 checkpoint 的原合同；上述例外仅用于显式声明的配方及固定模板，不向任意外部程序开放自动续训。可运行配置见[配方搜索示例](../../examples/experiment/README.md#多输入输出配方搜索)。
+配方桥接仍使用上述固定模板和至多一次 exact continuation；普通 typed 搜索的显式续训接线遵循前文的有效输入与最终输出确认合同。可运行配置见[配方搜索示例](../../examples/experiment/README.md#多输入输出配方搜索)。
 
 ### 配方工作目录丢失后的恢复
 
