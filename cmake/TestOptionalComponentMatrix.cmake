@@ -10,6 +10,10 @@ get_filename_component(source_dir "${JYPPX_SOURCE_DIR}" REALPATH)
 get_filename_component(test_root "${JYPPX_LIUDING_TEST_ROOT}" ABSOLUTE)
 get_filename_component(consumer_source_dir
                        "${JYPPX_CONSUMER_SOURCE_DIR}" REALPATH)
+file(RELATIVE_PATH matrix_relative "${source_dir}/out" "${test_root}")
+if(matrix_relative MATCHES "^\\.\\." OR IS_ABSOLUTE "${matrix_relative}")
+    message(FATAL_ERROR "Optional matrix staging must stay inside source out/")
+endif()
 file(MAKE_DIRECTORY "${test_root}")
 
 set(generator_args -G "${JYPPX_CMAKE_GENERATOR}")
@@ -70,7 +74,14 @@ if(JYPPX_MATRIX_PROFILES)
     set(profiles ${JYPPX_MATRIX_PROFILES})
 endif()
 
+# Reconfigure the same trees so common objects and staged DLLs are reused.
+# Install staging is refreshed for every profile to detect disabled components.
+set(build_dir "${test_root}/build")
+set(install_dir "${test_root}/install")
+set(consumer_build_dir "${test_root}/consumer")
+
 foreach(profile IN LISTS profiles)
+    message(STATUS "Optional component profile: ${profile}")
     set(profile_components)
     if(profile STREQUAL "core")
         set(profile_components core)
@@ -102,10 +113,6 @@ foreach(profile IN LISTS profiles)
         endif()
     endforeach()
 
-    set(profile_root "${test_root}/${profile}")
-    set(build_dir "${profile_root}/build")
-    set(install_dir "${profile_root}/install")
-    set(consumer_build_dir "${profile_root}/consumer")
     file(REMOVE_RECURSE "${install_dir}")
 
     execute_process(
@@ -249,10 +256,7 @@ set(invalid_cases
     training_without_nn
     training_without_optim
 )
-set(invalid_case_index 0)
 foreach(invalid_case IN LISTS invalid_cases)
-    # Keep MSBuild's nested compiler-probe paths short on Windows.
-    math(EXPR invalid_case_index "${invalid_case_index} + 1")
     set(invalid_options
         -DJYPPX_LIUDING_BUILD_CORE=ON
         -DJYPPX_LIUDING_BUILD_INTEROP=OFF
@@ -266,6 +270,8 @@ foreach(invalid_case IN LISTS invalid_cases)
         -DJYPPX_LIUDING_BUILD_MODELS=OFF
         -DJYPPX_LIUDING_BUILD_ONNX_EXPORT=OFF
         -DJYPPX_LIUDING_BUILD_ONNX_RUNTIME=OFF
+        -DJYPPX_LIUDING_BUILD_ONNX_SERVING=OFF
+        -DJYPPX_LIUDING_BUILD_BUNDLE_SIGNING=OFF
         -DJYPPX_LIUDING_BUILD_SERVING=OFF
         -DJYPPX_LIUDING_MODELS_REFERENCE_DIR=
     )
@@ -295,7 +301,7 @@ foreach(invalid_case IN LISTS invalid_cases)
     endif()
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -S "${source_dir}"
-                -B "${test_root}/invalid/${invalid_case_index}"
+                -B "${test_root}/invalid"
                 ${generator_args}
                 "-DTorch_DIR=${JYPPX_TORCH_DIR}"
                 -DJYPPX_LIUDING_BUILD_TESTS=OFF -DJYPPX_LIUDING_BUILD_EXAMPLES=OFF

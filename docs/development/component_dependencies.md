@@ -6,6 +6,6 @@ CMake 在配置时生成 `component-target-graph.tsv`，`scripts/validation/comp
 
 检查拒绝未声明或循环依赖、缺少直接链接、公共包含缺少公共链接接口、重复声明、非法或未归属路径以及归属断言漂移。新增组件或依赖时，同步更新架构决策与 JSON 清单；`jyppx::liuding::all`、`jyppx::liuding::sdk` 等聚合 target 或其他组件的传递链接不能替代必要的直接依赖。
 
-`OptionalComponentMatrix` 和 `PreviewComponentMatrix` 的嵌套配置继承父构建的 `FETCHCONTENT_FULLY_DISCONNECTED`、`FETCHCONTENT_UPDATES_DISCONNECTED`（含逐依赖设置）及 `FETCHCONTENT_SOURCE_DIR_*`，各自使用独立的依赖构建目录。先准备锁定依赖并以 `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` 配置父构建；矩阵覆盖组件关闭、安装及独立消费者，不能用完整 SDK 构建替代。可选组件非法组合的生成目录使用顺序编号，具体组合名保留在失败诊断中，减少 Windows 编译器探测的路径长度。
+`OptionalComponentMatrix` 和 `PreviewComponentMatrix` 的嵌套配置继承父构建的 `FETCHCONTENT_FULLY_DISCONNECTED`、`FETCHCONTENT_UPDATES_DISCONNECTED`（含逐依赖设置）及 `FETCHCONTENT_SOURCE_DIR_*`，两组矩阵各自复用一套构建树及其依赖构建目录。基础组件矩阵还复用一套消费者构建树及其 Windows DLL 暂存，并使用一个较短的缓存目录依次检查非法组合；每次重配显式选择完整组件集。矩阵暂存位于源码 `out/` 内，每种组合都先刷新安装目录，再核对启用组件、关闭组件及独立消费者。先准备锁定依赖并以 `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` 配置父构建；矩阵覆盖组件关闭、安装及独立消费者，不能用完整 SDK 构建替代。
 
 嵌套编译任务数优先使用配置项 `JYPPX_LIUDING_MATRIX_BUILD_JOBS`，为空时使用运行 CTest 时的 `CMAKE_BUILD_PARALLEL_LEVEL`，两者均未设置时为 2；必须是正整数。共享构建按平台串行，当前维护流程最多使用两个编译任务，可设置 `-DJYPPX_LIUDING_MATRIX_BUILD_JOBS=1` 降低资源占用。两组矩阵都包含重复构建和安装，CTest 总时间上限均为 10800 秒。

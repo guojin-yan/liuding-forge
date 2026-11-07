@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 基础组件开关矩阵顺序复用一套编译树和安装消费者，减少重复对象、依赖构建及 Windows DLL 暂存；各组合仍刷新安装目录并检查关闭隔离与非法依赖。
+
 - 补录干净提交 `98e96c0` 的 CPU Release SDK 验收：18 库安装、独立消费者和真实配方内存合同通过，完整选定 2064 项合同分阶段闭合为 1877 通过、187 条件跳过、零未解决失败；保留首次监督中断及硬件与发布边界。
 
 - 本地执行与搜索可显式设置原生进程树的 OS 内存上限，使用 Windows Job 提交量或 Linux 委派 cgroup v2，后端不可用时拒绝启动，并保存独立的限制与 OOM 计数收据。
