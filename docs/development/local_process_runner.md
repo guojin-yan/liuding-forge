@@ -85,6 +85,18 @@ Windows 将示例中的程序和工作目录改成真实绝对路径，JSON 中�
 
 未终态 job 即使已有完整结果，只要原生 `process_tree_cleanup_confirmed` 为 `false` 或缺失，就返回 `resource_cleanup_unconfirmed`（退出码 7），保留当前 attempt、结果和引用，不创建新 attempt 或将 job 推进至成功；该围栏适用于未声明资源和默认 retry 的任务。历史已终态 job 继续按原确认结果只读重放，不能据此推断其原生清理证明或资源可释放。
 
+## 操作系统内存限制
+
+本地计划和搜索的 `execution` 可显式增加 `os_memory_limit`。`bytes` 必须是正整数 MiB 的整倍数；Windows 使用 `{ "bytes": 1073741824 }`，Linux 另外要求 `{ "bytes": 1073741824, "cgroup_parent": "/sys/fs/cgroup/已委派的父组" }`。该限制独立于同 STORE 的逻辑预约，应用于本次原生程序及其后代；worker 和调用者不计入这份额度。
+
+Windows 在恢复挂起的程序前设置并回读 Job Object 的整组提交量上限，禁止 breakaway。Linux 仅在调用者提供的 cgroup v2 父组内创建本次专属子组，回读 `memory.max`、`memory.swap.max=0` 和 `memory.oom.group=1`，然后让子进程在 exec 前加入；父组必须已经委派且启用 memory controller，内核必须提供 `cgroup.kill`。运行器不启用或修改祖先控制器，也不自动提权。后端或权限不可用时启动失败，不退化为逻辑额度或定时 RSS 采样。
+
+Linux 调用者须位于同一委派子树，拥有目标 `cgroup.procs` 及当前组与目标组最近共同祖先的 `cgroup.procs` 写权限。仅能在父组创建目录并不证明可迁入进程；例如 SSH session 与 systemd 用户服务分属不同分支时，内核可能在 exec 前拒绝迁组。应由管理员预先建立委派布局，并从相应服务或 scope 内启动 worker。
+
+结果中的 `memory_boundary` 记录实际启用的 `source`、`limit_bytes`、可读时的 `peak_bytes` 和 Linux 的 `oom_kills`，与 `resource_usage` 分开保存；旧结果可以缺少此字段，实际已启动的限额任务必须有对应收据。Windows 原生峰值计数可能高于配置上限，收据保留内核原值，不能把该峰值等同于成功提交的最大字节数。Linux 的 OOM 保留真实信号，Windows 分配拒绝保留程序真实退出码，不能仅凭非零退出就声称发生 OOM。取消和清理也对 Linux 专属组调用 `cgroup.kill`，清理确认还要求该组为空。
+
+两个后端的计费口径不同：Windows 限制 Job 提交量，Linux 限制内核 cgroup 内存计费（包含被计费的匿名页、文件缓存等），共享页和进入组前已计到其他组的页面遵循内核归属。它们都不等于精确的整树 RSS，也不限制 GPU 显存。受信任程序及其父组配置须保持该边界；同身份程序主动修改 Job/cgroup 策略或自行迁组不属于沙箱保证。完整 RSS/VRAM、worker 被强杀后的外部确认及整体验收仍需各自证据。
+
 ## CPU/GPU 逻辑资源准入
 
 `local_run_spec` 与搜索的 `execution` 可增加下面的 `resources`。首次准入会将同一机器、同一 STORE 的容量固定到 run/CAS；后续请求必须原样使用该容量。`gpu0` 是调用者约定的设备身份，运行器不探测硬件、不设置 CUDA 可见设备；训练程序负责将该身份映射到实际设备。

@@ -332,8 +332,9 @@ void expect_resource_usage(const cli::LocalProcessResult& result) {
   EXPECT_GE(*usage.peak_resident_memory_bytes,
             payload.at("touched_bytes").get<std::uint64_t>());
   if (payload.contains("self_peak_resident_memory_bytes"))
-    EXPECT_GE(*usage.peak_resident_memory_bytes,
-              payload.at("self_peak_resident_memory_bytes").get<std::uint64_t>());
+    EXPECT_GE(
+        *usage.peak_resident_memory_bytes,
+        payload.at("self_peak_resident_memory_bytes").get<std::uint64_t>());
   // Detect a wrong unit conversion without relying on interpreter baseline.
   EXPECT_LT(*usage.peak_resident_memory_bytes, 256U * 1024U * 1024U);
 }
@@ -357,7 +358,8 @@ TEST(LocalProcessTest, CancellationRetainsFinalResourceUsageAfterReaping) {
   std::stop_source stop;
   std::atomic<bool> ready{false};
   std::jthread canceller([&] {
-    ready = await([&] { return fs::is_regular_file(directory.root / "ready"); });
+    ready =
+        await([&] { return fs::is_regular_file(directory.root / "ready"); });
     stop.request_stop();
   });
   const auto result = cli::LocalProcessRunner{}.run(
@@ -642,5 +644,177 @@ TEST(LocalProcessTest, SignalTerminationRetainsNativeSignalWithoutExitCode) {
   EXPECT_EQ(result.signal, SIGTERM);
 }
 #endif
+
+std::optional<cli::LocalProcessMemoryLimit> memory_limit() {
+  cli::LocalProcessMemoryLimit result;
+  result.bytes = 64U << 20U;
+#if defined(__linux__)
+  const auto* parent = std::getenv("JYPPX_LIUDING_TEST_CGROUP_PARENT");
+  if (!parent) return {};
+  result.linux_cgroup_parent = fs::u8path(parent);
+#elif !defined(_WIN32)
+  return {};
+#endif
+  return result;
+}
+
+TEST(LocalProcessMemoryTest, InvalidLimitsRejectBeforeNativeLaunch) {
+  ProcessDirectory directory;
+  auto options = directory.options("memory-boundary");
+  for (const auto bytes :
+       {std::uint64_t{0}, std::uint64_t{1}, std::uint64_t{(1U << 20U) + 1U}}) {
+    options.memory_limit = cli::LocalProcessMemoryLimit{bytes, {}};
+    EXPECT_THROW(cli::LocalProcessRunner{}.run(options),
+                 jyppx::liuding::InvalidArgument);
+  }
+  EXPECT_FALSE(fs::exists(directory.root / "ready"));
+}
+
+TEST(LocalProcessMemoryTest, UnavailableBackendCannotSilentlyRunUnrestricted) {
+  ProcessDirectory directory;
+  auto options = directory.options("memory-boundary");
+  options.memory_limit =
+      cli::LocalProcessMemoryLimit{64U << 20U, directory.root};
+#if defined(__linux__)
+  EXPECT_THROW(cli::LocalProcessRunner{}.run(options),
+               jyppx::liuding::BackendError);
+#else
+  EXPECT_THROW(cli::LocalProcessRunner{}.run(options), jyppx::liuding::Error);
+#endif
+  EXPECT_FALSE(fs::exists(directory.root / "ready"));
+}
+
+TEST(LocalProcessMemoryTest, KernelPolicyIsVisibleBeforeApplicationAllocates) {
+  const auto limit = memory_limit();
+  if (!limit) GTEST_SKIP() << "Delegated cgroup v2 parent is not configured";
+  ProcessDirectory directory;
+  auto options = directory.options("memory-boundary");
+  options.memory_limit = limit;
+  const auto result = cli::LocalProcessRunner{}.run(options);
+  ASSERT_EQ(result.exit_code, 0U) << result.stderr_capture;
+  ASSERT_TRUE(result.process_tree_cleanup_confirmed);
+  ASSERT_TRUE(result.memory_boundary);
+  EXPECT_EQ(result.memory_boundary->limit_bytes, limit->bytes);
+  const auto observation = Json::parse(result.stdout_capture);
+  EXPECT_EQ(observation.at("touched_bytes"), 8U << 20U);
+#if defined(__linux__)
+  EXPECT_EQ(result.memory_boundary->source, "linux_cgroup_v2");
+  EXPECT_EQ(observation.at("memory_max"), limit->bytes);
+  EXPECT_EQ(observation.at("swap_max"), 0);
+  EXPECT_EQ(observation.at("oom_group"), 1);
+  EXPECT_EQ(result.memory_boundary->oom_kills, 0U);
+  const auto group =
+      fs::path("/sys/fs/cgroup") /
+      fs::path(observation.at("cgroup").get<std::string>()).relative_path();
+  EXPECT_EQ(group.parent_path(), limit->linux_cgroup_parent);
+  EXPECT_FALSE(fs::exists(group));
+#else
+  EXPECT_EQ(result.memory_boundary->source, "windows_job_commit");
+  EXPECT_FALSE(result.memory_boundary->oom_kills);
+#endif
+}
+
+TEST(LocalProcessMemoryTest, ExhaustionIsEnforcedByTheOperatingSystem) {
+  const auto limit = memory_limit();
+  if (!limit) GTEST_SKIP() << "Delegated cgroup v2 parent is not configured";
+  ProcessDirectory directory;
+  auto options = directory.options("memory-exceed");
+  options.memory_limit = limit;
+  const auto result = cli::LocalProcessRunner{}.run(options);
+  ASSERT_TRUE(result.memory_boundary);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+  EXPECT_FALSE(alive(result.process_id));
+#if defined(__linux__)
+  EXPECT_EQ(result.status, cli::LocalProcessStatus::signalled);
+  EXPECT_EQ(result.signal, SIGKILL);
+  ASSERT_TRUE(result.memory_boundary->oom_kills);
+  EXPECT_GE(*result.memory_boundary->oom_kills, 1U);
+#else
+  EXPECT_EQ(result.exit_code, 79U);
+  const auto allocation = Json::parse(result.stdout_capture);
+  EXPECT_EQ(allocation.at("allocation_rejected"), true);
+  const auto touched = allocation.at("touched_bytes").get<std::uint64_t>();
+  EXPECT_GT(touched, 0U);
+  EXPECT_LT(touched, limit->bytes);
+  ASSERT_TRUE(result.memory_boundary->peak_bytes);
+  // The OS peak counter can include a rejected charge; retain its raw value.
+  EXPECT_GE(*result.memory_boundary->peak_bytes, touched);
+  options.memory_limit.reset();
+  const auto unrestricted = cli::LocalProcessRunner{}.run(options);
+  EXPECT_EQ(unrestricted.exit_code, 0U);
+  EXPECT_TRUE(unrestricted.process_tree_cleanup_confirmed);
+  const auto control = Json::parse(unrestricted.stdout_capture);
+  EXPECT_EQ(control.at("allocation_rejected"), false);
+  EXPECT_EQ(control.at("touched_bytes"), 256U << 20U);
+#endif
+}
+
+TEST(LocalProcessMemoryTest,
+     CancellationAlsoKillsDescendantsOutsideThePosixGroup) {
+  const auto limit = memory_limit();
+  if (!limit) GTEST_SKIP() << "Delegated cgroup v2 parent is not configured";
+  ProcessDirectory directory;
+  auto options = directory.options("memory-tree-hold");
+  options.memory_limit = limit;
+  std::stop_source stop;
+  std::atomic<bool> ready{false};
+  std::jthread cancel([&] {
+    ready = await([&] { return fs::exists(directory.root / "ready"); });
+    stop.request_stop();
+  });
+  const auto result = cli::LocalProcessRunner{}.run(options, stop.get_token());
+  cancel.join();
+  ASSERT_TRUE(ready);
+  EXPECT_EQ(result.status, cli::LocalProcessStatus::cancelled);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+  std::ifstream file(directory.root / "memory-child.pid");
+  std::uint64_t child = 0;
+  ASSERT_TRUE(file >> child);
+  EXPECT_TRUE(await([&] { return !alive(child); }));
+  ASSERT_TRUE(result.memory_boundary);
+}
+
+TEST(LocalProcessMemoryTest, GroupOomDoesNotLeaveAnEscapedDescendantRunning) {
+  const auto limit = memory_limit();
+  if (!limit) GTEST_SKIP() << "Delegated cgroup v2 parent is not configured";
+  ProcessDirectory directory;
+  auto options = directory.options("memory-tree-exceed");
+  options.memory_limit = limit;
+  const auto result = cli::LocalProcessRunner{}.run(options);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+  std::ifstream file(directory.root / "memory-child.pid");
+  std::uint64_t child = 0;
+  ASSERT_TRUE(file >> child);
+  EXPECT_TRUE(await([&] { return !alive(child); }));
+  ASSERT_TRUE(result.memory_boundary);
+#if defined(__linux__)
+  ASSERT_TRUE(result.memory_boundary->oom_kills);
+  EXPECT_GE(*result.memory_boundary->oom_kills, 1U);
+#else
+  EXPECT_EQ(result.exit_code, 79U);
+#endif
+}
+
+TEST(LocalProcessMemoryTest, IndividuallySmallProcessesShareOneAggregateCap) {
+  const auto limit = memory_limit();
+  if (!limit) GTEST_SKIP() << "Delegated cgroup v2 parent is not configured";
+  ProcessDirectory directory;
+  auto options = directory.options("memory-aggregate");
+  options.memory_limit = limit;
+  const auto result = cli::LocalProcessRunner{}.run(options);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+  ASSERT_TRUE(result.memory_boundary);
+#if defined(__linux__)
+  EXPECT_EQ(result.signal, SIGKILL);
+  ASSERT_TRUE(result.memory_boundary->oom_kills);
+  EXPECT_GE(*result.memory_boundary->oom_kills, 1U);
+#else
+  EXPECT_EQ(result.exit_code, 79U);
+#endif
+  std::ifstream file(directory.root / "memory-child.pid");
+  std::uint64_t child = 0;
+  ASSERT_TRUE(file >> child);
+  EXPECT_TRUE(await([&] { return !alive(child); }));
+}
 
 }  // namespace

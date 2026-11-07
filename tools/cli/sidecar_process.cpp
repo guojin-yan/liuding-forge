@@ -12,6 +12,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+// PSAPI declarations require the Windows types above.
 #include <psapi.h>
 #else
 #include <fcntl.h>
@@ -23,8 +24,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #if defined(__linux__)
+#include <linux/magic.h>
 #include <sys/prctl.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/vfs.h>
 #endif
 extern char** environ;
 #endif
@@ -38,6 +42,7 @@ extern char** environ;
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <charconv>
 #include <chrono>
 #include <climits>
 #include <cstring>
@@ -463,7 +468,8 @@ class NativeProcess {
  public:
   NativeProcess(const SidecarProcessOptions& options, std::stop_token stop,
                 Clock::time_point deadline,
-                [[maybe_unused]] bool kill_on_parent_death = false)
+                [[maybe_unused]] bool kill_on_parent_death = false,
+                const LocalProcessMemoryLimit* memory_limit = nullptr)
       : cleanup_timeout_(options.cleanup_timeout) {
     try {
       check_telemetry_operation(stop, deadline);
@@ -494,10 +500,26 @@ class NativeProcess {
       JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
       limits.BasicLimitInformation.LimitFlags =
           JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+      if (memory_limit) {
+        limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+        limits.JobMemoryLimit = static_cast<SIZE_T>(memory_limit->bytes);
+        memory_boundary_ = LocalProcessMemoryBoundary{
+            "windows_job_commit", memory_limit->bytes, {}, {}};
+      }
       if (!SetInformationJobObject(job_.get(),
                                    JobObjectExtendedLimitInformation, &limits,
                                    sizeof(limits))) {
         launch_failure("launch.job.limits");
+      }
+      if (memory_limit) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION actual{};
+        if (!QueryInformationJobObject(job_.get(),
+                                       JobObjectExtendedLimitInformation,
+                                       &actual, sizeof(actual), nullptr) ||
+            (actual.BasicLimitInformation.LimitFlags &
+             JOB_OBJECT_LIMIT_JOB_MEMORY) == 0 ||
+            actual.JobMemoryLimit != limits.JobMemoryLimit)
+          launch_failure("local_process.memory.job_verify");
       }
       AttributeList attributes;
       std::array<HANDLE, 3U> inherited{input_.child.get(), output_.child.get(),
@@ -600,9 +622,14 @@ class NativeProcess {
 
   bool cleanup_confirmed() const noexcept { return cleanup_confirmed_; }
 
-  const std::optional<LocalProcessResourceUsage>& resource_usage() const
-      noexcept {
+  const std::optional<LocalProcessResourceUsage>& resource_usage()
+      const noexcept {
     return resource_usage_;
+  }
+
+  const std::optional<LocalProcessMemoryBoundary>& memory_boundary()
+      const noexcept {
+    return memory_boundary_;
   }
 
   void close_input() noexcept { input_.cancel(); }
@@ -657,7 +684,8 @@ class NativeProcess {
         LocalProcessResourceUsage usage{
             LocalProcessResourceSource::windows_process, {}, {}, {}};
         FILETIME created{}, exited{}, kernel{}, user{};
-        if (GetProcessTimes(process_.get(), &created, &exited, &kernel, &user)) {
+        if (GetProcessTimes(process_.get(), &created, &exited, &kernel,
+                            &user)) {
           const auto microseconds = [](const FILETIME& value) {
             return ((static_cast<std::uint64_t>(value.dwHighDateTime) << 32U) |
                     value.dwLowDateTime) /
@@ -673,6 +701,13 @@ class NativeProcess {
         if (usage.user_cpu_time_us || usage.peak_resident_memory_bytes)
           resource_usage_ = usage;
       }
+    }
+    if (memory_boundary_ && job_) {
+      JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+      if (QueryInformationJobObject(job_.get(),
+                                    JobObjectExtendedLimitInformation, &limits,
+                                    sizeof(limits), nullptr))
+        memory_boundary_->peak_bytes = limits.PeakJobMemoryUsed;
     }
     job_.reset();
     process_.reset();
@@ -691,6 +726,7 @@ class NativeProcess {
   bool termination_requested_ = false;
   std::optional<Clock::time_point> cleanup_deadline_;
   std::optional<LocalProcessResourceUsage> resource_usage_;
+  std::optional<LocalProcessMemoryBoundary> memory_boundary_;
 };
 #else
 
@@ -710,6 +746,124 @@ class Descriptor {
  private:
   int value_ = -1;
 };
+
+#if defined(__linux__)
+class LinuxMemoryBoundary {
+ public:
+  explicit LinuxMemoryBoundary(const LocalProcessMemoryLimit& limit) {
+    parent_.reset(::open(limit.linux_cgroup_parent.c_str(),
+                         O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+    struct statfs filesystem{};
+    if (!parent_ || ::fstatfs(parent_.get(), &filesystem) != 0 ||
+        filesystem.f_type != CGROUP2_SUPER_MAGIC)
+      launch_failure("local_process.memory.cgroup_parent");
+    static std::atomic<std::uint64_t> sequence{0};
+    name_ = "liuding-" + std::to_string(::getpid()) + "-" +
+            std::to_string(Clock::now().time_since_epoch().count()) + "-" +
+            std::to_string(sequence.fetch_add(1));
+    if (::mkdirat(parent_.get(), name_.c_str(), 0700) != 0)
+      launch_failure("local_process.memory.cgroup_create");
+    created_ = true;
+    try {
+      group_.reset(::openat(parent_.get(), name_.c_str(),
+                            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+      if (!group_) launch_failure("local_process.memory.cgroup_open");
+      write("memory.max", std::to_string(limit.bytes));
+      write("memory.swap.max", "0");
+      write("memory.oom.group", "1");
+      if (number("memory.max") != limit.bytes ||
+          number("memory.swap.max") != 0 || number("memory.oom.group") != 1)
+        launch_failure("local_process.memory.cgroup_verify");
+      procs_.reset(open("cgroup.procs", O_WRONLY));
+      kill_.reset(open("cgroup.kill", O_WRONLY));
+      events_.reset(open("cgroup.events", O_RDONLY));
+      memory_events_.reset(open("memory.events.local", O_RDONLY));
+      peak_.reset(::openat(group_.get(), "memory.peak",
+                           O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+      if (!empty()) launch_failure("local_process.memory.cgroup_not_empty");
+    } catch (...) {
+      remove();
+      throw;
+    }
+  }
+  ~LinuxMemoryBoundary() { remove(); }
+  LinuxMemoryBoundary(const LinuxMemoryBoundary&) = delete;
+  LinuxMemoryBoundary& operator=(const LinuxMemoryBoundary&) = delete;
+  int admission_descriptor() const noexcept { return procs_.get(); }
+  void stop() noexcept {
+    if (kill_) {
+      const auto ignored = ::write(kill_.get(), "1", 1);
+      static_cast<void>(ignored);
+    }
+  }
+  bool empty() const noexcept {
+    return counter(events_.get(), "populated") == 0;
+  }
+  void sample(LocalProcessMemoryBoundary& receipt) const noexcept {
+    receipt.peak_bytes = counter(peak_.get(), {});
+    receipt.oom_kills = counter(memory_events_.get(), "oom_kill");
+  }
+
+ private:
+  int open(const char* name, int mode) const {
+    const auto fd = ::openat(group_.get(), name, mode | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) launch_failure("local_process.memory.cgroup_control");
+    return fd;
+  }
+  void write(const char* name, std::string_view value) const {
+    Descriptor file(open(name, O_WRONLY));
+    if (::write(file.get(), value.data(), value.size()) !=
+        static_cast<ssize_t>(value.size()))
+      launch_failure("local_process.memory.cgroup_configure");
+  }
+  std::uint64_t number(const char* name) const {
+    Descriptor file(open(name, O_RDONLY));
+    const auto result = counter(file.get(), {});
+    if (!result) launch_failure("local_process.memory.cgroup_readback");
+    return *result;
+  }
+  static std::optional<std::uint64_t> counter(int fd,
+                                              std::string_view key) noexcept {
+    std::array<char, 4096> bytes{};
+    if (fd < 0 || ::lseek(fd, 0, SEEK_SET) < 0) return {};
+    const auto size = ::read(fd, bytes.data(), bytes.size());
+    if (size <= 0 || static_cast<std::size_t>(size) == bytes.size()) return {};
+    std::string_view text(bytes.data(), static_cast<std::size_t>(size));
+    if (!key.empty()) {
+      while (!text.empty()) {
+        const auto end = text.find('\n');
+        const auto line = text.substr(0, end);
+        if (line.starts_with(key) && line.size() > key.size() &&
+            line[key.size()] == ' ') {
+          text = line.substr(key.size() + 1);
+          break;
+        }
+        if (end == std::string_view::npos) return {};
+        text.remove_prefix(end + 1);
+      }
+    }
+    std::uint64_t value = 0;
+    const auto parsed =
+        std::from_chars(text.data(), text.data() + text.size(), value);
+    if (parsed.ec != std::errc{} ||
+        (parsed.ptr != text.data() + text.size() && *parsed.ptr != '\n'))
+      return {};
+    return value;
+  }
+  void remove() noexcept {
+    // Never remove or reconfigure the caller's delegated parent.
+    if (created_) {
+      const auto ignored =
+          ::unlinkat(parent_.get(), name_.c_str(), AT_REMOVEDIR);
+      static_cast<void>(ignored);
+      created_ = false;
+    }
+  }
+  std::string name_;
+  bool created_ = false;
+  Descriptor parent_, group_, procs_, kill_, events_, memory_events_, peak_;
+};
+#endif
 
 void nonblocking(int descriptor) {
   const auto flags = fcntl(descriptor, F_GETFL);
@@ -767,7 +921,8 @@ class NativeProcess {
  public:
   NativeProcess(const SidecarProcessOptions& options, std::stop_token stop,
                 Clock::time_point deadline,
-                [[maybe_unused]] bool kill_on_parent_death = false)
+                [[maybe_unused]] bool kill_on_parent_death = false,
+                const LocalProcessMemoryLimit* memory_limit = nullptr)
       : cleanup_timeout_(options.cleanup_timeout) {
     try {
       check_telemetry_operation(stop, deadline);
@@ -847,7 +1002,15 @@ class NativeProcess {
       // Capture before fork: getppid() in the child could already name a
       // reaper if its actual launching parent died before signal setup.
       const auto launch_parent = ::getpid();
+      if (memory_limit) {
+        memory_ = std::make_unique<LinuxMemoryBoundary>(*memory_limit);
+        memory_boundary_ = LocalProcessMemoryBoundary{
+            "linux_cgroup_v2", memory_limit->bytes, {}, {}};
+      }
+      const auto memory_admission =
+          memory_ ? memory_->admission_descriptor() : -1;
 #endif
+      check_telemetry_operation(stop, deadline);
       pid_ = fork();
       if (pid_ < 0) launch_failure("launch.fork");
       if (pid_ == 0) {
@@ -861,7 +1024,10 @@ class NativeProcess {
         ::close(diagnostic_parent);
         int failure = 0;
 #if defined(__linux__)
-        if (kill_on_parent_death) {
+        // Move the child before exec can allocate memory or fork descendants.
+        if (memory_admission >= 0 && ::write(memory_admission, "0", 1) != 1)
+          failure = errno == 0 ? EIO : errno;
+        if (failure == 0 && kill_on_parent_death) {
           // Use the raw Linux system-call wrapper after fork; no allocator,
           // logging, C++ exception or process-wide reaper policy is involved.
           if (::syscall(SYS_prctl, PR_SET_PDEATHSIG, SIGKILL, 0UL, 0UL, 0UL) !=
@@ -1024,12 +1190,17 @@ class NativeProcess {
 
   bool cleanup_confirmed() const noexcept { return cleanup_confirmed_; }
 
-  const std::optional<LocalProcessResourceUsage>& resource_usage() const
-      noexcept {
+  const std::optional<LocalProcessResourceUsage>& resource_usage()
+      const noexcept {
     return resource_usage_;
   }
 
   void close_input() noexcept { input_.reset(); }
+
+  const std::optional<LocalProcessMemoryBoundary>& memory_boundary()
+      const noexcept {
+    return memory_boundary_;
+  }
 
   void stop_tree() noexcept {
     if (!cleanup_deadline_) cleanup_deadline_ = Clock::now() + cleanup_timeout_;
@@ -1039,6 +1210,9 @@ class NativeProcess {
       ::kill(-pid_, SIGKILL);
       if (!reaped_) ::kill(pid_, SIGKILL);
     }
+#if defined(__linux__)
+    if (memory_) memory_->stop();
+#endif
   }
 
   void terminate() noexcept {
@@ -1061,8 +1235,8 @@ class NativeProcess {
           if (result == pid_) {
             LocalProcessResourceUsage usage{
                 LocalProcessResourceSource::linux_wait4, {}, {}, {}};
-            const auto microseconds = [](const timeval& value)
-                -> std::optional<std::uint64_t> {
+            const auto microseconds =
+                [](const timeval& value) -> std::optional<std::uint64_t> {
               constexpr auto maximum =
                   std::numeric_limits<std::uint64_t>::max();
               if (value.tv_sec < 0 || value.tv_usec < 0 ||
@@ -1093,11 +1267,18 @@ class NativeProcess {
             break;
         }
         cleanup_confirmed_ = reaped_ && ::kill(-pid_, 0) < 0 && errno == ESRCH;
+#if defined(__linux__)
+        if (memory_)
+          cleanup_confirmed_ = cleanup_confirmed_ && memory_->empty();
+#endif
         if (cleanup_confirmed_ || Clock::now() >= deadline) break;
         ::poll(nullptr, 0U, 1);
       }
       pid_ = -1;
     }
+#if defined(__linux__)
+    if (memory_ && memory_boundary_) memory_->sample(*memory_boundary_);
+#endif
     input_.reset();
     output_.reset();
     diagnostic_.reset();
@@ -1111,6 +1292,10 @@ class NativeProcess {
   bool termination_requested_ = false;
   std::optional<Clock::time_point> cleanup_deadline_;
   std::optional<LocalProcessResourceUsage> resource_usage_;
+  std::optional<LocalProcessMemoryBoundary> memory_boundary_;
+#if defined(__linux__)
+  std::unique_ptr<LinuxMemoryBoundary> memory_;
+#endif
   Descriptor input_;
   Descriptor output_;
   Descriptor diagnostic_;
@@ -1275,6 +1460,31 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
     throw InvalidArgument("Invalid local process execution bounds",
                           details("local_process.options"));
   }
+  if (options.memory_limit) {
+    const auto& limit = *options.memory_limit;
+    constexpr std::uint64_t mib = 1U << 20U;
+    if (limit.bytes == 0 || limit.bytes % mib != 0 ||
+        limit.bytes > static_cast<std::uint64_t>(
+                          std::numeric_limits<std::int64_t>::max()))
+      throw InvalidArgument("OS memory limit requires positive whole MiB",
+                            details("local_process.memory.options"));
+#if defined(_WIN32)
+    if (!limit.linux_cgroup_parent.empty() ||
+        limit.bytes > std::numeric_limits<SIZE_T>::max())
+      throw InvalidArgument("Windows memory limit requires a Job memory cap",
+                            details("local_process.memory.options"));
+#elif defined(__linux__)
+    if (!limit.linux_cgroup_parent.is_absolute())
+      throw InvalidArgument(
+          "Linux memory limit requires a delegated cgroup v2 parent",
+          details("local_process.memory.options"));
+    launch_text(limit.linux_cgroup_parent.native());
+#else
+    throw CompatibilityError(
+        "OS memory limiting is unavailable on this platform",
+        details("local_process.memory.options"));
+#endif
+  }
   SidecarProcessOptions launch;
   launch.executable = options.executable;
   launch.arguments = options.arguments;
@@ -1293,6 +1503,7 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
       native->terminate();
       result.process_tree_cleanup_confirmed = native->cleanup_confirmed();
       result.resource_usage = native->resource_usage();
+      result.memory_boundary = native->memory_boundary();
     } else {
       // A constructor that crossed its launch boundary may have failed during
       // cleanup. Only cancellation before entering it proves no child existed.
@@ -1309,7 +1520,8 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
     native = std::make_unique<NativeProcess>(
         launch, stop,
         std::min(deadline, Clock::now() + options.startup_timeout),
-        options.kill_on_parent_death);
+        options.kill_on_parent_death,
+        options.memory_limit ? &*options.memory_limit : nullptr);
     result.process_id = native->process_id();
     native->close_input();
     bool leader_exited = false;

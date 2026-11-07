@@ -74,9 +74,10 @@ void environment_reference_name(std::string_view name) {
     return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
   };
   require(!name.empty() && name.size() <= 128 && letter(name.front()) &&
-              std::all_of(name.begin(), name.end(), [&](unsigned char c) {
-                return letter(c) || (c >= '0' && c <= '9');
-              }) &&
+              std::all_of(name.begin(), name.end(),
+                          [&](unsigned char c) {
+                            return letter(c) || (c >= '0' && c <= '9');
+                          }) &&
               !reserved_environment_name(name),
           "Environment references require non-reserved portable names");
 }
@@ -102,11 +103,12 @@ std::string process_environment_value(const std::string& name) {
   require(length < capacity && (length != 0 || GetLastError() == ERROR_SUCCESS),
           "Cannot read a referenced process environment variable");
   if (length == 0) return {};
-  const auto count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-                                       buffer.data(), static_cast<int>(length),
-                                       nullptr, 0, nullptr, nullptr);
-  require(count > 0 && static_cast<std::uint64_t>(count) <= kSpecBytes,
-          "Referenced environment value is invalid or exceeds the launch bound");
+  const auto count = WideCharToMultiByte(
+      CP_UTF8, WC_ERR_INVALID_CHARS, buffer.data(), static_cast<int>(length),
+      nullptr, 0, nullptr, nullptr);
+  require(
+      count > 0 && static_cast<std::uint64_t>(count) <= kSpecBytes,
+      "Referenced environment value is invalid or exceeds the launch bound");
   std::string result(static_cast<std::size_t>(count), '\0');
   require(WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, buffer.data(),
                               static_cast<int>(length), result.data(), count,
@@ -419,7 +421,8 @@ Spec read_spec(const Json& value) {
        "executable_sha256", "arguments", "working_directory", "environment",
        "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
-       "deadline_unix_ms", "training", "resources", "environment_refs"});
+       "deadline_unix_ms", "training", "resources", "environment_refs",
+       "os_memory_limit"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -469,7 +472,8 @@ Spec read_spec(const Json& value) {
     for (const auto& [name, reference] : references.items()) {
       environment_reference_name(name);
       require(environment_names.insert(environment_key(name)).second,
-              "Environment reference destinations must be unique ignoring ASCII case");
+              "Environment reference destinations must be unique ignoring "
+              "ASCII case");
       fields(reference, {"source", "name"});
       require(text(reference.at("source")) == "process_environment",
               "Unknown environment reference source");
@@ -510,6 +514,28 @@ Spec read_spec(const Json& value) {
             "Checkpoint continuation requires a bounded retry policy");
   if (value.contains("resources"))
     result.resources = resource_spec(value.at("resources"));
+  if (value.contains("os_memory_limit")) {
+    const auto& memory = value.at("os_memory_limit");
+    fields(memory, {"bytes"}, {"cgroup_parent"});
+    LocalProcessMemoryLimit limit;
+    limit.bytes =
+        positive(memory.at("bytes"), std::numeric_limits<std::int64_t>::max());
+    require(limit.bytes % (1U << 20U) == 0,
+            "OS memory limit requires positive whole MiB");
+    if (memory.contains("cgroup_parent"))
+      limit.linux_cgroup_parent = fs::u8path(text(memory.at("cgroup_parent")));
+#if defined(_WIN32)
+    require(limit.linux_cgroup_parent.empty(),
+            "Windows OS memory limit uses its native Job Object");
+#elif defined(__linux__)
+    require(
+        limit.linux_cgroup_parent.is_absolute(),
+        "Linux OS memory limit requires an absolute delegated cgroup parent");
+#else
+    require(false, "OS memory limiting is unavailable on this platform");
+#endif
+    process.memory_limit = std::move(limit);
+  }
   return result;
 }
 
@@ -517,7 +543,8 @@ LocalProcessOptions resolved_process(const Spec& spec) {
   auto result = spec.process;
   if (spec.environment_references.empty()) return result;
   std::size_t launch_bytes = path_text(result.executable).size() + 1;
-  for (const auto& argument : result.arguments) launch_bytes += argument.size() + 1;
+  for (const auto& argument : result.arguments)
+    launch_bytes += argument.size() + 1;
   for (const auto& [name, value] : result.environment)
     launch_bytes += name.size() + value.size() + 2;
   for (const auto& [name, source] : spec.environment_references) {
@@ -1095,15 +1122,17 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
           "stdout_sha256", "stderr_sha256", "failure_reason"},
          {"process_tree_cleanup_confirmed", "training_sha256",
           "training_outputs_sha256", "training_outputs_confirmed",
-          "resource_usage"});
+          "resource_usage", "memory_boundary"});
   schema(value, "jyppx.liuding.local_attempt_result");
   // Older immutable results have no accounting field. Do not fabricate one
   // during replay; a present measurement must retain explicit OS semantics.
   if (value.contains("resource_usage") &&
       !value.at("resource_usage").is_null()) {
     const auto& usage = value.at("resource_usage");
-    fields(usage, {"source", "user_cpu_time_us", "system_cpu_time_us",
-                   "peak_resident_memory_bytes"}, {});
+    fields(usage,
+           {"source", "user_cpu_time_us", "system_cpu_time_us",
+            "peak_resident_memory_bytes"},
+           {});
     const auto source = text(usage.at("source"));
     require(source == "windows_process" || source == "linux_wait4",
             "Unknown local resource accounting source");
@@ -1116,8 +1145,8 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
         measured = true;
       }
     }
-    const auto pid = unsigned_number(
-        value.at("process_id"), std::numeric_limits<std::uint64_t>::max());
+    const auto pid = unsigned_number(value.at("process_id"),
+                                     std::numeric_limits<std::uint64_t>::max());
     require(measured && pid != 0,
             "Local resource accounting requires a measured launched process");
   }
@@ -1131,6 +1160,34 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
               value.at("spec_sha256").get<std::string>() == spec.sha256,
           "Local attempt result identity mismatch");
   const auto state = value.at("status").get<std::string>();
+  if (value.contains("memory_boundary") &&
+      !value.at("memory_boundary").is_null()) {
+    const auto& memory = value.at("memory_boundary");
+    fields(memory, {"source", "limit_bytes", "peak_bytes", "oom_kills"}, {});
+    const auto source = text(memory.at("source"));
+    require(
+        spec.process.memory_limit &&
+            (source == "windows_job_commit" || source == "linux_cgroup_v2") &&
+            positive(memory.at("limit_bytes"),
+                     std::numeric_limits<std::int64_t>::max()) ==
+                spec.process.memory_limit->bytes &&
+            unsigned_number(value.at("process_id"),
+                            std::numeric_limits<std::uint64_t>::max()) != 0,
+        "Local memory boundary differs from its declared OS policy");
+    require((source == "linux_cgroup_v2") ==
+                !spec.process.memory_limit->linux_cgroup_parent.empty(),
+            "Local memory boundary has a different OS backend");
+    for (const auto field : {"peak_bytes", "oom_kills"})
+      if (!memory.at(field).is_null())
+        static_cast<void>(unsigned_number(
+            memory.at(field), std::numeric_limits<std::uint64_t>::max()));
+    require(source != "windows_job_commit" || memory.at("oom_kills").is_null(),
+            "Windows Job memory accounting has no Linux OOM counter");
+  } else {
+    require(
+        !spec.process.memory_limit || value.at("process_id") == 0,
+        "A launched memory-limited attempt requires its OS boundary receipt");
+  }
   require(state == "exited" || state == "signalled" || state == "cancelled" ||
               state == "timed_out" || state == "output_limit" ||
               state == "launch_error" || state == "monitor_error",
@@ -1807,7 +1864,19 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
                        : "linux_wait4"},
         {"user_cpu_time_us", number(usage.user_cpu_time_us)},
         {"system_cpu_time_us", number(usage.system_cpu_time_us)},
-        {"peak_resident_memory_bytes", number(usage.peak_resident_memory_bytes)}};
+        {"peak_resident_memory_bytes",
+         number(usage.peak_resident_memory_bytes)}};
+  }
+  result["memory_boundary"] = nullptr;
+  if (native.memory_boundary) {
+    const auto& boundary = *native.memory_boundary;
+    result["memory_boundary"] = {
+        {"source", boundary.source},
+        {"limit_bytes", boundary.limit_bytes},
+        {"peak_bytes",
+         boundary.peak_bytes ? Json(*boundary.peak_bytes) : Json(nullptr)},
+        {"oom_kills",
+         boundary.oom_kills ? Json(*boundary.oom_kills) : Json(nullptr)}};
   }
   if (frozen_training)
     result["training_sha256"] = frozen_training->manifest.artifact.digest.hex;

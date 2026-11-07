@@ -32,7 +32,66 @@ def await_file(path):
 def main():
     mode, root_text, *arguments = sys.argv[1:]
     root = Path(root_text)
-    if mode == "inspect":
+    if mode == "memory-boundary":
+        payload = {"touched_bytes": 8 * 1024 * 1024}
+        memory = bytearray(payload["touched_bytes"])
+        for offset in range(0, len(memory), 4096):
+            memory[offset] = 19
+        if sys.platform == "linux":
+            group = Path("/proc/self/cgroup").read_text().strip().split("::", 1)[1]
+            controls = Path("/sys/fs/cgroup") / group.lstrip("/")
+            payload.update(cgroup=group, memory_max=int((controls / "memory.max").read_text()),
+                           swap_max=int((controls / "memory.swap.max").read_text()),
+                           oom_group=int((controls / "memory.oom.group").read_text()))
+        write_all(1, json.dumps(payload).encode("ascii"))
+    elif mode == "memory-aggregate":
+        child = subprocess.Popen([sys.executable, "-I", "-u", __file__,
+                                  "memory-aggregate-child", str(root)])
+        await_file(root / "memory-child.pid")
+        memory = bytearray(24 * 1024 * 1024)
+        for offset in range(0, len(memory), 4096):
+            memory[offset] = 31
+        (root / "memory-aggregate.go").write_text("go", encoding="ascii")
+        os._exit(child.wait())
+    elif mode == "memory-aggregate-child":
+        (root / "memory-child.pid").write_text(str(os.getpid()), encoding="ascii")
+        await_file(root / "memory-aggregate.go")
+        try:
+            memory = bytearray(32 * 1024 * 1024)
+            for offset in range(0, len(memory), 4096):
+                memory[offset] = 37
+        except MemoryError:
+            os._exit(79)
+    elif mode in ("memory-exceed", "memory-tree-exceed", "memory-tree-hold"):
+        if mode.startswith("memory-tree"):
+            child = subprocess.Popen([sys.executable, "-I", "-u", __file__,
+                                      "memory-escaped-child", str(root)],
+                                     start_new_session=os.name != "nt")
+            await_file(root / "memory-child.pid")
+        (root / "ready").write_text(str(os.getpid()), encoding="ascii")
+        if mode == "memory-tree-hold":
+            while True:
+                time.sleep(0.01)
+        blocks = []
+        try:
+            # Finite even if enforcement regresses: at most 256 MiB.
+            for _ in range(32):
+                block = bytearray(8 * 1024 * 1024)
+                for offset in range(0, len(block), 4096):
+                    block[offset] = 29
+                blocks.append(block)
+        except MemoryError:
+            write_all(1, json.dumps({"allocation_rejected": True,
+                                     "touched_bytes": sum(map(len, blocks))}).encode("ascii"))
+            # Windows rejects commitment instead of invoking a Linux OOM kill.
+            os._exit(79)
+        write_all(1, json.dumps({"allocation_rejected": False,
+                                 "touched_bytes": sum(map(len, blocks))}).encode("ascii"))
+    elif mode == "memory-escaped-child":
+        (root / "memory-child.pid").write_text(str(os.getpid()), encoding="ascii")
+        while True:
+            time.sleep(0.01)
+    elif mode == "inspect":
         payload = {"arguments": arguments, "cwd": str(Path.cwd()),
                    "token": os.environ.get("JYPPX_LOCAL_PROCESS_TEST_TOKEN"),
                    "parent_path": os.environ.get("PATH"),

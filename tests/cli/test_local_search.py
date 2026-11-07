@@ -297,6 +297,30 @@ class LocalSearchTests(unittest.TestCase):
         self.assertEqual(self.search("recover")["best"], result["best"])
         self.assertEqual(len(self.launches()), 3)
 
+    def test_os_memory_boundary_flows_through_search_and_terminal_replay(self) -> None:
+        self.single("ok")
+        policy = {"bytes": 512 << 20}
+        if sys.platform == "linux":
+            parent = os.environ.get("JYPPX_LIUDING_TEST_CGROUP_PARENT")
+            if not parent:
+                self.skipTest("Delegated cgroup v2 parent is not configured")
+            policy["cgroup_parent"] = parent
+        elif os.name != "nt":
+            self.skipTest("OS memory backend is unavailable")
+        self.spec["execution"]["os_memory_limit"] = policy
+        result = self.search("execute")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["parallel_trials"], 1)
+        trial = result["trials"][0]["trial_id"]
+        job = self.invoke("local", "show", "--root", self.root, "--id", trial)["data"]
+        self.assertEqual(len(job["attempts"]), 1)
+        boundary = job["attempts"][0]["result"]["memory_boundary"]
+        self.assertEqual(boundary["limit_bytes"], policy["bytes"])
+        self.assertEqual(boundary["source"],
+                         "linux_cgroup_v2" if sys.platform == "linux" else "windows_job_commit")
+        self.assertEqual(self.search("recover")["best"], result["best"])
+        self.assertEqual(len(self.launches()), 1)
+
     def test_environment_references_flow_through_search_and_replay_without_source(self) -> None:
         self.single("ok")
         self.spec["execution"].update(environment={}, environment_refs={"SEARCH_PARAMETER": {

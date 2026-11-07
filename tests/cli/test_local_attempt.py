@@ -104,6 +104,17 @@ def fixture(mode: str, root: Path, arguments: list[str]) -> None:
         (root / "ready.json").write_text(json.dumps({"leader": os.getpid()}), encoding="ascii")
         while True:
             time.sleep(0.01)
+    if mode == "memory_exceed":
+        blocks = []
+        try:
+            for _ in range(32):
+                block = bytearray(8 * 1024 * 1024)
+                for offset in range(0, len(block), 4096):
+                    block[offset] = 41
+                blocks.append(block)
+        except MemoryError:
+            os._exit(79)
+        return
     if mode in ("hold", "flood"):
         subprocess.Popen([sys.executable, "-I", "-u", str(Path(__file__).resolve()),
                           "--fixture", "child", str(root)], stdin=subprocess.DEVNULL)
@@ -821,6 +832,105 @@ class LocalAttemptTest(unittest.TestCase):
         self.assertEqual(self.local("recover")["attempts"], result["attempts"])
         self.assertEqual(self.launch_count(), 1)
         self.assertTrue(self.invoke("run", "verify", "--root", self.root)["data"]["valid"])
+
+    def memory_policy(self) -> dict:
+        policy = {"bytes": 64 << 20}
+        if sys.platform == "linux":
+            parent = os.environ.get("JYPPX_LIUDING_TEST_CGROUP_PARENT")
+            if not parent:
+                self.skipTest("Delegated cgroup v2 parent is not configured")
+            policy["cgroup_parent"] = parent
+        elif os.name != "nt":
+            self.skipTest("OS memory backend is unavailable")
+        return policy
+
+    def test_os_memory_limit_rejects_invalid_specs_before_storage(self) -> None:
+        for policy in ({}, None, [], {"bytes": 0}, {"bytes": -1},
+                       {"bytes": True}, {"bytes": 1.5}, {"bytes": "67108864"},
+                       {"bytes": (64 << 20) + 1}, {"bytes": 1 << 64},
+                       {"bytes": 64 << 20, "extra": 1},
+                       {"bytes": 64 << 20, "cgroup_parent": "relative"}):
+            with self.subTest(policy=policy):
+                self.spec["os_memory_limit"] = policy
+                self.write_spec()
+                self.invoke("local", "execute", "--root", self.root, "--id", "job-one",
+                            "--spec", self.spec_path, expected=2)
+                self.assertFalse(self.root.exists())
+                self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_os_memory_boundary_is_persisted_and_replayed_without_relaunch(self) -> None:
+        policy = self.memory_policy()
+        self.spec["os_memory_limit"] = policy
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]
+        boundary = attempt["result"]["memory_boundary"]
+        self.assertEqual(boundary["limit_bytes"], policy["bytes"])
+        self.assertEqual(boundary["source"],
+                         "linux_cgroup_v2" if sys.platform == "linux" else "windows_job_commit")
+        if sys.platform == "linux":
+            self.assertEqual(boundary["oom_kills"], 0)
+        else:
+            self.assertIsNone(boundary["oom_kills"])
+        self.assertTrue(attempt["result"]["process_tree_cleanup_confirmed"])
+        references = self.references(attempt["attempt_id"])
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.local(action)["attempts"], original["attempts"])
+            self.assertEqual(self.references(attempt["attempt_id"]), references)
+            self.assertEqual(self.launch_count(), 1)
+
+    def test_os_memory_exhaustion_keeps_native_failure_and_does_not_retry(self) -> None:
+        self.spec["os_memory_limit"] = self.memory_policy()
+        self.write_spec("memory_exceed")
+        original = self.local("execute", expected=1)
+        self.assertEqual(original["status"], "failed")
+        self.assertEqual(len(original["attempts"]), 1)
+        result = original["attempts"][0]["result"]
+        self.assertTrue(result["process_tree_cleanup_confirmed"])
+        if sys.platform == "linux":
+            self.assertEqual(result["status"], "signalled")
+            self.assertEqual(result["signal"], signal.SIGKILL)
+            self.assertGreaterEqual(result["memory_boundary"]["oom_kills"], 1)
+        else:
+            self.assertEqual(result["exit_code"], 79)
+            self.assertIsNone(result["memory_boundary"]["oom_kills"])
+        self.assertEqual(self.local("recover", expected=1)["attempts"], original["attempts"])
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_invalid_os_boundary_receipts_cannot_claim_enforcement(self) -> None:
+        self.spec["os_memory_limit"] = self.memory_policy()
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        result = dict(original["attempts"][0]["result"])
+        valid = dict(result["memory_boundary"])
+        cases = [None, {}, [], dict(valid, source="sampled_rss"),
+                 dict(valid, source="windows_job_commit" if sys.platform == "linux" else "linux_cgroup_v2"),
+                 dict(valid, limit_bytes=128 << 20), dict(valid, extra=1),
+                 dict(valid, peak_bytes=-1), dict(valid, peak_bytes=True),
+                 dict(valid, oom_kills=1.5)]
+        for boundary in cases:
+            with self.subTest(boundary=boundary):
+                result["memory_boundary"] = boundary
+                self.replace_result(attempt, result)
+                references = self.references(attempt)
+                self.invoke("local", "show", "--root", self.root, "--id", "job-one", expected=2)
+                self.assertEqual(self.references(attempt), references)
+                self.assertEqual(self.launch_count(), 1)
+        result.pop("memory_boundary")
+        self.replace_result(attempt, result)
+        self.invoke("local", "show", "--root", self.root, "--id", "job-one", expected=2)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_unlimited_legacy_result_keeps_missing_boundary_on_replay(self) -> None:
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        result = dict(original["attempts"][0]["result"])
+        result.pop("memory_boundary")
+        self.replace_result(attempt, result)
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.local(action)["attempts"][0]["result"], result)
+        self.assertEqual(self.launch_count(), 1)
 
     def test_resource_usage_legacy_missing_and_unavailable_replay_without_fabrication(self) -> None:
         original = self.local("execute")

@@ -23,6 +23,20 @@
 
 namespace jyppx::liuding::cli {
 
+/** @brief OS memory boundary for one native process and its descendants. */
+struct LocalProcessMemoryLimit {
+  std::uint64_t bytes = 0;  ///< Positive whole MiB; backend-specific charges.
+  std::filesystem::path linux_cgroup_parent;  ///< Delegated cgroup v2 parent.
+};
+
+/** @brief Confirmed OS policy and final counters, separate from direct RSS. */
+struct LocalProcessMemoryBoundary {
+  std::string source;             ///< windows_job_commit or linux_cgroup_v2.
+  std::uint64_t limit_bytes = 0;  ///< Configured enforced cap.
+  std::optional<std::uint64_t> peak_bytes;  ///< Job commit or cgroup charges.
+  std::optional<std::uint64_t> oom_kills;   ///< Linux memory.events only.
+};
+
 /** @brief Immutable launch and finite resource policy for one invocation. */
 struct LocalProcessOptions {
   std::filesystem::path
@@ -50,6 +64,9 @@ struct LocalProcessOptions {
   // This protects the direct child, not arbitrary forked descendants.
   bool kill_on_parent_death =
       false;  ///< SIGKILL if the Linux launching thread dies.
+  std::optional<LocalProcessMemoryLimit>
+      memory_limit;  ///< Fail closed if the requested OS boundary is
+                     ///< unavailable.
 };
 
 /** @brief A child failure is a result; invalid launch and I/O throw Error. */
@@ -64,10 +81,11 @@ enum class LocalProcessStatus : std::uint8_t {
 /** @brief OS accounting scope; neither source measures concurrent tree RSS. */
 enum class LocalProcessResourceSource : std::uint8_t {
   windows_process,  ///< Direct process times and peak working set only.
-  linux_wait4      ///< Kernel wait4 accounting, including waited descendants.
+  linux_wait4       ///< Kernel wait4 accounting, including waited descendants.
 };
 
-/** @brief Final OS counters; unavailable individual measurements stay absent. */
+/** @brief Final OS counters; unavailable individual measurements stay absent.
+ */
 struct LocalProcessResourceUsage {
   LocalProcessResourceSource source;
   std::optional<std::uint64_t> user_cpu_time_us;
@@ -92,6 +110,8 @@ struct LocalProcessResult {
   bool process_tree_cleanup_confirmed = false;  ///< Conservative native proof.
   std::optional<LocalProcessResourceUsage>
       resource_usage;  ///< Absent before launch or if final accounting failed.
+  std::optional<LocalProcessMemoryBoundary>
+      memory_boundary;  ///< Present only after an OS-limited native launch.
 };
 
 /**

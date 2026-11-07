@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地执行与搜索可显式设置原生进程树的 OS 内存上限，使用 Windows Job 提交量或 Linux 委派 cgroup v2，后端不可用时拒绝启动，并保存独立的限制与 OOM 计数收据。
+
 - 图像批次内存、数值和几何变换保留共享 Tensor 存储或不可变目标对象的源预算租约，原批次释放后仍保持计费；完全独立的输出及时归还源预约。
 
 - 补录干净提交 `d841b54` 的 CUDA Release SDK 验证：18 库安装、独立消费者及 CPU/CUDA 真实图像训练恢复通过，选定 2086 项合同分阶段闭合为 2014 通过、72 条件跳过、零未解决失败；保留首批证据目录冲突失败，完整模型矩阵和正式发布仍待验收。
