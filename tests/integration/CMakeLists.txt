@@ -9,6 +9,22 @@ if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::experiment)
         test_image_output_evidence.cpp)
     target_link_libraries(jyppx_test_image_output_evidence PRIVATE
         jyppx::liuding::experiment)
+    if(Python3_Interpreter_FOUND)
+        add_executable(jyppx_image_output_recovery_child
+            experiment/image_output_recovery_child.cpp)
+        target_link_libraries(jyppx_image_output_recovery_child PRIVATE
+            jyppx::liuding::data_image jyppx::liuding::experiment
+            nlohmann_json::nlohmann_json)
+        jyppx_apply_instrumentation(jyppx_image_output_recovery_child)
+        jyppx_add_torch_runtime_dependency(jyppx_image_output_recovery_child)
+        add_test(NAME ImageOutputProcessRecovery
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_image_output_recovery.py"
+                --child $<TARGET_FILE:jyppx_image_output_recovery_child>
+                --work-dir "${CMAKE_BINARY_DIR}/_image_recovery/$<CONFIG>")
+        set_tests_properties(ImageOutputProcessRecovery PROPERTIES
+            LABELS "data_image;experiment;integration;process" TIMEOUT 120)
+    endif()
 endif()
 
 # A real process boundary is required to validate durable outbox replay after

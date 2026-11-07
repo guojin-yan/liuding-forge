@@ -17,6 +17,7 @@
 #include <future>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <latch>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -141,6 +142,158 @@ TEST(ImageOutputSinkTest, ReplaceExistingPublishesLastCompleteImage) {
   sink.close();
   EXPECT_EQ(Read(path), expected);
   EXPECT_EQ(sink.stats().completed, 2U);
+}
+
+TEST(ImageOutputSinkTest, IdenticalReplayPreservesFileAndRunsEvidenceAgain) {
+  SinkDirectory directory;
+  const auto path = directory.path / "result.png";
+  auto image = Png(7);
+  // Exercise comparisons across multiple bounded reads, including the tail.
+  image.bytes.resize(196613U, std::byte{37});
+  const auto expected = image.bytes;
+  {
+    ImageOutputSink first;
+    first.submit(path, std::move(image)).completion.get();
+    first.close();
+  }
+  const auto alias = directory.path / "same-inode.png";
+  std::filesystem::create_hard_link(path, alias);
+  const auto modified = std::filesystem::last_write_time(path);
+  auto budget = std::make_shared<ImageResourceBudget>();
+  ImageOutputSinkOptions options;
+  options.replay_identical_existing = true;
+  options.resource_budget = budget;
+  ImageOutputSink replay(options);
+  std::size_t callbacks = 0;
+  auto retry = Png(7);
+  retry.bytes = expected;
+  auto ticket = replay.submit_with_evidence(
+      path, std::move(retry), [&](const ImageSinkWriteResult& result) {
+        ++callbacks;
+        EXPECT_EQ(result.sha256, sha256_hex(expected));
+        EXPECT_EQ(result.bytes, expected.size());
+      });
+  EXPECT_EQ(ticket.completion.get().path, path);
+  EXPECT_NO_THROW(ticket.evidence_completion.get());
+  replay.close();
+  EXPECT_EQ(callbacks, 1U);
+  EXPECT_TRUE(std::filesystem::equivalent(path, alias));
+  EXPECT_EQ(std::filesystem::last_write_time(path), modified);
+  EXPECT_EQ(Read(path), expected);
+  EXPECT_EQ(replay.stats().completed, 1U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::disk_spool_bytes).current, 0U);
+  EXPECT_EQ(std::distance(std::filesystem::directory_iterator(directory.path),
+                          std::filesystem::directory_iterator{}),
+            2);
+}
+
+TEST(ImageOutputSinkTest, IdenticalReplayRejectsConflictingContentAndLength) {
+  SinkDirectory directory;
+  const auto path = directory.path / "result.png";
+  auto original = Png(7);
+  original.bytes.resize(196613U, std::byte{37});
+  const auto expected = original.bytes;
+  {
+    ImageOutputSink first;
+    first.submit(path, std::move(original)).completion.get();
+    first.close();
+  }
+  const auto modified = std::filesystem::last_write_time(path);
+  for (const auto index : {8U, 65536U, 196612U, 196613U, 196614U}) {
+    auto different = Png(7);
+    different.bytes = expected;
+    if (index < expected.size())
+      different.bytes[index] ^= std::byte{1};
+    else
+      different.bytes.resize(index == expected.size() ? expected.size() - 1U
+                                                      : expected.size() + 1U);
+    ImageOutputSinkOptions options;
+    options.replay_identical_existing = true;
+    ImageOutputSink sink(options);
+    bool called = false;
+    auto ticket = sink.submit_with_evidence(
+        path, std::move(different), [&](const auto&) { called = true; });
+    EXPECT_THROW(ticket.completion.get(), IoError);
+    EXPECT_THROW(ticket.evidence_completion.get(), IoError);
+    EXPECT_THROW(sink.close(), IoError);
+    EXPECT_FALSE(called);
+    EXPECT_EQ(Read(path), expected);
+    EXPECT_EQ(std::filesystem::last_write_time(path), modified);
+    EXPECT_EQ(sink.stats().failed, 1U);
+    EXPECT_EQ(std::distance(std::filesystem::directory_iterator(directory.path),
+                            std::filesystem::directory_iterator{}),
+              1);
+  }
+}
+
+TEST(ImageOutputSinkTest, IdenticalReplayDoesNotFollowSymlink) {
+  SinkDirectory directory;
+  const auto original = directory.path / "original.png";
+  {
+    ImageOutputSink first;
+    first.submit(original, Png(7)).completion.get();
+    first.close();
+  }
+  const auto path = directory.path / "symlink.png";
+  std::error_code error;
+  std::filesystem::create_symlink(original, path, error);
+  if (error)
+    GTEST_SKIP() << "symlink creation unavailable: " << error.message();
+  ImageOutputSinkOptions options;
+  options.replay_identical_existing = true;
+  ImageOutputSink sink(options);
+  auto ticket = sink.submit(path, Png(7));
+  EXPECT_THROW(ticket.completion.get(), IoError);
+  EXPECT_THROW(sink.close(), IoError);
+  EXPECT_TRUE(std::filesystem::is_symlink(path));
+  EXPECT_EQ(Read(original), Png(7).bytes);
+}
+
+TEST(ImageOutputSinkTest, IdenticalReplaySerializesConcurrentPublishers) {
+  SinkDirectory directory;
+  ImageOutputSinkOptions options;
+  options.replay_identical_existing = true;
+  ImageOutputSink first(options), second(options);
+  const auto path = directory.path / "result.png";
+  std::latch ready(2), proceed(1);
+  auto publish = [&](ImageOutputSink& sink) {
+    auto image = Png(7);
+    ready.count_down();
+    proceed.wait();
+    return sink.submit(path, std::move(image)).completion.get();
+  };
+  auto a = std::async(std::launch::async, [&] { return publish(first); });
+  auto b = std::async(std::launch::async, [&] { return publish(second); });
+  ready.wait();
+  proceed.count_down();
+  const auto left = a.get(), right = b.get();
+  first.close();
+  second.close();
+  EXPECT_EQ(left.sha256, right.sha256);
+  EXPECT_EQ(left.bytes, right.bytes);
+  EXPECT_EQ(Read(path), Png(7).bytes);
+  EXPECT_EQ(std::distance(std::filesystem::directory_iterator(directory.path),
+                          std::filesystem::directory_iterator{}),
+            1);
+}
+
+TEST(ImageOutputSinkTest, ExistingFilePoliciesAreExplicitAndExclusive) {
+  ImageOutputSinkOptions options;
+  options.replay_identical_existing = true;
+  options.replace_existing = true;
+  EXPECT_THROW(ImageOutputSink{options}, InvalidArgument);
+  SinkDirectory directory;
+  const auto path = directory.path / "result.png";
+  {
+    ImageOutputSink first;
+    first.submit(path, Png(7)).completion.get();
+    first.close();
+  }
+  ImageOutputSink strict;
+  auto duplicate = strict.submit(path, Png(7));
+  EXPECT_THROW(duplicate.completion.get(), IoError);
+  EXPECT_THROW(strict.close(), IoError);
 }
 
 TEST(ImageOutputSinkTest, DropNewestKeepsOutstandingWorkBounded) {

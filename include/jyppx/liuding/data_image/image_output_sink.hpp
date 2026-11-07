@@ -57,6 +57,9 @@ struct ImageOutputSinkOptions {
   bool continue_after_error = false;  ///< Continue later tasks after a failure.
   bool replace_existing =
       false;  ///< Permit staged publication over an old file.
+  bool replay_identical_existing = false;
+  ///< Verify and reuse an identical ordinary file after a publication
+  ///< collision; incompatible with replace_existing. Other content is refused.
   std::shared_ptr<ImageResourceBudget> resource_budget;
   ///< Optional aggregate encoded-queue and temporary-file accounting.
 };
@@ -122,7 +125,8 @@ class ImageOutputSink final {
  public:
   /** @brief Validates queue policy and starts one background writer.
    * @param options Positive queue, per-image and sampling limits.
-   * @throws InvalidArgument Unsupported overflow or zero required limits.
+   * @throws InvalidArgument Unsupported overflow, conflicting existing-file
+   * policies or zero required limits.
    */
   explicit ImageOutputSink(ImageOutputSinkOptions options = {});
   /** @brief Rejects new work and joins the writer, suppressing task errors. */
@@ -147,6 +151,10 @@ class ImageOutputSink final {
    * @note A closed sink is invalid. With continue_after_error disabled, the
    * first asynchronous error is rethrown by later submissions. Accepted write
    * failures are returned through completion and flush/close.
+   * With replay_identical_existing, an existing ordinary file is compared in
+   * bounded chunks and synced before returning the same content identity.
+   * Reuse stable paths and evidence identities in a caller-controlled output
+   * directory; this does not protect against external concurrent mutation.
    */
   ImageSinkSubmission submit(std::filesystem::path path, EncodedImage image,
                              std::string_view sample_key = {},

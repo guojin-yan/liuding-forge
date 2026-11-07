@@ -2,6 +2,8 @@
 
 这个离线 C++ 示例生成一张 16×16 RGB 预览图，通过有界 `ImageOutputSink` 发布 PNG，然后在回调中调用 `SQLiteRunStore::record_published_file_evidence_atomic`，在一次 SQLite 写事务中登记文件引用、制品事件及 GC 引用。文件发布先于数据库事务；事务失败时保留原文件和请求身份重试，未引用的 CAS 对象可由 GC 清理。
 
+若进程在文件发布后退出，重建 sink 时可显式设置 `replay_identical_existing = true`，以同一路径、相同编码字节及原证据身份重新提交；sink 只接受普通文件的完整字节匹配，回调继续确认或重放联合提交。已有文件的不同内容不会被覆盖。输出目录须由调用方控制，文件与数据库仍有独立提交边界。
+
 在匹配 LibTorch 与编译器的配置中开启 `experiment`、`data_image` 及 `JYPPX_LIUDING_BUILD_EXAMPLES`，构建并执行：
 
 ```sh

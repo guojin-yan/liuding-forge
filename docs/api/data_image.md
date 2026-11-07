@@ -268,4 +268,6 @@ auto view = image::transform_sample(sample, sampled, joint_options);
 
 需要 CAS 运行引用与事件同时确认时，回调可调用 `record_published_file_evidence_atomic`：两者在同一个 SQLite 事务中提交，未提交的新增引用与事件一起回滚。提交阶段的 I/O/同步错误可能使调用方未获成功回执，但事务已经完整提交；应重开存储并用全部原身份重试，确认前保留原文件。文件本身已由 sink 独立发布，仍需检查两个 future；已确认后的幂等重放可以省略文件路径。
 
+进程可能在发布文件后、收到证据回执前退出。重建 sink 时显式设置 `ImageOutputSinkOptions::replay_identical_existing = true`，以原路径、相同编码字节及完整证据身份重新提交；发生同名冲突时按最多64KiB分块比较普通文件并同步，内容相同才返回原文件身份并再次执行回调。已有文件不被替换，大小或任何字节不同、最终路径是符号链接或其他特殊文件均报错。该选项与 `replace_existing` 互斥；默认仍拒绝同名文件。输出目录及父目录须由调用方控制，重放不防御外部并发修改，也不把文件与数据库变成单个事务。Windows验证既有文件需要读写权限以执行同步。
+
 完整的回调、联合提交及重启重放示例见[图像文件证据示例](../../examples/experiment/PUBLISHED_FILE.md)。

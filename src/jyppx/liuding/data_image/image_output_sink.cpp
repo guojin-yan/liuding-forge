@@ -10,6 +10,7 @@
 #include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cerrno>
@@ -32,6 +33,7 @@
 #include <Windows.h>
 #else
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -71,6 +73,95 @@ std::uint64_t ProcessId() { return static_cast<std::uint64_t>(getpid()); }
 std::filesystem::path Parent(const std::filesystem::path& path) {
   return path.has_parent_path() ? path.parent_path()
                                 : std::filesystem::path{"."};
+}
+
+// A replay opens the existing object itself, never following a final symlink
+// or blocking on a FIFO. Windows denies concurrent write/delete sharing for
+// the comparison; callers still own directory mutation on every platform.
+void VerifyIdenticalFile(const std::filesystem::path& path,
+                         std::span<const std::byte> expected) {
+#ifdef _WIN32
+  const auto file = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                                FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  if (file == INVALID_HANDLE_VALUE) Io("replay.open", path, NativeError());
+#else
+  const int file = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+  if (file < 0) Io("replay.open", path, NativeError());
+#endif
+  try {
+#ifdef _WIN32
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(file, &info))
+      Io("replay.stat", path, NativeError());
+    if (GetFileType(file) != FILE_TYPE_DISK ||
+        (info.dwFileAttributes &
+         (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0)
+      Io("replay.type", path,
+         std::make_error_code(std::errc::invalid_argument));
+    const auto size = (static_cast<std::uint64_t>(info.nFileSizeHigh) << 32U) |
+                      info.nFileSizeLow;
+#else
+    struct stat info{};
+    if (::fstat(file, &info) != 0) Io("replay.stat", path, NativeError());
+    if (!S_ISREG(info.st_mode))
+      Io("replay.type", path,
+         std::make_error_code(std::errc::invalid_argument));
+    const auto size = static_cast<std::uint64_t>(info.st_size);
+#endif
+    if (size != expected.size())
+      Io("replay.content", path, std::make_error_code(std::errc::file_exists));
+    std::array<std::byte, 64U * 1024U> buffer{};
+    std::size_t offset = 0;
+    while (offset < expected.size()) {
+      const auto count = std::min(buffer.size(), expected.size() - offset);
+#ifdef _WIN32
+      DWORD read = 0;
+      if (!ReadFile(file, buffer.data(), static_cast<DWORD>(count), &read,
+                    nullptr))
+        Io("replay.read", path, NativeError());
+#else
+      const auto read = ::read(file, buffer.data(), count);
+      if (read < 0 && errno == EINTR) continue;
+      if (read < 0) Io("replay.read", path, NativeError());
+#endif
+      if (read == 0 || !std::equal(buffer.begin(), buffer.begin() + read,
+                                   expected.begin() + offset))
+        Io("replay.content", path,
+           std::make_error_code(std::errc::file_exists));
+      offset += static_cast<std::size_t>(read);
+    }
+#ifdef _WIN32
+    LARGE_INTEGER final_size{};
+    if (!GetFileSizeEx(file, &final_size))
+      Io("replay.stat", path, NativeError());
+    if (static_cast<std::uint64_t>(final_size.QuadPart) != expected.size())
+      Io("replay.content", path, std::make_error_code(std::errc::file_exists));
+    if (!FlushFileBuffers(file)) Io("replay.flush", path, NativeError());
+#else
+    std::byte extra{};
+    ssize_t read;
+    do {
+      read = ::read(file, &extra, 1U);
+    } while (read < 0 && errno == EINTR);
+    if (read < 0) Io("replay.read", path, NativeError());
+    if (read != 0)
+      Io("replay.content", path, std::make_error_code(std::errc::file_exists));
+    if (::fsync(file) != 0) Io("replay.flush", path, NativeError());
+#endif
+  } catch (...) {
+#ifdef _WIN32
+    CloseHandle(file);
+#else
+    ::close(file);
+#endif
+    throw;
+  }
+#ifdef _WIN32
+  if (!CloseHandle(file)) Io("replay.close", path, NativeError());
+#else
+  if (::close(file) != 0) Io("replay.close", path, NativeError());
+#endif
 }
 
 class StagedFile final {
@@ -138,19 +229,31 @@ class StagedFile final {
     Close();
   }
 
-  void Publish(bool replace_existing) {
+  void Publish(bool replace_existing, bool replay_identical_existing,
+               std::span<const std::byte> expected) {
 #ifdef _WIN32
     DWORD flags = MOVEFILE_WRITE_THROUGH;
     if (replace_existing) flags |= MOVEFILE_REPLACE_EXISTING;
-    if (!MoveFileExW(path_.c_str(), destination_.c_str(), flags))
-      Io("publish", destination_, NativeError());
+    if (!MoveFileExW(path_.c_str(), destination_.c_str(), flags)) {
+      const auto error = NativeError();
+      if (!replay_identical_existing || (error.value() != ERROR_FILE_EXISTS &&
+                                         error.value() != ERROR_ALREADY_EXISTS))
+        Io("publish", destination_, error);
+      VerifyIdenticalFile(destination_, expected);
+      if (!DeleteFileW(path_.c_str()))
+        Io("temporary.remove", path_, NativeError());
+    }
 #else
     if (replace_existing) {
       if (::rename(path_.c_str(), destination_.c_str()) != 0)
         Io("publish", destination_, NativeError());
     } else {
-      if (::link(path_.c_str(), destination_.c_str()) != 0)
-        Io("publish", destination_, NativeError());
+      if (::link(path_.c_str(), destination_.c_str()) != 0) {
+        const auto error = NativeError();
+        if (!replay_identical_existing || error.value() != EEXIST)
+          Io("publish", destination_, error);
+        VerifyIdenticalFile(destination_, expected);
+      }
       // The published hard link remains valid if removing the staging name
       // fails.
       if (::unlink(path_.c_str()) != 0)
@@ -249,6 +352,8 @@ class ImageOutputSink::Impl final {
     if (options_.overflow != ImageSinkOverflowPolicy::block &&
         options_.overflow != ImageSinkOverflowPolicy::drop_newest)
       Invalid("options.overflow", "block or drop_newest");
+    if (options_.replace_existing && options_.replay_identical_existing)
+      Invalid("options.existing_file", "replacement or identical replay");
     worker_ = std::jthread([this] { Run(); });
   }
 
@@ -386,7 +491,8 @@ class ImageOutputSink::Impl final {
     const auto digest = sha256_hex(work.image.bytes);
     StagedFile staged(work.path);
     staged.Write(work.image.bytes);
-    staged.Publish(options_.replace_existing);
+    staged.Publish(options_.replace_existing,
+                   options_.replay_identical_existing, work.image.bytes);
     return {.path = work.path, .bytes = bytes, .sha256 = digest};
   }
 
