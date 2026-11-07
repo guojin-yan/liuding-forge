@@ -73,7 +73,7 @@ liuding-forge local recover --root local-runs --id trial-001 --format json
 liuding-forge local cancel --root local-runs --id trial-001 --format json
 ```
 
-任务按冻结的 spec 直接启动可信可执行文件，原始 stdout/stderr 和独立 attempt 保存到现有 run/CAS，最多尝试 16 次；只对声明的非零退出码重试。取消、超时和输出超限回收进程树，不自动重试。`recover` 可补齐已确认结果的生命周期提交；活跃 worker 或缺少确认结果的 attempt 返回退出码 7，避免重复运行。完整 [spec 示例与进程约定](../development/local_process_runner.md)包含环境、字节和时间限制；训练检查点续训需由调用方显式配置。
+任务按冻结的 spec 直接启动可信可执行文件，原始 stdout/stderr 和独立 attempt 保存到现有 run/CAS，最多尝试 16 次；只对声明的非零退出码重试。取消、超时和输出超限回收进程树，不自动重试。`recover` 可补齐已确认结果的生命周期提交；活跃 worker 或缺少确认结果的 attempt 返回退出码 7，避免重复运行。操作者独立确认进程树清理后，可按查询返回的 `abandonment_request` 填写证据，用 `local abandon --confirmation PATH` 将未知 attempt 保留为失败并释放其预约；结果和已应用更新数仍未知，不自动重跑。完整 [spec 示例与进程约定](../development/local_process_runner.md)包含确认文件、环境、字节和时间限制；训练检查点续训需由调用方显式配置。
 
 ## 本地参数搜索
 

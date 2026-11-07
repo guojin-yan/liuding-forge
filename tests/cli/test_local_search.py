@@ -499,6 +499,41 @@ class LocalSearchTests(unittest.TestCase):
         self.assertEqual(len(self.launches()), 1)
         self.assertEqual(original["confirmed_trials"], 1)
 
+    def test_externally_abandoned_trial_is_failed_without_selection_or_relaunch(self) -> None:
+        self.single("ok")
+        original = self.search("execute")
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            job = database.execute("SELECT run_id FROM jyppx_run_tags WHERE "
+                                   "name='liuding.local.kind' AND value='job'").fetchone()[0]
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND "
+                "reference_id IN ('search.result.1','search.result','search.best')", (self.search_id,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE reference_id IN "
+                             "('local.result','local.stdout','local.stderr')")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id=? OR run_id IN "
+                "(SELECT run_id FROM jyppx_run_tags WHERE name='liuding.local.kind')", (self.search_id,))
+        self.search("recover", expected=7)
+        pending = self.invoke("local", "show", "--root", self.root, "--id", job)["data"]
+        self.assertIn("abandonment_request", pending["attempts"][0])
+        confirmation = dict(pending["attempts"][0]["abandonment_request"],
+            external_process_tree_cleanup_confirmed=True, confirmed_by="fixture-operator",
+            confirmed_at_unix_ms=1794050000000, reason="Lost native publication",
+            evidence="The owned fixture had exited before the transaction-loss injection.")
+        path = self.directory / "confirmation.json"
+        path.write_text(json.dumps(confirmation), encoding="utf-8")
+        abandoned = self.invoke("local", "abandon", "--root", self.root, "--id", job,
+                                "--confirmation", path, expected=1)["data"]
+        self.assertIsNone(abandoned["attempts"][0]["result"])
+        recovered = self.search("recover", expected=1)
+        self.assertEqual(recovered["confirmed_trials"], 1)
+        self.assertIsNone(recovered["best"])
+        self.assertFalse(recovered["trials"][0]["eligible"])
+        self.assertEqual(self.search("show")["trials"], recovered["trials"])
+        self.assertEqual(self.search("recover", expected=1)["trials"], recovered["trials"])
+        self.reject_search("export", output=self.directory / "must-not-export")
+        self.assertFalse((self.directory / "must-not-export").exists())
+        self.assertEqual(len(self.launches()), 1)
+        self.assertEqual(original["confirmed_trials"], 1)
+
     def test_final_trial_commit_does_not_hide_persisted_cancel_on_recovery(self) -> None:
         self.single("ok")
         original = self.search("execute")

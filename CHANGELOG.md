@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地执行新增显式 `local abandon`：操作者以原 attempt 摘要和外部清理证据放弃未知结果，幂等释放预约并保留失败与未知更新数；迟到 worker、自动 retry 和搜索选优继续受围栏约束。
+
 - 普通 typed grid/random 可显式启用有界 exact checkpoint 续训，并确认最后 attempt 的有效输入、清理及输出收据；原生 C++ 学习示例提供 20→60 步恢复，早期 attempt 的输出不参与最终选择。
 
 - 图像输出支持显式重放相同的已有文件，按有界分块比较并同步后再次执行证据回调；拒绝不同内容、符号链接及冲突覆盖策略，可在文件发布或证据提交后进程退出时使用原身份恢复。

@@ -1233,6 +1233,133 @@ class LocalAttemptTest(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertEqual(self.launch_count(), 1)
 
+    def unconfirmed_for_abandonment(self, *, resources: bool = False,
+                                   before_owner: bool = False) -> dict:
+        if resources:
+            self.spec["resources"] = self.resource_request()
+            self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        # The fixture has really exited. Lose only the atomic publication,
+        # recreating the original ambiguous boundary without killing strangers.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND "
+                "reference_id IN ('local.stdout','local.stderr','local.result')", (attempt,))
+            if before_owner:
+                database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=? AND "
+                                 "reference_id='local.owner'", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' AND "
+                             "reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN (?,?)",
+                             ("job-one", attempt))
+        pending = self.local("recover", expected=7)
+        self.assertEqual(pending["status"], "recovery_required")
+        self.assertIn("abandonment_request", pending["attempts"][0])
+        self.assertEqual(self.launch_count(), 1)
+        return pending["attempts"][0]["abandonment_request"]
+
+    def operator_confirmation(self, request: dict) -> dict:
+        return dict(request, external_process_tree_cleanup_confirmed=True,
+            confirmed_by="fixture-operator", confirmed_at_unix_ms=1794050000000,
+            reason="Result publication was lost; abandon this attempt.",
+            evidence="The test waited for the owned fixture to exit before removing its publication.")
+
+    def abandon(self, confirmation: dict, *, expected: int = 1) -> dict:
+        path = self.directory / "abandonment.json"
+        path.write_text(json.dumps(confirmation), encoding="utf-8")
+        return self.invoke("local", "abandon", "--root", self.root, "--id", "job-one",
+                           "--confirmation", path, expected=expected)
+
+    def test_operator_abandonment_keeps_unknown_outcome_and_never_retries(self) -> None:
+        request = self.unconfirmed_for_abandonment()
+        self.assertFalse(request["external_process_tree_cleanup_confirmed"])
+        confirmation = self.operator_confirmation(request)
+        abandoned = self.abandon(confirmation)["data"]
+        self.assertEqual(abandoned["status"], "failed")
+        attempt = abandoned["attempts"][0]
+        self.assertIsNone(attempt["result"])
+        self.assertEqual(attempt["abandonment"], confirmation)
+        self.assertEqual(confirmation["native_outcome"], "unknown")
+        self.assertEqual(confirmation["applied_updates"], "unknown")
+        references = self.references(attempt["attempt_id"])
+        self.assertNotIn("local.result", references)
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.local(action, expected=0 if action == "show" else 1), abandoned)
+        self.assertEqual(self.abandon(confirmation)["data"], abandoned)
+        self.assertEqual(self.references(attempt["attempt_id"]), references)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_operator_abandonment_releases_exact_logical_reservation(self) -> None:
+        request = self.unconfirmed_for_abandonment(resources=True)
+        denied = self.execute_named("before-confirmation", self.spec, expected=7)["data"]
+        self.assertEqual(denied["status"], "resource_unavailable")
+        abandoned = self.abandon(self.operator_confirmation(request))["data"]
+        self.assertTrue(abandoned["attempts"][0]["resource_released"])
+        receipt = json.loads(self.blob(self.references("job-one")["local.resource.release.1"]))
+        self.assertEqual(receipt["format"], "jyppx.liuding.local_external_resource_release")
+        self.assertEqual(receipt["lease_sha256"], request["lease_sha256"])
+        self.assertEqual(receipt["native_outcome"], "unknown")
+        self.assertNotIn("result_sha256", receipt)
+        self.assertEqual(self.execute_named("after-confirmation", self.spec)["data"]["status"], "completed")
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_operator_abandonment_rejects_stale_false_and_success_assertions(self) -> None:
+        request = self.unconfirmed_for_abandonment(resources=True)
+        valid = self.operator_confirmation(request)
+        invalid = [dict(valid, **{key: "0" * 64}) for key in
+                   ("spec_sha256", "intent_sha256", "owner_sha256", "lease_sha256")]
+        invalid += [dict(valid, external_process_tree_cleanup_confirmed=False),
+                    dict(valid, confirmed_by=" "), dict(valid, evidence=""),
+                    dict(valid, native_outcome="completed"), dict(valid, applied_updates=0),
+                    dict(valid, index=2), dict(valid, extra=True)]
+        attempt = request["attempt_id"]
+        before = self.references(attempt)
+        for confirmation in invalid:
+            with self.subTest(confirmation=confirmation):
+                self.abandon(confirmation, expected=2)
+                self.assertEqual(self.references(attempt), before)
+                self.assertNotIn("local.resource.release.1", self.references("job-one"))
+        self.assertEqual(self.launch_count(), 1)
+        self.abandon(valid)
+        self.abandon(dict(valid, reason="Different second decision"), expected=2)
+
+    def test_operator_abandonment_repairs_publication_without_a_late_worker(self) -> None:
+        request = self.unconfirmed_for_abandonment(resources=True, before_owner=True)
+        self.assertIsNone(request["owner_sha256"])
+        confirmation = self.operator_confirmation(request)
+        original = self.abandon(confirmation)["data"]
+        attempt = request["attempt_id"]
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' AND "
+                             "reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id IN (?,?)",
+                             ("job-one", attempt))
+        # Even with an unclaimed owner and running metadata, the immutable
+        # decision fences a delayed original worker before it claims anything.
+        late = subprocess.run(self.command("local", "worker", "--root", self.root,
+            "--id", "job-one", "--attempt", 1, "--intent-sha256", request["intent_sha256"]),
+            capture_output=True, timeout=15)
+        self.assertNotEqual(late.returncode, 0)
+        self.assertNotIn("local.owner", self.references(attempt))
+        self.assertEqual(self.local("recover", expected=1), original)
+        self.assertEqual(self.local("recover", expected=1), original)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_operator_abandonment_refuses_live_ownership_and_known_results(self) -> None:
+        self.write_spec("lease_hold")
+        process = self.start()
+        self.await_ready()
+        before = self.local("show")
+        self.assertTrue(before["owner_active"])
+        active = self.abandon({"index": 1}, expected=7)["data"]
+        self.assertEqual(active["status"], "active")
+        self.assertNotIn("local.abandonment", self.references(before["attempts"][0]["attempt_id"]))
+        self.local("cancel")
+        process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 130)
+        self.abandon({"index": 1}, expected=2)
+        self.assertEqual(self.launch_count(), 1)
+
     def test_reserved_environment_case_variants_fail_before_store_or_launch(self) -> None:
         names = ("JYPPX_LIUDING_LOCAL_JOB_ID", "jyppx_liuding_local_job_id",
                  "jYpPx_LiUdInG_lOcAl_JoB_iD")

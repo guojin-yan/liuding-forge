@@ -14,7 +14,8 @@
 namespace jyppx::liuding::cli {
 
 /** @brief Durable bounded local execution composed over run/CAS and OS locks.
- * @param arguments local execute/show/recover/cancel, or the private worker.
+ * @param arguments local execute/show/recover/cancel/abandon, or the private
+ * worker.
  * @return Detached job/attempt state; unresolved ownership never relaunches.
  */
 Result local_attempt_command(const Arguments& arguments);

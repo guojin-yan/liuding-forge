@@ -157,6 +157,18 @@ ImageFolder ResNet18、`paired-affine` 多输入输出和迁移学习配方已�
 
 训练超时保留 `timed_out` 与空原生退出码；只有进程树清理和结果均已确认，才释放逻辑预约。已有 `latest.jyck` 不会把超时改为可重试退出。若持久 owner worker 在提交结果前被强杀，attempt 保持 `recovery_required`，即使后来已无 OS 进程，`recover`、`execute` 或提交取消请求也不能补造结果或释放预约。Windows 的 kill-on-close Job 会随 worker 退出回收其 trainer；Linux worker 为同步启动的直接子进程启用父线程死亡信号，使受信任、同凭据执行的原生 trainer 随之终止。Linux 上 dispatch 调用者退出时，持久 worker 仍独立运行；该保护不覆盖任意 fork 孙进程、特权或凭据切换，以及主动清除信号的程序，也不能代替结果与清理确认。
 
+## 显式放弃未知 attempt
+
+缺少原生结果时，`local show` 或 `recover` 在无活跃 worker 的 attempt 中提供 `abandonment_request`。操作者须先独立确认原程序及其整个进程树已经清理，再复制该对象到确认文件，保持任务、attempt、spec、intent、owner 和资源预约摘要原样，填写 `confirmed_by`、`confirmed_at_unix_ms`、`reason`、`evidence`，并将 `external_process_tree_cleanup_confirmed` 显式设为 `true`。时间为 Unix 毫秒；证据文字应说明实际检查的环境、进程范围和清理结果。
+
+```sh
+liuding-forge local abandon --root local-runs --id trial-001 --confirmation abandonment.json --format json
+```
+
+该操作记录操作者的外部确认，工具不根据空闲锁、PID 消失或等待时间推定进程树已清理。活跃 dispatch/worker、摘要漂移、空证据、已有原生结果或其他终态会拒绝操作。确认文件不接受成功退出或已完成更新数声明：`native_outcome` 与 `applied_updates` 均保持 `unknown`，任务和 attempt 最终为 `failed`，命令返回退出码 1，`result` 仍为 `null`。资源释放收据明确引用外部确认，不补造原生 stdout/stderr、退出码、指标或输出成功收据。
+
+相同确认可幂等重放；确认已提交但资源释放或生命周期提交中断时，`local recover` 只补齐这些提交，不启动新 attempt。放弃后同任务不再 retry，也不能成为已确认训练输出或 checkpoint 的来源。搜索会将该 trial 保留为失败，按原有 trial/失败预算继续，不能使用此前发布的训练指标将它升级为 best。需要再次训练时提交新任务，并使用已有独立确认的输入和 checkpoint。
+
 ## 搜索的训练输入
 
 有界 grid/random 的 `execution.training` 使用相同字段，但 `configuration` 必须写成字符串 `"${trial_configuration}"`。搜索将每次实际配置写入 CAS，再生成确定 ID 的 `TRIAL.inputs` run，附上父搜索、索引和计划摘要并封存；该 run 的 `completed` 只表示输入已提交。配置输入的创建、绑定和封存可按原身份幂等恢复；同 ID 不同内容会被拒绝。随后 native attempt 复用 typed local 的终态来源、CAS、原生归属和取消检查。

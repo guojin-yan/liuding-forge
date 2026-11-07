@@ -1380,20 +1380,185 @@ Json resource_lease(const RunMetadata& job, const Spec& spec,
           {"request", spec.json.at("resources").at("request")}};
 }
 
-// A release is a durable receipt for native cleanup AND the atomically
-// committed result/output identities. Free locks, terminal metadata and PIDs
-// alone never release a lease. Concurrent identical receipts are idempotent.
+// An operator may explicitly abandon an ambiguous attempt after independently
+// verifying its entire process tree is gone. Keep the native outcome unknown:
+// this record can release a reservation, but can never authorize retry, output
+// selection, or a successful training/checkpoint source.
+Json abandonment_identity(SQLiteRunStore& store, const RunMetadata& job,
+                          const Spec& spec, std::uint64_t index) {
+  const auto id = attempt_id(job.run_id, index);
+  const auto attempt = store.find(id);
+  require(index > 0 && index <= spec.maximum_attempts && attempt &&
+              attempt->lineage.parent_run_id == job.run_id &&
+              attempt->lineage.config_digest == spec.sha256 &&
+              !store.find_reference(id, "local.result") &&
+              !store.find_reference(id, "local.stdout") &&
+              !store.find_reference(id, "local.stderr"),
+          "Abandonment requires an unconfirmed attempt without native results");
+  const auto job_status = job_metadata(store, job.run_id).status;
+  require(
+      (job_status == RunStatus::running || job_status == RunStatus::failed) &&
+          (attempt->status == RunStatus::running ||
+           attempt->status == RunStatus::failed),
+      "Abandonment cannot replace another terminal lifecycle");
+  for (std::uint64_t earlier = 1; earlier < index; ++earlier) {
+    const auto result = outcome(store, job.run_id, spec, earlier);
+    require(result.value("process_tree_cleanup_confirmed", false),
+            "An earlier attempt has unconfirmed cleanup");
+  }
+  for (auto later = index + 1; later <= spec.maximum_attempts; ++later)
+    require(!store.find(attempt_id(job.run_id, later)),
+            "Only the last admitted attempt may be abandoned");
+  const auto reference_digest = [&](std::string_view name) -> Json {
+    const auto reference = store.find_reference(id, name);
+    if (!reference) return nullptr;
+    static_cast<void>(reference_json(store, id, name, name));
+    return reference->artifact.digest.hex;
+  };
+  const auto intent_digest = reference_digest("local.intent");
+  const auto owner_digest = reference_digest("local.owner");
+  require(owner_digest.is_null() || !intent_digest.is_null(),
+          "An attempt owner requires its original intent");
+  if (!intent_digest.is_null()) {
+    Json expected{{"format", "jyppx.liuding.local_attempt_intent"},
+                  {"schema_version", 1},
+                  {"job_id", job.run_id},
+                  {"attempt_id", id},
+                  {"index", index},
+                  {"spec_sha256", spec.sha256}};
+    if (checkpoint_retry(spec)) {
+      const auto input = frozen_training_inputs(store, job, spec, index, false);
+      expected["training_sha256"] = input.artifact.digest.hex;
+    }
+    require(
+        reference_json(store, id, "local.intent", "local.intent") == expected,
+        "Abandonment intent differs from its frozen identity");
+  }
+  if (!owner_digest.is_null()) {
+    const auto owner = reference_json(store, id, "local.owner", "local.owner");
+    fields(owner,
+           {"format", "schema_version", "job_id", "attempt_id", "index",
+            "spec_sha256", "worker_process_id"},
+           {"training_outputs_absent_at_start"});
+    schema(owner, "jyppx.liuding.local_attempt_owner");
+    require(owner.at("job_id") == job.run_id && owner.at("attempt_id") == id &&
+                owner.at("index") == index &&
+                owner.at("spec_sha256") == spec.sha256 &&
+                positive(owner.at("worker_process_id"),
+                         std::numeric_limits<std::uint64_t>::max()) != 0 &&
+                owner.contains("training_outputs_absent_at_start") ==
+                    declares_training_outputs(spec),
+            "Abandonment owner differs from its frozen identity");
+  }
+  Json lease_digest = nullptr;
+  if (spec.resources) {
+    const auto role = resource_reference(index);
+    const auto lease = store.find_reference(job.run_id, role);
+    require(lease && reference_json(store, job.run_id, role, role) ==
+                         resource_lease(job, spec, index),
+            "Abandonment requires the original resource reservation");
+    lease_digest = lease->artifact.digest.hex;
+  }
+  return {{"format", "jyppx.liuding.local_attempt_abandonment"},
+          {"schema_version", 1},
+          {"job_id", job.run_id},
+          {"attempt_id", id},
+          {"index", index},
+          {"spec_sha256", spec.sha256},
+          {"intent_sha256", intent_digest},
+          {"owner_sha256", owner_digest},
+          {"lease_sha256", lease_digest},
+          {"native_outcome", "unknown"},
+          {"applied_updates", "unknown"}};
+}
+
+Json abandonment_release(const Json& confirmation, std::string_view sha256) {
+  return {{"format", "jyppx.liuding.local_external_resource_release"},
+          {"schema_version", 1},
+          {"job_id", confirmation.at("job_id")},
+          {"attempt_id", confirmation.at("attempt_id")},
+          {"index", confirmation.at("index")},
+          {"spec_sha256", confirmation.at("spec_sha256")},
+          {"lease_sha256", confirmation.at("lease_sha256")},
+          {"abandonment_sha256", sha256},
+          {"external_process_tree_cleanup_confirmed", true},
+          {"native_outcome", "unknown"}};
+}
+
+void validate_abandonment(SQLiteRunStore& store, const RunMetadata& job,
+                          const Spec& spec, std::uint64_t index,
+                          const Json& value) {
+  fields(value, {"format", "schema_version", "job_id", "attempt_id", "index",
+                 "spec_sha256", "intent_sha256", "owner_sha256", "lease_sha256",
+                 "native_outcome", "applied_updates",
+                 "external_process_tree_cleanup_confirmed", "confirmed_by",
+                 "confirmed_at_unix_ms", "reason", "evidence"});
+  require(value.at("external_process_tree_cleanup_confirmed").is_boolean() &&
+              value.at("external_process_tree_cleanup_confirmed").get<bool>(),
+          "Abandonment requires explicit external process-tree cleanup "
+          "confirmation");
+  for (const auto& [name, maximum] :
+       std::vector<std::pair<std::string_view, std::size_t>>{
+           {"confirmed_by", 128}, {"reason", 1024}, {"evidence", 4096}}) {
+    const auto content = text(value.at(name));
+    require(!content.empty() && content.size() <= maximum &&
+                content.find_first_not_of(" \t\r\n") != std::string::npos,
+            "Abandonment requires bounded nonempty operator evidence");
+  }
+  static_cast<void>(positive(value.at("confirmed_at_unix_ms"),
+                             std::numeric_limits<std::int64_t>::max()));
+  auto identity = value;
+  for (const auto name :
+       {"external_process_tree_cleanup_confirmed", "confirmed_by",
+        "confirmed_at_unix_ms", "reason", "evidence"})
+    identity.erase(name);
+  require(
+      identity == abandonment_identity(store, job, spec, index),
+      "Abandonment confirmation differs from the original attempt evidence");
+  if (spec.resources) {
+    const auto release = resource_reference(index, true);
+    if (store.find_reference(job.run_id, release))
+      require(
+          reference_json(store, job.run_id, release, release) ==
+              abandonment_release(value, digest(value.dump()).hex),
+          "External resource release differs from its abandonment evidence");
+  }
+}
+
+Json abandonment_record(SQLiteRunStore& store, const RunMetadata& job,
+                        const Spec& spec, std::uint64_t index) {
+  const auto id = attempt_id(job.run_id, index);
+  const auto value =
+      reference_json(store, id, "local.abandonment", "local.abandonment");
+  validate_abandonment(store, job, spec, index, value);
+  return value;
+}
+
+// A release binds native cleanup/results or an explicit external abandonment.
+// Free locks, terminal metadata and PIDs alone never release a lease.
+// Concurrent identical receipts are idempotent.
 bool release_resources(SQLiteRunStore& store, const RunMetadata& job,
                        const Spec& spec, std::uint64_t index,
                        const Json* validated_result = nullptr) {
+  const auto id = attempt_id(job.run_id, index);
+  const auto attempt = store.find(id);
+  if (attempt && store.find_reference(id, "local.abandonment")) {
+    const auto confirmation = abandonment_record(store, job, spec, index);
+    if (spec.resources) {
+      const auto role = resource_reference(index, true);
+      put_json(
+          store, job.run_id, role, role,
+          abandonment_release(confirmation, digest(confirmation.dump()).hex),
+          job.created_at_unix_ms);
+    }
+    return true;
+  }
   if (!spec.resources) return true;
   const auto lease_id = resource_reference(index);
   const auto lease = store.find_reference(job.run_id, lease_id);
   require(lease && reference_json(store, job.run_id, lease_id, lease_id) ==
                        resource_lease(job, spec, index),
           "Resource reservation differs from its frozen attempt request");
-  const auto id = attempt_id(job.run_id, index);
-  const auto attempt = store.find(id);
   if (!attempt) return false;
   const auto result_ref = store.find_reference(id, "local.result");
   if (!result_ref) return false;
@@ -1514,6 +1679,10 @@ std::string reserve_resources(SQLiteRunStore& store, const RunMetadata& job,
           if (frozen.resources)
             throw CompatibilityError(
                 "Managed attempt has no prior reservation");
+          if (store.find_reference(id, "local.abandonment")) {
+            static_cast<void>(abandonment_record(store, other, frozen, number));
+            continue;
+          }
           if (!store.find_reference(id, "local.result"))
             return "resource_unmanaged_attempt";
           // Older unmetered attempts cannot be ignored merely because their
@@ -1595,8 +1764,20 @@ Json describe(SQLiteRunStore& store, const RunMetadata& job, const Spec& spec,
               {"run_status", run_status_name(metadata->status)}};
     if (store.find_reference(id, "local.result"))
       item["result"] = outcome(store, job.run_id, spec, index, check_outputs);
-    else
+    else {
       item["result"] = nullptr;
+      if (store.find_reference(id, "local.abandonment")) {
+        item["abandonment"] = abandonment_record(store, job, spec, index);
+      } else if (!active) {
+        auto request = abandonment_identity(store, job, spec, index);
+        request["external_process_tree_cleanup_confirmed"] = false;
+        request["confirmed_by"] = "";
+        request["confirmed_at_unix_ms"] = 0;
+        request["reason"] = "";
+        request["evidence"] = "";
+        item["abandonment_request"] = std::move(request);
+      }
+    }
     if (checkpoint_retry(spec)) {
       const auto frozen =
           store.find_reference(job.run_id, training_inputs_reference(index));
@@ -1691,7 +1872,8 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
         "Worker requires its unreleased, frozen resource reservation");
   }
   require(!store.find_reference(id, "local.owner") &&
-              !store.find_reference(id, "local.result"),
+              !store.find_reference(id, "local.result") &&
+              !store.find_reference(id, "local.abandonment"),
           "This immutable local attempt has already been claimed");
   const bool outputs_absent = training_outputs_absent(store, spec, id);
   Json owner_value{{"format", "jyppx.liuding.local_attempt_owner"},
@@ -1927,6 +2109,17 @@ Result drive(SQLiteRunStore& store, const fs::path& root,
     OwnerLock execution(root, job.run_id, true);
     if (!execution.held())
       return {describe(store, job, spec, true, "active"), 7};
+  }
+  for (std::uint64_t index = 1; index <= spec.maximum_attempts; ++index) {
+    const auto id = attempt_id(job.run_id, index);
+    if (!store.find(id)) break;
+    if (!store.find_reference(id, "local.abandonment")) continue;
+    static_cast<void>(abandonment_record(store, job, spec, index));
+    require(release_resources(store, job, spec, index),
+            "Abandoned attempt resource release failed");
+    finish_run(store, id, RunStatus::failed);
+    finish_run(store, job.run_id, RunStatus::failed);
+    return {describe(store, job, spec), 1};
   }
   const auto current_status = job_metadata(store, job.run_id).status;
   if (is_terminal_run_status(current_status)) {
@@ -2168,6 +2361,29 @@ Result operate(std::string_view action, const fs::path& selected_root,
     OwnerLock owner(root, id, true);
     return {describe(store, job, spec, !owner.held()), 0};
   }
+  if (action == "abandon") {
+    require(arguments != nullptr,
+            "Abandonment requires an explicit confirmation file");
+    const auto confirmation = parse_json(
+        read_text(fs::u8path(arguments->require("confirmation")), kSpecBytes));
+    OwnerLock dispatch(root, id, false);
+    if (!dispatch.held())
+      return {describe(store, job, spec, true, "active"), 7};
+    OwnerLock execution(root, id, true);
+    if (!execution.held())
+      return {describe(store, job, spec, true, "active"), 7};
+    const auto index =
+        positive(confirmation.at("index"), spec.maximum_attempts);
+    validate_abandonment(store, job, spec, index, confirmation);
+    const auto attempt = attempt_id(id, index);
+    put_json(store, attempt, "local.abandonment", "local.abandonment",
+             confirmation, store.find(attempt)->created_at_unix_ms);
+    require(release_resources(store, job, spec, index),
+            "Abandoned attempt resource release failed");
+    finish_run(store, attempt, RunStatus::failed);
+    finish_run(store, id, RunStatus::failed);
+    return {describe(store, job, spec), 1};
+  }
   if (action == "cancel") {
     if (!is_terminal_run_status(job.status) && !cancelled(store, id))
       put_json(store, id, "local.cancel", "local.cancel",
@@ -2176,7 +2392,8 @@ Result operate(std::string_view action, const fs::path& selected_root,
                 {"job_id", id},
                 {"spec_sha256", spec.sha256}},
                job.created_at_unix_ms);
-    return {describe(store, job, spec), 0};
+    OwnerLock owner(root, id, true);
+    return {describe(store, job, spec, !owner.held()), 0};
   }
   return drive(store, root, job, spec);
 }
@@ -2224,10 +2441,12 @@ Result control_local_job(std::string_view action, const fs::path& root,
 Result local_attempt_command(const Arguments& arguments) {
   const auto action = arguments.words()[1];
   if (action != "execute" && action != "show" && action != "recover" &&
-      action != "cancel" && action != "worker")
-    usage("local", "Use execute/show/recover/cancel.");
+      action != "cancel" && action != "abandon" && action != "worker")
+    usage("local", "Use execute/show/recover/cancel/abandon.");
   if (action == "execute")
     arguments.allow({"root", "id", "spec"});
+  else if (action == "abandon")
+    arguments.allow({"root", "id", "confirmation"});
   else if (action != "worker")
     arguments.allow({"root", "id"});
   std::optional<Spec> requested;

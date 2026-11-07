@@ -245,6 +245,7 @@ Result execute(const Arguments& arguments) {
                   {"doctor [--device cpu|cuda] [--expected-libtorch VERSION]",
                    "local execute --root DIRECTORY --id ID --spec PATH",
                    "local show|recover|cancel --root DIRECTORY --id ID",
+                   "local abandon --root DIRECTORY --id ID --confirmation PATH",
                    "search execute --root DIRECTORY --id ID --spec PATH",
                    "search show|recover|cancel --root DIRECTORY --id ID",
                    "search export --root DIRECTORY --id ID --output "
