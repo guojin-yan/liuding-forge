@@ -47,3 +47,65 @@ target_link_libraries(my_app PRIVATE
     jyppx::liuding::nn jyppx::liuding::interop
     jyppx::liuding::onnx_export jyppx::liuding::onnx_runtime)
 ```
+
+## 已训练的 CIFAR-10 模型交付
+
+[image_onnx.cpp](image_onnx.cpp) 连接已有原生训练记录、检查点重建导出、Ed25519 签名和本地 CPU Serving。它要求完整的 CIFAR-10 验证目录（10000 张图、每类 1000 张，类别顺序为 `airplane automobile bird cat deer dog frog horse ship truck`）、原训练的 `final.jyck`、`result.json` 及包含 `final-checkpoint`、`model-definition` 引用的原 `run-store`。检查点须属于十分类 ResNet18；图片处理与[分类配方](../../docs/tutorials/image_classification_recipe.md)一致：RGB float32 `[0,1]`、bilinear resize 32×32、NCHW，不添加 ImageNet 归一化。程序不会训练、下载数据或权重。
+
+在现有兼容配置中另启用 `JYPPX_LIUDING_BUILD_DATA_IMAGE`、`JYPPX_LIUDING_BUILD_BUNDLE_SIGNING` 和 `JYPPX_LIUDING_BUILD_ONNX_SERVING`；CLI 的检查点重建导出还需 `models`、`experiment` 和相关训练组件。组件依赖及 SDK 路径按[构建指南](../../CONTRIBUTING.md#构建与验证)配置，不通过额外启用全部组件解决依赖。示例 target 默认不参与 ALL，显式构建：
+
+```sh
+cmake --build out/build/your-profile --config Release --target jyppx_cli jyppx_liuding_image_onnx --parallel 1
+```
+
+以下为 Linux 单配置命令。将数据、训练和输出绝对路径改为自己的路径；所有输出目录必须尚不存在，父目录须已存在。摘要由操作者在其可信输入上计算；下例 `sha` 仅用于本地文件身份绑定：
+
+```sh
+sha() { sha256sum "$1" | cut -d ' ' -f 1; }
+example=./out/build/your-profile/examples/liuding-forge-example-image-onnx
+cli=./out/build/your-profile/tools/cli/liuding-forge
+
+"$example" prepare /data/cifar10/validation \
+  /train/final.jyck "$(sha /train/final.jyck)" \
+  /train/result.json "$(sha /train/result.json)" /work/image-inputs
+
+"$cli" model onnx export --root /train/run-store \
+  --source-run run.image-classification \
+  --checkpoint-reference final-checkpoint --definition-reference model-definition \
+  --inputs /work/image-inputs/inputs.json \
+  --inputs-sha256 "$(sha /work/image-inputs/inputs.json)" \
+  --tensors /work/image-inputs/inputs.safetensors \
+  --tensors-sha256 "$(sha /work/image-inputs/inputs.safetensors)" \
+  --metadata /work/image-inputs/delivery.json \
+  --metadata-sha256 "$(sha /work/image-inputs/delivery.json)" \
+  --provider CPUExecutionProvider --timeout-ms 180000 \
+  --output /work/unsigned-onnx --format json
+
+"$example" sign /work/unsigned-onnx \
+  "$(sha /work/unsigned-onnx/manifest.json)" /work/signed-onnx
+```
+
+`prepare` 产生 batch 1、2、4、8、16、128 的真实图片输入和完整交付元数据；导出命令从原记录严格恢复 `model.main`，用同一原生模型产生参考输出，再在释放原生状态后运行 ORT。动态 batch 范围为 1..128，逐元素容差为 `atol=1e-5`、`rtol=1e-4`。训练结果摘要只绑定所提供文件，不能自行证明其语义；依赖描述明确是已知版本子集，不是完整传递 SBOM。
+
+`sign` 只在进程内生成临时 Ed25519 私钥，输出签名包、`public-trust-policy.json` 和 `signing.json`。这是本地教学授权，不是生产发布密钥治理；进程退出后不能使用同一私钥重新签名。操作者应保存终端显示的 public policy 摘要及自己刚生成的包清单摘要，并通过可信配置将这两个预期值交给新的消费者进程；不能从接收到的不可信包中自动接受授权摘要。
+
+```sh
+# Set these to the digests authorized by the local producer above.
+manifest_sha=AUTHORIZED_SIGNED_MANIFEST_SHA256
+policy_sha=AUTHORIZED_PUBLIC_POLICY_SHA256
+
+"$cli" model onnx smoke --bundle /work/signed-onnx/bundle \
+  --bundle-sha256 "$manifest_sha" --model-id primary \
+  --report-id export-report --cases-id cases --tensors-id tensors \
+  --provider CPUExecutionProvider --timeout-ms 180000 \
+  --trust-policy /work/signed-onnx/public-trust-policy.json \
+  --trust-policy-sha256 "$policy_sha" --format json
+
+"$example" evaluate /work/signed-onnx/bundle "$manifest_sha" \
+  /work/signed-onnx/public-trust-policy.json "$policy_sha" \
+  /data/cifar10/validation /work/serving-evaluation
+```
+
+`evaluate` 核验签名及独立预期摘要，在同次可信快照中读取原生参考和环境锁，解码并核对四个 owner 描述符与实际图签名，通过六种 batch 预热后逐批读取全部 10000 张图。Serving 接收预先准备好的 CPU NCHW Tensor；图片解码和 resize 在外部 C++ 数据流程完成。输出 `logits.f32`（little-endian 10000×10）、`labels.i64`（10000）、`samples.tsv` 及含混淆矩阵、摘要和准确率的 `evaluation.json`。准确率低于 0.65 返回非零，部分结果保留；成功返回 0。
+
+本案例仅验证 CPU FP32 ORT 推理及本地 Serving，不声明其他 Provider、GPU 零复制、自动合批、OOM 拆批恢复或生产签名资格。96 MiB 快照和 I/O 限制是逻辑载荷预算，不是进程 RSS 上限。确认交付包及结果摘要后，可删除重复的展开导出包和中间图片输入，保留原训练资产与唯一交付副本；不要将运行库或编译树存入记录目录。

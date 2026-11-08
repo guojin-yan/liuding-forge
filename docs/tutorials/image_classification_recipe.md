@@ -256,6 +256,8 @@ liuding-forge data prepare --name fashion-mnist --source-dir /datasets/fashion-m
 
 ## 8. 交给本地执行器并确认训练产物
 
+完成 CIFAR-10 训练后，可按[已训练模型交付案例](../../examples/deployment/README.md#已训练的-cifar-10-模型交付)从原运行的最终检查点导出动态 batch ONNX、添加临时 Ed25519 签名，并在可信 CPU Serving 上评估完整 10000 张验证图。该案例不重新训练，保留原训练结果和来源；生产密钥管理与其他 Provider 需另行验收。
+
 ImageFolder ResNet18 配方可使用原生 `local-spec` 生成冻结计划，再由 `local execute` 管理 attempt、进程树清理和输出确认。以下路径均须替换为本机绝对路径，`/work` 已存在，`/work/resnet18` 和计划文件尚不存在；`--executable` 指向本次构建或安装的真实 CLI，生成计划时会记录其 SHA-256。Windows 可使用 `F:/work/...` 和实际 `.exe` 路径。
 
 ```sh

@@ -226,6 +226,19 @@ if(TARGET jyppx::liuding::bundle_signing)
     endif()
 endif()
 
+if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::bundle_signing
+   AND TARGET jyppx::liuding::onnx_serving)
+    add_executable(jyppx_liuding_image_onnx EXCLUDE_FROM_ALL deployment/image_onnx.cpp)
+    set_target_properties(jyppx_liuding_image_onnx PROPERTIES
+        OUTPUT_NAME liuding-forge-example-image-onnx)
+    target_link_libraries(jyppx_liuding_image_onnx PRIVATE
+        jyppx::liuding::data_image jyppx::liuding::bundle_signing
+        jyppx::liuding::onnx_serving nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_liuding_image_onnx)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_image_onnx)
+    jyppx_add_onnx_runtime_dependency(jyppx_liuding_image_onnx)
+endif()
+
 # Public models/optimizer lesson; local weights are explicit at runtime.
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::optim)
     add_executable(jyppx_transfer_group_rates EXCLUDE_FROM_ALL
