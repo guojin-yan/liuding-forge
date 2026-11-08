@@ -65,6 +65,22 @@ add_test(NAME Cli_local_search
 set_tests_properties(Cli_local_search PROPERTIES
     LABELS "cli;experiment;integration" TIMEOUT 600)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(paired_memory_devices cpu)
+    if(JYPPX_LIUDING_TEST_CLI_CUDA)
+        list(APPEND paired_memory_devices cuda)
+    endif()
+    foreach(device IN LISTS paired_memory_devices)
+        add_test(NAME Cli_local_paired_memory_${device}
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_paired_memory.py"
+                --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --device ${device}
+                --source-root "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(Cli_local_paired_memory_${device} PROPERTIES
+            LABELS "cli;experiment;recipe;memory;${device}" TIMEOUT 900
+            RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    endforeach()
+endif()
+
 set(local_workspace_recipes paired)
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
     list(APPEND local_workspace_recipes image)

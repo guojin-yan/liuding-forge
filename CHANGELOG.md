@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 新增 Linux 完整双输入/双输出配方资源联验，覆盖 CPU/CUDA 的主机准入、逻辑预约、委派 cgroup 内存计数、本地精确续训、有界搜索与结果重放。
+
 - 已验证 Ubuntu CUDA 的完整 CIFAR-10 ResNet18 分类配方：50 轮连续训练、独立模型重载、暂停恢复及强杀恢复通过，三条训练路线的最终模型和完整检查点逐字节一致；配置、准确率与设备边界见 compatibility.json。
 
 - 已验证当前 Ubuntu 22.04.5 / GCC 11.4 / LibTorch 2.14.1+cu126 Release SDK：2111 项选定合同中 2033 通过、78 条件跳过，独立安装消费者及 CPU/CUDA 图像训练恢复通过；完整支持边界见 compatibility.json。
