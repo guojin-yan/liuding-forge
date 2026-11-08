@@ -28,6 +28,16 @@ torch::nn::Conv2d Conv(std::int64_t in, std::int64_t out, std::int64_t kernel,
                                .groups(groups)
                                .bias(bias));
 }
+Tensor ResNetStem(const Tensor& input, const ResNetOptions& options,
+                  torch::nn::Conv2d& conv, torch::nn::BatchNorm2d& bn) {
+  detail::FloatingInput(input, conv->weight, 4);
+  if (input.size(1) != options.input_channels)
+    detail::Invalid("resnet.channels", "the configured image channel count");
+  auto x = conv(input);
+  x = bn(x);
+  x = torch::relu(x);
+  return torch::max_pool2d(x, {3, 3}, {2, 2}, {1, 1});
+}
 class BasicBlock final : public torch::nn::Module {
  public:
   BasicBlock(std::int64_t in, std::int64_t out, std::int64_t stride) {
@@ -300,11 +310,7 @@ ResNetImpl::ResNetImpl(ResNetVariant variant, ResNetOptions options)
 }
 std::vector<Tensor> ResNetImpl::forward_features(const Tensor& input) {
   return detail::Backend("resnet.forward_features", [&] {
-    detail::FloatingInput(input, conv1_->weight, 4);
-    if (input.size(1) != options_.input_channels)
-      detail::Invalid("resnet.channels", "the configured image channel count");
-    auto x = torch::max_pool2d(torch::relu(bn1_(conv1_(input))), {3, 3}, {2, 2},
-                               {1, 1});
+    auto x = ResNetStem(input, options_, conv1_, bn1_);
     auto a = layer1_->forward(x);
     auto b = layer2_->forward(a);
     auto c = layer3_->forward(b);
@@ -314,8 +320,15 @@ std::vector<Tensor> ResNetImpl::forward_features(const Tensor& input) {
 }
 Tensor ResNetImpl::forward(const Tensor& input) {
   return detail::Backend("resnet.forward", [&] {
-    auto stages = forward_features(input);
-    auto pooled = stages.back().mean({2, 3});
+    auto final = detail::Backend("resnet.forward_features", [&] {
+      auto x = ResNetStem(input, options_, conv1_, bn1_);
+      // Classification needs only the final map. Autograd retains its own
+      // saved tensors; inference can release each earlier stage immediately.
+      for (auto* stage : {&layer1_, &layer2_, &layer3_, &layer4_})
+        x = (*stage)->forward(x);
+      return x;
+    });
+    auto pooled = final.mean({2, 3});
     return fc_ ? fc_(pooled) : pooled;
   });
 }

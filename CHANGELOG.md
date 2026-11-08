@@ -179,6 +179,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- ResNet 分类前向及时释放不再使用的 stem 与中间级特征，减少推理的峰值显存；完整多级特征接口、反向梯度及 BatchNorm 状态保持一致。
+
 - 图像配方搜索在创建 trial 前拒绝 CUDA BatchNorm 校准，保持搜索已声明的 CPU 校准边界；原生配方自身的 CUDA 校准入口继续可用，并增加真实训练的 OS 内存限制联验。
 
 - 本地训练与搜索拒绝引用清理确认缺失或为 false 的旧 attempt 输入；历史终态结果仍可只读查看和重放，未声明资源的任务同样执行来源检查。
