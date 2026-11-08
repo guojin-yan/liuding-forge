@@ -31,6 +31,7 @@ from release_common import (
     validate_descriptor, validate_evidence, validate_inventory, validate_release,
     validate_installed_provenance, validate_installed_version, walk_files,
 )
+from release_licenses import LICENSE_INDEX, LICENSE_ROOT, license_artifacts
 
 DOCUMENTS = {
     "inventory": "inventory.json", "sbom": "sbom.cdx.json",
@@ -38,6 +39,10 @@ DOCUMENTS = {
     "evidence_index": "evidence-index.json", "license": "LICENSE",
     "notices": "THIRD_PARTY_NOTICES.md",
 }
+INSTALLED_IDENTITIES = frozenset({
+    "include/jyppx/liuding/foundation/build_config.hpp",
+    "share/jyppx/build-provenance.json",
+})
 
 
 def directory_bounds(source: BinaryIO, size: int, limits: Limits) -> tuple[int, int]:
@@ -95,8 +100,10 @@ def verify_archive(path: Path, inventory: dict[str, Any], release: dict[str, Any
                    dependency_lock_sha256: str, limits: Limits) -> None:
     """Actually extract every regular file into a fresh private directory.
 
-    Data is streamed with exact size/hash/CRC checks. extractall(), stored path
-    modes, executable code, and compressed data are never consumed implicitly.
+    Data is streamed with exact size/hash/CRC checks. Each verified payload is
+    removed immediately except the two files needed to check installed identity.
+    extractall(), stored path modes, executable code, and compressed data are
+    never consumed implicitly.
     """
     expected_date = dt.datetime.fromtimestamp(max(release["source_date_epoch"], 315532800), dt.timezone.utc)
     expected_time = (expected_date.year, expected_date.month, expected_date.day,
@@ -171,10 +178,13 @@ def verify_archive(path: Path, inventory: dict[str, Any], release: dict[str, Any
                             output.write(chunk)
                     if written != expected["size"] or sha.hexdigest() != expected["sha256"]:
                         fail("unpacked file size/hash differs from inventory")
+                    if expected["path"] not in INSTALLED_IDENTITIES:
+                        destination.unlink()
                 if cursor != central_offset or total != inventory["total_bytes"]:
                     fail("ZIP hidden data or aggregate size mismatch")
                 actual_names = [name for name, _ in walk_files(extraction, limits)]
-                if actual_names != [entry["path"] for entry in inventory["files"]]:
+                if actual_names != [entry["path"] for entry in inventory["files"]
+                                    if entry["path"] in INSTALLED_IDENTITIES]:
                     fail("extracted file set differs from inventory")
                 validate_installed_version(extraction, release, limits)
                 validate_installed_provenance(extraction, release, dependency_lock_sha256, limits)
@@ -224,10 +234,15 @@ def verify_release(directory: Path, *, expected_version: str,
     directory = no_links(directory)
     manifest_data = read_file(directory / "release-manifest.json", limits.max_metadata_bytes)
     manifest = json_document(manifest_data, limits, canonical_only=True)
-    exact(manifest, {"schema_version", "kind", "release", "archive", "documents",
-                     "evidence_artifacts", "ga"}, "release manifest")
-    if type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1 or manifest["kind"] != "jyppx-sdk-release":
+    if not isinstance(manifest, dict):
+        fail("release manifest must be an object")
+    schema = manifest.get("schema_version")
+    if type(schema) is not int or schema not in {1, 2} or manifest.get("kind") != "jyppx-sdk-release":
         fail("unsupported release manifest schema or kind")
+    fields = {"schema_version", "kind", "release", "archive", "documents", "evidence_artifacts", "ga"}
+    if schema == 2:
+        fields.add("license_artifacts")
+    exact(manifest, fields, "release manifest")
     release = validate_release(manifest["release"])
     if (release["version"] != expected_version or release["platform"] != expected_platform
             or release["source"]["commit"] != expected_source_commit
@@ -236,8 +251,9 @@ def verify_release(directory: Path, *, expected_version: str,
     archive = validate_descriptor(manifest["archive"], limits)
     if archive["path"] != f"liuding-forge-{release['version']}-{release['platform']}.zip":
         fail("archive name differs from release identity")
-    documents = exact(manifest["documents"], set(DOCUMENTS), "release documents")
-    for identity, name in DOCUMENTS.items():
+    document_names = {**DOCUMENTS, **({"license_index": LICENSE_INDEX} if schema == 2 else {})}
+    documents = exact(manifest["documents"], set(document_names), "release documents")
+    for identity, name in document_names.items():
         if validate_descriptor(documents[identity], limits)["path"] != name:
             fail("release document name differs from canonical contract")
         if documents[identity]["size"] > limits.max_metadata_bytes:
@@ -249,7 +265,14 @@ def verify_release(directory: Path, *, expected_version: str,
         validate_descriptor(artifact, limits)
         if not artifact["path"].startswith("evidence/") or artifact["size"] > limits.max_file_bytes:
             fail("invalid evidence artifact location or size")
-    files = [archive, *documents.values(), *evidence_artifacts,
+    retained_licenses = manifest.get("license_artifacts", [])
+    if not isinstance(retained_licenses, list) or len(retained_licenses) > min(1024, limits.max_files):
+        fail("license artifact count outside bound")
+    for artifact in retained_licenses:
+        validate_descriptor(artifact, limits)
+        if not artifact["path"].startswith(LICENSE_ROOT) or artifact["size"] > min(2 * 1024**2, limits.max_file_bytes):
+            fail("invalid license original location or size")
+    files = [archive, *documents.values(), *evidence_artifacts, *retained_licenses,
              {"path": "release-manifest.json", "size": len(manifest_data),
               "sha256": hashlib.sha256(manifest_data).hexdigest()}]
     names = [entry["path"] for entry in files] + ["signing-payload.json"]
@@ -272,12 +295,18 @@ def verify_release(directory: Path, *, expected_version: str,
         signature_verified = True
 
     def document(identity: str, *, generated: bool = False) -> Any:
-        return json_document(read_file(directory / DOCUMENTS[identity], limits.max_metadata_bytes),
+        return json_document(read_file(directory / document_names[identity], limits.max_metadata_bytes),
                              limits, canonical_only=generated)
 
     inventory = validate_inventory(document("inventory", generated=True), limits)
     dependencies = document("dependency_lock")
     dependency_ids = validate_dependencies(dependencies)
+    license_index_sha = None
+    if schema == 2:
+        expected_licenses = license_artifacts(document("license_index"), dependencies, limits)
+        if retained_licenses != expected_licenses:
+            fail("release license originals differ from the bound license index")
+        license_index_sha = documents["license_index"]["sha256"]
     evidence = document("evidence_index")
     evidence_blockers, records = validate_evidence(
         evidence, release, documents["inventory"]["sha256"],
@@ -289,7 +318,8 @@ def verify_release(directory: Path, *, expected_version: str,
     blockers = ga_blockers(release, dependencies, evidence_blockers)
     if manifest["ga"] != {"status": "pending", "blockers": blockers}:
         fail("release GA declaration differs from actual bound gate statuses")
-    if document("sbom", generated=True) != sbom(release, dependencies, archive["sha256"]):
+    if document("sbom", generated=True) != sbom(
+            release, dependencies, archive["sha256"], license_index_sha256=license_index_sha):
         fail("SBOM differs from release/dependency declarations")
     if document("provenance", generated=True) != provenance(release, archive, documents):
         fail("provenance differs from exact archive and evidence bindings")
@@ -304,12 +334,15 @@ def verify_release(directory: Path, *, expected_version: str,
         fail("archive changed during extraction")
     if signature_verified:
         blockers.remove("signature.pending")
+    if schema == 1:
+        blockers = sorted([*blockers, "dependency-notices.inventory-missing"])
     return {
         "candidate_verified": True, "signature_verified": signature_verified,
         "ga_ready": not blockers, "ga_blockers": blockers, "release": release,
         "archive_sha256": archive["sha256"],
         "signing_payload_sha256": hashlib.sha256(payload_data).hexdigest(),
         "unpacked_files": len(inventory["files"]), "unpacked_bytes": inventory["total_bytes"],
+        "retained_license_files": len(retained_licenses),
     }
 
 

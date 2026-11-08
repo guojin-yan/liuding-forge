@@ -23,6 +23,8 @@ python scripts/release/prepare_release.py inventory \
 
 返回值包含规范化清单字节的 SHA-256。清单按路径排序，记录相对路径、大小、SHA-256、可移植的 0644/0755 模式和总字节数。将该摘要写入证据索引，并单独计算原始 `dependency-manifest.json` 字节的摘要；格式变化也会改变绑定。
 
+安装前缀若使用同目录 `.so` 文件别名，可在 `inventory` 和 `prepare` 两步都显式加 `--materialize-install-links`。仅接受最多 32 跳、同目录相对文件名指向的普通文件，逐别名核对并将实际字节写为普通 ZIP 条目，不复制或改动安装前缀；目录链接、绝对或父目录目标、循环、硬链接终点及归档前内容漂移均拒绝。默认仍拒绝安装链接，许可原件、证据和候选输出始终不接受链接。
+
 ## 证据索引
 
 schema 1 索引是 UTF-8 JSON，结构如下：
@@ -59,6 +61,8 @@ schema 1 索引是 UTF-8 JSON，结构如下：
 
 第三方源码伴随包可作为 `dependency_audit.artifacts` 的证据附入候选，必须核验实际整包和包内来源清单的摘要，并随候选保留原件。[CPU 组件来源清单](../../third_party/licenses/libtorch-cpu-2.14.1/components.json)的 `source_materials_bundle` 登记已组装 libgomp 材料包的精确身份；当前尚未建立公开分发机制，不能因此将依赖审计改为 `passed`，完整 Corresponding Source、实际打包执行、CVE 和再分发资格仍须分别完成。
 
+准备工具还要求 `--license-index third_party/licenses/manifest.json`，使用[许可原文索引](../../third_party/licenses/manifest.json)的现有 schema 1。索引状态必须与精确依赖锁一致，每项 `recorded` 依赖至少有一份原文；工具按索引逐件核大小、SHA-256、来源字段和路径，复制原始索引字节及全部索引原件到候选的 `third_party/licenses/`。原件不能用链接代替，文件缺失、内容漂移、别名或索引与依赖状态不一致均拒绝准备。未在依赖锁中列出的可选组件原文一并保留，但不扩大已审计依赖集合。
+
 检查状态只能为 `passed`、`pending`、`failed`。缺失或未通过的必需检查会阻断 GA：
 
 | 检查 ID | 所需证据 |
@@ -93,7 +97,8 @@ python scripts/release/prepare_release.py prepare \
   --source-date-epoch 1750000000 \
   --evidence-index /work/evidence/index.json \
   --dependency-lock dependency-manifest.json \
-  --license LICENSE --notices THIRD_PARTY_NOTICES.md
+  --license LICENSE --notices THIRD_PARTY_NOTICES.md \
+  --license-index third_party/licenses/manifest.json
 ```
 
 输出目录必须尚不存在，且不能位于安装前缀内部。工具独占新目录并拒绝覆盖；中断后遗留的部分输出须独立验证，不能直接视为完整候选。
@@ -102,11 +107,14 @@ python scripts/release/prepare_release.py prepare \
 
 - `liuding-forge-VERSION-PLATFORM.zip`：`payload/` 下排序、确定性的无压缩 ZIP/ZIP64 普通文件，无链接、注释、墙钟时间戳或隐式依赖下载。
 - `inventory.json`、`dependency-manifest.json`、`LICENSE`、`THIRD_PARTY_NOTICES.md`：精确内容清单和依赖/许可声明。
+- `third_party/licenses/manifest.json` 及其全部索引原件：保持原始字节、来源和待审边界；每件均进入发布清单和签名载荷，原文索引摘要另绑定到 SBOM 和 provenance。
 - `evidence-index.json` 与 `evidence/`：索引及按实际大小/摘要复制的证据。
 - `sbom.cdx.json`：CycloneDX 1.5 声明依赖清单，保留完整性/告知的待审状态；传递依赖图的完整性须有独立审计。
 - `provenance.intoto.json`、`release-manifest.json`、`signing-payload.json`：身份、打包与证据绑定及全部未签名 GA 阻断。签名载荷绑定除自身和外置签名以外的所有候选文件。
 
 工具生成的 JSON 使用排序键、紧凑 UTF-8 和末尾 LF；该 LF 属于签名字节。原依赖与证据 JSON 字节保持不变。相同输入重复准备会得到相同输出字节，但不据此声明原 SDK 构建可复现。
+
+新候选使用发布清单 schema 2，增加许可索引文档和 `license_artifacts` 完整原件集合；独立验证器重新核对索引语义与原件集合，不能靠同时重算外层摘要绕过内容或覆盖检查。历史 schema 1 候选仍可只读验证，但会额外返回 `dependency-notices.inventory-missing`，即使签名有效也不能通过 `--require-ga`。原文随包保留不关闭完整传递告知、许可证适用性、CVE、Corresponding Source 或再分发审查。
 
 ## 独立验证与外部签名
 
@@ -117,7 +125,7 @@ python scripts/release/verify_release.py --directory /work/candidate \
   --expected-platform linux-x86_64-cuda-cu126-cxx11-abi1
 ```
 
-验证核对预期身份、完整文件集合、全部元数据/证据摘要、依赖绑定、重新生成的 SBOM/provenance，以及私有临时目录中解出的实际字节和版本头。压缩、加密、非普通或未知/重复条目、路径穿越、Windows 设备/数据流名、大小写别名、ZIP 头不一致、数据重叠/空洞、注释、首尾附加字节和大小/摘要/CRC 错误均被拒绝。解出的内容不会执行。
+验证核对预期身份、完整文件集合、全部元数据/证据摘要、依赖绑定、重新生成的 SBOM/provenance，以及私有临时目录中解出的实际字节和版本头。每件载荷实际解出并通过大小/摘要/CRC 核验后立即删除，仅保留版本头与构建来源文件直至身份检查完成，降低验证临时磁盘占用；累计展开字节与文件数量仍按完整归档计限。压缩、加密、非普通或未知/重复条目、路径穿越、Windows 设备/数据流名、大小写别名、ZIP 头不一致、数据重叠/空洞、注释、首尾附加字节和大小/摘要/CRC 错误均被拒绝。解出的内容不会执行。
 
 候选审查通过后，由获授权的发布者使用已有受保护发布密钥和批准的外部 OpenSSL，对 `signing-payload.json` 精确字节签名。RSA/ECDSA 密钥的 `dgst -sha256` 示例：
 
@@ -145,8 +153,12 @@ python scripts/release/verify_release.py --directory /work/final-candidate \
 
 ## 资源与维护边界
 
-两工具拒绝符号链接、Windows reparse point 和硬链接输入，路径组件限可移植 ASCII。每次读取前后核文件身份、大小和修改时间；调用方仍须保证独占静止输入。验证需预留解包磁盘空间。
+除显式启用的安装文件同目录别名实体化外，两工具拒绝符号链接、Windows reparse point 和硬链接输入，路径组件限可移植 ASCII。每次读取前后核文件身份、大小和修改时间；调用方仍须保证独占静止输入。验证需预留解包磁盘空间。
+
+Windows 本地读写使用扩展绝对路径，以保留深层许可原件的完整文件名；发布清单和签名中的相对名称保持可移植规则，输出仍禁止位于安装前缀内。
 
 默认上限为十万个文件/目录、单个安装/证据文件 4 GiB、安装内容/归档各 32 GiB、证据总量 32 GiB、单份 JSON/许可/告知或 ZIP 中央目录 32 MiB、JSON 深度 24、含键两百万节点、单字符串 8192 UTF-8 字节。Python 维护 API 只允许收紧上限。工具拒绝压缩，接受的展开比例固定为 1，不做可执行格式反序列化。
+
+许可原文沿用索引的额外上限：最多 1024 件、单件 2 MiB、合计 32 MiB；全部原件仍计入候选文件数，不能与索引文件或其他输出发生大小写别名和文件/目录冲突。
 
 章节验收时在 Windows 和 Ubuntu 各运行一次既有脚本测试，并完成约定的构建/测试/安装验证，复用兼容构建树。可选 OpenSSL 测试使用临时测试密钥；跳过不构成正式签名证据。

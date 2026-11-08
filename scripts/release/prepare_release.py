@@ -23,11 +23,12 @@ from typing import Any
 import zipfile
 
 from release_common import (
-    Limits, ReleaseError, canonical, descriptor, fail, ga_blockers, json_document,
-    no_links, prefix_inventory, provenance, read_file, relative_name, sbom,
+    Limits, ReleaseError, absolute_path, canonical, check_names, descriptor, fail, ga_blockers, json_document,
+    install_file, no_links, prefix_inventory, provenance, read_file, relative_name, sbom,
     signing_payload, stream_file, validate_dependencies, validate_evidence,
     validate_installed_provenance, validate_installed_version, validate_release,
 )
+from release_licenses import LICENSE_INDEX, LICENSE_ROOT, license_artifacts
 
 
 def write_document(path: Path, value: Any, limits: Limits) -> None:
@@ -46,7 +47,7 @@ def zip_timestamp(epoch: int) -> tuple[int, int, int, int, int, int]:
 
 
 def write_archive(path: Path, prefix: Path, inventory: dict[str, Any],
-                  epoch: int, limits: Limits) -> None:
+                  epoch: int, limits: Limits, *, materialize_install_links: bool = False) -> None:
     """Write only sorted regular entries with deterministic portable attributes."""
     with zipfile.ZipFile(path, "x", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
         for entry in inventory["files"]:
@@ -56,7 +57,8 @@ def write_archive(path: Path, prefix: Path, inventory: dict[str, Any],
             info.external_attr = (stat.S_IFREG | entry["mode"]) << 16
             info.file_size = entry["size"]
             with archive.open(info, "w", force_zip64=entry["size"] >= zipfile.ZIP64_LIMIT) as output:
-                actual = stream_file(prefix / entry["path"], limits.max_file_bytes, output)
+                source = install_file(prefix / entry["path"], materialize_links=materialize_install_links)
+                actual = stream_file(source, limits.max_file_bytes, output)
             if actual != {key: entry[key] for key in ("size", "sha256")}:
                 fail("install prefix changed after inventory")
     if path.stat().st_size > limits.max_total_bytes:
@@ -65,7 +67,8 @@ def write_archive(path: Path, prefix: Path, inventory: dict[str, Any],
 
 def prepare_release(*, prefix: Path, out: Path, release: dict[str, Any],
                     evidence_index: Path, dependency_lock: Path, license_file: Path,
-                    notices_file: Path, limits: Limits = Limits()) -> dict[str, Any]:
+                    notices_file: Path, license_index: Path,
+                    limits: Limits = Limits(), materialize_install_links: bool = False) -> dict[str, Any]:
     """Stage candidate assets and commit to a new destination without overwrites.
 
     The caller exclusively owns the prefix, inputs and output parent for this
@@ -75,18 +78,20 @@ def prepare_release(*, prefix: Path, out: Path, release: dict[str, Any],
     limits.validate()
     validate_release(release)
     prefix = no_links(prefix)
-    out = Path(os.path.abspath(out))
+    out = absolute_path(out)
     no_links(out.parent)
     if out.exists() or out.is_symlink():
         fail("output directory already exists")
     if prefix == out or prefix in out.parents:
         fail("release output cannot be inside install prefix")
-    inventory = prefix_inventory(prefix, limits)
+    inventory = prefix_inventory(prefix, limits, materialize_install_links=materialize_install_links)
     validate_installed_version(prefix, release, limits)
     inventory_sha = hashlib.sha256(canonical(inventory)).hexdigest()
     lock_data = read_file(dependency_lock, limits.max_metadata_bytes)
     dependencies = json_document(lock_data, limits)
     dependency_ids = validate_dependencies(dependencies)
+    license_index_data = read_file(license_index, limits.max_metadata_bytes)
+    retained_licenses = license_artifacts(json_document(license_index_data, limits), dependencies, limits)
     lock_sha = hashlib.sha256(lock_data).hexdigest()
     validate_installed_provenance(prefix, release, lock_sha, limits)
     evidence_data = read_file(evidence_index, limits.max_metadata_bytes)
@@ -112,9 +117,19 @@ def prepare_release(*, prefix: Path, out: Path, release: dict[str, Any],
         write_document(stage / "inventory.json", inventory, limits)
         for name, data in (("dependency-manifest.json", lock_data),
                            ("evidence-index.json", evidence_data),
-                           ("LICENSE", license_data), ("THIRD_PARTY_NOTICES.md", notices_data)):
+                           ("LICENSE", license_data), ("THIRD_PARTY_NOTICES.md", notices_data),
+                           (LICENSE_INDEX, license_index_data)):
+            (stage / name).parent.mkdir(parents=True, exist_ok=True)
             with (stage / name).open("xb") as output:
                 output.write(data)
+        for record in retained_licenses:
+            destination = stage / record["path"]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source = license_index.parent / record["path"][len(LICENSE_ROOT):]
+            with destination.open("xb") as output:
+                actual = stream_file(source, min(2 * 1024**2, limits.max_file_bytes), output)
+            if actual != {key: record[key] for key in ("size", "sha256")}:
+                fail("license original content differs from indexed digest")
         evidence_artifacts = []
         for record in records:
             name = "evidence/" + record["path"]
@@ -126,9 +141,11 @@ def prepare_release(*, prefix: Path, out: Path, release: dict[str, Any],
                 fail("validation evidence content differs from indexed digest")
             evidence_artifacts.append({"path": name, **actual})
         write_archive(stage / archive_name, prefix, inventory,
-                      release["source_date_epoch"], limits)
+                      release["source_date_epoch"], limits, materialize_install_links=materialize_install_links)
         archive = descriptor(stage / archive_name, archive_name, limits)
-        write_document(stage / "sbom.cdx.json", sbom(release, dependencies, archive["sha256"]), limits)
+        license_index_sha = hashlib.sha256(license_index_data).hexdigest()
+        write_document(stage / "sbom.cdx.json", sbom(
+            release, dependencies, archive["sha256"], license_index_sha256=license_index_sha), limits)
         documents = {
             identity: descriptor(stage / path, path, limits)
             for identity, path in {
@@ -136,19 +153,22 @@ def prepare_release(*, prefix: Path, out: Path, release: dict[str, Any],
                 "dependency_lock": "dependency-manifest.json",
                 "evidence_index": "evidence-index.json", "license": "LICENSE",
                 "notices": "THIRD_PARTY_NOTICES.md",
+                "license_index": LICENSE_INDEX,
             }.items()
         }
         write_document(stage / "provenance.intoto.json", provenance(release, archive, documents), limits)
         documents["provenance"] = descriptor(stage / "provenance.intoto.json", "provenance.intoto.json", limits)
         manifest = {
-            "schema_version": 1, "kind": "jyppx-sdk-release", "release": release,
+            "schema_version": 2, "kind": "jyppx-sdk-release", "release": release,
             "archive": archive, "documents": documents,
             "evidence_artifacts": evidence_artifacts,
+            "license_artifacts": retained_licenses,
             "ga": {"status": "pending", "blockers": blockers},
         }
         write_document(stage / "release-manifest.json", manifest, limits)
-        files = [archive, *documents.values(), *evidence_artifacts,
+        files = [archive, *documents.values(), *evidence_artifacts, *retained_licenses,
                  descriptor(stage / "release-manifest.json", "release-manifest.json", limits)]
+        check_names([item["path"] for item in files] + ["signing-payload.json"], limits)
         write_document(stage / "signing-payload.json", signing_payload(files), limits)
         # Exclusive mkdir reserves this publication. Hard links refuse existing
         # destinations on both supported OSes; unlink staging aliases afterwards.
@@ -171,14 +191,16 @@ def parser() -> argparse.ArgumentParser:
     inventory = commands.add_parser("inventory", help="compute the exact prefix inventory binding")
     inventory.add_argument("--prefix", required=True, type=Path)
     inventory.add_argument("--output", required=True, type=Path)
+    inventory.add_argument("--materialize-install-links", action="store_true")
     prepare = commands.add_parser("prepare", help="prepare an unsigned reviewable candidate")
-    for name in ("prefix", "out", "evidence-index", "dependency-lock", "license", "notices"):
+    for name in ("prefix", "out", "evidence-index", "dependency-lock", "license", "notices", "license-index"):
         prepare.add_argument("--" + name, required=True, type=Path)
     prepare.add_argument("--version", required=True)
     prepare.add_argument("--platform", required=True)
     prepare.add_argument("--source-commit", required=True)
     prepare.add_argument("--source-state", required=True, choices=("clean", "dirty"))
     prepare.add_argument("--source-date-epoch", required=True, type=int)
+    prepare.add_argument("--materialize-install-links", action="store_true")
     return result
 
 
@@ -188,12 +210,13 @@ def main() -> int:
     limits = Limits()
     try:
         if args.command == "inventory":
-            output = Path(os.path.abspath(args.output))
+            output = absolute_path(args.output)
             no_links(output.parent)
             prefix = no_links(args.prefix)
             if prefix in output.parents:
                 fail("inventory output cannot be inside install prefix")
-            write_document(output, prefix_inventory(prefix, limits), limits)
+            write_document(output, prefix_inventory(
+                prefix, limits, materialize_install_links=args.materialize_install_links), limits)
             result = {"inventory": str(output), "sha256": stream_file(output, limits.max_metadata_bytes)["sha256"]}
         else:
             result = prepare_release(
@@ -203,6 +226,8 @@ def main() -> int:
                          "source_date_epoch": args.source_date_epoch},
                 evidence_index=args.evidence_index, dependency_lock=args.dependency_lock,
                 license_file=args.license, notices_file=args.notices,
+                license_index=args.license_index,
+                materialize_install_links=args.materialize_install_links,
             )
     except (ReleaseError, OSError, zipfile.BadZipFile, OverflowError, TypeError,
             UnicodeError, RuntimeError) as error:

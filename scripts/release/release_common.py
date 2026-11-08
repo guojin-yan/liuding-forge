@@ -247,9 +247,17 @@ def json_document(data: bytes, limits: Limits, *, canonical_only: bool = False) 
     return value
 
 
+def absolute_path(path: Path) -> Path:
+    """Use Windows extended paths without changing portable release filenames."""
+    value = os.path.abspath(path)
+    if os.name == "nt" and not value.startswith("\\\\?\\"):
+        value = "\\\\?\\UNC\\" + value[2:] if value.startswith("\\\\") else "\\\\?\\" + value
+    return Path(value)
+
+
 def no_links(path: Path) -> Path:
     """Check the full existing path, including Windows junction ancestors."""
-    path = Path(os.path.abspath(path))
+    path = absolute_path(path)
     for ancestor in [*reversed(path.parents), path]:
         try:
             info = ancestor.lstat()
@@ -262,7 +270,7 @@ def no_links(path: Path) -> Path:
 
 def regular_info(path: Path) -> os.stat_result:
     """Require an unaliased regular file before opening it."""
-    no_links(path)
+    path = no_links(path)
     info = path.lstat()
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         fail("expected an unaliased regular file")
@@ -271,6 +279,7 @@ def regular_info(path: Path) -> os.stat_result:
 
 def stream_file(path: Path, maximum: int, output: BinaryIO | None = None) -> dict[str, Any]:
     """Hash/copy a bounded file and detect replacement or concurrent mutation."""
+    path = absolute_path(path)
     initial = regular_info(path)
     if initial.st_size > maximum:
         fail("file byte limit exceeded")
@@ -334,7 +343,32 @@ def validate_descriptor(value: Any, limits: Limits) -> dict[str, Any]:
     return value
 
 
-def walk_files(root: Path, limits: Limits) -> list[tuple[str, Path]]:
+def install_file(path: Path, *, materialize_links: bool = False) -> Path:
+    """Optionally read a bounded chain of same-directory install-file aliases.
+
+    Directory links, absolute/parent targets and hardlinked endpoints remain
+    forbidden. The caller exclusively owns the static installation while packing.
+    No path alias is written into the published archive.
+    """
+    path = absolute_path(path)
+    if type(materialize_links) is not bool:
+        fail("install link materialization must be boolean")
+    no_links(path.parent)
+    for _ in range(32):
+        info = path.lstat()
+        if not stat.S_ISLNK(info.st_mode):
+            regular_info(path)
+            return path
+        if not materialize_links:
+            fail("links and reparse points are forbidden")
+        target = os.readlink(path)
+        if "/" in relative_name(target):
+            fail("install link must target a file in the same directory")
+        path = path.parent / target
+    fail("install link chain exceeds bound or contains a cycle")
+
+
+def walk_files(root: Path, limits: Limits, *, materialize_install_links: bool = False) -> list[tuple[str, Path]]:
     """Enumerate regular files with bounded directory traversal."""
     root = no_links(root)
     if not root.is_dir():
@@ -351,8 +385,8 @@ def walk_files(root: Path, limits: Limits) -> list[tuple[str, Path]]:
         for name in filenames:
             path = Path(directory) / name
             relative = relative_name(path.relative_to(root).as_posix())
-            regular_info(path)
-            result.append((relative, path))
+            actual = install_file(path, materialize_links=materialize_install_links)
+            result.append((relative, actual))
             if len(result) > limits.max_files:
                 fail("file count limit exceeded")
     result.sort()
@@ -360,12 +394,13 @@ def walk_files(root: Path, limits: Limits) -> list[tuple[str, Path]]:
     return result
 
 
-def prefix_inventory(prefix: Path, limits: Limits) -> dict[str, Any]:
+def prefix_inventory(prefix: Path, limits: Limits, *,
+                     materialize_install_links: bool = False) -> dict[str, Any]:
     """Inventory the actual install prefix rather than a build/source tree."""
     limits.validate()
     files: list[dict[str, Any]] = []
     total = 0
-    for name, path in walk_files(prefix, limits):
+    for name, path in walk_files(prefix, limits, materialize_install_links=materialize_install_links):
         info = regular_info(path)
         entry = {"path": name, **stream_file(path, limits.max_file_bytes)}
         entry["mode"] = 0o755 if (
@@ -655,7 +690,8 @@ def ga_blockers(release: dict[str, Any], dependencies: dict[str, Any],
     return sorted(set(blockers))
 
 
-def sbom(release: dict[str, Any], dependencies: dict[str, Any], archive_sha: str) -> dict[str, Any]:
+def sbom(release: dict[str, Any], dependencies: dict[str, Any], archive_sha: str, *,
+         license_index_sha256: str | None = None) -> dict[str, Any]:
     """Emit CycloneDX 1.5 declared dependencies; never invent CVE scan results."""
     components = []
     for dependency in sorted(dependencies["dependencies"], key=lambda item: item["id"]):
@@ -689,7 +725,9 @@ def sbom(release: dict[str, Any], dependencies: dict[str, Any], archive_sha: str
                             "value": "declared lock; resolved/transitive graph requires dependency audit evidence"},
                            {"name": "liuding-forge:display-name", "value": "六丁炼算"},
                            {"name": "liuding-forge:display-name-en", "value": "Liuding Forge"},
-                           {"name": "liuding-forge:artifact-prefix", "value": "liuding-forge"}],
+                           {"name": "liuding-forge:artifact-prefix", "value": "liuding-forge"}]
+                          + ([{"name": "jyppx:retained-license-index-sha256", "value": license_index_sha256}]
+                             if license_index_sha256 is not None else []),
         },
         "components": components,
     }
@@ -710,6 +748,9 @@ def provenance(release: dict[str, Any], archive: dict[str, Any],
         "validationEvidenceSha256": documents["evidence_index"]["sha256"],
         "claim": "packages a supplied install prefix; original build and tests are publisher-supplied evidence",
     }
+    retained = documents.get("license_index")
+    if retained is not None:
+        parameters["retainedLicenseIndexSha256"] = retained["sha256"]
     return {
         "_type": "https://in-toto.io/Statement/v1",
         "subject": [{"name": archive["path"], "digest": {"sha256": archive["sha256"]}}],
@@ -721,7 +762,8 @@ def provenance(release: dict[str, Any], archive: dict[str, Any],
                 "resolvedDependencies": [
                     {"uri": "urn:jyppx:dependency-lock", "digest": {"sha256": documents["dependency_lock"]["sha256"]}},
                     {"uri": "urn:jyppx:installation-inventory", "digest": {"sha256": documents["inventory"]["sha256"]}},
-                ],
+                ] + ([{"uri": "urn:jyppx:retained-license-index", "digest": {"sha256": retained["sha256"]}}]
+                     if retained is not None else []),
             },
             "runDetails": {
                 "builder": {"id": "urn:jyppx:prepare-release:v1"},

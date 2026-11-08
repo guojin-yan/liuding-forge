@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,7 +39,8 @@ class ReleaseTest(unittest.TestCase):
     """Exercise public preparation and independent verification with real files."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(prefix="jyppx-release-test-")
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="jyppx-release-test-", dir=common.absolute_path(Path(tempfile.gettempdir())))
         self.root = Path(self.temporary.name)
         self.prefix = self.root / "install"
         self.header = self.prefix / "include/jyppx/liuding/foundation/build_config.hpp"
@@ -58,6 +60,10 @@ class ReleaseTest(unittest.TestCase):
         shutil.copyfile(ROOT / "THIRD_PARTY_NOTICES.md", self.notices)
         self.lock = self.inputs / "dependency-manifest.json"
         self.index = self.inputs / "evidence-index.json"
+        self.license_index = self.inputs / "third_party/licenses/manifest.json"
+        self.license_index.parent.mkdir(parents=True)
+        self.license_original = self.license_index.parent / "fixture-LICENSE"
+        self.license_original.write_bytes(b"Synthetic retained license original: unit-test evidence only.\n")
         self.output = self.root / "candidate"
         self.release = {
             "version": "1.0.0", "platform": "linux-x86_64-cpu",
@@ -131,12 +137,28 @@ class ReleaseTest(unittest.TestCase):
         self.lock.write_bytes(common.canonical(self.dependencies))
         self.evidence["dependency_lock_sha256"] = hashlib.sha256(self.lock.read_bytes()).hexdigest()
         self.index.write_bytes(common.canonical(self.evidence))
+        # A fixture license only covers the synthetic dependency. Tests using
+        # the real lock supply the real retained index explicitly.
+        original = self.license_original.read_bytes()
+        self.license_index.write_bytes(common.canonical({
+            "schema_version": 1, "audit_date": "2026-10-21", "hash_algorithm": "sha256",
+            "scope": "synthetic unit test; not a release notice audit", "limitations": [],
+            "dependency_notice_states": {
+                item["id"]: item["license"]["third_party_notice_audit"]
+                for item in self.dependencies["dependencies"]
+            },
+            "files": [{"dependency_id": "fixture", "path": self.license_original.name,
+                       "size_bytes": len(original), "sha256": hashlib.sha256(original).hexdigest(),
+                       "origin": {"kind": "upstream-document", "url": "https://example.test/LICENSE",
+                                  "artifact_sha256": hashlib.sha256(original).hexdigest()}}],
+        }))
 
     def candidate(self, output: Path | None = None, **overrides) -> dict:
         arguments = dict(
             prefix=self.prefix, out=output or self.output, release=self.release,
             evidence_index=self.index, dependency_lock=self.lock, license_file=self.license,
             notices_file=self.notices,
+            license_index=self.license_index,
         )
         arguments.update(overrides)
         return prepare.prepare_release(**arguments)
@@ -224,6 +246,260 @@ class ReleaseTest(unittest.TestCase):
         self.assertFalse(result["ga_ready"])
         self.assertEqual(result["unpacked_files"], 3)
         self.assertEqual(result["ga_blockers"], ["signature.pending"])
+        manifest = self.load_manifest()
+        self.assertEqual(manifest["schema_version"], 2)
+        original = self.output / "third_party/licenses/fixture-LICENSE"
+        self.assertEqual(original.read_bytes(), self.license_original.read_bytes())
+        self.assertEqual(result["retained_license_files"], 1)
+        payload = json.loads((self.output / "signing-payload.json").read_bytes())
+        self.assertIn(manifest["license_artifacts"][0], payload["files"])
+        index_sha = hashlib.sha256(self.license_index.read_bytes()).hexdigest()
+        self.assertIn({"name": "jyppx:retained-license-index-sha256", "value": index_sha},
+                      sbom["metadata"]["properties"])
+        provenance = json.loads((self.output / "provenance.intoto.json").read_bytes())
+        self.assertEqual(provenance["predicate"]["buildDefinition"]["externalParameters"][
+            "retainedLicenseIndexSha256"], index_sha)
+
+    def rebind_outer_metadata(self, directory: Path) -> None:
+        """Model a forger that recomputes every outer hash, bypassing preparation."""
+        limits = common.Limits()
+        manifest = json.loads((directory / "release-manifest.json").read_bytes())
+        documents = manifest["documents"]
+        for identity, record in documents.items():
+            if identity != "provenance":
+                documents[identity] = common.descriptor(directory / record["path"], record["path"], limits)
+        for field in ("evidence_artifacts", "license_artifacts"):
+            manifest[field] = [common.descriptor(directory / record["path"], record["path"], limits)
+                               for record in manifest[field]]
+        dependencies = json.loads((directory / "dependency-manifest.json").read_bytes())
+        (directory / "sbom.cdx.json").write_bytes(common.canonical(common.sbom(
+            self.release, dependencies, manifest["archive"]["sha256"],
+            license_index_sha256=documents["license_index"]["sha256"])))
+        documents["sbom"] = common.descriptor(directory / "sbom.cdx.json", "sbom.cdx.json", limits)
+        (directory / "provenance.intoto.json").write_bytes(common.canonical(common.provenance(
+            self.release, manifest["archive"], documents)))
+        documents["provenance"] = common.descriptor(directory / "provenance.intoto.json", "provenance.intoto.json", limits)
+        (directory / "release-manifest.json").write_bytes(common.canonical(manifest))
+        files = [manifest["archive"], *documents.values(), *manifest["evidence_artifacts"],
+                 *manifest["license_artifacts"], common.descriptor(
+                     directory / "release-manifest.json", "release-manifest.json", limits)]
+        (directory / "signing-payload.json").write_bytes(common.canonical(common.signing_payload(files)))
+
+    def test_independent_verifier_rejects_rehashed_license_forgery(self) -> None:
+        for attack in ("bytes", "omitted", "state", "coverage", "path", "origin"):
+            with self.subTest(attack=attack):
+                output = self.root / f"license-forgery-{attack}"
+                self.candidate(output)
+                index_path = output / "third_party/licenses/manifest.json"
+                index = json.loads(index_path.read_bytes())
+                original = output / "third_party/licenses/fixture-LICENSE"
+                if attack == "bytes":
+                    data = original.read_bytes()
+                    original.write_bytes(b"!" + data[1:])
+                elif attack == "omitted":
+                    original.unlink()
+                    manifest = json.loads((output / "release-manifest.json").read_bytes())
+                    manifest["license_artifacts"] = []
+                    (output / "release-manifest.json").write_bytes(common.canonical(manifest))
+                elif attack == "state":
+                    index["dependency_notice_states"]["fixture"] = "pending"
+                elif attack == "coverage":
+                    index["files"][0]["dependency_id"] = "unrelated-fixture"
+                elif attack == "path":
+                    index["files"][0]["path"] = "../escape"
+                elif attack == "origin":
+                    index["files"][0]["origin"]["url"] = "https://user:secret@example.test/LICENSE"
+                index_path.write_bytes(common.canonical(index))
+                self.rebind_outer_metadata(output)
+                with self.assertRaises(common.ReleaseError):
+                    self.inspect(output)
+
+    def test_license_index_and_original_integrity_are_required_before_publication(self) -> None:
+        data = self.license_original.read_bytes()
+        self.license_original.write_bytes(b"!" + data[1:])
+        with self.assertRaisesRegex(common.ReleaseError, "indexed digest"):
+            self.candidate()
+        self.assertFalse(self.output.exists())
+        self.license_original.unlink()
+        with self.assertRaises(common.ReleaseError):
+            self.candidate()
+        self.assertFalse(self.output.exists())
+        self.license_original.write_bytes(data)
+        self.license_index.unlink()
+        with self.assertRaises(common.ReleaseError):
+            self.candidate()
+        self.assertFalse(self.output.exists())
+
+    def test_license_index_paths_aliases_schema_and_sources_are_bounded(self) -> None:
+        initial = self.license_index.read_bytes()
+        for attack in ("traversal", "device", "case", "collision", "schema", "source-kind",
+                       "source-url", "source-entry", "excerpt", "size", "aggregate"):
+            with self.subTest(attack=attack):
+                index = json.loads(initial)
+                record = index["files"][0]
+                limits = common.Limits()
+                if attack in {"traversal", "device", "collision"}:
+                    record["path"] = {"traversal": "../escape", "device": "CON.txt",
+                                      "collision": "manifest.json"}[attack]
+                elif attack == "case":
+                    index["files"].append(copy.deepcopy(record))
+                    index["files"][1]["path"] = record["path"].upper()
+                elif attack == "schema":
+                    index["schema_version"] = True
+                elif attack == "source-kind":
+                    record["origin"]["kind"] = []
+                elif attack == "source-url":
+                    record["origin"]["url"] = "http://example.test/LICENSE"
+                elif attack == "source-entry":
+                    record["origin"].update(kind="archive-entry", entry="../escape")
+                elif attack == "excerpt":
+                    record["origin"].update(kind="archive-excerpt", entry="LICENSE",
+                                            byte_offset=False, byte_length=record["size_bytes"])
+                elif attack == "size":
+                    record["size_bytes"] = 2 * 1024**2 + 1
+                elif attack == "aggregate":
+                    record["size_bytes"] = 2 * 1024**2
+                    index["files"] = [{**record, "path": f"notice-{number}"} for number in range(17)]
+                self.license_index.write_bytes(common.canonical(index))
+                with self.assertRaises(common.ReleaseError):
+                    self.candidate(self.root / f"bad-license-{attack}", limits=limits)
+        self.license_index.write_bytes(initial)
+
+    def test_license_original_hardlinks_are_rejected(self) -> None:
+        alias = self.license_original.parent / "alias"
+        os.link(self.license_original, alias)
+        with self.assertRaisesRegex(common.ReleaseError, "unaliased"):
+            self.candidate()
+        alias.unlink()
+
+    def test_license_original_symlinks_are_rejected(self) -> None:
+        alias = self.license_original.parent / "alias"
+        original = self.license_original.read_bytes()
+        alias.write_bytes(original)
+        self.license_original.unlink()
+        try:
+            self.license_original.symlink_to(alias)
+        except OSError:
+            self.license_original.write_bytes(original)
+            self.skipTest("license symlink check requires creation permission")
+        with self.assertRaisesRegex(common.ReleaseError, "links"):
+            self.candidate()
+        self.license_original.unlink()
+        alias.unlink()
+        self.license_original.write_bytes(original)
+
+    def test_legacy_candidate_is_inspectable_but_never_ga_without_originals(self) -> None:
+        self.unchecked_candidate(self.output)
+        result = self.inspect()
+        self.assertTrue(result["candidate_verified"])
+        self.assertFalse(result["ga_ready"])
+        self.assertIn("dependency-notices.inventory-missing", result["ga_blockers"])
+        self.assertEqual(result["retained_license_files"], 0)
+
+    def test_prepare_cli_requires_and_packages_the_exact_license_index(self) -> None:
+        command = [sys.executable, str(ROOT / "scripts/release/prepare_release.py"), "prepare",
+                   "--prefix", str(self.prefix), "--out", str(self.output),
+                   "--version", self.release["version"], "--platform", self.release["platform"],
+                   "--source-commit", self.release["source"]["commit"], "--source-state", "clean",
+                   "--source-date-epoch", str(self.release["source_date_epoch"]),
+                   "--evidence-index", str(self.index), "--dependency-lock", str(self.lock),
+                   "--license", str(self.license), "--notices", str(self.notices)]
+        missing = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(missing.returncode, 2)
+        self.assertIn("--license-index", missing.stderr)
+        self.assertFalse(self.output.exists())
+        prepared = subprocess.run([*command, "--license-index", str(self.license_index)],
+                                  capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertEqual(self.inspect()["retained_license_files"], 1)
+
+    def test_deep_candidate_paths_preserve_names_and_output_isolation(self) -> None:
+        deep = common.absolute_path(self.root.joinpath(*["deep-release-inputs-0123456789"] * 9))
+        deep.mkdir(parents=True)
+        output = deep / "candidate"
+        self.candidate(output)
+        result = self.inspect(output)
+        self.assertTrue(result["candidate_verified"])
+        self.assertEqual((output / "third_party/licenses/fixture-LICENSE").read_bytes(),
+                         self.license_original.read_bytes())
+        with self.assertRaisesRegex(common.ReleaseError, "inside install prefix"):
+            self.candidate(self.prefix / "candidate")
+
+    def test_extraction_releases_verified_payload_before_identity_checks(self) -> None:
+        for number in range(2):
+            (self.prefix / f"lib/runtime-{number}.bin").write_bytes(bytes([number]) * (2 * 1024**2))
+        self.bind_evidence_to_prefix()
+        self.write_inputs()
+        self.candidate()
+        validate_identity = verify.validate_installed_version
+        observed = []
+
+        def inspect_remaining(prefix, release, limits):
+            names = {path.relative_to(prefix).as_posix() for path in prefix.rglob("*") if path.is_file()}
+            self.assertEqual(names, set(verify.INSTALLED_IDENTITIES))
+            observed.append(names)
+            return validate_identity(prefix, release, limits)
+
+        with mock.patch.object(verify, "validate_installed_version", side_effect=inspect_remaining):
+            result = self.inspect()
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(result["unpacked_files"], 5)
+        self.assertTrue(result["candidate_verified"])
+
+    def install_alias(self, path: Path, target: str) -> None:
+        try:
+            path.symlink_to(target)
+        except OSError:
+            self.skipTest("install alias check requires symlink creation permission")
+
+    def test_explicit_install_alias_materialization_keeps_regular_archive_entries(self) -> None:
+        endpoint = self.prefix / "lib/runtime.so.1.2"
+        endpoint.write_bytes(b"synthetic runtime alias fixture")
+        self.install_alias(self.prefix / "lib/runtime.so.1", endpoint.name)
+        self.install_alias(self.prefix / "lib/runtime.so", "runtime.so.1")
+        with self.assertRaisesRegex(common.ReleaseError, "links"):
+            self.candidate()
+        inventory = common.prefix_inventory(self.prefix, common.Limits(), materialize_install_links=True)
+        self.evidence["installation_inventory_sha256"] = hashlib.sha256(common.canonical(inventory)).hexdigest()
+        self.write_inputs()
+        self.candidate(materialize_install_links=True)
+        self.assertTrue(self.inspect()["candidate_verified"])
+        with zipfile.ZipFile(self.output / self.load_manifest()["archive"]["path"]) as archive:
+            for name in ("runtime.so", "runtime.so.1", "runtime.so.1.2"):
+                info = archive.getinfo("payload/lib/" + name)
+                self.assertTrue(stat.S_ISREG(info.external_attr >> 16))
+                self.assertEqual(archive.read(info), endpoint.read_bytes())
+
+    def test_install_alias_escapes_cycles_directories_and_hardlinked_endpoints_are_rejected(self) -> None:
+        alias = self.prefix / "lib/runtime.so"
+        for target in ("../../outside", str(self.license), "runtime.so", "subdir/target"):
+            with self.subTest(target=target):
+                self.install_alias(alias, target)
+                with self.assertRaises(common.ReleaseError):
+                    common.prefix_inventory(self.prefix, common.Limits(), materialize_install_links=True)
+                alias.unlink()
+        directory = self.prefix / "lib/dir"
+        directory.mkdir()
+        self.install_alias(alias, directory.name)
+        with self.assertRaises(common.ReleaseError):
+            common.prefix_inventory(self.prefix, common.Limits(), materialize_install_links=True)
+        alias.unlink()
+        endpoint = self.prefix / "lib/real.so"
+        endpoint.write_bytes(b"fixture")
+        os.link(endpoint, self.root / "endpoint-alias")
+        self.install_alias(alias, endpoint.name)
+        with self.assertRaisesRegex(common.ReleaseError, "unaliased"):
+            common.prefix_inventory(self.prefix, common.Limits(), materialize_install_links=True)
+
+    def test_install_alias_target_drift_is_rejected_during_archive_write(self) -> None:
+        endpoint = self.prefix / "lib/runtime.so.1"
+        endpoint.write_bytes(b"first fixture")
+        self.install_alias(self.prefix / "lib/runtime.so", endpoint.name)
+        inventory = common.prefix_inventory(self.prefix, common.Limits(), materialize_install_links=True)
+        endpoint.write_bytes(b"other fixture")
+        with self.assertRaisesRegex(common.ReleaseError, "changed after inventory"):
+            prepare.write_archive(self.root / "drift.zip", self.prefix, inventory,
+                                  self.release["source_date_epoch"], common.Limits(), materialize_install_links=True)
 
     def test_outputs_are_deterministic_and_do_not_overwrite(self) -> None:
         self.candidate()
@@ -386,7 +662,7 @@ class ReleaseTest(unittest.TestCase):
         }
         self.simulate_rebuild()
         self.write_inputs()
-        self.candidate()
+        self.candidate(license_index=ROOT / "third_party/licenses/manifest.json")
         result = self.inspect()
         self.assertFalse(result["ga_ready"])
         self.assertIn("dependency-manifest.draft", result["ga_blockers"])
@@ -394,6 +670,11 @@ class ReleaseTest(unittest.TestCase):
         self.assertTrue(any("integrity-pending" in item for item in result["ga_blockers"]))
         sbom = json.loads((self.output / "sbom.cdx.json").read_bytes())
         self.assertNotIn("vulnerabilities", sbom)
+        self.assertEqual(result["retained_license_files"], 100)
+        license_index = json.loads((ROOT / "third_party/licenses/manifest.json").read_bytes())
+        for record in license_index["files"]:
+            self.assertEqual((self.output / "third_party/licenses" / record["path"]).read_bytes(),
+                             (ROOT / "third_party/licenses" / record["path"]).read_bytes())
 
     def test_dirty_or_prerelease_source_remains_explicit(self) -> None:
         self.release["source"]["dirty"] = True
@@ -638,7 +919,16 @@ class ReleaseTest(unittest.TestCase):
         signature = self.root / "test-only.sig"
 
         def invoke(*arguments: str) -> None:
-            result = subprocess.run([str(openssl), *arguments], capture_output=True,
+            # MSYS-hosted OpenSSL does not interpret Win32 extended prefixes.
+            # These short test paths are passed in native drive/forward syntax;
+            # the SDK tools keep their own extended paths for filesystem I/O.
+            external = []
+            for argument in arguments:
+                if os.name == "nt" and argument.startswith("\\\\?\\"):
+                    argument = ("//" + argument[8:] if argument.startswith("\\\\?\\UNC\\")
+                                else argument[4:]).replace("\\", "/")
+                external.append(argument)
+            result = subprocess.run([str(openssl), *external], capture_output=True,
                                     timeout=30, check=False)
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
 
@@ -664,6 +954,14 @@ class ReleaseTest(unittest.TestCase):
         self.candidate(candidate)
         invoke("dgst", "-sha256", "-sign", str(private), "-out", str(signature), str(candidate / "signing-payload.json"))
         self.assertIn("dependency-manifest.draft", self.inspect(candidate, **trust)["ga_blockers"])
+        # A correctly signed historical candidate still lacks retained originals.
+        legacy = self.root / "legacy-candidate"
+        self.unchecked_candidate(legacy)
+        invoke("dgst", "-sha256", "-sign", str(private), "-out", str(signature), str(legacy / "signing-payload.json"))
+        legacy_result = self.inspect(legacy, **trust)
+        self.assertTrue(legacy_result["signature_verified"])
+        self.assertFalse(legacy_result["ga_ready"])
+        self.assertIn("dependency-notices.inventory-missing", legacy_result["ga_blockers"])
 
 
 if __name__ == "__main__":
