@@ -13,6 +13,34 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-57e304c-selected-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; CPU correctness/install profile",
+          "build_type": "Release",
+          "tests": "Complete selected contracts closed in stages: 2076 contracts, 1887 passed, 189 conditional skips, zero unresolved failures. The original supervisor interruption is retained. Independent installed C++ sdk consumer1/1 passed; two component matrices are separate.",
+          "instrumentation": "CMake 3.22.1 / Ninja 1.10.1; fixed CPU build, install and consumer directories reused;18 libraries, CLI, examples and docs enabled. One compiler and test job; delegated user cgroup for native memory contracts.",
+          "quality_evidence": {
+            "source_identity": "Clean committed57e304c4b6d8a3482f6756a1972eb43c92f20b21; all1273 Git blobs and source SHA-256/mtimes verified before/after execution. A later support-metadata commit is not the executed SDK fingerprint.",
+            "independent_audit_sha256": "c4fe7862f509e7eb006b46c6b20789849b01386ea9ac81104e8589a6078d494f",
+            "receipts_archive_sha256": "97e668ec45095c8f17013e71622b83b65a86729ed2abc9f5f17e29115fcc29f3",
+            "terminal_sha256": "d231a331296b553e9eb319aba7997fe2bf5e43f8ad0194300efe2b728fdb35ad",
+            "installed_manifest_sha256": "9694e8114eb2e96ad0428bcea78dbf3908facb4ef3c3c4c19b77666b724c2a5b",
+            "selected_results_sha256": "af28b1b768d49f60098a4b0044b1af30c11c374ca85a4aac42037f4c52ab0803",
+            "consumer_junit_sha256": "b132f874061a0b92246e7564238b4d67b4c9d4ed93f4be5b50bb85ef54466bd9",
+            "installation": "The fixed CPU prefix was refreshed in place from its actual98e96c0 source. All18 branded libraries/231 entries independently rehashed; eight-Core sdk consumer and exact57e304c/Release CLI fingerprint/CPU doctor passed. Three other SDKs and707 coverage files retain original identities.",
+            "initial_failure": "A maintenance variable shadowed the stat module before any native stage. After that correction, a live output walk raced a deleted workspace directory and interrupted the selected suite. Both failures/cleanup remain. The corrected walk ignores only confirmed vanished paths;2003 completed contracts were not repeated, only73 interrupted/unexecuted contracts ran. Original10800s absolute deadline and aggregate4000s selected-test budget retained; this is staged closure, not one complete invocation.",
+            "native_memory": "Cli_local_recipe_memory passed; 42 saved native boundaries include real kernel OOM, cancellation, timeout and exact recovery, with confirmed process-tree cleanup and empty delegated-parent removal. Whole-suite training updates were not aggregated.",
+            "incremental_execution": "17 target translation units, 123 link commands; build250.356s, selected CTest2121.392s, total2514.522s. Existing configuration/compiler warnings are retained; no paired performance claim.",
+            "resources": "Original10800s window/build6000s/tests4000s; admission6GiB available RAM/24GiB disk; runtime stop4GiB/2GiB; owned RSS5GiB and growth10GiB caps. Observed peak RSS1927073792 bytes, minimum available RAM12413296640 bytes. These observations are not universal product RSS/VRAM limits.",
+            "temporary_storage": "After independent SHA/CRC audit, removed 13 duplicate test-install prefixes, completed workspaces and the remote duplicate receipt archive: 1852808626 logical bytes. No generated-documentation payload was present. Shared objects, dependencies, fixed SDK and consumer build caches retained; no LibTorch/runtime copies.",
+            "scope": "This exact selected CPU Release profile only; conditional skips do not grant support. Component matrices, CUDA/Windows, strict DINO two-step numerics, complete33-model/four-recipe/device/resource matrix, final coverage, HTTPS/security/licensing/SBOM/provenance, production asset signing and Beta/RC upgrade/rollback remain open. INT8 is deferred."
+          },
+          "commit": "57e304c4b6d8a3482f6756a1972eb43c92f20b21"
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cu126-clean-5c75db3-complete-cifar10",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",

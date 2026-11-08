@@ -10,6 +10,8 @@
 
 LibTorch 2.14.1+cpu / GCC 11.4.0 / Ubuntu 22.04.5 x86_64 的选定 Debug coverage profile 已在干净提交 `4136aab` 上验证，包含原覆盖率策略和独立安装 SDK 消费者；2039 项合同分阶段为 1847 通过、192 条件跳过。该 profile 关闭 examples/docs 并排除 packaging 标签，不授予被跳过路径、其他平台/设备或完整发布资格；具体范围见兼容矩阵对应的 `verified_lanes`。启用通用 `onnx_export` 的 profile 要求精确 LibTorch 2.14.1，不能为复用历史 coverage 树降级依赖。
 
+同一 CPU/编译器组合的 Release SDK 已在干净提交 `57e304c` 完成18组件安装、独立八Core消费者和完整选定 2076 项合同分阶段验收（1887 通过、189 条件跳过、零未解决失败）；tests/examples/docs开启。保留维护中断，两组件关闭矩阵及被跳过路径仍需各自验收；实际安装指纹保持 `57e304c`，不随后续元数据提交变更。
+
 在仓库根目录分别运行以下两条命令，检查兼容矩阵和依赖声明：
 
 ```sh

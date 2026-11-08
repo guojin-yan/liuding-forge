@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 补录干净提交 `57e304c` 的 Ubuntu CPU Release SDK 验收：18 库/231 条目安装与独立消费者通过，完整选定 2076 项合同分阶段为 1887 通过、189 条件跳过、零未解决失败；保留维护中断、组件矩阵、其他设备和正式发布边界。
+
 - 新增 Linux 完整双输入/双输出配方资源联验，覆盖 CPU/CUDA 的主机准入、逻辑预约、委派 cgroup 内存计数、本地精确续训、有界搜索与结果重放。
 
 - 已验证 Ubuntu CUDA 的完整 CIFAR-10 ResNet18 分类配方：50 轮连续训练、独立模型重载、暂停恢复及强杀恢复通过，三条训练路线的最终模型和完整检查点逐字节一致；配置、准确率与设备边界见 compatibility.json。
