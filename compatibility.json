@@ -13,6 +13,30 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cu126-clean-752d921-transfer-tasks",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cuda",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cu126; CUDA Toolkit 12.6.3; cuDNN 9.10.2.21; NVIDIA RTX 2060; driver 580.178.04",
+          "build_type": "Release",
+          "tests": "Three fixed real transfer tasks passed continuous training, fresh-process model reload, cooperative pause/resume and durable-step-125 process-kill recovery. The fourth registered DINO finetune case was not executed because its original complete initial state is unavailable.",
+          "instrumentation": "Existing Ninja CUDA Release and diagnostic-consumer caches reused. Native product execution is C++; build jobs=1 and GPU trials are serial. Python only supervises and independently checks saved artifacts. No new installed SDK or broad CTest qualification.",
+          "quality_evidence": {
+            "source_identity": "Clean committed 752d92151c2c23c807ba0e0a038f6771ada5f94d; all 1266 tracked file bytes matched committed Git objects and all source mtimes were preserved. The three model-only consumers use the unchanged installed SDK built at clean e46b15173b2b49c7e5952c1a68a1c8b4bb2c8b63. Differences since that SDK are limited to local-attempt implementation, tests, docs and qualification metadata; this does not requalify the installed SDK at the later commit.",
+            "task_protocol": "Fashion-MNIST fixed first-100-per-class ImageFolder: 1000 train and 1000 official-test images used as validation, seed 20261029, RGB224, batch8, workers2/prefetch1, 3 epochs and 375 optimizer updates per final training route. Accuracy threshold remains 0.65. CUDA FP32, deterministic algorithms, TF32 disabled, no AMP; original optimizer, learning rates and schedules unchanged.",
+            "task_results": "ResNet50 frozen SGD: accuracy 0.830; ResNet50 finetune SGD: 0.774; DINOv2-S frozen SGD: 0.798. Each value is identical across its continuous, cooperative and process-kill recovery routes. These validation subsets are not independent final-test or full-dataset qualifications.",
+            "recovery": "For each task, all 10 checkpoint participants, every recorded blob digest and the complete final checkpoint SHA-256 are identical across three training routes. ResNet cooperative pause is update47; DINO pauses are137/259. All three killed branches were independently parsed at durable global_step125 before SIGKILL and resumed to375. Final logical updates across the nine routes total3375; extra applied work before each kill was not measured and is not counted as exactly3375 actual executions.",
+            "model_only_reload": "Three fresh C++ processes evaluated exactly125 batches/1000 validation images each, without Trainer or optimizer restore. ResNet320/320 and DINO176/176 state tensors retained dtype, shape and payload bytes through CPU import, CUDA transfer and post-validation inspection. Saved logits and labels independently reconstruct each complete confusion matrix and accuracy.",
+            "omitted_case": "The original DINOv2-S finetune common initial safetensors SHA-256 is 2fe516466c6c3f3cfb35f50c0ff2e1152a10029e514b8a8824323d1734d06ac3. One registered zero-update native reconstruction produced a different SHA and was rejected. No substitute initial state, new finetune training, quality-based selection or automatic retry was used; the fourth case remains unqualified.",
+            "resources": "Incremental build cumulative 49.213s; training and checks 701.561s. Observed owned-process-family RSS peak 1489539072 bytes and CUDA process memory peak 1289748480 bytes stayed within the original limits. Four SDKs/924 files and707 coverage files retained SHA-256/mtimes. Audited duplicate training artifacts were removed; shared build, runtime, weights and dataset caches were retained. Sampling is not a private-workspace hard bound or a paired performance claim.",
+            "retained_failures": "Initial official-host download timed out; the fixed-revision mirror inputs passed the original final weight SHA-256 checks. The first reload-consumer build lacked a C++20 target requirement; the second lacked the DINO public header. Both original build failures are retained; only the consumer was repaired in the same cache, without training retry or deadline extension.",
+            "receipts_archive_sha256": "c6c042bbeab549d5e101b8c14e2747e8d42e2dcfe16a3a04ff1dfeb287f90864",
+            "qualification_limits": "Only the three stated Ubuntu CUDA task/weight/configuration paths are qualified here. DINO finetune refresh, strict DINO two-step numerics, original Serving batch numerics, complete 33-model/four-recipe/device/resource and Vision/RunSpec acceptance, Windows SDK/HTTPS, final-candidate coverage, dependency security/licensing/SBOM/provenance, formal signatures and Beta/RC upgrade/rollback remain open. INT8 remains deferred."
+          },
+          "commit": "752d92151c2c23c807ba0e0a038f6771ada5f94d"
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cu126-clean-e46b151-selected-release",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
