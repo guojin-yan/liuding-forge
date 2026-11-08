@@ -381,6 +381,44 @@ class LocalSearchTests(unittest.TestCase):
             self.assertEqual(self.search("execute"), result)
         self.assertEqual(len(self.launches()), 1)
 
+    def test_runtime_files_flow_through_search_and_terminal_replay(self) -> None:
+        self.single("ok")
+        path = self.directory / "runtime.dat"
+        path.write_bytes(b"frozen search runtime")
+        files = {"runtime": {"path": str(path), "sha256": digest(path.read_bytes()),
+                             "size_bytes": path.stat().st_size}}
+        self.spec["execution"]["runtime_files"] = files
+        self.write()
+        path.write_bytes(b"x" * path.stat().st_size)
+        rejected = self.invoke("search", "execute", "--root", self.root, "--id", self.search_id,
+                               "--spec", self.spec_path, expected=2)
+        self.assertIn("Runtime file SHA-256", rejected["error"]["message"])
+        self.assertFalse(self.root.exists())
+        self.assertEqual(self.launches(), [])
+        path.write_bytes(b"frozen search runtime")
+        result = self.search("execute")
+        self.assertEqual(result["status"], "completed")
+        trial = result["trials"][0]["trial_id"]
+        for run, role in ((self.search_id, "search.spec"), (trial, "local.spec")):
+            content, _ = committed_reference(self.root, run, role)
+            frozen = json.loads(content)
+            execution = frozen["execution"] if role == "search.spec" else frozen
+            self.assertEqual(execution["runtime_files"], files)
+        path.unlink()
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.search(action), result)
+        self.assertEqual(len(self.launches()), 1)
+
+    def test_runtime_file_schema_is_checked_before_search_storage(self) -> None:
+        self.single("ok")
+        self.spec["execution"]["runtime_files"] = {"runtime": {
+            "path": "relative-runtime.bin", "sha256": "a" * 64, "size_bytes": 3}}
+        self.write()
+        self.invoke("search", "execute", "--root", self.root, "--id", self.search_id,
+                    "--spec", self.spec_path, expected=2)
+        self.assertFalse(self.root.exists())
+        self.assertEqual(self.launches(), [])
+
     def test_explicit_environment_case_aliases_fail_before_storage_or_launch(self) -> None:
         self.single("ok")
         environment = dict(self.spec["execution"]["environment"])

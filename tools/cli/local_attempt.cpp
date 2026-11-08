@@ -285,9 +285,9 @@ TrainingSpec training_spec(const Json& value) {
   result.data_manifest = training_input(value.at("data_manifest"), 1U << 20U);
   if (value.contains("artifacts")) {
     const auto& artifacts = value.at("artifacts");
-    require(artifacts.is_object() && !artifacts.empty() &&
-                artifacts.size() <= 16,
-            "Training artifacts require 1-16 named immutable inputs");
+    require(
+        artifacts.is_object() && !artifacts.empty() && artifacts.size() <= 16,
+        "Training artifacts require 1-16 named immutable inputs");
     for (const auto& [name, binding] : artifacts.items()) {
       identifier(name);
       require(name.size() <= 64,
@@ -415,6 +415,12 @@ struct EnvironmentReference {
   std::optional<ArtifactDigest> expected_digest;
 };
 
+struct RuntimeFile {
+  fs::path path;
+  ArtifactDigest digest;
+  std::uint64_t size = 0;
+};
+
 struct Spec {
   Json json;
   std::string canonical;
@@ -424,6 +430,7 @@ struct Spec {
   std::string experiment;
   LocalProcessOptions process;
   std::map<std::string, EnvironmentReference> environment_references;
+  std::map<std::string, RuntimeFile> runtime_files;
   std::uint64_t maximum_attempts = 1;
   std::uint64_t retry_delay_ms = 0;
   std::optional<std::uint64_t> deadline_unix_ms;
@@ -440,7 +447,7 @@ Spec read_spec(const Json& value) {
        "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
        "deadline_unix_ms", "training", "resources", "environment_refs",
-       "os_memory_limit"});
+       "os_memory_limit", "runtime_files"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -460,6 +467,37 @@ Spec read_spec(const Json& value) {
   require(process.executable.is_absolute() &&
               process.working_directory.is_absolute(),
           "Local executable and working directory must be absolute");
+  if (value.contains("runtime_files")) {
+    const auto& files = value.at("runtime_files");
+    require(files.is_object() && !files.empty() && files.size() <= 64,
+            "Declare 1-64 named runtime files");
+    std::set<std::string> paths;
+    std::uint64_t total = 0;
+    constexpr std::uint64_t maximum_total = 4ULL << 30U;
+    for (const auto& [name, declaration] : files.items()) {
+      identifier(name);
+      fields(declaration, {"path", "sha256", "size_bytes"});
+      RuntimeFile file{
+          .path = fs::u8path(text(declaration.at("path"))),
+          .digest = {.hex = text(declaration.at("sha256"))},
+          .size = unsigned_number(declaration.at("size_bytes"), 2ULL << 30U)};
+      validate_artifact_digest(file.digest);
+      require(file.path.is_absolute(), "Runtime file paths must be absolute");
+      for (const auto& part : file.path)
+        require(part != "." && part != "..",
+                "Runtime file paths must not contain '.' or '..'");
+      auto key = path_text(file.path.lexically_normal());
+#if defined(_WIN32)
+      key = environment_key(key);
+#endif
+      require(paths.insert(std::move(key)).second,
+              "Runtime file paths must be unique after lexical normalization");
+      require(file.size <= maximum_total - total,
+              "Declared runtime files exceed 4 GiB in total");
+      total += file.size;
+      result.runtime_files.emplace(name, std::move(file));
+    }
+  }
   require(
       value.at("arguments").is_array() && value.at("arguments").size() <= 256,
       "Local execution allows at most 256 arguments");
@@ -540,8 +578,8 @@ Spec read_spec(const Json& value) {
     for (const auto& [name, input] : result.training->artifacts) {
       static_cast<void>(input);
       for (std::uint64_t index = 1; index <= result.maximum_attempts; ++index)
-        require(!result.training->artifacts.contains(
-                    name + "." + std::to_string(index)),
+        require(!result.training->artifacts.contains(name + "." +
+                                                     std::to_string(index)),
                 "Training artifact names collide with retry input references");
     }
   }
@@ -681,6 +719,44 @@ std::vector<RunArtifactReference> training_references(
   return result;
 }
 
+void verify_runtime_files(const Spec& spec) {
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  const auto check_deadline = [&] {
+    if (std::chrono::steady_clock::now() >= deadline)
+      throw DeadlineExceeded("Runtime file verification exceeded 30 seconds");
+  };
+  std::array<char, 65536> buffer{};
+  for (const auto& [name, file] : spec.runtime_files) {
+    static_cast<void>(name);
+    check_deadline();
+    ordinary_path(file.path);
+    require(fs::is_regular_file(file.path),
+            "Declared runtime file must be a regular file");
+    require(fs::file_size(file.path) == file.size,
+            "Runtime file size differs from the frozen spec");
+    std::ifstream stream(file.path, std::ios::binary);
+    if (!stream) throw IoError("Cannot read declared runtime file");
+    Sha256 hash;
+    std::uint64_t count = 0;
+    while (stream) {
+      check_deadline();
+      stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+      const auto got = static_cast<std::size_t>(stream.gcount());
+      require(got <= file.size - count,
+              "Runtime file grew beyond its declared size");
+      count += got;
+      hash.update(std::as_bytes(std::span(buffer.data(), got)));
+    }
+    check_deadline();
+    if (!stream.eof() || count != file.size ||
+        fs::file_size(file.path) != file.size)
+      throw IoError("Runtime file changed while computing its identity");
+    require(sha256_digest_hex(hash.finish()) == file.digest.hex,
+            "Runtime file SHA-256 differs from the frozen spec");
+  }
+}
+
 void preflight(const Spec& spec) {
   ordinary_path(spec.process.working_directory);
   require(fs::is_directory(spec.process.working_directory),
@@ -689,6 +765,7 @@ void preflight(const Spec& spec) {
       spec.process.executable, recipe_support::kExecutableLimit);
   require(actual.hex == spec.executable_sha256,
           "Local executable SHA-256 differs from the frozen spec");
+  if (!spec.runtime_files.empty()) verify_runtime_files(spec);
   if (!spec.environment_references.empty())
     static_cast<void>(resolved_process(spec));
 }
@@ -2452,9 +2529,9 @@ void validate_local_training_source(SQLiteRunStore& store,
       "Typed training inputs require an artifact or checkpoint kind");
   require(maximum_bytes > 0 && maximum_bytes <= 1ULL << 30U,
           "Training artifact verification requires a bounded input size");
-  const auto input = training_input(
-      binding, kind == RunArtifactKind::checkpoint ? 1ULL << 30U
-                                                   : maximum_bytes);
+  const auto input = training_input(binding, kind == RunArtifactKind::checkpoint
+                                                 ? 1ULL << 30U
+                                                 : maximum_bytes);
   training_source(store, project_id, input);
   const auto reference = store.find_reference(input.run, input.reference);
   require(reference && reference->kind == kind &&

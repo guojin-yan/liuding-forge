@@ -336,6 +336,145 @@ class LocalAttemptTest(unittest.TestCase):
                 self.assertEqual(self.local(action), result)
         self.assertEqual(self.launch_count(), 1)
 
+    def runtime_file(self, content: bytes = b"frozen runtime payload") -> tuple[Path, dict]:
+        path = self.directory / "运行资源.bin"
+        path.write_bytes(content)
+        return path, {"path": str(path), "sha256": sha256(path), "size_bytes": len(content)}
+
+    def test_runtime_files_freeze_multiple_inputs_and_terminal_replay(self) -> None:
+        path, declaration = self.runtime_file()
+        empty = self.directory / "empty.bin"
+        empty.write_bytes(b"")
+        self.spec["runtime_files"] = {"runtime": declaration,
+            "empty": {"path": str(empty), "sha256": sha256(empty), "size_bytes": 0}}
+        self.write_spec()
+        result = self.local("execute")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(json.loads(self.blob(self.references("job-one")["local.spec"])), self.spec)
+        path.write_bytes(b"replaced runtime")
+        empty.unlink()
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.local(action), result)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_runtime_files_schema_and_aggregate_bounds_fail_before_store(self) -> None:
+        _, declaration = self.runtime_file()
+        cases = [None, [], {}, {"bad/name": declaration},
+            {"a": dict(declaration, extra=1)}, {"a": dict(declaration, path="relative.bin")},
+            {"a": dict(declaration, path=str(self.directory / "sub" / ".." / "file"))},
+            {"a": dict(declaration, sha256="A" * 64)},
+            {"a": dict(declaration, sha256=1)},
+            {"a": {key: value for key, value in declaration.items() if key != "size_bytes"}},
+            {"a": declaration, "alias": declaration},
+            {str(index): dict(declaration, path=str(self.directory / str(index))) for index in range(65)},
+            {str(index): dict(declaration, path=str(self.directory / str(index)), size_bytes=2 << 30)
+                for index in range(3)}]
+        cases.extend({"a": dict(declaration, size_bytes=value)}
+                     for value in (-1, True, 1.5, "12", None))
+        for files in cases:
+            with self.subTest(files=files):
+                self.spec["runtime_files"] = files
+                self.write_spec()
+                self.invoke("local", "execute", "--root", self.root, "--id", "invalid-runtime",
+                            "--spec", self.spec_path, expected=2)
+                self.assertFalse(self.root.exists())
+        self.spec["runtime_files"] = {"a": dict(declaration, size_bytes=(2 << 30) + 1)}
+        self.write_spec()
+        oversized = self.invoke("local", "execute", "--root", self.root, "--id", "oversized-runtime",
+                               "--spec", self.spec_path, expected=3)
+        self.assertEqual(oversized["error"]["name"], "resource_exhausted")
+        self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_runtime_files_reject_missing_size_and_same_size_digest_drift_before_store(self) -> None:
+        original = b"frozen-runtime"
+        path, declaration = self.runtime_file(original)
+        self.spec["runtime_files"] = {"runtime": declaration}
+        self.write_spec()
+        for content in (b"changed", b"x" * len(original), None):
+            with self.subTest(content=content):
+                if content is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(content)
+                self.invoke("local", "execute", "--root", self.root, "--id", "runtime-drift",
+                            "--spec", self.spec_path, expected=2)
+                self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_runtime_files_reject_symlink_and_parent_link_before_store(self) -> None:
+        target, declaration = self.runtime_file()
+        link = self.directory / "runtime-link"
+        parent_link = self.directory / "directory-link"
+        try:
+            link.symlink_to(target)
+            parent_link.symlink_to(self.cwd, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f"Symlink fixtures unavailable: {error}")
+        linked_file = self.cwd / "file.bin"
+        linked_file.write_bytes(target.read_bytes())
+        for path in (link, parent_link / linked_file.name):
+            self.spec["runtime_files"] = {"runtime": dict(declaration, path=str(path))}
+            self.write_spec()
+            self.invoke("local", "execute", "--root", self.root, "--id", "runtime-link",
+                        "--spec", self.spec_path, expected=2)
+            self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_runtime_files_fence_retry_drift_and_preserve_confirmed_prefix(self) -> None:
+        original_bytes = b"runtime identity"
+        path, declaration = self.runtime_file(original_bytes)
+        self.spec["runtime_files"] = {"runtime": declaration}
+        original = self.committed_retry_prefix()
+        attempt = original["attempts"][0]["attempt_id"]
+        job_refs, attempt_refs = self.references("job-one"), self.references(attempt)
+        path.write_bytes(b"x" * len(original_bytes))
+        for action in ("recover", "execute"):
+            options = ["--spec", self.spec_path] if action == "execute" else []
+            rejected = self.invoke("local", action, "--root", self.root, "--id", "job-one",
+                                   *options, expected=2)
+            self.assertIn("Runtime file SHA-256", rejected["error"]["message"])
+            self.assertEqual(self.local("show"), original)
+            self.assertEqual(self.references("job-one"), job_refs)
+            self.assertEqual(self.references(attempt), attempt_refs)
+            self.assertEqual(self.launch_count(), 1)
+        path.write_bytes(original_bytes)
+        completed = self.local("recover")
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["attempts"][0], original["attempts"][0])
+        path.unlink()
+        self.assertEqual(self.local("recover"), completed)
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_runtime_files_are_rechecked_by_reserved_worker_and_release_lease(self) -> None:
+        path, declaration = self.runtime_file()
+        self.spec.update(max_attempts=1, resources=self.resource_request(), runtime_files={"runtime": declaration})
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        lease = self.references("job-one")["local.resource.lease.1"]
+        # Recreate a lease-only boundary after the original fixture exited;
+        # dispatch skips preflight, so the actual worker must check the file.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("PRAGMA foreign_keys=ON")
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_runs WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        path.write_bytes(b"x" * declaration["size_bytes"])
+        failed = self.local("recover", expected=1)
+        observed = failed["attempts"][0]
+        self.assertEqual(observed["result"]["status"], "launch_error")
+        self.assertEqual(observed["result"]["process_id"], 0)
+        self.assertTrue(observed["result"]["process_tree_cleanup_confirmed"])
+        self.assertTrue(observed["resource_released"])
+        self.assertEqual(self.references("job-one")["local.resource.lease.1"], lease)
+        self.assertEqual(self.blob(self.references(attempt)["local.stdout"]), b"")
+        self.assertEqual(self.blob(self.references(attempt)["local.stderr"]), b"")
+        self.assertEqual(self.local("recover", expected=1), failed)
+        self.assertEqual(self.launch_count(), 1)
+
     def test_environment_reference_digest_schema_rejects_noncanonical_values_before_store(self) -> None:
         for value in (None, False, 1, [], {}, "", "a" * 63, "A" * 64, "g" * 64, "a" * 65):
             with self.subTest(value=value):
