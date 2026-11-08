@@ -123,6 +123,23 @@ Linux 调用者须位于同一委派子树，拥有目标 `cgroup.procs` 及当�
 
 ## CPU/GPU 逻辑资源准入
 
+`local_run_spec` 和普通搜索的 `execution` 可选 `host_requirements`，在首次准入、每次新增 attempt 以及实际 worker 启动前核验本机最低条件：
+
+```json
+{
+  "host_requirements": {
+    "minimum_cpu_threads": 4,
+    "minimum_total_memory_bytes": 8589934592,
+    "minimum_available_memory_bytes": 4294967296,
+    "minimum_disk_free_bytes": 10737418240
+  }
+}
+```
+
+对象至少包含一项；每项为1至`INT64_MAX`的整数字节数，CPU项为逻辑处理器数量。Windows读取所有处理器组的活动CPU数和`GlobalMemoryStatusEx`物理内存；Linux读取在线CPU数及`/proc/meminfo`的`MemTotal`/`MemAvailable`，读取缓冲最多64 KiB；磁盘为工作目录所在文件系统对当前调用者可用的字节数。Windows/Linux以外的平台显式拒绝该选项；无法读取所需信息也拒绝启动。不足返回`resource_exhausted`，不会扩大容量或自动重训；worker在已预约后拒绝时记录未启动并确认清理，按原合同释放预约。已确认的retry前缀保持，资源恢复后只推进剩余attempt；已完成任务与搜索只读重放，不重新要求旧主机资源。
+
+这些检查是启动前的时点观察，不预留内存或磁盘，不限制实际分配，也不证明CPU affinity、cgroup配额或GPU拓扑符合要求。CPU为OS在线逻辑处理器数，内存为整机物理内存口径；容器、其他进程或后续资源变化仍可造成启动后的不足。它与下述逻辑预约、`os_memory_limit`及进程资源计数分别使用，不将其中一种计量当作另一种保证。
+
 `local_run_spec` 与搜索的 `execution` 可增加下面的 `resources`。首次准入会将同一机器、同一 STORE 的容量固定到 run/CAS；后续请求必须原样使用该容量。`gpu0` 是调用者约定的设备身份，运行器不探测硬件、不设置 CUDA 可见设备；训练程序负责将该身份映射到实际设备。
 
 ```json

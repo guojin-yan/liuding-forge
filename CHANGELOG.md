@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 本地执行和搜索可声明主机最低在线 CPU 数、物理总内存、可用内存及工作目录磁盘空间；原生准入与 worker 启动前复核，资源不足保持已确认重试前缀，完成态继续只读重放。
+
 - 本地执行与搜索可用 `runtime_files` 冻结显式运行库、脚本和资源的文件身份；准入及 worker 启动前有界流式复核，文件漂移阻止新启动，已完成结果保持只读重放。
 
 - 新增原生 C++ 行人检测示例，连接直接框预测、完整训练恢复和实际 AP 质量报告；可选独立 checker 从保存的模型输出重算解码、NMS 及 COCO AP。

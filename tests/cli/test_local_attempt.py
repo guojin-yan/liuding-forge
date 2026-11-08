@@ -357,6 +357,114 @@ class LocalAttemptTest(unittest.TestCase):
             self.assertEqual(self.local(action), result)
         self.assertEqual(self.launch_count(), 1)
 
+    def host_disk_minimum(self) -> int:
+        free = shutil.disk_usage(self.cwd).free
+        self.assertGreater(free, 128 << 20, "Bounded disk fixture needs 128 MiB free")
+        return free - (16 << 20)
+
+    def consume_host_disk_margin(self, minimum: int) -> Path:
+        path = self.directory / "host-admission-allocation.bin"
+        # Real, fsynced bytes, not a sparse length or a fabricated probe result.
+        with path.open("xb") as stream:
+            for _ in range(64):
+                stream.write(b"x" * (1 << 20))
+            stream.flush()
+            os.fsync(stream.fileno())
+        self.assertLess(shutil.disk_usage(self.cwd).free, minimum,
+                        "External filesystem change invalidated the controlled margin")
+        return path
+
+    def test_host_requirements_freeze_native_minima_and_terminal_replay(self) -> None:
+        minimum = self.host_disk_minimum()
+        required = {"minimum_cpu_threads": 1, "minimum_total_memory_bytes": 1,
+                    "minimum_available_memory_bytes": 1, "minimum_disk_free_bytes": minimum}
+        self.spec["host_requirements"] = required
+        self.write_spec()
+        result = self.local("execute")
+        self.assertEqual(result["status"], "completed")
+        frozen = json.loads(self.blob(self.references("job-one")["local.spec"]))
+        self.assertEqual(frozen["host_requirements"], required)
+        self.consume_host_disk_margin(minimum)
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.local(action), result)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_host_requirements_schema_rejects_before_storage(self) -> None:
+        invalid = [None, [], {}, {"unknown": 1}]
+        for name in ("minimum_cpu_threads", "minimum_total_memory_bytes",
+                     "minimum_available_memory_bytes", "minimum_disk_free_bytes"):
+            invalid.extend({name: value} for value in (None, False, -1, 0, 1.5, "1", []))
+        for required in invalid:
+            with self.subTest(required=required):
+                self.spec["host_requirements"] = required
+                self.write_spec()
+                self.invoke("local", "execute", "--root", self.root, "--id", "bad-host",
+                            "--spec", self.spec_path, expected=2)
+                self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_host_requirements_native_impossible_minima_reject_before_storage(self) -> None:
+        for name in ("minimum_cpu_threads", "minimum_total_memory_bytes",
+                     "minimum_available_memory_bytes", "minimum_disk_free_bytes"):
+            with self.subTest(resource=name):
+                self.spec["host_requirements"] = {name: (1 << 63) - 1}
+                self.write_spec()
+                result = self.invoke("local", "execute", "--root", self.root, "--id", "host-shortage",
+                                     "--spec", self.spec_path, expected=3)
+                self.assertEqual(result["error"]["name"], "resource_exhausted")
+                self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_host_disk_requirement_preserves_retry_prefix_until_space_restored(self) -> None:
+        minimum = self.host_disk_minimum()
+        self.spec["host_requirements"] = {"minimum_disk_free_bytes": minimum}
+        original = self.committed_retry_prefix()
+        first = original["attempts"][0]["attempt_id"]
+        job_refs, first_refs = self.references("job-one"), self.references(first)
+        allocation = self.consume_host_disk_margin(minimum)
+        for action in ("recover", "execute"):
+            options = ["--spec", self.spec_path] if action == "execute" else []
+            self.invoke("local", action, "--root", self.root, "--id", "job-one",
+                        *options, expected=3)
+            self.assertEqual(self.local("show"), original)
+            self.assertEqual(self.references("job-one"), job_refs)
+            self.assertEqual(self.references(first), first_refs)
+            self.assertEqual(self.launch_count(), 1)
+        allocation.unlink()
+        completed = self.local("recover")
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["attempts"][0], original["attempts"][0])
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_host_disk_requirement_reserved_worker_rechecks_and_releases_lease(self) -> None:
+        minimum = self.host_disk_minimum()
+        self.spec.update(max_attempts=1, resources=self.resource_request(),
+                         host_requirements={"minimum_disk_free_bytes": minimum})
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        lease = self.references("job-one")["local.resource.lease.1"]
+        # Recreate the existing lease-only durable boundary after its child exited.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("PRAGMA foreign_keys=ON")
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_runs WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        self.consume_host_disk_margin(minimum)
+        failed = self.local("recover", expected=1)
+        observed = failed["attempts"][0]
+        self.assertEqual(observed["result"]["status"], "launch_error")
+        self.assertEqual(observed["result"]["process_id"], 0)
+        self.assertTrue(observed["result"]["process_tree_cleanup_confirmed"])
+        self.assertTrue(observed["resource_released"])
+        self.assertEqual(self.references("job-one")["local.resource.lease.1"], lease)
+        self.assertEqual(self.blob(self.references(attempt)["local.stdout"]), b"")
+        self.assertEqual(self.blob(self.references(attempt)["local.stderr"]), b"")
+        self.assertEqual(self.local("recover", expected=1), failed)
+        self.assertEqual(self.launch_count(), 1)
+
     def test_runtime_files_schema_and_aggregate_bounds_fail_before_store(self) -> None:
         _, declaration = self.runtime_file()
         cases = [None, [], {}, {"bad/name": declaration},

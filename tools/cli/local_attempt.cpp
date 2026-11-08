@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <charconv>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -421,6 +422,13 @@ struct RuntimeFile {
   std::uint64_t size = 0;
 };
 
+struct HostRequirements {
+  std::uint64_t cpu_threads = 0;
+  std::uint64_t total_memory_bytes = 0;
+  std::uint64_t available_memory_bytes = 0;
+  std::uint64_t disk_free_bytes = 0;
+};
+
 struct Spec {
   Json json;
   std::string canonical;
@@ -431,6 +439,7 @@ struct Spec {
   LocalProcessOptions process;
   std::map<std::string, EnvironmentReference> environment_references;
   std::map<std::string, RuntimeFile> runtime_files;
+  std::optional<HostRequirements> host_requirements;
   std::uint64_t maximum_attempts = 1;
   std::uint64_t retry_delay_ms = 0;
   std::optional<std::uint64_t> deadline_unix_ms;
@@ -447,7 +456,7 @@ Spec read_spec(const Json& value) {
        "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
        "deadline_unix_ms", "training", "resources", "environment_refs",
-       "os_memory_limit", "runtime_files"});
+       "os_memory_limit", "runtime_files", "host_requirements"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -467,6 +476,25 @@ Spec read_spec(const Json& value) {
   require(process.executable.is_absolute() &&
               process.working_directory.is_absolute(),
           "Local executable and working directory must be absolute");
+  if (value.contains("host_requirements")) {
+    const auto& host = value.at("host_requirements");
+    fields(host, {},
+           {"minimum_cpu_threads", "minimum_total_memory_bytes",
+            "minimum_available_memory_bytes", "minimum_disk_free_bytes"});
+    require(!host.empty(), "Declare at least one host resource minimum");
+    HostRequirements minimum;
+    const auto read = [&](const char* name) -> std::uint64_t {
+      return host.contains(name)
+                 ? positive(host.at(name),
+                            std::numeric_limits<std::int64_t>::max())
+                 : 0;
+    };
+    minimum.cpu_threads = read("minimum_cpu_threads");
+    minimum.total_memory_bytes = read("minimum_total_memory_bytes");
+    minimum.available_memory_bytes = read("minimum_available_memory_bytes");
+    minimum.disk_free_bytes = read("minimum_disk_free_bytes");
+    result.host_requirements = minimum;
+  }
   if (value.contains("runtime_files")) {
     const auto& files = value.at("runtime_files");
     require(files.is_object() && !files.empty() && files.size() <= 64,
@@ -757,10 +785,87 @@ void verify_runtime_files(const Spec& spec) {
   }
 }
 
+void verify_host_requirements(const Spec& spec) {
+  if (!spec.host_requirements) return;
+  std::uint64_t cpu_threads = 0, total_memory = 0, available_memory = 0;
+#if defined(_WIN32)
+  cpu_threads = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+  MEMORYSTATUSEX memory{};
+  memory.dwLength = sizeof(memory);
+  if (!GlobalMemoryStatusEx(&memory) || cpu_threads == 0)
+    throw IoError("Cannot inspect native host CPU and physical memory");
+  total_memory = memory.ullTotalPhys;
+  available_memory = memory.ullAvailPhys;
+#elif defined(__linux__)
+  const auto online = sysconf(_SC_NPROCESSORS_ONLN);
+  if (online <= 0) throw IoError("Cannot inspect online host CPUs");
+  cpu_threads = static_cast<std::uint64_t>(online);
+  std::array<char, 65536> buffer{};
+  std::ifstream memory("/proc/meminfo", std::ios::binary);
+  memory.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+  if (!memory.eof() || memory.bad())
+    throw IoError("Cannot read bounded host physical memory information");
+  std::string_view remaining(buffer.data(),
+                             static_cast<std::size_t>(memory.gcount()));
+  const auto entry = [&](std::string_view line, std::string_view key,
+                         std::uint64_t& destination) {
+    if (!line.starts_with(key)) return;
+    line.remove_prefix(key.size());
+    const auto first = line.find_first_not_of(" \t");
+    if (first == line.npos)
+      throw IoError("Incomplete host physical memory information");
+    line.remove_prefix(first);
+    std::uint64_t value = 0;
+    const auto [end, error] =
+        std::from_chars(line.data(), line.data() + line.size(), value);
+    if (error != std::errc{} || end == line.data() ||
+        value > std::numeric_limits<std::uint64_t>::max() / 1024)
+      throw IoError("Invalid host physical memory information");
+    line.remove_prefix(static_cast<std::size_t>(end - line.data()));
+    const auto unit = line.find_first_not_of(" \t");
+    if (unit == line.npos || line.substr(unit) != "kB" || destination != 0)
+      throw IoError("Invalid host physical memory unit or duplicate entry");
+    destination = value * 1024;
+  };
+  while (!remaining.empty()) {
+    const auto newline = remaining.find('\n');
+    const auto line = remaining.substr(0, newline);
+    entry(line, "MemTotal:", total_memory);
+    entry(line, "MemAvailable:", available_memory);
+    if (newline == remaining.npos) break;
+    remaining.remove_prefix(newline + 1);
+  }
+  if (total_memory == 0)
+    throw IoError("Host physical memory information is unavailable");
+#else
+  throw CompatibilityError("Native host resource admission is unavailable");
+#endif
+  const auto& required = *spec.host_requirements;
+  if (cpu_threads < required.cpu_threads)
+    throw ResourceExhausted(
+        "Host online CPU count is below its declared minimum");
+  if (total_memory < required.total_memory_bytes)
+    throw ResourceExhausted(
+        "Host physical memory is below its declared minimum");
+  if (available_memory < required.available_memory_bytes)
+    throw ResourceExhausted(
+        "Host available memory is below its declared minimum");
+  if (required.disk_free_bytes != 0) {
+    std::error_code error;
+    const auto disk = fs::space(spec.process.working_directory, error);
+    if (error || disk.available == static_cast<std::uintmax_t>(-1))
+      throw IoError("Cannot inspect working-directory filesystem availability");
+    if (disk.available < required.disk_free_bytes)
+      throw ResourceExhausted(
+          "Working-directory disk availability is below its declared minimum");
+  }
+}
+
 void preflight(const Spec& spec) {
   ordinary_path(spec.process.working_directory);
   require(fs::is_directory(spec.process.working_directory),
           "Local working directory must already exist");
+  verify_host_requirements(spec);
   const auto actual = recipe_support::file_digest(
       spec.process.executable, recipe_support::kExecutableLimit);
   require(actual.hex == spec.executable_sha256,

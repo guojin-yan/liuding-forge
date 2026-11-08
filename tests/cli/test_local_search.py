@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 import signal
 import sqlite3
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -418,6 +419,45 @@ class LocalSearchTests(unittest.TestCase):
                     "--spec", self.spec_path, expected=2)
         self.assertFalse(self.root.exists())
         self.assertEqual(self.launches(), [])
+
+    def test_host_requirements_search_admission_and_terminal_replay(self) -> None:
+        self.single("ok")
+        minimum = shutil.disk_usage(self.directory).free - (16 << 20)
+        self.assertGreater(minimum, 64 << 20)
+        required = {"minimum_cpu_threads": 1, "minimum_total_memory_bytes": 1,
+                    "minimum_available_memory_bytes": 1, "minimum_disk_free_bytes": minimum}
+        self.spec["execution"]["host_requirements"] = required
+        self.write()
+        result = self.search("execute")
+        self.assertEqual(result["status"], "completed")
+        trial = result["trials"][0]["trial_id"]
+        for run, role in ((self.search_id, "search.spec"), (trial, "local.spec")):
+            content, _ = committed_reference(self.root, run, role)
+            frozen = json.loads(content)
+            execution = frozen["execution"] if role == "search.spec" else frozen
+            self.assertEqual(execution["host_requirements"], required)
+        with (self.directory / "host-admission-allocation.bin").open("xb") as stream:
+            for _ in range(64):
+                stream.write(b"x" * (1 << 20))
+            stream.flush()
+            os.fsync(stream.fileno())
+        self.assertLess(shutil.disk_usage(self.directory).free, minimum)
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.search(action), result)
+        self.assertEqual(len(self.launches()), 1)
+
+    def test_host_requirements_search_shortage_and_schema_reject_before_storage(self) -> None:
+        self.single("ok")
+        for required, expected in (({}, 2), ({"minimum_disk_free_bytes": 0}, 2),
+                ({"minimum_cpu_threads": (1 << 63) - 1}, 3),
+                ({"minimum_disk_free_bytes": (1 << 63) - 1}, 3)):
+            with self.subTest(required=required):
+                self.spec["execution"]["host_requirements"] = required
+                self.write()
+                self.invoke("search", "execute", "--root", self.root, "--id", self.search_id,
+                            "--spec", self.spec_path, expected=expected)
+                self.assertFalse(self.root.exists())
+                self.assertEqual(self.launches(), [])
 
     def test_explicit_environment_case_aliases_fail_before_storage_or_launch(self) -> None:
         self.single("ok")
