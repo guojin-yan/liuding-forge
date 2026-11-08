@@ -13,6 +13,29 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cu126-clean-e46b151-selected-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cuda",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cu126; CUDA Toolkit 12.6.3; cuDNN 9.10.2.21; NVIDIA RTX 2060; driver 580.178.04",
+          "build_type": "Release",
+          "tests": "2111 unique selected CTest contracts in five predefined, disjoint partitions: 2033 passed, 78 conditional skips, 0 failed; independent installed C++ sdk consumer 1/1 passed.",
+          "instrumentation": "Clean committed Release checkout; existing Ninja CUDA build and installed-consumer caches reused; native CPU/CUDA execution serialized, build and CTest jobs=1. OptionalComponentMatrix and PreviewComponentMatrix passed separately with their existing CPU LibTorch caches; these two results do not qualify a CUDA component matrix.",
+          "quality_evidence": {
+            "source_identity": "Clean committed e46b15173b2b49c7e5952c1a68a1c8b4bb2c8b63; all 1266 Git blobs and source mtimes verified before/after execution and independently compared with committed Git objects. Later qualification metadata is not the executed SDK fingerprint.",
+            "build_and_install": "18 framework libraries and 231 installed entries refreshed in place; independent installed eight-Core sdk consumer 1/1 and installed CPU/CUDA doctor passed. Incremental ALL build compiled 14 translation units and linked 124 targets; no dependency/runtime copies.",
+            "ctest": "Complete configured selection excluding the two named component matrices: 2111 unique contracts, 2033 passed, 78 conditional skips, 0 failed. Five partitions registered before execution, no repeated contracts. Skips do not grant qualification for missing external weights, hardware or backend paths.",
+            "cpu_component_isolation": "At the same clean source commit, OptionalComponentMatrix and PreviewComponentMatrix passed 2/2 with CPU LibTorch 2.14.1+cpu, GCC 11.4.0 and existing Ninja Release caches. Ten optional profiles/nine invalid dependency cases and six Preview profiles completed 10+20 installed consumer runs. Nested consumers are not added to the top-level test count; no CUDA matrix qualification is granted. Matrix stage took 902.183 seconds within the original overall deadline.",
+            "training_recovery": "CPU/CUDA image and SGD/update recipes each completed their fixed 48-update continuous, cooperative-pause and process-kill recovery paths at the original accuracy threshold. Image checkpoint participants and update checkpoint hashes matched across recovery paths. These small task contracts do not establish the full 33-model/four-recipe task/device/resource matrix.",
+            "resources": "One compiler frontend maximum; original 10800-second absolute window, 4000-second cumulative general/training CTest cap, separately registered CPU matrix cap of 5400 seconds within that same original deadline, and memory/disk/CUDA limits retained. File SHA-256 retained for three other installed SDKs; SHA-256 and mtimes retained for 707 coverage build/report files. This is validation, without a paired performance claim.",
+            "source_and_install_review_sha256": "0bad9d351236b24febf9c8996dd3314a3dc7d06044c9fc43729001f04dc3229b",
+            "receipts_archive_sha256": "9a9b76503ca9d4bb48141ebb7a5d911e6254e4ee866314e57a28b42888b7fe40",
+            "qualification_limits": "Strict DINO two-step and original Serving batch numerical failures remain open. CUDA component matrices, skipped tests, complete Vision/RunSpec/task/device/resource acceptance, Windows SDK/HTTPS, final-candidate coverage, dependency security/licensing/SBOM/provenance, formal signing and Beta/RC upgrade/rollback remain open. ORT CPU checks do not grant untested non-CPU Provider qualification. INT8 is deferred."
+          },
+          "commit": "e46b15173b2b49c7e5952c1a68a1c8b4bb2c8b63"
+        },
+        {
           "id": "local-windows-msvc-cuda",
           "os": "windows",
           "architecture": "x86_64",
