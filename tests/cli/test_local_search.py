@@ -343,6 +343,39 @@ class LocalSearchTests(unittest.TestCase):
             self.assertEqual(self.search(action), result)
         self.assertEqual(len(self.launches()), 1)
 
+    def test_environment_reference_digest_flows_through_search_and_terminal_replay(self) -> None:
+        self.single("ok")
+        value = "referenced-search-本地值"
+        reference = {"source": "process_environment", "name": "LIUDING_SEARCH_REFERENCE_SOURCE",
+                     "sha256": digest(value.encode("utf-8"))}
+        self.spec["execution"].update(environment={}, environment_refs={"SEARCH_PARAMETER": reference})
+        self.write()
+        with patch.dict(os.environ, LIUDING_SEARCH_REFERENCE_SOURCE="private-search-drift"):
+            rejected = self.invoke("search", "execute", "--root", self.root, "--id", self.search_id,
+                                   "--spec", self.spec_path, expected=2)
+        self.assertIn("declared SHA-256", rejected["error"]["message"])
+        self.assertNotIn("private-search-drift", json.dumps(rejected))
+        self.assertFalse(self.root.exists())
+        self.assertEqual(self.launches(), [])
+        with patch.dict(os.environ, LIUDING_SEARCH_REFERENCE_SOURCE=value):
+            result = self.search("execute")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(self.launches()[0]["environment"], value)
+        trial = result["trials"][0]["trial_id"]
+        for run, role in ((self.search_id, "search.spec"), (trial, "local.spec")):
+            content, _ = committed_reference(self.root, run, role)
+            frozen = json.loads(content)
+            execution = frozen["execution"] if role == "search.spec" else frozen
+            self.assertEqual(execution["environment_refs"]["SEARCH_PARAMETER"], reference)
+            self.assertNotIn(value.encode("utf-8"), content)
+        with patch.dict(os.environ):
+            os.environ.pop("LIUDING_SEARCH_REFERENCE_SOURCE", None)
+            for action in ("show", "recover", "execute"):
+                self.assertEqual(self.search(action), result)
+        with patch.dict(os.environ, LIUDING_SEARCH_REFERENCE_SOURCE="private-search-drift"):
+            self.assertEqual(self.search("execute"), result)
+        self.assertEqual(len(self.launches()), 1)
+
     def test_explicit_environment_case_aliases_fail_before_storage_or_launch(self) -> None:
         self.single("ok")
         environment = dict(self.spec["execution"]["environment"])

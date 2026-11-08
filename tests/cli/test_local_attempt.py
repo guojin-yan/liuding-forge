@@ -312,6 +312,137 @@ class LocalAttemptTest(unittest.TestCase):
             self.assertEqual(self.local(action), result)
         self.assertEqual(self.launch_count(), 1)
 
+    def test_environment_reference_digest_binds_utf8_and_empty_without_persisting_values(self) -> None:
+        secret = "private-本地引用-\\\"$()&"
+        self.spec.update(inherit_environment=False, environment={}, environment_refs={
+            "LOCAL_REFERENCE_VALUE": {"source": "process_environment", "name": "LIUDING_REFERENCE_SOURCE",
+                "sha256": hashlib.sha256(secret.encode("utf-8")).hexdigest()},
+            "LOCAL_REFERENCE_EMPTY": {"source": "process_environment", "name": "LIUDING_REFERENCE_EMPTY",
+                "sha256": hashlib.sha256(b"").hexdigest()}})
+        self.write_spec("environment_reference")
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE=secret, LIUDING_REFERENCE_EMPTY=""):
+            result = self.local("execute")
+        attempt = result["attempts"][0]["attempt_id"]
+        self.assertEqual(json.loads(self.blob(self.references(attempt)["local.stdout"])),
+                         {"matched": True, "empty_present": True, "empty_value": "", "source_absent": True})
+        self.assertEqual(json.loads(self.blob(self.references("job-one")["local.spec"])), self.spec)
+        for file in self.root.rglob("*"):
+            if file.is_file():
+                self.assertNotIn(secret.encode("utf-8"), file.read_bytes(), str(file))
+        with patch.dict(os.environ):
+            os.environ.pop("LIUDING_REFERENCE_SOURCE", None)
+            os.environ.pop("LIUDING_REFERENCE_EMPTY", None)
+            for action in ("show", "recover", "execute"):
+                self.assertEqual(self.local(action), result)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_environment_reference_digest_schema_rejects_noncanonical_values_before_store(self) -> None:
+        for value in (None, False, 1, [], {}, "", "a" * 63, "A" * 64, "g" * 64, "a" * 65):
+            with self.subTest(value=value):
+                self.spec["environment_refs"] = {"BOUND_REFERENCE": {"source": "process_environment",
+                    "name": "LIUDING_REFERENCE_SOURCE", "sha256": value}}
+                self.write_spec()
+                rejected = self.invoke("local", "execute", "--root", self.root,
+                    "--id", "invalid-digest", "--spec", self.spec_path, expected=2)
+                self.assertEqual(rejected["error"]["name"], "invalid_argument")
+                self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_environment_reference_digest_mismatch_and_missing_fail_without_values_or_store(self) -> None:
+        bound = "private-bound-原值-é"
+        identity = hashlib.sha256(bound.encode("utf-8")).hexdigest()
+        self.spec["environment_refs"] = {"BOUND_REFERENCE": {"source": "process_environment",
+            "name": "LIUDING_REFERENCE_SOURCE", "sha256": identity}}
+        self.write_spec()
+        for value in ("private-drift-新值", "private-bound-原值-e\u0301", bound + " ", "", None):
+            with self.subTest(value=value), patch.dict(os.environ):
+                if value is None:
+                    os.environ.pop("LIUDING_REFERENCE_SOURCE", None)
+                else:
+                    os.environ["LIUDING_REFERENCE_SOURCE"] = value
+                rejected = self.invoke("local", "execute", "--root", self.root,
+                    "--id", "digest-mismatch", "--spec", self.spec_path, expected=2)
+                message = rejected["error"]["message"]
+                self.assertIn("unavailable" if value is None else "declared SHA-256", message)
+                self.assertNotIn(bound, message)
+                self.assertNotIn(identity, message)
+                if value:
+                    self.assertNotIn(value, message)
+                self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_environment_reference_digest_fences_retry_drift_and_preserves_confirmed_prefix(self) -> None:
+        value = "private-retry-环境"
+        self.spec["environment_refs"] = {"BOUND_REFERENCE": {"source": "process_environment",
+            "name": "LIUDING_REFERENCE_SOURCE", "sha256": hashlib.sha256(value.encode("utf-8")).hexdigest()}}
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE=value):
+            original = self.committed_retry_prefix()
+        attempt = original["attempts"][0]["attempt_id"]
+        job_refs, attempt_refs = self.references("job-one"), self.references(attempt)
+        for changed in ("private-drift", None):
+            with patch.dict(os.environ):
+                if changed is None:
+                    os.environ.pop("LIUDING_REFERENCE_SOURCE", None)
+                else:
+                    os.environ["LIUDING_REFERENCE_SOURCE"] = changed
+                for action in ("recover", "execute"):
+                    options = ["--spec", self.spec_path] if action == "execute" else []
+                    rejected = self.invoke("local", action, "--root", self.root, "--id", "job-one",
+                                           *options, expected=2)
+                    self.assertEqual(rejected["error"]["name"], "invalid_argument")
+                    self.assertNotIn(value, json.dumps(rejected, ensure_ascii=False))
+                    self.assertEqual(self.local("show"), original)
+                    self.assertEqual(self.references("job-one"), job_refs)
+                    self.assertEqual(self.references(attempt), attempt_refs)
+                    self.assertEqual(self.launch_count(), 1)
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE=value):
+            completed = self.local("recover")
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["attempts"][0], original["attempts"][0])
+        self.assertEqual(self.references(attempt), attempt_refs)
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE="private-drift"):
+            for action in ("show", "recover", "execute"):
+                self.assertEqual(self.local(action), completed)
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_environment_reference_digest_is_rechecked_by_reserved_worker_and_releases_lease(self) -> None:
+        value = "private-worker-环境"
+        self.spec.update(max_attempts=1, resources=self.resource_request())
+        self.spec["environment_refs"] = {"BOUND_REFERENCE": {"source": "process_environment",
+            "name": "LIUDING_REFERENCE_SOURCE", "sha256": hashlib.sha256(value.encode("utf-8")).hexdigest()}}
+        self.write_spec()
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE=value):
+            original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        lease = self.references("job-one")["local.resource.lease.1"]
+        # Recreate the committed lease-only boundary with no native fixture
+        # alive. Recovery skips dispatch preflight for an existing reservation;
+        # the actual worker must recheck the value before spawning the child.
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("PRAGMA foreign_keys=ON")
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_runs WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE="private-worker-drift"):
+            failed = self.local("recover", expected=1)
+        observed = failed["attempts"][0]
+        self.assertEqual(observed["result"]["status"], "launch_error")
+        self.assertEqual(observed["result"]["process_id"], 0)
+        self.assertTrue(observed["result"]["process_tree_cleanup_confirmed"])
+        self.assertTrue(observed["resource_released"])
+        self.assertEqual(self.references("job-one")["local.resource.lease.1"], lease)
+        self.assertEqual(self.blob(self.references(attempt)["local.stdout"]), b"")
+        self.assertEqual(self.blob(self.references(attempt)["local.stderr"]), b"")
+        self.assertNotIn(value, json.dumps(failed, ensure_ascii=False))
+        self.assertNotIn("private-worker-drift", json.dumps(failed, ensure_ascii=False))
+        self.assertEqual(self.local("recover", expected=1), failed)
+        self.assertEqual(self.launch_count(), 1)
+        with patch.dict(os.environ, LIUDING_REFERENCE_SOURCE=value):
+            self.assertEqual(self.execute_named("after-digest-failure", self.spec)["data"]["status"], "completed")
+        self.assertEqual(self.launch_count(), 2)
+
     def test_explicit_environment_case_aliases_fail_before_storage_or_launch(self) -> None:
         for index, references in enumerate((None, {})):
             for variant, spelling in enumerate(("portable_token", "Portable_Token")):

@@ -397,6 +397,11 @@ Resources resource_spec(const Json& value) {
   return result;
 }
 
+struct EnvironmentReference {
+  std::string source;
+  std::optional<ArtifactDigest> expected_digest;
+};
+
 struct Spec {
   Json json;
   std::string canonical;
@@ -405,7 +410,7 @@ struct Spec {
   std::string project;
   std::string experiment;
   LocalProcessOptions process;
-  std::map<std::string, std::string> environment_references;
+  std::map<std::string, EnvironmentReference> environment_references;
   std::uint64_t maximum_attempts = 1;
   std::uint64_t retry_delay_ms = 0;
   std::optional<std::uint64_t> deadline_unix_ms;
@@ -474,12 +479,19 @@ Spec read_spec(const Json& value) {
       require(environment_names.insert(environment_key(name)).second,
               "Environment reference destinations must be unique ignoring "
               "ASCII case");
-      fields(reference, {"source", "name"});
+      fields(reference, {"source", "name"}, {"sha256"});
       require(text(reference.at("source")) == "process_environment",
               "Unknown environment reference source");
-      auto source = text(reference.at("name"));
-      environment_reference_name(source);
-      result.environment_references.emplace(name, std::move(source));
+      EnvironmentReference entry{.source = text(reference.at("name"))};
+      environment_reference_name(entry.source);
+      if (reference.contains("sha256")) {
+        require(reference.at("sha256").is_string(),
+                "Environment reference SHA-256 must be a string");
+        entry.expected_digest =
+            ArtifactDigest{.hex = text(reference.at("sha256"))};
+        validate_artifact_digest(*entry.expected_digest);
+      }
+      result.environment_references.emplace(name, std::move(entry));
     }
   }
   require(launch_bytes <= kSpecBytes,
@@ -547,8 +559,8 @@ LocalProcessOptions resolved_process(const Spec& spec) {
     launch_bytes += argument.size() + 1;
   for (const auto& [name, value] : result.environment)
     launch_bytes += name.size() + value.size() + 2;
-  for (const auto& [name, source] : spec.environment_references) {
-    auto value = process_environment_value(source);
+  for (const auto& [name, reference] : spec.environment_references) {
+    auto value = process_environment_value(reference.source);
     // JSON's strict encoder checks UTF-8 without exposing the value on error.
     try {
       static_cast<void>(Json(value).dump());
@@ -558,6 +570,9 @@ LocalProcessOptions resolved_process(const Spec& spec) {
     launch_bytes += name.size() + value.size() + 2;
     require(launch_bytes <= kSpecBytes,
             "Local resolved argv/environment exceeds 64 KiB");
+    require(!reference.expected_digest ||
+                digest(value) == *reference.expected_digest,
+            "Referenced environment value differs from its declared SHA-256");
     result.environment.emplace(name, std::move(value));
   }
   return result;
