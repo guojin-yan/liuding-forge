@@ -13,6 +13,29 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cu126-clean-5c75db3-complete-cifar10",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cuda",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cu126; CUDA Toolkit 12.6.3; cuDNN 9.10.2.21; NVIDIA RTX 2060; driver 580.178.04",
+          "build_type": "Release",
+          "tests": "The complete fixed CIFAR-10 classification task passed continuous training, fresh-process model-only reload, cooperative pause/resume and durable-step-1000 SIGKILL recovery. Every final model and complete training checkpoint is byte-identical across the three training routes.",
+          "instrumentation": "Existing Ninja CUDA Release and diagnostic-consumer trees reused; one compiler job, serial GPU training and no runtime copies. Product execution and data preparation are C++. Python only supervises and independently checks artifacts. No full SDK reinstall or broad CTest qualification.",
+          "quality_evidence": {
+            "source_identity": "Clean committed 5c75db31c39f78f8cb291b9257a035b94ae114d1; all 1270 tracked source files matched committed Git blobs and preserved SHA-256/mtimes. The model-only consumer uses the unchanged installed SDK built at e46b15173b2b49c7e5952c1a68a1c8b4bb2c8b63; relevant NN, Models, data, evaluator and training algorithm sources are unchanged. This does not qualify a newly installed SDK at the task commit.",
+            "data_preparation": "The pinned official binary archive was already cached locally and transferred without a new download. Native preparation produced all50000 training and10000 official-test images. An independent checker compared all60000 decoded PNG pixels and labels with source binary records. Dataset terms remain NOASSERTION; the project license does not cover the images.",
+            "task_protocol": "Unchanged CIFAR-10 ResNet18 template except absolute data paths and device=cuda: seed20261028, RGB32 float[0,1], batch128, workers2/prefetch2, random initialization,50 epochs,19550 optimizer updates per final route, SGD0.1/momentum0.9/weight_decay0.0001 and epoch StepLR gamma0.95. Deterministic FP32, TF32 and AMP disabled; no augmentation, external initial state or BN calibration. Accuracy threshold remains0.65; official test is used for each epoch validation and is not an unobserved holdout.",
+            "task_results": "Final validation accuracy 0.76620000 on all10000 images exceeds0.65 and is identical across all three training routes and independent model-only reload. No quality-based retry, parameter change, selected epoch or relaxed threshold was used.",
+            "recovery": "Cooperative route exits at durable update1000 and resumes in a new process; the killed route is SIGSTOP-frozen at its first complete update1000 checkpoint, independently parsed and SHA-verified before SIGKILL, then resumes only that branch. All10 participants, every checkpoint blob, whole final checkpoint, model, optimizer/scheduler counters, metrics, confusion matrices, sampling and subsequent CPU/device RNG digests match. Final logical updates total58650; extra applied and discarded work before kill was not measured.",
+            "model_only_reload": "A fresh C++ process performs0 training updates and79 forwards over10000 images, including the16-image tail. All122 model parameters/buffers, including60 BN buffers, retain shape, dtype and bytes through CPU import, CUDA transfer and post-validation inspection. An independent checker recomputes the full confusion matrix and accuracy from saved logits/labels and checks portable validation ordering.",
+            "resources": "Cumulative incremental build 98.421s; native preparation and complete independent image check 18.660s; training and readers 3481.380s. Observed owned-family RSS peak 2207547392 bytes and CUDA process memory peak 528482304 bytes remained within the registered limits. Four SDKs/924 files and707 coverage files retained SHA-256/mtimes. Duplicate training artifacts were removed after complete inventories and SHA checks; one final model/checkpoint pair stays in the dependency cache. These samples are not allocator hard bounds or paired performance claims.",
+            "receipts_archive_sha256": "2ecf25ad96aed38cc082ba877e26dd7d88dc0f2e9c55ab8369e3328906f461a3",
+            "qualification_limits": "Only this complete Ubuntu CUDA CIFAR-10 task/configuration is qualified. Current Windows/CPU complete classification and full33-model/four-recipe/device/resource matrices remain open. Strict DINO numerics/common-initial-state input, original Serving numerical/performance gates, Vision/RunSpec acceptance, Windows SDK/HTTPS, final-candidate security/license/SBOM/provenance/signatures and Beta/RC upgrade/rollback remain open. INT8 is deferred."
+          },
+          "commit": "5c75db31c39f78f8cb291b9257a035b94ae114d1"
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cu126-clean-752d921-transfer-tasks",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
