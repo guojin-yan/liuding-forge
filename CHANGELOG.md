@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 新增原生 C++ 行人检测示例，连接直接框预测、完整训练恢复和实际 AP 质量报告；可选独立 checker 从保存的模型输出重算解码、NMS 及 COCO AP。
+
 - 本地训练与普通 typed 搜索可用 `training.artifacts` 固定初始模型或辅助制品的 CAS 身份；准入、worker、exact 续训和选优共同核对，原生 C++ 示例实际消费初态并将摘要纳入 checkpoint。
 
 - 本地执行与搜索的环境引用可显式绑定值的 SHA-256，在准入及每个 worker 启动前拒绝值漂移；保留未绑定引用的原有语义和已终态任务的只读重放。

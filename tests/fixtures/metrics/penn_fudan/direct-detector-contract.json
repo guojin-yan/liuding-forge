@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "dataset_manifest_sha256": "38386432386c0fc3b9560c98575677e150708b3dbfb4fc11825035309f4dbd95",
+  "selection": "Existing 120 train / 25 validation / 25 test; validation is unused; final epoch only",
+  "training": {
+    "model": "Random six-layer direct box detector, channels16/32/64/64/64/64; first four convolutions stride2; all kernels3/padding1/ReLU; final1x1 head15; no mask head",
+    "image": "RGB FP32/255,128x128,bilinear antialias; training/metric target instances use nearest-exact",
+    "anchors": [[16, 48], [32, 80], [64, 112]],
+    "grid": [8, 8],
+    "assignment": "Instance ID order; center cell; highest shape IoU among three unused anchors, tie lower anchor; reject overflow instead of dropping targets",
+    "encoding": "sigmoid cell-relative center x/y; log width/anchor-width and height/anchor-height; objectness logit bias=-2",
+    "loss": "Sigmoid BCE times focal gamma2 plus 5*smoothL1(beta1) of positive box coordinates; both sums divided by max(positive count,1)",
+    "seed": 20261108,
+    "batch_size": 8,
+    "epochs": 80,
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "updates": 1200,
+    "precision": "FP32, no TF32, strict deterministic algorithms"
+  },
+  "evaluation": {
+    "predictions": "RGB-only model output; exp log-size clamped[-4,4], sigmoid inputs clamped[-80,80], clip xyxy to[0,128]; drop degenerate boxes; confidence>=0.01; stable descending score NMS with IoU>0.5 suppression; retain100",
+    "tie_order": "anchor, grid y, grid x",
+    "ground_truth": "tight exclusive xyxy for each resized instance ID, ordered by ID",
+    "iou_thresholds": [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+    "interpolation": "COCO101-point",
+    "ap50_minimum": 0.1,
+    "sources": ["penn", "fudan"],
+    "reference": "Independent scalar decode/NMS plus pycocotools2.0.11 on saved native predictions",
+    "partition": "dataset batches1/4, preserving per-image model forward shape",
+    "restore": "After two committed batches; rebuild model/session; exact final report; complete reopen must not read data or invoke model"
+  },
+  "training_restore": {
+    "pause_step": 137,
+    "complete_step": 1200,
+    "routes": 2,
+    "maximum_logical_updates": 2400,
+    "require": "Exact complete checkpoint and model file bytes after a fresh-process restore"
+  },
+  "qualification": "Small independent detector task; not an official benchmark split or a complete detection recipe/support matrix"
+}
