@@ -158,12 +158,17 @@ def fixture(arguments: argparse.Namespace) -> None:
     if training:
         job = os.environ["JYPPX_LIUDING_LOCAL_JOB_ID"]
         names = ["configuration", "data_manifest"]
+        names.extend("artifact." + name for name in training.get("artifacts", {}))
         if training["resume"] is not None:
             names.append("resume")
         for name in names:
+            if mode == "typed_missing_artifact" and name.startswith("artifact."):
+                continue
             pinned, kind = committed_reference(root, job, "local.training." + name)
             if mode == "typed_input_mismatch" and name == "data_manifest":
                 pinned = b"another immutable dataset"
+            if mode == "typed_artifact_mismatch" and name.startswith("artifact."):
+                pinned = b"another initial model"
             seed_reference(root, arguments.run, "search.training." + name,
                            kind, "search.training." + name, pinned)
     if mode != "missing_output":
@@ -834,11 +839,11 @@ class TypedLocalSearchTests(unittest.TestCase):
                 "reference_id IN ('search.result.1','search.result','search.best')", (self.search_id,))
             database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id=?", (self.search_id,))
 
-    def assert_not_admitted(self, name: str, spec: dict) -> None:
+    def assert_not_admitted(self, name: str, spec: dict, *, expected: int = 2) -> None:
         path = self.directory / (name + ".json")
         path.write_text(json.dumps(spec), encoding="utf-8")
         result = self.invoke("search", "execute", "--root", self.root, "--id", name,
-                             "--spec", path, expected=2)
+                             "--spec", path, expected=expected)
         self.assertEqual(result["status"], "error")
         with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database:
             self.assertEqual(database.execute("SELECT count(*) FROM jyppx_runs WHERE run_id=? "
@@ -877,6 +882,137 @@ class TypedLocalSearchTests(unittest.TestCase):
         self.assertEqual(shown["trials"], result["trials"])
         self.assertEqual(self.search("recover")["trials"], result["trials"])
         self.assertEqual(len(self.launches()), 3)
+
+    def bind_artifact(self, name: str, content: bytes) -> dict:
+        reference = "input." + name
+        identity = seed_reference(self.root, "typed-data", reference, 1, name, content)
+        binding = {"run_id": "typed-data", "reference_id": reference,
+                   "sha256": identity, "size_bytes": len(content)}
+        self.spec["execution"]["training"].setdefault("artifacts", {})[name] = binding
+        return binding
+
+    def test_named_artifacts_are_pinned_to_each_trial_and_replayed_from_cas(self) -> None:
+        weights = self.bind_artifact("model.weights", b"immutable initial model")
+        self.bind_artifact("model.weights.1", b"immutable auxiliary model")
+        self.bind_artifact("vocabulary", b"immutable model vocabulary")
+        expected = copy.deepcopy(self.spec["execution"]["training"]["artifacts"])
+        result = self.search("execute")
+        self.assertEqual(result["status"], "completed")
+        for trial in result["trials"]:
+            self.assertEqual(trial["training_inputs"]["artifacts"], expected)
+            launched = self.launches()[trial["index"] - 1]
+            self.assertEqual(launched["training"]["artifacts"], expected)
+            for owner, prefix in ((trial["trial_id"], "local"), (trial["training_run_id"], "search")):
+                shown = self.invoke("run", "show", "--root", self.root, "--id", owner)["data"]
+                references = {row["reference_id"]: row for row in shown["references"]}
+                for name, binding in expected.items():
+                    reference = references[prefix + ".training.artifact." + name]
+                    self.assertEqual(reference["artifact"]["sha256"], binding["sha256"])
+                    self.assertEqual(reference["artifact"]["size_bytes"], binding["size_bytes"])
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='typed-data' "
+                             "AND reference_id LIKE 'input.%'")
+        self.assertEqual(self.search("show")["trials"], result["trials"])
+        for trial in result["trials"]:
+            replay = self.invoke("local", "recover", "--root", self.root, "--id", trial["trial_id"])["data"]
+            self.assertEqual(replay["status"], "completed")
+        # Search recover/execute retain their source-admission contract even
+        # when every local job can replay its own immutable CAS references.
+        for action in ("recover", "execute"):
+            rejected = self.invoke("search", action, "--root", self.root, "--id", self.search_id,
+                                   *(["--spec", self.spec_path] if action == "execute" else []), expected=2)
+            self.assertEqual(rejected["status"], "error")
+        for name, binding in expected.items():
+            identity = binding["sha256"]
+            content = (self.root / "artifacts/objects" / identity[:2] / identity[2:]).read_bytes()
+            seed_reference(self.root, "typed-data", "input." + name, 1, name, content)
+        for action in ("recover", "execute"):
+            self.assertEqual(self.search(action)["trials"], result["trials"])
+        identity = weights["sha256"]
+        self.assertEqual((self.root / "artifacts/objects" / identity[:2] / identity[2:]).read_bytes(),
+                         b"immutable initial model")
+        self.assertEqual(len(self.launches()), 3)
+
+    def test_named_artifact_schema_and_source_identity_fail_before_admission(self) -> None:
+        self.bind_artifact("model.weights", b"immutable initial model")
+        original = copy.deepcopy(self.spec)
+        invalid_maps = [None, False, [], {}, {"bad/name": next(iter(original["execution"]["training"]["artifacts"].values()))},
+                        {"x" * 65: next(iter(original["execution"]["training"]["artifacts"].values()))}]
+        invalid_maps.append({str(i): next(iter(original["execution"]["training"]["artifacts"].values()))
+                             for i in range(17)})
+        for index, value in enumerate(invalid_maps):
+            spec = copy.deepcopy(original)
+            spec["execution"]["training"]["artifacts"] = value
+            self.assert_not_admitted("invalid-artifacts-" + str(index), spec)
+        for index, mutation in enumerate(({"size_bytes": 0}, {"size_bytes": (1 << 30) + 1},
+                                          {"sha256": "0" * 64}, {"run_id": "missing-source"},
+                                          {"size_bytes": 1})):
+            spec = copy.deepcopy(original)
+            spec["execution"]["training"]["artifacts"]["model.weights"].update(mutation)
+            self.assert_not_admitted("invalid-artifact-binding-" + str(index), spec,
+                                     expected=3 if mutation.get("size_bytes", 0) > (1 << 30) else 2)
+        alias = copy.deepcopy(original)
+        execution = alias["execution"]
+        execution.update(max_attempts=2, retry_exit_codes=[23])
+        execution["training"]["retry_resume"] = {
+            "checkpoint_reference_id": "checkpoint.best", "restore_policy": "exact_only"}
+        execution["training"]["outputs"] = [dict(item, max_size_bytes=65536) for item in alias["outputs"]]
+        execution["training"]["artifacts"]["model.weights.1"] = copy.deepcopy(
+            execution["training"]["artifacts"]["model.weights"])
+        self.assert_not_admitted("artifact-name-aliases-retry-reference", alias)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("UPDATE jyppx_run_artifacts SET kind=2 WHERE run_id='typed-data' "
+                             "AND reference_id='input.model.weights'")
+        self.assert_not_admitted("checkpoint-is-not-model-artifact", original)
+
+    def test_named_artifacts_require_terminal_source_project_and_valid_content(self) -> None:
+        source = {"schema_version": 1, "run_id": "named-artifact-source", "project_id": PROJECT,
+                  "experiment_id": EXPERIMENT, "display_name": "Independent model input source",
+                  "status": "running", "created_at_unix_ms": int(time.time() * 1000)}
+        path = self.directory / "named-artifact-source.json"
+        path.write_text(json.dumps(source), encoding="utf-8")
+        self.invoke("run", "start", "--root", self.root, "--metadata", path)
+        content = b"immutable initial model"
+        identity = seed_reference(self.root, source["run_id"], "model", 1, "model", content)
+        self.invoke("run", "transition", "--root", self.root, "--id", source["run_id"], "--status", "completed")
+        binding = {"run_id": source["run_id"], "reference_id": "model", "sha256": identity,
+                   "size_bytes": len(content)}
+        self.spec["execution"]["training"]["artifacts"] = {"model.weights": binding}
+        original = copy.deepcopy(self.spec)
+        for field, bad in (("project_id", "another-project"), ("status", 2), ("status", 6)):
+            with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                old = database.execute(f"SELECT {field} FROM jyppx_runs WHERE run_id='named-artifact-source'").fetchone()[0]
+                database.execute(f"UPDATE jyppx_runs SET {field}=? WHERE run_id='named-artifact-source'", (bad,))
+            self.assert_not_admitted("invalid-source-" + field + str(bad), original)
+            with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                database.execute(f"UPDATE jyppx_runs SET {field}=? WHERE run_id='named-artifact-source'", (old,))
+        identity = binding["sha256"]
+        content = self.root / "artifacts/objects" / identity[:2] / identity[2:]
+        content.write_bytes(b"x" * binding["size_bytes"])
+        self.assert_not_admitted("corrupt-model-artifact", original)
+
+    def test_named_artifact_publication_mismatch_is_never_selected(self) -> None:
+        for mode in ("typed_missing_artifact", "typed_artifact_mismatch"):
+            with self.subTest(mode=mode):
+                self.root = self.directory / mode
+                self.root.mkdir()
+                # Each controlled branch owns an independent STORE.
+                source = {"schema_version": 1, "run_id": "typed-data", "project_id": PROJECT,
+                          "experiment_id": EXPERIMENT, "display_name": "Typed input",
+                          "status": "running", "created_at_unix_ms": int(time.time() * 1000)}
+                path = self.directory / (mode + "-source.json")
+                path.write_text(json.dumps(source), encoding="utf-8")
+                self.invoke("run", "start", "--root", self.root, "--metadata", path)
+                content = b"immutable independent typed data manifest"
+                identity = seed_reference(self.root, "typed-data", "data", 1, "data", content)
+                self.spec["execution"]["training"]["data_manifest"].update(
+                    sha256=identity, size_bytes=len(content))
+                self.bind_artifact("model.weights", b"immutable initial model")
+                self.invoke("run", "transition", "--root", self.root, "--id", "typed-data", "--status", "completed")
+                self.single(mode)
+                result = self.search("execute", expected=1)
+                self.assertIsNone(result["best"])
+                self.assertEqual(result["trials"][0]["reason"], "training_input_mismatch")
 
     def test_typed_inputs_reject_shape_identity_lifecycle_and_corrupt_cas_before_admission(self) -> None:
         original = copy.deepcopy(self.spec)

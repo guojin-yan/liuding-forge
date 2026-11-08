@@ -180,6 +180,12 @@ Json LocalData() {
           {"intercept", 0.5}};
 }
 
+Json LocalInitialModel() {
+  return {{"format", "affine-initial-state/v1"},
+          {"weight", 0.0},
+          {"bias", 0.0}};
+}
+
 std::string LocalEnvironment(std::string_view name) {
 #if defined(_WIN32)
   const std::wstring key(name.begin(), name.end());
@@ -251,6 +257,7 @@ void WriteLocalSpec(const fs::path& executable, const fs::path& output,
   };
   const auto configuration = publish("configuration", LocalConfiguration());
   const auto data = publish("data_manifest", LocalData());
+  const auto initial = publish("initial_model", LocalInitialModel());
   store.transition(inputs, experiment::RunStatus::completed, Now());
   Json resume = nullptr;
   if (!resume_run.empty()) {
@@ -286,6 +293,7 @@ void WriteLocalSpec(const fs::path& executable, const fs::path& output,
        {{"model_id", kLocalModel},
         {"configuration", LocalBinding(inputs, configuration)},
         {"data_manifest", LocalBinding(inputs, data)},
+        {"artifacts", {{"initial_model", LocalBinding(inputs, initial)}}},
         {"resume", std::move(resume)}}}};
   if (checkpoint_retry_after != 0) {
     spec["arguments"].push_back("--checkpoint-retry-after");
@@ -366,6 +374,15 @@ void WriteTypedSearchSpec(const fs::path& executable, const fs::path& output,
        .producer = "liuding-forge-example-search-trial",
        .expected_size_bytes = encoded.size()},
       stamp);
+  const auto model_bytes = LocalInitialModel().dump();
+  const auto initial = store.put_artifact(
+      inputs, "initial_model", experiment::RunArtifactKind::artifact,
+      "initial_model", Bytes(model_bytes),
+      {.logical_name = "initial-model.json",
+       .media_type = "application/json",
+       .producer = "liuding-forge-example-search-trial",
+       .expected_size_bytes = model_bytes.size()},
+      stamp);
   store.transition(inputs, experiment::RunStatus::completed, Now());
   spec["project_id"] = kLocalProject;
   spec["configuration"] = LocalConfiguration();
@@ -385,6 +402,8 @@ void WriteTypedSearchSpec(const fs::path& executable, const fs::path& output,
   execution["training"] = {{"model_id", kLocalModel},
                            {"configuration", "${trial_configuration}"},
                            {"data_manifest", LocalBinding(inputs, data)},
+                           {"artifacts",
+                            {{"initial_model", LocalBinding(inputs, initial)}}},
                            {"resume", std::move(resume)}};
   spec["outputs"] = {{{"reference_id", "checkpoint.last"},
                       {"kind", "checkpoint"},
@@ -535,6 +554,12 @@ void PublishTypedSearchTraining(
         "search.training.configuration");
     pin(job, "local.training.data_manifest" + suffix,
         "search.training.data_manifest");
+    if (training.contains("artifacts"))
+      for (const auto& [name, binding] : training.at("artifacts").items()) {
+        static_cast<void>(binding);
+        pin(job, "local.training.artifact." + name + suffix,
+            "search.training.artifact." + name);
+      }
     if (!training.at("resume").is_null())
       pin(job, "local.training.resume" + suffix, "search.training.resume");
     pin(attempt, "checkpoint.last", "checkpoint.last");
@@ -604,6 +629,9 @@ int LocalTrain(std::uint64_t until,
     for (const auto name : {"model_id", "configuration", "data_manifest"})
       if (frozen.at("training").at(name) != training.at(name))
         throw std::runtime_error("Retry changed an immutable training input");
+    if (frozen.at("training").value("artifacts", Json(nullptr)) !=
+        training.value("artifacts", Json(nullptr)))
+      throw std::runtime_error("Retry changed named training artifacts");
     training = frozen.at("training");
     input_suffix = "." + index;
   }
@@ -635,6 +663,31 @@ int LocalTrain(std::uint64_t until,
   const auto rate = config.at("learning_rate").get<double>();
   if (!std::isfinite(rate) || rate <= 0.0 || rate > 1.0)
     throw std::runtime_error("Learning rate exceeds the example bounds");
+  auto initial = LocalInitialModel();
+  Json input_identity{{"model_id", kLocalModel},
+                      {"configuration_sha256", config_sha},
+                      {"data_manifest_sha256", data_sha}};
+  if (training.contains("artifacts")) {
+    const auto& artifacts = training.at("artifacts");
+    if (artifacts.size() != 1 || !artifacts.contains("initial_model"))
+      throw std::runtime_error("The affine example consumes initial_model only");
+    const auto& binding = artifacts.at("initial_model");
+    const auto identity = binding.at("sha256").get<std::string>();
+    initial = Json::parse(ReadLocalArtifact(
+        store, job, "local.training.artifact.initial_model" + input_suffix,
+        4096, identity));
+    if (!initial.is_object() || initial.size() != 3 ||
+        initial.value("format", "") != "affine-initial-state/v1" ||
+        !initial.contains("weight") || !initial.at("weight").is_number() ||
+        !initial.contains("bias") || !initial.at("bias").is_number())
+      throw std::runtime_error("Invalid affine initial state");
+    for (const auto name : {"weight", "bias"}) {
+      const auto value = initial.at(name).get<double>();
+      if (!std::isfinite(value) || std::abs(value) > 100.0)
+        throw std::runtime_error("Affine initial state exceeds example bounds");
+    }
+    input_identity["artifact_sha256"] = {{"initial_model", identity}};
+  }
   const auto work_parent = root / "local-training-example";
   fs::create_directories(work_parent);
   const auto work = work_parent / attempt;
@@ -645,8 +698,8 @@ int LocalTrain(std::uint64_t until,
   auto model = std::make_shared<torch::nn::LinearImpl>(1, 1);
   {
     const torch::NoGradGuard guard;
-    model->weight.zero_();
-    model->bias.zero_();
+    model->weight.fill_(initial.at("weight").get<double>());
+    model->bias.fill_(initial.at("bias").get<double>());
   }
   auto optimizer = std::make_shared<forge::optim::SgdOptimizerAdapter>(
       "optimizer.main",
@@ -675,10 +728,8 @@ int LocalTrain(std::uint64_t until,
                          .max_control_bytes = 4096,
                          .max_tensor_bytes = 64,
                          .max_total_bytes = 16384}));
-  registry.register_participant(std::make_shared<LocalInputIdentity>(Json{
-      {"model_id", kLocalModel},
-      {"configuration_sha256", config_sha},
-      {"data_manifest_sha256", data_sha}}.dump()));
+  registry.register_participant(
+      std::make_shared<LocalInputIdentity>(input_identity.dump()));
   forge::training::CheckpointCoordinator coordinator(
       registry, {.max_participants = 3, .max_rollback_bytes = 65536});
   const forge::training::FileCheckpointStoreOptions limits{
@@ -742,6 +793,8 @@ int LocalTrain(std::uint64_t until,
               {"weight", model->weight.item<double>()},
               {"bias", model->bias.item<double>()},
               {"checkpoint_sha256", published.artifact.digest.hex}};
+  if (input_identity.contains("artifact_sha256"))
+    result["artifact_sha256"] = input_identity.at("artifact_sha256");
   if (!training_sha.empty()) result["training_sha256"] = training_sha;
   const auto content = result.dump();
   store.put_artifact(attempt, "training.result",

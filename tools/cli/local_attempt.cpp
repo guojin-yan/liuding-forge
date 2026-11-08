@@ -256,6 +256,7 @@ struct TrainingSpec {
   std::string model;
   TrainingInput configuration;
   TrainingInput data_manifest;
+  std::map<std::string, TrainingInput> artifacts;
   std::optional<TrainingInput> resume;
   std::optional<std::string> retry_checkpoint;
   std::vector<TrainingOutput> outputs;
@@ -276,12 +277,24 @@ TrainingInput training_input(const Json& value, std::uint64_t limit) {
 
 TrainingSpec training_spec(const Json& value) {
   fields(value, {"model_id", "configuration", "data_manifest", "resume"},
-         {"retry_resume", "outputs"});
+         {"retry_resume", "outputs", "artifacts"});
   TrainingSpec result;
   result.model = text(value.at("model_id"));
   identifier(result.model);
   result.configuration = training_input(value.at("configuration"), 1U << 20U);
   result.data_manifest = training_input(value.at("data_manifest"), 1U << 20U);
+  if (value.contains("artifacts")) {
+    const auto& artifacts = value.at("artifacts");
+    require(artifacts.is_object() && !artifacts.empty() &&
+                artifacts.size() <= 16,
+            "Training artifacts require 1-16 named immutable inputs");
+    for (const auto& [name, binding] : artifacts.items()) {
+      identifier(name);
+      require(name.size() <= 64,
+              "Training artifact names must not exceed 64 bytes");
+      result.artifacts.emplace(name, training_input(binding, 1ULL << 30U));
+    }
+  }
   if (!value.at("resume").is_null()) {
     const auto& resume = value.at("resume");
     fields(resume, {"checkpoint", "restore_policy"});
@@ -521,9 +534,17 @@ Spec read_spec(const Json& value) {
   }
   if (value.contains("training"))
     result.training = training_spec(value.at("training"));
-  if (result.training && result.training->retry_checkpoint)
+  if (result.training && result.training->retry_checkpoint) {
     require(result.maximum_attempts > 1 && !result.retry_exit_codes.empty(),
             "Checkpoint continuation requires a bounded retry policy");
+    for (const auto& [name, input] : result.training->artifacts) {
+      static_cast<void>(input);
+      for (std::uint64_t index = 1; index <= result.maximum_attempts; ++index)
+        require(!result.training->artifacts.contains(
+                    name + "." + std::to_string(index)),
+                "Training artifact names collide with retry input references");
+    }
+  }
   if (value.contains("resources"))
     result.resources = resource_spec(value.at("resources"));
   if (value.contains("os_memory_limit")) {
@@ -624,7 +645,7 @@ std::vector<RunArtifactReference> training_references(
   if (!spec.training) return result;
   FileArtifactStore cas(store.artifact_root());
   const auto add = [&](const TrainingInput& input, std::string role,
-                       RunArtifactKind kind) {
+                       RunArtifactKind kind, bool verify_source = false) {
     if (!pinned_job) training_source(store, spec.project, input);
     const auto pinned_role = role + std::string(role_suffix);
     const auto reference = store.find_reference(
@@ -637,7 +658,7 @@ std::vector<RunArtifactReference> training_references(
                 reference->artifact.digest == input.digest &&
                 reference->artifact.size_bytes == input.size,
             "Training input differs from its committed run/CAS identity");
-    if (pinned_job) {
+    if (pinned_job || verify_source) {
       const auto reader = cas.open(input.digest, stop, deadline);
       require(reader->size_bytes() == input.size,
               "Training input content size differs from the frozen spec");
@@ -651,6 +672,9 @@ std::vector<RunArtifactReference> training_references(
       RunArtifactKind::artifact);
   add(spec.training->data_manifest, "local.training.data_manifest",
       RunArtifactKind::artifact);
+  for (const auto& [name, input] : spec.training->artifacts)
+    add(input, "local.training.artifact." + name, RunArtifactKind::artifact,
+        true);
   if (spec.training->resume)
     add(*spec.training->resume, "local.training.resume",
         RunArtifactKind::checkpoint);
@@ -2421,12 +2445,16 @@ void validate_local_execution_spec(const Json& spec, bool inspect_files) {
 
 void validate_local_training_source(SQLiteRunStore& store,
                                     std::string_view project_id,
-                                    const Json& binding, RunArtifactKind kind) {
+                                    const Json& binding, RunArtifactKind kind,
+                                    std::uint64_t maximum_bytes) {
   require(
       kind == RunArtifactKind::artifact || kind == RunArtifactKind::checkpoint,
       "Typed training inputs require an artifact or checkpoint kind");
+  require(maximum_bytes > 0 && maximum_bytes <= 1ULL << 30U,
+          "Training artifact verification requires a bounded input size");
   const auto input = training_input(
-      binding, kind == RunArtifactKind::checkpoint ? 1ULL << 30U : 1U << 20U);
+      binding, kind == RunArtifactKind::checkpoint ? 1ULL << 30U
+                                                   : maximum_bytes);
   training_source(store, project_id, input);
   const auto reference = store.find_reference(input.run, input.reference);
   require(reference && reference->kind == kind &&

@@ -122,7 +122,9 @@ CPU 任务将 `request.gpu` 写为 `null`，容量中的 `gpus` 可以为 `{}`�
 
 `local_run_spec` 可选 `training` 对象，要求 `model_id`、`configuration`、`data_manifest` 和 `resume`。两个输入使用 `{ "run_id": "SOURCE", "reference_id": "REF", "sha256": "...", "size_bytes": 123 }` 引用同一存储中已提交的 CAS 内容；来源 run 必须同项目且为 completed/failed/cancelled。本地 attempt 来源还须通过既有的冻结计划、结果与双流引用检查，且结果必须明确包含 `process_tree_cleanup_confirmed: true`，无资源计量的旧任务也适用。历史终态结果仍可只读重放，但清理确认缺失或为 false 时，其配置、数据与 checkpoint 均不能作为新训练或搜索的输入。配置和数据清单各限 1 MiB；`resume` 为 `null` 或 `{ "checkpoint": { ...同样的引用字段... }, "restore_policy": "exact_only" }`，checkpoint 引用必须为 checkpoint 类型、最多 1 GiB。
 
-运行器在创建 attempt 前验证并批量绑定 `local.training.configuration`、`local.training.data_manifest`、可选 `local.training.resume`，拥有执行权的 worker 启动程序前再次复核内容。训练程序通过 `JYPPX_LIUDING_LOCAL_STORE_ROOT`、`JYPPX_LIUDING_LOCAL_SPEC_SHA256` 及已有 job/attempt 环境读取冻结计划；输入绑定采用流式 CAS 验证，不解码模型张量。模型标识和输入摘要用于固定身份，实际模型支持、数据含义、checkpoint 完整性与恢复由 C++ 训练程序检查。示例使用原生 checkpoint coordinator 恢复模型、SGD momentum 和更新计数，再在新 job 中继续训练。
+`training.artifacts` 可选，用于固定初始模型、词表等具名不可变制品；启用时为1–16项对象，名称为1–64字节的 ASCII 字母、数字、`.`、`_` 或 `-`，每项使用上述四字段引用，类型必须为 `artifact`、大小为1字节至1 GiB，并满足同项目、终态来源及清理确认合同。启用 checkpoint retry 时，名称不能等于其他制品名称加本次预算内的 `.N` 后缀，避免原引用与 attempt 引用同名。准入和 worker 启动前流式复核 CAS 字节；运行器不解析制品格式，实际消费由 C++ 训练程序负责。
+
+运行器在创建 attempt 前验证并批量绑定 `local.training.configuration`、`local.training.data_manifest`、可选 `local.training.artifact.NAME` 和 `local.training.resume`，拥有执行权的 worker 启动程序前再次复核内容。训练程序通过 `JYPPX_LIUDING_LOCAL_STORE_ROOT`、`JYPPX_LIUDING_LOCAL_SPEC_SHA256` 及已有 job/attempt 环境读取冻结计划；输入绑定采用流式 CAS 验证，不解码模型张量。模型标识和输入摘要用于固定身份，实际模型支持、数据含义、checkpoint 完整性与恢复由 C++ 训练程序检查。示例使用原生 checkpoint coordinator 恢复模型、SGD momentum 和更新计数，再在新 job 中继续训练。
 
 默认 retry 重用最初的冻结输入，在新的 attempt 中重新开始该请求。需要从已确认失败的 checkpoint 续训时，显式启用下一节的策略。已有未确认 attempt 仍返回 `recovery_required`；存在 checkpoint 不能证明旧进程树已经清理。系统级资源硬限制、未知 attempt 的外部确认和真实任务恢复联验仍开放；输入限额不代表 RSS/显存上限或训练提速。
 
@@ -151,7 +153,7 @@ worker启动前观察本attempt的全部声明引用不存在，并将该事实�
 
 运行器只从上一个已确认、普通非零退出且属于 `retry_exit_codes` 的 attempt 选择该引用；结果、双流、原始 intent、worker 归属和 `process_tree_cleanup_confirmed: true` 都须通过检查。checkpoint 必须属于该 attempt、类型为 checkpoint、大小不超过 1 GiB，且 CAS 内容有效。缺少引用、类型或来源错误、额度越界、清理未确认时停止推进；不会改为 fresh 重训、选择其他 checkpoint 或推断旧进程已结束。取消、超时、信号和启动失败继续遵守原有不重试规则。
 
-启用后，每个 attempt 启动前在 job 保存 `local.training.inputs.N` 清单，固定 job/attempt/index、原始 spec 摘要、上一结果摘要、模型、原配置、原数据和本次 checkpoint 完整身份；原始 `local.spec` 保持不变。配置、数据和可选恢复内容批量绑定为 `local.training.configuration.N`、`local.training.data_manifest.N`、`local.training.resume.N`。清单已提交但尚未创建 attempt 时，恢复只修复相同内容的绑定；attempt 已存在而结果未确认时仍隔离。资源预约继续先于 attempt/intent，前一个预约仍须满足原清理与结果合同才能释放。
+启用后，每个 attempt 启动前在 job 保存 `local.training.inputs.N` 清单，固定 job/attempt/index、原始 spec 摘要、上一结果摘要、模型、原配置、原数据、原具名制品和本次 checkpoint 完整身份；原始 `local.spec` 保持不变。配置、数据、具名制品和可选恢复内容批量绑定为 `local.training.configuration.N`、`local.training.data_manifest.N`、`local.training.artifact.NAME.N`、`local.training.resume.N`。清单已提交但尚未创建 attempt 时，恢复只修复相同内容的绑定；attempt 已存在而结果未确认时仍隔离。资源预约继续先于 attempt/intent，前一个预约仍须满足原清理与结果合同才能释放。
 
 worker 在 attempt 上绑定 `local.training.inputs`，把其摘要写入 intent/result，并通过 `JYPPX_LIUDING_LOCAL_TRAINING_SHA256` 告知 C++ 训练程序。确认结果、终态重放和跨 job 释放资源时，运行器仍在 64 KiB 上限内读取并校验该清单的 CAS、规范内容和有效输入身份；引用摘要相同不能替代内容校验，缺失或损坏会停止推进。应用应按该摘要读取 attempt 清单，按 `.N` 的 job 引用加载输入，再用自己的 checkpoint coordinator 执行 `exact_only` 恢复。运行器只做身份、CAS 和生命周期校验；把任意字节标为 checkpoint 不能替代应用对模型、优化器、RNG 等完整状态的检查。[原生学习例](../../examples/experiment/README.md#失败后自动从-checkpoint-续训)演示 20 步 checkpoint、声明退出码和后续 40 步原生 SGD。
 
@@ -175,9 +177,9 @@ liuding-forge local abandon --root local-runs --id trial-001 --confirmation aban
 
 有界 grid/random 的 `execution.training` 使用相同字段，但 `configuration` 必须写成字符串 `"${trial_configuration}"`。搜索将每次实际配置写入 CAS，再生成确定 ID 的 `TRIAL.inputs` run，附上父搜索、索引和计划摘要并封存；该 run 的 `completed` 只表示输入已提交。配置输入的创建、绑定和封存可按原身份幂等恢复；同 ID 不同内容会被拒绝。随后 native attempt 复用 typed local 的终态来源、CAS、原生归属和取消检查。
 
-整次搜索固定 `model_id`、`data_manifest` 和可选初始 `resume`；checkpoint 采用 `exact_only`。默认每个 trial 执行一次；显式配置 `training.retry_resume`、有界 `max_attempts > 1`、非空 `retry_exit_codes` 和 `training.outputs` 后，可以复用本地执行器的已确认 checkpoint 自动续训。`training.outputs` 除额外的 `max_size_bytes` 外须与搜索 `outputs` 按顺序相同，大小沿用合计 1 GiB 上限；成功退出后必须确认最终 attempt 的全部输出，取消、超时、信号、未知结果和未确认清理继续停止推进。
+整次搜索固定 `model_id`、`data_manifest`、可选 `artifacts` 和初始 `resume`；checkpoint 采用 `exact_only`。默认每个 trial 执行一次；显式配置 `training.retry_resume`、有界 `max_attempts > 1`、非空 `retry_exit_codes` 和 `training.outputs` 后，可以复用本地执行器的已确认 checkpoint 自动续训。`training.outputs` 除额外的 `max_size_bytes` 外须与搜索 `outputs` 按顺序相同，大小沿用合计 1 GiB 上限；成功退出后必须确认最终 attempt 的全部输出，取消、超时、信号、未知结果和未确认清理继续停止推进。
 
-每个 trial 的 `training_inputs` 保留原始请求；启用自动续训时，`effective_training_inputs` 和 `confirmed_training_attempt` 另存最后一次已确认 attempt 的有效恢复输入、原生结果与输出收据摘要。训练程序从本地 `.N` 引用读取有效输入，仅在最终完成时发布外层训练 run，将最后 attempt ID 写入 `liuding.training.owner_attempt`，将模型标识写入 `liuding.training.model_id`、数据摘要写入 lineage，并绑定 `search.training.configuration`、`search.training.data_manifest` 和可选 `search.training.resume`。只有外层输入与最终有效输入相同、输出与最终收据相同且指标符合搜索目标时才参与 best；早期 attempt 的输出不能替代最终输出。参考[原生训练搜索教程](../../examples/experiment/README.md#训练输入与搜索衔接)中的 C++ 接线。
+每个 trial 的 `training_inputs` 保留原始请求；启用自动续训时，`effective_training_inputs` 和 `confirmed_training_attempt` 另存最后一次已确认 attempt 的有效恢复输入、原生结果与输出收据摘要。训练程序从本地 `.N` 引用读取有效输入，仅在最终完成时发布外层训练 run，将最后 attempt ID 写入 `liuding.training.owner_attempt`，将模型标识写入 `liuding.training.model_id`、数据摘要写入 lineage，并绑定 `search.training.configuration`、`search.training.data_manifest`、每项 `search.training.artifact.NAME` 和可选 `search.training.resume`。缺失或替换具名制品会使 trial 以 `training_input_mismatch` 退出选优；只有外层输入与最终有效输入相同、输出与最终收据相同且指标符合搜索目标时才参与 best。参考[原生训练搜索教程](../../examples/experiment/README.md#训练输入与搜索衔接)中的 C++ 接线。闭合 `recipe_bridge` 仍只接受其固定配方输入，不接受额外 `artifacts`。
 
 查询、恢复和重复执行会复核每个可选 trial 的原生执行终态、训练来源、实际已提交指标、输入输出引用及 CAS 内容；结果缓存、最终摘要和 best 彼此一致，仍不能替代这些来源。损坏的产物或不匹配的来源使命令失败，修复原证据后可只读重放；复核不要求旧可执行文件或工作目录存在，也不启动新的 attempt。已确认的不合格 trial 保留原失败结果，不因后来补齐产物而升级为候选。
 

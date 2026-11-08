@@ -470,6 +470,7 @@ Plan read_plan(const Json &value) {
     const auto &training = execution.at("training");
     require(
         text(training.at("model_id")) == profile.model &&
+            !training.contains("artifacts") &&
             training.at("resume").is_null() && training.contains("outputs") &&
             training.contains("retry_resume") == retry &&
             (!retry || training.at("retry_resume") ==
@@ -502,7 +503,7 @@ Plan read_plan(const Json &value) {
   if (execution.contains("training")) {
     const auto &training = execution.at("training");
     fields(training, {"model_id", "configuration", "data_manifest", "resume"},
-           {"outputs", "retry_resume"});
+           {"outputs", "retry_resume", "artifacts"});
     require(training.at("configuration").is_string() &&
                 text(training.at("configuration")) == "${trial_configuration}",
             "Typed search owns configuration; use ${trial_configuration}");
@@ -669,6 +670,12 @@ void validate_inputs(SQLiteRunStore &store, const Plan &plan) {
     validate_local_training_source(store, plan.project,
                                    training.at("data_manifest"),
                                    RunArtifactKind::artifact);
+    if (training.contains("artifacts"))
+      for (const auto &[name, binding] : training.at("artifacts").items()) {
+        static_cast<void>(name);
+        validate_local_training_source(store, plan.project, binding,
+                                       RunArtifactKind::artifact, 1ULL << 30U);
+      }
     if (!training.at("resume").is_null())
       validate_local_training_source(store, plan.project,
                                      training.at("resume").at("checkpoint"),
@@ -1026,6 +1033,9 @@ Json confirmed_training_attempt(SQLiteRunStore &store, const Trial &value,
          {"model_id", "configuration", "data_manifest", "outputs"})
       require(frozen.at("training").at(name) == training.at(name),
               "Continuation changed an immutable typed input");
+    require(frozen.at("training").value("artifacts", Json(nullptr)) ==
+                training.value("artifacts", Json(nullptr)),
+            "Continuation changed its named training artifacts");
     if (index == 1) {
       require(frozen.at("training").at("resume") == training.at("resume") &&
                   frozen.at("previous_result_sha256").is_null(),
@@ -1647,6 +1657,13 @@ Json evaluate(SQLiteRunStore &store, const Plan &plan, const Trial &value,
       result["reason"] = "training_input_mismatch";
       return result;
     }
+    if (inputs.contains("artifacts"))
+      for (const auto &[name, binding] : inputs.at("artifacts").items())
+        if (!matches(binding, "search.training.artifact." + name,
+                     RunArtifactKind::artifact)) {
+          result["reason"] = "training_input_mismatch";
+          return result;
+        }
   }
   for (const auto &input : plan.json.at("inputs")) {
     const auto name = "search.input." + text(input.at("name"));

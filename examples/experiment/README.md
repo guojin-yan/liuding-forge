@@ -101,7 +101,9 @@ $resumeSpec = Join-Path $work 'resume-local.json'
 & $cli run show --root $localStore --id $sourceAttempt --format json
 ```
 
-每个 attempt 的 `checkpoint.last` 保存三个原生参与者：`model.main`、`optimizer.main`、`run.inputs`；`training.result` 记录实际起止步数和验证均方误差。恢复要求相同模型拓扑、优化器选项和输入摘要，使用 `CheckpointCoordinator` 的 `exact_only`；只含模型参数的搜索快照不足以恢复这个训练过程。此示例没有随机批次、scheduler 或 AMP；接入这些能力时必须把它们的状态也加入 checkpoint。
+生成器将零权重初态作为小型 JSON 制品写入 CAS，并在 `training.artifacts.initial_model` 记录其来源、SHA-256 和大小；C++ worker 从 job 的 `local.training.artifact.initial_model` 读取并检查后初始化模型。自动续训使用相应的 `.N` 引用。具名输入可用于用户自己的模型或辅助制品；本学习例只解析 `affine-initial-state/v1` 的 `weight`、`bias` 两个标量，支持范围与大小约束见[本地输入合同](../../docs/development/local_process_runner.md#训练输入与显式恢复)。
+
+每个 attempt 的 `checkpoint.last` 保存三个原生参与者：`model.main`、`optimizer.main`、`run.inputs`；`training.result` 记录实际起止步数、制品摘要和验证均方误差。恢复要求相同模型拓扑、优化器选项、初态制品和其他输入摘要，使用 `CheckpointCoordinator` 的 `exact_only`；只含模型参数的搜索快照不足以恢复这个训练过程。此示例没有随机批次、scheduler 或 AMP；接入这些能力时必须把它们的状态也加入 checkpoint。
 
 应用检查和恢复 checkpoint，运行器校验 CAS 身份并管理进程生命周期。默认 `local recover` 修复已确认的执行状态；未知归属保持隔离。真实训练过程、配置/数据准备及恢复均由 C++ 实现；Python 仅用于独立测试读取和参考计算。示例规模不能用来证明训练速度或资源优势。
 
@@ -142,7 +144,7 @@ $confirmed.attempts[-1].result.training_outputs_confirmed
 
 ## 训练输入与搜索衔接
 
-`--write-typed-search-spec` 演示搜索与 typed local 输入衔接。它使用带 momentum 的原生 SGD，三个学习率从相同零权重开始训练 60 步；模型标识和数据清单在整次搜索固定，每个 trial 的配置拥有独立、可校验的 CAS 身份。这是单独的搜索模式，前面的基础搜索仍展示只保存模型参数的流程。
+`--write-typed-search-spec` 演示搜索与 typed local 输入衔接。它使用带 momentum 的原生 SGD，三个学习率从同一 CAS 初态制品的零权重开始训练 60 步；模型标识、数据清单和 `training.artifacts.initial_model` 在整次搜索固定，每个 trial 的配置拥有独立、可校验的 CAS 身份。这是单独的搜索模式，前面的基础搜索仍展示只保存模型参数的流程。
 
 ```powershell
 $typedStore = Join-Path $work 'typed-search-store'
@@ -164,7 +166,7 @@ $retried = (& $cli search show --root $typedStore --id typed-retry --format json
 $retried.trials | Select-Object index, training_inputs, effective_training_inputs, confirmed_training_attempt, metric
 ```
 
-`training_inputs.resume` 保留原请求，`effective_training_inputs.resume` 绑定前一已确认 attempt 的 checkpoint；`confirmed_training_attempt` 绑定最终结果和输出收据。示例仅在完成 60 步时发布外层训练 run，并将最终 attempt 的配置、数据、恢复点和输出绑定到它；20 步中间结果不会参与 best。自定义 C++ worker 须实现同样的完整恢复和最终发布合同，不能仅设置重试退出码；[本地运行器](../../docs/development/local_process_runner.md#搜索的训练输入)说明字段和失败边界。
+`training_inputs.resume` 保留原请求，`effective_training_inputs.resume` 绑定前一已确认 attempt 的 checkpoint；`confirmed_training_attempt` 绑定最终结果和输出收据。示例仅在完成 60 步时发布外层训练 run，并将最终 attempt 的配置、数据、初态制品、恢复点和输出绑定到它，其中 `search.training.artifact.initial_model` 必须与冻结输入相同；20 步中间结果不会参与 best。自定义 C++ worker 须实现同样的完整恢复和最终发布合同，不能仅设置重试退出码；[本地运行器](../../docs/development/local_process_runner.md#搜索的训练输入)说明字段和失败边界。
 
 将 `--strategy` 改为 `random` 并使用新的配置文件、搜索 ID，即可按固定种子无重复抽取候选。每个 trial 的 `training_inputs` 记录模型标识、真实配置、同源数据清单和可选 checkpoint；配置来源 `TRIAL.inputs` 的终态只表示输入已提交。训练 run 的 `checkpoint.last` 包含模型、SGD momentum、更新计数和输入身份，`training.result` 记录实际结果；两者与已确认的原生 attempt、验证指标和 best trial 一起保留在实验备份中。
 

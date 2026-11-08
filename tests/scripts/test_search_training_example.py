@@ -389,6 +389,53 @@ class LocalTrainingExampleTests(unittest.TestCase):
         self.assertTrue(self.cli("run", "verify", "--root", self.root)["valid"])
         self.assertIsNone(first_spec["training"]["resume"])
 
+    def test_initial_model_is_consumed_and_exact_restore_rejects_replacement(self) -> None:
+        path, spec = self.prepare("custom-initial", 20)
+        content = json.dumps({"format": "affine-initial-state/v1", "weight": 1.25,
+                              "bias": -0.75}, sort_keys=True).encode()
+        source = spec["training"]["configuration"]["run_id"]
+        binding = self.seed_checkpoint(source, "custom-initial-model", content)
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("UPDATE jyppx_run_artifacts SET kind=1,role='initial_model' "
+                             "WHERE run_id=? AND reference_id=?", (source, binding["reference_id"]))
+        spec["training"]["artifacts"]["initial_model"] = binding
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        first, _, result = self.execute("custom-partial", path)
+        weight, bias, vw, vb = 1.25, -0.75, 0.0, 0.0
+        for _ in range(20):
+            vw = 0.9 * vw + 2 * (weight - 3) * 11 / 31
+            vb = 0.9 * vb + 2 * (bias - 0.5)
+            weight -= 0.05 * vw
+            bias -= 0.05 * vb
+        self.assertAlmostEqual(result["weight"], weight, delta=3e-5)
+        self.assertAlmostEqual(result["bias"], bias, delta=3e-5)
+        self.assertEqual(result["artifact_sha256"], {"initial_model": binding["sha256"]})
+        attempt = first["attempts"][0]["attempt_id"]
+        _, changed = self.prepare("changed-initial", 60, attempt)
+        self.rejected("changed-initial-job", changed, admitted=True)
+        path, resumed = self.prepare("same-initial", 60, attempt)
+        resumed["training"]["artifacts"]["initial_model"] = binding
+        path.write_text(json.dumps(resumed), encoding="utf-8")
+        _, actual, _ = self.execute("same-initial-job", path)
+        path, continuous = self.prepare("custom-continuous", 60)
+        continuous["training"]["artifacts"]["initial_model"] = binding
+        path.write_text(json.dumps(continuous), encoding="utf-8")
+        _, expected, _ = self.execute("custom-continuous-job", path)
+        fields = self.archive(self.blob(actual["checkpoint.last"]))[1]
+        self.assertEqual(fields, self.archive(self.blob(expected["checkpoint.last"]))[1])
+        self.assertEqual(json.loads(fields["run.inputs", "identity"])["artifact_sha256"],
+                         {"initial_model": binding["sha256"]})
+
+    def test_legacy_plan_without_named_artifacts_keeps_zero_initialization(self) -> None:
+        path, spec = self.prepare("legacy", 1)
+        del spec["training"]["artifacts"]
+        path.write_text(json.dumps(spec), encoding="utf-8")
+        _, refs, result = self.execute("legacy-job", path)
+        self.assertAlmostEqual(result["weight"], 0.05 * 6 * 11 / 31, delta=1e-6)
+        self.assertAlmostEqual(result["bias"], 0.05, delta=1e-6)
+        fields = self.archive(self.blob(refs["checkpoint.last"]))[1]
+        self.assertNotIn("artifact_sha256", json.loads(fields["run.inputs", "identity"]))
+
     def test_typed_unknown_fields_digest_size_and_source_kind_are_rejected_before_admission(self) -> None:
         _, spec = self.prepare("inputs", 20)
         mutations = []
@@ -913,6 +960,14 @@ class TypedSearchTrainingExampleTests(unittest.TestCase):
                     self.assertEqual(training["run"]["tags"]["liuding.training.owner_attempt"], final["attempt_id"])
                     refs = {r["reference_id"]: r for r in training["references"]}
                     self.assertEqual(refs["search.training.resume"]["artifact"], first_refs["checkpoint.last"]["artifact"])
+                    initial = effective["artifacts"]["initial_model"]
+                    self.assertEqual(refs["search.training.artifact.initial_model"]["artifact"]["sha256"],
+                                     initial["sha256"])
+                    job_refs = self.refs(row["trial_id"])
+                    for index in (1, 2):
+                        self.assertEqual(job_refs[f"local.training.artifact.initial_model.{index}"]
+                                         ["artifact"]["sha256"], initial["sha256"])
+                    self.assertEqual(effective["artifacts"], row["training_inputs"]["artifacts"])
                     fields = self.archive(self.blob(refs["checkpoint.last"]))[1]
                     expected_fields, metric = expected[row["parameters"]["learning_rate"]]
                     self.assertEqual(fields, expected_fields)
@@ -1052,7 +1107,14 @@ class TypedSearchTrainingExampleTests(unittest.TestCase):
                     self.assertEqual(summary["checkpoint_sha256"], refs["checkpoint.last"]["artifact"]["sha256"])
                     self.assertEqual(summary["validation_mse"], row["metric"]["value"])
                     self.assertEqual(set(refs), {"search.training.configuration", "search.training.data_manifest",
+                                                 "search.training.artifact.initial_model",
                                                  "checkpoint.last", "training.result"})
+                    initial = inputs["artifacts"]["initial_model"]
+                    initial_bytes = self.blob(refs["search.training.artifact.initial_model"])
+                    self.assertEqual((digest(initial_bytes), len(initial_bytes)),
+                                     (initial["sha256"], initial["size_bytes"]))
+                    self.assertEqual(json.loads(initial_bytes),
+                                     {"format": "affine-initial-state/v1", "weight": 0.0, "bias": 0.0})
                     configuration = self.blob(refs["search.training.configuration"])
                     self.assertEqual((digest(configuration), len(configuration)),
                                      (row["config_sha256"], inputs["configuration"]["size_bytes"]))
@@ -1063,7 +1125,8 @@ class TypedSearchTrainingExampleTests(unittest.TestCase):
                     identity = json.loads(fields["run.inputs", "identity"])
                     self.assertEqual(identity, {"model_id": inputs["model_id"],
                         "configuration_sha256": row["config_sha256"],
-                        "data_manifest_sha256": inputs["data_manifest"]["sha256"]})
+                        "data_manifest_sha256": inputs["data_manifest"]["sha256"],
+                        "artifact_sha256": {"initial_model": initial["sha256"]}})
                     # Independent scalar recurrence checks actual native momentum SGD.
                     rate = row["parameters"]["learning_rate"]
                     weight, bias, vw, vb = 0.0, 0.0, 0.0, 0.0

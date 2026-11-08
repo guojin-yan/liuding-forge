@@ -11,6 +11,8 @@
 
 #include <jyppx/liuding/experiment/run_store.hpp>
 
+#include <cstdint>
+
 namespace jyppx::liuding::cli {
 
 /** @brief Durable bounded local execution composed over run/CAS and OS locks.
@@ -32,7 +34,8 @@ void validate_local_execution_spec(const Json& spec, bool inspect_files = true);
 void validate_local_training_source(experiment::SQLiteRunStore& store,
                                     std::string_view project_id,
                                     const Json& binding,
-                                    experiment::RunArtifactKind kind);
+                                    experiment::RunArtifactKind kind,
+                                    std::uint64_t maximum_bytes = 1U << 20U);
 
 /** @brief Executes/replays one frozen job with an optional run parent. */
 Result execute_local_job(
