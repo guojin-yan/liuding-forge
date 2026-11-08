@@ -281,17 +281,17 @@
     {
       "id": "stb_image",
       "scope": "data-image-decoder",
-      "version": "2.30",
+      "version": "2.30+liuding.1",
       "source": {
-        "type": "vendored-upstream-header",
+        "type": "vendored-locally-patched-upstream-header",
         "url": "https://github.com/nothings/stb/blob/013ac3beddff3dbffafd5177e7972067cd2b5083/stb_image.h",
         "revision": "013ac3beddff3dbffafd5177e7972067cd2b5083",
         "path": "third_party/stb/stb_image.h"
       },
       "integrity": {
         "status": "verified",
-        "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3",
-        "size_bytes": 283010
+        "sha256": "21a7bff92d47a8a12c0eaa7bf3343da3726e81a82e5d0e4d4041e0dcb8d93371",
+        "size_bytes": 283113
       },
       "license": {
         "spdx": [

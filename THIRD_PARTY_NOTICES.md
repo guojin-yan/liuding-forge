@@ -141,7 +141,7 @@ oneDNN 的实际头文件对应 PyTorch 固定 iDeep 子模块进一步固定的
 - Version: 2.30 (2024-05-31); license: MIT or Unlicense (public domain dedication)
 - Role: private JPEG, PNG, BMP, GIF, TGA, PNM and related still-image decoding
   inside optional `jyppx::liuding::data_image`
-入库 header 的 SHA-256 与不可变上游提交 `013ac3beddff3dbffafd5177e7972067cd2b5083` 逐字节对应，准确来源见 `dependency-manifest.json`。许可原文保留在 `third_party/licenses/stb_image-2.30-LICENSE.txt`，启用 data-image profile 时随 SDK 安装；公共头不暴露 stb_image 类型。
+本地版本 `2.30+liuding.1` 基于不可变上游提交 `013ac3beddff3dbffafd5177e7972067cd2b5083`，修正 JPEG marker 失败传播并拒绝缺少 scan 的图像；修改范围和上游原件摘要见[来源说明](third_party/stb/README.md)，当前文件摘要见 `dependency-manifest.json`。许可及署名保持，原文保留在 `third_party/licenses/stb_image-2.30-LICENSE.txt`，启用 data-image profile 时随 SDK 安装；公共头不暴露 stb_image 类型。
 - Decoder limits are enforced before third-party allocation. HDR/PIC and other
   formats that need a different scalar contract remain outside this profile;
   callers receive a structured decode error rather than an implicit conversion.

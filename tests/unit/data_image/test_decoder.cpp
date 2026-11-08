@@ -8,6 +8,7 @@
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -17,6 +18,7 @@
 #include <memory>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -318,6 +320,151 @@ TEST(ImageDecoderTest, ExplicitFormatMismatchIsRejected) {
   options.format = ImageFormat::jpeg;
   EXPECT_THROW(decode_image(ReadFixture("rgb.png"), options),
                jyppx::liuding::SerializationError);
+}
+
+std::vector<std::byte> JpegFrame(std::uint8_t first_sampling = 0x11,
+                                 std::uint8_t second_sampling = 0x11) {
+  // SOI and an 8x8 baseline SOF with three components; no entropy payload.
+  const std::array<unsigned char, 21> raw{0xff,
+                                          0xd8,
+                                          0xff,
+                                          0xc0,
+                                          0x00,
+                                          0x11,
+                                          0x08,
+                                          0x00,
+                                          0x08,
+                                          0x00,
+                                          0x08,
+                                          0x03,
+                                          0x01,
+                                          first_sampling,
+                                          0x00,
+                                          0x02,
+                                          second_sampling,
+                                          0x00,
+                                          0x03,
+                                          0x11,
+                                          0x00};
+  std::vector<std::byte> result(raw.size());
+  std::memcpy(result.data(), raw.data(), raw.size());
+  return result;
+}
+
+std::vector<std::byte> PnmSixteenBit() {
+  constexpr std::string_view header = "P5\n2 1\n65535\n";
+  std::vector<std::byte> result(header.size());
+  std::memcpy(result.data(), header.data(), header.size());
+  result.insert(result.end(), {std::byte{0x00}, std::byte{0x00},
+                               std::byte{0xff}, std::byte{0xff}});
+  return result;
+}
+
+void ExpectPixelDecodeFailure(const std::vector<std::byte>& bytes,
+                              std::string_view reason) {
+  ImageDecodeOptions options;
+  options.resource_budget = std::make_shared<ImageResourceBudget>();
+  try {
+    static_cast<void>(decode_image(bytes, options));
+    FAIL() << "Malformed pixels must not be published";
+  } catch (const jyppx::liuding::SerializationError& error) {
+    EXPECT_EQ(error.details().operation, "decode.pixels");
+    EXPECT_NE(error.details().actual.find(reason), std::string::npos)
+        << error.details().actual;
+  }
+  for (const auto kind :
+       {ImageResourceKind::codec_scratch_bytes,
+        ImageResourceKind::decoded_bytes, ImageResourceKind::pixels})
+    EXPECT_EQ(options.resource_budget->usage(kind).current, 0U);
+  // Failure must release the codec scope and allow a valid call on this thread.
+  {
+    const auto recovered = decode_image(ReadFixture("rgb.png"), options);
+    EXPECT_EQ(recovered.tensor[0][0][0].item<int>(), 255);
+  }
+  for (const auto kind :
+       {ImageResourceKind::codec_scratch_bytes,
+        ImageResourceKind::decoded_bytes, ImageResourceKind::pixels})
+    EXPECT_EQ(options.resource_budget->usage(kind).current, 0U);
+}
+
+TEST(ImageDecoderTest, RejectsFractionalJpegSamplingWithResourceRecovery) {
+  // JPEG permits factors in [1,4], but these 3:2 ratios cannot be resampled.
+  for (const auto horizontal : {true, false}) {
+    SCOPED_TRACE(horizontal ? "horizontal" : "vertical");
+    auto bytes = horizontal ? JpegFrame(0x31, 0x21) : JpegFrame(0x13, 0x12);
+    bytes.insert(bytes.end(), {std::byte{0xff}, std::byte{0xd9}});
+    ExpectPixelDecodeFailure(bytes, horizontal ? "bad H" : "bad V");
+  }
+}
+
+TEST(ImageDecoderTest,
+     RejectsOversizedJpegHuffmanSizeListWithResourceRecovery) {
+  auto bytes = JpegFrame();
+  // DHT: length 2+1+16+257, DC table 0, 255 one-bit and 2 two-bit symbols.
+  // Reject the table's symbol count before constructing the Huffman codes.
+  bytes.insert(bytes.end(), {std::byte{0xff}, std::byte{0xc4}, std::byte{0x01},
+                             std::byte{0x14}, std::byte{0x00}, std::byte{0xff},
+                             std::byte{0x02}});
+  bytes.insert(bytes.end(), 14 + 257, std::byte{0});
+  bytes.insert(bytes.end(), {std::byte{0xff}, std::byte{0xd9}});
+  ExpectPixelDecodeFailure(bytes, "bad DHT header");
+}
+
+TEST(ImageDecoderTest, RejectsJpegWithoutScanWithResourceRecovery) {
+  auto bytes = JpegFrame();
+  bytes.insert(bytes.end(), {std::byte{0xff}, std::byte{0xd9}});
+  ExpectPixelDecodeFailure(bytes, "no scan");
+}
+
+TEST(ImageDecoderTest, PreservesSixteenBitPnmWhenExpandingChannels) {
+  ImageDecodeOptions options;
+  options.channels = ImageChannels::rgba;
+  options.resource_budget = std::make_shared<ImageResourceBudget>();
+  {
+    const auto result = decode_image(PnmSixteenBit(), options);
+    EXPECT_TRUE(result.source_is_16bit);
+    EXPECT_EQ(result.tensor.scalar_type(), torch::kUInt16);
+    ASSERT_EQ(result.tensor.sizes(), torch::IntArrayRef({4, 1, 2}));
+    for (int channel = 0; channel < 4; ++channel) {
+      EXPECT_EQ(result.tensor[channel][0][0].item<int>(),
+                channel == 3 ? 65535 : 0);
+      EXPECT_EQ(result.tensor[channel][0][1].item<int>(), 65535);
+    }
+    EXPECT_EQ(options.resource_budget->usage(ImageResourceKind::pixels).current,
+              2U);
+  }
+  for (const auto kind :
+       {ImageResourceKind::codec_scratch_bytes,
+        ImageResourceKind::decoded_bytes, ImageResourceKind::pixels})
+    EXPECT_EQ(options.resource_budget->usage(kind).current, 0U);
+}
+
+TEST(ImageDecoderTest, RejectsTruncatedSixteenBitPnmWithResourceRecovery) {
+  auto bytes = PnmSixteenBit();
+  bytes.pop_back();
+  ExpectPixelDecodeFailure(bytes, "bad PNM");
+}
+
+TEST(ImageDecoderTest, RejectsHdrBeforeEnteringCodecWorkspace) {
+  constexpr std::string_view header =
+      "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 8\n";
+  std::vector<std::byte> bytes(header.size());
+  std::memcpy(bytes.data(), header.data(), header.size());
+  // A zero-length RLE packet cannot advance a scanline decoder.
+  bytes.insert(bytes.end(), {std::byte{2}, std::byte{2}, std::byte{0},
+                             std::byte{8}, std::byte{0}});
+  ImageDecodeOptions options;
+  options.resource_budget = std::make_shared<ImageResourceBudget>();
+  try {
+    static_cast<void>(decode_image(bytes, options));
+    FAIL() << "HDR has no supported scalar contract";
+  } catch (const jyppx::liuding::SerializationError& error) {
+    EXPECT_EQ(error.details().operation, "decode.format");
+  }
+  EXPECT_EQ(
+      options.resource_budget->usage(ImageResourceKind::codec_scratch_bytes)
+          .peak,
+      0U);
 }
 
 }  // namespace
