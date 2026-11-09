@@ -5,6 +5,7 @@
 
 """Kill actual C++ publication syscalls and replay original evidence identities."""
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -32,7 +33,7 @@ class ImageOutputRecoveryTests(unittest.TestCase):
         return result
 
     def _counts(self, root):
-        with sqlite3.connect(root / "store/runs.sqlite3") as database:
+        with closing(sqlite3.connect(root / "store/runs.sqlite3")) as database:
             return (
                 database.execute("SELECT count(*) FROM jyppx_run_artifacts").fetchone()[0],
                 database.execute("SELECT count(*) FROM jyppx_events").fetchone()[0],
@@ -210,7 +211,7 @@ class ImageOutputRecoveryTests(unittest.TestCase):
                     reader.join(timeout=5)
                     for stream in (process.stdin, process.stdout, process.stderr):
                         stream.close()
-                with sqlite3.connect(root / "store/runs.sqlite3") as database:
+                with closing(sqlite3.connect(root / "store/runs.sqlite3")) as database:
                     references = database.execute("SELECT count(*) FROM jyppx_run_artifacts").fetchone()[0]
                     events = database.execute("SELECT count(*) FROM jyppx_events").fetchone()[0]
                 self.assertEqual((references, events), (0, 0) if boundary == "file" else (2, 1))

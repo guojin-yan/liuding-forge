@@ -118,7 +118,7 @@ def main():
         while time.process_time() < target:
             sum(range(10000))
         payload = {"cpu_time_us": time.process_time_ns() // 1000,
-                   "touched_bytes": len(memory)}
+                   "process_id": os.getpid(), "touched_bytes": len(memory)}
         if sys.platform == "linux":
             # Independent /proc interface, not the runner's wait4 result.
             for line in Path("/proc/self/status").read_text().splitlines():

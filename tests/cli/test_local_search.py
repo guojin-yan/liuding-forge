@@ -306,6 +306,11 @@ class LocalSearchTests(unittest.TestCase):
     def test_os_memory_boundary_flows_through_search_and_terminal_replay(self) -> None:
         self.single("ok")
         policy = {"bytes": 512 << 20}
+        if os.name == "nt":
+            # This positive fixture starts a native CUDA-linked CLI in the job.
+            # DLL initialization plus the Python worker can exceed 512 MiB
+            # of aggregate commit; low-limit refusal has separate contracts.
+            policy["bytes"] = 1 << 30
         if sys.platform == "linux":
             parent = os.environ.get("JYPPX_LIUDING_TEST_CGROUP_PARENT")
             if not parent:

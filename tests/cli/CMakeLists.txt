@@ -1,4 +1,21 @@
 file(TO_CMAKE_PATH "${Python3_EXECUTABLE}" jyppx_cli_test_python)
+# A Windows venv redirector starts another process; direct-process accounting
+# fixtures must run in the interpreter whose process handle is measured.
+set(jyppx_local_process_test_python "${jyppx_cli_test_python}")
+if(WIN32)
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" -I -B -c
+            "import sys; print(getattr(sys, '_base_executable', sys.executable))"
+        RESULT_VARIABLE jyppx_local_process_python_result
+        OUTPUT_VARIABLE jyppx_local_process_python_path
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT jyppx_local_process_python_result EQUAL 0 OR
+       NOT IS_ABSOLUTE "${jyppx_local_process_python_path}" OR
+       NOT EXISTS "${jyppx_local_process_python_path}")
+        message(FATAL_ERROR "Direct Python interpreter unavailable for process accounting tests")
+    endif()
+    file(TO_CMAKE_PATH "${jyppx_local_process_python_path}" jyppx_local_process_test_python)
+endif()
 
 jyppx_add_gtest(jyppx_test_sidecar_transport
     LINK_TARGET jyppx_cli_transport
@@ -51,10 +68,10 @@ jyppx_add_gtest(jyppx_test_local_process
     test_local_process.cpp)
 target_link_libraries(jyppx_test_local_process PRIVATE nlohmann_json::nlohmann_json)
 target_compile_definitions(jyppx_test_local_process PRIVATE
-    JYPPX_LOCAL_PROCESS_PYTHON="${jyppx_cli_test_python}"
+    JYPPX_LOCAL_PROCESS_PYTHON="${jyppx_local_process_test_python}"
     JYPPX_LOCAL_PROCESS_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/local_process_fixture.py")
 
-foreach(group IN ITEMS core environment runtime_files host)
+foreach(group IN ITEMS core resources environment runtime_files host)
     if(group STREQUAL "core")
         set(local_attempt_test Cli_local_attempt)
         set(local_attempt_timeout 240)

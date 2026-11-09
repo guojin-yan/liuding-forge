@@ -22,7 +22,11 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+# The fixture can run with an empty environment. Importing mock initializes
+# asyncio/Winsock on Windows, which requires system environment state that
+# belongs to the parent test runner, not the child workload.
+if len(sys.argv) < 2 or sys.argv[1] != "--fixture":
+    from unittest.mock import patch
 
 
 def sha256(path: Path) -> str:
@@ -159,10 +163,13 @@ class LocalAttemptTest(unittest.TestCase):
         self.cwd.mkdir()
         self.root = self.directory / "store"
         self.spec_path = self.directory / "spec.json"
+        # Windows venv launchers delegate the work to a second process.
+        executable = Path(getattr(sys, "_base_executable", sys.executable)
+                          if os.name == "nt" else sys.executable).resolve()
         self.spec = {"format": "jyppx.liuding.local_run_spec", "schema_version": 1,
             "project_id": "local-contract", "experiment_id": "attempts",
-            "executable": str(Path(sys.executable).resolve()),
-            "executable_sha256": sha256(Path(sys.executable).resolve()),
+            "executable": str(executable),
+            "executable_sha256": sha256(executable),
             "arguments": ["-I", "-u", str(Path(__file__).resolve()), "--fixture", "inspect", str(self.cwd)],
             "working_directory": str(self.cwd), "environment": {"LOCAL_ATTEMPT_FIXTURE": "literal"},
             "inherit_environment": True, "timeout_ms": 10000, "max_attempts": 3,
@@ -1812,10 +1819,17 @@ class LocalAttemptTest(unittest.TestCase):
                 self.assertFalse((root / "runs.sqlite3").exists())
 
 
-CONTRACT_GROUPS = ("all", "core", "environment", "runtime_files", "host")
+CONTRACT_GROUPS = ("all", "core", "resources", "environment", "runtime_files", "host")
 
 
 def contract_group(method: str) -> str:
+    if method.startswith(("test_os_memory_", "test_resource_", "test_invalid_resource_",
+                          "test_invalid_os_", "test_cpu_and_memory_", "test_exclusive_gpu_",
+                          "test_reservation_", "test_result_without_committed_output_",
+                          "test_native_cleanup_", "test_unknown_attempt_",
+                          "test_cancel_after_lease_", "test_unconfirmed_intent_",
+                          "test_unmetered_live_attempt_")):
+        return "resources"
     if method.startswith("test_runtime_files_"):
         return "runtime_files"
     if method.startswith("test_host_"):

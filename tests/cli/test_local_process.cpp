@@ -323,6 +323,7 @@ void expect_resource_usage(const cli::LocalProcessResult& result) {
   ASSERT_TRUE(usage.system_cpu_time_us);
   ASSERT_TRUE(usage.peak_resident_memory_bytes);
   const auto payload = Json::parse(result.stdout_capture);
+  ASSERT_EQ(result.process_id, payload.at("process_id").get<std::uint64_t>());
   const auto cpu = *usage.user_cpu_time_us + *usage.system_cpu_time_us;
   // The child's independent process CPU clock precedes its final accounting.
   EXPECT_GE(cpu + 2000U, payload.at("cpu_time_us").get<std::uint64_t>());

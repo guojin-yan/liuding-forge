@@ -53,7 +53,7 @@ class LocalAttemptRegistrationTest(unittest.TestCase):
 
     def test_groups_are_nonempty_disjoint_and_exhaustive(self) -> None:
         union = set()
-        for group in ("core", "environment", "runtime_files", "host"):
+        for group in ("core", "resources", "environment", "runtime_files", "host"):
             selected = self.names(group)
             self.assertTrue(selected, group)
             self.assertFalse(union & selected, group)
@@ -63,6 +63,7 @@ class LocalAttemptRegistrationTest(unittest.TestCase):
     def test_representative_contracts_remain_in_their_groups(self) -> None:
         for group, method in (
                 ("core", "test_success_literal_argv_raw_cas_and_terminal_replay"),
+                ("resources", "test_os_memory_boundary_is_persisted_and_replayed_without_relaunch"),
                 ("environment", "test_environment_reference_digest_fences_retry_drift_and_preserves_confirmed_prefix"),
                 ("runtime_files", "test_runtime_files_fence_retry_drift_and_preserve_confirmed_prefix"),
                 ("host", "test_host_disk_requirement_preserves_retry_prefix_until_space_restored")):
