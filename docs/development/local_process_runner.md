@@ -228,8 +228,10 @@ liuding-forge local abandon --root local-runs --id trial-001 --confirmation aban
 
 ```sh
 cmake --build out/build/config-windows --config Release --target jyppx_test_local_process jyppx_test_sidecar_transport jyppx_cli_recipe_gate --parallel 2
-ctest --test-dir out/build/config-windows -C Release --output-on-failure --no-tests=error -R "^(LocalProcessTest|SidecarProcessTest)\.|^Cli_local_attempt$"
+ctest --test-dir out/build/config-windows -C Release --output-on-failure --no-tests=error -R "^(LocalProcessTest|SidecarProcessTest)\.|^Cli_local_attempt($|_)|^CliLocalAttemptRegistration$"
 ```
+
+本地执行 CLI 合同分为 `core`、`environment`、`runtime_files`、`host` 四组，分别注册有界的 CTest 并输出方法名称；分组检查确认方法并集完整且没有重复。直接运行 `tests/cli/test_local_attempt.py --cli <原生CLI>` 仍执行全部方法，可用 `--contract-group` 选择一组、用 `--list-contracts` 只列出方法；原 unittest 名称和 `-k` 筛选继续可用。
 
 Linux 使用对应构建目录并省略多配置参数。原生测试覆盖进程生命周期和 sidecar 回归；独立 CLI 合同覆盖有限重试、输出 CAS、活跃归属、并发取消、调用者强杀和提交边界恢复。`Cli_local_recipe_lifecycle` 验证真实训练取消；`Cli_local_recipe_failure_lifecycle` 在完整 checkpoint 后挂起真实 trainer，验证原生超时和持久 worker 强杀；Linux 的 `Cli_local_recipe_parent_death` 额外要求夹具动手清理之前 trainer 已退出、未知预约仍被围栏。Python 仅注入故障与独立检查，各自的 `_CUDA` 合同需显式启用 CLI CUDA 测试，按顺序执行。强杀后的结果按平台原生生命周期判断，不把保守隔离误记为自动训练恢复。
 

@@ -54,11 +54,25 @@ target_compile_definitions(jyppx_test_local_process PRIVATE
     JYPPX_LOCAL_PROCESS_PYTHON="${jyppx_cli_test_python}"
     JYPPX_LOCAL_PROCESS_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/local_process_fixture.py")
 
-add_test(NAME Cli_local_attempt
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_attempt.py"
-        --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)
-set_tests_properties(Cli_local_attempt PROPERTIES
-    LABELS "cli;experiment;integration" TIMEOUT 240)
+foreach(group IN ITEMS core environment runtime_files host)
+    if(group STREQUAL "core")
+        set(local_attempt_test Cli_local_attempt)
+        set(local_attempt_timeout 240)
+    else()
+        set(local_attempt_test Cli_local_attempt_${group})
+        set(local_attempt_timeout 120)
+    endif()
+    add_test(NAME ${local_attempt_test}
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_attempt.py"
+            --cli $<TARGET_FILE:jyppx_cli_recipe_gate> --contract-group ${group} -v)
+    set_tests_properties(${local_attempt_test} PROPERTIES
+        LABELS "cli;experiment;integration" TIMEOUT ${local_attempt_timeout})
+endforeach()
+add_test(NAME CliLocalAttemptRegistration
+    COMMAND ${Python3_EXECUTABLE} -I -B
+        "${PROJECT_SOURCE_DIR}/tests/scripts/test_local_attempt_registration.py")
+set_tests_properties(CliLocalAttemptRegistration PROPERTIES
+    LABELS "cli;hygiene" TIMEOUT 60)
 add_test(NAME Cli_local_search
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_local_search.py"
         --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)

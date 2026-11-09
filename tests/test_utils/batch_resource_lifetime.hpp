@@ -26,6 +26,7 @@ struct BatchResourceLifetime
     int payloads_released = 0;
     int resources_acquired = 0;
     int resources_released = 0;
+    int admissions_acquired = 0;
     int admissions_released = 0;
     int early_resource_releases = 0;
     int early_admission_releases = 0;
@@ -65,10 +66,14 @@ struct BatchResourceLifetime
             if (self->state.live_payloads)
               ++self->state.early_resource_releases;
           }
+          self->ready.notify_all();
         });
-    if (!admission) {
+    {
       std::lock_guard lock(mutex);
-      ++state.resources_acquired;
+      if (admission)
+        ++state.admissions_acquired;
+      else
+        ++state.resources_acquired;
       ready.notify_all();
     }
     return owner;
@@ -78,6 +83,18 @@ struct BatchResourceLifetime
     std::unique_lock lock(mutex);
     return ready.wait_for(lock, std::chrono::seconds(2),
                           [&] { return state.resources_acquired >= count; });
+  }
+
+  bool wait_for_admissions(int count = 1) {
+    std::unique_lock lock(mutex);
+    return ready.wait_for(lock, std::chrono::seconds(2),
+                          [&] { return state.admissions_acquired >= count; });
+  }
+
+  bool wait_for_admission_releases(int count = 1) {
+    std::unique_lock lock(mutex);
+    return ready.wait_for(lock, std::chrono::seconds(2),
+                          [&] { return state.admissions_released >= count; });
   }
 
   Snapshot snapshot() const {

@@ -1210,33 +1210,58 @@ TEST(IterableBatchMemoryCudaTest, PinsTransfersAndRestoresExactCursor) {
 }
 
 TEST(IterableDataPipelineLeaseTest, ConsumerStoragePrecedesResourceRelease) {
-  auto probe = std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
-  auto config = options("data.iterable.lifetime.deliver", 1);
-  config.prefetch_batches = 1;
-  config.schema = jyppx::liuding::data::BatchSchema::any("tracked.tensor");
-  config.admission_factory = [probe](std::stop_token) {
-    return probe->lease(true);
-  };
-  config.resource_lease_factory =
-      [probe](const c10::IValue&, const BatchMemoryMetadata&, std::stop_token) {
-        return probe->lease();
-      };
-  IterableDataPipeline pipeline(
-      make_source({1}), config,
-      [probe](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
-              std::stop_token) { return c10::IValue(probe->tensor()); });
-  pipeline.set_epoch(0);
-  auto batch = pipeline.next();
-  ASSERT_TRUE(batch);
-  pipeline.close();
-  EXPECT_EQ(probe->snapshot().resources_released, 0);
-  batch.reset();
-  const auto state = probe->snapshot();
-  EXPECT_EQ(state.payloads_released, 1);
-  EXPECT_EQ(state.resources_released, 1);
-  EXPECT_EQ(state.admissions_released, 1);
-  EXPECT_EQ(state.early_resource_releases, 0);
-  EXPECT_EQ(state.early_admission_releases, 0);
+  for (const bool cancel_terminal_read : {false, true}) {
+    SCOPED_TRACE(cancel_terminal_read);
+    auto probe =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    auto terminal =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    std::atomic<int> admissions{0};
+    auto config = options("data.iterable.lifetime.deliver", 1);
+    config.prefetch_batches = 1;
+    config.schema = jyppx::liuding::data::BatchSchema::any("tracked.tensor");
+    config.admission_factory = [&](std::stop_token stop) {
+      if (admissions.fetch_add(1) == 0) return probe->lease(true);
+      // The terminal read has its own reservation and owns no Tensor storage.
+      auto lease = terminal->lease(true);
+      if (cancel_terminal_read) terminal->wait_for_stop(stop);
+      return lease;
+    };
+    config.resource_lease_factory =
+        [probe](const c10::IValue&, const BatchMemoryMetadata&,
+                std::stop_token) { return probe->lease(); };
+    IterableDataPipeline pipeline(
+        make_source({1}), config,
+        [probe](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
+                std::stop_token) { return c10::IValue(probe->tensor()); });
+    pipeline.set_epoch(0);
+    auto batch = pipeline.next();
+    ASSERT_TRUE(batch);
+    ASSERT_TRUE(terminal->wait_for_admissions());
+    if (!cancel_terminal_read)
+      ASSERT_TRUE(terminal->wait_for_admission_releases());
+    EXPECT_EQ(probe->snapshot().live_payloads, 1);
+    EXPECT_EQ(probe->snapshot().admissions_released, 0);
+    EXPECT_EQ(probe->snapshot().resources_released, 0);
+    pipeline.close();
+    EXPECT_EQ(probe->snapshot().admissions_released, 0);
+    EXPECT_EQ(probe->snapshot().resources_released, 0);
+    batch.reset();
+    const auto state = probe->snapshot();
+    EXPECT_EQ(state.payloads_released, 1);
+    EXPECT_EQ(state.resources_released, 1);
+    EXPECT_EQ(state.admissions_acquired, 1);
+    EXPECT_EQ(state.admissions_released, 1);
+    EXPECT_EQ(state.early_resource_releases, 0);
+    EXPECT_EQ(state.early_admission_releases, 0);
+    const auto empty = terminal->snapshot();
+    EXPECT_EQ(admissions.load(), 2);
+    EXPECT_EQ(empty.admissions_acquired, 1);
+    EXPECT_EQ(empty.admissions_released, 1);
+    EXPECT_EQ(empty.early_admission_releases, 0);
+    EXPECT_EQ(empty.payloads_released, 0);
+    EXPECT_EQ(empty.resources_acquired, 0);
+  }
 }
 
 TEST(IterableDataPipelineLeaseTest,

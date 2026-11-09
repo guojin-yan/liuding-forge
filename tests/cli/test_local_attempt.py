@@ -1812,12 +1812,53 @@ class LocalAttemptTest(unittest.TestCase):
                 self.assertFalse((root / "runs.sqlite3").exists())
 
 
+CONTRACT_GROUPS = ("all", "core", "environment", "runtime_files", "host")
+
+
+def contract_group(method: str) -> str:
+    if method.startswith("test_runtime_files_"):
+        return "runtime_files"
+    if method.startswith("test_host_"):
+        return "host"
+    if method.startswith(("test_environment_", "test_explicit_environment_",
+                          "test_reserved_environment_", "test_similar_non_reserved_environment_")):
+        return "environment"
+    return "core"
+
+
+class ContractTestLoader(unittest.TestLoader):
+    def __init__(self, group: str) -> None:
+        super().__init__()
+        if group not in CONTRACT_GROUPS:
+            raise ValueError("Unknown local-attempt contract group")
+        self.group = group
+
+    def getTestCaseNames(self, test_case: type[unittest.TestCase]) -> list[str]:
+        methods = super().getTestCaseNames(test_case)
+        if test_case is LocalAttemptTest and self.group != "all":
+            methods = [name for name in methods if contract_group(name) == self.group]
+        return methods
+
+
+def contract_names(group: str) -> list[str]:
+    return ["LocalAttemptTest." + name for name in
+            ContractTestLoader(group).getTestCaseNames(LocalAttemptTest)]
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 4 and sys.argv[1] == "--fixture":
         fixture(sys.argv[2], Path(sys.argv[3]), sys.argv[4:])
     else:
         parser = argparse.ArgumentParser()
         parser.add_argument("--cli", type=Path, required=True)
+        parser.add_argument("--contract-group", choices=CONTRACT_GROUPS, default="all")
+        parser.add_argument("--list-contracts", action="store_true")
         arguments, rest = parser.parse_known_args()
+        names = contract_names(arguments.contract_group)
+        if arguments.list_contracts:
+            if rest:
+                parser.error("--list-contracts does not accept unittest arguments")
+            print(json.dumps(names))
+            raise SystemExit(0)
         LocalAttemptTest.cli = arguments.cli.resolve()
-        unittest.main(argv=[__file__, *rest])
+        unittest.main(argv=[__file__, *rest], testLoader=ContractTestLoader(arguments.contract_group))
