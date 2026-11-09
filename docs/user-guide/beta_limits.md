@@ -16,6 +16,8 @@ SDK 聚合 foundation、core、interop、data、nn、optim、training、experime
 
 本地 Serving 支持显式模型加载、预测及同 runtime 的受控版本切换，具体后端的 batch、资源、取消和 drain 合同见[Serving API](../api/serving.md)。逻辑字节预算不等于进程 RSS、显存或后端 workspace 的硬上限；不能由组件冒烟推导真实任务数值、质量或性能资格。
 
+固定软件、硬件与执行形状下的确定性和精确恢复，不保证跨 batch 形状或不同参数归约分组的浮点结果逐位相同。相关边界见 [Models](../api/models.md) 与 [Serving](../api/serving.md)；应用应按实际任务验收质量和资源表现。
+
 ## 格式、执行与信任边界
 
 Safetensors 和模型 bundle 是有边界的数据格式。摘要验证用于核对内容，生产者身份依赖外部信任的签名验证；bundle 通过不证明模型的任务质量、运行时或设备兼容。真实签名组件可用不代表正式发布资产已完成受信签名。

@@ -59,6 +59,8 @@ const auto change = current.reload(backend, new_bundle, verify, known_vectors,
 
 `DynamicBatcher` 为单 worker、有界队列，支持一个 leading dimension 为 1 的位置 Tensor 输入和一个 batch 维一致的 Tensor 输出。schema 必须声明固定 rank/尾部形状与动态首维，后端必须明确声明逐行独立且 pre/post 保持 batch。其他结构化输入输出使用直接 predictor 调用。
 
+LibTorch/CUDA 的确定性设置只约束固定执行配置；合批或 OOM 拆批改变 batch 形状时，底层卷积和矩阵运算可能产生浮点舍入差异，不保证与逐条推理逐位一致。依赖严格数值比较的应用应固定 batch 形状、设备、dtype 和后端配置，并按实际任务验证误差与质量。
+
 队列按模型/pipeline/schema、dtype/精确设备/形状、优先级/deadline class、project/principal/deployment 分组，只合并兼容前缀。容量在快照前预留，字节预算覆盖排队和活动请求；`max_batch_size` 与 `max_wait` 有界，但等待上限不能抢占前一个 compute。过期/取消成员在新 batch 前移除，每个结果交付时再检查；一个成员取消不终止其他成员。未提供结果缓存。
 
 只有显式 retry-safe native forward 中确认的分配失败产生 `RetryableOutOfMemory`，按整个原始 batch 的有限预算迭代拆分，最多 8 次，不重试 singleton。普通资源/schema/pre/post/输出错误不触发重试；JIT 与 ORT 不允许此策略。
