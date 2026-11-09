@@ -54,11 +54,13 @@ lane 强制 `FETCHCONTENT_FULLY_DISCONNECTED:BOOL=ON` 和 `FETCHCONTENT_UPDATES_
 
 lane 要求 clean committed source，使用独立 `out/coverage/linux/{build,report}`，保留依赖输入 SHA、实际配置缓存 SHA、源码身份、CTest 与 policy 分别的状态。CTest 失败后仍按原合同尝试采集；报告采集成功不等于 gate 通过。新 owner 未出现或没有三项实际分母也继续拒绝，不能为缺观测生成基线数字。
 
+需要限定测试范围时，可设置单行 `JYPPX_COVERAGE_EXCLUDE_TEST_REGEX`，其值原样传给 CTest 的 `-E`。例如 `export JYPPX_COVERAGE_EXCLUDE_TEST_REGEX='^NativeOtlpHttpTrustedTls$'` 可排除该项；元数据记录 `ctest_excluded_test_regex` 并将 `coverage_profile` 标为 `v1-selected-cpu-filtered`。该选项与 packaging 标签排除组合使用，原 owner 和覆盖率策略仍执行；筛选结果只证明实际执行范围，完整 profile 验收还须补齐排除项。
+
 采集先校验 GCC 11.4 计数与 notes 的版本、函数、控制流及文件身份，普通计数仍受有限 `2^36` 上限约束。仅已审源码的 SHA256 固定循环可按实际入口次数接纳精确倍数，gcovr 使用对应的有限传输上限；XML 中其他位置的越限计数仍拒绝。XML 生成后及流程结束前再次核对完整计数和源码身份，不缩放或忽略异常正计数。原始校验收据及两次 XML 校验结果保存在 report 目录，模块 covered、total 和 minimum_percent 三重规则保持独立。
 
 ## 维护验证与基线审阅
 
-`CoverageOwnerPolicyToolUnitTests` 使用小型明确标记的 synthetic fixture，检查 pending 拒绝、漏 owner、前缀交叠、聚合头例外及 profile 缓存拒绝。`CoverageOfflineDependenciesToolUnitTests` 以合成归档/源码检查锁定身份、缺失、篡改、成员边界、链接和实际 cache 的拒绝；CLI 的生产 pin 不接受调用者覆盖。`CoverageHitSanityToolUnitTests` 检查合成 GCC 二进制的配对、异常计数和控制流边界，以及 XML 逐条命中和输入变化的拒绝。Linux `CoverageLaneProtocolUnitTests` 使用假 CMake/CTest/gcovr 和明确替换为 synthetic pin 的私有 helper 副本，验证继承并行、输入缺失、断网 cache 改动、结束身份变化及错误路径。这些 fixture 数字和 pin 均不进入实际 policy 或发布证据。
+`CoverageOwnerPolicyToolUnitTests` 使用小型明确标记的 synthetic fixture，检查 pending 拒绝、漏 owner、前缀交叠、聚合头例外及 profile 缓存拒绝。`CoverageOfflineDependenciesToolUnitTests` 以合成归档/源码检查锁定身份、缺失、篡改、成员边界、链接和实际 cache 的拒绝；CLI 的生产 pin 不接受调用者覆盖。`CoverageHitSanityToolUnitTests` 检查合成 GCC 二进制的配对、异常计数和控制流边界，以及 XML 逐条命中和输入变化的拒绝。Linux `CoverageLaneProtocolUnitTests` 主要使用假 CMake/CTest/gcovr 和明确替换为 synthetic pin 的私有 helper 副本，验证继承并行、输入缺失、断网 cache 改动、结束身份变化及错误路径；测试筛选另使用真实 CTest 和本地文件标记，确认排除命令没有执行。这些 fixture 数字和 pin 均不进入实际 policy 或发布证据。
 
 真实采样后，先审阅每组件来源、完整 instrumentation 和观测身份，再登记新增 owner 的真实基线；covered 与 total 使用原始整数，minimum_percent 使用 gate 对该比例相同的六位小数计算。生成源码仍归其组件，须核实际编译选项和 gcno；仅含描述符数据且没有可执行记录的文件不产生额外分母，不能按 generated 身份排除。分阶段采样须在 observation 中保留原中断、唯一合同数、实际通过与条件 skip，不能标为单次完整运行。
 

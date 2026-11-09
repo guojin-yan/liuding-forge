@@ -27,8 +27,16 @@ stage=preflight
 torch_prefix="${CMAKE_PREFIX_PATH:-not_set}"
 build_parallelism="${JYPPX_LIUDING_BUILD_PARALLEL_LEVEL:-2}"
 packaging_excluded="${JYPPX_COVERAGE_EXCLUDE_PACKAGING:-0}"
+excluded_test_regex="${JYPPX_COVERAGE_EXCLUDE_TEST_REGEX:-}"
+excluded_test_regex_invalid=0
+case "$excluded_test_regex" in
+  *$'\n'*|*$'\r'*) excluded_test_regex_invalid=1; excluded_test_regex= ;;
+esac
 models_reference_dir="${JYPPX_LIUDING_MODELS_REFERENCE_DIR:-}"
 coverage_profile=v1-selected-cpu
+if [ -n "$excluded_test_regex" ] || [ "$excluded_test_regex_invalid" = 1 ]; then
+  coverage_profile=v1-selected-cpu-filtered
+fi
 dependency_cache="${JYPPX_COVERAGE_DEPENDENCY_CACHE:-}"
 dependency_cache_expected_sha256="${JYPPX_COVERAGE_DEPENDENCY_CACHE_SHA256:-}"
 offline_inputs="${JYPPX_COVERAGE_OFFLINE_INPUTS:-}"
@@ -72,6 +80,7 @@ coverage_hit_validation=$coverage_hit_validation
 gcov_search_root=$build_root
 components=core,interop,data,nn,optim,training,experiment,data_image,vision_render,models,serving,onnx_export,onnx_runtime,onnx_serving,bundle_signing,telemetry_native,telemetry_http,tools
 ctest_excluded_label=$(test "$packaging_excluded" = 1 && echo packaging || echo none)
+ctest_excluded_test_regex=$excluded_test_regex
 ctest_exit=$ctest_status
 policy_exit=$policy_status
 termination_signal=$termination_signal
@@ -91,6 +100,10 @@ rm -f "$output_root/coverage-offline-inputs.json" "$output_root/coverage-offline
   "$output_root/coverage-offline-cmake-args.txt" \
   "$output_root/coverage-counter-sanity.json" "$output_root/coverage-counter-sanity-validation.json" \
   "$output_root/coverage-counter-sanity-final.json"
+if [ "$excluded_test_regex_invalid" = 1 ]; then
+  echo "JYPPX_COVERAGE_EXCLUDE_TEST_REGEX must fit on one line" >&2
+  exit 2
+fi
 command -v cmake >/dev/null
 command -v ctest >/dev/null
 command -v python3 >/dev/null
@@ -207,6 +220,9 @@ ctest_args=(--parallel 1 --test-dir "$build_root" --output-on-failure --no-tests
   --output-junit "$output_root/coverage-ctest.xml")
 if [ "$packaging_excluded" = 1 ]; then
   ctest_args+=(-LE packaging)
+fi
+if [ -n "$excluded_test_regex" ]; then
+  ctest_args+=(-E "$excluded_test_regex")
 fi
 stage=ctest
 set +e

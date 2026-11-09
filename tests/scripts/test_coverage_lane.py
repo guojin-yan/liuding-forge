@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -67,7 +68,7 @@ class CoverageLaneTest(unittest.TestCase):
         self.bin = self.root / "fixture-bin"
         self.bin.mkdir()
         stub = '''#!/usr/bin/env python3
-import json, os, pathlib, signal, sys
+import json, os, pathlib, signal, subprocess, sys
 name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 with open(os.environ["JYPPX_FIXTURE_COMMAND_LOG"], "a", encoding="utf-8") as stream:
@@ -99,6 +100,8 @@ if name == "cmake":
     sys.exit(int(os.environ.get("JYPPX_FIXTURE_BUILD_EXIT" if "--build" in args
                                else "JYPPX_FIXTURE_CONFIGURE_EXIT", "0")))
 if name == "ctest":
+    if os.environ.get("JYPPX_FIXTURE_REAL_CTEST"):
+        sys.exit(subprocess.run([os.environ["JYPPX_FIXTURE_REAL_CTEST"], *args]).returncode)
     pathlib.Path(args[args.index("--output-junit") + 1]).write_text(
         '<testsuite tests="1" failures="0"/>', encoding="utf-8")
     sys.exit(int(os.environ.get("JYPPX_FIXTURE_CTEST_EXIT", "0")))
@@ -212,6 +215,37 @@ print("68719476736" if mode == "prepare" else '{"synthetic_protocol_only": true}
         self.assertEqual(ctest[ctest.index("--parallel") + 1], "1")
         self.assertEqual(ctest[ctest.index("-LE") + 1], "packaging")
         self.assertEqual(self.metadata()["ctest_excluded_label"], "packaging")
+        self.assertEqual(self.metadata()["coverage_profile"], "v1-selected-cpu")
+        self.assertEqual(self.metadata()["ctest_excluded_test_regex"], "")
+
+    @unittest.skipUnless(shutil.which("ctest"), "Real CTest selection contract")
+    def test_explicit_exclusion_never_executes_excluded_command(self) -> None:
+        self.build.mkdir(parents=True)
+        allowed = self.build / "allowed.txt"
+        excluded = self.build / "excluded.txt"
+        quote = lambda value: '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+        command = "from pathlib import Path; import sys; Path(sys.argv[1]).write_text('executed')"
+        tests = [("AllowedCoverageFixture", allowed), ("ExcludedCoverageFixture", excluded)]
+        (self.build / "CTestTestfile.cmake").write_text("\n".join(
+            "add_test(" + " ".join(map(quote, (name, sys.executable, "-c", command, marker))) + ")"
+            for name, marker in tests) + "\n", encoding="utf-8")
+        pattern = "^ExcludedCoverageFixture$"
+        result = self.run_lane(JYPPX_COVERAGE_EXCLUDE_TEST_REGEX=pattern,
+                               JYPPX_FIXTURE_REAL_CTEST=shutil.which("ctest"))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(allowed.read_text(), "executed")
+        self.assertFalse(excluded.exists())
+        self.assertEqual(self.metadata()["ctest_excluded_test_regex"], pattern)
+        self.assertEqual(self.metadata()["coverage_profile"], "v1-selected-cpu-filtered")
+        self.assertEqual(self.metadata()["ctest_exit"], "0")
+
+    def test_multiline_exclusion_cannot_start_collection(self) -> None:
+        result = self.run_lane(JYPPX_COVERAGE_EXCLUDE_TEST_REGEX="fixture\nctest_exit=0")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(self.metadata()["last_stage"], "preflight")
+        self.assertEqual(self.metadata()["ctest_exit"], "not_run")
+        self.assertEqual(self.metadata()["coverage_profile"], "v1-selected-cpu-filtered")
+        self.assertFalse((self.root / "out/commands.jsonl").exists())
 
     def test_ctest_failure_still_collects_and_fails(self) -> None:
         result = self.run_lane(JYPPX_FIXTURE_CTEST_EXIT="8")

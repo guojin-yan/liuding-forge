@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 覆盖率维护脚本支持显式排除测试名称正则，在元数据中记录筛选范围并使用独立的 filtered profile；原覆盖率策略保持不变。
+
 - 修复 JPEG 在标记解析失败或缺少 scan 时仍可能返回像素的问题；畸形输入现在明确失败并释放解码资源，补充 JPEG/16 位 PNM 边界及失败恢复回归。
 
 - 补录干净提交 `57e304c` 的 Ubuntu CPU Release SDK 验收：18 库/231 条目安装与独立消费者通过，完整选定 2076 项合同分阶段为 1887 通过、189 条件跳过、零未解决失败；保留维护中断、组件矩阵、其他设备和正式发布边界。
