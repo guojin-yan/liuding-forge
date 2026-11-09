@@ -13,6 +13,31 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-9fd2763-selected-release",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; CPU correctness/install profile",
+          "build_type": "Release",
+          "tests": "Selected CTest contracts closed in stages: 2085 contracts, 1896 passed, 189 conditional skips, zero unresolved failures. Independent eight-Core installed consumer1/1 passed. Original maintenance interruption retained;2073 completed contracts were not repeated,12 interrupted/unexecuted contracts completed within the same deadline. Two component matrices and four paused transport contracts are separate.",
+          "instrumentation": "CMake3.22.1/Ninja1.10.1/GCC11.4; fixed build/install/consumer caches reused;18 components, CLI, examples and docs enabled. Compile/test jobs1; delegated user cgroup for native memory contracts.",
+          "quality_evidence": {
+            "source_identity": "Clean committed 9fd2763e6bec5f4a33a2d0f96fa9ec32f94bf847;1275 tracked files matched Git blobs, with source SHA-256/mtimes preserved before/after execution. Later metadata commits do not change the installed CLI fingerprint.",
+            "installation": "18 framework libraries/231 installed entries independently verified; exact source fingerprint, Release CPU doctor and installed eight-Core consumer passed. Three other SDKs and695 coverage notes/counters/reports remained unchanged.",
+            "selection": "Excluded OptionalComponentMatrix/PreviewComponentMatrix, plus MnistHttpsContract.AllowsOnlyFrozenFullHttpsUrls, MnistHttpsContract.RejectsInvalidContractBeforeTransportOrFilesystem, NativeOtlpHttpTrustedTls and NativeOtlpHttpWireContract. Excluded items are neither passes nor hardware skips.",
+            "native_memory": "42 saved native boundary observations include kernel OOM, cancellation, timeout and recovery; process-tree cleanup and empty delegated-parent removal verified.",
+            "resources": "Build107.357s; selected CTest2079.834s; owned RSS peak1746112512 bytes. Original6GiB admission/4GiB runtime RAM,5GiB owned RSS/10GiB growth, single frontend and10800s absolute window retained. Samples do not declare universal product limits or paired performance gains.",
+            "scope": "This exact selected CPU Release SDK only. Conditional skips, other platforms/devices, complete model/recipe/real-resource qualification and formal release conditions require separate evidence; no GA claim. INT8 is deferred.",
+            "independent_audit_sha256": "4cc0a8c4c90849e369f4d6b178a1fdccff712253d80f08e29905a40fafbcc6d3",
+            "receipts_archive_sha256": "5147f01f4969f6cc1ab5960bdd0e0063b7255c3ad639d88265986e692856e7c9",
+            "terminal_sha256": "fd9e8c72f5f8c648bca48368f9c6a4ffe10066e9fa3969e7b9b40b4dcd500e29",
+            "installed_manifest_sha256": "d08445cffa57d7f54ad8af919885365ddcc64e1ace86f68599679e1543baf967",
+            "selected_results_sha256": "e8cfe6e4da74398dc1c8288fa0823d1b80fa9c1e22c14ccd25f06dea03297818"
+          },
+          "commit": "9fd2763e6bec5f4a33a2d0f96fa9ec32f94bf847"
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-clean-57e304c-selected-release",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
