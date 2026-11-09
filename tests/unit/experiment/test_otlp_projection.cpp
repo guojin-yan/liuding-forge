@@ -12,7 +12,9 @@
 #include <cmath>
 #include <gtest/gtest.h>
 #include <limits>
+#include <span>
 #include <stop_token>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -52,6 +54,61 @@ detail::OtlpPreflightOptions Options() {
   detail::OtlpPreflightOptions options;
   options.mapping.resource_instance_id = "test.instance";
   return options;
+}
+
+std::span<const std::byte> ResponseBytes(std::string_view value) {
+  return std::as_bytes(std::span(value.data(), value.size()));
+}
+
+TEST(NativeOtlpProjection, CompleteCollectorResponsesAcceptEverySignal) {
+  const ex::OtlpProjectionEncoder encoder(Options().mapping);
+  // Official response field 1 is the optional partial_success submessage.
+  constexpr std::string_view empty_partial("\x0a\x00", 2U);
+  constexpr std::string_view zero_rejected("\x0a\x02\x08\x00", 4U);
+  for (const auto signal : {ex::OtlpSignal::metrics, ex::OtlpSignal::logs,
+                            ex::OtlpSignal::traces}) {
+    SCOPED_TRACE(static_cast<int>(signal));
+    EXPECT_NO_THROW(encoder.validate_response(signal, {}));
+    EXPECT_NO_THROW(
+        encoder.validate_response(signal, ResponseBytes(empty_partial)));
+    EXPECT_NO_THROW(
+        encoder.validate_response(signal, ResponseBytes(zero_rejected)));
+  }
+}
+
+TEST(NativeOtlpProjection, CollectorPartialSuccessRejectsEverySignal) {
+  const ex::OtlpProjectionEncoder encoder(Options().mapping);
+  // Each signal uses count field 1 and error_message field 2 in
+  // partial_success.
+  constexpr std::string_view rejected("\x0a\x02\x08\x01", 4U);
+  constexpr std::string_view warning("\x0a\x06\x12\x04warn", 8U);
+  for (const auto signal : {ex::OtlpSignal::metrics, ex::OtlpSignal::logs,
+                            ex::OtlpSignal::traces}) {
+    SCOPED_TRACE(static_cast<int>(signal));
+    EXPECT_THROW(encoder.validate_response(signal, ResponseBytes(rejected)),
+                 forge::IoError);
+    EXPECT_THROW(encoder.validate_response(signal, ResponseBytes(warning)),
+                 forge::IoError);
+    // A successful response afterwards must not retain an earlier rejection.
+    EXPECT_NO_THROW(encoder.validate_response(signal, {}));
+  }
+}
+
+TEST(NativeOtlpProjection, CollectorReplyCapacityAppliesToEverySignal) {
+  auto options = Options().mapping;
+  options.max_reply_bytes = 2U;
+  const ex::OtlpProjectionEncoder encoder(options);
+  constexpr std::string_view empty_partial("\x0a\x00", 2U);
+  constexpr std::string_view zero_rejected("\x0a\x02\x08\x00", 4U);
+  for (const auto signal : {ex::OtlpSignal::metrics, ex::OtlpSignal::logs,
+                            ex::OtlpSignal::traces}) {
+    SCOPED_TRACE(static_cast<int>(signal));
+    EXPECT_NO_THROW(
+        encoder.validate_response(signal, ResponseBytes(empty_partial)));
+    EXPECT_THROW(
+        encoder.validate_response(signal, ResponseBytes(zero_rejected)),
+        forge::ResourceExhausted);
+  }
 }
 
 TEST(NativeOtlpProjection, OptionsPreserveReferenceBounds) {
