@@ -378,3 +378,18 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image
     jyppx_apply_instrumentation(jyppx_cifar10_model_reload)
     jyppx_add_torch_runtime_dependency(jyppx_cifar10_model_reload)
 endif()
+
+if(TARGET jyppx_cifar10_model_reload AND TARGET jyppx::liuding::experiment
+   AND TARGET jyppx::liuding::vision_render)
+    add_executable(jyppx_cifar10_output_pipeline EXCLUDE_FROM_ALL
+        inference/cifar10_output_pipeline.cpp)
+    set_target_properties(jyppx_cifar10_output_pipeline PROPERTIES
+        OUTPUT_NAME liuding-forge-example-cifar10-output-pipeline)
+    target_link_libraries(jyppx_cifar10_output_pipeline PRIVATE
+        jyppx::liuding::models jyppx::liuding::data_image
+        jyppx::liuding::interop jyppx::liuding::training
+        jyppx::liuding::experiment jyppx::liuding::vision_render
+        nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_cifar10_output_pipeline)
+    jyppx_add_torch_runtime_dependency(jyppx_cifar10_output_pipeline)
+endif()

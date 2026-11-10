@@ -278,6 +278,21 @@ liuding-forge data prepare --name fashion-mnist --source-dir /datasets/fashion-m
 
 上述工具提供数据接入，不会自动加载预训练权重。使用现有随机初始化 ResNet18 配方时，将数据路径指向对应的两个 split，并为 Fashion-MNIST 单独设置配置与质量阈值；模型所需的缩放、裁剪及 mean/std 由图像管线显式完成，不能沿用 CIFAR-10 的任务阈值来宣称该任务已经通过。预训练 ResNet50 和 DINOv2-S 的冻结骨干、完整微调与恢复步骤见[迁移学习教程](transfer_learning_recipe.md)。
 
+### 7.3. 有界预取、预览与证据登记
+
+同时启用 `JYPPX_LIUDING_BUILD_EXPERIMENT=ON` 和 `JYPPX_LIUDING_BUILD_VISION_RENDER=ON` 后，可以构建独立的CPU输出示例；原模型重载示例仍可在关闭这两个可选组件时使用。
+
+```sh
+cmake --build out/build/release --target jyppx_cifar10_output_pipeline --parallel 1
+liuding-forge-example-cifar10-output-pipeline /work/runs/cifar10/model.safetensors REPLACE_WITH_RESULT_MODEL_SHA256 /datasets/cifar10-imagefolder-v1/validation /work/cifar10-previews
+```
+
+最后一个参数必须是尚不存在的输出目录。示例严格重载完整ResNet18状态，以原批大小128和固定采样种子评估全部10000图，保持零训练更新；两个预取线程共用一个整批准入槽。每批首图经过RGB绘图、PNG编码及异步文件发布，再由同一写线程调用 `record_published_file_evidence_atomic` 登记CAS、引用和事件。文件名包含首图真值与预测类别，`batches.jsonl` 逐批流式保存样本顺序、实际输入摘要、标签和logits，`report.json` 保存混淆矩阵、模型状态摘要、输出身份及14类预算的峰值/最终值。
+
+整批 `BatchEnvelope::admission_lease` 被输出证据回调保留，输入Tensor在前向和编码结束后释放；登记变慢时，新批次在解码之前等待。示例在首次登记时用同步信号观察下一批准入正在等待，检查仅解码128图、整批计数/字节仍占用且输入像素已释放；关闭时检查队列和全部图像预算归零。调用者保留Tensor别名时也必须保留对应资源租约，不能只延长准入而让像素脱离计费。
+
+本示例只覆盖该CPU推理与逐批首图预览负载；已知逻辑分配预算不等于私有工作空间或RSS硬上限。文件发布和SQLite提交仍是两个独立边界，登记失败时文件可能已经成功发布，须按原身份恢复证据；它不提供文件/数据库共同可见性或断电保证，也不证明CUDA链路、训练性能收益或完整Vision资格。
+
 ## 8. 交给本地执行器并确认训练产物
 
 完成 CIFAR-10 训练后，可按[已训练模型交付案例](../../examples/deployment/README.md#已训练的-cifar-10-模型交付)从原运行的最终检查点导出动态 batch ONNX、添加临时 Ed25519 签名，并在可信 CPU Serving 上评估完整 10000 张验证图。该案例不重新训练，保留原训练结果和来源；生产密钥管理与其他 Provider 需另行验收。

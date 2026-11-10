@@ -13,6 +13,48 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu-gcc114-cpu-dirty-91ddfff-vision-output-pipeline",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "91ddfff25876b7fc0536c56005bcf72421ac2b74",
+          "tests": "Seven CTest contracts passed(4new source-to-evidence ownership methods+3quality gates),zero skips;experiment installed consumer1/1. Both examples compile and help succeeds.",
+          "instrumentation": "Fixed build/cache,one compile/native/test job;6GiB per-stage cgroup,memory.swap.max0.",
+          "quality_evidence": {
+            "source_identity": "91ddfff25876b7fc0536c56005bcf72421ac2b74+dirty;8frozen example/test/documentation files;formal SDKs retain original fingerprints.",
+            "ownership": "Real file decode/resize/collate -> prefetched DataPipeline -> consumer -> rendering/encoding/output. One batch admission and byte cap retained through writer evidence;next source admission blocked without more decoding;consumer pixels released. Cancellation,producer failure,evidence failure and final resource release checked.",
+            "complete_workload": "Unchanged trained ResNet18 SHA603fbc06d0ea833d9e7509d2f076bebbf521c3027c8b048f0cd56d1dd1fc5af3;10000images/79forwards/0updates;79input batch hashes,100000logits coordinates and labels/order exactly match frozen534 reference;accuracy0.7676;122state tensors unchanged;79PNG preview pixels and CAS objects verified;158SQL references/79events;all14logical budgets return0.",
+            "resources": "Complete workload cgroup peak264617984B;all-stage peak1808367616B;zero limit/OOM events;all owned processes exited and native slots released. No speedup claim or arbitrary private-workspace guarantee.",
+            "installation": "Current temporary SDK experiment consumer passed;temporary SDK verified and removed;fixed cache and protected formal SDK/runtime/coverage identities preserved. New example separately compiled against current installed libraries and executed help;full validation not repeated. Old formal SDK correctly lacked newer producer APIs;JSON header cache supplied explicitly;original two failures/deadline/cumulative budget retained;consumer restored to formal SDK.",
+            "independent_audit_sha256": "2c3f771080d44fff160f47ffe3701dfbecff5e9bfdb1a7fd86112051cb4efbaf",
+            "scope": "This fixed CPU ownership chain only;full training/H2D/CUDA/multi-topology matrix,private workspace,file/database joint visibility,power loss,paired representative performance and full Vision/release remain open. INT8 deferred;network security paused."
+          }
+        },
+        {
+          "id": "local-windows-msvc1944-cu126-dirty-91ddfff-vision-output-pipeline",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "CPU only;LibTorch2.14.1+cu126;CUDA Toolkit12.9",
+          "build_type": "Release",
+          "commit": "91ddfff25876b7fc0536c56005bcf72421ac2b74",
+          "tests": "Seven CTest contracts passed(4new source-to-evidence ownership methods+3quality gates),zero skips;experiment installed consumer1/1. Both examples compile and help succeeds.",
+          "instrumentation": "Fixed build/cache,one compile/native/test job;3GiB exact Windows Job.",
+          "quality_evidence": {
+            "source_identity": "91ddfff25876b7fc0536c56005bcf72421ac2b74+dirty;8frozen example/test/documentation files;formal SDKs retain original fingerprints.",
+            "ownership": "Real file decode/resize/collate -> prefetched DataPipeline -> consumer -> rendering/encoding/output. One batch admission and byte cap retained through writer evidence;next source admission blocked without more decoding;consumer pixels released. Cancellation,producer failure,evidence failure and final resource release checked.",
+            "complete_workload": "Windows did not execute the complete validation workload in this slice;Ubuntu results do not grant Windows resource or task qualification.",
+            "resources": "Windows Job peak1388228608B,sampled RSS1422655488B;all owned processes exited and native slots released. No speedup claim or arbitrary private-workspace guarantee.",
+            "installation": "Current temporary SDK experiment consumer passed;temporary SDK verified and removed;fixed cache and protected formal SDK/runtime/coverage identities preserved.",
+            "independent_audit_sha256": "bd0f5ef536d2fbb7ae8e4e4af21646655579af314b90fa1663891c03f0ba722e",
+            "scope": "This fixed CPU ownership chain only;full training/H2D/CUDA/multi-topology matrix,private workspace,file/database joint visibility,power loss,paired representative performance and full Vision/release remain open. INT8 deferred;network security paused."
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cu126-dirty-8ea8170-published-cas-recovery",
           "os": "windows-11",
           "architecture": "x86_64",
