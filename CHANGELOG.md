@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 图像批次增加显式、有界的CUDA拷贝stream与单次消费ticket；消费stream通过事件等待，源存储和预算保留到拷贝完成，目标存储登记消费stream，并可查询事件时间。CPU-only构建明确拒绝CUDA请求。
+
 - 本地文件发布新增持久化意图和内容保留；生产者及输入文件丢失后，可发现原意图、从CAS重建最终文件并幂等提交引用与事件，覆盖冲突拒绝，复用现有GC和备份。
 
 - 增加原生CIFAR-10有界输出示例，将整批准入保留到预览文件和原子证据登记结束；读取、变换、前向、绘图、编码及异步写入共用预算，逐批流式保存结果并核对最终资源释放。

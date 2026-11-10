@@ -520,6 +520,7 @@ if(JYPPX_LIUDING_BUILD_DATA_IMAGE)
         src/jyppx/liuding/data_image/joint_annotations.cpp
         src/jyppx/liuding/data_image/image_batch.cpp
         src/jyppx/liuding/data_image/image_batch_value.cpp
+        src/jyppx/liuding/data_image/image_batch_copy_stream.cpp
         src/jyppx/liuding/data_image/batch_transform.cpp
         src/jyppx/liuding/data_image/batch_geometry.cpp
         src/jyppx/liuding/data_image/batch_identity.cpp

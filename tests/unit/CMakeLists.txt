@@ -117,6 +117,13 @@ jyppx_add_gtest(jyppx_test_data
 endif()
 
 if(TARGET jyppx::liuding::data_image)
+    jyppx_add_gtest(jyppx_test_image_batch_copy_stream
+        LINK_TARGET jyppx::liuding::data_image
+        data_image/test_image_batch_copy_stream.cpp)
+    if(TARGET torch_cuda)
+        target_compile_definitions(jyppx_test_image_batch_copy_stream PRIVATE
+            JYPPX_LIUDING_IMAGE_TEST_CUDA=1)
+    endif()
     jyppx_add_gtest(jyppx_test_data_image_annotations
         LINK_TARGET jyppx::liuding::data_image
         data_image/test_annotations.cpp

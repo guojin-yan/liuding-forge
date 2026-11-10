@@ -24,6 +24,7 @@
 #include <jyppx/liuding/data_image/batch_identity.hpp>
 #include <jyppx/liuding/data_image/batch_transform.hpp>
 #include <jyppx/liuding/data_image/geometry_trace.hpp>
+#include <jyppx/liuding/data_image/image_batch_copy_stream.hpp>
 #include <jyppx/liuding/data_image/image_dataset.hpp>
 #include <jyppx/liuding/data_image/image_decoder.hpp>
 #include <jyppx/liuding/data_image/image_encoder.hpp>
@@ -320,6 +321,27 @@ int main() {
        .padded_extent = ImageExtent{4, 3},
        .mask_padding_id = -1});
   const auto numeric = transform_image_batch(batch);
+  jyppx::liuding::data::BatchMemoryOptions copy_memory;
+  copy_memory.pin_memory = true;
+  copy_memory.non_blocking = true;
+  copy_memory.target_device = jyppx::liuding::Device(torch::kCUDA, 0);
+  if (torch::cuda::is_available()) {
+    ImageBatchCopyStream copies(copy_memory, 1, true);
+    auto transfer = copies.submit(prepare_image_batch(batch, copy_memory));
+    auto received = transfer.receive();
+    if (!torch::equal(received.images.cpu(), batch.images) ||
+        !torch::equal(received.masks->cpu(), *batch.masks))
+      return 1;
+    transfer.wait();
+    if (copies.pending() != 0 || !transfer.timeline().copy_complete) return 1;
+    copies.close();
+  } else {
+    try {
+      ImageBatchCopyStream copies(copy_memory);
+      return 1;
+    } catch (const jyppx::liuding::DeviceError&) {
+    }
+  }
   const auto content_identity = image_batch_content_identity(batch);
   const std::array<std::vector<ImageGeometryStep>, 1> batch_steps{
       {{{.kind = ImageGeometryKind::horizontal_flip}}}};

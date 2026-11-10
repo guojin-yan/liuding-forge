@@ -13,6 +13,52 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cu126-dirty-90a1e2f-image-copy-stream",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "CPU and CUDA;LibTorch2.14.1+cu126;CUDA Toolkit12.9;sm86;RTX3060 Laptop;driver576.02",
+          "build_type": "Release",
+          "commit": "90a1e2f4bdb1d8911c7e82b99a13838de30edb70",
+          "tests": "89unique contracts in stages:85passed/3skip/1failed in r3;lifetime1 in r9;installed1 and quality3 in r10;negative3 actually passed with GPU=-1 in r11;no unclosed selected skip.",
+          "instrumentation": "Fixed build/consumer trees;one compile/test/native job;exact3GiB Windows Job.",
+          "quality_evidence": {
+            "source_identity": "90a1e2f4bdb1d8911c7e82b99a13838de30edb70+dirty;9-file feature/test/documentation slice;acceptance metadata added afterward. SDK fingerprints retain their original commits.",
+            "contracts": "Bounded explicit image CPU-pinned-to-CUDA transfer;distinct pool stream;event consumer wait;record every destination storage;retain source and leases until drainage;capacity/cancel/close/move/layout/paired/mask/admission/capture/device-source errors. Windows four-step Linear outputs/gradients/SGD exactly match caller-current.",
+            "resources": "Windows kernel Job peak1509769216B,sampled RSS1553047552B.Original deadlines,resource floors and cumulative budgets retained;all owned native jobs exited.",
+            "installation": "data_image installed consumer exercises CUDA copy/mask reads on Windows and explicit CPU-only DeviceError on Ubuntu. Temporary SDKs inventoried and deleted;fixed caches,Torch hardlinks,formal SDK/runtime/coverage identities preserved.",
+            "documentation": "Five changed C++ files pass clang-format;159public headers strict Doxygen with private extraction passed on Ubuntu. Chinese API contracts include explicit ticket lifetime,budgets,Graph/stream and CPU-only limits.",
+            "maintenance": "Original gated first-fill timeout traced and fixed by prewarming before the gate;10-second bound unchanged. Empty CUDA env still skipped3;independent audit rejected that result and explicit -1 passed3. Foreign Rust and physical admission rejections,link-log audit correction retained.",
+            "final_source_sync": "Final CUDA-only fixture edits preserve CPU branch byte-for-byte;all other source/public header Git blobs unchanged and controlled-sync verified on Ubuntu;successful CPU workloads not repeated.",
+            "independent_audit_sha256": "45bb37bd75e5dbaae18b1ac7cc70d736c224841981f8e0c4150978b008e06230",
+            "scope": "Explicit copy/event/ticket/storage lifetime interface slice only;buffer reuse,compute-overlap,paired end-to-end speed,full training/CUDA topology,private workspace/RSS and final release remain unqualified. INT8 deferred;network security paused."
+          }
+        },
+        {
+          "id": "local-ubuntu-gcc114-cpu-dirty-90a1e2f-image-copy-stream",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "90a1e2f4bdb1d8911c7e82b99a13838de30edb70",
+          "tests": "58selected contracts:56passed,2CUDA-conditional skips;installed1/1;159public headers strict Doxygen zero warnings;final CPU2+quality3 and installed1/1 zero skips.",
+          "instrumentation": "Fixed build/consumer trees;one compile/test/native job;6GiB cgroup,swap0.",
+          "quality_evidence": {
+            "source_identity": "90a1e2f4bdb1d8911c7e82b99a13838de30edb70+dirty;9-file feature/test/documentation slice;acceptance metadata added afterward. SDK fingerprints retain their original commits.",
+            "contracts": "Bounded explicit image CPU-pinned-to-CUDA transfer;distinct pool stream;event consumer wait;record every destination storage;retain source and leases until drainage;capacity/cancel/close/move/layout/paired/mask/admission/capture/device-source errors. Windows four-step Linear outputs/gradients/SGD exactly match caller-current.",
+            "resources": "Ubuntu cgroup peak1877512192B,zero limit/OOM events.Original deadlines,resource floors and cumulative budgets retained;all owned native jobs exited.",
+            "installation": "data_image installed consumer exercises CUDA copy/mask reads on Windows and explicit CPU-only DeviceError on Ubuntu. Temporary SDKs inventoried and deleted;fixed caches,Torch hardlinks,formal SDK/runtime/coverage identities preserved.",
+            "documentation": "Five changed C++ files pass clang-format;159public headers strict Doxygen with private extraction passed on Ubuntu. Chinese API contracts include explicit ticket lifetime,budgets,Graph/stream and CPU-only limits.",
+            "maintenance": "Original gated first-fill timeout traced and fixed by prewarming before the gate;10-second bound unchanged. Empty CUDA env still skipped3;independent audit rejected that result and explicit -1 passed3. Foreign Rust and physical admission rejections,link-log audit correction retained.",
+            "final_source_sync": "Final CUDA-only fixture edits preserve CPU branch byte-for-byte;all other source/public header Git blobs unchanged and controlled-sync verified on Ubuntu;successful CPU workloads not repeated.",
+            "independent_audit_sha256": "f5a69656910e9de52ef154a4e389e69311ed0674bb833af77543c4095946bb2c",
+            "scope": "Explicit copy/event/ticket/storage lifetime interface slice only;buffer reuse,compute-overlap,paired end-to-end speed,full training/CUDA topology,private workspace/RSS and final release remain unqualified. INT8 deferred;network security paused."
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cu126-dirty-afed5b5-durable-file-publication",
           "os": "windows-11",
           "architecture": "x86_64",

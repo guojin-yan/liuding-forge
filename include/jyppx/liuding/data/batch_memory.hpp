@@ -32,6 +32,7 @@ namespace jyppx::liuding::data {
 enum class BatchTransferStreamPolicy : std::uint8_t {
   caller_current =
       0,  ///< Uses the backend current stream of the transfer API caller.
+  explicit_copy = 1,  ///< Explicit image copy stream with an event handoff.
 };
 
 /**

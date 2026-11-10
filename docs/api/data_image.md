@@ -205,7 +205,26 @@ auto device_batch = image::transfer_image_batch(std::move(prepared), memory);
 // device_batch.memory 给出 pinned/transferred Tensor 数量和逻辑字节数。
 ```
 
-传输复用 Core 两阶段内存接口，在调用方当前 CUDA stream 上执行；没有独立 copy stream、隐式跨 stream event 或传输重叠保证。准备与传输必须使用相同的内存策略。输入 batch 和源样本保持原样；组批输出具有独立照片/mask/valid/label 存储。独立 pin/传输 API 以及原 pipeline memory stage 的限制各自生效。
+`transfer_image_batch` 复用 Core 两阶段内存接口，在调用方当前 CUDA stream 上执行。准备与传输必须使用相同的内存策略。输入 batch 和源样本保持原样；组批输出具有独立照片/mask/valid/label 存储。独立 pin/传输 API 以及原 pipeline memory stage 的限制各自生效。
+
+需要显式拷贝通道时，使用 `ImageBatchCopyStream`。它选择与构造时当前stream不同的LibTorch CUDA pool stream；构造参数要求 `pin_memory=true`、`non_blocking=true` 和带索引的CUDA目标。`submit` 接受相同策略准备的CPU批次，保留完整源、源租约及目标，返回可移动、不可复制的ticket；容量满时立即抛出 `ResourceExhausted`，预先取消、准备策略不符和目标预算不足不会占用槽。CPU-only构建保留相同安装接口，构造时抛出 `DeviceError`。
+
+```cpp
+#include <jyppx/liuding/data_image/image_batch_copy_stream.hpp>
+
+image::ImageBatchCopyStream copies(memory, 2, true); // 两个未drain的ticket，启用事件计时。
+auto transfer = copies.submit(image::prepare_image_batch(batch, memory));
+auto device_batch = transfer.receive(); // 在本线程当前训练stream上排入事件等待。
+auto model_batch = image::transform_image_batch(device_batch);
+// 在同一训练stream上调用模型、loss和backward；可同时提交下一批。
+transfer.wait(); // 仅等待本次拷贝，释放源与槽；不等待训练stream完成。
+auto timing = transfer.timeline(); // stream ID、完成状态、可选拷贝事件区间。
+copies.close(); // 拒绝新提交并drain现有ticket；已提交结果仍可receive。
+```
+
+`receive()` 每ticket只能调用一次，不等待CPU，也不执行全设备同步；它在目标设备的调用方当前stream排入完成事件等待，并向CUDA allocator登记每个目标storage的消费stream，返回的 `memory.transfer_stream_policy` 为 `explicit_copy`。训练消费须在这个stream继续，其他stream使用返回Tensor时仍由调用方建立依赖并登记storage。调用者不得在拷贝结束前修改源别名；另存Tensor别名时须保留批次租约。原 `DataPipeline::next()` 和 `transfer_image_batch` 的caller-current策略保持各自合同。
+
+`ready()` 和 `timeline()` 只查询，不归还槽。`wait()`、ticket析构/被移动赋值替换、拷贝对象的 `close()`/析构会等待对应拷贝完成后释放源和槽；未消费的目标仍由ticket保留。要保持异步重叠，须让ticket存活至稍后显式等待；立即销毁ticket会等待拷贝。`wait()` 可重试并报告后端错误；无法确认完成时，无异常析构采用终止进程语义以避免提前释放DMA源。不同ticket上的方法内部串行化，移动和析构同一对象需调用方独占。该接口不创建后台线程，不提供CUDA Graph捕获资格；pool stream不保证与其他使用者独占。计时是begin/end CUDA事件区间，可包含排队空隙，不能据此宣称端到端提速、计算重叠或真实RSS/显存硬上限。
 
 向 `prepare_image_batch/transfer_image_batch` 传入共享 `ImageResourceBudget` 时，会在 Core 完成结构、策略及传输元数据检查之后、首个 pin/设备输出存储分配之前，预约结果的已知逻辑 Tensor、pinned/GPU、画布、索引及标注占用。预算不足时立即报告 `ResourceExhausted`，不隐藏等待；同一结果租约保留到 batch 的最后一个共享副本释放。内存阶段、数值和几何变换若仍共享源 Tensor 存储（含空 Tensor 的存储 owner）或不可变标注/类别对象，会一并保留源批次的整组租约，即使未传入新预算；原批次释放后，这些保守预约仍可能存活。没有共享字段的独立输出不保留源租约。显式输出预算另外计费，Tensor 别名仍按 batch 逻辑占用分别预约。CPU 目标仅在完整 Device 与源相等时保留原 pinned 属性；显式 `cpu:0` 会经 Core 的设备复制生成 pageable 输出，其源 pinned 租约独立保留。
 
