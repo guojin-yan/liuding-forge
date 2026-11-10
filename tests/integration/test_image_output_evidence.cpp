@@ -568,4 +568,219 @@ TEST(ImageOutputEvidenceTest, AtomicCancellationAndDeadlineLeaveNoReference) {
   EXPECT_TRUE(store.events("run-1").events.empty());
 }
 
+// A failed real atomic registration leaves a complete, unreferenced CAS blob.
+// Recovery must work after the independently published source disappears.
+PublishedFileEvidenceRequest orphaned_request(
+    SQLiteRunStore& store, const OutputDirectory& directory) {
+  ImageOutputSink sink;
+  auto ticket = sink.submit(directory.path / "preview.png", png());
+  const auto published = ticket.completion.get();
+  sink.close();
+  auto request = evidence_request(published, 2U);
+  EXPECT_THROW(store.record_published_file_evidence_atomic(request),
+               CompatibilityError);
+  EXPECT_TRUE(store.references("run-1").empty());
+  EXPECT_TRUE(store.events("run-1").events.empty());
+  EXPECT_TRUE(std::filesystem::remove(published.path));
+  request.path.reset();
+  request.event.identity.sequence = 1U;
+  return request;
+}
+
+std::filesystem::path cas_path(const SQLiteRunStore& store,
+                               const PublishedFileEvidenceRequest& request) {
+  return store.artifact_root() / "objects" /
+         request.expected_digest.hex.substr(0U, 2U) /
+         request.expected_digest.hex.substr(2U);
+}
+
+TEST(ImageOutputEvidenceTest, CasRecoveryRequiresExplicitEntryAndReplays) {
+  OutputDirectory directory;
+  PublishedFileEvidenceRequest request;
+  {
+    SQLiteRunStore store(directory.path / "store");
+    store.start(run());
+    request = orphaned_request(store, directory);
+    EXPECT_THROW(store.record_published_file_evidence_atomic(request),
+                 InvalidArgument);
+    auto wrong = request;
+    wrong.path = directory.path / "absent.png";
+    EXPECT_THROW(store.recover_published_file_evidence_atomic(wrong),
+                 InvalidArgument);
+    EXPECT_TRUE(store.references("run-1").empty());
+  }
+  SQLiteRunStore reopened(directory.path / "store");
+  const auto path = cas_path(reopened, request);
+  const auto timestamp = std::filesystem::last_write_time(path);
+  const auto first = reopened.recover_published_file_evidence_atomic(request);
+  EXPECT_FALSE(first.reference_replay);
+  EXPECT_FALSE(first.event.batch_replay);
+  EXPECT_EQ(first.reference.artifact.digest, request.expected_digest);
+  EXPECT_EQ(first.reference.artifact.logical_name,
+            request.descriptor.logical_name);
+  EXPECT_EQ(first.reference.attached_at_unix_ms, request.attached_at_unix_ms);
+  ASSERT_EQ(first.event.receipts.size(), 1U);
+  EXPECT_EQ(first.event.receipts.front().run_sequence, 1U);
+  const auto replay = reopened.recover_published_file_evidence_atomic(request);
+  EXPECT_TRUE(replay.reference_replay);
+  EXPECT_TRUE(replay.event.batch_replay);
+  EXPECT_EQ(reopened.references("run-1").size(), 2U);
+  EXPECT_EQ(reopened.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(reopened.integrity_check().ok());
+  EXPECT_EQ(std::filesystem::last_write_time(path), timestamp);
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "preview.png"));
+  EXPECT_EQ(
+      reopened.collect_garbage(std::chrono::seconds::zero()).removed_files, 0U);
+}
+
+TEST(ImageOutputEvidenceTest, CasRecoveryRejectsMissingAndCorruptObjects) {
+  for (const bool remove : {true, false}) {
+    SCOPED_TRACE(remove);
+    OutputDirectory directory;
+    SQLiteRunStore store(directory.path / "store");
+    store.start(run());
+    const auto request = orphaned_request(store, directory);
+    const auto path = cas_path(store, request);
+    if (remove) {
+      ASSERT_TRUE(std::filesystem::remove(path));
+    } else {
+      std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary);
+      ASSERT_TRUE(file);
+      file.put('x');
+      file.close();
+      ASSERT_TRUE(file);
+    }
+    EXPECT_THROW(store.recover_published_file_evidence_atomic(request), Error);
+    EXPECT_TRUE(store.references("run-1").empty());
+    EXPECT_TRUE(store.events("run-1").events.empty());
+    EXPECT_EQ(store.find("run-1")->updated_at_unix_ms, 100U);
+  }
+}
+
+TEST(ImageOutputEvidenceTest,
+     CasRecoveryRejectsSizeAndImmutableIdentityChanges) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  const auto request = orphaned_request(store, directory);
+  auto wrong = request;
+  ++*wrong.descriptor.expected_size_bytes;
+  EXPECT_THROW(store.recover_published_file_evidence_atomic(wrong),
+               InvalidArgument);
+  EXPECT_TRUE(store.references("run-1").empty());
+  store.recover_published_file_evidence_atomic(request);
+  wrong = request;
+  wrong.descriptor.producer = "other-producer";
+  EXPECT_THROW(store.recover_published_file_evidence_atomic(wrong),
+               InvalidArgument);
+  wrong = request;
+  wrong.reference_id = "conflicting-reference";
+  wrong.event.payload = TelemetryArtifactReference{.role = "other.preview"};
+  EXPECT_THROW(store.recover_published_file_evidence_atomic(wrong),
+               CompatibilityError);
+  EXPECT_FALSE(store.find_reference("run-1", wrong.reference_id));
+  EXPECT_EQ(store.references("run-1").size(), 2U);
+  EXPECT_EQ(store.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(store.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest, CasRecoveryRollsBackSequenceAndQuotaFailures) {
+  for (const bool quota : {true, false}) {
+    SCOPED_TRACE(quota);
+    OutputDirectory directory;
+    PublishedFileEvidenceRequest request;
+    {
+      SQLiteRunStore store(directory.path / "store");
+      store.start(run());
+      request = orphaned_request(store, directory);
+    }
+    SQLiteRunStoreOptions options;
+    if (quota) options.max_references_per_run = 1U;
+    {
+      SQLiteRunStore store(directory.path / "store", options);
+      auto failing = request;
+      if (!quota) failing.event.identity.sequence = 2U;
+      if (quota)
+        EXPECT_THROW(store.recover_published_file_evidence_atomic(failing),
+                     ResourceExhausted);
+      else
+        EXPECT_THROW(store.recover_published_file_evidence_atomic(failing),
+                     CompatibilityError);
+      EXPECT_TRUE(store.references("run-1").empty());
+      EXPECT_TRUE(store.events("run-1").events.empty());
+      EXPECT_TRUE(std::filesystem::is_regular_file(cas_path(store, request)));
+      EXPECT_EQ(store.find("run-1")->updated_at_unix_ms, 100U);
+      EXPECT_TRUE(store.integrity_check().ok());
+    }
+    SQLiteRunStore reopened(directory.path / "store");
+    EXPECT_FALSE(reopened.recover_published_file_evidence_atomic(request)
+                     .reference_replay);
+    EXPECT_EQ(reopened.references("run-1").size(), 2U);
+    EXPECT_EQ(reopened.events("run-1").events.size(), 1U);
+  }
+}
+
+TEST(ImageOutputEvidenceTest, CasRecoveryRechecksBytesEvenForCommittedReplay) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  const auto request = orphaned_request(store, directory);
+  store.recover_published_file_evidence_atomic(request);
+  std::fstream file(cas_path(store, request),
+                    std::ios::in | std::ios::out | std::ios::binary);
+  ASSERT_TRUE(file);
+  file.put('x');
+  file.close();
+  ASSERT_TRUE(file);
+  EXPECT_THROW(store.recover_published_file_evidence_atomic(request), Error);
+  EXPECT_EQ(store.references("run-1").size(), 2U);
+  EXPECT_EQ(store.events("run-1").events.size(), 1U);
+  EXPECT_FALSE(store.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest, CasRecoverySerializesIndependentConnections) {
+  OutputDirectory directory;
+  SQLiteRunStore first(directory.path / "store");
+  first.start(run());
+  const auto request = orphaned_request(first, directory);
+  SQLiteRunStore second(directory.path / "store");
+  std::latch ready(2);
+  std::latch proceed(1);
+  const auto recover = [&](SQLiteRunStore& store) {
+    ready.count_down();
+    proceed.wait();
+    return store.recover_published_file_evidence_atomic(request);
+  };
+  auto a = std::async(std::launch::async, [&] { return recover(first); });
+  auto b = std::async(std::launch::async, [&] { return recover(second); });
+  ready.wait();
+  proceed.count_down();
+  const auto ar = a.get();
+  const auto br = b.get();
+  EXPECT_NE(ar.reference_replay, br.reference_replay);
+  EXPECT_NE(ar.event.batch_replay, br.event.batch_replay);
+  EXPECT_EQ(first.references("run-1").size(), 2U);
+  EXPECT_EQ(first.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(first.integrity_check().ok());
+}
+
+TEST(ImageOutputEvidenceTest, CasRecoveryCancellationAndDeadlineHaveNoWrites) {
+  OutputDirectory directory;
+  SQLiteRunStore store(directory.path / "store");
+  store.start(run());
+  const auto request = orphaned_request(store, directory);
+  std::stop_source stopped;
+  stopped.request_stop();
+  EXPECT_THROW(store.recover_published_file_evidence_atomic(
+                   request, stopped.get_token()),
+               Cancelled);
+  EXPECT_THROW(store.recover_published_file_evidence_atomic(
+                   request, {},
+                   std::chrono::steady_clock::now() - std::chrono::seconds(1)),
+               DeadlineExceeded);
+  EXPECT_TRUE(store.references("run-1").empty());
+  EXPECT_TRUE(store.events("run-1").events.empty());
+  EXPECT_TRUE(std::filesystem::is_regular_file(cas_path(store, request)));
+}
+
 }  // namespace

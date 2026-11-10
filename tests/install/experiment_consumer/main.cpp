@@ -92,12 +92,27 @@ bool storage_consumer() {
     request.path.reset();
     const auto replay = store.record_published_file_evidence_atomic(request);
     if (!replay.reference_replay || !replay.event.batch_replay) return false;
+    request.reference_id = "published.3";
+    request.event_batch_key = "published.recovery.event";
+    request.event.identity.event_id = "published.3";
+    request.event.identity.idempotency_key = "published.3";
+    request.event.identity.sequence = 3U;
+    const auto recovered =
+        store.recover_published_file_evidence_atomic(request);
+    if (recovered.reference_replay || recovered.event.batch_replay ||
+        recovered.event.receipts.size() != 1U)
+      return false;
+    const auto recovered_replay =
+        store.recover_published_file_evidence_atomic(request);
+    if (!recovered_replay.reference_replay ||
+        !recovered_replay.event.batch_replay)
+      return false;
   }
   jyppx::liuding::experiment::SQLiteRunStore reopened(root.path);
   return reopened.find("consumer.run").has_value() &&
          reopened.find_reference("consumer.run", "published.1").has_value() &&
-         reopened.references("consumer.run").size() == 5U &&
-         reopened.events("consumer.run").events.size() == 2U &&
+         reopened.references("consumer.run").size() == 7U &&
+         reopened.events("consumer.run").events.size() == 3U &&
          reopened.integrity_check().ok();
 }
 }  // namespace

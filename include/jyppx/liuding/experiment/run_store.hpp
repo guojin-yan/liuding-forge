@@ -342,6 +342,23 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
       TelemetryDeadline deadline = std::nullopt);
 
   /**
+   * @brief 核验已有 CAS 字节后，在同一事务内恢复文件引用与制品事件。
+   * @param request 原完整身份、摘要和精确大小；path 必须为空。
+   * @param stop CAS 分块核验及数据库等待的取消令牌。
+   * @param deadline 核验、登记和提交共用的绝对截止时间。
+   * @return 同时持久化的两个回执；完整相同重试幂等。
+   * @throws Error CAS 缺失/损坏、身份冲突、大小/配额错误或取消。
+   * @note 显式用于 CAS 已发布而 SQLite 尚未确认的恢复；持有数据库写锁
+   * 防止协调 GC 删除对象，不复制或重建原输出文件。CAS 尚未发布或已被
+   * GC 清理时无法恢复，不自动回退到原路径。每次调用均重新核验 CAS；
+   * 摘要只证明内容身份，调用方必须保留原描述符、时间戳及事件身份。
+   * 提交错误仍可能结果未知，应保留身份并重开存储重试。
+   */
+  PublishedFileEvidenceResult recover_published_file_evidence_atomic(
+      const PublishedFileEvidenceRequest& request, std::stop_token stop = {},
+      TelemetryDeadline deadline = std::nullopt);
+
+  /**
    * @brief Finds one run without changing it.
    * @param run_id Stable run identity to query.
    * @return Detached metadata, or no value when absent.
@@ -507,6 +524,17 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
       TelemetryDeadline deadline = std::nullopt);
 
  private:
+  /**
+   * @brief 在同一事务中登记原文件或已核验 CAS 的引用及事件。
+   * @param request 完整不可变证据身份。
+   * @param recover_from_cas 是否仅使用已有 CAS 字节。
+   * @param stop 核验及数据库等待的取消令牌。
+   * @param deadline 整个操作的绝对截止时间。
+   * @return 引用与事件共同提交后的回执。
+   */
+  PublishedFileEvidenceResult published_file_evidence_atomic_impl(
+      const PublishedFileEvidenceRequest& request, bool recover_from_cas,
+      std::stop_token stop, TelemetryDeadline deadline);
   /** @brief Private SQLite connection and CAS coordination implementation. */
   class Impl;
   std::unique_ptr<Impl> impl_;  ///< Owned connection, lock, options, and CAS.

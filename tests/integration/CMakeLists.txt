@@ -131,4 +131,22 @@ if(Python3_Interpreter_FOUND)
             --work-dir "${CMAKE_BINARY_DIR}/_cas_crash/$<CONFIG>")
     set_tests_properties(ExperimentCasCrashBoundaries PROPERTIES
         LABELS "experiment;checkpoint;integration;process" TIMEOUT 300)
+
+    add_executable(jyppx_published_cas_recovery_child
+        experiment/published_cas_recovery_child.cpp)
+    target_link_libraries(jyppx_published_cas_recovery_child PRIVATE
+        jyppx::liuding::experiment nlohmann_json::nlohmann_json)
+    target_include_directories(jyppx_published_cas_recovery_child PRIVATE
+        "${PROJECT_SOURCE_DIR}/src")
+    target_include_directories(jyppx_published_cas_recovery_child SYSTEM PRIVATE
+        "${jyppx_sqlite_SOURCE_DIR}")
+    jyppx_apply_instrumentation(jyppx_published_cas_recovery_child)
+    jyppx_add_torch_runtime_dependency(jyppx_published_cas_recovery_child)
+    add_test(NAME PublishedCasProcessRecovery
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_published_cas_recovery.py"
+            --child $<TARGET_FILE:jyppx_published_cas_recovery_child>
+            --work-dir "${CMAKE_BINARY_DIR}/_published_cas/$<CONFIG>")
+    set_tests_properties(PublishedCasProcessRecovery PROPERTIES
+        LABELS "experiment;integration;process" TIMEOUT 180)
 endif()

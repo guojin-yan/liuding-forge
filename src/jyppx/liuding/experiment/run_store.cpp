@@ -2557,6 +2557,23 @@ PublishedFileEvidenceResult
 SQLiteRunStore::record_published_file_evidence_atomic(
     const PublishedFileEvidenceRequest& request, std::stop_token stop,
     TelemetryDeadline deadline) {
+  return published_file_evidence_atomic_impl(request, false, stop, deadline);
+}
+
+PublishedFileEvidenceResult
+SQLiteRunStore::recover_published_file_evidence_atomic(
+    const PublishedFileEvidenceRequest& request, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  check_telemetry_operation(stop, deadline);
+  if (request.path)
+    invalid("published_file.recovery.path", "no path for explicit CAS recovery",
+            "source path supplied");
+  return published_file_evidence_atomic_impl(request, true, stop, deadline);
+}
+
+PublishedFileEvidenceResult SQLiteRunStore::published_file_evidence_atomic_impl(
+    const PublishedFileEvidenceRequest& request, bool recover_from_cas,
+    std::stop_token stop, TelemetryDeadline deadline) {
   const auto* payload =
       validate_published_file_request(request, stop, deadline);
   impl_->validate_run_id(request.run_id);
@@ -2568,6 +2585,17 @@ SQLiteRunStore::record_published_file_evidence_atomic(
   try {
     Transaction transaction(impl_->database_, true, &control);
     (void)impl_->require_run(request.run_id);
+    // Verification takes place after BEGIN IMMEDIATE, keeping coordinated GC
+    // outside the entire verify/attach/event/commit interval. Keep the verified
+    // reader alive until the transaction decision; do not create another blob.
+    std::unique_ptr<ArtifactReader> recovered;
+    if (recover_from_cas) {
+      recovered =
+          impl_->artifacts_.open(request.expected_digest, stop, deadline);
+      if (recovered->size_bytes() != *request.descriptor.expected_size_bytes)
+        invalid("published_file.recovery.size", "the original exact byte count",
+                std::to_string(recovered->size_bytes()));
+    }
     auto existing = impl_->find_reference_unlocked(
         request.run_id, request.reference_id, &control);
     PublishedFileEvidenceResult result;
@@ -2586,6 +2614,21 @@ SQLiteRunStore::record_published_file_evidence_atomic(
                 "the original immutable relationship", "identity conflict");
       }
       result.reference = std::move(*existing);
+    } else if (recover_from_cas) {
+      result.reference = {
+          .reference_id = request.reference_id,
+          .kind = RunArtifactKind::artifact,
+          .role = payload->role,
+          .artifact = {.digest = request.expected_digest,
+                       .size_bytes = recovered->size_bytes(),
+                       .logical_name = request.descriptor.logical_name,
+                       .media_type = request.descriptor.media_type,
+                       .producer = request.descriptor.producer},
+          .attached_at_unix_ms = request.attached_at_unix_ms};
+      impl_->attach_unlocked(
+          request.run_id,
+          std::span<const RunArtifactReference>(&result.reference, 1U), stop,
+          deadline);
     } else {
       if (!request.path) {
         invalid("published_file.path", "a path for first registration",

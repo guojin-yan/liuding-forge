@@ -13,6 +13,50 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cu126-dirty-8ea8170-published-cas-recovery",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "CPU only;LibTorch2.14.1+cu126;CUDA Toolkit12.9",
+          "build_type": "Release",
+          "commit": "8ea817036a94491733000c70e44abacfdba71e47",
+          "tests": "28 selected CTest contracts plus experiment installed consumer1/1 passed;zero skips. Seven new C++ recovery methods;two independent process methods exercise three real forced-kill boundaries.",
+          "instrumentation": "Existing fixed build and consumer caches;one compile/test/native workload. Exact3GiB Windows Job per command.",
+          "quality_evidence": {
+            "source_identity": "8ea817036a94491733000c70e44abacfdba71e47+dirty;ten frozen product/test/documentation files. Source SHA/mtime preserved. Acceptance metadata is separate;formal SDKs retain original commits.",
+            "contracts": "Explicit CAS-only recovery after source loss:rehash exact bytes under SQLite writer lock,attach reference and event in one transaction,identity replay,quota/sequence/event conflict rollback,missing/corrupt/size rejection,cancellation/deadline and independent-connection serialization. Real kills before/after native CAS publication and before recovery commit;independent SQL and CAS ID/mtime/SHA checks;coordinated GC blocked.",
+            "resources": "Kernel Job peak1205223424B;sampled aggregate RSS1233510400B;owned processes exited and slots released;original task deadline retained.",
+            "installation": "Current experiment/core/foundation staged libraries and public header linked by consumer.246-file temporary SDK removed;37Torch DLL hardlinks retained;formal246-file SDK and74runtime identities preserved.",
+            "documentation": "Current158 public headers passed strict Doxygen with zero warnings in existing Ubuntu DOCS=ON tree. Windows DOCS=OFF absent-target failure retained;no cache option changed or successful test repeated.",
+            "maintenance": "Original Windows absent-docs-target failure,GBK preparation decode failure,Windows audit volume-width/target-discovery failures and Linux alias-audit failure retained. They did not require product changes or repeated successful native contracts.",
+            "independent_audit_sha256": "be95e1c2e1c552e3750f6cde583a7723fcfa5a62190d72a14b1eff24aa23fa31",
+            "scope": "CAS byte recovery and atomic SQLite reference/event registration only. Does not recreate the original file or grant file/database joint visibility,power-loss,full Vision/model/task matrix or complete release qualification. INT8 deferred;network-security work paused."
+          }
+        },
+        {
+          "id": "local-ubuntu-gcc114-cpu-dirty-8ea8170-published-cas-recovery",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "8ea817036a94491733000c70e44abacfdba71e47",
+          "tests": "28 selected CTest contracts plus experiment installed consumer1/1 passed;zero skips. Seven new C++ recovery methods;two independent process methods exercise three real forced-kill boundaries.",
+          "instrumentation": "Existing fixed build and consumer caches;one compile/test/native workload. Fresh6GiB cgroup per stage;swap0.",
+          "quality_evidence": {
+            "source_identity": "8ea817036a94491733000c70e44abacfdba71e47+dirty;ten frozen product/test/documentation files. Source SHA/mtime preserved. Acceptance metadata is separate;formal SDKs retain original commits.",
+            "contracts": "Explicit CAS-only recovery after source loss:rehash exact bytes under SQLite writer lock,attach reference and event in one transaction,identity replay,quota/sequence/event conflict rollback,missing/corrupt/size rejection,cancellation/deadline and independent-connection serialization. Real kills before/after native CAS publication and before recovery commit;independent SQL and CAS ID/mtime/SHA checks;coordinated GC blocked.",
+            "resources": "Peak cgroup memory1646657536B;swap0;zero limit/OOM events;owned processes exited and slots released;original task deadline retained.",
+            "installation": "Current experiment/core/foundation staged libraries and public header linked by consumer.231-file temporary SDK removed after verifying internal library aliases;four formal SDKs924files and695coverage files preserved.",
+            "documentation": "Current158 public headers passed strict Doxygen with zero warnings in existing Ubuntu DOCS=ON tree. Windows DOCS=OFF absent-target failure retained;no cache option changed or successful test repeated.",
+            "maintenance": "Original Windows absent-docs-target failure,GBK preparation decode failure,Windows audit volume-width/target-discovery failures and Linux alias-audit failure retained. They did not require product changes or repeated successful native contracts.",
+            "independent_audit_sha256": "8e59548e934645daae2b40a1350d0b7fa3915408924f339a5bdb88e0a7c20d8c",
+            "scope": "CAS byte recovery and atomic SQLite reference/event registration only. Does not recreate the original file or grant file/database joint visibility,power-loss,full Vision/model/task matrix or complete release qualification. INT8 deferred;network-security work paused."
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cu126-dirty-25adcff-image-staging",
           "os": "windows-11",
           "architecture": "x86_64",

@@ -276,6 +276,14 @@ auto view = image::transform_sample(sample, sampled, joint_options);
 
 需要 CAS 运行引用与事件同时确认时，回调可调用 `record_published_file_evidence_atomic`：两者在同一个 SQLite 事务中提交，未提交的新增引用与事件一起回滚。提交阶段的 I/O/同步错误可能使调用方未获成功回执，但事务已经完整提交；应重开存储并用全部原身份重试，确认前保留原文件。文件本身已由 sink 独立发布，仍需检查两个 future；已确认后的幂等重放可以省略文件路径。
 
+若完整字节已发布到 CAS，但引用和事件尚未提交且原文件已丢失，可显式调用 `recover_published_file_evidence_atomic`，传入原完整请求并清空 `path`。该入口按原摘要分块核验 CAS 和精确大小，在同一 SQLite 写事务内登记引用与事件；核验期间协调 GC 无法删除对象，重复调用仍重新核验字节并按原身份重放。缺失、损坏、大小不符、配额或事件冲突均失败，未提交的新增登记一起回滚。CAS 只证明字节身份，调用方必须自行保存原描述符、时间戳和事件身份；尚未发布或已被 GC 清除的对象无法恢复，该入口不重建原输出文件，也不提供文件与数据库共同可见或断电恢复保证。
+
+```cpp
+auto recovery = original_request;  // 保留原 reference、描述符、摘要和事件身份。
+recovery.path.reset();
+auto confirmed = runs.recover_published_file_evidence_atomic(recovery);
+```
+
 进程可能在发布文件后、收到证据回执前退出。重建 sink 时显式设置 `ImageOutputSinkOptions::replay_identical_existing = true`，以原路径、相同编码字节及完整证据身份重新提交；发生同名冲突时按最多64KiB分块比较普通文件并同步，内容相同才返回原文件身份并再次执行回调。已有文件不被替换，大小或任何字节不同、最终路径是符号链接或其他特殊文件均报错。该选项与 `replace_existing` 互斥；默认仍拒绝同名文件。输出目录及父目录须由调用方控制，重放不防御外部并发修改，也不把文件与数据库变成单个事务。Windows验证既有文件需要读写权限以执行同步。
 
 Linux 在不覆盖已有文件且目标文件系统支持 `O_TMPFILE` 时，先写入无目录名的暂存 inode，同步后才发布最终名称；发布前进程退出会由系统回收暂存内容，已发布文件仍按上述原身份重放。无权限使用 `AT_EMPTY_PATH` 时通过 `/proc/self/fd` 发布，因此该路径需要可访问的 procfs。
