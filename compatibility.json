@@ -13,6 +13,30 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cu126-clean-d4cf01e-ort-cpu-load",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;ORT1.23.2 CPUExecutionProvider;CPU FP32 only",
+          "build_type": "Release",
+          "commit": "d4cf01e4c5c27bfd4bab0d8a31364be035f21068",
+          "tests": "One actual installed-SDK C++ task:30s,four request producers,4351 load requests/4363 successful saved requests,272750 independently checked coordinates;10 lifecycle events. CTest0,training0.",
+          "instrumentation": "Existing Visual Studio2022 fixed consumer cache;compile/native concurrency1;each command in an exact Windows Job with3GiB aggregate commit limit. No SDK reinstall or DLL copy.",
+          "quality_evidence": {
+            "source_identity": "Clean d4cf01e4c5c27bfd4bab0d8a31364be035f21068. Used Serving,ORT,signing and interop sources unchanged since installed93da49f375ce40c9f2c4caaafc8f59300af9b4fd;246 SDK SHA/mtime and74 runtime file identities preserved. Binary fingerprint remains93da49f.",
+            "native_model": "Original trained CIFAR10 ResNet18 ONNX SHA3730faab9754ede64d1d8babab460162aab6001fd0c24e55ee6644843b3c382e. Native C++ observes Windows session,derives a Windows environment lock and republishes two signed example versions;only os_arch/environment identities and version/signatures change. All other graph/reference/input/metadata bytes remain exact.",
+            "runtime_binding": "Consumer explicitly loads the existing installed ORT1.23.2 with an absolute-path C++ delay hook;actual module path is independently checked. Original Linux-only lock remains strictly refused on Windows. No system DLL/settings changed.",
+            "numerics": "Six original warmup batches1,2,4,8,16,128;original atol1e-5/rtol1e-4. All272750 coordinates pass,max absolute difference1.811981201171875e-5,max fraction of tolerance0.6100264406177243. Nonbaseline outputs are byte-identical to same-shape ORT baselines.",
+            "lifecycle": "Two publications and rollback;old leases stay valid;bad vectors,third resident slot,pre-cancel/pre-expiry,wrong version,ninth lease,queue waiter cancellation/deadline and closed admission checked. Final resident instances,leases,reserved bytes and requests all zero.",
+            "resources": "Kernel native Job peak795586560B,compile Job peak1209901056B;sampled owned RSS peak1249320960B,host available physical minimum3595055104B. Original1h deadline and cumulative build250.141s/native46.219s/audit0.657s include failed continuations. Single successful task,not a performance comparison or production SLO.",
+            "maintenance": "Original process-count,low-memory,snapshot/process-inspection,system ORT and Linux-lock failures retained. Native repack compile failed once for a missing required digest,then corrected. Finalizer separately accounts for8 used static libraries and2 unused declared dependencies;successful native load was not repeated.",
+            "independent_audit_sha256": "fa301b576a03f756394711deabe6ab2448f1126ab47bb2404788c3891e3f15a2",
+            "receipts_archive_sha256": "a08ea47009eb211963676a0a8411f86ce5926e07dd0834278907c66c10ca6e27",
+            "scope": "Windows installed-SDK CPU repeated-input load/lifecycle only. No CUDA/other EP,dynamic batching,ORT OOM retries,different-weight rollout,production signing authority or full v1 release qualification. INT8 deferred;paused network-security operations untouched."
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-dirty-a6b614d-hplus",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",

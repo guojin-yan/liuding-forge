@@ -219,6 +219,8 @@ liuding-forge model onnx pack \
 
 ## 公共环境锁与 Serving
 
+跨平台派生已签名模型包时，须在目标平台用实际 Session 调用 `observe_environment()` 生成环境锁，再将序列化字节及摘要写入新包的文件清单与 runtime 声明，并重新发布、签署和执行已知向量验收。原包、原图与数值参考应保持不可变；Linux 环境锁在 Windows 上应拒绝，修改平台字符串不能代替真实会话观察和推理验收。
+
 `<jyppx/liuding/deployment/onnx_runtime/environment.hpp>` 提供 `EnvironmentLock` 与 `EnvironmentRequirements`：`observe_environment(session)` 观察实际执行环境，`serialize_environment_lock()`、`parse_environment_lock()` 保存和严格解析上述 v1 格式，`verify_environment_lock()` 核对原始字节摘要、声明及实际 Session 的版本、平台、依赖和 Provider/options/fallback。该 API 属于 `onnx_runtime`，可独立于导出器与 bundle 模块使用；环境匹配不替代来源认证或数值验收。
 
 需要 bundle 加载、已知向量 warmup 与受控版本切换时，使用独立可选的 [`onnx_serving`](serving.md) 组件；完整应用见 [C++ ONNX Serving 示例](../../examples/serving/README.md#onnx-bundle-与多输入输出)。

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 验收 Windows CPU 上已训练 ONNX 模型的并发负载、版本切换与关闭回收；明确跨平台派生包须绑定实际 Session 环境锁并重新签署和验证。
+
 - 图像输出新增先预约容量、再调用编码生产者的原生接口，约束本地与共享队列中的生产并发；取消、关闭和生产失败释放预约，保留已有已编码提交接口。
 
 - 补齐 DINOv3 H+ 的 CPU FP32 常用分辨率前后向、SGD 更新和固定随机参考门禁；校正 H+/7B 参数计数并保留 7B 的独立局部 CLS 归一化状态。
