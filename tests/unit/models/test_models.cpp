@@ -537,6 +537,8 @@ TEST(Models, DinoV3LowResourceFactoriesExposeTokenAndCropContracts) {
   EXPECT_LT(base.default_parameters, large_info.default_parameters);
   EXPECT_LT(large_info.default_parameters, huge_plus_info.default_parameters);
   EXPECT_LT(huge_plus_info.default_parameters, seven_b_info.default_parameters);
+  EXPECT_EQ(huge_plus_info.default_parameters, 840633600ULL);
+  EXPECT_EQ(seven_b_info.default_parameters, 6716043264ULL);
   EXPECT_EQ(available_weights("dinov3_vit7b16").front().availability,
             WeightAvailability::not_provisioned);
   EXPECT_FALSE(
@@ -627,6 +629,239 @@ TEST(Models, DinoV3LargePlusCpuBackwardResourceGate) {
       "dinov3_vitl16plus",
       [](DinoV3Options options) { return dinov3_vitl16plus(options); });
 }
+
+TEST(Models, DinoV3HugePlusCpuResourceGate) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_HUGE_CPU_RESOURCE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_HUGE_CPU_RESOURCE_GATE=1 "
+                    "for the serial H+ FP32 CPU forward/backward gate";
+  }
+  struct IntraopGuard {
+    int previous = torch::get_num_threads();
+    IntraopGuard() { torch::set_num_threads(1); }
+    ~IntraopGuard() { torch::set_num_threads(previous); }
+  } intraop;
+  ASSERT_EQ(torch::get_num_interop_threads(), 1);
+  torch::manual_seed(20261110);
+  const auto start = std::chrono::steady_clock::now();
+  const auto before_rss = ProcessCurrentRssBytes();
+  {
+    auto model = dinov3_vith16plus();
+    ASSERT_TRUE(model);
+    EXPECT_EQ(parameter_count(*model), 840633600ULL);
+    EXPECT_EQ(model_info("dinov3_vith16plus").default_parameters,
+              parameter_count(*model));
+    EXPECT_EQ(model->named_parameters(true).size(), 519U);
+    EXPECT_EQ(model->named_buffers(true).size(), 33U);
+    model->eval();
+    {
+      torch::NoGradGuard no_grad;
+      for (const auto batch : {1, 2}) {
+        const auto images = torch::randn({batch, 3, 224, 224});
+        const auto tokens = model->forward_features(images);
+        EXPECT_EQ(tokens.sizes(), torch::IntArrayRef({batch, 201, 1280}));
+        EXPECT_EQ(tokens.scalar_type(), torch::kFloat32);
+        EXPECT_TRUE(torch::isfinite(tokens).all().item<bool>());
+        EXPECT_EQ(model->forward(images).sizes(),
+                  torch::IntArrayRef({batch, 1280}));
+      }
+      const auto odd = torch::randn({1, 3, 35, 50});
+      EXPECT_EQ(model->forward_features(odd).sizes(),
+                torch::IntArrayRef({1, 11, 1280}));
+      EXPECT_THROW(model->forward(torch::zeros({1, 3, 15, 16})),
+                   InvalidArgument);
+      EXPECT_THROW(model->forward(torch::zeros({1, 4, 16, 16})),
+                   InvalidArgument);
+      EXPECT_THROW(model->forward(torch::zeros({1, 3, 16, 16}, torch::kLong)),
+                   InvalidArgument);
+    }
+    auto adapter = adapt(model);
+    reset_classifier(adapter, 3);
+    EXPECT_EQ(classifier_info(adapter).num_classes, 3);
+    EXPECT_EQ(parameter_count(*model), 840633600ULL + 3U * 1280U + 3U);
+    EXPECT_THROW(reset_classifier(adapter, -1), InvalidArgument);
+    EXPECT_EQ(classifier_info(adapter).num_classes, 3);
+    model->train();
+    torch::optim::SGD optimizer(model->parameters(),
+                                torch::optim::SGDOptions(0.01));
+    auto parameters = model->named_parameters(true);
+    const auto head_before = parameters["head.weight"].detach().clone();
+    optimizer.zero_grad();
+    auto input = torch::randn(
+        {1, 3, 224, 224}, torch::TensorOptions().requires_grad(true));
+    const auto logits = model->forward(input);
+    ASSERT_EQ(logits.sizes(), torch::IntArrayRef({1, 3}));
+    const auto loss = torch::nn::functional::cross_entropy(
+        logits, torch::tensor({1}, torch::kLong));
+    ASSERT_TRUE(torch::isfinite(loss).item<bool>());
+    loss.backward();
+    std::size_t gradient_tensors = 0;
+    for (const auto& entry : model->named_parameters(true)) {
+      const auto gradient = entry.value().grad();
+      if (entry.key() == "mask_token") {
+        EXPECT_FALSE(gradient.defined());
+        continue;
+      }
+      ASSERT_TRUE(gradient.defined()) << entry.key();
+      EXPECT_EQ(gradient.scalar_type(), torch::kFloat32) << entry.key();
+      EXPECT_EQ(gradient.sizes(), entry.value().sizes()) << entry.key();
+      EXPECT_TRUE(torch::isfinite(gradient).all().item<bool>()) << entry.key();
+      ++gradient_tensors;
+    }
+    EXPECT_EQ(gradient_tensors, 520U);
+    ASSERT_TRUE(input.grad().defined());
+    EXPECT_TRUE(torch::isfinite(input.grad()).all().item<bool>());
+    EXPECT_GT(input.grad().abs().max().item<double>(), 0.0);
+    EXPECT_GT(parameters["head.weight"].grad().abs().max().item<double>(), 0.0);
+    EXPECT_GT(parameters["patch_embed.proj.weight"].grad().abs().max().item<double>(),
+              0.0);
+    optimizer.step();
+    EXPECT_GT((parameters["head.weight"] - head_before).abs().max().item<double>(),
+              0.0);
+    optimizer.zero_grad();
+  }
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 12ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=dinov3_vith16plus phase=cpu-fp32-"
+               "default224-forward-backward-sgd elapsed_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - start).count()
+            << " process_peak_rss_bytes=" << peak
+            << " process_before_rss_bytes=" << before_rss
+            << " process_after_destroy_rss_bytes=" << ProcessCurrentRssBytes()
+            << '\n';
+}
+
+
+TEST(Models, DinoV3HugePlusOfficialReferenceResourceGate) {
+  const auto* enabled =
+      std::getenv("JYPPX_LIUDING_DINOV3_HUGE_REFERENCE_GATE");
+  if (enabled == nullptr || std::string_view(enabled) != "1") {
+    GTEST_SKIP() << "Set JYPPX_LIUDING_DINOV3_HUGE_REFERENCE_GATE=1 "
+                    "for the serial pinned Meta H+ CPU reference gate";
+  }
+  struct IntraopGuard {
+    int previous = torch::get_num_threads();
+    IntraopGuard() { torch::set_num_threads(1); }
+    ~IntraopGuard() { torch::set_num_threads(previous); }
+  } intraop;
+  ASSERT_EQ(torch::get_num_interop_threads(), 1);
+  const auto* directory =
+      std::getenv("JYPPX_LIUDING_DINOV3_HUGE_REFERENCE_DIR");
+  ASSERT_NE(directory, nullptr);
+  ASSERT_NE(*directory, '\0');
+  const auto root = std::filesystem::path(directory);
+  const auto read = [&](const char* role, const char* variable,
+                        std::uint64_t maximum_bytes) {
+    const auto* expected = std::getenv(variable);
+    if (expected == nullptr || std::string_view(expected).size() != 64U)
+      throw std::runtime_error("missing independently verified H+ fixture SHA256");
+    const auto path = root / (std::string("dinov3_vith16plus-") + role +
+                              ".safetensors");
+    const auto bytes = std::filesystem::file_size(path);
+    if (bytes == 0U || bytes > maximum_bytes)
+      throw std::runtime_error("H+ reference fixture exceeds its explicit bound");
+    test::MappedReference mapped(path, bytes);
+    if (sha256_hex(mapped) != expected)
+      throw std::runtime_error("H+ reference fixture SHA256 mismatch");
+    return mapped;
+  };
+  const auto start = std::chrono::steady_clock::now();
+  const auto before_rss = ProcessCurrentRssBytes();
+  {
+    const auto state = read("state", "JYPPX_LIUDING_DINOV3_HUGE_STATE_SHA256",
+                             4ULL << 30U);
+    const auto input = read("input", "JYPPX_LIUDING_DINOV3_HUGE_INPUT_SHA256",
+                             1ULL << 20U);
+    const auto expected = read("output", "JYPPX_LIUDING_DINOV3_HUGE_OUTPUT_SHA256",
+                                1ULL << 20U);
+    const interop::SafeTensorsView state_view(state);
+    ASSERT_EQ(state_view.directory().tensors.size(), 552U);
+    auto model = dinov3_vith16plus();
+    ASSERT_EQ(parameter_count(*model), 840633600ULL);
+    ASSERT_EQ(model->named_parameters(true).size(), 519U);
+    ASSERT_EQ(model->named_buffers(true).size(), 33U);
+    const WeightRecord record{
+        .id = "reference-dinov3-vith16plus-random-cpu214",
+        .model_name = "dinov3_vith16plus",
+        .source_uri = "fixture://facebookresearch/dinov3/"
+                      "6876159a11b4df116f30f667f8c9888617df0751/"
+                      "dinov3_vith16plus",
+        .license_spdx = "LicenseRef-Generated-Test-Fixture",
+        .license_uri = "fixture://models-reference/local-generated-state",
+        .availability = WeightAvailability::pinned_external,
+        .artifact = ArtifactRef{
+            .digest = ArtifactDigest{
+                .hex = std::getenv("JYPPX_LIUDING_DINOV3_HUGE_STATE_SHA256")},
+            .size_bytes = state.size(),
+            .logical_name = "dinov3_vith16plus-state.safetensors",
+            .media_type = "application/x-safetensors",
+            .producer = "pinned-meta-dinov3-python-reference"},
+        .status_reason = "Random architecture reference; no pretrained weights."};
+    auto adapter = adapt(model);
+    interop::ModelWeightImportOptions options;
+    options.max_staging_bytes = 12ULL << 30U;
+    const auto imported = load_weights(adapter, record, state, options);
+    ASSERT_TRUE(imported.applied);
+    EXPECT_EQ(imported.applied_tensors, 552U);
+    EXPECT_EQ(imported.plan.source_tensor_count, 552U);
+    EXPECT_EQ(imported.plan.target_tensor_count, 552U);
+    EXPECT_TRUE(imported.plan.missing.empty());
+    EXPECT_TRUE(imported.plan.unexpected.empty());
+    EXPECT_TRUE(imported.plan.shape_mismatches.empty());
+    EXPECT_TRUE(imported.plan.dtype_mismatches.empty());
+    const auto tensor = [](std::span<const std::byte> encoded,
+                           std::string_view name) {
+      const interop::SafeTensorsView view(encoded);
+      const auto& entries = view.directory().tensors;
+      const auto found = std::find_if(entries.begin(), entries.end(),
+          [&](const auto& entry) { return entry.name == name; });
+      if (found == entries.end() || found->dtype != interop::SafeTensorDtype::f32)
+        throw std::runtime_error("H+ reference output must be FP32");
+      std::vector<std::int64_t> shape(found->shape.begin(), found->shape.end());
+      const auto bytes = view.tensor_bytes(name);
+      return torch::from_blob(const_cast<std::byte*>(bytes.data()), shape,
+                              torch::kFloat32).clone();
+    };
+    model->eval();
+    torch::NoGradGuard no_grad;
+    const auto images = tensor(input, "input");
+    ASSERT_EQ(images.sizes(), torch::IntArrayRef({1, 3, 35, 50}));
+    const auto compare = [&](const Tensor& actual, std::string_view name) {
+      const auto reference = tensor(expected, name);
+      EXPECT_EQ(actual.sizes(), reference.sizes()) << name;
+      EXPECT_TRUE(torch::isfinite(actual).all().item<bool>()) << name;
+      EXPECT_TRUE(torch::allclose(actual, reference, 5e-4, 5e-5)) << name;
+      std::cout << "REFERENCE_METRICS tensor=" << name
+                << " coordinates=" << actual.numel()
+                << " max_absolute_error="
+                << (actual - reference).abs().max().item<double>() << '\n';
+    };
+    compare(model->forward_features(images), "tokens");
+    compare(model->forward(images), "output");
+    const auto intermediates = model->forward_intermediates(
+        images, {.block_indices = {0, 15, 31}, .out_indices = {3},
+                  .normalize = true});
+    ASSERT_EQ(intermediates.size(), 3U);
+    compare(intermediates[0], "block0_tokens");
+    compare(intermediates[1], "block15_tokens");
+    compare(intermediates[2], "block31_tokens");
+  }
+  const auto peak = ProcessPeakRssBytes();
+  ASSERT_GT(peak, 0U);
+  EXPECT_LE(peak, 12ULL << 30U);
+  std::cout << "RESOURCE_METRICS model=dinov3_vith16plus phase=cpu-official-"
+               "strict-import-token-cls-intermediates elapsed_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - start).count()
+            << " process_peak_rss_bytes=" << peak
+            << " process_before_rss_bytes=" << before_rss
+            << " process_after_destroy_rss_bytes=" << ProcessCurrentRssBytes()
+            << '\n';
+}
+
 
 TEST(Models, DinoV3ConvNeXtLowResourceFactoriesSupportCpuTrainingGate) {
   const auto* enabled =

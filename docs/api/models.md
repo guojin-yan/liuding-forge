@@ -57,9 +57,11 @@ ViT/DINO 的 headless 输出为最终归一化 CLS；CNN/Swin 输出为各自定
 | ViT/16 | `vit_tiny_patch16_224`、`vit_small_patch16_224`、`vit_base_patch16_224` | 十二层预归一化注意力骨干，提供 CLS/patch token 和 NCHW patch grid；固定 timm 随机 state、logits、token 与 grid 差分通过。 |
 | Swin Transformer | `swin_tiny_patch4_window7_224` | 四级 shifted-window 骨干，提供步长 4/8/16/32 的 NCHW 特征；固定 timm 随机 state、logits 和四级特征差分通过。 |
 | DINOv2 ViT/14 | `vit_small_patch14_dinov2`、`vit_base_patch14_dinov2`、`vit_large_patch14_dinov2`、`vit_giant_patch14_dinov2` | 四容量的 token/CLS 固定 timm 随机参考通过；Giant 的 backward/资源及完整设备矩阵未关闭。 |
-| DINOv3 ViT/16 | `dinov3_vits16`、`dinov3_vits16plus`、`dinov3_vitb16`、`dinov3_vitl16`、`dinov3_vitl16plus`、`dinov3_vith16plus`、`dinov3_vit7b16` | 七个官方 factory 已登记；S/S+/B、L/L+ 有分层固定 Meta 随机参考，H+/7B 尚无独立执行资源门禁。 |
+| DINOv3 ViT/16 | `dinov3_vits16`、`dinov3_vits16plus`、`dinov3_vitb16`、`dinov3_vitl16`、`dinov3_vitl16plus`、`dinov3_vith16plus`、`dinov3_vit7b16` | 七个官方 factory 已登记；S/S+/B、L/L+ 有分层固定 Meta 随机参考；H+ 已通过 CPU FP32 的 224×224 前后向与固定 Meta 随机参考门禁，7B 尚未运行验收。 |
 | DINOv3 ConvNeXt | `dinov3_convnext_tiny`、`dinov3_convnext_small`、`dinov3_convnext_base`、`dinov3_convnext_large` | 四级空间特征；T/S/B/L 有固定 Meta 随机参考，B/L 的完整 dtype/设备矩阵未关闭。 |
 | 特征 Transformer | `transformer_encoder` | 已嵌入序列的 batch-first encoder，不提供 tokenizer、图像 patch embedding 或分类头。 |
+
+H+ 默认骨干参数为 840,633,600，包含 519 项参数和 33 项缓冲区。独立 CPU FP32 门禁覆盖 224×224 的 batch 1/2 前向、三类 head 的反向与一次 SGD 更新，以及固定 Meta 随机状态的 552 项严格导入、非方形 token/CLS 和第 0/15/31 层特征对照；执行使用单线程、12 GiB 内存隔离上限。CUDA、其他精度、多步恢复、预训练权重和任务精度需另行验证。7B 登记的默认参数为 6,716,043,264，保留独立的 `local_cls_norm` 状态；仅 FP32 参数存储约需 25.02 GiB，其构造和运行资源资格仍未验收。
 
 `ModelRegistry::add` 可注册调用方自己的显式工厂；同名和空工厂会被拒绝。注册表没有静态插件加载。`ModelInfo::default_parameters` 只统计默认参数，不包括 buffer；自定义配置会改变参数量。
 

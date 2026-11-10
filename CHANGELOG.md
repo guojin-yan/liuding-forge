@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 补齐 DINOv3 H+ 的 CPU FP32 常用分辨率前后向、SGD 更新和固定随机参考门禁；校正 H+/7B 参数计数并保留 7B 的独立局部 CLS 归一化状态。
+
 - 完成CIFAR-10 ResNet18在CPU上的完整训练、暂停/强杀后精确恢复及安装SDK模型重载验收；新增可运行的C++模型重载示例，严格导入参数与buffer并评估完整验证集。
 
 - 补齐已训练CIFAR-10 ONNX模型在Ubuntu CPU安装SDK的四路请求、版本发布/回退、取消/超时与关闭回收验收；逐请求独立核对输出，并以独立进程cgroup实测资源边界，临时示例签名不代表正式发布权限。

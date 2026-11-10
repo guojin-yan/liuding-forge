@@ -13,6 +13,28 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-dirty-a6b614d-hplus",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; CPU FP32 only",
+          "build_type": "Release",
+          "commit": "a6b614d664fcc6479073f1a54dd25cba2afb8fa1",
+          "tests": "Six selected zero-skip CTest contracts: H+ default224 batch1/2 forward, invalid inputs, head reset, full backward/SGD; strict552-state official token/CLS/blocks0,15,31 reference; low-resource registry metadata and three quality gates.",
+          "instrumentation": "Existing CPU Ninja Release tree; one compiler/native workload; each command in a12GiB zero-swap cgroup; original3h deadline and cumulative limits retained.",
+          "quality_evidence": {
+            "source_identity": "Four exact tested source edits based on a6b614d664fcc6479073f1a54dd25cba2afb8fa1; source SHA/mtime preserved through execution. This was a dirty source gate; no installed SDK was rebuilt or relabelled.",
+            "architecture": "Actual H+840633600 parameters,519parameter tensors/33buffers. Full224x224 CPU FP32 forwards at batch1/2;520nonmask gradient tensors after three-class head reset and an actual SGD head update.",
+            "reference": "Pinned Meta6876159a11b4df116f30f667f8c9888617df0751 random architecture only. All552states independently parsed, F32 bias masks checked byte-for-byte; strict import and57600 output coordinates across five tensors bound to the original fixture. Original rtol5e-4/atol5e-5 unchanged.",
+            "resources": "All kernel limit/OOM events zero; peak cgroup memory including reference generator 9984286720B, minimum host MemAvailable 6333177856B. Four231-file SDKs and695coverage files preserved. This is a measured isolated route,not a universal workspace bound.",
+            "maintenance": "Preserved original unregistered binary-name admission failure and failed BOOL-mask checker. Corrected checker matches pinned upstream and existing native F32 state; original reference reused, consumed time deducted, no model generation or native failure rerun.",
+            "independent_audit_sha256": "0e5b23ccf80e47e758c2951efb54b6ac6417bba95b4b6d2c285752b6f60be009",
+            "receipts_archive_sha256": "5400f51a255adae1685a33919ce6454801c1ae54b90c134b70ab60134615ad26",
+            "scope": "H+ CPU random architecture gate only. H+ CUDA/dtype/recovery/weights/tasks and7B runtime remain open.7B local_cls_norm correction and6716043264 count are static only. Full model/support/release qualification stays open; INT8 deferred."
+          }
+        },
+        {
           "id": "local-ubuntu22045-gcc114-cpu214-clean-96549c1-complete-cifar10",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",

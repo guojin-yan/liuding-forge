@@ -675,7 +675,7 @@ ModelRegistry default_model_registry() {
        .task = "image_classification_or_embedding",
        .reference =
            "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-       .default_parameters = 840000000ULL,
+       .default_parameters = 840633600ULL,
        .preview = true,
        .features = detail::TokenFeatureInfo(1280, 16, 5),
        .feature_input =
@@ -690,7 +690,7 @@ ModelRegistry default_model_registry() {
        .task = "image_classification_or_embedding",
        .reference =
            "facebookresearch/dinov3@6876159a11b4df116f30f667f8c9888617df0751",
-       .default_parameters = 6700000000ULL,
+       .default_parameters = 6716043264ULL,
        .preview = true,
        .features = detail::TokenFeatureInfo(4096, 16, 5),
        .feature_input =

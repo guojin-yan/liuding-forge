@@ -934,6 +934,14 @@ DinoV3Impl::DinoV3Impl(DinoV3Variant variant, DinoV3Options options)
         "norm",
         torch::nn::LayerNorm(
             torch::nn::LayerNormOptions({embedding_dimension_}).eps(1e-5)));
+    if (variant_ == DinoV3Variant::seven_b) {
+      // The pinned 7B factory retains this local-crop state even in eval.
+      // The single-image public forward uses the global norm.
+      register_module(
+          "local_cls_norm",
+          torch::nn::LayerNorm(
+              torch::nn::LayerNormOptions({embedding_dimension_}).eps(1e-5)));
+    }
     if (options_.num_classes > 0)
       head_ = register_module("head", torch::nn::Linear(embedding_dimension_,
                                                         options_.num_classes));
