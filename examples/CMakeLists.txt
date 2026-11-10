@@ -364,3 +364,17 @@ if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::data_image)
             LABELS "examples;experiment;data_image" TIMEOUT 60)
     endif()
 endif()
+
+# Reload a complete trained recipe model through the public native APIs.
+if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image
+   AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::training)
+    add_executable(jyppx_cifar10_model_reload EXCLUDE_FROM_ALL
+        inference/cifar10_model_reload.cpp)
+    set_target_properties(jyppx_cifar10_model_reload PROPERTIES
+        OUTPUT_NAME liuding-forge-example-cifar10-model-reload)
+    target_link_libraries(jyppx_cifar10_model_reload PRIVATE
+        jyppx::liuding::models jyppx::liuding::data_image
+        jyppx::liuding::interop jyppx::liuding::training)
+    jyppx_apply_instrumentation(jyppx_cifar10_model_reload)
+    jyppx_add_torch_runtime_dependency(jyppx_cifar10_model_reload)
+endif()

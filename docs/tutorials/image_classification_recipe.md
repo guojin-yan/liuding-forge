@@ -236,6 +236,30 @@ liuding-forge data prepare --name cifar10 --archive /datasets/cifar-10-binary.ta
 
 复制 [CIFAR-10 ResNet18 模板](../../recipes/image-classification/cifar10-resnet18.json)，把 `train_root`、`validation_root` 改为准备结果的实际路径，再执行 `recipe check` 和 `recipe run`。模板使用完整 split、32×32 RGB `[0,1]`、随机初始化 ResNet18、50 epochs、batch 128、seed `20261028`、SGD momentum 和 StepLR，共 19,550 次更新，预先声明 accuracy ≥0.65。它是限定训练配方，不表示与采用数据增强、不同 stem 或更长预算的其他 CIFAR-10 实现达到相同准确率。CPU 与 CUDA 的使用和恢复方式沿用前文，CUDA 需显式修改 `device` 并设置工作空间环境变量。
 
+### 6.1 在新进程中重载模型并评估
+
+已有完整训练产物时，可以使用[原生 C++ 模型重载示例](../../examples/inference/cifar10_model_reload.cpp)构造十类 ResNet18、严格导入 `model.safetensors` 的全部参数与 BatchNorm 缓冲区，并在 CPU 上重新评估完整验证集。模型文件中的 `parameter.`、`buffer.` 前缀会映射为公共模型状态名称，张量形状、dtype 和内容保持不变；缺失、多余、重复或不匹配的状态拒绝导入。
+
+在第 1 节的同一构建目录启用示例和所需组件，再显式构建本目标；它不加入默认全量构建。
+
+```sh
+cmake -S . -B out/build/release -DJYPPX_LIUDING_BUILD_EXAMPLES=ON -DJYPPX_LIUDING_BUILD_MODELS=ON -DJYPPX_LIUDING_BUILD_DATA_IMAGE=ON -DJYPPX_LIUDING_BUILD_INTEROP=ON -DJYPPX_LIUDING_BUILD_TRAINING=ON
+cmake --build out/build/release --config Release --target jyppx_cifar10_model_reload --parallel 1
+```
+
+单配置 Linux 产物为 `out/build/release/examples/liuding-forge-example-cifar10-model-reload`；Windows 多配置构建在 `examples/Release/` 下生成同名 `.exe`。下面的命令使用已加入 PATH 的实际程序；将模型路径替换为训练输出，`REPLACE_WITH_RESULT_MODEL_SHA256` 替换为该运行 `result.json` 中的 `model_sha256`，并指定准备结果的完整 `validation` 目录。
+
+```sh
+liuding-forge-example-cifar10-model-reload /work/runs/cifar10/model.safetensors REPLACE_WITH_RESULT_MODEL_SHA256 /datasets/cifar10-imagefolder-v1/validation
+```
+
+示例固定 RGB FP32 `[0,1]`、bilinear 32×32、原配方 seed 和 epoch 0 采样，按 batch 128 完成 79 次前向，尾批为 16 张。输入目录必须有原类别顺序、每类 1,000 张、总计 10,000 张图片。输出 JSON 包含真实 SDK 构建指纹、加载状态数、实际导入暂存字节、评估前后模型状态摘要、准确率和混淆矩阵；退出码 `0` 表示 accuracy ≥0.65，`4` 表示完整评估完成但未达到门槛，`2` 表示命令用法错误，其他输入或运行错误返回 `1`。
+
+每次只保留一批图像，已知图像资源逻辑预算为 256 MiB；模型文件上限 256 MiB、导入暂存限额 768 MiB。这些配置不构成整个进程 RSS 或 LibTorch 私有工作空间的硬限额。此示例按目录结构和标签检查验证集，数据准备、图片内容身份和目录稳定性由调用者负责；准备步骤见本节前文。
+
+该程序不创建优化器或训练检查点，不能用它接续训练。需要恢复优化器、调度器、数据游标与 RNG 时，使用[第 5 节的配方恢复](#5-暂停并在新进程恢复)。新进程模型重载和完整训练状态恢复应分别核对；不同 batch、设备或构建的浮点结果也应按各自任务合同判断。
+
+
 ## 7. 准备 Fashion-MNIST
 
 按[构建步骤](#11-启用离线数据准备)启用 `JYPPX_LIUDING_PREPARE_FASHION_MNIST=ON`，并提供匹配平台的 codec SDK。数据准备由原生 C++ 完成，安装后的工具不需要 Python。

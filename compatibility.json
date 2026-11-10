@@ -13,6 +13,30 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu22045-gcc114-cpu214-clean-96549c1-complete-cifar10",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "LibTorch 2.14.1+cpu; strict FP32 CPU; no GPU calls",
+          "build_type": "Release",
+          "tests": "Complete fixed CIFAR-10 task: continuous training, fresh installed-SDK model reload, cooperative pause/new-process resume and durable1000 SIGKILL/new-process recovery. Three final full checkpoints match exactly. This is a native task,not a broad CTest or SDK reinstall qualification.",
+          "instrumentation": "Existing Ninja CPU Release and installed-consumer caches; one compiler job and one native workload. Every native command used a dedicated6GiB memory.max/zero-swap cgroup. Product training/evaluation is C++;Python only supervises and independently checks evidence.",
+          "commit": "96549c16fbce2608924d6316b76481eb13c6a5c2",
+          "quality_evidence": {
+            "source_identity": "Clean committed 96549c16fbce2608924d6316b76481eb13c6a5c2 training CLI; original tracked source SHA/mtime preserved. The independent reload consumer remains installed SDK 9fd2763e6bec5f4a33a2d0f96fa9ec32f94bf847. No binary fingerprint was relabelled.",
+            "protocol": "Original50000 training/10000 validation images,50epochs,19550updates per route,batch128,seed20261028,SGD0.1/momentum0.9/weight_decay0.0001,StepLR0.95,workers2/prefetch2,intraop1/interop1. No AMP,TF32,calibration,augmentation or hyperparameter tuning.",
+            "accuracy": "All three training routes completed with accuracy0.7676,above the unchanged0.65 threshold. Model SHA256 603fbc06d0ea833d9e7509d2f076bebbf521c3027c8b048f0cd56d1dd1fc5af3. Each route's four native artifact readers and completed zero-update replay passed.",
+            "exact_recovery": "Cooperative pause at1000 and SIGKILL after the first verified durable1000 checkpoint each resumed in a new process on the same branch. All13 result fields,10participants/204blobs and the complete final checkpoint SHA256 ff19a75dfc710eac13e0bfd0a5461d9d5b79ccbd81e4a1f04f37300f3613ab9f match continuous training. Final logical updates58650; extra applied updates discarded before SIGKILL remain unknown.",
+            "model_reload": "Installed SDK model-only evaluation used0training updates,79forwards/10000images/tail16. All122parameters/buffers,including60BN buffers,preserved dtype/shape/payload. Independent saved logits/labels/order checks reconstructed accuracy and confusion. A actual normalized input tensors were not captured; no A/B per-logit equality claim.",
+            "resources": "Actual native cgroup memory.peak843542528B; build memory.peak1512701952B; sampled owned RSS peak1531588608B. All native limit/OOM events zero; original deadlines/cumulative limits retained. Four231-file SDKs and695coverage files preserved. No paired speed or universal private-workspace/RSS bound is inferred.",
+            "maintenance": "Original installed/source admission failure ran0native commands and remains preserved. The exact three unrelated product differences were reviewed before the unchanged R2 protocol executed. Native failures were not retried for a green result.",
+            "independent_audit_sha256": "052687ce7de494ec2879e532d2ce2a2aee449618adb5fa351035c23a3bc0f502",
+            "receipts_archive_sha256": "efb7f2d3fba832f896084283103ffc0a2bbd87a757d52eb18842582051ddb225",
+            "scope": "This Ubuntu CPU ResNet18 full task only. Windows/full recipe and model/device/resource qualification,selected complete support matrix and formal release remain open. INT8 is deferred."
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cu126-clean-93da49f-selected-release",
           "os": "windows-11",
           "architecture": "x86_64",
