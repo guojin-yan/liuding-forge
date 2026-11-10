@@ -39,6 +39,33 @@ if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::experiment)
                     --suite faults)
             set_tests_properties(ImageOutputStagingRecovery ImageOutputStagingFaults
                 PROPERTIES LABELS "data_image;experiment;integration;process" TIMEOUT 120)
+        elseif(WIN32 AND MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+            add_library(jyppx_image_output_staging_test_impl OBJECT
+                "${PROJECT_SOURCE_DIR}/src/jyppx/liuding/data_image/image_output_sink.cpp")
+            target_link_libraries(jyppx_image_output_staging_test_impl PRIVATE
+                jyppx::liuding::data_image)
+            target_compile_options(jyppx_image_output_staging_test_impl PRIVATE
+                "/FI${CMAKE_CURRENT_SOURCE_DIR}/experiment/image_output_windows_native_hooks.hpp")
+            jyppx_apply_instrumentation(jyppx_image_output_staging_test_impl)
+            target_sources(jyppx_image_output_recovery_child PRIVATE
+                experiment/image_output_windows_native_hooks.cpp
+                $<TARGET_OBJECTS:jyppx_image_output_staging_test_impl>)
+            target_compile_definitions(jyppx_image_output_recovery_child PRIVATE
+                LIUDING_OUTPUT_NATIVE_FAULTS=1)
+            add_test(NAME ImageOutputStagingRecovery
+                COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_image_output_recovery.py"
+                    --child $<TARGET_FILE:jyppx_image_output_recovery_child>
+                    --work-dir "${CMAKE_BINARY_DIR}/_image_recovery/$<CONFIG>"
+                    --suite staging)
+            add_test(NAME ImageOutputStagingFaults
+                COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_image_output_recovery.py"
+                    --child $<TARGET_FILE:jyppx_image_output_recovery_child>
+                    --work-dir "${CMAKE_BINARY_DIR}/_image_recovery/$<CONFIG>"
+                    --suite faults)
+            set_tests_properties(ImageOutputStagingRecovery ImageOutputStagingFaults
+                PROPERTIES LABELS "data_image;experiment;integration;process" TIMEOUT 120)
         endif()
         add_test(NAME ImageOutputProcessRecovery
             COMMAND ${Python3_EXECUTABLE}

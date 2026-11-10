@@ -193,9 +193,28 @@ class StagedFile final {
       path_ += ".liuding-tmp-" + std::to_string(ProcessId()) + "-" +
                std::to_string(next_temporary_id.fetch_add(1));
 #ifdef _WIN32
-      handle_ = CreateFileW(path_.c_str(), GENERIC_WRITE, 0, nullptr,
-                            CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-      if (handle_ != INVALID_HANDLE_VALUE) return;
+      const auto access = GENERIC_WRITE | (replace_existing ? 0U : DELETE);
+      const auto flags =
+          replace_existing ? FILE_ATTRIBUTE_NORMAL
+                           : FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE;
+      handle_ = CreateFileW(path_.c_str(), access, 0, nullptr, CREATE_NEW,
+                            flags, nullptr);
+      if (handle_ != INVALID_HANDLE_VALUE) {
+        if (replace_existing) return;
+        DWORD volume_flags = 0;
+        if (GetVolumeInformationByHandleW(handle_, nullptr, 0, nullptr, nullptr,
+                                          &volume_flags, nullptr, 0) &&
+            (volume_flags & FILE_SUPPORTS_HARD_LINKS) != 0) {
+          delete_on_close_ = true;
+          return;
+        }
+        // Keep ordinary rename publication on volumes without hard links.
+        // Closing first removes the initial delete-on-close staging name.
+        Close();
+        handle_ = CreateFileW(path_.c_str(), GENERIC_WRITE, 0, nullptr,
+                              CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle_ != INVALID_HANDLE_VALUE) return;
+      }
       const auto error = NativeError();
       if (error.value() != ERROR_FILE_EXISTS &&
           error.value() != ERROR_ALREADY_EXISTS)
@@ -215,6 +234,9 @@ class StagedFile final {
 
   ~StagedFile() {
     CloseNoThrow();
+#ifdef _WIN32
+    if (delete_on_close_) return;
+#endif
     if (!published_ && !anonymous_) {
       std::error_code ignored;
       std::filesystem::remove(path_, ignored);
@@ -243,25 +265,41 @@ class StagedFile final {
     }
 #ifdef _WIN32
     if (!FlushFileBuffers(handle_)) Io("temporary.flush", path_, NativeError());
+    if (!delete_on_close_) Close();
 #else
     if (::fsync(descriptor_) != 0) Io("temporary.flush", path_, NativeError());
-#endif
     if (!anonymous_) Close();
+#endif
   }
 
   void Publish(bool replace_existing, bool replay_identical_existing,
                std::span<const std::byte> expected) {
 #ifdef _WIN32
-    DWORD flags = MOVEFILE_WRITE_THROUGH;
-    if (replace_existing) flags |= MOVEFILE_REPLACE_EXISTING;
-    if (!MoveFileExW(path_.c_str(), destination_.c_str(), flags)) {
-      const auto error = NativeError();
-      if (!replay_identical_existing || (error.value() != ERROR_FILE_EXISTS &&
-                                         error.value() != ERROR_ALREADY_EXISTS))
-        Io("publish", destination_, error);
-      VerifyIdenticalFile(destination_, expected);
-      if (!DeleteFileW(path_.c_str()))
-        Io("temporary.remove", path_, NativeError());
+    if (delete_on_close_) {
+      if (!CreateHardLinkW(destination_.c_str(), path_.c_str(), nullptr)) {
+        const auto error = NativeError();
+        if (!replay_identical_existing ||
+            (error.value() != ERROR_FILE_EXISTS &&
+             error.value() != ERROR_ALREADY_EXISTS))
+          Io("publish", destination_, error);
+        VerifyIdenticalFile(destination_, expected);
+      }
+      // A published link survives both close and process termination. The
+      // original staging name is removed by the kernel in either case.
+      Close();
+    } else {
+      DWORD flags = MOVEFILE_WRITE_THROUGH;
+      if (replace_existing) flags |= MOVEFILE_REPLACE_EXISTING;
+      if (!MoveFileExW(path_.c_str(), destination_.c_str(), flags)) {
+        const auto error = NativeError();
+        if (!replay_identical_existing ||
+            (error.value() != ERROR_FILE_EXISTS &&
+             error.value() != ERROR_ALREADY_EXISTS))
+          Io("publish", destination_, error);
+        VerifyIdenticalFile(destination_, expected);
+        if (!DeleteFileW(path_.c_str()))
+          Io("temporary.remove", path_, NativeError());
+      }
     }
 #else
     if (anonymous_) {
@@ -339,6 +377,7 @@ class StagedFile final {
   bool anonymous_ = false;
 #ifdef _WIN32
   HANDLE handle_ = INVALID_HANDLE_VALUE;
+  bool delete_on_close_ = false;
 #else
   int descriptor_ = -1;
 #endif

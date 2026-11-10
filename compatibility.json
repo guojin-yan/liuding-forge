@@ -13,6 +13,47 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cu126-dirty-25adcff-image-staging",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;CPU image output only",
+          "build_type": "Release",
+          "commit": "25adcffd9a00c94bf2c705b0f674a876e627170e",
+          "tests": "57 selected CTest contracts:56passed,1existing symlink-permission skip;installed data_image consumer1/1. Four real staging-kill boundaries,five syscall error cases,named fallbacks,concurrent publication,replacement protection and durable evidence replay passed.",
+          "instrumentation": "Fixed VS17 2022 Release build;one compiler leaf/native workload;each command in an exact3GiB Windows Job. A test-only object compiles the original sink source with redirected Windows API calls;the normal library contains no test hooks.",
+          "quality_evidence": {
+            "source_identity": "25adcffd9a00c94bf2c705b0f674a876e627170e+dirty. Product C++ and test binaries match the successful frozen build;only the independent Python checker changed before the actual test execution.1280 current source SHA/mtime preserved during final execution. Formal246-file SDK remains93da49f375ce40c9f2c4caaafc8f59300af9b4fd.",
+            "contracts": "Delete-on-close staging on Windows volumes reporting hard-link support. Real kills after creation,13-byte write,flush and final hard link;full native file identity checked independently across Python versions. Final file survives publication,staging is released and replay preserves identity/mtime/digest. Unsupported or unqueryable volumes and replacement retain explicit named staging;no orphan sweeping.",
+            "skipped": "ImageOutputSinkTest.IdenticalReplayDoesNotFollowSymlink:Windows symlink permission unavailable;no qualification of that path.",
+            "resources": "Kernel Job peak1240010752B;sampled aggregate owned RSS1265655808B;minimum available physical3699064832B. Original deadline and cumulative limits preserved;one independent compiler leaf.",
+            "installation": "Installed consumer imports current data_image/foundation/core/data libraries;246-file399948240B temporary SDK independently verified and removed.37Torch DLL aliases retain canonical file identities;formal SDK246files and74runtime identities preserved.",
+            "maintenance": "Initial test import-pointer link conflict and later owned-process image-query failure retained. Successful build reused;bounded same-HANDLE exit observation still rejects live inspection failures. Earlier query failure remains unclassified. CTest truncated detailed successful test output;completed asserting tests remain evidence and were not repeated to regenerate logs.",
+            "independent_audit_sha256": "7b2780b1a8a196469f617fe92155855b17ca0b688aaa4f7727690f21c6930959",
+            "scope": "Windows CPU file-staging process recovery and installed data_image consumer only. Filesystem power loss,raw file/CAS/event joint visibility,complete Vision resources/performance,other models/tasks and full release remain independent. INT8 deferred;network-security work paused."
+          }
+        },
+        {
+          "id": "local-ubuntu-gcc114-cpu-dirty-25adcff-image-recovery",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "25adcffd9a00c94bf2c705b0f674a876e627170e",
+          "tests": "57selected CTest contracts passed,zero skips. Current shared native recovery checker,existing Linux anonymous staging/faults/published evidence replay and output sink/producer/integration contracts.",
+          "instrumentation": "Existing rebuilt-cpu-release Ninja build;one compiler/test/native workload;each stage in a fresh6GiB cgroup with swap0.",
+          "quality_evidence": {
+            "source_identity": "25adcffd9a00c94bf2c705b0f674a876e627170e+dirty with the frozen8-file source patch. Current affected C++ targets rebuilt;1280source SHA/mtime preserved. Existing four231-file SDKs and695coverage files retain their exact identities.",
+            "contracts": "Retains Linux O_TMPFILE process recovery,four actual syscall kill boundaries,six syscall error cases,named fallback and concurrent-publication preservation. Windows-only object redirection is excluded by the platform condition. No successful training or previous model/ORT workload repeated.",
+            "resources": "Peak cgroup memory1738178560B;swap0,zero limit/OOM events;all owned cgroups removed. Original shared task deadline retained. No new build tree or installation.",
+            "independent_audit_sha256": "5130663c7810d36d7ffcbea488b9206d0ff253088dafe47c1f63aedcfac1f262",
+            "scope": "Current Linux CPU regression for shared output recovery code only. Windows-specific staging is qualified separately;complete Vision publication/resources/performance and full release remain open. INT8 deferred;network-security work paused."
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cu126-clean-e54b8ee-image-producer",
           "os": "windows-11",
           "architecture": "x86_64",

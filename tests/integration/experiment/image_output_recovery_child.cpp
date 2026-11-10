@@ -69,6 +69,10 @@ int main(int argc, char** argv) {
     pixels.range = image::PixelValueRange::unsigned_full_scale;
     image::ImageOutputSinkOptions options;
     options.replay_identical_existing = true;
+    if (boundary == "replace-writing") {
+      options.replay_identical_existing = false;
+      options.replace_existing = true;
+    }
     auto budget = std::make_shared<image::ImageResourceBudget>();
     options.resource_budget = budget;
     image::ImageOutputSink sink(options);
