@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 增加两套真实SDK的离线切换/回退维护验收：跨构建exact续训在状态修改前拒绝，切回原SDK后按完整双输入任务核模型、十个参与者、检查点及RNG精确恢复；开发版演练不自动授予正式Beta/RC资格。
+
 - 刷新干净提交 `93da49f` 的Windows Release SDK：18库/246件安装、独立八Core消费者、选定2123项CTest分阶段（2044通过/79条件跳过）及CPU/CUDA doctor通过；一次LibTorch退出清理挂起经定向复验正常退出，原异常及其未修复边界保留；两组件矩阵、暂停传输合同与完整发布资格单列。
 
 - 缩短构建来源生命周期测试的临时目录，恢复Windows嵌套MSBuild的Debug/Release来源验证。

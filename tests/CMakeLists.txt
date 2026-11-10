@@ -55,6 +55,11 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(CompatibilityToolUnitTests PROPERTIES
         LABELS "hygiene;compatibility"
     )
+    add_test(NAME SdkTransitionToolUnitTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/scripts/test_sdk_transition.py")
+    set_tests_properties(SdkTransitionToolUnitTests PROPERTIES
+        LABELS "hygiene;packaging;recipe" TIMEOUT 60)
     add_test(
         NAME ImageTrainingRunnerToolUnitTests
         COMMAND ${Python3_EXECUTABLE}

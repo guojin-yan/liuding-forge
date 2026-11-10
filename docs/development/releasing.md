@@ -116,6 +116,25 @@ python scripts/release/prepare_release.py prepare \
 
 新候选使用发布清单 schema 2，增加许可索引文档和 `license_artifacts` 完整原件集合；独立验证器重新核对索引语义与原件集合，不能靠同时重算外层摘要绕过内容或覆盖检查。历史 schema 1 候选仍可只读验证，但会额外返回 `dependency-notices.inventory-missing`，即使签名有效也不能通过 `--require-ga`。原文随包保留不关闭完整传递告知、许可证适用性、CVE、Corresponding Source 或再分发审查。
 
+## SDK 切换与应用状态回退演练
+
+使用 `scripts/release/check_sdk_transition.py` 可以离线演练两套已安装的真实 SDK，调用方显式选择可信 CLI、精确源码身份及与二者兼容的运行库环境。新工作目录必须位于源码仓库和两个 SDK 前缀之外，原生数据准备拒绝在源码仓库内写数据；工具不安装、不修改安装前缀，不替换应用的配置、数据或构建身份。
+
+```sh
+python scripts/release/check_sdk_transition.py \
+  --previous-cli /work/previous-sdk/bin/liuding-forge \
+  --candidate-cli /work/candidate-sdk/bin/liuding-forge \
+  --expected-previous-commit PREVIOUS_FULL_SOURCE_COMMIT \
+  --expected-candidate-commit CANDIDATE_FULL_SOURCE_COMMIT \
+  --work-dir /work/validation/sdk-transition
+```
+
+演练使用固定 CPU paired-affine 完整任务：1024/256 样本、40 轮、1280 更新、accuracy≥0.95、MSE≤0.005。旧 SDK 完整参考、旧 SDK 在259更新暂停后拒绝由候选直接续训并切回旧 SDK 恢复、候选独立任务在同一边界拒绝由旧 SDK 续训并切回候选恢复，共3840次原生更新。两次不兼容续训必须返回构建身份拒绝，完整运行目录、SQLite/CAS和检查点的文件集合、字节及mtime保持；最终十个参与者、模型和RNG与参考精确一致，切回原SDK的整份检查点字节相同。候选检查点必须保留候选实际构建身份，完整manifest除build外一致，不要求不同build的整包摘要相同；完成态重放不得追加更新。
+
+`transition.json` 保留两套二进制实际指纹、原生调用收据、质量及恢复结果。每个原生进程最多180秒；调用方还须提供整体截止、磁盘/内存监测及平台进程监督。失败保留已有工作目录供检查，不覆盖重跑。该演练验证显式 SDK 选择和当前 exact 续训保护；应用需保留原 SDK、运行库和原状态，不能将回退理解为任意旧版本可读新状态。两个同为开发版0.3.0的 SDK 通过，只算开发演练；正式 Beta/RC 仍须绑定真实候选资产和所选应用/平台矩阵，不能据此自动将 `upgrade-rollback` 改为 `passed`。
+
+产品执行已经完成而后续维护检查失败时，可加 `--verify-existing` 核对同目录已保存的精确argv、退出码、原始输出摘要、状态保全回执、完整manifest及实际产物，仅写新的 `transition-verification.json`；原失败与原调用收据保持，不执行数据准备、训练、验证CLI或重放进程。该结果明确标记为保存收据复核，不冒充另一轮原生执行；原收据的产生与保管仍须由调用方监督。
+
 ## 独立验证与外部签名
 
 ```sh
