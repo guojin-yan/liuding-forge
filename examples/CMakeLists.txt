@@ -365,6 +365,20 @@ if(TARGET jyppx::liuding::experiment AND TARGET jyppx::liuding::data_image)
     endif()
 endif()
 
+# Keep source admission through post-update asynchronous preview evidence.
+if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::training
+   AND TARGET jyppx::liuding::experiment)
+    add_executable(jyppx_image_training_output EXCLUDE_FROM_ALL
+        training/image_training_output.cpp)
+    set_target_properties(jyppx_image_training_output PROPERTIES
+        OUTPUT_NAME liuding-forge-example-image-training-output)
+    target_link_libraries(jyppx_image_training_output PRIVATE
+        jyppx::liuding::data_image jyppx::liuding::sdk
+        nlohmann_json::nlohmann_json)
+    jyppx_apply_instrumentation(jyppx_image_training_output)
+    jyppx_add_torch_runtime_dependency(jyppx_image_training_output)
+endif()
+
 # Reload a complete trained recipe model through the public native APIs.
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image
    AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::training)

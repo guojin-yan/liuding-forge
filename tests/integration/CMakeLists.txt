@@ -4,6 +4,13 @@ jyppx_add_gtest(jyppx_test_large_dataset test_large_dataset.cpp)
 jyppx_add_gtest(jyppx_test_concurrent_stress test_concurrent_stress.cpp)
 
 if(TARGET jyppx::liuding::data_image AND TARGET jyppx::liuding::experiment)
+    if(TARGET jyppx::liuding::training)
+        jyppx_add_gtest(jyppx_test_image_training_output
+            LINK_TARGET jyppx::liuding::data_image
+            test_image_training_output.cpp)
+        target_link_libraries(jyppx_test_image_training_output PRIVATE
+            jyppx::liuding::sdk nlohmann_json::nlohmann_json)
+    endif()
     jyppx_add_gtest(jyppx_test_image_output_evidence
         LINK_TARGET jyppx::liuding::data_image
         test_image_output_evidence.cpp)
