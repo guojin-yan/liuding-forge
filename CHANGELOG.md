@@ -43,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- 完整双输入输出配方的资源联验扩展到 Windows CPU/CUDA：连续训练、本地精确续训和单 trial 搜索同时核验主机准入、逻辑预约及实际 Job 提交量限制，保留 Linux cgroup 原计费边界。
+
 - 图像输出 sink 可显式等待多个 sink 共享的编码队列预算；等待支持调用方取消、关闭和错误唤醒，并在释放编码缓冲后归还额度，默认仍立即拒绝共享预算不足。
 
 - 发布候选新增完整第三方许可原文集合及索引绑定；独立验证内容、来源、依赖状态和覆盖，历史仅含摘要的候选即使签名有效也继续阻断 GA。

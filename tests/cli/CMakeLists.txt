@@ -96,7 +96,7 @@ add_test(NAME Cli_local_search
 set_tests_properties(Cli_local_search PROPERTIES
     LABELS "cli;experiment;integration" TIMEOUT 600)
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(paired_memory_devices cpu)
     if(JYPPX_LIUDING_TEST_CLI_CUDA)
         list(APPEND paired_memory_devices cuda)

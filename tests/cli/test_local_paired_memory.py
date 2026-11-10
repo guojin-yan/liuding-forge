@@ -7,7 +7,8 @@
 
 The unchanged local/search fixtures own all training and quality assertions.
 This maintenance-only layer combines their full task with host admission,
-logical reservations and delegated cgroup v2 limits. It never retries training.
+logical reservations and Windows Job commit or delegated Linux cgroup v2
+limits. It never retries training.
 """
 from __future__ import annotations
 
@@ -24,15 +25,20 @@ import test_local_search_recipe as search
 
 LIMIT = 2 << 30
 GPU_RESERVATION = 1 << 30
-CGROUP_PARENT: Path
+CGROUP_PARENT: Path | None = None
 EVIDENCE: Path | None = None
 OBSERVED: dict[tuple[str, int], dict] = {}
 
 
 def policy(device: str) -> dict:
     gpu = {"id": "cuda0", "memory_bytes": GPU_RESERVATION} if device == "cuda" else None
+    memory_limit = {"bytes": LIMIT}
+    if sys.platform == "linux":
+        if CGROUP_PARENT is None:
+            raise AssertionError("Linux memory policy requires its delegated parent")
+        memory_limit["cgroup_parent"] = str(CGROUP_PARENT)
     return {
-        "os_memory_limit": {"bytes": LIMIT, "cgroup_parent": str(CGROUP_PARENT)},
+        "os_memory_limit": memory_limit,
         "host_requirements": {
             "minimum_cpu_threads": 1, "minimum_total_memory_bytes": LIMIT,
             "minimum_available_memory_bytes": 256 << 20,
@@ -60,13 +66,16 @@ def boundaries(data: dict) -> None:
         if not outcome or not outcome.get("process_id"):
             continue
         boundary = outcome.get("memory_boundary")
-        if not boundary or boundary["source"] != "linux_cgroup_v2" or boundary["limit_bytes"] != LIMIT:
-            raise AssertionError(("Missing actual delegated memory boundary", attempt))
+        source = "windows_job_commit" if sys.platform == "win32" else "linux_cgroup_v2"
+        if not boundary or boundary["source"] != source or boundary["limit_bytes"] != LIMIT:
+            raise AssertionError(("Missing actual OS memory boundary", attempt))
         if not outcome["process_tree_cleanup_confirmed"]:
             raise AssertionError(("Native process tree cleanup was not confirmed", attempt))
         if not attempt["resource_reserved"] or not attempt["resource_released"]:
             raise AssertionError(("Native logical reservation was not released", attempt))
-        if type(boundary["peak_bytes"]) is not int or boundary["peak_bytes"] <= 0 or boundary["oom_kills"] != 0:
+        expected_oom = None if sys.platform == "win32" else 0
+        if (type(boundary["peak_bytes"]) is not int or boundary["peak_bytes"] <= 0
+                or boundary["oom_kills"] != expected_oom):
             raise AssertionError(("Missing actual kernel peak or unexpected OOM", boundary))
         key = (attempt["attempt_id"], outcome["process_id"])
         row = {"attempt_id": key[0], "process_id": key[1], "memory_boundary": boundary,
@@ -95,7 +104,8 @@ class BoundedPairedLocal(paired.LocalPairedRecipe):
         type(self).reference_model_sha256 = self.file_sha(self.baseline_root / "model.safetensors")
         self.assertEqual([row["result"]["exit_code"] for row in self.completed["attempts"]], [75, 0])
         boundaries(self.completed)
-        self.assertFalse(any(path.is_dir() for path in CGROUP_PARENT.iterdir()))
+        if CGROUP_PARENT is not None:
+            self.assertFalse(any(path.is_dir() for path in CGROUP_PARENT.iterdir()))
 
 
 class BoundedPairedSearch(search.PairedSearchRecipe):
@@ -115,7 +125,8 @@ class BoundedPairedSearch(search.PairedSearchRecipe):
         self.assertEqual(paired.LocalPairedRecipe.file_sha(self.recipe / "model.safetensors"),
                          BoundedPairedLocal.reference_model_sha256)
         boundaries(self.local)
-        self.assertFalse(any(path.is_dir() for path in CGROUP_PARENT.iterdir()))
+        if CGROUP_PARENT is not None:
+            self.assertFalse(any(path.is_dir() for path in CGROUP_PARENT.iterdir()))
 
 
 def load_tests(loader, _standard, _pattern):
@@ -133,12 +144,17 @@ if __name__ == "__main__":
     parser.add_argument("--evidence-dir", type=Path,
                         default=os.environ.get("JYPPX_LIUDING_PAIRED_MEMORY_EVIDENCE_DIR"))
     args, remaining = parser.parse_known_args()
-    if sys.platform != "linux" or not os.environ.get("JYPPX_LIUDING_TEST_CGROUP_PARENT"):
-        print("A delegated Linux cgroup v2 parent is required", file=sys.stderr)
+    if sys.platform == "linux":
+        parent = os.environ.get("JYPPX_LIUDING_TEST_CGROUP_PARENT")
+        if not parent:
+            print("A delegated Linux cgroup v2 parent is required", file=sys.stderr)
+            raise SystemExit(77)
+        CGROUP_PARENT = Path(parent)
+        if not CGROUP_PARENT.is_absolute() or not (CGROUP_PARENT / "cgroup.procs").is_file():
+            parser.error("A writable, absolute delegated cgroup v2 parent is required")
+    elif sys.platform != "win32":
+        print("Windows Job or delegated Linux cgroup v2 memory limits are required", file=sys.stderr)
         raise SystemExit(77)
-    CGROUP_PARENT = Path(os.environ["JYPPX_LIUDING_TEST_CGROUP_PARENT"])
-    if not CGROUP_PARENT.is_absolute() or not (CGROUP_PARENT / "cgroup.procs").is_file():
-        parser.error("A writable, absolute delegated cgroup v2 parent is required")
     if args.evidence_dir:
         EVIDENCE = args.evidence_dir.resolve()
         EVIDENCE.mkdir(parents=True, exist_ok=False)
@@ -154,6 +170,7 @@ if __name__ == "__main__":
             "device": args.device, "policy": policy(args.device),
             "tests_run": program.result.testsRun, "passed": program.result.wasSuccessful(),
             "skipped": len(program.result.skipped), "observed": list(OBSERVED.values()),
+            "memory_accounting": "job_commit" if sys.platform == "win32" else "cgroup_charge",
             "VRAM_hard_limit": False, "paired_performance_claim": False,
         }, indent=2) + "\n", encoding="utf-8")
     raise SystemExit(0 if program.result.wasSuccessful() else 1)

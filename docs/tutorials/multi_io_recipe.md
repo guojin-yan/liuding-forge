@@ -51,7 +51,7 @@ liuding-forge recipe check --file paired-affine.local.json --format json
 
 数据文件有界逐行解析为只读样本表，worker 共享该表；组批前校验每个样本共 28 字节的四路 Tensor payload。模板的整个数据文件上限为 1 MiB。逻辑上限不等于进程 RSS，也不包含 allocator、模型、优化器和检查点的全部开销。
 
-通过本地执行或有界搜索运行时，可在执行规范中同时声明主机最低条件、逻辑资源预约和 OS 内存限制，字段及计费边界见[本地执行资源合同](../development/local_process_runner.md#操作系统内存限制)。Linux 的 `cgroup_parent` 必须由运行 worker 的同一委派分支可写；SSH session 与用户服务分支不同，仅能创建目录仍不足以迁入进程。应先从相应用户服务或 scope 启动执行器，再执行完整任务；内核拒绝迁组时保留失败和清理围栏，不自动重新训练。cgroup 内存计费不限制 CUDA 显存。
+通过本地执行或有界搜索运行时，可在执行规范中同时声明主机最低条件、逻辑资源预约和 OS 内存限制，字段及计费边界见[本地执行资源合同](../development/local_process_runner.md#操作系统内存限制)。例如 Windows 使用 `"os_memory_limit": {"bytes": 2147483648}` 限制本次原生进程树的 Job 提交量；`memory_boundary.peak_bytes` 是内核 Job 峰值计数，`oom_kills` 为 null。Linux 另需 `cgroup_parent`，该父组必须由运行 worker 的同一委派分支可写；SSH session 与用户服务分支不同，仅能创建目录仍不足以迁入进程。应先从相应用户服务或 scope 启动执行器，再执行完整任务；内核拒绝迁组时保留失败和清理围栏，不自动重新训练。两个后端的计费都不等于 RSS，也不限制 CUDA 显存。
 
 ## 4. 训练与评估
 
