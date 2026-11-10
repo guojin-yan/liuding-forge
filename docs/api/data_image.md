@@ -264,6 +264,8 @@ auto view = image::transform_sample(sample, sampled, joint_options);
 
 `ImageOutputSink` 接受已编码的 CPU PNG/JPEG 字节，以单个写入线程和有界项数/字节容量发布本地文件；它不会隐式编码 Tensor 或执行 CUDA D2H。`submit` 的 `completion` 在文件成功发布后返回路径、字节数和 SHA-256。需要把每个成功文件关联到 run 时，使用 `submit_with_evidence(path, image, callback, sample_key, stop)`：调用方在回调中捕获稳定的 run、reference 和事件身份，并将发布结果传给 [`SQLiteRunStore::record_published_file_evidence`](local_run_storage.md)。`data_image` 组件不依赖 `experiment` 组件。
 
+多个 sink 可共享同一个 `resource_budget`；默认共享额度不足立即报 `ResourceExhausted`。需要在共享编码队列上施加背压时，设置 `overflow = ImageSinkOverflowPolicy::block` 和 `wait_for_aggregate_queue = true`：提交会等待 `encoded_queue_bytes`，调用方取消、sink 关闭或默认策略下的首次异步失败都会唤醒等待；请求超过整个共享队列上限时立即拒绝。等待不持有 sink 互斥锁或本地队列名额，取得共享额度后重新检查本地容量，避免多个生产者互相占住额度。该选项与 `drop_newest` 互斥；无共享预算时无额外等待。等待中的提交尚未计入 `pending_items/pending_bytes`，其编码输入已经由调用方分配，调用方仍须约束并发生产者及上游内存；磁盘暂存预约继续非阻塞，取消只影响尚未接受的提交。
+
 回调仅在文件成功发布后由现有写入线程执行；采样跳过、容量丢弃、文件写入失败均不会调用它。已排队的提交同时返回文件 `completion` 和 `evidence_completion`，前者即使证据登记失败仍保留成功发布的路径与摘要，后者单独报告登记结果。无回调的 `submit` 只有文件 future；未入队时两个 future 都无效。回调执行前已释放编码缓冲及其资源租约，但该项仍占用 sink 的项数和容量直到回调结束；调用方须保证捕获对象活到回调完成。回调捕获对象的内存不计入编码字节预算，应保持有界并及时返回，不得重新调用同一 sink。回调失败计入失败统计并由 `flush/close` 传播；默认策略停止后续已排队写入，`continue_after_error` 可允许继续。
 
 使用原有 `record_published_file_evidence` 时，文件发布、CAS 引用登记和事件追加分阶段完成。证据失败后保留 `completion` 的身份，按[本地 run 存储](local_run_storage.md)使用原有 reference、事件身份和描述符重试；已持久化的引用可在原文件移走后恢复事件。该回调只简化关联，不代表跨阶段严格内存上界或端到端训练提速。

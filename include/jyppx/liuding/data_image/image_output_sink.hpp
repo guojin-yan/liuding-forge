@@ -53,7 +53,7 @@ struct ImageOutputSinkOptions {
   std::uint32_t sample_every =
       1;  ///< Positive stable-key hash modulus; 1 keeps all.
   ImageSinkOverflowPolicy overflow = ImageSinkOverflowPolicy::block;
-  ///< Local queue overflow policy; aggregate budget failures never wait here.
+  ///< Local queue overflow policy; aggregate admission is configured below.
   bool continue_after_error = false;  ///< Continue later tasks after a failure.
   bool replace_existing =
       false;  ///< Permit staged publication over an old file.
@@ -62,6 +62,11 @@ struct ImageOutputSinkOptions {
   ///< collision; incompatible with replace_existing. Other content is refused.
   std::shared_ptr<ImageResourceBudget> resource_budget;
   ///< Optional aggregate encoded-queue and temporary-file accounting.
+  bool wait_for_aggregate_queue = false;
+  ///< With block policy, wait for shared encoded-queue capacity before
+  ///< acceptance. Caller cancellation, close and a fatal writer error wake
+  ///< the wait. The default rejects aggregate shortages immediately; spool
+  ///< reservations remain nonblocking. Without a budget this has no effect.
 };
 
 /** @brief Successful publication identity for artifact/event registration. */
@@ -125,8 +130,8 @@ class ImageOutputSink final {
  public:
   /** @brief Validates queue policy and starts one background writer.
    * @param options Positive queue, per-image and sampling limits.
-   * @throws InvalidArgument Unsupported overflow, conflicting existing-file
-   * policies or zero required limits.
+   * @throws InvalidArgument Unsupported overflow, aggregate waiting with
+   * drop_newest, conflicting existing-file policies or zero required limits.
    */
   explicit ImageOutputSink(ImageOutputSinkOptions options = {});
   /** @brief Rejects new work and joins the writer, suppressing task errors. */
@@ -151,6 +156,11 @@ class ImageOutputSink final {
    * @note A closed sink is invalid. With continue_after_error disabled, the
    * first asynchronous error is rethrown by later submissions. Accepted write
    * failures are returned through completion and flush/close.
+   * Aggregate waiting requires wait_for_aggregate_queue and block policy. An
+   * item larger than the entire shared queue limit fails immediately. Pending
+   * counters exclude waiting producers; their already-encoded input remains
+   * caller-provided storage. Waiting does not hold the sink mutex or reserve
+   * local capacity. Callers must finish active submissions before destruction.
    * With replay_identical_existing, an existing ordinary file is compared in
    * bounded chunks and synced before returning the same content identity.
    * Reuse stable paths and evidence identities in a caller-controlled output

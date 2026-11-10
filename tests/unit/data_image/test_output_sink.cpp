@@ -23,6 +23,7 @@
 #include <stdexcept>
 #include <stop_token>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -64,6 +65,260 @@ std::vector<std::byte> Read(const std::filesystem::path& path) {
                           std::istreambuf_iterator<char>{}};
   const auto view = std::as_bytes(std::span(bytes));
   return {view.begin(), view.end()};
+}
+
+bool WaitForSubmitted(ImageOutputSink& sink, std::uint64_t count) {
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (sink.stats().submitted < count) {
+    if (std::chrono::steady_clock::now() >= deadline) return false;
+    std::this_thread::yield();
+  }
+  return true;
+}
+
+TEST(ImageOutputSinkBackpressureTest, SharedCapacityWaitsWithoutLocalCharge) {
+  using namespace std::chrono_literals;
+  SinkDirectory directory;
+  auto image = Png();
+  const auto bytes = image.bytes.size();
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_queue_bytes = bytes;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  auto held = budget->reserve(ImageResourceKind::encoded_queue_bytes, bytes);
+  ImageOutputSinkOptions options;
+  options.resource_budget = budget;
+  options.wait_for_aggregate_queue = true;
+  ImageOutputSink sink(options);
+  std::stop_source stop;
+  const auto path = directory.path / "shared.png";
+  auto submitted =
+      std::async(std::launch::async, [&, image = std::move(image)]() mutable {
+        return sink.submit(path, std::move(image), {}, stop.get_token());
+      });
+  const bool entered = WaitForSubmitted(sink, 1);
+  const auto status = submitted.wait_for(20ms);
+  const auto pending = sink.stats();
+  held.release();
+  const auto ready = submitted.wait_for(5s);
+  if (ready != std::future_status::ready) stop.request_stop();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(status, std::future_status::timeout);
+  EXPECT_EQ(pending.queued, 0U);
+  EXPECT_EQ(pending.pending_items, 0U);
+  EXPECT_EQ(pending.pending_bytes, 0U);
+  ASSERT_EQ(ready, std::future_status::ready);
+  auto ticket = submitted.get();
+  EXPECT_EQ(ticket.completion.get().path, path);
+  sink.close();
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).peak, bytes);
+}
+
+TEST(ImageOutputSinkBackpressureTest, CallerCancellationReleasesEncodedInput) {
+  using namespace std::chrono_literals;
+  SinkDirectory directory;
+  auto image = Png();
+  const auto bytes = image.bytes.size();
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_queue_bytes = bytes;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  auto held = budget->reserve(ImageResourceKind::encoded_queue_bytes, bytes);
+  image.output_lease =
+      budget->reserve(ImageResourceKind::encoded_bytes, image.bytes.capacity());
+  ImageOutputSinkOptions options;
+  options.resource_budget = budget;
+  options.wait_for_aggregate_queue = true;
+  ImageOutputSink sink(options);
+  std::stop_source stop;
+  const auto path = directory.path / "cancelled.png";
+  auto submitted =
+      std::async(std::launch::async, [&, image = std::move(image)]() mutable {
+        return sink.submit(path, std::move(image), {}, stop.get_token());
+      });
+  const bool entered = WaitForSubmitted(sink, 1);
+  const auto waiting = submitted.wait_for(20ms);
+  stop.request_stop();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(waiting, std::future_status::timeout);
+  EXPECT_THROW(submitted.get(), Cancelled);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_bytes).current, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current,
+            bytes);
+  EXPECT_EQ(sink.stats().queued, 0U);
+  EXPECT_FALSE(std::filesystem::exists(path));
+  sink.close();
+}
+
+TEST(ImageOutputSinkBackpressureTest, CloseWakesSharedWaitWithoutPublishing) {
+  using namespace std::chrono_literals;
+  SinkDirectory directory;
+  const auto bytes = Png().bytes.size();
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_queue_bytes = bytes;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  auto held = budget->reserve(ImageResourceKind::encoded_queue_bytes, bytes);
+  ImageOutputSinkOptions options;
+  options.resource_budget = budget;
+  options.wait_for_aggregate_queue = true;
+  ImageOutputSink sink(options);
+  const auto path = directory.path / "closed.png";
+  auto submitted =
+      std::async(std::launch::async, [&] { return sink.submit(path, Png()); });
+  const bool entered = WaitForSubmitted(sink, 1);
+  const auto waiting = submitted.wait_for(20ms);
+  sink.close();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(waiting, std::future_status::timeout);
+  EXPECT_THROW(submitted.get(), InvalidArgument);
+  EXPECT_FALSE(std::filesystem::exists(path));
+  EXPECT_EQ(sink.stats().pending_items, 0U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current,
+            bytes);
+}
+
+TEST(ImageOutputSinkBackpressureTest, WriterErrorWakesOrPreservesSharedWait) {
+  using namespace std::chrono_literals;
+  for (const bool continue_after_error : {false, true}) {
+    SCOPED_TRACE(continue_after_error);
+    SinkDirectory directory;
+    const auto bytes = Png().bytes.size();
+    ImageResourceBudgetLimits limits;
+    limits.max_encoded_queue_bytes = bytes;
+    auto budget = std::make_shared<ImageResourceBudget>(limits);
+    ImageOutputSinkOptions options;
+    options.resource_budget = budget;
+    options.wait_for_aggregate_queue = true;
+    options.continue_after_error = continue_after_error;
+    ImageOutputSink sink(options);
+    std::promise<void> entered, release;
+    auto released = release.get_future().share();
+    auto first = sink.submit_with_evidence(
+        directory.path / "first.png", Png(), [&](const ImageSinkWriteResult&) {
+          entered.set_value();
+          released.wait();
+          throw std::runtime_error("synthetic evidence failure");
+        });
+    const auto callback = entered.get_future().wait_for(5s);
+    if (callback != std::future_status::ready) release.set_value();
+    ASSERT_EQ(callback, std::future_status::ready);
+    auto held = budget->reserve(ImageResourceKind::encoded_queue_bytes, bytes);
+    const auto path = directory.path / "later.png";
+    auto later = std::async(std::launch::async,
+                            [&] { return sink.submit(path, Png()); });
+    const bool waiting_entered = WaitForSubmitted(sink, 2);
+    const auto waiting = later.wait_for(20ms);
+    release.set_value();
+    EXPECT_TRUE(waiting_entered);
+    EXPECT_EQ(waiting, std::future_status::timeout);
+    EXPECT_THROW(first.evidence_completion.get(), std::runtime_error);
+    EXPECT_TRUE(std::filesystem::exists(first.completion.get().path));
+    if (continue_after_error) {
+      EXPECT_EQ(later.wait_for(20ms), std::future_status::timeout);
+      held.release();
+      auto ticket = later.get();
+      EXPECT_EQ(ticket.completion.get().path, path);
+    } else {
+      EXPECT_THROW(later.get(), std::runtime_error);
+      EXPECT_FALSE(std::filesystem::exists(path));
+      held.release();
+    }
+    EXPECT_THROW(sink.close(), std::runtime_error);
+    EXPECT_EQ(sink.stats().pending_items, 0U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current,
+              0U);
+  }
+}
+
+TEST(ImageOutputSinkBackpressureTest, CompetingProducersRespectBothCapacities) {
+  using namespace std::chrono_literals;
+  SinkDirectory directory;
+  const auto bytes = Png().bytes.size();
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_queue_bytes = bytes;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  auto held = budget->reserve(ImageResourceKind::encoded_queue_bytes, bytes);
+  ImageOutputSinkOptions options;
+  options.resource_budget = budget;
+  options.wait_for_aggregate_queue = true;
+  options.max_pending_items = 1;
+  options.max_pending_bytes = bytes;
+  ImageOutputSink sink(options);
+  ImageOutputSink second(options);
+  std::stop_source stop;
+  std::vector<std::future<ImageSinkSubmission>> submissions;
+  for (int i = 0; i < 12; ++i) {
+    submissions.push_back(std::async(std::launch::async, [&, i] {
+      auto& selected = i % 2 == 0 ? sink : second;
+      return selected.submit(directory.path / (std::to_string(i) + ".png"),
+                             Png(), {}, stop.get_token());
+    }));
+  }
+  const bool entered = WaitForSubmitted(sink, 6) && WaitForSubmitted(second, 6);
+  EXPECT_EQ(sink.stats().queued, 0U);
+  held.release();
+  EXPECT_TRUE(entered);
+  for (auto& submission : submissions) {
+    const auto ready = submission.wait_for(5s);
+    if (ready != std::future_status::ready) stop.request_stop();
+    ASSERT_EQ(ready, std::future_status::ready);
+    auto ticket = submission.get();
+    EXPECT_EQ(ticket.disposition, ImageSinkDisposition::queued);
+    EXPECT_TRUE(std::filesystem::exists(ticket.completion.get().path));
+    EXPECT_LE(sink.stats().pending_items, 1U);
+    EXPECT_LE(sink.stats().pending_bytes, bytes);
+    EXPECT_LE(second.stats().pending_items, 1U);
+    EXPECT_LE(second.stats().pending_bytes, bytes);
+  }
+  sink.close();
+  second.close();
+  EXPECT_EQ(sink.stats().completed, 6U);
+  EXPECT_EQ(second.stats().completed, 6U);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).peak, bytes);
+  EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).current, 0U);
+}
+
+TEST(ImageOutputSinkBackpressureTest,
+     RejectsOversizeAndPreservesDefaultAggregateRejection) {
+  SinkDirectory directory;
+  const auto bytes = Png().bytes.size();
+  for (const bool wait : {false, true}) {
+    ImageResourceBudgetLimits limits;
+    limits.max_encoded_queue_bytes = bytes - 1;
+    auto budget = std::make_shared<ImageResourceBudget>(limits);
+    ImageOutputSinkOptions options;
+    options.resource_budget = budget;
+    options.wait_for_aggregate_queue = wait;
+    ImageOutputSink sink(options);
+    EXPECT_THROW(sink.submit(directory.path / "oversize.png", Png()),
+                 ResourceExhausted);
+    EXPECT_EQ(sink.stats().queued, 0U);
+    EXPECT_EQ(budget->usage(ImageResourceKind::encoded_queue_bytes).peak, 0U);
+    sink.close();
+  }
+  ImageResourceBudgetLimits limits;
+  limits.max_encoded_queue_bytes = bytes;
+  auto budget = std::make_shared<ImageResourceBudget>(limits);
+  auto held = budget->reserve(ImageResourceKind::encoded_queue_bytes, bytes);
+  ImageOutputSinkOptions defaults;
+  defaults.resource_budget = budget;
+  ImageOutputSink sink(defaults);
+  EXPECT_THROW(sink.submit(directory.path / "default.png", Png()),
+               ResourceExhausted);
+  sink.close();
+}
+
+TEST(ImageOutputSinkBackpressureTest, ValidatesWaitPolicyAndAllowsNoBudget) {
+  ImageOutputSinkOptions options;
+  options.wait_for_aggregate_queue = true;
+  options.overflow = ImageSinkOverflowPolicy::drop_newest;
+  EXPECT_THROW(ImageOutputSink{options}, InvalidArgument);
+  options.overflow = ImageSinkOverflowPolicy::block;
+  SinkDirectory directory;
+  ImageOutputSink sink(options);
+  auto ticket = sink.submit(directory.path / "no-budget.png", Png());
+  EXPECT_TRUE(std::filesystem::exists(ticket.completion.get().path));
+  sink.close();
 }
 
 TEST(ImageOutputSinkTest, PublishesCompleteBytesAndReleasesBudgetLeases) {

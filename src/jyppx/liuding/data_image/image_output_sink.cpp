@@ -392,6 +392,9 @@ class ImageOutputSink::Impl final {
     if (options_.overflow != ImageSinkOverflowPolicy::block &&
         options_.overflow != ImageSinkOverflowPolicy::drop_newest)
       Invalid("options.overflow", "block or drop_newest");
+    if (options_.wait_for_aggregate_queue &&
+        options_.overflow != ImageSinkOverflowPolicy::block)
+      Invalid("options.aggregate_queue", "block overflow policy when waiting");
     if (options_.replace_existing && options_.replay_identical_existing)
       Invalid("options.existing_file", "replacement or identical replay");
     worker_ = std::jthread([this] { Run(); });
@@ -412,6 +415,17 @@ class ImageOutputSink::Impl final {
                                                options_.max_pending_bytes)),
                                            .actual = std::to_string(bytes)});
     const bool selected = SelectSample(sample_key, options_.sample_every);
+    // Construct the payload owner before acquiring a queue lease, so every
+    // exception also destroys encoded storage before waking shared waiters.
+    Work work;
+    work.path = std::move(path);
+    work.image = std::move(image);
+    work.record_evidence = std::move(record_evidence);
+    std::stop_source admission_stop;
+    std::stop_callback cancel_caller(stop,
+                                     [&] { admission_stop.request_stop(); });
+    std::stop_callback cancel_sink(admission_stop_.get_token(),
+                                   [&] { admission_stop.request_stop(); });
     std::unique_lock lock(mutex_);
     if (closed_) Invalid("submit.state", "open sink");
     if (first_error_ && !options_.continue_after_error)
@@ -434,7 +448,43 @@ class ImageOutputSink::Impl final {
               .completion = {},
               .evidence_completion = {}};
     }
-    if (!capacity()) {
+    if (stop.stop_requested())
+      throw Cancelled("Image output admission cancelled",
+                      ErrorDetails{.component = std::string(kComponent),
+                                   .operation = "submit.wait"});
+    for (;;) {
+      if (capacity()) {
+        if (!options_.resource_budget) break;
+        if (!options_.wait_for_aggregate_queue) {
+          work.queue_lease = options_.resource_budget->reserve(
+              ImageResourceKind::encoded_queue_bytes, bytes);
+          break;
+        }
+        // Shared budget waits must not prevent the writer, close, stats or
+        // other producers from taking this mutex. Recheck local capacity
+        // after admission; never wait locally while holding a shared lease.
+        lock.unlock();
+        try {
+          work.queue_lease = options_.resource_budget->reserve_wait(
+              ImageResourceKind::encoded_queue_bytes, bytes,
+              admission_stop.get_token());
+        } catch (...) {
+          lock.lock();
+          if (stop.stop_requested()) throw;
+          if (closed_) Invalid("submit.state", "open sink");
+          if (first_error_ && !options_.continue_after_error)
+            std::rethrow_exception(first_error_);
+          throw;
+        }
+        lock.lock();
+        if (stop.stop_requested())
+          throw Cancelled("Image output admission cancelled");
+        if (closed_) Invalid("submit.state", "open sink");
+        if (first_error_ && !options_.continue_after_error)
+          std::rethrow_exception(first_error_);
+        if (capacity()) break;
+        work.queue_lease.release();
+      }
       const bool ready = changed_.wait(lock, stop, [&] {
         return capacity() || closed_ ||
                (first_error_ && !options_.continue_after_error);
@@ -451,16 +501,7 @@ class ImageOutputSink::Impl final {
       throw Cancelled("Image output admission cancelled",
                       ErrorDetails{.component = std::string(kComponent),
                                    .operation = "submit.wait"});
-    ImageResourceLease queue_lease;
-    if (options_.resource_budget)
-      queue_lease = options_.resource_budget->reserve(
-          ImageResourceKind::encoded_queue_bytes, bytes);
-    Work work;
     work.sequence = stats_.queued + 1;
-    work.path = std::move(path);
-    work.image = std::move(image);
-    work.queue_lease = std::move(queue_lease);
-    work.record_evidence = std::move(record_evidence);
     auto completion = work.promise.get_future();
     std::future<void> evidence_completion;
     if (work.record_evidence) {
@@ -496,6 +537,7 @@ class ImageOutputSink::Impl final {
       closed_ = true;
       changed_.notify_all();
     }
+    admission_stop_.request_stop();
     std::call_once(join_once_, [this] { worker_.join(); });
     std::scoped_lock lock(mutex_);
     if (first_error_) std::rethrow_exception(first_error_);
@@ -515,8 +557,8 @@ class ImageOutputSink::Impl final {
   struct Work {
     std::uint64_t sequence = 0;
     std::filesystem::path path;
-    EncodedImage image;
     ImageResourceLease queue_lease;
+    EncodedImage image;  // Destruction frees bytes before the queue lease.
     std::promise<ImageSinkWriteResult> promise;
     std::function<void(const ImageSinkWriteResult&)> record_evidence;
     std::optional<std::promise<void>> evidence_promise;
@@ -570,9 +612,9 @@ class ImageOutputSink::Impl final {
         work.promise.set_exception(error);
       }
       const auto bytes = work.image.bytes.size();
-      work.queue_lease.release();
       std::vector<std::byte>().swap(work.image.bytes);
       work.image.output_lease.release();
+      work.queue_lease.release();
       if (work.evidence_promise) {
         if (published) {
           try {
@@ -615,6 +657,8 @@ class ImageOutputSink::Impl final {
         stats_.pending_bytes -= bytes;
         changed_.notify_all();
       }
+      if (error && !options_.continue_after_error)
+        admission_stop_.request_stop();
     }
   }
 
@@ -629,6 +673,7 @@ class ImageOutputSink::Impl final {
   std::exception_ptr first_error_;
   std::uint64_t first_failed_sequence_ = 0;
   std::uint64_t settled_ = 0;
+  std::stop_source admission_stop_;
   bool closed_ = false;
 };
 

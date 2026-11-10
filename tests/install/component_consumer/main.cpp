@@ -32,6 +32,7 @@
 #include <jyppx/liuding/data_image/manifests.hpp>
 #include <jyppx/liuding/data_image/mask_decoder.hpp>
 #include <jyppx/liuding/data_image/panoptic.hpp>
+#include <jyppx/liuding/foundation/error.hpp>
 #elif defined(JYPPX_CONSUMER_VISION_RENDER)
 #include <jyppx/liuding/visualization/render.hpp>
 #elif defined(JYPPX_CONSUMER_NN)
@@ -250,6 +251,26 @@ int main() {
   const auto mask = jyppx::liuding::data::image::decode_mask(
       std::as_bytes(std::span(mask_png)));
   using namespace jyppx::liuding::data::image;
+  ImageOutputSinkOptions sink_options;
+  sink_options.wait_for_aggregate_queue = true;
+  sink_options.resource_budget = std::make_shared<ImageResourceBudget>();
+  ImageOutputSink sink(sink_options);
+  std::stop_source cancelled;
+  cancelled.request_stop();
+  bool cancelled_before_publication = false;
+  try {
+    sink.submit("installed-cancelled.png",
+                encode_image(image.tensor, image.pixels), {},
+                cancelled.get_token());
+  } catch (const jyppx::liuding::Cancelled&) {
+    cancelled_before_publication = true;
+  }
+  sink.close();
+  if (!cancelled_before_publication || sink.stats().queued != 0 ||
+      sink_options.resource_budget
+              ->usage(ImageResourceKind::encoded_queue_bytes)
+              .current != 0)
+    return 1;
   VisionSample sample;
   sample.image = image.tensor;
   sample.pixels = image.pixels;
