@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 补齐已训练CIFAR-10 ONNX模型在Ubuntu CPU安装SDK的四路请求、版本发布/回退、取消/超时与关闭回收验收；逐请求独立核对输出，并以独立进程cgroup实测资源边界，临时示例签名不代表正式发布权限。
+
 - 补齐完整CIFAR-10已训练ResNet18在Windows CPU/CUDA与Ubuntu CPU的安装SDK独立重载验收：各验证全部10000图、保持122项参数/缓冲字节，独立核对实际输入、混淆矩阵及准确率；仅授模型评估资格，不替代完整训练恢复或发布验收。
 
 - 增加两套真实SDK的离线切换/回退维护验收：跨构建exact续训在状态修改前拒绝，切回原SDK后按完整双输入任务核模型、十个参与者、检查点及RNG精确恢复；开发版演练不自动授予正式Beta/RC资格。
