@@ -272,6 +272,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- 修正 iterable 流水线组批失败和取消时的准入释放顺序：先释放本批源样本与输出存储，再归还额度，避免共享预算过早允许下一批分配。
+
 - 将图像 writer 的来源固定到与入库 header 逐字节一致的上游提交，保留原许可和依赖安全状态。
 
 - INT8 量化功能延期并从当前源码、构建和安装接口撤出。

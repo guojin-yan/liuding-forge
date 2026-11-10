@@ -211,6 +211,8 @@ auto device_batch = image::transfer_image_batch(std::move(prepared), memory);
 
 在 `DataPipeline` 或 `IterableDataPipeline` 中设置 `options.stage_resource_factory = image::make_image_batch_stage_resource_factory(budget, limits)`，即可在 factory 输出后计费，并在 pin/设备复制分配前预约目标，输入与输出同时存活时重叠计费。无复制的内存阶段保留一份原租约；消费变换输出在返回后、替换输入前另行计费，即使其 Tensor 与输入共享存储也按逻辑占用保守预约。该选项与旧 `resource_lease_factory` 互斥，可与生产前的 `admission_factory` 配合；阶段合同见[提交前批次变换](batch_consumer_transform.md)。这些预约不覆盖任意回调内部分配、完整跨阶段字节调度、LibTorch 私有 workspace、异步 allocator 驻留或进程 RSS 上限。
 
+`IterableDataPipeline` 在拉取源样本前取得准入预约；组批或资源预约失败、取消及尾批丢弃时，先释放本批源样本和输出持有的存储，再归还准入额度。成功交付后，预约随 `BatchEnvelope` 保留至其存储释放；调用方另存 Tensor 别名时也必须保留对应租约。源游标或任意回调自行保留的外部别名不属于本批所有权。
+
 ## CPU/CUDA 批量数值变换
 
 `transform_image_batch` 对 packed NCHW 或 ragged CHW 照片执行浮点类型转换、显式强度缩放、RGB/BGR 交换与逐通道标准化，在原 CPU/CUDA 设备及调用方当前 stream 上运行。packed 路径以整批执行，不逐张读取 GPU 标量。运算使用 float32，float64 输出使用 float64 运算，再转换到指定 float16/bfloat16/float32/float64。mask、valid、labels、标注和几何原样共享，不进行重采样或归一化。

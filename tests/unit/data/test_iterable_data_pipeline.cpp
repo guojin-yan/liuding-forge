@@ -19,6 +19,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <gtest/gtest.h>
 #include <map>
 #include <memory>
@@ -129,11 +130,13 @@ class VectorCursor final : public IterableSourceCursor {
   /** @brief Creates a cursor for one immutable epoch value vector. */
   VectorCursor(std::vector<std::int64_t> values, std::uint64_t epoch,
                std::shared_ptr<CursorStats> stats,
-               std::optional<std::string> watermark_override)
+               std::optional<std::string> watermark_override,
+               std::function<c10::IValue(std::int64_t)> value_factory = {})
       : values_(std::move(values)),
         epoch_(epoch),
         stats_(std::move(stats)),
-        watermark_override_(std::move(watermark_override)) {}
+        watermark_override_(std::move(watermark_override)),
+        value_factory_(std::move(value_factory)) {}
 
   /** @brief Returns the next value unless stopped or exhausted. */
   std::optional<IterableSample> next(std::stop_token stop) override {
@@ -146,10 +149,12 @@ class VectorCursor final : public IterableSourceCursor {
       std::lock_guard<std::mutex> stats_lock(stats_->mutex);
       ++stats_->pulls;
     }
-    return IterableSample{.value = c10::IValue(values_[position]),
-                          .sample_id = epoch_ * 1000U + position,
-                          .watermark = watermark_override_.value_or(
-                              std::to_string(position + 1U))};
+    return IterableSample{
+        .value = value_factory_ ? value_factory_(values_[position])
+                                : c10::IValue(values_[position]),
+        .sample_id = epoch_ * 1000U + position,
+        .watermark =
+            watermark_override_.value_or(std::to_string(position + 1U))};
   }
 
   /** @brief Encodes the next position as bounded decimal text. */
@@ -192,7 +197,9 @@ class VectorCursor final : public IterableSourceCursor {
   std::uint64_t epoch_ = 0;             ///< Logical epoch used in sample IDs.
   std::shared_ptr<CursorStats> stats_;  ///< Optional observation counters.
   std::optional<std::string>
-      watermark_override_;    ///< Optional invalid watermark used by tests.
+      watermark_override_;  ///< Optional invalid watermark used by tests.
+  std::function<c10::IValue(std::int64_t)>
+      value_factory_;         ///< Creates owned payloads only when pulled.
   mutable std::mutex mutex_;  ///< Protects position and close state.
   std::size_t position_ = 0;  ///< Next unread value position.
   bool closed_ = false;       ///< Whether this cursor has been closed.
@@ -221,7 +228,12 @@ class VectorSource final : public IterableSource {
       throw std::runtime_error("synthetic epoch open failure");
     }
     return std::make_unique<VectorCursor>(values_, epoch, stats_,
-                                          watermark_override_);
+                                          watermark_override_, value_factory_);
+  }
+
+  /** @brief Supplies source-owned payloads without retaining their storage. */
+  void set_value_factory(std::function<c10::IValue(std::int64_t)> factory) {
+    value_factory_ = std::move(factory);
   }
 
   /** @brief Causes one future epoch open to fail for rollback testing. */
@@ -234,6 +246,8 @@ class VectorSource final : public IterableSource {
   std::optional<std::string>
       watermark_override_;  ///< Optional watermark returned for every sample.
   std::optional<std::uint64_t> fail_epoch_;  ///< Optional failing epoch.
+  std::function<c10::IValue(std::int64_t)>
+      value_factory_;  ///< Optional factory copied into each fresh cursor.
 };
 
 /** @brief Cursor that blocks until the pipeline requests cancellation. */
@@ -1297,6 +1311,153 @@ TEST(IterableDataPipelineLeaseTest,
     EXPECT_EQ(state.admissions_released, 1);
     EXPECT_EQ(state.early_resource_releases, 0);
     EXPECT_EQ(state.early_admission_releases, 0);
+  }
+}
+
+TEST(IterableDataPipelineLeaseTest, FailedCollationKeepsSourceStorageCharged) {
+  auto probe = std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+  auto source = make_source({7, 8});
+  source->set_value_factory([probe](std::int64_t value) {
+    return c10::IValue(probe->tensor(value));
+  });
+  auto config = options("data.iterable.source-lifetime.collate", 2);
+  config.admission_factory = [probe](std::stop_token) {
+    return probe->lease(true);
+  };
+  IterableDataPipeline pipeline(
+      source, config,
+      [](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
+         std::stop_token) -> c10::IValue {
+        throw jyppx::liuding::InvalidArgument("synthetic collation failure");
+      });
+  pipeline.set_epoch(0);
+  EXPECT_THROW(pipeline.next(), jyppx::liuding::InvalidArgument);
+  pipeline.close();
+  const auto state = probe->snapshot();
+  EXPECT_EQ(state.payloads_released, 2);
+  EXPECT_EQ(state.live_payloads, 0);
+  EXPECT_EQ(state.admissions_acquired, 1);
+  EXPECT_EQ(state.admissions_released, 1);
+  EXPECT_EQ(state.early_admission_releases, 0);
+  EXPECT_EQ(pipeline.state().committed_samples, 0U);
+}
+
+TEST(IterableDataPipelineLeaseTest,
+     FailedReservationKeepsSourceAndOutputStorageCharged) {
+  for (const bool alias_source : {false, true}) {
+    SCOPED_TRACE(alias_source);
+    auto probe =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    auto source = make_source({7});
+    source->set_value_factory([probe](std::int64_t value) {
+      return c10::IValue(probe->tensor(value));
+    });
+    auto config = options("data.iterable.source-lifetime.reserve", 1);
+    config.schema = jyppx::liuding::data::BatchSchema::any("tracked.tensor");
+    config.admission_factory = [probe](std::stop_token) {
+      return probe->lease(true);
+    };
+    config.resource_lease_factory =
+        [](const c10::IValue&, const BatchMemoryMetadata&,
+           std::stop_token) -> std::shared_ptr<void> {
+      throw jyppx::liuding::ResourceExhausted("synthetic reservation failure");
+    };
+    IterableDataPipeline pipeline(
+        source, config,
+        [probe, alias_source](std::span<const IterableSample> samples,
+                              std::uint64_t, std::uint64_t, std::stop_token) {
+          return alias_source ? samples[0].value : c10::IValue(probe->tensor());
+        });
+    pipeline.set_epoch(0);
+    EXPECT_THROW(pipeline.next(), jyppx::liuding::ResourceExhausted);
+    pipeline.close();
+    const auto state = probe->snapshot();
+    EXPECT_EQ(state.payloads_released, alias_source ? 1 : 2);
+    EXPECT_EQ(state.live_payloads, 0);
+    EXPECT_EQ(state.admissions_acquired, 1);
+    EXPECT_EQ(state.admissions_released, 1);
+    EXPECT_EQ(state.early_admission_releases, 0);
+    EXPECT_EQ(pipeline.state().committed_samples, 0U);
+  }
+}
+
+TEST(IterableDataPipelineLeaseTest,
+     CancelledCollationKeepsSourceStorageCharged) {
+  for (const bool throw_after_stop : {false, true}) {
+    SCOPED_TRACE(throw_after_stop);
+    auto probe =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    auto source = make_source({7});
+    source->set_value_factory([probe](std::int64_t value) {
+      return c10::IValue(probe->tensor(value));
+    });
+    auto config = options("data.iterable.source-lifetime.cancel", 1);
+    config.schema = jyppx::liuding::data::BatchSchema::any("tracked.tensor");
+    config.admission_factory = [probe](std::stop_token) {
+      return probe->lease(true);
+    };
+    IterableDataPipeline pipeline(
+        source, config,
+        [probe, throw_after_stop](std::span<const IterableSample> samples,
+                                  std::uint64_t, std::uint64_t,
+                                  std::stop_token stop) {
+          auto entered = probe->lease();
+          probe->wait_for_stop(stop);
+          if (throw_after_stop)
+            throw jyppx::liuding::Cancelled("synthetic collation cancellation");
+          return samples[0].value;
+        });
+    pipeline.set_epoch(0);
+    ASSERT_TRUE(probe->wait_for_resources());
+    pipeline.close();
+    const auto state = probe->snapshot();
+    EXPECT_EQ(state.payloads_released, 1);
+    EXPECT_EQ(state.live_payloads, 0);
+    EXPECT_EQ(state.admissions_acquired, 1);
+    EXPECT_EQ(state.admissions_released, 1);
+    EXPECT_EQ(state.early_admission_releases, 0);
+    EXPECT_EQ(pipeline.state().committed_samples, 0U);
+  }
+}
+
+TEST(IterableDataPipelineLeaseTest,
+     SourceFailureAndDroppedTailKeepStorageCharged) {
+  for (const bool fail_source : {false, true}) {
+    SCOPED_TRACE(fail_source);
+    auto probe =
+        std::make_shared<jyppx::liuding::test::BatchResourceLifetime>();
+    auto source = make_source(fail_source ? std::vector<std::int64_t>{7, 8}
+                                          : std::vector<std::int64_t>{7});
+    source->set_value_factory([probe, fail_source](std::int64_t value) {
+      if (fail_source && value == 8)
+        throw jyppx::liuding::InvalidArgument("synthetic source failure");
+      return c10::IValue(probe->tensor(value));
+    });
+    auto config = options("data.iterable.source-lifetime.tail", 2);
+    config.drop_last = true;
+    config.admission_factory = [probe](std::stop_token) {
+      return probe->lease(true);
+    };
+    IterableDataPipeline pipeline(
+        source, config,
+        [](std::span<const IterableSample>, std::uint64_t, std::uint64_t,
+           std::stop_token) -> c10::IValue {
+          ADD_FAILURE() << "A failed source or dropped tail cannot be collated";
+          return {};
+        });
+    pipeline.set_epoch(0);
+    if (fail_source)
+      EXPECT_THROW(pipeline.next(), jyppx::liuding::InvalidArgument);
+    else
+      EXPECT_FALSE(pipeline.next());
+    pipeline.close();
+    const auto state = probe->snapshot();
+    EXPECT_EQ(state.payloads_released, 1);
+    EXPECT_EQ(state.live_payloads, 0);
+    EXPECT_EQ(state.admissions_acquired, 1);
+    EXPECT_EQ(state.admissions_released, 1);
+    EXPECT_EQ(state.early_admission_releases, 0);
+    EXPECT_EQ(pipeline.state().committed_samples, 0U);
   }
 }
 
