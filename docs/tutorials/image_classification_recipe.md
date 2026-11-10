@@ -260,6 +260,21 @@ liuding-forge-example-cifar10-model-reload /work/runs/cifar10/model.safetensors 
 该程序不创建优化器或训练检查点，不能用它接续训练。需要恢复优化器、调度器、数据游标与 RNG 时，使用[第 5 节的配方恢复](#5-暂停并在新进程恢复)。新进程模型重载和完整训练状态恢复应分别核对；不同 batch、设备或构建的浮点结果也应按各自任务合同判断。
 
 
+### 6.2 有界预取、预览与证据登记
+
+同时启用 `JYPPX_LIUDING_BUILD_EXPERIMENT=ON` 和 `JYPPX_LIUDING_BUILD_VISION_RENDER=ON` 后，可以构建独立的CPU输出示例；原模型重载示例仍可在关闭这两个可选组件时使用。
+
+```sh
+cmake --build out/build/release --target jyppx_cifar10_output_pipeline --parallel 1
+liuding-forge-example-cifar10-output-pipeline /work/runs/cifar10/model.safetensors REPLACE_WITH_RESULT_MODEL_SHA256 /datasets/cifar10-imagefolder-v1/validation /work/cifar10-previews
+```
+
+最后一个参数必须是尚不存在的输出目录。示例严格重载完整ResNet18状态，以原批大小128和固定采样种子评估全部10000图，保持零训练更新；两个预取线程共用一个整批准入槽。每批首图经过RGB绘图、PNG编码及异步文件发布，再由同一写线程调用 `record_published_file_evidence_atomic` 登记CAS、引用和事件。文件名包含首图真值与预测类别，`batches.jsonl` 逐批流式保存样本顺序、实际输入摘要、标签和logits，`report.json` 保存混淆矩阵、模型状态摘要、输出身份及14类预算的峰值/最终值。
+
+整批 `BatchEnvelope::admission_lease` 被输出证据回调保留，输入Tensor在前向和编码结束后释放；登记变慢时，新批次在解码之前等待。示例在首次登记时用同步信号观察下一批准入正在等待，检查仅解码128图、整批计数/字节仍占用且输入像素已释放；关闭时检查队列和全部图像预算归零。调用者保留Tensor别名时也必须保留对应资源租约，不能只延长准入而让像素脱离计费。
+
+本示例只覆盖该CPU推理与逐批首图预览负载；已知逻辑分配预算不等于私有工作空间或RSS硬上限。文件发布和SQLite提交仍是两个独立边界，登记失败时文件可能已经成功发布，须按原身份恢复证据；它不提供文件/数据库共同可见性或断电保证，也不证明CUDA链路、训练性能收益或完整Vision资格。
+
 ## 7. 准备 Fashion-MNIST
 
 按[构建步骤](#11-启用离线数据准备)启用 `JYPPX_LIUDING_PREPARE_FASHION_MNIST=ON`，并提供匹配平台的 codec SDK。数据准备由原生 C++ 完成，安装后的工具不需要 Python。
@@ -277,21 +292,6 @@ liuding-forge data prepare --name fashion-mnist --source-dir /datasets/fashion-m
 `index/train.jsonl` 和 `index/validation.jsonl` 记录原始索引、类别 ID、相对图片路径、灰度像素 SHA-256 与 PNG 文件 SHA-256；`preparation.json` 保存来源、选择规则、类别计数和内容身份，`fashion-mnist.LICENSE` 保留原始许可文本。内容身份基于原始索引、标签和灰度字节，不依赖 PNG 压缩实现。准备命令离线运行，拒绝覆盖已有输出，失败时清理本次私有暂存目录。逐图读取与解码示例见[数据准备示例](../../examples/data/README.md#fashion-mnist-图像接入)。
 
 上述工具提供数据接入，不会自动加载预训练权重。使用现有随机初始化 ResNet18 配方时，将数据路径指向对应的两个 split，并为 Fashion-MNIST 单独设置配置与质量阈值；模型所需的缩放、裁剪及 mean/std 由图像管线显式完成，不能沿用 CIFAR-10 的任务阈值来宣称该任务已经通过。预训练 ResNet50 和 DINOv2-S 的冻结骨干、完整微调与恢复步骤见[迁移学习教程](transfer_learning_recipe.md)。
-
-### 7.3. 有界预取、预览与证据登记
-
-同时启用 `JYPPX_LIUDING_BUILD_EXPERIMENT=ON` 和 `JYPPX_LIUDING_BUILD_VISION_RENDER=ON` 后，可以构建独立的CPU输出示例；原模型重载示例仍可在关闭这两个可选组件时使用。
-
-```sh
-cmake --build out/build/release --target jyppx_cifar10_output_pipeline --parallel 1
-liuding-forge-example-cifar10-output-pipeline /work/runs/cifar10/model.safetensors REPLACE_WITH_RESULT_MODEL_SHA256 /datasets/cifar10-imagefolder-v1/validation /work/cifar10-previews
-```
-
-最后一个参数必须是尚不存在的输出目录。示例严格重载完整ResNet18状态，以原批大小128和固定采样种子评估全部10000图，保持零训练更新；两个预取线程共用一个整批准入槽。每批首图经过RGB绘图、PNG编码及异步文件发布，再由同一写线程调用 `record_published_file_evidence_atomic` 登记CAS、引用和事件。文件名包含首图真值与预测类别，`batches.jsonl` 逐批流式保存样本顺序、实际输入摘要、标签和logits，`report.json` 保存混淆矩阵、模型状态摘要、输出身份及14类预算的峰值/最终值。
-
-整批 `BatchEnvelope::admission_lease` 被输出证据回调保留，输入Tensor在前向和编码结束后释放；登记变慢时，新批次在解码之前等待。示例在首次登记时用同步信号观察下一批准入正在等待，检查仅解码128图、整批计数/字节仍占用且输入像素已释放；关闭时检查队列和全部图像预算归零。调用者保留Tensor别名时也必须保留对应资源租约，不能只延长准入而让像素脱离计费。
-
-本示例只覆盖该CPU推理与逐批首图预览负载；已知逻辑分配预算不等于私有工作空间或RSS硬上限。文件发布和SQLite提交仍是两个独立边界，登记失败时文件可能已经成功发布，须按原身份恢复证据；它不提供文件/数据库共同可见性或断电保证，也不证明CUDA链路、训练性能收益或完整Vision资格。
 
 ## 8. 交给本地执行器并确认训练产物
 
