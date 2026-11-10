@@ -82,6 +82,10 @@ jyppx_add_gtest(jyppx_test_experiment_run_events
     LINK_TARGET jyppx::liuding::experiment
     experiment/test_run_events.cpp
 )
+jyppx_add_gtest(jyppx_test_file_publication
+    LINK_TARGET jyppx::liuding::experiment
+    experiment/test_file_publication.cpp
+)
 target_include_directories(jyppx_test_experiment_run_events SYSTEM PRIVATE "${jyppx_sqlite_SOURCE_DIR}")
 jyppx_add_gtest(jyppx_test_experiment_telemetry
     LINK_TARGET jyppx::liuding::experiment

@@ -31,6 +31,8 @@ struct TempRoot {
 
 bool storage_consumer() {
   const TempRoot root;
+  const TempRoot output_root;
+  if (!std::filesystem::create_directory(output_root.path)) return false;
   const std::string payload = "installed-checkpoint";
   const auto bytes = std::as_bytes(std::span(payload.data(), payload.size()));
   {
@@ -107,12 +109,42 @@ bool storage_consumer() {
     if (!recovered_replay.reference_replay ||
         !recovered_replay.event.batch_replay)
       return false;
+    const auto input = root.path / "publication-input.bin";
+    {
+      std::ofstream stream(input, std::ios::binary);
+      stream.write(payload.data(),
+                   static_cast<std::streamsize>(payload.size()));
+      stream.close();
+      if (!stream) return false;
+    }
+    request.path = input;
+    request.reference_id = "published.4";
+    request.event_batch_key = "published.intent.event";
+    request.event.identity.event_id = "published.4";
+    request.event.identity.idempotency_key = "published.4";
+    request.event.identity.sequence = 4U;
+    store.prepare_file_publication(
+        {.publication_id = "published.intent",
+         .destination = output_root.path / "final.bin",
+         .evidence = request});
+    if (!std::filesystem::remove(input)) return false;
   }
   jyppx::liuding::experiment::SQLiteRunStore reopened(root.path);
+  const auto ids = reopened.file_publications("consumer.run");
+  if (ids != std::vector<std::string>{"published.intent"}) return false;
+  const auto publication =
+      reopened.recover_file_publication("consumer.run", ids.front());
+  const auto replay =
+      reopened.recover_file_publication("consumer.run", ids.front());
+  if (publication.evidence.reference_replay ||
+      !replay.evidence.reference_replay ||
+      !replay.evidence.event.batch_replay ||
+      std::filesystem::file_size(publication.path) != payload.size())
+    return false;
   return reopened.find("consumer.run").has_value() &&
          reopened.find_reference("consumer.run", "published.1").has_value() &&
-         reopened.references("consumer.run").size() == 7U &&
-         reopened.events("consumer.run").events.size() == 3U &&
+         reopened.references("consumer.run").size() == 11U &&
+         reopened.events("consumer.run").events.size() == 4U &&
          reopened.integrity_check().ok();
 }
 }  // namespace

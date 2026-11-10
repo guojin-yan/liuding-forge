@@ -83,6 +83,22 @@ struct PublishedFileEvidenceResult {
   bool reference_replay = false;   ///< Existing relationship was reused.
 };
 
+/** @brief Local file publication recoverable from a durable intent. */
+struct FilePublicationRequest {
+  std::string
+      publication_id;  ///< Run-local intent ID, distinct from result ID.
+  std::filesystem::path
+      destination;  ///< Final path in a caller-owned directory.
+  PublishedFileEvidenceRequest
+      evidence;  ///< Input path required at preparation.
+};
+
+/** @brief Published file with jointly committed SQLite evidence receipts. */
+struct FilePublicationResult {
+  std::filesystem::path path;  ///< Final file with verified digest and size.
+  PublishedFileEvidenceResult evidence;  ///< Committed or replayed receipts.
+};
+
 /** @brief Bounds and durability options captured by one local run store. */
 struct SQLiteRunStoreOptions {
   std::chrono::milliseconds busy_timeout =
@@ -357,6 +373,50 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
   PublishedFileEvidenceResult recover_published_file_evidence_atomic(
       const PublishedFileEvidenceRequest& request, std::stop_token stop = {},
       TelemetryDeadline deadline = std::nullopt);
+
+  /** @brief 在发布最终文件前，原子保留 CAS 内容和完整发布意图。
+   * @param request 稳定 ID、最终路径、输入文件和完整证据身份。
+   * @param stop 取消等待、分块读取和提交前工作。
+   * @param deadline 绝对 steady-clock 截止时间。
+   * @return 持久化意图引用；同身份重试不需要输入文件。
+   *
+   * 意图和内容各占一个普通 run 引用并参与现有配额、GC 和备份。
+   * 最终路径的父目录须已存在，且位于本存储目录之外。不会覆盖已有
+   * 不同内容；意图包含本地路径，只应在受信任的本地存储中使用。
+   */
+  RunArtifactReference prepare_file_publication(
+      const FilePublicationRequest& request, std::stop_token stop = {},
+      TelemetryDeadline deadline = std::nullopt);
+
+  /** @brief 仅凭持久化意图从 CAS 发布文件并共同提交结果引用和事件。
+   * @param run_id 已存在的 run。
+   * @param publication_id prepare_file_publication 使用的意图 ID。
+   * @param stop 取消等待、分块核验和提交前工作。
+   * @param deadline 绝对 steady-clock 截止时间。
+   * @return 最终文件和共同提交的证据回执。
+   *
+   * 先核验并同步文件，再提交 SQLite；文件存在但数据库未提交的窗口
+   * 可在进程重启后恢复。成功回执才确认整体完成，原始文件路径与任意
+   * SQLite 读取者不具备瞬时共同可见性。异常或提交结果未知时保持
+   * 原意图并重试。首次完成沿用 run 的可写生命周期；终态只允许已登记
+   * 证据的幂等重放。恢复不会重新执行生产者，也不覆盖冲突文件。
+   */
+  FilePublicationResult recover_file_publication(
+      std::string_view run_id, std::string_view publication_id,
+      std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt);
+
+  /** @brief 按 ID 分页发现已准备的意图，包括已完成但可重放的意图。
+   * @param run_id 已存在的 run。
+   * @param after_id 排他的上页最后一个意图 ID；首页为空。
+   * @param limit 每页 1 至 1024 个 ID。
+   * @param stop 取消等待和查询。
+   * @param deadline 绝对 steady-clock 截止时间。
+   * @return 按 ID 升序排列的意图 ID，可逐项 recover_file_publication。
+   */
+  std::vector<std::string> file_publications(
+      std::string_view run_id, std::string_view after_id = {},
+      std::size_t limit = 64U, std::stop_token stop = {},
+      TelemetryDeadline deadline = std::nullopt) const;
 
   /**
    * @brief Finds one run without changing it.

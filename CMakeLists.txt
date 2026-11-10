@@ -682,6 +682,9 @@ if(JYPPX_LIUDING_BUILD_EXPERIMENT)
         src/jyppx/liuding/experiment/artifact_store.cpp
         src/jyppx/liuding/experiment/detail/artifact_publish.cpp
         src/jyppx/liuding/experiment/detail/native_artifact_publish.cpp
+        src/jyppx/liuding/experiment/detail/file_publication.cpp
+        src/jyppx/liuding/experiment/detail/output_publish.cpp
+        src/jyppx/liuding/experiment/detail/native_output_publish.cpp
         src/jyppx/liuding/experiment/config.cpp
         src/jyppx/liuding/experiment/run.cpp
         src/jyppx/liuding/experiment/run_store.cpp
@@ -695,6 +698,8 @@ if(JYPPX_LIUDING_BUILD_EXPERIMENT)
     set_source_files_properties(
         src/jyppx/liuding/experiment/detail/artifact_publish.cpp
         src/jyppx/liuding/experiment/detail/native_artifact_publish.cpp
+        src/jyppx/liuding/experiment/detail/output_publish.cpp
+        src/jyppx/liuding/experiment/detail/native_output_publish.cpp
         PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     add_library(jyppx::liuding::experiment ALIAS jyppx_liuding_experiment)
     set_target_properties(jyppx_liuding_experiment PROPERTIES

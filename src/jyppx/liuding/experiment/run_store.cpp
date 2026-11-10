@@ -7,6 +7,7 @@
 
 #include "jyppx/liuding/experiment/run_store.hpp"
 
+#include "detail/file_publication.hpp"
 #include "jyppx/liuding/foundation/error.hpp"
 #include "jyppx/liuding/foundation/sha256.hpp"
 
@@ -1171,6 +1172,11 @@ class SQLiteRunStore::Impl final {
       std::span<const TelemetryEnvelope> envelopes,
       const PreparedEvents& prepared, std::stop_token stop,
       TelemetryDeadline deadline, OperationControl& control);
+
+  PublishedFileEvidenceResult published_file_evidence_unlocked(
+      const PublishedFileEvidenceRequest& request, bool recover_from_cas,
+      std::stop_token stop, TelemetryDeadline deadline,
+      OperationControl& control);
 
   SQLiteRunStoreOptions options_;
   std::filesystem::path root_;
@@ -2571,11 +2577,86 @@ SQLiteRunStore::recover_published_file_evidence_atomic(
   return published_file_evidence_atomic_impl(request, true, stop, deadline);
 }
 
+PublishedFileEvidenceResult
+SQLiteRunStore::Impl::published_file_evidence_unlocked(
+    const PublishedFileEvidenceRequest& request, bool recover_from_cas,
+    std::stop_token stop, TelemetryDeadline deadline,
+    OperationControl& control) {
+  const auto* payload =
+      validate_published_file_request(request, stop, deadline);
+  validate_run_id(request.run_id);
+  validate_text(request.reference_id, options_.max_reference_id_bytes,
+                "reference_id");
+  (void)require_run(request.run_id);
+  // Verification takes place after BEGIN IMMEDIATE, keeping coordinated GC
+  // outside the entire verify/attach/event/commit interval. Keep the verified
+  // reader alive until the transaction decision; do not create another blob.
+  std::unique_ptr<ArtifactReader> recovered;
+  if (recover_from_cas) {
+    recovered = artifacts_.open(request.expected_digest, stop, deadline);
+    if (recovered->size_bytes() != *request.descriptor.expected_size_bytes)
+      invalid("published_file.recovery.size", "the original exact byte count",
+              std::to_string(recovered->size_bytes()));
+  }
+  auto existing =
+      find_reference_unlocked(request.run_id, request.reference_id, &control);
+  PublishedFileEvidenceResult result;
+  result.reference_replay = existing.has_value();
+  if (existing) {
+    if (existing->kind != RunArtifactKind::artifact ||
+        existing->role != payload->role ||
+        existing->artifact.digest != request.expected_digest ||
+        existing->artifact.size_bytes !=
+            *request.descriptor.expected_size_bytes ||
+        existing->artifact.logical_name != request.descriptor.logical_name ||
+        existing->artifact.media_type != request.descriptor.media_type ||
+        existing->artifact.producer != request.descriptor.producer ||
+        existing->attached_at_unix_ms != request.attached_at_unix_ms) {
+      invalid("published_file.reference_id",
+              "the original immutable relationship", "identity conflict");
+    }
+    result.reference = std::move(*existing);
+  } else if (recover_from_cas) {
+    result.reference = {
+        .reference_id = request.reference_id,
+        .kind = RunArtifactKind::artifact,
+        .role = payload->role,
+        .artifact = {.digest = request.expected_digest,
+                     .size_bytes = recovered->size_bytes(),
+                     .logical_name = request.descriptor.logical_name,
+                     .media_type = request.descriptor.media_type,
+                     .producer = request.descriptor.producer},
+        .attached_at_unix_ms = request.attached_at_unix_ms};
+    attach_unlocked(
+        request.run_id,
+        std::span<const RunArtifactReference>(&result.reference, 1U), stop,
+        deadline);
+  } else {
+    if (!request.path) {
+      invalid("published_file.path", "a path for first registration",
+              "missing source file");
+    }
+    result.reference = put_artifact_file_unlocked(
+        request.run_id, request.reference_id, RunArtifactKind::artifact,
+        payload->role, *request.path, request.descriptor,
+        request.attached_at_unix_ms, request.expected_digest, stop, deadline);
+  }
+  auto event = request.event;
+  event.payload = TelemetryArtifactReference{
+      .role = payload->role, .artifact = result.reference.artifact};
+  const auto envelopes = std::span<const TelemetryEnvelope>(&event, 1U);
+  const auto prepared =
+      prepare_event_append(request.run_id, request.event_batch_key, envelopes,
+                           options_.event_limits, stop, deadline);
+  result.event = append_unlocked(request.run_id, request.event_batch_key,
+                                 envelopes, prepared, stop, deadline, control);
+  return result;
+}
+
 PublishedFileEvidenceResult SQLiteRunStore::published_file_evidence_atomic_impl(
     const PublishedFileEvidenceRequest& request, bool recover_from_cas,
     std::stop_token stop, TelemetryDeadline deadline) {
-  const auto* payload =
-      validate_published_file_request(request, stop, deadline);
+  (void)validate_published_file_request(request, stop, deadline);
   impl_->validate_run_id(request.run_id);
   validate_text(request.reference_id, impl_->options_.max_reference_id_bytes,
                 "reference_id");
@@ -2584,71 +2665,406 @@ PublishedFileEvidenceResult SQLiteRunStore::published_file_evidence_atomic_impl(
                            deadline);
   try {
     Transaction transaction(impl_->database_, true, &control);
-    (void)impl_->require_run(request.run_id);
-    // Verification takes place after BEGIN IMMEDIATE, keeping coordinated GC
-    // outside the entire verify/attach/event/commit interval. Keep the verified
-    // reader alive until the transaction decision; do not create another blob.
-    std::unique_ptr<ArtifactReader> recovered;
-    if (recover_from_cas) {
-      recovered =
-          impl_->artifacts_.open(request.expected_digest, stop, deadline);
-      if (recovered->size_bytes() != *request.descriptor.expected_size_bytes)
-        invalid("published_file.recovery.size", "the original exact byte count",
-                std::to_string(recovered->size_bytes()));
-    }
-    auto existing = impl_->find_reference_unlocked(
-        request.run_id, request.reference_id, &control);
-    PublishedFileEvidenceResult result;
-    result.reference_replay = existing.has_value();
-    if (existing) {
-      if (existing->kind != RunArtifactKind::artifact ||
-          existing->role != payload->role ||
-          existing->artifact.digest != request.expected_digest ||
-          existing->artifact.size_bytes !=
-              *request.descriptor.expected_size_bytes ||
-          existing->artifact.logical_name != request.descriptor.logical_name ||
-          existing->artifact.media_type != request.descriptor.media_type ||
-          existing->artifact.producer != request.descriptor.producer ||
-          existing->attached_at_unix_ms != request.attached_at_unix_ms) {
-        invalid("published_file.reference_id",
-                "the original immutable relationship", "identity conflict");
-      }
-      result.reference = std::move(*existing);
-    } else if (recover_from_cas) {
-      result.reference = {
-          .reference_id = request.reference_id,
+    auto result = impl_->published_file_evidence_unlocked(
+        request, recover_from_cas, stop, deadline, control);
+    transaction.commit();
+    return result;
+  } catch (...) {
+    control.check();
+    throw;
+  }
+}
+
+namespace {
+constexpr std::size_t kPublicationIntentBytes = 4U * 1024U * 1024U;
+constexpr std::string_view kPublicationRole = "file.publication.intent";
+constexpr std::string_view kPublicationContentRole = "file.publication.content";
+constexpr std::string_view kPublicationMedia =
+    "application/vnd.jyppx.file-publication-v1";
+constexpr std::string_view kPublicationProducer = "experiment.file-publication";
+
+std::string publication_content_id(std::string_view publication_id) {
+  return "file-publication-content-" +
+         sha256_hex(std::as_bytes(
+             std::span(publication_id.data(), publication_id.size())));
+}
+
+std::filesystem::path publication_destination(
+    const std::filesystem::path& path, const std::filesystem::path& store,
+    const SQLiteRunStoreOptions& options) {
+  const auto raw = utf8_path(path);
+  validate_text(raw, options.artifact_limits.max_root_path_bytes,
+                "file_publication.destination");
+  std::error_code error;
+  auto absolute = std::filesystem::absolute(path, error).lexically_normal();
+  if (error || !absolute.has_filename())
+    invalid("file_publication.destination", "a named local file", raw);
+  auto parent = absolute.parent_path();
+  // Directories are controlled by the caller. Reject existing redirects and
+  // require them to exist; recovery must not silently select a new directory.
+  for (auto cursor = parent; !cursor.empty();) {
+    const auto status = std::filesystem::symlink_status(cursor, error);
+    if (error || !std::filesystem::is_directory(status))
+      invalid("file_publication.parent", "existing ordinary directories",
+              utf8_path(cursor));
+    if (std::filesystem::equivalent(cursor, store, error) && !error)
+      invalid("file_publication.destination", "a path outside the run store",
+              utf8_path(absolute));
+    if (error)
+      invalid("file_publication.parent", "accessible local parent", raw);
+    const auto next = cursor.parent_path();
+    if (next == cursor) break;
+    cursor = next;
+  }
+  parent = std::filesystem::canonical(parent, error);
+  if (error) invalid("file_publication.parent", "resolvable local parent", raw);
+  absolute = parent / absolute.filename();
+  if (absolute == store)
+    invalid("file_publication.destination", "a path outside the run store",
+            utf8_path(absolute));
+  validate_text(utf8_path(absolute),
+                options.artifact_limits.max_root_path_bytes,
+                "file_publication.destination");
+#ifdef _WIN32
+  if (absolute.filename().native().find(L':') != std::wstring::npos)
+    invalid("file_publication.destination", "an ordinary file name",
+            "alternate stream");
+#endif
+  return absolute;
+}
+
+class PublicationIntentWriter final {
+ public:
+  void number(std::uint64_t value) {
+    reserve(8U);
+    for (unsigned shift = 0U; shift != 64U; shift += 8U)
+      bytes.push_back(static_cast<std::byte>((value >> shift) & 255U));
+  }
+  void field(std::span<const std::byte> value) {
+    number(value.size());
+    reserve(value.size());
+    bytes.insert(bytes.end(), value.begin(), value.end());
+  }
+  void text(std::string_view value) {
+    field(std::as_bytes(std::span(value.data(), value.size())));
+  }
+  std::vector<std::byte> bytes;
+
+ private:
+  void reserve(std::size_t count) const {
+    if (count > kPublicationIntentBytes - bytes.size())
+      exhausted("file_publication.intent", "at most 4 MiB", "oversized intent");
+  }
+};
+
+class PublicationIntentReader final {
+ public:
+  explicit PublicationIntentReader(std::span<const std::byte> bytes)
+      : remaining_(bytes) {}
+  std::uint64_t number() {
+    if (remaining_.size() < 8U) corrupt("file_publication.intent", "truncated");
+    std::uint64_t result = 0U;
+    for (unsigned shift = 0U; shift != 64U; shift += 8U)
+      result |= static_cast<std::uint64_t>(
+                    std::to_integer<unsigned char>(remaining_[shift / 8U]))
+                << shift;
+    remaining_ = remaining_.subspan(8U);
+    return result;
+  }
+  std::span<const std::byte> field(std::size_t maximum) {
+    const auto size = number();
+    if (size > maximum || size > remaining_.size())
+      corrupt("file_publication.intent", "oversized or truncated field");
+    const auto result = remaining_.first(static_cast<std::size_t>(size));
+    remaining_ = remaining_.subspan(result.size());
+    return result;
+  }
+  std::string text(std::size_t maximum) {
+    const auto value = field(maximum);
+    return {reinterpret_cast<const char*>(value.data()), value.size()};
+  }
+  void finish() const {
+    if (!remaining_.empty())
+      corrupt("file_publication.intent", "trailing data");
+  }
+
+ private:
+  std::span<const std::byte> remaining_;
+};
+
+TelemetryEnvelope publication_event(
+    const PublishedFileEvidenceRequest& request) {
+  auto result = request.event;
+  const auto& role = std::get<TelemetryArtifactReference>(result.payload).role;
+  result.payload = TelemetryArtifactReference{
+      .role = role,
+      .artifact = {.digest = request.expected_digest,
+                   .size_bytes = *request.descriptor.expected_size_bytes,
+                   .logical_name = request.descriptor.logical_name,
+                   .media_type = request.descriptor.media_type,
+                   .producer = request.descriptor.producer}};
+  return result;
+}
+
+std::vector<std::byte> encode_publication_intent(
+    const FilePublicationRequest& request, const TelemetryLimits& limits) {
+  PublicationIntentWriter out;
+  out.text("jyppx.file-publication/1");
+  out.text(request.publication_id);
+  out.text(utf8_path(request.destination));
+  out.text(request.evidence.reference_id);
+  out.number(request.evidence.attached_at_unix_ms);
+  out.text(request.evidence.event_batch_key);
+  out.field(
+      encode_telemetry_envelope(publication_event(request.evidence), limits));
+  return std::move(out.bytes);
+}
+
+FilePublicationRequest decode_publication_intent(
+    ArtifactReader& reader, const SQLiteRunStoreOptions& options,
+    std::stop_token stop, TelemetryDeadline deadline) {
+  if (reader.size_bytes() > kPublicationIntentBytes)
+    exhausted("file_publication.intent", "at most 4 MiB", "oversized intent");
+  std::vector<std::byte> bytes(static_cast<std::size_t>(reader.size_bytes()));
+  std::size_t total = 0U;
+  while (total < bytes.size()) {
+    check_telemetry_operation(stop, deadline);
+    const auto count = reader.read(std::span<std::byte>(bytes).subspan(total));
+    if (count == 0U || count > bytes.size() - total)
+      corrupt("file_publication.intent", "unexpected end of intent");
+    total += count;
+  }
+  PublicationIntentReader in(bytes);
+  if (in.text(64U) != "jyppx.file-publication/1")
+    corrupt("file_publication.intent", "unsupported intent format");
+  FilePublicationRequest result;
+  result.publication_id = in.text(options.max_reference_id_bytes);
+  const auto destination = in.text(options.artifact_limits.max_root_path_bytes);
+  result.destination = std::filesystem::path(
+      std::u8string_view(reinterpret_cast<const char8_t*>(destination.data()),
+                         destination.size()));
+  result.evidence.reference_id = in.text(options.max_reference_id_bytes);
+  result.evidence.attached_at_unix_ms = in.number();
+  result.evidence.event_batch_key =
+      in.text(options.event_limits.telemetry.max_identifier_bytes);
+  result.evidence.event = decode_telemetry_envelope(
+      in.field(options.event_limits.telemetry.max_envelope_bytes),
+      options.event_limits.telemetry);
+  in.finish();
+  auto* payload =
+      std::get_if<TelemetryArtifactReference>(&result.evidence.event.payload);
+  if (!payload) corrupt("file_publication.intent", "non-artifact event");
+  result.evidence.run_id = result.evidence.event.correlation.run_id;
+  result.evidence.expected_digest = payload->artifact.digest;
+  result.evidence.descriptor = {
+      .logical_name = payload->artifact.logical_name,
+      .media_type = payload->artifact.media_type,
+      .producer = payload->artifact.producer,
+      .expected_size_bytes = payload->artifact.size_bytes};
+  result.evidence.event.payload =
+      TelemetryArtifactReference{.role = payload->role};
+  return result;
+}
+
+RunArtifactReference publication_content_reference(
+    const FilePublicationRequest& request) {
+  return {.reference_id = publication_content_id(request.publication_id),
           .kind = RunArtifactKind::artifact,
-          .role = payload->role,
-          .artifact = {.digest = request.expected_digest,
-                       .size_bytes = recovered->size_bytes(),
-                       .logical_name = request.descriptor.logical_name,
-                       .media_type = request.descriptor.media_type,
-                       .producer = request.descriptor.producer},
-          .attached_at_unix_ms = request.attached_at_unix_ms};
-      impl_->attach_unlocked(
-          request.run_id,
-          std::span<const RunArtifactReference>(&result.reference, 1U), stop,
-          deadline);
-    } else {
-      if (!request.path) {
-        invalid("published_file.path", "a path for first registration",
-                "missing source file");
-      }
-      result.reference = impl_->put_artifact_file_unlocked(
-          request.run_id, request.reference_id, RunArtifactKind::artifact,
-          payload->role, *request.path, request.descriptor,
-          request.attached_at_unix_ms, request.expected_digest, stop, deadline);
-    }
-    auto event = request.event;
-    event.payload = TelemetryArtifactReference{
-        .role = payload->role, .artifact = result.reference.artifact};
-    const auto envelopes = std::span<const TelemetryEnvelope>(&event, 1U);
-    const auto prepared =
-        prepare_event_append(request.run_id, request.event_batch_key, envelopes,
+          .role = std::string(kPublicationContentRole),
+          .artifact = {.digest = request.evidence.expected_digest,
+                       .size_bytes =
+                           *request.evidence.descriptor.expected_size_bytes,
+                       .logical_name = request.evidence.descriptor.logical_name,
+                       .media_type = request.evidence.descriptor.media_type,
+                       .producer = request.evidence.descriptor.producer},
+          .attached_at_unix_ms = request.evidence.attached_at_unix_ms};
+}
+}  // namespace
+
+RunArtifactReference SQLiteRunStore::prepare_file_publication(
+    const FilePublicationRequest& request, std::stop_token stop,
+    TelemetryDeadline deadline) {
+  (void)validate_published_file_request(request.evidence, stop, deadline);
+  impl_->validate_run_id(request.evidence.run_id);
+  validate_text(request.publication_id, impl_->options_.max_reference_id_bytes,
+                "file_publication.id");
+  auto normalized = request;
+  normalized.destination = publication_destination(
+      request.destination, impl_->root_, impl_->options_);
+  const auto content = publication_content_reference(normalized);
+  impl_->validate_reference(content);
+  if (request.publication_id == request.evidence.reference_id ||
+      content.reference_id == request.publication_id ||
+      content.reference_id == request.evidence.reference_id)
+    invalid("file_publication.id", "three distinct relationship IDs",
+            "collision");
+  validate_text(request.evidence.reference_id,
+                impl_->options_.max_reference_id_bytes, "reference_id");
+  const auto event = publication_event(request.evidence);
+  (void)prepare_event_append(request.evidence.run_id,
+                             request.evidence.event_batch_key,
+                             std::span<const TelemetryEnvelope>(&event, 1U),
                              impl_->options_.event_limits, stop, deadline);
-    result.event =
-        impl_->append_unlocked(request.run_id, request.event_batch_key,
-                               envelopes, prepared, stop, deadline, control);
+  const auto encoded = encode_publication_intent(
+      normalized, impl_->options_.event_limits.telemetry);
+  const ArtifactDescriptor descriptor{
+      .logical_name = "file-publication-v1",
+      .media_type = std::string(kPublicationMedia),
+      .producer = std::string(kPublicationProducer),
+      .expected_size_bytes = encoded.size()};
+  RunArtifactReference intent{
+      .reference_id = request.publication_id,
+      .kind = RunArtifactKind::artifact,
+      .role = std::string(kPublicationRole),
+      .artifact = {.digest = {.hex = sha256_hex(encoded)},
+                   .size_bytes = encoded.size(),
+                   .logical_name = descriptor.logical_name,
+                   .media_type = descriptor.media_type,
+                   .producer = descriptor.producer},
+      .attached_at_unix_ms = request.evidence.attached_at_unix_ms};
+  impl_->validate_reference(intent);
+  auto lock = event_lock(impl_->mutex_, stop, deadline);
+  OperationControl control(impl_->database_, impl_->options_.busy_timeout, stop,
+                           deadline);
+  try {
+    Transaction transaction(impl_->database_, true, &control);
+    (void)impl_->require_run(request.evidence.run_id);
+    const auto previous = impl_->find_reference_unlocked(
+        request.evidence.run_id, request.publication_id, &control);
+    if (previous) {
+      if (!same_reference(*previous, intent))
+        invalid("file_publication.id", "the original immutable intent",
+                "identity conflict");
+      const auto pinned = impl_->find_reference_unlocked(
+          request.evidence.run_id, content.reference_id, &control);
+      if (!pinned || !same_reference(*pinned, content))
+        corrupt("file_publication.content",
+                "missing or conflicting content pin");
+      const auto journal =
+          impl_->artifacts_.open(intent.artifact.digest, stop, deadline);
+      const auto payload =
+          impl_->artifacts_.open(content.artifact.digest, stop, deadline);
+      if (journal->size_bytes() != intent.artifact.size_bytes ||
+          payload->size_bytes() != content.artifact.size_bytes)
+        corrupt("file_publication.content", "persisted size mismatch");
+    } else {
+      if (!request.evidence.path)
+        invalid("file_publication.source",
+                "an input file for first preparation", "missing source");
+      impl_->put_artifact_file_unlocked(
+          request.evidence.run_id, content.reference_id, content.kind,
+          content.role, *request.evidence.path, request.evidence.descriptor,
+          request.evidence.attached_at_unix_ms,
+          request.evidence.expected_digest, stop, deadline);
+      auto upload = impl_->artifacts_.begin(descriptor);
+      upload->write(encoded);
+      intent.artifact = impl_->artifacts_.commit(
+          *upload, intent.artifact.digest, stop, deadline);
+      impl_->attach_unlocked(request.evidence.run_id,
+                             std::span<const RunArtifactReference>(&intent, 1U),
+                             stop, deadline);
+    }
+    transaction.commit();
+    return intent;
+  } catch (...) {
+    control.check();
+    throw;
+  }
+}
+
+FilePublicationResult SQLiteRunStore::recover_file_publication(
+    std::string_view run_id, std::string_view publication_id,
+    std::stop_token stop, TelemetryDeadline deadline) {
+  check_telemetry_operation(stop, deadline);
+  impl_->validate_run_id(run_id);
+  validate_text(publication_id, impl_->options_.max_reference_id_bytes,
+                "file_publication.id");
+  auto lock = event_lock(impl_->mutex_, stop, deadline);
+  OperationControl control(impl_->database_, impl_->options_.busy_timeout, stop,
+                           deadline);
+  try {
+    Transaction transaction(impl_->database_, true, &control);
+    (void)impl_->require_run(run_id);
+    const auto intent =
+        impl_->find_reference_unlocked(run_id, publication_id, &control);
+    if (!intent || intent->kind != RunArtifactKind::artifact ||
+        intent->role != kPublicationRole ||
+        intent->artifact.logical_name != "file-publication-v1" ||
+        intent->artifact.media_type != kPublicationMedia ||
+        intent->artifact.producer != kPublicationProducer)
+      invalid("file_publication.intent", "an existing prepared intent",
+              "absent or invalid");
+    auto journal =
+        impl_->artifacts_.open(intent->artifact.digest, stop, deadline);
+    if (journal->size_bytes() != intent->artifact.size_bytes)
+      corrupt("file_publication.intent", "persisted intent size mismatch");
+    auto request =
+        decode_publication_intent(*journal, impl_->options_, stop, deadline);
+    if (request.publication_id != publication_id ||
+        request.evidence.run_id != run_id ||
+        request.evidence.attached_at_unix_ms != intent->attached_at_unix_ms)
+      corrupt("file_publication.intent", "persisted identity mismatch");
+    if (publication_destination(request.destination, impl_->root_,
+                                impl_->options_) != request.destination)
+      invalid("file_publication.destination", "the original resolved path",
+              "path changed");
+    const auto expected = publication_content_reference(request);
+    const auto pinned =
+        impl_->find_reference_unlocked(run_id, expected.reference_id, &control);
+    if (!pinned || !same_reference(*pinned, expected))
+      corrupt("file_publication.content", "missing or conflicting content pin");
+    auto content =
+        impl_->artifacts_.open(expected.artifact.digest, stop, deadline);
+    if (content->size_bytes() != expected.artifact.size_bytes)
+      corrupt("file_publication.content", "persisted content size mismatch");
+    // Validate and stage both database relationships before touching the final
+    // path. WAL readers still see the pre-publication state until COMMIT.
+    auto evidence = impl_->published_file_evidence_unlocked(
+        request.evidence, true, stop, deadline, control);
+    detail::materialize_publication(*content, request.destination,
+                                    intent->artifact.digest.hex, stop,
+                                    deadline);
+    transaction.commit();
+    return {.path = std::move(request.destination),
+            .evidence = std::move(evidence)};
+  } catch (...) {
+    control.check();
+    throw;
+  }
+}
+
+std::vector<std::string> SQLiteRunStore::file_publications(
+    std::string_view run_id, std::string_view after_id, std::size_t limit,
+    std::stop_token stop, TelemetryDeadline deadline) const {
+  check_telemetry_operation(stop, deadline);
+  impl_->validate_run_id(run_id);
+  if (!after_id.empty())
+    validate_text(after_id, impl_->options_.max_reference_id_bytes,
+                  "file_publication.after_id");
+  if (limit == 0U || limit > 1024U)
+    invalid("file_publication.limit", "1 to 1024", "out of range");
+  auto lock = event_lock(impl_->mutex_, stop, deadline);
+  OperationControl control(impl_->database_, impl_->options_.busy_timeout, stop,
+                           deadline);
+  try {
+    Transaction transaction(impl_->database_, false, &control);
+    (void)impl_->require_run(run_id);
+    Statement query(
+        impl_->database_,
+        "SELECT reference_id FROM jyppx_run_artifacts WHERE run_id=?1 AND "
+        "reference_id>?2 AND kind=1 AND role=?3 AND media_type=?4 AND "
+        "producer=?5 "
+        "ORDER BY reference_id LIMIT ?6",
+        "file_publication.list", &control);
+    query.bind(1, run_id);
+    query.bind(2, after_id.empty() ? std::string_view("") : after_id);
+    query.bind(3, kPublicationRole);
+    query.bind(4, kPublicationMedia);
+    query.bind(5, kPublicationProducer);
+    query.bind(6, static_cast<std::uint64_t>(limit));
+    std::vector<std::string> result;
+    while (query.row())
+      result.push_back(query.text(0, impl_->options_.max_reference_id_bytes));
     transaction.commit();
     return result;
   } catch (...) {

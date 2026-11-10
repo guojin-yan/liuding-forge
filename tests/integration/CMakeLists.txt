@@ -156,4 +156,22 @@ if(Python3_Interpreter_FOUND)
             --work-dir "${CMAKE_BINARY_DIR}/_published_cas/$<CONFIG>")
     set_tests_properties(PublishedCasProcessRecovery PROPERTIES
         LABELS "experiment;integration;process" TIMEOUT 180)
+
+    add_executable(jyppx_file_publication_child
+        experiment/file_publication_child.cpp)
+    target_link_libraries(jyppx_file_publication_child PRIVATE
+        jyppx::liuding::experiment nlohmann_json::nlohmann_json)
+    target_include_directories(jyppx_file_publication_child PRIVATE
+        "${PROJECT_SOURCE_DIR}/src")
+    target_include_directories(jyppx_file_publication_child SYSTEM PRIVATE
+        "${jyppx_sqlite_SOURCE_DIR}")
+    jyppx_apply_instrumentation(jyppx_file_publication_child)
+    jyppx_add_torch_runtime_dependency(jyppx_file_publication_child)
+    add_test(NAME FilePublicationProcessRecovery
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_file_publication.py"
+            --child $<TARGET_FILE:jyppx_file_publication_child>
+            --work-dir "${CMAKE_BINARY_DIR}/_file_publication/$<CONFIG>")
+    set_tests_properties(FilePublicationProcessRecovery PROPERTIES
+        LABELS "experiment;integration;process" TIMEOUT 300)
 endif()

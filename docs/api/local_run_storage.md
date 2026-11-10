@@ -115,6 +115,28 @@ For a successfully published local output file, `record_published_file_evidence`
 提交阶段出现 I/O 或同步错误时，调用方可能没有收到成功回执，而完整事务已经写入 WAL；这类错误的提交结果未知，不能据异常认定数据库未写入。停止使用发生错误的句柄，重新打开存储，以原有 run、reference、batch、stream、event、sequence、摘要和描述符重试；已提交的请求会返回原回执，未提交的请求会重新提交，两种情况都不会产生半个联合提交或重复事件。在确认引用前保留原文件及完整请求身份。
 
 
+## 可恢复的最终文件发布
+
+需要在生产者进程和输入文件丢失后继续发布输出时，使用 `FilePublicationRequest`、`prepare_file_publication` 和 `recover_file_publication`。请求包含本 run 内稳定的 `publication_id`、最终 `destination` 和原 `PublishedFileEvidenceRequest`；首次准备时 `evidence.path` 指向输入文件，描述符包含精确大小和摘要。父目录须已存在、由调用方控制，最终路径位于 run 存储之外；已有不同内容、重定向路径或身份冲突会被拒绝。
+
+`prepare_file_publication(request, stop, deadline)` 在同一 SQLite 写事务里将输入内容和完整意图各登记为一个普通 run 引用。意图保存规范事件、原描述符、时间戳、目标路径及结果身份；成功后可删除输入文件。准备阶段不会发布最终路径或结果事件，失败时新增的两个引用一起回滚；未引用 CAS 字节仍可由协调 GC 清理。意图最多 4 MiB，内容沿用制品字节上限；最终复制按 64 KiB 分块，支持取消和截止时间。重试准备须使用原意图；已成功准备后可省略 `evidence.path`。
+
+重启后用 `file_publications(run_id, after_id, limit)` 分页发现意图 ID。每页 1–1024 项，按 ID 升序排列，`after_id` 为排他游标；已完成的意图也保留，适合统一幂等重放。恢复入口只需要 run ID 和意图 ID，直接读取原持久化请求，不重新执行生产者：
+
+```cpp
+auto ids = runs.file_publications("run-1");
+for (const auto& id : ids) {
+  auto confirmed = runs.recover_file_publication("run-1", id);
+  // confirmed.path and confirmed.evidence describe the complete publication.
+}
+```
+
+`recover_file_publication` 持有 SQLite 写锁，核验意图和 CAS，先在未提交事务里检查并登记结果引用与事件，再将 CAS 内容写入同目录专用暂存、同步并以不覆盖方式发布最终文件，最后提交 SQLite。现有文件必须完整匹配大小和摘要；匹配重放保留文件身份及修改时间。进程在文件发布后、数据库提交前退出时，意图和内容仍由原引用保护，下一次恢复确认文件并补交数据库。提交已成功但回执丢失时，相同身份返回原事件回执。不同连接按数据库写锁串行，协调 GC 无法进入复制和提交窗口。
+
+准备阶段占两个 run 引用；完整提交后共占四个引用，分别为内容、意图、结果和事件，各自计入链接字节配额。内容即使去重也按每个引用计费，意图和内容保留供后续恢复、GC 和备份。首次完成沿用 run 的可写生命周期，调用方应先完成输出再把 run 标记为终态；终态只允许已登记证据的幂等重放。`backup` 包含这些引用及对应 CAS，`restore_backup` 不自动写入外部文件。意图保留原绝对目标路径，恢复不会重新定位目录；只对受信任的本地存储显式执行恢复。专用 `.liuding-publication-<意图摘要>.stage` 名称保留给该协议，进程中断后的文件仅按原意图恢复，不扫描删除其他暂存。
+
+最终发布要求本地文件系统支持同目录硬链接；Windows 暂存句柄使用关闭时删除标志，成功创建的最终硬链接独立保留。成功回执确认文件与数据库证据均已完成。原始文件可能在 SQLite 提交前被直接观察到，任意文件读取者和数据库之间仍无瞬时共同可见性；数据游标不属于这个事务，进程强杀验证也不等同断电恢复资格。`ImageOutputSink` 回调可以只执行准备，此时回调 future 只确认准备，完整输出须等待恢复回执。可运行示例见[图像文件发布](../../examples/experiment/PUBLISHED_FILE.md)。
+
 ## Durability and schema v2
 
 SQLite uses WAL, `synchronous=FULL`, foreign-key enforcement, a full-mutex connection, and a per-handle mutex. Different handles/processes writing the same database coordinate through `BEGIN IMMEDIATE`. The default busy timeout is five seconds; exhaustion reports `NotReady`, so callers can retry the same operation identity. The directory must permit creation of SQLite's WAL and shared-memory files and support WAL; this is a local store, with no network filesystem or remote-service guarantee.

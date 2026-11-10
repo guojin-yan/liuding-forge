@@ -13,6 +13,50 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cu126-dirty-afed5b5-durable-file-publication",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "CPU only;LibTorch2.14.1+cu126;CUDA Toolkit12.9",
+          "build_type": "Release",
+          "commit": "afed5b52c7f0f253430524a8fbc22f80a5dc3e21",
+          "tests": "85 unique CTest contracts qualified in stages:84 passed in r3,corrected process contract1 in r4;installed consumer1/1 and quality3 in r5;zero skips.",
+          "instrumentation": "Fixed existing build/consumer trees;one compile/native/test job;3GiB exact Windows Job.",
+          "quality_evidence": {
+            "source_identity": "afed5b52c7f0f253430524a8fbc22f80a5dc3e21+dirty,18-file feature slice;final header whitespace and example documentation correction preserve tested product tokens. Acceptance metadata does not relabel installed SDK fingerprints.",
+            "contracts": "Prepare intent and content as atomic run references;discover intent IDs after source loss;reconstruct non-replacing final file,then jointly commit result reference/event. Fourteen new C++ methods,four process methods/eight real forced-kill boundaries;independent SQL/CAS/final-file audit.",
+            "resources": "Kernel Job peak1205723136B,sampled aggregate RSS1248788480B.Original deadlines/cumulative budgets retained;all owned jobs/cgroups exited and locks released.",
+            "installation": "Current experiment/core/foundation libraries and public header consumed. Verified temporary SDKs/fixtures removed;fixed caches and formal SDK/runtime/coverage identities retained;no runtime copies.",
+            "documentation": "158 public headers passed strict Doxygen with zero warnings in the existing Ubuntu tree;updated C++ example recovered final PNG and verified its bytes. Ten changed C++ files formatted;three final header whitespace alignments preserve noncomment tokens.",
+            "maintenance": "Original Windows delete-on-close rename defect fixed by independent final hardlink;long-path checker and default-codepage inline comments repaired. Memory admission failure started zero native commands. Linux Python3.10 helper and audit corrections retained;successful training/load workloads not repeated.",
+            "independent_audit_sha256": "58e79450e8ff558358c49b044811c05ef67edcc2572819a7aa939d5775659d83",
+            "scope": "Durable local publication completion/recovery protocol only. Arbitrary raw-file/SQL instant joint visibility,power loss,full training/CUDA/private workspace/paired performance,complete Vision and final release remain unqualified. INT8 deferred;network security paused."
+          }
+        },
+        {
+          "id": "local-ubuntu-gcc114-cpu-dirty-afed5b5-durable-file-publication",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "afed5b52c7f0f253430524a8fbc22f80a5dc3e21",
+          "tests": "85 CTest contracts plus installed consumer1/1 passed;zero skips. Final checker/comment continuation:process1,quality3,installed1,strict Doxygen.",
+          "instrumentation": "Fixed existing build/consumer trees;one compile/native/test job;6GiB cgroup with swap0.",
+          "quality_evidence": {
+            "source_identity": "afed5b52c7f0f253430524a8fbc22f80a5dc3e21+dirty,18-file feature slice;final header whitespace and example documentation correction preserve tested product tokens. Acceptance metadata does not relabel installed SDK fingerprints.",
+            "contracts": "Prepare intent and content as atomic run references;discover intent IDs after source loss;reconstruct non-replacing final file,then jointly commit result reference/event. Fourteen new C++ methods,four process methods/eight real forced-kill boundaries;independent SQL/CAS/final-file audit.",
+            "resources": "Peak cgroup memory1647812608B,swap0,zero limit/OOM events.Original deadlines/cumulative budgets retained;all owned jobs/cgroups exited and locks released.",
+            "installation": "Current experiment/core/foundation libraries and public header consumed. Verified temporary SDKs/fixtures removed;fixed caches and formal SDK/runtime/coverage identities retained;no runtime copies.",
+            "documentation": "158 public headers passed strict Doxygen with zero warnings in the existing Ubuntu tree;updated C++ example recovered final PNG and verified its bytes. Ten changed C++ files formatted;three final header whitespace alignments preserve noncomment tokens.",
+            "maintenance": "Original Windows delete-on-close rename defect fixed by independent final hardlink;long-path checker and default-codepage inline comments repaired. Memory admission failure started zero native commands. Linux Python3.10 helper and audit corrections retained;successful training/load workloads not repeated.",
+            "independent_audit_sha256": "f0151275e9361b48f3d29f346c91dda31016346dd485b9476b9de126c94edf88",
+            "scope": "Durable local publication completion/recovery protocol only. Arbitrary raw-file/SQL instant joint visibility,power loss,full training/CUDA/private workspace/paired performance,complete Vision and final release remain unqualified. INT8 deferred;network security paused."
+          }
+        },
+        {
           "id": "local-ubuntu-gcc114-cpu-dirty-91ddfff-vision-output-pipeline",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
