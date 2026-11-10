@@ -13,6 +13,29 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cu126-clean-e54b8ee-image-producer",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;CUDA Toolkit12.9;CPU encoding/producer contracts only",
+          "build_type": "Release",
+          "commit": "e54b8eea931147c3af5daba121c58a3ed5f0f453",
+          "tests": "10 new producer methods and100 repeated executions passed.73 selected unique CTest contracts closed in stages:72passed,1Windows symlink-permission skip; installed data_image consumer1/1,zero skips.",
+          "instrumentation": "Existing VS17 2022 Release build and data_image install-consumer caches;one compiler/native workload;each command in an exact3GiB Windows Job. Canonical Torch DLLs remain hardlinks.",
+          "quality_evidence": {
+            "source_identity": "Clean e54b8eea931147c3af5daba121c58a3ed5f0f453. Current data_image library and both selected native test executables rebuilt;1278 tracked source SHA/mtime preserved during execution. Temporary data_image consumer imports current staged headers/libraries. Formal246-file SDK remains93da49f375ce40c9f2c4caaafc8f59300af9b4fd;no binary relabel.",
+            "contracts": "Local/shared capacity reserved before callbacks;shared single-capacity contention,cancellation,close,producer failures,capacity overflow,sampling/drop,pre-cancel,evidence occupancy and fatal writer failure. Original73-test run used an older static executable for15ImageOutputEvidence contracts;that target was rebuilt and those15alone requalified. Counts are unique contracts closed in stages,not one fresh73/73 run.",
+            "skipped": "ImageOutputSinkTest.IdenticalReplayDoesNotFollowSymlink:Windows symlink permission unavailable;neither a pass nor Windows symlink qualification.",
+            "resources": "Kernel Job peak1307869184B;sampled aggregate owned RSS1335635968B;minimum available physical4074536960B. Original1h deadline,cumulative build220.437s/native53.796s and memory/disk/temporary limits preserved. One independent compiler leaf.",
+            "installation": "Installed data_image consumer1/1;current header and four current libraries independently matched the build and actual link command uses the temporary install.37Torch DLL aliases share canonical file identities;zero new Torch runtime copies. Temporary246-file399945678B SDK,including twoORT DLL payloads14208104B,verified and removed;consumer cache retained.",
+            "maintenance": "Initial supervisor misclassified two authorized temporary SDK ORT DLL payloads;preserved failure and continued only the interrupted install stage with unchanged byte/resource/deadline limits. Two checker failures(variable shadowing and native log encoding)preserved;raw native log bytes retained. No successful producer methods or installed consumer rerun.",
+            "independent_audit_sha256": "64f45597c71b0188de4c71e423a7ff2852b73e178f20a3d707fa2ad770a203fb",
+            "receipts_archive_sha256": "3c798d14672536015be6c73569af6952bc9f727c1b43426e1d3dd4c599692cbf",
+            "scope": "Windows CPU explicit output producer pre-admission only. Captured inputs,waiting threads,arbitrary callbacks,private workspace,complete cross-stage byte/RSS/GPU backpressure,publication recovery,performance and full release remain independent. INT8 deferred;network-security work paused."
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cu126-clean-d4cf01e-ort-cpu-load",
           "os": "windows-11",
           "architecture": "x86_64",
