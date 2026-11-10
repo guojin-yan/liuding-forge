@@ -258,15 +258,21 @@ int main() {
   std::stop_source cancelled;
   cancelled.request_stop();
   bool cancelled_before_publication = false;
+  bool producer_called = false;
   try {
-    sink.submit("installed-cancelled.png",
-                encode_image(image.tensor, image.pixels), {},
-                cancelled.get_token());
+    sink.produce_and_submit(
+        "installed-cancelled.png", 4096,
+        [&](std::stop_token) {
+          producer_called = true;
+          return encode_image(image.tensor, image.pixels);
+        },
+        {}, cancelled.get_token());
   } catch (const jyppx::liuding::Cancelled&) {
     cancelled_before_publication = true;
   }
   sink.close();
-  if (!cancelled_before_publication || sink.stats().queued != 0 ||
+  if (!cancelled_before_publication || producer_called ||
+      sink.stats().producing_items != 0 || sink.stats().queued != 0 ||
       sink_options.resource_budget
               ->usage(ImageResourceKind::encoded_queue_bytes)
               .current != 0)

@@ -100,6 +100,10 @@ struct ImageOutputSinkStats {
   std::size_t pending_items = 0;  ///< Accepted work not yet fully settled.
   std::size_t pending_bytes =
       0;  ///< Admission bytes held through evidence work.
+  std::size_t producing_items = 0;
+  ///< Active producer callbacks holding local capacity before queue acceptance.
+  std::size_t producing_bytes = 0;
+  ///< Declared encoded-capacity bounds reserved by active producer callbacks.
 };
 
 /** @brief One failed asynchronous publication or callback diagnostic.
@@ -112,8 +116,9 @@ struct ImageSinkFailure {
 /**
  * @brief Owns one writer thread and a bounded queue of encoded images.
  *
- * The caller encodes before admission; no Tensor or CUDA transfer is hidden in
- * the sink. Sampling hashes a stable key and is independent of submission
+ * Ordinary submit consumes caller-encoded storage; produce_and_submit admits
+ * its explicit producer before encoding. No Tensor or CUDA transfer is hidden
+ * in the sink. Sampling hashes a stable key and is independent of submission
  * order. Encoded-byte leases are released after publication settles; item and
  * byte admission remain held until the optional callback finishes. Queue and
  * temporary-file bytes use separate aggregate budget categories.
@@ -196,6 +201,39 @@ class ImageOutputSink final {
       std::filesystem::path path, EncodedImage image,
       std::function<void(const ImageSinkWriteResult&)> record_evidence,
       std::string_view sample_key = {}, std::stop_token stop = {});
+
+  /**
+   * @brief Reserves output capacity before invoking an image producer.
+   * @param path PNG/JPEG destination for the produced encoded image.
+   * @param max_capacity_bytes Positive bound on the returned byte vector's
+   * capacity; charged to local and aggregate queues until publication settles.
+   * @param producer Called once on the submitting thread after admission,
+   * without the sink mutex. Receives caller/close/fatal-error cancellation.
+   * @param sample_key Stable nonempty key when sampling is configured.
+   * @param stop Cancels waiting or cooperatively stops the producer.
+   * @param record_evidence Optional publication callback, with the same
+   * lifetime, error and reentrancy rules as submit_with_evidence.
+   * @return Admission decision and file/evidence futures when queued.
+   * @throws InvalidArgument Invalid producer, path, bound or encoded result.
+   * @throws ResourceExhausted The bound exceeds queue limits or the returned
+   * vector capacity exceeds the declared bound.
+   * @throws Cancelled Caller cancellation before queue acceptance.
+   * @note Sampling, dropping and cancelled waiting do not call the producer.
+   * Callback exceptions propagate synchronously and release reservations;
+   * they do not create an accepted write. Close or fatal failure prevents
+   * queue acceptance even if a producer ignores its stop token. Producers
+   * must return promptly and must not reenter the same sink. Their captured
+   * inputs, transient allocations and private workspace are not covered by
+   * this output bound; use the encoder resource budget for codec allocations.
+   * producing_items/producing_bytes share local limits with pending work.
+   * Flush waits for accepted writes and excludes callbacks still producing.
+   * Finish active producers before destroying the sink.
+   */
+  ImageSinkSubmission produce_and_submit(
+      std::filesystem::path path, std::size_t max_capacity_bytes,
+      std::function<EncodedImage(std::stop_token)> producer,
+      std::string_view sample_key = {}, std::stop_token stop = {},
+      std::function<void(const ImageSinkWriteResult&)> record_evidence = {});
 
   /** @brief Waits for all work accepted before this call and rethrows errors.
    * @param stop Cooperative cancellation of the wait; accepted work continues.

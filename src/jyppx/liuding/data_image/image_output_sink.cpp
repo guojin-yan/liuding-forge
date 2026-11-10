@@ -403,9 +403,11 @@ class ImageOutputSink::Impl final {
   ImageSinkSubmission Submit(
       std::filesystem::path path, EncodedImage image,
       std::string_view sample_key, std::stop_token stop,
-      std::function<void(const ImageSinkWriteResult&)> record_evidence = {}) {
-    ValidateImage(path, image);
-    const auto bytes = image.bytes.size();
+      std::function<void(const ImageSinkWriteResult&)> record_evidence = {},
+      std::function<EncodedImage(std::stop_token)> producer = {},
+      std::size_t production_bound = 0) {
+    if (!producer) ValidateImage(path, image);
+    const auto bytes = producer ? production_bound : image.bytes.size();
     if (bytes > options_.max_item_bytes || bytes > options_.max_pending_bytes)
       throw ResourceExhausted("Encoded image exceeds output sink capacity",
                               ErrorDetails{.component = std::string(kComponent),
@@ -419,6 +421,7 @@ class ImageOutputSink::Impl final {
     // exception also destroys encoded storage before waking shared waiters.
     Work work;
     work.path = std::move(path);
+    work.admission_bytes = bytes;
     work.image = std::move(image);
     work.record_evidence = std::move(record_evidence);
     std::stop_source admission_stop;
@@ -438,8 +441,10 @@ class ImageOutputSink::Impl final {
               .evidence_completion = {}};
     }
     const auto capacity = [&] {
-      return stats_.pending_items < options_.max_pending_items &&
-             bytes <= options_.max_pending_bytes - stats_.pending_bytes;
+      return stats_.pending_items + stats_.producing_items <
+                 options_.max_pending_items &&
+             bytes <= options_.max_pending_bytes - stats_.pending_bytes -
+                          stats_.producing_bytes;
     };
     if (!capacity() &&
         options_.overflow == ImageSinkOverflowPolicy::drop_newest) {
@@ -501,21 +506,85 @@ class ImageOutputSink::Impl final {
       throw Cancelled("Image output admission cancelled",
                       ErrorDetails{.component = std::string(kComponent),
                                    .operation = "submit.wait"});
-    work.sequence = stats_.queued + 1;
-    auto completion = work.promise.get_future();
-    std::future<void> evidence_completion;
-    if (work.record_evidence) {
-      work.evidence_promise.emplace();
-      evidence_completion = work.evidence_promise->get_future();
+    const bool producing = static_cast<bool>(producer);
+    if (producing) {
+      ++stats_.producing_items;
+      stats_.producing_bytes += bytes;
     }
-    queue_.push_back(std::move(work));
-    ++stats_.queued;
-    ++stats_.pending_items;
-    stats_.pending_bytes += bytes;
-    changed_.notify_all();
-    return {.disposition = ImageSinkDisposition::queued,
-            .completion = std::move(completion),
-            .evidence_completion = std::move(evidence_completion)};
+    try {
+      if (producing) {
+        lock.unlock();
+        work.image = producer(admission_stop.get_token());
+        ValidateImage(work.path, work.image);
+        if (work.image.bytes.capacity() > bytes)
+          throw ResourceExhausted(
+              "Produced encoded capacity exceeds its admission bound",
+              ErrorDetails{
+                  .component = std::string(kComponent),
+                  .operation = "produce.capacity",
+                  .expected = std::to_string(bytes),
+                  .actual = std::to_string(work.image.bytes.capacity())});
+        lock.lock();
+        if (stop.stop_requested())
+          throw Cancelled("Image output production cancelled");
+        if (closed_) Invalid("submit.state", "open sink");
+        if (first_error_ && !options_.continue_after_error)
+          std::rethrow_exception(first_error_);
+      }
+      work.sequence = stats_.queued + 1;
+      auto completion = work.promise.get_future();
+      std::future<void> evidence_completion;
+      if (work.record_evidence) {
+        work.evidence_promise.emplace();
+        evidence_completion = work.evidence_promise->get_future();
+      }
+      queue_.push_back(std::move(work));
+      if (producing) {
+        --stats_.producing_items;
+        stats_.producing_bytes -= bytes;
+      }
+      ++stats_.queued;
+      ++stats_.pending_items;
+      stats_.pending_bytes += bytes;
+      changed_.notify_all();
+      return {.disposition = ImageSinkDisposition::queued,
+              .completion = std::move(completion),
+              .evidence_completion = std::move(evidence_completion)};
+    } catch (...) {
+      if (producing) {
+        // Free produced storage before either admission reservation becomes
+        // available to another producer. Never run lease wakeups under mutex_.
+        if (lock.owns_lock()) lock.unlock();
+        work.image = EncodedImage{};
+        work.queue_lease.release();
+        lock.lock();
+        --stats_.producing_items;
+        stats_.producing_bytes -= bytes;
+        changed_.notify_all();
+      }
+      throw;
+    }
+  }
+
+  ImageSinkSubmission Produce(
+      std::filesystem::path path, std::size_t max_capacity_bytes,
+      std::function<EncodedImage(std::stop_token)> producer,
+      std::string_view sample_key, std::stop_token stop,
+      std::function<void(const ImageSinkWriteResult&)> record_evidence) {
+    if (!producer || max_capacity_bytes == 0)
+      Invalid("produce", "nonempty producer and positive capacity bound");
+    if (path.empty() || path.filename().empty())
+      Invalid("submit.path", "a nonempty file path");
+    auto extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char value) {
+                     return static_cast<char>(std::tolower(value));
+                   });
+    if (extension != ".png" && extension != ".jpg" && extension != ".jpeg")
+      Invalid("submit.extension", "PNG or JPEG extension");
+    return Submit(std::move(path), {}, sample_key, stop,
+                  std::move(record_evidence), std::move(producer),
+                  max_capacity_bytes);
   }
 
   void Flush(std::stop_token stop) {
@@ -556,6 +625,7 @@ class ImageOutputSink::Impl final {
  private:
   struct Work {
     std::uint64_t sequence = 0;
+    std::size_t admission_bytes = 0;
     std::filesystem::path path;
     ImageResourceLease queue_lease;
     EncodedImage image;  // Destruction frees bytes before the queue lease.
@@ -611,7 +681,7 @@ class ImageOutputSink::Impl final {
       } else {
         work.promise.set_exception(error);
       }
-      const auto bytes = work.image.bytes.size();
+      const auto bytes = work.admission_bytes;
       std::vector<std::byte>().swap(work.image.bytes);
       work.image.output_lease.release();
       work.queue_lease.release();
@@ -692,6 +762,16 @@ ImageSinkSubmission ImageOutputSink::submit(std::filesystem::path path,
                                             std::string_view sample_key,
                                             std::stop_token stop) {
   return impl_->Submit(std::move(path), std::move(image), sample_key, stop);
+}
+
+ImageSinkSubmission ImageOutputSink::produce_and_submit(
+    std::filesystem::path path, std::size_t max_capacity_bytes,
+    std::function<EncodedImage(std::stop_token)> producer,
+    std::string_view sample_key, std::stop_token stop,
+    std::function<void(const ImageSinkWriteResult&)> record_evidence) {
+  return impl_->Produce(std::move(path), max_capacity_bytes,
+                        std::move(producer), sample_key, stop,
+                        std::move(record_evidence));
 }
 
 ImageSinkSubmission ImageOutputSink::submit_with_evidence(

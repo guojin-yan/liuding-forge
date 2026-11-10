@@ -266,6 +266,10 @@ auto view = image::transform_sample(sample, sampled, joint_options);
 
 多个 sink 可共享同一个 `resource_budget`；默认共享额度不足立即报 `ResourceExhausted`。需要在共享编码队列上施加背压时，设置 `overflow = ImageSinkOverflowPolicy::block` 和 `wait_for_aggregate_queue = true`：提交会等待 `encoded_queue_bytes`，调用方取消、sink 关闭或默认策略下的首次异步失败都会唤醒等待；请求超过整个共享队列上限时立即拒绝。等待不持有 sink 互斥锁或本地队列名额，取得共享额度后重新检查本地容量，避免多个生产者互相占住额度。该选项与 `drop_newest` 互斥；无共享预算时无额外等待。等待中的提交尚未计入 `pending_items/pending_bytes`，其编码输入已经由调用方分配，调用方仍须约束并发生产者及上游内存；磁盘暂存预约继续非阻塞，取消只影响尚未接受的提交。
 
+需要先限制生产并发、再编码时，使用 `produce_and_submit(path, max_capacity_bytes, producer, sample_key, stop, record_evidence)`。sink 在调用 `producer(std::stop_token)` 前预约一个本地项、声明的编码容量上限及共享 `encoded_queue_bytes`；未取得容量、采样跳过、丢弃或等待取消均不执行回调。生产回调在提交线程中运行，不持有 sink 互斥锁，接收调用方、关闭和致命写入错误合并的停止令牌；回调须及时返回，不能重入同一 sink。返回编码缓冲的 `bytes.capacity()` 超过声明上限时拒绝发布，回调异常同步传回并归还预约，不计为异步写入失败。可将编码器 `max_output_bytes` 设为相同上限，并用编码器共享预算限制已知编码工作量；自定义生产者仍须自行遵守容量和工作区约束。
+
+`producing_items/producing_bytes` 统计已取得额度、尚未交给写入队列的生产回调；它们与已接受的 `pending_items/pending_bytes` 共用本地容量。发布后先释放编码存储及共享队列额度，本地声明容量仍保持到证据回调结束。`flush` 只等待已经入队的工作；关闭会拒绝尚未入队的生产结果并请求停止，调用方须在析构前结束所有生产回调。回调捕获的输入、等待线程、任意临时分配和私有 workspace 不由编码输出额度计费，该接口不构成全流水线 RSS 或显存硬上限。
+
 回调仅在文件成功发布后由现有写入线程执行；采样跳过、容量丢弃、文件写入失败均不会调用它。已排队的提交同时返回文件 `completion` 和 `evidence_completion`，前者即使证据登记失败仍保留成功发布的路径与摘要，后者单独报告登记结果。无回调的 `submit` 只有文件 future；未入队时两个 future 都无效。回调执行前已释放编码缓冲及其资源租约，但该项仍占用 sink 的项数和容量直到回调结束；调用方须保证捕获对象活到回调完成。回调捕获对象的内存不计入编码字节预算，应保持有界并及时返回，不得重新调用同一 sink。回调失败计入失败统计并由 `flush/close` 传播；默认策略停止后续已排队写入，`continue_after_error` 可允许继续。
 
 使用原有 `record_published_file_evidence` 时，文件发布、CAS 引用登记和事件追加分阶段完成。证据失败后保留 `completion` 的身份，按[本地 run 存储](local_run_storage.md)使用原有 reference、事件身份和描述符重试；已持久化的引用可在原文件移走后恢复事件。该回调只简化关联，不代表跨阶段严格内存上界或端到端训练提速。
