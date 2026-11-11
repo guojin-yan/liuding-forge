@@ -600,9 +600,9 @@ add_library(jyppx_liuding_training STATIC
     src/jyppx/liuding/training/callbacks/early_stopping_callback.cpp
     src/jyppx/liuding/training/checkpoint_coordinator.cpp
     src/jyppx/liuding/training/batch_norm_calibration.cpp
-    src/jyppx/liuding/training/classification_evaluation.cpp
-    src/jyppx/liuding/training/segmentation_evaluation.cpp
-    src/jyppx/liuding/training/detection_evaluation.cpp
+    src/jyppx/liuding/training/evaluation/classification_evaluation.cpp
+    src/jyppx/liuding/training/evaluation/segmentation_evaluation.cpp
+    src/jyppx/liuding/training/evaluation/detection_evaluation.cpp
     src/jyppx/liuding/training/event_sink.cpp
     src/jyppx/liuding/training/telemetry_adapter.cpp
     src/jyppx/liuding/training/amp/grad_scaler.cpp

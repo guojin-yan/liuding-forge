@@ -302,14 +302,14 @@ jyppx_add_gtest(jyppx_test_training_detection_metric
 target_link_libraries(jyppx_test_training_detection_metric PRIVATE nlohmann_json::nlohmann_json)
 jyppx_add_gtest(jyppx_test_training_detection_evaluation
     LINK_TARGET jyppx::liuding::training
-    training/test_detection_evaluation.cpp)
+    training/evaluation/test_detection_evaluation.cpp)
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_detection_evaluation PRIVATE jyppx::liuding::experiment)
     target_compile_definitions(jyppx_test_training_detection_evaluation PRIVATE JYPPX_LIUDING_EVALUATION_REPORT_TEST=1)
 endif()
 jyppx_add_gtest(jyppx_test_training_segmentation_evaluation
     LINK_TARGET jyppx::liuding::training
-    training/test_segmentation_evaluation.cpp
+    training/evaluation/test_segmentation_evaluation.cpp
 )
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_segmentation_evaluation PRIVATE jyppx::liuding::experiment)
@@ -319,7 +319,7 @@ endif()
 
 jyppx_add_gtest(jyppx_test_training_spatial_evaluation_sessions
     LINK_TARGET jyppx::liuding::training
-    training/test_spatial_evaluation_sessions.cpp)
+    training/evaluation/test_spatial_evaluation_sessions.cpp)
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_spatial_evaluation_sessions PRIVATE
         jyppx::liuding::experiment)
@@ -335,8 +335,8 @@ target_link_libraries(jyppx_test_training_batch_norm_calibration PRIVATE
 
 jyppx_add_gtest(jyppx_test_training_classification_evaluation
     LINK_TARGET jyppx::liuding::training
-    training/test_classification_evaluation.cpp
-    training/test_classification_evaluation_session.cpp
+    training/evaluation/test_classification_evaluation.cpp
+    training/evaluation/test_classification_evaluation_session.cpp
 )
 if(TARGET jyppx::liuding::experiment)
     target_link_libraries(jyppx_test_training_classification_evaluation PRIVATE

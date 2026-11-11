@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 训练评估的分类、分割、检测实现与共享私有头集中到 evaluation 子目录，相关测试按同一模块归拢，公开 include 路径保持稳定。
+
 - 明确训练诊断报告在发布中断、回执丢失后的重试边界；增加 CAS 发布、引用提交及检查点缺失/损坏的原生进程恢复回归，相关测试头文件与实现集中在训练诊断模块目录。
 
 - 补齐 Windows CPU 安装 SDK 的异训练权重 ONNX 切换与回退验收：每个版本使用各自原生参考，旧租约保持绑定，回退输出逐字节恢复；保留实际 SDK 与环境资格边界。
