@@ -773,14 +773,16 @@ void ModelCheckpointParticipant::load_state(const StateReader& reader,
       if (!bytes.empty()) {
         std::memcpy(cpu.data_ptr(), bytes.data(), bytes.size());
       }
-      candidates.push_back(cpu.to(entry.tensor.device(),
-                                  entry.tensor.scalar_type(), false, true));
+      candidates.push_back(std::move(cpu));
     }
 
     std::vector<Tensor> rollback;
     rollback.reserve(current.entries.size());
     for (const auto& entry : current.entries) {
-      rollback.push_back(entry.tensor.detach().clone());
+      // Keep both complete staging sets off the accelerator. copy=true also
+      // gives CPU tensors independent storage before the first commit write.
+      rollback.push_back(entry.tensor.detach().to(
+          torch::Device(torch::kCPU), entry.tensor.scalar_type(), false, true));
     }
 
     at::NoGradGuard no_grad;

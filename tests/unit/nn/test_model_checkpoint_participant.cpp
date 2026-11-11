@@ -8,11 +8,19 @@
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/nn/model_checkpoint_participant.hpp>
 
+#include <ATen/record_function.h>
+#include <c10/core/StorageImpl.h>
+#ifdef JYPPX_LIUDING_NN_CUDA_METRICS
+#include <c10/cuda/CUDACachingAllocator.h>
+#endif
+
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <gtest/gtest.h>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -694,5 +702,234 @@ TEST(ModelCheckpointParticipantTest,
     EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
   }
 }
+
+class StridedAliasModelImpl final : public torch::nn::Module {
+ public:
+  StridedAliasModelImpl(torch::Device device, torch::ScalarType dtype) {
+    const auto options = torch::TensorOptions().device(device).dtype(dtype);
+    base = register_buffer("base", torch::arange(12, options));
+    matrix = register_buffer("matrix", base.view({3, 4}).transpose(0, 1));
+    offset = register_buffer("offset", base.narrow(0, 2, 4));
+    empty = register_buffer("empty", torch::empty({0}, options));
+  }
+  torch::Tensor base, matrix, offset, empty;
+};
+
+void expect_strided_alias_round_trip(torch::Device device) {
+  for (const auto dtype :
+       {torch::kFloat32, torch::kFloat16, torch::kBFloat16, torch::kFloat64}) {
+    SCOPED_TRACE(static_cast<int>(dtype));
+    auto model = std::make_shared<StridedAliasModelImpl>(device, dtype);
+    jyppx::liuding::nn::ModelCheckpointParticipant participant(
+        state_for(model));
+    const auto source = save_participant(participant);
+    const auto before = raw_model_fields(source);
+    const auto identity = model->base.unsafeGetTensorImpl();
+    const auto storage = model->base.storage().unsafeGetStorageImpl();
+    const auto strides = model->matrix.strides().vec();
+    ASSERT_FALSE(model->matrix.is_contiguous());
+    ASSERT_EQ(model->offset.storage_offset(), 2);
+    model->base.add_(100);
+    participant.load_state(source, jyppx::liuding::RestorePolicy::exact_only);
+    EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+    EXPECT_EQ(model->base.unsafeGetTensorImpl(), identity);
+    EXPECT_EQ(model->base.storage().unsafeGetStorageImpl(), storage);
+    EXPECT_EQ(model->matrix.strides().vec(), strides);
+    EXPECT_EQ(model->offset.storage_offset(), 2);
+    EXPECT_TRUE(model->base.is_alias_of(model->matrix));
+    EXPECT_TRUE(model->base.is_alias_of(model->offset));
+    EXPECT_EQ(model->base.device(), device);
+    EXPECT_EQ(model->base.scalar_type(), dtype);
+    EXPECT_EQ(model->empty.numel(), 0);
+  }
+}
+
+TEST(ModelCheckpointParticipantTest,
+     CpuRestorePreservesStridesOffsetsAndAliases) {
+  expect_strided_alias_round_trip(torch::Device(torch::kCPU));
+}
+
+TEST(ModelCheckpointParticipantTest,
+     CudaRestorePreservesStridesOffsetsAndAliases) {
+  if (!torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA device is unavailable";
+  expect_strided_alias_round_trip(torch::Device(torch::kCUDA, 0));
+}
+
+// Observe the real aten::copy_ calls and inject a one-shot storage write
+// failure. Snapshot reads are untouched; no fault hooks enter the library.
+enum class CommitFaultKind { backend, backend_oom, host_oom };
+
+struct CommitFault {
+  std::vector<torch::Tensor> targets;
+  std::vector<std::size_t> copies;
+  std::size_t failures = 0;
+  bool fail_rollback = false;
+  CommitFaultKind kind = CommitFaultKind::backend;
+};
+
+thread_local CommitFault* active_commit_fault = nullptr;
+
+void fail_model_storage_write(c10::StorageImpl* storage) {
+  storage->clear_materializer();
+  ++active_commit_fault->failures;
+  // Simulate a backend that changed part of the destination before failing.
+  *static_cast<float*>(storage->mutable_data()) = -901.0F;
+  if (active_commit_fault->kind == CommitFaultKind::host_oom)
+    throw std::bad_alloc();
+  const c10::SourceLocation location{__func__, __FILE__,
+                                     static_cast<std::uint32_t>(__LINE__)};
+  if (active_commit_fault->kind == CommitFaultKind::backend_oom)
+    throw c10::OutOfMemoryError(location, "injected model commit allocation");
+  throw c10::Error(location, "injected model commit copy");
+}
+
+std::unique_ptr<at::ObserverContext> observe_model_copy(
+    const at::RecordFunction& function) {
+  if (std::string_view(function.name()) != "aten::copy_" ||
+      function.inputs().empty() || !function.inputs().front().isTensor())
+    return nullptr;
+  auto& fault = *active_commit_fault;
+  const auto& target = function.inputs().front().toTensor();
+  for (std::size_t index = 0; index < fault.targets.size(); ++index) {
+    if (target.unsafeGetTensorImpl() !=
+        fault.targets[index].unsafeGetTensorImpl())
+      continue;
+    fault.copies.push_back(index);
+    if (index == 2 &&
+        (fault.failures == 0 || (fault.fail_rollback && fault.failures == 1))) {
+      target.storage().unsafeGetStorageImpl()->set_materializer(
+          fail_model_storage_write);
+    }
+  }
+  return nullptr;
+}
+
+class ObserveCommitFault final {
+ public:
+  explicit ObserveCommitFault(CommitFault& fault) : fault_(fault) {
+    active_commit_fault = &fault;
+    handle_ = at::addThreadLocalCallback(
+        at::RecordFunctionCallback(observe_model_copy).needsInputs(true));
+  }
+  ~ObserveCommitFault() {
+    at::removeCallback(handle_);
+    for (const auto& tensor : fault_.targets)
+      tensor.storage().unsafeGetStorageImpl()->clear_materializer();
+    active_commit_fault = nullptr;
+  }
+
+ private:
+  CommitFault& fault_;
+  at::CallbackHandle handle_;
+};
+
+TEST(ModelCheckpointParticipantTest,
+     FailedCommitRestoresEveryAttemptedTensorInReverseOrder) {
+  for (const auto kind :
+       {CommitFaultKind::backend, CommitFaultKind::backend_oom,
+        CommitFaultKind::host_oom}) {
+    SCOPED_TRACE(static_cast<int>(kind));
+    auto model = std::make_shared<ProbeModelImpl>();
+    model->eval();
+    jyppx::liuding::nn::ModelCheckpointParticipant participant(
+        state_for(model));
+    const auto saved = save_participant(participant);
+    model->linear->weight.detach().fill_(31);
+    model->linear->bias.detach().fill_(37);
+    model->offset.fill_(41);
+    const auto before = raw_model_fields(save_participant(participant));
+    CommitFault fault{.targets = {model->linear->weight, model->linear->bias,
+                                  model->offset, model->mask},
+                      .kind = kind};
+    {
+      const ObserveCommitFault observer(fault);
+      if (kind != CommitFaultKind::host_oom) {
+        EXPECT_THROW(participant.load_state(
+                         saved, jyppx::liuding::RestorePolicy::exact_only),
+                     jyppx::liuding::BackendError);
+      } else {
+        EXPECT_THROW(participant.load_state(
+                         saved, jyppx::liuding::RestorePolicy::exact_only),
+                     jyppx::liuding::ResourceExhausted);
+      }
+    }
+    EXPECT_EQ(fault.failures, 1U);
+    EXPECT_EQ(fault.copies, (std::vector<std::size_t>{0, 1, 2, 2, 1, 0}));
+    EXPECT_EQ(raw_model_fields(save_participant(participant)), before);
+    EXPECT_FALSE(model->is_training());
+  }
+}
+
+TEST(ModelCheckpointParticipantTest,
+     IncompleteCommitRollbackStillRestoresTheOtherAttemptedTensors) {
+  auto model = std::make_shared<ProbeModelImpl>();
+  jyppx::liuding::nn::ModelCheckpointParticipant participant(state_for(model));
+  const auto saved = save_participant(participant);
+  model->linear->weight.detach().fill_(31);
+  model->linear->bias.detach().fill_(37);
+  model->offset.fill_(41);
+  CommitFault fault{.targets = {model->linear->weight, model->linear->bias,
+                                model->offset, model->mask},
+                    .fail_rollback = true};
+  {
+    const ObserveCommitFault observer(fault);
+    try {
+      participant.load_state(saved, jyppx::liuding::RestorePolicy::exact_only);
+      FAIL() << "Incomplete rollback must be reported";
+    } catch (const jyppx::liuding::InternalError& error) {
+      EXPECT_EQ(error.details().operation, "restore.rollback");
+      EXPECT_EQ(error.details().actual, "offset");
+      EXPECT_THROW(std::rethrow_if_nested(error), c10::Error);
+    }
+  }
+  EXPECT_EQ(fault.failures, 2U);
+  EXPECT_EQ(fault.copies, (std::vector<std::size_t>{0, 1, 2, 2, 1, 0}));
+  EXPECT_TRUE(model->linear->weight.eq(31).all().item<bool>());
+  EXPECT_TRUE(model->linear->bias.eq(37).all().item<bool>());
+  EXPECT_EQ(model->offset[0].item<float>(), -901.0F);
+}
+
+#ifdef JYPPX_LIUDING_NN_CUDA_METRICS
+TEST(ModelCheckpointParticipantTest, CudaRestoreStagesSnapshotsOnHost) {
+  if (!torch::cuda::is_available())
+    GTEST_SKIP() << "CUDA device is unavailable";
+  auto model = std::make_shared<torch::nn::Module>();
+  constexpr std::int64_t elements = 1LL << 24;
+  constexpr std::int64_t fields = 4;
+  const auto options = torch::TensorOptions().device(torch::kCUDA, 0);
+  for (std::int64_t index = 0; index < fields; ++index)
+    model->register_buffer("field" + std::to_string(index),
+                           torch::full({elements}, index + 1.0, options));
+  jyppx::liuding::nn::ModelCheckpointParticipant participant(state_for(model));
+  const auto saved = save_participant(participant);
+  for (const auto& item : model->named_buffers()) item.value().add_(16);
+  torch::cuda::synchronize(0);
+  c10::cuda::CUDACachingAllocator::resetPeakStats(0);
+  const auto before = c10::cuda::CUDACachingAllocator::getDeviceStats(0)
+                          .allocated_bytes[0]
+                          .current;
+  const auto start = std::chrono::steady_clock::now();
+  participant.load_state(saved, jyppx::liuding::RestorePolicy::exact_only);
+  torch::cuda::synchronize(0);
+  const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::steady_clock::now() - start)
+                           .count();
+  const auto after = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  const auto extra = after.allocated_bytes[0].peak - before;
+  const auto payload =
+      fields * elements * static_cast<std::int64_t>(sizeof(float));
+  EXPECT_LE(extra, 16LL << 20);
+  EXPECT_EQ(after.allocated_bytes[0].current, before);
+  for (std::int64_t index = 0; index < fields; ++index)
+    EXPECT_TRUE(model->named_buffers()["field" + std::to_string(index)]
+                    .eq(index + 1.0)
+                    .all()
+                    .item<bool>());
+  std::cout << "MODEL_RESTORE_METRICS payload_bytes=" << payload
+            << " extra_cuda_allocated_peak_bytes=" << extra
+            << " elapsed_us=" << elapsed << '\n';
+}
+#endif
 
 }  // namespace

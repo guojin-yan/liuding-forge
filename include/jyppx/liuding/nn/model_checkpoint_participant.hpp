@@ -54,10 +54,12 @@ struct ModelCheckpointParticipantOptions {
  * topology contract. Tensor values are serialized as little-endian raw bytes
  * in logical contiguous order and restored onto each current tensor's device.
  *
- * Loading performs manifest, topology, field-size, and backend allocation
- * validation before modifying the model. Current tensors are snapshotted
- * before commit; a failed copy restores every attempted tensor in reverse
- * order. The participant and retained model are not internally synchronized.
+ * Loading validates the manifest, topology and field bytes, then stages all
+ * candidates and independent rollback snapshots in CPU memory before modifying
+ * the model. Commit copies to the existing tensors on their current devices;
+ * backend copy workspace may still require device memory. A failed copy
+ * restores every attempted tensor in reverse order. The participant and
+ * retained model are not internally synchronized.
  * Callers must quiesce model mutation during describe, save, and load.
  */
 class ModelCheckpointParticipant final : public CheckpointParticipant {
@@ -108,7 +110,7 @@ class ModelCheckpointParticipant final : public CheckpointParticipant {
   void save_state(StateWriter& writer) const override;
 
   /**
-   * @brief Restores model tensors after complete validation and allocation.
+   * @brief Restores model tensors after complete validation and host staging.
    * @param reader Source containing a schema-version-1 model snapshot.
    * @param policy Restore policy that must accept exact state.
    * @throws CompatibilityError If manifest, policy, or topology differs.

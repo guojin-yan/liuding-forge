@@ -261,6 +261,10 @@ jyppx_add_gtest(jyppx_test_nn_model_checkpoint
     LINK_TARGET jyppx::liuding::nn
     nn/test_model_checkpoint_participant.cpp
 )
+if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+    target_compile_definitions(jyppx_test_nn_model_checkpoint PRIVATE
+        JYPPX_LIUDING_NN_CUDA_METRICS=1)
+endif()
 endif()
 
 if(TARGET jyppx::liuding::training)
