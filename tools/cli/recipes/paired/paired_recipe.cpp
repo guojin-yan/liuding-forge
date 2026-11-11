@@ -6,6 +6,10 @@
 #include "paired_search_bridge.hpp"
 #include "recipe_local_attempt.hpp"
 #include "recipe_support.hpp"
+#include "recipes/diagnostics/failure_report.hpp"
+#if defined(JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS)
+#include "recipes/diagnostics/test_fault.hpp"
+#endif
 
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>
@@ -656,8 +660,12 @@ Result execute(const Arguments &arguments, bool resume, bool local = false) {
     const auto &values = batch.value.toTuple()->elements();
     return c10::ivalue::Tuple::create({values.at(2), values.at(3)});
   };
+#if defined(JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS)
+  const recipe_diagnostics::TestFault diagnostic_fault(
+      "JYPPX_LIUDING_TEST_PAIRED_DIAGNOSTIC_FAULT");
+#endif
   const tr::StepFunction step =
-      [weight = config.at("regression_weight").get<double>()](
+      [&, weight = config.at("regression_weight").get<double>()](
           const tr::StepInput &input) {
         const auto output = input.model.invoke(input.invocation);
         const auto &values = output.value.toTuple()->elements();
@@ -665,7 +673,7 @@ Result execute(const Arguments &arguments, bool resume, bool local = false) {
         const auto logits = values.at(0).toTensor();
         const auto mse =
             (values.at(1).toTensor() - target.at(1).toTensor()).square().mean();
-        return tr::StepOutput{
+        auto result = tr::StepOutput{
             .loss = torch::nn::functional::cross_entropy(
                         logits, target.at(0).toTensor()) +
                     weight * mse,
@@ -677,6 +685,10 @@ Result execute(const Arguments &arguments, bool resume, bool local = false) {
                                          .item<double>()},
                         {"mse", mse.item<double>()}},
             .sample_count = input.batch.sample_ids.size()};
+#if defined(JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS)
+        diagnostic_fault.apply(result, input.context.phase, root);
+#endif
+        return result;
       };
   auto diagnostics = std::make_shared<tr::TrainingDiagnostics>();
   tr::Trainer trainer({.trainer_id = "recipe.trainer",
@@ -728,7 +740,31 @@ Result execute(const Arguments &arguments, bool resume, bool local = false) {
     require_recipe(pause == 0 || pause > trainer.global_step(),
                    "pause-after must exceed restored step");
   }
-  const auto fit = trainer.fit_until(pause);
+  // The builtin recipe version binds two concatenated FP32 inputs to its
+  // classification/regression Linear heads; this identifies the model
+  // contract even if the failing attempt has non-finite mutable parameters.
+  const Json model_contract{{"recipe", kRecipe},
+                            {"left_features", 2},
+                            {"right_features", 2},
+                            {"classification_outputs", 2},
+                            {"regression_outputs", 1}};
+  const tr::TrainingDiagnosticIdentity failure_identity{
+      .report_id = "diagnostic.paired-affine.failure",
+      .run_id = std::string(kRun),
+      .attempt_id = "attempt.fit",
+      .model = digest(model_contract.dump()),
+      .configuration = config_hash,
+      .dataset = inputs.identity,
+      .checkpoint = {}};
+  tr::FitResult fit;
+  try {
+    fit = trainer.fit_until(pause);
+  } catch (...) {
+    (void)recipe_diagnostics::publish_failure_report(
+        store, *diagnostics, root, failure_identity, trainer.global_step(),
+        time);
+    throw;
+  }
   if (fit.status == tr::FitStatus::paused) {
     require_recipe(fit.global_step == pause,
                    "Recipe failed to pause at durable boundary");

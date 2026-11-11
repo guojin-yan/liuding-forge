@@ -26,7 +26,8 @@ add_library(jyppx_cli_objects OBJECT
     recipes/image/image_recipe.cpp
     recipes/image/recipe_initial_state.cpp
     recipes/image/transfer_recipe.cpp
-    paired_recipe.cpp
+    recipes/paired/paired_recipe.cpp
+    recipes/diagnostics/failure_report.cpp
     run_commands.cpp
     telemetry_commands.cpp
     native_otlp_worker.cpp
@@ -69,8 +70,6 @@ if(TARGET jyppx::liuding::models)
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_ONNX_MODELS=1)
 endif()
 if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
-    target_sources(jyppx_cli_objects PRIVATE
-        recipes/diagnostics/failure_report.cpp)
     target_link_libraries(jyppx_cli_objects PUBLIC jyppx::liuding::models jyppx::liuding::data_image)
     target_compile_definitions(jyppx_cli_objects PRIVATE JYPPX_LIUDING_CLI_IMAGE_RECIPE=1)
     install(FILES
@@ -89,6 +88,8 @@ if(JYPPX_LIUDING_BUILD_TESTS)
     set_property(SOURCE recipes/image/image_recipe.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS=1
             JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS=1)
+    set_property(SOURCE recipes/paired/paired_recipe.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS=1)
     add_executable(jyppx_cli_recipe_gate)
     set_target_properties(jyppx_cli_recipe_gate PROPERTIES OUTPUT_NAME liuding-forge-recipe-gate)
     target_link_libraries(jyppx_cli_recipe_gate PRIVATE jyppx_cli_objects)

@@ -7,10 +7,10 @@
 #include "local_search.hpp"
 
 #include "local_attempt.hpp"
-#include "paired_search_bridge.hpp"
 #include "recipe_support.hpp"
 #include "recipes/image/image_search_bridge.hpp"
 #include "recipes/image/transfer_search_bridge.hpp"
+#include "recipes/paired/paired_search_bridge.hpp"
 
 #include <jyppx/liuding/experiment/run_store.hpp>
 #include <jyppx/liuding/foundation/version.hpp>

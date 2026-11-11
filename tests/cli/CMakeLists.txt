@@ -394,6 +394,13 @@ add_test(NAME NativePairedAffineDataPreparation
 set_tests_properties(NativePairedAffineDataPreparation PROPERTIES
     LABELS "data;recipe;cli;examples" TIMEOUT 180)
 
+add_test(NAME Cli_paired_failure_diagnostics
+    COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/recipes/diagnostics/test_paired_failures.py"
+        --cli $<TARGET_FILE:jyppx_cli_recipe_gate>
+        --work-dir "${CMAKE_BINARY_DIR}/_paired_failure_diagnostics/$<CONFIG>")
+set_tests_properties(Cli_paired_failure_diagnostics PROPERTIES
+    LABELS "cli;integration;recipe;diagnostics" TIMEOUT 180 RUN_SERIAL TRUE)
 add_test(NAME Cli_paired_recipe
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_paired_recipe.py"
         --cli $<TARGET_FILE:jyppx_cli_recipe_gate>)

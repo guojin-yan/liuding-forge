@@ -41,12 +41,19 @@ def fixture_png(label, index):
 
 
 class ImageFailureDiagnostics(unittest.TestCase):
+    fault_environment = FAULT_ENV
+    run_id = "run.image-classification"
+
+    @classmethod
+    def expected_model_identity(cls, lineage):
+        return lineage["model_contract_sha256"]
+
     @classmethod
     def invoke(cls, *arguments, expected=(0,), fault=None):
         env = dict(os.environ, CUBLAS_WORKSPACE_CONFIG=":4096:8")
-        env.pop(FAULT_ENV, None)
+        env.pop(cls.fault_environment, None)
         if fault:
-            env[FAULT_ENV] = fault
+            env[cls.fault_environment] = fault
         result = subprocess.run([str(cls.cli), *map(str, arguments), "--format", "json"],
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, timeout=60, env=env,
@@ -149,12 +156,12 @@ class ImageFailureDiagnostics(unittest.TestCase):
         report = json.loads(cas.read_bytes())
         self.assertEqual(report["outcome"], "failed")
         lineage = json.loads((root / "lineage.json").read_bytes())
-        for key, expected in (("model", lineage["model_contract_sha256"]),
+        for key, expected in (("model", self.expected_model_identity(lineage)),
                               ("configuration", lineage["config_sha256"]),
                               ("dataset", lineage["dataset_sha256"]),
                               ("checkpoint", sha(root / "latest.jyck"))):
             self.assertEqual(report["identity"][key], {"algorithm": "sha256", "hex": expected})
-        self.assertEqual(report["identity"]["run_id"], "run.image-classification")
+        self.assertEqual(report["identity"]["run_id"], self.run_id)
         self.assertFalse(report["options"]["measure_data_wait"])
         self.assertEqual(report["gradient"]["state"], "disabled")
         is_validation = fault.startswith("validation.")

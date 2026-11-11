@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 双输入、多输出配方复用原生失败诊断持久化，保留原异常与安全检查点；报告实现保持八Core依赖，配方实现和私有搜索头集中到 recipes/paired。
+
 - CLI 图像分类、迁移学习、初始状态和 BatchNorm 校准的实现与私有头集中到 recipes/image，搜索桥接头同目录存放，保持公开命令与安装接口。
 
 - 图像分类与迁移学习配方在训练异常时保存独立失败诊断，关联最后安全检查点；报告写入失败保留原训练错误，恢复后不把失败尝试计入成功轨迹。

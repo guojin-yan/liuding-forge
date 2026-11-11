@@ -23,9 +23,9 @@ namespace jyppx::liuding::cli::recipe_diagnostics {
 // public command, configuration field, or normal numerical path selects it.
 class TestFault final {
  public:
-  TestFault() {
-    const auto* request =
-        std::getenv("JYPPX_LIUDING_TEST_IMAGE_DIAGNOSTIC_FAULT");
+  explicit TestFault(
+      const char* variable = "JYPPX_LIUDING_TEST_IMAGE_DIAGNOSTIC_FAULT") {
+    const auto* request = std::getenv(variable);
     if (!request) return;
     std::size_t size = 0;
     while (size <= 64 && request[size]) ++size;
