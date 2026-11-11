@@ -25,6 +25,7 @@
 #include <unistd.h>
 #if defined(__linux__)
 #include <linux/magic.h>
+#include <sched.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -505,7 +506,8 @@ class NativeProcess {
                 Clock::time_point deadline,
                 [[maybe_unused]] bool kill_on_parent_death = false,
                 const LocalProcessMemoryLimit* memory_limit = nullptr,
-                const NativeEnvironment* frozen_environment = nullptr)
+                const NativeEnvironment* frozen_environment = nullptr,
+                const std::vector<std::uint32_t>* cpu_affinity = nullptr)
       : cleanup_timeout_(options.cleanup_timeout) {
     try {
       check_telemetry_operation(stop, deadline);
@@ -592,6 +594,15 @@ class NativeProcess {
         launch_failure("launch.job.assign");
       }
       assigned_ = true;
+      if (cpu_affinity) {
+        DWORD_PTR mask = 0;
+        for (const auto id : *cpu_affinity) mask |= DWORD_PTR{1} << id;
+        DWORD_PTR actual = 0, system = 0;
+        if (!SetProcessAffinityMask(process_.get(), mask) ||
+            !GetProcessAffinityMask(process_.get(), &actual, &system) ||
+            actual != mask)
+          launch_failure("launch.cpu_affinity.verify");
+      }
       check_telemetry_operation(stop, deadline);
       if (ResumeThread(thread.get()) == static_cast<DWORD>(-1))
         launch_failure("launch.resume");
@@ -993,11 +1004,13 @@ std::string environment_digest(const NativeEnvironment& environment) {
 
 class NativeProcess {
  public:
-  NativeProcess(const SidecarProcessOptions& options, std::stop_token stop,
-                Clock::time_point deadline,
-                [[maybe_unused]] bool kill_on_parent_death = false,
-                const LocalProcessMemoryLimit* memory_limit = nullptr,
-                const NativeEnvironment* frozen_environment = nullptr)
+  NativeProcess(
+      const SidecarProcessOptions& options, std::stop_token stop,
+      Clock::time_point deadline,
+      [[maybe_unused]] bool kill_on_parent_death = false,
+      const LocalProcessMemoryLimit* memory_limit = nullptr,
+      const NativeEnvironment* frozen_environment = nullptr,
+      [[maybe_unused]] const std::vector<std::uint32_t>* cpu_affinity = nullptr)
       : cleanup_timeout_(options.cleanup_timeout) {
     try {
       check_telemetry_operation(stop, deadline);
@@ -1069,6 +1082,9 @@ class NativeProcess {
       }
       const auto memory_admission =
           memory_ ? memory_->admission_descriptor() : -1;
+      cpu_set_t requested_cpus{};
+      if (cpu_affinity)
+        for (const auto id : *cpu_affinity) CPU_SET(id, &requested_cpus);
 #endif
       check_telemetry_operation(stop, deadline);
       pid_ = fork();
@@ -1087,6 +1103,24 @@ class NativeProcess {
         // Move the child before exec can allocate memory or fork descendants.
         if (memory_admission >= 0 && ::write(memory_admission, "0", 1) != 1)
           failure = errno == 0 ? EIO : errno;
+        if (failure == 0 && cpu_affinity) {
+          // Raw system calls and stack storage only in the fork child. Linux
+          // can silently intersect with a cpuset; require an exact readback.
+          cpu_set_t actual_cpus{};
+          if (::syscall(SYS_sched_setaffinity, 0, sizeof(requested_cpus),
+                        &requested_cpus) != 0 ||
+              ::syscall(SYS_sched_getaffinity, 0, sizeof(actual_cpus),
+                        &actual_cpus) < 0) {
+            failure = errno;
+          } else {
+            for (int id = 0; id < CPU_SETSIZE; ++id)
+              if (CPU_ISSET(id, &actual_cpus) !=
+                  CPU_ISSET(id, &requested_cpus)) {
+                failure = EINVAL;
+                break;
+              }
+          }
+        }
         if (failure == 0 && kill_on_parent_death) {
           // Use the raw Linux system-call wrapper after fork; no allocator,
           // logging, C++ exception or process-wide reaper policy is involved.
@@ -1524,6 +1558,31 @@ std::string local_process_environment_sha256(
   return environment_digest(child_environment(launch, true));
 }
 
+std::vector<std::uint32_t> local_process_available_cpu_ids() {
+  std::vector<std::uint32_t> result;
+#if defined(_WIN32)
+  if (GetActiveProcessorGroupCount() != 1)
+    throw CompatibilityError(
+        "Explicit CPU affinity requires one Windows processor group");
+  DWORD_PTR process = 0, system = 0;
+  if (!GetProcessAffinityMask(GetCurrentProcess(), &process, &system))
+    launch_failure("launch.cpu_affinity.inspect");
+  for (std::uint32_t id = 0; id < sizeof(DWORD_PTR) * CHAR_BIT; ++id)
+    if ((process & system & (DWORD_PTR{1} << id)) != 0) result.push_back(id);
+#elif defined(__linux__)
+  cpu_set_t allowed{};
+  if (::sched_getaffinity(0, sizeof(allowed), &allowed) != 0)
+    launch_failure("launch.cpu_affinity.inspect");
+  for (int id = 0; id < CPU_SETSIZE; ++id)
+    if (CPU_ISSET(id, &allowed))
+      result.push_back(static_cast<std::uint32_t>(id));
+#else
+  throw CompatibilityError("Explicit CPU affinity is unavailable");
+#endif
+  if (result.empty()) launch_failure("launch.cpu_affinity.empty");
+  return result;
+}
+
 LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
                                            std::stop_token stop) const {
   const auto started = Clock::now();
@@ -1561,6 +1620,19 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
         "OS memory limiting is unavailable on this platform",
         details("local_process.memory.options"));
 #endif
+  }
+  if (!options.cpu_affinity.empty()) {
+    const auto& cpus = options.cpu_affinity;
+    if (cpus.size() > 1024 || cpus.back() >= 1024 ||
+        !std::is_sorted(cpus.begin(), cpus.end()) ||
+        std::adjacent_find(cpus.begin(), cpus.end()) != cpus.end())
+      throw InvalidArgument(
+          "CPU affinity requires sorted distinct IDs below 1024");
+    const auto allowed = local_process_available_cpu_ids();
+    if (!std::includes(allowed.begin(), allowed.end(), cpus.begin(),
+                       cpus.end()))
+      throw InvalidArgument(
+          "Requested CPU affinity is unavailable to the launcher");
   }
   SidecarProcessOptions launch;
   launch.executable = options.executable;
@@ -1616,8 +1688,10 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
         std::min(deadline, Clock::now() + options.startup_timeout),
         options.kill_on_parent_death,
         options.memory_limit ? &*options.memory_limit : nullptr,
-        environment ? &*environment : nullptr);
+        environment ? &*environment : nullptr,
+        options.cpu_affinity.empty() ? nullptr : &options.cpu_affinity);
     result.process_id = native->process_id();
+    result.cpu_affinity = options.cpu_affinity;
     native->close_input();
     bool leader_exited = false;
     std::size_t unused_input = 0U;

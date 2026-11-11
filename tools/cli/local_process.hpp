@@ -70,7 +70,17 @@ struct LocalProcessOptions {
   std::optional<LocalProcessMemoryLimit>
       memory_limit;  ///< Fail closed if the requested OS boundary is
                      ///< unavailable.
+  std::vector<std::uint32_t>
+      cpu_affinity;  ///< Optional sorted, distinct native CPU IDs, below 1024.
+                     ///< Applied before user code; inherited by descendants.
+                     ///< This placement is not a CPU time quota or sandbox.
 };
+
+/** @brief Returns sorted CPU IDs allowed for the calling process/thread.
+ * Windows requires one processor group; Linux supports IDs below CPU_SETSIZE.
+ * Throws if the native mask cannot be inspected; never changes affinity.
+ */
+std::vector<std::uint32_t> local_process_available_cpu_ids();
 
 /** @brief Hashes the effective native environment without launching a child.
  * Inherited runner context is removed; explicit runner context is excluded
@@ -123,6 +133,9 @@ struct LocalProcessResult {
       resource_usage;  ///< Absent before launch or if final accounting failed.
   std::optional<LocalProcessMemoryBoundary>
       memory_boundary;  ///< Present only after an OS-limited native launch.
+  std::vector<std::uint32_t>
+      cpu_affinity;  ///< Nonempty only after requested placement was read back
+                     ///< exactly before resuming/execing the user program.
 };
 
 /**

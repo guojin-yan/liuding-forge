@@ -58,6 +58,14 @@ Windows 将示例中的程序和工作目录改成真实绝对路径，JSON 中�
 
 本地计划和搜索 `execution` 的显式环境目标名必须在忽略 ASCII 大小写后唯一，包括 `environment` 内部及其与 `environment_refs` 的组合。`TOKEN` 与 `token` 同时出现会在创建存储或启动任务前被拒绝；单个目标名的原有拼写与值保持，仍可覆盖继承环境中的同名变量。
 
+### CPU 放置
+
+`liuding-forge local cpu-affinity --format json` 只读取当前启动线程/进程允许的原生 CPU ID，返回 `data.cpu_ids`，不创建 STORE 或启动子程序。本地规格及搜索的 `execution` 可选 `"cpu_affinity": [0, 2]`；ID 必须严格递增、不重复、在 0–1023 内，且全部属于当前允许集合；显式列表不能为空。若同时声明逻辑资源，`request.cpu_slots` 不得大于该列表长度。
+
+首次准入、重试和 worker 会核验可用性；Windows 在暂停的子进程上设置并回读 process affinity 后才恢复执行，Linux 在 fork 子进程内设置并严格回读后才 exec。失败时不执行用户程序，不接受被系统缩小的集合。Windows 仅支持单 processor group，Linux 使用固定 `cpu_set_t`；未声明时保持原有放置，不调用此查询。
+
+启动成功的结果保存 `cpu_affinity` 收据，包含 `source`（`windows_process_affinity` 或 `linux_sched_affinity`）和 `cpu_ids`；取消/超时仍保留，启动前失败为 null。读取时核对冻结规格，已终态重放不依赖当前可用 CPU，旧结果缺字段不会补造。子进程默认继承亲和性；有权限的用户代码仍可主动改变它，因此该接口是启动放置合同，不是 CPU 时间配额、独占 CPU 或安全隔离。GPU 逻辑预约与设备选择沿用各自合同。
+
 ### 运行文件身份
 
 本地计划和搜索 `execution` 可选 `runtime_files`，以具名映射固定显式运行文件的绝对路径、SHA-256 和字节数。例如动态库、脚本或只读资源：

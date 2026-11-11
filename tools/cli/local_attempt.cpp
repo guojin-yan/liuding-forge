@@ -457,7 +457,7 @@ Spec read_spec(const Json& value) {
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
        "deadline_unix_ms", "training", "resources", "environment_refs",
        "environment_sha256", "os_memory_limit", "runtime_files",
-       "host_requirements"});
+       "host_requirements", "cpu_affinity"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -477,6 +477,17 @@ Spec read_spec(const Json& value) {
   require(process.executable.is_absolute() &&
               process.working_directory.is_absolute(),
           "Local executable and working directory must be absolute");
+  if (value.contains("cpu_affinity")) {
+    const auto& cpus = value.at("cpu_affinity");
+    require(cpus.is_array() && !cpus.empty() && cpus.size() <= 1024,
+            "CPU affinity requires 1-1024 sorted distinct CPU IDs");
+    for (const auto& item : cpus) {
+      const auto id = static_cast<std::uint32_t>(unsigned_number(item, 1023));
+      require(process.cpu_affinity.empty() || process.cpu_affinity.back() < id,
+              "CPU affinity IDs must be strictly increasing");
+      process.cpu_affinity.push_back(id);
+    }
+  }
   if (value.contains("host_requirements")) {
     const auto& host = value.at("host_requirements");
     fields(host, {},
@@ -620,6 +631,9 @@ Spec read_spec(const Json& value) {
   }
   if (value.contains("resources"))
     result.resources = resource_spec(value.at("resources"));
+  if (result.resources && !process.cpu_affinity.empty())
+    require(result.resources->request.cpu_slots <= process.cpu_affinity.size(),
+            "CPU slot request exceeds the declared CPU affinity");
   if (value.contains("os_memory_limit")) {
     const auto& memory = value.at("os_memory_limit");
     fields(memory, {"bytes"}, {"cgroup_parent"});
@@ -869,6 +883,13 @@ void verify_host_requirements(const Spec& spec) {
 }
 
 void preflight(const Spec& spec) {
+  if (!spec.process.cpu_affinity.empty()) {
+    const auto available = local_process_available_cpu_ids();
+    const auto& requested = spec.process.cpu_affinity;
+    require(std::includes(available.begin(), available.end(), requested.begin(),
+                          requested.end()),
+            "Requested CPU affinity is unavailable to the launcher");
+  }
   ordinary_path(spec.process.working_directory);
   require(fs::is_directory(spec.process.working_directory),
           "Local working directory must already exist");
@@ -1355,7 +1376,7 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
           "stdout_sha256", "stderr_sha256", "failure_reason"},
          {"process_tree_cleanup_confirmed", "training_sha256",
           "training_outputs_sha256", "training_outputs_confirmed",
-          "resource_usage", "memory_boundary"});
+          "resource_usage", "memory_boundary", "cpu_affinity"});
   schema(value, "jyppx.liuding.local_attempt_result");
   // Older immutable results have no accounting field. Do not fabricate one
   // during replay; a present measurement must retain explicit OS semantics.
@@ -1393,6 +1414,28 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
               value.at("spec_sha256").get<std::string>() == spec.sha256,
           "Local attempt result identity mismatch");
   const auto state = value.at("status").get<std::string>();
+  if (value.contains("cpu_affinity") && !value.at("cpu_affinity").is_null()) {
+    const auto& placement = value.at("cpu_affinity");
+    fields(placement, {"source", "cpu_ids"});
+    const auto source = text(placement.at("source"));
+    const auto& ids = placement.at("cpu_ids");
+    require(ids.is_array() && ids.size() == spec.process.cpu_affinity.size(),
+            "Local CPU affinity receipt has a different CPU count");
+    for (std::size_t offset = 0; offset < ids.size(); ++offset)
+      require(unsigned_number(ids.at(offset), 1023) ==
+                  spec.process.cpu_affinity[offset],
+              "Local CPU affinity receipt has a different CPU ID");
+    require((source == "windows_process_affinity" ||
+             source == "linux_sched_affinity") &&
+                !spec.process.cpu_affinity.empty() &&
+                placement.at("cpu_ids") == Json(spec.process.cpu_affinity) &&
+                unsigned_number(value.at("process_id"),
+                                std::numeric_limits<std::uint64_t>::max()) != 0,
+            "Local CPU affinity receipt differs from its declared placement");
+  } else {
+    require(spec.process.cpu_affinity.empty() || value.at("process_id") == 0,
+            "A launched CPU-affinity attempt requires its placement receipt");
+  }
   if (value.contains("memory_boundary") &&
       !value.at("memory_boundary").is_null()) {
     const auto& memory = value.at("memory_boundary");
@@ -2288,6 +2331,16 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
         {"peak_resident_memory_bytes",
          number(usage.peak_resident_memory_bytes)}};
   }
+  result["cpu_affinity"] = nullptr;
+  if (!native.cpu_affinity.empty()) {
+    result["cpu_affinity"] = {
+#if defined(_WIN32)
+        {"source", "windows_process_affinity"},
+#else
+        {"source", "linux_sched_affinity"},
+#endif
+        {"cpu_ids", native.cpu_affinity}};
+  }
   result["memory_boundary"] = nullptr;
   if (native.memory_boundary) {
     const auto& boundary = *native.memory_boundary;
@@ -2683,6 +2736,13 @@ Result control_local_job(std::string_view action, const fs::path& root,
 
 Result local_attempt_command(const Arguments& arguments) {
   const auto action = arguments.words()[1];
+  if (action == "cpu-affinity") {
+    arguments.allow({});
+    return {{{"format", "jyppx.liuding.local_cpu_affinity"},
+             {"schema_version", 1},
+             {"cpu_ids", local_process_available_cpu_ids()}},
+            0};
+  }
   if (action == "environment") {
     arguments.allow({"spec"});
     const auto spec = read_spec(parse_json(
@@ -2701,7 +2761,8 @@ Result local_attempt_command(const Arguments& arguments) {
   }
   if (action != "execute" && action != "show" && action != "recover" &&
       action != "cancel" && action != "abandon" && action != "worker")
-    usage("local", "Use environment/execute/show/recover/cancel/abandon.");
+    usage("local",
+          "Use cpu-affinity/environment/execute/show/recover/cancel/abandon.");
   if (action == "execute")
     arguments.allow({"root", "id", "spec"});
   else if (action == "abandon")

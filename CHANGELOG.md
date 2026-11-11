@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 本地运行和搜索可显式固定 CPU 亲和性，在用户程序执行前设置并严格回读，结果保存实际放置收据；新增只读 `local cpu-affinity` 查询，重试和 worker 拒绝不可用集合，终态重放保持。
+
 - 本地运行和搜索可显式绑定完整有效环境摘要，环境增删改在准入、重试和实际启动前拒绝；新增只返回摘要的 `local environment` 命令，原生启动复用同一份已核验快照，终态重放保持。
 
 - 验收 Ubuntu CPU/CUDA 上 `paired-affine` 的多 trial 串行 grid/random、精确续训和完整历史备份恢复；相同设备与学习率的最终模型和检查点逐字节一致。

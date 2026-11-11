@@ -29,10 +29,31 @@ def await_file(path):
         time.sleep(0.005)
 
 
+def cpu_ids():
+    if os.name != "nt":
+        return sorted(os.sched_getaffinity(0))
+    import ctypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel.GetProcessAffinityMask.argtypes = [ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
+    process, system = ctypes.c_size_t(), ctypes.c_size_t()
+    if not kernel.GetProcessAffinityMask(kernel.GetCurrentProcess(), ctypes.byref(process), ctypes.byref(system)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return [i for i in range(ctypes.sizeof(process) * 8) if process.value & (1 << i)]
+
+
 def main():
     mode, root_text, *arguments = sys.argv[1:]
     root = Path(root_text)
-    if mode == "memory-boundary":
+    if mode in ("cpu-affinity", "cpu-affinity-child"):
+        observed = cpu_ids()
+        if mode == "cpu-affinity-child":
+            write_all(1, json.dumps(observed).encode("ascii"))
+        else:
+            child = subprocess.check_output([sys.executable, "-I", "-u", __file__, "cpu-affinity-child", str(root)])
+            write_all(1, json.dumps({"leader": observed, "descendant": json.loads(child)}).encode("ascii"))
+    elif mode == "memory-boundary":
         payload = {"touched_bytes": 8 * 1024 * 1024}
         memory = bytearray(payload["touched_bytes"])
         for offset in range(0, len(memory), 4096):

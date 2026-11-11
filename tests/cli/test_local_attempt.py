@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from contextlib import closing, contextmanager
 import hashlib
 import json
 import os
@@ -90,7 +90,46 @@ def alive(pid: int) -> bool:
     return True
 
 
+def cpu_ids() -> list[int]:
+    if os.name != "nt":
+        return sorted(os.sched_getaffinity(0))
+    import ctypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel.GetProcessAffinityMask.argtypes = [ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
+    if kernel.GetActiveProcessorGroupCount() != 1:
+        raise RuntimeError("CPU affinity fixtures require one processor group")
+    process, system = ctypes.c_size_t(), ctypes.c_size_t()
+    if not kernel.GetProcessAffinityMask(kernel.GetCurrentProcess(), ctypes.byref(process), ctypes.byref(system)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return [i for i in range(ctypes.sizeof(process) * 8) if process.value & (1 << i)]
+
+
+@contextmanager
+def restricted_cpus(ids: list[int]):
+    original = cpu_ids()
+    def apply(requested):
+        if os.name != "nt":
+            os.sched_setaffinity(0, requested)
+        else:
+            import ctypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel.SetProcessAffinityMask.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+            if not kernel.SetProcessAffinityMask(kernel.GetCurrentProcess(), sum(1 << i for i in requested)):
+                raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        apply(ids)
+        yield
+    finally:
+        apply(original)
+
+
 def fixture(mode: str, root: Path, arguments: list[str]) -> None:
+    if mode == "cpu_child":
+        os.write(1, json.dumps(cpu_ids()).encode("ascii"))
+        return
     if mode == "child":
         if os.name != "nt":
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -102,6 +141,11 @@ def fixture(mode: str, root: Path, arguments: list[str]) -> None:
     index = int(os.environ["JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX"])
     with (root / "launches.txt").open("a", encoding="utf-8") as stream:
         stream.write(str(index) + "\n")
+    if mode == "cpu_affinity":
+        child = subprocess.check_output([sys.executable, "-I", "-u", str(Path(__file__).resolve()),
+            "--fixture", "cpu_child", str(root)])
+        os.write(1, json.dumps({"leader": cpu_ids(), "descendant": json.loads(child)}).encode("ascii"))
+        return
     if mode == "lease_hold":
         # A single cooperative leader isolates resource-admission behavior
         # from the separate platform-specific descendant cleanup contracts.
@@ -363,6 +407,129 @@ class LocalAttemptTest(unittest.TestCase):
         empty.unlink()
         for action in ("show", "recover", "execute"):
             self.assertEqual(self.local(action), result)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_host_cpu_affinity_inspection_is_read_only_and_matches_os(self) -> None:
+        data = self.invoke("local", "cpu-affinity")["data"]
+        self.assertEqual(data, {"format": "jyppx.liuding.local_cpu_affinity",
+            "schema_version": 1, "cpu_ids": cpu_ids()})
+        self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_host_cpu_affinity_schema_and_unavailable_ids_reject_before_store(self) -> None:
+        available = cpu_ids()
+        invalid = [None, False, 0, {}, [], [False], [-1], [1.5], ["0"], [1024], [1, 0], [0, 0]]
+        invalid.extend([[id] for id in range(1024) if id not in available][:1])
+        for ids in invalid:
+            with self.subTest(ids=ids):
+                self.spec["cpu_affinity"] = ids
+                self.write_spec()
+                self.invoke("local", "execute", "--root", self.root, "--id", "job-one",
+                    "--spec", self.spec_path, expected=3 if ids == [1024] else 2)
+                self.assertFalse(self.root.exists())
+                self.assertFalse((self.cwd / "launches.txt").exists())
+        self.spec.update(cpu_affinity=[available[0]], resources=self.resource_request(gpu=False, slots=2))
+        self.write_spec()
+        self.invoke("local", "execute", "--root", self.root, "--id", "job-one",
+            "--spec", self.spec_path, expected=2)
+        self.assertFalse(self.root.exists())
+
+    def test_host_cpu_affinity_is_inherited_persisted_and_terminal_replay_ignores_current_mask(self) -> None:
+        available = cpu_ids()
+        selected = [available[-1]]
+        self.spec["cpu_affinity"] = selected
+        self.write_spec("cpu_affinity")
+        original = self.local("execute")
+        attempt = original["attempts"][0]
+        self.assertEqual(attempt["result"]["cpu_affinity"], {
+            "source": "windows_process_affinity" if os.name == "nt" else "linux_sched_affinity",
+            "cpu_ids": selected})
+        self.assertEqual(json.loads(self.blob(self.references(attempt["attempt_id"])["local.stdout"])),
+            {"leader": selected, "descendant": selected})
+        self.assertEqual(cpu_ids(), available)
+        with restricted_cpus([available[0]]):
+            for action in ("show", "recover", "execute"):
+                self.assertEqual(self.local(action), original)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_host_cpu_affinity_retry_drift_preserves_prefix_until_original_mask_returns(self) -> None:
+        available = cpu_ids()
+        if len(available) < 2:
+            self.skipTest("Affinity drift contract needs two allowed CPUs")
+        self.spec["cpu_affinity"] = [available[-1]]
+        original = self.committed_retry_prefix()
+        references = self.references("job-one")
+        with restricted_cpus([available[0]]):
+            for action in ("execute", "recover"):
+                options = ["--spec", self.spec_path] if action == "execute" else []
+                self.invoke("local", action, "--root", self.root, "--id", "job-one", *options, expected=2)
+                self.assertEqual(self.references("job-one"), references)
+                self.assertEqual(self.local("show"), original)
+                self.assertEqual(self.launch_count(), 1)
+        completed = self.local("recover")
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["attempts"][0], original["attempts"][0])
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_host_cpu_affinity_reserved_worker_rechecks_and_releases_exact_lease(self) -> None:
+        available = cpu_ids()
+        if len(available) < 2:
+            self.skipTest("Affinity drift contract needs two allowed CPUs")
+        self.spec.update(cpu_affinity=[available[-1]], max_attempts=1,
+            resources=self.resource_request(gpu=False))
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        lease = self.references("job-one")["local.resource.lease.1"]
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("PRAGMA foreign_keys=ON")
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_runs WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        with restricted_cpus([available[0]]):
+            failed = self.local("recover", expected=1)
+        observed = failed["attempts"][0]
+        self.assertEqual(observed["result"]["status"], "launch_error")
+        self.assertEqual(observed["result"]["process_id"], 0)
+        self.assertIsNone(observed["result"]["cpu_affinity"])
+        self.assertTrue(observed["result"]["process_tree_cleanup_confirmed"])
+        self.assertTrue(observed["resource_released"])
+        self.assertEqual(self.references("job-one")["local.resource.lease.1"], lease)
+        self.assertEqual(self.local("recover", expected=1), failed)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_host_cpu_affinity_invalid_receipts_are_rejected_without_relaunch(self) -> None:
+        self.spec["cpu_affinity"] = [cpu_ids()[0]]
+        self.write_spec()
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        result = dict(original["attempts"][0]["result"])
+        valid = result["cpu_affinity"]
+        invalid = [None, {}, [], dict(valid, source="sampled_cpu"), dict(valid, cpu_ids=[]),
+            dict(valid, cpu_ids=[valid["cpu_ids"][0] + 1]), dict(valid, extra=1),
+            dict(valid, cpu_ids=[float(valid["cpu_ids"][0])]), dict(valid, cpu_ids=[False])]
+        for receipt in invalid:
+            with self.subTest(receipt=receipt):
+                self.replace_result(attempt, dict(result, cpu_affinity=receipt))
+                before = self.references(attempt)
+                self.invoke("local", "show", "--root", self.root, "--id", "job-one", expected=2)
+                self.assertEqual(self.references(attempt), before)
+                self.assertEqual(self.launch_count(), 1)
+        result.pop("cpu_affinity")
+        self.replace_result(attempt, result)
+        self.invoke("local", "show", "--root", self.root, "--id", "job-one", expected=2)
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_host_cpu_affinity_legacy_result_without_placement_is_not_fabricated(self) -> None:
+        original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        result = dict(original["attempts"][0]["result"])
+        result.pop("cpu_affinity")
+        self.replace_result(attempt, result)
+        for action in ("show", "recover", "execute"):
+            self.assertNotIn("cpu_affinity", self.local(action)["attempts"][0]["result"])
         self.assertEqual(self.launch_count(), 1)
 
     def host_disk_minimum(self) -> int:

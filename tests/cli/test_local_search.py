@@ -106,6 +106,8 @@ def fixture(arguments: argparse.Namespace) -> None:
     launch = {"trial": arguments.trial, "run": arguments.run, "seed": arguments.seed,
         "configuration": configuration, "config_sha256": arguments.config_sha256,
         "literal": arguments.literal, "environment": os.environ.get("SEARCH_PARAMETER"), "cwd": str(Path.cwd())}
+    if mode == "cpu_affinity":
+        launch["cpu_ids"] = ATTEMPTS.cpu_ids()
     training = None
     if "JYPPX_LIUDING_LOCAL_SPEC_SHA256" in os.environ:
         job = os.environ["JYPPX_LIUDING_LOCAL_JOB_ID"]
@@ -302,6 +304,41 @@ class LocalSearchTests(unittest.TestCase):
             self.assertTrue(job["attempts"][0]["result"]["process_tree_cleanup_confirmed"])
         self.assertEqual(self.search("recover")["best"], result["best"])
         self.assertEqual(len(self.launches()), 3)
+
+    def test_cpu_affinity_is_frozen_across_grid_random_trials_and_terminal_replay(self) -> None:
+        available = ATTEMPTS.cpu_ids()
+        selected = [available[-1]]
+        self.spec["execution"]["cpu_affinity"] = selected
+        self.spec["configuration"]["case"] = "cpu_affinity"
+        for strategy in ("grid", "random"):
+            self.search_id = "affinity-" + strategy
+            self.spec["strategy"] = strategy
+            completed = self.search("execute")
+            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["confirmed_trials"], 3)
+            for trial in completed["trials"]:
+                job = self.invoke("local", "show", "--root", self.root, "--id", trial["trial_id"])["data"]
+                self.assertEqual(job["attempts"][0]["result"]["cpu_affinity"]["cpu_ids"], selected)
+                frozen, _ = committed_reference(self.root, trial["trial_id"], "local.spec")
+                self.assertEqual(json.loads(frozen)["cpu_affinity"], selected)
+            with ATTEMPTS.restricted_cpus([available[0]]):
+                for action in ("show", "recover", "execute"):
+                    self.assertEqual(self.search(action)["best"], completed["best"])
+        self.assertEqual([row["cpu_ids"] for row in self.launches()], [selected] * 6)
+        self.assertEqual(ATTEMPTS.cpu_ids(), available)
+
+    def test_cpu_affinity_invalid_or_unavailable_search_rejects_before_store(self) -> None:
+        available = ATTEMPTS.cpu_ids()
+        invalid = [[], [0, 0], [1024]]
+        invalid.extend([[id] for id in range(1024) if id not in available][:1])
+        for ids in invalid:
+            with self.subTest(ids=ids):
+                self.spec["execution"]["cpu_affinity"] = ids
+                self.write()
+                self.invoke("search", "execute", "--root", self.root, "--id", self.search_id,
+                    "--spec", self.spec_path, expected=3 if ids == [1024] else 2)
+                self.assertFalse(self.root.exists())
+                self.assertEqual(self.launches(), [])
 
     def test_os_memory_boundary_flows_through_search_and_terminal_replay(self) -> None:
         self.single("ok")

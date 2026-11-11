@@ -27,6 +27,7 @@
 
 #include <jyppx/liuding/foundation/error.hpp>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -228,6 +229,63 @@ TEST(LocalProcessTest, PreservesLiteralArgvUnicodeCwdEnvironmentAndStdinEof) {
   EXPECT_EQ(fs::current_path(), cwd);
   const auto* after = std::getenv("JYPPX_LOCAL_PROCESS_TEST_TOKEN");
   EXPECT_EQ(after ? after : "", before);
+  EXPECT_FALSE(alive(result.process_id));
+}
+
+TEST(LocalProcessTest,
+     CpuAffinityIsAppliedBeforeExecAndInheritedWithoutChangingParent) {
+  const auto available = cli::local_process_available_cpu_ids();
+  ASSERT_FALSE(available.empty());
+  ProcessDirectory directory;
+  auto options = directory.options("cpu-affinity");
+  options.cpu_affinity = {available.back()};
+  const auto result = cli::LocalProcessRunner{}.run(options);
+  ASSERT_EQ(result.status, cli::LocalProcessStatus::exited);
+  ASSERT_EQ(result.exit_code, 0U);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+  EXPECT_EQ(result.cpu_affinity, options.cpu_affinity);
+  const auto observed = Json::parse(result.stdout_capture);
+  EXPECT_EQ(observed.at("leader"), Json(options.cpu_affinity));
+  EXPECT_EQ(observed.at("descendant"), Json(options.cpu_affinity));
+  EXPECT_EQ(cli::local_process_available_cpu_ids(), available);
+}
+
+TEST(LocalProcessTest, InvalidOrUnavailableCpuAffinityNeverRunsUserCode) {
+  ProcessDirectory directory;
+  auto options = directory.options("sleep");
+  const auto available = cli::local_process_available_cpu_ids();
+  const std::vector<std::vector<std::uint32_t>> invalid{
+      {available.front(), available.front()}, {1, 0}, {1024}, {UINT32_MAX}};
+  for (const auto& ids : invalid) {
+    options.cpu_affinity = ids;
+    EXPECT_THROW(cli::LocalProcessRunner{}.run(options),
+                 jyppx::liuding::InvalidArgument);
+    EXPECT_FALSE(fs::exists(directory.root / "ready"));
+  }
+  for (std::uint32_t id = 0; id < 1024; ++id) {
+    if (std::find(available.begin(), available.end(), id) == available.end()) {
+      options.cpu_affinity = {id};
+      EXPECT_THROW(cli::LocalProcessRunner{}.run(options),
+                   jyppx::liuding::InvalidArgument);
+      EXPECT_FALSE(fs::exists(directory.root / "ready"));
+      break;
+    }
+  }
+}
+
+TEST(LocalProcessTest, CancelledCpuAffinityRetainsPlacementAndReleasesChild) {
+  ProcessDirectory directory;
+  auto options = directory.options("sleep");
+  options.cpu_affinity = {cli::local_process_available_cpu_ids().front()};
+  std::stop_source stop;
+  std::jthread cancel([&] {
+    await([&] { return fs::exists(directory.root / "ready"); });
+    stop.request_stop();
+  });
+  const auto result = cli::LocalProcessRunner{}.run(options, stop.get_token());
+  EXPECT_EQ(result.status, cli::LocalProcessStatus::cancelled);
+  EXPECT_EQ(result.cpu_affinity, options.cpu_affinity);
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
   EXPECT_FALSE(alive(result.process_id));
 }
 
