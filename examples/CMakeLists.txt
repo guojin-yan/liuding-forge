@@ -226,6 +226,45 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
     endif()
 endif()
 
+if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
+   AND TARGET jyppx::liuding::interop AND TARGET jyppx::liuding::optim
+   AND TARGET jyppx::liuding::experiment)
+    add_executable(jyppx_liuding_pedestrian_segmentation
+        evaluation/segmentation/pedestrian_segmentation.cpp
+        evaluation/segmentation/model/tiny_unet.cpp)
+    set_target_properties(jyppx_liuding_pedestrian_segmentation PROPERTIES
+        OUTPUT_NAME liuding-forge-example-pedestrian-segmentation)
+    target_link_libraries(jyppx_liuding_pedestrian_segmentation PRIVATE
+        jyppx::liuding::training jyppx::liuding::data_image
+        jyppx::liuding::interop jyppx::liuding::optim
+        jyppx::liuding::experiment nlohmann_json::nlohmann_json)
+    if(TARGET torch_cuda OR TORCH_CUDA_VERSION)
+        target_compile_definitions(jyppx_liuding_pedestrian_segmentation PRIVATE
+            JYPPX_LIUDING_SPATIAL_CUDA_METRICS=1)
+    endif()
+    if(WIN32)
+        target_link_libraries(jyppx_liuding_pedestrian_segmentation PRIVATE psapi)
+    endif()
+    jyppx_apply_instrumentation(jyppx_liuding_pedestrian_segmentation)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_pedestrian_segmentation)
+    if(JYPPX_LIUDING_BUILD_TESTS AND Python3_Interpreter_FOUND)
+        add_test(NAME SegmentationExampleArguments
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_segmentation_example.py"
+                --binary $<TARGET_FILE:jyppx_liuding_pedestrian_segmentation>
+                --arguments-only)
+        set_tests_properties(SegmentationExampleArguments PROPERTIES
+            LABELS "examples;training;evaluation" TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME RealSegmentationRecoveryExample
+            COMMAND ${Python3_EXECUTABLE}
+                "${PROJECT_SOURCE_DIR}/tests/scripts/test_segmentation_example.py"
+                --binary $<TARGET_FILE:jyppx_liuding_pedestrian_segmentation>)
+        set_tests_properties(RealSegmentationRecoveryExample PROPERTIES
+            LABELS "examples;training;evaluation;external-data"
+            TIMEOUT 1500 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    endif()
+endif()
+
 if(TARGET jyppx::liuding::bundle_signing)
     add_executable(jyppx_liuding_bundle_signing_example deployment/bundle_signing.cpp)
     set_target_properties(jyppx_liuding_bundle_signing_example PROPERTIES

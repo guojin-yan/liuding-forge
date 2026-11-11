@@ -365,6 +365,7 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image AND TAR
     jyppx_add_gtest(jyppx_test_training_real_spatial_task
         LINK_TARGET jyppx::liuding::training
         training/test_real_spatial_task.cpp
+        ${PROJECT_SOURCE_DIR}/examples/evaluation/segmentation/model/tiny_unet.cpp
         ENVIRONMENT "CUBLAS_WORKSPACE_CONFIG=:4096:8")
     target_link_libraries(jyppx_test_training_real_spatial_task PRIVATE
         jyppx::liuding::data_image jyppx::liuding::interop
