@@ -13,6 +13,27 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-ubuntu-gcc114-cpu-91a0415-complete-resnet50-transfer",
+          "os": "ubuntu-22.04.5",
+          "architecture": "x86_64",
+          "distribution": "cpu-only",
+          "compiler": "GCC 11.4.0",
+          "accelerator": "CPU only;LibTorch 2.14.1+cpu",
+          "build_type": "Release",
+          "commit": "91a04159fe5eab9b29a08e97e25649a56b3d5eb9",
+          "tests": "Native ResNet50 frozen transfer: three completed375-update lanes;continuous,47-step pause/resume,and real SIGKILL after verified durable125 with continuation to375. Four shared CTest contracts pass with no skips. Three lanes have1125 logical final updates;extra applied C2 pre-kill updates were not measured.",
+          "instrumentation": "Fixed rebuilt-cpu-release and rebuilt-cpu-local-sdk-consumer trees,one compile job and one native workload across both hosts. Native cgroup memory.max=6GiB,swap.max=0;peak1152704512B,no memory-limit/OOM events. Original2h absolute deadline and cumulative600/5400/240s build/native/audit budgets retained.",
+          "quality_evidence": {
+            "task": "Unchanged1000-training/1000-validation first100/class Fashion-MNIST images,seed20261029,RGB224,batch8,workers2/prefetch1,SGD0.01/momentum0.9/weight_decay0.0001/gamma0.9,three epochs. Accuracy=0.830 meets original0.65 threshold;official-test subset is used as validation,not an independent final test. Only device and current descriptor location differ from the prior CUDA configuration. Previously qualified CUDA routes were not rerun.",
+            "recovery": "All13 compared result fields,10 checkpoint participants and342 blobs match. Final complete checkpoint SHAe733ced31342fdf5cc47303e226b4a015fed8bec3219ae22c7d6bb5c49db9b58;model SHA2bcdf16cbcbd4668a635d090d940e9391121769fae66b6b2a007a0bffd1d8ed8. Frozen backbone bytes stay unchanged and20490 trainable head parameters update. All final checkpoint/model files are byte-identical across lanes. Three SQLite snapshots pass independent integrity,foreign-key,completed-state and referenced-CAS checks.",
+            "reload": "Independent native C++ model-only reload uses the actual installed SDK9fd2763e6bec5f4a33a2d0f96fa9ec32f94bf847;320 state tensors retain dtype/shape/payload before and after125 forward calls over1000 images,zero training updates. Independent checker rebuilds confusion/accuracy from10000 logits and1000 labels and verifies125 frozen sampling batches. Full normalized A tensors were not captured;no independent tensor-input/numerical or current full-SDK qualification is inferred.",
+            "source_identity": "Clean training source91a04159fe5eab9b29a08e97e25649a56b3d5eb9,1338 tracked files and924 installed/coverage files preserve SHA/mtime. Framework CLI built incrementally;maintenance consumer first failed on an unused DINO branch,then was scoped to the registered ResNet50 task. Original failure retained,no training retries,no product algorithm changes,no SDK reinstall or relabeling.",
+            "receipts_archive_sha256": "65c8b251be914b56a9c4564b3d4a492f3b42f9a3d7b73ce195918b65748b80b3",
+            "local_audit_sha256": "547121ef7208aaa872d83c52aa1d42c11a57580fd02f539c923d4ffb9e15e437",
+            "scope": "This Ubuntu CPU-only ResNet50 frozen complete task and exact recovery only. Other models,finetuning,recipes,Windows,device/resource matrices,final candidate and full release remain unqualified. Original DINO finetune initial-state gap remains. INT8 deferred;network security work paused;Actions not dispatched."
+          }
+        },
+        {
           "id": "local-windows-msvc1944-cu126-clean-f8e7d8e-distinct-onnx-serving",
           "os": "windows-11",
           "architecture": "x86_64",
