@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 明确训练诊断报告在发布中断、回执丢失后的重试边界；增加 CAS 发布、引用提交及检查点缺失/损坏的原生进程恢复回归，相关测试头文件与实现集中在训练诊断模块目录。
+
 - 补齐 Windows CPU 安装 SDK 的异训练权重 ONNX 切换与回退验收：每个版本使用各自原生参考，旧租约保持绑定，回退输出逐字节恢复；保留实际 SDK 与环境资格边界。
 
 - 本地任务和搜索可分别冻结 stdout/stderr 的始终、仅失败或不保留策略；保留退出状态、日志计数和有界捕获摘要，维持输出限额、typed产物校验、原子提交与终态重放。

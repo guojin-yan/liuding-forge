@@ -94,6 +94,8 @@ const auto json = training::training_diagnostics_report_json(report, 65536);
 
 可将 JSON 字节用现有 `SQLiteRunStore::put_artifact()` 关联至报告的 `run_id`，复用不可变 CAS、物理重开、同 reference ID 重试和冲突拒绝；检查点提交与报告发布仍是独立操作。恢复 participant 后可重新捕获报告，已记录统计保持不变，构建身份反映执行捕获的二进制。当前报告覆盖上述诊断统计，不包含完整 GPU profiler、调用栈或自动根因判断。
 
+发布进程中断或回执丢失后，应使用相同报告字节、reference ID 和描述信息重试；CAS 对象已经存在不代表 run 引用已经提交。也可从保留的完整检查点恢复 participant 后重建报告，但报告身份、选项和捕获二进制须保持一致；换用构建会改变报告的构建身份，不能用原 reference ID 静默覆盖。诊断 JSON 不能替代丢失或损坏的训练检查点。
+
 ## 训练后 BatchNorm 校准
 
 `<jyppx/liuding/training/batch_norm_calibration.hpp>` 提供 `training::calibrate_batch_norm(model, source, options)`。支持单个 CPU 或 CUDA 设备上 FP32 模型中的 tracked BatchNorm2d；仅重估 `running_mean`、`running_var` 和 `num_batches_tracked`，不执行反向传播或优化器更新。其他模块保持 eval，结束后恢复原模块模式、BN momentum 和 CPU RNG；CUDA 模型还恢复全部可见设备的默认 CUDA RNG。

@@ -94,6 +94,30 @@ endif()
 # A real process boundary is required to validate durable outbox replay after
 # SQLite commits but the producer has not received its receipt.
 if(Python3_Interpreter_FOUND)
+    if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::experiment
+            AND TARGET jyppx::liuding::interop)
+        add_executable(jyppx_training_diagnostic_recovery_child
+            training/diagnostics/main.cpp
+            training/diagnostics/fixture.cpp
+            training/diagnostics/publication.cpp)
+        target_link_libraries(jyppx_training_diagnostic_recovery_child PRIVATE
+            jyppx::liuding::training jyppx::liuding::experiment
+            jyppx::liuding::interop nlohmann_json::nlohmann_json)
+        # Use only the pinned amalgamation's header. The experiment archive
+        # supplies SQLite; a second runtime would invalidate the commit hook.
+        target_include_directories(jyppx_training_diagnostic_recovery_child SYSTEM PRIVATE
+            "${jyppx_sqlite_SOURCE_DIR}")
+        jyppx_apply_instrumentation(jyppx_training_diagnostic_recovery_child)
+        jyppx_add_torch_runtime_dependency(jyppx_training_diagnostic_recovery_child)
+        add_test(NAME TrainingDiagnosticProcessRecovery
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_CURRENT_SOURCE_DIR}/training/diagnostics/test_recovery.py"
+                --child $<TARGET_FILE:jyppx_training_diagnostic_recovery_child>
+                --work-dir "${CMAKE_BINARY_DIR}/_diagnostic_recovery/$<CONFIG>")
+        set_tests_properties(TrainingDiagnosticProcessRecovery PROPERTIES
+            LABELS "training;experiment;checkpoint;integration;process" TIMEOUT 120)
+    endif()
+
     add_executable(jyppx_liuding_experiment_recovery_child experiment/recovery_child.cpp)
     target_link_libraries(jyppx_liuding_experiment_recovery_child PRIVATE
         jyppx::liuding::training jyppx::liuding::experiment jyppx::liuding::interop
