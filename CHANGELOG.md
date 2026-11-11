@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 验收 Ubuntu CPU 安装 SDK 上两份不同训练权重的已签名 ONNX 版本切换与回退；并发请求及保留的租约分别核对各自版本的原生参考。
+
 - 本地文件发布支持直接从编码字节准备持久化意图，无需额外输入文件。CIFAR-10 预览示例可用该模式完成文件、CAS 引用和事件，并在新进程中恢复已准备的预览。
 
 - 增加原生ImageFolder训练与输出示例：显式CUDA拷贝或当前流传输接入Trainer，在SGD更新后发布预览并登记文件证据，源批次准入保持至异步证据完成，支持取消与失败释放。

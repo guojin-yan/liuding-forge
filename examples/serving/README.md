@@ -49,3 +49,5 @@ C++ ONNX bundle serving, dynamic batches and version drain passed.
 ```
 
 两个 bundle 位于各自独占的系统临时目录，示例结束时自动清理。ORT 图 workspace、优化器及 Provider 内部分配不受 `peak_reserved_bytes` 的逻辑快照预算约束。此示例使用显式 CPU Provider 与主机 I/O，不启用动态合批或 OOM 重试；其他 Provider 需要独立 SDK、驱动和执行资格验证。
+
+使用两份实际训练权重时，为每个包保存同一输入对应的各自原生参考，并在发布候选前用候选自己的参考预热。保留原包、授权摘要和参考输出，待旧实例排空后可重新加载原包回退；回退后，新请求使用原版本，切换前取得的租约仍使用各自绑定的版本。完整训练模型的签名交付步骤见 [CIFAR-10 ONNX 示例](../deployment/README.md)。
