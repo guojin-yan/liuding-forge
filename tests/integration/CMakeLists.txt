@@ -181,4 +181,12 @@ if(Python3_Interpreter_FOUND)
             --work-dir "${CMAKE_BINARY_DIR}/_file_publication/$<CONFIG>")
     set_tests_properties(FilePublicationProcessRecovery PROPERTIES
         LABELS "experiment;integration;process" TIMEOUT 300)
+    add_test(NAME FilePublicationBytesProcessRecovery
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/experiment/test_file_publication.py"
+            --child $<TARGET_FILE:jyppx_file_publication_child>
+            --source bytes
+            --work-dir "${CMAKE_BINARY_DIR}/_file_publication_bytes/$<CONFIG>")
+    set_tests_properties(FilePublicationBytesProcessRecovery PROPERTIES
+        LABELS "experiment;integration;process" TIMEOUT 300)
 endif()

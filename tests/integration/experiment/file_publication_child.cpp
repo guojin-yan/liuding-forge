@@ -72,6 +72,8 @@ void report(Json value) {
   report({{"phase", "ready-for-forced-kill"},
           {"boundary", boundary},
           {"process_id", pid},
+          {"source_file_exists",
+           std::filesystem::exists(active_root / "input.bin")},
           {"file_exists", std::filesystem::exists(active_root / "result.bin")},
           {"payload_cas_exists", std::filesystem::exists(payload_object())}});
   char ignored = 0;
@@ -128,7 +130,7 @@ int execute(std::string_view mode) {
       SQLITE_OK)
     throw std::runtime_error("Could not install official SQLite test hook");
   ex::SQLiteRunStore store(active_root / "store");
-  if (mode == "seed") {
+  if (mode == "seed" || mode == "seed-bytes") {
     store.start({.run_id = "run-1",
                  .project_id = "project-1",
                  .experiment_id = "experiment-1",
@@ -136,15 +138,32 @@ int execute(std::string_view mode) {
                  .status = ex::RunStatus::running,
                  .created_at_unix_ms = 100U,
                  .updated_at_unix_ms = 100U});
+    if (mode == "seed-bytes") {
+      report({{"phase", "completed"},
+              {"mode", mode},
+              {"references", 0},
+              {"events", 0},
+              {"integrity_ok", store.integrity_check().ok()}});
+      return 0;
+    }
     const auto bytes = content();
     std::ofstream output(active_root / "input.bin", std::ios::binary);
     output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     output.close();
     if (!output) throw std::runtime_error("Could not write source fixture");
-  } else if (mode == "prepare" || mode == "prepare-fence") {
+  } else if (mode == "prepare" || mode == "prepare-fence" ||
+             mode == "prepare-bytes" || mode == "prepare-bytes-fence") {
     UnwoundMarker marker;
-    preparing = mode == "prepare-fence";
-    store.prepare_file_publication(request());
+    preparing = mode == "prepare-fence" || mode == "prepare-bytes-fence";
+    if (mode == "prepare-bytes" || mode == "prepare-bytes-fence") {
+      const auto payload = content();
+      auto value = request();
+      value.evidence.path.reset();
+      store.prepare_file_publication_bytes(
+          value, std::as_bytes(std::span(payload.data(), payload.size())));
+    } else {
+      store.prepare_file_publication(request());
+    }
     if (preparing && active_boundary == "after-prepare") fence(active_boundary);
     if (preparing)
       throw std::runtime_error("Preparation fence was not reached");

@@ -18,6 +18,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <optional>
 
 namespace {
 using namespace cifar10_example;
@@ -85,8 +86,69 @@ image::EncodedImage Preview(
   return image::encode_image(preview.pixels, preview.spec, encode, stop);
 }
 
+forge::experiment::FilePublicationRequest Publication(
+    std::uint64_t sequence, const fs::path& destination, std::uint64_t size,
+    std::string digest, std::uint64_t timestamp) {
+  forge::experiment::FilePublicationRequest result;
+  result.publication_id = "publication-" + std::to_string(sequence);
+  result.destination = destination;
+  const auto id = "preview-" + std::to_string(sequence);
+  auto& request = result.evidence;
+  request.run_id = "cifar10-output";
+  request.reference_id = id;
+  request.descriptor = {.logical_name = id + ".png",
+                        .media_type = "image/png",
+                        .producer = "example.cifar10-output",
+                        .expected_size_bytes = size};
+  request.attached_at_unix_ms = timestamp;
+  request.expected_digest = {.hex = std::move(digest)};
+  request.event_batch_key = id;
+  request.event.identity = {.stream_id = "previews",
+                            .event_id = id,
+                            .idempotency_key = id,
+                            .sequence = sequence + 1};
+  request.event.correlation.project_id = "cifar10";
+  request.event.correlation.run_id = "cifar10-output";
+  request.event.payload =
+      forge::TelemetryArtifactReference{.role = "image.preview"};
+  return result;
+}
+
+int Recover(const fs::path& output) {
+  Require(fs::is_regular_file(output / "run-store/runs.sqlite3"),
+          "Expected an existing preview run store");
+  forge::experiment::SQLiteRunStore store(output / "run-store");
+  Require(store.find("cifar10-output").has_value(), "Preview run is absent");
+  std::string after;
+  Json files = Json::array();
+  while (true) {
+    const auto ids = store.file_publications("cifar10-output", after, 64);
+    if (ids.empty()) break;
+    for (const auto& id : ids) {
+      const auto result = store.recover_file_publication("cifar10-output", id);
+      files.push_back(
+          {{"publication_id", id},
+           {"file", result.path.filename().string()},
+           {"sha256", result.evidence.reference.artifact.digest.hex},
+           {"bytes", result.evidence.reference.artifact.size_bytes},
+           {"reference_replay", result.evidence.reference_replay},
+           {"event_replay", result.evidence.event.batch_replay}});
+    }
+    after = ids.back();
+  }
+  Require(!files.empty(), "No prepared preview publications were found");
+  Require(store.integrity_check().ok(), "Preview store integrity failed");
+  std::cout << Json({{"recovered_publications", files.size()},
+                     {"model_or_source_loaded", false},
+                     {"training_updates", 0},
+                     {"files", files}})
+                   .dump()
+            << '\n';
+  return 0;
+}
+
 int Run(const fs::path& model_path, std::string_view expected_sha,
-        const fs::path& validation_root, const fs::path& output) {
+        const fs::path& validation_root, const fs::path& output, bool durable) {
   Require(!fs::exists(output), "Use a new output directory");
   at::set_num_threads(1);
   at::set_num_interop_threads(1);
@@ -173,11 +235,49 @@ int Run(const fs::path& model_path, std::string_view expected_sha,
         kEncodedBound;
     sink_options.resource_budget = budget;
     sink_options.wait_for_aggregate_queue = true;
-    image::ImageOutputSink sink(sink_options);
     pipeline.set_epoch(0);
+    auto observe_first = [&](std::uint64_t sequence) {
+      if (sequence != 0) return;
+      std::unique_lock lock(pressure.mutex);
+      Require(
+          pressure.changed.wait_for(lock, std::chrono::seconds(10),
+                                    [&] {
+                                      return pressure.first_consumer_released &&
+                                             pressure.next_admission_started;
+                                    }),
+          "Timed out observing downstream-to-source pressure");
+      Require(images.decoded_samples() == kBatchSize && pressure.acquired == 1,
+              "Source decoded another batch while first evidence "
+              "held admission");
+      Require(
+          budget->usage(image::ImageResourceKind::pipeline_inflight_batches)
+                      .current == 1 &&
+              budget->usage(image::ImageResourceKind::pipeline_inflight_bytes)
+                      .current == images.limits().max_output_bytes,
+          "Evidence lost source admission");
+      Require(
+          budget->usage(image::ImageResourceKind::decoded_bytes).current == 0,
+          "Consumer pixels remained live during evidence wait");
+      pressure.evidence = {{"decoded_samples", images.decoded_samples()},
+                           {"admission_attempts", pressure.attempts.load()},
+                           {"acquired_batches", pressure.acquired.load()},
+                           {"consumer_pixels_released", true},
+                           {"next_batch_blocked", true}};
+    };
+    auto record_file = [&](const fs::path& path, std::uint64_t bytes,
+                           const std::string& digest) {
+      published.push_back({{"path", path.filename().string()},
+                           {"bytes", bytes},
+                           {"sha256", digest}});
+    };
+    std::unique_ptr<image::ImageOutputSink> sink;
+    if (!durable) sink = std::make_unique<image::ImageOutputSink>(sink_options);
     std::vector<image::ImageSinkSubmission> tickets;
     while (auto envelope = pipeline.next()) {
       const auto sequence = envelope->sequence;
+      std::optional<forge::experiment::FilePublicationRequest> prepared;
+      std::shared_ptr<void> source_admission;
+      image::ImageResourceLease spool;
       {
         auto batch = image::image_batch_from_value(envelope->value);
         const auto logits =
@@ -209,76 +309,40 @@ int Run(const fs::path& model_path, std::string_view expected_sha,
             "batch-" + std::to_string(sequence) + "-label-" +
             std::to_string(batch.labels[0].item<std::int64_t>()) + "-pred-" +
             std::to_string(predictions[0].item<std::int64_t>()) + ".png";
-        tickets.push_back(sink.produce_and_submit(
-            output / name, kEncodedBound,
-            [&](std::stop_token stop) {
-              return Preview(batch.images[0], budget, stop);
-            },
-            {}, {},
-            [&, sequence, lease = envelope->admission_lease](
-                const image::ImageSinkWriteResult& file) {
-              (void)lease;  // Keep source count and byte admission through
-                            // evidence.
-              if (sequence == 0) {
-                std::unique_lock lock(pressure.mutex);
-                Require(pressure.changed.wait_for(
-                            lock, std::chrono::seconds(10),
-                            [&] {
-                              return pressure.first_consumer_released &&
-                                     pressure.next_admission_started;
-                            }),
-                        "Timed out observing downstream-to-source pressure");
-                Require(images.decoded_samples() == kBatchSize &&
-                            pressure.acquired == 1,
-                        "Source decoded another batch while first evidence "
-                        "held admission");
+        if (durable) {
+          auto encoded = Preview(batch.images[0], budget, {});
+          spool = budget->reserve(image::ImageResourceKind::disk_spool_bytes,
+                                  encoded.bytes.size());
+          prepared.emplace(
+              Publication(sequence, output / name, encoded.bytes.size(),
+                          forge::sha256_hex(encoded.bytes), timestamp));
+          store.prepare_file_publication_bytes(*prepared, encoded.bytes);
+          source_admission = envelope->admission_lease;
+        } else {
+          tickets.push_back(sink->produce_and_submit(
+              output / name, kEncodedBound,
+              [&](std::stop_token stop) {
+                return Preview(batch.images[0], budget, stop);
+              },
+              {}, {},
+              [&, sequence, lease = envelope->admission_lease](
+                  const image::ImageSinkWriteResult& file) {
+                (void)lease;
+                observe_first(sequence);
+                auto request = Publication(sequence, file.path, file.bytes,
+                                           file.sha256, timestamp);
+                request.evidence.path = file.path;
+                const auto receipt =
+                    store.record_published_file_evidence_atomic(
+                        request.evidence);
                 Require(
-                    budget->usage(image::ImageResourceKind::
-                                      pipeline_inflight_batches)
-                                .current == 1 &&
-                        budget->usage(image::ImageResourceKind::
-                                          pipeline_inflight_bytes)
-                                .current == images.limits().max_output_bytes,
-                    "Evidence lost source admission");
-                Require(budget->usage(image::ImageResourceKind::decoded_bytes)
-                                .current == 0,
-                        "Consumer pixels remained live during evidence wait");
-                pressure.evidence = {
-                    {"decoded_samples", images.decoded_samples()},
-                    {"admission_attempts", pressure.attempts.load()},
-                    {"acquired_batches", pressure.acquired.load()},
-                    {"consumer_pixels_released", true},
-                    {"next_batch_blocked", true}};
-              }
-              const auto id = "preview-" + std::to_string(sequence);
-              forge::experiment::PublishedFileEvidenceRequest request;
-              request.run_id = "cifar10-output";
-              request.reference_id = id;
-              request.path = file.path;
-              request.descriptor = {.logical_name = id + ".png",
-                                    .media_type = "image/png",
-                                    .producer = "example.cifar10-output",
-                                    .expected_size_bytes = file.bytes};
-              request.attached_at_unix_ms = timestamp;
-              request.expected_digest = {.hex = file.sha256};
-              request.event_batch_key = id;
-              request.event.identity = {.stream_id = "previews",
-                                        .event_id = id,
-                                        .idempotency_key = id,
-                                        .sequence = sequence + 1};
-              request.event.correlation.project_id = "cifar10";
-              request.event.correlation.run_id = "cifar10-output";
-              request.event.payload =
-                  forge::TelemetryArtifactReference{.role = "image.preview"};
-              const auto receipt =
-                  store.record_published_file_evidence_atomic(request);
-              Require(
-                  !receipt.reference_replay && !receipt.event.batch_replay,
-                  "Unexpected duplicate evidence in a new output directory");
-            }));
-        Require(
-            tickets.back().disposition == image::ImageSinkDisposition::queued,
-            "Preview was not admitted");
+                    !receipt.reference_replay && !receipt.event.batch_replay,
+                    "Unexpected duplicate evidence in a new output directory");
+              }));
+          Require(
+              tickets.back().disposition == image::ImageSinkDisposition::queued,
+              "Preview was not admitted");
+        }
         samples += n;
       }
       envelope.reset();
@@ -287,22 +351,33 @@ int Run(const fs::path& model_path, std::string_view expected_sha,
         pressure.first_consumer_released = true;
         pressure.changed.notify_all();
       }
+      if (prepared) {
+        Require(source_admission != nullptr, "Preview lost source admission");
+        observe_first(sequence);
+        const auto result = store.recover_file_publication(
+            prepared->evidence.run_id, prepared->publication_id);
+        Require(!result.evidence.reference_replay &&
+                    !result.evidence.event.batch_replay,
+                "Unexpected duplicate evidence in a new output directory");
+        const auto& artifact = result.evidence.reference.artifact;
+        record_file(result.path, artifact.size_bytes, artifact.digest.hex);
+      }
       ++batches;
     }
     pipeline.close();
-    sink.close();
-    for (auto& ticket : tickets) {
-      const auto file = ticket.completion.get();
-      ticket.evidence_completion.get();
-      published.push_back({{"path", file.path.filename().string()},
-                           {"bytes", file.bytes},
-                           {"sha256", file.sha256}});
+    if (sink) {
+      sink->close();
+      for (auto& ticket : tickets) {
+        const auto file = ticket.completion.get();
+        ticket.evidence_completion.get();
+        record_file(file.path, file.bytes, file.sha256);
+      }
+      const auto stats = sink->stats();
+      Require(stats.completed == kBatches && stats.failed == 0 &&
+                  stats.pending_items == 0 && stats.pending_bytes == 0 &&
+                  stats.producing_items == 0,
+              "Output did not drain");
     }
-    const auto stats = sink.stats();
-    Require(stats.completed == kBatches && stats.failed == 0 &&
-                stats.pending_items == 0 && stats.pending_bytes == 0 &&
-                stats.producing_items == 0,
-            "Output did not drain");
     Require(images.decoded_samples() == kSamples,
             "Source count differs from complete validation");
   }
@@ -311,7 +386,8 @@ int Run(const fs::path& model_path, std::string_view expected_sha,
   Require(samples == kSamples && batches == kBatches &&
               pressure.acquired == kBatches,
           "Incomplete bounded evaluation");
-  Require(store.references("cifar10-output").size() == 2 * kBatches &&
+  Require(store.references("cifar10-output").size() ==
+                  (durable ? 4 : 2) * kBatches &&
               store.events("cifar10-output").events.size() == kBatches &&
               store.integrity_check().ok(),
           "Incomplete durable evidence");
@@ -338,6 +414,7 @@ int Run(const fs::path& model_path, std::string_view expected_sha,
                     forge::current_build_fingerprint()))},
       {"applied_tensors", imported.applied_tensors},
       {"training_updates", 0},
+      {"durable_publications", durable},
       {"state_sha256_before", before},
       {"state_sha256_after", after},
       {"forward_calls", batches},
@@ -365,13 +442,19 @@ template <class Character>
 int Main(int argc, Character* argv[]) {
   constexpr auto usage =
       "usage: liuding-forge-example-cifar10-output-pipeline "
-      "MODEL_SAFETENSORS MODEL_SHA256 VALIDATION_ROOT NEW_OUTPUT_DIRECTORY\n";
+      "MODEL_SAFETENSORS MODEL_SHA256 VALIDATION_ROOT NEW_OUTPUT_DIRECTORY "
+      "[durable]\n"
+      "       liuding-forge-example-cifar10-output-pipeline --recover "
+      "OUTPUT_DIRECTORY\n";
   try {
     if (argc == 2 && fs::path(argv[1]) == fs::path("--help")) {
       std::cout << usage;
       return 0;
     }
-    if (argc != 5) {
+    if (argc == 3 && fs::path(argv[1]) == fs::path("--recover"))
+      return Recover(fs::path(argv[2]));
+    if ((argc != 5 && argc != 6) ||
+        (argc == 6 && fs::path(argv[5]) != fs::path("durable"))) {
       std::cerr << usage;
       return 2;
     }
@@ -383,7 +466,8 @@ int Main(int argc, Character* argv[]) {
       sha.push_back(static_cast<char>(*c));
     }
     Require(sha.size() == 64, "Expected a complete model SHA-256");
-    return Run(fs::path(argv[1]), sha, fs::path(argv[3]), fs::path(argv[4]));
+    return Run(fs::path(argv[1]), sha, fs::path(argv[3]), fs::path(argv[4]),
+               argc == 6);
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

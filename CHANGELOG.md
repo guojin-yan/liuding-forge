@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 本地文件发布支持直接从编码字节准备持久化意图，无需额外输入文件。CIFAR-10 预览示例可用该模式完成文件、CAS 引用和事件，并在新进程中恢复已准备的预览。
+
 - 增加原生ImageFolder训练与输出示例：显式CUDA拷贝或当前流传输接入Trainer，在SGD更新后发布预览并登记文件证据，源批次准入保持至异步证据完成，支持取消与失败释放。
 
 - 图像批次增加显式、有界的CUDA拷贝stream与单次消费ticket；消费stream通过事件等待，源存储和预算保留到拷贝完成，目标存储登记消费stream，并可查询事件时间。CPU-only构建明确拒绝CUDA请求。

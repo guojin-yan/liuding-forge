@@ -90,7 +90,7 @@ struct FilePublicationRequest {
   std::filesystem::path
       destination;  ///< Final path in a caller-owned directory.
   PublishedFileEvidenceRequest
-      evidence;  ///< Input path required at preparation.
+      evidence;  ///< File source, or no path for byte preparation.
 };
 
 /** @brief Published file with jointly committed SQLite evidence receipts. */
@@ -387,6 +387,22 @@ class SQLiteRunStore final : public RunSink, public RunEventSink {
   RunArtifactReference prepare_file_publication(
       const FilePublicationRequest& request, std::stop_token stop = {},
       TelemetryDeadline deadline = std::nullopt);
+
+  /** @brief 从调用方字节准备可恢复发布，不先写额外的输入文件。
+   * @param request 稳定身份、最终路径、精确大小和摘要；evidence.path 须为空。
+   * @param bytes 首次准备的完整内容，借用到调用返回；不复制完整缓冲区。
+   * @param stop 分块写入、等待和提交前工作的取消令牌。
+   * @param deadline 所有工作共用的绝对 steady-clock 截止时间。
+   * @return 与文件准备入口相同的持久化意图引用。
+   * @throws Error 大小、摘要、配额、身份、取消或 I/O 失败。
+   * @note 内容和意图在同一 SQLite 事务中登记。已存在的相同意图重放
+   * 不读取 bytes，可传空 span；仍重新核验持久 CAS。未引用 CAS 可能
+   * 留待 GC，提交错误可能结果未知；保留原身份重试。成功准备后调用
+   * recover_file_publication 完成最终文件、结果引用和事件。
+   */
+  RunArtifactReference prepare_file_publication_bytes(
+      const FilePublicationRequest& request, std::span<const std::byte> bytes,
+      std::stop_token stop = {}, TelemetryDeadline deadline = std::nullopt);
 
   /** @brief 仅凭持久化意图从 CAS 发布文件并共同提交结果引用和事件。
    * @param run_id 已存在的 run。

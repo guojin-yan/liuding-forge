@@ -121,6 +121,8 @@ For a successfully published local output file, `record_published_file_evidence`
 
 `prepare_file_publication(request, stop, deadline)` 在同一 SQLite 写事务里将输入内容和完整意图各登记为一个普通 run 引用。意图保存规范事件、原描述符、时间戳、目标路径及结果身份；成功后可删除输入文件。准备阶段不会发布最终路径或结果事件，失败时新增的两个引用一起回滚；未引用 CAS 字节仍可由协调 GC 清理。意图最多 4 MiB，内容沿用制品字节上限；最终复制按 64 KiB 分块，支持取消和截止时间。重试准备须使用原意图；已成功准备后可省略 `evidence.path`。
 
+编码结果已在内存时，将 `evidence.path` 留空，调用 `prepare_file_publication_bytes(request, encoded.bytes, stop, deadline)`。接口借用缓冲区到返回，按 64 KiB 分块写入 CAS，无需额外的输入文件或完整副本。首次准备须匹配精确大小和 SHA-256；相同已准备意图重放可传空 span，仍核验 CAS。文件与字节入口使用相同的持久格式和恢复接口。
+
 重启后用 `file_publications(run_id, after_id, limit)` 分页发现意图 ID。每页 1–1024 项，按 ID 升序排列，`after_id` 为排他游标；已完成的意图也保留，适合统一幂等重放。恢复入口只需要 run ID 和意图 ID，直接读取原持久化请求，不重新执行生产者：
 
 ```cpp

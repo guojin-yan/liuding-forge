@@ -128,23 +128,40 @@ bool storage_consumer() {
          .destination = output_root.path / "final.bin",
          .evidence = request});
     if (!std::filesystem::remove(input)) return false;
+    request.path.reset();
+    request.reference_id = "published.5";
+    request.event_batch_key = "published.bytes.event";
+    request.event.identity.event_id = "published.5";
+    request.event.identity.idempotency_key = "published.5";
+    request.event.identity.sequence = 5U;
+    store.prepare_file_publication_bytes(
+        {.publication_id = "published.bytes",
+         .destination = output_root.path / "from-bytes.bin",
+         .evidence = request},
+        std::as_bytes(std::span(payload.data(), payload.size())));
   }
   jyppx::liuding::experiment::SQLiteRunStore reopened(root.path);
   const auto ids = reopened.file_publications("consumer.run");
-  if (ids != std::vector<std::string>{"published.intent"}) return false;
+  if (ids != std::vector<std::string>{"published.bytes", "published.intent"})
+    return false;
   const auto publication =
-      reopened.recover_file_publication("consumer.run", ids.front());
+      reopened.recover_file_publication("consumer.run", "published.intent");
   const auto replay =
-      reopened.recover_file_publication("consumer.run", ids.front());
+      reopened.recover_file_publication("consumer.run", "published.intent");
   if (publication.evidence.reference_replay ||
       !replay.evidence.reference_replay ||
       !replay.evidence.event.batch_replay ||
       std::filesystem::file_size(publication.path) != payload.size())
     return false;
+  const auto from_bytes =
+      reopened.recover_file_publication("consumer.run", "published.bytes");
+  if (from_bytes.evidence.reference_replay ||
+      std::filesystem::file_size(from_bytes.path) != payload.size())
+    return false;
   return reopened.find("consumer.run").has_value() &&
          reopened.find_reference("consumer.run", "published.1").has_value() &&
-         reopened.references("consumer.run").size() == 11U &&
-         reopened.events("consumer.run").events.size() == 4U &&
+         reopened.references("consumer.run").size() == 15U &&
+         reopened.events("consumer.run").events.size() == 5U &&
          reopened.integrity_check().ok();
 }
 }  // namespace

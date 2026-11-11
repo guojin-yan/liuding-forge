@@ -39,7 +39,8 @@ def native_path(path):
 class FilePublicationProcessTests(unittest.TestCase):
     def setup_case(self, name):
         self.root = Path(tempfile.mkdtemp(prefix=name + "-", dir=self.work_root))
-        self.records = {"schema_version": 1, "test": self.id(), "case": name}
+        self.records = {"schema_version": 1, "test": self.id(), "case": name,
+                        "source": self.source}
         self.target = self.root / "result.bin"
         self.object = native_path(self.root / "store/artifacts/objects" / DIGEST[:2] / DIGEST[2:])
         self.complete("seed", "seed")
@@ -57,7 +58,21 @@ class FilePublicationProcessTests(unittest.TestCase):
         self.assertEqual(value["schema_version"], 1)
         return value
 
+    def native_mode(self, mode):
+        if self.source == "bytes":
+            return {"seed": "seed-bytes", "prepare": "prepare-bytes",
+                    "prepare-fence": "prepare-bytes-fence"}.get(mode, mode)
+        return mode
+
+    def remove_source(self):
+        path = self.root / "input.bin"
+        if self.source == "bytes":
+            self.assertFalse(path.exists(), "Byte producer must not stage an input file")
+        else:
+            path.unlink()
+
     def complete(self, mode, name):
+        mode = self.native_mode(mode)
         child = subprocess.run([str(self.child), mode, str(self.root)],
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, shell=False, timeout=30,
@@ -158,6 +173,7 @@ class FilePublicationProcessTests(unittest.TestCase):
                             "independent_integrity_ok": True})
 
     def kill_at(self, mode, boundary, prepared, file_exists, committed=False):
+        mode = self.native_mode(mode)
         marker = self.root / "unwound.marker"
         marker.unlink(missing_ok=True)
         received = queue.Queue(maxsize=1)
@@ -174,6 +190,8 @@ class FilePublicationProcessTests(unittest.TestCase):
                 self.assertEqual(ready["boundary"], boundary)
                 self.assertEqual(ready["process_id"], child.pid)
                 self.assertEqual(ready["file_exists"], file_exists)
+                if self.source == "bytes":
+                    self.assertFalse(ready["source_file_exists"])
                 self.assertIsNone(child.poll())
                 self.assertFalse(marker.exists())
                 locked = boundary not in ("after-prepare", "after-complete")
@@ -200,7 +218,7 @@ class FilePublicationProcessTests(unittest.TestCase):
             with self.subTest(boundary=boundary):
                 self.setup_case(boundary)
                 self.kill_at("prepare-fence", boundary, False, False)
-                (self.root / "input.bin").unlink()
+                self.remove_source()
                 result = self.complete("recover", "no-prepared-intent")
                 self.assertFalse(result["recovered"])
                 self.assertFalse(self.target.exists())
@@ -212,7 +230,7 @@ class FilePublicationProcessTests(unittest.TestCase):
     def test_prepared_unreceived_receipt_recovers_using_discovered_intent(self):
         self.setup_case("prepared")
         self.kill_at("prepare-fence", "after-prepare", True, False)
-        (self.root / "input.bin").unlink()
+        self.remove_source()
         identity = self.file_identity(self.object)
         self.assertEqual(self.complete("gc", "pending-content-retained")["gc_removed"], 0)
         result = self.complete("recover", "completed")
@@ -229,7 +247,7 @@ class FilePublicationProcessTests(unittest.TestCase):
             with self.subTest(boundary=boundary):
                 self.setup_case(boundary)
                 self.complete("prepare", "prepared")
-                (self.root / "input.bin").unlink()
+                self.remove_source()
                 cas = self.file_identity(self.object)
                 exists = boundary != "before-file-publication"
                 self.kill_at("recover-fence", boundary, True, exists)
@@ -254,7 +272,7 @@ class FilePublicationProcessTests(unittest.TestCase):
     def test_committed_unreceived_receipt_is_replayed_exactly_once(self):
         self.setup_case("committed")
         self.complete("prepare", "prepared")
-        (self.root / "input.bin").unlink()
+        self.remove_source()
         self.kill_at("recover-fence", "after-complete", True, True, True)
         target = self.file_identity(self.target)
         result = self.complete("recover", "replayed-after-unreceived-receipt")
@@ -269,6 +287,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--child", type=Path, required=True)
     parser.add_argument("--work-dir", type=Path, required=True)
+    parser.add_argument("--source", choices=("file", "bytes"), default="file")
     args = parser.parse_args()
     child = args.child.resolve()
     if not child.is_file():
@@ -277,6 +296,7 @@ def main():
     root = Path(tempfile.mkdtemp(prefix="file-publication-数据-", dir=args.work_dir.resolve()))
     FilePublicationProcessTests.child = child
     FilePublicationProcessTests.work_root = root
+    FilePublicationProcessTests.source = args.source
     result = unittest.TextTestRunner(verbosity=2).run(
         unittest.defaultTestLoader.loadTestsFromTestCase(FilePublicationProcessTests))
     passed = result.wasSuccessful() and result.testsRun == 4 and not result.skipped

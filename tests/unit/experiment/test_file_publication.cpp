@@ -66,15 +66,18 @@ class FilePublicationTest : public ::testing::Test {
                  .created_at_unix_ms = 100U,
                  .updated_at_unix_ms = 100U});
   }
-  FilePublicationRequest request(std::string id = "intent") {
+  FilePublicationRequest request(std::string id = "intent",
+                                 bool file_source = true) {
     FilePublicationRequest result;
     result.publication_id = id;
     result.destination = root / (id + ".bin");
     auto& evidence = result.evidence;
     evidence.run_id = "run-1";
     evidence.reference_id = "result-" + id;
-    evidence.path = root / (id + ".input");
-    write(*evidence.path, payload);
+    if (file_source) {
+      evidence.path = root / (id + ".input");
+      write(*evidence.path, payload);
+    }
     evidence.descriptor = {.logical_name = "preview.bin",
                            .media_type = "application/octet-stream",
                            .producer = "publication-test",
@@ -100,6 +103,120 @@ class FilePublicationTest : public ::testing::Test {
   std::filesystem::path root;
   std::string payload;
 };
+
+TEST_F(FilePublicationTest, BorrowedBytesRecoverAfterProducerStorageIsGone) {
+  const auto value = request("intent", false);
+  {
+    SQLiteRunStore store(root / "store");
+    start(store);
+    std::string owned = payload;
+    store.prepare_file_publication_bytes(value, bytes(owned));
+    std::string().swap(owned);
+    EXPECT_FALSE(std::filesystem::exists(root / "intent.input"));
+    EXPECT_FALSE(std::filesystem::exists(value.destination));
+    EXPECT_EQ(store.references("run-1").size(), 2U);
+    EXPECT_TRUE(store.events("run-1").events.empty());
+  }
+  SQLiteRunStore reopened(root / "store");
+  EXPECT_EQ(reopened.file_publications("run-1"),
+            std::vector<std::string>{"intent"});
+  const auto result = reopened.recover_file_publication("run-1", "intent");
+  EXPECT_EQ(read(result.path), payload);
+  EXPECT_EQ(reopened.references("run-1").size(), 4U);
+  EXPECT_EQ(reopened.events("run-1").events.size(), 1U);
+  EXPECT_TRUE(reopened.integrity_check().ok());
+}
+
+TEST_F(FilePublicationTest, ByteAndFilePreparationShareImmutableReplay) {
+  SQLiteRunStore store(root / "store");
+  start(store);
+  auto value = request("intent", false);
+  const auto first =
+      store.prepare_file_publication_bytes(value, bytes(payload));
+  EXPECT_EQ(store.prepare_file_publication_bytes(value, {}).artifact.digest,
+            first.artifact.digest);
+  EXPECT_EQ(store.prepare_file_publication(value).artifact.digest,
+            first.artifact.digest);
+  auto changed = value;
+  changed.evidence.event.identity.event_id = "different-event";
+  EXPECT_THROW(store.prepare_file_publication_bytes(changed, {}),
+               InvalidArgument);
+  const auto second = request("file");
+  const auto file = store.prepare_file_publication(second);
+  value = second;
+  value.evidence.path.reset();
+  EXPECT_EQ(store.prepare_file_publication_bytes(value, {}).artifact.digest,
+            file.artifact.digest);
+  EXPECT_EQ(store.references("run-1").size(), 4U);
+}
+
+TEST_F(FilePublicationTest, BytePreparationRejectsAmbiguousOrInvalidContent) {
+  SQLiteRunStore store(root / "store");
+  start(store);
+  auto value = request("intent", false);
+  EXPECT_THROW(store.prepare_file_publication_bytes(value, {}),
+               InvalidArgument);
+  std::string wrong(payload.size(), 'x');
+  EXPECT_THROW(store.prepare_file_publication_bytes(value, bytes(wrong)),
+               Error);
+  auto ambiguous = value;
+  ambiguous.evidence.path = root / "absent.input";
+  EXPECT_THROW(store.prepare_file_publication_bytes(ambiguous, bytes(payload)),
+               InvalidArgument);
+  EXPECT_TRUE(store.references("run-1").empty());
+  EXPECT_TRUE(store.file_publications("run-1").empty());
+  EXPECT_TRUE(store.events("run-1").events.empty());
+  EXPECT_FALSE(std::filesystem::exists(value.destination));
+  EXPECT_NO_THROW(store.prepare_file_publication_bytes(value, bytes(payload)));
+  write(object(store, value.evidence.expected_digest), wrong);
+  EXPECT_THROW(store.prepare_file_publication_bytes(value, {}), Error);
+  EXPECT_FALSE(std::filesystem::exists(value.destination));
+}
+
+TEST_F(FilePublicationTest, BytePreparationKeepsCancellationAndQuotasAtomic) {
+  SQLiteRunStoreOptions options;
+  options.max_references_per_run = 1U;
+  SQLiteRunStore store(root / "store", options);
+  start(store);
+  const auto value = request("intent", false);
+  std::stop_source stopped;
+  stopped.request_stop();
+  EXPECT_THROW(store.prepare_file_publication_bytes(value, bytes(payload),
+                                                    stopped.get_token()),
+               Error);
+  EXPECT_THROW(store.prepare_file_publication_bytes(
+                   value, bytes(payload), {},
+                   std::chrono::steady_clock::now() - std::chrono::seconds(1)),
+               Error);
+  EXPECT_THROW(store.prepare_file_publication_bytes(value, bytes(payload)),
+               ResourceExhausted);
+  EXPECT_TRUE(store.references("run-1").empty());
+  EXPECT_TRUE(store.file_publications("run-1").empty());
+  EXPECT_TRUE(store.events("run-1").events.empty());
+  EXPECT_FALSE(std::filesystem::exists(value.destination));
+}
+
+TEST_F(FilePublicationTest, BytePreparationSupportsEmptyAndConcurrentInputs) {
+  SQLiteRunStore first(root / "store");
+  start(first);
+  SQLiteRunStore second(root / "store");
+  const auto value = request("intent", false);
+  auto a = std::async(std::launch::async, [&] {
+    return first.prepare_file_publication_bytes(value, bytes(payload));
+  });
+  auto b = std::async(std::launch::async, [&] {
+    return second.prepare_file_publication_bytes(value, bytes(payload));
+  });
+  EXPECT_EQ(a.get().artifact.digest, b.get().artifact.digest);
+  EXPECT_EQ(first.references("run-1").size(), 2U);
+  auto empty = request("empty", false);
+  empty.evidence.descriptor.expected_size_bytes = 0;
+  empty.evidence.expected_digest = {.hex = sha256_hex(bytes(""))};
+  first.prepare_file_publication_bytes(empty, {});
+  const auto result = first.recover_file_publication("run-1", "empty");
+  EXPECT_EQ(std::filesystem::file_size(result.path), 0U);
+  EXPECT_EQ(first.references("run-1").size(), 6U);
+}
 
 TEST_F(FilePublicationTest, DurableIntentRecoversWithoutInputOrProducerState) {
   auto value = request();
