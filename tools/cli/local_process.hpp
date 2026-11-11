@@ -49,6 +49,9 @@ struct LocalProcessOptions {
       environment;  ///< Child-only UTF-8 overrides.
   bool inherit_environment =
       false;  ///< Explicit opt-in to the parent snapshot.
+  std::optional<std::string>
+      environment_sha256;  ///< Bind the effective native environment, excluding
+                           ///< runner-owned JYPPX_LIUDING_LOCAL_ context.
   std::size_t max_launch_bytes =
       256U * 1024U;  ///< Combined native argv/env cap.
   std::size_t max_stdout_bytes =
@@ -68,6 +71,14 @@ struct LocalProcessOptions {
       memory_limit;  ///< Fail closed if the requested OS boundary is
                      ///< unavailable.
 };
+
+/** @brief Hashes the effective native environment without launching a child.
+ * Inherited runner context is removed; explicit runner context is excluded
+ * from the identity. Values are never returned. The digest is
+ * platform-specific.
+ */
+std::string local_process_environment_sha256(
+    const LocalProcessOptions& options);
 
 /** @brief A child failure is a result; invalid launch and I/O throw Error. */
 enum class LocalProcessStatus : std::uint8_t {

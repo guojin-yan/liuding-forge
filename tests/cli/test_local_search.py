@@ -387,6 +387,44 @@ class LocalSearchTests(unittest.TestCase):
             self.assertEqual(self.search("execute"), result)
         self.assertEqual(len(self.launches()), 1)
 
+    def test_environment_snapshot_binds_all_trials_and_replays_without_parent_values(self) -> None:
+        self.spec["execution"]["environment"] = {"SEARCH_PARAMETER": "fixed-bound-value"}
+        probe = copy.deepcopy(self.spec["execution"])
+        probe["working_directory"] = str(self.directory)
+        path = self.directory / "environment.json"
+        path.write_text(json.dumps(probe), encoding="utf-8")
+        with patch.dict(os.environ, LIUDING_SEARCH_SNAPSHOT="private-search-original"):
+            snapshot = self.invoke("local", "environment", "--spec", path)["data"]
+            self.spec["execution"]["environment_sha256"] = snapshot["sha256"]
+            self.write()
+            with patch.dict(os.environ, LIUDING_SEARCH_SNAPSHOT="private-search-drift"):
+                rejected = self.invoke("search", "execute", "--root", self.root, "--id", self.search_id,
+                                       "--spec", self.spec_path, expected=2)
+                self.assertIn("declared SHA-256", rejected["error"]["message"])
+                self.assertNotIn("private-search-", json.dumps(rejected))
+                self.assertFalse(self.root.exists())
+                self.assertEqual(self.launches(), [])
+            result = self.search("execute")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["confirmed_trials"], 3)
+        self.assertEqual([row["environment"] for row in self.launches()], ["fixed-bound-value"] * 3)
+        for row in result["trials"]:
+            content, _ = committed_reference(self.root, row["trial_id"], "local.spec")
+            self.assertEqual(json.loads(content)["environment_sha256"], snapshot["sha256"])
+            self.assertNotIn(b"private-search-original", content)
+        for action in ("show", "recover", "execute"):
+            self.assertEqual(self.search(action), result)
+        self.assertEqual(len(self.launches()), 3)
+
+    def test_environment_snapshot_search_rejects_varying_environment_before_storage(self) -> None:
+        self.spec["execution"]["environment_sha256"] = "a" * 64
+        self.write()
+        rejected = self.invoke("search", "execute", "--root", self.root, "--id", self.search_id,
+                               "--spec", self.spec_path, expected=2)
+        self.assertIn("fixed environment values", rejected["error"]["message"])
+        self.assertFalse(self.root.exists())
+        self.assertEqual(self.launches(), [])
+
     def test_runtime_files_flow_through_search_and_terminal_replay(self) -> None:
         self.single("ok")
         path = self.directory / "runtime.dat"

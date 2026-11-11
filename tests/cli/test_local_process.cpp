@@ -311,6 +311,53 @@ TEST(LocalProcessTest, PrecancelledInvocationDoesNotLaunch) {
   EXPECT_FALSE(fs::exists(directory.root / "ready"));
 }
 
+TEST(LocalProcessTest,
+     EnvironmentBindingUsesEffectiveOverridesAndLaunchContext) {
+  ProcessDirectory directory;
+  auto options = directory.options("inspect");
+  options.inherit_environment = false;
+  options.environment["JYPPX_LOCAL_PROCESS_TEST_TOKEN"] = "bound-value";
+  options.environment_sha256 = cli::local_process_environment_sha256(options);
+  options.environment["JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX"] = "7";
+  EXPECT_EQ(cli::local_process_environment_sha256(options),
+            *options.environment_sha256);
+  const auto result = cli::LocalProcessRunner{}.run(options);
+  ASSERT_EQ(result.exit_code, 0U);
+  EXPECT_EQ(Json::parse(result.stdout_capture).at("token"), "bound-value");
+  EXPECT_TRUE(result.process_tree_cleanup_confirmed);
+}
+
+TEST(LocalProcessTest, EnvironmentDriftRejectsBeforeNativeLaunchWithoutValues) {
+  ProcessDirectory directory;
+  auto options = directory.options("sleep");
+  options.environment["LOCAL_BOUND_VALUE"] = "private-original";
+  options.environment_sha256 = cli::local_process_environment_sha256(options);
+  options.environment["LOCAL_BOUND_VALUE"] = "private-drift";
+  try {
+    static_cast<void>(cli::LocalProcessRunner{}.run(options));
+    FAIL() << "Changed environment launched";
+  } catch (const jyppx::liuding::InvalidArgument& error) {
+    EXPECT_EQ(error.details().operation, "launch.environment.binding");
+    EXPECT_EQ(std::string(error.what()).find("private-"), std::string::npos);
+  }
+  EXPECT_FALSE(fs::exists(directory.root / "ready"));
+}
+
+TEST(LocalProcessTest,
+     EnvironmentBindingRejectsMalformedDigestAndRespectsByteCap) {
+  ProcessDirectory directory;
+  auto options = directory.options("sleep");
+  options.environment_sha256 = std::string(64U, 'A');
+  EXPECT_THROW(cli::LocalProcessRunner{}.run(options),
+               jyppx::liuding::InvalidArgument);
+  options.inherit_environment = false;
+  options.max_launch_bytes = 32U;
+  options.environment["EXCEEDS_CAP"] = std::string(32U, 'x');
+  EXPECT_THROW(cli::local_process_environment_sha256(options),
+               jyppx::liuding::ResourceExhausted);
+  EXPECT_FALSE(fs::exists(directory.root / "ready"));
+}
+
 void expect_resource_usage(const cli::LocalProcessResult& result) {
   ASSERT_TRUE(result.resource_usage);
   const auto& usage = *result.resource_usage;

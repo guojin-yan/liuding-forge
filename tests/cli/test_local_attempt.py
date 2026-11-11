@@ -149,6 +149,7 @@ def fixture(mode: str, root: Path, arguments: list[str]) -> None:
         "cpu_slots": os.environ.get("JYPPX_LIUDING_LOCAL_CPU_SLOTS"),
         "memory_bytes": os.environ.get("JYPPX_LIUDING_LOCAL_MEMORY_BYTES"),
         "gpu_id": os.environ.get("JYPPX_LIUDING_LOCAL_GPU_ID"),
+        "inherited_context": os.environ.get("JYPPX_LIUDING_LOCAL_UNDECLARED"),
         "stdin_eof": sys.stdin.buffer.read() == b""}
     os.write(1, json.dumps(payload, ensure_ascii=True).encode("ascii"))
     os.write(2, b"diagnostic\x00\xfe")
@@ -601,6 +602,137 @@ class LocalAttemptTest(unittest.TestCase):
                 self.assertEqual(rejected["error"]["name"], "invalid_argument")
                 self.assertFalse(self.root.exists())
         self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def bind_environment(self) -> dict:
+        self.write_spec()
+        snapshot = self.invoke("local", "environment", "--spec", self.spec_path)["data"]
+        self.spec["environment_sha256"] = snapshot["sha256"]
+        self.write_spec()
+        return snapshot
+
+    def test_environment_snapshot_schema_rejects_before_storage(self) -> None:
+        for value in (None, False, 1, [], {}, "", "a" * 63, "A" * 64, "g" * 64, "a" * 65):
+            with self.subTest(value=value):
+                self.spec["environment_sha256"] = value
+                self.write_spec()
+                rejected = self.invoke("local", "execute", "--root", self.root,
+                    "--id", "invalid-environment", "--spec", self.spec_path, expected=2)
+                self.assertEqual(rejected["error"]["name"], "invalid_argument")
+                self.assertFalse(self.root.exists())
+        self.assertFalse((self.cwd / "launches.txt").exists())
+
+    def test_environment_snapshot_has_independent_native_identity_and_no_values(self) -> None:
+        values = {"AAA": "a=b", "EMPTY": "", "LOCAL_ATTEMPT_FIXTURE": "literal",
+                  "UNICODE_VALUE": "private-环境-é"}
+        self.spec.update(inherit_environment=False, environment=values)
+        self.spec["environment_refs"] = {"REFERENCE_VALUE": {
+            "source": "process_environment", "name": "LIUDING_SNAPSHOT_REFERENCE"}}
+        with patch.dict(os.environ, LIUDING_SNAPSHOT_REFERENCE="private-reference"):
+            snapshot = self.bind_environment()
+            platform = "windows-utf16le" if os.name == "nt" else "posix-bytes"
+            encoding = "utf-16-le" if os.name == "nt" else "utf-8"
+            native = dict(values, REFERENCE_VALUE="private-reference")
+            material = ("jyppx.liuding.local_environment/v1/" + platform + "\0").encode("ascii")
+            material += "".join(name + "=" + value + "\0" for name, value in sorted(native.items())).encode(encoding)
+            self.assertEqual(snapshot["platform"], platform)
+            self.assertEqual(snapshot["sha256"], hashlib.sha256(material).hexdigest())
+            self.assertFalse(self.root.exists())
+            self.assertFalse((self.cwd / "launches.txt").exists())
+            self.assertNotIn("private-", json.dumps(snapshot, ensure_ascii=False))
+            completed = self.local("execute")
+        self.assertEqual(completed["status"], "completed")
+        result = completed["attempts"][0]["result"]
+        self.assertTrue(result["process_tree_cleanup_confirmed"])
+        payload = json.loads(self.blob(self.references(completed["attempts"][0]["attempt_id"])["local.stdout"]))
+        self.assertEqual(payload["token"], "literal")
+        self.assertEqual((payload["job_id"], payload["index"]), ("job-one", 1))
+
+    def test_environment_snapshot_fences_inherited_add_remove_and_change_before_store(self) -> None:
+        original = "private-original-环境"
+        with patch.dict(os.environ, LIUDING_SNAPSHOT_VALUE=original):
+            snapshot = self.bind_environment()
+            for change in ("private-drift", "", None, "add-unexpected"):
+                with self.subTest(change=change), patch.dict(os.environ):
+                    if change is None:
+                        os.environ.pop("LIUDING_SNAPSHOT_VALUE")
+                    elif change == "add-unexpected":
+                        os.environ["LIUDING_SNAPSHOT_NEW"] = "private-new"
+                    else:
+                        os.environ["LIUDING_SNAPSHOT_VALUE"] = change
+                    rejected = self.invoke("local", "execute", "--root", self.root,
+                        "--id", "job-one", "--spec", self.spec_path, expected=2)
+                    self.assertIn("declared SHA-256", rejected["error"]["message"])
+                    rendered = json.dumps(rejected, ensure_ascii=False)
+                    for secret in (original, "private-drift", "private-new", snapshot["sha256"]):
+                        self.assertNotIn(secret, rendered)
+                    self.assertFalse(self.root.exists())
+                    self.assertFalse((self.cwd / "launches.txt").exists())
+            self.assertEqual(self.local("execute")["status"], "completed")
+
+    def test_environment_snapshot_overrides_and_runner_context_preserve_identity(self) -> None:
+        with patch.dict(os.environ, LOCAL_ATTEMPT_FIXTURE="parent-before",
+                        JYPPX_LIUDING_LOCAL_UNDECLARED="private-context-before"):
+            snapshot = self.bind_environment()
+            os.environ["LOCAL_ATTEMPT_FIXTURE"] = "parent-after"
+            os.environ["JYPPX_LIUDING_LOCAL_UNDECLARED"] = "private-context-after"
+            self.assertEqual(self.bind_environment(), snapshot)
+            completed = self.local("execute")
+        attempt = completed["attempts"][0]["attempt_id"]
+        payload = json.loads(self.blob(self.references(attempt)["local.stdout"]))
+        self.assertEqual(payload["token"], "literal")
+        self.assertIsNone(payload["inherited_context"])
+        self.assertEqual(self.launch_count(), 1)
+
+    def test_environment_snapshot_retry_preserves_prefix_and_terminal_replay(self) -> None:
+        value = "private-retry-snapshot"
+        with patch.dict(os.environ, LIUDING_SNAPSHOT_VALUE=value):
+            self.bind_environment()
+            original = self.committed_retry_prefix()
+        attempt = original["attempts"][0]["attempt_id"]
+        job_refs, attempt_refs = self.references("job-one"), self.references(attempt)
+        with patch.dict(os.environ, LIUDING_SNAPSHOT_VALUE="private-drift"):
+            for action in ("recover", "execute"):
+                options = ["--spec", self.spec_path] if action == "execute" else []
+                rejected = self.invoke("local", action, "--root", self.root, "--id", "job-one",
+                                       *options, expected=2)
+                self.assertNotIn("private-", json.dumps(rejected))
+                self.assertEqual(self.local("show"), original)
+                self.assertEqual(self.references("job-one"), job_refs)
+                self.assertEqual(self.references(attempt), attempt_refs)
+                self.assertEqual(self.launch_count(), 1)
+        with patch.dict(os.environ, LIUDING_SNAPSHOT_VALUE=value):
+            completed = self.local("recover")
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["attempts"][0], original["attempts"][0])
+        with patch.dict(os.environ, LIUDING_SNAPSHOT_VALUE="private-drift"):
+            for action in ("show", "recover", "execute"):
+                self.assertEqual(self.local(action), completed)
+        self.assertEqual(self.launch_count(), 2)
+
+    def test_environment_snapshot_reserved_worker_rechecks_and_releases_lease(self) -> None:
+        self.spec.update(max_attempts=1, resources=self.resource_request())
+        with patch.dict(os.environ, LIUDING_SNAPSHOT_VALUE="private-worker-snapshot"):
+            self.bind_environment()
+            original = self.local("execute")
+        attempt = original["attempts"][0]["attempt_id"]
+        lease = self.references("job-one")["local.resource.lease.1"]
+        with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+            database.execute("PRAGMA foreign_keys=ON")
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_runs WHERE run_id=?", (attempt,))
+            database.execute("DELETE FROM jyppx_run_artifacts WHERE run_id='job-one' "
+                             "AND reference_id='local.resource.release.1'")
+            database.execute("UPDATE jyppx_runs SET status=2 WHERE run_id='job-one'")
+        with patch.dict(os.environ, LIUDING_SNAPSHOT_VALUE="private-worker-drift"):
+            failed = self.local("recover", expected=1)
+        observed = failed["attempts"][0]
+        self.assertEqual((observed["result"]["status"], observed["result"]["process_id"]), ("launch_error", 0))
+        self.assertTrue(observed["result"]["process_tree_cleanup_confirmed"])
+        self.assertTrue(observed["resource_released"])
+        self.assertEqual(self.references("job-one")["local.resource.lease.1"], lease)
+        self.assertNotIn("private-", json.dumps(failed))
+        self.assertEqual(self.local("recover", expected=1), failed)
+        self.assertEqual(self.launch_count(), 1)
 
     def test_environment_reference_digest_mismatch_and_missing_fail_without_values_or_store(self) -> None:
         bound = "private-bound-原值-é"

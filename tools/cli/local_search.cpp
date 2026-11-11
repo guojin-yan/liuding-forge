@@ -424,6 +424,11 @@ Plan read_plan(const Json &value) {
   probe.payload = TelemetryMetricBatch{{std::move(objective_probe)}};
   validate_telemetry_envelope(probe);
   const auto &execution = value.at("execution");
+  if (execution.contains("environment_sha256")) {
+    for (const auto &entry : execution.at("environment"))
+      require(text(entry).find("${") == std::string::npos,
+              "A bound search environment requires fixed environment values");
+  }
   const bool bridged = value.contains("recipe_bridge");
   if (bridged) {
     const auto &profile = recipe_bridge_profile(value);

@@ -37,6 +37,7 @@ extern char** environ;
 #include "sidecar_process.hpp"
 
 #include <jyppx/liuding/foundation/error.hpp>
+#include <jyppx/liuding/foundation/sha256.hpp>
 
 #include <algorithm>
 #include <array>
@@ -139,6 +140,19 @@ void charge(std::size_t& current, std::size_t count, std::size_t maximum) {
   if (count > maximum - std::min(current, maximum))
     capacity_failure("launch.bytes");
   current += count;
+}
+
+template <class Character>
+bool runner_environment_entry(std::basic_string_view<Character> entry) {
+  constexpr std::string_view prefix = "JYPPX_LIUDING_LOCAL_";
+  if (entry.size() < prefix.size()) return false;
+  for (std::size_t index = 0; index < prefix.size(); ++index) {
+    auto value = entry[index];
+    if (value >= 'a' && value <= 'z')
+      value = static_cast<Character>(value - 'a' + 'A');
+    if (value != prefix[index]) return false;
+  }
+  return true;
 }
 
 Clock::time_point bounded_deadline(TelemetryDeadline supplied,
@@ -299,7 +313,10 @@ struct EnvironmentOrder {
   }
 };
 
-std::vector<wchar_t> child_environment(const SidecarProcessOptions& options) {
+using NativeEnvironment = std::vector<wchar_t>;
+
+NativeEnvironment child_environment(const SidecarProcessOptions& options,
+                                    bool local_binding = false) {
   std::map<std::wstring, std::wstring, EnvironmentOrder> values;
   if (options.inherit_environment) {
     auto* block = GetEnvironmentStringsW();
@@ -308,6 +325,8 @@ std::vector<wchar_t> child_environment(const SidecarProcessOptions& options) {
       for (const auto* position = block; *position;
            position += std::wcslen(position) + 1U) {
         std::wstring entry(position);
+        if (local_binding && runner_environment_entry(std::wstring_view(entry)))
+          continue;
         const auto separator =
             entry.find(L'=', entry.front() == L'=' ? 1U : 0U);
         if (separator != std::wstring::npos) {
@@ -335,6 +354,22 @@ std::vector<wchar_t> child_environment(const SidecarProcessOptions& options) {
   result.push_back(L'\0');
   if (result.size() == 1U) result.push_back(L'\0');
   return result;
+}
+
+std::string environment_digest(const NativeEnvironment& environment) {
+  Sha256 hash;
+  constexpr std::string_view domain =
+      "jyppx.liuding.local_environment/v1/windows-utf16le";
+  hash.update(std::as_bytes(std::span(domain.data(), domain.size() + 1U)));
+  for (const auto* entry = environment.data(); *entry;
+       entry += std::wcslen(entry) + 1U) {
+    const std::wstring_view value(entry);
+    if (runner_environment_entry(value)) continue;
+    // Windows native UTF-16 is little endian, including drive pseudo-variables.
+    static_assert(sizeof(wchar_t) == 2U);
+    hash.update(std::as_bytes(std::span(entry, value.size() + 1U)));
+  }
+  return sha256_digest_hex(hash.finish());
 }
 
 struct WinPipe {
@@ -469,7 +504,8 @@ class NativeProcess {
   NativeProcess(const SidecarProcessOptions& options, std::stop_token stop,
                 Clock::time_point deadline,
                 [[maybe_unused]] bool kill_on_parent_death = false,
-                const LocalProcessMemoryLimit* memory_limit = nullptr)
+                const LocalProcessMemoryLimit* memory_limit = nullptr,
+                const NativeEnvironment* frozen_environment = nullptr)
       : cleanup_timeout_(options.cleanup_timeout) {
     try {
       check_telemetry_operation(stop, deadline);
@@ -486,7 +522,8 @@ class NativeProcess {
       if (command.size() > 32766U) capacity_failure("launch.command_line");
       if (command.size() * sizeof(wchar_t) > options.max_launch_bytes)
         capacity_failure("launch.command_line");
-      auto environment = child_environment(options);
+      auto environment =
+          frozen_environment ? *frozen_environment : child_environment(options);
       const auto command_bytes = (command.size() + 1U) * sizeof(wchar_t);
       std::size_t launch_bytes = 0U;
       charge(launch_bytes, command_bytes, options.max_launch_bytes);
@@ -917,12 +954,50 @@ ssize_t write_without_sigpipe(int descriptor, const char* bytes,
   return result;
 }
 
+using NativeEnvironment = std::vector<std::string>;
+
+NativeEnvironment child_environment(const SidecarProcessOptions& options,
+                                    bool local_binding = false) {
+  std::map<std::string, std::string> values;
+  if (options.inherit_environment) {
+    for (auto** position = environ; position && *position; ++position) {
+      const std::string_view entry(*position);
+      if (local_binding && runner_environment_entry(entry)) continue;
+      const auto separator = entry.find('=');
+      if (separator != std::string_view::npos && separator != 0U)
+        values[std::string(entry.substr(0U, separator))] =
+            entry.substr(separator + 1U);
+    }
+  }
+  for (const auto& [name, value] : options.environment) values[name] = value;
+  NativeEnvironment result;
+  std::size_t bytes = 0U;
+  for (const auto& [name, value] : values) {
+    charge(bytes, name.size() + value.size() + 2U, options.max_launch_bytes);
+    result.push_back(name + "=" + value);
+  }
+  return result;
+}
+
+std::string environment_digest(const NativeEnvironment& environment) {
+  Sha256 hash;
+  constexpr std::string_view domain =
+      "jyppx.liuding.local_environment/v1/posix-bytes";
+  hash.update(std::as_bytes(std::span(domain.data(), domain.size() + 1U)));
+  for (const auto& entry : environment) {
+    if (runner_environment_entry(std::string_view(entry))) continue;
+    hash.update(std::as_bytes(std::span(entry.c_str(), entry.size() + 1U)));
+  }
+  return sha256_digest_hex(hash.finish());
+}
+
 class NativeProcess {
  public:
   NativeProcess(const SidecarProcessOptions& options, std::stop_token stop,
                 Clock::time_point deadline,
                 [[maybe_unused]] bool kill_on_parent_death = false,
-                const LocalProcessMemoryLimit* memory_limit = nullptr)
+                const LocalProcessMemoryLimit* memory_limit = nullptr,
+                const NativeEnvironment* frozen_environment = nullptr)
       : cleanup_timeout_(options.cleanup_timeout) {
     try {
       check_telemetry_operation(stop, deadline);
@@ -933,28 +1008,13 @@ class NativeProcess {
       std::vector<std::string> arguments{executable};
       arguments.insert(arguments.end(), options.arguments.begin(),
                        options.arguments.end());
-      std::map<std::string, std::string> environment;
-      if (options.inherit_environment) {
-        for (auto** position = environ; position && *position; ++position) {
-          const std::string entry(*position);
-          const auto separator = entry.find('=');
-          if (separator != std::string::npos && separator != 0U) {
-            environment[entry.substr(0U, separator)] =
-                entry.substr(separator + 1U);
-          }
-        }
-      }
-      for (const auto& [name, value] : options.environment)
-        environment[name] = value;
-      std::vector<std::string> environment_storage;
+      auto environment_storage =
+          frozen_environment ? *frozen_environment : child_environment(options);
       std::size_t launch_bytes = 0U;
       for (const auto& argument : arguments)
         charge(launch_bytes, argument.size() + 1U, options.max_launch_bytes);
-      for (const auto& [name, value] : environment) {
-        charge(launch_bytes, name.size() + value.size() + 2U,
-               options.max_launch_bytes);
-        environment_storage.push_back(name + "=" + value);
-      }
+      for (const auto& entry : environment_storage)
+        charge(launch_bytes, entry.size() + 1U, options.max_launch_bytes);
       std::vector<char*> argv;
       for (auto& argument : arguments) argv.push_back(argument.data());
       argv.push_back(nullptr);
@@ -1447,6 +1507,23 @@ SidecarProcessStats SidecarProcessTransport::stats() const noexcept {
   return impl_->counters;
 }
 
+std::string local_process_environment_sha256(
+    const LocalProcessOptions& options) {
+  SidecarProcessOptions launch;
+  launch.environment = options.environment;
+  launch.inherit_environment = options.inherit_environment;
+  launch.max_launch_bytes = options.max_launch_bytes;
+  if (launch.max_launch_bytes == 0U || launch.max_launch_bytes > (1U << 30U))
+    throw InvalidArgument("Invalid local environment byte bound");
+  for (const auto& [name, value] : launch.environment) {
+    launch_text(name);
+    launch_text(value);
+    if (name.empty() || name.find('=') != std::string::npos)
+      throw InvalidArgument("Invalid local environment name");
+  }
+  return environment_digest(child_environment(launch, true));
+}
+
 LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
                                            std::stop_token stop) const {
   const auto started = Clock::now();
@@ -1495,6 +1572,23 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
   launch.startup_timeout = options.startup_timeout;
   launch.cleanup_timeout = options.cleanup_timeout;
   validate_options(launch);
+  std::optional<NativeEnvironment> environment;
+  if (options.environment_sha256) {
+    const auto& expected = *options.environment_sha256;
+    if (expected.size() != 64U ||
+        !std::all_of(expected.begin(), expected.end(), [](unsigned char value) {
+          return (value >= '0' && value <= '9') ||
+                 (value >= 'a' && value <= 'f');
+        }))
+      throw InvalidArgument(
+          "Environment SHA-256 must be canonical lowercase hex");
+    environment = child_environment(launch, true);
+    if (environment_digest(*environment) != expected)
+      throw InvalidArgument(
+          "Effective native environment differs from its declared SHA-256",
+          ErrorDetails{.component = "cli.local_process",
+                       .operation = "launch.environment.binding"});
+  }
   LocalProcessResult result;
   bool launch_entered = false;
   std::unique_ptr<NativeProcess> native;
@@ -1521,7 +1615,8 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
         launch, stop,
         std::min(deadline, Clock::now() + options.startup_timeout),
         options.kill_on_parent_death,
-        options.memory_limit ? &*options.memory_limit : nullptr);
+        options.memory_limit ? &*options.memory_limit : nullptr,
+        environment ? &*environment : nullptr);
     result.process_id = native->process_id();
     native->close_input();
     bool leader_exited = false;

@@ -456,7 +456,8 @@ Spec read_spec(const Json& value) {
        "inherit_environment", "timeout_ms", "max_attempts", "retry_exit_codes"},
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
        "deadline_unix_ms", "training", "resources", "environment_refs",
-       "os_memory_limit", "runtime_files", "host_requirements"});
+       "environment_sha256", "os_memory_limit", "runtime_files",
+       "host_requirements"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -576,6 +577,12 @@ Spec read_spec(const Json& value) {
   require(launch_bytes <= kSpecBytes,
           "Local explicit argv/environment exceeds 64 KiB");
   process.inherit_environment = value.at("inherit_environment").get<bool>();
+  if (value.contains("environment_sha256")) {
+    require(value.at("environment_sha256").is_string(),
+            "Environment SHA-256 must be a string");
+    process.environment_sha256 = text(value.at("environment_sha256"));
+    validate_artifact_digest({.hex = *process.environment_sha256});
+  }
   process.timeout = std::chrono::milliseconds(
       positive(value.at("timeout_ms"), 24ULL * 60 * 60 * 1000));
   process.max_stdout_bytes = static_cast<std::size_t>(positive(
@@ -871,8 +878,13 @@ void preflight(const Spec& spec) {
   require(actual.hex == spec.executable_sha256,
           "Local executable SHA-256 differs from the frozen spec");
   if (!spec.runtime_files.empty()) verify_runtime_files(spec);
-  if (!spec.environment_references.empty())
-    static_cast<void>(resolved_process(spec));
+  if (!spec.environment_references.empty() || spec.process.environment_sha256) {
+    const auto process = resolved_process(spec);
+    require(!process.environment_sha256 ||
+                local_process_environment_sha256(process) ==
+                    *process.environment_sha256,
+            "Effective native environment differs from its declared SHA-256");
+  }
 }
 
 RunArtifactReference put_json(SQLiteRunStore& store, std::string_view run,
@@ -2213,7 +2225,13 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
       }
       status = std::string(native_status(native.status));
     } catch (const Error& error) {
-      native.process_tree_cleanup_confirmed = !runner_entered;
+      // The runner binds its final snapshot before any native process exists.
+      // A failure at this specific boundary proves that no cleanup is needed.
+      native.process_tree_cleanup_confirmed =
+          !runner_entered ||
+          (error.code() == ErrorCode::invalid_argument &&
+           error.details().component == "cli.local_process" &&
+           error.details().operation == "launch.environment.binding");
       status = "launch_error";
       if (spec.training && error.code() == ErrorCode::cancelled)
         status = "cancelled";
@@ -2665,9 +2683,25 @@ Result control_local_job(std::string_view action, const fs::path& root,
 
 Result local_attempt_command(const Arguments& arguments) {
   const auto action = arguments.words()[1];
+  if (action == "environment") {
+    arguments.allow({"spec"});
+    const auto spec = read_spec(parse_json(
+        read_text(fs::u8path(arguments.require("spec")), kSpecBytes)));
+    return {
+        {{"format", "jyppx.liuding.local_environment"},
+         {"schema_version", 1},
+#if defined(_WIN32)
+         {"platform", "windows-utf16le"},
+#else
+         {"platform", "posix-bytes"},
+#endif
+         {"sha256", local_process_environment_sha256(resolved_process(spec))},
+         {"excluded_prefix", "JYPPX_LIUDING_LOCAL_"}},
+        0};
+  }
   if (action != "execute" && action != "show" && action != "recover" &&
       action != "cancel" && action != "abandon" && action != "worker")
-    usage("local", "Use execute/show/recover/cancel/abandon.");
+    usage("local", "Use environment/execute/show/recover/cancel/abandon.");
   if (action == "execute")
     arguments.allow({"root", "id", "spec"});
   else if (action == "abandon")
