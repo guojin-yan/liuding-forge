@@ -74,7 +74,8 @@ enum class RecoveryGate {
   high_capacity,
   large_capacity,
   vit_large_capacity,
-  dinov2_large_capacity
+  dinov2_large_capacity,
+  huge_half_storage
 };
 
 const char *GateVariable(RecoveryGate gate) {
@@ -89,6 +90,8 @@ const char *GateVariable(RecoveryGate gate) {
       return "JYPPX_LIUDING_DINO_VIT_LARGE_RECOVERY_GATE";
     case RecoveryGate::dinov2_large_capacity:
       return "JYPPX_LIUDING_DINOV2_LARGE_RECOVERY_GATE";
+    case RecoveryGate::huge_half_storage:
+      return "JYPPX_LIUDING_DINO_HUGE_HALF_STORAGE_RECOVERY_GATE";
     case RecoveryGate::standard:
       return nullptr;
   }
@@ -102,10 +105,17 @@ struct RecoveryCase {
   RecoveryGate gate = RecoveryGate::standard;
   std::uint64_t max_rss_bytes = 4ULL << 30U;
   std::int64_t max_cuda_allocated_bytes = 2LL << 30U;
+  bool half_storage = false;
 };
 
+const char *PrecisionSuffix(const RecoveryCase &scenario) {
+  return scenario.half_storage ? "_CudaHalfStorage"
+         : scenario.cuda       ? "_CudaAmp"
+                               : "_Cpu";
+}
+
 void PrintTo(const RecoveryCase &scenario, std::ostream *output) {
-  *output << scenario.model << (scenario.cuda ? "_CudaAmp" : "_Cpu");
+  *output << scenario.model << PrecisionSuffix(scenario);
 }
 
 class CheckpointCallback final : public training::CallbackHandler {
@@ -178,6 +188,12 @@ RecoveryDomain MakeDomain(const RecoveryCase &scenario,
   options.dinov3_convnext.num_classes = 3;
   domain.model = std::make_shared<nn::ModelAdapter>(
       models::create_model(scenario.model, options));
+  if (scenario.half_storage) {
+    if (!scenario.cuda) throw std::logic_error("Half storage requires CUDA");
+    // Convert before optimizer binding so every retained parameter handle is
+    // the one that will train, checkpoint and resume.
+    domain.model->state().to(torch::Device(torch::kCUDA, 0), torch::kHalf);
+  }
   std::vector<optim::OptimizerParameterBinding> parameters;
   for (const auto &item : domain.model->state().named_parameters()) {
     parameters.push_back(
@@ -237,7 +253,8 @@ RecoveryDomain MakeDomain(const RecoveryCase &scenario,
       .checkpoint = {
           .max_rollback_bytes =
               scenario.gate == RecoveryGate::vit_large_capacity ||
-                      scenario.gate == RecoveryGate::dinov2_large_capacity
+                      scenario.gate == RecoveryGate::dinov2_large_capacity ||
+                      scenario.gate == RecoveryGate::huge_half_storage
                   ? 4ULL << 30U
               : scenario.gate == RecoveryGate::large_capacity ? 3ULL << 30U
                                                               : 1ULL << 30U}});
@@ -252,11 +269,13 @@ RecoveryDomain MakeDomain(const RecoveryCase &scenario,
                  domain.scheduler)}},
        .training_data = domain.pipeline,
        .training_batch_mapper =
-           [device](const data::BatchEnvelope &batch) {
+           [device, half_storage = scenario.half_storage](
+               const data::BatchEnvelope &batch) {
              return nn::Invocation{
                  .positional = {
                      batch.value.toTuple()->elements().at(0).toTensor().to(
-                         device)}};
+                         device,
+                         half_storage ? torch::kHalf : torch::kFloat32)}};
            },
        .training_target_mapper = [device](const data::BatchEnvelope &batch)
            -> std::optional<c10::IValue> {
@@ -420,6 +439,11 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
   }
 #endif
   const auto start = std::chrono::steady_clock::now();
+  const auto stage = [&scenario](const char *phase) {
+    std::cout << "RECOVERY_STAGE model=" << scenario.model
+              << " precision=" << PrecisionSuffix(scenario)
+              << " phase=" << phase << std::endl;
+  };
   const auto baseline_path = directory_ / "baseline-final.bin";
   const auto checkpoint_path = directory_ / "interrupted.bin";
   const auto resumed_path = directory_ / "resumed-final.bin";
@@ -435,6 +459,17 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
                                   .named_parameters()["head.weight"]
                                   .detach()
                                   .clone();
+    if (scenario.half_storage) {
+      std::uint64_t parameters = 0;
+      for (const auto &item : baseline.model->state().named_parameters()) {
+        ASSERT_TRUE(item.value().is_cuda());
+        ASSERT_EQ(item.value().scalar_type(), torch::kHalf);
+        parameters += item.value().numel();
+      }
+      ASSERT_EQ(parameters, 840637443ULL);
+      ASSERT_EQ(baseline.model->state().named_parameters().size(), 521U);
+    }
+    stage("baseline-fit");
     expected_result = baseline.trainer->fit();
     ASSERT_EQ(expected_result.status, training::FitStatus::completed);
     ASSERT_EQ(expected_result.global_step, 6U);
@@ -451,6 +486,7 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
     expected_losses = *baseline.losses;
     training::FileCheckpointStore store(baseline_path);
     baseline.trainer->save_checkpoint(store);
+    stage("baseline-saved");
     expected_next_cpu = torch::rand({16});
     expected_next_device =
         torch::rand({16}, torch::TensorOptions().device(device));
@@ -467,7 +503,9 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
     destroyed_model = interrupted.model;
     destroyed_optimizer = interrupted.optimizer;
     destroyed_scaler = interrupted.scaler;
+    stage("interrupted-fit");
     EXPECT_THROW(interrupted.trainer->fit(), InterruptedAfterSave);
+    stage("interrupted-saved");
     EXPECT_EQ(interrupted.trainer->global_step(), kInterruptStep);
     EXPECT_EQ(interrupted.trainer->completed_epochs(), 1U);
     EXPECT_EQ(interrupted.optimizer->completed_steps(), 4U);
@@ -493,6 +531,7 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
   ASSERT_TRUE(std::filesystem::exists(checkpoint_path));
   // Compare the published safe boundary before any rebuilt model exists.
   ExpectEqualCheckpoint(directory_ / "baseline-boundary.bin", checkpoint_path);
+  stage("boundary-compared");
   core::manual_seed(99194853094755497ULL, scenario.cuda);
   {
     auto resumed = MakeDomain(scenario, checkpoint_path, false);
@@ -500,7 +539,9 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
         saved_head,
         resumed.model->state().named_parameters()["head.weight"].cpu()));
     const training::FileCheckpointStore reopened(checkpoint_path);
+    stage("restore");
     const auto restored = resumed.trainer->restore_checkpoint(reopened);
+    stage("restored");
     EXPECT_EQ(restored.restore_level, RestoreLevel::exact);
     EXPECT_EQ(resumed.trainer->global_step(), kInterruptStep);
     EXPECT_EQ(resumed.optimizer->completed_steps(), 4U);
@@ -514,6 +555,7 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
       EXPECT_DOUBLE_EQ(resumed.scaler->get_scale(), 256.0);
       EXPECT_EQ(resumed.scaler->capture_state().growth_tracker, 1U);
     }
+    stage("resumed-fit");
     const auto result = resumed.trainer->fit();
     EXPECT_EQ(result.status, expected_result.status);
     EXPECT_EQ(result.global_step, expected_result.global_step);
@@ -528,17 +570,21 @@ TEST_P(DinoRecoveryTest, RecreatedDomainMatchesEveryParticipantAndNextRandom) {
     EXPECT_EQ(actual_losses, expected_losses);
     training::FileCheckpointStore store(resumed_path);
     resumed.trainer->save_checkpoint(store);
+    stage("resumed-saved");
     EXPECT_TRUE(torch::equal(torch::rand({16}), expected_next_cpu));
     EXPECT_TRUE(
         torch::equal(torch::rand({16}, torch::TensorOptions().device(device)),
                      expected_next_device));
   }
   ExpectEqualCheckpoint(baseline_path, resumed_path);
+  stage("final-compared");
   const auto peak_rss = PeakRssBytes();
   ASSERT_GT(peak_rss, 0U);
   EXPECT_LE(peak_rss, scenario.max_rss_bytes);
-  std::cout << "RECOVERY_METRICS model=" << scenario.model
-            << " precision=" << (scenario.cuda ? "cuda-fp16" : "fp32")
+  std::cout << "RECOVERY_METRICS model=" << scenario.model << " precision="
+            << (scenario.half_storage ? "cuda-fp16-storage"
+                : scenario.cuda       ? "cuda-fp16"
+                                      : "fp32")
             << " image_size=" << scenario.image_size
             << " compute_threads=1 deterministic_algorithms=1"
             << " process_peak_rss_bytes=" << peak_rss << " elapsed_ms="
@@ -618,9 +664,12 @@ INSTANTIATE_TEST_SUITE_P(
         // Keep CUDA recovery separate: exact bicubic backward requires the
         // native grid, whose training memory needs its own resource profile.
         RecoveryCase{"vit_large_patch14_dinov2", 28, false,
-                     RecoveryGate::dinov2_large_capacity, 12ULL << 30U}),
+                     RecoveryGate::dinov2_large_capacity, 12ULL << 30U},
+        RecoveryCase{"dinov3_vith16plus", 224, true,
+                     RecoveryGate::huge_half_storage, 10ULL << 30U, 5LL << 30U,
+                     true}),
     [](const ::testing::TestParamInfo<RecoveryCase> &info) {
-      return info.param.model + (info.param.cuda ? "_CudaAmp" : "_Cpu");
+      return info.param.model + PrecisionSuffix(info.param);
     });
 
 }  // namespace

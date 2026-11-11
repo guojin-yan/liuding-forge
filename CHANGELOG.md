@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 增加完整 DINOv3 H+ 的 224×224 CUDA FP16 参数存储恢复显式门禁；当前 6 GiB 显卡在首次 SGD 动量分配时不足，保留多步训练与恢复未验边界。
+
 - 模型检查点恢复将完整候选值和独立回滚副本暂存于 CPU，降低 CUDA 恢复的额外显存占用；保留原张量拓扑、完整校验和失败拷贝的逆序回滚。
 
 - 验收 Ubuntu 上完整 DINOv3 H+ 的 224×224 CUDA FP16 参数存储前向、反向与一次 SGD 更新；显式门禁检查 520 项梯度、输入梯度及 head/patch embedding 更新、资源峰值和 cuBLAS 工作缓冲释放。

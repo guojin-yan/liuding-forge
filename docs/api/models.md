@@ -139,6 +139,8 @@ block 使用零基索引，`{8, 2}` 表示第九和第三个 block 之后，按�
 
 大型模型需要为恢复预留足够的回滚空间，可通过 `TrainerOptions::checkpoint.max_rollback_bytes` 配置；DINOv2 ViT-L 和 DINOv3 ViT-L/L+ 的上述恢复验证显式使用 4 GiB 预算。该值限制回滚状态，不等于训练进程的全部内存需求。
 
+H+ 的 224×224 CUDA FP16 参数存储恢复有独立显式门禁 `JYPPX_LIUDING_DINO_HUGE_HALF_STORAGE_RECOVERY_GATE=1`，使用完整骨干、三类 head、SGD momentum=0.8、GradScaler 和 4 GiB 回滚预算。当前 RTX 2060 6 GiB 环境在首次 SGD 动量分配时显存不足，尚未完成连续训练或恢复验证；其单步资格不能外推到带动量的多步训练。该门禁默认跳过，须在满足实际训练及恢复资源需求的设备上单进程串行执行。
+
 ## 权重与验证
 
 `available_weights()` 返回的上游候选默认均为 `not_provisioned`，许可证为 `NOASSERTION`。候选名称或短哈希不构成可用权重证据。模型组件不会下载或反序列化 `.pth`/pickle，也不因架构参考通过而宣称预训练准确率。
