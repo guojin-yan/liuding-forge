@@ -23,9 +23,9 @@ add_library(jyppx_cli_objects OBJECT
     local_attempt.cpp
     local_search.cpp
     offline_workflow.cpp
-    image_recipe.cpp
-    recipe_initial_state.cpp
-    transfer_recipe.cpp
+    recipes/image/image_recipe.cpp
+    recipes/image/recipe_initial_state.cpp
+    recipes/image/transfer_recipe.cpp
     paired_recipe.cpp
     run_commands.cpp
     telemetry_commands.cpp
@@ -86,7 +86,7 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
 endif()
 if(JYPPX_LIUDING_BUILD_TESTS)
     # Explicit runtime opt-in, compiled only in test-enabled CLI builds.
-    set_property(SOURCE image_recipe.cpp APPEND PROPERTY
+    set_property(SOURCE recipes/image/image_recipe.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS=1
             JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS=1)
     add_executable(jyppx_cli_recipe_gate)

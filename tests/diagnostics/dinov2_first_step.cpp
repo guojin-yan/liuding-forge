@@ -7,8 +7,8 @@
 #include "cli.hpp"
 #include "dinov2_compiled_sources.hpp"
 #include "recipe_support.hpp"
+#include "recipes/image/transfer_recipe.hpp"
 #include "reference_file.hpp"
-#include "transfer_recipe.hpp"
 
 #include <jyppx/liuding/data/data_pipeline.hpp>
 #include <jyppx/liuding/data/samplers/random_sampler.hpp>

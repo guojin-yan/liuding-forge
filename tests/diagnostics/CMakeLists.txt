@@ -6,7 +6,7 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
         tests/diagnostics/cli_input_support.inc
         tests/diagnostics/recipe_capture_support.inc
         tests/diagnostics/CMakeLists.txt
-        tools/cli/transfer_recipe.cpp
+        tools/cli/recipes/image/transfer_recipe.cpp
         tools/cli/recipe_support.hpp
         tools/cli/cli.hpp
         tests/unit/models/reference_file.hpp
@@ -32,7 +32,7 @@ if(TARGET jyppx::liuding::models AND TARGET jyppx::liuding::data_image)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dinov2_compiled_sources.hpp"
         "#pragma once\n#include <string_view>\ninline constexpr std::string_view kDinoV2CompiledSources = R\"bindings(${JYPPX_DINOV2_DIAGNOSTIC_BINDINGS})bindings\";\n")
     add_executable(jyppx_dinov2_first_step_gate EXCLUDE_FROM_ALL
-        dinov2_first_step.cpp "${PROJECT_SOURCE_DIR}/tools/cli/transfer_recipe.cpp")
+        dinov2_first_step.cpp "${PROJECT_SOURCE_DIR}/tools/cli/recipes/image/transfer_recipe.cpp")
     set_target_properties(jyppx_dinov2_first_step_gate PROPERTIES
         OUTPUT_NAME liuding-forge-dinov2-first-step-gate
         RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/tools/cli")

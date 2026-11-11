@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- CLI 图像分类、迁移学习、初始状态和 BatchNorm 校准的实现与私有头集中到 recipes/image，搜索桥接头同目录存放，保持公开命令与安装接口。
+
 - 图像分类与迁移学习配方在训练异常时保存独立失败诊断，关联最后安全检查点；报告写入失败保留原训练错误，恢复后不把失败尝试计入成功轨迹。
 
 - 训练评估的分类、分割、检测实现与共享私有头集中到 evaluation 子目录，相关测试按同一模块归拢，公开 include 路径保持稳定。
