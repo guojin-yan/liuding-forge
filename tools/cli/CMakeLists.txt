@@ -1,7 +1,6 @@
 # Product tools are composed here, outside the library component graph.
 find_package(Threads REQUIRED)
 add_library(jyppx_cli_transport STATIC
-    sidecar_process.cpp
     native_telemetry_protocol.cpp)
 set_target_properties(jyppx_cli_transport PROPERTIES
     OUTPUT_NAME liuding-forge-cli-transport)

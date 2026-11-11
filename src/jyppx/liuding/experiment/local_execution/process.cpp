@@ -34,9 +34,8 @@
 extern char** environ;
 #endif
 
-#include "local_process.hpp"
-#include "sidecar_process.hpp"
-
+#include <jyppx/liuding/experiment/local_execution/json_lines.hpp>
+#include <jyppx/liuding/experiment/local_execution/process.hpp>
 #include <jyppx/liuding/foundation/error.hpp>
 #include <jyppx/liuding/foundation/sha256.hpp>
 
@@ -54,7 +53,7 @@ extern char** environ;
 #include <random>
 #include <utility>
 
-namespace jyppx::liuding::cli {
+namespace jyppx::liuding::experiment {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -169,7 +168,7 @@ int poll_milliseconds(Clock::time_point deadline) {
   return static_cast<int>(std::min(rounded, kPollInterval).count());
 }
 
-void validate_options(const SidecarProcessOptions& options) {
+void validate_options(const JsonLineProcessOptions& options) {
   const auto bounded_time = [](Milliseconds value, Milliseconds maximum) {
     return value.count() > 0 && value <= maximum;
   };
@@ -316,7 +315,7 @@ struct EnvironmentOrder {
 
 using NativeEnvironment = std::vector<wchar_t>;
 
-NativeEnvironment child_environment(const SidecarProcessOptions& options,
+NativeEnvironment child_environment(const JsonLineProcessOptions& options,
                                     bool local_binding = false) {
   std::map<std::wstring, std::wstring, EnvironmentOrder> values;
   if (options.inherit_environment) {
@@ -502,7 +501,7 @@ class AttributeList {
 
 class NativeProcess {
  public:
-  NativeProcess(const SidecarProcessOptions& options, std::stop_token stop,
+  NativeProcess(const JsonLineProcessOptions& options, std::stop_token stop,
                 Clock::time_point deadline,
                 [[maybe_unused]] bool kill_on_parent_death = false,
                 const LocalProcessMemoryLimit* memory_limit = nullptr,
@@ -967,7 +966,7 @@ ssize_t write_without_sigpipe(int descriptor, const char* bytes,
 
 using NativeEnvironment = std::vector<std::string>;
 
-NativeEnvironment child_environment(const SidecarProcessOptions& options,
+NativeEnvironment child_environment(const JsonLineProcessOptions& options,
                                     bool local_binding = false) {
   std::map<std::string, std::string> values;
   if (options.inherit_environment) {
@@ -1005,7 +1004,7 @@ std::string environment_digest(const NativeEnvironment& environment) {
 class NativeProcess {
  public:
   NativeProcess(
-      const SidecarProcessOptions& options, std::stop_token stop,
+      const JsonLineProcessOptions& options, std::stop_token stop,
       Clock::time_point deadline,
       [[maybe_unused]] bool kill_on_parent_death = false,
       const LocalProcessMemoryLimit* memory_limit = nullptr,
@@ -1399,9 +1398,9 @@ class NativeProcess {
 
 }  // namespace
 
-class SidecarProcessTransport::Impl {
+class JsonLineProcessTransport::Impl {
  public:
-  Impl(SidecarProcessOptions configured, std::stop_token stop,
+  Impl(JsonLineProcessOptions configured, std::stop_token stop,
        TelemetryDeadline deadline)
       : options(std::move(configured)) {
     check_telemetry_operation(stop, deadline);
@@ -1439,25 +1438,25 @@ class SidecarProcessTransport::Impl {
     return result;
   }
 
-  SidecarProcessOptions options;
+  JsonLineProcessOptions options;
   // Own the bounded frame across serial pump calls and exception cleanup.
   std::string input_frame;
   std::unique_ptr<NativeProcess> native;
-  SidecarProcessStats counters;
+  JsonLineProcessStats counters;
   bool poisoned = false;
   bool process_tree_cleanup_confirmed = false;
 };
 
-SidecarProcessTransport::SidecarProcessTransport(SidecarProcessOptions options,
-                                                 std::stop_token stop,
-                                                 TelemetryDeadline deadline)
+JsonLineProcessTransport::JsonLineProcessTransport(
+    JsonLineProcessOptions options, std::stop_token stop,
+    TelemetryDeadline deadline)
     : impl_(std::make_unique<Impl>(std::move(options), stop, deadline)) {}
 
-SidecarProcessTransport::~SidecarProcessTransport() noexcept = default;
+JsonLineProcessTransport::~JsonLineProcessTransport() noexcept = default;
 
-std::string SidecarProcessTransport::transact(std::string_view request_json,
-                                              std::stop_token stop,
-                                              TelemetryDeadline deadline) {
+std::string JsonLineProcessTransport::transact(std::string_view request_json,
+                                               std::stop_token stop,
+                                               TelemetryDeadline deadline) {
   if (impl_->poisoned)
     throw NotReady("Sidecar process requires a new transport",
                    details("process.poisoned"));
@@ -1530,20 +1529,20 @@ std::string SidecarProcessTransport::transact(std::string_view request_json,
   }
 }
 
-void SidecarProcessTransport::terminate() noexcept { impl_->terminate(); }
-bool SidecarProcessTransport::process_tree_cleanup_confirmed() const noexcept {
+void JsonLineProcessTransport::terminate() noexcept { impl_->terminate(); }
+bool JsonLineProcessTransport::process_tree_cleanup_confirmed() const noexcept {
   return impl_->process_tree_cleanup_confirmed;
 }
-bool SidecarProcessTransport::poisoned() const noexcept {
+bool JsonLineProcessTransport::poisoned() const noexcept {
   return impl_->poisoned;
 }
-SidecarProcessStats SidecarProcessTransport::stats() const noexcept {
+JsonLineProcessStats JsonLineProcessTransport::stats() const noexcept {
   return impl_->counters;
 }
 
 std::string local_process_environment_sha256(
     const LocalProcessOptions& options) {
-  SidecarProcessOptions launch;
+  JsonLineProcessOptions launch;
   launch.environment = options.environment;
   launch.inherit_environment = options.inherit_environment;
   launch.max_launch_bytes = options.max_launch_bytes;
@@ -1634,7 +1633,7 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
       throw InvalidArgument(
           "Requested CPU affinity is unavailable to the launcher");
   }
-  SidecarProcessOptions launch;
+  JsonLineProcessOptions launch;
   launch.executable = options.executable;
   launch.arguments = options.arguments;
   launch.working_directory = options.working_directory;
@@ -1745,4 +1744,4 @@ LocalProcessResult LocalProcessRunner::run(const LocalProcessOptions& options,
   }
 }
 
-}  // namespace jyppx::liuding::cli
+}  // namespace jyppx::liuding::experiment

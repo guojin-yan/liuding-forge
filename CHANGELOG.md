@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 原生进程执行与有界JSON行传输加入可安装的 `experiment` C++ SDK；CLI复用同一实现，并提供无需Python或CLI的独立原生示例。
+
 - 新增原生 C++ 行人分割训练/评估示例，模型头文件和实现按模块集中；支持完整检查点、定期提交、新进程恢复及独立预测计分验证，旧分割测试复用同一模型。
 
 - 行人检测示例按模块集中模型头文件、实现及训练/评估入口；支持按绝对更新间隔原子保存完整检查点和输出提交进度，便于进程中断后从磁盘续训。

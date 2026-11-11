@@ -265,6 +265,23 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
     endif()
 endif()
 
+if(TARGET jyppx::liuding::experiment)
+    add_executable(jyppx_liuding_local_execution_example
+        experiment/local_execution/main.cpp)
+    set_target_properties(jyppx_liuding_local_execution_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-local-execution)
+    target_link_libraries(jyppx_liuding_local_execution_example PRIVATE
+        jyppx::liuding::experiment)
+    jyppx_apply_instrumentation(jyppx_liuding_local_execution_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_local_execution_example)
+    if(JYPPX_LIUDING_BUILD_TESTS)
+        add_test(NAME LocalExecutionSdkExample
+            COMMAND jyppx_liuding_local_execution_example)
+        set_tests_properties(LocalExecutionSdkExample PROPERTIES
+            LABELS "examples;experiment;local" TIMEOUT 30 RUN_SERIAL TRUE)
+    endif()
+endif()
+
 if(TARGET jyppx::liuding::bundle_signing)
     add_executable(jyppx_liuding_bundle_signing_example deployment/bundle_signing.cpp)
     set_target_properties(jyppx_liuding_bundle_signing_example PROPERTIES

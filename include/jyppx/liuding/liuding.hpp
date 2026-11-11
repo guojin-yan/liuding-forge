@@ -32,6 +32,7 @@
 // Local experiments
 #include <jyppx/liuding/experiment/artifact_store.hpp>
 #include <jyppx/liuding/experiment/config.hpp>
+#include <jyppx/liuding/experiment/local_execution/process.hpp>
 #include <jyppx/liuding/experiment/run.hpp>
 #include <jyppx/liuding/experiment/run_store.hpp>
 
