@@ -33,3 +33,18 @@ out/build/YOUR_PROFILE/examples/liuding-forge-example-durable-local-execution /a
 ```
 
 保留示例输出目录可检查原始run/CAS和 `example-spec.json`；每次新的演示使用未占用目录。安装消费者只需 `find_package(jyppx CONFIG REQUIRED COMPONENTS experiment)` 并链接 `jyppx::liuding::experiment`。
+
+## 使用自己的程序和规格
+
+[job.cpp](job.cpp) 是可复用的原生SDK调用示例，以自身作为独立worker，执行调用者提供的冻结 `local_run_spec` 文件。应用程序由规格的 `executable` 和字面量 `arguments` 指定，须自行读取attempt上下文并提交声明的typed输出；示例不替换应用的训练和检查点语义。它只链接experiment，读取规格最多64KiB，不依赖CLI或第三方JSON头。
+
+```sh
+cmake --build out/build/YOUR_PROFILE --target jyppx_liuding_local_job_example --parallel 1
+out/build/YOUR_PROFILE/examples/liuding-forge-example-local-job environment /absolute/spec.json
+out/build/YOUR_PROFILE/examples/liuding-forge-example-local-job execute /absolute/store my-job /absolute/spec.json
+out/build/YOUR_PROFILE/examples/liuding-forge-example-local-job show /absolute/store my-job
+out/build/YOUR_PROFILE/examples/liuding-forge-example-local-job recover /absolute/store my-job
+out/build/YOUR_PROFILE/examples/liuding-forge-example-local-job cancel /absolute/store my-job
+```
+
+`environment` 只返回当前有效环境的 `environment_sha256`，可将该值写入规格绑定后再执行，不创建STORE。`execute` 创建或重放相同计划，`recover` 只在持久协议允许时推进剩余attempt；确认终态的重放不再执行应用。其余操作stdout是SDK返回的版本化JSON，进程退出码使用前述0/1/7/130编排状态。应用需要的运行库搜索路径、环境、时限、CPU放置和可选OS内存限额均应在规格中明确固定；Linux内存限额还要求调用者提供可写的委派cgroup父目录。

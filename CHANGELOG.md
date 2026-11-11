@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 增加直接调用安装SDK的原生持久任务示例，支持以同一worker执行外部冻结规格及查询、恢复和取消。
+
 - 持久本地任务状态机加入安装C++ SDK，支持调用者原生worker、冻结计划、typed输入输出、有限重试、查询/取消/恢复及显式放弃未知attempt；CLI共用实现，新增独立原生教学例。
 
 - 原生进程执行与有界JSON行传输加入可安装的 `experiment` C++ SDK；CLI复用同一实现，并提供无需Python或CLI的独立原生示例。

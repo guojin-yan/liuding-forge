@@ -266,6 +266,13 @@ if(TARGET jyppx::liuding::training AND TARGET jyppx::liuding::data_image
 endif()
 
 if(TARGET jyppx::liuding::experiment)
+    add_executable(jyppx_liuding_local_job_example
+        experiment/local_execution/job.cpp)
+    set_target_properties(jyppx_liuding_local_job_example PROPERTIES
+        OUTPUT_NAME liuding-forge-example-local-job)
+    target_link_libraries(jyppx_liuding_local_job_example PRIVATE jyppx::liuding::experiment)
+    jyppx_apply_instrumentation(jyppx_liuding_local_job_example)
+    jyppx_add_torch_runtime_dependency(jyppx_liuding_local_job_example)
     add_executable(jyppx_liuding_durable_local_execution_example
         experiment/local_execution/durable.cpp)
     set_target_properties(jyppx_liuding_durable_local_execution_example PROPERTIES
