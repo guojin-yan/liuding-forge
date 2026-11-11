@@ -13,6 +13,30 @@
       "status": "development-baseline",
       "verified_lanes": [
         {
+          "id": "local-windows-msvc1944-cu126-clean-f8e7d8e-distinct-onnx-serving",
+          "os": "windows-11",
+          "architecture": "x86_64",
+          "distribution": "bundled-cuda",
+          "compiler": "MSVC 19.44.35227",
+          "accelerator": "LibTorch2.14.1+cu126;ORT1.23.2 CPUExecutionProvider;CPU FP32 only",
+          "build_type": "Release",
+          "commit": "f8e7d8ecee8d8d0b8edd58839793a37eeb1f611e",
+          "tests": "One installed-SDK native C++ task:30s,four producers,4357 load requests/4382 saved responses,276370 independently checked logits;10 lifecycle events;training0. No CTest claim for the native task.",
+          "instrumentation": "Existing Visual Studio2022 consumer build;one compile leaf and one native task across both hosts. Exact3GiB Windows Jobs;4GiB physical admission and2GiB stop floor. No SDK reinstall or runtime copy.",
+          "quality_evidence": {
+            "source_identity": "Clean main f8e7d8ecee8d8d0b8edd58839793a37eeb1f611e. Actual linked SDK remains93da49f375ce40c9f2c4caaafc8f59300af9b4fd. Serving/ORT/signing/interop source subtrees have no changes from that SDK;later nn model-checkpoint changes are not exercised or qualified by this task. All1327 tracked source files and246 installed files retain SHA/mtime.",
+            "trained_models": "A graph3730faab9754ede64d1d8babab460162aab6001fd0c24e55ee6644843b3c382e and B graphff0cfc8b1fd5f1d1c4362143a030acef1f4196d1db56c616dff1559e594fb92f come from separate completed training tasks. Their21 differing trained initializers and ONNX1.19.1 checker qualification are reused by exact graph SHA;no retraining or new checker execution.",
+            "environment": "Each original signed Linux package remains refused under its original environment lock. Native C++ observes the actual Windows Session and derives a separately signed package;independent checks permit only bundle ID/signatures,OS/environment lock and lock-file identity changes. All graph,input,reference and provenance bytes remain exact;actual loaded DLL is the fixed installed ORT1.23.2.",
+            "outputs": "A to B to A with separate original references at atol1e-5/rtol1e-4. All4382 responses and276370 logits match their own weight and reject the other weight reference. Both retained old leases stay on their bound weights;all six rollback-A batch outputs equal original-A bytes. Wrong-weight warmup is rejected while A remains current.",
+            "lifecycle": "Two resident slots,third-load refusal,eight-lease admission,pre-cancel/expiry,wrong-version rejection,queued cancellation/deadline and close/drain pass;final instances,leases,reserved bytes and active requests are zero.",
+            "resources": "Native Job peak794972160B;build Job peak1205309440B;sampled owned RSS peak1251590144B;minimum free physical3270594560B. One initial admission refusal started zero commands;75.11s bounded readiness wait admitted all stages at4GiB or above. Original1h deadline and cumulative69.109s build/38.906s native/1.579s audit preserved.",
+            "cleanup": "Consumer cache restored;all exact Jobs empty and supervisor exited. SHA-verified474653B/59-member receipts replace222416250B temporary models and owned build artifacts plus54285B duplicate logs;formal SDK,fixed build and model archive caches retained.",
+            "independent_audit_sha256": "5d5374a105e7bbcde7e82ac01d3a9d72628af0500271766ad34b10f4ceb3ad33",
+            "receipts_archive_sha256": "0782dc2e90a46ceb6e3b22e491356c21a1135202ecd5df27c1d5073d4d62a893",
+            "scope": "This Windows installed-SDK CPU repeated-input distinct-trained-weight rollout/rollback only. Other EPs,production SLO,private-workspace bounds,final-candidate matrix and production signing authority remain unqualified. INT8 deferred;network security paused."
+          }
+        },
+        {
           "id": "local-ubuntu-gcc114-cpu-fbe023d-direct-detector-task",
           "os": "ubuntu-22.04.5",
           "architecture": "x86_64",
