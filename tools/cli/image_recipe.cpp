@@ -14,6 +14,10 @@
 #if defined(JYPPX_LIUDING_CLI_IMAGE_RECIPE)
 #include "recipe_bn_calibration.hpp"
 #include "recipe_local_attempt.hpp"
+#include "recipes/diagnostics/failure_report.hpp"
+#if defined(JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS)
+#include "recipes/diagnostics/test_fault.hpp"
+#endif
 #if defined(JYPPX_LIUDING_CLI_CALIBRATION_TEST_HOOKS)
 #include "recipe_bn_calibration_test_gate.hpp"
 #endif
@@ -1381,10 +1385,13 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
       [](const data::BatchEnvelope& batch) -> std::optional<c10::IValue> {
     return image::image_batch_from_value(batch.value).labels;
   };
-  const tr::StepFunction step = [](const tr::StepInput& input) {
+#if defined(JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS)
+  const recipe_diagnostics::TestFault diagnostic_fault;
+#endif
+  const tr::StepFunction step = [&](const tr::StepInput& input) {
     const auto logits = input.model.invoke(input.invocation).value.toTensor();
     const auto labels = input.target->toTensor().to(torch::kLong);
-    return tr::StepOutput{
+    auto output = tr::StepOutput{
         .loss = torch::nn::functional::cross_entropy(logits, labels),
         .prediction = {},
         .metrics = {{"accuracy", logits.argmax(1)
@@ -1393,6 +1400,10 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
                                      .mean()
                                      .item<double>()}},
         .sample_count = input.batch.sample_ids.size()};
+#if defined(JYPPX_LIUDING_CLI_DIAGNOSTIC_TEST_HOOKS)
+    diagnostic_fault.apply(output, input.context.phase, root);
+#endif
+    return output;
   };
   trainer.prepare(
       {.model = model,
@@ -1436,6 +1447,14 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
                    "pause-after must exceed the restored optimizer step");
     store.heartbeat(kRun, now_ms());
   }
+  const tr::TrainingDiagnosticIdentity failure_identity{
+      .report_id = "diagnostic.image-classification.failure",
+      .run_id = std::string(kRun),
+      .attempt_id = "attempt.fit",
+      .model = digest(contract.dump()),
+      .configuration = config_hash,
+      .dataset = inputs.identity,
+      .checkpoint = {}};
   tr::FitResult fit;
   if (calibration &&
       calibration->phase() != RecipeBatchNormCalibration::Phase::training) {
@@ -1471,7 +1490,14 @@ Result execute(const Arguments& arguments, bool resume, bool local = false) {
            .validation_metrics = trainer.validation_metrics(),
            .reason = "Restored completed training; no fit replay"};
   } else {
-    fit = trainer.fit_until(pause);
+    try {
+      fit = trainer.fit_until(pause);
+    } catch (...) {
+      (void)recipe_diagnostics::publish_failure_report(
+          store, *diagnostics, root, failure_identity, trainer.global_step(),
+          time);
+      throw;
+    }
   }
   if (fit.status == tr::FitStatus::paused) {
     require_recipe(fit.global_step == pause,
@@ -1813,7 +1839,8 @@ Json inspect_image_search_inputs(const std::filesystem::path& path) {
       !is_transfer_recipe(configuration),
       "Image search bridge accepts only its ResNet18 recipe");
   recipe_support::require_recipe(
-      !uses_bn_calibration(configuration) || configuration.at("device") == "cpu",
+      !uses_bn_calibration(configuration) ||
+          configuration.at("device") == "cpu",
       "Image search BatchNorm calibration requires CPU");
   const auto inputs = inspect_inputs(configuration);
   static_cast<void>(inspect_recipe_initial_state(
