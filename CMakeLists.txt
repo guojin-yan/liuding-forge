@@ -693,6 +693,7 @@ if(JYPPX_LIUDING_BUILD_EXPERIMENT)
         src/jyppx/liuding/experiment/telemetry_exporters.cpp
         src/jyppx/liuding/experiment/local_execution/process.cpp
         src/jyppx/liuding/experiment/local_execution/runner.cpp
+        src/jyppx/liuding/experiment/local_execution/log_retention.cpp
         src/jyppx/liuding/experiment/local_execution/devices.cpp
         src/jyppx/liuding/experiment/evaluation.cpp
         $<TARGET_OBJECTS:sqlite3_amalgamation>

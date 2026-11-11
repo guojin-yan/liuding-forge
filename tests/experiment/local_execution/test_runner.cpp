@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <span>
+#include <stdexcept>
 #include <thread>
 
 namespace {
@@ -62,6 +63,40 @@ class LocalJobSdkTest : public testing::Test {
             {"timeout_ms", 5000},
             {"max_attempts", 1},
             {"retry_exit_codes", Json::array()}};
+  }
+  Json log_spec(std::string mode = "success") {
+    auto value = spec();
+    const auto fixture = fs::u8path(JYPPX_LOCAL_LOG_FIXTURE);
+    std::ifstream file(fixture, std::ios::binary);
+    const std::string content{std::istreambuf_iterator<char>(file), {}};
+    value["executable"] = text(fixture);
+    value["executable_sha256"] = jyppx::liuding::sha256_hex(
+        std::as_bytes(std::span(content.data(), content.size())));
+    value["arguments"] = Json::array({std::move(mode)});
+    value["local_retention"] = {{"stdout", "on_failure"},
+                                {"stderr", "on_failure"}};
+    return value;
+  }
+  std::string captured(ex::SQLiteRunStore& store, const Json& attempt,
+                       std::string_view name) {
+    const auto ref =
+        store.find_reference(attempt.at("attempt_id").get<std::string>(),
+                             "local." + std::string(name));
+    if (!ref || ref->artifact.size_bytes > 8192)
+      throw std::runtime_error("Missing bounded log reference");
+    ex::FileArtifactStore cas(store.artifact_root());
+    auto input = cas.open(ref->artifact.digest);
+    std::string value(static_cast<std::size_t>(input->size_bytes()), '\0');
+    std::size_t offset = 0;
+    while (offset != value.size()) {
+      const auto got = input->read(
+          std::as_writable_bytes(std::span(value.data(), value.size()))
+              .subspan(offset));
+      if (!got) throw std::runtime_error("Truncated log reference");
+      offset += got;
+    }
+    EXPECT_EQ(value.size(), ref->artifact.size_bytes);
+    return value;
   }
 };
 TEST_F(LocalJobSdkTest, NativeExampleConfirmsTypedRetryAndFreshProcessReplay) {
@@ -177,5 +212,158 @@ TEST_F(LocalJobSdkTest,
   EXPECT_EQ(ex::control_local_job(ex::LocalJobControl::recover, root, "job")
                 .status_code,
             1);
+}
+
+TEST_F(LocalJobSdkTest, LogRetentionKeepsFailedRetryAndOmitsSuccessfulAttempt) {
+  const auto root = temporary / "logs";
+  auto value = log_spec("retry");
+  value["max_attempts"] = 2;
+  value["retry_exit_codes"] = Json::array({75});
+  const auto result =
+      ex::execute_local_job(root, "job", value.dump(), worker());
+  ASSERT_EQ(result.status_code, 0) << result.json;
+  const auto attempts = Json::parse(result.json).at("attempts");
+  ASSERT_EQ(attempts.size(), 2);
+  ex::SQLiteRunStore store(root);
+  for (std::size_t i = 0; i != 2; ++i) {
+    for (const auto name : {"stdout", "stderr"}) {
+      const auto expected = "native " + std::string(name) + "\n";
+      const auto& receipt =
+          attempts[i].at("result").at("local_retention").at(name);
+      EXPECT_EQ(receipt.at("retained"), i == 0);
+      EXPECT_EQ(receipt.at("captured_bytes"), expected.size());
+      EXPECT_EQ(receipt.at("captured_sha256"),
+                jyppx::liuding::sha256_hex(std::as_bytes(
+                    std::span(expected.data(), expected.size()))));
+      EXPECT_EQ(captured(store, attempts[i], name), i == 0 ? expected : "");
+    }
+  }
+  EXPECT_EQ(ex::execute_local_job(root, "job", value.dump(), {}).json,
+            result.json);
+  EXPECT_EQ(
+      ex::control_local_job(ex::LocalJobControl::recover, root, "job").json,
+      result.json);
+  value["local_retention"]["stdout"] = "always";
+  EXPECT_THROW(ex::execute_local_job(root, "job", value.dump(), worker()),
+               jyppx::liuding::Error);
+}
+
+TEST_F(LocalJobSdkTest, LogRetentionStoresOnlySelectedStreamAndVerifiesItsCas) {
+  const auto root = temporary / "streams";
+  auto value = log_spec();
+  value["local_retention"] = {{"stdout", "never"}, {"stderr", "always"}};
+  const auto result =
+      ex::execute_local_job(root, "job", value.dump(), worker());
+  ASSERT_EQ(result.status_code, 0) << result.json;
+  const auto attempt = Json::parse(result.json).at("attempts").at(0);
+  ex::SQLiteRunStore store(root);
+  EXPECT_EQ(captured(store, attempt, "stdout"), "");
+  EXPECT_EQ(captured(store, attempt, "stderr"), "native stderr\n");
+  const auto& receipt = attempt.at("result").at("local_retention");
+  const auto dropped =
+      receipt.at("stdout").at("captured_sha256").get<std::string>();
+  const auto kept =
+      receipt.at("stderr").at("captured_sha256").get<std::string>();
+  const auto object = [&](const std::string& sha) {
+    return store.artifact_root() / "objects" / sha.substr(0, 2) / sha.substr(2);
+  };
+  EXPECT_FALSE(fs::exists(object(dropped)));
+  ASSERT_TRUE(fs::exists(object(kept)));
+  std::ofstream(object(kept), std::ios::binary | std::ios::trunc) << "corrupt";
+  EXPECT_THROW(ex::control_local_job(ex::LocalJobControl::recover, root, "job"),
+               jyppx::liuding::Error);
+}
+
+TEST_F(LocalJobSdkTest, LogRetentionKeepsDiagnosticsAfterTypedOutputFailure) {
+  const auto root = temporary / "typed";
+  auto value = log_spec();
+  ex::SQLiteRunStore store(root);
+  store.start({.run_id = "inputs",
+               .project_id = "sdk",
+               .experiment_id = "contracts",
+               .display_name = "Inputs",
+               .status = ex::RunStatus::running,
+               .created_at_unix_ms = 1,
+               .updated_at_unix_ms = 1});
+  const std::string payload = "{}";
+  const auto pin = [&](std::string name) {
+    const auto ref = store.put_artifact(
+        "inputs", name, ex::RunArtifactKind::artifact, name,
+        std::as_bytes(std::span(payload.data(), payload.size())),
+        {.logical_name = name, .expected_size_bytes = payload.size()}, 1);
+    return Json{{"run_id", "inputs"},
+                {"reference_id", name},
+                {"sha256", ref.artifact.digest.hex},
+                {"size_bytes", payload.size()}};
+  };
+  value["training"] = {{"model_id", "fixture"},
+                       {"configuration", pin("configuration")},
+                       {"data_manifest", pin("data_manifest")},
+                       {"resume", nullptr},
+                       {"outputs", Json::array({{{"reference_id", "missing"},
+                                                 {"kind", "artifact"},
+                                                 {"role", "fixture"},
+                                                 {"max_size_bytes", 4096}}})}};
+  store.transition("inputs", ex::RunStatus::completed, 2);
+  const auto result =
+      ex::execute_local_job(root, "job", value.dump(), worker());
+  ASSERT_EQ(result.status_code, 1) << result.json;
+  const auto attempt = Json::parse(result.json).at("attempts").at(0);
+  EXPECT_EQ(attempt.at("result").at("exit_code"), 0);
+  EXPECT_EQ(attempt.at("result").at("training_outputs_confirmed"), false);
+  EXPECT_EQ(captured(store, attempt, "stdout"), "native stdout\n");
+  EXPECT_EQ(captured(store, attempt, "stderr"), "native stderr\n");
+  EXPECT_EQ(
+      ex::control_local_job(ex::LocalJobControl::recover, root, "job").json,
+      result.json);
+}
+
+TEST_F(LocalJobSdkTest, LogRetentionNeverBypassesOutputLimitOrTimeout) {
+  for (const auto mode : {"flood", "wait"}) {
+    const auto root = temporary / mode;
+    auto value = log_spec(mode);
+    if (std::string_view(mode) == "flood") {
+      value["max_stdout_bytes"] = 32;
+      value["local_retention"] = {{"stdout", "never"}, {"stderr", "never"}};
+    } else {
+      value["timeout_ms"] = 250;
+    }
+    const auto result =
+        ex::execute_local_job(root, "job", value.dump(), worker());
+    ASSERT_EQ(result.status_code, 1) << result.json;
+    const auto attempt = Json::parse(result.json).at("attempts").at(0);
+    const auto& native = attempt.at("result");
+    EXPECT_EQ(native.at("status"),
+              std::string_view(mode) == "flood" ? "output_limit" : "timed_out");
+    EXPECT_EQ(native.at("process_tree_cleanup_confirmed"), true);
+    ex::SQLiteRunStore store(root);
+    if (std::string_view(mode) == "flood") {
+      EXPECT_EQ(native.at("local_retention").at("stdout").at("captured_bytes"),
+                32);
+      EXPECT_GT(native.at("stdout_bytes").get<std::uint64_t>(), 32);
+      EXPECT_EQ(captured(store, attempt, "stdout"), "");
+    } else {
+      EXPECT_EQ(captured(store, attempt, "stdout"), "native stdout\n");
+      EXPECT_EQ(captured(store, attempt, "stderr"), "native stderr\n");
+    }
+    EXPECT_EQ(
+        ex::control_local_job(ex::LocalJobControl::recover, root, "job").json,
+        result.json);
+  }
+}
+
+TEST_F(LocalJobSdkTest, InvalidLogRetentionRejectsBeforeStoreCreation) {
+  auto value = log_spec();
+  for (const Json invalid :
+       {Json(nullptr), Json::object(),
+        Json{{"stdout", "unknown"}, {"stderr", "always"}},
+        Json{{"stdout", true}, {"stderr", "always"}},
+        Json{{"stdout", "never"}, {"stderr", "never"}, {"purge", true}}}) {
+    value["local_retention"] = invalid;
+    const auto root = temporary / "invalid-retention";
+    EXPECT_THROW(ex::execute_local_job(root, "job", value.dump(), worker()),
+                 jyppx::liuding::Error);
+    EXPECT_FALSE(fs::exists(root));
+  }
 }
 }  // namespace

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+- 本地任务和搜索可分别冻结 stdout/stderr 的始终、仅失败或不保留策略；保留退出状态、日志计数和有界捕获摘要，维持输出限额、typed产物校验、原子提交与终态重放。
+
 - 增加直接调用安装SDK的原生持久任务示例，支持以同一worker执行外部冻结规格及查询、恢复和取消。
 
 - 持久本地任务状态机加入安装C++ SDK，支持调用者原生worker、冻结计划、typed输入输出、有限重试、查询/取消/恢复及显式放弃未知attempt；CLI共用实现，新增独立原生教学例。

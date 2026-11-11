@@ -25,7 +25,7 @@ Windows 使用相应配置子目录及 `.exe`。成功时输出 `passed: true` �
 
 调用者以 `LocalJobWorkerLaunch` 指定绝对worker程序、SHA-256和固定argv前缀；每个新attempt在写启动意图前核对程序身份。SDK追加 `--root STORE --id JOB --attempt N --intent-sha256 SHA`，程序在指定模式下转交 `run_local_job_worker()`。worker独立持有执行锁和提交结果，可与调度调用者分开存活；未知启动意图不因空闲锁、PID或时间而自动重试。确认终态的查询/重放不再依赖原程序或worker仍存在；`abandon_local_job()` 只接受原合同要求的显式外部清理确认，不猜测遗留进程。
 
-示例第一次原生任务返回75，第二次提交具名结果；SDK核对同attempt的typed输出后成功，并在另一个原生进程中重放相同终态。它演示持久协议，不执行模型训练或授予任务质量资格；无需Python、CLI或第三方JSON头。
+示例第一次原生任务返回75，第二次提交具名结果；SDK核对同attempt的typed输出后成功，并在另一个原生进程中重放相同终态。冻结的 `local_retention` 将双流设置为 `on_failure`，保留第一次失败诊断，第二次仅保存日志计数与有界前缀摘要，双流引用为空内容。它演示持久协议，不执行模型训练或授予任务质量资格；无需Python、CLI或第三方JSON头。
 
 ```sh
 cmake --build out/build/YOUR_PROFILE --target jyppx_liuding_durable_local_execution_example --parallel 1

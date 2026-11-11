@@ -4,6 +4,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 
+#include "log_retention.hpp"
 #include "support.hpp"
 
 #include <jyppx/liuding/experiment/local_execution/devices.hpp>
@@ -454,6 +455,7 @@ struct Spec {
   std::set<std::uint32_t> retry_exit_codes;
   std::optional<TrainingSpec> training;
   std::optional<Resources> resources;
+  std::optional<LocalLogRetention> log_retention;
 };
 
 Spec read_spec(const Json& value) {
@@ -465,7 +467,7 @@ Spec read_spec(const Json& value) {
       {"retry_delay_ms", "max_stdout_bytes", "max_stderr_bytes",
        "deadline_unix_ms", "training", "resources", "environment_refs",
        "environment_sha256", "os_memory_limit", "runtime_files",
-       "host_requirements", "cpu_affinity", "cuda_device"});
+       "host_requirements", "cpu_affinity", "cuda_device", "local_retention"});
   schema(value, "jyppx.liuding.local_run_spec");
   Spec result;
   result.json = value;
@@ -608,6 +610,8 @@ Spec read_spec(const Json& value) {
       value.value("max_stdout_bytes", Json(1U << 20U)), kCaptureBytes));
   process.max_stderr_bytes = static_cast<std::size_t>(positive(
       value.value("max_stderr_bytes", Json(1U << 20U)), kCaptureBytes));
+  if (value.contains("local_retention"))
+    result.log_retention = read_log_retention(value.at("local_retention"));
   result.maximum_attempts =
       positive(value.at("max_attempts"), kMaximumAttempts);
   result.retry_delay_ms =
@@ -1234,6 +1238,15 @@ Json training_output_receipt_identity(SQLiteRunStore& store,
   auto native = result;
   native.erase("training_outputs_sha256");
   native.erase("training_outputs_confirmed");
+  if (native.contains("local_retention")) {
+    // The output receipt binds the native observation before retention can
+    // depend on that receipt's verdict. Rebuild the same snapshot on replay.
+    const auto& retention = native.at("local_retention");
+    for (const auto name : {"stdout", "stderr"})
+      native[std::string(name) + "_sha256"] =
+          retention.at(name).at("captured_sha256");
+    native.erase("local_retention");
+  }
   return {{"format", "jyppx.liuding.local_training_outputs"},
           {"schema_version", 1},
           {"job_id", job},
@@ -1445,15 +1458,15 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
              std::uint64_t index, bool check_outputs) {
   const auto id = attempt_id(job, index);
   auto value = reference_json(store, id, "local.result", "local.result");
-  fields(
-      value,
-      {"format", "schema_version", "job_id", "attempt_id", "index",
-       "spec_sha256", "status", "exit_code", "signal", "process_id",
-       "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
-       "stdout_sha256", "stderr_sha256", "failure_reason"},
-      {"process_tree_cleanup_confirmed", "training_sha256",
-       "training_outputs_sha256", "training_outputs_confirmed",
-       "resource_usage", "memory_boundary", "cpu_affinity", "cuda_placement"});
+  fields(value,
+         {"format", "schema_version", "job_id", "attempt_id", "index",
+          "spec_sha256", "status", "exit_code", "signal", "process_id",
+          "stdout_bytes", "stderr_bytes", "elapsed_ms", "finished_at_unix_ms",
+          "stdout_sha256", "stderr_sha256", "failure_reason"},
+         {"process_tree_cleanup_confirmed", "training_sha256",
+          "training_outputs_sha256", "training_outputs_confirmed",
+          "resource_usage", "memory_boundary", "cpu_affinity", "cuda_placement",
+          "local_retention"});
   schema(value, "jyppx.liuding.local_attempt_result");
   // Older immutable results have no accounting field. Do not fabricate one
   // during replay; a present measurement must retain explicit OS semantics.
@@ -1609,6 +1622,10 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
                 frozen->artifact.digest == digest(manifest.dump()),
             "Confirmed attempt has different frozen training inputs");
   }
+  require(value.contains("local_retention") == spec.log_retention.has_value(),
+          "Local result has a different log retention policy");
+  if (spec.log_retention)
+    fields(value.at("local_retention"), {"stdout", "stderr"});
   for (const auto name : {"stdout", "stderr"}) {
     const auto ref = store.find_reference(id, std::string("local.") + name);
     require(
@@ -1618,6 +1635,20 @@ Json outcome(SQLiteRunStore& store, std::string_view job, const Spec& spec,
                 value.at(std::string(name) + "_sha256").get<std::string>() &&
             ref->artifact.size_bytes <= kCaptureBytes,
         "Local attempt output identity mismatch");
+    if (spec.log_retention) {
+      const bool output = std::string_view(name) == "stdout";
+      validate_log_retention(
+          value.at("local_retention").at(name),
+          output ? spec.log_retention->stdout_policy
+                 : spec.log_retention->stderr_policy,
+          succeeded(value) &&
+              value.value("process_tree_cleanup_confirmed", false),
+          unsigned_number(value.at(std::string(name) + "_bytes"),
+                          std::numeric_limits<std::uint64_t>::max()),
+          output ? spec.process.max_stdout_bytes
+                 : spec.process.max_stderr_bytes,
+          ref->artifact);
+    }
     FileArtifactStore cas(store.artifact_root());
     static_cast<void>(cas.open(ref->artifact.digest));
   }
@@ -2486,6 +2517,18 @@ Result worker(SQLiteRunStore& store, const fs::path& root,
     training_outputs_text = receipt.dump();
     result["training_outputs_sha256"] = digest(training_outputs_text).hex;
     result["training_outputs_confirmed"] = receipt.at("confirmed");
+  }
+  if (spec.log_retention) {
+    const bool successful =
+        succeeded(result) && native.process_tree_cleanup_confirmed;
+    result["local_retention"] = {
+        {"stdout", retain_local_log(spec.log_retention->stdout_policy,
+                                    successful, native.stdout_capture)},
+        {"stderr", retain_local_log(spec.log_retention->stderr_policy,
+                                    successful, native.stderr_capture)}};
+    // These existing fields continue to identify the bytes actually in CAS.
+    result["stdout_sha256"] = digest(native.stdout_capture).hex;
+    result["stderr_sha256"] = digest(native.stderr_capture).hex;
   }
   const auto result_text = result.dump();
   const auto upload = [&](std::string name, std::string_view content,

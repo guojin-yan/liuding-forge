@@ -71,6 +71,8 @@ std::string environment(const char* name) {
   return value;
 }
 int task() {
+  std::cout << "Native attempt started\n";
+  std::cerr << "Native diagnostic\n";
   if (environment("JYPPX_LIUDING_LOCAL_ATTEMPT_INDEX") == "1") return 75;
   ex::SQLiteRunStore store(
       fs::u8path(environment("JYPPX_LIUDING_LOCAL_STORE_ROOT")));
@@ -140,7 +142,10 @@ void example(const fs::path& executable, const fs::path& root) {
       ",\"arguments\":[\"--task\"],\"working_directory\":" +
       quote(path_text(root.parent_path())) +
       ",\"environment\":{},\"inherit_environment\":true,\"timeout_ms\":5000,"
-      "\"max_attempts\":2,\"retry_exit_codes\":[75],\"training\":{\"model_id\":"
+      "\"max_attempts\":2,\"retry_exit_codes\":[75],"
+      "\"local_retention\":{\"stdout\":\"on_failure\",\"stderr\":\"on_"
+      "failure\"},"
+      "\"training\":{\"model_id\":"
       "\"native-fixture\",\"configuration\":" +
       configuration + ",\"data_manifest\":" + data +
       ",\"resume\":null,\"outputs\":[{\"reference_id\":\"native.result\","

@@ -33,6 +33,14 @@ Windows 采用挂起启动并加入禁止 breakaway 的 kill-on-close Job Object
 
 可执行文件的身份校验单独限 1 GiB，使用流式 SHA-256；配方训练制品各限 256 MiB。
 
+### 日志保留
+
+`local_run_spec` 和搜索的 `execution` 可选 `local_retention: {"stdout":"on_failure","stderr":"always"}`，两项都必须声明，分别选择 `always`、`on_failure` 或 `never`；省略整个对象时沿用保存双流的原行为。策略属于冻结计划，不能用同一 job ID 修改。`on_failure` 只有在原生退出成功、声明的输出全部确认且进程树清理确认后才省略该 attempt 的日志；失败重试、取消、超时、超限及输出校验失败保留诊断。
+
+策略只控制本次结果事务保存的 stdout/stderr 字节，仍排空双流并执行 `max_stdout_bytes`/`max_stderr_bytes` 限额，不减少输出计数或改变训练 verdict。被省略的流引用共享空 CAS 对象；结果仍保留观察到的字节计数，以及 `local_retention` 收据中的 `policy`、`retained`、`captured_bytes` 和 `captured_sha256`。后两个字段标识有界捕获前缀，输出超限时不代表完整输出；原有 `stdout_sha256`/`stderr_sha256` 始终标识实际保存的 CAS 字节。重放核对冻结策略、收据与双流 CAS，日志和结果仍原子提交。
+
+本选项不删除既有历史、指标、checkpoint 或其他引用，不提供按时间淘汰或整个 STORE 的磁盘硬限额；既有存储容量限制和仅删除无引用对象的 GC 合同继续适用。
+
 ```json
 {
   "format": "jyppx.liuding.local_run_spec",

@@ -289,6 +289,74 @@ class LocalSearchTests(unittest.TestCase):
         self.assertEqual(len(content), reference["artifact"]["size_bytes"])
         return content
 
+    def test_log_retention_flows_through_grid_random_and_terminal_replay(self) -> None:
+        policy = {"stdout": "on_failure", "stderr": "never"}
+        self.spec["execution"]["local_retention"] = policy
+        for strategy in ("grid", "random"):
+            self.search_id = "retention-" + strategy
+            self.spec["strategy"] = strategy
+            result = self.search("execute")
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["parallel_trials"], 1)
+            self.assertEqual(result["confirmed_trials"], 3)
+            for trial in result["trials"]:
+                job = self.invoke("local", "show", "--root", self.root,
+                                  "--id", trial["trial_id"])["data"]
+                attempt = job["attempts"][0]
+                native = attempt["result"]
+                self.assertGreater(native["stdout_bytes"], 0)
+                for stream, selected in policy.items():
+                    receipt = native["local_retention"][stream]
+                    self.assertEqual(receipt["policy"], selected)
+                    self.assertFalse(receipt["retained"])
+                    self.assertEqual(receipt["captured_bytes"], native[stream + "_bytes"])
+                    saved, _ = committed_reference(self.root, attempt["attempt_id"], "local." + stream)
+                    self.assertEqual(saved, b"")
+                frozen, _ = committed_reference(self.root, trial["trial_id"], "local.spec")
+                self.assertEqual(json.loads(frozen)["local_retention"], policy)
+            for action in ("show", "recover", "execute"):
+                self.assertEqual(self.search(action), result)
+        self.assertEqual(len(self.launches()), 6)
+
+    def test_changed_log_retention_receipts_reject_terminal_replay(self) -> None:
+        self.single("ok")
+        self.spec["execution"]["local_retention"] = {"stdout": "on_failure", "stderr": "never"}
+        result = self.search("execute")
+        trial = result["trials"][0]["trial_id"]
+        job = self.invoke("local", "show", "--root", self.root, "--id", trial)["data"]
+        attempt = job["attempts"][0]["attempt_id"]
+        original, _ = committed_reference(self.root, attempt, "local.result")
+        original_digest = digest(original)
+        mutations = [
+            lambda value: value.pop("local_retention"),
+            lambda value: value["local_retention"]["stdout"].update(policy="always"),
+            lambda value: value["local_retention"]["stdout"].update(retained=True),
+            lambda value: value["local_retention"]["stdout"].update(captured_bytes=0),
+            lambda value: value["local_retention"]["stdout"].update(captured_sha256="invalid"),
+            lambda value: value.update(stdout_sha256=value["local_retention"]["stdout"]["captured_sha256"]),
+        ]
+        for mutate in mutations:
+            changed = json.loads(original)
+            mutate(changed)
+            content = json.dumps(changed, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            identity = digest(content)
+            path = self.root / "artifacts" / "objects" / identity[:2] / identity[2:]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+            with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                database.execute("INSERT OR IGNORE INTO jyppx_blobs(digest,algorithm,size_bytes) VALUES(?,1,?)",
+                                 (identity, len(content)))
+                database.execute("UPDATE jyppx_run_artifacts SET digest=? WHERE run_id=? AND reference_id='local.result'",
+                                 (identity, attempt))
+            try:
+                self.invoke("local", "recover", "--root", self.root, "--id", trial, expected=2)
+            finally:
+                with closing(sqlite3.connect(self.root / "runs.sqlite3")) as database, database:
+                    database.execute("UPDATE jyppx_run_artifacts SET digest=? WHERE run_id=? AND reference_id='local.result'",
+                                     (original_digest, attempt))
+        self.assertEqual(self.search("recover"), result)
+        self.assertEqual(len(self.launches()), 1)
+
     def test_declared_resource_pool_keeps_grid_serial_and_releases_each_trial(self) -> None:
         # Logical GPU identity only; this fixture does not execute CUDA work.
         self.spec["execution"]["resources"] = {

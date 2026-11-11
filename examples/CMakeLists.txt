@@ -284,13 +284,18 @@ if(TARGET jyppx::liuding::experiment)
     if(JYPPX_LIUDING_BUILD_TESTS)
         include(GoogleTest)
         set(JYPPX_TESTS_SOURCE_DIR "${PROJECT_SOURCE_DIR}/tests")
+        add_executable(jyppx_local_job_log_fixture
+            "${PROJECT_SOURCE_DIR}/tests/experiment/local_execution/log_fixture.cpp")
+        jyppx_apply_instrumentation(jyppx_local_job_log_fixture)
         jyppx_add_gtest(jyppx_test_local_job_sdk
             LINK_TARGET jyppx::liuding::experiment
             "${PROJECT_SOURCE_DIR}/tests/experiment/local_execution/test_runner.cpp")
         target_link_libraries(jyppx_test_local_job_sdk PRIVATE nlohmann_json::nlohmann_json)
         target_compile_definitions(jyppx_test_local_job_sdk PRIVATE
-            JYPPX_LOCAL_JOB_SDK_FIXTURE="$<TARGET_FILE:jyppx_liuding_durable_local_execution_example>")
-        add_dependencies(jyppx_test_local_job_sdk jyppx_liuding_durable_local_execution_example)
+            JYPPX_LOCAL_JOB_SDK_FIXTURE="$<TARGET_FILE:jyppx_liuding_durable_local_execution_example>"
+            JYPPX_LOCAL_LOG_FIXTURE="$<TARGET_FILE:jyppx_local_job_log_fixture>")
+        add_dependencies(jyppx_test_local_job_sdk
+            jyppx_liuding_durable_local_execution_example jyppx_local_job_log_fixture)
     endif()
     add_executable(jyppx_liuding_local_execution_example
         experiment/local_execution/main.cpp)
